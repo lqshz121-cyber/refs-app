@@ -64,7 +64,10 @@ export function CheckMgmt({ctx}) {
     {no:'CHK-1088', date:'07/29/2026', payee:'WanBridge Property Mgmt', amount:2400, status:'OUTSTANDING', bank:'BA-003'},
     {no:'CHK-1089', date:'07/30/2026', payee:'Apex Title LLC', amount:1500, status:'PENDING', bank:'BA-001'},
   ]);
-  const voidChk = (no) => { setChecks(cs=>cs.map(c=>c.no===no?{...c, status:'VOID'}:c)); ctx.toast(`支票 ${no} 已作废,自动生成冲销分录`,'warn'); };
+  const voidChk = (no) => { const c=checks.find(x=>x.no===no);
+    ctx.actions.newJEFromRule({entity_id:2, je_type:'REVERSAL', source_system:'BANK', posting_status:'POSTED', description:`VOID ${no} · ${c.payee}`,
+      lines:[{account_code:'1000',debit_amount:c.amount,credit_amount:0},{account_code:'2000',debit_amount:0,credit_amount:c.amount}]});
+    setChecks(cs=>cs.map(x=>x.no===no?{...x, status:'VOID'}:x)); ctx.toast(`支票 ${no} 已作废,冲销分录已过账 (Dr Cash / Cr AP)`,'warn'); };
   const printChk = (no) => ctx.toast(`支票 ${no} 已发送打印队列`);
   return <div>
     <h2 className="page-h">付款确认 Payment Confirmation</h2>

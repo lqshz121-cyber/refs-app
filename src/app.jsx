@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toast, Btn } from './ui.jsx';
-import { ENTITIES, USERS, PERIODS, COA, VENDORS } from './data.js';
+import { ENTITIES, USERS, PERIODS, COA, VENDORS, CUSTOMERS } from './data.js';
 import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, BANK_TXNS, nextId, bumpId } from './seed.js';
 import { jeTotals } from './engine.js';
 import { Dashboard, JEWorkspace, LoanWorkspace, PMPickup, ClosingWorkspace, ExceptionCenter, CloseMgmt } from './modules-core.jsx';
@@ -10,6 +10,10 @@ import { APWorkspace } from './module-ap.jsx';
 import { BankRec2 } from './module-bankrec.jsx';
 import { COAWorkspace } from './module-coa.jsx';
 import { AutoBankRec, CheckMgmt } from './module-wbs.jsx';
+import { BankTransactions } from './module-banktx.jsx';
+import { AccountRegister } from './module-register.jsx';
+import { ARWorkspace } from './module-ar.jsx';
+import { repo } from './repo.js';
 
 const ROLE_PERMS = {
   CONTROLLER: '*',
@@ -23,17 +27,22 @@ const ROLE_PERMS = {
   REVIEWER: ['GL.JE.REVIEW','GL.JE.APPROVE','AP.INVOICE.APPROVE'],
   AUDITOR: [], READ_ONLY: [], SYS_ADMIN: [],
 };
-// Nav: task-oriented groups, icons, admin sections hidden for non-admin roles
 const NAV = [
-  {group:'首页', items:[['dashboard','⌂','工作台 Home']]},
-  {group:'交易 Transactions', items:[['ap','⬒','应付 Bills & Payments'],['ar','⬓','应收 Receivables'],['bankrec','⇄','银行对账 Bank Rec'],['autobankrec','⟳','自动对账 Auto Rec'],['checks','✓','付款确认 Checks'],['je','✎','分录 Journal Entries']]},
-  {group:'项目 Projects', items:[['loan','🏗','建设贷款 Loans'],['cost','Σ','项目成本 Project Cost'],['pmpickup','⌂→','物业运营 PM Pickup'],['closing','⚖','产权交割 Closings']]},
-  {group:'会计 Accounting', items:[['gl','☰','总账与报表 GL'],['coa','#','科目表 COA'],['assets','▣','资产 Assets'],['intercompany','⇌','往来 Intercompany'],['close','☑','月结 Close'],['reports','▤','报表中心 Reports']]},
-  {group:'控制 Controls', items:[['exceptions','⚠','异常中心 Exceptions']]},
-  {group:'系统 System', adminOnly:true, items:[['integration','⇅','集成 Integration'],['masterdata','◈','主数据 Master Data'],['mapping','⇢','映射 Mapping'],['rules','ƒ','规则 Rules'],['loanreg','≡','贷款台账 Register'],['cash','◧','资金账户 Cash'],['admin','⚙','系统管理 Admin']]},
+  {group:'Home', icon:'⌂', items:[['dashboard','Dashboard'],['approvals','Approvals']]},
+  {group:'Transactions', icon:'⇄', items:[['banktx','Bank Transactions'],['je','Journal Entries'],['checks','Checks & Payments'],['autobankrec','Auto Reconciliation']]},
+  {group:'Sales & Receivables', icon:'⬓', items:[['ar','Customers & Invoices']]},
+  {group:'Expenses & Payables', icon:'⬒', items:[['ap','Vendors & Bills']]},
+  {group:'Projects & Properties', icon:'▦', items:[['masterdata','Projects & Properties'],['cost','Project Cost']]},
+  {group:'Construction Finance', icon:'🏗', items:[['loan','Construction Loans'],['loanreg','Loan Register']]},
+  {group:'Property Operations', icon:'⌂→', items:[['pmpickup','PM Pickup'],['mapping','Charge Code Mapping']]},
+  {group:'Closings', icon:'⚖', items:[['closing','Closing Workspace']]},
+  {group:'Accounting', icon:'☰', items:[['coa','Chart of Accounts'],['register','Account Register'],['gl','General Ledger'],['bankrec','Reconciliation'],['assets','Fixed Assets'],['intercompany','Intercompany'],['close','Period Close']]},
+  {group:'Reports', icon:'▤', items:[['reports','Reports Center']]},
+  {group:'Controls', icon:'⚠', items:[['exceptions','Exception Center'],['audit','Audit Log']]},
+  {group:'System', icon:'⚙', adminOnly:true, items:[['integration','Integration Hub'],['rules','Accounting Rules'],['cash','Cash Accounts'],['admin','Users & Settings']]},
 ];
-const COMP = { dashboard:Dashboard, je:JEWorkspace, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
-  pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARModule,
+const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
+  pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARWorkspace,
   cash:CashModule, bankrec:BankRec2, autobankrec:AutoBankRec, checks:CheckMgmt, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
   mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, reports:Reports, admin:AdminModule };
 const ADMIN_ROLES = ['CONTROLLER','SYS_ADMIN','AUDITOR'];
@@ -90,11 +99,16 @@ function App() {
   const [ap, setAp] = useState(()=>load('ap',{bills:SEED_BILLS, dupBlocked:0}));
   const [bank, setBank] = useState(()=>load('bank',SEED_BANK));
   const [coa, setCoa] = useState(()=>load('coa',COA.map(a=>({...a}))));
+  const [ar, setAr] = useState(()=>load('ar',{invoices:[
+    {inv_id:8001, inv_no:'INV-2026-8001', customer_id:1, customer_name:'Tenant - Unit A-203', inv_date:'2026-07-01', due_date:'2026-07-15', amount:2000, status:'OPEN', je_number:'20260701000009'},
+    {inv_id:8002, inv_no:'INV-2026-8002', customer_id:2, customer_name:'WanBridge OpCo (Owner)', inv_date:'2026-07-10', due_date:'2026-08-10', amount:12500, status:'PAID', je_number:'20260710000012', pay_je_number:'20260728000031'},
+  ]}));
   const [entity, setEntity] = useState(0);
   const [dark, setDark] = useState(false);
   const [toast, setToastS] = useState(null);
   const [palette, setPalette] = useState(false);
   const [newMenu, setNewMenu] = useState(false);
+  const [openGroups, setOpenGroups] = useState({Home:true, Transactions:true});
   const [q, setQ] = useState('');
 
   const user = USERS.find(u=>u.user_id===userId);
@@ -106,7 +120,7 @@ function App() {
   const persist=(k,v)=>{try{localStorage.setItem('refs_'+k,JSON.stringify(v))}catch(e){}};
   useEffect(()=>{persist('jes',jes)},[jes]); useEffect(()=>{persist('exc',exceptions)},[exceptions]);
   useEffect(()=>{persist('close',closeTasks)},[closeTasks]); useEffect(()=>{persist('ap',ap)},[ap]);
-  useEffect(()=>{persist('bank',bank)},[bank]); useEffect(()=>{persist('coa',coa)},[coa]);
+  useEffect(()=>{persist('bank',bank)},[bank]); useEffect(()=>{persist('coa',coa)},[coa]); useEffect(()=>{persist('ar',ar)},[ar]);
   useEffect(()=>{ if(userId) persist('user',userId); },[userId]);
   useEffect(()=>{ bumpId(Math.max(9000,...jes.map(j=>+j.je_id||0),...ap.bills.map(b=>+b.bill_id||0))); },[]);
   useEffect(()=>{
@@ -114,6 +128,7 @@ function App() {
     window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
   },[]);
 
+  const audit = (action, objectType, objectRef, detail) => repo.audit(userId, action, objectType, objectRef, detail);
   const mkJE = (spec) => { const id = nextId(); return {je_id:id, je_number:'20260731'+String(id).padStart(6,'0'), period_code:'2026-07', posting_status:'DRAFT', je_date:'2026-07-31', created_by:userId, history:[{a:'CREATE',by:userId,at:'2026-07-31'}], ...spec}; };
   const actions = {
     newJE: () => { const je = mkJE({entity_id:entity||2, je_type:'MANUAL', description:'', source_system:'MAN', has_attachment:false,
@@ -121,12 +136,12 @@ function App() {
     newJEFromRule: (spec) => { const je = mkJE({...spec}); setJes(js=>[je,...js]); return je.je_id; },
     copyJE: (id) => { const src = jes.find(j=>j.je_id===id); const je = mkJE({...structuredClone(src), posting_status:'DRAFT', description:'COPY: '+src.description}); je.history=[{a:'COPY of '+src.je_number,by:userId,at:'2026-07-31'}]; setJes(js=>[je,...js]); return je.je_id; },
     updateJE: (id, producer) => setJes(js=>js.map(j=>{ if(j.je_id!==id) return j; const d=structuredClone(j); producer(d); return d; })),
-    advanceJE: (id, next, label) => setJes(js=>js.map(j=>{
+    advanceJE: (id, next, label) => { audit(label||next,'JE','#'+id,''); return setJes(js=>js.map(j=>{
       if(j.je_id!==id) return j;
       if((next==='APPROVED'||next==='POSTED') && j.created_by===userId && user.role_code!=='CONTROLLER'){
         showToast('SoD 拦截 [4009]：创建人不可审批/过账本分录','bad'); return j; }
       return {...j, posting_status:next, history:[...(j.history||[]),{a:label||next,by:userId,at:'2026-07-31'}]};
-    })),
+    })); },
     reverseJE: (id) => setJes(js=>{ const src = js.find(j=>j.je_id===id); const nid=nextId();
       const rev = {...structuredClone(src), je_id:nid, je_number:'JE-REV-'+nid, posting_status:'POSTED', je_type:'REVERSAL',
         description:'红字反冲: '+src.description, history:[{a:'REVERSAL of '+src.je_number,by:userId,at:'2026-07-31'}],
@@ -153,6 +168,20 @@ function App() {
                  {account_code:'1000', debit_amount:0, credit_amount:b.amount}]});
         setJes(js=>[je,...js]);
         setAp(s=>({...s, bills:s.bills.map(x=>x.bill_id===id?{...x, status:'PAID', pay_je_number:je.je_number}:x)})); }); },
+    addInvoice: (f) => { const id=nextId(); const c=CUSTOMERS.find(x=>x.customer_id===f.customer_id);
+      const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'AR', posting_status:'POSTED', description:`Invoice INV-2026-${id} · ${c.customer_name}`,
+        lines:[{account_code:'1200',debit_amount:f.amount,credit_amount:0},{account_code:'4000',debit_amount:0,credit_amount:f.amount}]});
+      setJes(js=>[je,...js]); audit('CREATE','INVOICE','INV-2026-'+id, '$'+f.amount);
+      setAr(s=>({...s, invoices:[{inv_id:id, inv_no:'INV-2026-'+id, customer_name:c.customer_name, status:'OPEN', je_number:je.je_number, ...f}, ...s.invoices]})); },
+    receivePayment: (id) => { const inv=ar.invoices.find(i=>i.inv_id===id);
+      const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'AR', posting_status:'POSTED', description:`Payment received ${inv.inv_no}`,
+        lines:[{account_code:'1000',debit_amount:inv.amount,credit_amount:0},{account_code:'1200',debit_amount:0,credit_amount:inv.amount}]});
+      setJes(js=>[je,...js]); audit('PAYMENT','INVOICE',inv.inv_no,'$'+inv.amount);
+      setAr(s=>({...s, invoices:s.invoices.map(i=>i.inv_id===id?{...i,status:'PAID',pay_je_number:je.je_number}:i)})); },
+    bankExclude: (acctCode, txnId) => { audit('EXCLUDE','BANK_TXN','#'+txnId,''); setBank(s=>{const a=structuredClone(s); const t=a.accounts[acctCode].txns.find(x=>x.bank_txn_id===txnId); t.ui_status='Excluded'; return a;}); },
+    bankUndo: (acctCode, txnId) => setBank(s=>{const a=structuredClone(s); const acc=a.accounts[acctCode]; const t=acc.txns.find(x=>x.bank_txn_id===txnId);
+      if(t.match_status==='MATCHED'){ const adj=t.direction==='CREDIT'?t.amount:-t.amount; acc.recorded_adj=(acc.recorded_adj||0)-adj; }
+      t.ui_status=null; t.match_status='UNMATCHED'; t.matched_je=null; return a;}),
     // ---- Bank ----
     bankRecord: (acctCode, txnId) => setBank(s=>{ const a=structuredClone(s); const acc=a.accounts[acctCode];
       const t=acc.txns.find(x=>x.bank_txn_id===txnId); t.match_status='MATCHED';
@@ -178,7 +207,7 @@ function App() {
 
   const isAdmin = ADMIN_ROLES.includes(user.role_code);
   const nav = NAV.filter(g=>!g.adminOnly || isAdmin);
-  const flat = nav.flatMap(g=>g.items);
+  const flat = nav.flatMap(g=>g.items.map(([k,l])=>[k,'·',l]));
   const ctx = {jes, exceptions, closeTasks, ap, bank, coa, user, entity, period, can, actions, toast:showToast, goto:setRoute};
   const Comp = COMP[route] || Dashboard;
   const paletteItems = flat.filter(([k,ic,l])=>l.toLowerCase().includes(q.toLowerCase())||k.includes(q.toLowerCase()));
@@ -187,10 +216,12 @@ function App() {
     <aside className="sidebar">
       <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
       <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New 新建</button>
-      <nav>{nav.map(g=><div key={g.group} className="nav-group">
-        <div className="nav-group-t">{g.group}</div>
-        {g.items.map(([k,ic,l])=><button key={k} className={`nav-item ${route===k?'nav-on':''}`} onClick={()=>setRoute(k)}><span className="nav-ic">{ic}</span>{l}</button>)}
-      </div>)}</nav>
+      <nav>{nav.map(g=>{ const opened = openGroups[g.group] ?? g.items.some(([k])=>route===k);
+        return <div key={g.group} className="nav-group">
+        <button className="nav-group-h" onClick={()=>setOpenGroups(o=>({...o,[g.group]:!opened}))}>
+          <span className="nav-ic">{g.icon}</span>{g.group}<span className="nav-caret">{opened?'▾':'▸'}</span></button>
+        {opened && g.items.map(([k,l])=><button key={k} className={`nav-item nav-sub ${route===k?'nav-on':''}`} onClick={()=>setRoute(k)}>{l}</button>)}
+      </div>;})}</nav>
     </aside>
     <div className="main">
       <header className="topbar">
@@ -240,6 +271,34 @@ function App() {
       </div>
     </div>}
     {toast && <Toast msg={toast.msg} tone={toast.tone} />}
+  </div>;
+}
+
+
+function AuditLog({ctx}) {
+  const log = repo.auditLog();
+  const T = ctx ? null : null;
+  return <div className="full-bleed"><h2 className="page-h">Audit Log</h2>
+    {log.length===0 ? <div className="empty">尚无审计记录——所有关键动作(审批/过账/付款/排除)都会记录在这里</div> :
+    <table className="tbl"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Object</th><th>Ref</th><th>Detail</th></tr></thead>
+    <tbody>{log.map((e,i)=><tr key={i}><td>{e.ts}</td><td>{e.user}</td><td><span className="badge badge-muted">{e.action}</span></td><td>{e.objectType}</td><td>{e.objectRef}</td><td>{e.detail}</td></tr>)}</tbody></table>}
+  </div>;
+}
+function Approvals({ctx}) {
+  const {jes, ap, actions, can, toast, goto} = ctx;
+  const pj = jes.filter(j=>['PENDING_REVIEW','PENDING_APPROVAL'].includes(j.posting_status));
+  const pb = ap.bills.filter(b=>b.status==='PENDING_APPROVAL');
+  return <div><h2 className="page-h">Approvals</h2>
+    <h3 style={{fontSize:17}}>Journal Entries ({pj.length})</h3>
+    {pj.map(j=><div key={j.je_id} className="appr-row"><span>{j.je_number} · {j.description}</span>
+      <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('je')}>Open</button>
+      {can('GL.JE.APPROVE') && <button className="btn btn-primary btn-sm" onClick={()=>actions.advanceJE(j.je_id, j.posting_status==='PENDING_REVIEW'?'PENDING_APPROVAL':'APPROVED','APPROVE')}>Approve</button>}</span></div>)}
+    {pj.length===0 && <div className="empty">没有待审批分录</div>}
+    <h3 style={{fontSize:17, marginTop:22}}>Bills ({pb.length})</h3>
+    {pb.map(b=><div key={b.bill_id} className="appr-row"><span>{b.bill_no} · {b.vendor_name} · ${b.amount.toLocaleString()}</span>
+      <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('ap')}>Open</button>
+      {can('AP.INVOICE.APPROVE') && <button className="btn btn-primary btn-sm" onClick={()=>{actions.approveBill(b.bill_id); toast('Bill approved');}}>Approve</button>}</span></div>)}
+    {pb.length===0 && <div className="empty">没有待审批 Bill</div>}
   </div>;
 }
 

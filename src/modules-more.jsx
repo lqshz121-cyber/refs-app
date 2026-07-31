@@ -141,14 +141,21 @@ export function Assets() {
     cols={[{h:'资产类',k:'c'},{h:'科目',render:r=>r.code+' '+acct(r.code).account_name},{h:'成本',num:true,render:r=><Money v={r.v}/>}]} rows={rows} />;
 }
 export function Intercompany({ctx}) {
+  const [ic, setIc] = useState(IC_TXNS.map(t=>({...t})));
+  const mirror = (r) => { ctx.actions.newJEFromRule({entity_id:3, je_type:'AUTO', source_system:'MAN', posting_status:'POSTED',
+      description:`IC mirror ${r.ic_pair_id}: Due to ${r.initiator_entity}`,
+      lines:[{account_code:'1600',debit_amount:r.amount,credit_amount:0},{account_code:'2600',debit_amount:0,credit_amount:r.amount}]});
+    setIc(xs=>xs.map(x=>x.ic_txn_id===r.ic_txn_id?{...x, match_status:'MATCHED'}:x));
+    ctx.toast(`已生成对手方镜像分录并 Match: ${r.ic_pair_id}`); };
   return <div><h2 className="page-h">Intercompany</h2>
-    <p className="muted sm">Due to/from、镜像自动生成、Matching；不平进入异常（见 ICP-0007）。</p>
+    <p className="muted sm">Due to/from、镜像自动生成、Matching；不平进入异常。</p>
     <Table cols={[
       {h:'IC Pair',k:'ic_pair_id'},{h:'类型',render:r=><Badge tone="muted">{r.ic_type}</Badge>},
       {h:'发起方',k:'initiator_entity'},{h:'对手方',k:'counterparty_entity'},
       {h:'金额',num:true,render:r=><Money v={r.amount}/>},
       {h:'匹配',render:r=><Badge tone={r.match_status==='MATCHED'?'ok':'bad'}>{r.match_status}</Badge>},
-    ]} rows={IC_TXNS} rowKey="ic_txn_id" /></div>;
+      {h:'操作',render:r=> r.match_status!=='MATCHED' ? <Btn size="sm" variant="primary" onClick={()=>mirror(r)}>生成镜像分录</Btn> : <span className="muted sm">—</span>},
+    ]} rows={ic} rowKey="ic_txn_id" /></div>;
 }
 export function IntegrationHub({ctx}) {
   const [batches, setBatches] = useState([
@@ -199,7 +206,7 @@ export function RuleCenter() {
 }
 export function AdminModule({ctx}) {
   return <div><h2 className="page-h">System Admin</h2>
-    <p className="muted sm">RBAC、审批配置、期间管理。当前角色可在顶栏切换以体验权限差异。</p>
+    <p className="muted sm">RBAC、审批配置、期间管理。角色与权限来自登录身份,页面内不可切换;无权限模块直接隐藏。</p>
     <SectionTitle>职责分离 (SoD) 硬规则</SectionTitle>
     <ul className="sod-list">
       <li>建 Vendor 且付款 · 建 JE 且最终审批（Maker≠Approver）</li>

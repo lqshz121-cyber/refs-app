@@ -59,7 +59,23 @@ export function Dashboard({ctx}) {
         <div className="qbo-sub">{openExc.filter(e=>e.severity==='HIGH').length} 高 · {openExc.filter(e=>e.severity==='MEDIUM').length} 中 · 最长 aging {Math.max(0,...openExc.map(e=>e.aging_days))} 天</div>
       </div>
     </div>
-    <SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>goto('je')}>查看全部</Btn>}>待审批队列 Approvals ({pendingApprovals.length})</SectionTitle>
+    <SectionTitle>Things to do · 待处理</SectionTitle>
+    <div className="todo-grid" style={{marginBottom:20}}>
+      {[[bankUnmatched,'Bank transactions for review','banktx'],
+        [ctx.ap.bills.filter(b=>b.status==='PENDING_APPROVAL').length,'Bills pending approval','ap'],
+        [pendingApprovals.length,'JEs pending review/approval','approvals'],
+        [openExc.filter(e=>e.exception_type==='GL_MAPPING_MISSING').length,'Missing mappings','mapping'],
+        [openExc.length,'Open exceptions','exceptions'],
+        [closeTasks.length-doneTasks,'Close tasks remaining','close']].map(([n,l,r])=>
+        <div key={l} className="todo-item" onClick={()=>goto(r)} style={{cursor:'pointer'}}>
+          <span className={`todo-n ${n>0?'warn':'ok'}`}>{n}</span><span className="todo-l">{l}</span></div>)}
+    </div>
+    <SectionTitle>Shortcuts · 快捷操作</SectionTitle>
+    <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:22}}>
+      {[['+ Create Bill','ap'],['+ Journal Entry','je'],['Match Bank Txn','banktx'],['Run PM Pickup','pmpickup'],['Import Loan Txns','loan'],['Start Reconciliation','bankrec'],['+ Invoice','ar'],['Process Closing','closing']].map(([l,r])=>
+        <Btn key={l} onClick={()=>goto(r)}>{l}</Btn>)}
+    </div>
+    <SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>goto('approvals')}>查看全部</Btn>}>待审批队列 Approvals ({pendingApprovals.length})</SectionTitle>
     <Table rowKey="je_id" onRow={r=>goto('je')} cols={[
       {h:'JE 编号',k:'je_number'},{h:'描述',k:'description'},
       {h:'来源',render:r=><Badge tone="muted">{r.source_system}</Badge>},
@@ -93,7 +109,7 @@ export function JEWorkspace({ctx}) {
       </div>
       <div className="mo-chips">{MONTHS.map(m=><button key={m} className={`mo-chip ${m===7?'mo-on':''}`} title={m===7?'当前期间 2026-07':'演示固定 2026-07'}>{m}{[6,7].includes(m)&&<span className="mo-dot"/>}</button>)}</div>
       <div className="chips">{statuses.map(s=><button key={s} className={`chip ${filter===s?'chip-on':''}`} onClick={()=>setFilter(s)}>{s}</button>)}</div>
-      <div className="je-filters" style={{marginTop:2}}>{['ALL','MAN','WBS_CL','PM','AP','BANK','CLOSING'].map(s=><button key={s} className={`chip ${srcF===s?'chip-on':''}`} onClick={()=>setSrcF(s)}>{s}</button>)}
+      <div className="chips" style={{marginTop:2}}>{['ALL','MAN','WBS_CL','PM','AP','BANK','CLOSING'].map(s=><button key={s} className={`chip ${srcF===s?'chip-on':''}`} onClick={()=>setSrcF(s)}>{s}</button>)}
         {can('GL.JE.POST') && <button className="chip" onClick={postAll} title="过账所有待审批分录">⚡ Post All</button>}</div>
       <div className="je-list">
         {list.map(j=><div key={j.je_id} className={`je-item ${sel===j.je_id?'je-item-on':''}`} onClick={()=>setSel(j.je_id)}>
@@ -238,7 +254,9 @@ export function PMPickup({ctx}) {
   const unmapped = rows.filter(r=>r.rule.unmapped);
   const rev = sum(mapped.filter(r=>r.rule.rule_code==='R-PM-11'), r=>r.amount);
   const exp = sum(mapped.filter(r=>r.rule.rule_code==='R-PM-18'), r=>r.amount);
+  const already = ctx.jes.some(j=>j.source_system==='PM' && (j.description||'').includes('PM Pickup') && j.rule_code);
   const generate = () => {
+    if (already){ toast('该批次已生成过 Owner GL Draft,禁止重复 Pickup [4004]','bad'); return; }
     mapped.forEach(r=> actions.newJEFromRule({entity_id:4, source_system:'PM', description:`PM Pickup ${r.charge_code} · ${r.property_code}`, rule_code:r.rule.rule_code, je_type:'AUTO', lines:r.rule.lines}));
     unmapped.forEach(r=> actions.ensureException({exception_type:'GL_MAPPING_MISSING', severity:'HIGH', object_type:'PM_PICKUP', object_ref:`${r.charge_code} / ${r.property_code}`, entity_id:4, owner:'PROPERTY_ACCT', root_cause:`Charge code ${r.charge_code} 无当前映射`}));
     toast(`已生成 ${mapped.length} 条 Owner GL Draft；${unmapped.length} 条未映射转异常`, unmapped.length?'warn':'ok');

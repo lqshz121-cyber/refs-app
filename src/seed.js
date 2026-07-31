@@ -6,6 +6,10 @@ export const bumpId = (n)=>{ if(n>_id) _id=n; };
 const L = (account_code, dr, cr, dim={}) => ({account_code, debit_amount:dr||0, credit_amount:cr||0, ...dim});
 
 export const JOURNAL_ENTRIES = [
+  { je_id: 1000, je_number:'20260701000001', entity_id:2, period_code:'2026-07', je_date:'2026-07-01',
+    je_type:'AUTO', source_system:'BANK', description:'Capital contribution - Fund II equity funding', posting_status:'POSTED', created_by:'system',
+    history:[{a:'AUTO POST',by:'system',at:'2026-07-01'}],
+    lines:[{account_code:'1000',debit_amount:800000,credit_amount:0},{account_code:'3000',debit_amount:0,credit_amount:800000}] },
   {je_id:1001, je_number:'JE-2026-07-1001', entity_id:2, period_code:'2026-07', je_type:'AUTO', je_date:'2026-07-05',
    description:'Construction Loan Draw #7 - Cedar Ridge', source_system:'WBS_CL', posting_status:'POSTED',
    rule_code:'R-LOAN-01', lines:[L('1400',500000,0,{project_id:1,loan_id:1}), L('2500',0,500000,{loan_id:1})]},
