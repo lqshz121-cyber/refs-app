@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Field, SectionTitle, ApprovalTimeline } from './ui.jsx';
 import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS, PROJECTS, VENDORS } from './data.js';
-import { PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS } from './seed.js';
+import { PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS, UNIT_OWNERS } from './seed.js';
 import { acct, money, sum, jeTotals, isBalanced, validateJE, JE_FLOW, loanRule, pmRule, trialBalance, statements } from './engine.js';
 
 // ---------------- Dashboard ----------------
@@ -151,59 +151,69 @@ function JEEditor({je, ctx}) {
   };
   const reverse = () => { actions.reverseJE(je.je_id); toast('已生成红字反冲分录'); };
 
-  return <div>
-    <div className="je-head">
-      <div>
-        <div className="je-num">{je.je_number}</div>
-        {editable ? <input className="desc-in" value={je.description} onChange={e=>actions.updateJE(je.je_id,d=>{d.description=e.target.value;})} placeholder="分录描述"/> : <div className="muted">{je.description}</div>}
-      </div>
+  const diff = +(totals.debit-totals.credit).toFixed(2);
+  return <div className="qbe">
+    <div className="qbe-head">
+      <div><div className="qbe-title">Journal Entry <span className="muted">#{je.je_number}</span></div>
+        <div className="qbe-meta">
+          {editable ? <label>Journal date <input type="date" className="date-in" value={je.je_date} onChange={e=>actions.updateJE(je.je_id,d=>{d.je_date=e.target.value;})}/></label> : <span>Date {je.je_date}</span>}
+          <span>Entity <b>{(ENTITIES.find(en=>en.entity_id===je.entity_id)||{}).entity_name||'—'}</b></span>
+          <span>Currency <b>USD</b></span><span>Source <Badge tone="muted">{je.source_system}</Badge></span>
+          {je.rule_code && <span>Rule {je.rule_code}</span>}
+        </div></div>
       <Badge>{je.posting_status}</Badge>
     </div>
-    <div className="je-meta">
-      {editable ? <span>日期 <input type="date" className="date-in" value={je.je_date} onChange={e=>actions.updateJE(je.je_id,d=>{d.je_date=e.target.value;})}/></span> : <span>日期 {je.je_date}</span>}<span>类型 {je.je_type}</span><span>来源 {je.source_system}</span>
-      {je.rule_code && <span>规则 {je.rule_code}</span>}
-      {je.je_type==='MANUAL' && (editable ? <button className="link-btn" onClick={()=>actions.updateJE(je.je_id,d=>{d.has_attachment=true; d.attachment_name='support-doc.pdf';})}>{je.has_attachment?('附件 ✓ '+(je.attachment_name||'')):'＋ 添加附件'}</button> : <span>附件 {je.has_attachment?'✓':'✗'}</span>)}
-    </div>
-    <table className="tbl je-lines">
-      <thead><tr><th style={{width:'40%'}}>科目</th><th className="ta-r">借方</th><th className="ta-r">贷方</th><th>维度</th>{editable&&<th></th>}</tr></thead>
+    <table className="tbl je-lines qbe-grid">
+      <thead><tr><th style={{width:34}}>#</th><th style={{width:'22%'}}>ACCOUNT</th><th className="ta-r" style={{width:110}}>DEBITS</th><th className="ta-r" style={{width:110}}>CREDITS</th><th>DESCRIPTION</th><th style={{width:120}}>NAME</th><th style={{width:170}}>PROPERTY / PROJECT</th>{editable&&<th style={{width:30}}></th>}</tr></thead>
       <tbody>
         {je.lines.map((l,i)=><tr key={i}>
+          <td className="muted">{i+1}</td>
           <td>{editable ?
             <select value={l.account_code} onChange={e=>setLine(i,{account_code:e.target.value})}>
-              <option value="">— 选择科目 —</option>
+              <option value="">Select account</option>
               {COA.map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} {a.account_name}</option>)}
             </select>
             : <span>{l.account_code} {acct(l.account_code).account_name}</span>}
           </td>
           <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.debit_amount||''} onChange={e=>setLine(i,{debit_amount:+e.target.value||0, credit_amount:0})}/> : <Money v={l.debit_amount||0}/>}</td>
           <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.credit_amount||''} onChange={e=>setLine(i,{credit_amount:+e.target.value||0, debit_amount:0})}/> : <Money v={l.credit_amount||0}/>}</td>
-          <td className="muted sm">{editable ?
+          <td>{editable ? <input className="desc-line" value={l.description||''} placeholder="Line description" onChange={e=>setLine(i,{description:e.target.value})}/> : <span className="muted sm">{l.description||''}</span>}</td>
+          <td>{editable ? <select value={l.vendor_id||''} onChange={e=>setLine(i,{vendor_id:e.target.value?+e.target.value:null})}><option value="">Name—</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name.slice(0,16)}</option>)}</select> : <span className="muted sm">{l.vendor_id?'V'+l.vendor_id:''}</span>}</td>
+          <td>{editable ?
             <div className="dim-picks">
-              <select value={l.property_id||''} onChange={e=>setLine(i,{property_id:e.target.value?+e.target.value:null})}><option value="">物业—</option>{PROPERTIES.map(p=><option key={p.property_id} value={p.property_id}>{p.property_code}</option>)}</select>
-              <select value={l.project_id||''} onChange={e=>setLine(i,{project_id:e.target.value?+e.target.value:null})}><option value="">项目—</option>{PROJECTS.map(p=><option key={p.project_id} value={p.project_id}>{p.project_code}</option>)}</select>
-              <select value={l.vendor_id||''} onChange={e=>setLine(i,{vendor_id:e.target.value?+e.target.value:null})}><option value="">供应商—</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_code}</option>)}</select>
+              <select value={l.property_id||''} onChange={e=>setLine(i,{property_id:e.target.value?+e.target.value:null})}><option value="">Prop—</option>{PROPERTIES.map(p=><option key={p.property_id} value={p.property_id}>{p.property_code}</option>)}</select>
+              <select value={l.project_id||''} onChange={e=>setLine(i,{project_id:e.target.value?+e.target.value:null})}><option value="">Proj—</option>{PROJECTS.map(p=><option key={p.project_id} value={p.project_id}>{p.project_code}</option>)}</select>
             </div>
-            : [(l.project_id&&('P'+l.project_id)), (l.property_id&&('Prop'+l.property_id)), (l.loan_id&&('L'+l.loan_id)), (l.vendor_id&&('V'+l.vendor_id))].filter(Boolean).join(' ')}</td>
+            : <span className="muted sm">{[(l.property_id&&('Prop'+l.property_id)),(l.project_id&&('P'+l.project_id)),(l.loan_id&&('L'+l.loan_id))].filter(Boolean).join(' ')}</span>}</td>
           {editable && <td><button className="x-sm" onClick={()=>rmLine(i)}>×</button></td>}
         </tr>)}
       </tbody>
-      <tfoot><tr>
-        <td>{editable && <Btn size="sm" onClick={addLine}>+ 加行</Btn>}</td>
-        <td className="ta-r"><Money v={totals.debit} bold/></td>
-        <td className="ta-r"><Money v={totals.credit} bold/></td>
-        <td colSpan={editable?2:1}><span className={`bal ${bal?'bal-ok':'bal-bad'}`}>{bal?'✓ 借贷平衡':'✗ 借贷不平'}</span></td>
-      </tr></tfoot>
     </table>
-    {errs.length>0 && <div className="err-box">{errs.map((e,i)=><div key={i}>• [{e.code}] {e.msg}</div>)}</div>}
-    <div className="je-actions">
-      {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'无此权限':''}>{flow.action}</Btn>}
-      {flow.reject && can('GL.JE.REVIEW') && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id, flow.reject, '退回'); toast('已退回 DRAFT','warn');}}>退回</Btn>}
-      {je.posting_status==='POSTED' && ctx.user.role_code==='CONTROLLER' && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id,'APPROVED','CANCEL POST'); toast('已 Cancel Post,退回 APPROVED','warn');}}>Cancel Post</Btn>}
-      <Btn variant="ghost" onClick={()=>{const nid=actions.copyJE(je.je_id); toast('已复制为新草稿');}}>复制 JE</Btn>
-      {je.posting_status==='POSTED' && can('GL.JE.REVERSE') && <Btn variant="danger" onClick={reverse}>红字反冲</Btn>}
-      {readOnly && <span className="muted">已过账分录不可修改，如需更正请使用红字反冲</span>}
+    <div className="qbe-below">
+      <div>{editable && <><Btn size="sm" onClick={addLine}>Add lines</Btn> <Btn size="sm" variant="ghost" onClick={()=>actions.updateJE(je.je_id,d=>{d.lines=[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}];})}>Clear all lines</Btn></>}</div>
+      <div className="qbe-totals">
+        <span>Total debits <Money v={totals.debit} bold/></span>
+        <span>Total credits <Money v={totals.credit} bold/></span>
+        <span className={diff===0&&totals.debit>0?'bal-ok':'bal-bad'}>Difference {diff===0&&totals.debit>0?'✓ $0.00':'$'+Math.abs(diff).toLocaleString()}</span>
+      </div>
     </div>
-    {(je.history&&je.history.length>0) && <><SectionTitle>处理历史 Audit Trail</SectionTitle>
+    <div className="qbe-memo">
+      <label>Memo</label>
+      {editable ? <input className="desc-in" style={{width:'100%'}} value={je.description} onChange={e=>actions.updateJE(je.je_id,d=>{d.description=e.target.value;})} placeholder="What is this journal entry for?"/> : <div className="muted">{je.description}</div>}
+      {je.je_type==='MANUAL' && (editable ? <button className="link-btn" onClick={()=>actions.updateJE(je.je_id,d=>{d.has_attachment=true; d.attachment_name='support-doc.pdf';})}>{je.has_attachment?('📎 '+(je.attachment_name||'attached')):'📎 Add attachment (过账前必填)'}</button> : <span className="muted sm">附件 {je.has_attachment?'✓':'✗'}</span>)}
+    </div>
+    {errs.length>0 && <div className="err-box">{errs.map((e,i)=><div key={i}>• [{e.code}] {e.msg}</div>)}</div>}
+    <div className="qbe-footbar">
+      <div><Btn variant="ghost" onClick={()=>{const nid=actions.copyJE(je.je_id); toast('已复制为新草稿');}}>Copy</Btn>
+        <Btn variant="ghost" onClick={()=>toast('Recurring 模板已保存(每月1日自动生成草稿)')}>Make recurring</Btn></div>
+      <div className="row-acts">
+        {flow.reject && can('GL.JE.REVIEW') && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id, flow.reject, '退回'); toast('已退回 DRAFT','warn');}}>Reject</Btn>}
+        {je.posting_status==='POSTED' && ctx.user.role_code==='CONTROLLER' && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id,'APPROVED','CANCEL POST'); toast('已 Cancel Post','warn');}}>Cancel Post</Btn>}
+        {je.posting_status==='POSTED' && can('GL.JE.REVERSE') && <Btn variant="danger" onClick={reverse}>Reverse</Btn>}
+        {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'无此权限':''}>{flow.action==='提交'?'Save and submit':flow.action}</Btn>}
+      </div>
+    </div>
+    {(je.history&&je.history.length>0) && <><SectionTitle>Audit Trail</SectionTitle>
       <ApprovalTimeline steps={je.history.map(h=>({label:h.a, done:true, who:h.by, at:h.at}))} /></>}
   </div>;
 }
@@ -257,9 +267,11 @@ export function PMPickup({ctx}) {
   const already = ctx.jes.some(j=>j.source_system==='PM' && (j.description||'').includes('PM Pickup') && j.rule_code);
   const generate = () => {
     if (already){ toast('该批次已生成过 Owner GL Draft,禁止重复 Pickup [4004]','bad'); return; }
-    mapped.forEach(r=> actions.newJEFromRule({entity_id:4, source_system:'PM', description:`PM Pickup ${r.charge_code} · ${r.property_code}`, rule_code:r.rule.rule_code, je_type:'AUTO', lines:r.rule.lines}));
+    mapped.forEach(r=>{ const own = UNIT_OWNERS[r.unit] || {entity_id:4, name:'WB Home LLC'};
+      actions.newJEFromRule({entity_id:own.entity_id, source_system:'PM', description:`PM Pickup ${r.charge_code} · ${r.property_code} · Unit ${r.unit_code} → ${own.name}`, rule_code:r.rule.rule_code, je_type:'AUTO', lines:r.rule.lines}); });
     unmapped.forEach(r=> actions.ensureException({exception_type:'GL_MAPPING_MISSING', severity:'HIGH', object_type:'PM_PICKUP', object_ref:`${r.charge_code} / ${r.property_code}`, entity_id:4, owner:'PROPERTY_ACCT', root_cause:`Charge code ${r.charge_code} 无当前映射`}));
-    toast(`已生成 ${mapped.length} 条 Owner GL Draft；${unmapped.length} 条未映射转异常`, unmapped.length?'warn':'ok');
+    const owners=[...new Set(mapped.map(r=>(UNIT_OWNERS[r.unit]||{name:'WB Home LLC'}).name))];
+    toast(`已按 Unit Owner 生成 ${mapped.length} 条 Draft → ${owners.length} 家 Owner 公司(${owners.join(' / ')})；${unmapped.length} 条未映射转异常`, unmapped.length?'warn':'ok');
   };
   return <div>
     <h2 className="page-h">Property Operations Pickup</h2>
@@ -277,6 +289,7 @@ export function PMPickup({ctx}) {
       {h:'External ID',k:'external_id'},
       {h:'Charge Code',render:r=><Badge tone="muted">{r.charge_code}</Badge>},
       {h:'Unit',k:'unit'},
+      {h:'Owner 公司',render:r=>(UNIT_OWNERS[r.unit]||{name:'WB Home LLC'}).name},
       {h:'映射 GL',render:r=> r.rule.unmapped ? <span className="warn-txt">未映射 · 需去 Mapping Center</span> : <span>{r.rule.gl} {acct(r.rule.gl).account_name}</span>},
       {h:'收/支',render:r=> r.rule.unmapped?'—': r.rule.rule_code==='R-PM-11'?'收入': r.rule.rule_code==='R-PM-16'?'押金(负债)':'费用'},
       {h:'金额',num:true,render:r=><Money v={r.amount}/>},

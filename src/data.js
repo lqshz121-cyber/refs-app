@@ -1,6 +1,15 @@
 // REFS seed data (demo). All figures are illustrative prototype data, not actuals.
 
 export const COA = [
+  ['110100','Petty Cash (WBS)','ASSET','DEBIT'],
+  ['111000','Operating Cash (WBS)','ASSET','DEBIT'],
+  ['112000','Escrow Cash (WBS)','ASSET','DEBIT'],
+  ['112001','Escrow - Other Reserves (WBS)','ASSET','DEBIT'],
+  ['112002','Escrow - Real Estate Tax Reserve (WBS)','ASSET','DEBIT'],
+  ['112003','Escrow - Insurance Reserve (WBS)','ASSET','DEBIT'],
+  ['112004','Escrow - Capital Expenditure Reserves (WBS)','ASSET','DEBIT'],
+  ['113000','Reserve Fund Cash (WBS)','ASSET','DEBIT'],
+  ['114001','Charles Schwab Investment Account (WBS)','ASSET','DEBIT'],
   ['291001','Due to/from Affiliates (WBS)','LIABILITY','CREDIT'],
   ['705001','Research & Development Service (WBS)','EXPENSE','DEBIT'],
   ['705002','Outsourcing Service (WBS)','EXPENSE','DEBIT'],
@@ -53,6 +62,16 @@ export const ENTITIES = [
   {entity_id:2, entity_code:'E1001', entity_name:'Wan Bridge Land LLC', entity_type:'ProjectCo'},
   {entity_id:3, entity_code:'E1002', entity_name:'Wan Bridge Development LLC', entity_type:'TitleCo'},
   {entity_id:4, entity_code:'E1003', entity_name:'WB Home LLC', entity_type:'OpCo'},
+  {entity_id:5, entity_code:'WBCON', entity_name:'WB Conroe LLC', entity_type:'Vertical'},
+  {entity_id:6, entity_code:'WBGEO', entity_name:'WB Georgetown LLC', entity_type:'Vertical'},
+  {entity_id:7, entity_code:'WBBAL', entity_name:'WB Balmoral LLC', entity_type:'Vertical'},
+  {entity_id:8, entity_code:'WBWAX', entity_name:'WB Waxahachie Home Building LLC', entity_type:'Vertical'},
+  {entity_id:9, entity_code:'WBDEN', entity_name:'WB Denton Home Building LLC', entity_type:'Vertical'},
+  {entity_id:10, entity_code:'WBWEE', entity_name:'WBWT West End Estates LLC', entity_type:'Vertical'},
+  {entity_id:11, entity_code:'WBPRA', entity_name:'WB Pradera Oaks Land 1 LLC', entity_type:'Vertical'},
+  {entity_id:12, entity_code:'WBRED', entity_name:'WB Red Oaks Home Building LLC', entity_type:'Vertical'},
+  {entity_id:13, entity_code:'WBIVY', entity_name:'WB Ivy District Home Building LLC', entity_type:'Vertical'},
+  {entity_id:14, entity_code:'WBCRO', entity_name:'WB Crowley Home Building LLC', entity_type:'Vertical'},
 ];
 
 export const PERIODS = [

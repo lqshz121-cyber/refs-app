@@ -128,8 +128,21 @@ export const IC_TXNS = [
 const FY = [];
 let _g = 5000;
 const ENT = [1,2,3,4];
+const VERT = [5,6,7,8,9,10,11,12,13,14];
 for (let m=1;m<=7;m++){
   const mm = String(m).padStart(2,'0');
+  VERT.forEach(e=>{
+    const cip = 20000 + e*1300 + m*777;
+    FY.push({ je_id:++_g, je_number:`2026${mm}15${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-15`,
+      je_type:'AUTO', source_system:'AP', payee:'Summit General Contractors', description:`${mm}/2026 Construction cost - vertical build (Draw ${m})`, posting_status:'POSTED', created_by:'system',
+      history:[{a:'WBS IMPORT · PAYABLE',by:'system',at:`2026-${mm}-15`}],
+      lines:[{account_code:'1400',debit_amount:cip,credit_amount:0},{account_code:'2000',debit_amount:0,credit_amount:cip}] });
+    const pay = Math.round(cip*0.9);
+    FY.push({ je_id:++_g, je_number:`2026${mm}25${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-25`,
+      je_type:'AUTO', source_system:'BANK', description:`${mm}/2026 Draw funding & AP payment`, posting_status:'POSTED', created_by:'system',
+      history:[{a:'BANK MATCH',by:'system',at:`2026-${mm}-25`}],
+      lines:[{account_code:'2000',debit_amount:pay,credit_amount:0},{account_code:'2500',debit_amount:0,credit_amount:pay}] });
+  });
   ENT.forEach(e=>{
     const base = 800*e + m*137;
     // monthly outsourcing service (WBS PAYABLE pattern: 705002 / 291001)
@@ -152,3 +165,5 @@ for (let m=1;m<=7;m++){
   });
 }
 export const FY2026 = FY;
+// unit -> owner company (每个 unit 归属的 owner 实体)
+export const UNIT_OWNERS = { 'A-203':{entity_id:4, name:'WB Home LLC'}, 'B-110':{entity_id:2, name:'Wan Bridge Land LLC'}, 'C-050':{entity_id:11, name:'WB Pradera Oaks Land 1 LLC'} };
