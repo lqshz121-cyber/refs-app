@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Card, KPI, Btn, Badge, Money, Table, Tabs, SectionTitle } from './ui.jsx';
 import { COA, ENTITIES, VENDORS, CUSTOMERS, LOANS, BANK_ACCOUNTS, MAPPINGS, PROPERTIES, PROJECTS } from './data.js';
-import { LOAN_TXNS, IC_TXNS, CLOSINGS } from './seed.js';
+import { LOAN_TXNS, IC_TXNS, CLOSINGS, PM_ROWS } from './seed.js';
 import { acct, money, sum, jeTotals, trialBalance, statements, downloadCSV } from './engine.js';
 
 export function GLTrialBalance({ctx}) {
@@ -45,27 +45,40 @@ export function GLTrialBalance({ctx}) {
 }
 
 export function Reports({ctx}) {
-  const {jes, entity, toast} = ctx;
+  const {jes, exceptions, entity} = ctx;
+  const [open, setOpen] = useState(null);
   const st = statements(jes, entity);
+  const posted = jes.filter(j=>j.posting_status==='POSTED' && (!entity||j.entity_id===entity));
+  const REPORTS = {
+    'Construction Loan Rollforward': () => { const rows = LOANS.map(l=>{ const draws=sum(LOAN_TXNS.filter(t=>t.loan_id===l.loan_id&&t.txn_type==='DRAW'),t=>t.amount); const rep=sum(LOAN_TXNS.filter(t=>t.loan_id===l.loan_id&&t.txn_type==='REPAYMENT'),t=>t.amount);
+        return {loan:l.loan_code, lender:l.lender_name, begin:l.current_principal-draws+rep, draws, repayments:rep, end:l.current_principal, avail:l.commitment_amount-l.current_principal}; });
+      return <Table exportName="loan-rollforward" cols={[{h:'贷款',k:'loan'},{h:'Lender',k:'lender'},{h:'期初本金',num:true,render:r=><Money v={r.begin}/>,csv:r=>r.begin},{h:'+ Draws',num:true,render:r=><Money v={r.draws}/>,csv:r=>r.draws},{h:'− Repayments',num:true,render:r=><Money v={r.repayments}/>,csv:r=>r.repayments},{h:'期末本金',num:true,render:r=><Money v={r.end}/>,csv:r=>r.end},{h:'剩余额度',num:true,render:r=><Money v={r.avail}/>,csv:r=>r.avail}]} rows={rows}/>; },
+    'Manual JE Report': () => <Table exportName="manual-je" cols={[{h:'JE',k:'je_number'},{h:'日期',k:'je_date'},{h:'描述',k:'description'},{h:'金额',num:true,render:r=><Money v={jeTotals(r).dr}/>,csv:r=>jeTotals(r).dr},{h:'创建人',k:'created_by'},{h:'附件',render:r=>r.has_attachment?'✓':'✗ 缺失',csv:r=>r.has_attachment?'Y':'N'},{h:'状态',render:r=><Badge>{r.posting_status}</Badge>,csv:r=>r.posting_status}]} rows={jes.filter(j=>j.je_type==='MANUAL')}/>,
+    'Exception Aging': () => <Table exportName="exception-aging" cols={[{h:'类型',k:'exception_type'},{h:'严重度',render:r=><Badge>{r.severity}</Badge>,csv:r=>r.severity},{h:'对象',k:'object_ref'},{h:'Aging(天)',num:true,k:'aging_days'},{h:'Owner',k:'owner'},{h:'状态',render:r=><Badge>{r.status}</Badge>,csv:r=>r.status}]} rows={[...exceptions].sort((a,b)=>b.aging_days-a.aging_days)}/>,
+    'Data Sync Report': () => <Table cols={[{h:'来源',k:'s'},{h:'批次',k:'b'},{h:'记录',k:'n'},{h:'成功率',k:'r'},{h:'状态',render:r=><Badge tone={r.r==='100%'?'ok':'warn'}>{r.r==='100%'?'COMPLETED':'PARTIAL'}</Badge>}]} rows={[{s:'WBS_CL',b:'CL-20260731-007',n:4,r:'100%'},{s:'PM',b:'PM-202607-P0020',n:5,r:'80%'},{s:'BANK',b:'BANK-20260731',n:4,r:'100%'}]}/>,
+    'Property Operating Statement': () => { const rev=sum(PM_ROWS.filter(r=>r.kind==='REVENUE'),r=>r.amount); const exp=sum(PM_ROWS.filter(r=>r.kind==='EXPENSE'),r=>r.amount);
+      return <div className="stmt"><div className="stmt-row"><span>运营收入 (PM Pickup)</span><Money v={rev} bold/></div><div className="stmt-row"><span>运营费用</span><Money v={-exp}/></div><div className="stmt-row tot"><span>NOI</span><Money v={rev-exp} bold/></div></div>; },
+  };
   const reports = [
-    ['Trial Balance','基础','GL'],['Balance Sheet','基础','GL'],['Income Statement','基础','GL'],
-    ['Construction Loan Rollforward','贷款','Loan'],['Draw Reconciliation','贷款','Loan'],['Debt Maturity','贷款','Loan'],
-    ['Project Cost Report','项目','Cost'],['Budget vs Actual','项目','Cost'],['Cost to Complete','项目','Cost'],
-    ['Property Operating Statement','物业','Ops'],['Rent Roll Summary','物业','Ops'],['NOI Report','物业','Ops'],
-    ['Exception Aging','管理','Mgmt'],['Manual JE Report','管理','Mgmt'],['Data Sync Report','管理','Mgmt'],
+    ['Trial Balance','GL','gl'],['Balance Sheet','GL','gl'],['Income Statement','GL','gl'],
+    ['Construction Loan Rollforward','贷款',null],['Manual JE Report','管理',null],['Exception Aging','管理',null],
+    ['Data Sync Report','管理',null],['Property Operating Statement','物业',null],
+    ['Budget vs Actual','项目','cost'],['Cost to Complete','项目','cost'],['AP Aging','交易','ap'],['对账历史','交易','bankrec'],
   ];
   return <div>
-    <h2 className="page-h">报表中心</h2>
+    <h2 className="page-h">报表中心 Reports</h2>
     <div className="kpi-row">
       <KPI label="总资产" value={money(st.assets)} />
       <KPI label="本期收入" value={money(st.revenue)} tone="ok" />
       <KPI label="本期净利" value={money(st.netIncome)} tone={st.netIncome>=0?'ok':'bad'} />
+      <KPI label="已过账 JE" value={posted.length} />
     </div>
-    <SectionTitle>报表清单（支持 Drill Down · Export · Source Trace）</SectionTitle>
-    <div className="rep-grid">{reports.map(([n,g,t])=>
-      <Card key={n} hover className="rep-card" onClick={()=>toast(`打开报表：${n}（原型）`)}>
-        <div className="rep-name">{n}</div><div className="rep-tag"><Badge tone="muted">{g}</Badge></div>
+    <SectionTitle>报表清单（点击查看 · 均可导出 CSV）</SectionTitle>
+    <div className="rep-grid">{reports.map(([n,g,route])=>
+      <Card key={n} hover className={`rep-card ${open===n?'rep-on':''}`} onClick={()=>route?ctx.goto(route):setOpen(open===n?null:n)}>
+        <div className="rep-name">{n}</div><div className="rep-tag"><Badge tone="muted">{g}</Badge>{route&&<span className="muted sm"> → 模块</span>}</div>
       </Card>)}</div>
+    {open && REPORTS[open] && <div style={{marginTop:18}}><SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>setOpen(null)}>关闭</Btn>}>{open}</SectionTitle>{REPORTS[open]()}</div>}
   </div>;
 }
 
@@ -86,9 +99,35 @@ export function LoanRegister() {
     cols={[{h:'贷款',k:'loan_code'},{h:'类型',render:r=><Badge tone="muted">{r.loan_type}</Badge>},{h:'Lender',k:'lender_name'},{h:'Commitment',num:true,render:r=><Money v={r.commitment_amount}/>},{h:'当前本金',num:true,render:r=><Money v={r.current_principal}/>},{h:'利率',num:true,render:r=>(r.interest_rate*100).toFixed(2)+'%'}]} rows={LOANS} />;
 }
 export function ProjectCost() {
-  const rows = LOAN_TXNS.filter(t=>t.txn_type==='DRAW').map(t=>({...t, cost:'CIP'}));
-  return <SimpleList title="Project Cost Accounting" note="预算/合同/Commitment/Actual/CIP/资本化（原型：以 Draw 资金化为 CIP 示意）。"
-    cols={[{h:'来源',k:'wbs_txn_id'},{h:'类型',render:r=><Badge tone="muted">{r.txn_type}</Badge>},{h:'日期',k:'transaction_date'},{h:'金额→CIP',num:true,render:r=><Money v={r.amount}/>}]} rows={rows} />;
+  const CC = [
+    {cc:'01-100 Land Acquisition', budget:900000, commit:900000, actual:900000},
+    {cc:'02-200 Sitework', budget:450000, commit:430000, actual:392000},
+    {cc:'03-300 Vertical Construction', budget:2600000, commit:2450000, actual:1585000},
+    {cc:'04-400 Capitalized Interest', budget:120000, commit:0, actual:29200},
+    {cc:'05-500 Soft Costs / A&E', budget:310000, commit:285000, actual:198500},
+    {cc:'06-600 Contingency', budget:150000, commit:0, actual:0},
+  ].map(r=>({...r, ctc:Math.max(0,r.budget-r.actual), fac:Math.max(r.budget, r.commit>r.budget?r.commit:r.budget), var:r.budget-Math.max(r.budget,r.commit)}));
+  const T = k => sum(CC, r=>r[k]);
+  return <div className="full-bleed">
+    <h2 className="page-h">项目成本 Project Cost · PRJ-CEDAR</h2>
+    <div className="kpi-row">
+      <KPI label="总预算 Budget" value={money(T('budget'))} />
+      <KPI label="已承诺 Committed" value={money(T('commit'))} sub={(T('commit')/T('budget')*100).toFixed(0)+'% of budget'} />
+      <KPI label="实际发生 Actual" value={money(T('actual'))} sub={(T('actual')/T('budget')*100).toFixed(0)+'% complete'} tone="ok" />
+      <KPI label="完工尚需 CTC" value={money(T('ctc'))} tone="warn" />
+    </div>
+    <SectionTitle>Budget → Commitment → Actual → Forecast（按 Cost Code）</SectionTitle>
+    <Table exportName="project-cost" cols={[
+      {h:'Cost Code',k:'cc'},
+      {h:'Original Budget',num:true,render:r=><Money v={r.budget}/>,sortVal:r=>r.budget,csv:r=>r.budget},
+      {h:'Committed',num:true,render:r=><Money v={r.commit}/>,csv:r=>r.commit},
+      {h:'Actual to Date',num:true,render:r=><Money v={r.actual}/>,csv:r=>r.actual},
+      {h:'% Spent',num:true,render:r=>r.budget?((r.actual/r.budget*100).toFixed(1)+'%'):'—',csv:r=>r.budget?(r.actual/r.budget*100).toFixed(1):''},
+      {h:'Cost to Complete',num:true,render:r=><Money v={r.ctc}/>,csv:r=>r.ctc},
+      {h:'超支预警',render:r=> r.commit>r.budget ? <Badge tone="bad">Commitment 超预算</Badge> : r.actual>r.budget ? <Badge tone="bad">Actual 超预算</Badge> : <Badge tone="ok">在控</Badge>,csv:r=>r.commit>r.budget||r.actual>r.budget?'OVER':'OK'},
+    ]} rows={CC} />
+    <p className="muted sm">Actual 与 GL 1400 CIP 挂钩（Draw 资金化 + AP 资本化发票）；Commitment 来自合同/PO；CTC = Budget − Actual；超支即产生异常。</p>
+  </div>;
 }
 export function Assets() {
   const rows = [{c:'Land',code:'1500',v:900000},{c:'Building',code:'1510',v:2100000}];
@@ -105,19 +144,24 @@ export function Intercompany({ctx}) {
       {h:'匹配',render:r=><Badge tone={r.match_status==='MATCHED'?'ok':'bad'}>{r.match_status}</Badge>},
     ]} rows={IC_TXNS} rowKey="ic_txn_id" /></div>;
 }
-export function IntegrationHub() {
-  const batches = [
-    {batch_id:'CL-20260731-007', src:'WBS_CL', status:'COMPLETED', n:4, ok:4},
-    {batch_id:'PM-202607-P0020', src:'PM', status:'PARTIAL', n:5, ok:4},
-    {batch_id:'BANK-20260731', src:'BANK', status:'COMPLETED', n:4, ok:4},
-  ];
-  return <div><h2 className="page-h">Integration Hub</h2>
+export function IntegrationHub({ctx}) {
+  const [batches, setBatches] = useState([
+    {batch_id:'CL-20260731-007', src:'WBS_CL', status:'COMPLETED', n:4, ok:4, err:null},
+    {batch_id:'PM-202607-P0020', src:'PM', status:'PARTIAL', n:5, ok:4, err:'行5: PET_FEE 缺 GL 映射 [3020]'},
+    {batch_id:'BANK-20260731', src:'BANK', status:'COMPLETED', n:4, ok:4, err:null},
+  ]);
+  const retry = (id) => { setBatches(bs=>bs.map(b=>b.batch_id===id?{...b, status:'RETRYING'}:b));
+    setTimeout(()=>setBatches(bs=>bs.map(b=>b.batch_id===id?{...b, status:'PARTIAL'}:b)), 900);
+    ctx.toast('重试完成：映射仍缺失，需先在 Mapping Center 配置 PET_FEE','warn'); };
+  return <div><h2 className="page-h">集成中心 Integration Hub</h2>
     <p className="muted sm">外部数据先入 Staging，禁止直写 GL。批次幂等去重、Retry、失败补偿。</p>
-    <Table cols={[
+    <Table rowKey="batch_id" cols={[
       {h:'批次',k:'batch_id'},{h:'来源',render:r=><Badge tone="muted">{r.src}</Badge>},
       {h:'记录',num:true,render:r=>r.ok+'/'+r.n},
       {h:'状态',render:r=><Badge tone={r.status==='COMPLETED'?'ok':'warn'}>{r.status}</Badge>},
-    ]} rows={batches} rowKey="batch_id" /></div>;
+      {h:'错误明细',render:r=>r.err||'—'},
+      {h:'操作',render:r=> r.status!=='COMPLETED' ? <span className="row-acts"><Btn size="sm" onClick={()=>retry(r.batch_id)}>Retry</Btn><Btn size="sm" variant="ghost" onClick={()=>ctx.goto('mapping')}>去配映射</Btn></span> : <span className="muted sm">—</span>},
+    ]} rows={batches} /></div>;
 }
 export function MasterData() {
   const [tab,setTab] = useState('Entity');
