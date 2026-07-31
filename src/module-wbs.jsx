@@ -6,7 +6,8 @@ import { money, sum } from './engine.js';
 // ============ Auto Bank Reconciliation (WBS 4-step pipeline) ============
 const STEPS = ['1 Company Screening','2 Data Processing & Release','3 Incur','4 Incurred List'];
 const AB_SEED = ENTITIES.map((e,i)=>({entity_id:e.entity_id, company:e.entity_name, preparer:['HazelDong','Judy Zhang','Cathy Gao','Meyer Liu','Mia Man'][i%5], auditor:'auditor'+((i%3)+1),
-  m:'07/2026', r:i<2?'07/2026':'06/2026', c:i<2?'06/2026':'03/2026', qty:[6,0,3,4,2][i%5], amount:[-198412.66,0,45210.00,12030.50,-820.00][i%5], released:i<2?[6,0][i]:0}));
+  m:'07/2026', r:i<2?'07/2026':'06/2026', c:i<2?'06/2026':'03/2026', qty:[6,0,3,4,2][i%5], amount:[-198412.66,0,45210.00,12030.50,-820.00][i%5], released:i<2?[6,0][i]:0,
+  recon_bal:[-141059.81,-257760.76,62451.17,-2276.66,52220365.69][i%5], recon_date:'01-01-2024'}));
 export function AutoBankRec({ctx}) {
   const [step, setStep] = useState(0);
   const [rows, setRows] = useState(AB_SEED);
@@ -25,6 +26,9 @@ export function AutoBankRec({ctx}) {
         {h:'Quantity',num:true,k:'qty'},
         {h:'Amount',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount,csv:r=>r.amount},
         {h:'Released',num:true,k:'released'},
+        {h:'Reconciliation Balance',num:true,render:r=><Money v={r.recon_bal}/>,sortVal:r=>r.recon_bal,csv:r=>r.recon_bal},
+        {h:'Recon Date',k:'recon_date'},
+        {h:'',render:r=><span className="row-acts"><Btn size="sm" variant="ghost" onClick={e=>ctx.toast('View: 打开该公司银行流水明细')}>View</Btn><Btn size="sm" variant="ghost" onClick={e=>ctx.toast('已刷新银行 Feed')}>Refresh</Btn></span>},
       ]} rows={rows}/></>}
     {step===1 && <><SectionTitle>Data Processing & Release(校验后放行)</SectionTitle>
       <Table rowKey="entity_id" cols={[
