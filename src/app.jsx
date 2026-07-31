@@ -9,6 +9,7 @@ import { GLTrialBalance, Reports, ARModule, CashModule, LoanRegister, ProjectCos
 import { APWorkspace } from './module-ap.jsx';
 import { BankRec2 } from './module-bankrec.jsx';
 import { COAWorkspace } from './module-coa.jsx';
+import { AutoBankRec, CheckMgmt } from './module-wbs.jsx';
 
 const ROLE_PERMS = {
   CONTROLLER: '*',
@@ -25,7 +26,7 @@ const ROLE_PERMS = {
 // Nav: task-oriented groups, icons, admin sections hidden for non-admin roles
 const NAV = [
   {group:'首页', items:[['dashboard','⌂','工作台 Home']]},
-  {group:'交易 Transactions', items:[['ap','⬒','应付 Bills & Payments'],['ar','⬓','应收 Receivables'],['bankrec','⇄','银行对账 Bank Rec'],['je','✎','分录 Journal Entries']]},
+  {group:'交易 Transactions', items:[['ap','⬒','应付 Bills & Payments'],['ar','⬓','应收 Receivables'],['bankrec','⇄','银行对账 Bank Rec'],['autobankrec','⟳','自动对账 Auto Rec'],['checks','✓','付款确认 Checks'],['je','✎','分录 Journal Entries']]},
   {group:'项目 Projects', items:[['loan','🏗','建设贷款 Loans'],['cost','Σ','项目成本 Project Cost'],['pmpickup','⌂→','物业运营 PM Pickup'],['closing','⚖','产权交割 Closings']]},
   {group:'会计 Accounting', items:[['gl','☰','总账与报表 GL'],['coa','#','科目表 COA'],['assets','▣','资产 Assets'],['intercompany','⇌','往来 Intercompany'],['close','☑','月结 Close'],['reports','▤','报表中心 Reports']]},
   {group:'控制 Controls', items:[['exceptions','⚠','异常中心 Exceptions']]},
@@ -33,7 +34,7 @@ const NAV = [
 ];
 const COMP = { dashboard:Dashboard, je:JEWorkspace, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
   pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARModule,
-  cash:CashModule, bankrec:BankRec2, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
+  cash:CashModule, bankrec:BankRec2, autobankrec:AutoBankRec, checks:CheckMgmt, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
   mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, reports:Reports, admin:AdminModule };
 const ADMIN_ROLES = ['CONTROLLER','SYS_ADMIN','AUDITOR'];
 
@@ -112,7 +113,7 @@ function App() {
     window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
   },[]);
 
-  const mkJE = (spec) => { const id = nextId(); return {je_id:id, je_number:'JE-2026-07-'+id, period_code:'2026-07', posting_status:'DRAFT', je_date:'2026-07-31', created_by:userId, history:[{a:'CREATE',by:userId,at:'2026-07-31'}], ...spec}; };
+  const mkJE = (spec) => { const id = nextId(); return {je_id:id, je_number:'20260731'+String(id).padStart(6,'0'), period_code:'2026-07', posting_status:'DRAFT', je_date:'2026-07-31', created_by:userId, history:[{a:'CREATE',by:userId,at:'2026-07-31'}], ...spec}; };
   const actions = {
     newJE: () => { const je = mkJE({entity_id:entity||2, je_type:'MANUAL', description:'', source_system:'MAN', has_attachment:false,
       lines:[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}]}); setJes(js=>[je,...js]); return je.je_id; },

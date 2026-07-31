@@ -112,6 +112,14 @@ body{font-family:var(--sans); background:var(--bg-canvas); color:var(--text-1); 
 .pal-list{max-height:340px; overflow:auto;} .pal-list button{display:flex; justify-content:space-between; width:100%; border:0; background:transparent; color:var(--text-1); text-align:left; padding:11px 18px; cursor:pointer; font-size:13px;}
 .pal-list button:hover{background:var(--bg-canvas);}
 code{font-family:var(--mono); background:var(--bg-canvas); padding:1px 5px; border-radius:4px; font-size:12px;}
+.stepper{display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap;}
+.step-chip{border:1px solid var(--divider); background:var(--bg-surface); color:var(--text-2); border-radius:20px; padding:8px 16px; font-size:13.5px; cursor:pointer;}
+.step-chip.step-on{background:var(--brand); border-color:var(--brand); color:#fff; font-weight:600;}
+.step-chip.step-done{color:var(--ok); border-color:var(--ok);}
+.mo-chips{display:flex; gap:5px; margin-bottom:10px; flex-wrap:wrap;}
+.mo-chip{position:relative; border:1px solid var(--divider); background:var(--bg-surface); color:var(--text-2); border-radius:8px; width:34px; height:30px; font-size:12.5px; cursor:pointer;}
+.mo-chip.mo-on{background:var(--brand); border-color:var(--brand); color:#fff; font-weight:700;}
+.mo-dot{position:absolute; top:3px; right:3px; width:5px; height:5px; border-radius:50%; background:var(--ok);}
 .login-wrap{min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg-canvas);}
 .login-card{background:var(--bg-surface); border:1px solid var(--divider); border-radius:14px; box-shadow:var(--shadow-lg); padding:40px 44px; width:420px; display:flex; flex-direction:column; gap:14px;}
 .login-logo{font-size:30px; font-weight:700; color:var(--brand);} .login-sub{color:var(--text-2); font-size:14px; margin-bottom:8px;}

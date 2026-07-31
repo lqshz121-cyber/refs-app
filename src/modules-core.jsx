@@ -57,8 +57,11 @@ export function JEWorkspace({ctx}) {
   const {jes, actions, can, period, toast} = ctx;
   const [sel, setSel] = useState(null);
   const [filter, setFilter] = useState('全部');
+  const [srcF, setSrcF] = useState('ALL');
+  const MONTHS=[1,2,3,4,5,6,7,8,9,10,11,12];
   const statuses = ['全部','DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED'];
-  const list = jes.filter(j=>(filter==='全部'||j.posting_status===filter) && (!ctx.entity||j.entity_id===ctx.entity));
+  const list = jes.filter(j=>(filter==='全部'||j.posting_status===filter) && (!ctx.entity||j.entity_id===ctx.entity) && (srcF==='ALL'||j.source_system===srcF));
+  const postAll = () => { list.filter(j=>j.posting_status==='PENDING_APPROVAL').forEach(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL')); toast('Post All 完成'); };
   const je = jes.find(j=>j.je_id===sel);
 
   const newJE = () => {
@@ -71,7 +74,10 @@ export function JEWorkspace({ctx}) {
         <strong>Journal Entries</strong>
         <Btn size="sm" variant="primary" onClick={newJE} disabled={!can('GL.JE.CREATE')}>+ 新建</Btn>
       </div>
+      <div className="mo-chips">{MONTHS.map(m=><button key={m} className={`mo-chip ${m===7?'mo-on':''}`} title={m===7?'当前期间 2026-07':'演示固定 2026-07'}>{m}{[6,7].includes(m)&&<span className="mo-dot"/>}</button>)}</div>
       <div className="chips">{statuses.map(s=><button key={s} className={`chip ${filter===s?'chip-on':''}`} onClick={()=>setFilter(s)}>{s}</button>)}</div>
+      <div className="je-filters" style={{marginTop:2}}>{['ALL','MAN','WBS_CL','PM','AP','BANK','CLOSING'].map(s=><button key={s} className={`chip ${srcF===s?'chip-on':''}`} onClick={()=>setSrcF(s)}>{s}</button>)}
+        {can('GL.JE.POST') && <button className="chip" onClick={postAll} title="过账所有待审批分录">⚡ Post All</button>}</div>
       <div className="je-list">
         {list.map(j=><div key={j.je_id} className={`je-item ${sel===j.je_id?'je-item-on':''}`} onClick={()=>setSel(j.je_id)}>
           <div className="je-item-top"><span>{j.je_number}</span><Badge>{j.posting_status}</Badge></div>
@@ -159,6 +165,7 @@ function JEEditor({je, ctx}) {
     <div className="je-actions">
       {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'无此权限':''}>{flow.action}</Btn>}
       {flow.reject && can('GL.JE.REVIEW') && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id, flow.reject, '退回'); toast('已退回 DRAFT','warn');}}>退回</Btn>}
+      {je.posting_status==='POSTED' && ctx.user.role_code==='CONTROLLER' && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id,'APPROVED','CANCEL POST'); toast('已 Cancel Post,退回 APPROVED','warn');}}>Cancel Post</Btn>}
       <Btn variant="ghost" onClick={()=>{const nid=actions.copyJE(je.je_id); toast('已复制为新草稿');}}>复制 JE</Btn>
       {je.posting_status==='POSTED' && can('GL.JE.REVERSE') && <Btn variant="danger" onClick={reverse}>红字反冲</Btn>}
       {readOnly && <span className="muted">已过账分录不可修改，如需更正请使用红字反冲</span>}
