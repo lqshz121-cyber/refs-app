@@ -1,9 +1,9 @@
 // REFS seed data (demo). All figures are illustrative prototype data, not actuals.
 
 export const COA = [
-  { account_code:'291001', account_name:'Due to/from Affiliates (WBS)', account_type:'LIABILITY', normal_balance:'CREDIT' },
-  { account_code:'705001', account_name:'Research & Development Service (WBS)', account_type:'EXPENSE', normal_balance:'DEBIT' },
-  { account_code:'705002', account_name:'Outsourcing Service (WBS)', account_type:'EXPENSE', normal_balance:'DEBIT' },
+  ['291001','Due to/from Affiliates (WBS)','LIABILITY','CREDIT'],
+  ['705001','Research & Development Service (WBS)','EXPENSE','DEBIT'],
+  ['705002','Outsourcing Service (WBS)','EXPENSE','DEBIT'],
   ['1000','Cash - Operating','ASSET','DEBIT'],
   ['1010','Restricted Cash - Escrow','ASSET','DEBIT'],
   ['1015','Restricted Cash - Reserve','ASSET','DEBIT'],
