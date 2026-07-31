@@ -2,35 +2,40 @@ import { useState } from 'react';
 import { Card, KPI, Btn, Badge, Money, Table, Tabs, SectionTitle } from './ui.jsx';
 import { COA, ENTITIES, VENDORS, CUSTOMERS, LOANS, BANK_ACCOUNTS, MAPPINGS, PROPERTIES, PROJECTS } from './data.js';
 import { LOAN_TXNS, IC_TXNS, CLOSINGS } from './seed.js';
-import { acct, money, sum, jeTotals, trialBalance, statements } from './engine.js';
+import { acct, money, sum, jeTotals, trialBalance, statements, downloadCSV } from './engine.js';
 
 export function GLTrialBalance({ctx}) {
   const {jes, entity} = ctx;
   const [tab, setTab] = useState('Trial Balance');
+  const [drill, setDrill] = useState(null);
   const tb = trialBalance(jes, entity);
   const st = statements(jes, entity);
   return <div>
     <h2 className="page-h">General Ledger</h2>
     <Tabs tabs={['Trial Balance','Balance Sheet','Income Statement']} active={tab} onChange={setTab} />
     {tab==='Trial Balance' && <>
+      <div style={{textAlign:'right',marginBottom:8}}><Btn size="sm" onClick={()=>downloadCSV('trial-balance.csv',[['Account','Name','Type','Debit','Credit','Balance'],...tb.rows.map(r=>[r.account_code,r.name,r.type,r.debit,r.credit,r.balance])])}>导出 CSV</Btn></div>
       <Table cols={[
         {h:'科目',render:r=>`${r.account_code} ${r.name}`},
         {h:'类型',render:r=><Badge tone="muted">{r.type}</Badge>},
         {h:'借方',num:true,render:r=><Money v={r.debit}/>},
         {h:'贷方',num:true,render:r=><Money v={r.credit}/>},
         {h:'余额',num:true,render:r=><Money v={r.balance}/>},
-      ]} rows={tb.rows} rowKey="account_code" />
+      ]} rows={tb.rows} rowKey="account_code" onRow={r=>setDrill(r.account_code)} />
       <div className="tb-tot"><span>合计</span><Money v={tb.totalDebit} bold/><Money v={tb.totalCredit} bold/>
         <Badge tone={Math.abs(tb.totalDebit-tb.totalCredit)<0.005?'ok':'bad'}>{Math.abs(tb.totalDebit-tb.totalCredit)<0.005?'✓ 平衡':'✗ 不平'}</Badge></div>
     </>}
-    {tab==='Balance Sheet' && <div className="stmt">
-      <div className="stmt-row"><span>资产 Assets</span><Money v={st.assets} bold/></div>
-      <div className="stmt-row"><span>负债 Liabilities</span><Money v={st.liabilities}/></div>
+    {tab==='Balance Sheet' && (()=>{ const rhs=st.liabilities+st.equity+st.netIncome; const ok=Math.abs(st.assets-rhs)<0.01; return <div className="stmt">
+      <div className="stmt-row"><span>资产合计 Total Assets</span><Money v={st.assets} bold/></div>
+      <div className="stmt-row" style={{marginTop:12}}><span>负债 Liabilities</span><Money v={st.liabilities}/></div>
       <div className="stmt-row"><span>权益 Equity</span><Money v={st.equity}/></div>
-      <div className="stmt-row"><span>本期净利 (计入权益)</span><Money v={st.netIncome}/></div>
-      <div className="stmt-row tot"><span>负债+权益+净利</span><Money v={st.liabilities+st.equity+st.netIncome} bold/></div>
-      <p className="muted sm">演示用：本期净利未结转留存收益，故与资产的差额即为当期损益。</p>
-    </div>}
+      <div className="stmt-row"><span>本期净利 Current-Year Earnings</span><Money v={st.netIncome}/></div>
+      <div className="stmt-row tot"><span>负债 + 权益合计</span><Money v={rhs} bold/></div>
+      <div className="stmt-row" style={{borderBottom:0}}><span>平衡检查 Assets = Liabilities + Equity</span><Badge tone={ok?'ok':'bad'}>{ok?'✓ 平衡':'✗ 不平'}</Badge></div>
+    </div>; })()}
+    {drill && tab==='Trial Balance' && (()=>{ const lines=[]; jes.filter(j=>j.posting_status==='POSTED'&&(!entity||j.entity_id===entity)).forEach(j=>j.lines.forEach(l=>{ if(l.account_code===drill) lines.push({je:j.je_number, date:j.je_date, desc:j.description, src:j.source_system, dr:l.debit_amount, cr:l.credit_amount}); }));
+      return <div style={{marginTop:16}}><SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>setDrill(null)}>关闭</Btn>}>Drill-down · {drill} {acct(drill).account_name}（{lines.length} 行）</SectionTitle>
+      <Table exportName={'gl-'+drill} cols={[{h:'JE',k:'je'},{h:'日期',k:'date'},{h:'描述',k:'desc'},{h:'来源',render:r=><Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},{h:'借方',num:true,render:r=><Money v={r.dr}/>,csv:r=>r.dr},{h:'贷方',num:true,render:r=><Money v={r.cr}/>,csv:r=>r.cr}]} rows={lines}/></div>; })()}
     {tab==='Income Statement' && <div className="stmt">
       <div className="stmt-row"><span>收入 Revenue</span><Money v={st.revenue} bold/></div>
       <div className="stmt-row"><span>费用 Expense</span><Money v={st.expense}/></div>
@@ -68,11 +73,6 @@ function SimpleList({title, cols, rows, note}) {
   return <div><h2 className="page-h">{title}</h2>{note&&<p className="muted sm">{note}</p>}<Table cols={cols} rows={rows} /></div>;
 }
 
-export function APModule() {
-  return <SimpleList title="Accounts Payable" note="发票三方匹配、重复检测、Retainage、1099、付款批次（原型：列示种子数据）。"
-    cols={[{h:'供应商',render:r=>r.vendor_name},{h:'编码',k:'vendor_code'},{h:'关联方',render:r=><Badge tone={r.is_related_party?'warn':'muted'}>{r.is_related_party?'RP':'—'}</Badge>},{h:'1099',render:r=>r.is_1099?'✓':'—'}]}
-    rows={VENDORS} />;
-}
 export function ARModule() {
   return <SimpleList title="Accounts Receivable" note="客户/Owner/Tenant/关联方、账单、收款、账龄。"
     cols={[{h:'客户',render:r=>r.customer_name},{h:'类型',render:r=><Badge tone="muted">{r.customer_type}</Badge>},{h:'关联方',render:r=>r.is_related_party?'RP':'—'}]} rows={CUSTOMERS} />;

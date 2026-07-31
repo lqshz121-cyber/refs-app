@@ -3,6 +3,7 @@ import { COA, MAPPINGS, PROJECTS, PROPERTIES } from './data.js';
 export const acct = (code) => COA.find(a => a.account_code === code) || {account_code:code, account_name:'('+code+')', account_type:'?', normal_balance:'DEBIT'};
 export const money = (n) => (n==null?'':(n<0?'(':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+(n<0?')':''));
 export const sum = (arr,f)=>arr.reduce((s,x)=>s+(f?f(x):x),0);
+export function downloadCSV(filename, rows){ const csv=rows.map(r=>r.map(c=>{const s=String(c==null?'':c); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n'); const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click(); URL.revokeObjectURL(a.href); }
 
 // ---- JE helpers ----
 export const jeTotals = (je) => ({

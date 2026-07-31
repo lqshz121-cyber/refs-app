@@ -1,6 +1,7 @@
 // Transactional seed: journal entries, staging rows, exceptions, close tasks.
 let _id = 5000;
 export const nextId = () => ++_id;
+export const bumpId = (n)=>{ if(n>_id) _id=n; };
 
 const L = (account_code, dr, cr, dim={}) => ({account_code, debit_amount:dr||0, credit_amount:cr||0, ...dim});
 

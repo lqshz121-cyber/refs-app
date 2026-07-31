@@ -1,124 +1,207 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Toast } from './ui.jsx';
-import { ENTITIES, USERS, PERIODS } from './data.js';
-import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, nextId } from './seed.js';
+import { Toast, Btn } from './ui.jsx';
+import { ENTITIES, USERS, PERIODS, COA, VENDORS } from './data.js';
+import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, BANK_TXNS, nextId, bumpId } from './seed.js';
 import { jeTotals } from './engine.js';
-import { Dashboard, JEWorkspace, LoanWorkspace, PMPickup, ClosingWorkspace, BankRec, ExceptionCenter, CloseMgmt } from './modules-core.jsx';
-import { GLTrialBalance, Reports, APModule, ARModule, CashModule, LoanRegister, ProjectCost, Assets, Intercompany, IntegrationHub, MasterData, MappingCenter, RuleCenter, AdminModule } from './modules-more.jsx';
+import { Dashboard, JEWorkspace, LoanWorkspace, PMPickup, ClosingWorkspace, ExceptionCenter, CloseMgmt } from './modules-core.jsx';
+import { GLTrialBalance, Reports, ARModule, CashModule, LoanRegister, ProjectCost, Assets, Intercompany, IntegrationHub, MasterData, MappingCenter, RuleCenter, AdminModule } from './modules-more.jsx';
+import { APWorkspace } from './module-ap.jsx';
+import { BankRec2 } from './module-bankrec.jsx';
+import { COAWorkspace } from './module-coa.jsx';
 
-// ---- Permission model ----
 const ROLE_PERMS = {
   CONTROLLER: '*',
-  ACCT_MANAGER: ['GL.JE.CREATE','GL.JE.REVIEW','GL.JE.APPROVE','EXCEPTION.EXC.CLOSE','PERIOD.CLOSE.SIGNOFF','PERIOD.PERIOD.CLOSE'],
-  SENIOR_ACCT: ['GL.JE.CREATE','GL.JE.REVIEW','GL.JE.POST','EXCEPTION.EXC.CLOSE','PERIOD.CLOSE.SIGNOFF'],
-  STAFF_ACCT: ['GL.JE.CREATE','GL.JE.REVIEW'],
-  PROJECT_ACCT: ['GL.JE.CREATE','PERIOD.CLOSE.SIGNOFF'],
-  PROPERTY_ACCT: ['GL.JE.CREATE','EXCEPTION.EXC.CLOSE','PERIOD.CLOSE.SIGNOFF'],
-  TREASURY: ['GL.JE.CREATE'], AP: ['GL.JE.CREATE'], AR: ['GL.JE.CREATE'],
-  REVIEWER: ['GL.JE.REVIEW','GL.JE.APPROVE'],
+  ACCT_MANAGER: ['GL.JE.CREATE','GL.JE.REVIEW','GL.JE.APPROVE','GL.COA.CREATE','AP.INVOICE.CREATE','AP.INVOICE.APPROVE','EXCEPTION.EXC.CLOSE','PERIOD.CLOSE.SIGNOFF','PERIOD.PERIOD.CLOSE','CASH.RECON.SIGNOFF'],
+  SENIOR_ACCT: ['GL.JE.CREATE','GL.JE.REVIEW','GL.JE.POST','AP.INVOICE.CREATE','EXCEPTION.EXC.CLOSE','PERIOD.CLOSE.SIGNOFF','CASH.RECON.SIGNOFF'],
+  STAFF_ACCT: ['GL.JE.CREATE','GL.JE.REVIEW','AP.INVOICE.CREATE'],
+  PROJECT_ACCT: ['GL.JE.CREATE','AP.INVOICE.CREATE','PERIOD.CLOSE.SIGNOFF'],
+  PROPERTY_ACCT: ['GL.JE.CREATE','AP.INVOICE.CREATE','EXCEPTION.EXC.CLOSE','PERIOD.CLOSE.SIGNOFF'],
+  TREASURY: ['GL.JE.CREATE','AP.PAYMENT.CREATE','CASH.RECON.SIGNOFF'],
+  AP: ['AP.INVOICE.CREATE'], AR: ['GL.JE.CREATE'],
+  REVIEWER: ['GL.JE.REVIEW','GL.JE.APPROVE','AP.INVOICE.APPROVE'],
   AUDITOR: [], READ_ONLY: [], SYS_ADMIN: [],
 };
-
+// Nav: task-oriented groups, icons, admin sections hidden for non-admin roles
 const NAV = [
-  {group:'工作台', items:[['dashboard','财务首页']]},
-  {group:'总账', items:[['je','Journal Entry'],['gl','Trial Balance / 报表']]},
-  {group:'房地产', items:[['loan','Construction Loan'],['loanreg','Loan Register'],['pmpickup','PM Pickup'],['closing','Closing'],['cost','Project Cost'],['assets','资产与物业']]},
-  {group:'交易', items:[['ap','应付 AP'],['ar','应收 AR'],['cash','资金 Cash'],['bankrec','Bank Reconciliation'],['intercompany','Intercompany']]},
-  {group:'治理', items:[['integration','Integration Hub'],['masterdata','Master Data'],['mapping','Mapping Center'],['rules','Rule Center']]},
-  {group:'运营', items:[['exceptions','Exception Center'],['close','Month-End Close'],['reports','报表中心'],['admin','System Admin']]},
+  {group:'首页', items:[['dashboard','⌂','工作台 Home']]},
+  {group:'交易 Transactions', items:[['ap','⬒','应付 Bills & Payments'],['ar','⬓','应收 Receivables'],['bankrec','⇄','银行对账 Bank Rec'],['je','✎','分录 Journal Entries']]},
+  {group:'项目 Projects', items:[['loan','🏗','建设贷款 Loans'],['cost','Σ','项目成本 Project Cost'],['pmpickup','⌂→','物业运营 PM Pickup'],['closing','⚖','产权交割 Closings']]},
+  {group:'会计 Accounting', items:[['gl','☰','总账与报表 GL'],['coa','#','科目表 COA'],['assets','▣','资产 Assets'],['intercompany','⇌','往来 Intercompany'],['close','☑','月结 Close'],['reports','▤','报表中心 Reports']]},
+  {group:'控制 Controls', items:[['exceptions','⚠','异常中心 Exceptions']]},
+  {group:'系统 System', adminOnly:true, items:[['integration','⇅','集成 Integration'],['masterdata','◈','主数据 Master Data'],['mapping','⇢','映射 Mapping'],['rules','ƒ','规则 Rules'],['loanreg','≡','贷款台账 Register'],['cash','◧','资金账户 Cash'],['admin','⚙','系统管理 Admin']]},
 ];
-const COMP = {
-  dashboard:Dashboard, je:JEWorkspace, gl:GLTrialBalance, loan:LoanWorkspace, loanreg:LoanRegister,
-  pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APModule, ar:ARModule,
-  cash:CashModule, bankrec:BankRec, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
-  mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, reports:Reports, admin:AdminModule,
-};
-const FLAT = NAV.flatMap(g=>g.items);
+const COMP = { dashboard:Dashboard, je:JEWorkspace, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
+  pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARModule,
+  cash:CashModule, bankrec:BankRec2, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
+  mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, reports:Reports, admin:AdminModule };
+const ADMIN_ROLES = ['CONTROLLER','SYS_ADMIN','AUDITOR'];
 
-export function App() {
+// ---- seed AP bills & bank rec model ----
+const SEED_BILLS = [
+  {bill_id:9001, bill_no:'BILL-2026-9001', vendor_id:2, vendor_name:'BluePeak Utilities', invoice_no:'INV-77821', bill_date:'2026-07-10', due_date:'2026-08-09', account_code:'6020', amount:3200, status:'PAID', created_by:'sam', approved_by:'ricky', je_number:'JE-2026-07-1005', pay_je_number:'JE-PAY-9001'},
+  {bill_id:9002, bill_no:'BILL-2026-9002', vendor_id:1, vendor_name:'Summit General Contractors', invoice_no:'APP-014', bill_date:'2026-07-25', due_date:'2026-08-24', account_code:'1400', amount:185000, status:'APPROVED', created_by:'pat', approved_by:'ricky', je_number:'JE-2026-07-9002'},
+  {bill_id:9003, bill_no:'BILL-2026-9003', vendor_id:3, vendor_name:'WanBridge Property Mgmt (RP)', invoice_no:'PMF-2026-07', bill_date:'2026-07-31', due_date:'2026-08-15', account_code:'6000', amount:2400, status:'PENDING_APPROVAL', created_by:'sam'},
+];
+const SEED_BANK = {
+  accounts: {
+    'BA-003': { bank_name:'Pacific Bank', period:'2026-07', stmt_date:'2026-07-31',
+      stmt_begin:118400, stmt_end:162565, gl_book_balance:163650, recorded_adj:0,
+      outstanding_checks:[{ref:'CHK-1088',amount:2400}], deposits_in_transit:[{ref:'DEP-0731',amount:2400}],
+      txns:[
+        {bank_txn_id:1, external_id:'BANKTXN-Z-4460', txn_date:'2026-07-06', amount:46000, direction:'CREDIT', reference:'ACH RENT P0020', match_status:'MATCHED', matched_je:'JE-2026-07-1004'},
+        {bank_txn_id:2, external_id:'BANKTXN-Z-4471', txn_date:'2026-07-30', amount:1250, direction:'CREDIT', reference:'ACH UNKNOWN TENANT', match_status:'UNMATCHED', suggest:'MATCH'},
+        {bank_txn_id:5, external_id:'BANKTXN-Z-4480', txn_date:'2026-07-31', amount:85, direction:'DEBIT', reference:'MONTHLY SERVICE FEE', match_status:'UNMATCHED', suggest:'FEE'},
+        {bank_txn_id:6, external_id:'BANKTXN-Z-4481', txn_date:'2026-07-31', amount:250, direction:'CREDIT', reference:'INTEREST INCOME', match_status:'UNMATCHED', suggest:'INTEREST'},
+      ]},
+    'BA-001': { bank_name:'First National Bank', period:'2026-07', stmt_date:'2026-07-31',
+      stmt_begin:410000, stmt_end:910000, gl_book_balance:910000, recorded_adj:0,
+      outstanding_checks:[], deposits_in_transit:[],
+      txns:[
+        {bank_txn_id:3, external_id:'BANKTXN-A-1002', txn_date:'2026-07-05', amount:500000, direction:'CREDIT', reference:'LOAN DRAW FNB', match_status:'MATCHED', matched_je:'JE-2026-07-1001'},
+      ]},
+  }, history: [],
+};
+
+function Login({onLogin}) {
+  const [u, setU] = useState('ricky');
+  return <div className="login-wrap">
+    <div className="login-card">
+      <div className="login-logo">◈ REFS</div>
+      <div className="login-sub">WanBridge Real Estate Financial System</div>
+      <label className="login-label">登录账号（演示环境 · 角色由账号决定）</label>
+      <select value={u} onChange={e=>setU(e.target.value)}>
+        {USERS.map(x=><option key={x.user_id} value={x.user_id}>{x.name} · {x.role_code}</option>)}
+      </select>
+      <button className="btn btn-primary login-btn" onClick={()=>onLogin(u)}>登录 Sign in</button>
+      <div className="login-note">生产环境将接入 SSO/OIDC。角色与权限来自登录身份，页面内不可切换。</div>
+    </div>
+  </div>;
+}
+
+function App() {
+  const load=(k,d)=>{try{const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
+  const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');
-  const [jes, setJes] = useState(JOURNAL_ENTRIES);
-  const [exceptions, setExceptions] = useState(EXCEPTIONS);
-  const [closeTasks, setCloseTasks] = useState(CLOSE_TASKS);
-  const [userId, setUserId] = useState('ricky');
-  const [entity, setEntity] = useState(2);
+  const [jes, setJes] = useState(()=>load('jes',JOURNAL_ENTRIES));
+  const [exceptions, setExceptions] = useState(()=>load('exc',EXCEPTIONS));
+  const [closeTasks, setCloseTasks] = useState(()=>load('close',CLOSE_TASKS));
+  const [ap, setAp] = useState(()=>load('ap',{bills:SEED_BILLS, dupBlocked:0}));
+  const [bank, setBank] = useState(()=>load('bank',SEED_BANK));
+  const [coa, setCoa] = useState(()=>load('coa',COA.map(a=>({...a}))));
+  const [entity, setEntity] = useState(0);
   const [dark, setDark] = useState(false);
-  const [toast, setToast] = useState(null);
+  const [toast, setToastS] = useState(null);
   const [palette, setPalette] = useState(false);
   const [q, setQ] = useState('');
 
   const user = USERS.find(u=>u.user_id===userId);
-  const period = PERIODS.find(p=>p.entity_id===entity && p.period_code==='2026-07') || {period_code:'2026-07', status:'OPEN'};
-  const showToast = (msg,tone='ok') => { setToast({msg,tone}); setTimeout(()=>setToast(null),2600); };
-  const can = (perm) => { const p = ROLE_PERMS[user.role_code]; return p==='*' || (p||[]).includes(perm); };
+  const period = PERIODS.find(p=>p.entity_id===(entity||2) && p.period_code==='2026-07') || {period_code:'2026-07', status:'OPEN'};
+  const showToast = (msg,tone='ok') => { setToastS({msg,tone}); setTimeout(()=>setToastS(null),3000); };
+  const can = (perm) => { if(!user) return false; const p = ROLE_PERMS[user.role_code]; return p==='*' || (p||[]).includes(perm); };
 
   useEffect(()=>{ document.body.className = dark?'dark':''; },[dark]);
+  const persist=(k,v)=>{try{localStorage.setItem('refs_'+k,JSON.stringify(v))}catch(e){}};
+  useEffect(()=>{persist('jes',jes)},[jes]); useEffect(()=>{persist('exc',exceptions)},[exceptions]);
+  useEffect(()=>{persist('close',closeTasks)},[closeTasks]); useEffect(()=>{persist('ap',ap)},[ap]);
+  useEffect(()=>{persist('bank',bank)},[bank]); useEffect(()=>{persist('coa',coa)},[coa]);
+  useEffect(()=>{ if(userId) persist('user',userId); },[userId]);
+  useEffect(()=>{ bumpId(Math.max(9000,...jes.map(j=>+j.je_id||0),...ap.bills.map(b=>+b.bill_id||0))); },[]);
   useEffect(()=>{
     const h = (e)=>{ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault(); setPalette(p=>!p);} if(e.key==='Escape') setPalette(false); };
     window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
   },[]);
 
+  const mkJE = (spec) => { const id = nextId(); return {je_id:id, je_number:'JE-2026-07-'+id, period_code:'2026-07', posting_status:'DRAFT', je_date:'2026-07-31', created_by:userId, history:[{a:'CREATE',by:userId,at:'2026-07-31'}], ...spec}; };
   const actions = {
-    newJE: () => {
-      const id = nextId();
-      setJes(js=>[{je_id:id, je_number:'JE-2026-07-'+id, entity_id:entity, period_code:'2026-07', je_type:'MANUAL',
-        je_date:'2026-07-31', description:'新建手工分录', source_system:'MAN', posting_status:'DRAFT', has_attachment:false,
-        created_by:userId, lines:[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}]}, ...js]);
-      return id;
-    },
-    newJEFromRule: (spec) => {
-      const id = nextId();
-      setJes(js=>[{je_id:id, je_number:'JE-2026-07-'+id, period_code:'2026-07', posting_status:'DRAFT', je_date:'2026-07-31', created_by:userId, ...spec}, ...js]);
-      return id;
-    },
+    newJE: () => { const je = mkJE({entity_id:entity||2, je_type:'MANUAL', description:'', source_system:'MAN', has_attachment:false,
+      lines:[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}]}); setJes(js=>[je,...js]); return je.je_id; },
+    newJEFromRule: (spec) => { const je = mkJE({...spec}); setJes(js=>[je,...js]); return je.je_id; },
+    copyJE: (id) => { const src = jes.find(j=>j.je_id===id); const je = mkJE({...structuredClone(src), posting_status:'DRAFT', description:'COPY: '+src.description}); je.history=[{a:'COPY of '+src.je_number,by:userId,at:'2026-07-31'}]; setJes(js=>[je,...js]); return je.je_id; },
     updateJE: (id, producer) => setJes(js=>js.map(j=>{ if(j.je_id!==id) return j; const d=structuredClone(j); producer(d); return d; })),
-    advanceJE: (id, next, actionLabel) => setJes(js=>js.map(j=>{
+    advanceJE: (id, next, label) => setJes(js=>js.map(j=>{
       if(j.je_id!==id) return j;
-      // SoD: Maker != Approver/Poster
       if((next==='APPROVED'||next==='POSTED') && j.created_by===userId && user.role_code!=='CONTROLLER'){
-        showToast('SoD 拦截 (4009)：创建人不可审批/过账本分录','bad'); return j;
-      }
-      return {...j, posting_status:next};
+        showToast('SoD 拦截 [4009]：创建人不可审批/过账本分录','bad'); return j; }
+      return {...j, posting_status:next, history:[...(j.history||[]),{a:label||next,by:userId,at:'2026-07-31'}]};
     })),
-    reverseJE: (id) => setJes(js=>{
-      const src = js.find(j=>j.je_id===id); const nid=nextId();
+    reverseJE: (id) => setJes(js=>{ const src = js.find(j=>j.je_id===id); const nid=nextId();
       const rev = {...structuredClone(src), je_id:nid, je_number:'JE-REV-'+nid, posting_status:'POSTED', je_type:'REVERSAL',
-        description:'红字反冲: '+src.description, lines:src.lines.map(l=>({...l, debit_amount:l.credit_amount, credit_amount:l.debit_amount}))};
-      return js.map(j=>j.je_id===id?{...j, posting_status:'REVERSED'}:j).concat(rev);
-    }),
-    ensureException: (spec) => setExceptions(xs=>{
-      if(xs.some(e=>e.exception_type===spec.exception_type && e.object_ref===spec.object_ref && e.status!=='CLOSED')) return xs;
-      return [{exception_id:nextId(), occurred_date:'2026-07-31', aging_days:0, status:'OPEN', resolution:'', ...spec}, ...xs];
-    }),
+        description:'红字反冲: '+src.description, history:[{a:'REVERSAL of '+src.je_number,by:userId,at:'2026-07-31'}],
+        lines:src.lines.map(l=>({...l, debit_amount:l.credit_amount, credit_amount:l.debit_amount}))};
+      return js.map(j=>j.je_id===id?{...j, posting_status:'REVERSED'}:j).concat(rev); }),
+    ensureException: (spec) => setExceptions(xs=>{ if(xs.some(e=>e.exception_type===spec.exception_type && e.object_ref===spec.object_ref && e.status!=='CLOSED')) return xs;
+      return [{exception_id:nextId(), occurred_date:'2026-07-31', aging_days:0, status:'OPEN', resolution:'', ...spec}, ...xs]; }),
     resolveException: (id, resolution) => setExceptions(xs=>xs.map(e=>e.exception_id===id?{...e, status:'CLOSED', resolution, closed_by:userId}:e)),
     signoffTask: (id) => setCloseTasks(ts=>ts.map(t=>t.close_task_id===id?{...t, status:'SIGNED_OFF', signed_off_by:userId}:t)),
+    // ---- AP ----
+    addBill: (f) => { const dup = ap.bills.find(b=>b.vendor_id===f.vendor_id && b.invoice_no.trim().toLowerCase()===f.invoice_no.trim().toLowerCase());
+      if (dup){ setAp(s=>({...s, dupBlocked:(s.dupBlocked||0)+1})); return {dup:dup.bill_no}; }
+      const id=nextId(); const v=VENDORS.find(x=>x.vendor_id===f.vendor_id);
+      setAp(s=>({...s, bills:[{bill_id:id, bill_no:'BILL-2026-'+id, vendor_name:v.vendor_name, status:'PENDING_APPROVAL', created_by:userId, ...f}, ...s.bills]})); return {ok:true}; },
+    approveBill: (id) => { const b = ap.bills.find(x=>x.bill_id===id);
+      const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'AP', description:`AP Bill ${b.bill_no} · ${b.vendor_name}`, posting_status:'POSTED',
+        lines:[{account_code:b.account_code, debit_amount:b.amount, credit_amount:0, vendor_id:b.vendor_id, property_id:b.property_id},
+               {account_code:'2000', debit_amount:0, credit_amount:b.amount, vendor_id:b.vendor_id}]});
+      setJes(js=>[je,...js]);
+      setAp(s=>({...s, bills:s.bills.map(x=>x.bill_id===id?{...x, status:'APPROVED', approved_by:userId, je_number:je.je_number}:x)})); },
+    payBills: (ids) => { ids.forEach(id=>{ const b = ap.bills.find(x=>x.bill_id===id);
+        const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'AP', description:`Payment ${b.bill_no} · ${b.vendor_name}`, posting_status:'POSTED',
+          lines:[{account_code:'2000', debit_amount:b.amount, credit_amount:0, vendor_id:b.vendor_id},
+                 {account_code:'1000', debit_amount:0, credit_amount:b.amount}]});
+        setJes(js=>[je,...js]);
+        setAp(s=>({...s, bills:s.bills.map(x=>x.bill_id===id?{...x, status:'PAID', pay_je_number:je.je_number}:x)})); }); },
+    // ---- Bank ----
+    bankRecord: (acctCode, txnId) => setBank(s=>{ const a=structuredClone(s); const acc=a.accounts[acctCode];
+      const t=acc.txns.find(x=>x.bank_txn_id===txnId); t.match_status='MATCHED';
+      const adj = t.direction==='CREDIT'? t.amount : -t.amount; acc.recorded_adj=(acc.recorded_adj||0)+adj;
+      t.matched_je = t.suggest==='FEE'?'Dr Bank Fee / Cr Cash':'Dr Cash / Cr Interest Income'; return a; }),
+    bankMatch: (acctCode, txnId) => setBank(s=>{ const a=structuredClone(s); const acc=a.accounts[acctCode];
+      const t=acc.txns.find(x=>x.bank_txn_id===txnId); t.match_status='MATCHED'; t.matched_je='手工匹配';
+      const adj = t.direction==='CREDIT'? t.amount : -t.amount; acc.recorded_adj=(acc.recorded_adj||0)+adj; return a; }),
+    bankSuspense: (acctCode, txnId) => { setBank(s=>{ const a=structuredClone(s); const acc=a.accounts[acctCode];
+        const t=acc.txns.find(x=>x.bank_txn_id===txnId); t.match_status='MATCHED'; t.matched_je='→ 9000 Suspense';
+        const adj = t.direction==='CREDIT'? t.amount : -t.amount; acc.recorded_adj=(acc.recorded_adj||0)+adj; return a; });
+      actions.ensureException({exception_type:'SUSPENSE_BALANCE', severity:'MEDIUM', object_type:'BANK_TXN', object_ref:'txn#'+txnId, entity_id:entity||4, owner:'TREASURY', root_cause:'银行交易无法识别，暂挂 Suspense'}); },
+    bankSignoff: (acctCode) => setBank(s=>({...s, history:[{id:Date.now(), account:acctCode, period:s.accounts[acctCode].period, diff:0, by:userId, at:'2026-07-31'}, ...s.history]})),
+    // ---- COA ----
+    addAccount: (f) => { if (coa.some(a=>a.account_code===f.account_code)) return {dup:true};
+      setCoa(cs=>[...cs, f].sort((a,b)=>a.account_code.localeCompare(b.account_code))); return {ok:true}; },
+    toggleAccount: (code) => setCoa(cs=>cs.map(a=>a.account_code===code?{...a, inactive:!a.inactive}:a)),
+    resetData: () => { try{['jes','exc','close','ap','bank','coa','user'].forEach(k=>localStorage.removeItem('refs_'+k))}catch(e){} location.reload(); },
+    logout: () => { try{localStorage.removeItem('refs_user')}catch(e){} setUserId(null); },
   };
 
-  const ctx = {jes, exceptions, closeTasks, user, entity, period, can, actions, toast:showToast, goto:setRoute};
+  if (!user) return <Login onLogin={setUserId} />;
+
+  const isAdmin = ADMIN_ROLES.includes(user.role_code);
+  const nav = NAV.filter(g=>!g.adminOnly || isAdmin);
+  const flat = nav.flatMap(g=>g.items);
+  const ctx = {jes, exceptions, closeTasks, ap, bank, coa, user, entity, period, can, actions, toast:showToast, goto:setRoute};
   const Comp = COMP[route] || Dashboard;
-  const paletteItems = FLAT.filter(([k,l])=>l.toLowerCase().includes(q.toLowerCase())||k.includes(q.toLowerCase()));
+  const paletteItems = flat.filter(([k,ic,l])=>l.toLowerCase().includes(q.toLowerCase())||k.includes(q.toLowerCase()));
 
   return <div className="app">
     <aside className="sidebar">
       <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
-      <nav>{NAV.map(g=><div key={g.group} className="nav-group">
+      <nav>{nav.map(g=><div key={g.group} className="nav-group">
         <div className="nav-group-t">{g.group}</div>
-        {g.items.map(([k,l])=><button key={k} className={`nav-item ${route===k?'nav-on':''}`} onClick={()=>setRoute(k)}>{l}</button>)}
+        {g.items.map(([k,ic,l])=><button key={k} className={`nav-item ${route===k?'nav-on':''}`} onClick={()=>setRoute(k)}><span className="nav-ic">{ic}</span>{l}</button>)}
       </div>)}</nav>
     </aside>
     <div className="main">
       <header className="topbar">
-        <button className="cmdk" onClick={()=>setPalette(true)}>⌘K 搜索 / 跳转</button>
+        <label className="sw"><select value={entity} onChange={e=>setEntity(+e.target.value)}><option value={0}>全部实体 All Entities</option>{ENTITIES.map(en=><option key={en.entity_id} value={en.entity_id}>{en.entity_code} {en.entity_name}</option>)}</select></label>
+        <button className="cmdk" onClick={()=>setPalette(true)}>⌘K 全局搜索 / 跳转</button>
         <div className="top-right">
-          <label className="sw">实体
-            <select value={entity} onChange={e=>setEntity(+e.target.value)}>{ENTITIES.map(en=><option key={en.entity_id} value={en.entity_id}>{en.entity_code} {en.entity_name}</option>)}</select>
-          </label>
           <span className="sw">期间 <b>2026-07</b> <span className={`badge badge-${period.status==='OPEN'?'ok':'muted'}`}>{period.status}</span></span>
-          <label className="sw">角色
-            <select value={userId} onChange={e=>setUserId(e.target.value)}>{USERS.map(u=><option key={u.user_id} value={u.user_id}>{u.name}</option>)}</select>
-          </label>
+          <button className="icon-btn" onClick={()=>actions.resetData()} title="重置演示数据">⟲</button>
           <button className="icon-btn" onClick={()=>setDark(d=>!d)} title="明/暗">{dark?'☀':'☾'}</button>
+          <div className="user-chip" title={'角色 '+user.role_code}>
+            <span className="user-av">{user.name[0]}</span>
+            <span className="user-nm">{user.name}<span className="muted sm"> · {user.role_code}</span></span>
+            <button className="link-btn" onClick={actions.logout}>退出</button>
+          </div>
         </div>
       </header>
       <main className="content"><Comp ctx={ctx} /></main>
@@ -127,14 +210,15 @@ export function App() {
       <div className="pal" onClick={e=>e.stopPropagation()}>
         <input autoFocus placeholder="跳转到模块…" value={q} onChange={e=>setQ(e.target.value)}
           onKeyDown={e=>{if(e.key==='Enter'&&paletteItems[0]){setRoute(paletteItems[0][0]); setPalette(false); setQ('');}}}/>
-        <div className="pal-list">{paletteItems.map(([k,l])=>
-          <button key={k} onClick={()=>{setRoute(k); setPalette(false); setQ('');}}>{l} <span className="muted sm">{k}</span></button>)}</div>
+        <div className="pal-list">{paletteItems.map(([k,ic,l])=>
+          <button key={k} onClick={()=>{setRoute(k); setPalette(false); setQ('');}}>{ic} {l}<span className="muted sm">{k}</span></button>)}</div>
       </div>
     </div>}
     {toast && <Toast msg={toast.msg} tone={toast.tone} />}
   </div>;
 }
 
+export { App };
 if (typeof document !== 'undefined' && document.getElementById('root')) {
   createRoot(document.getElementById('root')).render(<App/>);
 }

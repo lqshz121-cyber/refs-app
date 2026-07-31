@@ -1,23 +1,24 @@
 import { useState, useMemo } from 'react';
-import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Field, SectionTitle } from './ui.jsx';
-import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS } from './data.js';
-import { PM_ROWS, BANK_TXNS, CLOSINGS, LOAN_TXNS, IC_TXNS } from './seed.js';
+import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Field, SectionTitle, ApprovalTimeline } from './ui.jsx';
+import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS, PROJECTS, VENDORS } from './data.js';
+import { PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS } from './seed.js';
 import { acct, money, sum, jeTotals, isBalanced, validateJE, JE_FLOW, loanRule, pmRule, trialBalance } from './engine.js';
 
 // ---------------- Dashboard ----------------
 export function Dashboard({ctx}) {
-  const {jes, exceptions, closeTasks, goto} = ctx;
+  const {jes, exceptions, closeTasks, goto, entity} = ctx;
+  const jeE = jes.filter(j=>!entity||j.entity_id===entity);
   const doneTasks = closeTasks.filter(t=>t.status==='DONE'||t.status==='SIGNED_OFF').length;
   const closePct = Math.round(doneTasks/closeTasks.length*100);
-  const pendingApprovals = jes.filter(j=>['PENDING_REVIEW','PENDING_APPROVAL'].includes(j.posting_status));
-  const openExc = exceptions.filter(e=>['OPEN','IN_PROGRESS'].includes(e.status));
+  const pendingApprovals = jeE.filter(j=>['PENDING_REVIEW','PENDING_APPROVAL'].includes(j.posting_status));
+  const openExc = exceptions.filter(e=>['OPEN','IN_PROGRESS'].includes(e.status) && (!entity||e.entity_id===entity));
   const high = openExc.filter(e=>e.severity==='HIGH').length;
   const med = openExc.filter(e=>e.severity==='MEDIUM').length;
-  const bankUnmatched = BANK_TXNS.filter(b=>b.match_status==='UNMATCHED').length;
+  const bankUnmatched = Object.values(ctx.bank.accounts).reduce((n,a)=>n+a.txns.filter(t=>t.match_status==='UNMATCHED').length,0);
   const pmUnmapped = PM_ROWS.filter(r=>pmRule(r).unmapped).length;
   const icBad = IC_TXNS.filter(i=>i.match_status==='UNMATCHED').length;
   const loanMismatch = exceptions.filter(e=>e.exception_type==='LOAN_BALANCE_MISMATCH'&&e.status!=='CLOSED').length;
-  const pendReview = jes.filter(j=>j.posting_status==='PENDING_REVIEW').length;
+  const pendReview = jeE.filter(j=>j.posting_status==='PENDING_REVIEW').length;
   const todo = [
     {label:'银行未匹配', n:bankUnmatched, to:'bankrec', tone:bankUnmatched?'warn':'ok'},
     {label:'贷款余额差异', n:loanMismatch, to:'exceptions', tone:loanMismatch?'bad':'ok'},
@@ -57,7 +58,7 @@ export function JEWorkspace({ctx}) {
   const [sel, setSel] = useState(null);
   const [filter, setFilter] = useState('全部');
   const statuses = ['全部','DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED'];
-  const list = jes.filter(j=>filter==='全部'||j.posting_status===filter);
+  const list = jes.filter(j=>(filter==='全部'||j.posting_status===filter) && (!ctx.entity||j.entity_id===ctx.entity));
   const je = jes.find(j=>j.je_id===sel);
 
   const newJE = () => {
@@ -115,14 +116,14 @@ function JEEditor({je, ctx}) {
     <div className="je-head">
       <div>
         <div className="je-num">{je.je_number}</div>
-        <div className="muted">{je.description}</div>
+        {editable ? <input className="desc-in" value={je.description} onChange={e=>actions.updateJE(je.je_id,d=>{d.description=e.target.value;})} placeholder="分录描述"/> : <div className="muted">{je.description}</div>}
       </div>
       <Badge>{je.posting_status}</Badge>
     </div>
     <div className="je-meta">
-      <span>日期 {je.je_date}</span><span>类型 {je.je_type}</span><span>来源 {je.source_system}</span>
+      {editable ? <span>日期 <input type="date" className="date-in" value={je.je_date} onChange={e=>actions.updateJE(je.je_id,d=>{d.je_date=e.target.value;})}/></span> : <span>日期 {je.je_date}</span>}<span>类型 {je.je_type}</span><span>来源 {je.source_system}</span>
       {je.rule_code && <span>规则 {je.rule_code}</span>}
-      {je.je_type==='MANUAL' && <span>附件 {je.has_attachment?'✓':'✗'}</span>}
+      {je.je_type==='MANUAL' && (editable ? <button className="link-btn" onClick={()=>actions.updateJE(je.je_id,d=>{d.has_attachment=true; d.attachment_name='support-doc.pdf';})}>{je.has_attachment?('附件 ✓ '+(je.attachment_name||'')):'＋ 添加附件'}</button> : <span>附件 {je.has_attachment?'✓':'✗'}</span>)}
     </div>
     <table className="tbl je-lines">
       <thead><tr><th style={{width:'40%'}}>科目</th><th className="ta-r">借方</th><th className="ta-r">贷方</th><th>维度</th>{editable&&<th></th>}</tr></thead>
@@ -137,7 +138,13 @@ function JEEditor({je, ctx}) {
           </td>
           <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.debit_amount||''} onChange={e=>setLine(i,{debit_amount:+e.target.value||0, credit_amount:0})}/> : <Money v={l.debit_amount||0}/>}</td>
           <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.credit_amount||''} onChange={e=>setLine(i,{credit_amount:+e.target.value||0, debit_amount:0})}/> : <Money v={l.credit_amount||0}/>}</td>
-          <td className="muted sm">{[l.project_id&&'P'+l.project_id, l.property_id&&'Prop'+l.property_id, l.loan_id&&'L'+l.loan_id, l.vendor_id&&'V'+l.vendor_id].filter(Boolean).join(' ')}</td>
+          <td className="muted sm">{editable ?
+            <div className="dim-picks">
+              <select value={l.property_id||''} onChange={e=>setLine(i,{property_id:e.target.value?+e.target.value:null})}><option value="">物业—</option>{PROPERTIES.map(p=><option key={p.property_id} value={p.property_id}>{p.property_code}</option>)}</select>
+              <select value={l.project_id||''} onChange={e=>setLine(i,{project_id:e.target.value?+e.target.value:null})}><option value="">项目—</option>{PROJECTS.map(p=><option key={p.project_id} value={p.project_id}>{p.project_code}</option>)}</select>
+              <select value={l.vendor_id||''} onChange={e=>setLine(i,{vendor_id:e.target.value?+e.target.value:null})}><option value="">供应商—</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_code}</option>)}</select>
+            </div>
+            : [(l.project_id&&('P'+l.project_id)), (l.property_id&&('Prop'+l.property_id)), (l.loan_id&&('L'+l.loan_id)), (l.vendor_id&&('V'+l.vendor_id))].filter(Boolean).join(' ')}</td>
           {editable && <td><button className="x-sm" onClick={()=>rmLine(i)}>×</button></td>}
         </tr>)}
       </tbody>
@@ -152,9 +159,12 @@ function JEEditor({je, ctx}) {
     <div className="je-actions">
       {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'无此权限':''}>{flow.action}</Btn>}
       {flow.reject && can('GL.JE.REVIEW') && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id, flow.reject, '退回'); toast('已退回 DRAFT','warn');}}>退回</Btn>}
+      <Btn variant="ghost" onClick={()=>{const nid=actions.copyJE(je.je_id); toast('已复制为新草稿');}}>复制 JE</Btn>
       {je.posting_status==='POSTED' && can('GL.JE.REVERSE') && <Btn variant="danger" onClick={reverse}>红字反冲</Btn>}
       {readOnly && <span className="muted">已过账分录不可修改，如需更正请使用红字反冲</span>}
     </div>
+    {(je.history&&je.history.length>0) && <><SectionTitle>处理历史 Audit Trail</SectionTitle>
+      <ApprovalTimeline steps={je.history.map(h=>({label:h.a, done:true, who:h.by, at:h.at}))} /></>}
   </div>;
 }
 
@@ -262,40 +272,6 @@ export function ClosingWorkspace({ctx}) {
       <span className="ck ok">Loan Payoff = 贷款系统 ✓</span>
     </div>
     <p className="muted sm">生成分录：{c.generated_je}（借 Land/Building，贷 Construction Loan + Cash to Close）。资产/收入确认日 = Closing Date。</p>
-  </div>;
-}
-
-// ---------------- Bank Reconciliation ----------------
-export function BankRec({ctx}) {
-  const {toast} = ctx;
-  const [acctCode, setAcctCode] = useState('BA-003');
-  const [localTxns, setLocalTxns] = useState(BANK_TXNS);
-  const txns = localTxns.filter(t=>t.bank_account_code===acctCode);
-  const unmatched = txns.filter(t=>t.match_status==='UNMATCHED');
-  const diff = sum(unmatched, t=>t.direction==='CREDIT'?t.amount:-t.amount);
-  const canSignoff = Math.abs(diff)<0.005;
-  const suspense = (id) => { setLocalTxns(ls=>ls.map(t=>t.bank_txn_id===id?{...t,match_status:'MATCHED',matched_je:'→ 9000 Suspense'}:t)); toast('已暂挂至 Suspense (9000)','warn'); };
-  const match = (id) => { setLocalTxns(ls=>ls.map(t=>t.bank_txn_id===id?{...t,match_status:'MATCHED',matched_je:'手工匹配'}:t)); toast('已匹配'); };
-  return <div>
-    <h2 className="page-h">Bank Reconciliation</h2>
-    <div className="loan-select">{['BA-003','BA-001'].map(a=><button key={a} className={`chip ${acctCode===a?'chip-on':''}`} onClick={()=>setAcctCode(a)}>{a}</button>)}</div>
-    <div className="kpi-row">
-      <KPI label="银行笔数" value={txns.length} />
-      <KPI label="未匹配" value={unmatched.length} tone={unmatched.length?'warn':'ok'} />
-      <KPI label="未匹配净差" value={money(diff)} tone={canSignoff?'ok':'bad'} />
-    </div>
-    <Table cols={[
-      {h:'银行交易号',k:'external_id'},
-      {h:'日期',k:'txn_date'},
-      {h:'方向',render:r=><Badge tone="muted">{r.direction}</Badge>},
-      {h:'金额',num:true,render:r=><Money v={r.amount}/>},
-      {h:'摘要',k:'reference'},
-      {h:'状态',render:r=><Badge>{r.match_status}</Badge>},
-      {h:'匹配对象/操作',render:r=> r.match_status==='MATCHED'? <span className="muted sm">{r.matched_je}</span> :
-        <span className="row-acts"><Btn size="sm" onClick={()=>match(r.bank_txn_id)}>匹配</Btn><Btn size="sm" variant="ghost" onClick={()=>suspense(r.bank_txn_id)}>暂挂</Btn></span>},
-    ]} rows={txns} rowKey="bank_txn_id" />
-    <Btn variant="primary" disabled={!canSignoff} title={canSignoff?'':'差异需为 0'} onClick={()=>toast('对账 Sign-off 完成','ok')}>Sign-off 对账</Btn>
-    <span className="muted sm" style={{marginLeft:12}}>差异=0 才可 Sign-off；无法识别的交易先暂挂 Suspense 并登记异常。</span>
   </div>;
 }
 
