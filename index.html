@@ -152,6 +152,57 @@ code{font-family:var(--mono); background:var(--bg-canvas); padding:1px 5px; bord
 .link-btn{border:0;background:transparent;color:var(--brand);cursor:pointer;font-size:12px;padding:0;}
 @media(min-width:1800px){ .content{max-width:1680px;} }
 @media(max-width:1080px){ .kpi-row{grid-template-columns:repeat(2,1fr);} .todo-grid,.rep-grid{grid-template-columns:repeat(2,1fr);} .split{grid-template-columns:1fr;} .recon-model{grid-template-columns:1fr;} .sidebar{position:fixed; z-index:30; transform:translateX(-100%);} }
+
+/* ================= QBO RESKIN ================= */
+:root{ --qb-green:#2CA01C; --qb-green-h:#108000; --qb-side:#282828; --qb-side-t:#d5d7dc; --bg-canvas:#f4f5f8; --brand:#2CA01C; --brand-ink:#0f7a00; }
+body{background:var(--bg-canvas); font-family:'Avenir Next','Inter',-apple-system,'Segoe UI',sans-serif;}
+body.dark{ --qb-side:#1b1b1f; }
+.sidebar{background:var(--qb-side); border-right:0; width:230px;}
+.sidebar .brand{color:#fff; padding:18px 16px 10px;} .sidebar .brand-sub{color:#9aa0a6;}
+.new-btn{display:flex; align-items:center; justify-content:center; gap:8px; margin:8px 14px 16px; padding:11px 0; background:var(--qb-green); color:#fff; border:0; border-radius:24px; font-size:15px; font-weight:600; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,.25); width:calc(100% - 28px);}
+.new-btn:hover{background:var(--qb-green-h);}
+.nav-group-t{color:#8d9096; font-size:11px; letter-spacing:.08em; padding:12px 16px 4px; text-transform:uppercase;}
+.nav-item{color:var(--qb-side-t); border-radius:0; padding:9px 16px; font-size:14px; border-left:4px solid transparent;}
+.nav-item:hover{background:#3a3a3f; color:#fff;}
+.nav-item.nav-on{background:#3f3f45; color:#fff; font-weight:600; border-left:4px solid var(--qb-green);}
+.nav-ic{opacity:.9;}
+.topbar{background:#fff; border-bottom:1px solid #d4d7dc; backdrop-filter:none; height:58px;}
+body.dark .topbar{background:var(--bg-surface);}
+.cmdk{border-radius:20px; background:var(--bg-canvas); border:1px solid #d4d7dc; padding:8px 18px;}
+.btn-primary{background:var(--qb-green); border-color:var(--qb-green);}
+.btn-primary:hover{background:var(--qb-green-h);}
+.chip.chip-on{background:var(--qb-green); border-color:var(--qb-green);}
+.mo-chip.mo-on{background:var(--qb-green); border-color:var(--qb-green);}
+.step-chip.step-on{background:var(--qb-green); border-color:var(--qb-green);}
+.card,.kpi{border:1px solid #d4d7dc; box-shadow:0 1px 2px rgba(0,0,0,.05); border-radius:10px;}
+.tbl th{background:#fff; border-bottom:2px solid #d4d7dc;}
+body.dark .tbl th{background:var(--bg-surface);}
+.user-av{background:var(--qb-green);}
+.page-h{font-weight:700;}
+/* QBO dashboard cards */
+.qbo-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-bottom:22px;}
+.qbo-card{background:var(--bg-surface); border:1px solid #d4d7dc; border-radius:10px; padding:18px 20px; box-shadow:0 1px 2px rgba(0,0,0,.05);}
+.qbo-card h4{margin:0 0 4px; font-size:12px; letter-spacing:.06em; color:var(--text-2); text-transform:uppercase; font-weight:600;}
+.qbo-big{font-size:26px; font-weight:700; margin:2px 0 2px;}
+.qbo-sub{font-size:12.5px; color:var(--text-2); margin-bottom:10px;}
+.qbo-bars{display:flex; align-items:flex-end; gap:6px; height:64px; margin-top:8px;}
+.qbo-bar{flex:1; border-radius:4px 4px 0 0; background:var(--qb-green); opacity:.85; min-height:4px;}
+.qbo-bar.neg{background:#e02b1d;}
+.donut{width:96px; height:96px; border-radius:50%; flex:none;}
+.donut-wrap{display:flex; gap:16px; align-items:center;}
+.legend{font-size:12.5px; display:flex; flex-direction:column; gap:5px;}
+.legend i{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px;}
+.bank-row{display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--divider); font-size:13.5px;}
+.bank-row:last-child{border-bottom:0;}
+.split-bar{display:flex; height:10px; border-radius:6px; overflow:hidden; margin:10px 0 6px;}
+/* quick create menu */
+.newmenu-scrim{position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.25);}
+.newmenu{position:absolute; left:238px; top:64px; background:var(--bg-surface); border:1px solid #d4d7dc; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.22); padding:20px 24px; display:flex; gap:34px; z-index:61;}
+.newmenu h5{margin:0 0 10px; font-size:11.5px; color:var(--text-2); text-transform:uppercase; letter-spacing:.07em;}
+.newmenu button{display:block; background:none; border:0; color:var(--brand-ink); font-size:14px; padding:5px 0; cursor:pointer; text-align:left; width:100%;}
+.newmenu button:hover{text-decoration:underline;}
+@media(max-width:1200px){.qbo-grid{grid-template-columns:repeat(2,1fr);}}
+
 </style>
 </head>
 <body>

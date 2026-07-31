@@ -94,6 +94,7 @@ function App() {
   const [dark, setDark] = useState(false);
   const [toast, setToastS] = useState(null);
   const [palette, setPalette] = useState(false);
+  const [newMenu, setNewMenu] = useState(false);
   const [q, setQ] = useState('');
 
   const user = USERS.find(u=>u.user_id===userId);
@@ -185,6 +186,7 @@ function App() {
   return <div className="app">
     <aside className="sidebar">
       <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
+      <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New 新建</button>
       <nav>{nav.map(g=><div key={g.group} className="nav-group">
         <div className="nav-group-t">{g.group}</div>
         {g.items.map(([k,ic,l])=><button key={k} className={`nav-item ${route===k?'nav-on':''}`} onClick={()=>setRoute(k)}><span className="nav-ic">{ic}</span>{l}</button>)}
@@ -196,6 +198,8 @@ function App() {
         <button className="cmdk" onClick={()=>setPalette(true)}>⌘K 全局搜索 / 跳转</button>
         <div className="top-right">
           <span className="sw">期间 <b>2026-07</b> <span className={`badge badge-${period.status==='OPEN'?'ok':'muted'}`}>{period.status}</span></span>
+          <button className="icon-btn" title="帮助" onClick={()=>showToast('帮助中心(原型)')}>?</button>
+          <button className="icon-btn" title="通知" onClick={()=>setRoute('exceptions')}>🔔</button>
           <button className="icon-btn" onClick={()=>actions.resetData()} title="重置演示数据">⟲</button>
           <button className="icon-btn" onClick={()=>setDark(d=>!d)} title="明/暗">{dark?'☀':'☾'}</button>
           <div className="user-chip" title={'角色 '+user.role_code}>
@@ -207,6 +211,26 @@ function App() {
       </header>
       <main className="content"><Comp ctx={ctx} /></main>
     </div>
+    {newMenu && <div className="newmenu-scrim" onClick={()=>setNewMenu(false)}>
+      <div className="newmenu" onClick={e=>e.stopPropagation()}>
+        <div><h5>总账 Accounting</h5>
+          <button onClick={()=>{actions.newJE(); setRoute('je'); setNewMenu(false);}}>Journal Entry 手工分录</button>
+          <button onClick={()=>{setRoute('coa'); setNewMenu(false);}}>Account 科目</button>
+          <button onClick={()=>{setRoute('close'); setNewMenu(false);}}>Close Task 月结任务</button></div>
+        <div><h5>支出 Expenses</h5>
+          <button onClick={()=>{setRoute('ap'); setNewMenu(false);}}>Bill 应付账单</button>
+          <button onClick={()=>{setRoute('checks'); setNewMenu(false);}}>Check 支票</button>
+          <button onClick={()=>{setRoute('ap'); setNewMenu(false);}}>Pay Bills 付款批次</button></div>
+        <div><h5>房地产 Real Estate</h5>
+          <button onClick={()=>{setRoute('loan'); setNewMenu(false);}}>Loan Draw 提款</button>
+          <button onClick={()=>{setRoute('pmpickup'); setNewMenu(false);}}>PM Pickup 批次</button>
+          <button onClick={()=>{setRoute('closing'); setNewMenu(false);}}>Closing 交割</button></div>
+        <div><h5>其他 Other</h5>
+          <button onClick={()=>{setRoute('bankrec'); setNewMenu(false);}}>Reconcile 对账</button>
+          <button onClick={()=>{setRoute('exceptions'); setNewMenu(false);}}>Exception 异常</button>
+          <button onClick={()=>{setRoute('reports'); setNewMenu(false);}}>Report 报表</button></div>
+      </div>
+    </div>}
     {palette && <div className="pal-scrim" onClick={()=>setPalette(false)}>
       <div className="pal" onClick={e=>e.stopPropagation()}>
         <input autoFocus placeholder="跳转到模块…" value={q} onChange={e=>setQ(e.target.value)}

@@ -2,53 +2,70 @@ import { useState, useMemo } from 'react';
 import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Field, SectionTitle, ApprovalTimeline } from './ui.jsx';
 import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS, PROJECTS, VENDORS } from './data.js';
 import { PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS } from './seed.js';
-import { acct, money, sum, jeTotals, isBalanced, validateJE, JE_FLOW, loanRule, pmRule, trialBalance } from './engine.js';
+import { acct, money, sum, jeTotals, isBalanced, validateJE, JE_FLOW, loanRule, pmRule, trialBalance, statements } from './engine.js';
 
 // ---------------- Dashboard ----------------
 export function Dashboard({ctx}) {
-  const {jes, exceptions, closeTasks, goto, entity} = ctx;
+  const {jes, exceptions, closeTasks, goto, entity, ap, bank} = ctx;
   const jeE = jes.filter(j=>!entity||j.entity_id===entity);
-  const doneTasks = closeTasks.filter(t=>t.status==='DONE'||t.status==='SIGNED_OFF').length;
-  const closePct = Math.round(doneTasks/closeTasks.length*100);
+  const doneTasks = closeTasks.filter(t=>t.status==='SIGNED_OFF').length;
   const pendingApprovals = jeE.filter(j=>['PENDING_REVIEW','PENDING_APPROVAL'].includes(j.posting_status));
   const openExc = exceptions.filter(e=>['OPEN','IN_PROGRESS'].includes(e.status) && (!entity||e.entity_id===entity));
-  const high = openExc.filter(e=>e.severity==='HIGH').length;
-  const med = openExc.filter(e=>e.severity==='MEDIUM').length;
-  const bankUnmatched = Object.values(ctx.bank.accounts).reduce((n,a)=>n+a.txns.filter(t=>t.match_status==='UNMATCHED').length,0);
-  const pmUnmapped = PM_ROWS.filter(r=>pmRule(r).unmapped).length;
-  const icBad = IC_TXNS.filter(i=>i.match_status==='UNMATCHED').length;
-  const loanMismatch = exceptions.filter(e=>e.exception_type==='LOAN_BALANCE_MISMATCH'&&e.status!=='CLOSED').length;
-  const pendReview = jeE.filter(j=>j.posting_status==='PENDING_REVIEW').length;
-  const todo = [
-    {label:'银行未匹配', n:bankUnmatched, to:'bankrec', tone:bankUnmatched?'warn':'ok'},
-    {label:'贷款余额差异', n:loanMismatch, to:'exceptions', tone:loanMismatch?'bad':'ok'},
-    {label:'PM 未映射条目', n:pmUnmapped, to:'pmpickup', tone:pmUnmapped?'warn':'ok'},
-    {label:'Intercompany 不平', n:icBad, to:'intercompany', tone:icBad?'bad':'ok'},
-    {label:'手工JE 待复核', n:pendReview, to:'je', tone:pendReview?'warn':'ok'},
-  ];
+  const st = statements(jes, entity);
+  const openBills = ap.bills.filter(b=>!['PAID','VOID'].includes(b.status));
+  const paidBills = ap.bills.filter(b=>b.status==='PAID');
+  const bankUnmatched = Object.values(bank.accounts).reduce((n,a)=>n+a.txns.filter(t=>t.match_status==='UNMATCHED').length,0);
+  const expCats = [['运营 Opex', Math.max(1,st.expense*0.42), '#2CA01C'], ['利息 Interest', Math.max(1,st.expense*0.31), '#0077C5'], ['管理费 Mgmt', Math.max(1,st.expense*0.17), '#FF8000'], ['其他 Other', Math.max(1,st.expense*0.10), '#8A5BE0']];
+  const expTot = expCats.reduce((s,[,v])=>s+v,0);
+  let acc=0; const segs = expCats.map(([n,v,c])=>{ const from=acc/expTot*360; acc+=v; return `${c} ${from}deg ${acc/expTot*360}deg`; }).join(', ');
+  const plBars = [12,18,9,22,15,26,Math.max(4,Math.round(st.netIncome/4000))];
   return <div>
-    <h2 className="page-h">财务工作台 · Control Center</h2>
-    <div className="kpi-row">
-      <KPI label="关账进度 (2026-07)" value={closePct+'%'} sub={`${doneTasks}/${closeTasks.length} 任务`} tone={closePct===100?'ok':'warn'} />
-      <KPI label="待审批" value={pendingApprovals.length} sub={money(sum(pendingApprovals,j=>jeTotals(j).debit))} tone={pendingApprovals.length?'warn':'ok'} />
-      <KPI label="数据同步" value="●●○" sub="WBS ✓ · PM ✓ · Bank ⋯" tone="ok" />
-      <KPI label="未决异常" value={openExc.length} sub={`${high} 高 · ${med} 中`} tone={high?'bad':'warn'} />
+    <h2 className="page-h">财务工作台 Business Overview</h2>
+    <div className="qbo-grid">
+      <div className="qbo-card" onClick={()=>goto('gl')} style={{cursor:'pointer'}}>
+        <h4>Profit & Loss · 2026-07</h4>
+        <div className={`qbo-big ${st.netIncome<0?'num-neg':''}`}>{money(st.netIncome)}</div>
+        <div className="qbo-sub">净利 Net income · 收入 {money(st.revenue)} − 费用 {money(st.expense)}</div>
+        <div className="qbo-bars">{plBars.map((h,i)=><div key={i} className={`qbo-bar ${i===6&&st.netIncome<0?'neg':''}`} style={{height:h*2.4}} title={'月'+(i+1)}/>)}</div>
+      </div>
+      <div className="qbo-card" onClick={()=>goto('reports')} style={{cursor:'pointer'}}>
+        <h4>Expenses · 本期费用</h4>
+        <div className="qbo-big">{money(st.expense)}</div>
+        <div className="donut-wrap">
+          <div className="donut" style={{background:`conic-gradient(${segs})`}}/>
+          <div className="legend">{expCats.map(([n,v,c])=><span key={n}><i style={{background:c}}/>{n} · {money(v)}</span>)}</div>
+        </div>
+      </div>
+      <div className="qbo-card" onClick={()=>goto('bankrec')} style={{cursor:'pointer'}}>
+        <h4>Bank Accounts · 银行账户</h4>
+        {Object.entries(bank.accounts).map(([code,a])=><div key={code} className="bank-row"><span>{code} · {a.bank_name}</span><Money v={a.gl_book_balance}/></div>)}
+        <div className="qbo-sub" style={{marginTop:8}}>{bankUnmatched} 笔未匹配流水 → 去对账</div>
+      </div>
+      <div className="qbo-card" onClick={()=>goto('ap')} style={{cursor:'pointer'}}>
+        <h4>Bills · 应付</h4>
+        <div className="qbo-big">{money(sum(openBills,b=>b.amount))}</div>
+        <div className="split-bar"><span style={{flex:Math.max(1,openBills.length), background:'#FF8000'}}/><span style={{flex:Math.max(1,paidBills.length), background:'#2CA01C'}}/></div>
+        <div className="qbo-sub">{openBills.length} 张未付 · {paidBills.length} 张已付</div>
+      </div>
+      <div className="qbo-card" onClick={()=>goto('close')} style={{cursor:'pointer'}}>
+        <h4>Month-End Close · 关账</h4>
+        <div className="qbo-big">{Math.round(doneTasks/closeTasks.length*100)}%</div>
+        <div className="split-bar"><span style={{flex:Math.max(1,doneTasks), background:'#2CA01C'}}/><span style={{flex:Math.max(1,closeTasks.length-doneTasks), background:'#d4d7dc'}}/></div>
+        <div className="qbo-sub">{doneTasks}/{closeTasks.length} 任务完成 · 期间 2026-07 OPEN</div>
+      </div>
+      <div className="qbo-card" onClick={()=>goto('exceptions')} style={{cursor:'pointer'}}>
+        <h4>Exceptions · 未决异常</h4>
+        <div className="qbo-big num-neg">{openExc.length}</div>
+        <div className="qbo-sub">{openExc.filter(e=>e.severity==='HIGH').length} 高 · {openExc.filter(e=>e.severity==='MEDIUM').length} 中 · 最长 aging {Math.max(0,...openExc.map(e=>e.aging_days))} 天</div>
+      </div>
     </div>
-    <SectionTitle>待处理事项</SectionTitle>
-    <div className="todo-grid">
-      {todo.map((t,i)=><Card key={i} hover className="todo-card" onClick={()=>goto(t.to)}>
-        <div className={`todo-n badge-${t.tone}`}>{t.n}</div>
-        <div className="todo-label">{t.label}</div>
-      </Card>)}
-    </div>
-    <SectionTitle>待审批队列</SectionTitle>
-    <Table cols={[
-      {h:'JE 编号',k:'je_number'},
-      {h:'描述',render:r=>r.description},
-      {h:'来源',render:r=><Badge>{r.source_system}</Badge>},
-      {h:'金额',num:true,render:r=><Money v={jeTotals(r).debit}/>},
+    <SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>goto('je')}>查看全部</Btn>}>待审批队列 Approvals ({pendingApprovals.length})</SectionTitle>
+    <Table rowKey="je_id" onRow={r=>goto('je')} cols={[
+      {h:'JE 编号',k:'je_number'},{h:'描述',k:'description'},
+      {h:'来源',render:r=><Badge tone="muted">{r.source_system}</Badge>},
+      {h:'金额',num:true,render:r=><Money v={jeTotals(r).dr}/>},
       {h:'状态',render:r=><Badge>{r.posting_status}</Badge>},
-    ]} rows={pendingApprovals} onRow={()=>goto('je')} empty="无待审批" rowKey="je_id" />
+    ]} rows={pendingApprovals} empty="没有待审批分录"/>
   </div>;
 }
 
