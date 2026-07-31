@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toast, Btn } from './ui.jsx';
 import { ENTITIES, USERS, PERIODS, COA, VENDORS, CUSTOMERS } from './data.js';
-import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, BANK_TXNS, nextId, bumpId } from './seed.js';
+import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, BANK_TXNS, FY2026, nextId, bumpId } from './seed.js';
 import { jeTotals } from './engine.js';
 import { Dashboard, JEWorkspace, LoanWorkspace, PMPickup, ClosingWorkspace, ExceptionCenter, CloseMgmt } from './modules-core.jsx';
 import { GLTrialBalance, Reports, ARModule, CashModule, LoanRegister, ProjectCost, Assets, Intercompany, IntegrationHub, MasterData, MappingCenter, RuleCenter, AdminModule } from './modules-more.jsx';
@@ -93,7 +93,7 @@ function App() {
   const load=(k,d)=>{try{const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
   const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');
-  const [jes, setJes] = useState(()=>load('jes',JOURNAL_ENTRIES));
+  const [jes, setJes] = useState(()=>load('jes',[...JOURNAL_ENTRIES, ...FY2026]));
   const [exceptions, setExceptions] = useState(()=>load('exc',EXCEPTIONS));
   const [closeTasks, setCloseTasks] = useState(()=>load('close',CLOSE_TASKS));
   const [ap, setAp] = useState(()=>load('ap',{bills:SEED_BILLS, dupBlocked:0}));

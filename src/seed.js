@@ -123,3 +123,32 @@ export const IC_TXNS = [
   {ic_txn_id:1, ic_pair_id:'ICP-0007', ic_type:'FUNDING', initiator_entity:'E1001', counterparty_entity:'E1003', amount:100000, match_status:'UNMATCHED'},
   {ic_txn_id:2, ic_pair_id:'ICP-0006', ic_type:'FUNDING', initiator_entity:'E1000', counterparty_entity:'E1001', amount:250000, match_status:'MATCHED'},
 ];
+
+// ===== FY2026 full-year ledger generator (real WBS entities, sanitized amounts) =====
+const FY = [];
+let _g = 5000;
+const ENT = [1,2,3,4];
+for (let m=1;m<=7;m++){
+  const mm = String(m).padStart(2,'0');
+  ENT.forEach(e=>{
+    const base = 800*e + m*137;
+    // monthly outsourcing service (WBS PAYABLE pattern: 705002 / 291001)
+    FY.push({ je_id:++_g, je_number:`2026${mm}01${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-01`,
+      je_type:'AUTO', source_system:'AP', payee:'Wan Bridge Land LLC', description:`${mm}/2026 Outsourcing service fee`, posting_status:'POSTED', created_by:'system',
+      history:[{a:'WBS IMPORT · PAYABLE',by:'system',at:`2026-${mm}-01`}],
+      lines:[{account_code:'705002',debit_amount:base,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:base}] });
+    // monthly rent income accrual
+    const rent = 4000*e + m*211;
+    FY.push({ je_id:++_g, je_number:`2026${mm}05${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-05`,
+      je_type:'AUTO', source_system:'PM', description:`${mm}/2026 Rent income accrual`, posting_status:'POSTED', created_by:'system',
+      history:[{a:'PM PICKUP',by:'system',at:`2026-${mm}-05`}],
+      lines:[{account_code:'1200',debit_amount:rent,credit_amount:0},{account_code:'4000',debit_amount:0,credit_amount:rent}] });
+    // monthly interest accrual (capitalized for e=2 under construction, expensed otherwise)
+    const int_ = 1500*e + m*97;
+    FY.push({ je_id:++_g, je_number:`2026${mm}28${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-28`,
+      je_type:'AUTO', source_system:'WBS_CL', description:`${mm}/2026 Interest ${e===2?'capitalization (CIP)':'expense accrual'}`, posting_status:'POSTED', created_by:'system',
+      history:[{a:'RULE R-LOAN-0'+(e===2?'3':'4'),by:'system',at:`2026-${mm}-28`}],
+      lines:[{account_code:e===2?'1405':'6040',debit_amount:int_,credit_amount:0},{account_code:'2100',debit_amount:0,credit_amount:int_}] });
+  });
+}
+export const FY2026 = FY;
