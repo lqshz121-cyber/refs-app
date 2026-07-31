@@ -6,6 +6,14 @@ export const bumpId = (n)=>{ if(n>_id) _id=n; };
 const L = (account_code, dr, cr, dim={}) => ({account_code, debit_amount:dr||0, credit_amount:cr||0, ...dim});
 
 export const JOURNAL_ENTRIES = [
+  { je_id: 1101, je_number:'20260701000002', entity_id:1, period_code:'2026-07', je_date:'2026-07-01',
+    je_type:'AUTO', source_system:'AP', payee:'Wan Bridge Land LLC', description:'07/2026: Finance, Design & Dev outsourcing (WBS PAYABLE)', posting_status:'POSTED', created_by:'system', reviewer:'CathyGao', approver:'ricky',
+    history:[{a:'WBS IMPORT · PAYABLE',by:'system',at:'2026-07-01'},{a:'REVIEW',by:'CathyGao',at:'2026-07-02'},{a:'POST',by:'ricky',at:'2026-07-02'}],
+    lines:[{account_code:'705002',debit_amount:12800,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:12800}] },
+  { je_id: 1102, je_number:'20260701000010', entity_id:1, period_code:'2026-07', je_date:'2026-07-01',
+    je_type:'AUTO', source_system:'AP', payee:'Wan Bridge Land LLC', description:'07/26 Research and Development service fee (WBS PAYABLE)', posting_status:'POSTED', created_by:'system', reviewer:'JudyZhang', approver:'ricky',
+    history:[{a:'WBS IMPORT · PAYABLE',by:'system',at:'2026-07-01'},{a:'POST',by:'ricky',at:'2026-07-02'}],
+    lines:[{account_code:'705001',debit_amount:9600,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:9600}] },
   { je_id: 1000, je_number:'20260701000001', entity_id:2, period_code:'2026-07', je_date:'2026-07-01',
     je_type:'AUTO', source_system:'BANK', description:'Capital contribution - Fund II equity funding', posting_status:'POSTED', created_by:'system',
     history:[{a:'AUTO POST',by:'system',at:'2026-07-01'}],

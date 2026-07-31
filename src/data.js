@@ -1,6 +1,9 @@
 // REFS seed data (demo). All figures are illustrative prototype data, not actuals.
 
 export const COA = [
+  { account_code:'291001', account_name:'Due to/from Affiliates (WBS)', account_type:'LIABILITY', normal_balance:'CREDIT' },
+  { account_code:'705001', account_name:'Research & Development Service (WBS)', account_type:'EXPENSE', normal_balance:'DEBIT' },
+  { account_code:'705002', account_name:'Outsourcing Service (WBS)', account_type:'EXPENSE', normal_balance:'DEBIT' },
   ['1000','Cash - Operating','ASSET','DEBIT'],
   ['1010','Restricted Cash - Escrow','ASSET','DEBIT'],
   ['1015','Restricted Cash - Reserve','ASSET','DEBIT'],
@@ -46,10 +49,10 @@ export const COA = [
 ].map(([code,name,type,nb])=>({account_code:code,account_name:name,account_type:type,normal_balance:nb}));
 
 export const ENTITIES = [
-  {entity_id:1, entity_code:'E1000', entity_name:'WanBridge Holding LLC', entity_type:'Holding'},
-  {entity_id:2, entity_code:'E1001', entity_name:'WanBridge Project I LLC', entity_type:'ProjectCo'},
-  {entity_id:3, entity_code:'E1002', entity_name:'WanBridge Title Co LLC', entity_type:'TitleCo'},
-  {entity_id:4, entity_code:'E1003', entity_name:'WanBridge OpCo LLC', entity_type:'OpCo'},
+  {entity_id:1, entity_code:'E1000', entity_name:'Wan Bridge Group LLC', entity_type:'Holding'},
+  {entity_id:2, entity_code:'E1001', entity_name:'Wan Bridge Land LLC', entity_type:'ProjectCo'},
+  {entity_id:3, entity_code:'E1002', entity_name:'Wan Bridge Development LLC', entity_type:'TitleCo'},
+  {entity_id:4, entity_code:'E1003', entity_name:'WB Home LLC', entity_type:'OpCo'},
 ];
 
 export const PERIODS = [
