@@ -687,8 +687,34 @@ body.dark .reports-library .rep-card:hover,body.dark .reports-library .rep-card.
   .cmdk{display:none}.topbar>.sw:first-of-type{max-width:none}.top-right .icon-btn:nth-of-type(1),.top-right .icon-btn:nth-of-type(2){display:none}
 }
 @media(max-width:1120px){
-  .top-right>.sw{display:none}.user-nm{display:none}.user-chip{padding-right:7px}.topbar>.sw:first-of-type{flex:1 1 auto}
+  .period-chip{display:none}.user-nm{display:none}.user-chip{padding-right:7px}.topbar>.sw:first-of-type{flex:1 1 auto}
 }
+
+/* Density and hierarchy pass: more ledger, less chrome. */
+:root{--nav-w:232px;}
+.sidebar{width:var(--nav-w)!important;flex-basis:var(--nav-w);}
+.sidebar nav{padding-bottom:24px;scrollbar-gutter:stable;}
+.sidebar .brand{min-height:58px;padding:0 17px;}
+.new-btn{width:calc(100% - 24px);margin:13px 12px 10px;min-height:38px;}
+.nav-group{margin:0;}
+.nav-group-h,.nav-item{width:calc(100% - 12px);min-height:34px;margin:0 6px;padding-top:6px;padding-bottom:6px;font-size:12.5px;}
+.nav-sub{padding-left:34px!important;}
+.period-chip{display:inline-flex;align-items:center;flex:0 0 auto;gap:7px;height:34px;padding:0 9px;border:1px solid #cbd2ce;border-radius:17px;background:#fff;white-space:nowrap;word-break:keep-all;}
+.period-label{color:#738078;font-size:9px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;}
+.period-chip b{color:#26302b;font-size:12px;white-space:nowrap;}
+.period-chip .badge{padding:2px 7px;}
+.filter-bar{box-sizing:border-box;}
+.accounting-filter-bar{display:grid;grid-template-columns:auto auto auto 1fr;align-items:center;column-gap:14px;}
+.grid-bar{min-height:42px;padding:5px 0;margin-bottom:5px;border-bottom:1px solid #e0e4e1;}
+.grid-search{width:min(320px,35vw);}
+.grid-count{white-space:nowrap;}
+.table-wrap{border-radius:5px;}
+.tbl th{white-space:nowrap;word-break:keep-all;}
+.tbl td{font-size:12.5px;}
+.full-bleed{min-width:0;}
+@media(max-width:1050px){.accounting-filter-bar{grid-template-columns:1fr 1fr}.result-count{margin-left:0;border-left:0;padding-left:0}.grid-search{width:min(300px,48vw)}}
+body.dark .period-chip{background:var(--bg-elev);border-color:#46515b;}
+body.dark .period-chip b{color:var(--text-1);}
 </style>
 </head>
 <body>

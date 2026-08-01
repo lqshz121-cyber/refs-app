@@ -257,7 +257,7 @@ function App() {
         <label className="sw"><select value={entity} onChange={e=>setEntity(+e.target.value)}><option value={0}>全部实体 All Entities</option>{ENTITIES.map(en=><option key={en.entity_id} value={en.entity_id}>{en.entity_code} {en.entity_name}</option>)}</select></label>
         <button className="cmdk" onClick={()=>setPalette(true)}>⌘K 全局搜索 / 跳转</button>
         <div className="top-right">
-          <span className="sw">期间 <b>2026-07</b> <span className={`badge badge-${period.status==='OPEN'?'ok':'muted'}`}>{period.status}</span></span>
+          <span className="period-chip"><span className="period-label">Period</span><b>2026-07</b><span className={`badge badge-${period.status==='OPEN'?'ok':'muted'}`}>{period.status}</span></span>
           <button className="icon-btn" title="帮助" onClick={()=>showToast('帮助中心(原型)')}>?</button>
           <button className="icon-btn" title="通知" onClick={()=>setRoute('exceptions')}>🔔</button>
           <button className="icon-btn" onClick={()=>actions.resetData()} title="重置演示数据">⟲</button>
