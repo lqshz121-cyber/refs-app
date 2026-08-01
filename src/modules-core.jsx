@@ -92,6 +92,11 @@ export function JEWorkspace({ctx}) {
   const [status, setStatus] = useState('ALL');
   const [srcF, setSrcF] = useState('ALL');
   const [month, setMonth] = useState('07');
+  useEffect(()=>{
+    if(!ctx.navContext?.jeNumber) return;
+    const target=jes.find(j=>j.je_number===ctx.navContext.jeNumber);
+    if(target) setSel(target.je_id);
+  },[ctx.navContext?.jeNumber]);
   const list = jes.filter(j=>
     (status==='ALL'||j.posting_status===status) &&
     (!ctx.entity||j.entity_id===ctx.entity) &&
@@ -116,7 +121,7 @@ export function JEWorkspace({ctx}) {
 
   // -------- Full-page editor view (QBO-style) --------
   if (je) return <div className="focused">
-    <button className="crumb" onClick={()=>setSel(null)}>← Journal Entries</button>
+    <button className="crumb" onClick={()=>setSel(null)}><span className="crumb-icon" aria-hidden="true">‹</span><span>Journal Entries</span></button>
     <JEEditor je={je} ctx={ctx} onChange={()=>{}} />
   </div>;
 
@@ -184,7 +189,7 @@ function JEEditor({je, ctx}) {
   const reverse = () => { actions.reverseJE(je.je_id); toast('已生成红字反冲分录'); };
 
   const diff = +(totals.debit-totals.credit).toFixed(2);
-  return <div className="qbe">
+  return <div className="qbe qbe-document">
     <div className="qbe-head">
       <div><div className="qbe-title">Journal Entry <span className="muted">#{je.je_number}</span></div>
         <div className="qbe-meta">

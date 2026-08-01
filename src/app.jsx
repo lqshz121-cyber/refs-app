@@ -118,6 +118,7 @@ function App() {
   const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');
   const [mobileNav, setMobileNav] = useState(false);
+  const [navContext, setNavContext] = useState(null);
   const [jes, setJes] = useState(()=>load('jes',[...JOURNAL_ENTRIES, ...FY2026]));
   const [exceptions, setExceptions] = useState(()=>load('exc',EXCEPTIONS));
   const [closeTasks, setCloseTasks] = useState(()=>load('close',CLOSE_TASKS));
@@ -140,7 +141,7 @@ function App() {
   const period = PERIODS.find(p=>p.entity_id===(entity||2) && p.period_code==='2026-07') || {period_code:'2026-07', status:'OPEN'};
   const showToast = (msg,tone='ok') => { setToastS({msg,tone}); setTimeout(()=>setToastS(null),3000); };
   const can = (perm) => { if(!user) return false; const p = ROLE_PERMS[user.role_code]; return p==='*' || (p||[]).includes(perm); };
-  const goto = (next) => { setRoute(next); setMobileNav(false); window.scrollTo({top:0,behavior:'smooth'}); };
+  const goto = (next, context=null) => { setNavContext(context); setRoute(next); setMobileNav(false); window.scrollTo({top:0,behavior:'smooth'}); };
 
   useEffect(()=>{ document.body.className = dark?'dark':''; },[dark]);
   const persist=(k,v)=>{try{localStorage.setItem('refs_'+k,JSON.stringify(v))}catch(e){}};
@@ -234,7 +235,7 @@ function App() {
   const isAdmin = ADMIN_ROLES.includes(user.role_code);
   const nav = NAV.filter(g=>!g.adminOnly || isAdmin);
   const flat = nav.flatMap(g=>g.items.map(([k,l])=>[k,'·',l]));
-  const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, user, entity, period, can, actions, toast:showToast, goto};
+  const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, user, entity, period, can, actions, toast:showToast, goto, navContext};
   const Comp = COMP[route] || Dashboard;
   const paletteItems = flat.filter(([k,ic,l])=>l.toLowerCase().includes(q.toLowerCase())||k.includes(q.toLowerCase()));
   const jeHits = q.length>=3 ? jes.filter(j=>(j.je_number||'').includes(q)||((j.payee||'').toLowerCase().includes(q.toLowerCase()))).slice(0,5) : [];

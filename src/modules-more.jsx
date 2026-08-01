@@ -17,6 +17,8 @@ export function GLTrialBalance({ctx}) {
   const ORDER=['ASSET','LIABILITY','EQUITY','REVENUE','EXPENSE'];
   const CN={ASSET:'资产 Assets',LIABILITY:'负债 Liabilities',EQUITY:'权益 Equity',REVENUE:'收入 Revenue',EXPENSE:'费用 Expenses'};
   const groups = ORDER.map(t=>({t, rows: tb.rows.filter(r=>r.type===t)})).filter(g=>g.rows.length);
+  const openAccounts = (rows,label) => setDrill({accounts:rows.map(r=>r.account_code),label});
+  const drillMoney = (row,value) => <button className="report-drill" onClick={()=>openAccounts([row],`${row.account_code} ${row.name}`)}><Money v={value}/><span aria-hidden="true">›</span></button>;
   const secRows = [];
   groups.forEach(g=>{ secRows.push({_sec:g.t});
     g.rows.forEach(r=>secRows.push(r));
@@ -39,7 +41,7 @@ export function GLTrialBalance({ctx}) {
           : r._sub ?
           <tr key={i} className="sub-row"><td>Total {CN[r._sub]}</td><td className="ta-r"><Money v={r.debit} bold/></td><td className="ta-r"><Money v={r.credit} bold/></td><td className="ta-r"><Money v={r.balance} bold/></td></tr>
           :
-          <tr key={i} className="tr-click" onClick={()=>setDrill(r.account_code)}><td><span className="acct-code">{r.account_code}</span> {r.name}</td><td className="ta-r"><Money v={r.debit}/></td><td className="ta-r"><Money v={r.credit}/></td><td className="ta-r"><Money v={r.balance}/></td></tr>)}
+          <tr key={i} className="tr-click" onClick={()=>openAccounts([r],`${r.account_code} ${r.name}`)}><td><span className="acct-code">{r.account_code}</span> {r.name}</td><td className="ta-r"><Money v={r.debit}/></td><td className="ta-r"><Money v={r.credit}/></td><td className="ta-r"><Money v={r.balance}/></td></tr>)}
         </tbody>
         <tfoot><tr className="grand-row"><td>TOTAL</td><td className="ta-r"><Money v={tb.totalDebit} bold/></td><td className="ta-r"><Money v={tb.totalCredit} bold/></td>
           <td className="ta-r"><Badge tone={Math.abs(tb.totalDebit-tb.totalCredit)<0.01?'ok':'bad'}>{Math.abs(tb.totalDebit-tb.totalCredit)<0.01?'✓ 平衡':'✗ 不平'}</Badge></td></tr></tfoot>
@@ -50,14 +52,14 @@ export function GLTrialBalance({ctx}) {
       return <div className="stmt stmt-wide">
         <div className="stmt-h">Balance Sheet · As of {toP} <span className="muted sm">(activity {fromP} ~ {toP})</span></div>
         <div className="stmt-sec">Assets</div>
-        {sec('ASSET').map(r=><div key={r.account_code} className="stmt-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span><Money v={r.balance}/></div>)}
-        <div className="stmt-row tot"><span>Total Assets</span><Money v={st.assets} bold/></div>
+        {sec('ASSET').map(r=><div key={r.account_code} className="stmt-row stmt-drill-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span>{drillMoney(r,r.balance)}</div>)}
+        <div className="stmt-row tot stmt-drill-row"><span>Total Assets</span><button className="report-drill total" onClick={()=>openAccounts(sec('ASSET'),'Total Assets')}><Money v={st.assets} bold/><span aria-hidden="true">›</span></button></div>
         <div className="stmt-sec">Liabilities</div>
-        {sec('LIABILITY').map(r=><div key={r.account_code} className="stmt-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span><Money v={-r.balance}/></div>)}
-        <div className="stmt-row tot"><span>Total Liabilities</span><Money v={st.liabilities} bold/></div>
+        {sec('LIABILITY').map(r=><div key={r.account_code} className="stmt-row stmt-drill-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span>{drillMoney(r,-r.balance)}</div>)}
+        <div className="stmt-row tot stmt-drill-row"><span>Total Liabilities</span><button className="report-drill total" onClick={()=>openAccounts(sec('LIABILITY'),'Total Liabilities')}><Money v={st.liabilities} bold/><span aria-hidden="true">›</span></button></div>
         <div className="stmt-sec">Equity</div>
-        {sec('EQUITY').map(r=><div key={r.account_code} className="stmt-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span><Money v={-r.balance}/></div>)}
-        <div className="stmt-row"><span>Current Period Earnings ({fromP}~{toP})</span><Money v={st.netIncome}/></div>
+        {sec('EQUITY').map(r=><div key={r.account_code} className="stmt-row stmt-drill-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span>{drillMoney(r,-r.balance)}</div>)}
+        <div className="stmt-row stmt-drill-row"><span>Current Period Earnings ({fromP}~{toP})</span><button className="report-drill" onClick={()=>openAccounts([...sec('REVENUE'),...sec('EXPENSE')],'Current Period Earnings')}><Money v={st.netIncome}/><span aria-hidden="true">›</span></button></div>
         <div className="stmt-row tot"><span>Total Liabilities & Equity</span><Money v={rhs} bold/></div>
         <div className="stmt-row" style={{borderBottom:0}}><span>Check: Assets = L + E</span><Badge tone={ok?'ok':'bad'}>{ok?'✓ Balanced':'✗ Off by $'+Math.abs(st.assets-rhs).toLocaleString()}</Badge></div>
       </div>; })()}
@@ -67,15 +69,15 @@ export function GLTrialBalance({ctx}) {
       return <div className="stmt stmt-wide">
         <div className="stmt-h">Income Statement · {fromP} ~ {toP}</div>
         <div className="stmt-sec">Income</div>
-        {rev.map(r=><div key={r.account_code} className="stmt-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span><Money v={-r.balance}/></div>)}
-        <div className="stmt-row tot"><span>Total Income</span><Money v={revT} bold/></div>
+        {rev.map(r=><div key={r.account_code} className="stmt-row stmt-drill-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span>{drillMoney(r,-r.balance)}</div>)}
+        <div className="stmt-row tot stmt-drill-row"><span>Total Income</span><button className="report-drill total" onClick={()=>openAccounts(rev,'Total Income')}><Money v={revT} bold/><span aria-hidden="true">›</span></button></div>
         {cogs.length>0 && <><div className="stmt-sec">Cost of Goods Sold</div>
-        {cogs.map(r=><div key={r.account_code} className="stmt-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span><Money v={r.balance}/></div>)}
-        <div className="stmt-row tot"><span>Gross Profit</span><Money v={revT-cogsT} bold/></div></>}
+        {cogs.map(r=><div key={r.account_code} className="stmt-row stmt-drill-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span>{drillMoney(r,r.balance)}</div>)}
+        <div className="stmt-row tot stmt-drill-row"><span>Gross Profit</span><button className="report-drill total" onClick={()=>openAccounts([...rev,...cogs],'Gross Profit')}><Money v={revT-cogsT} bold/><span aria-hidden="true">›</span></button></div></>}
         <div className="stmt-sec">Expenses</div>
-        {opex.map(r=><div key={r.account_code} className="stmt-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span><Money v={r.balance}/></div>)}
-        <div className="stmt-row tot"><span>Total Expenses</span><Money v={opexT} bold/></div>
-        <div className="stmt-row tot" style={{fontSize:16}}><span>Net Income</span><Money v={revT-cogsT-opexT} bold/></div>
+        {opex.map(r=><div key={r.account_code} className="stmt-row stmt-drill-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span>{drillMoney(r,r.balance)}</div>)}
+        <div className="stmt-row tot stmt-drill-row"><span>Total Expenses</span><button className="report-drill total" onClick={()=>openAccounts(opex,'Total Expenses')}><Money v={opexT} bold/><span aria-hidden="true">›</span></button></div>
+        <div className="stmt-row tot stmt-drill-row" style={{fontSize:16}}><span>Net Income</span><button className="report-drill total" onClick={()=>openAccounts([...rev,...exp],'Net Income')}><Money v={revT-cogsT-opexT} bold/><span aria-hidden="true">›</span></button></div>
       </div>; })()}
     {tab==='GL Detail' && (()=>{ const lines=[]; posted.forEach(j=>j.lines.forEach(l=>lines.push({je:j.je_number, date:j.je_date, entity_id:j.entity_id, src:j.source_system, acct:l.account_code, name:acct(l.account_code).account_name, memo:l.description||j.description, member:l.member||'', dr:l.debit_amount||0, cr:l.credit_amount||0})));
       return <Table exportName={'gl-detail-'+fromP+'_'+toP} pageSize={30} cols={[
@@ -102,9 +104,9 @@ export function GLTrialBalance({ctx}) {
         <div className="stmt-row"><span>Cash from Financing Activities</span><Money v={buckets.Financing}/></div>
         <div className="stmt-row tot"><span>Net Change in Cash (111000)</span><Money v={total} bold/></div>
       </div>; })()}
-    {drill && tab==='Trial Balance' && (()=>{ const lines=[]; jes.filter(j=>j.posting_status==='POSTED'&&(!entity||j.entity_id===entity)&&j.period_code>=fromP&&j.period_code<=toP).forEach(j=>j.lines.forEach(l=>{ if(l.account_code===drill) lines.push({je:j.je_number, date:j.je_date, desc:j.description, src:j.source_system, dr:l.debit_amount, cr:l.credit_amount}); }));
-      return <div style={{marginTop:16}}><SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>setDrill(null)}>关闭</Btn>}>Drill-down · {drill} {acct(drill).account_name}（{lines.length} 行）</SectionTitle>
-      <Table exportName={'gl-'+drill} cols={[{h:'JE',k:'je'},{h:'日期',k:'date'},{h:'描述',k:'desc'},{h:'来源',render:r=><Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},{h:'借方',num:true,render:r=><Money v={r.dr}/>,csv:r=>r.dr},{h:'贷方',num:true,render:r=><Money v={r.cr}/>,csv:r=>r.cr}]} rows={lines}/></div>; })()}
+    {drill && (()=>{ const accounts=drill.accounts||[drill]; const label=drill.label||accounts.join(', '); const lines=[]; jes.filter(j=>j.posting_status==='POSTED'&&(!entity||j.entity_id===entity)&&j.period_code>=fromP&&j.period_code<=toP).forEach(j=>j.lines.forEach(l=>{ if(accounts.includes(l.account_code)) lines.push({je:j.je_number, date:j.je_date, desc:j.description, src:j.source_system, account:l.account_code, dr:l.debit_amount, cr:l.credit_amount}); }));
+      return <div className="report-drill-panel"><SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>setDrill(null)}>Close</Btn>}>Transaction detail · {label} ({lines.length})</SectionTitle>
+      <Table exportName={'gl-drill-detail'} onRow={r=>ctx.goto('je',{jeNumber:r.je})} cols={[{h:'JE',k:'je'},{h:'Date',k:'date'},{h:'Account',k:'account'},{h:'Description',k:'desc'},{h:'Source',render:r=><Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},{h:'Debit',num:true,render:r=><Money v={r.dr}/>,csv:r=>r.dr},{h:'Credit',num:true,render:r=><Money v={r.cr}/>,csv:r=>r.cr}]} rows={lines}/></div>; })()}
   </div>;
 }
 
