@@ -218,7 +218,42 @@ mk('20260703000029','2026-07-03','PAYABLE','isolved, Inc.','AIWB 7/18-8/17/2026 
   [{account_code:'704600',debit_amount:132.18,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:132.18,description:'Due to/from_isolved'}],{cc:'34E110'});
 mk('20260703000035','2026-07-03','PAYABLE','Texas Mutual Insurance Company','Workers Comp Insurance - Policy 0002132541',
   [{account_code:'632015',debit_amount:3906,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:3906,description:'Due to/from_Texas Mutual'}],{});
-export const AIWB_JES = AIWB;
-export const FY2026 = FY.concat(AIWB);
+// ===== Real Wan Bridge Land LLC (WBLD) July DIVIDEND run + WBDE PAYABLE/AUTOC (scraped) =====
+const REAL2 = [];
+let _r = 9700;
+const mk2=(eid,jn,date,src,payee,memo,lines)=>REAL2.push({je_id:++_r, je_number:jn, entity_id:eid, period_code:'2026-07', je_date:date, je_type:'AUTO',
+  source_system:src, payee, description:memo, posting_status:'POSTED', created_by:'system', history:[{a:'WBS IMPORT · '+src,by:'system',at:date}], lines});
+// WBLD (entity 2) — owner dividend distributions by lot, tax withholding, cash out
+mk2(2,'20260701000001','2026-07-01','DIVIDEND','Rao Fu','Dividend: Lot 101/102 Block C1, The Barracks',
+ [{account_code:'291000',debit_amount:4100.35,credit_amount:0,description:'Lot 102 Block C1'},{account_code:'291000',debit_amount:4300.39,credit_amount:0,description:'Lot 101 Block C1'},{account_code:'111000',debit_amount:0,credit_amount:8400.74,description:'Wan Bridge Land ACH'}]);
+mk2(2,'20260701000002','2026-07-01','DIVIDEND','XILE WANG','Dividend: 603/604 Block A7 Phase 1, The Future — net of tax',
+ [{account_code:'291000',debit_amount:3615,credit_amount:0,description:'604 Block A7'},{account_code:'291000',debit_amount:3415,credit_amount:0,description:'603 Block A7'},{account_code:'111000',debit_amount:0,credit_amount:6327,description:'ACH out'},{account_code:'220204',debit_amount:0,credit_amount:361.50,description:'Tax deduction'},{account_code:'220204',debit_amount:0,credit_amount:341.50,description:'Tax deduction'}]);
+mk2(2,'20260701000003','2026-07-01','DIVIDEND','Ling Carman Chung','Dividend: 114 Lakeland Circle, Rosharon TX',
+ [{account_code:'291000',debit_amount:3235,credit_amount:0},{account_code:'111000',debit_amount:0,credit_amount:3235}]);
+mk2(2,'20260701000004','2026-07-01','DIVIDEND','Wei Fashu','Dividend: 19319/19323 Late Boneset Dr — net of tax',
+ [{account_code:'291000',debit_amount:4500,credit_amount:0},{account_code:'291000',debit_amount:4500,credit_amount:0},{account_code:'111000',debit_amount:0,credit_amount:8100},{account_code:'220204',debit_amount:0,credit_amount:450},{account_code:'220204',debit_amount:0,credit_amount:450}]);
+mk2(2,'20260701000005','2026-07-01','DIVIDEND','Quanchao Zhou','Dividend: 206 Block A8 Phase 1, The Future',
+ [{account_code:'291000',debit_amount:3865,credit_amount:0},{account_code:'111000',debit_amount:0,credit_amount:3865}]);
+mk2(2,'20260701000006','2026-07-01','DIVIDEND','Yong Huang','Dividend: 101 Block A6 Phase 1, The Future',
+ [{account_code:'291000',debit_amount:3835,credit_amount:0},{account_code:'111000',debit_amount:0,credit_amount:3835}]);
+// WBDE (entity 3) — software vendors two-step + Welltower contribution + WBG payroll
+mk2(3,'20260701000001','2026-07-01','PAYABLE','OpenAI.com','OpenAI subscription',
+ [{account_code:'705000',debit_amount:96.64,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:96.64,description:'Due to/from_OpenAI'}]);
+mk2(3,'20260701000002','2026-07-01','AUTOC','OpenAI.com','PURCHASE OPENAI +14158799686 — card auto-clear',
+ [{account_code:'291001',debit_amount:96.64,credit_amount:0},{account_code:'111000',debit_amount:0,credit_amount:96.64}]);
+mk2(3,'20260702000004','2026-07-02','PAYABLE','Google LLC','Google Cloud software',
+ [{account_code:'705000',debit_amount:3425.06,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:3425.06,description:'Due to/from_Google'}]);
+mk2(3,'20260702000005','2026-07-02','AUTOC','Google LLC','PURCHASE GOOGLE *CLOUD g.co — card auto-clear',
+ [{account_code:'291001',debit_amount:3425.06,credit_amount:0},{account_code:'111000',debit_amount:0,credit_amount:3425.06}]);
+mk2(3,'20260702000006','2026-07-02','PAYABLE','Github, INC','GitHub enterprise',
+ [{account_code:'705000',debit_amount:6893.10,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:6893.10,description:'Due to/from_GitHub'}]);
+mk2(3,'20260702000007','2026-07-02','AUTOC','Github, INC','PURCHASE GITHUB, INC. — card auto-clear',
+ [{account_code:'291001',debit_amount:6893.10,credit_amount:0},{account_code:'111000',debit_amount:0,credit_amount:6893.10}]);
+mk2(3,'20260702000008','2026-07-02','AUTOC','Welltower Inc.','WT Contribution 0702MMQFMPWD002003',
+ [{account_code:'111000',debit_amount:1703376.86,credit_amount:0},{account_code:'291000',debit_amount:0,credit_amount:1703376.86,description:'WT Contribution'}]);
+mk2(3,'20260703000001','2026-07-03','PAYABLE','Wan Bridge Group','4/2026 ADP Salaries',
+ [{account_code:'700600',debit_amount:4121.94,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:4121.94,description:'Due to/from_WBG'}]);
+export const AIWB_JES = AIWB.concat(REAL2);
+export const FY2026 = FY.concat(AIWB_JES);
 // unit -> owner company (每个 unit 归属的 owner 实体)
 export const UNIT_OWNERS = { 'A-203':{entity_id:4, name:'WB Home LLC'}, 'B-110':{entity_id:2, name:'Wan Bridge Land LLC'}, 'C-050':{entity_id:11, name:'WB Pradera Oaks Land 1 LLC'} };

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Field, SectionTitle, ApprovalTimeline } from './ui.jsx';
 import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS, PROJECTS, VENDORS } from './data.js';
 import { PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS, UNIT_OWNERS } from './seed.js';
@@ -26,15 +26,12 @@ export function Dashboard({ctx}) {
         <h4>Profit & Loss · 2026-07</h4>
         <div className={`qbo-big ${st.netIncome<0?'num-neg':''}`}>{money(st.netIncome)}</div>
         <div className="qbo-sub">净利 Net income · 收入 {money(st.revenue)} − 费用 {money(st.expense)}</div>
-        <div className="qbo-bars">{plBars.map((h,i)=><div key={i} className={`qbo-bar ${i===6&&st.netIncome<0?'neg':''}`} style={{height:h*2.4}} title={'月'+(i+1)}/>)}</div>
+        <PLChart jes={jes} entity={entity}/>
       </div>
       <div className="qbo-card" onClick={()=>goto('reports')} style={{cursor:'pointer'}}>
         <h4>Expenses · 本期费用</h4>
         <div className="qbo-big">{money(st.expense)}</div>
-        <div className="donut-wrap">
-          <div className="donut" style={{background:`conic-gradient(${segs})`}}/>
-          <div className="legend">{expCats.map(([n,v,c])=><span key={n}><i style={{background:c}}/>{n} · {money(v)}</span>)}</div>
-        </div>
+        <ExpDonut cats={expCats}/>
       </div>
       <div className="qbo-card" onClick={()=>goto('bankrec')} style={{cursor:'pointer'}}>
         <h4>Bank Accounts · 银行账户</h4>
@@ -126,7 +123,7 @@ export function JEWorkspace({ctx}) {
         {['ALL','DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED','REVERSED'].map(x=><option key={x}>{x}</option>)}
       </select></label>
       <label>来源 <select value={srcF} onChange={e=>setSrcF(e.target.value)}>
-        {['ALL','MAN','WBS_CL','PM','AP','AR','BANK','CLOSING','PAYABLE','EXPA','REIMB','AUTO_BANK_REIMB','INTERNAL_TRANSFER','INTERNAL','INDIVIDUAL','NOT_MATCH'].map(x=><option key={x}>{x}</option>)}
+        {['ALL','MAN','WBS_CL','PM','AP','AR','BANK','CLOSING','PAYABLE','EXPA','AUTOC','DIVIDEND','REIMB','AUTO_BANK_REIMB','INTERNAL_TRANSFER','INTERNAL','INDIVIDUAL','NOT_MATCH'].map(x=><option key={x}>{x}</option>)}
       </select></label>
       <span className="muted sm">{list.length} 笔</span>
     </div>
@@ -415,5 +412,53 @@ export function CloseMgmt({ctx}) {
     ]} rows={closeTasks} rowKey="close_task_id" />
     <Btn variant="primary" disabled={!allSigned || !can('PERIOD.PERIOD.CLOSE')} title={allSigned?'':'需全部任务完成'} onClick={()=>toast('期间已锁定 (CLOSED)','ok')}>锁定期间</Btn>
     <span className="muted sm" style={{marginLeft:12}}>前置任务未完成的任务不可 Sign-off；全部完成后方可锁定期间，Reopen 需专项审批。</span>
+  </div>;
+}
+
+
+// ===== Interactive charts (Chart.js via CDN, graceful fallback) =====
+function useChart(build){
+  const ref = useRef(null);
+  useEffect(()=>{
+    if (typeof window==='undefined' || !window.Chart || !ref.current) return;
+    const c = build(ref.current.getContext('2d'));
+    return ()=>c && c.destroy();
+  });
+  return ref;
+}
+function PLChart({jes, entity}){
+  const months=['01','02','03','04','05','06','07'];
+  const data = months.map(mm=>{
+    let rev=0, exp=0;
+    jes.filter(j=>j.posting_status==='POSTED' && j.period_code==='2026-'+mm && (!entity||j.entity_id===entity))
+       .forEach(j=>j.lines.forEach(l=>{ const a=acct(l.account_code);
+         if(a.account_type==='REVENUE') rev += (l.credit_amount||0)-(l.debit_amount||0);
+         if(a.account_type==='EXPENSE') exp += (l.debit_amount||0)-(l.credit_amount||0); }));
+    return +(rev-exp).toFixed(0);
+  });
+  const ref = useChart(ctx=>{
+    const g = ctx.createLinearGradient(0,0,0,150);
+    g.addColorStop(0,'rgba(11,87,208,.35)'); g.addColorStop(1,'rgba(11,87,208,0)');
+    return new window.Chart(ctx,{type:'line',data:{labels:months.map(m=>'2026-'+m),
+      datasets:[{label:'Net Income',data,fill:true,backgroundColor:g,borderColor:'#0B57D0',borderWidth:2.5,tension:.42,pointRadius:3,pointHoverRadius:7,pointBackgroundColor:'#fff',pointBorderColor:'#0B57D0',pointBorderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,animation:{duration:900,easing:'easeOutQuart'},
+        plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(15,23,42,.92)',padding:12,cornerRadius:10,displayColors:false,
+          callbacks:{label:c=>' Net income  $'+(+c.raw).toLocaleString()}}},
+        scales:{x:{grid:{display:false},ticks:{font:{size:10.5},color:'#8a8f98'}},
+                y:{grid:{color:'rgba(16,24,40,.06)'},ticks:{font:{size:10.5},color:'#8a8f98',callback:v=>'$'+(v/1000)+'k'}}},
+        interaction:{mode:'index',intersect:false}}});
+  });
+  if (typeof window!=='undefined' && !window.Chart) return <div className="muted sm">chart loading…</div>;
+  return <div style={{height:150,marginTop:6}}><canvas ref={ref}/></div>;
+}
+function ExpDonut({cats}){
+  const ref = useChart(ctx=> new window.Chart(ctx,{type:'doughnut',
+    data:{labels:cats.map(c=>c[0]),datasets:[{data:cats.map(c=>+c[1].toFixed(2)),backgroundColor:cats.map(c=>c[2]),borderWidth:3,borderColor:'#fff',hoverOffset:10,borderRadius:6}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'68%',animation:{animateRotate:true,duration:900},
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(15,23,42,.92)',padding:12,cornerRadius:10,
+        callbacks:{label:c=>' '+c.label+'  $'+(+c.raw).toLocaleString()}}}}}));
+  return <div className="donut-wrap">
+    <div style={{width:120,height:120,position:'relative'}}><canvas ref={ref}/></div>
+    <div className="legend">{cats.map(([n,v,c])=><span key={n}><i style={{background:c}}/>{n} · {money(v)}</span>)}</div>
   </div>;
 }

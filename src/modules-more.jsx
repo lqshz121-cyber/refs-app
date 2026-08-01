@@ -169,6 +169,8 @@ export function IntegrationHub({ctx}) {
   const FEEDS = [
     ['PAYABLE','上游 AP 发票(Contract & Invoice / Budget & Purchasing 审批完成)','Dr 费用科目(带 Cost Code/Class/Payable No GUID/Unit) / Cr 291001 Due to/from_按Payee挂账','两行一组,Journal No=YYYYMMDD+序号'],
     ['EXPA','银行流水 Feed 自动匹配付款(Auto Payments Reconciliation)','Dr 291001 Due to/from_Payee(清账) / Cr 111000 Operating Cash_公司_银行_账号尾号','memo 保留原始 ACH/CCD 银行描述全文'],
+    ['AUTOC','公司卡/银行采购流水自动清账(PURCHASE 描述)','Dr 291001 Due to/from_Vendor / Cr 111000 Operating Cash','与 PAYABLE 成对出现,卡消费即清'],
+    ['DIVIDEND','业主分红发放批次(按 Lot/Unit)','Dr 291000 Due to/from_业主(按 Lot 多行) / Cr 111000 现金 + Cr 220204 Tax Payable(代扣税)','WBLD 实测模式'],
     ['NOT_MATCH','银行流水无法自动匹配','暂挂,人工处理 → 转 Match 或 Exception','对应 REFS Bank Transactions For Review'],
     ['REIMB / Reimbursement Invoice','员工上传报销发票(Upload Reimbursement Invoices)','审批后 Dr 费用 / Cr 291001 Due to/from_员工','Auto Reimbursement=自动生成分录'],
     ['AUTO_BANK_REIMB','银行扣款自动清报销挂账','Dr 291001 / Cr 111000','与 EXPA 同机制,来源为报销'],
