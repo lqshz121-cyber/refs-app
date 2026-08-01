@@ -22,6 +22,7 @@ import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
 import { batchBankTransition, buildBankDraft, buildBankWorkflowException, createBankDraftTransition, excludeBankTransition, matchBankTransition, undoBankTransition, validateBankDraft } from './bank-workflow.js';
+import { copyJEAsDraft, createReclassDraft, createRecurringTemplate, createReversal, rejectJETransition, saveJEDraft, transitionJE } from './je-workflow.js';
 
 const SEED_V='v11';
 const BUILD_SHA = typeof __REFS_BUILD_SHA__ !== 'undefined' ? __REFS_BUILD_SHA__ : 'dev';
@@ -137,6 +138,7 @@ function App() {
     {inv_id:8001, inv_no:'INV-2026-8001', customer_id:1, customer_name:'Tenant - Unit A-203', inv_date:'2026-07-01', due_date:'2026-07-15', amount:2000, status:'OPEN', je_number:'20260701000009'},
     {inv_id:8002, inv_no:'INV-2026-8002', customer_id:2, customer_name:'WanBridge OpCo (Owner)', inv_date:'2026-07-10', due_date:'2026-08-10', amount:12500, status:'PAID', je_number:'20260710000012', pay_je_number:'20260728000031'},
   ]}));
+  const [recurring, setRecurring] = useState(()=>load('recurring',[]));
   const [entity, setEntity] = useState(0);
   const [dark, setDark] = useState(false);
   const [toast, setToastS] = useState(null);
@@ -145,6 +147,7 @@ function App() {
   const [openGroups, setOpenGroups] = useState({Home:true, Transactions:true});
   const [q, setQ] = useState('');
   const bankSubmitLocks = useRef(new Set());
+  const jeActionLocks = useRef(new Set());
 
   const user = USERS.find(u=>u.user_id===userId);
   const period = PERIODS.find(p=>p.entity_id===(entity||2) && p.period_code==='2026-07') || {period_code:'2026-07', status:'OPEN'};
@@ -156,6 +159,7 @@ function App() {
   useEffect(()=>{ const t=setTimeout(()=>persist('jes',jes), 400); return ()=>clearTimeout(t); },[jes]); useEffect(()=>{persist('exc',exceptions)},[exceptions]);
   useEffect(()=>{persist('close',closeTasks)},[closeTasks]); useEffect(()=>{persist('ap',ap)},[ap]);
   useEffect(()=>{persist('bank',bank)},[bank]); useEffect(()=>{persist('coa',coa)},[coa]); useEffect(()=>{persist('ar',ar)},[ar]);
+  useEffect(()=>{persist('recurring',recurring)},[recurring]);
   useEffect(()=>{ if(userId) persist('user',userId); },[userId]);
   useEffect(()=>{ bumpId(Math.max(9000,...jes.map(j=>+j.je_id||0),...ap.bills.map(b=>+b.bill_id||0))); },[]);
   useEffect(()=>{
@@ -175,19 +179,24 @@ function App() {
     newJE: () => { const je = mkJE({entity_id:entity||2, je_type:'MANUAL', description:'', source_system:'MAN', has_attachment:false,
       lines:[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}]}); setJes(js=>[je,...js]); return je.je_id; },
     newJEFromRule: (spec) => { const je = mkJE({...spec}); setJes(js=>[je,...js]); return je.je_id; },
-    copyJE: (id) => { const src = jes.find(j=>j.je_id===id); const je = mkJE({...structuredClone(src), posting_status:'DRAFT', description:'COPY: '+src.description}); je.history=[{a:'COPY of '+src.je_number,by:userId,at:'2026-07-31'}]; setJes(js=>[je,...js]); return je.je_id; },
-    updateJE: (id, producer) => setJes(js=>js.map(j=>{ if(j.je_id!==id) return j; const d=structuredClone(j); producer(d); return d; })),
-    advanceJE: (id, next, label) => { audit(label||next,'JE','#'+id,''); return setJes(js=>js.map(j=>{
-      if(j.je_id!==id) return j;
-      if((next==='APPROVED'||next==='POSTED') && j.created_by===userId && user.role_code!=='CONTROLLER'){
-        showToast('SoD 拦截 [4009]：创建人不可审批/过账本分录','bad'); return j; }
-      return {...j, posting_status:next, history:[...(j.history||[]),{a:label||next,by:userId,at:'2026-07-31'}]};
-    })); },
-    reverseJE: (id) => setJes(js=>{ const src = js.find(j=>j.je_id===id); const nid=nextId();
-      const rev = {...structuredClone(src), je_id:nid, je_number:'JE-REV-'+nid, posting_status:'POSTED', je_type:'REVERSAL',
-        description:'红字反冲: '+src.description, history:[{a:'REVERSAL of '+src.je_number,by:userId,at:'2026-07-31'}],
-        lines:src.lines.map(l=>({...l, debit_amount:l.credit_amount, credit_amount:l.debit_amount}))};
-      return js.map(j=>j.je_id===id?{...j, posting_status:'REVERSED'}:j).concat(rev); }),
+    updateJE: (id, producer) => setJes(js=>js.map(j=>{ if(j.je_id!==id||j.posting_status!=='DRAFT') return j; const d=structuredClone(j); producer(d); d.dirty=true; return d; })),
+    saveJE: (draft) => {const current=jes.find(j=>j.je_id===draft?.je_id);const key=`SAVE:${current?.je_id}:${current?.revision||0}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This save is already processing.'};const result=saveJEDraft({current,draft,user});
+      if(!result.ok)return result;jeActionLocks.current.add(key);setJes(js=>js.map(j=>j.je_id===draft.je_id?result.je:j));audit('SAVE','JE',result.je.je_number,`revision ${result.je.revision}`);return result;},
+    saveAndAdvanceJE: (draft,next,label) => {const current=jes.find(j=>j.je_id===draft?.je_id);const key=`FLOW:${current?.je_id}:${current?.posting_status}:${next}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This workflow action is already processing.'};const saved=saveJEDraft({current,draft,user});
+      if(!saved.ok)return saved;const result=transitionJE({je:saved.je,next,user,period,can,label});if(!result.ok)return result;
+      jeActionLocks.current.add(key);setJes(js=>js.map(j=>j.je_id===draft.je_id?result.je:j));audit(label||next,'JE',result.je.je_number,`${current.posting_status} -> ${next}`);return result;},
+    advanceJE: (id,next,label) => {const current=jes.find(j=>j.je_id===id);const key=`FLOW:${id}:${current?.posting_status}:${next}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This workflow action is already processing.'};const result=transitionJE({je:current,next,user,period,can,label});
+      if(!result.ok)return result;jeActionLocks.current.add(key);setJes(js=>js.map(j=>j.je_id===id?result.je:j));audit(label||next,'JE',result.je.je_number,`${current.posting_status} -> ${next}`);return result;},
+    rejectJE: (id) => {const current=jes.find(j=>j.je_id===id);const key=`REJECT:${id}:${current?.posting_status}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This reject is already processing.'};const result=rejectJETransition({je:current,user,can});
+      if(!result.ok)return result;jeActionLocks.current.add(key);setJes(js=>js.map(j=>j.je_id===id?result.je:j));audit('REJECT','JE',result.je.je_number,'Return to Draft');return result;},
+    copyJE: (id) => {const source=jes.find(j=>j.je_id===id);const nid=nextId();const result=copyJEAsDraft({source,newId:nid,newNumber:'20260731'+String(nid).padStart(6,'0'),user});
+      if(!result.ok)return result;setJes(js=>[result.je,...js]);audit('COPY','JE',result.je.je_number,`from ${source.je_number}`);return {ok:true,je_id:nid};},
+    makeRecurringJE: (id,schedule='MONTHLY') => {const key=`RECURRING:${id}:${schedule}`;const source=jes.find(j=>j.je_id===id);const existing=recurring.find(r=>r.source_je_id===id&&r.schedule===schedule&&r.status==='ACTIVE');if(existing)return {ok:true,template:existing,idempotent:true};if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This recurring template is already processing.'};const result=createRecurringTemplate({source,templateId:'REC-'+nextId(),user,schedule});
+      if(!result.ok)return result;jeActionLocks.current.add(key);setRecurring(rs=>rs.some(r=>r.source_je_id===id&&r.schedule===schedule&&r.status==='ACTIVE')?rs:[result.template,...rs]);audit('CREATE_RECURRING','JE',source.je_number,result.template.template_id);return result;},
+    reclassJE: (id) => {const source=jes.find(j=>j.je_id===id);const nid=nextId();const result=createReclassDraft({source,newId:nid,newNumber:'20260731'+String(nid).padStart(6,'0'),user});
+      if(!result.ok)return result;setJes(js=>[result.je,...js]);audit('RECLASS_DRAFT','JE',result.je.je_number,`from ${source.je_number}`);return {ok:true,je_id:nid};},
+    reverseJE: (id) => {const source=jes.find(j=>j.je_id===id);const nid=nextId();const result=createReversal({source,newId:nid,user,period,can});
+      if(!result.ok)return result;setJes(js=>[result.reversal,...js.map(j=>j.je_id===id?result.source:j)]);audit('REVERSE','JE',source.je_number,result.reversal.je_number);return {ok:true,je_id:nid};},
     ensureException: (spec) => setExceptions(xs=>{ if(xs.some(e=>e.exception_type===spec.exception_type && e.object_ref===spec.object_ref && e.status!=='CLOSED')) return xs;
       return [{exception_id:nextId(), occurred_date:'2026-07-31', aging_days:0, status:'OPEN', resolution:'', ...spec}, ...xs]; }),
     resolveException: (id, resolution) => setExceptions(xs=>xs.map(e=>e.exception_id===id?{...e, status:'CLOSED', resolution, closed_by:userId}:e)),
@@ -311,7 +320,7 @@ function App() {
   const isAdmin = ADMIN_ROLES.includes(user.role_code);
   const nav = NAV.filter(g=>!g.adminOnly || isAdmin);
   const flat = nav.flatMap(g=>g.items.map(([k,l])=>[k,'·',l]));
-  const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, user, entity, period, can, actions, toast:showToast, goto:setRoute};
+  const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, recurring, user, entity, period, can, actions, toast:showToast, goto:setRoute};
   const Comp = COMP[route] || Dashboard;
   const paletteItems = flat.filter(([k,ic,l])=>l.toLowerCase().includes(q.toLowerCase())||k.includes(q.toLowerCase()));
   const jeHits = q.length>=3 ? jes.filter(j=>(j.je_number||'').includes(q)||((j.payee||'').toLowerCase().includes(q.toLowerCase()))).slice(0,5) : [];

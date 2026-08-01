@@ -97,8 +97,8 @@ export function JEWorkspace({ctx}) {
     (!ctx.entity||j.entity_id===ctx.entity) &&
     (srcF==='ALL'||j.source_system===srcF) &&
     (month==='ALL'||j.period_code==='2026-'+month));
-  const pendCount = list.filter(j=>j.posting_status==='PENDING_APPROVAL').length;
-  const postAll = () => { list.filter(j=>j.posting_status==='PENDING_APPROVAL').forEach(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL')); toast('Post All 完成'); };
+  const pendCount = list.filter(j=>j.posting_status==='APPROVED').length;
+  const postApproved = () => { const results=list.filter(j=>j.posting_status==='APPROVED').map(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL'));const ok=results.filter(r=>r?.ok).length;const blocked=results.length-ok;toast(`${ok} posted · ${blocked} blocked by permission/SoD`,blocked?'warn':'ok'); };
   const runBatch = () => {
     const en = {entity_id: ctx.entity||15, entity_code:'E'+(ctx.entity||15)};
     const s = loadSetting(en); let n=0;
@@ -117,7 +117,7 @@ export function JEWorkspace({ctx}) {
   // -------- Full-page editor view (QBO-style) --------
   if (je) return <div className="focused">
     <button className="crumb" onClick={()=>setSel(null)}>← Journal Entries</button>
-    <JEEditor je={je} ctx={ctx} onChange={()=>{}} />
+    <JEEditorV2 je={je} ctx={ctx} onClose={()=>setSel(null)} onOpen={setSel}/>
   </div>;
 
   // -------- Full-width list view (QBO Transactions-style) --------
@@ -126,7 +126,7 @@ export function JEWorkspace({ctx}) {
       <h2 className="page-h" style={{margin:0}}>Journal Entries</h2>
       <div className="row-acts">
         <Btn variant="ghost" onClick={runBatch}>Run Batch Templates</Btn>
-        {can('GL.JE.POST') && pendCount>0 && <Btn onClick={postAll}>⚡ Post All ({pendCount})</Btn>}
+        {can('GL.JE.POST') && pendCount>0 && <Btn onClick={postApproved}>Post approved ({pendCount})</Btn>}
         <Btn variant="primary" onClick={newJE} disabled={!can('GL.JE.CREATE')}>+ New Journal Entry</Btn>
       </div>
     </div>
@@ -155,7 +155,71 @@ export function JEWorkspace({ctx}) {
   </div>;
 }
 
-function JEEditor({je, ctx}) {
+function JEEditorV2({je,ctx,onClose,onOpen}){
+  const {actions,can,period,toast,goto}=ctx;
+  const [draft,setDraft]=useState(()=>structuredClone(je));
+  const [confirmExit,setConfirmExit]=useState(false);
+  useEffect(()=>{setDraft(structuredClone(je));setConfirmExit(false);},[je.je_id,je.posting_status,je.revision]);
+  const editable=draft.posting_status==='DRAFT';
+  const totals=jeTotals(draft);
+  const errors=validateJE(draft,period);
+  const flow=JE_FLOW[draft.posting_status]||{};
+  const changed=editable&&JSON.stringify({...draft,history:undefined,dirty:undefined})!==JSON.stringify({...je,history:undefined,dirty:undefined});
+  const setField=patch=>setDraft(d=>({...d,...patch,dirty:true}));
+  const setLine=(i,patch)=>setDraft(d=>({...d,dirty:true,lines:d.lines.map((line,index)=>index===i?{...line,...patch}:line)}));
+  const addLine=()=>setDraft(d=>({...d,dirty:true,lines:[...d.lines,{account_code:'',debit_amount:0,credit_amount:0,description:''}]}));
+  const removeLine=i=>setDraft(d=>({...d,dirty:true,lines:d.lines.filter((_,index)=>index!==i)}));
+  const save=()=>{const result=actions.saveJE(draft);if(!result?.ok){toast(result?.message||'Save blocked.','bad');return result;}setDraft(result.je);toast(`Saved revision ${result.je.revision}`);return result;};
+  const saveClose=()=>{const result=save();if(result?.ok)onClose();};
+  const saveNew=()=>{const result=save();if(result?.ok){const id=actions.newJE();onOpen(id);}};
+  const advance=()=>{const result=editable?actions.saveAndAdvanceJE(draft,flow.next,flow.action):actions.advanceJE(draft.je_id,flow.next,flow.action);if(!result?.ok){toast(result?.message||'Workflow action blocked.','bad');return;}setDraft(result.je);toast(`${flow.action} · ${flow.next}`);};
+  const copy=()=>{const result=actions.copyJE(draft.je_id);if(!result?.ok){toast(result?.message||'Copy blocked.','bad');return;}toast('A new manual Draft copy was created.');onOpen(result.je_id);};
+  const recurring=()=>{const result=actions.makeRecurringJE(draft.je_id);if(!result?.ok){toast(result?.message||'Recurring template blocked.','bad');return;}toast(`Recurring template ${result.template.template_id} created.`);};
+  const reverse=()=>{const result=actions.reverseJE(draft.je_id);if(!result?.ok){toast(result?.message||'Reverse blocked.','bad');return;}toast('Reversal posted with full source trace.');onOpen(result.je_id);};
+  const reclass=()=>{const result=actions.reclassJE(draft.je_id);if(!result?.ok){toast(result?.message||'Reclass blocked.','bad');return;}toast('Reclass Draft created; attachment and approval are required.');onOpen(result.je_id);};
+  const exit=()=>{if(changed)setConfirmExit(true);else onClose();};
+  const difference=+(totals.debit-totals.credit).toFixed(2);
+  const sourceDoc=draft.source_doc_id&&SOURCE_DOCS[draft.source_doc_id];
+
+  return <div className="qbe">
+    <div className="qbe-head">
+      <div><div className="qbe-title">Journal entry <span className="muted">#{draft.je_number}</span></div><div className="qbe-meta">
+        <span>Entity <b>{ENTITIES.find(e=>e.entity_id===draft.entity_id)?.entity_name||'—'}</b></span><span>Currency <b>{draft.currency||'USD'}</b></span><span>Source <Badge tone="muted">{draft.source_system}</Badge></span>{draft.rule_code&&<span>Rule <b>{draft.rule_code}</b></span>}
+      </div></div><div style={{display:'flex',gap:8,alignItems:'center'}}>{changed&&<Badge tone="warn">UNSAVED</Badge>}<Badge>{draft.posting_status}</Badge></div>
+    </div>
+
+    <div style={{display:'grid',gridTemplateColumns:'180px 1fr',gap:16,margin:'16px 0'}}>
+      <Field label="Journal date" required>{editable?<input type="date" value={draft.je_date} onChange={e=>setField({je_date:e.target.value})}/>:<div className="ro-box">{draft.je_date}</div>}</Field>
+      <Field label="Memo" required>{editable?<input value={draft.description||''} onChange={e=>setField({description:e.target.value})} placeholder="What is this journal entry for?"/>:<div className="ro-box">{draft.description}</div>}</Field>
+    </div>
+    <datalist id="member-list-v2">{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_name}/>)}{ENTITIES.slice(0,30).map(e=><option key={e.entity_id} value={e.entity_name}/>)}</datalist>
+    <div className="table-wrap"><table className="tbl je-lines qbe-grid"><thead><tr><th>#</th><th style={{width:'24%'}}>Account</th><th className="ta-r">Debits</th><th className="ta-r">Credits</th><th>Description</th><th>Name / subsidiary</th><th>Property / project</th>{editable&&<th/>}</tr></thead><tbody>
+      {draft.lines.map((line,i)=><tr key={i}><td className="muted">{i+1}</td><td>{editable?<select value={line.account_code} onChange={e=>setLine(i,{account_code:e.target.value})}><option value="">Select account…</option>{COA.map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} · {a.account_name}</option>)}</select>:<span>{line.account_code} · {acct(line.account_code).account_name}</span>}</td>
+        <td className="ta-r">{editable?<input className="num-in" type="number" value={line.debit_amount||''} onChange={e=>setLine(i,{debit_amount:+e.target.value||0,credit_amount:0})}/>:<Money v={line.debit_amount||0}/>}</td>
+        <td className="ta-r">{editable?<input className="num-in" type="number" value={line.credit_amount||''} onChange={e=>setLine(i,{credit_amount:+e.target.value||0,debit_amount:0})}/>:<Money v={line.credit_amount||0}/>}</td>
+        <td>{editable?<input className="desc-line" value={line.description||''} onChange={e=>setLine(i,{description:e.target.value})} placeholder="Line description"/>:<span>{line.description||'—'}</span>}</td>
+        <td>{editable?<input className="desc-line" list="member-list-v2" value={line.member||''} onChange={e=>setLine(i,{member:e.target.value})} placeholder={subsidiaryOf(line.account_code)?`${subsidiaryOf(line.account_code)} required`:'Name'}/>:<span>{line.member||'—'}</span>}</td>
+        <td>{editable?<div className="dim-picks"><select value={line.property_id||''} onChange={e=>setLine(i,{property_id:e.target.value?+e.target.value:null})}><option value="">Property…</option>{PROPERTIES.map(p=><option key={p.property_id} value={p.property_id}>{p.property_code}</option>)}</select><select value={line.project_id||''} onChange={e=>setLine(i,{project_id:e.target.value?+e.target.value:null})}><option value="">Project…</option>{PROJECTS.map(p=><option key={p.project_id} value={p.project_id}>{p.project_code}</option>)}</select></div>:<span>{line.property_id?`Property ${line.property_id}`:line.project_id?`Project ${line.project_id}`:'—'}</span>}</td>
+        {editable&&<td><button className="x-sm" onClick={()=>removeLine(i)}>×</button></td>}</tr>)}
+    </tbody></table></div>
+    <div className="qbe-below"><div>{editable&&<><Btn size="sm" onClick={addLine}>+ Add line</Btn><Btn size="sm" variant="ghost" onClick={()=>setField({lines:[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}]})}>Clear lines</Btn></>}</div><div className="qbe-totals"><span>Total debits <Money v={totals.debit} bold/></span><span>Total credits <Money v={totals.credit} bold/></span><span className={Math.abs(difference)<.005&&totals.debit>0?'bal-ok':'bal-bad'}>Difference {money(difference)}</span></div></div>
+
+    {draft.je_type==='MANUAL'||draft.je_type==='RECLASS'?<div className="qbe-memo"><b>Attachments</b>{editable?<label className="link-btn" style={{cursor:'pointer',display:'block',marginTop:8}}>{draft.has_attachment?`📎 ${draft.attachment_name} · Replace`:'📎 Add supporting document (required before submit)'}<input type="file" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];if(file)setField({has_attachment:true,attachment_name:`${file.name} (${Math.round(file.size/1024)} KB)`});}}/></label>:<div className="muted sm">{draft.has_attachment?`📎 ${draft.attachment_name||'Attached'}`:'No attachment'}</div>}</div>:null}
+
+    {draft.source_system!=='MAN'&&<div className="src-card"><div className="src-chain"><span className="chip">{draft.source_system} source</span>→<span className="chip">Setting / Mapping</span>→<span className="chip">Rule {draft.rule_code||'MISSING'}</span>→<span className="chip chip-on">Draft / Approval</span>→<span className="chip">GL</span></div><div className="src-grid"><span><i>Source ID</i><b>{draft.source_doc_id||'MISSING'}</b></span><span><i>Document</i><b>{sourceDoc?.doc_no||draft.source_doc_id||'—'}</b></span><span><i>Rule</i><b>{draft.rule_code||'MISSING'}</b></span><span><i>Setting</i><b>{draft.setting_used||'Company setting'}</b></span><span><i>Mapping</i><b>{draft.mapping_used||'Approved mapping'}</b></span><span><i>Control</i><b>Human approval required</b></span></div></div>}
+    {errors.length>0&&draft.posting_status==='DRAFT'&&<div className="err-box">{errors.map((e,i)=><div key={i}>• [{e.code}] {e.msg}</div>)}</div>}
+    {confirmExit&&<div className="err-box" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>Discard unsaved changes and return to the list?</span><span className="row-acts"><Btn size="sm" variant="ghost" onClick={()=>setConfirmExit(false)}>Keep editing</Btn><Btn size="sm" variant="danger" onClick={onClose}>Discard</Btn></span></div>}
+    <div className="qbe-footbar"><div className="row-acts"><Btn variant="ghost" onClick={exit}>Exit</Btn><Btn variant="ghost" onClick={copy}>Copy</Btn><Btn variant="ghost" onClick={recurring}>Make recurring</Btn>{draft.posting_status==='POSTED'&&<Btn variant="ghost" onClick={()=>goto('register')}>View in register</Btn>}</div><div className="row-acts">
+      {editable&&<><Btn onClick={save}>Save</Btn><Btn onClick={saveClose}>Save & close</Btn><Btn variant="ghost" onClick={saveNew}>Save & new</Btn></>}
+      {flow.reject&&can('GL.JE.REVIEW')&&<Btn variant="ghost" onClick={()=>{const result=actions.rejectJE(draft.je_id);if(!result?.ok)toast(result?.message||'Reject blocked.','bad');else{setDraft(result.je);toast('Returned to Draft.','warn');}}}>Reject</Btn>}
+      {draft.posting_status==='POSTED'&&<><Btn onClick={reclass}>Reclass</Btn>{can('GL.JE.REVERSE')&&<Btn variant="danger" onClick={reverse}>Reverse</Btn>}</>}
+      {flow.action&&<Btn variant="primary" onClick={advance} disabled={!can(flow.perm)} title={!can(flow.perm)?`Missing permission ${flow.perm}`:''}>{flow.action}</Btn>}
+    </div></div>
+    {draft.history?.length>0&&<><SectionTitle>Audit trail</SectionTitle><ApprovalTimeline steps={draft.history.map(h=>({label:h.a,done:true,who:h.by,at:h.at}))}/></>}
+  </div>;
+}
+
+function LegacyJEEditor({je, ctx}) {
   const {actions, can, period, toast} = ctx;
   const readOnly = ['POSTED','REVERSED'].includes(je.posting_status);
   const editable = je.posting_status==='DRAFT' && !readOnly;
@@ -249,11 +313,10 @@ function JEEditor({je, ctx}) {
     </div>; })()}
     {errs.length>0 && <div className="err-box">{errs.map((e,i)=><div key={i}>• [{e.code}] {e.msg}</div>)}</div>}
     <div className="qbe-footbar">
-      <div><Btn variant="ghost" onClick={()=>{const nid=actions.copyJE(je.je_id); toast('已复制为新草稿');}}>Copy</Btn>
-        <Btn variant="ghost" onClick={()=>toast('Recurring 模板已保存(每月1日自动生成草稿)')}>Make recurring</Btn></div>
+      <div><Btn variant="ghost" onClick={()=>{const result=actions.copyJE(je.je_id);toast(result?.ok?'已复制为新草稿':result?.message||'Copy blocked.',result?.ok?'ok':'bad');}}>Copy</Btn>
+        <Btn variant="ghost" onClick={()=>{const result=actions.makeRecurringJE(je.je_id);toast(result?.ok?`Recurring template ${result.template.template_id} created.`:result?.message||'Recurring blocked.',result?.ok?'ok':'bad');}}>Make recurring</Btn></div>
       <div className="row-acts">
-        {flow.reject && can('GL.JE.REVIEW') && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id, flow.reject, '退回'); toast('已退回 DRAFT','warn');}}>Reject</Btn>}
-        {je.posting_status==='POSTED' && ctx.user.role_code==='CONTROLLER' && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id,'APPROVED','CANCEL POST'); toast('已 Cancel Post','warn');}}>Cancel Post</Btn>}
+        {flow.reject && can('GL.JE.REVIEW') && <Btn variant="ghost" onClick={()=>{const result=actions.rejectJE(je.je_id);toast(result?.ok?'已退回 DRAFT':result?.message||'Reject blocked.',result?.ok?'warn':'bad');}}>Reject</Btn>}
         {je.posting_status==='POSTED' && can('GL.JE.REVERSE') && <Btn variant="danger" onClick={reverse}>Reverse</Btn>}
         {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'无此权限':''}>{flow.action==='提交'?'Save and submit':flow.action}</Btn>}
       </div>
