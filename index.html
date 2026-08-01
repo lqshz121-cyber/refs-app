@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>REFS · WanBridge Real Estate Financial System</title>
@@ -309,6 +310,52 @@ input:focus,select:focus,.grid-search:focus{outline:none; border-color:#0B57D0 !
 .nav-group-h{font-size:14px; padding:10px 18px;}
 .new-btn{margin:10px 18px 18px; width:calc(100% - 36px); font-size:15.5px;}
 .sidebar .brand{padding:20px 20px 10px; font-size:19px;}
+
+
+/* ============ 2026 Modern Pass ============ */
+body{font-family:'Inter','Avenir Next',-apple-system,sans-serif;}
+:root{--radius:16px;}
+.card,.kpi,.qbo-card,.acct-card,.recon-col,.appr-row,.filter-bar,.login-card{border-radius:16px; border:1px solid rgba(16,24,40,.07); box-shadow:0 1px 2px rgba(16,24,40,.04),0 4px 16px rgba(16,24,40,.05);}
+.qbo-card:hover,.acct-card:hover,.kpi:hover,.card-hover:hover{transform:translateY(-3px) scale(1.005); box-shadow:0 4px 8px rgba(16,24,40,.06),0 16px 40px rgba(16,24,40,.13);}
+.table-wrap{border-radius:16px; border:1px solid rgba(16,24,40,.07); box-shadow:0 1px 2px rgba(16,24,40,.04),0 4px 16px rgba(16,24,40,.05); overflow:auto; background:var(--bg-surface);}
+.tbl{border-radius:16px; overflow:hidden;}
+.tbl th{background:rgba(247,249,252,.92); backdrop-filter:blur(6px); font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; padding:13px 16px;}
+body.dark .tbl th{background:rgba(30,31,36,.92);}
+.tbl td{padding:13px 16px;}
+.tbl tbody tr{position:relative;}
+.tbl tbody tr:hover{background:rgba(11,87,208,.045); box-shadow:inset 3px 0 0 var(--brand);}
+.badge{border-radius:999px; padding:4px 12px 4px 9px; display:inline-flex; align-items:center; gap:6px;}
+.badge::before{content:''; width:6px; height:6px; border-radius:50%; background:currentColor; opacity:.9;}
+.btn{border-radius:12px;}
+.btn-ghost,.grid-tool,.chip{border-radius:999px;}
+.qbo-big{background:linear-gradient(135deg,#0f1b3d 30%,#0B57D0); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; font-weight:800;}
+body.dark .qbo-big{background:linear-gradient(135deg,#fff,#7fb0ff); -webkit-background-clip:text;}
+.page-h{font-weight:800;}
+.sidebar{background:linear-gradient(180deg,#17181d 0%,#1b2030 100%);}
+.nav-item.nav-on{background:linear-gradient(90deg,rgba(76,141,246,.22),rgba(76,141,246,.06)); border-left:3px solid #4C8DF6; box-shadow:inset 0 0 20px rgba(76,141,246,.06);}
+.nav-item,.nav-group-h{border-radius:10px; margin:1px 8px; width:calc(100% - 16px);}
+.nav-item.nav-on{border-left-width:3px;}
+.topbar{background:rgba(255,255,255,.85); backdrop-filter:blur(14px) saturate(1.4);}
+body.dark .topbar{background:rgba(24,25,30,.85);}
+.filter-bar{padding:12px 18px;}
+.filter-bar select,.grid-search{border-radius:10px;}
+input,select{border-radius:10px !important; transition:border-color .15s, box-shadow .15s;}
+.new-btn{border-radius:14px; letter-spacing:.01em;}
+.kpi{transition:transform .18s ease, box-shadow .18s ease;}
+.qbo-grid>.qbo-card:nth-child(1){background:linear-gradient(160deg,#f3f7ff 0%,#fff 45%);}
+.qbo-grid>.qbo-card:nth-child(2){background:linear-gradient(160deg,#f4f1ff 0%,#fff 45%);}
+.qbo-grid>.qbo-card:nth-child(3){background:linear-gradient(160deg,#eefaf3 0%,#fff 45%);}
+.qbo-grid>.qbo-card:nth-child(4){background:linear-gradient(160deg,#fff7ee 0%,#fff 45%);}
+.qbo-grid>.qbo-card:nth-child(5){background:linear-gradient(160deg,#f0f9ff 0%,#fff 45%);}
+.qbo-grid>.qbo-card:nth-child(6){background:linear-gradient(160deg,#fff1f2 0%,#fff 45%);}
+body.dark .qbo-grid>.qbo-card{background:var(--bg-surface);}
+.drawer{border-radius:20px 0 0 20px;}
+.toast{border-radius:14px; box-shadow:0 12px 40px rgba(16,24,40,.22);}
+.pal{border-radius:18px;}
+.todo-item{border-radius:14px; transition:transform .15s, box-shadow .15s; }
+.todo-item:hover{transform:translateY(-2px); box-shadow:0 8px 24px rgba(16,24,40,.10);}
+*{scrollbar-width:thin; scrollbar-color:#c9ced6 transparent;}
+::-webkit-scrollbar{width:8px; height:8px;} ::-webkit-scrollbar-thumb{background:#c9ced6; border-radius:4px;}
 
 </style>
 </head>
