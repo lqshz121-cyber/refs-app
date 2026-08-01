@@ -8,12 +8,15 @@ export function ARWorkspace({ctx}) {
   const {ar, actions, toast, can} = ctx;
   const [tab, setTab] = useState('Invoices');
   const [showNew, setShowNew] = useState(false);
-  const [f, setF] = useState({customer_id:'', memo:'', inv_date:'2026-07-31', due_date:'2026-08-30', amount:''});
+  const [bankMember,setBankMember] = useState('Operating Cash_BA-003');
+  const emptyInvoice=()=>({client_request_id:`ARFORM-${Date.now()}-${Math.random()}`,customer_id:'',memo:'',inv_date:'2026-07-31',due_date:'2026-08-30',amount:''});
+  const [f, setF] = useState(emptyInvoice);
   const open = ar.invoices.filter(i=>i.status==='OPEN');
   const submit = () => {
     if(!f.customer_id||!f.amount||+f.amount<=0){toast('客户/金额必填','bad');return;}
-    actions.addInvoice({...f, customer_id:+f.customer_id, amount:+f.amount});
-    toast('Invoice 已创建并生成 Dr 1200 AR / Cr 4000 收入分录'); setShowNew(false); setF({customer_id:'',memo:'',inv_date:'2026-07-31',due_date:'2026-08-30',amount:''});
+    const result=actions.addInvoice({...f, customer_id:+f.customer_id, amount:+f.amount});
+    if(!result?.ok){toast(result?.message||'Invoice 创建被拦截','bad');return;}
+    toast('Invoice 已保存，Draft JE 已进入复核队列');setShowNew(false);setF(emptyInvoice());
   };
   const bucket=i=>{const d=Math.floor((new Date('2026-07-31')-new Date(i.due_date))/86400000); return d<=0?'Current':d<=30?'1-30':d<=60?'31-60':'60+';};
   return <div>
@@ -26,13 +29,13 @@ export function ARWorkspace({ctx}) {
     </div>
     <Tabs tabs={['Invoices','AR Aging','Customers']} active={tab} onChange={setTab}/>
     {tab==='Invoices' && <>
-      <div style={{marginBottom:12}}><Btn variant="primary" onClick={()=>setShowNew(true)}>+ Create Invoice</Btn></div>
+      <div style={{marginBottom:12,display:'flex',gap:10,alignItems:'center'}}><Btn variant="primary" onClick={()=>setShowNew(true)} disabled={!can('AR.INVOICE.CREATE')}>+ Create Invoice</Btn><select value={bankMember} onChange={e=>setBankMember(e.target.value)} aria-label="Receipt bank account"><option value="Operating Cash_BA-003">Deposit to BA-003</option><option value="Operating Cash_BA-001">Deposit to BA-001</option></select></div>
       <Table exportName="ar-invoices" rowKey="inv_id" cols={[
         {h:'Invoice #',k:'inv_no'},{h:'Customer',k:'customer_name'},{h:'Date',k:'inv_date'},{h:'Due',k:'due_date'},
         {h:'Amount',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount,csv:r=>r.amount},
         {h:'Status',render:r=><Badge tone={r.status==='PAID'?'ok':'warn'}>{r.status}</Badge>,csv:r=>r.status},
         {h:'JE',k:'je_number'},
-        {h:'Action',render:r=>r.status==='OPEN'?<Btn size="sm" variant="primary" onClick={()=>{actions.receivePayment(r.inv_id); toast('收款完成: Dr 1000 Cash / Cr 1200 AR');}}>Receive Payment</Btn>:<span className="muted sm">{r.pay_je_number}</span>},
+        {h:'Action',render:r=>r.status==='OPEN'?<Btn size="sm" variant="primary" disabled={!can('AR.PAYMENT.CREATE')} onClick={()=>{const result=actions.receivePayment(r.inv_id,bankMember);toast(result?.ok?'Receipt Draft 已生成，Post 后才标记 Paid':result?.message||'收款被拦截',result?.ok?'ok':'bad');}}>Receive Payment</Btn>:<span className="muted sm">{r.pay_je_number||r.status}</span>},
       ]} rows={ar.invoices} empty="暂无 Invoice"/>
     </>}
     {tab==='AR Aging' && <div className="kpi-row">{['Current','1-30','31-60','60+'].map(g=>{const items=open.filter(i=>bucket(i)===g);

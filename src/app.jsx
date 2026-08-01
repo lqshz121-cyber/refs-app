@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Toast, Btn } from './ui.jsx';
 import { ENTITIES, USERS, PERIODS, COA, VENDORS, CUSTOMERS } from './data.js';
 import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, BANK_TXNS, FY2026, nextId, bumpId } from './seed.js';
-import { jeTotals } from './engine.js';
+import { jeTotals, validateJE } from './engine.js';
 import { Dashboard, JEWorkspace, LoanWorkspace, PMPickup, ClosingWorkspace, ExceptionCenter, CloseMgmt } from './modules-core.jsx';
 import { GLTrialBalance, Reports, ARModule, CashModule, LoanRegister, ProjectCost, Assets, Intercompany, IntegrationHub, MasterData, MappingCenter, RuleCenter, AdminModule } from './modules-more.jsx';
 import { APWorkspace } from './module-ap.jsx';
@@ -23,6 +23,9 @@ import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
 import { batchBankTransition, buildBankDraft, buildBankWorkflowException, createBankDraftTransition, excludeBankTransition, matchBankTransition, undoBankTransition, validateBankDraft } from './bank-workflow.js';
 import { authorizeJECommand, copyJEAsDraft, createReclassDraft, createRecurringTemplate, createReversal, rejectJETransition, reserveJESources, resolveJEPeriod, saveJEDraft, transitionJE, validateNewJEBatch, validateNewJESpec, verifyAttachmentContent } from './je-workflow.js';
+import { approveBillCommand, payBillCommand } from './ap-workflow.js';
+import { createInvoiceCommand, receivePaymentCommand } from './ar-workflow.js';
+import { applyPostedDocumentTransition } from './document-posting.js';
 
 const SEED_V='v12';
 const BUILD_SHA = typeof __REFS_BUILD_SHA__ !== 'undefined' ? __REFS_BUILD_SHA__ : 'dev';
@@ -59,7 +62,7 @@ const ROLE_PERMS = {
   PROJECT_ACCT: ['GL.JE.CREATE','AP.INVOICE.CREATE','PERIOD.CLOSE.SIGNOFF'],
   PROPERTY_ACCT: ['GL.JE.CREATE','AP.INVOICE.CREATE','EXCEPTION.EXC.CLOSE','PERIOD.CLOSE.SIGNOFF'],
   TREASURY: ['GL.JE.CREATE','AP.PAYMENT.CREATE','CASH.RECON.SIGNOFF'],
-  AP: ['AP.INVOICE.CREATE'], AR: ['GL.JE.CREATE'],
+  AP: ['AP.INVOICE.CREATE'], AR: ['AR.INVOICE.CREATE','AR.PAYMENT.CREATE'],
   REVIEWER: ['GL.JE.REVIEW','GL.JE.APPROVE','AP.INVOICE.APPROVE'],
   AUDITOR: [], READ_ONLY: [], SYS_ADMIN: [],
 };
@@ -186,6 +189,15 @@ function App() {
     audit('BANK_WORKFLOW_BLOCKED','BANK_TXN',ref,`${failure.code} · ${failure.message||''}`);
     return failure;
   };
+  const applyPostedSource = je => {
+    if (je?.posting_status !== 'POSTED' || !je.source_object_type) return;
+    if (je.source_object_type === 'AP_BILL') {
+      setAp(current => applyPostedDocumentTransition({ap:current,ar,je}).ap);
+    } else if (je.source_object_type === 'AR_INVOICE') {
+      setAr(current => applyPostedDocumentTransition({ap,ar:current,je}).ar);
+    }
+    audit('SOURCE_STATUS_SYNC',je.source_object_type,String(je.source_object_id),je.je_number);
+  };
   const actions = {
     newJE: () => {const auth=authorizeJECommand({can});if(!auth.ok){showToast(auth.message,'bad');return null;}const entityId=entity||2;const owned=ownedPeriod({entity_id:entityId,period_code:'2026-07'});if(!owned.ok||owned.period.status!=='OPEN'){const failure=owned.ok?{code:'4005',message:`Period ${owned.period.period_code} is ${owned.period.status}.`}:owned;showToast(failure.message,'bad');audit('CREATE_BLOCKED','JE','MANUAL',failure.code);return null;} const je = mkJE({entity_id:entityId, je_type:'MANUAL', description:'', source_system:'MAN', has_attachment:false,attachment_ids:[],
       lines:[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}]}); setJes(js=>[je,...js]);audit('CREATE','JE',je.je_number,'Manual Draft');return je.je_id; },
@@ -195,9 +207,9 @@ function App() {
     saveJE: (draft) => {const current=jes.find(j=>j.je_id===draft?.je_id);const key=`SAVE:${current?.je_id}:${current?.revision||0}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This save is already processing.'};const result=saveJEDraft({current,draft,user});
       const auth=authorizeJECommand({can});if(!auth.ok)return auth;if(!result.ok)return result;jeActionLocks.current.add(key);setJes(js=>js.map(j=>j.je_id===draft.je_id?result.je:j));audit(result.je.history.at(-1)?.override?'SAVE_OVERRIDE':'SAVE','JE',result.je.je_number,`revision ${result.je.revision}`);return result;},
     saveAndAdvanceJE: async (draft,next,label) => {const current=jes.find(j=>j.je_id===draft?.je_id);const key=`FLOW:${current?.je_id}:${current?.posting_status}:${next}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This workflow action is already processing.'};const saved=saveJEDraft({current,draft,user});const auth=authorizeJECommand({can});if(!auth.ok)return auth;if(!saved.ok)return saved;const owned=ownedPeriod(saved.je);if(!owned.ok)return owned;jeActionLocks.current.add(key);const storage=await verifyStoredDocuments(saved.je,documents);if(!storage.ok){jeActionLocks.current.delete(key);return storage;}const result=transitionJE({je:saved.je,next,user,period:owned.period,documents,can,label});if(!result.ok){jeActionLocks.current.delete(key);return result;}
-      setJes(js=>js.map(j=>j.je_id===draft.je_id?result.je:j));audit(label||next,'JE',result.je.je_number,`${current.posting_status} -> ${next}`);return result;},
+      setJes(js=>js.map(j=>j.je_id===draft.je_id?result.je:j));applyPostedSource(result.je);audit(label||next,'JE',result.je.je_number,`${current.posting_status} -> ${next}`);return result;},
     advanceJE: async (id,next,label) => {const current=jes.find(j=>j.je_id===id);const key=`FLOW:${id}:${current?.posting_status}:${next}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This workflow action is already processing.'};const owned=ownedPeriod(current);if(!owned.ok)return owned;jeActionLocks.current.add(key);const storage=await verifyStoredDocuments(current,documents);if(!storage.ok){jeActionLocks.current.delete(key);return storage;}const result=transitionJE({je:current,next,user,period:owned.period,documents,can,label});
-      if(!result.ok){jeActionLocks.current.delete(key);return result;}setJes(js=>js.map(j=>j.je_id===id?result.je:j));audit(label||next,'JE',result.je.je_number,`${current.posting_status} -> ${next}`);return result;},
+      if(!result.ok){jeActionLocks.current.delete(key);return result;}setJes(js=>js.map(j=>j.je_id===id?result.je:j));applyPostedSource(result.je);audit(label||next,'JE',result.je.je_number,`${current.posting_status} -> ${next}`);return result;},
     rejectJE: (id,reason) => {const current=jes.find(j=>j.je_id===id);const key=`REJECT:${id}:${current?.posting_status}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This reject is already processing.'};const result=rejectJETransition({je:current,user,reason,can});
       if(!result.ok)return result;jeActionLocks.current.add(key);setJes(js=>js.map(j=>j.je_id===id?result.je:j));audit('REJECT','JE',result.je.je_number,reason);return result;},
     copyJE: (id) => {const source=jes.find(j=>j.je_id===id);const auth=authorizeJECommand({can});if(!auth.ok)return auth;const owned=ownedPeriod(source);if(!owned.ok)return owned;if(owned.period.status!=='OPEN')return {ok:false,code:'4005',message:`Period ${owned.period.period_code} is ${owned.period.status}.`};const nid=nextId();const result=copyJEAsDraft({source,newId:nid,newNumber:'20260731'+String(nid).padStart(6,'0'),user});
@@ -215,32 +227,17 @@ function App() {
     resolveException: (id, resolution) => setExceptions(xs=>xs.map(e=>e.exception_id===id?{...e, status:'CLOSED', resolution, closed_by:userId}:e)),
     signoffTask: (id) => setCloseTasks(ts=>ts.map(t=>t.close_task_id===id?{...t, status:'SIGNED_OFF', signed_off_by:userId}:t)),
     // ---- AP ----
-    addBill: (f) => { const dup = ap.bills.find(b=>b.vendor_id===f.vendor_id && b.invoice_no.trim().toLowerCase()===f.invoice_no.trim().toLowerCase());
+    addBill: (f) => { const auth=can('AP.INVOICE.CREATE');if(!auth)return {ok:false,code:'AP_PERMISSION_DENIED',message:'Missing permission AP.INVOICE.CREATE.'};const dup = ap.bills.find(b=>b.vendor_id===f.vendor_id && b.invoice_no.trim().toLowerCase()===f.invoice_no.trim().toLowerCase());
       if (dup){ setAp(s=>({...s, dupBlocked:(s.dupBlocked||0)+1})); return {dup:dup.bill_no}; }
       const id=nextId(); const v=VENDORS.find(x=>x.vendor_id===f.vendor_id);
-      setAp(s=>({...s, bills:[{bill_id:id, bill_no:'BILL-2026-'+id, vendor_name:v.vendor_name, status:'PENDING_APPROVAL', created_by:userId, ...f}, ...s.bills]})); return {ok:true}; },
-    approveBill: (id) => { const b = ap.bills.find(x=>x.bill_id===id);
-      const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'PAYABLE', payee:b.vendor_name, description:`${b.bill_no} · ${b.vendor_name}`, posting_status:'POSTED',
-        lines:[{account_code:b.account_code, debit_amount:b.amount, credit_amount:0, vendor_id:b.vendor_id, property_id:b.property_id, description:b.invoice_no},
-               {account_code:'291001', debit_amount:0, credit_amount:b.amount, vendor_id:b.vendor_id, description:'Due to/from_'+b.vendor_name}]});
-      setJes(js=>[je,...js]);
-      setAp(s=>({...s, bills:s.bills.map(x=>x.bill_id===id?{...x, status:'APPROVED', approved_by:userId, je_number:je.je_number}:x)})); },
-    payBills: (ids) => { ids.forEach(id=>{ const b = ap.bills.find(x=>x.bill_id===id);
-        const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'EXPA', payee:b.vendor_name, description:`ACH payment ${b.bill_no} · auto-matched bank feed`, posting_status:'POSTED',
-          lines:[{account_code:'291001', debit_amount:b.amount, credit_amount:0, vendor_id:b.vendor_id, description:'Due to/from_'+b.vendor_name+' (clear)'},
-                 {account_code:'111000', debit_amount:0, credit_amount:b.amount, description:'Operating Cash'}]});
-        setJes(js=>[je,...js]);
-        setAp(s=>({...s, bills:s.bills.map(x=>x.bill_id===id?{...x, status:'PAID', pay_je_number:je.je_number}:x)})); }); },
-    addInvoice: (f) => { const id=nextId(); const c=CUSTOMERS.find(x=>x.customer_id===f.customer_id);
-      const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'AR', posting_status:'POSTED', description:`Invoice INV-2026-${id} · ${c.customer_name}`,
-        lines:[{account_code:'120200',debit_amount:f.amount,credit_amount:0},{account_code:'421803',debit_amount:0,credit_amount:f.amount}]});
-      setJes(js=>[je,...js]); audit('CREATE','INVOICE','INV-2026-'+id, '$'+f.amount);
-      setAr(s=>({...s, invoices:[{inv_id:id, inv_no:'INV-2026-'+id, customer_name:c.customer_name, status:'OPEN', je_number:je.je_number, ...f}, ...s.invoices]})); },
-    receivePayment: (id) => { const inv=ar.invoices.find(i=>i.inv_id===id);
-      const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'AR', posting_status:'POSTED', description:`Payment received ${inv.inv_no}`,
-        lines:[{account_code:'111000',debit_amount:inv.amount,credit_amount:0},{account_code:'120200',debit_amount:0,credit_amount:inv.amount}]});
-      setJes(js=>[je,...js]); audit('PAYMENT','INVOICE',inv.inv_no,'$'+inv.amount);
-      setAr(s=>({...s, invoices:s.invoices.map(i=>i.inv_id===id?{...i,status:'PAID',pay_je_number:je.je_number}:i)})); },
+      const bill={bill_id:id,bill_no:'BILL-2026-'+id,vendor_name:v.vendor_name,status:'PENDING_APPROVAL',created_by:userId,entity_id:entity||4,period_code:'2026-07',accounting_date:f.bill_date,...f};
+      setAp(s=>({...s,bills:[bill,...s.bills]}));audit('CREATE','AP_BILL',bill.bill_no,`${bill.vendor_name}:${bill.amount}`);return {ok:true,bill}; },
+    approveBill: (id) => {const actionKey=`DOC:AP_BILL:${id}:APPROVE`;if(jeActionLocks.current.has(actionKey))return {ok:false,code:'AP_DUPLICATE_ACTION',message:'Bill approval is already processing.'};jeActionLocks.current.add(actionKey);const release=()=>jeActionLocks.current.delete(actionKey);const bill=ap.bills.find(x=>x.bill_id===id);const normalized=bill?{...bill,entity_id:bill.entity_id||entity||4,period_code:bill.period_code||'2026-07',accounting_date:bill.accounting_date||bill.bill_date,lines:bill.lines?.length?bill.lines:[{account_code:bill.account_code,amount:bill.amount,description:bill.invoice_no,property_id:bill.property_id}]}:bill;const owned=ownedPeriod(normalized);const jeId=nextId();const result=approveBillCommand({bill:normalized,user,can,period:owned.ok?owned.period:null,existingJEs:jes,jeId,jeNumber:'20260731'+String(jeId).padStart(6,'0')});
+      if(!result.ok){release();audit('APPROVE_BLOCKED','AP_BILL',String(id),result.code);return result;}const errs=validateJE(result.draftJE,owned.period);if(errs.length){release();const failure={ok:false,code:errs[0].code,message:errs[0].msg};audit('APPROVE_BLOCKED','AP_BILL',String(id),failure.code);return failure;}setJes(js=>[result.draftJE,...js]);setAp(s=>({...s,bills:s.bills.map(x=>x.bill_id===id?result.nextDocument:x)}));audit('CREATE_DRAFT','AP_BILL',result.nextDocument.bill_no,result.draftJE.source_doc_id);return result; },
+    payBills: (ids,bankMember='Operating Cash_BA-003') => {let nextJes=[...jes];let nextBills=ap.bills.map(b=>({...b}));const results=[];for(const id of ids){const actionKey=`DOC:AP_BILL:${id}:PAY`;if(jeActionLocks.current.has(actionKey)){results.push({ok:false,id,code:'AP_DUPLICATE_ACTION',message:'Bill payment is already processing.'});continue;}jeActionLocks.current.add(actionKey);const index=nextBills.findIndex(x=>x.bill_id===id);const bill=index>=0?{...nextBills[index],entity_id:nextBills[index].entity_id||entity||4,period_code:nextBills[index].period_code||'2026-07',payment_date:'2026-07-31',bank_member:bankMember}:null;const owned=ownedPeriod(bill);const jeId=nextId();const paymentId=`PAY-${id}-${jeId}`;const result=payBillCommand({bill,user,can,period:owned.ok?owned.period:null,existingJEs:nextJes,jeId,jeNumber:'20260731'+String(jeId).padStart(6,'0'),paymentId});if(result.ok){const errs=validateJE(result.draftJE,owned.period);if(errs.length){jeActionLocks.current.delete(actionKey);results.push({ok:false,id,code:errs[0].code,message:errs[0].msg});continue;}nextJes=[result.draftJE,...nextJes];nextBills[index]=result.nextDocument;results.push({...result,id});}else{jeActionLocks.current.delete(actionKey);results.push({...result,id});}}
+      const created=results.filter(r=>r.ok).length;if(created){setJes(nextJes);setAp(s=>({...s,bills:nextBills}));}results.forEach(r=>audit(r.ok?'CREATE_PAYMENT_DRAFT':'PAYMENT_BLOCKED','AP_BILL',String(r.id),r.ok?r.draftJE.source_doc_id:r.code));return {ok:created>0,created,blocked:results.length-created,results}; },
+    addInvoice: (f) => {const actionKey=`DOC:AR_CREATE:${f?.client_request_id||'MISSING'}`;if(jeActionLocks.current.has(actionKey))return {ok:false,code:'AR_DUPLICATE_ACTION',message:'Invoice creation is already processing.'};jeActionLocks.current.add(actionKey);const release=()=>jeActionLocks.current.delete(actionKey);const id=nextId();const c=CUSTOMERS.find(x=>x.customer_id===f.customer_id);const invoice={inv_id:id,inv_no:'INV-2026-'+id,customer_name:c?.customer_name,status:'DRAFT',created_by:userId,entity_id:entity||4,period_code:'2026-07',accounting_date:f.inv_date,...f};const owned=ownedPeriod(invoice);const jeId=nextId();const result=createInvoiceCommand({invoice,user,can,period:owned.ok?owned.period:null,existingJEs:jes,jeId,jeNumber:'20260731'+String(jeId).padStart(6,'0')});if(!result.ok){release();audit('CREATE_BLOCKED','AR_INVOICE',invoice.inv_no,result.code);return result;}const errs=validateJE(result.draftJE,owned.period);if(errs.length){release();return {ok:false,code:errs[0].code,message:errs[0].msg};}setJes(js=>[result.draftJE,...js]);setAr(s=>({...s,invoices:[result.nextDocument,...s.invoices]}));audit('CREATE_DRAFT','AR_INVOICE',invoice.inv_no,result.draftJE.source_doc_id);return result; },
+    receivePayment: (id,bankMember='Operating Cash_BA-003') => {const actionKey=`DOC:AR_INVOICE:${id}:RECEIVE`;if(jeActionLocks.current.has(actionKey))return {ok:false,code:'AR_DUPLICATE_ACTION',message:'Invoice receipt is already processing.'};jeActionLocks.current.add(actionKey);const release=()=>jeActionLocks.current.delete(actionKey);const source=ar.invoices.find(i=>i.inv_id===id);const invoice=source?{...source,entity_id:source.entity_id||entity||4,period_code:source.period_code||'2026-07',payment_date:'2026-07-31',bank_member:bankMember}:null;const owned=ownedPeriod(invoice);const jeId=nextId();const paymentId=`RCPT-${id}-${jeId}`;const result=receivePaymentCommand({invoice,user,can,period:owned.ok?owned.period:null,existingJEs:jes,jeId,jeNumber:'20260731'+String(jeId).padStart(6,'0'),paymentId});if(!result.ok){release();audit('PAYMENT_BLOCKED','AR_INVOICE',String(id),result.code);return result;}const errs=validateJE(result.draftJE,owned.period);if(errs.length){release();return {ok:false,code:errs[0].code,message:errs[0].msg};}setJes(js=>[result.draftJE,...js]);setAr(s=>({...s,invoices:s.invoices.map(i=>i.inv_id===id?result.nextDocument:i)}));audit('CREATE_PAYMENT_DRAFT','AR_INVOICE',String(id),result.draftJE.source_doc_id);return result; },
     legacyBankExclude: (acctCode, txnId) => { audit('EXCLUDE','BANK_TXN','#'+txnId,''); setBank(s=>{const a=structuredClone(s); const t=a.accounts[acctCode].txns.find(x=>x.bank_txn_id===txnId); t.ui_status='Excluded'; return a;}); },
     legacyBankUndo: (acctCode, txnId) => setBank(s=>{const a=structuredClone(s); const acc=a.accounts[acctCode]; const t=acc.txns.find(x=>x.bank_txn_id===txnId);
       if(t.match_status==='MATCHED'){ const adj=t.direction==='CREDIT'?t.amount:-t.amount; acc.recorded_adj=(acc.recorded_adj||0)-adj; }
@@ -425,7 +422,7 @@ function Approvals({ctx}) {
     <h3 style={{fontSize:17, marginTop:22}}>Bills ({pb.length})</h3>
     {pb.map(b=><div key={b.bill_id} className="appr-row"><span>{b.bill_no} · {b.vendor_name} · ${b.amount.toLocaleString()}</span>
       <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('ap')}>Open</button>
-      {can('AP.INVOICE.APPROVE') && <button className="btn btn-primary btn-sm" onClick={()=>{actions.approveBill(b.bill_id); toast('Bill approved');}}>Approve</button>}</span></div>)}
+      {can('AP.INVOICE.APPROVE') && <button className="btn btn-primary btn-sm" onClick={()=>{const result=actions.approveBill(b.bill_id);toast(result?.ok?'Bill approved · Draft JE created':result?.message||'Bill approval blocked',result?.ok?'ok':'bad');}}>Approve</button>}</span></div>)}
     {pb.length===0 && <div className="empty">没有待审批 Bill</div>}
   </div>;
 }

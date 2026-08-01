@@ -16,6 +16,9 @@ import { SubsidiaryLedger } from './src/module-subledger.jsx';
 import { UnitCostLedger } from './src/module-unitcost.jsx';
 import { SourceDocs } from './src/module-sourcedocs.jsx';
 import { CompanySetting } from './src/module-setting.jsx';
+import { approveBillCommand, payBillCommand } from './src/ap-workflow.js';
+import { createInvoiceCommand, receivePaymentCommand } from './src/ar-workflow.js';
+import { applyPostedDocumentTransition } from './src/document-posting.js';
 
 const noop=()=>{};
 const actions=new Proxy({}, {get:()=>noop});
@@ -125,6 +128,22 @@ const missingException=buildBankWorkflowException({txn:missingTxn,failure:missin
 expectBank('bank batch keeps success and yields traceable missing-mapping exception',partialMissing.results.filter(r=>r.ok).length===1&&missingFailure.code==='BANK_MAPPING_MISSING'&&missingException.object_ref==='BANKTXN-MISSING'&&missingException.exception_type==='BANK_MAPPING_MISSING');
 
 const expectJE=(name,ok)=>{console.log(ok?'PASS':'FAIL',name);if(!ok)failed++;};
+const apBill={bill_id:77,bill_no:'BILL-77',entity_id:4,period_code:'2026-07',bill_date:'2026-07-31',amount:125,vendor_id:1,vendor_name:'Vendor A',status:'PENDING_APPROVAL',created_by:'maker',lines:[{account_code:'612900',amount:25,description:'Fee'},{account_code:'164200',amount:100,description:'CWIP',cost_code:'2HD'}]};
+const apDraft=approveBillCommand({bill:apBill,user:{user_id:'approver'},can:()=>true,period:{period_code:'2026-07',status:'OPEN'},jeId:7701,jeNumber:'JE-7701'});
+expectJE('AP approval creates multi-line Draft and pending-post source',apDraft.ok&&apDraft.draftJE.posting_status==='DRAFT'&&apDraft.draftJE.lines.length===3&&apDraft.nextDocument.status==='APPROVED_PENDING_POST');
+const apPosted=applyPostedDocumentTransition({ap:{bills:[apDraft.nextDocument]},ar:{invoices:[]},je:{...apDraft.draftJE,posting_status:'POSTED',posted_by:'poster'}});
+expectJE('AP source becomes approved only after linked JE posts',apPosted.ok&&apPosted.ap.bills[0].status==='APPROVED');
+const apPostedReplay=applyPostedDocumentTransition({ap:apPosted.ap,ar:apPosted.ar,je:{...apDraft.draftJE,posting_status:'POSTED',posted_by:'poster'}});
+expectJE('AP posted callback replay is idempotent',apPostedReplay.ok&&apPostedReplay.idempotent&&apPostedReplay.ap.bills[0].status==='APPROVED');
+expectJE('Rejected/Draft JE cannot advance the AP source',applyPostedDocumentTransition({ap:{bills:[apDraft.nextDocument]},ar:{invoices:[]},je:{...apDraft.draftJE,posting_status:'DRAFT'}}).code==='SOURCE_LINK_MISSING');
+const apPay=payBillCommand({bill:{...apPosted.ap.bills[0],bank_member:'Operating Cash_BA-003',payment_date:'2026-07-31'},user:{user_id:'treasury'},can:()=>true,period:{period_code:'2026-07',status:'OPEN'},paymentId:'PAY-77-A',jeId:7702,jeNumber:'JE-7702'});
+expectJE('AP payment uses occurrence id and remains Draft/PAYMENT_PENDING',apPay.ok&&apPay.draftJE.source_doc_id==='AP-PAYMENT:PAY-77-A'&&apPay.draftJE.posting_status==='DRAFT'&&apPay.nextDocument.status==='PAYMENT_PENDING');
+const arInvoice={inv_id:88,inv_no:'INV-88',entity_id:4,period_code:'2026-07',inv_date:'2026-07-31',amount:500,customer_id:1,customer_name:'Customer A',status:'DRAFT',created_by:'ar-maker'};
+const arDraft=createInvoiceCommand({invoice:arInvoice,user:{user_id:'ar-maker'},can:()=>true,period:{period_code:'2026-07',status:'OPEN'},jeId:8801,jeNumber:'JE-8801'});
+expectJE('AR invoice creates Draft and remains pending post',arDraft.ok&&arDraft.draftJE.posting_status==='DRAFT'&&arDraft.nextDocument.status==='OPEN_PENDING_POST');
+const arPosted=applyPostedDocumentTransition({ap:{bills:[]},ar:{invoices:[arDraft.nextDocument]},je:{...arDraft.draftJE,posting_status:'POSTED',posted_by:'poster'}});
+const arReceipt=receivePaymentCommand({invoice:{...arPosted.ar.invoices[0],bank_member:'Operating Cash_BA-003',payment_date:'2026-07-31'},user:{user_id:'ar-user'},can:()=>true,period:{period_code:'2026-07',status:'OPEN'},paymentId:'RCPT-88-A',jeId:8802,jeNumber:'JE-8802'});
+expectJE('AR source opens only after post and receipt remains Draft',arPosted.ok&&arPosted.ar.invoices[0].status==='OPEN'&&arReceipt.ok&&arReceipt.draftJE.posting_status==='DRAFT'&&arReceipt.nextDocument.status==='PAYMENT_PENDING');
 const maker={user_id:'maker'},reviewer={user_id:'reviewer'},approver={user_id:'approver'},poster={user_id:'poster'};
 const canAll=()=>true;
 const docs=[{document_id:'DOC-1',hash:'sha256:'+'a'.repeat(64),storage_ref:'indexeddb://refs-attachments/DOC-1',storage_state:'STORED'}];

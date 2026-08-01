@@ -98,13 +98,13 @@ function BillDetail({bill, onClose, ctx}) {
   if (!bill) return null;
   const steps = [
     {label:'创建 Maker', done:true, who:bill.created_by},
-    {label:'审批 Approver', done:['APPROVED','PAID'].includes(bill.status), who:bill.approved_by},
-    {label:'入账 Dr 费用 / Cr AP', done:!!bill.je_number, who:bill.je_number},
+    {label:'审批并创建 Draft JE', done:['APPROVED_PENDING_POST','APPROVED','PAYMENT_PENDING','PAID'].includes(bill.status), who:bill.approved_by},
+    {label:'AP JE Posted · Dr 费用 / Cr AP', done:['APPROVED','PAYMENT_PENDING','PAID'].includes(bill.status), who:bill.je_number},
     {label:'付款 Dr AP / Cr Cash', done:bill.status==='PAID', who:bill.pay_je_number},
   ];
   const approve = () => {
-    if (bill.created_by===user.user_id && user.role_code!=='CONTROLLER'){ toast('SoD 拦截 [4009]：创建人不可审批本单','bad'); return; }
-    actions.approveBill(bill.bill_id); toast('已审批并生成 AP 分录');
+    const result=actions.approveBill(bill.bill_id);
+    toast(result?.ok?'审批完成：Draft JE 已进入复核队列':result?.message||'Bill 审批被拦截',result?.ok?'ok':'bad');
   };
   return <Drawer open onClose={onClose} title={bill.bill_no+' · '+bill.vendor_name} width={520}
     actions={bill.status==='PENDING_APPROVAL' && can('AP.INVOICE.APPROVE') ? <Btn variant="primary" onClick={approve}>审批 + 生成分录</Btn> : null}>
@@ -121,11 +121,12 @@ function PaymentRun({ctx}) {
   const {ap, actions, toast, can} = ctx;
   const payable = ap.bills.filter(b=>b.status==='APPROVED');
   const [checked, setChecked] = useState({});
+  const [bankMember,setBankMember] = useState('Operating Cash_BA-003');
   const selIds = Object.keys(checked).filter(k=>checked[k]).map(Number);
   const total = sum(ap.bills.filter(b=>selIds.includes(b.bill_id)), b=>b.amount);
   const run = () => {
     if (!selIds.length){ toast('先勾选要付款的 Bill','warn'); return; }
-    actions.payBills(selIds); toast(`付款批次完成：${selIds.length} 张，${money(total)}（Dr AP / Cr Cash）`);
+    const result=actions.payBills(selIds,bankMember);toast(`${result.created||0} 张付款 Draft 已生成 · ${result.blocked||0} 张被拦截`,result.blocked?'warn':'ok');
     setChecked({});
   };
   return <div>
@@ -135,8 +136,12 @@ function PaymentRun({ctx}) {
       {h:'金额',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount},
     ]} rows={payable} empty="无已审批待付 Bill" />
     <div style={{marginTop:12,display:'flex',alignItems:'center',gap:14}}>
+      <select value={bankMember} onChange={e=>setBankMember(e.target.value)} aria-label="Payment bank account">
+        <option value="Operating Cash_BA-003">Operating Cash · BA-003</option>
+        <option value="Operating Cash_BA-001">Operating Cash · BA-001</option>
+      </select>
       <Btn variant="primary" onClick={run} disabled={!can('AP.PAYMENT.CREATE')||!selIds.length}>执行付款批次 ({selIds.length} 张 · {money(total)})</Btn>
-      <span className="muted sm">生成 Dr 2000 AP / Cr 1000 Cash 分录并回写银行流水</span>
+      <span className="muted sm">仅生成 Dr 291001 / Cr 111000 Draft；完成复核、审批和 Post 后才标记 Paid</span>
     </div>
   </div>;
 }
