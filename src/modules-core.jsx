@@ -122,15 +122,19 @@ export function JEWorkspace({ctx}) {
 
   // -------- Full-width list view (QBO Transactions-style) --------
   return <div className="full-bleed">
-    <div className="page-top">
-      <h2 className="page-h" style={{margin:0}}>Journal Entries</h2>
+    <div className="page-top accounting-page-head">
+      <div>
+        <div className="page-eyebrow">GENERAL LEDGER · TRANSACTION REGISTER</div>
+        <h2 className="page-h" style={{margin:0}}>Journal Entries</h2>
+        <div className="page-subtitle">Review source, approval status and posting evidence from one controlled workspace.</div>
+      </div>
       <div className="row-acts">
         <Btn variant="ghost" onClick={runBatch}>Run Batch Templates</Btn>
         {can('GL.JE.POST') && pendCount>0 && <Btn onClick={postAll}>⚡ Post All ({pendCount})</Btn>}
         <Btn variant="primary" onClick={newJE} disabled={!can('GL.JE.CREATE')}>+ New Journal Entry</Btn>
       </div>
     </div>
-    <div className="filter-bar">
+    <div className="filter-bar accounting-filter-bar">
       <label>期间 <select value={month} onChange={e=>setMonth(e.target.value)}>
         <option value="ALL">全年 2026</option>
         {['01','02','03','04','05','06','07'].map(m=><option key={m} value={m}>2026-{m}</option>)}
@@ -141,16 +145,16 @@ export function JEWorkspace({ctx}) {
       <label>来源 <select value={srcF} onChange={e=>setSrcF(e.target.value)}>
         {['ALL','MAN','WBS_CL','PM','AP','AR','BANK','CLOSING','PAYABLE','EXPA','AUTOC','DIVIDEND','REIMB','AUTO_BANK_REIMB','INTERNAL_TRANSFER','INTERNAL','INDIVIDUAL','NOT_MATCH'].map(x=><option key={x}>{x}</option>)}
       </select></label>
-      <span className="muted sm">{list.length} 笔</span>
+      <span className="result-count"><b>{list.length}</b> entries</span>
     </div>
     <Table exportName="journal-entries" rowKey="je_id" onRow={r=>setSel(r.je_id)} pageSize={20} cols={[
-      {h:'Journal No.',k:'je_number'},
-      {h:'Date',k:'je_date'},
+      {h:'Journal No.',k:'je_number',w:'180px'},
+      {h:'Date',k:'je_date',w:'112px'},
       {h:'Memo / Description',render:r=><span className="cell-main">{r.description||<i className="muted">（未填）</i>}</span>,csv:r=>r.description},
-      {h:'Source',render:r=><Badge tone="muted">{r.source_system}</Badge>,csv:r=>r.source_system},
-      {h:'Payee / Name',render:r=>r.payee||'—',csv:r=>r.payee||''},
-      {h:'Amount',num:true,render:r=><Money v={jeTotals(r).debit}/>,sortVal:r=>jeTotals(r).debit,csv:r=>jeTotals(r).debit},
-      {h:'Status',render:r=><Badge>{r.posting_status}</Badge>,csv:r=>r.posting_status},
+      {h:'Source',render:r=><Badge tone="muted">{r.source_system}</Badge>,csv:r=>r.source_system,w:'110px'},
+      {h:'Payee / Name',render:r=>r.payee||'—',csv:r=>r.payee||'',w:'210px'},
+      {h:'Amount',num:true,render:r=><Money v={jeTotals(r).debit}/>,sortVal:r=>jeTotals(r).debit,csv:r=>jeTotals(r).debit,w:'140px'},
+      {h:'Status',render:r=><Badge>{r.posting_status}</Badge>,csv:r=>r.posting_status,w:'120px'},
     ]} rows={list} empty="本期无分录 — 点击右上角 New Journal Entry 开始做账"/>
   </div>;
 }

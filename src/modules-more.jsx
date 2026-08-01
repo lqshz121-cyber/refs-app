@@ -186,8 +186,15 @@ export function Reports({ctx}) {
     ['CWIP Rollforward','房地产',null],['Inventory Rollforward','房地产',null],['Cost GL Reconciliation','房地产',null],['INTER COMPANY Balance Report','WBS',null],['SREO Report','WBS',null],['Draw Request Report','WBS',null],['Payable Report','WBS',null],
     ['Cost General Ledger','WBS','gl'],['Unit CWIP and EM Report','WBS','cost'],['Budget and Execution Report','WBS','cost'],['Project Cost Reconciliation','WBS','cost'],
   ];
-  return <div>
-    <h2 className="page-h">报表中心 Reports</h2>
+  return <div className="reports-library">
+    <div className="accounting-page-head reports-head">
+      <div>
+        <div className="page-eyebrow">FINANCIAL INTELLIGENCE · CONTROLLED REPORTING</div>
+        <h2 className="page-h">报表中心 Reports</h2>
+        <div className="page-subtitle">Financial statements, operational controls and WBS reconciliations with drill-down context.</div>
+      </div>
+      <div className="report-period-chip"><span>Reporting basis</span><b>Accrual · FY2026</b></div>
+    </div>
     <div className="kpi-row">
       <KPI label="总资产" value={money(st.assets)} />
       <KPI label="本期收入" value={money(st.revenue)} tone="ok" />

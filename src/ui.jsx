@@ -77,7 +77,7 @@ export function Table({cols, rows, onRow, empty='暂无数据', rowKey, features
       <button className="grid-tool" onClick={()=>{setDense(d=>{persist({dense:!d}); return !d;});}} title="密度">{dense?'Comfortable':'Compact'}</button>
       {exportable && <button className="grid-tool" onClick={doExport}>导出 CSV</button>}
     </div>}
-    <div className="table-wrap" tabIndex={0} onKeyDown={e=>{ if(!view.length) return;
+    <div className={`table-wrap ${exportName?'table-'+exportName.replace(/[^a-z0-9_-]/gi,'-').toLowerCase():''}`} tabIndex={0} onKeyDown={e=>{ if(!view.length) return;
       if(e.key==='ArrowDown'){ e.preventDefault(); setHi(h=>Math.min(view.length-1,h+1)); }
       if(e.key==='ArrowUp'){ e.preventDefault(); setHi(h=>Math.max(0,h-1)); }
       if(e.key==='Enter' && hi>=0 && onRow){ e.preventDefault(); onRow(view[hi]); }
