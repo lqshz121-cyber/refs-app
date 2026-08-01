@@ -37,6 +37,12 @@ ALTER TABLE IF EXISTS import_batch DROP COLUMN IF EXISTS entity_id;
 ALTER TABLE IF EXISTS raw_event DROP COLUMN IF EXISTS entity_id;
 ALTER TABLE IF EXISTS rule_evaluation DROP COLUMN IF EXISTS evaluation_digest;
 ALTER TABLE IF EXISTS setting_snapshot DROP CONSTRAINT IF EXISTS setting_approved_scope_no_overlap;
+ALTER TABLE IF EXISTS mapping_snapshot DROP CONSTRAINT IF EXISTS mapping_approved_equal_priority_no_overlap;
+ALTER TABLE IF EXISTS mapping_snapshot ADD CONSTRAINT mapping_approved_equal_priority_no_overlap
+  EXCLUDE USING gist (
+    tenant_id WITH =,family WITH =,scope_type WITH =,scope_key WITH =,input_key_hash WITH =,priority WITH =,
+    tstzrange(effective_from,COALESCE(effective_to,'infinity'::timestamptz),'[)') WITH &&
+  ) WHERE (status='APPROVED');
 ALTER TABLE IF EXISTS setting_snapshot DROP CONSTRAINT IF EXISTS setting_retirement_metadata;
 ALTER TABLE IF EXISTS setting_snapshot DROP COLUMN IF EXISTS retire_reason,DROP COLUMN IF EXISTS retired_at,DROP COLUMN IF EXISTS retired_by,DROP COLUMN IF EXISTS lifecycle_revision;
 ALTER TABLE IF EXISTS mapping_snapshot DROP CONSTRAINT IF EXISTS mapping_retirement_metadata;

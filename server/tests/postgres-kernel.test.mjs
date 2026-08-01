@@ -409,6 +409,8 @@ pgTest('approved snapshots are immutable, controlled retirement is idempotent an
   await adminPool.query("INSERT INTO accounting_period(tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,$4,$4,'OPEN')",[ids.tenantId,ids.entityId,cutoffIso.slice(0,7),cutoffIso.slice(0,10)]);
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'config-retirer',['CONFIG.SNAPSHOT.RETIRE'])});
   const args={kind:'SETTING',tenantId:ids.tenantId,entityId:ids.entityId,snapshotId:trace.settingId,expectedRevision:0,cutoff:cutoffIso,reason:'Superseded by approved version 2',idempotencyKey:'retire-setting-0001'};
+  const today=new Date();today.setUTCHours(0,0,0,0);
+  await assert.rejects(kernel.retireConfigSnapshot({...args,cutoff:today.toISOString(),idempotencyKey:'retire-setting-today'}),error=>error.code==='22023');
   const yesterday=new Date();yesterday.setUTCDate(yesterday.getUTCDate()-1);yesterday.setUTCHours(0,0,0,0);
   await assert.rejects(kernel.retireConfigSnapshot({...args,cutoff:yesterday.toISOString(),idempotencyKey:'retire-setting-backdate'}),error=>error.code==='22023');
   const closedCutoff=new Date(Date.UTC(cutoff.getUTCFullYear(),cutoff.getUTCMonth()+1,1));
@@ -432,6 +434,10 @@ pgTest('approved snapshots are immutable, controlled retirement is idempotent an
     VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,2,$3,'APPROVED','{}',$4,'v2-maker','v2-approver',now())`,[ids.tenantId,ids.entityId,cutoffIso,settingHash]);
   await adminPool.query(`INSERT INTO mapping_snapshot(tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
     VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,$3,2,0,$4,'APPROVED','{}','{}',$5,'v2-map-maker','v2-map-approver',now())`,[ids.tenantId,ids.entityId,trace.inputKeyHash,cutoffIso,trace.configHashes.mapping_hash]);
+  await assert.rejects(adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,3,'2026-07-01','APPROVED','{}',$3,'backdated-maker','backdated-approver',now())`,[ids.tenantId,ids.entityId,settingHash]),error=>error.code==='23P01');
+  await assert.rejects(adminPool.query(`INSERT INTO mapping_snapshot(tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,$3,3,0,'2026-07-01','APPROVED','{}','{}',$4,'backdated-map-maker','backdated-map-approver',now())`,[ids.tenantId,ids.entityId,trace.inputKeyHash,trace.configHashes.mapping_hash]),error=>error.code==='23P01');
   await assert.rejects(kernel.retireConfigSnapshot({...args,snapshotId:(await adminPool.query("SELECT setting_snapshot_id FROM setting_snapshot WHERE version=2 AND entity_id=$1",[ids.entityId])).rows[0].setting_snapshot_id,expectedRevision:1,idempotencyKey:'retire-setting-stale',reason:'Stale retirement must fail'}),error=>error.code==='40001');
 
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids)});
@@ -454,11 +460,15 @@ pgTest('setting overlap and mapping equal-priority overlap fail while a unique h
     VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,$3,2,10,'2026-02-01','APPROVED','{}','{}',$4,'maker2','approver2',now())`,[ids.tenantId,ids.entityId,trace.inputKeyHash,mappingHash]),error=>error.code==='23P01');
   await adminPool.query(`INSERT INTO mapping_snapshot(tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
     VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,$3,3,5,'2026-02-01','APPROVED','{}','{}',$4,'maker3','approver3',now())`,[ids.tenantId,ids.entityId,trace.inputKeyHash,mappingHash]);
+  await assert.rejects(adminPool.query(`INSERT INTO mapping_snapshot(tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,$3,4,20,'2026-07-01','APPROVED','{}','{}',$4,'retro-maker','retro-approver',now())`,[ids.tenantId,ids.entityId,trace.inputKeyHash,mappingHash]),error=>error.code==='23514');
+  await adminPool.query(`INSERT INTO mapping_snapshot(tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,$3,5,20,'2026-07-16','APPROVED','{}','{}',$4,'forward-maker','forward-approver',now())`,[ids.tenantId,ids.entityId,trace.inputKeyHash,mappingHash]);
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids)});
   assert.equal((await kernel.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'highest-mapping-post'})).idempotent,false);
 });
 
-pgTest('post rehash detects trigger-bypass tamper and resolver fails closed on a highest-priority tie',async()=>{
+pgTest('post rehash and unique setting/mapping resolvers fail closed against owner bypass',async()=>{
   const tampered=await seed({journalType:'AUTO',attachmentStatus:null});const trace=await attachAutoSource(tampered);
   await adminPool.query('ALTER TABLE setting_snapshot DISABLE TRIGGER USER');
   try{await adminPool.query("UPDATE setting_snapshot SET snapshot=jsonb_build_object('tampered',true) WHERE setting_snapshot_id=$1",[trace.settingId]);}
@@ -466,6 +476,23 @@ pgTest('post rehash detects trigger-bypass tamper and resolver fails closed on a
   const tamperKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(tampered)});
   await assert.rejects(tamperKernel.postJournal({...tampered,journalEntryId:tampered.journalId,expectedRevision:0,idempotencyKey:'tamper-rehash-post'}),error=>error.code==='23514');
   assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM posting_batch')).rows[0].n,0);
+
+  await adminPool.query('TRUNCATE tenant CASCADE');
+  const duplicateSetting=await seed({journalType:'AUTO',attachmentStatus:null});const settingTrace=await attachAutoSource(duplicateSetting);
+  await adminPool.query('ALTER TABLE setting_snapshot DROP CONSTRAINT setting_approved_scope_no_overlap');
+  try{
+    await adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+      VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,2,'2026-01-01','APPROVED','{}',$3,'duplicate-maker','duplicate-approver',now())`,[duplicateSetting.tenantId,duplicateSetting.entityId,settingTrace.configHashes.setting_hash]);
+    const duplicateKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(duplicateSetting)});
+    await assert.rejects(duplicateKernel.postJournal({...duplicateSetting,journalEntryId:duplicateSetting.journalId,expectedRevision:0,idempotencyKey:'setting-duplicate-post'}),error=>error.code==='23514');
+  }finally{
+    await adminPool.query('ALTER TABLE setting_snapshot DISABLE TRIGGER USER');
+    await adminPool.query('DELETE FROM setting_snapshot WHERE version=2 AND entity_id=$1',[duplicateSetting.entityId]);
+    await adminPool.query('ALTER TABLE setting_snapshot ENABLE TRIGGER USER');
+    await adminPool.query(`ALTER TABLE setting_snapshot ADD CONSTRAINT setting_approved_scope_no_overlap EXCLUDE USING gist (
+      tenant_id WITH =,family WITH =,scope_type WITH =,scope_key WITH =,
+      tstzrange(effective_from,COALESCE(effective_to,'infinity'::timestamptz),'[)') WITH &&) WHERE (status IN ('APPROVED','RETIRED'))`);
+  }
 
   await adminPool.query('TRUNCATE tenant CASCADE');
   const tied=await seed({journalType:'AUTO',attachmentStatus:null});const tiedTrace=await attachAutoSource(tied,{mappingPriority:9});
@@ -481,7 +508,7 @@ pgTest('post rehash detects trigger-bypass tamper and resolver fails closed on a
     await adminPool.query('ALTER TABLE mapping_snapshot ENABLE TRIGGER USER');
     await adminPool.query(`ALTER TABLE mapping_snapshot ADD CONSTRAINT mapping_approved_equal_priority_no_overlap EXCLUDE USING gist (
       tenant_id WITH =,family WITH =,scope_type WITH =,scope_key WITH =,input_key_hash WITH =,priority WITH =,
-      tstzrange(effective_from,COALESCE(effective_to,'infinity'::timestamptz),'[)') WITH &&) WHERE (status='APPROVED')`);
+      tstzrange(effective_from,COALESCE(effective_to,'infinity'::timestamptz),'[)') WITH &&) WHERE (status IN ('APPROVED','RETIRED'))`);
   }
   assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM posting_batch')).rows[0].n,0);
 });

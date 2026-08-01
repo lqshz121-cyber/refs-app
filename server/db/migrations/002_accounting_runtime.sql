@@ -191,6 +191,21 @@ BEGIN
     IF NEW.snapshot_hash<>refs_jsonb_hash(jsonb_build_object('input_keys',NEW.input_keys,'output_rules',NEW.output_rules)) THEN
       RAISE EXCEPTION 'Approved configuration snapshot hash mismatch' USING ERRCODE='23514';
     END IF;
+    IF EXISTS (
+      SELECT 1 FROM mapping_snapshot prior
+      JOIN rule_evaluation re ON re.tenant_id=prior.tenant_id AND re.mapping_snapshot_id=prior.mapping_snapshot_id
+      JOIN source_document sd ON sd.tenant_id=re.tenant_id AND sd.source_document_id=re.source_document_id
+      WHERE prior.tenant_id=NEW.tenant_id AND prior.family=NEW.family AND prior.scope_type=NEW.scope_type
+        AND prior.scope_key=NEW.scope_key AND prior.input_key_hash=NEW.input_key_hash
+        AND prior.mapping_snapshot_id<>NEW.mapping_snapshot_id
+        AND prior.status IN ('APPROVED','RETIRED') AND prior.priority<NEW.priority
+        AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=NEW.effective_from
+        AND (NEW.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<NEW.effective_to)
+        AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=prior.effective_from
+        AND (prior.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<prior.effective_to)
+    ) THEN
+      RAISE EXCEPTION 'Mapping approval would retroactively change historical rule evidence' USING ERRCODE='23514';
+    END IF;
   END IF;
   RETURN NEW;
 END;
@@ -277,7 +292,14 @@ ALTER TABLE setting_snapshot ADD CONSTRAINT setting_approved_scope_no_overlap
   EXCLUDE USING gist (
     tenant_id WITH =, family WITH =, scope_type WITH =, scope_key WITH =,
     tstzrange(effective_from,COALESCE(effective_to,'infinity'::timestamptz),'[)') WITH &&
-  ) WHERE (status='APPROVED');
+  ) WHERE (status IN ('APPROVED','RETIRED'));
+
+ALTER TABLE mapping_snapshot DROP CONSTRAINT mapping_approved_equal_priority_no_overlap;
+ALTER TABLE mapping_snapshot ADD CONSTRAINT mapping_approved_equal_priority_no_overlap
+  EXCLUDE USING gist (
+    tenant_id WITH =,family WITH =,scope_type WITH =,scope_key WITH =,input_key_hash WITH =,priority WITH =,
+    tstzrange(effective_from,COALESCE(effective_to,'infinity'::timestamptz),'[)') WITH &&
+  ) WHERE (status IN ('APPROVED','RETIRED'));
 
 CREATE TABLE runtime_auth_context (
   auth_context_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -698,8 +720,8 @@ BEGIN
   IF p_cutoff IS DISTINCT FROM (date_trunc('day',p_cutoff AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') THEN
     RAISE EXCEPTION 'Retirement cutoff must be a UTC accounting-date boundary' USING ERRCODE='22023';
   END IF;
-  IF (p_cutoff AT TIME ZONE 'UTC')::date<(clock_timestamp() AT TIME ZONE 'UTC')::date THEN
-    RAISE EXCEPTION 'Configuration retirement cannot be backdated' USING ERRCODE='22023';
+  IF p_cutoff<=(date_trunc('day',clock_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') THEN
+    RAISE EXCEPTION 'Configuration retirement requires at least the next UTC accounting-date boundary' USING ERRCODE='22023';
   END IF;
   PERFORM 1 FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity
     AND (p_cutoff AT TIME ZONE 'UTC')::date BETWEEN starts_on AND ends_on AND status='OPEN' FOR SHARE;
@@ -880,6 +902,14 @@ BEGIN
       AND re.evaluation_digest=refs_rule_evaluation_hash(re.source_document_id,re.setting_snapshot_id,re.mapping_snapshot_id,re.rule_code,re.rule_version,re.matched_facts,re.result,re.input_digest)
       AND re.evaluated_at>=ss.effective_from AND (ss.effective_to IS NULL OR re.evaluated_at<ss.effective_to)
       AND re.evaluated_at>=ms.effective_from AND (ms.effective_to IS NULL OR re.evaluated_at<ms.effective_to)
+      AND 1=(
+        SELECT count(*) FROM setting_snapshot setting_candidate
+        WHERE setting_candidate.tenant_id=ss.tenant_id AND setting_candidate.family=ss.family
+          AND setting_candidate.scope_type=ss.scope_type AND setting_candidate.scope_key=ss.scope_key
+          AND setting_candidate.status IN ('APPROVED','RETIRED')
+          AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=setting_candidate.effective_from
+          AND (setting_candidate.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<setting_candidate.effective_to)
+      )
       AND NOT EXISTS (
         SELECT 1 FROM mapping_snapshot higher
         WHERE higher.tenant_id=ms.tenant_id AND higher.family=ms.family AND higher.scope_type=ms.scope_type
