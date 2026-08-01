@@ -173,6 +173,8 @@ for (let m=1;m<=7;m++){
       const rev=Math.round(svc*1.6);
       push(e,mm,'26','INTERNAL',null,`${mm}/2026 Service income accrual`,[
         {account_code:'123700',debit_amount:rev,credit_amount:0},{account_code:'490600',debit_amount:0,credit_amount:rev}]);
+      push(e,mm,'28','EXPA',null,`${mm}/2026 Client receipts (bank feed auto-match)`,[
+        {account_code:'111000',debit_amount:rev,credit_amount:0},{account_code:'123700',debit_amount:0,credit_amount:rev}]);
     }
   });
 }
