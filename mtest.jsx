@@ -176,8 +176,8 @@ const approved=transitionJE({je:reviewed.je,next:'APPROVED',user:approver,period
 expectJE('JE approver recorded at action boundary',approved.ok&&approved.je.approver==='approver');
 expectJE('JE maker cannot post own entry',transitionJE({je:approved.je,next:'POSTED',user:maker,period:{status:'OPEN'},documents:docs,can:canAll}).code==='JE_SOD_MAKER');
 expectJE('JE approver cannot also post entry',transitionJE({je:approved.je,next:'POSTED',user:approver,period:{status:'OPEN'},documents:docs,can:canAll}).code==='JE_SOD_APPROVER_POSTER');
-const posted=transitionJE({je:approved.je,next:'POSTED',user:poster,period:{status:'OPEN'},documents:docs,can:canAll});
-expectJE('JE separate poster completes Posted state',posted.ok&&posted.je.posted_by==='poster');
+const posted=transitionJE({je:approved.je,next:'POSTED',user:poster,period:{status:'OPEN'},documents:docs,can:canAll,at:'2026-07-31T00:00:00.000Z'});
+expectJE('JE separate poster completes Posted state',posted.ok&&posted.je.posted_by==='poster'&&posted.je.posted_at==='2026-07-31T00:00:00.000Z');
 expectJE('JE Posted cannot Cancel Post or move backward',validateJETransition({je:posted.je,next:'APPROVED',user:poster,period:{status:'OPEN'},documents:docs,can:canAll}).code==='JE_IMMUTABLE');
 expectJE('JE closed period blocks workflow',validateJETransition({je:manualDraft,next:'PENDING_REVIEW',user:maker,period:{period_code:'2026-07',status:'CLOSED'},documents:docs,can:canAll}).code==='4005');
 const saved=saveJEDraft({current:manualDraft,draft:{...manualDraft,description:'Edited accrual'},user:maker});
