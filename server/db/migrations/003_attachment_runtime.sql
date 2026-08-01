@@ -29,6 +29,18 @@ INSERT INTO permission_catalog(permission_code,domain,risk_class,sod_class) VALU
   ('ATTACHMENT.CREATE','ATTACHMENT','MEDIUM','ATTACHMENT_UPLOADER'),
   ('ATTACHMENT.FINALIZE','ATTACHMENT','HIGH','ATTACHMENT_SCANNER');
 
+REVOKE SELECT ON attachment FROM refs_app;
+
+CREATE OR REPLACE FUNCTION refs_get_attachment_for_finalize(
+  p_tenant uuid,p_entity uuid,p_attachment uuid
+) RETURNS TABLE(attachment_id uuid,entity_id uuid,name text,media_type text,size_bytes bigint,content_hash text,storage_ref text,storage_version text,finalization_status text,upload_expires_at timestamptz)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  PERFORM refs_assert_scope(p_tenant,p_entity,'ATTACHMENT.CREATE');
+  RETURN QUERY SELECT a.attachment_id,a.entity_id,a.name,a.media_type,a.size_bytes,a.content_hash,a.storage_ref,a.storage_version,a.finalization_status,a.upload_expires_at
+    FROM attachment a WHERE a.tenant_id=p_tenant AND a.entity_id=p_entity AND a.attachment_id=p_attachment;
+END $$;
+
 CREATE OR REPLACE FUNCTION refs_attachment_reserve_hash(
   p_tenant uuid,p_entity uuid,p_name text,p_media_type text,p_size_bytes bigint,p_content_hash text,p_storage_ref text,p_storage_version text
 ) RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
@@ -67,20 +79,20 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION refs_attachment_finalize_hash(
-  p_tenant uuid,p_entity uuid,p_attachment uuid,p_size_bytes bigint,p_content_hash text,p_media_type text,p_storage_version text,p_scan_clean boolean,p_scan_ref text
+  p_tenant uuid,p_entity uuid,p_attachment uuid,p_storage_ref text,p_size_bytes bigint,p_content_hash text,p_media_type text,p_storage_version text,p_scan_clean boolean,p_scan_ref text
 ) RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
-  SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',p_tenant,'entity_id',p_entity,'attachment_id',p_attachment,'observed_size_bytes',p_size_bytes,
+  SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',p_tenant,'entity_id',p_entity,'attachment_id',p_attachment,'storage_ref',p_storage_ref,'observed_size_bytes',p_size_bytes,
     'observed_content_hash',lower(p_content_hash),'observed_media_type',lower(btrim(p_media_type)),'storage_version',p_storage_version,'scan_clean',p_scan_clean,'scan_ref',p_scan_ref))
 $$;
 
 CREATE OR REPLACE FUNCTION refs_finalize_attachment(
-  p_tenant uuid,p_entity uuid,p_attachment uuid,p_size_bytes bigint,p_content_hash text,p_media_type text,p_storage_version text,p_scan_clean boolean,p_scan_ref text,
+  p_tenant uuid,p_entity uuid,p_attachment uuid,p_storage_ref text,p_size_bytes bigint,p_content_hash text,p_media_type text,p_storage_version text,p_scan_clean boolean,p_scan_ref text,
   p_idempotency_key text,p_request_hash text
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE actor text:=refs_current_actor(); computed_hash text; receipt idempotency_receipt; current attachment; accepted boolean; response jsonb; payload jsonb;
 BEGIN
   PERFORM refs_assert_scope(p_tenant,p_entity,'ATTACHMENT.FINALIZE');
-  computed_hash:=refs_attachment_finalize_hash(p_tenant,p_entity,p_attachment,p_size_bytes,p_content_hash,p_media_type,p_storage_version,p_scan_clean,p_scan_ref);
+  computed_hash:=refs_attachment_finalize_hash(p_tenant,p_entity,p_attachment,p_storage_ref,p_size_bytes,p_content_hash,p_media_type,p_storage_version,p_scan_clean,p_scan_ref);
   IF p_request_hash<>computed_hash THEN RAISE EXCEPTION 'Attachment finalize request hash is not canonical' USING ERRCODE='22023'; END IF;
   INSERT INTO idempotency_receipt(tenant_id,operation_scope,idempotency_key,request_hash,status,actor_id)
     VALUES(p_tenant,'FINALIZE_ATTACHMENT:'||p_entity,p_idempotency_key,p_request_hash,'IN_PROGRESS',actor) ON CONFLICT DO NOTHING;
@@ -91,6 +103,7 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'Attachment not found' USING ERRCODE='P0002'; END IF;
   IF current.finalization_status<>'PENDING' OR current.upload_expires_at<=clock_timestamp() THEN RAISE EXCEPTION 'Attachment is not pending within its upload window' USING ERRCODE='55000'; END IF;
   IF actor=current.uploaded_by THEN RAISE EXCEPTION 'Attachment scanner SoD violation' USING ERRCODE='42501'; END IF;
+  IF current.storage_ref<>p_storage_ref THEN RAISE EXCEPTION 'Scanned object does not match attachment reservation' USING ERRCODE='23514'; END IF;
   accepted:=p_scan_clean AND p_scan_ref IS NOT NULL AND length(btrim(p_scan_ref))>0 AND current.size_bytes=p_size_bytes AND current.content_hash=lower(p_content_hash)
     AND current.media_type=lower(btrim(p_media_type)) AND p_storage_version!~'^pending:' AND length(btrim(p_storage_version))>0;
   PERFORM set_config('refs.attachment_finalize','authorized',true);
@@ -120,12 +133,14 @@ END $$;
 CREATE TRIGGER attachment_evidence_immutable BEFORE UPDATE OR DELETE ON attachment FOR EACH ROW EXECUTE FUNCTION refs_protect_attachment_evidence();
 
 REVOKE EXECUTE ON FUNCTION refs_attachment_reserve_hash(uuid,uuid,text,text,bigint,text,text,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_get_attachment_for_finalize(uuid,uuid,uuid) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_reserve_attachment(uuid,uuid,text,text,bigint,text,text,text,text,text) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION refs_attachment_finalize_hash(uuid,uuid,uuid,bigint,text,text,text,boolean,text) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION refs_finalize_attachment(uuid,uuid,uuid,bigint,text,text,text,boolean,text,text,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_attachment_finalize_hash(uuid,uuid,uuid,text,bigint,text,text,text,boolean,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_finalize_attachment(uuid,uuid,uuid,text,bigint,text,text,text,boolean,text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION refs_attachment_reserve_hash(uuid,uuid,text,text,bigint,text,text,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_get_attachment_for_finalize(uuid,uuid,uuid) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_reserve_attachment(uuid,uuid,text,text,bigint,text,text,text,text,text) TO refs_app;
-GRANT EXECUTE ON FUNCTION refs_attachment_finalize_hash(uuid,uuid,uuid,bigint,text,text,text,boolean,text) TO refs_app;
-GRANT EXECUTE ON FUNCTION refs_finalize_attachment(uuid,uuid,uuid,bigint,text,text,text,boolean,text,text,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_attachment_finalize_hash(uuid,uuid,uuid,text,bigint,text,text,text,boolean,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_finalize_attachment(uuid,uuid,uuid,text,bigint,text,text,text,boolean,text,text,text) TO refs_app;
 
 COMMIT;

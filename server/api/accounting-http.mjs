@@ -16,6 +16,7 @@ const requireUuid=(value,name)=>{if(!UUID.test(value||''))throw new AccountingAp
 const requireIdempotency=headers=>{const value=header(headers,'idempotency-key');if(typeof value!=='string'||value.length<8||value.length>200)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_REQUIRED','Idempotency-Key must be 8-200 characters');return value;};
 const requireRevision=headers=>{const raw=header(headers,'if-match');if(raw==null)throw new AccountingApiError(428,'IF_MATCH_REQUIRED','If-Match is required');const cleaned=String(raw).replace(/^W\//,'').replace(/^"|"$/g,'');if(!/^\d+$/.test(cleaned))throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must contain a non-negative revision');return Number(cleaned);};
 const validateBody=body=>{if(!body||typeof body!=='object'||Array.isArray(body))throw new AccountingApiError(400,'JSON_OBJECT_REQUIRED','Request body must be a JSON object');for(const key of Object.keys(body))if(FORBIDDEN_BODY_KEYS.has(key))throw new AccountingApiError(400,'IDENTITY_FIELD_FORBIDDEN',`${key} must come from authenticated context`);return body;};
+const allowOnly=(body,allowed)=>{const unexpected=Object.keys(body).filter(key=>!allowed.includes(key));if(unexpected.length)throw new AccountingApiError(400,'UNEXPECTED_FIELD',`Unexpected request field: ${unexpected[0]}`);return body;};
 
 function statusFor(error){
   if(error instanceof AccountingApiError)return error.status;
@@ -24,7 +25,7 @@ function statusFor(error){
   if(['22023','23503','23514'].includes(error?.code))return 422;return 500;
 }
 
-export function createAccountingApi({authenticate,kernelFactory}={}){
+export function createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory}={}){
   if(typeof authenticate!=='function'||typeof kernelFactory!=='function')throw new Error('Accounting API requires authenticate and kernelFactory');
   return async function dispatch({method,url,headers={},body=null}){
     try{
@@ -34,17 +35,27 @@ export function createAccountingApi({authenticate,kernelFactory}={}){
       if(parts[0]!=='api'||parts[1]!=='v1'||parts[2]!=='entities')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST is supported on this command API');
       const entityId=requireUuid(parts[3],'entityId');const payload=validateBody(body);const idempotencyKey=requireIdempotency(headers);
-      const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
       let result;
-      if(parts.length===6&&parts[4]==='journal-entries'&&parts[5]==='manual'){
+      if(parts.length===6&&parts[4]==='attachments'&&parts[5]==='reservations'){
+        if(typeof attachmentServiceFactory!=='function')throw new AccountingApiError(503,'ATTACHMENT_SERVICE_UNAVAILABLE','Attachment service is unavailable');
+        allowOnly(payload,['name','mediaType','sizeBytes','contentHash']);const service=await attachmentServiceFactory(principal);result=await service.reserve(principal,{...payload,tenantId:principal.tenantId,entityId,idempotencyKey});
+      }else if(parts.length===7&&parts[4]==='attachments'&&parts[6]==='finalize'){
+        if(typeof attachmentServiceFactory!=='function')throw new AccountingApiError(503,'ATTACHMENT_SERVICE_UNAVAILABLE','Attachment service is unavailable');
+        allowOnly(payload,[]);const service=await attachmentServiceFactory(principal);result=await service.finalize(principal,{tenantId:principal.tenantId,entityId,attachmentId:requireUuid(parts[5],'attachmentId'),idempotencyKey});
+      }else if(parts.length===6&&parts[4]==='journal-entries'&&parts[5]==='manual'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.createManualJournal({...payload,tenantId:principal.tenantId,entityId,idempotencyKey});
       }else if(parts.length===6&&parts[4]==='journal-entries'&&parts[5]==='auto'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.createAutoJournal({...payload,tenantId:principal.tenantId,entityId,idempotencyKey});
       }else if(parts.length===8&&parts[4]==='journal-entries'&&parts[6]==='transitions'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.transitionJournal({tenantId:principal.tenantId,entityId,journalEntryId:requireUuid(parts[5],'journalEntryId'),action:parts[7].toUpperCase(),expectedRevision:requireRevision(headers),reason:payload.reason??null,idempotencyKey});
       }else if(parts.length===7&&parts[4]==='journal-entries'&&parts[6]==='post'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.postJournal({tenantId:principal.tenantId,entityId,journalEntryId:requireUuid(parts[5],'journalEntryId'),periodId:requireUuid(payload.periodId,'periodId'),expectedRevision:requireRevision(headers),idempotencyKey});
       }else if(parts.length===8&&parts[4]==='journal-entries'&&parts[6]==='adjustments'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.createJournalAdjustment({...payload,action:parts[7].toUpperCase(),tenantId:principal.tenantId,entityId,originalJournalEntryId:requireUuid(parts[5],'journalEntryId'),idempotencyKey});
       }else throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
       return {status:result?.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
@@ -52,8 +63,8 @@ export function createAccountingApi({authenticate,kernelFactory}={}){
   };
 }
 
-export function createAccountingHttpServer({authenticate,kernelFactory,maxBodyBytes=1024*1024,healthCheck}={}){
-  const dispatch=createAccountingApi({authenticate,kernelFactory});
+export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,maxBodyBytes=1024*1024,healthCheck}={}){
+  const dispatch=createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory});
   return createServer(async(req,res)=>{
     const chunks=[];let size=0;
     try{

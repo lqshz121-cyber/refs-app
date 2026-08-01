@@ -8,6 +8,7 @@ import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
+import {AttachmentEvidenceService} from '../runtime/attachment-storage.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -379,21 +380,44 @@ pgTest('attachment reserve and scanner finalization are entity-scoped, idempoten
     storageRef:`object://attachments/${randomUUID()}`,storageVersion:'pending:reservation-1',idempotencyKey:'attachment-reserve-0001'};
   const reserved=await uploader.reserveAttachment(reserveArgs);const replay=await uploader.reserveAttachment(reserveArgs);
   assert.equal(reserved.status,'PENDING');assert.equal(replay.idempotent,true);assert.equal(replay.attachment_id,reserved.attachment_id);
+  const unrelated=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'unrelated-reader',['AP.VIEW'])});
+  await assert.rejects(unrelated.getAttachment({tenantId:ids.tenantId,entityId:ids.entityId,attachmentId:reserved.attachment_id}),error=>error.code==='42501');
+  await assert.rejects(unrelated.inSession(client=>client.query('SELECT storage_ref FROM attachment WHERE attachment_id=$1',[reserved.attachment_id])),error=>error.code==='42501');
+  assert.equal((await uploader.getAttachment({tenantId:ids.tenantId,entityId:ids.entityId,attachmentId:reserved.attachment_id})).storage_ref,reserveArgs.storageRef);
   const scanner=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-scanner',['ATTACHMENT.FINALIZE'])});
-  const finalizeArgs={tenantId:ids.tenantId,entityId:ids.entityId,attachmentId:reserved.attachment_id,observedSizeBytes:321,observedContentHash:contentHash,
+  const finalizeArgs={tenantId:ids.tenantId,entityId:ids.entityId,attachmentId:reserved.attachment_id,storageRef:reserveArgs.storageRef,observedSizeBytes:321,observedContentHash:contentHash,
     observedMediaType:'application/pdf',storageVersion:'version-1',scanClean:true,scanRef:'clamav:scan-001',idempotencyKey:'attachment-finalize-0001'};
   const selfScanner=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-uploader',['ATTACHMENT.FINALIZE'])});
   await assert.rejects(selfScanner.finalizeAttachment({...finalizeArgs,idempotencyKey:'attachment-self-finalize'}),error=>error.code==='42501');
+  await assert.rejects(scanner.finalizeAttachment({...finalizeArgs,storageRef:`object://attachments/${randomUUID()}`,idempotencyKey:'attachment-wrong-object'}),error=>error.code==='23514');
   const finalized=await scanner.finalizeAttachment(finalizeArgs);assert.equal(finalized.status,'VERIFIED_CLEAN');
   await assert.rejects(adminPool.query("UPDATE attachment SET name='tampered.pdf' WHERE attachment_id=$1",[reserved.attachment_id]),error=>error.code==='55000');
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-je-maker',['GL.JE.CREATE'])});
   const created=await maker.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:'JE-ATT-001',journalDate:'2026-07-20',currency:'USD',description:'Uses scanned evidence',attachmentIds:[reserved.attachment_id],idempotencyKey:'attachment-je-create-0001',lines:[
     {line_no:1,account_code:'111000',debit_amount:10,credit_amount:0,member_ref:'BANK-1',dimensions:{}},{line_no:2,account_code:'291001',debit_amount:0,credit_amount:10,member_ref:'VENDOR-1',dimensions:{}}
   ]});assert.equal(created.status,'DRAFT');
-  const rejectedReserve=await uploader.reserveAttachment({...reserveArgs,storageRef:`object://attachments/${randomUUID()}`,idempotencyKey:'attachment-reserve-0002'});
-  const rejected=await scanner.finalizeAttachment({...finalizeArgs,attachmentId:rejectedReserve.attachment_id,observedSizeBytes:999,idempotencyKey:'attachment-finalize-0002'});
+  const rejectedStorageRef=`object://attachments/${randomUUID()}`;
+  const rejectedReserve=await uploader.reserveAttachment({...reserveArgs,storageRef:rejectedStorageRef,idempotencyKey:'attachment-reserve-0002'});
+  const rejected=await scanner.finalizeAttachment({...finalizeArgs,attachmentId:rejectedReserve.attachment_id,storageRef:rejectedStorageRef,observedSizeBytes:999,idempotencyKey:'attachment-finalize-0002'});
   assert.equal(rejected.status,'REJECTED');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id IN ($1,$2) AND event_type IN ('ATTACHMENT_RESERVED','ATTACHMENT_FINALIZED')",[reserved.attachment_id,rejectedReserve.attachment_id])).rows[0].n,4);
+});
+
+pgTest('authenticated attachment HTTP traverses storage inspection and PostgreSQL without caller-controlled object evidence',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),contentHash=hash('http-uploaded-object');let storageRef;
+  const permissions={'http-uploader':['ATTACHMENT.CREATE'],'http-scanner':['ATTACHMENT.FINALIZE']};
+  const kernelFor=principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])});
+  const storage={reserveUpload:async()=>{storageRef=`object://attachments/${randomUUID()}`;return {storageRef,storageVersion:'pending:http-reservation',uploadUrl:'https://upload.example/signed',requiredHeaders:{'x-amz-meta-sha256':contentHash},expiresAt:new Date(Date.now()+60000).toISOString()};},deleteReservation:async()=>{},inspect:async ref=>{assert.equal(ref,storageRef);return {sizeBytes:88,mediaType:'application/pdf',contentHash,storageVersion:'http-version-1'};}};
+  const scanner={scan:async evidence=>{assert.deepEqual(evidence,{storageRef,storageVersion:'http-version-1'});return {clean:true,scanRef:'clamav:http-001'};}};
+  const service=new AttachmentEvidenceService({storage,scanner,uploaderKernelFactory:kernelFor,scannerKernelFactory:()=>kernelFor({actorId:'http-scanner'})});
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'http-uploader'}),kernelFactory:async()=>kernelFor({actorId:'http-uploader'}),attachmentServiceFactory:async()=>service});
+  const base=`/api/v1/entities/${ids.entityId}/attachments`;
+  const reserved=await api({method:'POST',url:`${base}/reservations`,headers:{'idempotency-key':'http-attachment-reserve'},body:{name:'http-evidence.pdf',mediaType:'application/pdf',sizeBytes:88,contentHash}});
+  assert.equal(reserved.status,201);const attachmentId=reserved.body.data.attachment_id;
+  const finalized=await api({method:'POST',url:`${base}/${attachmentId}/finalize`,headers:{'idempotency-key':'http-attachment-final'},body:{}});
+  assert.equal(finalized.status,201);assert.equal(finalized.body.data.status,'VERIFIED_CLEAN');
+  const row=(await adminPool.query('SELECT storage_ref,storage_version,finalization_status FROM attachment WHERE attachment_id=$1',[attachmentId])).rows[0];
+  assert.deepEqual(row,{storage_ref:storageRef,storage_version:'http-version-1',finalization_status:'VERIFIED_CLEAN'});
 });
 
 pgTest('automatic journal posts without manual attachment only when immutable source evidence exists',async()=>{

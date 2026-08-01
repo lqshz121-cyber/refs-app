@@ -67,14 +67,21 @@ export class PostgresAccountingKernel{
   async finalizeAttachment(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
-        'SELECT refs_attachment_finalize_hash($1,$2,$3,$4,$5,$6,$7,$8,$9) AS request_hash',
-        [args.tenantId,args.entityId,args.attachmentId,args.observedSizeBytes,args.observedContentHash,args.observedMediaType,args.storageVersion,args.scanClean,args.scanRef]
+        'SELECT refs_attachment_finalize_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS request_hash',
+        [args.tenantId,args.entityId,args.attachmentId,args.storageRef,args.observedSizeBytes,args.observedContentHash,args.observedMediaType,args.storageVersion,args.scanClean,args.scanRef]
       ),'ATTACHMENT_FINALIZE_HASH_FAILED','Attachment finalize hash was not produced').request_hash;
       return requireRow(await client.query(
-        'SELECT refs_finalize_attachment($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS result',
-        [args.tenantId,args.entityId,args.attachmentId,args.observedSizeBytes,args.observedContentHash,args.observedMediaType,args.storageVersion,args.scanClean,args.scanRef,args.idempotencyKey,requestHash]
+        'SELECT refs_finalize_attachment($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) AS result',
+        [args.tenantId,args.entityId,args.attachmentId,args.storageRef,args.observedSizeBytes,args.observedContentHash,args.observedMediaType,args.storageVersion,args.scanClean,args.scanRef,args.idempotencyKey,requestHash]
       ),'ATTACHMENT_FINALIZE_FAILED','Attachment finalization did not return a result').result;
     });
+  }
+
+  async getAttachment({tenantId,entityId,attachmentId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT * FROM refs_get_attachment_for_finalize($1,$2,$3)',
+      [tenantId,entityId,attachmentId]
+    ),'ATTACHMENT_NOT_FOUND','Attachment was not found'));
   }
 
   async createAutoJournal(args){

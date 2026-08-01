@@ -20,6 +20,17 @@ test('transition and post require optimistic concurrency and route authoritative
   response=await command(`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/post`,{periodId});assert.equal(response.status,428);
 });
 
+test('attachment routes derive scope from authentication and never accept caller storage evidence',async()=>{
+  const attachmentId=randomUUID(),attachmentCalls=[];
+  const attachmentApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'uploader'}),kernelFactory:async()=>kernel,
+    attachmentServiceFactory:async()=>({reserve:async(principal,args)=>{attachmentCalls.push(['reserve',principal,args]);return {attachment_id:attachmentId,status:'PENDING',idempotent:false};},finalize:async(principal,args)=>{attachmentCalls.push(['finalize',principal,args]);return {attachment_id:attachmentId,status:'VERIFIED_CLEAN',idempotent:false};}})});
+  const reserve=await attachmentApi({method:'POST',url:`/api/v1/entities/${entityId}/attachments/reservations`,headers:{'idempotency-key':'attach-reserve-1'},body:{name:'invoice.pdf',mediaType:'application/pdf',sizeBytes:12,contentHash:`sha256:${'a'.repeat(64)}`}});
+  assert.equal(reserve.status,201);assert.equal(attachmentCalls[0][2].tenantId,tenantId);assert.equal(attachmentCalls[0][2].entityId,entityId);
+  const finalize=await attachmentApi({method:'POST',url:`/api/v1/entities/${entityId}/attachments/${attachmentId}/finalize`,headers:{'idempotency-key':'attach-final-1'},body:{}});
+  assert.equal(finalize.status,201);assert.deepEqual(attachmentCalls[1][2],{tenantId,entityId,attachmentId,idempotencyKey:'attach-final-1'});
+  assert.equal((await attachmentApi({method:'POST',url:`/api/v1/entities/${entityId}/attachments/${attachmentId}/finalize`,headers:{'idempotency-key':'attach-final-2'},body:{storageRef:'s3://attacker/object'}})).status,400);
+});
+
 test('identity spoofing, missing idempotency, unauthenticated and malformed paths fail closed',async()=>{
   assert.equal((await command(`/api/v1/entities/${entityId}/journal-entries/manual`,{actorId:'attacker'})).status,400);
   assert.equal((await api({method:'POST',url:`/api/v1/entities/${entityId}/journal-entries/manual`,headers:{},body:{}})).status,400);
