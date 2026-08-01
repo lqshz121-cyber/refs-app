@@ -5,9 +5,28 @@ import { money, sum } from './engine.js';
 
 // ============ Auto Bank Reconciliation (WBS 4-step pipeline) ============
 const STEPS = ['1 Company Screening','2 Data Processing & Release','3 Incur','4 Incurred List'];
-const AB_SEED = ENTITIES.map((e,i)=>({entity_id:e.entity_id, company:e.entity_name, preparer:['HazelDong','Judy Zhang','Cathy Gao','Meyer Liu','Mia Man'][i%5], auditor:'auditor'+((i%3)+1),
-  m:'07/2026', r:i<2?'07/2026':'06/2026', c:i<2?'06/2026':'03/2026', qty:[6,0,3,4,2][i%5], amount:[-198412.66,0,45210.00,12030.50,-820.00][i%5], released:i<2?[6,0][i]:0,
-  recon_bal:[-141059.81,-257760.76,62451.17,-2276.66,52220365.69][i%5], recon_date:'01-01-2024'}));
+const AB_SEED = [
+ ['AIWB INC','HazelDong','auditor1','06/2026','06/2026','03/2025',7,-198741.59,0,-141059.81,'Add'],
+ ['Nanafu Texas Investment Inc','Judy Zhang','Cathy Gao','07/2026','07/2026','12/2023',0,0,0,-257760.76,'01-01-2024'],
+ ['TF Portfolio Delaware LLC','Judy Zhang','Serena Jia','07/2026','06/2026','11/2024',0,0,0,62451.17,'01-01-2024'],
+ ['TF Texas 001 LLC','Cathy Gao','Emily Wang','07/2026','07/2026','11/2024',0,0,0,-2276.66,'01-01-2024'],
+ ['W Land Development Management LLC','Judy Zhang','Emily Wang','06/2026','03/2025','12/2024',4,246554.34,0,-572141.48,'01-01-2024'],
+ ['Wan Bridge Development LLC','Cathy Gao','Judy Zhang','07/2026','06/2026','12/2023',0,0,0,52220365.69,'01-01-2024'],
+ ['Wan Bridge Group LLC','Ada Zelaya','—','06/2026','06/2026','10/2024',7,-251011.29,0,-5326791.56,'01-01-2024'],
+ ['Wan Bridge Land LLC','Judy Zhang','Cathy Gao','06/2026','06/2026','11/2024',8,16765.93,0,-56727315.48,'01-01-2024'],
+ ['WAN BRIDGE TEXAS SERVICE LLC','Judy Zhang','Cathy Gao','06/2026','06/2026','11/2024',8,917.72,3,199.95,'01-01-2024'],
+ ['Wan Pacific Real Estate Development LLC','Ricky','auditor2','06/2026','06/2026','10/2025',24,-114894.63,0,108382100.48,'01-01-2022'],
+ ['WB CH I LLC','Judy Zhang','Emily Wang','06/2026','06/2026','11/2024',4,-584254.76,0,-119810.40,'01-01-2024'],
+ ['WB Home LLC','HazelDong','auditor3','06/2026','06/2026','07/2025',5,38721.35,0,-464467.89,'01-01-2022'],
+ ['WB Opportunity fund 6 LP','Judy Zhang','Emily Wang','06/2026','06/2026','11/2024',4,-45102.66,0,6113267.89,'01-01-2022'],
+ ['WBWT West End Estates LLC','Judy Zhang','Emily Wang','06/2026','06/2026','12/2024',2,2637104.79,0,22892560.41,'01-01-2024'],
+ ['WBWT LS Fronterra LLC','Serena Jia','Meyer Liu','06/2026','09/2025','04/2025',3,2845180.89,0,21331639.49,'Add'],
+ ['WBPT Management LLC','Judy Zhang','Emily Wang','03/2026','12/2025','12/2023',19,-2266.89,0,-42459.82,'01-01-2024'],
+ ['Yanfu Management LLC','Judy Zhang','Bing Dai','06/2026','05/2026','12/2023',78,-5755.52,0,-11661417.25,'01-01-2024'],
+ ['WL Texas Sage Two Inc','Cathy Gao','Emily Wang','11/2020','11/2020','11/2020',347,-323035.06,0,0,'01-01-2024'],
+ ['WB Conroe LLC','Cathy Gao','Judy Zhang','07/2026','07/2026','11/2024',0,0,0,13860173.50,'01-01-2024'],
+ ['WB Entopsis Investment LLC','张晓勇','Cathy Gao','09/2024','12/2023','12/2023',39,-1175.12,0,-594.99,'01-01-2024'],
+].map((r,i)=>({entity_id:i+1, company:r[0], preparer:r[1], auditor:r[2], m:r[3], r:r[4], c:r[5], qty:r[6], amount:r[7], released:r[8], recon_bal:r[9], recon_date:r[10]}));
 export function AutoBankRec({ctx}) {
   const [step, setStep] = useState(0);
   const [rows, setRows] = useState(AB_SEED);
@@ -18,7 +37,8 @@ export function AutoBankRec({ctx}) {
     <h2 className="page-h">自动银行对账 Auto Bank Reconciliation</h2>
     <div className="stepper">{STEPS.map((s,i)=><button key={s} className={`step-chip ${step===i?'step-on':''} ${i<step?'step-done':''}`} onClick={()=>setStep(i)}>{s}</button>)}</div>
     {step===0 && <><SectionTitle>Company List(制单/审核分派 · M/R/C 完成度)</SectionTitle>
-      <Table exportName="abr-companies" rowKey="entity_id" onRow={r=>{setSel(r.entity_id); setStep(1);}} cols={[
+      <Table exportName="abr-companies" rowKey="entity_id" onRow={r=>{setSel(r.entity_id); setStep(1);}} pageSize={25} cols={[
+        {h:'',w:8,render:r=>r.qty>0?<span style={{display:'inline-block',width:8,height:26,background:'#F5B300',borderRadius:3}}/>:null},
         {h:'Seq',render:(r)=>rows.indexOf(r)+1},
         {h:'Company',k:'company'},
         {h:'制单 Preparer',k:'preparer'},{h:'审核 Auditor',k:'auditor'},
