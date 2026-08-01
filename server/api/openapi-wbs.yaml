@@ -1,0 +1,563 @@
+openapi: 3.1.0
+info:
+  title: REFS WBS Ingestion and Trace Contract
+  version: 0.1.0-contract
+  description: >-
+    Contract-only API. WBS is an external read-only source. These endpoints mutate
+    REFS ingestion/workflow state only and never write back to WBS.
+x-contract-status: executable-specification
+x-wbs-external-access: read-only
+x-authorization-policy:
+  actor-source: authenticated-session-or-service-account-only
+  entity-scope: every entity-bound resource must be authorized against tenant and entity claims
+  deny-by-default: true
+x-source-module-policy:
+  transaction-source-allowlist: [bankFeed, payable, cost, loan, pmCharge, closing]
+  evidence-only-modules: [accountLink, accountReport, generalLedger, IncomeStatement]
+  rejected-module-code: REPORT_AS_SOURCE_REJECTED
+x-mapping-resolution-policy:
+  effective-approved-only: true
+  highest-priority-required: true
+  tied-highest-priority-code: MAPPING_AMBIGUOUS
+  no-candidate-code: MAPPING_MISSING
+x-attachment-finalization-policy:
+  required-state: VERIFIED_CLEAN
+  authoritative-fields: [storage_ref, storage_version, size_bytes, media_type, content_hash, verified_at, scan_status]
+  reject-unverified-code: ATTACHMENT_NOT_FINALIZED
+servers:
+  - url: /api
+security:
+  - sessionCookie: []
+  - serviceAccountBearer: []
+paths:
+  /v1/wbs/import-batches:
+    post:
+      operationId: createWbsImportBatch
+      summary: Reserve a REFS import batch for a read-only WBS pull
+      x-actor-source: authenticated-service-account
+      x-wbs-operation: read-only-pull
+      x-required-permission: WBS.IMPORT.RUN
+      x-entity-scope: source_entity_id must be allowed by the authenticated service account
+      security:
+        - serviceAccountBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateImportBatchRequest'
+      responses:
+        '201':
+          description: Batch reserved
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportBatch' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /v1/wbs/import-batches/{importBatchId}:
+    get:
+      operationId: getWbsImportBatch
+      x-required-permission: WBS.IMPORT.READ
+      x-entity-scope: import batch source entity must be allowed by the authenticated actor
+      parameters:
+        - $ref: '#/components/parameters/ImportBatchId'
+      responses:
+        '200':
+          description: Import status and cursor evidence
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportBatch' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateWbsImportBatchStatus
+      summary: Record worker progress in REFS after a read-only WBS pull
+      x-actor-source: authenticated-service-account
+      x-wbs-operation: none
+      x-required-permission: WBS.IMPORT.RUN
+      x-entity-scope: import batch source entity must be allowed by the authenticated service account
+      security:
+        - serviceAccountBearer: []
+      parameters:
+        - $ref: '#/components/parameters/ImportBatchId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateImportBatchRequest' }
+      responses:
+        '200':
+          description: Progress recorded atomically with audit/outbox
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportBatch' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+  /v1/wbs/sync-cursors/{connectorCode}/{sourceModule}/{sourceEntityId}:
+    get:
+      operationId: getWbsSyncCursor
+      x-required-permission: WBS.CURSOR.READ
+      x-entity-scope: cursor source entity must be allowed by the authenticated actor
+      parameters:
+        - $ref: '#/components/parameters/ConnectorCode'
+        - $ref: '#/components/parameters/SourceModule'
+        - $ref: '#/components/parameters/SourceEntityId'
+      responses:
+        '200':
+          description: Durable cursor state
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncCursor' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/wbs/sync-cursors/{connectorCode}/{sourceModule}/{sourceEntityId}/actions/advance:
+    post:
+      operationId: advanceWbsSyncCursor
+      summary: Advance a REFS cursor after its import batch commits
+      x-actor-source: authenticated-service-account
+      x-wbs-operation: none
+      x-required-permission: WBS.CURSOR.ADVANCE
+      x-entity-scope: cursor source entity must be allowed by the authenticated service account
+      security:
+        - serviceAccountBearer: []
+      parameters:
+        - $ref: '#/components/parameters/ConnectorCode'
+        - $ref: '#/components/parameters/SourceModule'
+        - $ref: '#/components/parameters/SourceEntityId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [import_batch_id, cursor_after]
+              properties:
+                import_batch_id: { type: string, format: uuid }
+                cursor_after: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Cursor advanced
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncCursor' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+  /v1/sources:
+    get:
+      operationId: listSourceDocuments
+      x-required-permission: ACCOUNTING.SOURCE.READ
+      x-entity-scope: entity_id must be present in authenticated session claims
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PageSize'
+        - name: entity_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: source_module
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/SourceStatus' }
+      responses:
+        '200':
+          description: Cursor-paginated source documents
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/SourceDocumentSummary' }
+                  next_cursor: { type: [string, 'null'] }
+  /v1/sources/{sourceDocumentId}:
+    get:
+      operationId: getSourceDocument
+      x-required-permission: ACCOUNTING.SOURCE.READ
+      x-entity-scope: source document entity must be present in authenticated session claims
+      parameters:
+        - $ref: '#/components/parameters/SourceDocumentId'
+      responses:
+        '200':
+          description: Source, raw evidence, lines and current workflow state
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceDocumentDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/staging-items/{stagingItemId}/actions/review:
+    post:
+      operationId: reviewStagingItem
+      x-actor-source: authenticated-session
+      x-required-permission: ACCOUNTING.STAGING.REVIEW
+      x-entity-scope: staging item entity must be present in authenticated session claims
+      x-sod: reviewer must differ from source coder and from the approver of the selected mapping snapshot
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/StagingItemId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision, reason]
+              properties:
+                decision: { type: string, enum: [APPROVE_FOR_DRAFT, REJECT, EXCLUDE] }
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+                mapping_snapshot_id: { type: string, format: uuid }
+                rule_evaluation_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Review, state CAS, audit and outbox committed
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StagingItem' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+  /v1/exceptions/{exceptionId}/actions/resolve:
+    post:
+      operationId: resolveIngestionException
+      x-actor-source: authenticated-session
+      x-required-permission: ACCOUNTING.EXCEPTION.RESOLVE
+      x-entity-scope: exception entity must be present in authenticated session claims
+      x-sod: resolver must differ from the actor whose action created the exception when resolution is WAIVE
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ExceptionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [resolution]
+              properties:
+                resolution: { type: string, minLength: 1, maxLength: 2000 }
+                action: { type: string, enum: [RETRY, WAIVE, REJECT] }
+      responses:
+        '200':
+          description: Resolution persisted with audit and outbox
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExceptionRecord' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+  /v1/trace/source-documents/{sourceDocumentId}:
+    get:
+      operationId: traceFromSourceDocument
+      x-required-permission: ACCOUNTING.TRACE.READ
+      x-entity-scope: source document entity must be present in authenticated session claims
+      parameters:
+        - $ref: '#/components/parameters/SourceDocumentId'
+      responses:
+        '200':
+          description: Immutable-ID trace from source to ledger and audit
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TraceGraph' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/trace/ledger-lines/{ledgerLineId}:
+    get:
+      operationId: traceFromLedgerLine
+      x-required-permission: ACCOUNTING.TRACE.READ
+      x-entity-scope: ledger line entity must be present in authenticated session claims
+      parameters:
+        - name: ledgerLineId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Immutable-ID reverse trace to WBS raw evidence
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TraceGraph' }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: refs_session
+    serviceAccountBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  headers:
+    ETag:
+      description: Strong resource version used by If-Match
+      schema: { type: string }
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 200 }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema: { type: string }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+    ImportBatchId:
+      name: importBatchId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SourceDocumentId:
+      name: sourceDocumentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    StagingItemId:
+      name: stagingItemId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ExceptionId:
+      name: exceptionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ConnectorCode:
+      name: connectorCode
+      in: path
+      required: true
+      schema: { type: string }
+    SourceModule:
+      name: sourceModule
+      in: path
+      required: true
+      schema: { type: string }
+    SourceEntityId:
+      name: sourceEntityId
+      in: path
+      required: true
+      schema: { type: string }
+  responses:
+    Conflict:
+      description: Idempotency key conflict, duplicate source, or state conflict
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PreconditionFailed:
+      description: ETag/version is stale
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ValidationError:
+      description: Request or source validation failed
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Resource not found in the authenticated tenant/entity scope
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code, request_id]
+      properties:
+        type: { type: string, format: uri-reference }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string }
+        detail: { type: string }
+        request_id: { type: string }
+    CreateImportBatchRequest:
+      type: object
+      additionalProperties: false
+      required: [connector_code, source_module, source_entity_id, cursor_before, request_hash]
+      properties:
+        connector_code: { type: string }
+        source_module: { type: string }
+        source_entity_id: { type: string }
+        cursor_before: { type: object, additionalProperties: true }
+        request_hash: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }
+    UpdateImportBatchRequest:
+      type: object
+      additionalProperties: false
+      required: [status, row_count]
+      properties:
+        status: { type: string, enum: [RUNNING, SUCCEEDED, FAILED, PARTIAL] }
+        row_count: { type: integer, minimum: 0 }
+        cursor_after: { type: object, additionalProperties: true }
+        wbs_request_id: { type: string }
+        http_status: { type: integer, minimum: 100, maximum: 599 }
+        retry_count: { type: integer, minimum: 0 }
+        error_code: { type: [string, 'null'] }
+    ImportBatch:
+      type: object
+      required: [import_batch_id, connector_code, source_module, source_entity_id, status, cursor_before, row_count, version]
+      properties:
+        import_batch_id: { type: string, format: uuid }
+        connector_code: { type: string }
+        source_module: { type: string }
+        source_entity_id: { type: string }
+        status: { type: string, enum: [RECEIVED, RUNNING, SUCCEEDED, FAILED, PARTIAL] }
+        cursor_before: { type: object, additionalProperties: true }
+        cursor_after: { type: [object, 'null'], additionalProperties: true }
+        row_count: { type: integer }
+        retry_count: { type: integer }
+        error_code: { type: [string, 'null'] }
+        version: { type: integer }
+    SyncCursor:
+      type: object
+      required: [connector_code, source_module, source_entity_id, cursor_value, version]
+      properties:
+        connector_code: { type: string }
+        source_module: { type: string }
+        source_entity_id: { type: string }
+        cursor_value: { type: object, additionalProperties: true }
+        version: { type: integer }
+        last_success_at: { type: [string, 'null'], format: date-time }
+    SourceStatus:
+      type: string
+      enum: [RECEIVED, VALIDATING, PENDING_MAPPING, PENDING_CODING, PENDING_REVIEW, READY_FOR_DRAFT, DRAFT_CREATED, PENDING_JE_REVIEW, PENDING_JE_APPROVAL, APPROVED, POSTED, RECONCILED, DUPLICATE, QUARANTINED, MAPPING_EXCEPTION, RULE_EXCEPTION, EXCLUDED, REJECTED, REVERSED]
+    CanonicalSourceKey:
+      type: object
+      additionalProperties: false
+      required: [source_system, source_module, source_entity_id, source_record_id, source_version]
+      properties:
+        source_system: { type: string }
+        source_module: { type: string }
+        source_entity_id: { type: string }
+        source_record_id: { type: string }
+        source_version: { type: string }
+    SourceDocumentSummary:
+      type: object
+      required: [source_document_id, canonical_key, entity_id, document_type, business_date, accounting_date, currency, gross_amount, status, version]
+      properties:
+        source_document_id: { type: string, format: uuid }
+        canonical_key: { $ref: '#/components/schemas/CanonicalSourceKey' }
+        entity_id: { type: string, format: uuid }
+        document_type: { type: string }
+        document_no: { type: [string, 'null'], description: Display-only; never a trace key. }
+        business_date: { type: string, format: date }
+        accounting_date: { type: string, format: date }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        gross_amount: { type: string, pattern: '^-?\d+\.\d{4}$' }
+        status: { $ref: '#/components/schemas/SourceStatus' }
+        version: { type: integer }
+    SourceDocumentDetail:
+      allOf:
+        - $ref: '#/components/schemas/SourceDocumentSummary'
+        - type: object
+          required: [raw_event_id, source_ref, payload_hash, lines, attachments]
+          properties:
+            raw_event_id: { type: string, format: uuid }
+            source_ref: { type: string }
+            payload_hash: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }
+            lines:
+              type: array
+              items:
+                type: object
+                required: [source_document_line_id, source_line_id, line_no, amount, direction]
+                properties:
+                  source_document_line_id: { type: string, format: uuid }
+                  source_line_id: { type: string }
+                  line_no: { type: integer, minimum: 1 }
+                  amount: { type: string, pattern: '^\d+\.\d{4}$' }
+                  direction: { type: string }
+                  dimensions: { type: object, additionalProperties: true }
+            attachments:
+              type: array
+              items: { type: string, format: uuid }
+    StagingItem:
+      type: object
+      required: [staging_item_id, source_document_id, status, version]
+      properties:
+        staging_item_id: { type: string, format: uuid }
+        source_document_id: { type: string, format: uuid }
+        setting_snapshot_id: { type: [string, 'null'], format: uuid }
+        mapping_snapshot_id: { type: [string, 'null'], format: uuid }
+        rule_evaluation_id: { type: [string, 'null'], format: uuid }
+        ai_decision_id: { type: [string, 'null'], format: uuid }
+        status: { $ref: '#/components/schemas/SourceStatus' }
+        version: { type: integer }
+    ExceptionRecord:
+      type: object
+      required: [exception_id, exception_code, status, severity, details, version]
+      properties:
+        exception_id: { type: string, format: uuid }
+        exception_code: { type: string }
+        status: { type: string, enum: [OPEN, IN_REVIEW, RESOLVED, WAIVED] }
+        severity: { type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL] }
+        details: { type: object, additionalProperties: true }
+        version: { type: integer }
+    TraceGraph:
+      type: object
+      additionalProperties: false
+      required: [nodes, links, audit_events]
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+            required: [type, immutable_id]
+            properties:
+              type: { type: string }
+              immutable_id: { type: string, format: uuid }
+        links:
+          type: array
+          items:
+            type: object
+            required: [source_link_id, link_type, from_id, to_id]
+            properties:
+              source_link_id: { type: string, format: uuid }
+              link_type: { type: string }
+              from_id: { type: string, format: uuid }
+              to_id: { type: string, format: uuid }
+        audit_events:
+          type: array
+          items:
+            type: object
+            required: [audit_event_id, action, actor_id, occurred_at, request_id]
+            properties:
+              audit_event_id: { type: string, format: uuid }
+              action: { type: string }
+              actor_id: { type: string }
+              occurred_at: { type: string, format: date-time }
+              request_id: { type: string }
