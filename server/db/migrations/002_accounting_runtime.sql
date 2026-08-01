@@ -78,6 +78,8 @@ ALTER TABLE journal_line ADD CONSTRAINT journal_line_account_fk
 ALTER TABLE journal_line ADD CONSTRAINT journal_line_member_fk
   FOREIGN KEY (tenant_id, entity_id, member_ref)
   REFERENCES member_master(tenant_id, entity_id, member_ref);
+CREATE UNIQUE INDEX journal_entry_one_reversal_uq ON journal_entry(tenant_id,entity_id,reversal_of_id)
+  WHERE reversal_of_id IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION refs_validate_journal_line_master() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -346,6 +348,8 @@ INSERT INTO permission_catalog(permission_code,domain,risk_class,sod_class) VALU
   ('GL.JE.REVIEW','GL','HIGH','JE_REVIEW'),
   ('GL.JE.APPROVE','GL','CRITICAL','JE_APPROVE'),
   ('GL.JE.REJECT','GL','HIGH','JE_REVIEW'),
+  ('GL.JE.REVERSE','GL','CRITICAL','JE_REVERSAL'),
+  ('GL.JE.RECLASS','GL','CRITICAL','JE_RECLASS'),
   ('GL.JE.POST','GL','CRITICAL','JE_POST'),
   ('GL.JE.EDIT','GL','HIGH','JE_MAKER'),
   ('GL.PERIOD.CLOSE','GL','CRITICAL','PERIOD_CLOSE'),
@@ -679,6 +683,7 @@ BEGIN
   END IF;
   IF p_scope NOT LIKE 'POST_JOURNAL:%' AND p_scope NOT LIKE 'EDIT_JOURNAL:%' AND p_scope NOT LIKE 'CLOSE_PERIOD:%'
     AND p_scope NOT LIKE 'RETIRE_CONFIG:%' AND p_scope NOT LIKE 'CREATE_MANUAL_JOURNAL:%'
+    AND p_scope NOT LIKE 'CREATE_REVERSAL:%' AND p_scope NOT LIKE 'CREATE_RECLASS:%'
     AND p_scope NOT LIKE 'JOURNAL_SUBMIT:%' AND p_scope NOT LIKE 'JOURNAL_REVIEW:%'
     AND p_scope NOT LIKE 'JOURNAL_APPROVE:%' AND p_scope NOT LIKE 'JOURNAL_REJECT:%' THEN
     RAISE EXCEPTION 'Idempotency operation scope denied' USING ERRCODE='42501';
@@ -777,6 +782,95 @@ BEGIN
     VALUES(p_tenant,p_entity,kind||'_SNAPSHOT',p_snapshot,'CONFIG_SNAPSHOT_RETIRED',event_payload,refs_jsonb_hash(event_payload));
   UPDATE idempotency_receipt SET status='SUCCEEDED',response_status=200,response_body=response,completed_at=clock_timestamp()
     WHERE idempotency_receipt_id=receipt.idempotency_receipt_id;
+  RETURN response;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION refs_create_journal_adjustment_hash(
+  p_action text,p_tenant uuid,p_entity uuid,p_original uuid,p_period uuid,p_journal_number text,p_journal_date date,
+  p_description text,p_reason text,p_lines jsonb,p_attachment_ids uuid[]
+) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
+  SELECT refs_jsonb_hash(jsonb_build_object(
+    'action',upper(p_action),'tenant_id',p_tenant,'entity_id',p_entity,'original_journal_entry_id',p_original,
+    'period_id',p_period,'journal_number',btrim(p_journal_number),'journal_date',p_journal_date,
+    'description',p_description,'reason',btrim(p_reason),'lines',p_lines,
+    'attachment_ids',to_jsonb(ARRAY(SELECT value FROM unnest(COALESCE(p_attachment_ids,'{}'::uuid[])) value ORDER BY value))
+  ))
+$$;
+
+CREATE OR REPLACE FUNCTION refs_create_journal_adjustment(
+  p_action text,p_tenant uuid,p_entity uuid,p_original uuid,p_period uuid,p_journal_number text,p_journal_date date,
+  p_description text,p_reason text,p_lines jsonb,p_attachment_ids uuid[],p_idempotency_key text,p_request_hash text
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE actor text:=refs_current_actor(); action text:=upper(p_action); permission text; receipt idempotency_receipt;
+DECLARE original journal_entry; journal_id uuid:=gen_random_uuid(); computed_hash text; response jsonb; event_payload jsonb; line_count integer;
+BEGIN
+  permission:=CASE action WHEN 'REVERSAL' THEN 'GL.JE.REVERSE' WHEN 'RECLASS' THEN 'GL.JE.RECLASS' ELSE NULL END;
+  IF permission IS NULL THEN RAISE EXCEPTION 'Unsupported journal adjustment type' USING ERRCODE='0A000'; END IF;
+  PERFORM refs_assert_scope(p_tenant,p_entity,permission);
+  IF actor IS NULL THEN RAISE EXCEPTION 'Authenticated actor missing' USING ERRCODE='42501'; END IF;
+  computed_hash:=refs_create_journal_adjustment_hash(action,p_tenant,p_entity,p_original,p_period,p_journal_number,p_journal_date,p_description,p_reason,p_lines,p_attachment_ids);
+  IF p_request_hash<>computed_hash THEN RAISE EXCEPTION 'Journal adjustment request hash is not canonical' USING ERRCODE='22023'; END IF;
+  receipt:=refs_reserve_idempotency(p_tenant,'CREATE_'||action||':'||p_entity,p_idempotency_key,p_request_hash,actor);
+  IF receipt.status='SUCCEEDED' THEN RETURN receipt.response_body||jsonb_build_object('idempotent',true); END IF;
+  IF length(btrim(p_journal_number))=0 OR COALESCE(length(btrim(p_reason)),0)<8 THEN
+    RAISE EXCEPTION 'Journal adjustment requires number and reason' USING ERRCODE='22023';
+  END IF;
+  PERFORM 1 FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity AND period_id=p_period
+    AND status='OPEN' AND p_journal_date BETWEEN starts_on AND ends_on FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Adjustment date must belong to the selected OPEN period' USING ERRCODE='55000'; END IF;
+  SELECT * INTO original FROM journal_entry WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=p_original FOR SHARE;
+  IF NOT FOUND OR original.status<>'POSTED' OR original.journal_type NOT IN ('MANUAL','RECLASS') THEN
+    RAISE EXCEPTION 'Only Posted manual or reclass journals use the generic adjustment path' USING ERRCODE='55000';
+  END IF;
+  IF EXISTS (SELECT 1 FROM source_link WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=p_original
+    AND (source_document_id IS NOT NULL OR staging_item_id IS NOT NULL OR bank_source_id IS NOT NULL OR bank_match_id IS NOT NULL OR reconciliation_id IS NOT NULL)) THEN
+    RAISE EXCEPTION 'Business-linked journals require their owning business adjustment workflow' USING ERRCODE='55000';
+  END IF;
+  IF action='REVERSAL' THEN
+    IF p_lines IS NOT NULL AND p_lines<>'[]'::jsonb THEN RAISE EXCEPTION 'Reversal lines are derived from the original journal' USING ERRCODE='22023'; END IF;
+  ELSE
+    IF jsonb_typeof(p_lines)<>'array' OR jsonb_array_length(p_lines)<2 THEN RAISE EXCEPTION 'Reclass requires at least two lines' USING ERRCODE='22023'; END IF;
+    SELECT count(*) INTO line_count FROM jsonb_to_recordset(p_lines) AS x(line_no integer,account_code text,debit_amount numeric,credit_amount numeric,member_ref text,description text,dimensions jsonb);
+    IF line_count<>jsonb_array_length(p_lines) OR EXISTS (
+      SELECT 1 FROM jsonb_to_recordset(p_lines) AS x(line_no integer,account_code text,debit_amount numeric,credit_amount numeric,member_ref text,description text,dimensions jsonb)
+      WHERE x.line_no IS NULL OR x.line_no<=0 OR COALESCE(length(btrim(x.account_code)),0)=0
+        OR NOT ((COALESCE(x.debit_amount,0)>0 AND COALESCE(x.credit_amount,0)=0) OR (COALESCE(x.credit_amount,0)>0 AND COALESCE(x.debit_amount,0)=0))
+        OR (x.dimensions IS NOT NULL AND jsonb_typeof(x.dimensions)<>'object')
+    ) OR EXISTS (SELECT 1 FROM jsonb_to_recordset(p_lines) AS x(line_no integer) GROUP BY x.line_no HAVING count(*)>1)
+      OR (SELECT COALESCE(sum(COALESCE(x.debit_amount,0)),0)<>COALESCE(sum(COALESCE(x.credit_amount,0)),0)
+          FROM jsonb_to_recordset(p_lines) AS x(debit_amount numeric,credit_amount numeric)) THEN
+      RAISE EXCEPTION 'Reclass lines must be unique, valid and balanced' USING ERRCODE='23514';
+    END IF;
+    IF COALESCE(cardinality(p_attachment_ids),0)=0 THEN RAISE EXCEPTION 'Reclass requires attachment evidence' USING ERRCODE='23503'; END IF;
+  END IF;
+  IF COALESCE(cardinality(p_attachment_ids),0)<>(SELECT count(DISTINCT a.attachment_id) FROM attachment a WHERE a.tenant_id=p_tenant AND a.attachment_id=ANY(COALESCE(p_attachment_ids,'{}'::uuid[]))) THEN
+    RAISE EXCEPTION 'Adjustment attachment evidence is missing or cross-tenant' USING ERRCODE='23503';
+  END IF;
+  INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,description,created_by,reversal_of_id,reclass_of_id)
+    VALUES(journal_id,p_tenant,p_entity,p_period,btrim(p_journal_number),action,'DRAFT',p_journal_date,original.currency,p_description,actor,
+      CASE WHEN action='REVERSAL' THEN p_original END,CASE WHEN action='RECLASS' THEN p_original END);
+  IF action='REVERSAL' THEN
+    INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref,description,dimensions)
+      SELECT p_tenant,p_entity,p_period,journal_id,line_no,account_code,credit_amount,debit_amount,member_ref,description,dimensions
+      FROM journal_line WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=p_original ORDER BY line_no;
+  ELSE
+    INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref,description,dimensions)
+      SELECT p_tenant,p_entity,p_period,journal_id,x.line_no,btrim(x.account_code),x.debit_amount,x.credit_amount,x.member_ref,x.description,COALESCE(x.dimensions,'{}'::jsonb)
+      FROM jsonb_to_recordset(p_lines) AS x(line_no integer,account_code text,debit_amount numeric,credit_amount numeric,member_ref text,description text,dimensions jsonb);
+  END IF;
+  INSERT INTO source_link(tenant_id,entity_id,link_type,journal_entry_id,attachment_id,created_by)
+    SELECT p_tenant,p_entity,'JE_ATTACHMENT',journal_id,value,actor FROM unnest(COALESCE(p_attachment_ids,'{}'::uuid[])) value;
+  response:=jsonb_build_object('journal_entry_id',journal_id,'original_journal_entry_id',p_original,'journal_type',action,'status','DRAFT','revision',0,'idempotent',false);
+  INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash,reason)
+    VALUES(p_tenant,p_entity,'JOURNAL_'||action||'_CREATED','JOURNAL_ENTRY',journal_id,'CREATE_'||action,actor,'USER',permission,p_idempotency_key,p_idempotency_key,p_idempotency_key,p_request_hash,btrim(p_reason));
+  event_payload:=jsonb_build_object('journal_entry_id',journal_id,'original_journal_entry_id',p_original,'journal_type',action,'status','DRAFT','revision',0);
+  INSERT INTO outbox_event(tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
+    VALUES(p_tenant,p_entity,'JOURNAL_ENTRY',journal_id,'JOURNAL_'||action||'_CREATED',event_payload,refs_jsonb_hash(event_payload));
+  UPDATE idempotency_receipt SET status='SUCCEEDED',response_status=201,response_body=response,completed_at=clock_timestamp()
+    WHERE tenant_id=p_tenant AND operation_scope='CREATE_'||action||':'||p_entity AND idempotency_key=p_idempotency_key;
   RETURN response;
 END;
 $$;
@@ -1031,6 +1125,34 @@ BEGIN
         OR (a.requires_member AND NOT (m.member_type=a.required_member_type OR (a.required_member_type='CUSTOMER_OR_AFFILIATE' AND m.member_type IN ('CUSTOMER','AFFILIATE')))))
   ) THEN RAISE EXCEPTION 'Account/member validation failed' USING ERRCODE='23514'; END IF;
 
+  IF je.journal_type='REVERSAL' AND (
+    NOT EXISTS (SELECT 1 FROM journal_entry original WHERE original.tenant_id=p_tenant AND original.entity_id=p_entity
+      AND original.journal_entry_id=je.reversal_of_id AND original.status='POSTED' AND original.journal_type IN ('MANUAL','RECLASS')
+      AND NOT EXISTS (SELECT 1 FROM source_link business_link WHERE business_link.tenant_id=original.tenant_id
+        AND business_link.entity_id=original.entity_id AND business_link.journal_entry_id=original.journal_entry_id
+        AND (business_link.source_document_id IS NOT NULL OR business_link.staging_item_id IS NOT NULL
+          OR business_link.bank_source_id IS NOT NULL OR business_link.bank_match_id IS NOT NULL OR business_link.reconciliation_id IS NOT NULL)))
+    OR (SELECT count(*) FROM journal_line WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=p_journal)<>
+       (SELECT count(*) FROM journal_line WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=je.reversal_of_id)
+    OR EXISTS (
+      SELECT 1 FROM journal_line reversed
+      LEFT JOIN journal_line original ON original.tenant_id=reversed.tenant_id AND original.entity_id=reversed.entity_id
+        AND original.journal_entry_id=je.reversal_of_id AND original.line_no=reversed.line_no
+      WHERE reversed.tenant_id=p_tenant AND reversed.entity_id=p_entity AND reversed.journal_entry_id=p_journal
+        AND (original.journal_line_id IS NULL OR reversed.account_code<>original.account_code
+          OR reversed.member_ref IS DISTINCT FROM original.member_ref OR reversed.dimensions<>original.dimensions
+          OR reversed.debit_amount<>original.credit_amount OR reversed.credit_amount<>original.debit_amount)
+    )
+  ) THEN RAISE EXCEPTION 'Reversal journal must remain an exact inverse of its Posted original' USING ERRCODE='23514'; END IF;
+  IF je.journal_type='RECLASS' AND NOT EXISTS (
+    SELECT 1 FROM journal_entry original WHERE original.tenant_id=p_tenant AND original.entity_id=p_entity
+      AND original.journal_entry_id=je.reclass_of_id AND original.status='POSTED' AND original.journal_type IN ('MANUAL','RECLASS')
+      AND NOT EXISTS (SELECT 1 FROM source_link business_link WHERE business_link.tenant_id=original.tenant_id
+        AND business_link.entity_id=original.entity_id AND business_link.journal_entry_id=original.journal_entry_id
+        AND (business_link.source_document_id IS NOT NULL OR business_link.staging_item_id IS NOT NULL
+          OR business_link.bank_source_id IS NOT NULL OR business_link.bank_match_id IS NOT NULL OR business_link.reconciliation_id IS NOT NULL))
+  ) THEN RAISE EXCEPTION 'Reclass journal requires a Posted manual or reclass original' USING ERRCODE='23514'; END IF;
+
   IF je.journal_type IN ('MANUAL','RECLASS') AND NOT EXISTS (
     SELECT 1 FROM source_link sl
     JOIN attachment att ON att.tenant_id=sl.tenant_id AND att.attachment_id=sl.attachment_id
@@ -1171,6 +1293,8 @@ REVOKE EXECUTE ON FUNCTION refs_reserve_idempotency(uuid,text,text,text,text) FR
 REVOKE EXECUTE ON FUNCTION refs_update_draft_description(uuid,uuid,uuid,bigint,text,text,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_create_manual_journal_hash(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[]) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_create_manual_journal(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[],text,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_create_journal_adjustment_hash(text,uuid,uuid,uuid,uuid,text,date,text,text,jsonb,uuid[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_create_journal_adjustment(text,uuid,uuid,uuid,uuid,text,date,text,text,jsonb,uuid[],text,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_journal_transition_hash(uuid,uuid,uuid,text,bigint,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_transition_journal(uuid,uuid,uuid,text,bigint,text,text,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_config_retire_hash(text,uuid,uuid,uuid,bigint,timestamptz,text) FROM PUBLIC;
@@ -1194,6 +1318,8 @@ GRANT EXECUTE ON FUNCTION refs_complete_outbox(uuid,uuid,text,boolean,text) TO r
 GRANT EXECUTE ON FUNCTION refs_update_draft_description(uuid,uuid,uuid,bigint,text,text,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_create_manual_journal_hash(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[]) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_create_manual_journal(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[],text,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_create_journal_adjustment_hash(text,uuid,uuid,uuid,uuid,text,date,text,text,jsonb,uuid[]) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_create_journal_adjustment(text,uuid,uuid,uuid,uuid,text,date,text,text,jsonb,uuid[],text,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_journal_transition_hash(uuid,uuid,uuid,text,bigint,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_transition_journal(uuid,uuid,uuid,text,bigint,text,text,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_config_retire_hash(text,uuid,uuid,uuid,bigint,timestamptz,text) TO refs_app;

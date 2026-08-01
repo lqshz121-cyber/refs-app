@@ -575,6 +575,59 @@ pgTest('runtime roles create, submit, review, approve and post a manual journal 
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[created.journal_entry_id])).rows[0].n,5);
 });
 
+pgTest('runtime reversal creates an exact Draft inverse in a new OPEN period and preserves the closed original ledger',async()=>{
+  const ids=await seed({status:'APPROVED'});
+  const originalPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'original-poster',['GL.JE.POST'])});
+  await originalPoster.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'post-original-reversal-test'});
+  const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'period-closer',['GL.PERIOD.CLOSE'])});
+  await closer.closePeriod({...ids,expectedVersion:0,idempotencyKey:'close-original-period'});
+  const augustPeriod=randomUUID();
+  await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
+  const requester=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'reversal-requester',['GL.JE.REVERSE','GL.JE.SUBMIT'])});
+  const reversalArgs={action:'REVERSAL',tenantId:ids.tenantId,entityId:ids.entityId,originalJournalEntryId:ids.journalId,periodId:augustPeriod,journalNumber:'JE-REV-001',journalDate:'2026-08-02',description:'Reverse July manual journal',reason:'Correct duplicate manual accrual',attachmentIds:[],idempotencyKey:'create-reversal-0001'};
+  const reversal=await requester.createJournalAdjustment(reversalArgs);const replay=await requester.createJournalAdjustment(reversalArgs);
+  assert.equal(reversal.status,'DRAFT');assert.equal(replay.idempotent,true);assert.equal(replay.journal_entry_id,reversal.journal_entry_id);
+  await assert.rejects(requester.createJournalAdjustment({...reversalArgs,journalNumber:'JE-REV-002',idempotencyKey:'create-reversal-0002'}),error=>error.code==='23505');
+  await requester.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:reversal.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'submit-reversal-0001'});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'reversal-reviewer',['GL.JE.REVIEW'])});
+  await reviewer.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:reversal.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'review-reversal-0001'});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'reversal-approver',['GL.JE.APPROVE'])});
+  await approver.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:reversal.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'approve-reversal-0001'});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'reversal-poster',['GL.JE.POST'])});
+  await poster.postJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:augustPeriod,journalEntryId:reversal.journal_entry_id,expectedRevision:3,idempotencyKey:'post-reversal-0001'});
+  const original=(await adminPool.query('SELECT status,revision FROM journal_entry WHERE journal_entry_id=$1',[ids.journalId])).rows[0];
+  assert.equal(original.status,'POSTED');assert.equal(original.revision,'1');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,2);
+  const reversalLedger=(await adminPool.query('SELECT account_code,debit_amount,credit_amount FROM ledger_line WHERE journal_entry_id=$1 ORDER BY account_code',[reversal.journal_entry_id])).rows;
+  assert.deepEqual(reversalLedger.map(row=>[row.account_code,Number(row.debit_amount),Number(row.credit_amount)]),[['111000',0,100],['291001',100,0]]);
+});
+
+pgTest('runtime reclass requires evidence, creates new balanced lines and leaves its Posted original immutable',async()=>{
+  const ids=await seed({status:'APPROVED'});
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
+  const originalPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'reclass-original-poster',['GL.JE.POST'])});
+  await originalPoster.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'post-original-reclass-test'});
+  const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
+  const requester=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'reclass-requester',['GL.JE.RECLASS','GL.JE.SUBMIT'])});
+  const args={action:'RECLASS',tenantId:ids.tenantId,entityId:ids.entityId,originalJournalEntryId:ids.journalId,periodId:ids.periodId,journalNumber:'JE-RCL-001',journalDate:'2026-07-20',description:'Move payable classification to receivable',reason:'Correct member and account classification',lines:[
+    {line_no:1,account_code:'291001',debit_amount:100,credit_amount:0,member_ref:'VENDOR-1',description:'Clear AP class',dimensions:{}},
+    {line_no:2,account_code:'120200',debit_amount:0,credit_amount:100,member_ref:'CUSTOMER-1',description:'Move to AR class',dimensions:{}}
+  ],attachmentIds:[],idempotencyKey:'create-reclass-missing-evidence'};
+  await assert.rejects(requester.createJournalAdjustment(args),error=>error.code==='23503');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM journal_entry WHERE journal_type='RECLASS'")).rows[0].n,0);
+  const reclass=await requester.createJournalAdjustment({...args,attachmentIds:[attachmentId],idempotencyKey:'create-reclass-0001'});
+  await requester.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:reclass.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'submit-reclass-0001'});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'reclass-reviewer',['GL.JE.REVIEW'])});
+  await reviewer.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:reclass.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'review-reclass-0001'});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'reclass-approver',['GL.JE.APPROVE'])});
+  await approver.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:reclass.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'approve-reclass-0001'});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'reclass-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:reclass.journal_entry_id,expectedRevision:3,idempotencyKey:'post-reclass-0001'});
+  assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[ids.journalId])).rows[0].status,'POSTED');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,2);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[reclass.journal_entry_id])).rows[0].n,2);
+});
+
 pgTest('posting is atomic, same-hash retry replays before state validation, different hash conflicts',async()=>{
   const ids=await seed();
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids)});
