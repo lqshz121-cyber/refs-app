@@ -1,4 +1,4 @@
-import { useState, useEffect, Component } from 'react';
+import { useState, useEffect, useRef, Component } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toast, Btn } from './ui.jsx';
 import { ENTITIES, USERS, PERIODS, COA, VENDORS, CUSTOMERS } from './data.js';
@@ -21,8 +21,9 @@ import { StagingCenter } from './module-staging.jsx';
 import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
+import { buildBankDraft, createBankDraftTransition, excludeBankTransition, matchBankTransition, undoBankTransition, validateBankDraft } from './bank-workflow.js';
 
-const SEED_V='v10';
+const SEED_V='v11';
 const BUILD_SHA = typeof __REFS_BUILD_SHA__ !== 'undefined' ? __REFS_BUILD_SHA__ : 'dev';
 const BUILD_TIME = typeof __REFS_BUILD_TIME__ !== 'undefined' ? __REFS_BUILD_TIME__ : 'local';
 
@@ -86,7 +87,7 @@ const SEED_BANK = {
       stmt_begin:118400, stmt_end:162565, gl_book_balance:163650, recorded_adj:0,
       outstanding_checks:[{ref:'CHK-1088',amount:2400}], deposits_in_transit:[{ref:'DEP-0731',amount:2400}],
       txns:[
-        {bank_txn_id:1, external_id:'BANKTXN-Z-4460', txn_date:'2026-07-06', amount:46000, direction:'CREDIT', reference:'ACH RENT P0020', match_status:'MATCHED', matched_je:'JE-2026-07-1004'},
+        {bank_txn_id:1, external_id:'BANKTXN-Z-4460', txn_date:'2026-07-06', amount:46000, direction:'CREDIT', reference:'ACH RENT P0020', match_status:'MATCHED', processing_type:'MATCH', matched_je_id:1004, matched_je:'JE-2026-07-1004'},
         {bank_txn_id:2, external_id:'BANKTXN-Z-4471', txn_date:'2026-07-30', amount:1250, direction:'CREDIT', reference:'ACH UNKNOWN TENANT', match_status:'UNMATCHED', suggest:'MATCH'},
         {bank_txn_id:5, external_id:'BANKTXN-Z-4480', txn_date:'2026-07-31', amount:85, direction:'DEBIT', reference:'MONTHLY SERVICE FEE', match_status:'UNMATCHED', suggest:'FEE'},
         {bank_txn_id:6, external_id:'BANKTXN-Z-4481', txn_date:'2026-07-31', amount:250, direction:'CREDIT', reference:'INTEREST INCOME', match_status:'UNMATCHED', suggest:'INTEREST'},
@@ -95,9 +96,14 @@ const SEED_BANK = {
       stmt_begin:410000, stmt_end:910000, gl_book_balance:910000, recorded_adj:0,
       outstanding_checks:[], deposits_in_transit:[],
       txns:[
-        {bank_txn_id:3, external_id:'BANKTXN-A-1002', txn_date:'2026-07-05', amount:500000, direction:'CREDIT', reference:'LOAN DRAW FNB', match_status:'MATCHED', matched_je:'JE-2026-07-1001'},
+        {bank_txn_id:3, external_id:'BANKTXN-A-1002', txn_date:'2026-07-05', amount:500000, direction:'CREDIT', reference:'LOAN DRAW FNB', match_status:'MATCHED', processing_type:'MATCH', matched_je_id:1001, matched_je:'JE-2026-07-1001'},
       ]},
-  }, history: [],
+  },
+  matches:[
+    {source_doc_id:'BANKTXN-Z-4460',je_id:1004,cash_line_index:0,bank_account_code:'BA-003',by:'system',at:'2026-07-06'},
+    {source_doc_id:'BANKTXN-A-1002',je_id:1001,cash_line_index:0,bank_account_code:'BA-001',by:'system',at:'2026-07-05'},
+  ],
+  draft_links:[], history: [],
 };
 
 function Login({onLogin}) {
@@ -138,6 +144,7 @@ function App() {
   const [newMenu, setNewMenu] = useState(false);
   const [openGroups, setOpenGroups] = useState({Home:true, Transactions:true});
   const [q, setQ] = useState('');
+  const bankSubmitLocks = useRef(new Set());
 
   const user = USERS.find(u=>u.user_id===userId);
   const period = PERIODS.find(p=>p.entity_id===(entity||2) && p.period_code==='2026-07') || {period_code:'2026-07', status:'OPEN'};
@@ -158,6 +165,16 @@ function App() {
 
   const audit = (action, objectType, objectRef, detail) => repo.audit(userId, action, objectType, objectRef, detail);
   const mkJE = (spec) => { const id = nextId(); return {je_id:id, je_number:'20260731'+String(id).padStart(6,'0'), period_code:'2026-07', posting_status:'DRAFT', je_date:'2026-07-31', created_by:userId, history:[{a:'CREATE',by:userId,at:'2026-07-31'}], ...spec}; };
+  const bankFailure = (txn, failure) => {
+    const ref=txn?.external_id||'UNKNOWN_BANK_SOURCE';
+    setExceptions(xs=>xs.some(e=>e.exception_type===failure.code&&e.object_ref===ref&&e.status!=='CLOSED')?xs:[{
+      exception_id:nextId(),occurred_date:'2026-07-31',aging_days:0,status:'OPEN',resolution:'',exception_type:failure.code,
+      severity:failure.code==='BANK_SPLIT_OUT_OF_BALANCE'?'MEDIUM':'HIGH',object_type:'BANK_TXN',object_ref:ref,entity_id:entity||4,
+      owner:'ACCOUNTING',root_cause:failure.message||failure.code,
+    },...xs]);
+    audit('BANK_WORKFLOW_BLOCKED','BANK_TXN',ref,`${failure.code} · ${failure.message||''}`);
+    return failure;
+  };
   const actions = {
     newJE: () => { const je = mkJE({entity_id:entity||2, je_type:'MANUAL', description:'', source_system:'MAN', has_attachment:false,
       lines:[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}]}); setJes(js=>[je,...js]); return je.je_id; },
@@ -206,22 +223,65 @@ function App() {
         lines:[{account_code:'111000',debit_amount:inv.amount,credit_amount:0},{account_code:'120200',debit_amount:0,credit_amount:inv.amount}]});
       setJes(js=>[je,...js]); audit('PAYMENT','INVOICE',inv.inv_no,'$'+inv.amount);
       setAr(s=>({...s, invoices:s.invoices.map(i=>i.inv_id===id?{...i,status:'PAID',pay_je_number:je.je_number}:i)})); },
-    bankExclude: (acctCode, txnId) => { audit('EXCLUDE','BANK_TXN','#'+txnId,''); setBank(s=>{const a=structuredClone(s); const t=a.accounts[acctCode].txns.find(x=>x.bank_txn_id===txnId); t.ui_status='Excluded'; return a;}); },
-    bankUndo: (acctCode, txnId) => setBank(s=>{const a=structuredClone(s); const acc=a.accounts[acctCode]; const t=acc.txns.find(x=>x.bank_txn_id===txnId);
+    legacyBankExclude: (acctCode, txnId) => { audit('EXCLUDE','BANK_TXN','#'+txnId,''); setBank(s=>{const a=structuredClone(s); const t=a.accounts[acctCode].txns.find(x=>x.bank_txn_id===txnId); t.ui_status='Excluded'; return a;}); },
+    legacyBankUndo: (acctCode, txnId) => setBank(s=>{const a=structuredClone(s); const acc=a.accounts[acctCode]; const t=acc.txns.find(x=>x.bank_txn_id===txnId);
       if(t.match_status==='MATCHED'){ const adj=t.direction==='CREDIT'?t.amount:-t.amount; acc.recorded_adj=(acc.recorded_adj||0)-adj; }
       t.ui_status=null; t.match_status='UNMATCHED'; t.matched_je=null; return a;}),
     // ---- Bank ----
-    bankRecord: (acctCode, txnId) => setBank(s=>{ const a=structuredClone(s); const acc=a.accounts[acctCode];
+    legacyBankRecord: (acctCode, txnId) => setBank(s=>{ const a=structuredClone(s); const acc=a.accounts[acctCode];
       const t=acc.txns.find(x=>x.bank_txn_id===txnId); t.match_status='MATCHED';
       const adj = t.direction==='CREDIT'? t.amount : -t.amount; acc.recorded_adj=(acc.recorded_adj||0)+adj;
       t.matched_je = t.suggest==='FEE'?'Dr Bank Fee / Cr Cash':'Dr Cash / Cr Interest Income'; return a; }),
-    bankMatch: (acctCode, txnId) => setBank(s=>{ const a=structuredClone(s); const acc=a.accounts[acctCode];
+    legacyBankMatch: (acctCode, txnId) => setBank(s=>{ const a=structuredClone(s); const acc=a.accounts[acctCode];
       const t=acc.txns.find(x=>x.bank_txn_id===txnId); t.match_status='MATCHED'; t.matched_je='手工匹配';
       const adj = t.direction==='CREDIT'? t.amount : -t.amount; acc.recorded_adj=(acc.recorded_adj||0)+adj; return a; }),
-    bankSuspense: (acctCode, txnId) => { setBank(s=>{ const a=structuredClone(s); const acc=a.accounts[acctCode];
+    legacyBankSuspense: (acctCode, txnId) => { setBank(s=>{ const a=structuredClone(s); const acc=a.accounts[acctCode];
         const t=acc.txns.find(x=>x.bank_txn_id===txnId); t.match_status='MATCHED'; t.matched_je='→ 9000 Suspense';
         const adj = t.direction==='CREDIT'? t.amount : -t.amount; acc.recorded_adj=(acc.recorded_adj||0)+adj; return a; });
       actions.ensureException({exception_type:'SUSPENSE_BALANCE', severity:'MEDIUM', object_type:'BANK_TXN', object_ref:'txn#'+txnId, entity_id:entity||4, owner:'TREASURY', root_cause:'银行交易无法识别，暂挂 Suspense'}); },
+    bankCreateDraft: (acctCode,txnId,spec) => {
+      const txn=bank.accounts[acctCode].txns.find(t=>t.bank_txn_id===txnId);
+      const sourceKey=txn?.external_id||`${acctCode}:${txnId}`;
+      if(bankSubmitLocks.current.has(sourceKey)) return bankFailure(txn,{ok:false,code:'BANK_DUPLICATE_SOURCE',message:'This source is already being processed.'});
+      const validation=validateBankDraft({txn,spec,jes});
+      if(!validation.ok) return bankFailure(txn,validation);
+      bankSubmitLocks.current.add(sourceKey);
+      const je=mkJE({...spec,posting_status:'DRAFT'});
+      const result=createBankDraftTransition({bank,jes,acctCode,txnId,spec,je});
+      if(!result.ok){bankSubmitLocks.current.delete(sourceKey);return bankFailure(txn,result);}
+      setBank(result.bank);setJes(result.jes);
+      audit('CREATE_DRAFT','BANK_TXN',sourceKey,`${je.je_number} · ${spec.rule_code}`);
+      return {ok:true,je_id:je.je_id,je_number:je.je_number};
+    },
+    bankMatch: (acctCode,txnId,candidate) => {
+      const txn=bank.accounts[acctCode].txns.find(t=>t.bank_txn_id===txnId);
+      const sourceKey=txn?.external_id||`${acctCode}:${txnId}`;
+      if(bankSubmitLocks.current.has(sourceKey)) return bankFailure(txn,{ok:false,code:'BANK_MATCH_OCCUPIED',message:'This source is already being processed.'});
+      const result=matchBankTransition({bank,jes,acctCode,txnId,candidate,entityId:entity||4,userId});
+      if(!result.ok) return bankFailure(txn,result);
+      bankSubmitLocks.current.add(sourceKey);setBank(result.bank);
+      audit('MATCH','BANK_TXN',sourceKey,`${candidate.je_number} · cash line ${candidate.cash_line_index+1}`);
+      return {ok:true,je_number:candidate.je_number};
+    },
+    bankUndo: (acctCode,txnId) => {
+      const txn=bank.accounts[acctCode].txns.find(t=>t.bank_txn_id===txnId);
+      const result=undoBankTransition({bank,jes,acctCode,txnId});
+      if(!result.ok) return bankFailure(txn,result);
+      setBank(result.bank);setJes(result.jes);bankSubmitLocks.current.delete(txn.external_id);
+      audit(result.kind,'BANK_TXN',txn.external_id,'Controlled bank workflow undo');return result;
+    },
+    bankExclude: (acctCode,txnId) => {
+      const txn=bank.accounts[acctCode].txns.find(t=>t.bank_txn_id===txnId);
+      if(bankSubmitLocks.current.has(txn?.external_id)) return bankFailure(txn,{ok:false,code:'BANK_SOURCE_ALREADY_PROCESSED',message:'Undo the current workflow before excluding this source.'});
+      const result=excludeBankTransition({bank,jes,acctCode,txnId});if(!result.ok)return bankFailure(txn,result);setBank(result.bank);
+      audit('EXCLUDE','BANK_TXN',txn.external_id,'Excluded from books; no JE created');return {ok:true};
+    },
+    bankRecord: (acctCode,txnId) => {const txn=bank.accounts[acctCode].txns.find(t=>t.bank_txn_id===txnId);
+      const account=txn.suggest==='FEE'?'651000':txn.suggest==='INTEREST'?'449200':'';
+      return actions.bankCreateDraft(acctCode,txnId,buildBankDraft({...txn,entity_id:entity||4},acctCode,[{account_code:account,amount:txn.amount,memo:txn.reference}]));},
+    bankSuspense: (acctCode,txnId) => {const txn=bank.accounts[acctCode].txns.find(t=>t.bank_txn_id===txnId);
+      const result=actions.bankCreateDraft(acctCode,txnId,buildBankDraft({...txn,entity_id:entity||4},acctCode,[{account_code:'142000',amount:txn.amount,memo:'Temporary suspense pending investigation'}]));
+      if(result.ok) actions.ensureException({exception_type:'SUSPENSE_BALANCE',severity:'MEDIUM',object_type:'BANK_TXN',object_ref:txn.external_id,entity_id:entity||4,owner:'TREASURY',root_cause:'Draft JE uses 142000 Suspense; investigation required'});return result;},
     bankSignoff: (acctCode) => setBank(s=>({...s, history:[{id:Date.now(), account:acctCode, period:s.accounts[acctCode].period, diff:0, by:userId, at:'2026-07-31'}, ...s.history]})),
     // ---- COA ----
     addAccount: (f) => { if (coa.some(a=>a.account_code===f.account_code)) return {dup:true};
@@ -230,6 +290,12 @@ function App() {
     resetData: () => { repo.reset(); location.reload(); },
     logout: () => { try{localStorage.removeItem('refs_user')}catch(e){} setUserId(null); },
   };
+
+  delete actions.legacyBankExclude;
+  delete actions.legacyBankUndo;
+  delete actions.legacyBankRecord;
+  delete actions.legacyBankMatch;
+  delete actions.legacyBankSuspense;
 
   if (!user) return <Login onLogin={setUserId} />;
 

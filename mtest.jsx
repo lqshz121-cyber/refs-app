@@ -8,6 +8,7 @@ import { GLTrialBalance, Reports, CashModule, LoanRegister, ProjectCost, Assets,
 import { APWorkspace } from './src/module-ap.jsx';
 import { ARWorkspace } from './src/module-ar.jsx';
 import { BankTransactions } from './src/module-banktx.jsx';
+import { bankSuggestion, splitDifference, buildBankDraft, validateBankDraft, findBankMatchCandidates, validateBankMatch, createBankDraftTransition, excludeBankTransition, matchBankTransition, undoBankTransition } from './src/bank-workflow.js';
 import { COAWorkspace } from './src/module-coa.jsx';
 import { AccountRegister } from './src/module-register.jsx';
 import { SubsidiaryLedger } from './src/module-subledger.jsx';
@@ -50,5 +51,49 @@ expectRule('security deposit',deposit,'R-PM-16','111000','225000');
 const catalogRepayment=ENGINE_RULE_CATALOG.find(r=>r.rule_code==='R-LOAN-08');
 if (!catalogRepayment || catalogRepayment.trigger!=='LOAN.REPAYMENT') { failed++; console.error('FAIL Rule Center catalog repayment'); }
 else console.log('PASS Rule Center catalog repayment');
+
+const expectBank=(name,ok)=>{console.log(ok?'PASS':'FAIL',name);if(!ok)failed++;};
+const bankTxn={bank_txn_id:5,external_id:'BANKTXN-Z-4480',txn_date:'2026-07-31',amount:85,direction:'DEBIT',reference:'MONTHLY SERVICE FEE',suggest:'FEE',entity_id:4,match_status:'UNMATCHED'};
+const bankBase={accounts:{'BA-003':{txns:[bankTxn]}},matches:[],draft_links:[],history:[]};
+const bankSpec=buildBankDraft(bankTxn,'BA-003',[{account_code:'651000',amount:85,memo:'Monthly fee'}]);
+const draftJE={...bankSpec,je_id:9901,je_number:'JE-BANK-9901',posting_status:'DRAFT'};
+expectBank('bank suggestion uses approved fee mapping',bankSuggestion(bankTxn).account_code==='651000');
+expectBank('bank split blocks non-zero difference',splitDifference(85,[{amount:40},{amount:40}])===5&&buildBankDraft(bankTxn,'BA-003',[{account_code:'651000',amount:80}]).difference===5);
+expectBank('bank draft trace and cash member pass boundary validation',validateBankDraft({txn:bankTxn,spec:bankSpec,jes:[]}).ok&&bankSpec.source_doc_id===bankTxn.external_id&&bankSpec.lines.find(l=>l.account_code==='111000')?.member==='Operating Cash_BA-003');
+expectBank('bank missing mapping is blocked',validateBankDraft({txn:bankTxn,spec:{unmapped:true},jes:[]}).code==='BANK_MAPPING_MISSING');
+expectBank('bank missing trace is blocked',validateBankDraft({txn:bankTxn,spec:{...bankSpec,source_doc_id:null},jes:[]}).code==='BANK_TRACE_MISSING');
+expectBank('bank missing cash member is blocked',validateBankDraft({txn:bankTxn,spec:{...bankSpec,lines:bankSpec.lines.map(l=>l.account_code==='111000'?{...l,member:null}:l)},jes:[]}).code==='BANK_CASH_MEMBER_MISSING');
+expectBank('bank unbalanced draft is blocked',validateBankDraft({txn:bankTxn,spec:{...bankSpec,lines:bankSpec.lines.map((l,i)=>i?{...l,credit_amount:80}:l)},jes:[]}).code==='BANK_DRAFT_INVALID');
+expectBank('bank duplicate source is idempotently blocked',validateBankDraft({txn:bankTxn,spec:bankSpec,jes:[draftJE]}).code==='BANK_DUPLICATE_SOURCE');
+const created=createBankDraftTransition({bank:bankBase,jes:[],acctCode:'BA-003',txnId:5,spec:bankSpec,je:draftJE});
+expectBank('bank create transition links source to Draft atomically',created.ok&&created.bank.accounts['BA-003'].txns[0].draft_je_id===9901&&created.jes[0].posting_status==='DRAFT'&&created.bank.draft_links.length===1);
+const undone=undoBankTransition({bank:created.bank,jes:created.jes,acctCode:'BA-003',txnId:5});
+expectBank('bank Draft undo removes JE and restores source',undone.ok&&undone.kind==='DELETE_DRAFT'&&undone.jes.length===0&&undone.bank.accounts['BA-003'].txns[0].match_status==='UNMATCHED');
+for(const status of ['PENDING_REVIEW','APPROVED','POSTED']){
+  const blocked=undoBankTransition({bank:created.bank,jes:[{...draftJE,posting_status:status}],acctCode:'BA-003',txnId:5});
+  expectBank(`bank ${status} undo is blocked without reopening source`,!blocked.ok&&blocked.code==='BANK_UNDO_NON_DRAFT'&&created.bank.accounts['BA-003'].txns[0].ui_status==='Categorized');
+}
+expectBank('bank orphan Draft link is blocked',undoBankTransition({bank:created.bank,jes:[],acctCode:'BA-003',txnId:5}).code==='BANK_DRAFT_LINK_MISSING');
+const excludedState=excludeBankTransition({bank:bankBase,jes:[],acctCode:'BA-003',txnId:5});
+const restoredState=undoBankTransition({bank:excludedState.bank,jes:[],acctCode:'BA-003',txnId:5});
+expectBank('bank exclude and restore create no JE',excludedState.ok&&restoredState.ok&&restoredState.kind==='RESTORE'&&restoredState.jes.length===0&&restoredState.bank.accounts['BA-003'].txns[0].ui_status==null);
+expectBank('bank processed source cannot be excluded',excludeBankTransition({bank:created.bank,jes:created.jes,acctCode:'BA-003',txnId:5}).code==='BANK_SOURCE_ALREADY_PROCESSED');
+
+const matchTxn={bank_txn_id:2,external_id:'BANKTXN-Z-4471',amount:1250,direction:'CREDIT',currency:'USD',reference:'ACH UNKNOWN TENANT',match_status:'UNMATCHED'};
+const postedCandidate={je_id:1010,je_number:'JE-2026-07-1010',entity_id:4,je_date:'2026-07-29',description:'Unapplied tenant receipt',posting_status:'POSTED',currency:'USD',lines:[{account_code:'111000',debit_amount:1250,credit_amount:0,member:'Operating Cash_BA-003'},{account_code:'120200',debit_amount:0,credit_amount:1250,member:'Tenant'}]};
+const matchBank={accounts:{'BA-003':{txns:[matchTxn]}},matches:[],draft_links:[]};
+const candidates=findBankMatchCandidates({txn:matchTxn,jes:[postedCandidate],bank:matchBank,acctCode:'BA-003',entityId:4});
+expectBank('bank match finds a real eligible posted candidate',candidates.length===1&&candidates[0].je_id===1010);
+expectBank('bank match missing candidate is blocked',validateBankMatch({txn:matchTxn,candidate:null,bank:matchBank,acctCode:'BA-003',entityId:4,jes:[postedCandidate]}).code==='BANK_MATCH_NOT_FOUND');
+expectBank('bank processed source cannot be rematched',validateBankMatch({txn:{...matchTxn,match_status:'MATCHED'},candidate:candidates[0],bank:matchBank,acctCode:'BA-003',entityId:4,jes:[postedCandidate]}).code==='BANK_SOURCE_ALREADY_PROCESSED');
+expectBank('bank match amount mismatch is blocked',findBankMatchCandidates({txn:{...matchTxn,amount:1200},jes:[postedCandidate],bank:matchBank,acctCode:'BA-003',entityId:4}).length===0);
+expectBank('bank match cross entity is blocked',validateBankMatch({txn:matchTxn,candidate:candidates[0],bank:matchBank,acctCode:'BA-003',entityId:3,jes:[postedCandidate]}).code==='BANK_MATCH_ENTITY');
+expectBank('bank match non-Posted candidate is blocked',validateBankMatch({txn:matchTxn,candidate:candidates[0],bank:matchBank,acctCode:'BA-003',entityId:4,jes:[{...postedCandidate,posting_status:'PENDING_REVIEW'}]}).code==='BANK_MATCH_NOT_POSTED');
+expectBank('bank match wrong account member is blocked',validateBankMatch({txn:matchTxn,candidate:candidates[0],bank:matchBank,acctCode:'BA-003',entityId:4,jes:[{...postedCandidate,lines:postedCandidate.lines.map((l,i)=>i?l:{...l,member:'Operating Cash_BA-001'})}]}).code==='BANK_MATCH_ACCOUNT');
+const matched=matchBankTransition({bank:matchBank,jes:[postedCandidate],acctCode:'BA-003',txnId:2,candidate:candidates[0],entityId:4,userId:'ricky'});
+expectBank('bank match saves exact source, JE and cash-line linkage',matched.ok&&matched.bank.matches[0].je_id===1010&&matched.bank.accounts['BA-003'].txns[0].matched_cash_line===0);
+expectBank('bank already occupied candidate is blocked',validateBankMatch({txn:{...matchTxn,external_id:'BANKTXN-OTHER'},candidate:candidates[0],bank:matched.bank,acctCode:'BA-003',entityId:4,jes:[postedCandidate]}).code==='BANK_MATCH_OCCUPIED');
+const unmatched=undoBankTransition({bank:matched.bank,jes:matched.jes,acctCode:'BA-003',txnId:2});
+expectBank('bank unmatch removes linkage without changing Posted JE',unmatched.ok&&unmatched.kind==='UNMATCH'&&unmatched.bank.matches.length===0&&unmatched.jes[0].posting_status==='POSTED');
 console.log(`mtest components=${components.length} failed=${failed}`);
 if(failed) process.exitCode=1;
