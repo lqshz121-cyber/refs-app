@@ -1,0 +1,36 @@
+services:
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_PORT}:9000"
+    volumes:
+      - attachment_minio_data:/data
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      - minio
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        until mc alias set refs http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"; do sleep 1; done
+        mc mb --ignore-existing --with-lock refs/refs-evidence
+        mc version enable refs/refs-evidence
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+
+  clamav:
+    image: clamav/clamav:1.4.3
+    ports:
+      - "${CLAMAV_PORT}:3310"
+    volumes:
+      - attachment_clamav_data:/var/lib/clamav
+
+volumes:
+  attachment_minio_data:
+  attachment_clamav_data:

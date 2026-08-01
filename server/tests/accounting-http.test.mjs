@@ -31,6 +31,14 @@ test('attachment routes derive scope from authentication and never accept caller
   assert.equal((await attachmentApi({method:'POST',url:`/api/v1/entities/${entityId}/attachments/${attachmentId}/finalize`,headers:{'idempotency-key':'attach-final-2'},body:{storageRef:'s3://attacker/object'}})).status,400);
 });
 
+test('attachment replay is HTTP 200 and missing or unauthorized scope is a non-disclosing 404',async()=>{
+  const attachmentId=randomUUID();let replay=true;
+  const attachmentApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'uploader'}),kernelFactory:async()=>kernel,attachmentServiceFactory:async()=>({reserve:async()=>({attachment_id:attachmentId,status:'PENDING',idempotent:replay}),finalize:async()=>{const error=new Error('hidden');error.code=replay?'ATTACHMENT_NOT_FOUND':'42501';throw error;}})});
+  assert.equal((await attachmentApi({method:'POST',url:`/api/v1/entities/${entityId}/attachments/reservations`,headers:{'idempotency-key':'attach-replay-1'},body:{name:'a.pdf',mediaType:'application/pdf',sizeBytes:1,contentHash:`sha256:${'a'.repeat(64)}`}})).status,200);
+  assert.equal((await attachmentApi({method:'POST',url:`/api/v1/entities/${entityId}/attachments/${attachmentId}/finalize`,headers:{'idempotency-key':'attach-missing-1'},body:{}})).status,404);
+  replay=false;assert.equal((await attachmentApi({method:'POST',url:`/api/v1/entities/${entityId}/attachments/${attachmentId}/finalize`,headers:{'idempotency-key':'attach-hidden-1'},body:{}})).status,404);
+});
+
 test('identity spoofing, missing idempotency, unauthenticated and malformed paths fail closed',async()=>{
   assert.equal((await command(`/api/v1/entities/${entityId}/journal-entries/manual`,{actorId:'attacker'})).status,400);
   assert.equal((await api({method:'POST',url:`/api/v1/entities/${entityId}/journal-entries/manual`,headers:{},body:{}})).status,400);

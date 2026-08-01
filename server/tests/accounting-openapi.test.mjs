@@ -20,5 +20,14 @@ test('identity and server-computed request hash are absent from all public reque
 test('all responses are no-store and use a structured success or problem envelope',()=>{
   assert.equal(contract.components.responses.CommandCreated.headers['Cache-Control'].schema.const,'no-store');
   assert.equal(contract.components.responses.Problem.headers['Cache-Control'].schema.const,'no-store');
-  for(const operation of operations){assert.ok(operation.responses['201']);assert.ok(operation.responses.default);}
+  for(const operation of operations){assert.ok(operation.responses['200']);assert.ok(operation.responses['201']);assert.ok(operation.responses.default);}
+});
+
+test('attachment create and replay responses use the exact attachment envelope',()=>{
+  for(const path of ['/entities/{entityId}/attachments/reservations','/entities/{entityId}/attachments/{attachmentId}/finalize']){
+    const responses=contract.paths[path].post.responses;
+    assert.equal(responses['200'].$ref,'#/components/responses/AttachmentReplay');assert.equal(responses['201'].$ref,'#/components/responses/AttachmentCreated');
+  }
+  const result=contract.components.schemas.AttachmentResult;assert.equal(result.additionalProperties,false);
+  assert.deepEqual(result.required,['attachment_id','entity_id','status','idempotent']);
 });

@@ -8,7 +8,7 @@ import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
-import {AttachmentEvidenceService} from '../runtime/attachment-storage.mjs';
+import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -381,9 +381,12 @@ pgTest('attachment reserve and scanner finalization are entity-scoped, idempoten
   const reserved=await uploader.reserveAttachment(reserveArgs);const replay=await uploader.reserveAttachment(reserveArgs);
   assert.equal(reserved.status,'PENDING');assert.equal(replay.idempotent,true);assert.equal(replay.attachment_id,reserved.attachment_id);
   const unrelated=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'unrelated-reader',['AP.VIEW'])});
-  await assert.rejects(unrelated.getAttachment({tenantId:ids.tenantId,entityId:ids.entityId,attachmentId:reserved.attachment_id}),error=>error.code==='42501');
+  await assert.rejects(unrelated.requestAttachmentFinalize({tenantId:ids.tenantId,entityId:ids.entityId,attachmentId:reserved.attachment_id,idempotencyKey:'unrelated-finalize-request'}),error=>error.code==='42501');
   await assert.rejects(unrelated.inSession(client=>client.query('SELECT storage_ref FROM attachment WHERE attachment_id=$1',[reserved.attachment_id])),error=>error.code==='42501');
-  assert.equal((await uploader.getAttachment({tenantId:ids.tenantId,entityId:ids.entityId,attachmentId:reserved.attachment_id})).storage_ref,reserveArgs.storageRef);
+  const requested=await uploader.requestAttachmentFinalize({tenantId:ids.tenantId,entityId:ids.entityId,attachmentId:reserved.attachment_id,idempotencyKey:'attachment-finalize-request-0001'});
+  assert.equal(requested.storage_ref,reserveArgs.storageRef);assert.equal(requested.initiated_by,'attachment-uploader');
+  const secondUploader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-uploader-2',['ATTACHMENT.CREATE'])});
+  assert.equal((await secondUploader.requestAttachmentFinalize({tenantId:ids.tenantId,entityId:ids.entityId,attachmentId:reserved.attachment_id,idempotencyKey:'attachment-finalize-request-0002'})).initiated_by,'attachment-uploader-2');
   const scanner=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-scanner',['ATTACHMENT.FINALIZE'])});
   const finalizeArgs={tenantId:ids.tenantId,entityId:ids.entityId,attachmentId:reserved.attachment_id,storageRef:reserveArgs.storageRef,observedSizeBytes:321,observedContentHash:contentHash,
     observedMediaType:'application/pdf',storageVersion:'version-1',scanClean:true,scanRef:'clamav:scan-001',idempotencyKey:'attachment-finalize-0001'};
@@ -398,9 +401,12 @@ pgTest('attachment reserve and scanner finalization are entity-scoped, idempoten
   ]});assert.equal(created.status,'DRAFT');
   const rejectedStorageRef=`object://attachments/${randomUUID()}`;
   const rejectedReserve=await uploader.reserveAttachment({...reserveArgs,storageRef:rejectedStorageRef,idempotencyKey:'attachment-reserve-0002'});
+  await uploader.requestAttachmentFinalize({tenantId:ids.tenantId,entityId:ids.entityId,attachmentId:rejectedReserve.attachment_id,idempotencyKey:'attachment-finalize-request-0003'});
   const rejected=await scanner.finalizeAttachment({...finalizeArgs,attachmentId:rejectedReserve.attachment_id,storageRef:rejectedStorageRef,observedSizeBytes:999,idempotencyKey:'attachment-finalize-0002'});
   assert.equal(rejected.status,'REJECTED');
-  assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id IN ($1,$2) AND event_type IN ('ATTACHMENT_RESERVED','ATTACHMENT_FINALIZED')",[reserved.attachment_id,rejectedReserve.attachment_id])).rows[0].n,4);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id IN ($1,$2) AND event_type IN ('ATTACHMENT_RESERVED','ATTACHMENT_FINALIZE_REQUESTED','ATTACHMENT_FINALIZED')",[reserved.attachment_id,rejectedReserve.attachment_id])).rows[0].n,7);
+  assert.deepEqual((await adminPool.query("SELECT actor_id,event_type FROM audit_event WHERE object_id=$1 AND event_type IN ('ATTACHMENT_FINALIZE_REQUESTED','ATTACHMENT_FINALIZED') ORDER BY occurred_at,actor_id",[reserved.attachment_id])).rows.map(row=>[row.actor_id,row.event_type]),[
+    ['attachment-uploader','ATTACHMENT_FINALIZE_REQUESTED'],['attachment-uploader-2','ATTACHMENT_FINALIZE_REQUESTED'],['attachment-scanner','ATTACHMENT_FINALIZED']]);
 });
 
 pgTest('authenticated attachment HTTP traverses storage inspection and PostgreSQL without caller-controlled object evidence',async()=>{
@@ -416,8 +422,35 @@ pgTest('authenticated attachment HTTP traverses storage inspection and PostgreSQ
   assert.equal(reserved.status,201);const attachmentId=reserved.body.data.attachment_id;
   const finalized=await api({method:'POST',url:`${base}/${attachmentId}/finalize`,headers:{'idempotency-key':'http-attachment-final'},body:{}});
   assert.equal(finalized.status,201);assert.equal(finalized.body.data.status,'VERIFIED_CLEAN');
+  const replay=await api({method:'POST',url:`${base}/${attachmentId}/finalize`,headers:{'idempotency-key':'http-attachment-final'},body:{}});assert.equal(replay.status,200);
   const row=(await adminPool.query('SELECT storage_ref,storage_version,finalization_status FROM attachment WHERE attachment_id=$1',[attachmentId])).rows[0];
   assert.deepEqual(row,{storage_ref:storageRef,storage_version:'http-version-1',finalization_status:'VERIFIED_CLEAN'});
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='ATTACHMENT_FINALIZE_REQUESTED' AND actor_id='http-uploader'",[attachmentId])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='ATTACHMENT_FINALIZED' AND actor_id='http-scanner'",[attachmentId])).rows[0].n,1);
+  const unknown=await api({method:'POST',url:`${base}/${randomUUID()}/finalize`,headers:{'idempotency-key':'http-attachment-missing'},body:{}});assert.equal(unknown.status,404);
+  const sameTenantOther=await seed({status:'DRAFT',attachmentStatus:null,tenantId:ids.tenantId});
+  assert.equal((await api({method:'POST',url:`/api/v1/entities/${sameTenantOther.entityId}/attachments/${randomUUID()}/finalize`,headers:{'idempotency-key':'http-attachment-cross-entity'},body:{}})).status,404);
+  const otherTenant=await seed({status:'DRAFT',attachmentStatus:null});
+  assert.equal((await api({method:'POST',url:`/api/v1/entities/${otherTenant.entityId}/attachments/${randomUUID()}/finalize`,headers:{'idempotency-key':'http-attachment-cross-tenant'},body:{}})).status,404);
+});
+
+pgTest('expired attachment cleanup is claimed exclusively, retries failures and leaves an immutable audit trail',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),attachmentId=randomUUID(),storageRef=`object://attachments/${randomUUID()}`;
+  await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,reserved_at,upload_expires_at)
+    VALUES($1,$2,$3,'expired.pdf','application/pdf',10,$4,$5,'pending:expired','uploader',now()-interval '30 minutes',now()-interval '30 minutes',now()-interval '15 minutes')`,[attachmentId,ids.tenantId,ids.entityId,hash('expired'),storageRef]);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-cleaner',['ATTACHMENT.CLEANUP'])});
+  const competing=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-cleaner-2',['ATTACHMENT.CLEANUP'])});
+  const claims=await Promise.all([kernel.claimExpiredAttachments({tenantId:ids.tenantId,entityId:ids.entityId,limit:5}),competing.claimExpiredAttachments({tenantId:ids.tenantId,entityId:ids.entityId,limit:5})]);assert.equal(claims[0].length+claims[1].length,1);
+  const admin=await adminPool.connect();try{await admin.query('BEGIN');await admin.query("SELECT set_config('refs.attachment_finalize','authorized',true)");await admin.query("UPDATE attachment SET cleanup_claimed_at=now()-interval '10 minutes' WHERE attachment_id=$1",[attachmentId]);await admin.query('COMMIT');}finally{admin.release();}
+  assert.equal((await competing.claimExpiredAttachments({tenantId:ids.tenantId,entityId:ids.entityId,limit:5}))[0].cleanup_attempt,2);
+  assert.equal((await kernel.completeAttachmentCleanup({tenantId:ids.tenantId,entityId:ids.entityId,attachmentId,deleted:false,error:'minio unavailable'})).status,'CLEANUP_FAILED');
+  let row=(await adminPool.query('SELECT finalization_status,cleanup_status,cleanup_attempts FROM attachment WHERE attachment_id=$1',[attachmentId])).rows[0];assert.deepEqual(row,{finalization_status:'PENDING',cleanup_status:'FAILED',cleanup_attempts:2});
+  const service=new AttachmentCleanupService({storage:{deleteReservation:async ref=>assert.equal(ref,storageRef)},kernelFactory:async()=>kernel});assert.equal((await service.runOnce({}, {tenantId:ids.tenantId,entityId:ids.entityId,limit:5}))[0].status,'CLEANED');
+  row=(await adminPool.query('SELECT finalization_status,scan_status,cleanup_status,cleanup_attempts,cleaned_at IS NOT NULL cleaned FROM attachment WHERE attachment_id=$1',[attachmentId])).rows[0];assert.deepEqual(row,{finalization_status:'REJECTED',scan_status:'ERROR',cleanup_status:'COMPLETE',cleanup_attempts:3,cleaned:true});
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type IN ('ATTACHMENT_CLEANUP_CLAIMED','ATTACHMENT_CLEANUP_FAILED','ATTACHMENT_CLEANED')",[attachmentId])).rows[0].n,5);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND metadata::text LIKE '%object://%'",[attachmentId])).rows[0].n,0);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND payload::text LIKE '%object://%'",[attachmentId])).rows[0].n,0);
+  assert.equal((await kernel.claimExpiredAttachments({tenantId:ids.tenantId,entityId:ids.entityId,limit:5})).length,0);
 });
 
 pgTest('automatic journal posts without manual attachment only when immutable source evidence exists',async()=>{

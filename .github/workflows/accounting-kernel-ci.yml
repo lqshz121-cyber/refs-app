@@ -66,3 +66,21 @@ jobs:
         env:
           POSTGRES_IMAGE: postgres:${{ matrix.postgres }}-alpine
         run: npm run test:postgres:fresh
+
+  attachment-containers:
+    name: Versioned object storage and malware scan gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install kernel dependencies exactly
+        working-directory: server
+        run: npm ci
+      - name: Run real MinIO versioning and ClamAV gate
+        working-directory: server
+        run: npm run test:attachments:containers

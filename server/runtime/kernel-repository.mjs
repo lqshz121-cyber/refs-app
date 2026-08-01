@@ -77,12 +77,15 @@ export class PostgresAccountingKernel{
     });
   }
 
-  async getAttachment({tenantId,entityId,attachmentId}){
-    return this.inSession(async client=>requireRow(await client.query(
-      'SELECT * FROM refs_get_attachment_for_finalize($1,$2,$3)',
-      [tenantId,entityId,attachmentId]
-    ),'ATTACHMENT_NOT_FOUND','Attachment was not found'));
+  async requestAttachmentFinalize({tenantId,entityId,attachmentId,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_attachment_finalize_request_hash($1,$2,$3) AS request_hash',[tenantId,entityId,attachmentId]),'ATTACHMENT_FINALIZE_REQUEST_HASH_FAILED','Attachment finalize request hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_request_attachment_finalize($1,$2,$3,$4,$5) AS result',[tenantId,entityId,attachmentId,idempotencyKey,requestHash]),'ATTACHMENT_NOT_FOUND','Attachment was not found').result;
+    });
   }
+
+  async claimExpiredAttachments({tenantId,entityId,limit=25}){return this.inSession(async client=>(await client.query('SELECT refs_claim_expired_attachments($1,$2,$3) AS items',[tenantId,entityId,limit])).rows[0].items);}
+  async completeAttachmentCleanup({tenantId,entityId,attachmentId,deleted,error=null}){return this.inSession(async client=>(await client.query('SELECT refs_complete_attachment_cleanup($1,$2,$3,$4,$5) AS result',[tenantId,entityId,attachmentId,deleted,error])).rows[0].result);}
 
   async createAutoJournal(args){
     return this.inSession(async client=>{

@@ -41,7 +41,9 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         allowOnly(payload,['name','mediaType','sizeBytes','contentHash']);const service=await attachmentServiceFactory(principal);result=await service.reserve(principal,{...payload,tenantId:principal.tenantId,entityId,idempotencyKey});
       }else if(parts.length===7&&parts[4]==='attachments'&&parts[6]==='finalize'){
         if(typeof attachmentServiceFactory!=='function')throw new AccountingApiError(503,'ATTACHMENT_SERVICE_UNAVAILABLE','Attachment service is unavailable');
-        allowOnly(payload,[]);const service=await attachmentServiceFactory(principal);result=await service.finalize(principal,{tenantId:principal.tenantId,entityId,attachmentId:requireUuid(parts[5],'attachmentId'),idempotencyKey});
+        allowOnly(payload,[]);const service=await attachmentServiceFactory(principal);
+        try{result=await service.finalize(principal,{tenantId:principal.tenantId,entityId,attachmentId:requireUuid(parts[5],'attachmentId'),idempotencyKey});}
+        catch(error){if(['42501','P0002','ATTACHMENT_NOT_FOUND'].includes(error?.code))throw new AccountingApiError(404,'ATTACHMENT_NOT_FOUND','Attachment was not found');throw error;}
       }else if(parts.length===6&&parts[4]==='journal-entries'&&parts[5]==='manual'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.createManualJournal({...payload,tenantId:principal.tenantId,entityId,idempotencyKey});
