@@ -1,0 +1,176 @@
+{
+ "frozen_at": "2026-08-01",
+ "source": "src/engine.js + src/ai.js (live engine output, not hand-written)",
+ "loan_draw": {
+  "rule_code": "R-LOAN-01",
+  "lines": [
+   {
+    "account_code": "111000",
+    "debit_amount": 250000,
+    "credit_amount": 0,
+    "loan_id": 1
+   },
+   {
+    "account_code": "270100",
+    "debit_amount": 0,
+    "credit_amount": 250000,
+    "loan_id": 1
+   }
+  ]
+ },
+ "interest_under_construction": {
+  "rule_code": "R-LOAN-03",
+  "capitalize": true,
+  "lines": [
+   {
+    "account_code": "164500",
+    "debit_amount": 12000,
+    "credit_amount": 0,
+    "loan_id": 1
+   },
+   {
+    "account_code": "220410",
+    "debit_amount": 0,
+    "credit_amount": 12000,
+    "loan_id": 1
+   }
+  ]
+ },
+ "interest_completed": {
+  "rule_code": "R-LOAN-04",
+  "capitalize": false,
+  "lines": [
+   {
+    "account_code": "795000",
+    "debit_amount": 12000,
+    "credit_amount": 0,
+    "loan_id": 1
+   },
+   {
+    "account_code": "220410",
+    "debit_amount": 0,
+    "credit_amount": 12000,
+    "loan_id": 1
+   }
+  ]
+ },
+ "repayment": {
+  "rule_code": "R-LOAN-08",
+  "lines": [
+   {
+    "account_code": "270100",
+    "debit_amount": 100000,
+    "credit_amount": 0,
+    "loan_id": 1
+   },
+   {
+    "account_code": "111000",
+    "debit_amount": 0,
+    "credit_amount": 100000,
+    "loan_id": 1
+   }
+  ]
+ },
+ "pm_rent_accrual": {
+  "rule_code": "R-PM-11",
+  "mapped": true,
+  "gl": "421803",
+  "lines": [
+   {
+    "account_code": "120200",
+    "debit_amount": 48000,
+    "credit_amount": 0,
+    "property_id": 2
+   },
+   {
+    "account_code": "421803",
+    "debit_amount": 0,
+    "credit_amount": 48000,
+    "property_id": 2
+   }
+  ]
+ },
+ "pm_security_deposit": {
+  "rule_code": "R-PM-16",
+  "mapped": true,
+  "gl": "225000",
+  "lines": [
+   {
+    "account_code": "111000",
+    "debit_amount": 1500,
+    "credit_amount": 0,
+    "property_id": 2
+   },
+   {
+    "account_code": "225000",
+    "debit_amount": 0,
+    "credit_amount": 1500,
+    "property_id": 2
+   }
+  ]
+ },
+ "pm_unmapped": {
+  "unmapped": true,
+  "charge_code": "PET_FEE"
+ },
+ "ai_hardcost_uc": {
+  "suggested": {
+   "dr": "164400",
+   "cr": "220300",
+   "dr_name": "CWIP - Land Improvements",
+   "cr_name": "A/P Accrual"
+  },
+  "confidence": 0.95,
+  "reason": "Hard cost+在建→CWIP",
+  "rule_used": "SET-COST-2HD",
+  "setting_used": "WBCR·2026·FAST Cost",
+  "risk": "LOW",
+  "need_human": false,
+  "evidence": "Framing"
+ },
+ "ai_hardcost_done": {
+  "suggested": {
+   "dr": "510000",
+   "cr": "220300",
+   "dr_name": "Cost of Goods Sold",
+   "cr_name": "A/P Accrual"
+  },
+  "confidence": 0.92,
+  "reason": "Hard cost+完工→COGS(状态驱动)",
+  "rule_used": "SET-COST-2HD-DONE",
+  "setting_used": "WBCR·2026·FAST Cost",
+  "risk": "LOW",
+  "need_human": false,
+  "evidence": "Punch-out"
+ },
+ "ai_draw": {
+  "suggested": {
+   "dr": "111000",
+   "cr": "270100",
+   "dr_name": "Operating Cash",
+   "cr_name": "Construction Loan Payable"
+  },
+  "confidence": 0.97,
+  "reason": "Draw=贷款资金流入: Dr Cash / Cr Loan Payable(公司配置)",
+  "rule_used": "SET-CL-DRAW",
+  "setting_used": "WBCR·2026·Construction Loan",
+  "risk": "LOW",
+  "need_human": false,
+  "evidence": "Draw #8"
+ },
+ "ai_unknown_to_suspense": {
+  "suggested": {
+   "dr": "111000",
+   "cr": "142000",
+   "dr_name": "Operating Cash",
+   "cr_name": "Suspense"
+  },
+  "confidence": 0.72,
+  "reason": "银行进账无匹配业务对象,建议暂挂 Suspense 待识别",
+  "rule_used": "SET-BANK-IN",
+  "setting_used": "WBCR·2026·Bank Transaction",
+  "risk": "MEDIUM",
+  "need_human": true,
+  "evidence": "ACH UNKNOWN"
+ }
+}

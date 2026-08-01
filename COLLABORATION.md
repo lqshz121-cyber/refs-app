@@ -1,5 +1,7 @@
 # REFS 协作规范 (Claude × Codex, 2026-08-01)
 
+> **架构基准 = REFS-ARCHITECTURE-V2.md**(取代旧 BLUEPRINT 路线部分);冻结契约在 contracts/(错误码/状态机/golden fixtures,fixtures 由现行引擎生成,Codex golden tests 直接断言)。分工按 V2 §14。
+
 ## 部署
 main → GitHub Actions → https://lqshz121-cyber.github.io/refs-app/ 。构建 `node build.mjs`。
 
