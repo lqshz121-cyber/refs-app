@@ -417,13 +417,13 @@ export function CloseMgmt({ctx}) {
 
 
 // ===== Interactive charts (Chart.js via CDN, graceful fallback) =====
-function useChart(build){
+function useChart(build, sig){
   const ref = useRef(null);
   useEffect(()=>{
     if (typeof window==='undefined' || !window.Chart || !ref.current) return;
     const c = build(ref.current.getContext('2d'));
     return ()=>c && c.destroy();
-  });
+  }, [sig]);
   return ref;
 }
 function PLChart({jes, entity}){
@@ -447,7 +447,7 @@ function PLChart({jes, entity}){
         scales:{x:{grid:{display:false},ticks:{font:{size:10.5},color:'#8a8f98'}},
                 y:{grid:{color:'rgba(16,24,40,.06)'},ticks:{font:{size:10.5},color:'#8a8f98',callback:v=>'$'+(v/1000)+'k'}}},
         interaction:{mode:'index',intersect:false}}});
-  });
+  }, data.join(','));
   if (typeof window!=='undefined' && !window.Chart) return <div className="muted sm">chart loading…</div>;
   return <div style={{height:150,marginTop:6}}><canvas ref={ref}/></div>;
 }
@@ -456,7 +456,7 @@ function ExpDonut({cats}){
     data:{labels:cats.map(c=>c[0]),datasets:[{data:cats.map(c=>+c[1].toFixed(2)),backgroundColor:cats.map(c=>c[2]),borderWidth:3,borderColor:'#fff',hoverOffset:10,borderRadius:6}]},
     options:{responsive:true,maintainAspectRatio:false,cutout:'68%',animation:{animateRotate:true,duration:900},
       plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(15,23,42,.92)',padding:12,cornerRadius:10,
-        callbacks:{label:c=>' '+c.label+'  $'+(+c.raw).toLocaleString()}}}}}));
+        callbacks:{label:c=>' '+c.label+'  $'+(+c.raw).toLocaleString()}}}}}), cats.map(c=>c[1]).join(','));
   return <div className="donut-wrap">
     <div style={{width:120,height:120,position:'relative'}}><canvas ref={ref}/></div>
     <div className="legend">{cats.map(([n,v,c])=><span key={n}><i style={{background:c}}/>{n} · {money(v)}</span>)}</div>

@@ -137,7 +137,7 @@ function App() {
 
   useEffect(()=>{ document.body.className = dark?'dark':''; },[dark]);
   const persist=(k,v)=>{try{localStorage.setItem('refs_'+k,JSON.stringify(v))}catch(e){}};
-  useEffect(()=>{persist('jes',jes)},[jes]); useEffect(()=>{persist('exc',exceptions)},[exceptions]);
+  useEffect(()=>{ const t=setTimeout(()=>persist('jes',jes), 400); return ()=>clearTimeout(t); },[jes]); useEffect(()=>{persist('exc',exceptions)},[exceptions]);
   useEffect(()=>{persist('close',closeTasks)},[closeTasks]); useEffect(()=>{persist('ap',ap)},[ap]);
   useEffect(()=>{persist('bank',bank)},[bank]); useEffect(()=>{persist('coa',coa)},[coa]); useEffect(()=>{persist('ar',ar)},[ar]);
   useEffect(()=>{ if(userId) persist('user',userId); },[userId]);
