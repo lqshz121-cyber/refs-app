@@ -14,8 +14,8 @@ main → GitHub Actions → https://lqshz121-cyber.github.io/refs-app/ 。构建
 4. 会计不变量见 BLUEPRINT.md;红线:AI 不自动 post、Posted 不可改、六位科目、辅助核算行必须有 member、Draw=Dr Cash/Cr Loan。
 
 ## 分工
-- Codex: Phase 1 后端 — TypeScript 化、PostgreSQL(表清单=规格§14)、REST API(§25)、JWT、repo.js 改造为 API client(保持 load/save/audit 接口形状)。
-- Claude: 前端/领域规则/WBS 摸排(浏览器)/AI Judge & Audit/部署验证。
+- Codex: Phase 1 后端 — TypeScript 化、PostgreSQL、REST API、JWT、repo.js→API client;**并接管全部 WBS 数据读取线(爬取/同步/适配器/凭证),情报移交见 contracts/WBS-DATA-SOURCE-SPEC.md**。
+- Claude: 前端/UX、会计语义与契约维护、AI Judge&Audit 展示、每次发布线上 E2E、文档同步。不再负责数据读取。
 - 接口契约以 §24/§25 + BLUEPRINT.md 为准;冲突时在本文件追加 DECISION 记录。
 
 ## 当前状态(Claude 侧,38 次部署全部线上实测)
