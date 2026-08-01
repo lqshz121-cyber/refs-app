@@ -5,7 +5,15 @@ DROP FUNCTION IF EXISTS refs_claim_outbox(uuid,text,integer);
 DROP FUNCTION IF EXISTS refs_post_journal(uuid,uuid,uuid,uuid,bigint,text,text,text);
 DROP FUNCTION IF EXISTS refs_close_period(uuid,uuid,uuid,bigint,text,text,text);
 DROP FUNCTION IF EXISTS refs_update_draft_description(uuid,uuid,uuid,bigint,text,text,text);
+DROP FUNCTION IF EXISTS refs_retire_config_snapshot(text,uuid,uuid,uuid,bigint,timestamptz,text,text,text);
+DROP FUNCTION IF EXISTS refs_config_retire_hash(text,uuid,uuid,uuid,bigint,timestamptz,text);
 DROP FUNCTION IF EXISTS refs_reserve_idempotency(uuid,text,text,text,text);
+DROP FUNCTION IF EXISTS refs_validate_setting_snapshot() CASCADE;
+DROP FUNCTION IF EXISTS refs_validate_mapping_snapshot() CASCADE;
+DROP FUNCTION IF EXISTS refs_protect_approved_config() CASCADE;
+DROP FUNCTION IF EXISTS refs_protect_rule_evaluation() CASCADE;
+DROP FUNCTION IF EXISTS refs_validate_rule_evaluation_digest() CASCADE;
+DROP FUNCTION IF EXISTS refs_rule_evaluation_hash(uuid,uuid,uuid,text,bigint,jsonb,jsonb,text);
 DROP FUNCTION IF EXISTS refs_jsonb_hash(jsonb);
 DROP FUNCTION IF EXISTS refs_protect_outbox_payload() CASCADE;
 DROP FUNCTION IF EXISTS refs_assert_scope(uuid,uuid,text);
@@ -27,6 +35,12 @@ ALTER TABLE IF EXISTS outbox_event DROP COLUMN IF EXISTS entity_id;
 ALTER TABLE IF EXISTS sync_cursor DROP COLUMN IF EXISTS entity_id;
 ALTER TABLE IF EXISTS import_batch DROP COLUMN IF EXISTS entity_id;
 ALTER TABLE IF EXISTS raw_event DROP COLUMN IF EXISTS entity_id;
+ALTER TABLE IF EXISTS rule_evaluation DROP COLUMN IF EXISTS evaluation_digest;
+ALTER TABLE IF EXISTS setting_snapshot DROP CONSTRAINT IF EXISTS setting_approved_scope_no_overlap;
+ALTER TABLE IF EXISTS setting_snapshot DROP CONSTRAINT IF EXISTS setting_retirement_metadata;
+ALTER TABLE IF EXISTS setting_snapshot DROP COLUMN IF EXISTS retire_reason,DROP COLUMN IF EXISTS retired_at,DROP COLUMN IF EXISTS retired_by,DROP COLUMN IF EXISTS lifecycle_revision;
+ALTER TABLE IF EXISTS mapping_snapshot DROP CONSTRAINT IF EXISTS mapping_retirement_metadata;
+ALTER TABLE IF EXISTS mapping_snapshot DROP COLUMN IF EXISTS retire_reason,DROP COLUMN IF EXISTS retired_at,DROP COLUMN IF EXISTS retired_by,DROP COLUMN IF EXISTS lifecycle_revision;
 ALTER TABLE IF EXISTS journal_line DROP CONSTRAINT IF EXISTS journal_line_account_fk;
 ALTER TABLE IF EXISTS journal_line DROP CONSTRAINT IF EXISTS journal_line_member_fk;
 DROP FUNCTION IF EXISTS refs_validate_journal_line_master() CASCADE;
@@ -54,6 +68,20 @@ END;
 $$;
 
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM refs_app;
-GRANT CREATE ON SCHEMA public TO PUBLIC;
+DO $$
+DECLARE state refs_runtime_migration_state;
+BEGIN
+  SELECT * INTO state FROM refs_runtime_migration_state WHERE singleton;
+  IF state.public_create_was_granted
+  THEN GRANT CREATE ON SCHEMA public TO PUBLIC;
+  ELSE REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+  END IF;
+  IF state.public_usage_was_granted THEN GRANT USAGE ON SCHEMA public TO PUBLIC; ELSE REVOKE USAGE ON SCHEMA public FROM PUBLIC; END IF;
+  IF state.refs_app_usage_was_granted THEN GRANT USAGE ON SCHEMA public TO refs_app; ELSE REVOKE USAGE ON SCHEMA public FROM refs_app; END IF;
+  IF state.issuer_usage_was_granted THEN GRANT USAGE ON SCHEMA public TO refs_context_issuer; ELSE REVOKE USAGE ON SCHEMA public FROM refs_context_issuer; END IF;
+  IF state.grant_sync_usage_was_granted THEN GRANT USAGE ON SCHEMA public TO refs_grant_sync; ELSE REVOKE USAGE ON SCHEMA public FROM refs_grant_sync; END IF;
+END;
+$$;
+DROP TABLE IF EXISTS refs_runtime_migration_state;
 
 COMMIT;

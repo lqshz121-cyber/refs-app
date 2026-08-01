@@ -82,23 +82,27 @@ async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VE
   return {tenantId,entityId,sourceEntityId,periodId,journalId};
 }
 
-async function attachAutoSource(ids){
+async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effectiveTo=null,mappingPriority=0,evaluatedAt=null}={}){
   const batchId=randomUUID(),rawId=randomUUID(),documentId=randomUUID(),settingId=randomUUID(),mappingId=randomUUID(),ruleId=randomUUID(),stagingId=randomUUID(),recordId=`AUTO-${ids.journalId}`;
+  const inputKeyHash=hash('mapping-key');
+  const configHashes=(await adminPool.query("SELECT refs_jsonb_hash('{}'::jsonb) AS setting_hash,refs_jsonb_hash(jsonb_build_object('input_keys','{}'::jsonb,'output_rules','{}'::jsonb)) AS mapping_hash")).rows[0];
   await adminPool.query("INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash) VALUES($1,$2,$3,'WBS_API','bankFeed',$4,$5,$6)",[batchId,ids.tenantId,ids.entityId,ids.sourceEntityId,'auto-import-'+ids.journalId,hash('auto-import')]);
   await adminPool.query(`INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id)
     VALUES($1,$2,$3,$4,'WBS','bankFeed',$5,$6,'1','UPSERT',now(),$7,$8,$6)`,[rawId,ids.tenantId,ids.entityId,batchId,ids.sourceEntityId,recordId,hash('auto-raw'),`object://raw/${rawId}`]);
   await adminPool.query(`INSERT INTO source_document(source_document_id,tenant_id,entity_id,raw_event_id,source_system,source_module,source_entity_id,source_record_id,source_version,document_type,business_date,accounting_date,currency,gross_amount,source_ref,payload_hash)
     VALUES($1,$2,$3,$4,'WBS','bankFeed',$5,$6,'1','BANK_TRANSACTION','2026-07-15','2026-07-15','USD',100,$7,$8)`,[documentId,ids.tenantId,ids.entityId,rawId,ids.sourceEntityId,recordId,`WBS:${recordId}`,hash('auto-doc')]);
-  await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
-    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,1,'2026-01-01','APPROVED','{}',$4,'setting-maker','setting-approver',now())`,[settingId,ids.tenantId,ids.entityId,hash('setting')]);
-  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
-    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,$4,1,'2026-01-01','APPROVED','{}','{}',$5,'mapping-maker','mapping-approver',now())`,[mappingId,ids.tenantId,ids.entityId,hash('mapping-key'),hash('mapping')]);
-  await adminPool.query(`INSERT INTO rule_evaluation(rule_evaluation_id,tenant_id,source_document_id,setting_snapshot_id,mapping_snapshot_id,rule_code,rule_version,matched_facts,result,reason,input_digest)
-    VALUES($1,$2,$3,$4,$5,'R-BANK-01',1,'{}','{}','fixture',$6)`,[ruleId,ids.tenantId,documentId,settingId,mappingId,hash('rule')]);
+  await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,1,$4,$5,'APPROVED','{}',$6,'setting-maker','setting-approver',now())`,[settingId,ids.tenantId,ids.entityId,effectiveFrom,effectiveTo,configHashes.setting_hash]);
+  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,effective_to,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,$4,1,$5,$6,$7,'APPROVED','{}','{}',$8,'mapping-maker','mapping-approver',now())`,[mappingId,ids.tenantId,ids.entityId,inputKeyHash,mappingPriority,effectiveFrom,effectiveTo,configHashes.mapping_hash]);
+  const inputDigest=hash('rule');
+  const evaluationDigest=(await adminPool.query("SELECT refs_rule_evaluation_hash($1,$2,$3,'R-BANK-01',1,'{}'::jsonb,'{}'::jsonb,$4) AS digest",[documentId,settingId,mappingId,inputDigest])).rows[0].digest;
+  await adminPool.query(`INSERT INTO rule_evaluation(rule_evaluation_id,tenant_id,source_document_id,setting_snapshot_id,mapping_snapshot_id,rule_code,rule_version,matched_facts,result,reason,input_digest,evaluation_digest,evaluated_at)
+    VALUES($1,$2,$3,$4,$5,'R-BANK-01',1,'{}','{}','fixture',$6,$7,COALESCE($8::timestamptz,now()))`,[ruleId,ids.tenantId,documentId,settingId,mappingId,inputDigest,evaluationDigest,evaluatedAt]);
   await adminPool.query(`INSERT INTO staging_item(staging_item_id,tenant_id,entity_id,source_document_id,setting_snapshot_id,mapping_snapshot_id,rule_evaluation_id,status,reviewed_by,reviewed_at)
     VALUES($1,$2,$3,$4,$5,$6,$7,'READY_FOR_DRAFT','reviewer',now())`,[stagingId,ids.tenantId,ids.entityId,documentId,settingId,mappingId,ruleId]);
   await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,staging_item_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,$5,'engine')",[ids.tenantId,ids.entityId,documentId,stagingId,ids.journalId]);
-  return {batchId,rawId,documentId,settingId,mappingId,ruleId,stagingId};
+  return {batchId,rawId,documentId,settingId,mappingId,ruleId,stagingId,inputKeyHash,configHashes};
 }
 
 async function trustedSession(ids,actorId='poster',permissions=['GL.JE.POST']){
@@ -368,11 +372,153 @@ pgTest('pending and rejected attachments cannot enter the JE trace graph',async(
 });
 
 pgTest('automatic journal posts without manual attachment only when immutable source evidence exists',async()=>{
-  const ids=await seed({journalType:'AUTO',attachmentStatus:null});await attachAutoSource(ids);
+  const ids=await seed({journalType:'AUTO',attachmentStatus:null});
+  await attachAutoSource(ids,{effectiveFrom:'2026-07-15T00:00:00Z',effectiveTo:'2026-07-16T00:00:00Z',evaluatedAt:'2026-07-15T12:00:00Z'});
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids)});
   const result=await kernel.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'auto-source-post',requestHash:hash('auto-source')});
   assert.equal(result.idempotent,false);
   assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM ledger_line WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,2);
+});
+
+pgTest('AUTO evaluation requires effective approved canonical snapshots and rejects future, expired, and hash mismatch',async()=>{
+  const future=new Date(Date.now()+86400000).toISOString();
+  const expired=new Date(Date.now()-86400000).toISOString();
+  const old=new Date(Date.now()-172800000).toISOString();
+  for(const window of [{effectiveFrom:future},{effectiveFrom:old,effectiveTo:expired}]){
+    const ids=await seed({journalType:'AUTO',attachmentStatus:null});
+    await assert.rejects(attachAutoSource(ids,window),error=>error.code==='23514');
+  }
+  const ids=await seed({journalType:'AUTO',attachmentStatus:null});
+  await assert.rejects(adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,99,'2026-01-01','APPROVED','{}',$3,'maker','approver',now())`,[ids.tenantId,ids.entityId,hash('wrong-setting')]),error=>error.code==='23514');
+  await assert.rejects(adminPool.query(`INSERT INTO mapping_snapshot(tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,$3,99,'2026-01-01','APPROVED','{}','{}',$4,'maker','approver',now())`,[ids.tenantId,ids.entityId,hash('key'),hash('wrong-mapping')]),error=>error.code==='23514');
+  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM posting_batch')).rows[0].n,0);
+  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM ledger_line')).rows[0].n,0);
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,0);
+});
+
+pgTest('approved snapshots are immutable, controlled retirement is idempotent and historical AUTO remains postable',async()=>{
+  const ids=await seed({journalType:'AUTO',attachmentStatus:null});
+  const trace=await attachAutoSource(ids);
+  await assert.rejects(adminPool.query("UPDATE setting_snapshot SET snapshot='{}' WHERE setting_snapshot_id=$1",[trace.settingId]),error=>error.code==='55000');
+  await assert.rejects(adminPool.query('DELETE FROM mapping_snapshot WHERE mapping_snapshot_id=$1',[trace.mappingId]),error=>error.code==='55000');
+
+  const cutoff=new Date();cutoff.setUTCDate(cutoff.getUTCDate()+1);cutoff.setUTCHours(0,0,0,0);
+  const cutoffIso=cutoff.toISOString();
+  await adminPool.query("INSERT INTO accounting_period(tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,$4,$4,'OPEN')",[ids.tenantId,ids.entityId,cutoffIso.slice(0,7),cutoffIso.slice(0,10)]);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'config-retirer',['CONFIG.SNAPSHOT.RETIRE'])});
+  const args={kind:'SETTING',tenantId:ids.tenantId,entityId:ids.entityId,snapshotId:trace.settingId,expectedRevision:0,cutoff:cutoffIso,reason:'Superseded by approved version 2',idempotencyKey:'retire-setting-0001'};
+  const yesterday=new Date();yesterday.setUTCDate(yesterday.getUTCDate()-1);yesterday.setUTCHours(0,0,0,0);
+  await assert.rejects(kernel.retireConfigSnapshot({...args,cutoff:yesterday.toISOString(),idempotencyKey:'retire-setting-backdate'}),error=>error.code==='22023');
+  const closedCutoff=new Date(Date.UTC(cutoff.getUTCFullYear(),cutoff.getUTCMonth()+1,1));
+  await adminPool.query("INSERT INTO accounting_period(tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,$4,$4,'CLOSED')",[ids.tenantId,ids.entityId,closedCutoff.toISOString().slice(0,7),closedCutoff.toISOString().slice(0,10)]);
+  await assert.rejects(kernel.retireConfigSnapshot({...args,kind:'MAPPING',snapshotId:trace.mappingId,cutoff:closedCutoff.toISOString(),idempotencyKey:'retire-mapping-closed'}),error=>error.code==='55000');
+  const retired=await kernel.retireConfigSnapshot(args);const replay=await kernel.retireConfigSnapshot(args);
+  assert.equal(retired.status,'RETIRED');assert.equal(replay.idempotent,true);
+  const row=(await adminPool.query('SELECT status,lifecycle_revision,retired_by,effective_to FROM setting_snapshot WHERE setting_snapshot_id=$1',[trace.settingId])).rows[0];
+  assert.equal(row.status,'RETIRED');assert.equal(row.lifecycle_revision,'1');assert.equal(row.retired_by,'config-retirer');
+  await assert.rejects(adminPool.query("UPDATE setting_snapshot SET retire_reason='tampered retirement reason' WHERE setting_snapshot_id=$1",[trace.settingId]),error=>error.code==='55000');
+  const settingHash=(await adminPool.query("SELECT refs_jsonb_hash('{}'::jsonb) AS hash")).rows[0].hash;
+  const tenantSetting=randomUUID();
+  await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','TENANT',$2::text,1,'2026-01-01','APPROVED','{}',$3,'tenant-maker','tenant-approver',now())`,[tenantSetting,ids.tenantId,settingHash]);
+  await assert.rejects(kernel.retireConfigSnapshot({...args,snapshotId:tenantSetting,idempotencyKey:'retire-tenant-scope'}),error=>error.code==='0A000');
+  const sodKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'mapping-approver',['CONFIG.SNAPSHOT.RETIRE'])});
+  await assert.rejects(sodKernel.retireConfigSnapshot({...args,kind:'MAPPING',snapshotId:trace.mappingId,idempotencyKey:'retire-mapping-sod'}),error=>error.code==='42501');
+  const retiredMapping=await kernel.retireConfigSnapshot({...args,kind:'MAPPING',snapshotId:trace.mappingId,idempotencyKey:'retire-mapping-0001'});
+  assert.equal(retiredMapping.status,'RETIRED');
+  await adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,2,$3,'APPROVED','{}',$4,'v2-maker','v2-approver',now())`,[ids.tenantId,ids.entityId,cutoffIso,settingHash]);
+  await adminPool.query(`INSERT INTO mapping_snapshot(tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,$3,2,0,$4,'APPROVED','{}','{}',$5,'v2-map-maker','v2-map-approver',now())`,[ids.tenantId,ids.entityId,trace.inputKeyHash,cutoffIso,trace.configHashes.mapping_hash]);
+  await assert.rejects(kernel.retireConfigSnapshot({...args,snapshotId:(await adminPool.query("SELECT setting_snapshot_id FROM setting_snapshot WHERE version=2 AND entity_id=$1",[ids.entityId])).rows[0].setting_snapshot_id,expectedRevision:1,idempotencyKey:'retire-setting-stale',reason:'Stale retirement must fail'}),error=>error.code==='40001');
+
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids)});
+  await adminPool.query('UPDATE source_document SET accounting_date=$2::date WHERE source_document_id=$1',[trace.documentId,cutoffIso]);
+  await assert.rejects(poster.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'retired-cutoff-reject'}),error=>error.code==='23514');
+  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM posting_batch')).rows[0].n,0);
+  await adminPool.query("UPDATE source_document SET accounting_date='2026-07-15' WHERE source_document_id=$1",[trace.documentId]);
+  const posted=await poster.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'retired-history-post'});
+  assert.equal(posted.idempotent,false);
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='CONFIG_SNAPSHOT_RETIRED'")).rows[0].n,2);
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM outbox_event WHERE event_type='CONFIG_SNAPSHOT_RETIRED'")).rows[0].n,2);
+});
+
+pgTest('setting overlap and mapping equal-priority overlap fail while a unique highest mapping wins',async()=>{
+  const ids=await seed({journalType:'AUTO',attachmentStatus:null});const trace=await attachAutoSource(ids,{mappingPriority:10});
+  const settingHash=trace.configHashes.setting_hash,mappingHash=trace.configHashes.mapping_hash;
+  await assert.rejects(adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,2,'2026-02-01','APPROVED','{}',$3,'maker2','approver2',now())`,[ids.tenantId,ids.entityId,settingHash]),error=>error.code==='23P01');
+  await assert.rejects(adminPool.query(`INSERT INTO mapping_snapshot(tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,$3,2,10,'2026-02-01','APPROVED','{}','{}',$4,'maker2','approver2',now())`,[ids.tenantId,ids.entityId,trace.inputKeyHash,mappingHash]),error=>error.code==='23P01');
+  await adminPool.query(`INSERT INTO mapping_snapshot(tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,$3,3,5,'2026-02-01','APPROVED','{}','{}',$4,'maker3','approver3',now())`,[ids.tenantId,ids.entityId,trace.inputKeyHash,mappingHash]);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids)});
+  assert.equal((await kernel.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'highest-mapping-post'})).idempotent,false);
+});
+
+pgTest('post rehash detects trigger-bypass tamper and resolver fails closed on a highest-priority tie',async()=>{
+  const tampered=await seed({journalType:'AUTO',attachmentStatus:null});const trace=await attachAutoSource(tampered);
+  await adminPool.query('ALTER TABLE setting_snapshot DISABLE TRIGGER USER');
+  try{await adminPool.query("UPDATE setting_snapshot SET snapshot=jsonb_build_object('tampered',true) WHERE setting_snapshot_id=$1",[trace.settingId]);}
+  finally{await adminPool.query('ALTER TABLE setting_snapshot ENABLE TRIGGER USER');}
+  const tamperKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(tampered)});
+  await assert.rejects(tamperKernel.postJournal({...tampered,journalEntryId:tampered.journalId,expectedRevision:0,idempotencyKey:'tamper-rehash-post'}),error=>error.code==='23514');
+  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM posting_batch')).rows[0].n,0);
+
+  await adminPool.query('TRUNCATE tenant CASCADE');
+  const tied=await seed({journalType:'AUTO',attachmentStatus:null});const tiedTrace=await attachAutoSource(tied,{mappingPriority:9});
+  await adminPool.query('ALTER TABLE mapping_snapshot DROP CONSTRAINT mapping_approved_equal_priority_no_overlap');
+  try{
+    await adminPool.query(`INSERT INTO mapping_snapshot(tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+      VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,$3,2,9,'2026-01-01','APPROVED','{}','{}',$4,'tie-maker','tie-approver',now())`,[tied.tenantId,tied.entityId,tiedTrace.inputKeyHash,tiedTrace.configHashes.mapping_hash]);
+    const tieKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(tied)});
+    await assert.rejects(tieKernel.postJournal({...tied,journalEntryId:tied.journalId,expectedRevision:0,idempotencyKey:'mapping-tie-post'}),error=>error.code==='23514');
+  }finally{
+    await adminPool.query('ALTER TABLE mapping_snapshot DISABLE TRIGGER USER');
+    await adminPool.query('DELETE FROM mapping_snapshot WHERE version=2 AND entity_id=$1',[tied.entityId]);
+    await adminPool.query('ALTER TABLE mapping_snapshot ENABLE TRIGGER USER');
+    await adminPool.query(`ALTER TABLE mapping_snapshot ADD CONSTRAINT mapping_approved_equal_priority_no_overlap EXCLUDE USING gist (
+      tenant_id WITH =,family WITH =,scope_type WITH =,scope_key WITH =,input_key_hash WITH =,priority WITH =,
+      tstzrange(effective_from,COALESCE(effective_to,'infinity'::timestamptz),'[)') WITH &&) WHERE (status='APPROVED')`);
+  }
+  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM posting_batch')).rows[0].n,0);
+});
+
+pgTest('legacy dirty approved configuration makes migration 002 fail atomically',async()=>{
+  await migrateDown(adminPool);
+  const tenantId=randomUUID(),entityId=randomUUID();
+  await adminPool.query("INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,'DIRTYTEN','Dirty migration tenant')",[tenantId]);
+  await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,'DIRTYENT','WBS','DIRTYENT','Dirty entity','USD')",[entityId,tenantId]);
+  await adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,1,'2026-01-01','APPROVED','{}',$3,'maker','approver',now())`,[tenantId,entityId,hash('not-canonical')]);
+  await assert.rejects(migrateUp(adminPool),error=>/canonical validation/.test(error.message));
+  assert.equal((await adminPool.query("SELECT to_regclass('public.account_master') AS table_name")).rows[0].table_name,null);
+  assert.deepEqual((await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name')).rows.map(row=>row.migration_name),['001_wbs_accounting_core.sql']);
+  await adminPool.query('DELETE FROM setting_snapshot WHERE tenant_id=$1',[tenantId]);
+  await adminPool.query('DELETE FROM entity WHERE tenant_id=$1',[tenantId]);
+  await adminPool.query('DELETE FROM tenant WHERE tenant_id=$1',[tenantId]);
+  await migrateUp(adminPool);
+});
+
+pgTest('down restores pre-hardened PUBLIC CREATE and exact direct USAGE ACLs',async()=>{
+  const aclRows=async()=>(await adminPool.query(`SELECT CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE r.rolname END AS grantee,x.privilege_type
+    FROM pg_namespace n CROSS JOIN LATERAL aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) x
+    LEFT JOIN pg_roles r ON r.oid=x.grantee
+    WHERE n.nspname='public' AND (x.grantee=0 OR r.rolname IN ('refs_app','refs_context_issuer','refs_grant_sync'))
+    ORDER BY 1,2`)).rows;
+  await migrateDown(adminPool);
+  await adminPool.query('GRANT CREATE,USAGE ON SCHEMA public TO PUBLIC');
+  await adminPool.query('REVOKE USAGE ON SCHEMA public FROM refs_app,refs_context_issuer,refs_grant_sync');
+  const before=await aclRows();
+  await migrateUp(adminPool);
+  const publicPrivileges=(await adminPool.query(`SELECT privilege_type FROM pg_namespace n,LATERAL aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) x
+    WHERE n.nspname='public' AND x.grantee=0 ORDER BY privilege_type`)).rows.map(row=>row.privilege_type);
+  assert.deepEqual(publicPrivileges,['USAGE']);
+  await migrateDown(adminPool);
+  assert.deepEqual(await aclRows(),before);
+  await migrateUp(adminPool);
 });
 
 pgTest('posting is atomic, same-hash retry replays before state validation, different hash conflicts',async()=>{

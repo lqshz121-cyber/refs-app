@@ -11,7 +11,8 @@
     "db:up": "node runtime/migrate.mjs up",
     "db:down": "node runtime/migrate.mjs down",
     "db:reset": "node runtime/migrate.mjs reset",
-    "test:postgres": "node --test tests/postgres-kernel.test.mjs"
+    "test:postgres": "node --test tests/postgres-kernel.test.mjs",
+    "test:postgres:fresh": "node runtime/test-postgres-fresh.mjs"
   },
   "dependencies": {
     "pg": "^8.13.1"

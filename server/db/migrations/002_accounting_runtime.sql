@@ -1,5 +1,13 @@
 BEGIN;
 
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='refs_app')
+    OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='refs_runtime')
+    OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='refs_context_issuer')
+    OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='refs_grant_sync')
+  THEN RAISE EXCEPTION 'Platform prerequisite roles refs_app, refs_runtime, refs_context_issuer, and refs_grant_sync are required'; END IF;
+END $$;
+
 DO $$
 DECLARE owner_name text;
 BEGIN
@@ -9,8 +17,24 @@ BEGIN
   END IF;
 END;
 $$;
+CREATE TABLE refs_runtime_migration_state (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+  public_create_was_granted boolean NOT NULL,
+  public_usage_was_granted boolean NOT NULL,
+  refs_app_usage_was_granted boolean NOT NULL,
+  issuer_usage_was_granted boolean NOT NULL,
+  grant_sync_usage_was_granted boolean NOT NULL
+);
+INSERT INTO refs_runtime_migration_state(public_create_was_granted,public_usage_was_granted,refs_app_usage_was_granted,issuer_usage_was_granted,grant_sync_usage_was_granted)
+SELECT COALESCE(bool_or(grantee=0 AND privilege_type='CREATE'),false),
+  COALESCE(bool_or(grantee=0 AND privilege_type='USAGE'),false),
+  COALESCE(bool_or(grantee=(SELECT oid FROM pg_roles WHERE rolname='refs_app') AND privilege_type='USAGE'),false),
+  COALESCE(bool_or(grantee=(SELECT oid FROM pg_roles WHERE rolname='refs_context_issuer') AND privilege_type='USAGE'),false),
+  COALESCE(bool_or(grantee=(SELECT oid FROM pg_roles WHERE rolname='refs_grant_sync') AND privilege_type='USAGE'),false)
+FROM pg_namespace n, LATERAL aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner)))
+WHERE n.nspname='public';
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO PUBLIC;
+GRANT USAGE ON SCHEMA public TO refs_app,refs_context_issuer,refs_grant_sync;
 
 DO $$
 BEGIN
@@ -92,6 +116,169 @@ CREATE TRIGGER journal_line_master_guard
   BEFORE INSERT OR UPDATE OF tenant_id, entity_id, account_code, member_ref ON journal_line
   FOR EACH ROW EXECUTE FUNCTION refs_validate_journal_line_master();
 
+CREATE OR REPLACE FUNCTION refs_jsonb_hash(value jsonb) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
+  SELECT 'sha256:'||encode(digest(convert_to(value::text,'UTF8'),'sha256'),'hex')
+$$;
+
+CREATE OR REPLACE FUNCTION refs_rule_evaluation_hash(
+  p_source_document uuid,p_setting uuid,p_mapping uuid,p_rule_code text,p_rule_version bigint,
+  p_matched_facts jsonb,p_result jsonb,p_input_digest text
+) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
+  SELECT refs_jsonb_hash(jsonb_build_object(
+    'source_document_id',p_source_document,'setting_snapshot_id',p_setting,'mapping_snapshot_id',p_mapping,
+    'rule_code',p_rule_code,'rule_version',p_rule_version,'matched_facts',p_matched_facts,
+    'result',p_result,'input_digest',p_input_digest
+  ))
+$$;
+
+ALTER TABLE rule_evaluation ADD COLUMN evaluation_digest text CHECK (evaluation_digest ~ '^sha256:[0-9a-f]{64}$');
+ALTER TABLE setting_snapshot
+  ADD COLUMN lifecycle_revision bigint NOT NULL DEFAULT 0 CHECK (lifecycle_revision>=0),
+  ADD COLUMN retired_by text,
+  ADD COLUMN retired_at timestamptz,
+  ADD COLUMN retire_reason text,
+  ADD CONSTRAINT setting_retirement_metadata CHECK (
+    (status='RETIRED' AND retired_by IS NOT NULL AND retired_at IS NOT NULL AND length(btrim(retire_reason))>=8)
+    OR (status<>'RETIRED' AND retired_by IS NULL AND retired_at IS NULL AND retire_reason IS NULL)
+  );
+ALTER TABLE mapping_snapshot
+  ADD COLUMN lifecycle_revision bigint NOT NULL DEFAULT 0 CHECK (lifecycle_revision>=0),
+  ADD COLUMN retired_by text,
+  ADD COLUMN retired_at timestamptz,
+  ADD COLUMN retire_reason text,
+  ADD CONSTRAINT mapping_retirement_metadata CHECK (
+    (status='RETIRED' AND retired_by IS NOT NULL AND retired_at IS NOT NULL AND length(btrim(retire_reason))>=8)
+    OR (status<>'RETIRED' AND retired_by IS NULL AND retired_at IS NULL AND retire_reason IS NULL)
+  );
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM setting_snapshot WHERE status='APPROVED' AND (
+    approved_by IS NULL OR approved_at IS NULL OR approved_by=created_by OR snapshot_hash<>refs_jsonb_hash(snapshot)
+  )) THEN RAISE EXCEPTION 'Legacy approved setting snapshot failed canonical validation'; END IF;
+  IF EXISTS (SELECT 1 FROM mapping_snapshot WHERE status='APPROVED' AND (
+    approved_by IS NULL OR approved_at IS NULL OR approved_by=created_by OR snapshot_hash<>refs_jsonb_hash(jsonb_build_object('input_keys',input_keys,'output_rules',output_rules))
+  )) THEN RAISE EXCEPTION 'Legacy approved mapping snapshot failed canonical validation'; END IF;
+  IF EXISTS (SELECT 1 FROM rule_evaluation WHERE evaluation_digest IS NULL) THEN
+    RAISE EXCEPTION 'Legacy rule evaluation has no verifiable canonical digest';
+  END IF;
+END $$;
+ALTER TABLE rule_evaluation ALTER COLUMN evaluation_digest SET NOT NULL;
+
+CREATE OR REPLACE FUNCTION refs_validate_setting_snapshot() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  IF NEW.status='APPROVED' THEN
+    IF NEW.approved_by IS NULL OR NEW.approved_at IS NULL OR NEW.approved_by=NEW.created_by THEN
+      RAISE EXCEPTION 'Approved configuration requires a distinct approver' USING ERRCODE='23514';
+    END IF;
+    IF NEW.snapshot_hash<>refs_jsonb_hash(NEW.snapshot) THEN
+      RAISE EXCEPTION 'Approved configuration snapshot hash mismatch' USING ERRCODE='23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION refs_validate_mapping_snapshot() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  IF NEW.status='APPROVED' THEN
+    IF NEW.approved_by IS NULL OR NEW.approved_at IS NULL OR NEW.approved_by=NEW.created_by THEN
+      RAISE EXCEPTION 'Approved configuration requires a distinct approver' USING ERRCODE='23514';
+    END IF;
+    IF NEW.snapshot_hash<>refs_jsonb_hash(jsonb_build_object('input_keys',NEW.input_keys,'output_rules',NEW.output_rules)) THEN
+      RAISE EXCEPTION 'Approved configuration snapshot hash mismatch' USING ERRCODE='23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION refs_protect_approved_config() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  IF OLD.status='RETIRED' OR (TG_OP='DELETE' AND OLD.status='APPROVED') THEN
+    RAISE EXCEPTION 'Approved and retired configuration snapshots are immutable' USING ERRCODE='55000';
+  END IF;
+  IF OLD.status='APPROVED' THEN
+    IF current_setting('refs.config_retire',true)<>'authorized'
+      OR NEW.status<>'RETIRED' OR NEW.lifecycle_revision<>OLD.lifecycle_revision+1
+      OR NEW.retired_by IS NULL OR NEW.retired_at IS NULL OR length(btrim(NEW.retire_reason))<8
+      OR NEW.effective_to IS NULL OR NEW.effective_to<=OLD.effective_from
+      OR (OLD.effective_to IS NOT NULL AND NEW.effective_to>OLD.effective_to)
+      OR (NEW.tenant_id,NEW.entity_id,NEW.family,NEW.scope_type,NEW.scope_key,NEW.version,NEW.effective_from,
+          NEW.snapshot_hash,NEW.created_by,NEW.approved_by,NEW.approved_at)
+         IS DISTINCT FROM
+         (OLD.tenant_id,OLD.entity_id,OLD.family,OLD.scope_type,OLD.scope_key,OLD.version,OLD.effective_from,
+          OLD.snapshot_hash,OLD.created_by,OLD.approved_by,OLD.approved_at)
+    THEN RAISE EXCEPTION 'Approved configuration snapshots are immutable outside controlled retirement' USING ERRCODE='55000'; END IF;
+    IF TG_TABLE_NAME='setting_snapshot' THEN
+      IF NEW.snapshot IS DISTINCT FROM OLD.snapshot THEN
+        RAISE EXCEPTION 'Approved setting payload is immutable' USING ERRCODE='55000';
+      END IF;
+    ELSE
+      IF (NEW.input_key_hash,NEW.priority,NEW.input_keys,NEW.output_rules)
+        IS DISTINCT FROM (OLD.input_key_hash,OLD.priority,OLD.input_keys,OLD.output_rules) THEN
+        RAISE EXCEPTION 'Approved mapping payload is immutable' USING ERRCODE='55000';
+      END IF;
+    END IF;
+  END IF;
+  RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION refs_protect_rule_evaluation() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  RAISE EXCEPTION 'Rule evaluations are append-only' USING ERRCODE='55000';
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION refs_validate_rule_evaluation_digest() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  IF NEW.evaluation_digest<>refs_rule_evaluation_hash(NEW.source_document_id,NEW.setting_snapshot_id,NEW.mapping_snapshot_id,NEW.rule_code,NEW.rule_version,NEW.matched_facts,NEW.result,NEW.input_digest)
+  THEN RAISE EXCEPTION 'Rule evaluation canonical digest mismatch' USING ERRCODE='23514'; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM source_document sd
+    JOIN setting_snapshot ss ON ss.tenant_id=NEW.tenant_id AND ss.setting_snapshot_id=NEW.setting_snapshot_id
+    JOIN mapping_snapshot ms ON ms.tenant_id=NEW.tenant_id AND ms.mapping_snapshot_id=NEW.mapping_snapshot_id
+    WHERE sd.tenant_id=NEW.tenant_id AND sd.source_document_id=NEW.source_document_id
+      AND ss.status='APPROVED' AND ms.status='APPROVED'
+      AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=ss.effective_from
+      AND (ss.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<ss.effective_to)
+      AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=ms.effective_from
+      AND (ms.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<ms.effective_to)
+      AND NEW.evaluated_at>=ss.effective_from AND (ss.effective_to IS NULL OR NEW.evaluated_at<ss.effective_to)
+      AND NEW.evaluated_at>=ms.effective_from AND (ms.effective_to IS NULL OR NEW.evaluated_at<ms.effective_to)
+      AND ss.snapshot_hash=refs_jsonb_hash(ss.snapshot)
+      AND ms.snapshot_hash=refs_jsonb_hash(jsonb_build_object('input_keys',ms.input_keys,'output_rules',ms.output_rules))
+  ) THEN RAISE EXCEPTION 'Rule evaluation requires effective APPROVED canonical snapshots' USING ERRCODE='23514'; END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER setting_snapshot_approval_guard BEFORE INSERT OR UPDATE ON setting_snapshot
+  FOR EACH ROW EXECUTE FUNCTION refs_validate_setting_snapshot();
+CREATE TRIGGER mapping_snapshot_approval_guard BEFORE INSERT OR UPDATE ON mapping_snapshot
+  FOR EACH ROW EXECUTE FUNCTION refs_validate_mapping_snapshot();
+CREATE TRIGGER setting_snapshot_approved_immutable BEFORE UPDATE OR DELETE ON setting_snapshot
+  FOR EACH ROW EXECUTE FUNCTION refs_protect_approved_config();
+CREATE TRIGGER mapping_snapshot_approved_immutable BEFORE UPDATE OR DELETE ON mapping_snapshot
+  FOR EACH ROW EXECUTE FUNCTION refs_protect_approved_config();
+CREATE TRIGGER rule_evaluation_append_only BEFORE UPDATE OR DELETE ON rule_evaluation
+  FOR EACH ROW EXECUTE FUNCTION refs_protect_rule_evaluation();
+CREATE TRIGGER rule_evaluation_digest_guard BEFORE INSERT OR UPDATE ON rule_evaluation
+  FOR EACH ROW EXECUTE FUNCTION refs_validate_rule_evaluation_digest();
+
+ALTER TABLE setting_snapshot ADD CONSTRAINT setting_approved_scope_no_overlap
+  EXCLUDE USING gist (
+    tenant_id WITH =, family WITH =, scope_type WITH =, scope_key WITH =,
+    tstzrange(effective_from,COALESCE(effective_to,'infinity'::timestamptz),'[)') WITH &&
+  ) WHERE (status='APPROVED');
+
 CREATE TABLE runtime_auth_context (
   auth_context_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   token_hash text NOT NULL UNIQUE CHECK (token_hash ~ '^sha256:[0-9a-f]{64}$'),
@@ -139,7 +326,8 @@ INSERT INTO permission_catalog(permission_code,domain,risk_class,sod_class) VALU
   ('AP.VIEW','AP','LOW','READ'),
   ('AR.VIEW','AR','LOW','READ'),
   ('BANK.AUTOREC.MANAGE','BANK','CRITICAL','AUTOREC_MANAGER'),
-  ('BANK.AUTOREC.SYNC','BANK','HIGH','AUTOREC_SYNC');
+  ('BANK.AUTOREC.SYNC','BANK','HIGH','AUTOREC_SYNC'),
+  ('CONFIG.SNAPSHOT.RETIRE','CONFIG','CRITICAL','CONFIG_RETIRE');
 ALTER TABLE runtime_actor_grant ADD FOREIGN KEY(permission) REFERENCES permission_catalog(permission_code);
 
 CREATE TABLE runtime_actor_grant_set (
@@ -462,7 +650,8 @@ BEGIN
   IF refs_current_actor() IS DISTINCT FROM p_actor THEN
     RAISE EXCEPTION 'Actor must come from the authenticated session' USING ERRCODE='42501';
   END IF;
-  IF p_scope NOT LIKE 'POST_JOURNAL:%' AND p_scope NOT LIKE 'EDIT_JOURNAL:%' AND p_scope NOT LIKE 'CLOSE_PERIOD:%' THEN
+  IF p_scope NOT LIKE 'POST_JOURNAL:%' AND p_scope NOT LIKE 'EDIT_JOURNAL:%' AND p_scope NOT LIKE 'CLOSE_PERIOD:%'
+    AND p_scope NOT LIKE 'RETIRE_CONFIG:%' THEN
     RAISE EXCEPTION 'Idempotency operation scope denied' USING ERRCODE='42501';
   END IF;
   INSERT INTO idempotency_receipt(tenant_id,operation_scope,idempotency_key,request_hash,status,actor_id)
@@ -478,9 +667,89 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION refs_jsonb_hash(value jsonb) RETURNS text
-LANGUAGE sql IMMUTABLE AS $$
-  SELECT 'sha256:'||encode(digest(convert_to(value::text,'UTF8'),'sha256'),'hex')
+CREATE OR REPLACE FUNCTION refs_config_retire_hash(
+  p_kind text,p_tenant uuid,p_entity uuid,p_snapshot uuid,p_expected_revision bigint,p_cutoff timestamptz,p_reason text
+) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
+  SELECT refs_jsonb_hash(jsonb_build_object(
+    'kind',upper(p_kind),'tenant_id',p_tenant,'entity_id',p_entity,'snapshot_id',p_snapshot,
+    'expected_revision',p_expected_revision,'cutoff',p_cutoff,'reason',btrim(p_reason)
+  ))
+$$;
+
+CREATE OR REPLACE FUNCTION refs_retire_config_snapshot(
+  p_kind text,p_tenant uuid,p_entity uuid,p_snapshot uuid,p_expected_revision bigint,p_cutoff timestamptz,
+  p_reason text,p_idempotency_key text,p_request_hash text
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE actor text:=refs_current_actor(); receipt idempotency_receipt; response jsonb; event_payload jsonb;
+DECLARE current_status text; current_created_by text; current_approved_by text; current_effective_from timestamptz;
+DECLARE current_effective_to timestamptz; current_revision bigint; computed_hash text; kind text:=upper(p_kind);
+BEGIN
+  PERFORM refs_assert_scope(p_tenant,p_entity,'CONFIG.SNAPSHOT.RETIRE');
+  IF actor IS NULL THEN RAISE EXCEPTION 'Authenticated actor missing' USING ERRCODE='42501'; END IF;
+  IF kind NOT IN ('SETTING','MAPPING') OR p_expected_revision<0 OR length(btrim(p_reason))<8 THEN
+    RAISE EXCEPTION 'Invalid configuration retirement request' USING ERRCODE='22023';
+  END IF;
+  computed_hash:=refs_config_retire_hash(kind,p_tenant,p_entity,p_snapshot,p_expected_revision,p_cutoff,p_reason);
+  IF p_request_hash<>computed_hash THEN RAISE EXCEPTION 'Retirement request hash is not canonical' USING ERRCODE='22023'; END IF;
+  receipt:=refs_reserve_idempotency(p_tenant,'RETIRE_CONFIG:'||p_entity,p_idempotency_key,p_request_hash,actor);
+  IF receipt.status='SUCCEEDED' THEN RETURN receipt.response_body||jsonb_build_object('idempotent',true); END IF;
+  IF p_cutoff IS DISTINCT FROM (date_trunc('day',p_cutoff AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') THEN
+    RAISE EXCEPTION 'Retirement cutoff must be a UTC accounting-date boundary' USING ERRCODE='22023';
+  END IF;
+  IF (p_cutoff AT TIME ZONE 'UTC')::date<(clock_timestamp() AT TIME ZONE 'UTC')::date THEN
+    RAISE EXCEPTION 'Configuration retirement cannot be backdated' USING ERRCODE='22023';
+  END IF;
+  PERFORM 1 FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity
+    AND (p_cutoff AT TIME ZONE 'UTC')::date BETWEEN starts_on AND ends_on AND status='OPEN' FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Retirement cutoff must belong to an OPEN configured period' USING ERRCODE='55000';
+  END IF;
+  IF (kind='SETTING' AND EXISTS (SELECT 1 FROM setting_snapshot WHERE tenant_id=p_tenant AND setting_snapshot_id=p_snapshot AND entity_id IS NULL))
+    OR (kind='MAPPING' AND EXISTS (SELECT 1 FROM mapping_snapshot WHERE tenant_id=p_tenant AND mapping_snapshot_id=p_snapshot AND entity_id IS NULL)) THEN
+    RAISE EXCEPTION 'TENANT and SHARED_TEMPLATE retirement scope is not supported by the entity command' USING ERRCODE='0A000';
+  END IF;
+
+  IF kind='SETTING' THEN
+    SELECT status,created_by,approved_by,effective_from,effective_to,lifecycle_revision
+      INTO current_status,current_created_by,current_approved_by,current_effective_from,current_effective_to,current_revision
+      FROM setting_snapshot WHERE tenant_id=p_tenant AND entity_id=p_entity AND setting_snapshot_id=p_snapshot FOR UPDATE;
+  ELSE
+    SELECT status,created_by,approved_by,effective_from,effective_to,lifecycle_revision
+      INTO current_status,current_created_by,current_approved_by,current_effective_from,current_effective_to,current_revision
+      FROM mapping_snapshot WHERE tenant_id=p_tenant AND entity_id=p_entity AND mapping_snapshot_id=p_snapshot FOR UPDATE;
+  END IF;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Configuration snapshot not found' USING ERRCODE='P0002'; END IF;
+  IF current_status<>'APPROVED' THEN RAISE EXCEPTION 'Only APPROVED configuration can be retired' USING ERRCODE='55000'; END IF;
+  IF current_revision<>p_expected_revision THEN RAISE EXCEPTION 'Configuration revision conflict' USING ERRCODE='40001'; END IF;
+  IF actor IN (current_created_by,current_approved_by) THEN RAISE EXCEPTION 'Configuration retirement SoD violation' USING ERRCODE='42501'; END IF;
+  IF p_cutoff<=current_effective_from OR (current_effective_to IS NOT NULL AND p_cutoff>current_effective_to) THEN
+    RAISE EXCEPTION 'Retirement cutoff is outside the snapshot effective window' USING ERRCODE='22023';
+  END IF;
+
+  PERFORM set_config('refs.config_retire','authorized',true);
+  IF kind='SETTING' THEN
+    UPDATE setting_snapshot SET status='RETIRED',effective_to=p_cutoff,retired_by=actor,retired_at=clock_timestamp(),
+      retire_reason=btrim(p_reason),lifecycle_revision=lifecycle_revision+1 WHERE setting_snapshot_id=p_snapshot;
+  ELSE
+    UPDATE mapping_snapshot SET status='RETIRED',effective_to=p_cutoff,retired_by=actor,retired_at=clock_timestamp(),
+      retire_reason=btrim(p_reason),lifecycle_revision=lifecycle_revision+1 WHERE mapping_snapshot_id=p_snapshot;
+  END IF;
+  PERFORM set_config('refs.config_retire','',true);
+  response:=jsonb_build_object('kind',kind,'snapshot_id',p_snapshot,'status','RETIRED','effective_to',p_cutoff,
+    'revision',p_expected_revision+1,'idempotent',false);
+  INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,
+    request_id,correlation_id,idempotency_key,after_hash,reason,metadata)
+    VALUES(p_tenant,p_entity,'CONFIG_SNAPSHOT_RETIRED',kind||'_SNAPSHOT',p_snapshot,'RETIRE',actor,'USER','CONFIG.SNAPSHOT.RETIRE',
+      p_idempotency_key,p_idempotency_key,p_idempotency_key,p_request_hash,btrim(p_reason),jsonb_build_object('effective_to',p_cutoff,'revision',p_expected_revision+1));
+  event_payload:=jsonb_build_object('kind',kind,'snapshot_id',p_snapshot,'effective_to',p_cutoff,'revision',p_expected_revision+1);
+  INSERT INTO outbox_event(tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
+    VALUES(p_tenant,p_entity,kind||'_SNAPSHOT',p_snapshot,'CONFIG_SNAPSHOT_RETIRED',event_payload,refs_jsonb_hash(event_payload));
+  UPDATE idempotency_receipt SET status='SUCCEEDED',response_status=200,response_body=response,completed_at=clock_timestamp()
+    WHERE idempotency_receipt_id=receipt.idempotency_receipt_id;
+  RETURN response;
+END;
 $$;
 
 CREATE OR REPLACE FUNCTION refs_update_draft_description(
@@ -594,14 +863,39 @@ BEGIN
     SELECT 1 FROM source_link sl
     JOIN source_document sd ON sd.tenant_id=sl.tenant_id AND sd.entity_id=sl.entity_id AND sd.source_document_id=sl.source_document_id
     JOIN staging_item si ON si.tenant_id=sl.tenant_id AND si.entity_id=sl.entity_id AND si.staging_item_id=sl.staging_item_id AND si.source_document_id=sd.source_document_id
-    JOIN setting_snapshot ss ON ss.tenant_id=si.tenant_id AND ss.setting_snapshot_id=si.setting_snapshot_id AND ss.status='APPROVED' AND (ss.entity_id IS NULL OR ss.entity_id=p_entity)
-    JOIN mapping_snapshot ms ON ms.tenant_id=si.tenant_id AND ms.mapping_snapshot_id=si.mapping_snapshot_id AND ms.status='APPROVED' AND (ms.entity_id IS NULL OR ms.entity_id=p_entity)
+    JOIN setting_snapshot ss ON ss.tenant_id=si.tenant_id AND ss.setting_snapshot_id=si.setting_snapshot_id AND ss.status IN ('APPROVED','RETIRED') AND (ss.entity_id IS NULL OR ss.entity_id=p_entity)
+    JOIN mapping_snapshot ms ON ms.tenant_id=si.tenant_id AND ms.mapping_snapshot_id=si.mapping_snapshot_id AND ms.status IN ('APPROVED','RETIRED') AND (ms.entity_id IS NULL OR ms.entity_id=p_entity)
     JOIN rule_evaluation re ON re.tenant_id=si.tenant_id AND re.rule_evaluation_id=si.rule_evaluation_id
       AND re.source_document_id=sd.source_document_id AND re.setting_snapshot_id=ss.setting_snapshot_id AND re.mapping_snapshot_id=ms.mapping_snapshot_id
     WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.journal_entry_id=p_journal
       AND sl.source_document_id IS NOT NULL AND sl.staging_item_id IS NOT NULL
       AND si.reviewed_by IS NOT NULL AND si.reviewed_at IS NOT NULL
       AND si.status IN ('READY_FOR_DRAFT','DRAFT_CREATED','PENDING_JE_REVIEW','PENDING_JE_APPROVAL','APPROVED','POSTED')
+      AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=ss.effective_from
+      AND (ss.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<ss.effective_to)
+      AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=ms.effective_from
+      AND (ms.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<ms.effective_to)
+      AND ss.snapshot_hash=refs_jsonb_hash(ss.snapshot)
+      AND ms.snapshot_hash=refs_jsonb_hash(jsonb_build_object('input_keys',ms.input_keys,'output_rules',ms.output_rules))
+      AND re.evaluation_digest=refs_rule_evaluation_hash(re.source_document_id,re.setting_snapshot_id,re.mapping_snapshot_id,re.rule_code,re.rule_version,re.matched_facts,re.result,re.input_digest)
+      AND re.evaluated_at>=ss.effective_from AND (ss.effective_to IS NULL OR re.evaluated_at<ss.effective_to)
+      AND re.evaluated_at>=ms.effective_from AND (ms.effective_to IS NULL OR re.evaluated_at<ms.effective_to)
+      AND NOT EXISTS (
+        SELECT 1 FROM mapping_snapshot higher
+        WHERE higher.tenant_id=ms.tenant_id AND higher.family=ms.family AND higher.scope_type=ms.scope_type
+          AND higher.scope_key=ms.scope_key AND higher.input_key_hash=ms.input_key_hash AND higher.status IN ('APPROVED','RETIRED')
+          AND higher.priority>ms.priority
+          AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=higher.effective_from
+          AND (higher.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<higher.effective_to)
+      )
+      AND 1=(
+        SELECT count(*) FROM mapping_snapshot tied
+        WHERE tied.tenant_id=ms.tenant_id AND tied.family=ms.family AND tied.scope_type=ms.scope_type
+          AND tied.scope_key=ms.scope_key AND tied.input_key_hash=ms.input_key_hash AND tied.status IN ('APPROVED','RETIRED')
+          AND tied.priority=ms.priority
+          AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=tied.effective_from
+          AND (tied.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<tied.effective_to)
+      )
   ) THEN RAISE EXCEPTION 'Automatic journals require immutable source evidence' USING ERRCODE='23514'; END IF;
 
   INSERT INTO posting_batch(posting_batch_id,tenant_id,entity_id,period_id,idempotency_key,request_hash,posted_by)
@@ -688,6 +982,8 @@ REVOKE EXECUTE ON FUNCTION refs_claim_outbox(uuid,text,integer) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_complete_outbox(uuid,uuid,text,boolean,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_reserve_idempotency(uuid,text,text,text,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_update_draft_description(uuid,uuid,uuid,bigint,text,text,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_config_retire_hash(text,uuid,uuid,uuid,bigint,timestamptz,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_retire_config_snapshot(text,uuid,uuid,uuid,bigint,timestamptz,text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION refs_bootstrap_context(text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_issue_context(text,uuid,text,integer) TO refs_context_issuer;
 GRANT EXECUTE ON FUNCTION refs_revoke_context(text,text) TO refs_context_issuer;
@@ -705,5 +1001,7 @@ GRANT EXECUTE ON FUNCTION refs_close_period(uuid,uuid,uuid,bigint,text,text,text
 GRANT EXECUTE ON FUNCTION refs_claim_outbox(uuid,text,integer) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_complete_outbox(uuid,uuid,text,boolean,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_update_draft_description(uuid,uuid,uuid,bigint,text,text,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_config_retire_hash(text,uuid,uuid,uuid,bigint,timestamptz,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_retire_config_snapshot(text,uuid,uuid,uuid,bigint,timestamptz,text,text,text) TO refs_app;
 
 COMMIT;

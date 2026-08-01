@@ -59,22 +59,16 @@ export class PostgresAccountingKernel{
     });
   }
 
-  async commandAutoReconciliation(args){
+  async retireConfigSnapshot(args){
     return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_config_retire_hash($1,$2,$3,$4,$5,$6,$7) AS request_hash',
+        [args.kind,args.tenantId,args.entityId,args.snapshotId,args.expectedRevision,args.cutoff,args.reason]
+      ),'CONFIG_RETIRE_HASH_FAILED','Configuration retirement hash was not produced').request_hash;
       const row=requireRow(await client.query(
-        'SELECT refs_auto_recon_command($1,$2,$3,$4,$5,$6,$7,$8) AS result',
-        [args.tenantId,args.entityId,args.matchGroupId,args.command,args.expectedVersion,args.reason||null,args.idempotencyKey,args.requestHash]
-      ),'AUTO_RECON_COMMAND_FAILED','AutoReconciliation command did not return a result');
-      return row.result;
-    });
-  }
-
-  async completeAutoReconciliationSync(args){
-    return this.inSession(async client=>{
-      const row=requireRow(await client.query(
-        'SELECT refs_auto_recon_sync_callback($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',
-        [args.tenantId,args.entityId,args.matchGroupId,args.outboxEventId,args.attempt,args.success,args.responseHash,args.callbackKey,args.errorCode||null]
-      ),'AUTO_RECON_SYNC_CALLBACK_FAILED','AutoReconciliation sync callback did not return a result');
+        'SELECT refs_retire_config_snapshot($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',
+        [args.kind,args.tenantId,args.entityId,args.snapshotId,args.expectedRevision,args.cutoff,args.reason,args.idempotencyKey,requestHash]
+      ),'CONFIG_RETIRE_FAILED','Configuration retirement did not return a result');
       return row.result;
     });
   }
