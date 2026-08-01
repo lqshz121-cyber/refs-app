@@ -6,6 +6,9 @@ DROP FUNCTION IF EXISTS refs_transition_journal(uuid,uuid,uuid,text,bigint,text,
 DROP FUNCTION IF EXISTS refs_journal_transition_hash(uuid,uuid,uuid,text,bigint,text);
 DROP FUNCTION IF EXISTS refs_create_manual_journal(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[],text,text);
 DROP FUNCTION IF EXISTS refs_create_manual_journal_hash(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[]);
+DROP FUNCTION IF EXISTS refs_create_auto_journal(uuid,uuid,uuid,uuid,bigint,text,text,jsonb,text,text);
+DROP FUNCTION IF EXISTS refs_create_auto_journal_hash(uuid,uuid,uuid,uuid,bigint,text,text,jsonb);
+DROP FUNCTION IF EXISTS refs_auto_staging_ready(uuid,uuid,uuid,uuid);
 DROP FUNCTION IF EXISTS refs_create_journal_adjustment(text,uuid,uuid,uuid,uuid,text,date,text,text,jsonb,uuid[],text,text);
 DROP FUNCTION IF EXISTS refs_create_journal_adjustment_hash(text,uuid,uuid,uuid,uuid,text,date,text,text,jsonb,uuid[]);
 DROP FUNCTION IF EXISTS refs_post_journal(uuid,uuid,uuid,uuid,bigint,text,text,text);
@@ -56,6 +59,7 @@ ALTER TABLE IF EXISTS mapping_snapshot DROP COLUMN IF EXISTS retire_reason,DROP 
 ALTER TABLE IF EXISTS journal_line DROP CONSTRAINT IF EXISTS journal_line_account_fk;
 ALTER TABLE IF EXISTS journal_line DROP CONSTRAINT IF EXISTS journal_line_member_fk;
 DROP INDEX IF EXISTS journal_entry_one_reversal_uq;
+DROP INDEX IF EXISTS source_link_one_staging_journal_uq;
 DROP FUNCTION IF EXISTS refs_validate_journal_line_master() CASCADE;
 DROP TABLE IF EXISTS member_master CASCADE;
 DROP TABLE IF EXISTS account_master CASCADE;

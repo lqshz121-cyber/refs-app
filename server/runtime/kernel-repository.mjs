@@ -51,6 +51,20 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createAutoJournal(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_auto_journal_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',
+        [args.tenantId,args.entityId,args.stagingItemId,args.periodId,args.expectedStagingVersion,args.journalNumber,args.description??null,JSON.stringify(args.lines)]
+      ),'AUTO_JOURNAL_CREATE_HASH_FAILED','Automatic journal hash was not produced').request_hash;
+      const row=requireRow(await client.query(
+        'SELECT refs_create_auto_journal($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+        [args.tenantId,args.entityId,args.stagingItemId,args.periodId,args.expectedStagingVersion,args.journalNumber,args.description??null,JSON.stringify(args.lines),args.idempotencyKey,requestHash]
+      ),'AUTO_JOURNAL_CREATE_FAILED','Automatic journal creation did not return a result');
+      return row.result;
+    });
+  }
+
   async createJournalAdjustment(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

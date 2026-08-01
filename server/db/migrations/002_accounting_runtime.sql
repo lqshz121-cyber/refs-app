@@ -80,6 +80,8 @@ ALTER TABLE journal_line ADD CONSTRAINT journal_line_member_fk
   REFERENCES member_master(tenant_id, entity_id, member_ref);
 CREATE UNIQUE INDEX journal_entry_one_reversal_uq ON journal_entry(tenant_id,entity_id,reversal_of_id)
   WHERE reversal_of_id IS NOT NULL;
+CREATE UNIQUE INDEX source_link_one_staging_journal_uq ON source_link(tenant_id,entity_id,staging_item_id)
+  WHERE staging_item_id IS NOT NULL AND journal_entry_id IS NOT NULL AND link_type='SOURCE_TO_JE';
 
 CREATE OR REPLACE FUNCTION refs_validate_journal_line_master() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -350,6 +352,7 @@ INSERT INTO permission_catalog(permission_code,domain,risk_class,sod_class) VALU
   ('GL.JE.REJECT','GL','HIGH','JE_REVIEW'),
   ('GL.JE.REVERSE','GL','CRITICAL','JE_REVERSAL'),
   ('GL.JE.RECLASS','GL','CRITICAL','JE_RECLASS'),
+  ('GL.JE.AUTO.CREATE','GL','HIGH','JE_AUTO_MAKER'),
   ('GL.JE.POST','GL','CRITICAL','JE_POST'),
   ('GL.JE.EDIT','GL','HIGH','JE_MAKER'),
   ('GL.PERIOD.CLOSE','GL','CRITICAL','PERIOD_CLOSE'),
@@ -683,6 +686,7 @@ BEGIN
   END IF;
   IF p_scope NOT LIKE 'POST_JOURNAL:%' AND p_scope NOT LIKE 'EDIT_JOURNAL:%' AND p_scope NOT LIKE 'CLOSE_PERIOD:%'
     AND p_scope NOT LIKE 'RETIRE_CONFIG:%' AND p_scope NOT LIKE 'CREATE_MANUAL_JOURNAL:%'
+    AND p_scope NOT LIKE 'CREATE_AUTO_JOURNAL:%'
     AND p_scope NOT LIKE 'CREATE_REVERSAL:%' AND p_scope NOT LIKE 'CREATE_RECLASS:%'
     AND p_scope NOT LIKE 'JOURNAL_SUBMIT:%' AND p_scope NOT LIKE 'JOURNAL_REVIEW:%'
     AND p_scope NOT LIKE 'JOURNAL_APPROVE:%' AND p_scope NOT LIKE 'JOURNAL_REJECT:%' THEN
@@ -782,6 +786,120 @@ BEGIN
     VALUES(p_tenant,p_entity,kind||'_SNAPSHOT',p_snapshot,'CONFIG_SNAPSHOT_RETIRED',event_payload,refs_jsonb_hash(event_payload));
   UPDATE idempotency_receipt SET status='SUCCEEDED',response_status=200,response_body=response,completed_at=clock_timestamp()
     WHERE idempotency_receipt_id=receipt.idempotency_receipt_id;
+  RETURN response;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION refs_auto_staging_ready(
+  p_tenant uuid,p_entity uuid,p_staging uuid,p_period uuid
+) RETURNS boolean
+LANGUAGE sql STABLE SET search_path=pg_catalog,public,pg_temp AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM staging_item si
+    JOIN source_document sd ON sd.tenant_id=si.tenant_id AND sd.entity_id=si.entity_id AND sd.source_document_id=si.source_document_id
+    JOIN accounting_period ap ON ap.tenant_id=si.tenant_id AND ap.entity_id=si.entity_id AND ap.period_id=p_period
+      AND ap.status='OPEN' AND sd.accounting_date BETWEEN ap.starts_on AND ap.ends_on
+    JOIN setting_snapshot ss ON ss.tenant_id=si.tenant_id AND ss.setting_snapshot_id=si.setting_snapshot_id
+      AND ss.status IN ('APPROVED','RETIRED') AND (ss.entity_id IS NULL OR ss.entity_id=p_entity)
+    JOIN mapping_snapshot ms ON ms.tenant_id=si.tenant_id AND ms.mapping_snapshot_id=si.mapping_snapshot_id
+      AND ms.status IN ('APPROVED','RETIRED') AND (ms.entity_id IS NULL OR ms.entity_id=p_entity)
+    JOIN rule_evaluation re ON re.tenant_id=si.tenant_id AND re.rule_evaluation_id=si.rule_evaluation_id
+      AND re.source_document_id=sd.source_document_id AND re.setting_snapshot_id=ss.setting_snapshot_id AND re.mapping_snapshot_id=ms.mapping_snapshot_id
+    WHERE si.tenant_id=p_tenant AND si.entity_id=p_entity AND si.staging_item_id=p_staging
+      AND si.status='READY_FOR_DRAFT' AND si.reviewed_by IS NOT NULL AND si.reviewed_at IS NOT NULL
+      AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=ss.effective_from
+      AND (ss.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<ss.effective_to)
+      AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=ms.effective_from
+      AND (ms.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<ms.effective_to)
+      AND ss.snapshot_hash=refs_jsonb_hash(ss.snapshot)
+      AND ms.snapshot_hash=refs_jsonb_hash(jsonb_build_object('input_keys',ms.input_keys,'output_rules',ms.output_rules))
+      AND re.evaluation_digest=refs_rule_evaluation_hash(re.source_document_id,re.setting_snapshot_id,re.mapping_snapshot_id,re.rule_code,re.rule_version,re.matched_facts,re.result,re.input_digest)
+      AND re.evaluated_at>=ss.effective_from AND (ss.effective_to IS NULL OR re.evaluated_at<ss.effective_to)
+      AND re.evaluated_at>=ms.effective_from AND (ms.effective_to IS NULL OR re.evaluated_at<ms.effective_to)
+      AND 1=(SELECT count(*) FROM setting_snapshot candidate WHERE candidate.tenant_id=ss.tenant_id AND candidate.family=ss.family
+        AND candidate.scope_type=ss.scope_type AND candidate.scope_key=ss.scope_key AND candidate.status IN ('APPROVED','RETIRED')
+        AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=candidate.effective_from
+        AND (candidate.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<candidate.effective_to))
+      AND NOT EXISTS (SELECT 1 FROM mapping_snapshot higher WHERE higher.tenant_id=ms.tenant_id AND higher.family=ms.family
+        AND higher.scope_type=ms.scope_type AND higher.scope_key=ms.scope_key AND higher.input_key_hash=ms.input_key_hash
+        AND higher.status IN ('APPROVED','RETIRED') AND higher.priority>ms.priority
+        AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=higher.effective_from
+        AND (higher.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<higher.effective_to))
+      AND 1=(SELECT count(*) FROM mapping_snapshot tied WHERE tied.tenant_id=ms.tenant_id AND tied.family=ms.family
+        AND tied.scope_type=ms.scope_type AND tied.scope_key=ms.scope_key AND tied.input_key_hash=ms.input_key_hash
+        AND tied.status IN ('APPROVED','RETIRED') AND tied.priority=ms.priority
+        AND (sd.accounting_date::timestamp AT TIME ZONE 'UTC')>=tied.effective_from
+        AND (tied.effective_to IS NULL OR (sd.accounting_date::timestamp AT TIME ZONE 'UTC')<tied.effective_to))
+      AND NOT EXISTS (SELECT 1 FROM accounting_exception ae WHERE ae.tenant_id=si.tenant_id AND ae.entity_id=si.entity_id
+        AND ae.status IN ('OPEN','IN_REVIEW') AND (ae.staging_item_id=si.staging_item_id OR ae.source_document_id=si.source_document_id))
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION refs_create_auto_journal_hash(
+  p_tenant uuid,p_entity uuid,p_staging uuid,p_period uuid,p_expected_staging_version bigint,
+  p_journal_number text,p_description text,p_lines jsonb
+) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
+  SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',p_tenant,'entity_id',p_entity,'staging_item_id',p_staging,
+    'period_id',p_period,'expected_staging_version',p_expected_staging_version,'journal_number',btrim(p_journal_number),
+    'description',p_description,'lines',p_lines))
+$$;
+
+CREATE OR REPLACE FUNCTION refs_create_auto_journal(
+  p_tenant uuid,p_entity uuid,p_staging uuid,p_period uuid,p_expected_staging_version bigint,
+  p_journal_number text,p_description text,p_lines jsonb,p_idempotency_key text,p_request_hash text
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE actor text:=refs_current_actor(); receipt idempotency_receipt; computed_hash text; journal_id uuid:=gen_random_uuid();
+DECLARE si staging_item; sd source_document; response jsonb; event_payload jsonb; line_count integer; source_id uuid;
+BEGIN
+  PERFORM refs_assert_scope(p_tenant,p_entity,'GL.JE.AUTO.CREATE');
+  IF actor IS NULL THEN RAISE EXCEPTION 'Authenticated actor missing' USING ERRCODE='42501'; END IF;
+  computed_hash:=refs_create_auto_journal_hash(p_tenant,p_entity,p_staging,p_period,p_expected_staging_version,p_journal_number,p_description,p_lines);
+  IF p_request_hash<>computed_hash THEN RAISE EXCEPTION 'Auto journal request hash is not canonical' USING ERRCODE='22023'; END IF;
+  receipt:=refs_reserve_idempotency(p_tenant,'CREATE_AUTO_JOURNAL:'||p_entity,p_idempotency_key,p_request_hash,actor);
+  IF receipt.status='SUCCEEDED' THEN RETURN receipt.response_body||jsonb_build_object('idempotent',true); END IF;
+  IF length(btrim(p_journal_number))=0 OR jsonb_typeof(p_lines)<>'array' OR jsonb_array_length(p_lines)<2 THEN
+    RAISE EXCEPTION 'Auto journal requires number and at least two lines' USING ERRCODE='22023';
+  END IF;
+  PERFORM 1 FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity AND period_id=p_period AND status='OPEN' FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Auto journal period must be OPEN' USING ERRCODE='55000'; END IF;
+  SELECT source_document_id INTO source_id FROM staging_item WHERE tenant_id=p_tenant AND entity_id=p_entity AND staging_item_id=p_staging;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Staging item not found' USING ERRCODE='P0002'; END IF;
+  SELECT * INTO sd FROM source_document WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_document_id=source_id FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Staging source document not found' USING ERRCODE='P0002'; END IF;
+  SELECT * INTO si FROM staging_item WHERE tenant_id=p_tenant AND entity_id=p_entity AND staging_item_id=p_staging FOR UPDATE;
+  IF NOT FOUND OR si.source_document_id<>source_id THEN RAISE EXCEPTION 'Staging source changed during journal creation' USING ERRCODE='40001'; END IF;
+  IF si.version<>p_expected_staging_version THEN RAISE EXCEPTION 'Staging revision conflict' USING ERRCODE='40001'; END IF;
+  IF NOT refs_auto_staging_ready(p_tenant,p_entity,p_staging,p_period) THEN RAISE EXCEPTION 'Staging evidence is not eligible for an Auto Draft' USING ERRCODE='23514'; END IF;
+  SELECT count(*) INTO line_count FROM jsonb_to_recordset(p_lines) AS x(line_no integer,account_code text,debit_amount numeric,credit_amount numeric,member_ref text,description text,dimensions jsonb);
+  IF line_count<>jsonb_array_length(p_lines) OR EXISTS (
+      SELECT 1 FROM jsonb_to_recordset(p_lines) AS x(line_no integer,account_code text,debit_amount numeric,credit_amount numeric,member_ref text,description text,dimensions jsonb)
+      WHERE x.line_no IS NULL OR x.line_no<=0 OR COALESCE(length(btrim(x.account_code)),0)=0
+        OR NOT ((COALESCE(x.debit_amount,0)>0 AND COALESCE(x.credit_amount,0)=0) OR (COALESCE(x.credit_amount,0)>0 AND COALESCE(x.debit_amount,0)=0))
+        OR (x.dimensions IS NOT NULL AND jsonb_typeof(x.dimensions)<>'object')
+    ) OR EXISTS (SELECT 1 FROM jsonb_to_recordset(p_lines) AS x(line_no integer) GROUP BY x.line_no HAVING count(*)>1)
+      OR (SELECT COALESCE(sum(COALESCE(x.debit_amount,0)),0)<>COALESCE(sum(COALESCE(x.credit_amount,0)),0)
+          FROM jsonb_to_recordset(p_lines) AS x(debit_amount numeric,credit_amount numeric)) THEN
+    RAISE EXCEPTION 'Auto journal lines must be unique, valid and balanced' USING ERRCODE='23514';
+  END IF;
+  INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,description,created_by)
+    VALUES(journal_id,p_tenant,p_entity,p_period,btrim(p_journal_number),'AUTO','DRAFT',sd.accounting_date,sd.currency,p_description,actor);
+  INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref,description,dimensions)
+    SELECT p_tenant,p_entity,p_period,journal_id,x.line_no,btrim(x.account_code),x.debit_amount,x.credit_amount,x.member_ref,x.description,COALESCE(x.dimensions,'{}'::jsonb)
+    FROM jsonb_to_recordset(p_lines) AS x(line_no integer,account_code text,debit_amount numeric,credit_amount numeric,member_ref text,description text,dimensions jsonb);
+  INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,staging_item_id,journal_entry_id,created_by)
+    VALUES(p_tenant,p_entity,'SOURCE_TO_JE',source_id,p_staging,journal_id,actor);
+  UPDATE staging_item SET status='DRAFT_CREATED',version=version+1,updated_at=clock_timestamp()
+    WHERE tenant_id=p_tenant AND entity_id=p_entity AND staging_item_id=p_staging;
+  response:=jsonb_build_object('journal_entry_id',journal_id,'staging_item_id',p_staging,'status','DRAFT','revision',0,'staging_version',p_expected_staging_version+1,'idempotent',false);
+  INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash)
+    VALUES(p_tenant,p_entity,'AUTO_JOURNAL_CREATED','JOURNAL_ENTRY',journal_id,'CREATE_AUTO',actor,'SERVICE_ACCOUNT','GL.JE.AUTO.CREATE',p_idempotency_key,p_idempotency_key,p_idempotency_key,p_request_hash);
+  event_payload:=jsonb_build_object('journal_entry_id',journal_id,'staging_item_id',p_staging,'status','DRAFT','revision',0,'staging_version',p_expected_staging_version+1);
+  INSERT INTO outbox_event(tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
+    VALUES(p_tenant,p_entity,'JOURNAL_ENTRY',journal_id,'AUTO_JOURNAL_CREATED',event_payload,refs_jsonb_hash(event_payload));
+  UPDATE idempotency_receipt SET status='SUCCEEDED',response_status=201,response_body=response,completed_at=clock_timestamp()
+    WHERE tenant_id=p_tenant AND operation_scope='CREATE_AUTO_JOURNAL:'||p_entity AND idempotency_key=p_idempotency_key;
   RETURN response;
 END;
 $$;
@@ -1013,6 +1131,14 @@ BEGIN
   UPDATE journal_entry SET status=target,reviewed_by=CASE WHEN action='REVIEW' THEN actor WHEN action='REJECT' THEN NULL ELSE reviewed_by END,
     approved_by=CASE WHEN action='APPROVE' THEN actor WHEN action='REJECT' THEN NULL ELSE approved_by END,revision=revision+1
     WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=p_journal;
+  IF je.journal_type='AUTO' THEN
+    UPDATE staging_item si SET status=(CASE action WHEN 'SUBMIT' THEN 'PENDING_JE_REVIEW' WHEN 'REVIEW' THEN 'PENDING_JE_APPROVAL'
+        WHEN 'APPROVE' THEN 'APPROVED' ELSE 'DRAFT_CREATED' END)::source_status,version=si.version+1,updated_at=clock_timestamp()
+    FROM source_link sl
+    WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.journal_entry_id=p_journal
+      AND sl.staging_item_id=si.staging_item_id AND si.tenant_id=p_tenant AND si.entity_id=p_entity;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Automatic journal staging linkage is missing' USING ERRCODE='23514'; END IF;
+  END IF;
   response:=jsonb_build_object('journal_entry_id',p_journal,'status',target,'revision',p_expected_revision+1,'idempotent',false);
   INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash,reason)
     VALUES(p_tenant,p_entity,'JOURNAL_'||action,'JOURNAL_ENTRY',p_journal,action,actor,'USER',required_permission,p_idempotency_key,p_idempotency_key,p_idempotency_key,p_request_hash,NULLIF(btrim(p_reason),''));
@@ -1218,6 +1344,13 @@ BEGIN
   UPDATE journal_entry SET status='POSTED',posted_by=p_actor,posted_at=now(),revision=revision+1
     WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=p_journal AND revision=p_expected_revision;
   IF NOT FOUND THEN RAISE EXCEPTION 'Revision conflict' USING ERRCODE='40001'; END IF;
+  IF je.journal_type='AUTO' THEN
+    UPDATE staging_item si SET status='POSTED',version=si.version+1,updated_at=clock_timestamp()
+    FROM source_link sl
+    WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.journal_entry_id=p_journal
+      AND sl.staging_item_id=si.staging_item_id AND si.tenant_id=p_tenant AND si.entity_id=p_entity AND si.status='APPROVED';
+    IF NOT FOUND THEN RAISE EXCEPTION 'Automatic journal staging state is not approved' USING ERRCODE='23514'; END IF;
+  END IF;
   INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash)
     VALUES(p_tenant,p_entity,'JOURNAL_POSTED','JOURNAL_ENTRY',p_journal,'POST',p_actor,'USER','GL.JE.POST',p_idempotency_key,p_idempotency_key,p_idempotency_key,p_request_hash);
   event_payload:=jsonb_build_object('journal_entry_id',p_journal,'posting_batch_id',batch_id);
@@ -1293,6 +1426,9 @@ REVOKE EXECUTE ON FUNCTION refs_reserve_idempotency(uuid,text,text,text,text) FR
 REVOKE EXECUTE ON FUNCTION refs_update_draft_description(uuid,uuid,uuid,bigint,text,text,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_create_manual_journal_hash(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[]) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_create_manual_journal(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[],text,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_auto_staging_ready(uuid,uuid,uuid,uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_create_auto_journal_hash(uuid,uuid,uuid,uuid,bigint,text,text,jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_create_auto_journal(uuid,uuid,uuid,uuid,bigint,text,text,jsonb,text,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_create_journal_adjustment_hash(text,uuid,uuid,uuid,uuid,text,date,text,text,jsonb,uuid[]) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_create_journal_adjustment(text,uuid,uuid,uuid,uuid,text,date,text,text,jsonb,uuid[],text,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_journal_transition_hash(uuid,uuid,uuid,text,bigint,text) FROM PUBLIC;
@@ -1318,6 +1454,9 @@ GRANT EXECUTE ON FUNCTION refs_complete_outbox(uuid,uuid,text,boolean,text) TO r
 GRANT EXECUTE ON FUNCTION refs_update_draft_description(uuid,uuid,uuid,bigint,text,text,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_create_manual_journal_hash(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[]) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_create_manual_journal(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[],text,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_auto_staging_ready(uuid,uuid,uuid,uuid) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_create_auto_journal_hash(uuid,uuid,uuid,uuid,bigint,text,text,jsonb) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_create_auto_journal(uuid,uuid,uuid,uuid,bigint,text,text,jsonb,text,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_create_journal_adjustment_hash(text,uuid,uuid,uuid,uuid,text,date,text,text,jsonb,uuid[]) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_create_journal_adjustment(text,uuid,uuid,uuid,uuid,text,date,text,text,jsonb,uuid[],text,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_journal_transition_hash(uuid,uuid,uuid,text,bigint,text) TO refs_app;

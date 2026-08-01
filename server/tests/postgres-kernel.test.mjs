@@ -82,7 +82,7 @@ async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VE
   return {tenantId,entityId,sourceEntityId,periodId,journalId};
 }
 
-async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effectiveTo=null,mappingPriority=0,evaluatedAt=null}={}){
+async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effectiveTo=null,mappingPriority=0,evaluatedAt=null,linkJournal=true}={}){
   const batchId=randomUUID(),rawId=randomUUID(),documentId=randomUUID(),settingId=randomUUID(),mappingId=randomUUID(),ruleId=randomUUID(),stagingId=randomUUID(),recordId=`AUTO-${ids.journalId}`;
   const inputKeyHash=hash('mapping-key');
   const configHashes=(await adminPool.query("SELECT refs_jsonb_hash('{}'::jsonb) AS setting_hash,refs_jsonb_hash(jsonb_build_object('input_keys','{}'::jsonb,'output_rules','{}'::jsonb)) AS mapping_hash")).rows[0];
@@ -100,8 +100,8 @@ async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effect
   await adminPool.query(`INSERT INTO rule_evaluation(rule_evaluation_id,tenant_id,source_document_id,setting_snapshot_id,mapping_snapshot_id,rule_code,rule_version,matched_facts,result,reason,input_digest,evaluation_digest,evaluated_at)
     VALUES($1,$2,$3,$4,$5,'R-BANK-01',1,'{}','{}','fixture',$6,$7,COALESCE($8::timestamptz,now()))`,[ruleId,ids.tenantId,documentId,settingId,mappingId,inputDigest,evaluationDigest,evaluatedAt]);
   await adminPool.query(`INSERT INTO staging_item(staging_item_id,tenant_id,entity_id,source_document_id,setting_snapshot_id,mapping_snapshot_id,rule_evaluation_id,status,reviewed_by,reviewed_at)
-    VALUES($1,$2,$3,$4,$5,$6,$7,'READY_FOR_DRAFT','reviewer',now())`,[stagingId,ids.tenantId,ids.entityId,documentId,settingId,mappingId,ruleId]);
-  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,staging_item_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,$5,'engine')",[ids.tenantId,ids.entityId,documentId,stagingId,ids.journalId]);
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'reviewer',now())`,[stagingId,ids.tenantId,ids.entityId,documentId,settingId,mappingId,ruleId,linkJournal?'APPROVED':'READY_FOR_DRAFT']);
+  if(linkJournal)await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,staging_item_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,$5,'engine')",[ids.tenantId,ids.entityId,documentId,stagingId,ids.journalId]);
   return {batchId,rawId,documentId,settingId,mappingId,ruleId,stagingId,inputKeyHash,configHashes};
 }
 
@@ -573,6 +573,36 @@ pgTest('runtime roles create, submit, review, approve and post a manual journal 
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[created.journal_entry_id])).rows[0].n,2);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[created.journal_entry_id])).rows[0].n,5);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[created.journal_entry_id])).rows[0].n,5);
+});
+
+pgTest('runtime creates an evidence-backed Auto Draft and advances staging atomically through posting',async()=>{
+  const ids=await seed({status:'DRAFT'});
+  const trace=await attachAutoSource(ids,{linkJournal:false});
+  const lines=[
+    {line_no:1,account_code:'111000',debit_amount:100,credit_amount:0,member_ref:'BANK-1',description:'Bank fact',dimensions:{}},
+    {line_no:2,account_code:'291001',debit_amount:0,credit_amount:100,member_ref:'VENDOR-1',description:'Payable match',dimensions:{}}
+  ];
+  const engine=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'auto-engine',['GL.JE.AUTO.CREATE','GL.JE.SUBMIT'])});
+  const createArgs={tenantId:ids.tenantId,entityId:ids.entityId,stagingItemId:trace.stagingId,periodId:ids.periodId,
+    expectedStagingVersion:0,journalNumber:'JE-AUTO-001',description:'Evidence-backed Auto JE',lines,idempotencyKey:'create-auto-0001'};
+  const created=await engine.createAutoJournal(createArgs);const replay=await engine.createAutoJournal(createArgs);
+  assert.equal(created.status,'DRAFT');assert.equal(created.staging_version,1);assert.equal(replay.idempotent,true);
+  assert.equal(replay.journal_entry_id,created.journal_entry_id);
+  await assert.rejects(engine.createAutoJournal({...createArgs,journalNumber:'JE-AUTO-002',idempotencyKey:'create-auto-0002'}),error=>error.code==='40001'||error.code==='23514');
+  assert.deepEqual((await adminPool.query('SELECT status,version FROM staging_item WHERE staging_item_id=$1',[trace.stagingId])).rows[0],{status:'DRAFT_CREATED',version:'1'});
+  await engine.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:created.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'submit-auto-0001'});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'auto-reviewer',['GL.JE.REVIEW'])});
+  await reviewer.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:created.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'review-auto-0001'});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'auto-approver',['GL.JE.APPROVE'])});
+  await approver.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:created.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'approve-auto-0001'});
+  const beforePost=(await adminPool.query('SELECT status,version FROM staging_item WHERE staging_item_id=$1',[trace.stagingId])).rows[0];
+  assert.deepEqual(beforePost,{status:'APPROVED',version:'4'});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'auto-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:created.journal_entry_id,expectedRevision:3,idempotencyKey:'post-auto-0001'});
+  assert.deepEqual((await adminPool.query('SELECT status,version FROM staging_item WHERE staging_item_id=$1',[trace.stagingId])).rows[0],{status:'POSTED',version:'5'});
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[created.journal_entry_id])).rows[0].n,2);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM source_link WHERE staging_item_id=$1 AND link_type='SOURCE_TO_JE'",[trace.stagingId])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type IN ('AUTO_JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[created.journal_entry_id])).rows[0].n,5);
 });
 
 pgTest('runtime reversal creates an exact Draft inverse in a new OPEN period and preserves the closed original ledger',async()=>{

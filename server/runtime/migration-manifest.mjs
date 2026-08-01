@@ -6,7 +6,7 @@ export const MIGRATION_MANIFEST=Object.freeze([
   }),
   Object.freeze({
     name:'002_accounting_runtime.sql',
-    up:'6378d89d1fe20f9150d3402fa06510f4b940982926a0694cc3aed749cf97b7da',
-    down:'338609b66e42a5a8fe3f66bc93e39e12dcd0987a2685d9e0dab89e9f0830b992'
+    up:'8b2bcc41e2a5ace1d1db0c5549c73c02969e7f3f02b0f7f1c852bd66a1e69fe1',
+    down:'6f9ad70e73b7030b47e2eb736c2b8162d1fba94788eb2776d318efc300b3fe02'
   })
 ]);
