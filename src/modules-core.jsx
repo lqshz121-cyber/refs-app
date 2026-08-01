@@ -98,7 +98,7 @@ export function JEWorkspace({ctx}) {
     (srcF==='ALL'||j.source_system===srcF) &&
     (month==='ALL'||j.period_code==='2026-'+month));
   const pendCount = list.filter(j=>j.posting_status==='APPROVED').length;
-  const postApproved = () => { const results=list.filter(j=>j.posting_status==='APPROVED').map(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL'));const ok=results.filter(r=>r?.ok).length;const blocked=results.length-ok;toast(`${ok} posted · ${blocked} blocked by permission/SoD`,blocked?'warn':'ok'); };
+  const postApproved = async () => { const results=await Promise.all(list.filter(j=>j.posting_status==='APPROVED').map(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL')));const ok=results.filter(r=>r?.ok).length;const blocked=results.length-ok;toast(`${ok} posted · ${blocked} blocked by permission/SoD`,blocked?'warn':'ok'); };
   const runBatch = () => {
     if(!can('GL.JE.CREATE')){toast('Missing permission GL.JE.CREATE.','bad');return;}
     const en = {entity_id: ctx.entity||15, entity_code:'E'+(ctx.entity||15)};
@@ -178,7 +178,7 @@ function JEEditorV2({je,ctx,onClose,onOpen}){
   const save=()=>{const result=actions.saveJE(draft);if(!result?.ok){toast(result?.message||'Save blocked.','bad');return result;}setDraft(result.je);toast(`Saved revision ${result.je.revision}`);return result;};
   const saveClose=()=>{const result=save();if(result?.ok)onClose();};
   const saveNew=()=>{const result=save();if(result?.ok){const id=actions.newJE();if(id)onOpen(id);}};
-  const advance=()=>{const result=editable?actions.saveAndAdvanceJE(draft,flow.next,flow.action):actions.advanceJE(draft.je_id,flow.next,flow.action);if(!result?.ok){toast(result?.message||'Workflow action blocked.','bad');return;}setDraft(result.je);toast(`${flow.action} · ${flow.next}`);};
+  const advance=async()=>{const result=await (editable?actions.saveAndAdvanceJE(draft,flow.next,flow.action):actions.advanceJE(draft.je_id,flow.next,flow.action));if(!result?.ok){toast(result?.message||'Workflow action blocked.','bad');return;}setDraft(result.je);toast(`${flow.action} · ${flow.next}`);};
   const copy=()=>{const result=actions.copyJE(draft.je_id);if(!result?.ok){toast(result?.message||'Copy blocked.','bad');return;}toast('A new manual Draft copy was created.');onOpen(result.je_id);};
   const recurring=()=>{const result=actions.makeRecurringJE(draft.je_id);if(!result?.ok){toast(result?.message||'Recurring template blocked.','bad');return;}toast(`Recurring template ${result.template.template_id} created.`);};
   const reverse=()=>{const result=actions.reverseJE(draft.je_id);if(!result?.ok){toast(result?.message||'Reverse blocked.','bad');return;}toast('Reversal posted with full source trace.');onOpen(result.je_id);};
@@ -384,11 +384,12 @@ export function PMPickup({ctx}) {
   const already = ctx.jes.some(j=>j.source_system==='PM' && (j.description||'').includes('PM Pickup') && j.rule_code);
   const generate = () => {
     if (already){ toast('该批次已生成过 Owner GL Draft,禁止重复 Pickup [4004]','bad'); return; }
-    mapped.forEach(r=>{ const own = UNIT_OWNERS[r.unit] || {entity_id:4, name:'WB Home LLC'};
-      const sourceId=`PM:${month}:${r.property_code}:${r.unit_code}:${r.charge_code}`;actions.newJEFromRule({entity_id:own.entity_id,period_code:month,source_system:'PM',source_doc_id:sourceId,description:`PM Pickup ${r.charge_code} · ${r.property_code} · Unit ${r.unit_code} → ${own.name}`,rule_code:r.rule.rule_code,setting_used:`pm_setting:${r.property_code}@v1`,mapping_used:`pm_charge:${r.charge_code}@v1`,je_type:'AUTO',lines:r.rule.lines}); });
+    const specs=mapped.map(r=>{const own=UNIT_OWNERS[r.unit]||{entity_id:4,name:'WB Home LLC'};const sourceId=`PM:${month}:${r.property_code}:${r.unit_code}:${r.charge_code}`;return {entity_id:own.entity_id,period_code:month,source_system:'PM',source_doc_id:sourceId,idempotency_key:sourceId,description:`PM Pickup ${r.charge_code} · ${r.property_code} · Unit ${r.unit_code} → ${own.name}`,rule_code:r.rule.rule_code,setting_used:`pm_setting:${r.property_code}@v1`,mapping_used:`pm_charge:${r.charge_code}@v1`,je_type:'AUTO',lines:r.rule.lines};});
+    const result=actions.newJEBatch(specs);
     unmapped.forEach(r=> actions.ensureException({exception_type:'GL_MAPPING_MISSING', severity:'HIGH', object_type:'PM_PICKUP', object_ref:`${r.charge_code} / ${r.property_code}`, entity_id:4, owner:'PROPERTY_ACCT', root_cause:`Charge code ${r.charge_code} 无当前映射`}));
     const owners=[...new Set(mapped.map(r=>(UNIT_OWNERS[r.unit]||{name:'WB Home LLC'}).name))];
-    toast(`已按 Unit Owner 生成 ${mapped.length} 条 Draft → ${owners.length} 家 Owner 公司(${owners.join(' / ')})；${unmapped.length} 条未映射转异常`, unmapped.length?'warn':'ok');
+    if(!result?.ok){mapped.forEach(r=>actions.ensureException({exception_type:'JE_BATCH_BLOCKED',severity:'HIGH',object_type:'PM_PICKUP',object_ref:r.external_id||`${r.charge_code}/${r.unit_code}`,entity_id:(UNIT_OWNERS[r.unit]||{entity_id:4}).entity_id,owner:'PROPERTY_ACCT',root_cause:`${result?.code||'JE_BATCH_BLOCKED'}: ${result?.message||'Batch failed'}`}));}
+    const created=result?.ok?result.je_ids.length:0;toast(`PM Pickup: ${created} Draft created · ${result?.ok?0:mapped.length} blocked · ${unmapped.length} mapping exceptions · ${owners.length} owners`,result?.ok&&!unmapped.length?'ok':'warn');
   };
   return <div>
     <h2 className="page-h">Property Operations Pickup</h2>

@@ -9,7 +9,7 @@ import { APWorkspace } from './src/module-ap.jsx';
 import { ARWorkspace } from './src/module-ar.jsx';
 import { BankTransactions } from './src/module-banktx.jsx';
 import { bankSuggestion, splitDifference, buildBankDraft, buildBankWorkflowException, validateBankDraft, findBankMatchCandidates, validateBankMatch, createBankDraftTransition, excludeBankTransition, matchBankTransition, batchBankTransition, undoBankTransition } from './src/bank-workflow.js';
-import { authorizeJECommand, copyJEAsDraft, createReclassDraft, createRecurringTemplate, createReversal, rejectJETransition, resolveJEPeriod, saveJEDraft, transitionJE, validateAttachmentReferences, validateJETransition, validateNewJEBatch, validateNewJESpec } from './src/je-workflow.js';
+import { authorizeJECommand, copyJEAsDraft, createReclassDraft, createRecurringTemplate, createReversal, rejectJETransition, reserveJESources, resolveJEPeriod, saveJEDraft, transitionJE, validateAttachmentReferences, validateJETransition, validateNewJEBatch, validateNewJESpec, verifyAttachmentContent } from './src/je-workflow.js';
 import { COAWorkspace } from './src/module-coa.jsx';
 import { AccountRegister } from './src/module-register.jsx';
 import { SubsidiaryLedger } from './src/module-subledger.jsx';
@@ -175,5 +175,16 @@ expectJE('JE automatic creation spec rejects duplicate source',validateNewJESpec
 const reverseBatchSpec={...batchSpec,period_code:'2026-08',source_doc_id:'BATCH:4:2026-08:REV',idempotency_key:'BATCH:4:2026-08:REV'};
 expectJE('JE batch validates primary and reversal periods atomically',validateNewJEBatch({specs:[batchSpec,reverseBatchSpec],periods:[{entity_id:4,period_code:'2026-07',status:'OPEN'},{entity_id:4,period_code:'2026-08',status:'OPEN'}],can:canAll}).ok);
 expectJE('JE batch creates nothing when any owned period is missing',validateNewJEBatch({specs:[batchSpec,reverseBatchSpec],periods:[{entity_id:4,period_code:'2026-07',status:'OPEN'}],can:canAll}).code==='JE_PERIOD_NOT_CONFIGURED');
-console.log(`mtest components=${components.length} failed=${failed}`);
-if(failed) process.exitCode=1;
+const reservations=new Set();const reservedFirst=reserveJESources(reservations,[batchSpec,reverseBatchSpec]);const overlapSpec={...batchSpec,source_doc_id:reverseBatchSpec.source_doc_id};
+expectJE('JE overlapping batches reserve every source atomically',reservedFirst.ok&&reserveJESources(reservations,[overlapSpec]).code==='JE_DUPLICATE_ACTION');
+const storedDoc={...docs[0],size:4,type:'application/pdf'};const storedJE={...manualDraft,attachment_ids:['DOC-1']};
+Promise.all([
+  verifyAttachmentContent({je:storedJE,documents:[storedDoc],loadBlob:async()=>null,hashBlob:async blob=>blob.hash}),
+  verifyAttachmentContent({je:storedJE,documents:[storedDoc],loadBlob:async()=>({size:4,type:'application/pdf',hash:'sha256:'+'b'.repeat(64)}),hashBlob:async blob=>blob.hash}),
+  verifyAttachmentContent({je:storedJE,documents:[{...storedDoc,hash:'sha256:'+'c'.repeat(64)}],loadBlob:async()=>({size:4,type:'application/pdf',hash:'sha256:'+'d'.repeat(64)}),hashBlob:async blob=>blob.hash}),
+]).then(([missingBlob,tamperedBlob,forgedMetadata])=>{
+  expectJE('JE deleted attachment Blob blocks workflow',missingBlob.code==='JE_ATTACHMENT_BLOB');
+  expectJE('JE tampered attachment Blob blocks workflow',tamperedBlob.code==='JE_ATTACHMENT_HASH');
+  expectJE('JE forged attachment metadata cannot replace content verification',forgedMetadata.code==='JE_ATTACHMENT_HASH');
+  console.log(`mtest components=${components.length} failed=${failed}`);if(failed)process.exitCode=1;
+});

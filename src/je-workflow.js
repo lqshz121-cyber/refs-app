@@ -24,12 +24,24 @@ export function validateNewJEBatch({specs,existingJEs=[],periods=[],can=()=>fals
   return {ok:true};
 }
 
+export function reserveJESources(reservations,specs){
+  const keys=[...(specs||[])].map(s=>`SOURCE:${s.source_system}:${s.source_doc_id}`);
+  if(new Set(keys).size!==keys.length||keys.some(key=>reservations.has(key)))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'One or more batch sources are already processing.'};
+  keys.forEach(key=>reservations.add(key));return {ok:true,keys};
+}
+
 export function validateAttachmentReferences(je,documents=[]){
   if(!['MANUAL','RECLASS'].includes(je?.je_type))return {ok:true};
   const ids=je.attachment_ids||[];
   if(!ids.length)return {ok:false,code:'4010',message:'Manual and reclass entries require a supporting document.'};
   const missing=ids.find(id=>!documents.some(d=>d.document_id===id&&/^sha256:[0-9a-f]{64}$/.test(d.hash||'')&&String(d.storage_ref||'').startsWith('indexeddb://refs-attachments/')&&d.storage_state==='STORED'));
   return missing?{ok:false,code:'JE_ATTACHMENT_REFERENCE',message:`Attachment ${missing} cannot be resolved.`}:{ok:true};
+}
+
+export async function verifyAttachmentContent({je,documents=[],loadBlob,hashBlob}){
+  const refs=validateAttachmentReferences(je,documents);if(!refs.ok)return refs;if(!['MANUAL','RECLASS'].includes(je?.je_type))return {ok:true};
+  for(const id of je.attachment_ids||[]){const meta=documents.find(d=>d.document_id===id);const blob=await loadBlob(id);if(!blob||blob.size!==meta.size||blob.type!==meta.type)return {ok:false,code:'JE_ATTACHMENT_BLOB',message:`Attachment ${id} content does not match metadata.`};let hash;if(hashBlob)hash=await hashBlob(blob);else{const digest=await crypto.subtle.digest('SHA-256',await blob.arrayBuffer());hash='sha256:'+[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');}if(hash!==meta.hash)return {ok:false,code:'JE_ATTACHMENT_HASH',message:`Attachment ${id} hash verification failed.`};}
+  return {ok:true};
 }
 
 export function validateJETransition({je,next,user,period,documents=[],can=()=>true}){
