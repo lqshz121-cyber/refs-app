@@ -120,6 +120,36 @@ export function Reports({ctx}) {
     'Manual JE Report': () => <Table exportName="manual-je" cols={[{h:'JE',k:'je_number'},{h:'日期',k:'je_date'},{h:'描述',k:'description'},{h:'金额',num:true,render:r=><Money v={jeTotals(r).dr}/>,csv:r=>jeTotals(r).dr},{h:'创建人',k:'created_by'},{h:'附件',render:r=>r.has_attachment?'✓':'✗ 缺失',csv:r=>r.has_attachment?'Y':'N'},{h:'状态',render:r=><Badge>{r.posting_status}</Badge>,csv:r=>r.posting_status}]} rows={jes.filter(j=>j.je_type==='MANUAL')}/>,
     'Exception Aging': () => <Table exportName="exception-aging" cols={[{h:'类型',k:'exception_type'},{h:'严重度',render:r=><Badge>{r.severity}</Badge>,csv:r=>r.severity},{h:'对象',k:'object_ref'},{h:'Aging(天)',num:true,k:'aging_days'},{h:'Owner',k:'owner'},{h:'状态',render:r=><Badge>{r.status}</Badge>,csv:r=>r.status}]} rows={[...exceptions].sort((a,b)=>b.aging_days-a.aging_days)}/>,
     'Data Sync Report': () => <Table cols={[{h:'来源',k:'s'},{h:'批次',k:'b'},{h:'记录',k:'n'},{h:'成功率',k:'r'},{h:'状态',render:r=><Badge tone={r.r==='100%'?'ok':'warn'}>{r.r==='100%'?'COMPLETED':'PARTIAL'}</Badge>}]} rows={[{s:'WBS_CL',b:'CL-20260731-007',n:4,r:'100%'},{s:'PM',b:'PM-202607-P0020',n:5,r:'80%'},{s:'BANK',b:'BANK-20260731',n:4,r:'100%'}]}/>,
+    'Inventory Rollforward': () => { const rows = ENTITIES.filter(e=>['Vertical','ProjectCo'].includes(e.entity_type)).map(en=>{
+        let inAdd=0, cogs=0;
+        jes.filter(j=>j.posting_status==='POSTED'&&j.entity_id===en.entity_id).forEach(j=>j.lines.forEach(l=>{
+          if(l.account_code==='163000') inAdd+=(l.debit_amount||0)-(l.credit_amount||0);
+          if(l.account_code==='510000') cogs+=(l.debit_amount||0);
+        }));
+        return {e:en.entity_code, name:en.entity_name, beg:0, xfer:inAdd+cogs, cogs:-cogs, end:inAdd};
+      }).filter(r=>r.xfer||r.cogs);
+      return <Table exportName="inventory-rollforward" cols={[
+        {h:'Entity',render:r=><b>{r.e}</b>},{h:'Company',k:'name'},
+        {h:'Beginning',num:true,render:r=><Money v={r.beg}/>},
+        {h:'+ CWIP→Inventory',num:true,render:r=><Money v={r.xfer}/>},
+        {h:'− COGS',num:true,render:r=><Money v={r.cogs}/>},
+        {h:'Ending Inventory',num:true,render:r=><Money v={r.end} bold/>},
+      ]} rows={rows} empty="当前口径 CWIP 直接结转 COGS(163000 未启用);启用 Inventory 流转后此表出数"/>; },
+    'Cost GL Reconciliation': () => { const rows = ENTITIES.filter(e=>['Vertical','ProjectCo','LandCo'].includes(e.entity_type)).slice(0,20).map(en=>{
+        let glCost=0, srcCost=0;
+        jes.filter(j=>j.posting_status==='POSTED'&&j.entity_id===en.entity_id).forEach(j=>{
+          j.lines.forEach(l=>{ if(['164100','164200','164400','164500','510000'].includes(l.account_code)) glCost+=(l.debit_amount||0)-(l.credit_amount||0); });
+          if(['PAYABLE','CLOSING','WBS_CL'].includes(j.source_system)) j.lines.forEach(l=>{ if(['164100','164200','164400','164500','510000'].includes(l.account_code)) srcCost+=(l.debit_amount||0)-(l.credit_amount||0); });
+        });
+        return {e:en.entity_code, gl:glCost, src:srcCost, diff:+(glCost-srcCost).toFixed(2)};
+      }).filter(r=>r.gl||r.src);
+      return <Table exportName="cost-gl-recon" cols={[
+        {h:'Entity',render:r=><b>{r.e}</b>},
+        {h:'GL 成本科目净额',num:true,render:r=><Money v={r.gl}/>},
+        {h:'源单据口径(PAYABLE/CLOSING/WBS_CL)',num:true,render:r=><Money v={r.src}/>},
+        {h:'差异',num:true,render:r=><Money v={r.diff} bold/>},
+        {h:'状态',render:r=><Badge tone={Math.abs(r.diff)<0.01?'ok':'bad'}>{Math.abs(r.diff)<0.01?'✓ 对平':'✗ 需查'}</Badge>},
+      ]} rows={rows}/>; },
     'CWIP Rollforward': () => { const rows = ENTITIES.filter(e=>['Vertical','ProjectCo','LandCo'].includes(e.entity_type)).map(en=>{
         let add=0, capint=0, rel=0, tout=0;
         jes.filter(j=>j.posting_status==='POSTED'&&j.entity_id===en.entity_id).forEach(j=>j.lines.forEach(l=>{
@@ -153,7 +183,7 @@ export function Reports({ctx}) {
     ['Construction Loan Rollforward','贷款',null],['Manual JE Report','管理',null],['Exception Aging','管理',null],
     ['Data Sync Report','管理',null],['Property Operating Statement','物业',null],
     ['Budget vs Actual','项目','cost'],['Cost to Complete','项目','cost'],['AP Aging','交易','ap'],['对账历史','交易','bankrec'],
-    ['CWIP Rollforward','房地产',null],['INTER COMPANY Balance Report','WBS',null],['SREO Report','WBS',null],['Draw Request Report','WBS',null],['Payable Report','WBS',null],
+    ['CWIP Rollforward','房地产',null],['Inventory Rollforward','房地产',null],['Cost GL Reconciliation','房地产',null],['INTER COMPANY Balance Report','WBS',null],['SREO Report','WBS',null],['Draw Request Report','WBS',null],['Payable Report','WBS',null],
     ['Cost General Ledger','WBS','gl'],['Unit CWIP and EM Report','WBS','cost'],['Budget and Execution Report','WBS','cost'],['Project Cost Reconciliation','WBS','cost'],
   ];
   return <div>

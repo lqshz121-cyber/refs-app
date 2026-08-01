@@ -7,4 +7,5 @@ const opts = {
   minify:true, sourcemap:false, target:['es2020'], logLevel:'info',
 };
 if (process.argv.includes('--watch')) { const c=await esbuild.context(opts); await c.watch(); console.log('watching...'); }
-else { await esbuild.build(opts); writeFileSync('dist/index.html', readFileSync('index.html','utf8').replace('bundle.js','bundle.js?b='+Date.now())); console.log('build done -> dist/'); }
+else { await esbuild.build(opts); const sha=(process.env.GITHUB_SHA||'dev').slice(0,7); const bt=new Date().toISOString().slice(0,16).replace('T',' ');
+  writeFileSync('dist/index.html', readFileSync('index.html','utf8').replace('bundle.js','bundle.js?b='+Date.now()).replace('</head>', `<script>window.__BUILD={sha:'${sha}',time:'${bt} UTC'};</script></head>`)); console.log('build done -> dist/'); }

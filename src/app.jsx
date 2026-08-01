@@ -258,6 +258,7 @@ function App() {
           <button className="icon-btn" title="通知" onClick={()=>setRoute('exceptions')}>🔔</button>
           <button className="icon-btn" onClick={()=>actions.resetData()} title="重置演示数据">⟲</button>
           <button className="icon-btn" onClick={()=>setDark(d=>!d)} title="明/暗">{dark?'☀':'☾'}</button>
+          <span className="muted" style={{fontSize:10.5,opacity:.7}} title="commit · build time">{typeof window!=='undefined'&&window.__BUILD?`${window.__BUILD.sha} · ${window.__BUILD.time}`:''}</span>
           <div className="user-chip" title={'角色 '+user.role_code}>
             <span className="user-av">{user.name[0]}</span>
             <span className="user-nm">{user.name}<span className="muted sm"> · {user.role_code}</span></span>

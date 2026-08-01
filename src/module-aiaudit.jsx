@@ -67,6 +67,12 @@ export function AIAudit({ctx}) {
       {h:'需人工',render:r=>r.needs_human?<Badge tone="warn">YES</Badge>:<Badge tone="ok">no</Badge>,csv:r=>r.needs_human?'Y':'N'},
       {h:'Owner',render:r=>r.risk==='HIGH'?'CONTROLLER':'SENIOR_ACCT'},
       {h:'Due',render:r=>r.risk==='HIGH'?'2026-08-05':'2026-08-15'},
+      {h:'闭环动作',render:r=>{ const jeNum=(r.object.match(/(?:JE-|\d{14})[\w-]*/)||[])[0];
+        const je = jeNum && jes.find(j=>j.je_number===jeNum||r.object.startsWith(j.je_number));
+        return <span className="row-acts">
+          {je && <Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation(); goto('je');}}>JE→</Btn>}
+          {je && r.rule==='AI-LOAN-01' && je.posting_status==='POSTED' && <Btn size="sm" variant="danger" onClick={e=>{e.stopPropagation(); ctx.actions.reverseJE(je.je_id); resolve(r); ctx.toast('已红字反冲并标记 Resolved(按规则重录请走 Staging)');}}>一键红冲</Btn>}
+        </span>; }},
       {h:'Status',render:r=> resolved[r.rule+'|'+r.object] ? <Badge tone="ok">RESOLVED · {resolved[r.rule+'|'+r.object].by}</Badge> : <Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation(); resolve(r);}}>Resolve</Btn>},
     ]} rows={findings.filter(TABMAP[tab]||(()=>true))} empty="✅ 全账本扫描通过:无异常发现"/>
   </div>;
