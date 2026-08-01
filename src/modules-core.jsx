@@ -100,23 +100,25 @@ export function JEWorkspace({ctx}) {
   const pendCount = list.filter(j=>j.posting_status==='APPROVED').length;
   const postApproved = () => { const results=list.filter(j=>j.posting_status==='APPROVED').map(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL'));const ok=results.filter(r=>r?.ok).length;const blocked=results.length-ok;toast(`${ok} posted · ${blocked} blocked by permission/SoD`,blocked?'warn':'ok'); };
   const runBatch = () => {
+    if(!can('GL.JE.CREATE')){toast('Missing permission GL.JE.CREATE.','bad');return;}
     const en = {entity_id: ctx.entity||15, entity_code:'E'+(ctx.entity||15)};
-    const s = loadSetting(en); let n=0;
-    (s.batch_setting||[]).filter(b=>b.status!=='INACTIVE'&&b.dr&&b.cr).forEach(b=>{
-      const amt = 1000; n++;
-      actions.newJEFromRule({entity_id:en.entity_id, source_system:'INTERNAL', je_type:'AUTO', rule_code:'R-BATCH-'+n,
+    const s = loadSetting(en); let n=0;const specs=[];
+    (s.batch_setting||[]).filter(b=>b.status!=='INACTIVE'&&b.dr&&b.cr).forEach((b,index)=>{
+      const amt = 1000; n++;const templateId=`BATCH-${index+1}`;const sourceId=`BATCH:${en.entity_id}:2026-07:${templateId}:v1`;
+      specs.push({entity_id:en.entity_id,period_code:'2026-07',source_system:'INTERNAL',source_doc_id:sourceId,je_type:'AUTO',rule_code:'R-BATCH-'+n,setting_used:`setting_${en.entity_id}@v1`,mapping_used:`batch_setting:${templateId}@v1`,idempotency_key:sourceId,
         description:`[Batch] ${b.memo} · 2026-07`, lines:[{account_code:b.dr,debit_amount:amt,credit_amount:0},{account_code:b.cr,debit_amount:0,credit_amount:amt,member:b.cr.startsWith('291')?'Batch':undefined,description:b.cr.startsWith('291')?'Due to/from_Batch':undefined}]});
-      if (b.reverse_next_month) actions.newJEFromRule({entity_id:en.entity_id, source_system:'INTERNAL', je_type:'AUTO', rule_code:'R-BATCH-REV-'+n,
+      if (b.reverse_next_month){const reverseSource=`${sourceId}:REV:2026-08`;specs.push({entity_id:en.entity_id,period_code:'2026-08',source_system:'INTERNAL',source_doc_id:reverseSource,je_type:'AUTO',rule_code:'R-BATCH-REV-'+n,setting_used:`setting_${en.entity_id}@v1`,mapping_used:`batch_setting:${templateId}@v1`,idempotency_key:reverseSource,reversal_of_source_doc_id:sourceId,
         description:`[Batch·Auto-Reversal 2026-08] ${b.memo}`, lines:[{account_code:b.cr,debit_amount:amt,credit_amount:0,member:b.cr.startsWith('291')?'Batch':undefined},{account_code:b.dr,debit_amount:0,credit_amount:amt}]});
+      }
     });
-    toast(`Batch 模板已生成 ${n} 组 Draft(含 Reverse Next Month 自动冲回)`);
+    const result=actions.newJEBatch(specs);toast(result?.ok?`Batch templates: ${result.je_ids.length} Drafts created atomically`:`Batch blocked atomically: ${result?.message||result?.code}`,result?.ok?'ok':'bad');
   };
   const je = jes.find(j=>j.je_id===sel);
-  const newJE = () => { const id = actions.newJE(); setSel(id); };
+  const newJE = () => { const id = actions.newJE(); if(id)setSel(id); };
 
   // -------- Full-page editor view (QBO-style) --------
   if (je) return <div className="focused">
-    <button className="crumb" onClick={()=>setSel(null)}>← Journal Entries</button>
+    <button className="crumb" onClick={()=>{if(ctx.requestLeaveJE())setSel(null);}}>← Journal Entries</button>
     <JEEditorV2 je={je} ctx={ctx} onClose={()=>setSel(null)} onOpen={setSel}/>
   </div>;
 
@@ -125,7 +127,7 @@ export function JEWorkspace({ctx}) {
     <div className="page-top">
       <h2 className="page-h" style={{margin:0}}>Journal Entries</h2>
       <div className="row-acts">
-        <Btn variant="ghost" onClick={runBatch}>Run Batch Templates</Btn>
+        {can('GL.JE.CREATE')&&<Btn variant="ghost" onClick={runBatch}>Run Batch Templates</Btn>}
         {can('GL.JE.POST') && pendCount>0 && <Btn onClick={postApproved}>Post approved ({pendCount})</Btn>}
         <Btn variant="primary" onClick={newJE} disabled={!can('GL.JE.CREATE')}>+ New Journal Entry</Btn>
       </div>
@@ -159,19 +161,23 @@ function JEEditorV2({je,ctx,onClose,onOpen}){
   const {actions,can,period,toast,goto}=ctx;
   const [draft,setDraft]=useState(()=>structuredClone(je));
   const [confirmExit,setConfirmExit]=useState(false);
+  const [rejectReason,setRejectReason]=useState('');
   useEffect(()=>{setDraft(structuredClone(je));setConfirmExit(false);},[je.je_id,je.posting_status,je.revision]);
-  const editable=draft.posting_status==='DRAFT';
+  const editable=draft.posting_status==='DRAFT'&&can('GL.JE.CREATE');
   const totals=jeTotals(draft);
-  const errors=validateJE(draft,period);
+  const draftPeriod=PERIODS.find(p=>p.entity_id===draft.entity_id&&p.period_code===draft.period_code);
+  const errors=[...validateJE(draft,draftPeriod||{status:'MISSING'}),...(!draftPeriod?[{code:'JE_PERIOD_NOT_CONFIGURED',msg:`No period control for entity ${draft.entity_id} / ${draft.period_code}`}]:[])];
   const flow=JE_FLOW[draft.posting_status]||{};
   const changed=editable&&JSON.stringify({...draft,history:undefined,dirty:undefined})!==JSON.stringify({...je,history:undefined,dirty:undefined});
+  useEffect(()=>{ctx.setJEDirty?.(changed);return()=>ctx.setJEDirty?.(false);},[changed]);
+  useEffect(()=>{const before=e=>{if(changed){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',before);return()=>window.removeEventListener('beforeunload',before);},[changed]);
   const setField=patch=>setDraft(d=>({...d,...patch,dirty:true}));
   const setLine=(i,patch)=>setDraft(d=>({...d,dirty:true,lines:d.lines.map((line,index)=>index===i?{...line,...patch}:line)}));
   const addLine=()=>setDraft(d=>({...d,dirty:true,lines:[...d.lines,{account_code:'',debit_amount:0,credit_amount:0,description:''}]}));
   const removeLine=i=>setDraft(d=>({...d,dirty:true,lines:d.lines.filter((_,index)=>index!==i)}));
   const save=()=>{const result=actions.saveJE(draft);if(!result?.ok){toast(result?.message||'Save blocked.','bad');return result;}setDraft(result.je);toast(`Saved revision ${result.je.revision}`);return result;};
   const saveClose=()=>{const result=save();if(result?.ok)onClose();};
-  const saveNew=()=>{const result=save();if(result?.ok){const id=actions.newJE();onOpen(id);}};
+  const saveNew=()=>{const result=save();if(result?.ok){const id=actions.newJE();if(id)onOpen(id);}};
   const advance=()=>{const result=editable?actions.saveAndAdvanceJE(draft,flow.next,flow.action):actions.advanceJE(draft.je_id,flow.next,flow.action);if(!result?.ok){toast(result?.message||'Workflow action blocked.','bad');return;}setDraft(result.je);toast(`${flow.action} · ${flow.next}`);};
   const copy=()=>{const result=actions.copyJE(draft.je_id);if(!result?.ok){toast(result?.message||'Copy blocked.','bad');return;}toast('A new manual Draft copy was created.');onOpen(result.je_id);};
   const recurring=()=>{const result=actions.makeRecurringJE(draft.je_id);if(!result?.ok){toast(result?.message||'Recurring template blocked.','bad');return;}toast(`Recurring template ${result.template.template_id} created.`);};
@@ -180,6 +186,8 @@ function JEEditorV2({je,ctx,onClose,onOpen}){
   const exit=()=>{if(changed)setConfirmExit(true);else onClose();};
   const difference=+(totals.debit-totals.credit).toFixed(2);
   const sourceDoc=draft.source_doc_id&&SOURCE_DOCS[draft.source_doc_id];
+  const attachments=(draft.attachment_ids||[]).map(id=>(ctx.documents||[]).find(d=>d.document_id===id)).filter(Boolean);
+  const addAttachment=async file=>{const result=await actions.storeJEDocument(file,draft.je_id);if(!result?.ok){toast(result?.message||'Attachment blocked.','bad');return;}setField({attachment_ids:[...(draft.attachment_ids||[]),result.document.document_id],has_attachment:true,attachment_name:result.document.name});toast(`Attached ${result.document.name}`);};
 
   return <div className="qbe">
     <div className="qbe-head">
@@ -204,15 +212,16 @@ function JEEditorV2({je,ctx,onClose,onOpen}){
     </tbody></table></div>
     <div className="qbe-below"><div>{editable&&<><Btn size="sm" onClick={addLine}>+ Add line</Btn><Btn size="sm" variant="ghost" onClick={()=>setField({lines:[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}]})}>Clear lines</Btn></>}</div><div className="qbe-totals"><span>Total debits <Money v={totals.debit} bold/></span><span>Total credits <Money v={totals.credit} bold/></span><span className={Math.abs(difference)<.005&&totals.debit>0?'bal-ok':'bal-bad'}>Difference {money(difference)}</span></div></div>
 
-    {draft.je_type==='MANUAL'||draft.je_type==='RECLASS'?<div className="qbe-memo"><b>Attachments</b>{editable?<label className="link-btn" style={{cursor:'pointer',display:'block',marginTop:8}}>{draft.has_attachment?`📎 ${draft.attachment_name} · Replace`:'📎 Add supporting document (required before submit)'}<input type="file" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];if(file)setField({has_attachment:true,attachment_name:`${file.name} (${Math.round(file.size/1024)} KB)`});}}/></label>:<div className="muted sm">{draft.has_attachment?`📎 ${draft.attachment_name||'Attached'}`:'No attachment'}</div>}</div>:null}
+    {draft.je_type==='MANUAL'||draft.je_type==='RECLASS'?<div className="qbe-memo"><b>Attachments</b><div style={{marginTop:8}}>{attachments.map(doc=><div key={doc.document_id} className="row-acts"><button className="link-btn" onClick={()=>actions.openJEDocument(doc.document_id)}>📎 {doc.name}</button><span className="muted sm">{Math.round(doc.size/1024)} KB · {doc.hash.slice(0,18)}…</span></div>)}</div>{editable?<label className="link-btn" style={{cursor:'pointer',display:'block',marginTop:8}}>📎 Add supporting document (required before submit)<input type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.docx" style={{display:'none'}} onChange={e=>{const file=e.target.files?.[0];if(file)addAttachment(file);}}/></label>:attachments.length===0?<div className="muted sm">No attachment</div>:null}</div>:null}
 
     {draft.source_system!=='MAN'&&<div className="src-card"><div className="src-chain"><span className="chip">{draft.source_system} source</span>→<span className="chip">Setting / Mapping</span>→<span className="chip">Rule {draft.rule_code||'MISSING'}</span>→<span className="chip chip-on">Draft / Approval</span>→<span className="chip">GL</span></div><div className="src-grid"><span><i>Source ID</i><b>{draft.source_doc_id||'MISSING'}</b></span><span><i>Document</i><b>{sourceDoc?.doc_no||draft.source_doc_id||'—'}</b></span><span><i>Rule</i><b>{draft.rule_code||'MISSING'}</b></span><span><i>Setting</i><b>{draft.setting_used||'Company setting'}</b></span><span><i>Mapping</i><b>{draft.mapping_used||'Approved mapping'}</b></span><span><i>Control</i><b>Human approval required</b></span></div></div>}
     {errors.length>0&&draft.posting_status==='DRAFT'&&<div className="err-box">{errors.map((e,i)=><div key={i}>• [{e.code}] {e.msg}</div>)}</div>}
     {confirmExit&&<div className="err-box" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>Discard unsaved changes and return to the list?</span><span className="row-acts"><Btn size="sm" variant="ghost" onClick={()=>setConfirmExit(false)}>Keep editing</Btn><Btn size="sm" variant="danger" onClick={onClose}>Discard</Btn></span></div>}
-    <div className="qbe-footbar"><div className="row-acts"><Btn variant="ghost" onClick={exit}>Exit</Btn><Btn variant="ghost" onClick={copy}>Copy</Btn><Btn variant="ghost" onClick={recurring}>Make recurring</Btn>{draft.posting_status==='POSTED'&&<Btn variant="ghost" onClick={()=>goto('register')}>View in register</Btn>}</div><div className="row-acts">
+    {flow.reject&&<div className="filter-bar"><label>Rejection reason <input value={rejectReason} onChange={e=>setRejectReason(e.target.value)} placeholder="Required control evidence"/></label></div>}
+    <div className="qbe-footbar"><div className="row-acts"><Btn variant="ghost" onClick={exit}>Exit</Btn>{can('GL.JE.CREATE')&&<><Btn variant="ghost" onClick={copy}>Copy</Btn><Btn variant="ghost" onClick={recurring}>Make recurring</Btn></>}{draft.posting_status==='POSTED'&&<Btn variant="ghost" onClick={()=>goto('register')}>View in register</Btn>}</div><div className="row-acts">
       {editable&&<><Btn onClick={save}>Save</Btn><Btn onClick={saveClose}>Save & close</Btn><Btn variant="ghost" onClick={saveNew}>Save & new</Btn></>}
-      {flow.reject&&can('GL.JE.REVIEW')&&<Btn variant="ghost" onClick={()=>{const result=actions.rejectJE(draft.je_id);if(!result?.ok)toast(result?.message||'Reject blocked.','bad');else{setDraft(result.je);toast('Returned to Draft.','warn');}}}>Reject</Btn>}
-      {draft.posting_status==='POSTED'&&<><Btn onClick={reclass}>Reclass</Btn>{can('GL.JE.REVERSE')&&<Btn variant="danger" onClick={reverse}>Reverse</Btn>}</>}
+      {flow.reject&&can(draft.posting_status==='PENDING_APPROVAL'?'GL.JE.APPROVE':'GL.JE.REVIEW')&&<Btn variant="ghost" onClick={()=>{const result=actions.rejectJE(draft.je_id,rejectReason);if(!result?.ok)toast(result?.message||'Reject blocked.','bad');else{setDraft(result.je);setRejectReason('');toast('Returned to Draft.','warn');}}}>Reject</Btn>}
+      {draft.posting_status==='POSTED'&&<>{can('GL.JE.CREATE')&&<Btn onClick={reclass}>Reclass</Btn>}{can('GL.JE.REVERSE')&&<Btn variant="danger" onClick={reverse}>Reverse</Btn>}</>}
       {flow.action&&<Btn variant="primary" onClick={advance} disabled={!can(flow.perm)} title={!can(flow.perm)?`Missing permission ${flow.perm}`:''}>{flow.action}</Btn>}
     </div></div>
     {draft.history?.length>0&&<><SectionTitle>Audit trail</SectionTitle><ApprovalTimeline steps={draft.history.map(h=>({label:h.a,done:true,who:h.by,at:h.at}))}/></>}
@@ -295,7 +304,7 @@ function LegacyJEEditor({je, ctx}) {
       {editable ? <input className="desc-in" style={{width:'100%'}} value={je.description} onChange={e=>actions.updateJE(je.je_id,d=>{d.description=e.target.value;})} placeholder="What is this journal entry for?"/> : <div className="muted">{je.description}</div>}
       {je.je_type==='MANUAL' && (editable ? <label className="link-btn" style={{cursor:'pointer'}}>
         {je.has_attachment?('📎 '+(je.attachment_name||'attached')+' · 更换'):'📎 Add attachment (过账前必填)'}
-        <input type="file" style={{display:'none'}} onChange={e=>{const f=e.target.files[0]; if(f){actions.updateJE(je.je_id,d=>{d.has_attachment=true; d.attachment_name=f.name+' ('+Math.round(f.size/1024)+'KB)';}); toast('附件已挂接: '+f.name);}}}/>
+        <input type="file" style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(f){const result=await actions.storeJEDocument(f,je.je_id);if(result?.ok)actions.updateJE(je.je_id,d=>{d.has_attachment=true;d.attachment_name=result.document.name;d.attachment_ids=[...(d.attachment_ids||[]),result.document.document_id];});toast(result?.ok?'附件已挂接: '+f.name:result?.message||'Attachment blocked.',result?.ok?'ok':'bad');}}}/>
       </label> : <span className="muted sm">附件 {je.has_attachment?'✓ '+(je.attachment_name||''):'✗'}</span>)}
     </div>
     {je.source_doc_id && SOURCE_DOCS[je.source_doc_id] && (()=>{ const d=SOURCE_DOCS[je.source_doc_id]; return <div className="src-card">
@@ -316,7 +325,7 @@ function LegacyJEEditor({je, ctx}) {
       <div><Btn variant="ghost" onClick={()=>{const result=actions.copyJE(je.je_id);toast(result?.ok?'已复制为新草稿':result?.message||'Copy blocked.',result?.ok?'ok':'bad');}}>Copy</Btn>
         <Btn variant="ghost" onClick={()=>{const result=actions.makeRecurringJE(je.je_id);toast(result?.ok?`Recurring template ${result.template.template_id} created.`:result?.message||'Recurring blocked.',result?.ok?'ok':'bad');}}>Make recurring</Btn></div>
       <div className="row-acts">
-        {flow.reject && can('GL.JE.REVIEW') && <Btn variant="ghost" onClick={()=>{const result=actions.rejectJE(je.je_id);toast(result?.ok?'已退回 DRAFT':result?.message||'Reject blocked.',result?.ok?'warn':'bad');}}>Reject</Btn>}
+        {flow.reject && can(je.posting_status==='PENDING_APPROVAL'?'GL.JE.APPROVE':'GL.JE.REVIEW') && <Btn variant="ghost" onClick={()=>toast('Use the current JE editor to provide a required rejection reason.','warn')}>Reject</Btn>}
         {je.posting_status==='POSTED' && can('GL.JE.REVERSE') && <Btn variant="danger" onClick={reverse}>Reverse</Btn>}
         {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'无此权限':''}>{flow.action==='提交'?'Save and submit':flow.action}</Btn>}
       </div>
@@ -336,8 +345,8 @@ export function LoanWorkspace({ctx}) {
   const gen = (t) => {
     const r = loanRule(t);
     if (!r) { toast('无匹配规则','bad'); return; }
-    actions.newJEFromRule({entity_id:loan.entity_id, source_system:'WBS_CL', description:`${t.txn_type} · ${loan.loan_code}`, rule_code:r.rule_code, je_type:'AUTO', lines:r.lines});
-    toast(`已生成 Draft JE（${r.capitalize?'利息资本化 → 1405':r.rule_code==='R-LOAN-04'?'利息费用化 → 5000':r.rule_code}）`);
+    const id=actions.newJEFromRule({entity_id:loan.entity_id,period_code:'2026-07',source_system:'WBS_CL',source_doc_id:t.wbs_txn_id||t.loan_txn_id,description:`${t.txn_type} · ${loan.loan_code}`,rule_code:r.rule_code,setting_used:`loan_setting:${loan.loan_code}@v1`,mapping_used:`loan_rule:${r.rule_code}@v1`,je_type:'AUTO',lines:r.lines});
+    toast(id?`已生成 Draft JE（${r.capitalize?'利息资本化 → 1405':r.rule_code==='R-LOAN-04'?'利息费用化 → 5000':r.rule_code}）`:'Draft JE blocked by period, permission, trace or duplicate control.',id?'ok':'bad');
   };
   return <div>
     <h2 className="page-h">Construction Loan Workspace</h2>
@@ -376,7 +385,7 @@ export function PMPickup({ctx}) {
   const generate = () => {
     if (already){ toast('该批次已生成过 Owner GL Draft,禁止重复 Pickup [4004]','bad'); return; }
     mapped.forEach(r=>{ const own = UNIT_OWNERS[r.unit] || {entity_id:4, name:'WB Home LLC'};
-      actions.newJEFromRule({entity_id:own.entity_id, source_system:'PM', description:`PM Pickup ${r.charge_code} · ${r.property_code} · Unit ${r.unit_code} → ${own.name}`, rule_code:r.rule.rule_code, je_type:'AUTO', lines:r.rule.lines}); });
+      const sourceId=`PM:${month}:${r.property_code}:${r.unit_code}:${r.charge_code}`;actions.newJEFromRule({entity_id:own.entity_id,period_code:month,source_system:'PM',source_doc_id:sourceId,description:`PM Pickup ${r.charge_code} · ${r.property_code} · Unit ${r.unit_code} → ${own.name}`,rule_code:r.rule.rule_code,setting_used:`pm_setting:${r.property_code}@v1`,mapping_used:`pm_charge:${r.charge_code}@v1`,je_type:'AUTO',lines:r.rule.lines}); });
     unmapped.forEach(r=> actions.ensureException({exception_type:'GL_MAPPING_MISSING', severity:'HIGH', object_type:'PM_PICKUP', object_ref:`${r.charge_code} / ${r.property_code}`, entity_id:4, owner:'PROPERTY_ACCT', root_cause:`Charge code ${r.charge_code} 无当前映射`}));
     const owners=[...new Set(mapped.map(r=>(UNIT_OWNERS[r.unit]||{name:'WB Home LLC'}).name))];
     toast(`已按 Unit Owner 生成 ${mapped.length} 条 Draft → ${owners.length} 家 Owner 公司(${owners.join(' / ')})；${unmapped.length} 条未映射转异常`, unmapped.length?'warn':'ok');

@@ -26,9 +26,9 @@ export function StagingCenter({ctx}) {
   const save = (r)=>{ setRows(r); repo.save('staging', r); };
   const enOf = id => ENTITIES.find(e=>e.entity_id===id)||ENTITIES[0];
   const judge = (r)=> aiJudge({category:r.category, type:r.type, detail:r.detail||r.description, direction:r.direction, amount:r.amount, description:r.description, payee:r.payee, cost_code:r.cost_code, status:r.status}, enOf(r.entity_id));
-  const STAGES=['全部','Pending Mapping','Pending Coding','Pending Review','Ready to Post','Posted','Exception','AI 决策日志'];
+  const STAGES=['全部','Pending Mapping','Pending Coding','Pending Review','Ready to Post','Draft JE','Exception','AI 决策日志'];
   const list = rows.filter(r=>(tab==='全部'||r.stage===tab) && (!entity||r.entity_id===entity));
-  const stageTone = s=>({'Pending Mapping':'bad','Pending Coding':'warn','Pending Review':'warn','Ready to Post':'ok','Posted':'muted','Exception':'bad'}[s]||'muted');
+  const stageTone = s=>({'Pending Mapping':'bad','Pending Coding':'warn','Pending Review':'warn','Ready to Post':'ok','Draft JE':'ok','Exception':'bad'}[s]||'muted');
   const advance = (r)=>{
     if (r.stage==='Pending Mapping'){ toast('缺 Mapping:先到 Mapping Center 配置(已登记 Exception)','bad');
       actions.ensureException({exception_type:'GL_MAPPING_MISSING', severity:'HIGH', object_type:'STAGING', object_ref:r.source_id, entity_id:r.entity_id, owner:'PROPERTY_ACCT', root_cause:'Staging 无匹配 Setting'}); return; }
@@ -38,10 +38,11 @@ export function StagingCenter({ctx}) {
     if (r.stage==='Ready to Post'){
       import('./ai.js').then(m=>m.logAI({input_digest:'human', input_summary:r.source_id, entity:enOf(r.entity_id).entity_code, human_decision:'APPROVED→DraftJE', suggested:j.suggested, confidence:j.confidence, rule:j.rule_used, diff:'none(采纳AI建议)'}));
       const id = actions.newJEFromRule({entity_id:r.entity_id, source_system:r.source_system, payee:r.payee||null,
-        description:`${r.description} [${r.source_id}]`, rule_code:j.rule_used, je_type:'AUTO',
+        source_doc_id:r.source_id,description:`${r.description} [${r.source_id}]`, rule_code:j.rule_used,setting_used:j.setting_used||`${enOf(r.entity_id).entity_code}:approved-setting`,mapping_used:`${r.mapping}:${r.category}:${r.type}`,je_type:'AUTO',
         lines:[{account_code:j.suggested.dr, debit_amount:r.amount, credit_amount:0, member: j.suggested.dr.startsWith('291')?r.payee:undefined, cost_code:r.cost_code||undefined, description:r.cost_code||undefined},
                {account_code:j.suggested.cr, debit_amount:0, credit_amount:r.amount, member: j.suggested.cr.startsWith('291')?(r.payee||'Wan Bridge Development LLC'):undefined, description: j.suggested.cr.startsWith('291')?('Due to/from_'+(r.payee||'WBDE')):undefined}]});
-      save(rows.map(x=>x.id===r.id?{...x, stage:'Posted', je_id:id}:x));
+      if(!id){toast(`Draft JE blocked for ${r.source_id}; source remains Ready to Post.`,'bad');return;}
+      save(rows.map(x=>x.id===r.id?{...x, stage:'Draft JE', je_id:id}:x));
       toast(`Draft JE 已生成并进入审批流(source trace: ${r.source_id})`); return; }
   };
   const actLabel = {'Pending Mapping':'去配 Mapping','Pending Coding':'🤖 AI 编码','Pending Review':'复核通过','Ready to Post':'生成 Draft JE','Posted':'✓','Exception':'处理'}
@@ -78,7 +79,7 @@ export function StagingCenter({ctx}) {
       {h:'Amount',num:true,render:r=><Money v={r.amount}/>,csv:r=>r.amount},
       {h:'Mapping',render:r=>r.mapping==='OK'?<Badge tone="ok">OK</Badge>:<Badge tone="bad">MISSING</Badge>},
       {h:'Stage',render:r=><Badge tone={stageTone(r.stage)}>{r.stage}</Badge>,csv:r=>r.stage},
-      {h:'Action',render:r=> r.stage==='Posted' ? <span className="muted sm">JE ✓</span> :
+      {h:'Action',render:r=> r.stage==='Draft JE' ? <span className="muted sm">Draft JE ✓</span> :
         <Btn size="sm" variant={r.stage==='Ready to Post'?'primary':'default'} onClick={e=>{e.stopPropagation(); advance(r);}}>{actLabel[r.stage]}</Btn>},
     ]} rows={list} empty="本阶段无待处理源数据"/>}
     {aiRow && (()=>{ const j=judge(aiRow); return <div className="src-card" style={{marginTop:14}}>

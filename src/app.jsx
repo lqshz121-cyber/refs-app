@@ -22,11 +22,15 @@ import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
 import { batchBankTransition, buildBankDraft, buildBankWorkflowException, createBankDraftTransition, excludeBankTransition, matchBankTransition, undoBankTransition, validateBankDraft } from './bank-workflow.js';
-import { copyJEAsDraft, createReclassDraft, createRecurringTemplate, createReversal, rejectJETransition, saveJEDraft, transitionJE } from './je-workflow.js';
+import { authorizeJECommand, copyJEAsDraft, createReclassDraft, createRecurringTemplate, createReversal, rejectJETransition, resolveJEPeriod, saveJEDraft, transitionJE, validateNewJEBatch, validateNewJESpec } from './je-workflow.js';
 
-const SEED_V='v11';
+const SEED_V='v12';
 const BUILD_SHA = typeof __REFS_BUILD_SHA__ !== 'undefined' ? __REFS_BUILD_SHA__ : 'dev';
 const BUILD_TIME = typeof __REFS_BUILD_TIME__ !== 'undefined' ? __REFS_BUILD_TIME__ : 'local';
+
+const attachmentDB = () => new Promise((resolve,reject)=>{const request=indexedDB.open('refs-attachments',1);request.onupgradeneeded=()=>request.result.createObjectStore('blobs');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+const putAttachmentBlob = async (id,blob) => {const db=await attachmentDB();await new Promise((resolve,reject)=>{const tx=db.transaction('blobs','readwrite');tx.objectStore('blobs').put(blob,id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});db.close();};
+const getAttachmentBlob = async id => {const db=await attachmentDB();const blob=await new Promise((resolve,reject)=>{const request=db.transaction('blobs').objectStore('blobs').get(id);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});db.close();return blob;};
 
 class ErrorBoundary extends Component {
   constructor(p){ super(p); this.state={err:null}; }
@@ -139,6 +143,7 @@ function App() {
     {inv_id:8002, inv_no:'INV-2026-8002', customer_id:2, customer_name:'WanBridge OpCo (Owner)', inv_date:'2026-07-10', due_date:'2026-08-10', amount:12500, status:'PAID', je_number:'20260710000012', pay_je_number:'20260728000031'},
   ]}));
   const [recurring, setRecurring] = useState(()=>load('recurring',[]));
+  const [documents, setDocuments] = useState(()=>load('documents',[]));
   const [entity, setEntity] = useState(0);
   const [dark, setDark] = useState(false);
   const [toast, setToastS] = useState(null);
@@ -146,13 +151,16 @@ function App() {
   const [newMenu, setNewMenu] = useState(false);
   const [openGroups, setOpenGroups] = useState({Home:true, Transactions:true});
   const [q, setQ] = useState('');
+  const [jeDirty, setJEDirty] = useState(false);
   const bankSubmitLocks = useRef(new Set());
   const jeActionLocks = useRef(new Set());
 
   const user = USERS.find(u=>u.user_id===userId);
-  const period = PERIODS.find(p=>p.entity_id===(entity||2) && p.period_code==='2026-07') || {period_code:'2026-07', status:'OPEN'};
+  const period = entity?(PERIODS.find(p=>p.entity_id===entity&&p.period_code==='2026-07')||{period_code:'2026-07',status:'UNCONFIGURED'}):{period_code:'2026-07',status:'MULTI'};
   const showToast = (msg,tone='ok') => { setToastS({msg,tone}); setTimeout(()=>setToastS(null),3000); };
   const can = (perm) => { if(!user) return false; const p = ROLE_PERMS[user.role_code]; return p==='*' || (p||[]).includes(perm); };
+  const requestLeaveJE = () => {if(!jeDirty)return true;const ok=typeof window==='undefined'||window.confirm('Discard unsaved journal entry changes?');if(ok)setJEDirty(false);return ok;};
+  const navigate = next => {if(route==='je'&&!requestLeaveJE())return false;setRoute(next);return true;};
 
   useEffect(()=>{ document.body.className = dark?'dark':''; },[dark]);
   const persist=(k,v)=>{try{localStorage.setItem('refs_'+k,JSON.stringify(v))}catch(e){}};
@@ -160,6 +168,7 @@ function App() {
   useEffect(()=>{persist('close',closeTasks)},[closeTasks]); useEffect(()=>{persist('ap',ap)},[ap]);
   useEffect(()=>{persist('bank',bank)},[bank]); useEffect(()=>{persist('coa',coa)},[coa]); useEffect(()=>{persist('ar',ar)},[ar]);
   useEffect(()=>{persist('recurring',recurring)},[recurring]);
+  useEffect(()=>{persist('documents',documents)},[documents]);
   useEffect(()=>{ if(userId) persist('user',userId); },[userId]);
   useEffect(()=>{ bumpId(Math.max(9000,...jes.map(j=>+j.je_id||0),...ap.bills.map(b=>+b.bill_id||0))); },[]);
   useEffect(()=>{
@@ -168,6 +177,7 @@ function App() {
   },[]);
 
   const audit = (action, objectType, objectRef, detail) => repo.audit(userId, action, objectType, objectRef, detail);
+  const ownedPeriod = je => resolveJEPeriod(PERIODS,je);
   const mkJE = (spec) => { const id = nextId(); return {je_id:id, je_number:'20260731'+String(id).padStart(6,'0'), period_code:'2026-07', posting_status:'DRAFT', je_date:'2026-07-31', created_by:userId, history:[{a:'CREATE',by:userId,at:'2026-07-31'}], ...spec}; };
   const bankFailure = (txn, failure) => {
     const ref=txn?.external_id||'UNKNOWN_BANK_SOURCE';
@@ -176,27 +186,30 @@ function App() {
     return failure;
   };
   const actions = {
-    newJE: () => { const je = mkJE({entity_id:entity||2, je_type:'MANUAL', description:'', source_system:'MAN', has_attachment:false,
-      lines:[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}]}); setJes(js=>[je,...js]); return je.je_id; },
-    newJEFromRule: (spec) => { const je = mkJE({...spec}); setJes(js=>[je,...js]); return je.je_id; },
-    updateJE: (id, producer) => setJes(js=>js.map(j=>{ if(j.je_id!==id||j.posting_status!=='DRAFT') return j; const d=structuredClone(j); producer(d); d.dirty=true; return d; })),
+    newJE: () => {const auth=authorizeJECommand({can});if(!auth.ok){showToast(auth.message,'bad');return null;} const je = mkJE({entity_id:entity||2, je_type:'MANUAL', description:'', source_system:'MAN', has_attachment:false,attachment_ids:[],
+      lines:[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}]}); setJes(js=>[je,...js]);audit('CREATE','JE',je.je_number,'Manual Draft');return je.je_id; },
+    newJEFromRule: (spec) => {const sourceKey=`CREATE:${spec?.source_system}:${spec?.source_doc_id}`;if(jeActionLocks.current.has(sourceKey)){showToast('Duplicate source action is already processing.','bad');return null;}const validation=validateNewJESpec({spec,existingJEs:jes,can});if(!validation.ok){showToast(validation.message,'bad');audit('CREATE_BLOCKED','JE',spec?.source_doc_id||'UNKNOWN',validation.code);return null;}const owned=ownedPeriod({entity_id:spec.entity_id,period_code:spec.period_code||'2026-07'});if(!owned.ok||owned.period.status!=='OPEN'){const failure=owned.ok?{code:'4005',message:`Period ${owned.period.period_code} is ${owned.period.status}.`}:owned;showToast(failure.message,'bad');audit('CREATE_BLOCKED','JE',spec.source_doc_id||'UNKNOWN',failure.code);return null;}jeActionLocks.current.add(sourceKey);const je = mkJE({...spec,posting_status:'DRAFT'});setJes(js=>[je,...js]);audit('CREATE','JE',je.je_number,`${je.source_system}:${je.source_doc_id}`);return je.je_id; },
+    newJEBatch: specs => {const batchKey='BATCH:'+[...(specs||[])].map(s=>`${s.source_system}:${s.source_doc_id}`).sort().join('|');if(jeActionLocks.current.has(batchKey))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This batch is already processing.'};const validation=validateNewJEBatch({specs,existingJEs:jes,periods:PERIODS,can});if(!validation.ok){showToast(validation.message,'bad');audit('BATCH_CREATE_BLOCKED','JE_BATCH',specs?.[0]?.idempotency_key||'UNKNOWN',validation.code);return validation;}jeActionLocks.current.add(batchKey);const created=specs.map(spec=>mkJE({...spec,posting_status:'DRAFT'}));setJes(js=>[...created,...js]);created.forEach(je=>audit('CREATE_BATCH_DRAFT','JE',je.je_number,`${je.source_system}:${je.source_doc_id}`));return {ok:true,je_ids:created.map(j=>j.je_id)};},
+    updateJE: (id, producer) => {const auth=authorizeJECommand({can});if(!auth.ok)return auth;setJes(js=>js.map(j=>{ if(j.je_id!==id||j.posting_status!=='DRAFT') return j; const d=structuredClone(j); producer(d); d.dirty=true; return d; }));return {ok:true};},
     saveJE: (draft) => {const current=jes.find(j=>j.je_id===draft?.je_id);const key=`SAVE:${current?.je_id}:${current?.revision||0}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This save is already processing.'};const result=saveJEDraft({current,draft,user});
-      if(!result.ok)return result;jeActionLocks.current.add(key);setJes(js=>js.map(j=>j.je_id===draft.je_id?result.je:j));audit('SAVE','JE',result.je.je_number,`revision ${result.je.revision}`);return result;},
+      const auth=authorizeJECommand({can});if(!auth.ok)return auth;if(!result.ok)return result;jeActionLocks.current.add(key);setJes(js=>js.map(j=>j.je_id===draft.je_id?result.je:j));audit(result.je.history.at(-1)?.override?'SAVE_OVERRIDE':'SAVE','JE',result.je.je_number,`revision ${result.je.revision}`);return result;},
     saveAndAdvanceJE: (draft,next,label) => {const current=jes.find(j=>j.je_id===draft?.je_id);const key=`FLOW:${current?.je_id}:${current?.posting_status}:${next}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This workflow action is already processing.'};const saved=saveJEDraft({current,draft,user});
-      if(!saved.ok)return saved;const result=transitionJE({je:saved.je,next,user,period,can,label});if(!result.ok)return result;
+      const auth=authorizeJECommand({can});if(!auth.ok)return auth;if(!saved.ok)return saved;const owned=ownedPeriod(saved.je);if(!owned.ok)return owned;const result=transitionJE({je:saved.je,next,user,period:owned.period,documents,can,label});if(!result.ok)return result;
       jeActionLocks.current.add(key);setJes(js=>js.map(j=>j.je_id===draft.je_id?result.je:j));audit(label||next,'JE',result.je.je_number,`${current.posting_status} -> ${next}`);return result;},
-    advanceJE: (id,next,label) => {const current=jes.find(j=>j.je_id===id);const key=`FLOW:${id}:${current?.posting_status}:${next}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This workflow action is already processing.'};const result=transitionJE({je:current,next,user,period,can,label});
+    advanceJE: (id,next,label) => {const current=jes.find(j=>j.je_id===id);const key=`FLOW:${id}:${current?.posting_status}:${next}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This workflow action is already processing.'};const owned=ownedPeriod(current);if(!owned.ok)return owned;const result=transitionJE({je:current,next,user,period:owned.period,documents,can,label});
       if(!result.ok)return result;jeActionLocks.current.add(key);setJes(js=>js.map(j=>j.je_id===id?result.je:j));audit(label||next,'JE',result.je.je_number,`${current.posting_status} -> ${next}`);return result;},
-    rejectJE: (id) => {const current=jes.find(j=>j.je_id===id);const key=`REJECT:${id}:${current?.posting_status}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This reject is already processing.'};const result=rejectJETransition({je:current,user,can});
-      if(!result.ok)return result;jeActionLocks.current.add(key);setJes(js=>js.map(j=>j.je_id===id?result.je:j));audit('REJECT','JE',result.je.je_number,'Return to Draft');return result;},
-    copyJE: (id) => {const source=jes.find(j=>j.je_id===id);const nid=nextId();const result=copyJEAsDraft({source,newId:nid,newNumber:'20260731'+String(nid).padStart(6,'0'),user});
+    rejectJE: (id,reason) => {const current=jes.find(j=>j.je_id===id);const key=`REJECT:${id}:${current?.posting_status}`;if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This reject is already processing.'};const result=rejectJETransition({je:current,user,reason,can});
+      if(!result.ok)return result;jeActionLocks.current.add(key);setJes(js=>js.map(j=>j.je_id===id?result.je:j));audit('REJECT','JE',result.je.je_number,reason);return result;},
+    copyJE: (id) => {const source=jes.find(j=>j.je_id===id);const auth=authorizeJECommand({can});if(!auth.ok)return auth;const owned=ownedPeriod(source);if(!owned.ok)return owned;if(owned.period.status!=='OPEN')return {ok:false,code:'4005',message:`Period ${owned.period.period_code} is ${owned.period.status}.`};const nid=nextId();const result=copyJEAsDraft({source,newId:nid,newNumber:'20260731'+String(nid).padStart(6,'0'),user});
       if(!result.ok)return result;setJes(js=>[result.je,...js]);audit('COPY','JE',result.je.je_number,`from ${source.je_number}`);return {ok:true,je_id:nid};},
     makeRecurringJE: (id,schedule='MONTHLY') => {const key=`RECURRING:${id}:${schedule}`;const source=jes.find(j=>j.je_id===id);const existing=recurring.find(r=>r.source_je_id===id&&r.schedule===schedule&&r.status==='ACTIVE');if(existing)return {ok:true,template:existing,idempotent:true};if(jeActionLocks.current.has(key))return {ok:false,code:'JE_DUPLICATE_ACTION',message:'This recurring template is already processing.'};const result=createRecurringTemplate({source,templateId:'REC-'+nextId(),user,schedule});
-      if(!result.ok)return result;jeActionLocks.current.add(key);setRecurring(rs=>rs.some(r=>r.source_je_id===id&&r.schedule===schedule&&r.status==='ACTIVE')?rs:[result.template,...rs]);audit('CREATE_RECURRING','JE',source.je_number,result.template.template_id);return result;},
-    reclassJE: (id) => {const source=jes.find(j=>j.je_id===id);const nid=nextId();const result=createReclassDraft({source,newId:nid,newNumber:'20260731'+String(nid).padStart(6,'0'),user});
+      const auth=authorizeJECommand({can});if(!auth.ok)return auth;if(!result.ok)return result;jeActionLocks.current.add(key);setRecurring(rs=>rs.some(r=>r.source_je_id===id&&r.schedule===schedule&&r.status==='ACTIVE')?rs:[result.template,...rs]);audit('CREATE_RECURRING','JE',source.je_number,result.template.template_id);return result;},
+    reclassJE: (id) => {const source=jes.find(j=>j.je_id===id);const auth=authorizeJECommand({can});if(!auth.ok)return auth;const owned=ownedPeriod(source);if(!owned.ok)return owned;if(owned.period.status!=='OPEN')return {ok:false,code:'4005',message:`Period ${owned.period.period_code} is ${owned.period.status}.`};const nid=nextId();const result=createReclassDraft({source,newId:nid,newNumber:'20260731'+String(nid).padStart(6,'0'),user});
       if(!result.ok)return result;setJes(js=>[result.je,...js]);audit('RECLASS_DRAFT','JE',result.je.je_number,`from ${source.je_number}`);return {ok:true,je_id:nid};},
-    reverseJE: (id) => {const source=jes.find(j=>j.je_id===id);const nid=nextId();const result=createReversal({source,newId:nid,user,period,can});
+    reverseJE: (id) => {const source=jes.find(j=>j.je_id===id);const owned=ownedPeriod(source);if(!owned.ok)return owned;const nid=nextId();const result=createReversal({source,newId:nid,user,period:owned.period,can});
       if(!result.ok)return result;setJes(js=>[result.reversal,...js.map(j=>j.je_id===id?result.source:j)]);audit('REVERSE','JE',source.je_number,result.reversal.je_number);return {ok:true,je_id:nid};},
+    storeJEDocument: async (file,jeId) => {const auth=authorizeJECommand({can});if(!auth.ok)return auth;const allowed=['application/pdf','image/png','image/jpeg','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.openxmlformats-officedocument.wordprocessingml.document'];if(!file||file.size<1||file.size>25*1024*1024)return {ok:false,code:'JE_ATTACHMENT_SIZE',message:'Attachment must be between 1 byte and 25 MB.'};if(!allowed.includes((file.type||'').toLowerCase())||/[\\/\0-\x1f]/.test(file.name||''))return {ok:false,code:'JE_ATTACHMENT_TYPE',message:'Unsupported or unsafe attachment.'};const bytes=await file.arrayBuffer();const digest=await crypto.subtle.digest('SHA-256',bytes);const hex=[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');const document_id='ATT-'+nextId();await putAttachmentBlob(document_id,file);const document={document_id,name:file.name.trim(),type:file.type.toLowerCase(),size:file.size,hash:`sha256:${hex}`,storage_ref:`indexeddb://refs-attachments/${document_id}`,storage_state:'STORED',uploaded_by:userId,uploaded_at:new Date().toISOString()};setDocuments(ds=>[document,...ds]);audit('ATTACH','JE','#'+jeId,`${document.document_id}:${document.hash}`);return {ok:true,document};},
+    openJEDocument: async id => {const document=documents.find(d=>d.document_id===id);if(!document)return {ok:false,code:'JE_ATTACHMENT_REFERENCE',message:'Document metadata is missing.'};const blob=await getAttachmentBlob(id);if(!blob)return {ok:false,code:'JE_ATTACHMENT_BLOB',message:'Document content is missing.'};const url=URL.createObjectURL(blob);window.open(url,'_blank','noopener');setTimeout(()=>URL.revokeObjectURL(url),60000);audit('VIEW_ATTACHMENT','DOCUMENT',id,document.hash);return {ok:true};},
     ensureException: (spec) => setExceptions(xs=>{ if(xs.some(e=>e.exception_type===spec.exception_type && e.object_ref===spec.object_ref && e.status!=='CLOSED')) return xs;
       return [{exception_id:nextId(), occurred_date:'2026-07-31', aging_days:0, status:'OPEN', resolution:'', ...spec}, ...xs]; }),
     resolveException: (id, resolution) => setExceptions(xs=>xs.map(e=>e.exception_id===id?{...e, status:'CLOSED', resolution, closed_by:userId}:e)),
@@ -320,7 +333,7 @@ function App() {
   const isAdmin = ADMIN_ROLES.includes(user.role_code);
   const nav = NAV.filter(g=>!g.adminOnly || isAdmin);
   const flat = nav.flatMap(g=>g.items.map(([k,l])=>[k,'·',l]));
-  const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, recurring, user, entity, period, can, actions, toast:showToast, goto:setRoute};
+  const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, recurring, documents, user, entity, period, can, actions, toast:showToast, goto:navigate, setJEDirty, requestLeaveJE};
   const Comp = COMP[route] || Dashboard;
   const paletteItems = flat.filter(([k,ic,l])=>l.toLowerCase().includes(q.toLowerCase())||k.includes(q.toLowerCase()));
   const jeHits = q.length>=3 ? jes.filter(j=>(j.je_number||'').includes(q)||((j.payee||'').toLowerCase().includes(q.toLowerCase()))).slice(0,5) : [];
@@ -333,7 +346,7 @@ function App() {
         return <div key={g.group} className="nav-group">
         <button className="nav-group-h" onClick={()=>setOpenGroups(o=>({...o,[g.group]:!opened}))}>
           <span className="nav-ic">{g.icon}</span>{g.group}<span className="nav-caret">{opened?'▾':'▸'}</span></button>
-        {opened && g.items.map(([k,l])=><button key={k} className={`nav-item nav-sub ${route===k?'nav-on':''}`} onClick={()=>setRoute(k)}>{l}</button>)}
+        {opened && g.items.map(([k,l])=><button key={k} className={`nav-item nav-sub ${route===k?'nav-on':''}`} onClick={()=>navigate(k)}>{l}</button>)}
       </div>;})}</nav>
     </aside>
     <div className="main">
@@ -344,7 +357,7 @@ function App() {
           <span className="muted sm" title={`Built ${BUILD_TIME}`}>build {BUILD_SHA} · {BUILD_TIME.slice(0,16).replace('T',' ')}Z</span>
           <span className="sw">期间 <b>2026-07</b> <span className={`badge badge-${period.status==='OPEN'?'ok':'muted'}`}>{period.status}</span></span>
           <button className="icon-btn" title="帮助" onClick={()=>showToast('帮助中心(原型)')}>?</button>
-          <button className="icon-btn" title="通知" onClick={()=>setRoute('exceptions')}>🔔</button>
+          <button className="icon-btn" title="通知" onClick={()=>navigate('exceptions')}>🔔</button>
           <button className="icon-btn" onClick={()=>actions.resetData()} title="重置演示数据">⟲</button>
           <button className="icon-btn" onClick={()=>setDark(d=>!d)} title="明/暗">{dark?'☀':'☾'}</button>
           <span className="muted" style={{fontSize:10.5,opacity:.7}} title="commit · build time">{typeof window!=='undefined'&&window.__BUILD?`${window.__BUILD.sha} · ${window.__BUILD.time}`:''}</span>
@@ -360,29 +373,29 @@ function App() {
     {newMenu && <div className="newmenu-scrim" onClick={()=>setNewMenu(false)}>
       <div className="newmenu" onClick={e=>e.stopPropagation()}>
         <div><h5>总账 Accounting</h5>
-          <button onClick={()=>{actions.newJE(); setRoute('je'); setNewMenu(false);}}>Journal Entry 手工分录</button>
-          <button onClick={()=>{setRoute('coa'); setNewMenu(false);}}>Account 科目</button>
-          <button onClick={()=>{setRoute('close'); setNewMenu(false);}}>Close Task 月结任务</button></div>
+          <button onClick={()=>{const id=actions.newJE();if(id)navigate('je');setNewMenu(false);}}>Journal Entry 手工分录</button>
+          <button onClick={()=>{navigate('coa'); setNewMenu(false);}}>Account 科目</button>
+          <button onClick={()=>{navigate('close'); setNewMenu(false);}}>Close Task 月结任务</button></div>
         <div><h5>支出 Expenses</h5>
-          <button onClick={()=>{setRoute('ap'); setNewMenu(false);}}>Bill 应付账单</button>
-          <button onClick={()=>{setRoute('checks'); setNewMenu(false);}}>Check 支票</button>
-          <button onClick={()=>{setRoute('ap'); setNewMenu(false);}}>Pay Bills 付款批次</button></div>
+          <button onClick={()=>{navigate('ap'); setNewMenu(false);}}>Bill 应付账单</button>
+          <button onClick={()=>{navigate('checks'); setNewMenu(false);}}>Check 支票</button>
+          <button onClick={()=>{navigate('ap'); setNewMenu(false);}}>Pay Bills 付款批次</button></div>
         <div><h5>房地产 Real Estate</h5>
-          <button onClick={()=>{setRoute('loan'); setNewMenu(false);}}>Loan Draw 提款</button>
-          <button onClick={()=>{setRoute('pmpickup'); setNewMenu(false);}}>PM Pickup 批次</button>
-          <button onClick={()=>{setRoute('closing'); setNewMenu(false);}}>Closing 交割</button></div>
+          <button onClick={()=>{navigate('loan'); setNewMenu(false);}}>Loan Draw 提款</button>
+          <button onClick={()=>{navigate('pmpickup'); setNewMenu(false);}}>PM Pickup 批次</button>
+          <button onClick={()=>{navigate('closing'); setNewMenu(false);}}>Closing 交割</button></div>
         <div><h5>其他 Other</h5>
-          <button onClick={()=>{setRoute('bankrec'); setNewMenu(false);}}>Reconcile 对账</button>
-          <button onClick={()=>{setRoute('exceptions'); setNewMenu(false);}}>Exception 异常</button>
-          <button onClick={()=>{setRoute('reports'); setNewMenu(false);}}>Report 报表</button></div>
+          <button onClick={()=>{navigate('bankrec'); setNewMenu(false);}}>Reconcile 对账</button>
+          <button onClick={()=>{navigate('exceptions'); setNewMenu(false);}}>Exception 异常</button>
+          <button onClick={()=>{navigate('reports'); setNewMenu(false);}}>Report 报表</button></div>
       </div>
     </div>}
     {palette && <div className="pal-scrim" onClick={()=>setPalette(false)}>
       <div className="pal" onClick={e=>e.stopPropagation()}>
         <input autoFocus placeholder="跳转到模块…" value={q} onChange={e=>setQ(e.target.value)}
-          onKeyDown={e=>{if(e.key==='Enter'&&paletteItems[0]){setRoute(paletteItems[0][0]); setPalette(false); setQ('');}}}/>
-        <div className="pal-list">{jeHits.map(j=><button key={'je'+j.je_id} onClick={()=>{setRoute('je'); setPalette(false); setQ('');}}>✎ {j.je_number} · {(j.payee||j.description||'').slice(0,30)}<span className="muted sm">JE</span></button>)}{paletteItems.map(([k,ic,l])=>
-          <button key={k} onClick={()=>{setRoute(k); setPalette(false); setQ('');}}>{ic} {l}<span className="muted sm">{k}</span></button>)}</div>
+          onKeyDown={e=>{if(e.key==='Enter'&&paletteItems[0]){navigate(paletteItems[0][0]); setPalette(false); setQ('');}}}/>
+        <div className="pal-list">{jeHits.map(j=><button key={'je'+j.je_id} onClick={()=>{navigate('je'); setPalette(false); setQ('');}}>✎ {j.je_number} · {(j.payee||j.description||'').slice(0,30)}<span className="muted sm">JE</span></button>)}{paletteItems.map(([k,ic,l])=>
+          <button key={k} onClick={()=>{navigate(k); setPalette(false); setQ('');}}>{ic} {l}<span className="muted sm">{k}</span></button>)}</div>
       </div>
     </div>}
     {toast && <Toast msg={toast.msg} tone={toast.tone} />}

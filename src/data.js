@@ -241,6 +241,8 @@ export const PERIODS = [
   {period_id:1, entity_id:2, period_code:'2026-06', status:'CLOSED'},
   {period_id:2, entity_id:2, period_code:'2026-07', status:'OPEN'},
   {period_id:3, entity_id:4, period_code:'2026-07', status:'OPEN'},
+  {period_id:4, entity_id:2, period_code:'2026-08', status:'OPEN'},
+  {period_id:5, entity_id:4, period_code:'2026-08', status:'OPEN'},
 ];
 
 export const PROJECTS = [
