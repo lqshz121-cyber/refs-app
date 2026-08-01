@@ -1,15 +1,20 @@
 // AI Accounting Judge — 每笔 source 进入时判断分录 (规格九: 只建议, 不过账)
 import { loadSetting } from './settings.js';
 import { acct } from './engine.js';
-export function aiJudge(source, en){
+import { repo } from './repo.js';
+const AI_MODEL='rules-v2.3'; const PROMPT_V='settings-2026.08';
+const digest=(o)=>{ const s=JSON.stringify(o); let h=0; for(let i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))|0;} return 'D'+Math.abs(h).toString(36); };
+export const logAI=(entry)=>{ const log=repo.load('ai_log',[]); log.unshift({ts:new Date().toISOString().slice(0,19).replace('T',' '), model:AI_MODEL, prompt_version:PROMPT_V, ...entry}); repo.save('ai_log', log.slice(0,200)); };
+export function aiJudge(source, en, opts){
   // source: {category, type, detail, amount, direction, payee, cost_code, status, description}
   const s = loadSetting(en);
-  const R = (dr,cr,rule,conf,reason,risk)=>({
+  const R = (dr,cr,rule,conf,reason,risk)=>_wrap({
     suggested:{dr, cr, dr_name:acct(dr).account_name, cr_name:acct(cr).account_name},
     confidence:conf, reason, rule_used:rule, setting_used:`${en.entity_code}·2026·${source.category||'Bank Transaction'}`,
     risk, need_human: conf<0.9 || risk!=='LOW',
     evidence: source.description||source.detail||'',
   });
+  const _wrap = (r)=>{ if(!opts||!opts.silent) logAI({input_digest:digest(source), input_summary:(source.category||'')+'/'+(source.type||'')+'/'+(source.detail||source.cost_code||'').slice(0,20), entity:en.entity_code, suggested:r.suggested, confidence:r.confidence, rule:r.rule_used, risk:r.risk}); return r; };
   const find=(rows,f)=>rows.find(f);
   // 1. bank detail exact match
   const bankRow = find(s.account_setting, r=>r.type==='Bank' && r.detail===source.detail);

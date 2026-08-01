@@ -51,28 +51,45 @@ export function APWorkspace({ctx}) {
 
 function NewBill({open, onClose, ctx}) {
   const {actions, toast} = ctx;
-  const [f, setF] = useState({vendor_id:'', invoice_no:'', bill_date:'2026-07-31', due_date:'2026-08-30', account_code:'612900', property_id:'', amount:''});
+  const [f, setF] = useState({vendor_id:'', invoice_no:'', bill_date:'2026-07-31', due_date:'2026-08-30', property_id:''});
+  const [lines, setLines] = useState([{account_code:'612900', description:'', amount:'', cost_code:''}]);
   const set=(k,v)=>setF(s=>({...s,[k]:v}));
+  const setL=(i,k,v)=>setLines(ls=>ls.map((l,x)=>x===i?{...l,[k]:v}:l));
+  const total = lines.reduce((s,l)=>s+(+l.amount||0),0);
   const submit = () => {
-    if(!f.vendor_id||!f.invoice_no||!f.amount||+f.amount<=0){ toast('供应商/发票号/金额必填','bad'); return; }
-    const r = actions.addBill({...f, vendor_id:+f.vendor_id, amount:+f.amount, property_id:f.property_id?+f.property_id:null});
+    if(!f.vendor_id||!f.invoice_no||total<=0){ toast('供应商/发票号/行金额必填','bad'); return; }
+    if(lines.some(l=>!l.account_code)){ toast('每行必须选科目','bad'); return; }
+    const r = actions.addBill({...f, vendor_id:+f.vendor_id, amount:total, account_code:lines[0].account_code,
+      property_id:f.property_id?+f.property_id:null, lines: lines.map(l=>({...l, amount:+l.amount||0}))});
     if (r.dup) { toast(`重复发票拦截 [4004]：${r.dup} 已存在同供应商+同发票号`,'bad'); return; }
-    toast('Bill 已创建并提交审批'); onClose();
+    toast(`Bill 已创建(${lines.length} 行,合计 $${total.toLocaleString()})并提交审批`); onClose();
+    setLines([{account_code:'612900', description:'', amount:'', cost_code:''}]);
   };
-  return <Drawer open={open} onClose={onClose} title="录入 Bill" width={520}
-    actions={<><Btn onClick={onClose}>取消</Btn><Btn variant="primary" onClick={submit}>创建 Bill</Btn></>}>
-    <Field label="供应商" required><select value={f.vendor_id} onChange={e=>set('vendor_id',e.target.value)}>
-      <option value="">— 选择 —</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}{v.is_related_party?' (RP)':''}</option>)}</select></Field>
-    <Field label="发票号 Invoice #" required hint="同供应商+同发票号将被重复拦截"><input value={f.invoice_no} onChange={e=>set('invoice_no',e.target.value)}/></Field>
+  return <Drawer open={open} onClose={onClose} title="录入 Bill · Category Details" width={640}
+    actions={<><Btn onClick={onClose}>取消</Btn><Btn variant="primary" onClick={submit}>创建 Bill (${total.toLocaleString()})</Btn></>}>
+    <div className="two-col">
+      <Field label="供应商" required><select value={f.vendor_id} onChange={e=>set('vendor_id',e.target.value)}>
+        <option value="">— 选择 —</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}{v.is_related_party?' (RP)':''}</option>)}</select></Field>
+      <Field label="发票号 Invoice #" required><input value={f.invoice_no} onChange={e=>set('invoice_no',e.target.value)}/></Field>
+    </div>
     <div className="two-col">
       <Field label="Bill 日期"><input type="date" value={f.bill_date} onChange={e=>set('bill_date',e.target.value)}/></Field>
       <Field label="到期日"><input type="date" value={f.due_date} onChange={e=>set('due_date',e.target.value)}/></Field>
     </div>
-    <Field label="费用科目"><select value={f.account_code} onChange={e=>set('account_code',e.target.value)}>
-      {COA.filter(a=>['EXPENSE','ASSET'].includes(a.account_type)).map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} {a.account_name}</option>)}</select></Field>
-    <Field label="物业 (维度)"><select value={f.property_id} onChange={e=>set('property_id',e.target.value)}>
-      <option value="">—</option>{PROPERTIES.map(p=><option key={p.property_id} value={p.property_id}>{p.property_code} {p.property_name}</option>)}</select></Field>
-    <Field label="金额" required><input type="number" value={f.amount} onChange={e=>set('amount',e.target.value)}/></Field>
+    <SectionTitle right={<Btn size="sm" onClick={()=>setLines(ls=>[...ls,{account_code:'',description:'',amount:'',cost_code:''}])}>+ 加行</Btn>}>Category Details({lines.length} 行)</SectionTitle>
+    <table className="tbl tbl-dense"><thead><tr><th>#</th><th>Category / 科目</th><th>Description</th><th>Cost Code</th><th className="ta-r">Amount</th><th></th></tr></thead>
+      <tbody>{lines.map((l,i)=><tr key={i}>
+        <td className="muted">{i+1}</td>
+        <td><select value={l.account_code} onChange={e=>setL(i,'account_code',e.target.value)} style={{maxWidth:210}}>
+          <option value="">选择科目</option>{COA.filter(a=>['EXPENSE','ASSET'].includes(a.account_type)).map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} {a.account_name}</option>)}</select></td>
+        <td><input className="desc-line" value={l.description} onChange={e=>setL(i,'description',e.target.value)}/></td>
+        <td><input className="date-in" style={{width:80}} placeholder="2HD…" value={l.cost_code} onChange={e=>setL(i,'cost_code',e.target.value)}/></td>
+        <td className="ta-r"><input className="num-in" type="number" value={l.amount} onChange={e=>setL(i,'amount',e.target.value)}/></td>
+        <td>{lines.length>1&&<button className="x-sm" onClick={()=>setLines(ls=>ls.filter((_,x)=>x!==i))}>×</button>}</td>
+      </tr>)}</tbody>
+      <tfoot><tr><td colSpan={4}>Total</td><td className="ta-r"><b>${total.toLocaleString()}</b></td><td/></tr></tfoot>
+    </table>
+    <p className="muted sm">审批后逐行 Dr(科目+Cost Code) / Cr 291001_Payee 一笔挂账;Cost Code 影响 CWIP/费用判定。</p>
   </Drawer>;
 }
 

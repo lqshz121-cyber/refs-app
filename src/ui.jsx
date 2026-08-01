@@ -31,13 +31,18 @@ export function Money({v, bold}) {
 
 // ================= Enterprise Data Grid =================
 // sort / text filter / CSV export / pagination / density / row click
+const _loadView = (k)=>{ try{ return JSON.parse(localStorage.getItem('refs_view_'+k))||{}; }catch(e){ return {}; } };
+const _saveView = (k,v)=>{ try{ localStorage.setItem('refs_view_'+k, JSON.stringify(v)); }catch(e){} };
 export function Table({cols, rows, onRow, empty='暂无数据', rowKey, features={}, pageSize=25, exportName}) {
+  const V = exportName ? _loadView(exportName) : {};
   const {sortable=true, filterable=rows&&rows.length>8, exportable=!!exportName, paginate=rows&&rows.length>pageSize} = features;
-  const [sortK, setSortK] = useState(null);
-  const [sortDir, setSortDir] = useState(1);
-  const [q, setQ] = useState('');
+  const [sortK, setSortK] = useState(V.sortK??null);
+  const [sortDir, setSortDir] = useState(V.sortDir??1);
+  const [q, setQ] = useState(V.q||'');
   const [page, setPage] = useState(0);
-  const [dense, setDense] = useState(false);
+  const [dense, setDense] = useState(!!V.dense);
+  const [hi, setHi] = useState(-1);
+  const persist = (patch)=>{ if(exportName) _saveView(exportName, {sortK,sortDir,q,dense,...patch}); };
 
   const cellVal = (r,c) => { if (c.sortVal) return c.sortVal(r); if (c.k!=null) return r[c.k]; if (c.render){ const v=c.render(r); return typeof v==='string'||typeof v==='number'? v : ''; } return ''; };
   const filtered = useMemo(()=>{
@@ -66,20 +71,24 @@ export function Table({cols, rows, onRow, empty='暂无数据', rowKey, features
   if (!rows || rows.length===0) return <div className="empty">{empty}</div>;
   return <div>
     {(filterable||exportable) && <div className="grid-bar">
-      {filterable && <input className="grid-search" placeholder="🔍 筛选…" value={q} onChange={e=>{setQ(e.target.value); setPage(0);}}/>}
+      {filterable && <input className="grid-search" placeholder="🔍 筛选…(视图自动保存)" value={q} onChange={e=>{setQ(e.target.value); setPage(0); persist({q:e.target.value});}}/>}
       <span className="grid-count muted">{sorted.length} 行</span>
       <span style={{flex:1}}/>
-      <button className="grid-tool" onClick={()=>setDense(d=>!d)} title="密度">{dense?'Comfortable':'Compact'}</button>
+      <button className="grid-tool" onClick={()=>{setDense(d=>{persist({dense:!d}); return !d;});}} title="密度">{dense?'Comfortable':'Compact'}</button>
       {exportable && <button className="grid-tool" onClick={doExport}>导出 CSV</button>}
     </div>}
-    <div className="table-wrap"><table className={`tbl ${dense?'tbl-dense':''}`}>
+    <div className="table-wrap" tabIndex={0} onKeyDown={e=>{ if(!view.length) return;
+      if(e.key==='ArrowDown'){ e.preventDefault(); setHi(h=>Math.min(view.length-1,h+1)); }
+      if(e.key==='ArrowUp'){ e.preventDefault(); setHi(h=>Math.max(0,h-1)); }
+      if(e.key==='Enter' && hi>=0 && onRow){ e.preventDefault(); onRow(view[hi]); }
+    }}><table className={`tbl ${dense?'tbl-dense':''}`}>
       <thead><tr>{cols.map((c,i)=>
         <th key={i} className={`${c.num?'ta-r':''} ${sortable?'th-sort':''}`} style={c.w?{width:c.w}:null}
-          onClick={sortable?()=>{ if(sortK===i) setSortDir(d=>-d); else {setSortK(i); setSortDir(1);} }:null}>
+          onClick={sortable?()=>{ if(sortK===i){ setSortDir(d=>{persist({sortK:i,sortDir:-d}); return -d;}); } else {setSortK(i); setSortDir(1); persist({sortK:i,sortDir:1});} }:null}>
           {c.h}{sortK===i && <span className="sort-ind">{sortDir>0?' ▲':' ▼'}</span>}
         </th>)}</tr></thead>
       <tbody>{view.map((r,ri)=>
-        <tr key={rowKey?r[rowKey]:ri} className={onRow?'tr-click':''} onClick={onRow?()=>onRow(r):null}>
+        <tr key={rowKey?r[rowKey]:ri} className={`${onRow?'tr-click':''} ${hi===ri?'tr-hi':''}`} onClick={onRow?()=>onRow(r):null} onMouseEnter={()=>setHi(ri)}>
           {cols.map((c,ci)=><td key={ci} className={c.num?'ta-r':''}>{c.render?c.render(r):r[c.k]}</td>)}
         </tr>)}
       </tbody>

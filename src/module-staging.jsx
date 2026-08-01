@@ -26,7 +26,7 @@ export function StagingCenter({ctx}) {
   const save = (r)=>{ setRows(r); repo.save('staging', r); };
   const enOf = id => ENTITIES.find(e=>e.entity_id===id)||ENTITIES[0];
   const judge = (r)=> aiJudge({category:r.category, type:r.type, detail:r.detail||r.description, direction:r.direction, amount:r.amount, description:r.description, payee:r.payee, cost_code:r.cost_code, status:r.status}, enOf(r.entity_id));
-  const STAGES=['全部','Pending Mapping','Pending Coding','Pending Review','Ready to Post','Posted','Exception'];
+  const STAGES=['全部','Pending Mapping','Pending Coding','Pending Review','Ready to Post','Posted','Exception','AI 决策日志'];
   const list = rows.filter(r=>(tab==='全部'||r.stage===tab) && (!entity||r.entity_id===entity));
   const stageTone = s=>({'Pending Mapping':'bad','Pending Coding':'warn','Pending Review':'warn','Ready to Post':'ok','Posted':'muted','Exception':'bad'}[s]||'muted');
   const advance = (r)=>{
@@ -36,6 +36,7 @@ export function StagingCenter({ctx}) {
     if (r.stage==='Pending Coding'){ save(rows.map(x=>x.id===r.id?{...x, stage:'Pending Review', ai:j}:x)); toast(`AI 已编码: Dr ${j.suggested.dr} / Cr ${j.suggested.cr} (${(j.confidence*100).toFixed(0)}%)`); return; }
     if (r.stage==='Pending Review'){ save(rows.map(x=>x.id===r.id?{...x, stage:'Ready to Post', ai:j}:x)); toast('人工复核通过 → Ready to Post'); return; }
     if (r.stage==='Ready to Post'){
+      import('./ai.js').then(m=>m.logAI({input_digest:'human', input_summary:r.source_id, entity:enOf(r.entity_id).entity_code, human_decision:'APPROVED→DraftJE', suggested:j.suggested, confidence:j.confidence, rule:j.rule_used, diff:'none(采纳AI建议)'}));
       const id = actions.newJEFromRule({entity_id:r.entity_id, source_system:r.source_system, payee:r.payee||null,
         description:`${r.description} [${r.source_id}]`, rule_code:j.rule_used, je_type:'AUTO',
         lines:[{account_code:j.suggested.dr, debit_amount:r.amount, credit_amount:0, member: j.suggested.dr.startsWith('291')?r.payee:undefined, cost_code:r.cost_code||undefined, description:r.cost_code||undefined},
@@ -56,7 +57,16 @@ export function StagingCenter({ctx}) {
       <KPI label="Posted" value={rows.filter(r=>r.stage==='Posted').length}/>
     </div>
     <Tabs tabs={STAGES} active={tab} onChange={setTab}/>
-    <Table rowKey="id" pageSize={20} exportName="staging" onRow={r=>setAiRow(r)} cols={[
+    {tab==='AI 决策日志' && (()=>{ const log=repo.load('ai_log',[]);
+      return <Table exportName="ai-decision-log" pageSize={20} cols={[
+        {h:'Time',k:'ts'},{h:'Model',render:r=><Badge tone="muted">{r.model}</Badge>},{h:'Prompt Ver',k:'prompt_version'},
+        {h:'Input',render:r=><span className="muted sm">{r.input_summary} · {r.input_digest}</span>},
+        {h:'Entity',k:'entity'},
+        {h:'Suggested',render:r=>r.suggested?`Dr ${r.suggested.dr} / Cr ${r.suggested.cr}`:'—'},
+        {h:'Conf',render:r=>r.confidence?(r.confidence*100).toFixed(0)+'%':'—'},
+        {h:'人工决策/差异',render:r=>r.human_decision?<Badge tone="ok">{r.human_decision}</Badge>:<span className="muted sm">建议(待人审)</span>},
+      ]} rows={log} empty="尚无 AI 判断记录"/>; })()}
+    {tab!=='AI 决策日志' && <Table rowKey="id" pageSize={20} exportName="staging" onRow={r=>setAiRow(r)} cols={[
       {h:'',w:8,render:r=><span style={{display:'inline-block',width:8,height:26,borderRadius:3,background:{bad:'#D93025',warn:'#F5B300',ok:'#0B9E58',muted:'#9aa2af'}[stageTone(r.stage)]}}/>},
       {h:'Source ID',render:r=><b style={{fontSize:12.5}}>{r.source_id}</b>,csv:r=>r.source_id},
       {h:'Category',render:r=><Badge tone="muted">{r.category}</Badge>,csv:r=>r.category},
@@ -70,7 +80,7 @@ export function StagingCenter({ctx}) {
       {h:'Stage',render:r=><Badge tone={stageTone(r.stage)}>{r.stage}</Badge>,csv:r=>r.stage},
       {h:'Action',render:r=> r.stage==='Posted' ? <span className="muted sm">JE ✓</span> :
         <Btn size="sm" variant={r.stage==='Ready to Post'?'primary':'default'} onClick={e=>{e.stopPropagation(); advance(r);}}>{actLabel[r.stage]}</Btn>},
-    ]} rows={list} empty="本阶段无待处理源数据"/>
+    ]} rows={list} empty="本阶段无待处理源数据"/>}
     {aiRow && (()=>{ const j=judge(aiRow); return <div className="src-card" style={{marginTop:14}}>
       <div className="src-chain"><span className="chip">{aiRow.source_system}</span>→<span className="chip">{aiRow.category}</span>→<span className="chip">Setting {enOf(aiRow.entity_id).entity_code}·2026</span>→<span className="chip chip-on">AI Judge</span>→<span className="chip">Draft JE</span></div>
       <div className="src-grid">
