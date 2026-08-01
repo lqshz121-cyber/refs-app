@@ -13,6 +13,8 @@ import { AutoBankRec, CheckMgmt } from './module-wbs.jsx';
 import { BankTransactions } from './module-banktx.jsx';
 import { AccountRegister } from './module-register.jsx';
 import { ARWorkspace } from './module-ar.jsx';
+import { SubsidiaryLedger } from './module-subledger.jsx';
+import { UnitCostLedger } from './module-unitcost.jsx';
 import { repo } from './repo.js';
 
 class ErrorBoundary extends Component {
@@ -47,14 +49,14 @@ const ROLE_PERMS = {
 };
 const NAV = [
   {group:'Control Center', icon:'◉', items:[['dashboard','Dashboard'],['approvals','Action Required'],['exceptions','Exceptions & AI Review']]},
-  {group:'Accounting', icon:'☰', items:[['coa','Chart of Accounts'],['je','Journal Entries'],['register','Account Register'],['gl','General Ledger']]},
+  {group:'Accounting', icon:'☰', items:[['coa','Chart of Accounts'],['je','Journal Entries'],['register','Account Register'],['subledger','辅助核算 Subsidiary'],['gl','General Ledger']]},
   {group:'WBS Accounting', icon:'⇅', items:[['integration','Integration Hub'],['autobankrec','Accounting Staging'],['mapping','Mapping Center'],['rules','Rule Center']]},
   {group:'Subledgers', icon:'▤', items:[['ap','AP Accounting'],['ar','AR Accounting'],['banktx','Bank Transactions'],['bankrec','Bank Reconciliation'],['checks','Checks & Payments'],['loan','Construction Loan'],['loanreg','Loan Register'],['intercompany','Intercompany']]},
-  {group:'Real Estate Accounting', icon:'▲', items:[['cost','Project Cost & CWIP'],['pmpickup','Property Ops Pickup'],['closing','Closing Accounting'],['assets','Fixed Assets']]},
+  {group:'Real Estate Accounting', icon:'▲', items:[['cost','Project Cost & CWIP'],['unitcost','Unit Cost Ledger'],['pmpickup','Property Ops Pickup'],['closing','Closing Accounting'],['assets','Fixed Assets']]},
   {group:'Close & Reports', icon:'☑', items:[['close','Month-End Close'],['reports','Reports Center']]},
   {group:'Admin', icon:'⚙', adminOnly:true, items:[['masterdata','Master Data'],['cash','Bank Accounts'],['audit','Audit Log'],['admin','Users & Settings']]},
 ];
-const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
+const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
   pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARWorkspace,
   cash:CashModule, bankrec:BankRec2, autobankrec:AutoBankRec, checks:CheckMgmt, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
   mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, reports:Reports, admin:AdminModule };
@@ -103,7 +105,7 @@ function Login({onLogin}) {
 }
 
 function App() {
-  const SEED_V='v5';
+  const SEED_V='v7';
   const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
   const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');

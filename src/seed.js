@@ -127,11 +127,20 @@ export const IC_TXNS = [
 
 // ===== FY2026 full-year ledger generator (real WBS entities, sanitized amounts) =====
 const FY = [];
+export const SOURCE_DOCS = {};
+let _sd = 0;
+const doc = (d)=>{ const id='SD-'+(++_sd); SOURCE_DOCS[id]={id, ...d}; return id; };
+const UNIT_OF = (e,m)=>`Lot ${100+((e*7+m)%3)+1} Block ${['A','B','C'][(e+m)%3]}`;
 let _g = 5000;
 const _cwipBal = {};
 const TYPE = {}; ENTITIES.forEach(e=>TYPE[e.entity_id]=e.entity_type);
 const NAMEOF = {}; ENTITIES.forEach(e=>NAMEOF[e.entity_id]=e.entity_name);
-const push=(e,mm,dd,src,payee,memo,lines)=>{ _g++; FY.push({je_id:_g, je_number:`2026${mm}${dd}${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-${dd}`, je_type:'AUTO', source_system:src, payee, description:memo, posting_status:'POSTED', created_by:'system', history:[{a:'WBS IMPORT · '+src,by:'system',at:`2026-${mm}-${dd}`}], lines}); };
+const SUBS={'111000':'Bank','220300':'Vendor','220200':'Vendor','291000':'Affiliate','291001':'Affiliate','125000':'Affiliate','120200':'Customer','123700':'Customer','270100':'Loan'};
+const BANKOF=(e)=>`Operating Cash_${(NAMEOF[e]||'WB').split(' ').map(w=>w[0]).join('')}_WF_${9000+e}`;
+const push=(e,mm,dd,src,payee,memo,lines)=>{
+  lines.forEach(l=>{ if(!l.member && SUBS[l.account_code]){
+    l.member = SUBS[l.account_code]==='Bank' ? BANKOF(e) : (payee || 'Wan Bridge Development LLC');
+    if(!l.description) l.description = (l.account_code.startsWith('291')?'Due to/from_':'') + l.member; }}); _g++; FY.push({je_id:_g, je_number:`2026${mm}${dd}${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-${dd}`, je_type:'AUTO', source_system:src, payee, description:memo, posting_status:'POSTED', created_by:'system', history:[{a:'WBS IMPORT · '+src,by:'system',at:`2026-${mm}-${dd}`}], lines}); };
 for (let m=1;m<=7;m++){
   const mm=String(m).padStart(2,'0');
   ENTITIES.forEach(en=>{
@@ -140,16 +149,23 @@ for (let m=1;m<=7;m++){
     if (e===15) return; // AIWB uses real scraped entries only
     if (t==='Vertical'||t==='ProjectCo'){
       const cwip=18000+e*140+m*620+seed*13;
-      push(e,mm,'15','PAYABLE','Summit General Contractors',`${mm}/2026 Construction cost accrual`,[
-        {account_code:'164400',debit_amount:cwip,credit_amount:0},{account_code:'220300',debit_amount:0,credit_amount:cwip}]);
+      const unit = UNIT_OF(e,m);
+      const sdid = doc({type:'CONSTRUCTION_INVOICE', doc_no:`INV-${en.entity_code}-26${mm}`, po_no:`PO-${en.entity_code}-${String(m).padStart(3,'0')}`, contract:`GC-2026-${en.entity_code}`, vendor:'Summit General Contractors', unit, cost_code:'03-300 Vertical Construction', date:`2026-${mm}-15`, amount:cwip, source_system:'WBS · Faster PO'});
+      push(e,mm,'15','PAYABLE','Summit General Contractors',`${mm}/2026 Construction cost accrual · ${unit}`,[
+        {account_code:'164400',debit_amount:cwip,credit_amount:0,unit_code:unit},{account_code:'220300',debit_amount:0,credit_amount:cwip}]);
+      FY[FY.length-1].source_doc_id=sdid; FY[FY.length-1].rule_code='R-WBS-INV-01';
       push(e,mm,'20','AUTOC','Wan Bridge Development LLC',`${mm}/2026 Affiliate funding & AP settle`,[
         {account_code:'111000',debit_amount:cwip,credit_amount:0},{account_code:'291000',debit_amount:0,credit_amount:cwip}]);
       _cwipBal[e]=(_cwipBal[e]||0)+cwip;
       if (m%3===0){ const price=300000+e*800+m*4000+seed*220; const cogs=Math.min(Math.round(price*0.82), _cwipBal[e]); _cwipBal[e]-=cogs;
-        push(e,mm,'28','CLOSING',null,`${mm}/2026 Home closing - unit sale`,[
-          {account_code:'111000',debit_amount:price,credit_amount:0},{account_code:'491800',debit_amount:0,credit_amount:price}]);
-        push(e,mm,'28','CLOSING',null,`${mm}/2026 Home closing - COGS relief`,[
-          {account_code:'510000',debit_amount:cogs,credit_amount:0},{account_code:'164400',debit_amount:0,credit_amount:cogs}]);
+        const su = UNIT_OF(e,m-1);
+        const csd = doc({type:'CLOSING_STATEMENT', doc_no:`HUD-${en.entity_code}-26${mm}`, unit:su, buyer:'Retail Buyer', title_co:'Apex Title LLC', date:`2026-${mm}-28`, amount:price, source_system:'WBS · Closing'});
+        push(e,mm,'28','CLOSING',null,`${mm}/2026 Home closing · ${su}`,[
+          {account_code:'111000',debit_amount:price,credit_amount:0,unit_code:su},{account_code:'491800',debit_amount:0,credit_amount:price,unit_code:su}]);
+        FY[FY.length-1].source_doc_id=csd; FY[FY.length-1].rule_code='R-CLS-SALE-01';
+        push(e,mm,'28','CLOSING',null,`${mm}/2026 COGS relief · ${su}`,[
+          {account_code:'510000',debit_amount:cogs,credit_amount:0,unit_code:su},{account_code:'164400',debit_amount:0,credit_amount:cogs,unit_code:su}]);
+        FY[FY.length-1].source_doc_id=csd; FY[FY.length-1].rule_code='R-CLS-COGS-01';
       }
     } else if (t==='LandCo'){
       const land=9000+e*90+m*310+seed*9;

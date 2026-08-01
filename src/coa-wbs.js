@@ -3,3 +3,14 @@ const RAW = `100000|ASSETS|D|H|1~110000|CASH|D|H|2~110100|Petty cash|D|R|3~11100
 export const WBS_COA_FULL = RAW.split('~').map(r=>{ const [code,name,nb,typ,lvl]=r.split('|');
   return {code, name, nb:nb==='C'?'CREDIT':'DEBIT', kind:typ, lvl:+lvl||0}; });
 export const WBS_COA_MAP = Object.fromEntries(WBS_COA_FULL.map(a=>[a.code,a]));
+// 辅助核算类型 (real WBS Subsidiary Account column + convention)
+export const SUBSIDIARY = {
+  '111000':'Bank','114000':'Bank','116000':'Bank','117010':'Bank','118000':'Bank','112000':'Bank',
+  '117001':'Vendor','220200':'Vendor','220300':'Vendor','220465':'Vendor','225000':'Vendor',
+  '120200':'Customer','121011':'Customer','123700':'Customer','123830':'Employee',
+  '125000':'Affiliate','291000':'Affiliate','291001':'Affiliate','291002':'Affiliate','291003':'Affiliate','291004':'Affiliate','291005':'Affiliate','291006':'Affiliate','291007':'Affiliate','291031':'Affiliate',
+  '260100':'Loan','260200':'Loan','270100':'Loan','270200':'Loan','270700':'Loan','289500':'Loan',
+};
+export const subsidiaryOf = (code)=>SUBSIDIARY[code]||null;
+// 从行取核算对象: 显式 member 优先, 否则解析 description 的 '_' 后缀
+export const memberOf = (l)=> l.member || (l.description && l.description.includes('_') ? l.description.split('_').slice(1).join('_').replace(/ \(clear\)$/,'') : null);

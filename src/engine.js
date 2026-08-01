@@ -3,7 +3,7 @@ import { COA, MAPPINGS, PROJECTS, PROPERTIES } from './data.js';
 const COA_MAP = Object.fromEntries(COA.map(a=>[a.account_code,a]));
 export const acct = (code) => COA_MAP[code] || (WBS_COA_MAP[code] ? {account_code:code, account_name:WBS_COA_MAP[code].name, account_type: code[0]==='1'?'ASSET':code[0]==='2'?'LIABILITY':code[0]==='3'?'EQUITY':code[0]==='4'?'REVENUE':'EXPENSE', normal_balance:WBS_COA_MAP[code].nb} : {account_code:code, account_name:'?', account_type:'ASSET', normal_balance:'DEBIT'});
 export const money = (n) => (n==null?'':(n<0?'(':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+(n<0?')':''));
-import { WBS_COA_MAP } from './coa-wbs.js';
+import { WBS_COA_MAP, subsidiaryOf, memberOf } from './coa-wbs.js';
 export const sum = (arr,f)=>arr.reduce((s,x)=>s+(f?f(x):x),0);
 export function downloadCSV(filename, rows){ const csv=rows.map(r=>r.map(c=>{const s=String(c==null?'':c); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n'); const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click(); URL.revokeObjectURL(a.href); }
 
@@ -17,6 +17,8 @@ export const isBalanced = (je) => { const t=jeTotals(je); return Math.abs(t.debi
 // ---- Validation catalog (subset, enforced) ----
 export function validateJE(je, period) {
   const errs = [];
+  je.lines.forEach((l,i)=>{ const st=subsidiaryOf(l.account_code);
+    if (st && !memberOf(l)) errs.push({code:'4020', msg:`第${i+1}行 ${l.account_code} 为辅助核算科目(${st}),必须填写核算对象`}); });
   const t = jeTotals(je);
   if (t.debit <= 0) errs.push({code:'VAL-001', msg:'分录金额为空'});
   if (Math.abs(t.debit - t.credit) >= 0.005) errs.push({code:'4006', msg:`借贷不平 借${money(t.debit)} 贷${money(t.credit)}`});

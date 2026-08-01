@@ -1,8 +1,10 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Field, SectionTitle, ApprovalTimeline } from './ui.jsx';
 import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS, PROJECTS, VENDORS } from './data.js';
-import { PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS, UNIT_OWNERS } from './seed.js';
+import { PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS, UNIT_OWNERS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, isBalanced, validateJE, JE_FLOW, loanRule, pmRule, trialBalance, statements } from './engine.js';
+import { subsidiaryOf, memberOf, SUBSIDIARY } from './coa-wbs.js';
+if (typeof window!=='undefined') window.__subsOf = subsidiaryOf;
 
 // ---------------- Dashboard ----------------
 export function Dashboard({ctx}) {
@@ -175,6 +177,7 @@ function JEEditor({je, ctx}) {
         </div></div>
       <Badge>{je.posting_status}</Badge>
     </div>
+    <datalist id="member-list">{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_name}/>)}{ENTITIES.slice(0,20).map(en=><option key={en.entity_id} value={en.entity_name}/>)}</datalist>
     <table className="tbl je-lines qbe-grid">
       <thead><tr><th style={{width:34}}>#</th><th style={{width:'22%'}}>ACCOUNT</th><th className="ta-r" style={{width:110}}>DEBITS</th><th className="ta-r" style={{width:110}}>CREDITS</th><th>DESCRIPTION</th><th style={{width:120}}>NAME</th><th style={{width:170}}>PROPERTY / PROJECT</th>{editable&&<th style={{width:30}}></th>}</tr></thead>
       <tbody>
@@ -190,7 +193,7 @@ function JEEditor({je, ctx}) {
           <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.debit_amount||''} onChange={e=>setLine(i,{debit_amount:+e.target.value||0, credit_amount:0})}/> : <Money v={l.debit_amount||0}/>}</td>
           <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.credit_amount||''} onChange={e=>setLine(i,{credit_amount:+e.target.value||0, debit_amount:0})}/> : <Money v={l.credit_amount||0}/>}</td>
           <td>{editable ? <input className="desc-line" value={l.description||''} placeholder="Line description" onChange={e=>setLine(i,{description:e.target.value})}/> : <span className="muted sm">{l.description||''}</span>}</td>
-          <td>{editable ? <select value={l.vendor_id||''} onChange={e=>setLine(i,{vendor_id:e.target.value?+e.target.value:null})}><option value="">Name—</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name.slice(0,16)}</option>)}</select> : <span className="muted sm">{l.vendor_id?'V'+l.vendor_id:''}</span>}</td>
+          <td>{editable ? <input className="desc-line" list="member-list" placeholder={ (window.__subsOf&&window.__subsOf(l.account_code)) ? '核算对象*' : 'Name'} value={l.member||''} onChange={e=>setLine(i,{member:e.target.value})}/> : <span className="muted sm">{l.member||''}</span>}</td>
           <td>{editable ?
             <div className="dim-picks">
               <select value={l.property_id||''} onChange={e=>setLine(i,{property_id:e.target.value?+e.target.value:null})}><option value="">Prop—</option>{PROPERTIES.map(p=><option key={p.property_id} value={p.property_id}>{p.property_code}</option>)}</select>
@@ -214,6 +217,19 @@ function JEEditor({je, ctx}) {
       {editable ? <input className="desc-in" style={{width:'100%'}} value={je.description} onChange={e=>actions.updateJE(je.je_id,d=>{d.description=e.target.value;})} placeholder="What is this journal entry for?"/> : <div className="muted">{je.description}</div>}
       {je.je_type==='MANUAL' && (editable ? <button className="link-btn" onClick={()=>actions.updateJE(je.je_id,d=>{d.has_attachment=true; d.attachment_name='support-doc.pdf';})}>{je.has_attachment?('📎 '+(je.attachment_name||'attached')):'📎 Add attachment (过账前必填)'}</button> : <span className="muted sm">附件 {je.has_attachment?'✓':'✗'}</span>)}
     </div>
+    {je.source_doc_id && SOURCE_DOCS[je.source_doc_id] && (()=>{ const d=SOURCE_DOCS[je.source_doc_id]; return <div className="src-card">
+      <div className="src-chain"><span className="chip">WBS {d.source_system||''}</span>→<span className="chip">{d.type}</span>→<span className="chip">Rule {je.rule_code||'—'}</span>→<span className="chip chip-on">JE {je.je_number}</span>→<span className="chip">GL</span></div>
+      <div className="src-grid">
+        <span><i>单据号</i><b>{d.doc_no}</b></span>
+        {d.po_no && <span><i>PO</i><b>{d.po_no}</b></span>}
+        {d.contract && <span><i>合同</i><b>{d.contract}</b></span>}
+        {d.unit && <span><i>Unit</i><b>{d.unit}</b></span>}
+        {d.vendor && <span><i>Vendor</i><b>{d.vendor}</b></span>}
+        {d.buyer && <span><i>Buyer</i><b>{d.buyer}</b></span>}
+        {d.cost_code && <span><i>Cost Code</i><b>{d.cost_code}</b></span>}
+        <span><i>金额</i><b>{'$'+(+d.amount).toLocaleString()}</b></span>
+      </div>
+    </div>; })()}
     {errs.length>0 && <div className="err-box">{errs.map((e,i)=><div key={i}>• [{e.code}] {e.msg}</div>)}</div>}
     <div className="qbe-footbar">
       <div><Btn variant="ghost" onClick={()=>{const nid=actions.copyJE(je.je_id); toast('已复制为新草稿');}}>Copy</Btn>
