@@ -19,7 +19,7 @@ export class PostgresContextIssuer{
     const contextToken=randomBytes(32).toString('base64url');
     const hash=tokenHash(contextToken);
     const issued=await withTransaction(this.pool,async client=>requireRow(await client.query(
-      'SELECT (refs_issue_context($1,$2,$3,$4)).*',[principal.actorId,tenantId,hash,ttlSeconds]
+      'SELECT issued.* FROM refs_issue_context($1,$2,$3,$4) AS issued',[principal.actorId,tenantId,hash,ttlSeconds]
     ),'CONTEXT_ISSUE_FAILED','Context issuer did not return a capability'));
     return {trusted:true,contextToken,expiresAt:issued.expires_at};
   }

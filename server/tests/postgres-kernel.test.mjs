@@ -6,11 +6,13 @@ import {createPool} from '../runtime/db.mjs';
 import {migrateDown,migrateUp} from '../runtime/migrations.mjs';
 import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
+import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
 let runtimePool=null;
 let issuerPool=null;
+let grantSyncPool=null;
 let unavailable=null;
 
 before(async()=>{
@@ -22,6 +24,8 @@ before(async()=>{
     await runtimePool.query('SELECT 1');
     issuerPool=await createPool({databaseUrl:config.contextIssuerDatabaseUrl,applicationName:'refs-pg-integration-issuer',max:4});
     await issuerPool.query('SELECT 1');
+    grantSyncPool=await createPool({databaseUrl:config.grantSyncDatabaseUrl,applicationName:'refs-pg-integration-grant-sync',max:4});
+    await grantSyncPool.query('SELECT 1');
   }catch(error){
     unavailable=`POSTGRES NOT RUN: ${error.code||error.name}: ${error.message}`;
     if(config.requirePostgres)throw error;
@@ -34,6 +38,7 @@ after(async()=>{
   if(adminPool)await adminPool.query('TRUNCATE tenant CASCADE').catch(()=>{});
   if(runtimePool)await runtimePool.end();
   if(issuerPool)await issuerPool.end();
+  if(grantSyncPool)await grantSyncPool.end();
   if(adminPool)await adminPool.end();
 });
 
@@ -45,13 +50,23 @@ function pgTest(name,fn){
   });
 }
 
-const hash=value=>`sha256:${String(value).padEnd(64,'0').slice(0,64)}`;
+const hash=value=>`sha256:${createHash('sha256').update(String(value)).digest('hex')}`;
+
+async function rejectsInTransaction(client,query,validator){
+  await client.query('SAVEPOINT expected_error');
+  try{await assert.rejects(query(),validator);}
+  finally{
+    await client.query('ROLLBACK TO SAVEPOINT expected_error');
+    await client.query('RELEASE SAVEPOINT expected_error');
+  }
+}
 
 async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VERIFIED_CLEAN',tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID(),journalId=randomUUID()}={}){
-  await adminPool.query('INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,$2,$3)',[tenantId,`T${tenantId.replaceAll('-','').slice(0,8)}`,'Test tenant']);
-  await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,$3,'WBS',$3,$3,'USD')",[entityId,tenantId,`E${entityId.replaceAll('-','').slice(0,8)}`]);
+  const sourceEntityId=`E${entityId.replaceAll('-','').slice(0,8)}`.toUpperCase();
+  await adminPool.query('INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,$2,$3) ON CONFLICT (tenant_id) DO NOTHING',[tenantId,`T${tenantId.replaceAll('-','').slice(0,8)}`.toUpperCase(),'Test tenant']);
+  await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,$3,'WBS',$3,$3,'USD')",[entityId,tenantId,sourceEntityId]);
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-07','2026-07-01','2026-07-31','OPEN')",[periodId,tenantId,entityId]);
-  await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member) VALUES($1,$2,'111000','Cash',true),($1,$2,'291001','Accounts Payable',true)",[tenantId,entityId]);
+  await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type) VALUES($1,$2,'111000','Cash',true,'BANK'),($1,$2,'291001','Accounts Payable',true,'VENDOR'),($1,$2,'120200','Accounts Receivable',true,'CUSTOMER_OR_AFFILIATE')",[tenantId,entityId]);
   await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'BANK-1','BANK','Operating Cash'),($1,$2,'VENDOR-1','VENDOR','Vendor')",[tenantId,entityId]);
   const actors=status==='DRAFT'?[null,null,null]:['reviewer','approver',null];
   await adminPool.query(`INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,created_by,reviewed_by,approved_by)
@@ -64,17 +79,26 @@ async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VE
       VALUES($1,$2,'support.pdf','application/pdf',10,$3,$4,'v1','maker',now(),CASE WHEN $5='VERIFIED_CLEAN' THEN now() END,CASE WHEN $5='VERIFIED_CLEAN' THEN 'CLEAN' WHEN $5='REJECTED' THEN 'REJECTED' ELSE 'PENDING' END,$5,CASE WHEN $5='VERIFIED_CLEAN' THEN now() END)`,[attachmentId,tenantId,hash('attachment'),`object://attachments/${attachmentId}`,attachmentStatus]);
     await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,journal_entry_id,attachment_id,created_by) VALUES($1,$2,'JE_ATTACHMENT',$3,$4,'maker')",[tenantId,entityId,journalId,attachmentId]);
   }
-  return {tenantId,entityId,periodId,journalId};
+  return {tenantId,entityId,sourceEntityId,periodId,journalId};
 }
 
 async function attachAutoSource(ids){
-  const batchId=randomUUID(),rawId=randomUUID(),documentId=randomUUID(),recordId=`AUTO-${ids.journalId}`;
-  await adminPool.query("INSERT INTO import_batch(import_batch_id,tenant_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash) VALUES($1,$2,'TEST','bankFeed',$3,$4,$5)",[batchId,ids.tenantId,ids.entityId,'auto-import-'+ids.journalId,hash('auto-import')]);
-  await adminPool.query(`INSERT INTO raw_event(raw_event_id,tenant_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id)
-    VALUES($1,$2,$3,'WBS','bankFeed',$4,$5,'1','UPSERT',now(),$6,$7,$5)`,[rawId,ids.tenantId,batchId,ids.entityId,recordId,hash('auto-raw'),`object://raw/${rawId}`]);
+  const batchId=randomUUID(),rawId=randomUUID(),documentId=randomUUID(),settingId=randomUUID(),mappingId=randomUUID(),ruleId=randomUUID(),stagingId=randomUUID(),recordId=`AUTO-${ids.journalId}`;
+  await adminPool.query("INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash) VALUES($1,$2,$3,'WBS_API','bankFeed',$4,$5,$6)",[batchId,ids.tenantId,ids.entityId,ids.sourceEntityId,'auto-import-'+ids.journalId,hash('auto-import')]);
+  await adminPool.query(`INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id)
+    VALUES($1,$2,$3,$4,'WBS','bankFeed',$5,$6,'1','UPSERT',now(),$7,$8,$6)`,[rawId,ids.tenantId,ids.entityId,batchId,ids.sourceEntityId,recordId,hash('auto-raw'),`object://raw/${rawId}`]);
   await adminPool.query(`INSERT INTO source_document(source_document_id,tenant_id,entity_id,raw_event_id,source_system,source_module,source_entity_id,source_record_id,source_version,document_type,business_date,accounting_date,currency,gross_amount,source_ref,payload_hash)
-    VALUES($1,$2,$3,$4,'WBS','bankFeed',$5,$6,'1','BANK_TRANSACTION','2026-07-15','2026-07-15','USD',100,$7,$8)`,[documentId,ids.tenantId,ids.entityId,rawId,ids.entityId,recordId,`WBS:${recordId}`,hash('auto-doc')]);
-  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,'engine')",[ids.tenantId,ids.entityId,documentId,ids.journalId]);
+    VALUES($1,$2,$3,$4,'WBS','bankFeed',$5,$6,'1','BANK_TRANSACTION','2026-07-15','2026-07-15','USD',100,$7,$8)`,[documentId,ids.tenantId,ids.entityId,rawId,ids.sourceEntityId,recordId,`WBS:${recordId}`,hash('auto-doc')]);
+  await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,1,'2026-01-01','APPROVED','{}',$4,'setting-maker','setting-approver',now())`,[settingId,ids.tenantId,ids.entityId,hash('setting')]);
+  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,$4,1,'2026-01-01','APPROVED','{}','{}',$5,'mapping-maker','mapping-approver',now())`,[mappingId,ids.tenantId,ids.entityId,hash('mapping-key'),hash('mapping')]);
+  await adminPool.query(`INSERT INTO rule_evaluation(rule_evaluation_id,tenant_id,source_document_id,setting_snapshot_id,mapping_snapshot_id,rule_code,rule_version,matched_facts,result,reason,input_digest)
+    VALUES($1,$2,$3,$4,$5,'R-BANK-01',1,'{}','{}','fixture',$6)`,[ruleId,ids.tenantId,documentId,settingId,mappingId,hash('rule')]);
+  await adminPool.query(`INSERT INTO staging_item(staging_item_id,tenant_id,entity_id,source_document_id,setting_snapshot_id,mapping_snapshot_id,rule_evaluation_id,status,reviewed_by,reviewed_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,'READY_FOR_DRAFT','reviewer',now())`,[stagingId,ids.tenantId,ids.entityId,documentId,settingId,mappingId,ruleId]);
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,staging_item_id,journal_entry_id,created_by) VALUES($1,$2,'SOURCE_TO_JE',$3,$4,$5,'engine')",[ids.tenantId,ids.entityId,documentId,stagingId,ids.journalId]);
+  return {batchId,rawId,documentId,settingId,mappingId,ruleId,stagingId};
 }
 
 async function trustedSession(ids,actorId='poster',permissions=['GL.JE.POST']){
@@ -116,8 +140,8 @@ pgTest('runtime login is non-owner/non-superuser and RLS denies cross-tenant acc
     await client.query('SET LOCAL ROLE refs_app');
     await client.query("SELECT set_config('refs.tenant_id',$1,true),set_config('refs.entity_ids',$2,true),set_config('refs.permissions','*',true),set_config('refs.actor_id','victim',true)",[two.tenantId,two.entityId]);
     assert.equal((await client.query('SELECT count(*)::int AS n FROM entity')).rows[0].n,0);
-    await assert.rejects(client.query('SELECT refs_reserve_idempotency($1,$2,$3,$4,$5)',[two.tenantId,`POST_JOURNAL:${two.entityId}`,'forged-key-0001',hash('forged'),'victim']),error=>error.code==='42501');
-    await assert.rejects(client.query("UPDATE entity SET name='forbidden' WHERE entity_id=$1",[one.entityId]),error=>error.code==='42501');
+    await rejectsInTransaction(client,()=>client.query('SELECT refs_reserve_idempotency($1,$2,$3,$4,$5)',[two.tenantId,`POST_JOURNAL:${two.entityId}`,'forged-key-0001',hash('forged'),'victim']),error=>error.code==='42501');
+    await rejectsInTransaction(client,()=>client.query("UPDATE entity SET name='forbidden' WHERE entity_id=$1",[one.entityId]),error=>error.code==='42501');
     await client.query('ROLLBACK');
 
     const legitimate=await trustedSession(one);
@@ -134,6 +158,16 @@ pgTest('runtime login is non-owner/non-superuser and RLS denies cross-tenant acc
   const roleClient=await runtimePool.connect();
   try{await roleClient.query('BEGIN');await assert.rejects(roleClient.query('SET LOCAL ROLE refs_migrator'),error=>error.code==='42501');await roleClient.query('ROLLBACK');}finally{roleClient.release();}
   assert.notEqual(one.tenantId,two.tenantId);
+});
+
+pgTest('SECURITY DEFINER namespace is protected from runtime object shadowing',async()=>{
+  const ids=await seed();const session=await trustedSession(ids);
+  const client=await runtimePool.connect();
+  try{
+    await client.query('BEGIN');await client.query('SET LOCAL ROLE refs_app');await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);
+    await assert.rejects(client.query("CREATE FUNCTION public.refs_current_actor() RETURNS text LANGUAGE sql AS 'SELECT ''attacker'''"),error=>error.code==='42501');
+    await client.query('ROLLBACK');
+  }finally{client.release();}
 });
 
 pgTest('missing, empty, malformed and unknown session claims fail closed with zero writes',async()=>{
@@ -169,6 +203,33 @@ pgTest('context authorization preserves exact entity and permission pairs',async
   await assert.rejects(kernel.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'AP.VIEW')",[ids.tenantId,ids.entityId])),error=>error.code==='42501');
 });
 
+pgTest('ingestion RLS preserves exact same-tenant entity scope independent of connector code',async()=>{
+  const one=await seed();
+  const two=await seed({tenantId:one.tenantId});
+  for(const ids of [one,two]){
+    const batch=randomUUID();
+    await adminPool.query("INSERT INTO sync_cursor(tenant_id,entity_id,connector_code,source_module,source_entity_id) VALUES($1,$2,'WBS_API','bankFeed',$3)",[ids.tenantId,ids.entityId,ids.sourceEntityId]);
+    await adminPool.query("INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash) VALUES($1,$2,$3,'WBS_API','bankFeed',$4,$5,$6)",[batch,ids.tenantId,ids.entityId,ids.sourceEntityId,`import-${ids.entityId}`,hash(ids.entityId)]);
+    await adminPool.query("INSERT INTO raw_event(tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id) VALUES($1,$2,$3,'WBS','bankFeed',$4,$5,'1','UPSERT',now(),$6,$7,$5)",[ids.tenantId,ids.entityId,batch,ids.sourceEntityId,`ROW-${ids.entityId}`,hash(`raw-${ids.entityId}`),`object://raw/${ids.entityId}`]);
+  }
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(one)});
+  await kernel.inSession(async client=>{
+    for(const table of ['sync_cursor','import_batch','raw_event']){
+      const rows=(await client.query(`SELECT entity_id FROM ${table}`)).rows;
+      assert.deepEqual(rows.map(row=>row.entity_id),[one.entityId]);
+    }
+  });
+});
+
+pgTest('account member type is enforced for BANK, VENDOR, CUSTOMER and AFFILIATE',async()=>{
+  const ids=await seed({status:'DRAFT'});
+  await assert.rejects(adminPool.query("UPDATE journal_line SET member_ref='VENDOR-1' WHERE journal_entry_id=$1 AND account_code='111000'",[ids.journalId]),error=>error.code==='23514');
+  await assert.rejects(adminPool.query("UPDATE journal_line SET member_ref='BANK-1' WHERE journal_entry_id=$1 AND account_code='291001'",[ids.journalId]),error=>error.code==='23514');
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer'),($1,$2,'AFFILIATE-1','AFFILIATE','Affiliate')",[ids.tenantId,ids.entityId]);
+  await adminPool.query("INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref) VALUES($1,$2,$3,$4,3,'120200',1,0,'CUSTOMER-1'),($1,$2,$3,$4,4,'120200',0,1,'AFFILIATE-1')",[ids.tenantId,ids.entityId,ids.periodId,ids.journalId]);
+  await assert.rejects(adminPool.query("INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref) VALUES($1,$2,$3,$4,5,'120200',1,0,'BANK-1')",[ids.tenantId,ids.entityId,ids.periodId,ids.journalId]),error=>error.code==='23514');
+});
+
 pgTest('context issuer rejects wrong, revoked, expired, and runtime-self-issued capabilities',async()=>{
   const ids=await seed();const actor='context-user';
   await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'GL.JE.POST')",[ids.tenantId,actor,ids.entityId]);
@@ -185,12 +246,36 @@ pgTest('context issuer rejects wrong, revoked, expired, and runtime-self-issued 
   try{await runtime.query('BEGIN');await runtime.query('SET LOCAL ROLE refs_app');await assert.rejects(runtime.query("SELECT refs_issue_context($1,$2,$3,60)",[actor,ids.tenantId,hash('self-issue')]),error=>error.code==='42501');await runtime.query('ROLLBACK');}finally{runtime.release();}
 });
 
+pgTest('formal IAM grant sync reconciles and revokes desired state with version, idempotency and audit',async()=>{
+  const ids=await seed();const actor='iam-subject';
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  const first=await sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:ids.entityId,permissions:['GL.JE.POST','AP.VIEW'],expectedVersion:0,idempotencyKey:'grant-sync-0001'});
+  const replay=await sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:ids.entityId,permissions:['AP.VIEW','GL.JE.POST'],expectedVersion:0,idempotencyKey:'grant-sync-0001'});
+  assert.equal(first.version,1);assert.equal(replay.idempotent,true);
+  const revoked=await sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:ids.entityId,permissions:[],expectedVersion:1,idempotencyKey:'grant-sync-0002'});
+  assert.equal(revoked.version,2);
+  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM runtime_actor_grant WHERE tenant_id=$1 AND actor_id=$2 AND revoked_at IS NULL',[ids.tenantId,actor])).rows[0].n,0);
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='ACTOR_GRANTS_RECONCILED' AND entity_id=$1",[ids.entityId])).rows[0].n,2);
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM outbox_event WHERE event_type='ACTOR_GRANTS_RECONCILED' AND entity_id=$1",[ids.entityId])).rows[0].n,2);
+  await assert.rejects(sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:ids.entityId,permissions:['ROOT.ALL'],expectedVersion:2,idempotencyKey:'grant-sync-0003'}),error=>error.code==='22023');
+  const other=await seed();
+  await assert.rejects(sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:other.entityId,permissions:['AP.VIEW'],expectedVersion:0,idempotencyKey:'grant-sync-0004'}),error=>error.code==='42501');
+  const spoofed=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'runtime-request'})});
+  await assert.rejects(spoofed.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:ids.entityId,permissions:['AP.VIEW'],expectedVersion:2,idempotencyKey:'grant-sync-0005'}),error=>error.code==='GRANT_SYNC_PRINCIPAL_DENIED');
+  const runtime=await runtimePool.connect();
+  try{await assert.rejects(runtime.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,'spoof',$2,'AP.VIEW')",[ids.tenantId,ids.entityId]),error=>error.code==='42501');}finally{runtime.release();}
+  await sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:ids.entityId,permissions:['AP.VIEW'],expectedVersion:2,idempotencyKey:'grant-sync-0006'});
+  await adminPool.query("UPDATE permission_catalog SET active=false,version=version+1 WHERE permission_code='AP.VIEW'");
+  await assert.rejects(trustedSession(ids,actor,['AP.VIEW']),error=>error.code==='42501');
+  await adminPool.query("UPDATE permission_catalog SET active=true,version=version+1 WHERE permission_code='AP.VIEW'");
+});
+
 pgTest('two connections enforce duplicate canonical raw source and atomic idempotency compare/replay',async()=>{
   const ids=await seed();
   const batch=randomUUID();
-  await adminPool.query("INSERT INTO import_batch(import_batch_id,tenant_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash) VALUES($1,$2,'WBS','bankFeed',$3,'import-key-0001',$4)",[batch,ids.tenantId,ids.entityId,hash('a')]);
-  const params=[randomUUID(),ids.tenantId,batch,'WBS','bankFeed',ids.entityId,'BANK-1','1','UPSERT','2026-07-15',hash('b'),'object://raw/1','corr-1'];
-  const insert=`INSERT INTO raw_event(raw_event_id,tenant_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id) VALUES(${params.map((_,i)=>`$${i+1}`).join(',')})`;
+  await adminPool.query("INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash) VALUES($1,$2,$3,'WBS_API','bankFeed',$4,'import-key-0001',$5)",[batch,ids.tenantId,ids.entityId,ids.sourceEntityId,hash('a')]);
+  const params=[randomUUID(),ids.tenantId,ids.entityId,batch,'WBS','bankFeed',ids.sourceEntityId,'BANK-1','1','UPSERT','2026-07-15',hash('b'),'object://raw/1','corr-1'];
+  const insert=`INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id) VALUES(${params.map((_,i)=>`$${i+1}`).join(',')})`;
   await adminPool.query(insert,params);
   await assert.rejects(adminPool.query(insert,[randomUUID(),...params.slice(1)]),error=>error.code==='23505');
 
@@ -199,7 +284,7 @@ pgTest('two connections enforce duplicate canonical raw source and atomic idempo
   const secondKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids)});
   const [first,second]=await Promise.all([firstKernel.postJournal(args),secondKernel.postJournal(args)]);
   assert.equal([first.idempotent,second.idempotent].filter(Boolean).length,1);
-  await assert.rejects(firstKernel.postJournal({...args,requestHash:hash('different')}),error=>error.code==='23505');
+  await assert.rejects(firstKernel.postJournal({...args,expectedRevision:1,requestHash:hash('caller-is-ignored')}),error=>error.code==='23505');
 });
 
 pgTest('period close and post serialize on the period row',async()=>{
@@ -243,14 +328,17 @@ pgTest('CAS edit rejects stale revision and forged body actor is not an input su
 pgTest('caller transaction failure rolls back posting, ledger, trace, audit, outbox and receipt',async()=>{
   const ids=await seed();
   const client=await runtimePool.connect();
+  const tracked=['posting_batch','ledger_line','source_link','audit_event','outbox_event','idempotency_receipt'];
+  const before={};
   try{
     const session=await trustedSession(ids);
+    for(const table of tracked)before[table]=(await adminPool.query(`SELECT count(*)::int AS n FROM ${table}`)).rows[0].n;
     await client.query('BEGIN');await client.query('SET LOCAL ROLE refs_app');await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);
     await client.query('SELECT refs_post_journal($1,$2,$3,$4,0,$5,$6,refs_current_actor())',[ids.tenantId,ids.entityId,ids.periodId,ids.journalId,'rollback-post',hash('rollback')]);
     await assert.rejects(client.query('SELECT 1/0'),error=>error.code==='22012');
     await client.query('ROLLBACK');
   }finally{client.release();}
-  for(const table of ['posting_batch','ledger_line','source_link','audit_event','outbox_event','idempotency_receipt'])assert.equal((await adminPool.query(`SELECT count(*)::int AS n FROM ${table}`)).rows[0].n,0,table);
+  for(const table of tracked)assert.equal((await adminPool.query(`SELECT count(*)::int AS n FROM ${table}`)).rows[0].n,before[table],table);
   assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[ids.journalId])).rows[0].status,'APPROVED');
 });
 
@@ -263,7 +351,11 @@ pgTest('database posting rejects unsupported MANUAL and AUTO evidence with zero 
     const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(fixture)});
     await assert.rejects(kernel.postJournal({...fixture,journalEntryId:fixture.journalId,expectedRevision:0,idempotencyKey:`evidence-${fixture.journalId}`,requestHash:hash(fixture.journalId)}),error=>error.code==='23514');
   }
-  for(const table of ['posting_batch','ledger_line','audit_event','outbox_event','idempotency_receipt'])assert.equal((await adminPool.query(`SELECT count(*)::int AS n FROM ${table}`)).rows[0].n,0,table);
+  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM posting_batch')).rows[0].n,0);
+  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM ledger_line')).rows[0].n,0);
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,0);
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM outbox_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,0);
+  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM idempotency_receipt')).rows[0].n,0);
 });
 
 pgTest('pending and rejected attachments cannot enter the JE trace graph',async()=>{
@@ -290,11 +382,11 @@ pgTest('posting is atomic, same-hash retry replays before state validation, diff
   const first=await kernel.postJournal(args);
   const replay=await kernel.postJournal(args);
   assert.equal(first.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.posting_batch_id,first.posting_batch_id);
-  await assert.rejects(kernel.postJournal({...args,requestHash:hash('changed')}),error=>error.code==='23505');
+  await assert.rejects(kernel.postJournal({...args,expectedRevision:1,requestHash:hash('caller-is-ignored')}),error=>error.code==='23505');
   assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM ledger_line')).rows[0].n,2);
-  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM source_link')).rows[0].n,2);
-  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM audit_event')).rows[0].n,1);
-  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM outbox_event')).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM source_link WHERE link_type='JE_LINE_TO_LEDGER'")).rows[0].n,2);
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM outbox_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,1);
 });
 
 pgTest('posted journal, ledger, audit and outbox payload are immutable; outbox claim is exclusive',async()=>{

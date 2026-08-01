@@ -17,7 +17,10 @@ function fakePool(identity){
 
 test('down safety uses the actual connected database rather than the runtime URL',async()=>{
   const pool=fakePool({database_name:'refs_production',current_user:'refs_migrator',session_user:'refs_migrator'});
-  await assert.rejects(()=>migrateDown(pool,{all:true}),error=>error.code==='DB_DOWN_FORBIDDEN');
+  const prior=process.env.MIGRATION_DATABASE_URL;
+  process.env.MIGRATION_DATABASE_URL='postgresql://refs_migrator:strong-test-only@localhost/refs_production';
+  try{await assert.rejects(()=>migrateDown(pool,{all:true}),error=>error.code==='DB_DOWN_FORBIDDEN');}
+  finally{if(prior===undefined)delete process.env.MIGRATION_DATABASE_URL;else process.env.MIGRATION_DATABASE_URL=prior;}
   assert.ok(pool.queries.some(query=>query.includes('pg_advisory_lock')));
   assert.ok(pool.queries.some(query=>query.includes('pg_advisory_unlock')));
   assert.ok(!pool.queries.some(query=>/\b(DROP|ALTER|DELETE|CREATE)\b/i.test(query)));
@@ -29,4 +32,10 @@ test('runtime and issuer identities cannot run destructive migrations',async()=>
     await assert.rejects(()=>migrateDown(pool),error=>error.code==='MIGRATION_IDENTITY_REJECTED');
     assert.ok(!pool.queries.some(query=>/\b(DROP|ALTER|DELETE|CREATE)\b/i.test(query)));
   }
+});
+
+test('migration rejects a connection to a database other than MIGRATION_DATABASE_URL',async()=>{
+  const pool=fakePool({database_name:'wrong_test',current_user:'refs_migrator',session_user:'refs_migrator'});
+  await assert.rejects(()=>migrateDown(pool),error=>error.code==='MIGRATION_DATABASE_REJECTED');
+  assert.ok(!pool.queries.some(query=>/\b(DROP|ALTER|DELETE|CREATE)\b/i.test(query)));
 });

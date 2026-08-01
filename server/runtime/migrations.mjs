@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {readdir,readFile} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {runtimeConfig} from './config.mjs';
+import {databaseName,runtimeConfig} from './config.mjs';
 import {KernelError,withTransaction} from './db.mjs';
 import {MIGRATION_MANIFEST} from './migration-manifest.mjs';
 
@@ -48,10 +48,14 @@ async function ensureMetadata(pool){
 async function assertMigrationConnection(client,{destructive=false}={}){
   const config=runtimeConfig();
   const expectedUser=decodeURIComponent(new URL(config.migrationDatabaseUrl).username);
+  const expectedDatabase=databaseName(config.migrationDatabaseUrl);
   const identity=(await client.query('SELECT current_database() AS database_name, current_user AS current_user, session_user AS session_user')).rows[0];
   const forbidden=new Set(['refs_runtime','refs_context_issuer','refs_app']);
   if(!identity||identity.current_user!==expectedUser||identity.session_user!==expectedUser||forbidden.has(identity.current_user)){
     throw new KernelError('MIGRATION_IDENTITY_REJECTED','Migrations require the configured, isolated migrator login',{expectedUser,currentUser:identity?.current_user,sessionUser:identity?.session_user});
+  }
+  if(identity.database_name!==expectedDatabase){
+    throw new KernelError('MIGRATION_DATABASE_REJECTED','Connected database does not match MIGRATION_DATABASE_URL',{expectedDatabase,currentDatabase:identity.database_name});
   }
   if(destructive&&!config.allowDown&&!String(identity.database_name||'').endsWith('_test')){
     throw new KernelError('DB_DOWN_FORBIDDEN',`Refusing destructive migration against ${identity.database_name||'unknown database'}`);

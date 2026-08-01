@@ -30,10 +30,10 @@ test('runtime identity uses opaque DB-owned transaction context, not caller clai
   assert.match(sql,/CREATE TABLE runtime_auth_context/);
   assert.match(sql,/bound_txid=txid_current\(\)/);
   assert.match(sql,/CREATE TABLE runtime_actor_grant/);
-  assert.match(sql,/jsonb_agg\(jsonb_build_object\('entity_id',entity_id,'permission',permission\)/);
+  assert.match(sql,/jsonb_agg\(jsonb_build_object\('entity_id',g\.entity_id,'permission',g\.permission\)/);
   assert.doesNotMatch(repository,/set_config\('refs\.(tenant_id|entity_ids|permissions|actor_id)/);
   assert.match(repository,/refs_bootstrap_context/);
-  assert.match(sql,/REVOKE ALL ON TABLE runtime_auth_context,runtime_actor_grant FROM PUBLIC,refs_app,refs_runtime,refs_context_issuer/);
+  assert.match(sql,/REVOKE ALL ON TABLE runtime_auth_context,runtime_actor_grant,runtime_actor_grant_set,runtime_grant_sync_receipt FROM PUBLIC,refs_app,refs_runtime,refs_context_issuer,refs_grant_sync/);
 });
 
 test('isolated issuer derives authorization from DB grants and supports revoke and cleanup',()=>{

@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-refs_kernel_test}
       POSTGRES_USER: ${POSTGRES_USER:-refs_migrator}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-refs_migrator_local_only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-refs_migrator_test_K8r3w5T1z9Hp}
     ports:
       - "${POSTGRES_PORT:-55432}:5432"
     healthcheck:

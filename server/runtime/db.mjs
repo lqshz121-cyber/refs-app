@@ -33,6 +33,18 @@ export async function withTransaction(pool,work,{isolation='SERIALIZABLE'}={}){
   }finally{client.release();}
 }
 
+export async function withSerializableRetry(pool,work,{maxRetries=3}={}){
+  let attempt=0;
+  while(true){
+    try{return await withTransaction(pool,work,{isolation:'SERIALIZABLE'});}
+    catch(error){
+      if(!['40001','40P01'].includes(error?.code)||attempt>=maxRetries)throw error;
+      attempt+=1;
+      await new Promise(resolve=>setTimeout(resolve,Math.min(10*2**attempt,100)));
+    }
+  }
+}
+
 export function requireRow(result,code,message){
   if(result.rowCount!==1)throw new KernelError(code,message);
   return result.rows[0];

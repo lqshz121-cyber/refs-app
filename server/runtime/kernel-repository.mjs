@@ -1,4 +1,5 @@
-import {KernelError,requireRow,withTransaction} from './db.mjs';
+import {KernelError,requireRow,withSerializableRetry} from './db.mjs';
+import {canonicalRequestHash} from './request-hash.mjs';
 
 function assertTrustedSession(session){
   if(!session||session.trusted!==true||typeof session.contextToken!=='string'||session.contextToken.length<32)throw new KernelError('TRUSTED_SESSION_REQUIRED','Kernel session requires an opaque DB-issued context token from authenticated middleware');
@@ -13,7 +14,7 @@ export class PostgresAccountingKernel{
 
   async inSession(work){
     const session=assertTrustedSession(await this.sessionProvider());
-    return withTransaction(this.pool,async client=>{
+    return withSerializableRetry(this.pool,async client=>{
       const identity=requireRow(await client.query(`SELECT session_user,current_user,
         COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname=session_user),false) AS is_superuser`),'DB_IDENTITY_MISSING','Database identity is unavailable');
       if(!this.runtimeLoginAllowlist.has(identity.session_user)||identity.current_user!==identity.session_user||identity.is_superuser){
@@ -26,6 +27,7 @@ export class PostgresAccountingKernel{
   }
 
   async updateDraftDescription({tenantId,entityId,journalEntryId,expectedRevision,description,idempotencyKey,requestHash}){
+    requestHash=canonicalRequestHash({tenantId,entityId,journalEntryId,expectedRevision,description});
     return this.inSession(async client=>{
       const row=requireRow(await client.query(
         'SELECT refs_update_draft_description($1,$2,$3,$4,$5,$6,$7) AS result',
@@ -36,20 +38,22 @@ export class PostgresAccountingKernel{
   }
 
   async postJournal(args){
+    const requestHash=canonicalRequestHash({tenantId:args.tenantId,entityId:args.entityId,periodId:args.periodId,journalEntryId:args.journalEntryId,expectedRevision:args.expectedRevision});
     return this.inSession(async client=>{
       const row=requireRow(await client.query(
         'SELECT refs_post_journal($1,$2,$3,$4,$5,$6,$7,refs_current_actor()) AS result',
-        [args.tenantId,args.entityId,args.periodId,args.journalEntryId,args.expectedRevision,args.idempotencyKey,args.requestHash]
+        [args.tenantId,args.entityId,args.periodId,args.journalEntryId,args.expectedRevision,args.idempotencyKey,requestHash]
       ),'POST_FAILED','Posting did not return a result');
       return row.result;
     });
   }
 
   async closePeriod(args){
+    const requestHash=canonicalRequestHash({tenantId:args.tenantId,entityId:args.entityId,periodId:args.periodId,expectedVersion:args.expectedVersion});
     return this.inSession(async client=>{
       const row=requireRow(await client.query(
         'SELECT refs_close_period($1,$2,$3,$4,$5,$6,refs_current_actor()) AS result',
-        [args.tenantId,args.entityId,args.periodId,args.expectedVersion,args.idempotencyKey,args.requestHash]
+        [args.tenantId,args.entityId,args.periodId,args.expectedVersion,args.idempotencyKey,requestHash]
       ),'PERIOD_CLOSE_FAILED','Period close did not return a result');
       return row.result;
     });

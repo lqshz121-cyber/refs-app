@@ -1,13 +1,37 @@
 BEGIN;
 
+DO $$
+DECLARE owner_name text;
+BEGIN
+  SELECT pg_get_userbyid(nspowner) INTO owner_name FROM pg_namespace WHERE nspname='public';
+  IF owner_name NOT IN (current_user,'pg_database_owner') THEN
+    RAISE EXCEPTION 'public schema owner % is not trusted for SECURITY DEFINER functions',owner_name;
+  END IF;
+END;
+$$;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO PUBLIC;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_roles
+    WHERE rolcanlogin AND NOT rolsuper AND rolname<>current_user
+      AND has_schema_privilege(rolname,'public','CREATE')
+  ) THEN RAISE EXCEPTION 'An untrusted login retains CREATE on public schema'; END IF;
+END;
+$$;
+
 CREATE TABLE account_master (
   tenant_id uuid NOT NULL,
   entity_id uuid NOT NULL,
   account_code text NOT NULL,
   account_name text NOT NULL,
   requires_member boolean NOT NULL DEFAULT false,
+  required_member_type text,
   active boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK ((requires_member AND required_member_type IN ('BANK','VENDOR','CUSTOMER','AFFILIATE','CUSTOMER_OR_AFFILIATE')) OR (NOT requires_member AND required_member_type IS NULL)),
   PRIMARY KEY (tenant_id, entity_id, account_code),
   FOREIGN KEY (tenant_id, entity_id) REFERENCES entity(tenant_id, entity_id)
 );
@@ -33,9 +57,9 @@ ALTER TABLE journal_line ADD CONSTRAINT journal_line_member_fk
 
 CREATE OR REPLACE FUNCTION refs_validate_journal_line_master() RETURNS trigger
 LANGUAGE plpgsql AS $$
-DECLARE account_requires_member boolean;
+DECLARE account_requires_member boolean; account_required_member_type text; actual_member_type text;
 BEGIN
-  SELECT requires_member INTO account_requires_member
+  SELECT requires_member,required_member_type INTO account_requires_member,account_required_member_type
     FROM account_master
     WHERE tenant_id=NEW.tenant_id AND entity_id=NEW.entity_id
       AND account_code=NEW.account_code AND active
@@ -46,12 +70,19 @@ BEGIN
   IF account_requires_member AND NEW.member_ref IS NULL THEN
     RAISE EXCEPTION 'Member is required for account %', NEW.account_code USING ERRCODE='23514';
   END IF;
-  IF NEW.member_ref IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM member_master
+  IF NEW.member_ref IS NOT NULL THEN
+    SELECT member_type INTO actual_member_type FROM member_master
     WHERE tenant_id=NEW.tenant_id AND entity_id=NEW.entity_id
-      AND member_ref=NEW.member_ref AND active
-  ) THEN
+      AND member_ref=NEW.member_ref AND active;
+  END IF;
+  IF NEW.member_ref IS NOT NULL AND actual_member_type IS NULL THEN
     RAISE EXCEPTION 'Member is absent, inactive, or outside the JE entity' USING ERRCODE='23503';
+  END IF;
+  IF account_requires_member AND NOT (
+    actual_member_type=account_required_member_type OR
+    (account_required_member_type='CUSTOMER_OR_AFFILIATE' AND actual_member_type IN ('CUSTOMER','AFFILIATE'))
+  ) THEN
+    RAISE EXCEPTION 'Member type % is invalid for account %, expected %',COALESCE(actual_member_type,'NULL'),NEW.account_code,account_required_member_type USING ERRCODE='23514';
   END IF;
   RETURN NEW;
 END;
@@ -89,19 +120,125 @@ CREATE TABLE runtime_actor_grant (
 );
 COMMENT ON TABLE runtime_actor_grant IS 'DB-owned authorization projection populated only by platform IAM sync; request bodies never define tenant, entity, or permissions.';
 
+CREATE TABLE permission_catalog (
+  permission_code text PRIMARY KEY CHECK (permission_code ~ '^[A-Z][A-Z0-9_.]+$'),
+  domain text NOT NULL CHECK (domain ~ '^[A-Z][A-Z0-9_]+$'),
+  active boolean NOT NULL DEFAULT true,
+  risk_class text NOT NULL CHECK (risk_class IN ('LOW','MEDIUM','HIGH','CRITICAL')),
+  sod_class text NOT NULL,
+  version bigint NOT NULL DEFAULT 1 CHECK (version>0),
+  effective_from timestamptz NOT NULL DEFAULT now(),
+  effective_to timestamptz,
+  CHECK (effective_to IS NULL OR effective_to>effective_from)
+);
+INSERT INTO permission_catalog(permission_code,domain,risk_class,sod_class) VALUES
+  ('GL.JE.POST','GL','CRITICAL','JE_POST'),
+  ('GL.JE.EDIT','GL','HIGH','JE_MAKER'),
+  ('GL.PERIOD.CLOSE','GL','CRITICAL','PERIOD_CLOSE'),
+  ('OUTBOX.DISPATCH','PLATFORM','HIGH','OUTBOX_WORKER'),
+  ('AP.VIEW','AP','LOW','READ'),
+  ('AR.VIEW','AR','LOW','READ'),
+  ('BANK.AUTOREC.MANAGE','BANK','CRITICAL','AUTOREC_MANAGER'),
+  ('BANK.AUTOREC.SYNC','BANK','HIGH','AUTOREC_SYNC');
+ALTER TABLE runtime_actor_grant ADD FOREIGN KEY(permission) REFERENCES permission_catalog(permission_code);
+
+CREATE TABLE runtime_actor_grant_set (
+  tenant_id uuid NOT NULL,
+  actor_id text NOT NULL CHECK (length(btrim(actor_id))>0),
+  entity_id uuid NOT NULL,
+  version bigint NOT NULL DEFAULT 0 CHECK (version>=0),
+  updated_by text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id,actor_id,entity_id),
+  FOREIGN KEY (tenant_id,entity_id) REFERENCES entity(tenant_id,entity_id)
+);
+
+CREATE TABLE runtime_grant_sync_receipt (
+  grant_sync_receipt_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES tenant(tenant_id),
+  actor_id text NOT NULL,
+  entity_id uuid NOT NULL,
+  idempotency_key text NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 200),
+  request_hash text NOT NULL CHECK (request_hash ~ '^sha256:[0-9a-f]{64}$'),
+  response_body jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  completed_at timestamptz,
+  UNIQUE (tenant_id,actor_id,entity_id,idempotency_key),
+  FOREIGN KEY (tenant_id,entity_id) REFERENCES entity(tenant_id,entity_id)
+);
+
+CREATE OR REPLACE FUNCTION refs_grant_request_hash(
+  p_tenant uuid,p_actor text,p_entity uuid,p_permissions text[],p_expected_version bigint
+) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
+  SELECT 'sha256:'||encode(digest(convert_to(jsonb_build_object(
+    'tenant_id',p_tenant,'actor_id',p_actor,'entity_id',p_entity,
+    'permissions',to_jsonb((SELECT COALESCE(array_agg(DISTINCT permission ORDER BY permission),'{}'::text[]) FROM unnest(COALESCE(p_permissions,'{}'::text[])) permission)),
+    'expected_version',p_expected_version
+  )::text,'UTF8'),'sha256'),'hex')
+$$;
+
+CREATE OR REPLACE FUNCTION refs_reconcile_actor_grants(
+  p_tenant uuid,p_actor text,p_entity uuid,p_permissions text[],p_expected_version bigint,
+  p_idempotency_key text,p_request_hash text
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE grant_set runtime_actor_grant_set; receipt runtime_grant_sync_receipt; response jsonb;
+DECLARE normalized text[]; computed_hash text; event_payload jsonb;
+BEGIN
+  IF session_user<>'refs_grant_sync' THEN RAISE EXCEPTION 'Grant sync identity denied' USING ERRCODE='42501'; END IF;
+  IF length(btrim(p_actor))=0 OR p_expected_version<0 THEN RAISE EXCEPTION 'Invalid grant subject or version' USING ERRCODE='22023'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM entity WHERE tenant_id=p_tenant AND entity_id=p_entity AND active) THEN
+    RAISE EXCEPTION 'Grant entity is absent or outside tenant' USING ERRCODE='42501';
+  END IF;
+  SELECT COALESCE(array_agg(DISTINCT permission ORDER BY permission),'{}'::text[]) INTO normalized FROM unnest(COALESCE(p_permissions,'{}'::text[])) permission;
+  IF EXISTS (SELECT 1 FROM unnest(normalized) requested LEFT JOIN permission_catalog pc ON pc.permission_code=requested
+    WHERE pc.permission_code IS NULL OR NOT pc.active OR pc.effective_from>clock_timestamp() OR (pc.effective_to IS NOT NULL AND pc.effective_to<=clock_timestamp())) THEN
+    RAISE EXCEPTION 'Unknown or inactive permission in desired grant set' USING ERRCODE='22023';
+  END IF;
+  computed_hash:=refs_grant_request_hash(p_tenant,p_actor,p_entity,normalized,p_expected_version);
+  IF p_request_hash<>computed_hash THEN RAISE EXCEPTION 'Grant request hash is not canonical' USING ERRCODE='22023'; END IF;
+  INSERT INTO runtime_grant_sync_receipt(tenant_id,actor_id,entity_id,idempotency_key,request_hash)
+    VALUES(p_tenant,p_actor,p_entity,p_idempotency_key,p_request_hash) ON CONFLICT DO NOTHING;
+  SELECT * INTO receipt FROM runtime_grant_sync_receipt WHERE tenant_id=p_tenant AND actor_id=p_actor AND entity_id=p_entity AND idempotency_key=p_idempotency_key FOR UPDATE;
+  IF receipt.request_hash<>p_request_hash THEN RAISE EXCEPTION 'Grant idempotency key reused with different request' USING ERRCODE='23505'; END IF;
+  IF receipt.completed_at IS NOT NULL THEN RETURN receipt.response_body||jsonb_build_object('idempotent',true); END IF;
+  INSERT INTO runtime_actor_grant_set(tenant_id,actor_id,entity_id,version,updated_by)
+    VALUES(p_tenant,p_actor,p_entity,0,session_user) ON CONFLICT DO NOTHING;
+  SELECT * INTO grant_set FROM runtime_actor_grant_set WHERE tenant_id=p_tenant AND actor_id=p_actor AND entity_id=p_entity FOR UPDATE;
+  IF grant_set.version<>p_expected_version THEN RAISE EXCEPTION 'Grant set revision conflict' USING ERRCODE='40001'; END IF;
+  UPDATE runtime_actor_grant SET revoked_at=clock_timestamp()
+    WHERE tenant_id=p_tenant AND actor_id=p_actor AND entity_id=p_entity AND revoked_at IS NULL AND NOT (permission=ANY(normalized));
+  INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission,revoked_at)
+    SELECT p_tenant,p_actor,p_entity,permission,NULL FROM unnest(normalized) permission
+    ON CONFLICT (tenant_id,actor_id,entity_id,permission) DO UPDATE SET revoked_at=NULL,valid_until=NULL;
+  UPDATE runtime_actor_grant_set SET version=version+1,updated_by=session_user,updated_at=clock_timestamp()
+    WHERE tenant_id=p_tenant AND actor_id=p_actor AND entity_id=p_entity;
+  response:=jsonb_build_object('tenant_id',p_tenant,'actor_id',p_actor,'entity_id',p_entity,'permissions',to_jsonb(normalized),'version',p_expected_version+1,'idempotent',false);
+  INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash,metadata)
+    VALUES(p_tenant,p_entity,'ACTOR_GRANTS_RECONCILED','RUNTIME_ACTOR_GRANT',p_entity,'RECONCILE',session_user,'SERVICE_ACCOUNT','AUTH.GRANT.SYNC',p_idempotency_key,p_idempotency_key,p_idempotency_key,p_request_hash,jsonb_build_object('subject_actor_id',p_actor,'desired_permissions',to_jsonb(normalized),'version',p_expected_version+1));
+  event_payload:=jsonb_build_object('actor_id',p_actor,'entity_id',p_entity,'permissions',to_jsonb(normalized),'version',p_expected_version+1);
+  INSERT INTO outbox_event(tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
+    VALUES(p_tenant,p_entity,'RUNTIME_ACTOR_GRANT',p_entity,'ACTOR_GRANTS_RECONCILED',event_payload,'sha256:'||encode(digest(convert_to(event_payload::text,'UTF8'),'sha256'),'hex'));
+  UPDATE runtime_grant_sync_receipt SET response_body=response,completed_at=clock_timestamp() WHERE grant_sync_receipt_id=receipt.grant_sync_receipt_id;
+  RETURN response;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION refs_issue_context(p_actor text,p_tenant uuid,p_token_hash text,p_ttl_seconds integer DEFAULT 300)
 RETURNS runtime_auth_context
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE issued runtime_auth_context; allowed_grants jsonb;
 BEGIN
   IF session_user<>'refs_context_issuer' THEN RAISE EXCEPTION 'Context issuer identity denied' USING ERRCODE='42501'; END IF;
   IF p_token_hash!~'^sha256:[0-9a-f]{64}$' OR p_ttl_seconds<30 OR p_ttl_seconds>300 THEN
     RAISE EXCEPTION 'Invalid context token hash or TTL' USING ERRCODE='22023';
   END IF;
-  SELECT jsonb_agg(jsonb_build_object('entity_id',entity_id,'permission',permission) ORDER BY entity_id,permission)
-    INTO allowed_grants FROM runtime_actor_grant
-    WHERE tenant_id=p_tenant AND actor_id=p_actor AND revoked_at IS NULL
-      AND (valid_until IS NULL OR valid_until>clock_timestamp());
+  SELECT jsonb_agg(jsonb_build_object('entity_id',g.entity_id,'permission',g.permission) ORDER BY g.entity_id,g.permission)
+    INTO allowed_grants FROM runtime_actor_grant g JOIN permission_catalog pc ON pc.permission_code=g.permission
+    WHERE g.tenant_id=p_tenant AND g.actor_id=p_actor AND g.revoked_at IS NULL
+      AND (g.valid_until IS NULL OR g.valid_until>clock_timestamp())
+      AND pc.active AND pc.effective_from<=clock_timestamp() AND (pc.effective_to IS NULL OR pc.effective_to>clock_timestamp());
   IF allowed_grants IS NULL THEN RAISE EXCEPTION 'Actor has no active DB authorization grant' USING ERRCODE='42501'; END IF;
   INSERT INTO runtime_auth_context(token_hash,tenant_id,grants,actor_id,bound_login,expires_at)
     VALUES(p_token_hash,p_tenant,allowed_grants,p_actor,'refs_runtime',clock_timestamp()+make_interval(secs=>p_ttl_seconds))
@@ -113,7 +250,7 @@ END;
 $$;
 
 CREATE OR REPLACE FUNCTION refs_revoke_context(p_token_hash text,p_reason text) RETURNS boolean
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE changed runtime_auth_context;
 BEGIN
   IF session_user<>'refs_context_issuer' THEN RAISE EXCEPTION 'Context issuer identity denied' USING ERRCODE='42501'; END IF;
@@ -127,7 +264,7 @@ END;
 $$;
 
 CREATE OR REPLACE FUNCTION refs_cleanup_contexts(p_retention interval DEFAULT interval '1 day') RETURNS bigint
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE deleted bigint;
 BEGIN
   IF session_user<>'refs_context_issuer' THEN RAISE EXCEPTION 'Context issuer identity denied' USING ERRCODE='42501'; END IF;
@@ -139,7 +276,7 @@ END;
 $$;
 
 CREATE OR REPLACE FUNCTION refs_bootstrap_context(p_token text) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE token_digest text:='sha256:'||encode(digest(convert_to(p_token,'UTF8'),'sha256'),'hex'); context_row runtime_auth_context;
 BEGIN
   IF length(p_token)<32 THEN RAISE EXCEPTION 'Invalid runtime context token' USING ERRCODE='42501'; END IF;
@@ -156,7 +293,7 @@ $$;
 COMMENT ON FUNCTION refs_bootstrap_context(text) IS 'Binds a pre-issued opaque capability to the current refs_runtime backend. Claims remain DB-owned and are never accepted from caller GUCs.';
 
 CREATE OR REPLACE FUNCTION refs_current_tenant() RETURNS uuid
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
   SELECT tenant_id FROM runtime_auth_context
   WHERE token_hash=current_setting('refs.context_hash',true)
     AND bound_login=session_user AND bound_backend_pid=pg_backend_pid() AND bound_txid=txid_current()
@@ -164,7 +301,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
 $$;
 
 CREATE OR REPLACE FUNCTION refs_entity_allowed(candidate uuid) RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
   SELECT COALESCE(EXISTS(
     SELECT 1 FROM runtime_auth_context
     WHERE token_hash=current_setting('refs.context_hash',true)
@@ -175,7 +312,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
 $$;
 
 CREATE OR REPLACE FUNCTION refs_has_permission(required_permission text) RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
   SELECT COALESCE(EXISTS(
     SELECT 1 FROM runtime_auth_context
     WHERE token_hash=current_setting('refs.context_hash',true)
@@ -186,7 +323,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
 $$;
 
 CREATE OR REPLACE FUNCTION refs_entity_has_permission(candidate uuid,required_permission text) RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
   SELECT COALESCE(EXISTS(
     SELECT 1 FROM runtime_auth_context c, LATERAL jsonb_array_elements(c.grants) g
     WHERE c.token_hash=current_setting('refs.context_hash',true)
@@ -197,7 +334,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
 $$;
 
 CREATE OR REPLACE FUNCTION refs_current_actor() RETURNS text
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
   SELECT actor_id FROM runtime_auth_context
   WHERE token_hash=current_setting('refs.context_hash',true)
     AND bound_login=session_user AND bound_backend_pid=pg_backend_pid() AND bound_txid=txid_current()
@@ -220,14 +357,38 @@ ALTER TABLE outbox_event
   ADD COLUMN entity_id uuid,
   ADD FOREIGN KEY (tenant_id,entity_id) REFERENCES entity(tenant_id,entity_id);
 
+ALTER TABLE sync_cursor ADD COLUMN entity_id uuid;
+ALTER TABLE import_batch ADD COLUMN entity_id uuid;
+ALTER TABLE raw_event ADD COLUMN entity_id uuid;
+UPDATE sync_cursor sc SET entity_id=e.entity_id FROM entity e
+  WHERE e.tenant_id=sc.tenant_id AND e.source_entity_id=sc.source_entity_id
+    AND NOT EXISTS (SELECT 1 FROM entity other WHERE other.tenant_id=e.tenant_id AND other.source_entity_id=e.source_entity_id AND other.entity_id<>e.entity_id);
+UPDATE import_batch ib SET entity_id=e.entity_id FROM entity e
+  WHERE e.tenant_id=ib.tenant_id AND e.source_entity_id=ib.source_entity_id
+    AND NOT EXISTS (SELECT 1 FROM entity other WHERE other.tenant_id=e.tenant_id AND other.source_entity_id=e.source_entity_id AND other.entity_id<>e.entity_id);
+UPDATE raw_event re SET entity_id=e.entity_id FROM entity e
+  WHERE e.tenant_id=re.tenant_id AND e.source_system=re.source_system AND e.source_entity_id=re.source_entity_id;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM sync_cursor WHERE entity_id IS NULL)
+    OR EXISTS (SELECT 1 FROM import_batch WHERE entity_id IS NULL)
+    OR EXISTS (SELECT 1 FROM raw_event WHERE entity_id IS NULL)
+  THEN RAISE EXCEPTION 'Ingestion rows cannot be mapped to one exact entity'; END IF;
+END $$;
+ALTER TABLE sync_cursor ALTER COLUMN entity_id SET NOT NULL,
+  ADD FOREIGN KEY (tenant_id,entity_id) REFERENCES entity(tenant_id,entity_id);
+ALTER TABLE import_batch ALTER COLUMN entity_id SET NOT NULL,
+  ADD FOREIGN KEY (tenant_id,entity_id) REFERENCES entity(tenant_id,entity_id);
+ALTER TABLE raw_event ALTER COLUMN entity_id SET NOT NULL,
+  ADD FOREIGN KEY (tenant_id,entity_id) REFERENCES entity(tenant_id,entity_id);
+
 DO $$
 DECLARE table_name text;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='refs_app') OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='refs_runtime') OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='refs_context_issuer') THEN
-    RAISE EXCEPTION 'Platform prerequisite roles refs_app, refs_runtime, and refs_context_issuer are required';
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='refs_app') OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='refs_runtime') OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='refs_context_issuer') OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='refs_grant_sync') THEN
+    RAISE EXCEPTION 'Platform prerequisite roles refs_app, refs_runtime, refs_context_issuer, and refs_grant_sync are required';
   END IF;
   FOREACH table_name IN ARRAY ARRAY[
-    'tenant','entity','accounting_period','sync_cursor','import_batch','raw_event','attachment',
+    'tenant','entity','accounting_period','attachment',
     'source_document','source_document_line','setting_snapshot','mapping_snapshot','rule_evaluation',
     'ai_decision','staging_item','accounting_exception','journal_entry','journal_line','posting_batch',
     'ledger_line','bank_source','bank_match','reconciliation','source_link','idempotency_receipt',
@@ -238,6 +399,19 @@ BEGIN
   END LOOP;
 END;
 $$;
+
+ALTER TABLE sync_cursor ENABLE ROW LEVEL SECURITY;
+ALTER TABLE import_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE raw_event ENABLE ROW LEVEL SECURITY;
+CREATE POLICY sync_cursor_source_scope_policy ON sync_cursor
+  USING (tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id))
+  WITH CHECK (tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id));
+CREATE POLICY import_batch_source_scope_policy ON import_batch
+  USING (tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id))
+  WITH CHECK (tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id));
+CREATE POLICY raw_event_source_scope_policy ON raw_event
+  USING (tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id))
+  WITH CHECK (tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id));
 
 DO $$
 DECLARE table_name text;
@@ -279,7 +453,7 @@ CREATE TRIGGER outbox_payload_immutable
 CREATE OR REPLACE FUNCTION refs_reserve_idempotency(
   p_tenant uuid,p_scope text,p_key text,p_request_hash text,p_actor text
 ) RETURNS idempotency_receipt
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE receipt idempotency_receipt;
 BEGIN
   IF refs_current_tenant() IS DISTINCT FROM p_tenant THEN
@@ -313,7 +487,7 @@ CREATE OR REPLACE FUNCTION refs_update_draft_description(
   p_tenant uuid,p_entity uuid,p_journal uuid,p_expected_revision bigint,p_description text,
   p_idempotency_key text,p_request_hash text
 ) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE je journal_entry; receipt idempotency_receipt; response jsonb; actor text:=refs_current_actor(); event_payload jsonb;
 BEGIN
   PERFORM refs_assert_scope(p_tenant,p_entity,'GL.JE.EDIT');
@@ -342,7 +516,7 @@ CREATE OR REPLACE FUNCTION refs_close_period(
   p_tenant uuid,p_entity uuid,p_period uuid,p_expected_version bigint,
   p_idempotency_key text,p_request_hash text,p_actor text
 ) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE period_row accounting_period; receipt idempotency_receipt; response jsonb; event_payload jsonb;
 BEGIN
   PERFORM refs_assert_scope(p_tenant,p_entity,'GL.PERIOD.CLOSE');
@@ -372,7 +546,7 @@ CREATE OR REPLACE FUNCTION refs_post_journal(
   p_tenant uuid,p_entity uuid,p_period uuid,p_journal uuid,p_expected_revision bigint,
   p_idempotency_key text,p_request_hash text,p_actor text
 ) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE period_row accounting_period; je journal_entry; receipt idempotency_receipt;
 DECLARE balanced boolean; line_count bigint; batch_id uuid:=gen_random_uuid(); response jsonb; event_payload jsonb;
 BEGIN
@@ -405,7 +579,8 @@ BEGIN
     LEFT JOIN account_master a ON (a.tenant_id,a.entity_id,a.account_code)=(jl.tenant_id,jl.entity_id,jl.account_code) AND a.active
     LEFT JOIN member_master m ON (m.tenant_id,m.entity_id,m.member_ref)=(jl.tenant_id,jl.entity_id,jl.member_ref) AND m.active
     WHERE jl.tenant_id=p_tenant AND jl.entity_id=p_entity AND jl.journal_entry_id=p_journal
-      AND (a.account_code IS NULL OR (a.requires_member AND jl.member_ref IS NULL) OR (jl.member_ref IS NOT NULL AND m.member_ref IS NULL))
+      AND (a.account_code IS NULL OR (a.requires_member AND jl.member_ref IS NULL) OR (jl.member_ref IS NOT NULL AND m.member_ref IS NULL)
+        OR (a.requires_member AND NOT (m.member_type=a.required_member_type OR (a.required_member_type='CUSTOMER_OR_AFFILIATE' AND m.member_type IN ('CUSTOMER','AFFILIATE')))))
   ) THEN RAISE EXCEPTION 'Account/member validation failed' USING ERRCODE='23514'; END IF;
 
   IF je.journal_type IN ('MANUAL','RECLASS') AND NOT EXISTS (
@@ -417,8 +592,16 @@ BEGIN
   ) THEN RAISE EXCEPTION 'Manual and reclass journals require a verified clean attachment' USING ERRCODE='23514'; END IF;
   IF je.journal_type='AUTO' AND NOT EXISTS (
     SELECT 1 FROM source_link sl
+    JOIN source_document sd ON sd.tenant_id=sl.tenant_id AND sd.entity_id=sl.entity_id AND sd.source_document_id=sl.source_document_id
+    JOIN staging_item si ON si.tenant_id=sl.tenant_id AND si.entity_id=sl.entity_id AND si.staging_item_id=sl.staging_item_id AND si.source_document_id=sd.source_document_id
+    JOIN setting_snapshot ss ON ss.tenant_id=si.tenant_id AND ss.setting_snapshot_id=si.setting_snapshot_id AND ss.status='APPROVED' AND (ss.entity_id IS NULL OR ss.entity_id=p_entity)
+    JOIN mapping_snapshot ms ON ms.tenant_id=si.tenant_id AND ms.mapping_snapshot_id=si.mapping_snapshot_id AND ms.status='APPROVED' AND (ms.entity_id IS NULL OR ms.entity_id=p_entity)
+    JOIN rule_evaluation re ON re.tenant_id=si.tenant_id AND re.rule_evaluation_id=si.rule_evaluation_id
+      AND re.source_document_id=sd.source_document_id AND re.setting_snapshot_id=ss.setting_snapshot_id AND re.mapping_snapshot_id=ms.mapping_snapshot_id
     WHERE sl.tenant_id=p_tenant AND sl.entity_id=p_entity AND sl.journal_entry_id=p_journal
-      AND num_nonnulls(sl.raw_event_id,sl.source_document_id,sl.staging_item_id)>0
+      AND sl.source_document_id IS NOT NULL AND sl.staging_item_id IS NOT NULL
+      AND si.reviewed_by IS NOT NULL AND si.reviewed_at IS NOT NULL
+      AND si.status IN ('READY_FOR_DRAFT','DRAFT_CREATED','PENDING_JE_REVIEW','PENDING_JE_APPROVAL','APPROVED','POSTED')
   ) THEN RAISE EXCEPTION 'Automatic journals require immutable source evidence' USING ERRCODE='23514'; END IF;
 
   INSERT INTO posting_batch(posting_batch_id,tenant_id,entity_id,period_id,idempotency_key,request_hash,posted_by)
@@ -446,7 +629,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION refs_claim_outbox(p_tenant uuid,p_worker text,p_limit integer DEFAULT 100)
 RETURNS SETOF outbox_event
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN
   IF refs_current_tenant() IS DISTINCT FROM p_tenant OR refs_current_actor() IS DISTINCT FROM p_worker THEN
     RAISE EXCEPTION 'Outbox dispatch scope denied' USING ERRCODE='42501';
@@ -465,7 +648,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION refs_complete_outbox(p_tenant uuid,p_event uuid,p_worker text,p_success boolean,p_error text DEFAULT NULL)
 RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN
   IF refs_current_tenant() IS DISTINCT FROM p_tenant OR refs_current_actor() IS DISTINCT FROM p_worker THEN
     RAISE EXCEPTION 'Outbox dispatch scope denied' USING ERRCODE='42501';
@@ -486,7 +669,9 @@ GRANT SELECT ON tenant,entity,accounting_period,sync_cursor,import_batch,raw_eve
   source_document,source_document_line,setting_snapshot,mapping_snapshot,rule_evaluation,ai_decision,
   staging_item,accounting_exception,journal_entry,journal_line,posting_batch,ledger_line,bank_source,
   bank_match,reconciliation,source_link,idempotency_receipt,audit_event,outbox_event,account_master,member_master TO refs_app;
-REVOKE ALL ON TABLE runtime_auth_context,runtime_actor_grant FROM PUBLIC,refs_app,refs_runtime,refs_context_issuer;
+REVOKE ALL ON TABLE runtime_auth_context,runtime_actor_grant,runtime_actor_grant_set,runtime_grant_sync_receipt FROM PUBLIC,refs_app,refs_runtime,refs_context_issuer,refs_grant_sync;
+REVOKE EXECUTE ON FUNCTION refs_reconcile_actor_grants(uuid,text,uuid,text[],bigint,text,text) FROM PUBLIC,refs_app,refs_runtime,refs_context_issuer;
+REVOKE EXECUTE ON FUNCTION refs_grant_request_hash(uuid,text,uuid,text[],bigint) FROM PUBLIC,refs_app,refs_runtime,refs_context_issuer;
 REVOKE EXECUTE ON FUNCTION refs_issue_context(text,uuid,text,integer) FROM PUBLIC,refs_app,refs_runtime;
 REVOKE EXECUTE ON FUNCTION refs_revoke_context(text,text) FROM PUBLIC,refs_app,refs_runtime;
 REVOKE EXECUTE ON FUNCTION refs_cleanup_contexts(interval) FROM PUBLIC,refs_app,refs_runtime;
@@ -507,6 +692,8 @@ GRANT EXECUTE ON FUNCTION refs_bootstrap_context(text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_issue_context(text,uuid,text,integer) TO refs_context_issuer;
 GRANT EXECUTE ON FUNCTION refs_revoke_context(text,text) TO refs_context_issuer;
 GRANT EXECUTE ON FUNCTION refs_cleanup_contexts(interval) TO refs_context_issuer;
+GRANT EXECUTE ON FUNCTION refs_reconcile_actor_grants(uuid,text,uuid,text[],bigint,text,text) TO refs_grant_sync;
+GRANT EXECUTE ON FUNCTION refs_grant_request_hash(uuid,text,uuid,text[],bigint) TO refs_grant_sync;
 GRANT EXECUTE ON FUNCTION refs_current_tenant() TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_entity_allowed(uuid) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_has_permission(text) TO refs_app;

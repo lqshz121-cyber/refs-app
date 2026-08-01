@@ -1,6 +1,7 @@
-const localDefault='postgresql://refs_runtime:refs_runtime_local_only@127.0.0.1:55432/refs_kernel_test';
-const localMigrationDefault='postgresql://refs_migrator:refs_migrator_local_only@127.0.0.1:55432/refs_kernel_test';
-const localIssuerDefault='postgresql://refs_context_issuer:refs_context_issuer_local_only@127.0.0.1:55432/refs_kernel_test';
+const localDefault='postgresql://refs_runtime:refs_runtime_test_N7v2p9Q4x6Lm@127.0.0.1:55432/refs_kernel_test';
+const localMigrationDefault='postgresql://refs_migrator:refs_migrator_test_K8r3w5T1z9Hp@127.0.0.1:55432/refs_kernel_test';
+const localIssuerDefault='postgresql://refs_context_issuer:refs_issuer_test_P6m4s8V2q7Jc@127.0.0.1:55432/refs_kernel_test';
+const localGrantSyncDefault='postgresql://refs_grant_sync:refs_grant_sync_test_R9k5d3W8y2Fn@127.0.0.1:55432/refs_kernel_test';
 const weakPasswords=new Set(['','postgres','password','refs','refs_local_only','refs_runtime_local_only','refs_migrator_local_only','refs_context_issuer_local_only','changeme']);
 
 function positiveInteger(env,name,fallback,{min=1,max=600000}={}){
@@ -27,12 +28,24 @@ export function runtimeConfig(env=process.env){
   if(strict&&!env.DATABASE_URL)throw new Error('DATABASE_URL is required when PostgreSQL is required or NODE_ENV=production');
   if(strict&&!env.MIGRATION_DATABASE_URL)throw new Error('MIGRATION_DATABASE_URL is required when PostgreSQL is required or NODE_ENV=production');
   if(strict&&!env.CONTEXT_ISSUER_DATABASE_URL)throw new Error('CONTEXT_ISSUER_DATABASE_URL is required when PostgreSQL is required or NODE_ENV=production');
-  if(strict&&env.MIGRATION_DATABASE_URL&&env.MIGRATION_DATABASE_URL===env.DATABASE_URL)throw new Error('Runtime and migration database credentials must be different');
-  if(strict&&[env.DATABASE_URL,env.MIGRATION_DATABASE_URL].includes(env.CONTEXT_ISSUER_DATABASE_URL))throw new Error('Context issuer credentials must be isolated from runtime and migration credentials');
+  if(strict&&!env.GRANT_SYNC_DATABASE_URL)throw new Error('GRANT_SYNC_DATABASE_URL is required when PostgreSQL is required or NODE_ENV=production');
+  const databaseUrl=validatedUrl(env.DATABASE_URL||localDefault,{strict});
+  const migrationDatabaseUrl=env.MIGRATION_DATABASE_URL?validatedUrl(env.MIGRATION_DATABASE_URL,{strict}):(strict?null:localMigrationDefault);
+  const contextIssuerDatabaseUrl=env.CONTEXT_ISSUER_DATABASE_URL?validatedUrl(env.CONTEXT_ISSUER_DATABASE_URL,{strict}):(strict?null:localIssuerDefault);
+  const grantSyncDatabaseUrl=env.GRANT_SYNC_DATABASE_URL?validatedUrl(env.GRANT_SYNC_DATABASE_URL,{strict}):(strict?null:localGrantSyncDefault);
+  if(strict){
+    const urls=[databaseUrl,migrationDatabaseUrl,contextIssuerDatabaseUrl,grantSyncDatabaseUrl].map(value=>new URL(value));
+    const endpoints=urls.map(url=>`${url.hostname.toLowerCase()}:${url.port||'5432'}${url.pathname}`);
+    if(new Set(endpoints).size!==1)throw new Error('Runtime, migration, and context issuer URLs must target the same database endpoint');
+    const credentials=urls.map(url=>`${decodeURIComponent(url.username)}\u0000${decodeURIComponent(url.password)}`);
+    if(new Set(credentials).size!==credentials.length)throw new Error('Runtime, migration, and context issuer credentials must be different');
+    if(new Set(urls.map(url=>decodeURIComponent(url.username))).size!==urls.length)throw new Error('Runtime, migration, and context issuer roles must be different');
+  }
   return {
-    databaseUrl:validatedUrl(env.DATABASE_URL||localDefault,{strict}),
-    migrationDatabaseUrl:env.MIGRATION_DATABASE_URL?validatedUrl(env.MIGRATION_DATABASE_URL,{strict}):(strict?null:localMigrationDefault),
-    contextIssuerDatabaseUrl:env.CONTEXT_ISSUER_DATABASE_URL?validatedUrl(env.CONTEXT_ISSUER_DATABASE_URL,{strict}):(strict?null:localIssuerDefault),
+    databaseUrl,
+    migrationDatabaseUrl,
+    contextIssuerDatabaseUrl,
+    grantSyncDatabaseUrl,
     requirePostgres:strict,
     allowDown:env.REFS_ALLOW_DB_DOWN==='1',
     statementTimeoutMs:positiveInteger(env,'REFS_PG_STATEMENT_TIMEOUT_MS',10000,{min:100,max:600000}),
