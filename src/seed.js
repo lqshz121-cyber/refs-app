@@ -129,6 +129,7 @@ const FY = [];
 let _g = 5000;
 const ENT = [1,2,3,4];
 const VERT = [5,6,7,8,9,10,11,12,13,14];
+const _cwipBal = {};
 for (let m=1;m<=7;m++){
   const mm = String(m).padStart(2,'0');
   VERT.forEach(e=>{
@@ -155,9 +156,10 @@ for (let m=1;m<=7;m++){
       je_type:'AUTO', source_system:'WBS_CL', description:`${mm}/2026 Interest accrual`, posting_status:'POSTED', created_by:'system',
       history:[{a:'RULE R-LOAN-04',by:'system',at:`2026-${mm}-28`}],
       lines:[{account_code:'795000',debit_amount:int_,credit_amount:0},{account_code:'220451',debit_amount:0,credit_amount:int_}] });
-    // quarterly home sale: Dr 111000 / Cr 491800 + Dr 510000 / Cr 164400 (cost relief)
+    _cwipBal[e]=(_cwipBal[e]||0)+cwip;
+    // quarterly home sale: COGS relief capped at accumulated CWIP (不可把 CWIP 结转为负)
     if (m%3===0){
-      const price = 380000 + e*9000 + m*5000; const cogs = Math.round(price*0.82);
+      const price = 380000 + e*9000 + m*5000; const cogs = Math.min(Math.round(price*0.82), _cwipBal[e]); _cwipBal[e]-=cogs;
       FY.push({ je_id:++_g, je_number:`2026${mm}30${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-30`,
         je_type:'AUTO', source_system:'CLOSING', description:`${mm}/2026 Home closing - Sales of Product Income`, posting_status:'POSTED', created_by:'system',
         history:[{a:'CLOSING POST',by:'system',at:`2026-${mm}-30`}],
