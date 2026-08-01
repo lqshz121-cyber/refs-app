@@ -6,8 +6,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test tests/accounting-http.test.mjs tests/accounting-openapi.test.mjs tests/accounting-startup.test.mjs tests/attachment-storage.test.mjs tests/fresh-gate.test.mjs tests/je-service.test.mjs tests/migrations-safety.test.mjs tests/oidc-authenticator.test.mjs tests/postgres-config.test.mjs tests/postgres-runtime-contract.test.mjs tests/wbs-contract.test.mjs",
+    "test": "node --test tests/accounting-http.test.mjs tests/accounting-openapi.test.mjs tests/accounting-startup.test.mjs tests/attachment-cleanup-worker.test.mjs tests/attachment-storage.test.mjs tests/fresh-gate.test.mjs tests/je-service.test.mjs tests/migrations-safety.test.mjs tests/oidc-authenticator.test.mjs tests/postgres-config.test.mjs tests/postgres-runtime-contract.test.mjs tests/wbs-contract.test.mjs",
     "start": "node runtime/start-accounting-server.mjs",
+    "start:attachment-cleanup": "node runtime/start-attachment-cleanup-worker.mjs",
     "pg:start": "docker compose -f compose.yaml up -d --wait && node runtime/migrate.mjs up",
     "pg:stop": "docker compose -f compose.yaml down",
     "db:up": "node runtime/migrate.mjs up",

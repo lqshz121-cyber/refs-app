@@ -11,7 +11,7 @@ export const MIGRATION_MANIFEST=Object.freeze([
   }),
   Object.freeze({
     name:'003_attachment_runtime.sql',
-    up:'7d18964737e6971dedce53e1493978f21c72c7c46e2be6702d0f6322fb15fb84',
-    down:'739a1fdcf6383d10b3f06aa2131ad31752995caa4184f90281e85426c7654501'
+    up:'9842931719bcab8b5cb374b9c9ad2957b4284c50c8342cc9de404a2ddf03d54a',
+    down:'362423dce8a5973a1ddbbabb66753dcc42247f191d38a19ee1ea4a7460d63eb8'
   })
 ]);

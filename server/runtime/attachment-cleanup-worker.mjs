@@ -1,0 +1,14 @@
+import {setTimeout as delay} from 'node:timers/promises';
+
+export class AttachmentCleanupWorker{
+  constructor({service,principal,scopes,batchSize=25,intervalMs=30000,maxBackoffMs=300000,concurrency=2,logger=console,sleeper=delay,clock=()=>Date.now()}={}){
+    if(!service||!principal?.trusted||!principal.actorId||!Array.isArray(scopes)||scopes.length===0)throw new Error('Cleanup worker requires service identity and entity scopes');
+    if(!Number.isInteger(batchSize)||batchSize<1||batchSize>100||!Number.isInteger(concurrency)||concurrency<1||concurrency>16)throw new Error('Cleanup worker limits are invalid');
+    this.service=service;this.principal=Object.freeze({...principal});this.scopes=scopes.map(scope=>Object.freeze({...scope}));this.batchSize=batchSize;this.intervalMs=intervalMs;this.maxBackoffMs=maxBackoffMs;this.concurrency=concurrency;this.logger=logger;this.sleeper=sleeper;this.clock=clock;this.running=false;this.stopping=false;this.loopPromise=null;this.abort=null;this.metrics={cycles:0,claimed:0,cleaned:0,failed:0,cycleErrors:0,lastSuccessAt:null,lastErrorAt:null};
+  }
+  health(){return {ok:this.running&&!this.stopping,running:this.running,stopping:this.stopping,actorId:this.principal.actorId,scopeCount:this.scopes.length,metrics:{...this.metrics}};}
+  async runCycle(){let cursor=0;const results=[];const consume=async()=>{while(cursor<this.scopes.length){const scope=this.scopes[cursor++];try{const batch=await this.service.runOnce(this.principal,{...scope,limit:this.batchSize});this.metrics.claimed+=batch.length;for(const result of batch){if(result.status==='CLEANED')this.metrics.cleaned++;else this.metrics.failed++;}results.push(...batch);}catch(error){this.metrics.cycleErrors++;this.metrics.lastErrorAt=new Date(this.clock()).toISOString();this.logger.error?.(JSON.stringify({event:'attachment_cleanup_scope_failed',tenantId:scope.tenantId,entityId:scope.entityId,message:error.message}));throw error;}}};await Promise.all(Array.from({length:Math.min(this.concurrency,this.scopes.length)},consume));this.metrics.cycles++;this.metrics.lastSuccessAt=new Date(this.clock()).toISOString();return results;}
+  start(){if(this.loopPromise)return this.loopPromise;this.running=true;this.stopping=false;this.abort=new AbortController();this.loopPromise=this.loop(this.abort.signal).finally(()=>{this.running=false;this.loopPromise=null;});return this.loopPromise;}
+  async loop(signal){let backoff=this.intervalMs;while(!signal.aborted){try{await this.runCycle();backoff=this.intervalMs;}catch{backoff=Math.min(this.maxBackoffMs,Math.max(this.intervalMs,backoff*2));}try{await this.sleeper(backoff,undefined,{signal});}catch(error){if(!signal.aborted)throw error;}}}
+  async stop(){if(!this.loopPromise)return;this.stopping=true;this.abort.abort();await this.loopPromise;}
+}

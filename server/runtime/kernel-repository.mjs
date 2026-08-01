@@ -85,7 +85,7 @@ export class PostgresAccountingKernel{
   }
 
   async claimExpiredAttachments({tenantId,entityId,limit=25}){return this.inSession(async client=>(await client.query('SELECT refs_claim_expired_attachments($1,$2,$3) AS items',[tenantId,entityId,limit])).rows[0].items);}
-  async completeAttachmentCleanup({tenantId,entityId,attachmentId,deleted,error=null}){return this.inSession(async client=>(await client.query('SELECT refs_complete_attachment_cleanup($1,$2,$3,$4,$5) AS result',[tenantId,entityId,attachmentId,deleted,error])).rows[0].result);}
+  async completeAttachmentCleanup({tenantId,entityId,attachmentId,claimToken,deleted,error=null}){return this.inSession(async client=>(await client.query('SELECT refs_complete_attachment_cleanup($1,$2,$3,$4,$5,$6) AS result',[tenantId,entityId,attachmentId,claimToken,deleted,error])).rows[0].result);}
 
   async createAutoJournal(args){
     return this.inSession(async client=>{

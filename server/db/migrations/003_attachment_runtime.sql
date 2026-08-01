@@ -7,6 +7,8 @@ ALTER TABLE attachment
   ADD COLUMN cleanup_status text NOT NULL DEFAULT 'NONE' CHECK (cleanup_status IN ('NONE','PENDING','COMPLETE','FAILED')),
   ADD COLUMN cleanup_attempts integer NOT NULL DEFAULT 0 CHECK (cleanup_attempts>=0),
   ADD COLUMN cleanup_claimed_at timestamptz,
+  ADD COLUMN cleanup_claim_token uuid,
+  ADD COLUMN cleanup_claimed_by text,
   ADD COLUMN cleaned_at timestamptz,
   ADD CONSTRAINT attachment_entity_fk FOREIGN KEY(tenant_id,entity_id) REFERENCES entity(tenant_id,entity_id),
   ADD CONSTRAINT attachment_reservation_window_ck CHECK ((reserved_at IS NULL AND upload_expires_at IS NULL) OR (reserved_at IS NOT NULL AND upload_expires_at>reserved_at)),
@@ -86,9 +88,9 @@ BEGIN
       AND (cleanup_status IN ('NONE','FAILED') OR (cleanup_status='PENDING' AND cleanup_claimed_at<clock_timestamp()-interval '5 minutes'))
     ORDER BY upload_expires_at,attachment_id FOR UPDATE SKIP LOCKED LIMIT p_limit
   ), claimed AS (
-    UPDATE attachment a SET cleanup_status='PENDING',cleanup_attempts=a.cleanup_attempts+1,cleanup_claimed_at=clock_timestamp() FROM candidates c WHERE a.attachment_id=c.attachment_id
-    RETURNING a.attachment_id,a.storage_ref,a.storage_version,a.cleanup_attempts
-  ) SELECT coalesce(jsonb_agg(jsonb_build_object('attachment_id',attachment_id,'storage_ref',storage_ref,'storage_version',storage_version,'cleanup_attempt',cleanup_attempts)),'[]'::jsonb) INTO items FROM claimed;
+    UPDATE attachment a SET cleanup_status='PENDING',cleanup_attempts=a.cleanup_attempts+1,cleanup_claimed_at=clock_timestamp(),cleanup_claim_token=gen_random_uuid(),cleanup_claimed_by=actor FROM candidates c WHERE a.attachment_id=c.attachment_id
+    RETURNING a.attachment_id,a.storage_ref,a.storage_version,a.cleanup_attempts,a.cleanup_claim_token
+  ) SELECT coalesce(jsonb_agg(jsonb_build_object('attachment_id',attachment_id,'storage_ref',storage_ref,'storage_version',storage_version,'cleanup_attempt',cleanup_attempts,'claim_token',cleanup_claim_token)),'[]'::jsonb) INTO items FROM claimed;
   PERFORM set_config('refs.attachment_finalize','',true);
   INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,metadata)
     SELECT p_tenant,p_entity,'ATTACHMENT_CLEANUP_CLAIMED','ATTACHMENT',(item->>'attachment_id')::uuid,'CLAIM_EXPIRED',actor,'SERVICE_ACCOUNT','ATTACHMENT.CLEANUP',
@@ -98,16 +100,17 @@ BEGIN
   RETURN items;
 END $$;
 
-CREATE OR REPLACE FUNCTION refs_complete_attachment_cleanup(p_tenant uuid,p_entity uuid,p_attachment uuid,p_deleted boolean,p_error text)
+CREATE OR REPLACE FUNCTION refs_complete_attachment_cleanup(p_tenant uuid,p_entity uuid,p_attachment uuid,p_claim_token uuid,p_deleted boolean,p_error text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE actor text:=refs_current_actor(); current attachment; response jsonb;
 BEGIN
   PERFORM refs_assert_scope(p_tenant,p_entity,'ATTACHMENT.CLEANUP');
   SELECT * INTO current FROM attachment WHERE tenant_id=p_tenant AND entity_id=p_entity AND attachment_id=p_attachment FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'Attachment not found' USING ERRCODE='P0002'; END IF;
-  IF current.finalization_status<>'PENDING' OR current.cleanup_status<>'PENDING' THEN RAISE EXCEPTION 'Attachment is not cleanup-pending' USING ERRCODE='55000'; END IF;
+  IF current.finalization_status<>'PENDING' OR current.cleanup_status<>'PENDING' OR current.cleanup_claim_token IS DISTINCT FROM p_claim_token OR current.cleanup_claimed_by IS DISTINCT FROM actor THEN
+    RAISE EXCEPTION 'Attachment cleanup lease is absent, stale, or owned by another worker' USING ERRCODE='40001'; END IF;
   PERFORM set_config('refs.attachment_finalize','authorized',true);
-  UPDATE attachment SET cleanup_status=CASE WHEN p_deleted THEN 'COMPLETE' ELSE 'FAILED' END,cleanup_claimed_at=NULL,cleaned_at=CASE WHEN p_deleted THEN clock_timestamp() END,
+  UPDATE attachment SET cleanup_status=CASE WHEN p_deleted THEN 'COMPLETE' ELSE 'FAILED' END,cleanup_claimed_at=NULL,cleanup_claim_token=NULL,cleanup_claimed_by=NULL,cleaned_at=CASE WHEN p_deleted THEN clock_timestamp() END,
     finalization_status=CASE WHEN p_deleted THEN 'REJECTED' ELSE finalization_status END,scan_status=CASE WHEN p_deleted THEN 'ERROR' ELSE scan_status END,
     finalized_at=CASE WHEN p_deleted THEN clock_timestamp() ELSE finalized_at END WHERE attachment_id=p_attachment;
   PERFORM set_config('refs.attachment_finalize','',true);
@@ -215,7 +218,7 @@ REVOKE EXECUTE ON FUNCTION refs_attachment_reserve_hash(uuid,uuid,text,text,bigi
 REVOKE EXECUTE ON FUNCTION refs_attachment_finalize_request_hash(uuid,uuid,uuid) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_request_attachment_finalize(uuid,uuid,uuid,text,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_claim_expired_attachments(uuid,uuid,integer) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION refs_complete_attachment_cleanup(uuid,uuid,uuid,boolean,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_complete_attachment_cleanup(uuid,uuid,uuid,uuid,boolean,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_reserve_attachment(uuid,uuid,text,text,bigint,text,text,text,text,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_attachment_finalize_hash(uuid,uuid,uuid,text,bigint,text,text,text,boolean,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_finalize_attachment(uuid,uuid,uuid,text,bigint,text,text,text,boolean,text,text,text) FROM PUBLIC;
@@ -223,7 +226,7 @@ GRANT EXECUTE ON FUNCTION refs_attachment_reserve_hash(uuid,uuid,text,text,bigin
 GRANT EXECUTE ON FUNCTION refs_attachment_finalize_request_hash(uuid,uuid,uuid) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_request_attachment_finalize(uuid,uuid,uuid,text,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_claim_expired_attachments(uuid,uuid,integer) TO refs_app;
-GRANT EXECUTE ON FUNCTION refs_complete_attachment_cleanup(uuid,uuid,uuid,boolean,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_complete_attachment_cleanup(uuid,uuid,uuid,uuid,boolean,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_reserve_attachment(uuid,uuid,text,text,bigint,text,text,text,text,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_attachment_finalize_hash(uuid,uuid,uuid,text,bigint,text,text,text,boolean,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_finalize_attachment(uuid,uuid,uuid,text,bigint,text,text,text,boolean,text,text,text) TO refs_app;
