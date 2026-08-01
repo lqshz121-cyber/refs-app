@@ -40,7 +40,8 @@ export function validateAttachmentReferences(je,documents=[]){
 
 export async function verifyAttachmentContent({je,documents=[],loadBlob,hashBlob}){
   const refs=validateAttachmentReferences(je,documents);if(!refs.ok)return refs;if(!['MANUAL','RECLASS'].includes(je?.je_type))return {ok:true};
-  for(const id of je.attachment_ids||[]){const meta=documents.find(d=>d.document_id===id);const blob=await loadBlob(id);if(!blob||blob.size!==meta.size||blob.type!==meta.type)return {ok:false,code:'JE_ATTACHMENT_BLOB',message:`Attachment ${id} content does not match metadata.`};let hash;if(hashBlob)hash=await hashBlob(blob);else{const digest=await crypto.subtle.digest('SHA-256',await blob.arrayBuffer());hash='sha256:'+[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');}if(hash!==meta.hash)return {ok:false,code:'JE_ATTACHMENT_HASH',message:`Attachment ${id} hash verification failed.`};}
+  try{for(const id of je.attachment_ids||[]){const meta=documents.find(d=>d.document_id===id);const blob=await loadBlob(id);if(!blob||blob.size!==meta.size||blob.type!==meta.type)return {ok:false,code:'JE_ATTACHMENT_BLOB',message:`Attachment ${id} content does not match metadata.`};let hash;if(hashBlob)hash=await hashBlob(blob);else{const digest=await crypto.subtle.digest('SHA-256',await blob.arrayBuffer());hash='sha256:'+[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');}if(hash!==meta.hash)return {ok:false,code:'JE_ATTACHMENT_HASH',message:`Attachment ${id} hash verification failed.`};}}
+  catch{return {ok:false,code:'JE_ATTACHMENT_STORAGE',message:'Attachment storage could not be verified. Try again before continuing.'};}
   return {ok:true};
 }
 

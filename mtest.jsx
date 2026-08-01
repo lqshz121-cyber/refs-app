@@ -177,14 +177,19 @@ expectJE('JE batch validates primary and reversal periods atomically',validateNe
 expectJE('JE batch creates nothing when any owned period is missing',validateNewJEBatch({specs:[batchSpec,reverseBatchSpec],periods:[{entity_id:4,period_code:'2026-07',status:'OPEN'}],can:canAll}).code==='JE_PERIOD_NOT_CONFIGURED');
 const reservations=new Set();const reservedFirst=reserveJESources(reservations,[batchSpec,reverseBatchSpec]);const overlapSpec={...batchSpec,source_doc_id:reverseBatchSpec.source_doc_id};
 expectJE('JE overlapping batches reserve every source atomically',reservedFirst.ok&&reserveJESources(reservations,[overlapSpec]).code==='JE_DUPLICATE_ACTION');
+const sharedReservations=new Set();expectJE('JE single and batch creation share one source reservation namespace',reserveJESources(sharedReservations,[batchSpec]).ok&&reserveJESources(sharedReservations,[batchSpec,reverseBatchSpec]).code==='JE_DUPLICATE_ACTION');
 const storedDoc={...docs[0],size:4,type:'application/pdf'};const storedJE={...manualDraft,attachment_ids:['DOC-1']};
 Promise.all([
   verifyAttachmentContent({je:storedJE,documents:[storedDoc],loadBlob:async()=>null,hashBlob:async blob=>blob.hash}),
   verifyAttachmentContent({je:storedJE,documents:[storedDoc],loadBlob:async()=>({size:4,type:'application/pdf',hash:'sha256:'+'b'.repeat(64)}),hashBlob:async blob=>blob.hash}),
   verifyAttachmentContent({je:storedJE,documents:[{...storedDoc,hash:'sha256:'+'c'.repeat(64)}],loadBlob:async()=>({size:4,type:'application/pdf',hash:'sha256:'+'d'.repeat(64)}),hashBlob:async blob=>blob.hash}),
-]).then(([missingBlob,tamperedBlob,forgedMetadata])=>{
+  verifyAttachmentContent({je:storedJE,documents:[storedDoc],loadBlob:async()=>{throw new Error('IndexedDB unavailable');}}),
+  verifyAttachmentContent({je:storedJE,documents:[storedDoc],loadBlob:async()=>({size:4,type:'application/pdf'}),hashBlob:async()=>{throw new Error('WebCrypto unavailable');}}),
+]).then(([missingBlob,tamperedBlob,forgedMetadata,storageFailure,cryptoFailure])=>{
   expectJE('JE deleted attachment Blob blocks workflow',missingBlob.code==='JE_ATTACHMENT_BLOB');
   expectJE('JE tampered attachment Blob blocks workflow',tamperedBlob.code==='JE_ATTACHMENT_HASH');
   expectJE('JE forged attachment metadata cannot replace content verification',forgedMetadata.code==='JE_ATTACHMENT_HASH');
+  expectJE('JE attachment storage rejection returns a controlled workflow failure',storageFailure.code==='JE_ATTACHMENT_STORAGE');
+  expectJE('JE attachment crypto rejection returns a controlled workflow failure',cryptoFailure.code==='JE_ATTACHMENT_STORAGE');
   console.log(`mtest components=${components.length} failed=${failed}`);if(failed)process.exitCode=1;
 });
