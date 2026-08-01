@@ -92,9 +92,9 @@ BEGIN
   IF current.finalization_status<>'PENDING' OR current.upload_expires_at<=clock_timestamp() THEN RAISE EXCEPTION 'Attachment is not pending within its upload window' USING ERRCODE='55000'; END IF;
   IF actor=current.uploaded_by THEN RAISE EXCEPTION 'Attachment scanner SoD violation' USING ERRCODE='42501'; END IF;
   accepted:=p_scan_clean AND p_scan_ref IS NOT NULL AND length(btrim(p_scan_ref))>0 AND current.size_bytes=p_size_bytes AND current.content_hash=lower(p_content_hash)
-    AND current.media_type=lower(btrim(p_media_type)) AND current.storage_version=p_storage_version;
+    AND current.media_type=lower(btrim(p_media_type)) AND p_storage_version!~'^pending:' AND length(btrim(p_storage_version))>0;
   PERFORM set_config('refs.attachment_finalize','authorized',true);
-  UPDATE attachment SET verified_at=clock_timestamp(),scan_status=CASE WHEN accepted THEN 'CLEAN' ELSE 'REJECTED' END,
+  UPDATE attachment SET storage_version=CASE WHEN accepted THEN p_storage_version ELSE storage_version END,verified_at=clock_timestamp(),scan_status=CASE WHEN accepted THEN 'CLEAN' ELSE 'REJECTED' END,
     finalization_status=CASE WHEN accepted THEN 'VERIFIED_CLEAN' ELSE 'REJECTED' END,finalized_at=clock_timestamp() WHERE attachment_id=p_attachment;
   PERFORM set_config('refs.attachment_finalize','',true);
   response:=jsonb_build_object('attachment_id',p_attachment,'entity_id',p_entity,'status',CASE WHEN accepted THEN 'VERIFIED_CLEAN' ELSE 'REJECTED' END,'idempotent',false);
@@ -111,8 +111,8 @@ CREATE OR REPLACE FUNCTION refs_protect_attachment_evidence() RETURNS trigger LA
 BEGIN
   IF TG_OP='DELETE' OR OLD.finalization_status<>'PENDING' THEN RAISE EXCEPTION 'Attachment evidence is immutable' USING ERRCODE='55000'; END IF;
   IF current_setting('refs.attachment_finalize',true)<>'authorized' THEN RAISE EXCEPTION 'Attachment transition requires controlled finalization' USING ERRCODE='42501'; END IF;
-  IF (NEW.tenant_id,NEW.entity_id,NEW.name,NEW.media_type,NEW.size_bytes,NEW.content_hash,NEW.storage_ref,NEW.storage_version,NEW.uploaded_by,NEW.uploaded_at,NEW.reserved_at,NEW.upload_expires_at)
-    IS DISTINCT FROM (OLD.tenant_id,OLD.entity_id,OLD.name,OLD.media_type,OLD.size_bytes,OLD.content_hash,OLD.storage_ref,OLD.storage_version,OLD.uploaded_by,OLD.uploaded_at,OLD.reserved_at,OLD.upload_expires_at) THEN
+  IF (NEW.tenant_id,NEW.entity_id,NEW.name,NEW.media_type,NEW.size_bytes,NEW.content_hash,NEW.storage_ref,NEW.uploaded_by,NEW.uploaded_at,NEW.reserved_at,NEW.upload_expires_at)
+    IS DISTINCT FROM (OLD.tenant_id,OLD.entity_id,OLD.name,OLD.media_type,OLD.size_bytes,OLD.content_hash,OLD.storage_ref,OLD.uploaded_by,OLD.uploaded_at,OLD.reserved_at,OLD.upload_expires_at) THEN
     RAISE EXCEPTION 'Attachment business metadata is immutable' USING ERRCODE='55000';
   END IF;
   RETURN NEW;

@@ -376,7 +376,7 @@ pgTest('attachment reserve and scanner finalization are entity-scoped, idempoten
   const ids=await seed({status:'DRAFT',attachmentStatus:null});const contentHash=hash('uploaded-object');
   const uploader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-uploader',['ATTACHMENT.CREATE'])});
   const reserveArgs={tenantId:ids.tenantId,entityId:ids.entityId,name:'invoice.pdf',mediaType:'application/pdf',sizeBytes:321,contentHash,
-    storageRef:`object://attachments/${randomUUID()}`,storageVersion:'version-1',idempotencyKey:'attachment-reserve-0001'};
+    storageRef:`object://attachments/${randomUUID()}`,storageVersion:'pending:reservation-1',idempotencyKey:'attachment-reserve-0001'};
   const reserved=await uploader.reserveAttachment(reserveArgs);const replay=await uploader.reserveAttachment(reserveArgs);
   assert.equal(reserved.status,'PENDING');assert.equal(replay.idempotent,true);assert.equal(replay.attachment_id,reserved.attachment_id);
   const scanner=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-scanner',['ATTACHMENT.FINALIZE'])});
