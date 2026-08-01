@@ -1,6 +1,6 @@
 # REFS Product North Star
 
-版本：2026-08-01  
+版本：2026-08-01
 定位：QuickBooks 级会计操作体验 × Oracle/NetSuite 级会计控制 × WBS 地产业财数据链。
 
 ## 1. 完成口径

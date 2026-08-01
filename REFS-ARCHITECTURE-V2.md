@@ -24,7 +24,7 @@ QuickBooks 的交互模型是参照，REFS 的会计控制模型是最终约束�
 - QuickBooks Banking 支持 Match、Categorize、Exclude、Split、Undo；REFS 对齐这些操作。
 - QuickBooks 银行规则可自动分类，部分场景可自动确认；REFS 只能生成建议或 Draft，不允许 AI/规则自动 Post。
 - REFS 强制 Draft → Review → Approval → Posted，且 Maker ≠ Approver。
-- Posted 不可编辑；更正必须 Reverse、Reclass 或 Void-and-reissue，并保留完整链路。
+- Posted ledger lines 不可编辑；JE 更正只能通过 Reverse 或 Reclass，并保留完整链路。业务单据可以有 `VOIDED` 状态，但若已过账，Void command 必须追加 reversal/linkage/audit，不能删除或修改原 Posted ledger lines。
 - 关闭期间禁止新过账；重开必须独立权限、原因与审计记录。
 - 手工 JE 必须有附件；自动 JE 必须有 `source_document_id`、`source_record_id`、`rule_code`、`setting_version`。
 - 辅助核算科目必须带合法 `member`；六位科目不可降级为四位。
@@ -87,7 +87,7 @@ QuickBooks 的交互模型是参照，REFS 的会计控制模型是最终约束�
 
 `DRAFT → PENDING_REVIEW → PENDING_APPROVAL → APPROVED → POSTED`
 
-驳回回到 `DRAFT`；Posted 只能进入 `REVERSED` 或产生 Reclass 子交易，原记录不变。
+驳回回到 `DRAFT`；Posted 只能追加 reversal 或产生 Reclass 子交易。原 ledger lines 永久不变；允许追加 reversal/reclass linkage、actor/time 和只读状态投影。
 
 ### 5.3 Banking
 
@@ -116,7 +116,7 @@ Undo 将关联对象安全退回 Review；已完成银行对账的交易必须�
 1. PAYABLE 入账：费用/CWIP 借方，`Cr 291001`，按 Payee/公司挂辅助核算。
 2. Bank Feed 清账：`Dr 291001 / Cr 111000`，关联原 payable、银行交易和匹配证据。
 
-同步策略：按源表主键和更新时间做增量游标；原始 payload 只读保存；规范化记录可重跑；`source_system + source_id + source_version` 唯一，确保幂等。
+同步策略：按源表主键和更新时间做增量游标；原始 payload 只读保存；规范化记录可重跑。Raw event 使用 `UNIQUE(source_system, source_module, source_entity_id, source_record_id, source_version)`；当前态使用同一前四元组的 partial unique；业务 posting/idempotency key 另按事件 occurrence 定义，三者不得混用。
 
 ## 7. 地产会计规则包
 

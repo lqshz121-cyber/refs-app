@@ -9,12 +9,12 @@ Live: https://lqshz121-cyber.github.io/refs-app/ (演示登录,角色=所选账�
 Source → Classification → Company Setting(四大Setting) → Rule/AI Coding → Staging(人审) → Draft JE → Approval → Posted → GL → Recon → Reports → AI Audit
 
 ## 与 WBS 逐一对齐的机制
-- 四大 Setting(Account/Cost/Payable/Batch,62行真实taxonomy,Copy跨公司/年,Test Rule,LIVE/INACTIVE)
+- 四大 Setting(Account/Cost/Payable/Batch,62行 WBS reference snapshot taxonomy,Copy跨公司/年,Test Rule,LIVE/INACTIVE)
 - 双步过账:PAYABLE→Cr 291001_按Payee;银行Feed EXPA/AUTOC 自动清账;Not Match→Exception
 - 辅助核算:科目×核算对象(Bank/Vendor/Customer/Affiliate/Loan),缺member禁过账[4020]
 - Cost Code×Status 驱动分录(2HD在建→164400;完工→510000;利息资本化/费用化)
 - Loan Draw = Dr 111000 Cash / Cr 270100(资金≠成本;成本来自AP/FAST发票)
-- 766科目真实WBS COA(Header/Posting/Total);119家真实公司;辅助台账/Unit Cost/Unit Transfer(成本桥+Evidence)
+- 766科目 WBS reference snapshot COA(Header/Posting/Total);119家 WBS reference snapshot公司;辅助台账/Unit Cost/Unit Transfer(成本桥+Evidence)
 - AI Judge(建议Dr/Cr+Confidence+Reason+Rule+Setting+Risk,不代过账);AI Audit Center 八Tab+Resolve
 
 ## 十组导航与模块

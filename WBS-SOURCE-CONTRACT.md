@@ -1,35 +1,53 @@
 # WBS → REFS Source Contract
 
-版本：2026-08-01 Discovery 1  
+版本：2026-08-01 Discovery 1
 性质：只读摸排；尚未获得生产 API/service account，不代表已完成真实同步。
 
-## 1. 已验证 WBS 模块证据
+## 1. WBS 模块观察证据
 
-证据来自 WBS Accounting 前端当前路由与 lazy chunks（2026-08-01），未执行任何 WBS 写操作。
+证据来自 WBS Accounting 前端当前路由、lazy chunks 与只读 metadata connector（2026-08-01），未执行任何 WBS 写操作。Bundle hash 可复验的条目标记 `VERIFIED`；未固化 schema snapshot/hash 的数据库元数据只标记 `OBSERVED`，不得提升为冻结接口事实。
 
-| WBS route | 当前可验证用途 | 前端 bundle/API 证据 | REFS 归属 |
+| WBS route | 当前用途 | evidence_id / 证据 | REFS 归属 |
 |---|---|---|---|
-| `/companyAccount` | 公司会计工作台；查询、Setting、Review/Approve、Close/Unclose、附件与分录详情 | chunk 843；`/accounting/api/accounting/list|getOne|sources|businessSourceType|journalEdit/*|review|approve|reject|reversal|fileList` | Source & Staging / Journal workflow |
-| `/sourceDetail` | 源记录/会计详情 Drawer，包含 bank/cost/payable detail、附件回源 | chunk 340；`journalEdit/bank|cost|payable|log`；附件 `ftFilesysid`。HTTP method 尚未证明，正式 adapter 仅可调用明确的只读 endpoint | Source document / mapping evidence / audit |
-| `/cashOrBankBookAccountSetting` | Account、Cost、Payable、Receivable、Batch Setting | chunk 417 + common 586；`setting/accountSetting|costSettings|payableSettings|receiveableSettings|copyAccountingSetting` | Versioned Setting families |
-| `/accountRelation` | Cost Code ↔ Account relation 的查询、增删改、导入导出 | chunk 379 + 586；`costcodeAccountRelation/list|add|update|delete|import|download`。元数据仅确认 `id,cost_code,account,account_name,type`；没有 company/effective/version/approval | Mapping family: COST_CODE_ACCOUNT；歧义时 fail closed |
-| `/matchInfo` | 当前路由标题为 Match Info；bundle 主要出现 balance/report approval API，尚不能证明是银行匹配 | chunk 460；元数据表 `match_business_info` 只有 business type/id、batch GUID、create time、source，缺 entity/bank/amount/currency/status/undo version | Discovery quarantine，不生成 Match 或 JE |
-| `/accountLink` | Account Report Link/报表关联，不是原始银行 feed | chunk 38；`report/companyList|reportType|getActCodes|showPDF|download` | Report lineage/read model |
-| `/generalLedger` | 总账与 source drilldown | chunk 694；`balanceCell/showGeneralLedger` + accounting detail APIs | WBS→REFS 对账验证，不作为写账源 |
-| `/balance`, `/balanceV2`, `/IncomeStatement` | 余额、BS/IS 类财务报表 | route metadata + balance/report APIs | Cutover/reconciliation control totals |
-| `/Consolidate`, `/interComReport(s)`, `/companyEquityTracing` | 合并、公司间、权益追踪 | common 586；`consolidableReport|saveConsolidate|interComReport|companyEquityTracing` | IC/Consolidation validation |
-| `/companyReviewSwitch` | 公司级 Review 开关/审批配置 | route metadata + `setting/approvalSwitch` | Approval policy input |
-| `/propertyComparisonReport` | 多公司六位科目比较，支持 detail/total 与 ETL 下载 | 当前页面实际验证；例如 111000、164xxx、270xxx、795000 | Migration control totals |
+| `/companyAccount` | 公司会计工作台；查询、Setting、Review/Approve、Close/Unclose、附件与分录详情 | `BUNDLE-APP`, `BUNDLE-843`；`accounting/list|getOne|sources|businessSourceType|journalEdit/*|review|approve|reject|reversal|fileList` | Source & Staging / Journal workflow |
+| `/sourceDetail` | 源记录/会计详情 Drawer，包含 bank/cost/payable detail、附件回源 | `BUNDLE-340`, `SCHEMA-OBS-001`；HTTP method 尚未证明，正式 adapter 仅可调用明确的只读 endpoint | Source document / mapping evidence / audit |
+| `/cashOrBankBookAccountSetting` | Account、Cost、Payable、Receivable、Batch Setting | `BUNDLE-417`, `BUNDLE-586` | Versioned Setting families |
+| `/accountRelation` | Cost Code ↔ Account relation 的查询、增删改、导入导出 | `BUNDLE-379`, `BUNDLE-586`, `SCHEMA-OBS-001`；观察到字段没有 company/effective/version/approval | Mapping family: COST_CODE_ACCOUNT；歧义时 fail closed |
+| `/matchInfo` | 路由标题为 Match Info；尚不能证明是银行匹配 | `BUNDLE-460`, `SCHEMA-OBS-001`；观察表缺 entity/bank/amount/currency/status/undo version | Discovery quarantine，不生成 Match 或 JE |
+| `/accountLink` | Account Report Link/报表关联，不是原始 bank/business feed | `BUNDLE-038` | Report lineage/read model |
+| `/generalLedger` | 总账与 source drilldown | `BUNDLE-694` | WBS→REFS 对账验证，不作为写账源 |
+| `/balance`, `/balanceV2`, `/IncomeStatement` | 余额、BS/IS 类财务报表 | `BUNDLE-APP`；详细 response schema 仍 UNKNOWN | Cutover/reconciliation control totals |
+| `/Consolidate`, `/interComReport(s)`, `/companyEquityTracing` | 合并、公司间、权益追踪 | `BUNDLE-586` | IC/Consolidation validation |
+| `/companyReviewSwitch` | 公司级 Review 开关/审批配置 | `BUNDLE-APP`；`setting/approvalSwitch` | Approval policy input |
+| `/propertyComparisonReport` | 多公司六位科目比较，支持 detail/total 与 ETL 下载 | `UI-OBS-001`, `BUNDLE-APP` | Migration control totals |
+
+### 1.1 Evidence Ledger
+
+环境：`https://wbs.lvshiwanyang.com/accounting/` hosted environment；其 dev/test/prod 分类为 `UNKNOWN`。观察时间均为 `2026-08-01T13:42:16.547Z`。不记录页面 token、cookie、业务 payload 或凭据。
+
+| evidence_id | Status | Kind/resource | WBS build/version | SHA-256 / reproducibility | Reviewer |
+|---|---|---|---|---|---|
+| `BUNDLE-APP` | VERIFIED | read-only static `js/app.js` | query version `1785476406920` | `6353997f8a05c92dc1d933c5a0018457511ed8824acb5fb435d3aac7d64af192` | Codex |
+| `BUNDLE-340` | VERIFIED | read-only static `js/chunk.340.js` | same | `28ed7f0af880ab8968b8092c658a0bc8b3aedcdbc14e252b864ad16f3b14df1b` | Codex + Claude |
+| `BUNDLE-417` | VERIFIED | read-only static `js/chunk.417.js` | same | `4a558247bb99665b5ea66819c690640b1684d15e61434d47744b81c15a475c88` | Codex |
+| `BUNDLE-843` | VERIFIED | read-only static `js/chunk.843.js` | same | `c21498fb143676ece006ad268bd8861178fd7c0093d151ee938db3710aa0734f` | Codex |
+| `BUNDLE-379` | VERIFIED | read-only static `js/chunk.379.js` | same | `7e70f77b5f13b9f0070b25d7fb4d344f57d54070198c572757189711c878845c` | Codex + Claude |
+| `BUNDLE-460` | VERIFIED | read-only static `js/chunk.460.js` | same | `c544ad33b2ec3034935c0b2a6f3c9b5d0b0adcb938897ba40bbe4f4efd7b51d4` | Codex + Claude |
+| `BUNDLE-038` | VERIFIED | read-only static `js/chunk.38.js` | same | `331bcf0c22fea7d540bc131bdb7730ce3167aec5b851c432771c7272cf437512` | Codex + Claude |
+| `BUNDLE-586` | VERIFIED | read-only static `js/chunk.586.js` | same | `d3c11d5448d22a9e80712686e99f17b2b2b1ef398db1382cd1a14b0151d0fbc6` | Codex + Claude |
+| `BUNDLE-694` | VERIFIED | read-only static `js/chunk.694.js` | same | `c599d94cdd62c0417ba80d017b97711a7db8d1c2a13e7f46280338d1a4e11c72` | Codex |
+| `UI-OBS-001` | OBSERVED | read-only `/propertyComparisonReport` DOM; Company/Start/End/Details/Total/Download ETL and six-digit rows | page bundle version above | no business payload retained; repeat with authorized session | Codex |
+| `SCHEMA-OBS-001` | OBSERVED | read-only connector `information_schema` metadata for accounting_info, accounting_log, costcode_account_relation, match_business_info | database build UNKNOWN | no immutable schema artifact/hash was retained; must be re-run before freeze | Claude |
 
 WBS 前端还暴露权限标识 `WBS_AutoBankReconciliation`、`TBD_AutoBankReconciliation`、Company Account Review/Approve/Unclosing。REFS 不复制浏览器权限判断，必须把它们映射到服务端 RBAC policy。
 
-### 1.1 只读元数据确认的 source detail 字段
+### 1.2 只读元数据观察到的 source detail 字段
 
-`accounting.accounting_info` 已确认包含 `id, cb_id, business_guid, sys_id, source, data_source, come_from, com_code, set_date, posting_date, amount, debtor, lender, account, account_code, cost_code, project, pj_code, unit, unit_guid, unit_per_guid, payee, payee_no, bill_no, journal_no, review, approve_status, originator, reviewer, approver, approve_time, reject_reason, account_id, check_date, clear_date, file_relation_id, old_file_relation_id` 等字段。
+`SCHEMA-OBS-001` 观察到 `accounting.accounting_info` 包含 `id, cb_id, business_guid, sys_id, source, data_source, come_from, com_code, set_date, posting_date, amount, debtor, lender, account, account_code, cost_code, project, pj_code, unit, unit_guid, unit_per_guid, payee, payee_no, bill_no, journal_no, review, approve_status, originator, reviewer, approver, approve_time, reject_reason, account_id, check_date, clear_date, file_relation_id, old_file_relation_id` 等字段；冻结 schema 前必须重跑并固化 hash。
 
 这些字段证明 WBS 有公司、项目、Unit、Cost Code、Payee、审批和附件定位信息，但不能证明单字段唯一或可作 CDC。`cb_id/sys_id/bill_no/journal_no` 均没有逻辑唯一约束；币种也未在该表中确认。REFS source key 必须等待 WBS 数据字典确认 immutable business/line ID 与 revision，不能用 bill number、description 或 JE number 拼接替代。
 
-`accounting.accounting_log` 已确认包含 `company_code, cb_id, come_from, sys_id, source, relation_content, bill_no, content, create_user, create_time, type`，可作为回源审计事实，但仍需稳定 parent ID 与 event ID 才能安全增量同步。
+`SCHEMA-OBS-001` 观察到 `accounting.accounting_log` 包含 `company_code, cb_id, come_from, sys_id, source, relation_content, bill_no, content, create_user, create_time, type`，可作为回源审计候选事实，但仍需稳定 parent ID 与 event ID 才能安全增量同步。
 
 ## 2. 需要 Ricky/WBS 团队确认的源模块
 
@@ -76,7 +94,7 @@ WBS 前端还暴露权限标识 `WBS_AutoBankReconciliation`、`TBD_AutoBankReco
 }
 ```
 
-唯一约束：`UNIQUE(source_system, source_module, source_entity_id, source_record_id, source_version)`。  
+唯一约束：`UNIQUE(source_system, source_module, source_entity_id, source_record_id, source_version)`。
 当前态约束：`UNIQUE(source_system, source_module, source_entity_id, source_record_id) WHERE is_current`。
 
 优先增量游标：`(updated_at, primary_key)`；若 WBS 只有序列号则使用 `(sequence, primary_key)`；若两者都没有，进入受控 snapshot diff，并以 canonical payload hash 去重。任何删除/撤销必须使用 tombstone/event，不物理删除历史版本。
