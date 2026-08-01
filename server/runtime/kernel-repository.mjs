@@ -51,6 +51,32 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async reserveAttachment(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_attachment_reserve_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',
+        [args.tenantId,args.entityId,args.name,args.mediaType,args.sizeBytes,args.contentHash,args.storageRef,args.storageVersion]
+      ),'ATTACHMENT_RESERVE_HASH_FAILED','Attachment reserve hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_reserve_attachment($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+        [args.tenantId,args.entityId,args.name,args.mediaType,args.sizeBytes,args.contentHash,args.storageRef,args.storageVersion,args.idempotencyKey,requestHash]
+      ),'ATTACHMENT_RESERVE_FAILED','Attachment reservation did not return a result').result;
+    });
+  }
+
+  async finalizeAttachment(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_attachment_finalize_hash($1,$2,$3,$4,$5,$6,$7,$8,$9) AS request_hash',
+        [args.tenantId,args.entityId,args.attachmentId,args.observedSizeBytes,args.observedContentHash,args.observedMediaType,args.storageVersion,args.scanClean,args.scanRef]
+      ),'ATTACHMENT_FINALIZE_HASH_FAILED','Attachment finalize hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_finalize_attachment($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS result',
+        [args.tenantId,args.entityId,args.attachmentId,args.observedSizeBytes,args.observedContentHash,args.observedMediaType,args.storageVersion,args.scanClean,args.scanRef,args.idempotencyKey,requestHash]
+      ),'ATTACHMENT_FINALIZE_FAILED','Attachment finalization did not return a result').result;
+    });
+  }
+
   async createAutoJournal(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

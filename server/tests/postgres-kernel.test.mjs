@@ -76,8 +76,8 @@ async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VE
     VALUES($1,$2,$3,$4,1,'111000',100,0,'BANK-1'),($1,$2,$3,$4,2,'291001',0,100,'VENDOR-1')`,[tenantId,entityId,periodId,journalId]);
   if(attachmentStatus){
     const attachmentId=randomUUID();
-    await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at)
-      VALUES($1,$2,'support.pdf','application/pdf',10,$3,$4,'v1','maker',now(),CASE WHEN $5='VERIFIED_CLEAN' THEN now() END,CASE WHEN $5='VERIFIED_CLEAN' THEN 'CLEAN' WHEN $5='REJECTED' THEN 'REJECTED' ELSE 'PENDING' END,$5,CASE WHEN $5='VERIFIED_CLEAN' THEN now() END)`,[attachmentId,tenantId,hash('attachment'),`object://attachments/${attachmentId}`,attachmentStatus]);
+    await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at)
+      VALUES($1,$2,$3,'support.pdf','application/pdf',10,$4,$5,'v1','maker',now(),CASE WHEN $6='VERIFIED_CLEAN' THEN now() END,CASE WHEN $6='VERIFIED_CLEAN' THEN 'CLEAN' WHEN $6='REJECTED' THEN 'REJECTED' ELSE 'PENDING' END,$6,CASE WHEN $6='VERIFIED_CLEAN' THEN now() END)`,[attachmentId,tenantId,entityId,hash('attachment'),`object://attachments/${attachmentId}`,attachmentStatus]);
     await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,journal_entry_id,attachment_id,created_by) VALUES($1,$2,'JE_ATTACHMENT',$3,$4,'maker')",[tenantId,entityId,journalId,attachmentId]);
   }
   return {tenantId,entityId,sourceEntityId,periodId,journalId};
@@ -128,7 +128,7 @@ pgTest('concurrent up and down runners serialize on the same advisory lock',asyn
   await Promise.all([migrateDown(adminPool,{all:true}),migrateUp(adminPool)]);
   await migrateUp(adminPool);
   const applied=await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name');
-  assert.deepEqual(applied.rows.map(row=>row.migration_name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql']);
+  assert.deepEqual(applied.rows.map(row=>row.migration_name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql']);
   assert.ok((await adminPool.query("SELECT to_regprocedure('refs_post_journal(uuid,uuid,uuid,uuid,bigint,text,text,text)') AS post_fn")).rows[0].post_fn);
 });
 
@@ -366,10 +366,34 @@ pgTest('database posting rejects unsupported MANUAL and AUTO evidence with zero 
 pgTest('pending and rejected attachments cannot enter the JE trace graph',async()=>{
   for(const status of ['PENDING','REJECTED']){
     const ids=await seed({attachmentStatus:null}),attachmentId=randomUUID();
-    await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,scan_status,finalization_status)
-      VALUES($1,$2,'unsafe.pdf','application/pdf',10,$3,$4,'v1','maker',now(),$5,$6)`,[attachmentId,ids.tenantId,hash(status),`object://attachments/${attachmentId}`,status,status]);
+    await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,scan_status,finalization_status)
+      VALUES($1,$2,$3,'unsafe.pdf','application/pdf',10,$4,$5,'v1','maker',now(),$6,$7)`,[attachmentId,ids.tenantId,ids.entityId,hash(status),`object://attachments/${attachmentId}`,status,status]);
     await assert.rejects(adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,journal_entry_id,attachment_id,created_by) VALUES($1,$2,'JE_ATTACHMENT',$3,$4,'maker')",[ids.tenantId,ids.entityId,ids.journalId,attachmentId]),error=>error.code==='23514');
   }
+});
+
+pgTest('attachment reserve and scanner finalization are entity-scoped, idempotent and immutable',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});const contentHash=hash('uploaded-object');
+  const uploader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-uploader',['ATTACHMENT.CREATE'])});
+  const reserveArgs={tenantId:ids.tenantId,entityId:ids.entityId,name:'invoice.pdf',mediaType:'application/pdf',sizeBytes:321,contentHash,
+    storageRef:`object://attachments/${randomUUID()}`,storageVersion:'version-1',idempotencyKey:'attachment-reserve-0001'};
+  const reserved=await uploader.reserveAttachment(reserveArgs);const replay=await uploader.reserveAttachment(reserveArgs);
+  assert.equal(reserved.status,'PENDING');assert.equal(replay.idempotent,true);assert.equal(replay.attachment_id,reserved.attachment_id);
+  const scanner=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-scanner',['ATTACHMENT.FINALIZE'])});
+  const finalizeArgs={tenantId:ids.tenantId,entityId:ids.entityId,attachmentId:reserved.attachment_id,observedSizeBytes:321,observedContentHash:contentHash,
+    observedMediaType:'application/pdf',storageVersion:'version-1',scanClean:true,scanRef:'clamav:scan-001',idempotencyKey:'attachment-finalize-0001'};
+  const selfScanner=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-uploader',['ATTACHMENT.FINALIZE'])});
+  await assert.rejects(selfScanner.finalizeAttachment({...finalizeArgs,idempotencyKey:'attachment-self-finalize'}),error=>error.code==='42501');
+  const finalized=await scanner.finalizeAttachment(finalizeArgs);assert.equal(finalized.status,'VERIFIED_CLEAN');
+  await assert.rejects(adminPool.query("UPDATE attachment SET name='tampered.pdf' WHERE attachment_id=$1",[reserved.attachment_id]),error=>error.code==='55000');
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'attachment-je-maker',['GL.JE.CREATE'])});
+  const created=await maker.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:'JE-ATT-001',journalDate:'2026-07-20',currency:'USD',description:'Uses scanned evidence',attachmentIds:[reserved.attachment_id],idempotencyKey:'attachment-je-create-0001',lines:[
+    {line_no:1,account_code:'111000',debit_amount:10,credit_amount:0,member_ref:'BANK-1',dimensions:{}},{line_no:2,account_code:'291001',debit_amount:0,credit_amount:10,member_ref:'VENDOR-1',dimensions:{}}
+  ]});assert.equal(created.status,'DRAFT');
+  const rejectedReserve=await uploader.reserveAttachment({...reserveArgs,storageRef:`object://attachments/${randomUUID()}`,idempotencyKey:'attachment-reserve-0002'});
+  const rejected=await scanner.finalizeAttachment({...finalizeArgs,attachmentId:rejectedReserve.attachment_id,observedSizeBytes:999,idempotencyKey:'attachment-finalize-0002'});
+  assert.equal(rejected.status,'REJECTED');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id IN ($1,$2) AND event_type IN ('ATTACHMENT_RESERVED','ATTACHMENT_FINALIZED')",[reserved.attachment_id,rejectedReserve.attachment_id])).rows[0].n,4);
 });
 
 pgTest('automatic journal posts without manual attachment only when immutable source evidence exists',async()=>{
@@ -515,7 +539,7 @@ pgTest('post rehash and unique setting/mapping resolvers fail closed against own
 });
 
 pgTest('legacy dirty approved configuration makes migration 002 fail atomically',async()=>{
-  await migrateDown(adminPool);
+  await migrateDown(adminPool);await migrateDown(adminPool);
   const tenantId=randomUUID(),entityId=randomUUID();
   await adminPool.query("INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,'DIRTYTEN','Dirty migration tenant')",[tenantId]);
   await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,'DIRTYENT','WBS','DIRTYENT','Dirty entity','USD')",[entityId,tenantId]);
@@ -536,7 +560,7 @@ pgTest('down restores pre-hardened PUBLIC CREATE and exact direct USAGE ACLs',as
     LEFT JOIN pg_roles r ON r.oid=x.grantee
     WHERE n.nspname='public' AND (x.grantee=0 OR r.rolname IN ('refs_app','refs_context_issuer','refs_grant_sync'))
     ORDER BY 1,2`)).rows;
-  await migrateDown(adminPool);
+  await migrateDown(adminPool,{all:true});
   await adminPool.query('GRANT CREATE,USAGE ON SCHEMA public TO PUBLIC');
   await adminPool.query('REVOKE USAGE ON SCHEMA public FROM refs_app,refs_context_issuer,refs_grant_sync');
   const before=await aclRows();
@@ -544,7 +568,7 @@ pgTest('down restores pre-hardened PUBLIC CREATE and exact direct USAGE ACLs',as
   const publicPrivileges=(await adminPool.query(`SELECT privilege_type FROM pg_namespace n,LATERAL aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) x
     WHERE n.nspname='public' AND x.grantee=0 ORDER BY privilege_type`)).rows.map(row=>row.privilege_type);
   assert.deepEqual(publicPrivileges,['USAGE']);
-  await migrateDown(adminPool);
+  await migrateDown(adminPool,{all:true});
   assert.deepEqual(await aclRows(),before);
   await migrateUp(adminPool);
 });

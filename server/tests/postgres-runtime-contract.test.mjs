@@ -9,7 +9,7 @@ const repository=await readFile(new URL('../runtime/kernel-repository.mjs',impor
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
