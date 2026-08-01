@@ -49,20 +49,20 @@ export function loanRule(txn) {
   switch (txn.txn_type) {
     case 'DRAW':
       return {rule_code:'R-LOAN-01', lines:[
-        {account_code:'1400', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
-        {account_code:'2500', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
+        {account_code:'164200', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
+        {account_code:'270100', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
     case 'INTEREST_ACCRUAL':
       return {rule_code: cap?'R-LOAN-03':'R-LOAN-04', capitalize:cap, lines:[
-        {account_code: cap?'1405':'5000', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
-        {account_code:'2100', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
+        {account_code: cap?'164500':'795000', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
+        {account_code:'220410', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
     case 'INTEREST_PAYMENT':
       return {rule_code:'R-LOAN-05', lines:[
-        {account_code:'2100', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
-        {account_code:'1000', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
+        {account_code:'220410', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
+        {account_code:'111000', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
     case 'REPAYMENT':
       return {rule_code:'R-LOAN-08', lines:[
-        {account_code:'2500', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
-        {account_code:'1000', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
+        {account_code:'270100', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
+        {account_code:'111000', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
     default: return null;
   }
 }
@@ -76,19 +76,19 @@ export function pmRule(row) {
   const isLia = m.rev_exp_flag==='LIABILITY'; // security deposit -> liability, not income
   let lines;
   if (isRev) lines = [
-    {account_code: row.cash_accrual==='CASH'?'1000':'1200', debit_amount:row.amount, credit_amount:0, property_id:prop&&prop.property_id},
+    {account_code: row.cash_accrual==='CASH'?'111000':'120200', debit_amount:row.amount, credit_amount:0, property_id:prop&&prop.property_id},
     {account_code: m.owner_gl_account_code, debit_amount:0, credit_amount:row.amount, property_id:prop&&prop.property_id}];
   else if (isLia) lines = [
-    {account_code:'1000', debit_amount:row.amount, credit_amount:0, property_id:prop&&prop.property_id},
+    {account_code:'111000', debit_amount:row.amount, credit_amount:0, property_id:prop&&prop.property_id},
     {account_code: m.owner_gl_account_code, debit_amount:0, credit_amount:row.amount, property_id:prop&&prop.property_id}];
   else lines = [ // expense
     {account_code: m.owner_gl_account_code, debit_amount:row.amount, credit_amount:0, property_id:prop&&prop.property_id},
-    {account_code:'2000', debit_amount:0, credit_amount:row.amount, property_id:prop&&prop.property_id}];
+    {account_code:'220200', debit_amount:0, credit_amount:row.amount, property_id:prop&&prop.property_id}];
   return {rule_code:'R-PM-'+(isRev?'11':isLia?'16':'18'), mapped:true, gl:m.owner_gl_account_code, lines};
 }
 
 // ---- Trial balance from posted JEs ----
-export function trialBalance(jes, entityId) {
+export function trialBalance(jes, entityId, fromP, toP) {
   const map = {};
   jes.filter(j=>j.posting_status==='POSTED' && (!entityId||j.entity_id===entityId)).forEach(j=>{
     j.lines.forEach(l=>{
@@ -103,7 +103,7 @@ export function trialBalance(jes, entityId) {
 }
 
 // ---- Financial statement roll-ups ----
-export function statements(jes, entityId) {
+export function statements(jes, entityId, fromP, toP) {
   const tb = trialBalance(jes, entityId).rows;
   const by = (types)=>tb.filter(r=>types.includes(r.type));
   const balOf = (r)=> r.type==='ASSET'||r.type==='EXPENSE' ? r.balance : -r.balance;

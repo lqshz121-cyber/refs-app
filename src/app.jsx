@@ -67,9 +67,9 @@ const ADMIN_ROLES = ['CONTROLLER','SYS_ADMIN','AUDITOR'];
 
 // ---- seed AP bills & bank rec model ----
 const SEED_BILLS = [
-  {bill_id:9001, bill_no:'BILL-2026-9001', vendor_id:2, vendor_name:'BluePeak Utilities', invoice_no:'INV-77821', bill_date:'2026-07-10', due_date:'2026-08-09', account_code:'6020', amount:3200, status:'PAID', created_by:'sam', approved_by:'ricky', je_number:'JE-2026-07-1005', pay_je_number:'JE-PAY-9001'},
-  {bill_id:9002, bill_no:'BILL-2026-9002', vendor_id:1, vendor_name:'Summit General Contractors', invoice_no:'APP-014', bill_date:'2026-07-25', due_date:'2026-08-24', account_code:'1400', amount:185000, status:'APPROVED', created_by:'pat', approved_by:'ricky', je_number:'JE-2026-07-9002'},
-  {bill_id:9003, bill_no:'BILL-2026-9003', vendor_id:3, vendor_name:'WanBridge Property Mgmt (RP)', invoice_no:'PMF-2026-07', bill_date:'2026-07-31', due_date:'2026-08-15', account_code:'6000', amount:2400, status:'PENDING_APPROVAL', created_by:'sam'},
+  {bill_id:9001, bill_no:'BILL-2026-9001', vendor_id:2, vendor_name:'BluePeak Utilities', invoice_no:'INV-77821', bill_date:'2026-07-10', due_date:'2026-08-09', account_code:'641600', amount:3200, status:'PAID', created_by:'sam', approved_by:'ricky', je_number:'JE-2026-07-1005', pay_je_number:'JE-PAY-9001'},
+  {bill_id:9002, bill_no:'BILL-2026-9002', vendor_id:1, vendor_name:'Summit General Contractors', invoice_no:'APP-014', bill_date:'2026-07-25', due_date:'2026-08-24', account_code:'164200', amount:185000, status:'APPROVED', created_by:'pat', approved_by:'ricky', je_number:'JE-2026-07-9002'},
+  {bill_id:9003, bill_no:'BILL-2026-9003', vendor_id:3, vendor_name:'WanBridge Property Mgmt (RP)', invoice_no:'PMF-2026-07', bill_date:'2026-07-31', due_date:'2026-08-15', account_code:'682000', amount:2400, status:'PENDING_APPROVAL', created_by:'sam'},
 ];
 const SEED_BANK = {
   accounts: {
@@ -108,7 +108,7 @@ function Login({onLogin}) {
 }
 
 function App() {
-  const SEED_V='v4';
+  const SEED_V='v5';
   const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
   const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');
@@ -176,25 +176,25 @@ function App() {
       const id=nextId(); const v=VENDORS.find(x=>x.vendor_id===f.vendor_id);
       setAp(s=>({...s, bills:[{bill_id:id, bill_no:'BILL-2026-'+id, vendor_name:v.vendor_name, status:'PENDING_APPROVAL', created_by:userId, ...f}, ...s.bills]})); return {ok:true}; },
     approveBill: (id) => { const b = ap.bills.find(x=>x.bill_id===id);
-      const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'AP', description:`AP Bill ${b.bill_no} · ${b.vendor_name}`, posting_status:'POSTED',
-        lines:[{account_code:b.account_code, debit_amount:b.amount, credit_amount:0, vendor_id:b.vendor_id, property_id:b.property_id},
-               {account_code:'2000', debit_amount:0, credit_amount:b.amount, vendor_id:b.vendor_id}]});
+      const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'PAYABLE', payee:b.vendor_name, description:`${b.bill_no} · ${b.vendor_name}`, posting_status:'POSTED',
+        lines:[{account_code:b.account_code, debit_amount:b.amount, credit_amount:0, vendor_id:b.vendor_id, property_id:b.property_id, description:b.invoice_no},
+               {account_code:'291001', debit_amount:0, credit_amount:b.amount, vendor_id:b.vendor_id, description:'Due to/from_'+b.vendor_name}]});
       setJes(js=>[je,...js]);
       setAp(s=>({...s, bills:s.bills.map(x=>x.bill_id===id?{...x, status:'APPROVED', approved_by:userId, je_number:je.je_number}:x)})); },
     payBills: (ids) => { ids.forEach(id=>{ const b = ap.bills.find(x=>x.bill_id===id);
-        const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'AP', description:`Payment ${b.bill_no} · ${b.vendor_name}`, posting_status:'POSTED',
-          lines:[{account_code:'2000', debit_amount:b.amount, credit_amount:0, vendor_id:b.vendor_id},
-                 {account_code:'1000', debit_amount:0, credit_amount:b.amount}]});
+        const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'EXPA', payee:b.vendor_name, description:`ACH payment ${b.bill_no} · auto-matched bank feed`, posting_status:'POSTED',
+          lines:[{account_code:'291001', debit_amount:b.amount, credit_amount:0, vendor_id:b.vendor_id, description:'Due to/from_'+b.vendor_name+' (clear)'},
+                 {account_code:'111000', debit_amount:0, credit_amount:b.amount, description:'Operating Cash'}]});
         setJes(js=>[je,...js]);
         setAp(s=>({...s, bills:s.bills.map(x=>x.bill_id===id?{...x, status:'PAID', pay_je_number:je.je_number}:x)})); }); },
     addInvoice: (f) => { const id=nextId(); const c=CUSTOMERS.find(x=>x.customer_id===f.customer_id);
       const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'AR', posting_status:'POSTED', description:`Invoice INV-2026-${id} · ${c.customer_name}`,
-        lines:[{account_code:'1200',debit_amount:f.amount,credit_amount:0},{account_code:'4000',debit_amount:0,credit_amount:f.amount}]});
+        lines:[{account_code:'120200',debit_amount:f.amount,credit_amount:0},{account_code:'421803',debit_amount:0,credit_amount:f.amount}]});
       setJes(js=>[je,...js]); audit('CREATE','INVOICE','INV-2026-'+id, '$'+f.amount);
       setAr(s=>({...s, invoices:[{inv_id:id, inv_no:'INV-2026-'+id, customer_name:c.customer_name, status:'OPEN', je_number:je.je_number, ...f}, ...s.invoices]})); },
     receivePayment: (id) => { const inv=ar.invoices.find(i=>i.inv_id===id);
       const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'AR', posting_status:'POSTED', description:`Payment received ${inv.inv_no}`,
-        lines:[{account_code:'1000',debit_amount:inv.amount,credit_amount:0},{account_code:'1200',debit_amount:0,credit_amount:inv.amount}]});
+        lines:[{account_code:'111000',debit_amount:inv.amount,credit_amount:0},{account_code:'120200',debit_amount:0,credit_amount:inv.amount}]});
       setJes(js=>[je,...js]); audit('PAYMENT','INVOICE',inv.inv_no,'$'+inv.amount);
       setAr(s=>({...s, invoices:s.invoices.map(i=>i.inv_id===id?{...i,status:'PAID',pay_je_number:je.je_number}:i)})); },
     bankExclude: (acctCode, txnId) => { audit('EXCLUDE','BANK_TXN','#'+txnId,''); setBank(s=>{const a=structuredClone(s); const t=a.accounts[acctCode].txns.find(x=>x.bank_txn_id===txnId); t.ui_status='Excluded'; return a;}); },

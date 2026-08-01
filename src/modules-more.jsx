@@ -7,40 +7,78 @@ import { acct, money, sum, jeTotals, trialBalance, statements, downloadCSV } fro
 export function GLTrialBalance({ctx}) {
   const {jes, entity} = ctx;
   const [tab, setTab] = useState('Trial Balance');
+  const [fromP, setFromP] = useState('2026-01');
+  const [toP, setToP] = useState('2026-07');
   const [drill, setDrill] = useState(null);
-  const tb = trialBalance(jes, entity);
-  const st = statements(jes, entity);
-  return <div>
+  const MONTHS=['2026-01','2026-02','2026-03','2026-04','2026-05','2026-06','2026-07'];
+  const tb = trialBalance(jes, entity, fromP, toP);
+  const st = statements(jes, entity, fromP, toP);
+  const ORDER=['ASSET','LIABILITY','EQUITY','REVENUE','EXPENSE'];
+  const CN={ASSET:'资产 Assets',LIABILITY:'负债 Liabilities',EQUITY:'权益 Equity',REVENUE:'收入 Revenue',EXPENSE:'费用 Expenses'};
+  const groups = ORDER.map(t=>({t, rows: tb.rows.filter(r=>r.type===t)})).filter(g=>g.rows.length);
+  const secRows = [];
+  groups.forEach(g=>{ secRows.push({_sec:g.t});
+    g.rows.forEach(r=>secRows.push(r));
+    secRows.push({_sub:g.t, debit:sum(g.rows,r=>r.debit), credit:sum(g.rows,r=>r.credit), balance:sum(g.rows,r=>r.balance)}); });
+  const periodBar = <div className="filter-bar">
+    <label>From <select value={fromP} onChange={e=>setFromP(e.target.value)}>{MONTHS.map(m=><option key={m}>{m}</option>)}</select></label>
+    <label>To <select value={toP} onChange={e=>setToP(e.target.value)}>{MONTHS.filter(m=>m>=fromP).map(m=><option key={m}>{m}</option>)}</select></label>
+    <span className="muted sm">Accrual basis · {tb.rows.length} accounts with activity</span>
+  </div>;
+  return <div className="full-bleed">
     <h2 className="page-h">General Ledger</h2>
-    <Tabs tabs={['Trial Balance','Balance Sheet','Income Statement']} active={tab} onChange={setTab} />
+    <Tabs tabs={['Trial Balance','Balance Sheet','Income Statement']} active={tab} onChange={t=>{setTab(t); setDrill(null);}} />
+    {periodBar}
     {tab==='Trial Balance' && <>
-      <div style={{textAlign:'right',marginBottom:8}}><Btn size="sm" onClick={()=>downloadCSV('trial-balance.csv',[['Account','Name','Type','Debit','Credit','Balance'],...tb.rows.map(r=>[r.account_code,r.name,r.type,r.debit,r.credit,r.balance])])}>导出 CSV</Btn></div>
-      <Table cols={[
-        {h:'科目',render:r=>`${r.account_code} ${r.name}`},
-        {h:'类型',render:r=><Badge tone="muted">{r.type}</Badge>},
-        {h:'借方',num:true,render:r=><Money v={r.debit}/>},
-        {h:'贷方',num:true,render:r=><Money v={r.credit}/>},
-        {h:'余额',num:true,render:r=><Money v={r.balance}/>},
-      ]} rows={tb.rows} rowKey="account_code" onRow={r=>setDrill(r.account_code)} />
-      <div className="tb-tot"><span>合计</span><Money v={tb.totalDebit} bold/><Money v={tb.totalCredit} bold/>
-        <Badge tone={Math.abs(tb.totalDebit-tb.totalCredit)<0.005?'ok':'bad'}>{Math.abs(tb.totalDebit-tb.totalCredit)<0.005?'✓ 平衡':'✗ 不平'}</Badge></div>
+      <div style={{textAlign:'right',marginBottom:8}}><Btn size="sm" onClick={()=>downloadCSV('trial-balance-'+fromP+'_'+toP+'.csv',[['Account','Name','Type','Debit','Credit','Balance'],...tb.rows.map(r=>[r.account_code,r.name,r.type,r.debit,r.credit,r.balance])])}>导出 CSV</Btn></div>
+      <div className="table-wrap"><table className="tbl stmt-tbl">
+        <thead><tr><th>Account</th><th className="ta-r" style={{width:150}}>Debit</th><th className="ta-r" style={{width:150}}>Credit</th><th className="ta-r" style={{width:160}}>Balance</th></tr></thead>
+        <tbody>{secRows.map((r,i)=> r._sec ?
+          <tr key={i} className="sec-row"><td colSpan={4}>{CN[r._sec]}</td></tr>
+          : r._sub ?
+          <tr key={i} className="sub-row"><td>Total {CN[r._sub]}</td><td className="ta-r"><Money v={r.debit} bold/></td><td className="ta-r"><Money v={r.credit} bold/></td><td className="ta-r"><Money v={r.balance} bold/></td></tr>
+          :
+          <tr key={i} className="tr-click" onClick={()=>setDrill(r.account_code)}><td><span className="acct-code">{r.account_code}</span> {r.name}</td><td className="ta-r"><Money v={r.debit}/></td><td className="ta-r"><Money v={r.credit}/></td><td className="ta-r"><Money v={r.balance}/></td></tr>)}
+        </tbody>
+        <tfoot><tr className="grand-row"><td>TOTAL</td><td className="ta-r"><Money v={tb.totalDebit} bold/></td><td className="ta-r"><Money v={tb.totalCredit} bold/></td>
+          <td className="ta-r"><Badge tone={Math.abs(tb.totalDebit-tb.totalCredit)<0.01?'ok':'bad'}>{Math.abs(tb.totalDebit-tb.totalCredit)<0.01?'✓ 平衡':'✗ 不平'}</Badge></td></tr></tfoot>
+      </table></div>
     </>}
-    {tab==='Balance Sheet' && (()=>{ const rhs=st.liabilities+st.equity+st.netIncome; const ok=Math.abs(st.assets-rhs)<0.01; return <div className="stmt">
-      <div className="stmt-row"><span>资产合计 Total Assets</span><Money v={st.assets} bold/></div>
-      <div className="stmt-row" style={{marginTop:12}}><span>负债 Liabilities</span><Money v={st.liabilities}/></div>
-      <div className="stmt-row"><span>权益 Equity</span><Money v={st.equity}/></div>
-      <div className="stmt-row"><span>本期净利 Current-Year Earnings</span><Money v={st.netIncome}/></div>
-      <div className="stmt-row tot"><span>负债 + 权益合计</span><Money v={rhs} bold/></div>
-      <div className="stmt-row" style={{borderBottom:0}}><span>平衡检查 Assets = Liabilities + Equity</span><Badge tone={ok?'ok':'bad'}>{ok?'✓ 平衡':'✗ 不平'}</Badge></div>
-    </div>; })()}
-    {drill && tab==='Trial Balance' && (()=>{ const lines=[]; jes.filter(j=>j.posting_status==='POSTED'&&(!entity||j.entity_id===entity)).forEach(j=>j.lines.forEach(l=>{ if(l.account_code===drill) lines.push({je:j.je_number, date:j.je_date, desc:j.description, src:j.source_system, dr:l.debit_amount, cr:l.credit_amount}); }));
+    {tab==='Balance Sheet' && (()=>{ const rhs=st.liabilities+st.equity+st.netIncome; const ok=Math.abs(st.assets-rhs)<0.01;
+      const sec=(t)=>tb.rows.filter(r=>r.type===t);
+      return <div className="stmt stmt-wide">
+        <div className="stmt-h">Balance Sheet · As of {toP} <span className="muted sm">(activity {fromP} ~ {toP})</span></div>
+        <div className="stmt-sec">Assets</div>
+        {sec('ASSET').map(r=><div key={r.account_code} className="stmt-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span><Money v={r.balance}/></div>)}
+        <div className="stmt-row tot"><span>Total Assets</span><Money v={st.assets} bold/></div>
+        <div className="stmt-sec">Liabilities</div>
+        {sec('LIABILITY').map(r=><div key={r.account_code} className="stmt-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span><Money v={-r.balance}/></div>)}
+        <div className="stmt-row tot"><span>Total Liabilities</span><Money v={st.liabilities} bold/></div>
+        <div className="stmt-sec">Equity</div>
+        {sec('EQUITY').map(r=><div key={r.account_code} className="stmt-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span><Money v={-r.balance}/></div>)}
+        <div className="stmt-row"><span>Current Period Earnings ({fromP}~{toP})</span><Money v={st.netIncome}/></div>
+        <div className="stmt-row tot"><span>Total Liabilities & Equity</span><Money v={rhs} bold/></div>
+        <div className="stmt-row" style={{borderBottom:0}}><span>Check: Assets = L + E</span><Badge tone={ok?'ok':'bad'}>{ok?'✓ Balanced':'✗ Off by $'+Math.abs(st.assets-rhs).toLocaleString()}</Badge></div>
+      </div>; })()}
+    {tab==='Income Statement' && (()=>{ const rev=tb.rows.filter(r=>r.type==='REVENUE'); const exp=tb.rows.filter(r=>r.type==='EXPENSE');
+      const cogs=exp.filter(r=>r.account_code.startsWith('51')); const opex=exp.filter(r=>!r.account_code.startsWith('51'));
+      const revT=sum(rev,r=>-r.balance), cogsT=sum(cogs,r=>r.balance), opexT=sum(opex,r=>r.balance);
+      return <div className="stmt stmt-wide">
+        <div className="stmt-h">Income Statement · {fromP} ~ {toP}</div>
+        <div className="stmt-sec">Income</div>
+        {rev.map(r=><div key={r.account_code} className="stmt-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span><Money v={-r.balance}/></div>)}
+        <div className="stmt-row tot"><span>Total Income</span><Money v={revT} bold/></div>
+        {cogs.length>0 && <><div className="stmt-sec">Cost of Goods Sold</div>
+        {cogs.map(r=><div key={r.account_code} className="stmt-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span><Money v={r.balance}/></div>)}
+        <div className="stmt-row tot"><span>Gross Profit</span><Money v={revT-cogsT} bold/></div></>}
+        <div className="stmt-sec">Expenses</div>
+        {opex.map(r=><div key={r.account_code} className="stmt-row"><span><span className="acct-code">{r.account_code}</span> {r.name}</span><Money v={r.balance}/></div>)}
+        <div className="stmt-row tot"><span>Total Expenses</span><Money v={opexT} bold/></div>
+        <div className="stmt-row tot" style={{fontSize:16}}><span>Net Income</span><Money v={revT-cogsT-opexT} bold/></div>
+      </div>; })()}
+    {drill && tab==='Trial Balance' && (()=>{ const lines=[]; jes.filter(j=>j.posting_status==='POSTED'&&(!entity||j.entity_id===entity)&&j.period_code>=fromP&&j.period_code<=toP).forEach(j=>j.lines.forEach(l=>{ if(l.account_code===drill) lines.push({je:j.je_number, date:j.je_date, desc:j.description, src:j.source_system, dr:l.debit_amount, cr:l.credit_amount}); }));
       return <div style={{marginTop:16}}><SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>setDrill(null)}>关闭</Btn>}>Drill-down · {drill} {acct(drill).account_name}（{lines.length} 行）</SectionTitle>
       <Table exportName={'gl-'+drill} cols={[{h:'JE',k:'je'},{h:'日期',k:'date'},{h:'描述',k:'desc'},{h:'来源',render:r=><Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},{h:'借方',num:true,render:r=><Money v={r.dr}/>,csv:r=>r.dr},{h:'贷方',num:true,render:r=><Money v={r.cr}/>,csv:r=>r.cr}]} rows={lines}/></div>; })()}
-    {tab==='Income Statement' && <div className="stmt">
-      <div className="stmt-row"><span>收入 Revenue</span><Money v={st.revenue} bold/></div>
-      <div className="stmt-row"><span>费用 Expense</span><Money v={st.expense}/></div>
-      <div className="stmt-row tot"><span>净利 Net Income</span><Money v={st.netIncome} bold/></div>
-    </div>}
   </div>;
 }
 
@@ -136,7 +174,7 @@ export function ProjectCost() {
   </div>;
 }
 export function Assets() {
-  const rows = [{c:'Land',code:'1500',v:900000},{c:'Building',code:'1510',v:2100000}];
+  const rows = [{c:'Land',code:'161000',v:900000},{c:'Building',code:'163000',v:2100000}];
   return <SimpleList title="Fixed Asset & Property" note="Land/Building/折旧/处置（原型：来自 Closing 的资产入账）。"
     cols={[{h:'资产类',k:'c'},{h:'科目',render:r=>r.code+' '+acct(r.code).account_name},{h:'成本',num:true,render:r=><Money v={r.v}/>}]} rows={rows} />;
 }
@@ -144,7 +182,7 @@ export function Intercompany({ctx}) {
   const [ic, setIc] = useState(IC_TXNS.map(t=>({...t})));
   const mirror = (r) => { ctx.actions.newJEFromRule({entity_id:3, je_type:'AUTO', source_system:'MAN', posting_status:'POSTED',
       description:`IC mirror ${r.ic_pair_id}: Due to ${r.initiator_entity}`,
-      lines:[{account_code:'1600',debit_amount:r.amount,credit_amount:0},{account_code:'2600',debit_amount:0,credit_amount:r.amount}]});
+      lines:[{account_code:'125000',debit_amount:r.amount,credit_amount:0},{account_code:'291000',debit_amount:0,credit_amount:r.amount}]});
     setIc(xs=>xs.map(x=>x.ic_txn_id===r.ic_txn_id?{...x, match_status:'MATCHED'}:x));
     ctx.toast(`已生成对手方镜像分录并 Match: ${r.ic_pair_id}`); };
   return <div><h2 className="page-h">Intercompany</h2>

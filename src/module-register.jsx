@@ -5,7 +5,7 @@ import { acct, money } from './engine.js';
 // QBO-style Account Register with running balance
 export function AccountRegister({ctx}) {
   const {jes, coa, entity, goto} = ctx;
-  const [code, setCode] = useState('1000');
+  const [code, setCode] = useState('111000');
   const a = coa.find(x=>x.account_code===code) || {};
   const rows = [];
   jes.filter(j=>j.posting_status==='POSTED' && (!entity||j.entity_id===entity))

@@ -12,7 +12,7 @@ export function COAWorkspace({ctx}) {
   const tb = trialBalance(jes, entity);
   const balOf = (code) => { const r = tb.rows.find(x=>x.account_code===code); return r? r.balance : 0; };
   const add = () => {
-    if(!/^[0-9]{4}$/.test(f.account_code)){ toast('科目编码需为4位数字','bad'); return; }
+    if(!/^[0-9]{6}$/.test(f.account_code)){ toast('科目编码需为6位数字(与WBS一致)','bad'); return; }
     const r = actions.addAccount({...f, normal_balance:['ASSET','EXPENSE'].includes(f.account_type)?'DEBIT':'CREDIT'});
     if (r.dup){ toast('编码已存在 [4004]','bad'); return; }
     toast('科目已创建'); setShowNew(false); setF({account_code:'',account_name:'',account_type:'EXPENSE'});

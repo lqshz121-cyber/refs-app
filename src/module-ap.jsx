@@ -51,7 +51,7 @@ export function APWorkspace({ctx}) {
 
 function NewBill({open, onClose, ctx}) {
   const {actions, toast} = ctx;
-  const [f, setF] = useState({vendor_id:'', invoice_no:'', bill_date:'2026-07-31', due_date:'2026-08-30', account_code:'6010', property_id:'', amount:''});
+  const [f, setF] = useState({vendor_id:'', invoice_no:'', bill_date:'2026-07-31', due_date:'2026-08-30', account_code:'612900', property_id:'', amount:''});
   const set=(k,v)=>setF(s=>({...s,[k]:v}));
   const submit = () => {
     if(!f.vendor_id||!f.invoice_no||!f.amount||+f.amount<=0){ toast('供应商/发票号/金额必填','bad'); return; }

@@ -26,7 +26,7 @@ export function BankRec2({ctx}) {
 
   const record = (t) => { actions.bankRecord(acctCode, t.bank_txn_id); toast(`已入账：${t.suggest==='FEE'?'Dr 6070 Bank Fee / Cr Cash':'Dr Cash / Cr 4050 Interest Income'}`); };
   const match = (t) => { actions.bankMatch(acctCode, t.bank_txn_id); toast('已匹配至账面交易'); };
-  const suspense = (t) => { actions.bankSuspense(acctCode, t.bank_txn_id); toast('已暂挂 9000 Suspense + 登记异常','warn'); };
+  const suspense = (t) => { actions.bankSuspense(acctCode, t.bank_txn_id); toast('已暂挂 142000 Suspense + 登记异常','warn'); };
 
   return <div className="full-bleed">
     <h2 className="page-h">银行对账 Bank Reconciliation</h2>
@@ -43,7 +43,7 @@ export function BankRec2({ctx}) {
       </div>
       <div className="recon-col">
         <div className="recon-title">账面侧 Book Side</div>
-        <div className="kv"><span>GL Book Balance (1000)</span><Money v={bookBalance} bold/></div>
+        <div className="kv"><span>GL Book Balance (111000)</span><Money v={bookBalance} bold/></div>
         <div className="kv"><span>± 已入账调整 (Fees/Interest)</span><Money v={a.recorded_adj||0}/></div>
         <div className="kv"><span>待入账调整（下表处理）</span><Money v={unrecordedAdj}/></div>
         <div className="kv tot"><span>Adjusted Book Balance</span><Money v={adjBook} bold/></div>

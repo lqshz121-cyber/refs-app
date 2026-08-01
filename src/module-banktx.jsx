@@ -14,7 +14,7 @@ export function BankTransactions({ctx}) {
   const forReview = txns.filter(t=>t._st==='For Review');
   const lists = {'For Review':forReview, 'Categorized':txns.filter(t=>t._st==='Categorized'), 'Excluded':txns.filter(t=>t._st==='Excluded'), 'Reconciled':bank.history};
   const diff = a.stmt_end - a.gl_book_balance;
-  const suggName = t => t.suggest==='FEE'?'6070 Bank Fees':t.suggest==='INTEREST'?'4050 Interest Income':t.reference.includes('RENT')?'1200 AR - Tenant (Match JE-1004)':'待分类 9000 Suspense';
+  const suggName = t => t.suggest==='FEE'?'651000 Bank Fees':t.suggest==='INTEREST'?'449200 Interest Income':t.reference.includes('RENT')?'120200 A/R Rent (Match JE-1004)':'待分类 142000 Suspense';
   const conf = t => t.suggest?'92%':t.reference.includes('RENT')?'88%':'40%';
   const accept = (t) => { if(t.suggest) actions.bankRecord(acctCode,t.bank_txn_id); else actions.bankMatch(acctCode,t.bank_txn_id); toast(`已按建议入账: ${suggName(t)}`); };
   const batchAccept = () => { const ids=Object.keys(checked).filter(k=>checked[k]); if(!ids.length){toast('先勾选交易','warn');return;}

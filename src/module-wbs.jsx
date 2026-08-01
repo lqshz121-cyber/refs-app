@@ -86,7 +86,7 @@ export function CheckMgmt({ctx}) {
   ]);
   const voidChk = (no) => { const c=checks.find(x=>x.no===no);
     ctx.actions.newJEFromRule({entity_id:2, je_type:'REVERSAL', source_system:'BANK', posting_status:'POSTED', description:`VOID ${no} · ${c.payee}`,
-      lines:[{account_code:'1000',debit_amount:c.amount,credit_amount:0},{account_code:'2000',debit_amount:0,credit_amount:c.amount}]});
+      lines:[{account_code:'111000',debit_amount:c.amount,credit_amount:0},{account_code:'220200',debit_amount:0,credit_amount:c.amount}]});
     setChecks(cs=>cs.map(x=>x.no===no?{...x, status:'VOID'}:x)); ctx.toast(`支票 ${no} 已作废,冲销分录已过账 (Dr Cash / Cr AP)`,'warn'); };
   const printChk = (no) => ctx.toast(`支票 ${no} 已发送打印队列`);
   return <div>
