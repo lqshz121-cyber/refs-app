@@ -132,16 +132,41 @@ const VERT = [5,6,7,8,9,10,11,12,13,14];
 for (let m=1;m<=7;m++){
   const mm = String(m).padStart(2,'0');
   VERT.forEach(e=>{
-    const cip = 20000 + e*1300 + m*777;
+    const cwip = 20000 + e*1300 + m*777;
+    // monthly construction cost: Dr 164400 CWIP / Cr 220300 A/P Accrual
     FY.push({ je_id:++_g, je_number:`2026${mm}15${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-15`,
-      je_type:'AUTO', source_system:'AP', payee:'Summit General Contractors', description:`${mm}/2026 Construction cost - vertical build (Draw ${m})`, posting_status:'POSTED', created_by:'system',
+      je_type:'AUTO', source_system:'AP', payee:'Summit General Contractors', description:`${mm}/2026 Vertical construction cost (Draw ${m})`, posting_status:'POSTED', created_by:'system',
       history:[{a:'WBS IMPORT · PAYABLE',by:'system',at:`2026-${mm}-15`}],
-      lines:[{account_code:'1400',debit_amount:cip,credit_amount:0},{account_code:'2000',debit_amount:0,credit_amount:cip}] });
-    const pay = Math.round(cip*0.9);
+      lines:[{account_code:'164400',debit_amount:cwip,credit_amount:0},{account_code:'220300',debit_amount:0,credit_amount:cwip}] });
+    // affiliate funding via Due to/from: Dr 111000 Operating Cash / Cr 291000
+    const fund = Math.round(cwip*1.05);
+    FY.push({ je_id:++_g, je_number:`2026${mm}20${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-20`,
+      je_type:'AUTO', source_system:'BANK', payee:'Wan Bridge Development LLC', description:`${mm}/2026 Affiliate funding (Due to/from)`, posting_status:'POSTED', created_by:'system',
+      history:[{a:'BANK MATCH',by:'system',at:`2026-${mm}-20`}],
+      lines:[{account_code:'111000',debit_amount:fund,credit_amount:0},{account_code:'291000',debit_amount:0,credit_amount:fund}] });
+    // AP payment: Dr 220300 / Cr 111000
     FY.push({ je_id:++_g, je_number:`2026${mm}25${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-25`,
-      je_type:'AUTO', source_system:'BANK', description:`${mm}/2026 Draw funding & AP payment`, posting_status:'POSTED', created_by:'system',
-      history:[{a:'BANK MATCH',by:'system',at:`2026-${mm}-25`}],
-      lines:[{account_code:'2000',debit_amount:pay,credit_amount:0},{account_code:'2500',debit_amount:0,credit_amount:pay}] });
+      je_type:'AUTO', source_system:'BANK', description:`${mm}/2026 Construction AP payment`, posting_status:'POSTED', created_by:'system',
+      history:[{a:'CHECK CLEARED',by:'system',at:`2026-${mm}-25`}],
+      lines:[{account_code:'220300',debit_amount:cwip,credit_amount:0},{account_code:'111000',debit_amount:0,credit_amount:cwip}] });
+    // interest expense accrual: Dr 795000 / Cr 220451
+    const int_ = 900 + e*210 + m*63;
+    FY.push({ je_id:++_g, je_number:`2026${mm}28${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-28`,
+      je_type:'AUTO', source_system:'WBS_CL', description:`${mm}/2026 Interest accrual`, posting_status:'POSTED', created_by:'system',
+      history:[{a:'RULE R-LOAN-04',by:'system',at:`2026-${mm}-28`}],
+      lines:[{account_code:'795000',debit_amount:int_,credit_amount:0},{account_code:'220451',debit_amount:0,credit_amount:int_}] });
+    // quarterly home sale: Dr 111000 / Cr 491800 + Dr 510000 / Cr 164400 (cost relief)
+    if (m%3===0){
+      const price = 380000 + e*9000 + m*5000; const cogs = Math.round(price*0.82);
+      FY.push({ je_id:++_g, je_number:`2026${mm}30${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-30`,
+        je_type:'AUTO', source_system:'CLOSING', description:`${mm}/2026 Home closing - Sales of Product Income`, posting_status:'POSTED', created_by:'system',
+        history:[{a:'CLOSING POST',by:'system',at:`2026-${mm}-30`}],
+        lines:[{account_code:'111000',debit_amount:price,credit_amount:0},{account_code:'491800',debit_amount:0,credit_amount:price}] });
+      FY.push({ je_id:++_g, je_number:`2026${mm}30${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-30`,
+        je_type:'AUTO', source_system:'CLOSING', description:`${mm}/2026 Home closing - COGS relief`, posting_status:'POSTED', created_by:'system',
+        history:[{a:'CLOSING POST',by:'system',at:`2026-${mm}-30`}],
+        lines:[{account_code:'510000',debit_amount:cogs,credit_amount:0},{account_code:'164400',debit_amount:0,credit_amount:cogs}] });
+    }
   });
   ENT.forEach(e=>{
     const base = 800*e + m*137;
