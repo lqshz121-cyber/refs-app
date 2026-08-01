@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { KPI, Btn, Badge, Money, Table, SectionTitle } from './ui.jsx';
+import { KPI, Btn, Badge, Money, Table, SectionTitle, Tabs } from './ui.jsx';
 import { acct, money, sum } from './engine.js';
 import { subsidiaryOf, memberOf } from './coa-wbs.js';
 import { SOURCE_DOCS } from './seed.js';
@@ -8,6 +8,8 @@ import { SOURCE_DOCS } from './seed.js';
 export function AIAudit({ctx}) {
   const {jes, entity, goto} = ctx;
   const [ran, setRan] = useState(true);
+  const [tab, setTab] = useState('All');
+  const TABMAP={'Critical Findings':f=>f.risk==='HIGH','Accounting Logic':f=>/AI-LOAN|AI-BAL/.test(f.rule),'Mapping Issues':f=>/AI-SUB/.test(f.rule),'Missing Source':f=>/AI-SRC/.test(f.rule),'Duplicate Risk':f=>/AI-DUP/.test(f.rule),'Cutoff Risk':f=>/AI-CUT/.test(f.rule),'Reconciliation':f=>/AI-291|AI-CASH|AI-SUSP/.test(f.rule),'All':()=>true};
   const findings = useMemo(()=>{
     const F=[]; const posted = jes.filter(j=>j.posting_status==='POSTED' && (!entity||j.entity_id===entity));
     const flag=(risk,rule,object,reason,action,conf)=>F.push({risk,rule,object,reason,action,conf,needs_human:risk!=='LOW'});
@@ -49,6 +51,7 @@ export function AIAudit({ctx}) {
       <KPI label="MEDIUM" value={med} tone={med?'warn':'ok'}/>
       <KPI label="LOW" value={findings.length-hi-med}/>
     </div>
+    <Tabs tabs={Object.keys(TABMAP)} active={tab} onChange={setTab}/>
     <Table exportName="ai-audit-findings" pageSize={20} cols={[
       {h:'Risk',render:r=><Badge tone={r.risk==='HIGH'?'bad':r.risk==='MEDIUM'?'warn':'muted'}>{r.risk}</Badge>,csv:r=>r.risk},
       {h:'Rule',render:r=><span className="acct-code">{r.rule}</span>,csv:r=>r.rule},
@@ -57,6 +60,6 @@ export function AIAudit({ctx}) {
       {h:'Suggested Action',k:'action'},
       {h:'Confidence',num:true,render:r=>(r.conf*100).toFixed(0)+'%',csv:r=>r.conf},
       {h:'需人工',render:r=>r.needs_human?<Badge tone="warn">YES</Badge>:<Badge tone="ok">no</Badge>,csv:r=>r.needs_human?'Y':'N'},
-    ]} rows={findings} empty="✅ 全账本扫描通过:无异常发现"/>
+    ]} rows={findings.filter(TABMAP[tab]||(()=>true))} empty="✅ 全账本扫描通过:无异常发现"/>
   </div>;
 }

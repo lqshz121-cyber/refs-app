@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Btn, Badge, Money, Table, Tabs, SectionTitle } from './ui.jsx';
 import { money, sum, acct } from './engine.js';
+import { aiJudge } from './ai.js';
+import { ENTITIES } from './data.js';
 
 // QBO-style Bank Transactions: account cards + For Review workflow
 export function BankTransactions({ctx}) {
@@ -8,6 +10,7 @@ export function BankTransactions({ctx}) {
   const [acctCode, setAcct] = useState('BA-003');
   const [tab, setTab] = useState('For Review');
   const [checked, setChecked] = useState({});
+  const [aiSel, setAiSel] = useState(null);
   const a = bank.accounts[acctCode];
   const st = t => t.ui_status || (t.match_status==='MATCHED' ? 'Categorized' : 'For Review');
   const txns = a.txns.map(t=>({...t, _st:st(t)}));
@@ -43,6 +46,7 @@ export function BankTransactions({ctx}) {
         {h:'Amount',num:true,render:r=><Money v={r.direction==='DEBIT'?-r.amount:r.amount}/>,sortVal:r=>r.amount},
         {h:'Suggested Category / Match',render:r=><span>{suggName(r)}</span>},
         {h:'Confidence',render:r=><Badge tone={parseInt(conf(r))>80?'ok':'warn'}>{conf(r)}</Badge>},
+        {h:'AI',render:r=><Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation(); setAiSel(r);}}>🤖 判断</Btn>},
         {h:'Action',render:r=><span className="row-acts">
           <Btn size="sm" variant="primary" onClick={()=>accept(r)}>{r.suggest?'Add':'Match'}</Btn>
           <Btn size="sm" variant="ghost" onClick={()=>{actions.bankExclude(acctCode,r.bank_txn_id); toast('已 Exclude','warn');}}>Exclude</Btn>
@@ -50,6 +54,20 @@ export function BankTransactions({ctx}) {
         </span>},
       ]} rows={forReview} empty="没有待审核的银行交易 🎉"/>
     </>}
+    {aiSel && (()=>{ const en=ENTITIES.find(x=>x.entity_id===(ctx.entity||15))||ENTITIES[0];
+      const j=aiJudge({type: aiSel.suggest==='FEE'?'Bank':aiSel.suggest==='INTEREST'?'Bank':'Bank', detail:aiSel.reference, direction:aiSel.direction, amount:aiSel.amount, description:aiSel.reference, payee:aiSel.reference}, en);
+      return <div className="src-card" style={{marginTop:12}}>
+        <div className="src-chain"><span className="chip">Source: {aiSel.external_id}</span>→<span className="chip chip-on">AI Judge</span>→<span className="chip">Suggested JE</span></div>
+        <div className="src-grid">
+          <span><i>Suggested</i><b>Dr {j.suggested.dr} {j.suggested.dr_name} / Cr {j.suggested.cr} {j.suggested.cr_name}</b></span>
+          <span><i>Confidence</i><b>{(j.confidence*100).toFixed(0)}%</b></span>
+          <span><i>Rule</i><b>{j.rule_used}</b></span>
+          <span><i>Setting</i><b>{j.setting_used}</b></span>
+          <span><i>Risk</i><b>{j.risk}</b></span>
+          <span><i>需人工</i><b>{j.need_human?'YES':'no'}</b></span>
+        </div>
+        <p className="muted sm" style={{margin:'8px 0 0'}}>Reason: {j.reason} · Evidence: {j.evidence.slice(0,60)} · AI 只建议,确认后才入账</p>
+      </div>; })()}
     {tab==='Categorized' && <Table rowKey="bank_txn_id" cols={[
       {h:'Date',k:'txn_date'},{h:'Description',k:'reference'},{h:'Amount',num:true,render:r=><Money v={r.direction==='DEBIT'?-r.amount:r.amount}/>},
       {h:'Categorized To',render:r=>r.matched_je||'—'},
