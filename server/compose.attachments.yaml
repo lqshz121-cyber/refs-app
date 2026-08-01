@@ -64,10 +64,15 @@ services:
       S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       CLAMAV_HOST: clamav
       CLAMAV_PORT: 3310
+      SCANNER_TLS_KEY: /run/secrets/scanner-key.pem
+      SCANNER_TLS_CERT: /run/secrets/scanner-cert.pem
       REFS_ALLOW_INSECURE_TEST_ENDPOINTS: "1"
       NODE_ENV: test
     ports:
       - "${SCANNER_PORT}:8443"
+    volumes:
+      - "${SCANNER_TLS_KEY_FILE:-./scanner-sidecar/scanner-key.pem}:/run/secrets/scanner-key.pem:ro"
+      - "${SCANNER_TLS_CERT_FILE:-./scanner-sidecar/scanner-cert.pem}:/run/secrets/scanner-cert.pem:ro"
 
 volumes:
   attachment_minio_data:
