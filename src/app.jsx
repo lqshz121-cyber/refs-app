@@ -235,6 +235,7 @@ function App() {
   const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, user, entity, period, can, actions, toast:showToast, goto:setRoute};
   const Comp = COMP[route] || Dashboard;
   const paletteItems = flat.filter(([k,ic,l])=>l.toLowerCase().includes(q.toLowerCase())||k.includes(q.toLowerCase()));
+  const jeHits = q.length>=3 ? jes.filter(j=>(j.je_number||'').includes(q)||((j.payee||'').toLowerCase().includes(q.toLowerCase()))).slice(0,5) : [];
 
   return <div className="app">
     <aside className="sidebar">
@@ -290,7 +291,7 @@ function App() {
       <div className="pal" onClick={e=>e.stopPropagation()}>
         <input autoFocus placeholder="跳转到模块…" value={q} onChange={e=>setQ(e.target.value)}
           onKeyDown={e=>{if(e.key==='Enter'&&paletteItems[0]){setRoute(paletteItems[0][0]); setPalette(false); setQ('');}}}/>
-        <div className="pal-list">{paletteItems.map(([k,ic,l])=>
+        <div className="pal-list">{jeHits.map(j=><button key={'je'+j.je_id} onClick={()=>{setRoute('je'); setPalette(false); setQ('');}}>✎ {j.je_number} · {(j.payee||j.description||'').slice(0,30)}<span className="muted sm">JE</span></button>)}{paletteItems.map(([k,ic,l])=>
           <button key={k} onClick={()=>{setRoute(k); setPalette(false); setQ('');}}>{ic} {l}<span className="muted sm">{k}</span></button>)}</div>
       </div>
     </div>}

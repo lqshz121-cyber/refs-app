@@ -4,6 +4,7 @@ import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS, PROJECTS, VENDORS } from './
 import { PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS, UNIT_OWNERS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, isBalanced, validateJE, JE_FLOW, loanRule, pmRule, trialBalance, statements } from './engine.js';
 import { subsidiaryOf, memberOf, SUBSIDIARY } from './coa-wbs.js';
+import { loadSetting } from './settings.js';
 if (typeof window!=='undefined') window.__subsOf = subsidiaryOf;
 
 // ---------------- Dashboard ----------------
@@ -98,6 +99,18 @@ export function JEWorkspace({ctx}) {
     (month==='ALL'||j.period_code==='2026-'+month));
   const pendCount = list.filter(j=>j.posting_status==='PENDING_APPROVAL').length;
   const postAll = () => { list.filter(j=>j.posting_status==='PENDING_APPROVAL').forEach(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL')); toast('Post All 完成'); };
+  const runBatch = () => {
+    const en = {entity_id: ctx.entity||15, entity_code:'E'+(ctx.entity||15)};
+    const s = loadSetting(en); let n=0;
+    (s.batch_setting||[]).filter(b=>b.status!=='INACTIVE'&&b.dr&&b.cr).forEach(b=>{
+      const amt = 1000; n++;
+      actions.newJEFromRule({entity_id:en.entity_id, source_system:'INTERNAL', je_type:'AUTO', rule_code:'R-BATCH-'+n,
+        description:`[Batch] ${b.memo} · 2026-07`, lines:[{account_code:b.dr,debit_amount:amt,credit_amount:0},{account_code:b.cr,debit_amount:0,credit_amount:amt,member:b.cr.startsWith('291')?'Batch':undefined,description:b.cr.startsWith('291')?'Due to/from_Batch':undefined}]});
+      if (b.reverse_next_month) actions.newJEFromRule({entity_id:en.entity_id, source_system:'INTERNAL', je_type:'AUTO', rule_code:'R-BATCH-REV-'+n,
+        description:`[Batch·Auto-Reversal 2026-08] ${b.memo}`, lines:[{account_code:b.cr,debit_amount:amt,credit_amount:0,member:b.cr.startsWith('291')?'Batch':undefined},{account_code:b.dr,debit_amount:0,credit_amount:amt}]});
+    });
+    toast(`Batch 模板已生成 ${n} 组 Draft(含 Reverse Next Month 自动冲回)`);
+  };
   const je = jes.find(j=>j.je_id===sel);
   const newJE = () => { const id = actions.newJE(); setSel(id); };
 
@@ -112,6 +125,7 @@ export function JEWorkspace({ctx}) {
     <div className="page-top">
       <h2 className="page-h" style={{margin:0}}>Journal Entries</h2>
       <div className="row-acts">
+        <Btn variant="ghost" onClick={runBatch}>Run Batch Templates</Btn>
         {can('GL.JE.POST') && pendCount>0 && <Btn onClick={postAll}>⚡ Post All ({pendCount})</Btn>}
         <Btn variant="primary" onClick={newJE} disabled={!can('GL.JE.CREATE')}>+ New Journal Entry</Btn>
       </div>
@@ -215,7 +229,10 @@ function JEEditor({je, ctx}) {
     <div className="qbe-memo">
       <label>Memo</label>
       {editable ? <input className="desc-in" style={{width:'100%'}} value={je.description} onChange={e=>actions.updateJE(je.je_id,d=>{d.description=e.target.value;})} placeholder="What is this journal entry for?"/> : <div className="muted">{je.description}</div>}
-      {je.je_type==='MANUAL' && (editable ? <button className="link-btn" onClick={()=>actions.updateJE(je.je_id,d=>{d.has_attachment=true; d.attachment_name='support-doc.pdf';})}>{je.has_attachment?('📎 '+(je.attachment_name||'attached')):'📎 Add attachment (过账前必填)'}</button> : <span className="muted sm">附件 {je.has_attachment?'✓':'✗'}</span>)}
+      {je.je_type==='MANUAL' && (editable ? <label className="link-btn" style={{cursor:'pointer'}}>
+        {je.has_attachment?('📎 '+(je.attachment_name||'attached')+' · 更换'):'📎 Add attachment (过账前必填)'}
+        <input type="file" style={{display:'none'}} onChange={e=>{const f=e.target.files[0]; if(f){actions.updateJE(je.je_id,d=>{d.has_attachment=true; d.attachment_name=f.name+' ('+Math.round(f.size/1024)+'KB)';}); toast('附件已挂接: '+f.name);}}}/>
+      </label> : <span className="muted sm">附件 {je.has_attachment?'✓ '+(je.attachment_name||''):'✗'}</span>)}
     </div>
     {je.source_doc_id && SOURCE_DOCS[je.source_doc_id] && (()=>{ const d=SOURCE_DOCS[je.source_doc_id]; return <div className="src-card">
       <div className="src-chain"><span className="chip">WBS {d.source_system||''}</span>→<span className="chip">{d.type}</span>→<span className="chip">Rule {je.rule_code||'—'}</span>→<span className="chip chip-on">JE {je.je_number}</span>→<span className="chip">GL</span></div>

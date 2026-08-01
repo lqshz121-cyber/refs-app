@@ -28,6 +28,8 @@ export function AIAudit({ctx}) {
       });
       if (j.je_type==='AUTO' && ['PAYABLE','CLOSING'].includes(j.source_system) && !j.source_doc_id && !j.rule_code)
         flag('MEDIUM','AI-SRC-01', j.je_number, '自动分录缺源单据链', '回溯 Integration Hub 补挂单据', 0.85);
+      if (j.je_date && j.period_code && j.je_date.slice(0,7)!==j.period_code)
+        flag('MEDIUM','AI-CUT-01', j.je_number, `业务日期 ${j.je_date} 与会计期间 ${j.period_code} 不一致(cutoff 风险)`, '确认应计期间或改会计日期', 0.88);
       if (j.source_system==='WBS_CL' && j.description.includes('Draw') && j.lines.some(l=>l.account_code.startsWith('164')&&l.debit_amount>0))
         flag('HIGH','AI-LOAN-01', j.je_number, 'Draw 误记成本(应 Dr Cash/Cr Loan)', '冲销并按规则重生成', 0.95);
     });

@@ -9,6 +9,7 @@ export function GLTrialBalance({ctx}) {
   const [tab, setTab] = useState('Trial Balance');
   const [fromP, setFromP] = useState('2026-01');
   const [toP, setToP] = useState('2026-07');
+  const posted = jes.filter(j=>j.posting_status==='POSTED' && (!entity||j.entity_id===entity) && j.period_code>=fromP && j.period_code<=toP);
   const [drill, setDrill] = useState(null);
   const MONTHS=['2026-01','2026-02','2026-03','2026-04','2026-05','2026-06','2026-07'];
   const tb = trialBalance(jes, entity, fromP, toP);
@@ -27,7 +28,7 @@ export function GLTrialBalance({ctx}) {
   </div>;
   return <div className="full-bleed">
     <h2 className="page-h">General Ledger</h2>
-    <Tabs tabs={['Trial Balance','Balance Sheet','Income Statement']} active={tab} onChange={t=>{setTab(t); setDrill(null);}} />
+    <Tabs tabs={['Trial Balance','GL Detail','Balance Sheet','Income Statement','Cash Flow']} active={tab} onChange={t=>{setTab(t); setDrill(null);}} />
     {periodBar}
     {tab==='Trial Balance' && <>
       <div style={{textAlign:'right',marginBottom:8}}><Btn size="sm" onClick={()=>downloadCSV('trial-balance-'+fromP+'_'+toP+'.csv',[['Account','Name','Type','Debit','Credit','Balance'],...tb.rows.map(r=>[r.account_code,r.name,r.type,r.debit,r.credit,r.balance])])}>导出 CSV</Btn></div>
@@ -76,6 +77,31 @@ export function GLTrialBalance({ctx}) {
         <div className="stmt-row tot"><span>Total Expenses</span><Money v={opexT} bold/></div>
         <div className="stmt-row tot" style={{fontSize:16}}><span>Net Income</span><Money v={revT-cogsT-opexT} bold/></div>
       </div>; })()}
+    {tab==='GL Detail' && (()=>{ const lines=[]; posted.forEach(j=>j.lines.forEach(l=>lines.push({je:j.je_number, date:j.je_date, entity_id:j.entity_id, src:j.source_system, acct:l.account_code, name:acct(l.account_code).account_name, memo:l.description||j.description, member:l.member||'', dr:l.debit_amount||0, cr:l.credit_amount||0})));
+      return <Table exportName={'gl-detail-'+fromP+'_'+toP} pageSize={30} cols={[
+        {h:'Journal No.',k:'je'},{h:'Date',k:'date'},{h:'Entity',render:r=>'E'+r.entity_id},
+        {h:'Source',render:r=><Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},
+        {h:'Account',render:r=><span><span className="acct-code">{r.acct}</span> {r.name}</span>,csv:r=>r.acct},
+        {h:'Memo / 核算对象',render:r=><span>{r.memo}{r.member?<Badge tone="muted" >{r.member.slice(0,18)}</Badge>:null}</span>,csv:r=>r.memo},
+        {h:'Debit',num:true,render:r=>r.dr?<Money v={r.dr}/>:'',sortVal:r=>r.dr,csv:r=>r.dr||''},
+        {h:'Credit',num:true,render:r=>r.cr?<Money v={r.cr}/>:'',csv:r=>r.cr||''},
+      ]} rows={lines}/>; })()}
+    {tab==='Cash Flow' && (()=>{ // 简化间接法: 111000 对手方分类
+      const buckets={Operating:0, Investing:0, Financing:0};
+      posted.forEach(j=>{ const cash=j.lines.filter(l=>l.account_code==='111000');
+        if(!cash.length) return; const net=sum(cash,l=>(l.debit_amount||0)-(l.credit_amount||0));
+        const others=j.lines.filter(l=>l.account_code!=='111000').map(l=>l.account_code);
+        const cls = others.some(a=>a.startsWith('27')||a.startsWith('26')||a.startsWith('38')||a.startsWith('291')||a.startsWith('289')) ? 'Financing'
+                  : others.some(a=>a.startsWith('16')||a.startsWith('15')) ? 'Investing' : 'Operating';
+        buckets[cls]+=net; });
+      const total=buckets.Operating+buckets.Investing+buckets.Financing;
+      return <div className="stmt stmt-wide">
+        <div className="stmt-h">Statement of Cash Flows · {fromP} ~ {toP} <span className="muted sm">(简化分类:融资=贷款/权益/往来,投资=CWIP/资产,其余经营)</span></div>
+        <div className="stmt-row"><span>Cash from Operating Activities</span><Money v={buckets.Operating}/></div>
+        <div className="stmt-row"><span>Cash from Investing Activities</span><Money v={buckets.Investing}/></div>
+        <div className="stmt-row"><span>Cash from Financing Activities</span><Money v={buckets.Financing}/></div>
+        <div className="stmt-row tot"><span>Net Change in Cash (111000)</span><Money v={total} bold/></div>
+      </div>; })()}
     {drill && tab==='Trial Balance' && (()=>{ const lines=[]; jes.filter(j=>j.posting_status==='POSTED'&&(!entity||j.entity_id===entity)&&j.period_code>=fromP&&j.period_code<=toP).forEach(j=>j.lines.forEach(l=>{ if(l.account_code===drill) lines.push({je:j.je_number, date:j.je_date, desc:j.description, src:j.source_system, dr:l.debit_amount, cr:l.credit_amount}); }));
       return <div style={{marginTop:16}}><SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>setDrill(null)}>关闭</Btn>}>Drill-down · {drill} {acct(drill).account_name}（{lines.length} 行）</SectionTitle>
       <Table exportName={'gl-'+drill} cols={[{h:'JE',k:'je'},{h:'日期',k:'date'},{h:'描述',k:'desc'},{h:'来源',render:r=><Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},{h:'借方',num:true,render:r=><Money v={r.dr}/>,csv:r=>r.dr},{h:'贷方',num:true,render:r=><Money v={r.cr}/>,csv:r=>r.cr}]} rows={lines}/></div>; })()}
@@ -94,6 +120,27 @@ export function Reports({ctx}) {
     'Manual JE Report': () => <Table exportName="manual-je" cols={[{h:'JE',k:'je_number'},{h:'日期',k:'je_date'},{h:'描述',k:'description'},{h:'金额',num:true,render:r=><Money v={jeTotals(r).dr}/>,csv:r=>jeTotals(r).dr},{h:'创建人',k:'created_by'},{h:'附件',render:r=>r.has_attachment?'✓':'✗ 缺失',csv:r=>r.has_attachment?'Y':'N'},{h:'状态',render:r=><Badge>{r.posting_status}</Badge>,csv:r=>r.posting_status}]} rows={jes.filter(j=>j.je_type==='MANUAL')}/>,
     'Exception Aging': () => <Table exportName="exception-aging" cols={[{h:'类型',k:'exception_type'},{h:'严重度',render:r=><Badge>{r.severity}</Badge>,csv:r=>r.severity},{h:'对象',k:'object_ref'},{h:'Aging(天)',num:true,k:'aging_days'},{h:'Owner',k:'owner'},{h:'状态',render:r=><Badge>{r.status}</Badge>,csv:r=>r.status}]} rows={[...exceptions].sort((a,b)=>b.aging_days-a.aging_days)}/>,
     'Data Sync Report': () => <Table cols={[{h:'来源',k:'s'},{h:'批次',k:'b'},{h:'记录',k:'n'},{h:'成功率',k:'r'},{h:'状态',render:r=><Badge tone={r.r==='100%'?'ok':'warn'}>{r.r==='100%'?'COMPLETED':'PARTIAL'}</Badge>}]} rows={[{s:'WBS_CL',b:'CL-20260731-007',n:4,r:'100%'},{s:'PM',b:'PM-202607-P0020',n:5,r:'80%'},{s:'BANK',b:'BANK-20260731',n:4,r:'100%'}]}/>,
+    'CWIP Rollforward': () => { const rows = ENTITIES.filter(e=>['Vertical','ProjectCo','LandCo'].includes(e.entity_type)).map(en=>{
+        let add=0, capint=0, rel=0, tout=0;
+        jes.filter(j=>j.posting_status==='POSTED'&&j.entity_id===en.entity_id).forEach(j=>j.lines.forEach(l=>{
+          if(['164100','164200','164400'].includes(l.account_code)){ add+=(l.debit_amount||0); if(j.source_system==='CLOSING') rel+=(l.credit_amount||0); else if(j.rule_code==='R-UT-OUT-01') tout+=(l.credit_amount||0); else rel+= (j.source_system==='CLOSING'?0:0); }
+          if(l.account_code==='164500') capint+=(l.debit_amount||0)-(l.credit_amount||0);
+        }));
+        const other = jes.filter(j=>j.posting_status==='POSTED'&&j.entity_id===en.entity_id).reduce((s,j)=>s+j.lines.reduce((x,l)=>['164100','164200','164400'].includes(l.account_code)&&j.source_system!=='CLOSING'&&j.rule_code!=='R-UT-OUT-01'?x+(l.credit_amount||0):x,0),0);
+        const end = add+capint-rel-tout-other;
+        return {e:en.entity_code, name:en.entity_name, beg:0, add, capint, rel:-rel, tout:-tout, other:-other, end};
+      }).filter(r=>r.add||r.end);
+      const T=k=>sum(rows,r=>r[k]);
+      return <Table exportName="cwip-rollforward" pageSize={30} cols={[
+        {h:'Entity',render:r=><b>{r.e}</b>,csv:r=>r.e},{h:'Company',k:'name'},
+        {h:'Beginning',num:true,render:r=><Money v={r.beg}/>,csv:r=>r.beg},
+        {h:'+ Additions',num:true,render:r=><Money v={r.add}/>,csv:r=>r.add},
+        {h:'+ Cap. Interest',num:true,render:r=><Money v={r.capint}/>,csv:r=>r.capint},
+        {h:'− COGS Relief',num:true,render:r=><Money v={r.rel}/>,csv:r=>r.rel},
+        {h:'− Transfer Out',num:true,render:r=><Money v={r.tout}/>,csv:r=>r.tout},
+        {h:'− Other',num:true,render:r=><Money v={r.other}/>,csv:r=>r.other},
+        {h:'Ending CWIP',num:true,render:r=><Money v={r.end} bold/>,sortVal:r=>r.end,csv:r=>r.end},
+      ]} rows={rows}/>; },
     'INTER COMPANY Balance Report': () => <Table exportName="ic-balance" cols={[{h:'IC Pair',k:'ic_pair_id'},{h:'发起方',k:'initiator_entity'},{h:'对手方',k:'counterparty_entity'},{h:'Due to/from 金额',num:true,render:r=><Money v={r.amount}/>,csv:r=>r.amount},{h:'Match',render:r=><Badge tone={r.match_status==='MATCHED'?'ok':'bad'}>{r.match_status}</Badge>,csv:r=>r.match_status}]} rows={IC_TXNS}/>,
     'SREO Report': () => <Table exportName="sreo" cols={[{h:'Property',k:'p'},{h:'Entity',k:'e'},{h:'Loan',k:'l'},{h:'Lender',k:'ld'},{h:'Principal',num:true,render:r=><Money v={r.pr}/>,csv:r=>r.pr},{h:'Est. Value',num:true,render:r=><Money v={r.v}/>,csv:r=>r.v},{h:'Equity',num:true,render:r=><Money v={r.v-r.pr}/>,csv:r=>r.v-r.pr}]} rows={LOANS.map((l,i)=>({p:['Cedar Ridge','Maple Court','Palm Bay'][i%3], e:'E'+l.entity_id, l:l.loan_code, ld:l.lender_name, pr:l.current_principal, v:l.commitment_amount*1.4}))}/>,
     'Draw Request Report': () => <Table exportName="draw-requests" cols={[{h:'Draw',k:'wbs_txn_id'},{h:'日期',k:'transaction_date'},{h:'类型',render:r=><Badge tone="muted">{r.txn_type}</Badge>,csv:r=>r.txn_type},{h:'金额',num:true,render:r=><Money v={r.amount}/>,csv:r=>r.amount},{h:'状态',render:()=><Badge tone="ok">FUNDED</Badge>}]} rows={LOAN_TXNS.filter(t=>t.txn_type==='DRAW')}/>,
@@ -106,7 +153,7 @@ export function Reports({ctx}) {
     ['Construction Loan Rollforward','贷款',null],['Manual JE Report','管理',null],['Exception Aging','管理',null],
     ['Data Sync Report','管理',null],['Property Operating Statement','物业',null],
     ['Budget vs Actual','项目','cost'],['Cost to Complete','项目','cost'],['AP Aging','交易','ap'],['对账历史','交易','bankrec'],
-    ['INTER COMPANY Balance Report','WBS',null],['SREO Report','WBS',null],['Draw Request Report','WBS',null],['Payable Report','WBS',null],
+    ['CWIP Rollforward','房地产',null],['INTER COMPANY Balance Report','WBS',null],['SREO Report','WBS',null],['Draw Request Report','WBS',null],['Payable Report','WBS',null],
     ['Cost General Ledger','WBS','gl'],['Unit CWIP and EM Report','WBS','cost'],['Budget and Execution Report','WBS','cost'],['Project Cost Reconciliation','WBS','cost'],
   ];
   return <div>
