@@ -1,5 +1,16 @@
 const postedLink = je => je?.posting_status === 'POSTED' && je?.source_object_type && je?.source_object_id != null;
 
+export function documentJENumber(accountingDate,id) {
+  const raw=String(accountingDate||'');
+  const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if(!match||!Number.isSafeInteger(id)||id<=0)return null;
+  const [,year,month,day]=match;
+  const date=new Date(Date.UTC(Number(year),Number(month)-1,Number(day)));
+  if(date.toISOString().slice(0,10)!==raw)return null;
+  const dateKey=year+month+day;
+  return dateKey+String(id).padStart(6,'0');
+}
+
 const verifyLink = ({document,je,payment,sourceSystem}) => {
   const expectedJeId=payment?document.payment_draft_je_id:document.draft_je_id;
   const expectedSource=payment?document.payment_source_doc_id:document.draft_source_doc_id;

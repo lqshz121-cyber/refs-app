@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {approveBillCommand,payBillCommand} from '../src/ap-workflow.js';
 import {createInvoiceCommand,receivePaymentCommand} from '../src/ar-workflow.js';
-import {applyPostedDocumentBatch,applyPostedDocumentTransition,validateDocumentReversal} from '../src/document-posting.js';
+import {applyPostedDocumentBatch,applyPostedDocumentTransition,documentJENumber,validateDocumentReversal} from '../src/document-posting.js';
 
 const open={period_code:'2026-07',status:'OPEN'};
 const closed={period_code:'2026-07',status:'CLOSED'};
@@ -66,6 +66,9 @@ assert.equal(paymentDuplicate.code,'AP_DUPLICATE_SOURCE');
 const august={period_code:'2026-08',status:'OPEN'};
 const crossPeriodPayment=payBillCommand({bill:{...baseBill,status:'APPROVED'},paymentId:'PAY-AUG',paymentDate:'2026-08-05',paymentPeriodCode:'2026-08',user:approver,can:allow,period:august,jeId:110,jeNumber:'JE-110'});
 assert.deepEqual([crossPeriodPayment.draftJE.period_code,crossPeriodPayment.draftJE.je_date,baseBill.period_code],['2026-08','2026-08-05','2026-07']);
+assert.equal(documentJENumber(crossPeriodPayment.draftJE.je_date,crossPeriodPayment.draftJE.je_id),'20260805000110');
+assert.equal(documentJENumber('2026-13-99',110),null);
+assert.equal(documentJENumber('2026-08-05',0),null);
 assert.equal(payBillCommand({bill:{...baseBill,status:'APPROVED'},paymentId:'PAY-NODATE',paymentPeriodCode:'2026-08',user:approver,can:allow,period:august,jeId:111,jeNumber:'JE-111'}).code,'PERIOD_DATE_MISMATCH');
 assert.equal(payBillCommand({bill:{...baseBill,status:'APPROVED'},paymentId:'PAY-NOPERIOD',paymentDate:'2026-08-05',user:approver,can:allow,period:august,jeId:112,jeNumber:'JE-112'}).code,'PERIOD_DATE_MISMATCH');
 assert.equal(payBillCommand({bill:{...baseBill,status:'APPROVED'},paymentId:'PAY-CLOSED',paymentDate:'2026-08-05',paymentPeriodCode:'2026-08',user:approver,can:allow,period:{...august,status:'CLOSED'},jeId:113,jeNumber:'JE-113'}).code,'4005');
@@ -105,6 +108,7 @@ const receiptDuplicate=receivePaymentCommand({...paymentOccurrence,invoice:{...b
 assert.equal(receiptDuplicate.code,'AR_DUPLICATE_SOURCE');
 const crossPeriodReceipt=receivePaymentCommand({invoice:{...baseInvoice,status:'OPEN'},paymentId:'RCPT-AUG',paymentDate:'2026-08-06',paymentPeriodCode:'2026-08',user:maker,can:allow,period:august,jeId:209,jeNumber:'JE-209'});
 assert.deepEqual([crossPeriodReceipt.draftJE.period_code,crossPeriodReceipt.draftJE.je_date,baseInvoice.period_code],['2026-08','2026-08-06','2026-07']);
+assert.equal(documentJENumber(crossPeriodReceipt.draftJE.je_date,crossPeriodReceipt.draftJE.je_id),'20260806000209');
 assert.equal(receivePaymentCommand({invoice:{...baseInvoice,status:'OPEN'},paymentId:'RCPT-NODATE',paymentPeriodCode:'2026-08',user:maker,can:allow,period:august,jeId:210,jeNumber:'JE-210'}).code,'PERIOD_DATE_MISMATCH');
 const secondPayment=payBillCommand({...paymentOccurrence,bill:{...baseBill,bill_id:3,bill_no:'B-3',status:'APPROVED'},paymentId:'PAY-SECOND',user:approver,can:allow,period:open,jeId:115,jeNumber:'JE-115'});
 const accumulated=applyPostedDocumentBatch({ap:{bills:[payment.nextDocument,secondPayment.nextDocument]},ar:{invoices:[receipt.nextDocument]},jes:[{...payment.draftJE,posting_status:'POSTED'},{...secondPayment.draftJE,posting_status:'POSTED'},{...receipt.draftJE,posting_status:'POSTED'}]});

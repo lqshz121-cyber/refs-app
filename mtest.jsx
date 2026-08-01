@@ -18,7 +18,7 @@ import { SourceDocs } from './src/module-sourcedocs.jsx';
 import { CompanySetting } from './src/module-setting.jsx';
 import { approveBillCommand, payBillCommand } from './src/ap-workflow.js';
 import { createInvoiceCommand, receivePaymentCommand } from './src/ar-workflow.js';
-import { applyPostedDocumentBatch, applyPostedDocumentTransition, validateDocumentReversal } from './src/document-posting.js';
+import { applyPostedDocumentBatch, applyPostedDocumentTransition, documentJENumber, validateDocumentReversal } from './src/document-posting.js';
 
 const noop=()=>{};
 const actions=new Proxy({}, {get:()=>noop});
@@ -145,7 +145,8 @@ expectJE('business-linked JE requires source reversal workflow',validateDocument
 expectJE('AP accounting date cannot borrow another period',approveBillCommand({bill:{...apBill,bill_date:'2026-06-30'},user:{user_id:'approver'},can:()=>true,period:{period_code:'2026-07',status:'OPEN'},jeId:7799,jeNumber:'JE-7799'}).code==='PERIOD_DATE_MISMATCH');
 const juneBill={...apPosted.ap.bills[0],bill_id:78,bill_no:'BILL-78',period_code:'2026-06',accounting_date:'2026-06-20',bill_date:'2026-06-20',status:'APPROVED',bank_member:'Operating Cash_BA-003'};
 const julyPay=payBillCommand({bill:juneBill,user:{user_id:'treasury'},can:()=>true,period:{period_code:'2026-07',status:'OPEN'},paymentId:'PAY-78-A',paymentDate:'2026-07-31',paymentPeriodCode:'2026-07',jeId:7802,jeNumber:'JE-7802'});
-expectJE('cross-period AP payment uses its own open occurrence period',julyPay.ok&&julyPay.draftJE.period_code==='2026-07'&&julyPay.draftJE.je_date==='2026-07-31');
+expectJE('cross-period AP payment uses its own open occurrence period',julyPay.ok&&julyPay.draftJE.period_code==='2026-07'&&julyPay.draftJE.je_date==='2026-07-31'&&documentJENumber('2026-08-05',7802)==='20260805007802');
+expectJE('document JE number rejects invalid dates and ids',documentJENumber('2026-13-99',7802)===null&&documentJENumber('2026-08-05',0)===null&&documentJENumber('',7802)===null);
 expectJE('AP payment missing occurrence date fails closed',payBillCommand({bill:juneBill,user:{user_id:'treasury'},can:()=>true,period:{period_code:'2026-07',status:'OPEN'},paymentId:'PAY-78-MISSING',jeId:7803,jeNumber:'JE-7803'}).code==='PERIOD_DATE_MISMATCH');
 const arInvoice={inv_id:88,inv_no:'INV-88',entity_id:4,period_code:'2026-07',inv_date:'2026-07-31',amount:500,customer_id:1,customer_name:'Customer A',status:'DRAFT',created_by:'ar-maker'};
 const arDraft=createInvoiceCommand({invoice:arInvoice,user:{user_id:'ar-maker'},can:()=>true,period:{period_code:'2026-07',status:'OPEN'},jeId:8801,jeNumber:'JE-8801'});
