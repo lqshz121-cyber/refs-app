@@ -166,8 +166,25 @@ export function IntegrationHub({ctx}) {
   const retry = (id) => { setBatches(bs=>bs.map(b=>b.batch_id===id?{...b, status:'RETRYING'}:b));
     setTimeout(()=>setBatches(bs=>bs.map(b=>b.batch_id===id?{...b, status:'PARTIAL'}:b)), 900);
     ctx.toast('重试完成：映射仍缺失，需先在 Mapping Center 配置 PET_FEE','warn'); };
-  return <div><h2 className="page-h">集成中心 Integration Hub</h2>
+  const FEEDS = [
+    ['PAYABLE','上游 AP 发票(Contract & Invoice / Budget & Purchasing 审批完成)','Dr 费用科目(带 Cost Code/Class/Payable No GUID/Unit) / Cr 291001 Due to/from_按Payee挂账','两行一组,Journal No=YYYYMMDD+序号'],
+    ['EXPA','银行流水 Feed 自动匹配付款(Auto Payments Reconciliation)','Dr 291001 Due to/from_Payee(清账) / Cr 111000 Operating Cash_公司_银行_账号尾号','memo 保留原始 ACH/CCD 银行描述全文'],
+    ['NOT_MATCH','银行流水无法自动匹配','暂挂,人工处理 → 转 Match 或 Exception','对应 REFS Bank Transactions For Review'],
+    ['REIMB / Reimbursement Invoice','员工上传报销发票(Upload Reimbursement Invoices)','审批后 Dr 费用 / Cr 291001 Due to/from_员工','Auto Reimbursement=自动生成分录'],
+    ['AUTO_BANK_REIMB','银行扣款自动清报销挂账','Dr 291001 / Cr 111000','与 EXPA 同机制,来源为报销'],
+    ['INTERNAL_TRANSFER','自有银行账户间划转','Dr 111000(收方账户) / Cr 111000(付方账户)','两侧银行 feed 各自对账'],
+    ['INTERNAL / INDIVIDUAL','内部调整 / 手工单笔(Type=Manual)','任意借贷,走 Review(Yes/No)+Approve(三态)','绿色高亮=已 Review 行'],
+  ];
+  return <div className="full-bleed"><h2 className="page-h">集成中心 Integration Hub</h2>
     <p className="muted sm">外部数据先入 Staging，禁止直写 GL。批次幂等去重、Retry、失败补偿。</p>
+    <SectionTitle>WBS 数据来源规则(与 WBS 生产系统逐条对齐)</SectionTitle>
+    <Table cols={[
+      {h:'Source',render:r=><Badge tone="muted">{r[0]}</Badge>},
+      {h:'业务数据来源',render:r=>r[1]},
+      {h:'记账规则',render:r=>r[2]},
+      {h:'备注',render:r=><span className="muted sm">{r[3]}</span>},
+    ]} rows={FEEDS} />
+    <SectionTitle>批次监控</SectionTitle>
     <Table rowKey="batch_id" cols={[
       {h:'批次',k:'batch_id'},{h:'来源',render:r=><Badge tone="muted">{r.src}</Badge>},
       {h:'记录',num:true,render:r=>r.ok+'/'+r.n},

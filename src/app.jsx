@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Component } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toast, Btn } from './ui.jsx';
 import { ENTITIES, USERS, PERIODS, COA, VENDORS, CUSTOMERS } from './data.js';
@@ -14,6 +14,24 @@ import { BankTransactions } from './module-banktx.jsx';
 import { AccountRegister } from './module-register.jsx';
 import { ARWorkspace } from './module-ar.jsx';
 import { repo } from './repo.js';
+
+class ErrorBoundary extends Component {
+  constructor(p){ super(p); this.state={err:null}; }
+  static getDerivedStateFromError(err){ return {err}; }
+  componentDidUpdate(prev){ if(prev.routeKey!==this.props.routeKey && this.state.err) this.setState({err:null}); }
+  render(){
+    if(this.state.err){
+      return (
+        <div className="empty" style={{margin:24,textAlign:'left',padding:'28px 30px'}}>
+          <h3 style={{marginTop:0,color:'var(--bad)'}}>此页面加载出错</h3>
+          <div className="muted sm" style={{marginBottom:14}}>该模块渲染异常，应用其余部分仍可正常使用。请切换到其他页面，或刷新重试。</div>
+          <pre style={{whiteSpace:'pre-wrap',fontSize:12,color:'var(--text-2)',background:'var(--bg-canvas)',padding:'10px 12px',borderRadius:8,overflow:'auto'}}>{String(this.state.err && this.state.err.message || this.state.err)}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const ROLE_PERMS = {
   CONTROLLER: '*',
@@ -208,7 +226,7 @@ function App() {
   const isAdmin = ADMIN_ROLES.includes(user.role_code);
   const nav = NAV.filter(g=>!g.adminOnly || isAdmin);
   const flat = nav.flatMap(g=>g.items.map(([k,l])=>[k,'·',l]));
-  const ctx = {jes, exceptions, closeTasks, ap, bank, coa, user, entity, period, can, actions, toast:showToast, goto:setRoute};
+  const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, user, entity, period, can, actions, toast:showToast, goto:setRoute};
   const Comp = COMP[route] || Dashboard;
   const paletteItems = flat.filter(([k,ic,l])=>l.toLowerCase().includes(q.toLowerCase())||k.includes(q.toLowerCase()));
 
@@ -240,7 +258,7 @@ function App() {
           </div>
         </div>
       </header>
-      <main className="content"><Comp ctx={ctx} /></main>
+      <main className="content"><ErrorBoundary routeKey={route}><Comp ctx={ctx} /></ErrorBoundary></main>
     </div>
     {newMenu && <div className="newmenu-scrim" onClick={()=>setNewMenu(false)}>
       <div className="newmenu" onClick={e=>e.stopPropagation()}>

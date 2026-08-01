@@ -126,7 +126,7 @@ export function JEWorkspace({ctx}) {
         {['ALL','DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED','REVERSED'].map(x=><option key={x}>{x}</option>)}
       </select></label>
       <label>来源 <select value={srcF} onChange={e=>setSrcF(e.target.value)}>
-        {['ALL','MAN','WBS_CL','PM','AP','AR','BANK','CLOSING'].map(x=><option key={x}>{x}</option>)}
+        {['ALL','MAN','WBS_CL','PM','AP','AR','BANK','CLOSING','PAYABLE','EXPA','REIMB','AUTO_BANK_REIMB','INTERNAL_TRANSFER','INTERNAL','INDIVIDUAL','NOT_MATCH'].map(x=><option key={x}>{x}</option>)}
       </select></label>
       <span className="muted sm">{list.length} 笔</span>
     </div>

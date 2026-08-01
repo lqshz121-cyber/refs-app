@@ -77,6 +77,10 @@ export const COA = [
   ['681000','HOA Fees','EXPENSE','DEBIT'],
   ['682000','Management Fees','EXPENSE','DEBIT'],
   ['700100','Professional & Legal Fees','EXPENSE','DEBIT'],
+  ['700405','Travel','EXPENSE','DEBIT'],
+  ['700800','Payroll Fees','EXPENSE','DEBIT'],
+  ['704600','Employee Recruiting','EXPENSE','DEBIT'],
+  ['632015','Insurance - Workers Comp','EXPENSE','DEBIT'],
   ['700150','Consulting Fees','EXPENSE','DEBIT'],
   ['701600','Google Ads','EXPENSE','DEBIT'],
   ['705000','Software (Expense)','EXPENSE','DEBIT'],
@@ -145,6 +149,7 @@ export const ENTITIES = [
   {entity_id:12, entity_code:'WBRED', entity_name:'WB Red Oaks Home Building LLC', entity_type:'Vertical'},
   {entity_id:13, entity_code:'WBIVY', entity_name:'WB Ivy District Home Building LLC', entity_type:'Vertical'},
   {entity_id:14, entity_code:'WBCRO', entity_name:'WB Crowley Home Building LLC', entity_type:'Vertical'},
+  {entity_id:15, entity_code:'WBAI', entity_name:'AIWB INC', entity_type:'Corporate'},
 ];
 
 export const PERIODS = [

@@ -191,6 +191,34 @@ for (let m=1;m<=7;m++){
       lines:[{account_code:e===2?'1405':'6040',debit_amount:int_,credit_amount:0},{account_code:'2100',debit_amount:0,credit_amount:int_}] });
   });
 }
-export const FY2026 = FY;
+// ===== Real AIWB INC entries (scraped from WBS companyAccount 2026-07) =====
+const AIWB = [];
+let _a = 9500;
+const mk = (jn, date, src, payee, memo, lines, extra) => AIWB.push({ je_id:++_a, je_number:jn, entity_id:15, period_code:'2026-07', je_date:date,
+  je_type: src==='PAYABLE'?'AUTO':'AUTO', source_system: src, payee, description: memo, posting_status:'POSTED', created_by:'system',
+  reviewer: extra&&extra.rev||'', cost_code: extra&&extra.cc||'', class_dim:'AIWB INC-Admin', unit_dim:'AIWB INC-Overhead',
+  history:[{a:'WBS IMPORT · '+src,by:'system',at:date},{a:'REVIEW',by:(extra&&extra.rev)||'auto',at:date}], lines });
+mk('20260701000002','2026-07-01','PAYABLE','Wan Bridge Land LLC','07/2026: Finance, Design and Procurement Costs (Tingjun Wanjia)',
+  [{account_code:'705002',debit_amount:25034,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:25034,description:'Due to/from_Tingjun Wanjia (Beijing)'}],{rev:'Judy Zhang',cc:'24E341'});
+mk('20260701000003','2026-07-01','PAYABLE','Wan Bridge Land LLC','07/2026: Finance, Design and Procurement Costs (BEIJING WANYANG)',
+  [{account_code:'705002',debit_amount:37552,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:37552,description:'Due to/from_BEIJING WANYANG'}],{rev:'Judy Zhang',cc:'24E341'});
+mk('20260701000010','2026-07-01','PAYABLE','Wan Bridge Land LLC','07/26 Research and Development (R&D) Costs',
+  [{account_code:'705001',debit_amount:2898,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:2898,description:'Due to/from_Ting Qiao'}],{rev:'Judy Zhang',cc:'24E340'});
+mk('20260701000020','2026-07-01','PAYABLE','Wan Bridge Land LLC','07/2026: R&D Costs (BEIJING LVSHIWANYANG) and 2% Services Fee',
+  [{account_code:'705001',debit_amount:30000,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:30000,description:'Due to/from_BEIJING LVSHIWANYANG'}],{rev:'Judy Zhang',cc:'24E340'});
+mk('20260702000001','2026-07-02','PAYABLE','ADP, Inc.','6/21/2026 Payroll Service Expense',
+  [{account_code:'700800',debit_amount:296.68,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:296.68,description:'Due to/from_ADP, Inc.'}],{cc:'34E109'});
+mk('20260702000002','2026-07-02','PAYABLE',"Lee's Limousine & Transportation",'5/16/2026 Airport Transfer - Seden',
+  [{account_code:'700405',debit_amount:120,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:120,description:"Due to/from_Lee's Limousine"}],{cc:'24E060'});
+mk('20260703000010','2026-07-03','PAYABLE','ProScreening','AIWB 6/1-6/14/2026 Background Screenings',
+  [{account_code:'704600',debit_amount:100.97,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:100.97,description:'Due to/from_ProScreening'}],{rev:'Judy Zhang',cc:'34E110'});
+mk('20260703000027','2026-07-03','EXPA','ADP, Inc.','ACH: ADP PAYROLL FEES · ENTRY CLASS CCD · auto-matched bank feed',
+  [{account_code:'291001',debit_amount:296.68,credit_amount:0,description:'Due to/from_ADP, Inc. (clear)'},{account_code:'111000',debit_amount:0,credit_amount:296.68,description:'Operating Cash_WBAI_WF_9250'}],{});
+mk('20260703000029','2026-07-03','PAYABLE','isolved, Inc.','AIWB 7/18-8/17/2026 ApplicantPro/iSolved Standard',
+  [{account_code:'704600',debit_amount:132.18,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:132.18,description:'Due to/from_isolved'}],{cc:'34E110'});
+mk('20260703000035','2026-07-03','PAYABLE','Texas Mutual Insurance Company','Workers Comp Insurance - Policy 0002132541',
+  [{account_code:'632015',debit_amount:3906,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:3906,description:'Due to/from_Texas Mutual'}],{});
+export const AIWB_JES = AIWB;
+export const FY2026 = FY.concat(AIWB);
 // unit -> owner company (每个 unit 归属的 owner 实体)
 export const UNIT_OWNERS = { 'A-203':{entity_id:4, name:'WB Home LLC'}, 'B-110':{entity_id:2, name:'Wan Bridge Land LLC'}, 'C-050':{entity_id:11, name:'WB Pradera Oaks Land 1 LLC'} };
