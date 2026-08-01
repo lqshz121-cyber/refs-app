@@ -3,6 +3,7 @@ import { Btn, Badge, Table, Tabs, SectionTitle, Drawer, Field } from './ui.jsx';
 import { ENTITIES, COA } from './data.js';
 import { WBS_COA_MAP } from './coa-wbs.js';
 import { loadSetting, saveSetting, copySetting } from './settings.js';
+import { aiJudge } from './ai.js';
 
 export function CompanySetting({ctx}) {
   const {entity, toast} = ctx;
@@ -15,7 +16,8 @@ export function CompanySetting({ctx}) {
   const nameOf = c => (WBS_COA_MAP[c]||{}).name || (COA.find(a=>a.account_code===c)||{}).account_name || '';
   const KEY = {'Account Setting':'account_setting','Cost Setting':'cost_setting','Payable Setting':'payable_setting','Batch Setting':'batch_setting'}[tab];
   const rows = s[KEY];
-  const upd = (r, field, v)=>{ const n=structuredClone(s); n[KEY][rows.indexOf(r)][field]=v; save(n); };
+  const upd = (r, field, v)=>{ const n=structuredClone(s); const row=n[KEY][rows.indexOf(r)]; row[field]=v; row.updated_at=new Date().toISOString().slice(0,16).replace('T',' '); save(n); };
+  const testRule = (r)=>{ const j=aiJudge({category:r.category, type:r.type, detail:r.detail, cost_code:(r.detail||'').slice(0,6), status:'UNDER_CONSTRUCTION', payee:'Test Vendor', amount:1000, description:r.detail}, en); toast(`Test: Dr ${j.suggested.dr} / Cr ${j.suggested.cr} · ${(j.confidence*100).toFixed(0)}% · ${j.rule_used}`); };
   const addRow = ()=>{ const n=structuredClone(s); n[KEY].push(KEY==='batch_setting'?{memo:'',dr:'',cr:'',sequential:false,reverse_next_month:false,status:'DRAFT'}:{category:rows[0]?.category||'Bank Transaction', type:'', detail:'', account:'', desc:'', project:'', status:'DRAFT'}); save(n); toast('已加行(DRAFT,测试通过后转 LIVE)'); };
   const delRow = (r)=>{ const n=structuredClone(s); n[KEY].splice(rows.indexOf(r),1); save(n); toast('已删行','warn'); };
   const AcctIn = ({r,f})=><span className="row-acts"><input className="date-in" style={{width:74}} value={r[f]||''} onChange={e=>upd(r,f,e.target.value)}/><span className="muted sm">{nameOf(r[f])||'—'}</span></span>;
@@ -44,8 +46,10 @@ export function CompanySetting({ctx}) {
       {h:tab==='Payable Setting'?'Account':'Account →科目',render:r=><AcctIn r={r} f="account"/>},
       {h:'Description',k:'desc'},
       {h:'Entity',render:r=>r.entity||'—'},
-      {h:'Rule Status',render:r=><Badge tone={r.status==='LIVE'?'ok':'muted'}>{r.status||'LIVE'}</Badge>},
+      {h:'Rule Status',render:r=><button className="link-btn" onClick={e=>{e.stopPropagation(); upd(r,'status', r.status==='LIVE'?'INACTIVE':'LIVE');}}><Badge tone={r.status==='LIVE'?'ok':'muted'}>{r.status||'LIVE'}</Badge></button>},
       {h:'AI Check',render:aiCheck},
+      {h:'Last Updated',render:r=><span className="muted sm">{r.updated_at||'—'}</span>},
+      {h:'Test',render:r=><Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation(); testRule(r);}}>Test Rule</Btn>},
     ]} rows={rows}/>
     : <Table rowKey={null} cols={[
       {h:'No',render:r=>rows.indexOf(r)+1},
