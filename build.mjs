@@ -7,8 +7,9 @@ const buildTime=new Date().toISOString();
 let buildSha=process.env.GITHUB_SHA?.slice(0,7);
 if(!buildSha){
   try{buildSha=execFileSync('git',['rev-parse','--short=7','HEAD'],{encoding:'utf8'}).trim();}
-  catch{buildSha='unknown';}
+  catch{throw new Error('Build provenance unavailable: inject a valid GITHUB_SHA or build from a trusted Git worktree.');}
 }
+if(!/^[0-9a-f]{7}$/i.test(buildSha))throw new Error(`Invalid build SHA: ${buildSha||'missing'}`);
 
 const opts={
   entryPoints:['src/app.jsx'],bundle:true,outfile:'dist/bundle.js',format:'iife',jsx:'automatic',
