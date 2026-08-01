@@ -227,8 +227,11 @@ AI 不可以：自动 Post、绕过 Mapping、修改 Posted、解除期间锁、
 
 ## 14. Claude × Codex 分工
 
-**Claude**：QuickBooks 风格 UI/交互、页面对象模型、WBS 字段语义、Setting/AI 展示、线上 E2E。  
-**Codex**：TypeScript/domain 抽离、PostgreSQL、API/Auth/RBAC/Audit、Posting Engine、golden tests、OpenAPI。  
+**Codex**：QuickBooks 风格前端、页面对象模型、交互一致性、响应式、WBS/REFS 端到端补缺与浏览器 E2E。
+
+**Claude**：PostgreSQL、API/Auth/RBAC/Audit、WBS ingestion/worker、Posting service 与后端集成测试。
+
+**交叉复核**：Codex 审查 API 是否能真正支撑前端闭环；Claude 审查前端是否遵循事务、幂等、状态机与审计契约。每批先声明文件 owner，另一方只读 reviewer。
 **共同冻结**：对象命名、状态机、OpenAPI、会计错误码、验收 fixture。
 
 任何前后端接口冲突先追加 ADR，再实现；不得靠组件内特殊判断绕过领域规则。

@@ -32,7 +32,7 @@ Source → Classification → Company Setting(四大Setting) → Rule/AI Coding 
 | Reports | Reports Center（16 张报表） |
 | Admin | Master Data · AP · AR · Bank Accounts · Audit Log · Users & Settings |
 
-模块存在不等于已达到生产完备度；当前能力与缺口以验收矩阵和 `REFS-ARCHITECTURE-V2.md` 为准。
+模块存在不等于已达到生产完备度；产品完成口径见 `PRODUCT-NORTHSTAR.md`，WBS 实际路由/API 摸排与同步契约见 `WBS-SOURCE-CONTRACT.md`，当前能力与缺口以验收矩阵和 `REFS-ARCHITECTURE-V2.md` 为准。
 
 ## 工程
 React18+esbuild 静态站(`node build.mjs`);状态 localStorage(src/repo.js=后端接入点);Chart.js CDN。
@@ -42,6 +42,6 @@ React18+esbuild 静态站(`node build.mjs`);状态 localStorage(src/repo.js=后�
 npx esbuild mtest.jsx --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=mtest.cjs; node mtest.cjs
 npx esbuild audit.js --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=audit.cjs; node audit.cjs
 ```
-协作规范见 COLLABORATION.md;路线图见 BLUEPRINT.md(P1: TypeScript+PostgreSQL+API,由 Codex 主导)。
+协作规范见 COLLABORATION.md；路线图见 BLUEPRINT.md。当前 owner：Codex 主负责 QuickBooks 风格前端与 E2E，Claude 主负责 PostgreSQL/API/WBS ingestion；双方交叉复核。
 
-> 注:当前为可运行的前端引擎+模拟数据(标注 demo);接真实 WBS 数据仅需替换 repo.js 数据源。
+> 注：当前是可运行的前端引擎与 demo 数据，不是 WBS 生产账簿。真实接入需要只读 WBS API、PostgreSQL 原始/规范化/Staging 数据层、幂等同步、附件存储、事务 Posting、备份恢复和生产 E2E；不能只替换 `repo.js`。
