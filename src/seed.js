@@ -257,6 +257,22 @@ mk2(3,'20260702000008','2026-07-02','AUTOC','Welltower Inc.','WT Contribution 07
 mk2(3,'20260703000001','2026-07-03','PAYABLE','Wan Bridge Group','4/2026 ADP Salaries',
  [{account_code:'700600',debit_amount:4121.94,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:4121.94,description:'Due to/from_WBG'}]);
 export const AIWB_JES = AIWB.concat(REAL2);
-export const FY2026 = FY.concat(AIWB_JES);
+// ===== Normalization pass (AI Audit remediation): member + source doc completeness =====
+const SUBS_ALL={'111000':'Bank','112000':'Bank','220300':'Vendor','220200':'Vendor','225000':'Vendor','291000':'Affiliate','291001':'Affiliate','125000':'Affiliate','120200':'Customer','123700':'Customer','270100':'Loan','260100':'Loan'};
+const _ALL = FY.concat(AIWB_JES);
+_ALL.forEach(j=>{
+  j.lines.forEach(l=>{
+    if (SUBS_ALL[l.account_code] && !l.member){
+      const fromDesc = l.description && l.description.includes('_') ? l.description.split('_').slice(1).join('_').replace(/ \(clear\)$/,'') : null;
+      l.member = fromDesc || j.payee || (SUBS_ALL[l.account_code]==='Bank' ? ('Operating Cash_E'+j.entity_id) : 'Wan Bridge Development LLC');
+      if (!l.description) l.description = (l.account_code.startsWith('291')?'Due to/from_':'') + l.member;
+    }
+  });
+  if (j.je_type==='AUTO' && ['PAYABLE','CLOSING'].includes(j.source_system) && !j.source_doc_id && !j.rule_code){
+    j.source_doc_id = doc({type:'SERVICE_INVOICE', doc_no:'SVC-'+j.je_number, vendor:j.payee||'—', date:j.je_date, amount:j.lines.reduce((s,l)=>s+(l.debit_amount||0),0), source_system:'WBS · Contract & Invoice'});
+    j.rule_code = j.rule_code || 'R-AP-STD-01';
+  }
+});
+export const FY2026 = _ALL;
 // unit -> owner company (每个 unit 归属的 owner 实体)
 export const UNIT_OWNERS = { 'A-203':{entity_id:4, name:'WB Home LLC'}, 'B-110':{entity_id:2, name:'Wan Bridge Land LLC'}, 'C-050':{entity_id:11, name:'WB Pradera Oaks Land 1 LLC'} };
