@@ -48,8 +48,9 @@ export function loanRule(txn) {
   const cap = txn.construction_status === 'UNDER_CONSTRUCTION';
   switch (txn.txn_type) {
     case 'DRAW':
+      // Blueprint 7.3: Draw = loan cash-in, NOT cost. Dr Cash / Cr Loan Payable
       return {rule_code:'R-LOAN-01', lines:[
-        {account_code:'164200', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
+        {account_code:'111000', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
         {account_code:'270100', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
     case 'INTEREST_ACCRUAL':
       return {rule_code: cap?'R-LOAN-03':'R-LOAN-04', capitalize:cap, lines:[
