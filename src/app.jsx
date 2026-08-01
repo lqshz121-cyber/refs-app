@@ -15,6 +15,8 @@ import { AccountRegister } from './module-register.jsx';
 import { ARWorkspace } from './module-ar.jsx';
 import { SubsidiaryLedger } from './module-subledger.jsx';
 import { UnitCostLedger } from './module-unitcost.jsx';
+import { CompanySetting } from './module-setting.jsx';
+import { AIAudit } from './module-aiaudit.jsx';
 import { repo } from './repo.js';
 
 class ErrorBoundary extends Component {
@@ -48,15 +50,15 @@ const ROLE_PERMS = {
   AUDITOR: [], READ_ONLY: [], SYS_ADMIN: [],
 };
 const NAV = [
-  {group:'Control Center', icon:'◉', items:[['dashboard','Dashboard'],['approvals','Action Required'],['exceptions','Exceptions & AI Review']]},
+  {group:'Control Center', icon:'◉', items:[['dashboard','Dashboard'],['approvals','Action Required'],['aireview','AI Audit 机器复核'],['exceptions','Exception Center']]},
   {group:'Accounting', icon:'☰', items:[['coa','Chart of Accounts'],['je','Journal Entries'],['register','Account Register'],['subledger','辅助核算 Subsidiary'],['gl','General Ledger']]},
   {group:'WBS Accounting', icon:'⇅', items:[['integration','Integration Hub'],['autobankrec','Accounting Staging'],['mapping','Mapping Center'],['rules','Rule Center']]},
   {group:'Subledgers', icon:'▤', items:[['ap','AP Accounting'],['ar','AR Accounting'],['banktx','Bank Transactions'],['bankrec','Bank Reconciliation'],['checks','Checks & Payments'],['loan','Construction Loan'],['loanreg','Loan Register'],['intercompany','Intercompany']]},
   {group:'Real Estate Accounting', icon:'▲', items:[['cost','Project Cost & CWIP'],['unitcost','Unit Cost Ledger'],['pmpickup','Property Ops Pickup'],['closing','Closing Accounting'],['assets','Fixed Assets']]},
   {group:'Close & Reports', icon:'☑', items:[['close','Month-End Close'],['reports','Reports Center']]},
-  {group:'Admin', icon:'⚙', adminOnly:true, items:[['masterdata','Master Data'],['cash','Bank Accounts'],['audit','Audit Log'],['admin','Users & Settings']]},
+  {group:'Admin', icon:'⚙', adminOnly:true, items:[['masterdata','Master Data'],['cash','Bank Accounts'],['audit','Audit Log'],['setting','Company Setting'],['admin','Users & Settings']]},
 ];
-const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
+const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, setting:CompanySetting, aireview:AIAudit, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
   pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARWorkspace,
   cash:CashModule, bankrec:BankRec2, autobankrec:AutoBankRec, checks:CheckMgmt, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
   mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, reports:Reports, admin:AdminModule };
