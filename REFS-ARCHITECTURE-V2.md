@@ -1,7 +1,7 @@
 # REFS Architecture V2 — QuickBooks 体验 × WBS 地产业财一体化
 
-版本：2026-08-01 Draft 1  
-面向：Ricky、Claude、Codex  
+版本：2026-08-01 Draft 1
+面向：Ricky、Claude、Codex
 目标：重建产品与技术架构，不在现有原型上继续堆叠孤立页面。
 
 ## 1. 产品定义
@@ -174,7 +174,7 @@ Undo 将关联对象安全退回 Review；已完成银行对账的交易必须�
 
 AI 输出固定结构：建议 Dr/Cr、维度、置信度、理由、证据、命中 Setting/Rule、风险、是否需人工。
 
-AI 可以：分类、匹配候选、异常解释、审计发现、补充信息请求。  
+AI 可以：分类、匹配候选、异常解释、审计发现、补充信息请求。
 AI 不可以：自动 Post、绕过 Mapping、修改 Posted、解除期间锁、代替审批人。
 
 每个 AI 判断保存 model/prompt version、输入摘要、候选、最终人工选择和差异，用于可解释性与后续评估。

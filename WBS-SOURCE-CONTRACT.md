@@ -12,8 +12,8 @@
 | `/companyAccount` | 公司会计工作台；查询、Setting、Review/Approve、Close/Unclose、附件与分录详情 | `BUNDLE-APP`, `BUNDLE-843`；`accounting/list|getOne|sources|businessSourceType|journalEdit/*|review|approve|reject|reversal|fileList` | Source & Staging / Journal workflow |
 | `/sourceDetail` | 源记录/会计详情 Drawer，包含 bank/cost/payable detail、附件回源 | `BUNDLE-340`, `SCHEMA-OBS-001`；HTTP method 尚未证明，正式 adapter 仅可调用明确的只读 endpoint | Source document / mapping evidence / audit |
 | `/cashOrBankBookAccountSetting` | Account、Cost、Payable、Receivable、Batch Setting | `BUNDLE-417`, `BUNDLE-586` | Versioned Setting families |
-| `/accountRelation` | Cost Code ↔ Account relation 的查询、增删改、导入导出 | `BUNDLE-379`, `BUNDLE-586`, `SCHEMA-OBS-001`；观察到字段没有 company/effective/version/approval | Mapping family: COST_CODE_ACCOUNT；歧义时 fail closed |
-| `/matchInfo` | 路由标题为 Match Info；尚不能证明是银行匹配 | `BUNDLE-460`, `SCHEMA-OBS-001`；观察表缺 entity/bank/amount/currency/status/undo version | Discovery quarantine，不生成 Match 或 JE |
+| `/accountRelation` | Cost Code ↔ Account relation 的查询、增删改、导入导出 | `BUNDLE-379`, `BUNDLE-586`, `SCHEMA-OBS-001`；当前 metadata 未观察到 company/effective/version/approval | Mapping family: COST_CODE_ACCOUNT；歧义时 fail closed |
+| `/matchInfo` | 路由标题为 Match Info；尚不能证明是银行匹配 | `BUNDLE-460`, `SCHEMA-OBS-001`；当前 metadata 未观察到 entity/bank/amount/currency/status/undo version | Discovery quarantine，不生成 Match 或 JE |
 | `/accountLink` | Account Report Link/报表关联，不是原始 bank/business feed | `BUNDLE-038` | Report lineage/read model |
 | `/generalLedger` | 总账与 source drilldown | `BUNDLE-694` | WBS→REFS 对账验证，不作为写账源 |
 | `/balance`, `/balanceV2`, `/IncomeStatement` | 余额、BS/IS 类财务报表 | `BUNDLE-APP`；详细 response schema 仍 UNKNOWN | Cutover/reconciliation control totals |
@@ -45,7 +45,7 @@ WBS 前端还暴露权限标识 `WBS_AutoBankReconciliation`、`TBD_AutoBankReco
 
 `SCHEMA-OBS-001` 观察到 `accounting.accounting_info` 包含 `id, cb_id, business_guid, sys_id, source, data_source, come_from, com_code, set_date, posting_date, amount, debtor, lender, account, account_code, cost_code, project, pj_code, unit, unit_guid, unit_per_guid, payee, payee_no, bill_no, journal_no, review, approve_status, originator, reviewer, approver, approve_time, reject_reason, account_id, check_date, clear_date, file_relation_id, old_file_relation_id` 等字段；冻结 schema 前必须重跑并固化 hash。
 
-这些字段证明 WBS 有公司、项目、Unit、Cost Code、Payee、审批和附件定位信息，但不能证明单字段唯一或可作 CDC。`cb_id/sys_id/bill_no/journal_no` 均没有逻辑唯一约束；币种也未在该表中确认。REFS source key 必须等待 WBS 数据字典确认 immutable business/line ID 与 revision，不能用 bill number、description 或 JE number 拼接替代。
+`SCHEMA-OBS-001` 当前观察到公司、项目、Unit、Cost Code、Payee、审批和附件定位候选字段，但不能证明单字段唯一或可作 CDC。当前 metadata 未观察到 `cb_id/sys_id/bill_no/journal_no` 的逻辑 UNIQUE，也未观察到币种字段；这些结论必须由 WBS 数据字典和冻结前 schema 重跑确认。REFS source key 必须等待 WBS 确认 immutable business/line ID 与 revision，不能用 bill number、description 或 JE number 拼接替代。
 
 `SCHEMA-OBS-001` 观察到 `accounting.accounting_log` 包含 `company_code, cb_id, come_from, sys_id, source, relation_content, bill_no, content, create_user, create_time, type`，可作为回源审计候选事实，但仍需稳定 parent ID 与 event ID 才能安全增量同步。
 
@@ -65,14 +65,14 @@ WBS 前端还暴露权限标识 `WBS_AutoBankReconciliation`、`TBD_AutoBankReco
 
 ## 2.1 Discovery risk register
 
-| Severity | Verified risk | Required REFS behavior |
-|---|---|---|
-| P0 | `match_business_info` 的 business/batch 组合只有普通索引，没有逻辑 UNIQUE；且缺 entity/bank/amount/currency/status/undo version | 原样保存重复 raw rows；inbox 复合唯一；duplicate quarantine；未补齐字段前禁止生成 bank match |
-| P0 | `costcode_account_relation.cost_code` 非唯一，且没有 company/effective/version/approval | 同优先级多结果返回 `MAPPING_AMBIGUOUS`；不得任取第一条；REFS mapping 必须自行版本化审批 |
-| P0 | `accounting_info` 只有 `id` 主键，业务候选键非唯一且可空 | 由 WBS 明确 immutable source/line ID + revision；REFS 用复合唯一与 payload hash，冲突 fail closed |
-| P0 | `/accountLink`/PDF/download/GL 是汇总或展示结果 | 只进入 reconciliation control/read model；任何 report-as-source 请求直接拒绝 |
-| P0 | accountRelation 无更新时间，sourceDetail 不是 list，match 只有 create time | 正式接入必须提供 cursor、stable ordering、tombstone 和 replay window；否则只允许受控 snapshot/hash diff |
-| P0 | `ftFilesysid/file_relation_id` 缺 name/type/size/hash/object version 证据 | 未经服务端对象存在和 SHA-256 验证的附件不得满足凭证门 |
+| Severity | Status | Evidence | Risk | Required REFS behavior |
+|---|---|---|---|---|
+| P0 | OBSERVED | `SCHEMA-OBS-001` | 当前 metadata 只观察到 `match_business_info` business/batch 普通索引，未观察到逻辑 UNIQUE 或 entity/bank/amount/currency/status/undo version | 原样保存重复 raw rows；inbox 复合唯一；duplicate quarantine；未补齐字段前禁止生成 bank match |
+| P0 | OBSERVED | `SCHEMA-OBS-001` | 当前 metadata 观察到 `costcode_account_relation.cost_code` 非唯一，未观察到 company/effective/version/approval | 同优先级多结果返回 `MAPPING_AMBIGUOUS`；不得任取第一条；REFS mapping 必须自行版本化审批 |
+| P0 | OBSERVED | `SCHEMA-OBS-001` | 当前 metadata 只观察到 `accounting_info.id` 主键；业务候选键未观察到逻辑 UNIQUE 且可空 | 由 WBS 明确 immutable source/line ID + revision；REFS 用复合唯一与 payload hash，冲突 fail closed |
+| P0 | VERIFIED | `BUNDLE-038`, `BUNDLE-694` | `/accountLink`/PDF/download/GL 是报表或展示路径，不是业务 source endpoint | 只进入 reconciliation control/read model；任何 report-as-source 请求直接拒绝 |
+| P0 | OBSERVED | `SCHEMA-OBS-001`, `BUNDLE-340`, `BUNDLE-379`, `BUNDLE-460` | 当前未观察到可靠 CDC：accountRelation 无更新时间、sourceDetail 不是 list、match 只有 create time | 正式接入必须提供 cursor、stable ordering、tombstone 和 replay window；否则只允许受控 snapshot/hash diff |
+| P0 | OBSERVED | `SCHEMA-OBS-001`, `BUNDLE-340` | 当前只观察到 `ftFilesysid/file_relation_id` 定位符，未观察到 name/type/size/hash/object version 证据 | 未经服务端对象存在和 SHA-256 验证的附件不得满足凭证门 |
 
 ## 3. Canonical ingestion model
 
