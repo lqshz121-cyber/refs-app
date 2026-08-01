@@ -108,7 +108,8 @@ function Login({onLogin}) {
 }
 
 function App() {
-  const load=(k,d)=>{try{const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
+  const SEED_V='v3';
+  const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
   const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');
   const [jes, setJes] = useState(()=>load('jes',[...JOURNAL_ENTRIES, ...FY2026]));

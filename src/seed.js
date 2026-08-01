@@ -1,3 +1,4 @@
+import { ENTITIES } from './data.js';
 // Transactional seed: journal entries, staging rows, exceptions, close tasks.
 let _id = 5000;
 export const nextId = () => ++_id;
@@ -127,68 +128,52 @@ export const IC_TXNS = [
 // ===== FY2026 full-year ledger generator (real WBS entities, sanitized amounts) =====
 const FY = [];
 let _g = 5000;
-const ENT = [1,2,3,4];
-const VERT = [5,6,7,8,9,10,11,12,13,14];
 const _cwipBal = {};
+const TYPE = {}; ENTITIES.forEach(e=>TYPE[e.entity_id]=e.entity_type);
+const NAMEOF = {}; ENTITIES.forEach(e=>NAMEOF[e.entity_id]=e.entity_name);
+const push=(e,mm,dd,src,payee,memo,lines)=>{ _g++; FY.push({je_id:_g, je_number:`2026${mm}${dd}${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-${dd}`, je_type:'AUTO', source_system:src, payee, description:memo, posting_status:'POSTED', created_by:'system', history:[{a:'WBS IMPORT · '+src,by:'system',at:`2026-${mm}-${dd}`}], lines}); };
 for (let m=1;m<=7;m++){
-  const mm = String(m).padStart(2,'0');
-  VERT.forEach(e=>{
-    const cwip = 20000 + e*1300 + m*777;
-    // monthly construction cost: Dr 164400 CWIP / Cr 220300 A/P Accrual
-    FY.push({ je_id:++_g, je_number:`2026${mm}15${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-15`,
-      je_type:'AUTO', source_system:'AP', payee:'Summit General Contractors', description:`${mm}/2026 Vertical construction cost (Draw ${m})`, posting_status:'POSTED', created_by:'system',
-      history:[{a:'WBS IMPORT · PAYABLE',by:'system',at:`2026-${mm}-15`}],
-      lines:[{account_code:'164400',debit_amount:cwip,credit_amount:0},{account_code:'220300',debit_amount:0,credit_amount:cwip}] });
-    // affiliate funding via Due to/from: Dr 111000 Operating Cash / Cr 291000
-    const fund = Math.round(cwip*1.05);
-    FY.push({ je_id:++_g, je_number:`2026${mm}20${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-20`,
-      je_type:'AUTO', source_system:'BANK', payee:'Wan Bridge Development LLC', description:`${mm}/2026 Affiliate funding (Due to/from)`, posting_status:'POSTED', created_by:'system',
-      history:[{a:'BANK MATCH',by:'system',at:`2026-${mm}-20`}],
-      lines:[{account_code:'111000',debit_amount:fund,credit_amount:0},{account_code:'291000',debit_amount:0,credit_amount:fund}] });
-    // AP payment: Dr 220300 / Cr 111000
-    FY.push({ je_id:++_g, je_number:`2026${mm}25${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-25`,
-      je_type:'AUTO', source_system:'BANK', description:`${mm}/2026 Construction AP payment`, posting_status:'POSTED', created_by:'system',
-      history:[{a:'CHECK CLEARED',by:'system',at:`2026-${mm}-25`}],
-      lines:[{account_code:'220300',debit_amount:cwip,credit_amount:0},{account_code:'111000',debit_amount:0,credit_amount:cwip}] });
-    // interest expense accrual: Dr 795000 / Cr 220451
-    const int_ = 900 + e*210 + m*63;
-    FY.push({ je_id:++_g, je_number:`2026${mm}28${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-28`,
-      je_type:'AUTO', source_system:'WBS_CL', description:`${mm}/2026 Interest accrual`, posting_status:'POSTED', created_by:'system',
-      history:[{a:'RULE R-LOAN-04',by:'system',at:`2026-${mm}-28`}],
-      lines:[{account_code:'795000',debit_amount:int_,credit_amount:0},{account_code:'220451',debit_amount:0,credit_amount:int_}] });
-    _cwipBal[e]=(_cwipBal[e]||0)+cwip;
-    // quarterly home sale: COGS relief capped at accumulated CWIP (不可把 CWIP 结转为负)
-    if (m%3===0){
-      const price = 380000 + e*9000 + m*5000; const cogs = Math.min(Math.round(price*0.82), _cwipBal[e]); _cwipBal[e]-=cogs;
-      FY.push({ je_id:++_g, je_number:`2026${mm}30${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-30`,
-        je_type:'AUTO', source_system:'CLOSING', description:`${mm}/2026 Home closing - Sales of Product Income`, posting_status:'POSTED', created_by:'system',
-        history:[{a:'CLOSING POST',by:'system',at:`2026-${mm}-30`}],
-        lines:[{account_code:'111000',debit_amount:price,credit_amount:0},{account_code:'491800',debit_amount:0,credit_amount:price}] });
-      FY.push({ je_id:++_g, je_number:`2026${mm}30${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-30`,
-        je_type:'AUTO', source_system:'CLOSING', description:`${mm}/2026 Home closing - COGS relief`, posting_status:'POSTED', created_by:'system',
-        history:[{a:'CLOSING POST',by:'system',at:`2026-${mm}-30`}],
-        lines:[{account_code:'510000',debit_amount:cogs,credit_amount:0},{account_code:'164400',debit_amount:0,credit_amount:cogs}] });
+  const mm=String(m).padStart(2,'0');
+  ENTITIES.forEach(en=>{
+    const e=en.entity_id, t=en.entity_type;
+    const seed=(e*37+m*11)%97;
+    if (e===15) return; // AIWB uses real scraped entries only
+    if (t==='Vertical'||t==='ProjectCo'){
+      const cwip=18000+e*140+m*620+seed*13;
+      push(e,mm,'15','PAYABLE','Summit General Contractors',`${mm}/2026 Construction cost accrual`,[
+        {account_code:'164400',debit_amount:cwip,credit_amount:0},{account_code:'220300',debit_amount:0,credit_amount:cwip}]);
+      push(e,mm,'20','AUTOC','Wan Bridge Development LLC',`${mm}/2026 Affiliate funding & AP settle`,[
+        {account_code:'111000',debit_amount:cwip,credit_amount:0},{account_code:'291000',debit_amount:0,credit_amount:cwip}]);
+      _cwipBal[e]=(_cwipBal[e]||0)+cwip;
+      if (m%3===0){ const price=300000+e*800+m*4000+seed*220; const cogs=Math.min(Math.round(price*0.82), _cwipBal[e]); _cwipBal[e]-=cogs;
+        push(e,mm,'28','CLOSING',null,`${mm}/2026 Home closing - unit sale`,[
+          {account_code:'111000',debit_amount:price,credit_amount:0},{account_code:'491800',debit_amount:0,credit_amount:price}]);
+        push(e,mm,'28','CLOSING',null,`${mm}/2026 Home closing - COGS relief`,[
+          {account_code:'510000',debit_amount:cogs,credit_amount:0},{account_code:'164400',debit_amount:0,credit_amount:cogs}]);
+      }
+    } else if (t==='LandCo'){
+      const land=9000+e*90+m*310+seed*9;
+      push(e,mm,'12','PAYABLE','Summit General Contractors',`${mm}/2026 Land development cost`,[
+        {account_code:'164100',debit_amount:land,credit_amount:0},{account_code:'220300',debit_amount:0,credit_amount:land}]);
+      push(e,mm,'22','AUTOC','Wan Bridge Development LLC',`${mm}/2026 Affiliate funding (Due to/from)`,[
+        {account_code:'111000',debit_amount:land,credit_amount:0},{account_code:'291000',debit_amount:0,credit_amount:land}]);
+    } else if (t==='Fund'){
+      const inc=4000+e*60+m*140+seed*7;
+      push(e,mm,'25','INTERNAL',null,`${mm}/2026 Interest income allocation`,[
+        {account_code:'125000',debit_amount:inc,credit_amount:0},{account_code:'449200',debit_amount:0,credit_amount:inc}]);
+      const fee=Math.round(inc*0.15);
+      push(e,mm,'28','PAYABLE','WB Asset Management LLC',`${mm}/2026 Asset management fee`,[
+        {account_code:'792000',debit_amount:fee,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:fee}]);
+    } else { // ServiceCo / Corporate / Holding / TitleCo / OpCo
+      const svc=2600+e*45+m*120+seed*5;
+      push(e,mm,'05','PAYABLE','Wan Bridge Land LLC',`${mm}/2026 Outsourcing service fee`,[
+        {account_code:'705002',debit_amount:svc,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:svc}]);
+      push(e,mm,'18','EXPA','Wan Bridge Land LLC',`${mm}/2026 ACH auto-clear (bank feed)`,[
+        {account_code:'291001',debit_amount:svc,credit_amount:0},{account_code:'111000',debit_amount:0,credit_amount:svc}]);
+      const rev=Math.round(svc*1.6);
+      push(e,mm,'26','INTERNAL',null,`${mm}/2026 Service income accrual`,[
+        {account_code:'123700',debit_amount:rev,credit_amount:0},{account_code:'490600',debit_amount:0,credit_amount:rev}]);
     }
-  });
-  ENT.forEach(e=>{
-    const base = 800*e + m*137;
-    // monthly outsourcing service (WBS PAYABLE pattern: 705002 / 291001)
-    FY.push({ je_id:++_g, je_number:`2026${mm}01${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-01`,
-      je_type:'AUTO', source_system:'AP', payee:'Wan Bridge Land LLC', description:`${mm}/2026 Outsourcing service fee`, posting_status:'POSTED', created_by:'system',
-      history:[{a:'WBS IMPORT · PAYABLE',by:'system',at:`2026-${mm}-01`}],
-      lines:[{account_code:'705002',debit_amount:base,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:base}] });
-    // monthly rent income accrual
-    const rent = 4000*e + m*211;
-    FY.push({ je_id:++_g, je_number:`2026${mm}05${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-05`,
-      je_type:'AUTO', source_system:'PM', description:`${mm}/2026 Rent income accrual`, posting_status:'POSTED', created_by:'system',
-      history:[{a:'PM PICKUP',by:'system',at:`2026-${mm}-05`}],
-      lines:[{account_code:'1200',debit_amount:rent,credit_amount:0},{account_code:'4000',debit_amount:0,credit_amount:rent}] });
-    // monthly interest accrual (capitalized for e=2 under construction, expensed otherwise)
-    const int_ = 1500*e + m*97;
-    FY.push({ je_id:++_g, je_number:`2026${mm}28${String(_g).padStart(6,'0')}`, entity_id:e, period_code:`2026-${mm}`, je_date:`2026-${mm}-28`,
-      je_type:'AUTO', source_system:'WBS_CL', description:`${mm}/2026 Interest ${e===2?'capitalization (CIP)':'expense accrual'}`, posting_status:'POSTED', created_by:'system',
-      history:[{a:'RULE R-LOAN-0'+(e===2?'3':'4'),by:'system',at:`2026-${mm}-28`}],
-      lines:[{account_code:e===2?'1405':'6040',debit_amount:int_,credit_amount:0},{account_code:'2100',debit_amount:0,credit_amount:int_}] });
   });
 }
 // ===== Real AIWB INC entries (scraped from WBS companyAccount 2026-07) =====
