@@ -89,41 +89,56 @@ export function Dashboard({ctx}) {
 export function JEWorkspace({ctx}) {
   const {jes, actions, can, period, toast} = ctx;
   const [sel, setSel] = useState(null);
-  const [filter, setFilter] = useState('全部');
+  const [status, setStatus] = useState('ALL');
   const [srcF, setSrcF] = useState('ALL');
-  const MONTHS=[1,2,3,4,5,6,7,8,9,10,11,12];
-  const statuses = ['全部','DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED'];
-  const list = jes.filter(j=>(filter==='全部'||j.posting_status===filter) && (!ctx.entity||j.entity_id===ctx.entity) && (srcF==='ALL'||j.source_system===srcF));
+  const [month, setMonth] = useState('07');
+  const list = jes.filter(j=>
+    (status==='ALL'||j.posting_status===status) &&
+    (!ctx.entity||j.entity_id===ctx.entity) &&
+    (srcF==='ALL'||j.source_system===srcF) &&
+    (month==='ALL'||j.period_code==='2026-'+month));
+  const pendCount = list.filter(j=>j.posting_status==='PENDING_APPROVAL').length;
   const postAll = () => { list.filter(j=>j.posting_status==='PENDING_APPROVAL').forEach(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL')); toast('Post All 完成'); };
   const je = jes.find(j=>j.je_id===sel);
+  const newJE = () => { const id = actions.newJE(); setSel(id); };
 
-  const newJE = () => {
-    const id = actions.newJE();
-    setSel(id);
-  };
-  return <div className="split">
-    <div className="split-left">
-      <div className="split-head">
-        <strong>Journal Entries</strong>
-        <Btn size="sm" variant="primary" onClick={newJE} disabled={!can('GL.JE.CREATE')}>+ 新建</Btn>
-      </div>
-      <div className="mo-chips">{MONTHS.map(m=><button key={m} className={`mo-chip ${m===7?'mo-on':''}`} title={m===7?'当前期间 2026-07':'演示固定 2026-07'}>{m}{[6,7].includes(m)&&<span className="mo-dot"/>}</button>)}</div>
-      <div className="chips">{statuses.map(s=><button key={s} className={`chip ${filter===s?'chip-on':''}`} onClick={()=>setFilter(s)}>{s}</button>)}</div>
-      <div className="chips" style={{marginTop:2}}>{['ALL','MAN','WBS_CL','PM','AP','BANK','CLOSING'].map(s=><button key={s} className={`chip ${srcF===s?'chip-on':''}`} onClick={()=>setSrcF(s)}>{s}</button>)}
-        {can('GL.JE.POST') && <button className="chip" onClick={postAll} title="过账所有待审批分录">⚡ Post All</button>}</div>
-      <div className="je-list">
-        {list.map(j=><div key={j.je_id} className={`je-item ${sel===j.je_id?'je-item-on':''}`} onClick={()=>setSel(j.je_id)}>
-          <div className="je-item-top"><span>{j.je_number}</span><Badge>{j.posting_status}</Badge></div>
-          <div className="je-item-desc">{j.description}</div>
-          <div className="je-item-amt"><Money v={jeTotals(j).debit}/></div>
-        </div>)}
-        {list.length===0 && <div className="empty">无分录</div>}
+  // -------- Full-page editor view (QBO-style) --------
+  if (je) return <div className="focused">
+    <button className="crumb" onClick={()=>setSel(null)}>← Journal Entries</button>
+    <JEEditor je={je} ctx={ctx} onChange={()=>{}} />
+  </div>;
+
+  // -------- Full-width list view (QBO Transactions-style) --------
+  return <div className="full-bleed">
+    <div className="page-top">
+      <h2 className="page-h" style={{margin:0}}>Journal Entries</h2>
+      <div className="row-acts">
+        {can('GL.JE.POST') && pendCount>0 && <Btn onClick={postAll}>⚡ Post All ({pendCount})</Btn>}
+        <Btn variant="primary" onClick={newJE} disabled={!can('GL.JE.CREATE')}>+ New Journal Entry</Btn>
       </div>
     </div>
-    <div className="split-right">
-      {!je ? <div className="empty-big">从左侧选择分录，或点击「新建」</div> :
-        <JEEditor je={je} ctx={ctx} onChange={()=>{}} />}
+    <div className="filter-bar">
+      <label>期间 <select value={month} onChange={e=>setMonth(e.target.value)}>
+        <option value="ALL">全年 2026</option>
+        {['01','02','03','04','05','06','07'].map(m=><option key={m} value={m}>2026-{m}</option>)}
+      </select></label>
+      <label>状态 <select value={status} onChange={e=>setStatus(e.target.value)}>
+        {['ALL','DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED','REVERSED'].map(x=><option key={x}>{x}</option>)}
+      </select></label>
+      <label>来源 <select value={srcF} onChange={e=>setSrcF(e.target.value)}>
+        {['ALL','MAN','WBS_CL','PM','AP','AR','BANK','CLOSING'].map(x=><option key={x}>{x}</option>)}
+      </select></label>
+      <span className="muted sm">{list.length} 笔</span>
     </div>
+    <Table exportName="journal-entries" rowKey="je_id" onRow={r=>setSel(r.je_id)} pageSize={20} cols={[
+      {h:'Journal No.',k:'je_number'},
+      {h:'Date',k:'je_date'},
+      {h:'Memo / Description',render:r=><span className="cell-main">{r.description||<i className="muted">（未填）</i>}</span>,csv:r=>r.description},
+      {h:'Source',render:r=><Badge tone="muted">{r.source_system}</Badge>,csv:r=>r.source_system},
+      {h:'Payee / Name',render:r=>r.payee||'—',csv:r=>r.payee||''},
+      {h:'Amount',num:true,render:r=><Money v={jeTotals(r).debit}/>,sortVal:r=>jeTotals(r).debit,csv:r=>jeTotals(r).debit},
+      {h:'Status',render:r=><Badge>{r.posting_status}</Badge>,csv:r=>r.posting_status},
+    ]} rows={list} empty="本期无分录 — 点击右上角 New Journal Entry 开始做账"/>
   </div>;
 }
 
