@@ -125,11 +125,12 @@ function PaymentRun({ctx}) {
   const payable = ap.bills.filter(b=>b.status==='APPROVED');
   const [checked, setChecked] = useState({});
   const [bankMember,setBankMember] = useState('Operating Cash_BA-003');
+  const [paymentDate,setPaymentDate] = useState('2026-07-31');
   const selIds = Object.keys(checked).filter(k=>checked[k]).map(Number);
   const total = sum(ap.bills.filter(b=>selIds.includes(b.bill_id)), b=>b.amount);
   const run = () => {
     if (!selIds.length){ toast('先勾选要付款的 Bill','warn'); return; }
-    const result=actions.payBills(selIds,bankMember);toast(`${result.created||0} 张付款 Draft 已生成 · ${result.blocked||0} 张被拦截`,result.blocked?'warn':'ok');
+    const result=actions.payBills(selIds,bankMember,paymentDate);toast(`${result.created||0} 张付款 Draft 已生成 · ${result.blocked||0} 张被拦截`,result.blocked?'warn':'ok');
     setChecked({});
   };
   return <div>
@@ -143,6 +144,7 @@ function PaymentRun({ctx}) {
         <option value="Operating Cash_BA-003">Operating Cash · BA-003</option>
         <option value="Operating Cash_BA-001">Operating Cash · BA-001</option>
       </select>
+      <input type="date" value={paymentDate} onChange={e=>setPaymentDate(e.target.value)} aria-label="Payment date" />
       <Btn variant="primary" onClick={run} disabled={!can('AP.PAYMENT.CREATE')||!selIds.length}>执行付款批次 ({selIds.length} 张 · {money(total)})</Btn>
       <span className="muted sm">仅生成 Dr 291001 / Cr 111000 Draft；完成复核、审批和 Post 后才标记 Paid</span>
     </div>

@@ -43,11 +43,12 @@ export function createInvoiceCommand({invoice,user,can=()=>false,period,existing
 }
 
 export function receivePaymentCommand({invoice,user,can=()=>false,period,existingJEs=[],jeId,jeNumber,
-  paymentId,ruleCode='AR-PAYMENT-V1',settingUsed='AR_PAYMENT_DEFAULT_V1',mappingUsed='AR_PAYMENT_CASH_V1'}) {
+  paymentId,paymentDate,paymentPeriodCode,ruleCode='AR-PAYMENT-V1',settingUsed='AR_PAYMENT_DEFAULT_V1',mappingUsed='AR_PAYMENT_CASH_V1'}) {
   const sourceSystem='AR_PAYMENT';
   if(!paymentId)return failure('AR_PAYMENT_ID_REQUIRED','payment_id is required for every receipt occurrence.');
   const sourceDocId=`AR-PAYMENT:${paymentId}`;
-  const blocked=guard({document:invoice,permission:'AR.PAYMENT.CREATE',can,period,sourceSystem,sourceDocId,existingJEs});
+  const occurrence=invoice?{...invoice,accounting_date:paymentDate,period_code:paymentPeriodCode,payment_date:paymentDate}:invoice;
+  const blocked=guard({document:occurrence,permission:'AR.PAYMENT.CREATE',can,period,sourceSystem,sourceDocId,existingJEs});
   if(blocked)return blocked;
   if(invoice.status!=='OPEN')return failure('AR_INVOICE_PAYMENT_STATE','Only OPEN invoices can receive payment.');
   if((invoice.cash_account_code || '111000')==='111000' && !invoice.bank_member)return failure('4020','Operating Cash requires a bank member.');
@@ -56,7 +57,7 @@ export function receivePaymentCommand({invoice,user,can=()=>false,period,existin
     {account_code:invoice.cash_account_code || '111000',debit_amount:amount,credit_amount:0,member:invoice.bank_member,description:`Receipt ${invoice.inv_no || ''}`},
     {account_code:'120200',debit_amount:0,credit_amount:amount,customer_id:invoice.customer_id,member:invoice.customer_name,description:`Clear ${invoice.inv_no || ''}`},
   ];
-  const draftJE=makeDraft({invoice,user,jeId,jeNumber,sourceSystem,sourceDocId,sourceObjectType:'AR_INVOICE',sourceObjectId:invoice.inv_id,ruleCode,settingUsed,mappingUsed,
+  const draftJE=makeDraft({invoice:occurrence,user,jeId,jeNumber,sourceSystem,sourceDocId,sourceObjectType:'AR_INVOICE',sourceObjectId:invoice.inv_id,ruleCode,settingUsed,mappingUsed,
     description:`Payment received ${invoice.inv_no || sourceDocId}`,lines});
-  return {ok:true,code:null,nextDocument:{...clone(invoice),status:'PAYMENT_PENDING',payment_id:paymentId,payment_draft_je_id:jeId,payment_draft_je_number:jeNumber,payment_source_doc_id:sourceDocId},draftJE};
+  return {ok:true,code:null,nextDocument:{...clone(invoice),status:'PAYMENT_PENDING',payment_id:paymentId,payment_date:paymentDate,payment_period_code:paymentPeriodCode,payment_draft_je_id:jeId,payment_draft_je_number:jeNumber,payment_source_doc_id:sourceDocId},draftJE};
 }

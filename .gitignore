@@ -8,3 +8,4 @@ ssrtest.*
 moduletest.*
 mtest.cjs
 audit.cjs
+tests/*.cjs

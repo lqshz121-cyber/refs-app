@@ -64,3 +64,14 @@ export function applyPostedDocumentTransition({ap, ar, je}) {
   }
   return {ok:false, code:'SOURCE_TYPE_UNSUPPORTED', ap, ar};
 }
+
+export function applyPostedDocumentBatch({ap,ar,jes}) {
+  let state={ap,ar};
+  const results=[];
+  for(const je of jes||[]){
+    const result=applyPostedDocumentTransition({...state,je});
+    results.push(result);
+    if(result.ok)state={ap:result.ap,ar:result.ar};
+  }
+  return {...state,results,ok:results.every(result=>result.ok)};
+}

@@ -64,7 +64,7 @@ export function transitionJE({je,next,user,period,documents=[],can=()=>true,labe
   const validation=validateJETransition({je,next,user,period,documents,can});
   if(!validation.ok)return validation;
   const roleField=next==='PENDING_APPROVAL'?'reviewer':next==='APPROVED'?'approver':next==='POSTED'?'posted_by':null;
-  const updated={...structuredClone(je),posting_status:next,dirty:false,updated_at:at,history:[...(je.history||[]),{a:label||validation.flow.action,by:user.user_id,at}]};
+  const updated={...structuredClone(je),posting_status:next,...(next==='POSTED'?{posted_at:at}:{}),dirty:false,updated_at:at,history:[...(je.history||[]),{a:label||validation.flow.action,by:user.user_id,at}]};
   if(roleField)updated[roleField]=user.user_id;
   return {ok:true,je:updated};
 }

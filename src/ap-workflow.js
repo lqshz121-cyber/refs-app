@@ -70,11 +70,12 @@ export function approveBillCommand({bill, user, can=()=>false, period, existingJ
 }
 
 export function payBillCommand({bill, user, can=()=>false, period, existingJEs=[], jeId, jeNumber,
-  paymentId, ruleCode='AP-PAYMENT-V1', settingUsed='AP_PAYMENT_DEFAULT_V1', mappingUsed='AP_PAYMENT_CASH_V1'}) {
+  paymentId, paymentDate, paymentPeriodCode, ruleCode='AP-PAYMENT-V1', settingUsed='AP_PAYMENT_DEFAULT_V1', mappingUsed='AP_PAYMENT_CASH_V1'}) {
   const sourceSystem='AP_PAYMENT';
   if (!paymentId) return failure('AP_PAYMENT_ID_REQUIRED', 'payment_id is required for every payment occurrence.');
   const sourceDocId=`AP-PAYMENT:${paymentId}`;
-  const blocked=commonGuard({document:bill, permission:'AP.PAYMENT.CREATE', can, period, sourceSystem, sourceDocId, existingJEs});
+  const occurrence=bill?{...bill,accounting_date:paymentDate,period_code:paymentPeriodCode,payment_date:paymentDate}:bill;
+  const blocked=commonGuard({document:occurrence, permission:'AP.PAYMENT.CREATE', can, period, sourceSystem, sourceDocId, existingJEs});
   if (blocked) return blocked;
   if (bill.status !== 'APPROVED') return failure('AP_BILL_PAYMENT_STATE', 'Only APPROVED bills can be paid.');
   if ((bill.cash_account_code || '111000') === '111000' && !bill.bank_member) return failure('4020', 'Operating Cash requires a bank member.');
@@ -83,7 +84,7 @@ export function payBillCommand({bill, user, can=()=>false, period, existingJEs=[
     {account_code:'291001',debit_amount:amount,credit_amount:0,vendor_id:bill.vendor_id,member:bill.vendor_name,description:`Clear ${bill.bill_no || ''}`},
     {account_code:bill.cash_account_code || '111000',debit_amount:0,credit_amount:amount,member:bill.bank_member,description:'Operating Cash'},
   ];
-  const draftJE=draftHeader({document:bill,user,jeId,jeNumber,sourceSystem,sourceDocId,sourceObjectType:'AP_BILL',sourceObjectId:bill.bill_id,ruleCode,settingUsed,mappingUsed,
+  const draftJE=draftHeader({document:occurrence,user,jeId,jeNumber,sourceSystem,sourceDocId,sourceObjectType:'AP_BILL',sourceObjectId:bill.bill_id,ruleCode,settingUsed,mappingUsed,
     description:`Payment ${bill.bill_no || sourceDocId} · ${bill.vendor_name}`,lines});
-  return {ok:true, code:null, nextDocument:{...clone(bill),status:'PAYMENT_PENDING',payment_id:paymentId,payment_draft_je_id:jeId,payment_draft_je_number:jeNumber,payment_source_doc_id:sourceDocId}, draftJE};
+  return {ok:true, code:null, nextDocument:{...clone(bill),status:'PAYMENT_PENDING',payment_id:paymentId,payment_date:paymentDate,payment_period_code:paymentPeriodCode,payment_draft_je_id:jeId,payment_draft_je_number:jeNumber,payment_source_doc_id:sourceDocId}, draftJE};
 }
