@@ -21,7 +21,7 @@ import { StagingCenter } from './module-staging.jsx';
 import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
-import { buildBankDraft, createBankDraftTransition, excludeBankTransition, matchBankTransition, undoBankTransition, validateBankDraft } from './bank-workflow.js';
+import { batchBankTransition, buildBankDraft, buildBankWorkflowException, createBankDraftTransition, excludeBankTransition, matchBankTransition, undoBankTransition, validateBankDraft } from './bank-workflow.js';
 
 const SEED_V='v11';
 const BUILD_SHA = typeof __REFS_BUILD_SHA__ !== 'undefined' ? __REFS_BUILD_SHA__ : 'dev';
@@ -167,11 +167,7 @@ function App() {
   const mkJE = (spec) => { const id = nextId(); return {je_id:id, je_number:'20260731'+String(id).padStart(6,'0'), period_code:'2026-07', posting_status:'DRAFT', je_date:'2026-07-31', created_by:userId, history:[{a:'CREATE',by:userId,at:'2026-07-31'}], ...spec}; };
   const bankFailure = (txn, failure) => {
     const ref=txn?.external_id||'UNKNOWN_BANK_SOURCE';
-    setExceptions(xs=>xs.some(e=>e.exception_type===failure.code&&e.object_ref===ref&&e.status!=='CLOSED')?xs:[{
-      exception_id:nextId(),occurred_date:'2026-07-31',aging_days:0,status:'OPEN',resolution:'',exception_type:failure.code,
-      severity:failure.code==='BANK_SPLIT_OUT_OF_BALANCE'?'MEDIUM':'HIGH',object_type:'BANK_TXN',object_ref:ref,entity_id:entity||4,
-      owner:'ACCOUNTING',root_cause:failure.message||failure.code,
-    },...xs]);
+    setExceptions(xs=>xs.some(e=>e.exception_type===failure.code&&e.object_ref===ref&&e.status!=='CLOSED')?xs:[buildBankWorkflowException({txn,failure,exceptionId:nextId(),entityId:entity||4}),...xs]);
     audit('BANK_WORKFLOW_BLOCKED','BANK_TXN',ref,`${failure.code} · ${failure.message||''}`);
     return failure;
   };
@@ -262,6 +258,19 @@ function App() {
       bankSubmitLocks.current.add(sourceKey);setBank(result.bank);
       audit('MATCH','BANK_TXN',sourceKey,`${candidate.je_number} · cash line ${candidate.cash_line_index+1}`);
       return {ok:true,je_number:candidate.je_number};
+    },
+    bankBatchAccept: (acctCode,items) => {
+      const ready=[];const preblocked=[];
+      items.forEach(item=>{const txn=bank.accounts[acctCode].txns.find(t=>t.bank_txn_id===item.txnId);const key=txn?.external_id||`${acctCode}:${item.txnId}`;
+        if(bankSubmitLocks.current.has(key))preblocked.push({...bankFailure(txn,{ok:false,code:'BANK_DUPLICATE_SOURCE',message:'This source is already being processed.'}),txnId:item.txnId,mode:item.mode});
+        else ready.push(item);});
+      const batch=batchBankTransition({bank,jes,acctCode,items:ready,entityId:entity||4,userId,makeJE:spec=>mkJE({...spec,posting_status:'DRAFT'})});
+      if(batch.ok){setBank(batch.bank);setJes(batch.jes);}
+      batch.results.forEach(result=>{const txn=bank.accounts[acctCode].txns.find(t=>t.bank_txn_id===result.txnId);
+        if(result.ok){bankSubmitLocks.current.add(txn.external_id);audit(result.mode==='MATCH'?'MATCH':'CREATE_DRAFT','BANK_TXN',txn.external_id,result.je_number||result.je?.je_number||'Batch accepted');}
+        else bankFailure(txn,result);});
+      const results=[...batch.results,...preblocked];
+      return {ok:results.some(r=>r.ok),results,created:results.filter(r=>r.ok&&r.mode==='DRAFT').length,matched:results.filter(r=>r.ok&&r.mode==='MATCH').length,blocked:results.filter(r=>!r.ok).length};
     },
     bankUndo: (acctCode,txnId) => {
       const txn=bank.accounts[acctCode].txns.find(t=>t.bank_txn_id===txnId);

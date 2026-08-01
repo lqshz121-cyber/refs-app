@@ -78,21 +78,19 @@ export function BankTransactions({ctx}){
   const categorized=txns.filter(t=>t._st==='Categorized');
   const excluded=txns.filter(t=>t._st==='Excluded');
 
-  const quickAccept=t=>{
+  const batchItem=t=>{
     const suggestion=bankSuggestion(t);
     if(suggestion.mode==='Match'){
       const candidates=findBankMatchCandidates({txn:t,jes:ctx.jes,bank,acctCode,entityId:ctx.entity||4});
-      if(candidates.length!==1)return {ok:false,code:'BANK_MATCH_REVIEW_REQUIRED',message:'Match requires one selected real candidate.'};
-      return actions.bankMatch(acctCode,t.bank_txn_id,candidates[0]);
+      return {txnId:t.bank_txn_id,mode:'MATCH',candidate:candidates.length===1?candidates[0]:null};
     }
-    return actions.bankCreateDraft(acctCode,t.bank_txn_id,buildBankDraft({...t,entity_id:ctx.entity||4},acctCode,[{account_code:suggestion.account_code,amount:t.amount,memo:t.reference}]));
+    return {txnId:t.bank_txn_id,mode:'DRAFT',spec:buildBankDraft({...t,entity_id:ctx.entity||4},acctCode,[{account_code:suggestion.account_code,amount:t.amount,memo:t.reference}])};
   };
   const batchAccept=()=>{
     const selected=forReview.filter(t=>checked[t.bank_txn_id]);
     if(!selected.length){toast('Select at least one transaction first.','warn');return;}
-    let created=0,matched=0,blocked=0;
-    selected.forEach(t=>{const mode=bankSuggestion(t).mode;const result=quickAccept(t);if(!result?.ok)blocked++;else if(mode==='Match')matched++;else created++;});
-    setChecked({});toast(`${created} Draft JE(s) · ${matched} matched · ${blocked} blocked`,blocked?'warn':'ok');
+    const result=actions.bankBatchAccept(acctCode,selected.map(batchItem));
+    setChecked({});toast(`${result.created} Draft JE(s) · ${result.matched} matched · ${result.blocked} blocked`,result.blocked?'warn':'ok');
   };
   const undo=t=>{const result=actions.bankUndo(acctCode,t.bank_txn_id);if(!result?.ok)toast(result?.message||'Undo blocked.','bad');else toast(result.kind==='UNMATCH'?'Match removed. Source returned to For Review.':'Draft removed. Source returned to For Review.','warn');};
 

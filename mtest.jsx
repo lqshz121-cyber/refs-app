@@ -8,7 +8,7 @@ import { GLTrialBalance, Reports, CashModule, LoanRegister, ProjectCost, Assets,
 import { APWorkspace } from './src/module-ap.jsx';
 import { ARWorkspace } from './src/module-ar.jsx';
 import { BankTransactions } from './src/module-banktx.jsx';
-import { bankSuggestion, splitDifference, buildBankDraft, validateBankDraft, findBankMatchCandidates, validateBankMatch, createBankDraftTransition, excludeBankTransition, matchBankTransition, undoBankTransition } from './src/bank-workflow.js';
+import { bankSuggestion, splitDifference, buildBankDraft, buildBankWorkflowException, validateBankDraft, findBankMatchCandidates, validateBankMatch, createBankDraftTransition, excludeBankTransition, matchBankTransition, batchBankTransition, undoBankTransition } from './src/bank-workflow.js';
 import { COAWorkspace } from './src/module-coa.jsx';
 import { AccountRegister } from './src/module-register.jsx';
 import { SubsidiaryLedger } from './src/module-subledger.jsx';
@@ -90,10 +90,37 @@ expectBank('bank match amount mismatch is blocked',findBankMatchCandidates({txn:
 expectBank('bank match cross entity is blocked',validateBankMatch({txn:matchTxn,candidate:candidates[0],bank:matchBank,acctCode:'BA-003',entityId:3,jes:[postedCandidate]}).code==='BANK_MATCH_ENTITY');
 expectBank('bank match non-Posted candidate is blocked',validateBankMatch({txn:matchTxn,candidate:candidates[0],bank:matchBank,acctCode:'BA-003',entityId:4,jes:[{...postedCandidate,posting_status:'PENDING_REVIEW'}]}).code==='BANK_MATCH_NOT_POSTED');
 expectBank('bank match wrong account member is blocked',validateBankMatch({txn:matchTxn,candidate:candidates[0],bank:matchBank,acctCode:'BA-003',entityId:4,jes:[{...postedCandidate,lines:postedCandidate.lines.map((l,i)=>i?l:{...l,member:'Operating Cash_BA-001'})}]}).code==='BANK_MATCH_ACCOUNT');
+expectBank('bank match rejects an existing active BANK JE for same source',validateBankMatch({txn:matchTxn,candidate:candidates[0],bank:matchBank,acctCode:'BA-003',entityId:4,jes:[postedCandidate,{...draftJE,source_doc_id:matchTxn.external_id,posting_status:'POSTED'}]}).code==='BANK_DUPLICATE_SOURCE');
 const matched=matchBankTransition({bank:matchBank,jes:[postedCandidate],acctCode:'BA-003',txnId:2,candidate:candidates[0],entityId:4,userId:'ricky'});
 expectBank('bank match saves exact source, JE and cash-line linkage',matched.ok&&matched.bank.matches[0].je_id===1010&&matched.bank.accounts['BA-003'].txns[0].matched_cash_line===0);
 expectBank('bank already occupied candidate is blocked',validateBankMatch({txn:{...matchTxn,external_id:'BANKTXN-OTHER'},candidate:candidates[0],bank:matched.bank,acctCode:'BA-003',entityId:4,jes:[postedCandidate]}).code==='BANK_MATCH_OCCUPIED');
 const unmatched=undoBankTransition({bank:matched.bank,jes:matched.jes,acctCode:'BA-003',txnId:2});
 expectBank('bank unmatch removes linkage without changing Posted JE',unmatched.ok&&unmatched.kind==='UNMATCH'&&unmatched.bank.matches.length===0&&unmatched.jes[0].posting_status==='POSTED');
+const feeTxn={...bankTxn};
+const interestTxn={bank_txn_id:6,external_id:'BANKTXN-Z-4481',txn_date:'2026-07-31',amount:250,direction:'CREDIT',reference:'INTEREST INCOME',suggest:'INTEREST',entity_id:4,match_status:'UNMATCHED'};
+const batchBank={accounts:{'BA-003':{txns:[feeTxn,interestTxn]}},matches:[],draft_links:[]};
+let batchId=9950;
+const batchResult=batchBankTransition({bank:batchBank,jes:[],acctCode:'BA-003',entityId:4,userId:'ricky',makeJE:spec=>({...spec,je_id:++batchId,je_number:'JE-BATCH-'+batchId,posting_status:'DRAFT'}),items:[
+  {txnId:5,mode:'DRAFT',spec:buildBankDraft(feeTxn,'BA-003',[{account_code:'651000',amount:85}])},
+  {txnId:6,mode:'DRAFT',spec:buildBankDraft(interestTxn,'BA-003',[{account_code:'449200',amount:250}])},
+]});
+expectBank('bank batch commits multiple items on one evolving snapshot',batchResult.results.every(r=>r.ok)&&batchResult.jes.length===2&&batchResult.bank.draft_links.length===2&&new Set(batchResult.jes.map(j=>j.source_doc_id)).size===2);
+const partialBatch=batchBankTransition({bank:batchBank,jes:[draftJE],acctCode:'BA-003',entityId:4,userId:'ricky',makeJE:spec=>({...spec,je_id:9999,je_number:'JE-BATCH-9999',posting_status:'DRAFT'}),items:[
+  {txnId:5,mode:'DRAFT',spec:bankSpec},{txnId:6,mode:'DRAFT',spec:buildBankDraft(interestTxn,'BA-003',[{account_code:'449200',amount:250}])},
+]});
+expectBank('bank batch preserves successes while reporting duplicate blocks',!partialBatch.results[0].ok&&partialBatch.results[1].ok&&partialBatch.jes.some(j=>j.source_doc_id===interestTxn.external_id));
+const mixedBank={accounts:{'BA-003':{txns:[matchTxn,feeTxn]}},matches:[],draft_links:[]};
+const mixedBatch=batchBankTransition({bank:mixedBank,jes:[postedCandidate],acctCode:'BA-003',entityId:4,userId:'ricky',makeJE:spec=>({...spec,je_id:9997,je_number:'JE-BATCH-9997',posting_status:'DRAFT'}),items:[
+  {txnId:2,mode:'MATCH',candidate:candidates[0]},{txnId:5,mode:'DRAFT',spec:bankSpec},
+]});
+expectBank('bank mixed Match and Categorize batch preserves both link types',mixedBatch.results.every(r=>r.ok)&&mixedBatch.bank.matches.length===1&&mixedBatch.bank.draft_links.length===1&&mixedBatch.jes.length===2);
+const missingTxn={...interestTxn,bank_txn_id:7,external_id:'BANKTXN-MISSING',suggest:null};
+const missingBank={accounts:{'BA-003':{txns:[feeTxn,missingTxn]}},matches:[],draft_links:[]};
+const partialMissing=batchBankTransition({bank:missingBank,jes:[],acctCode:'BA-003',entityId:4,userId:'ricky',makeJE:spec=>({...spec,je_id:9998,je_number:'JE-BATCH-9998',posting_status:'DRAFT'}),items:[
+  {txnId:5,mode:'DRAFT',spec:bankSpec},{txnId:7,mode:'DRAFT',spec:{unmapped:true}},
+]});
+const missingFailure=partialMissing.results.find(r=>!r.ok);
+const missingException=buildBankWorkflowException({txn:missingTxn,failure:missingFailure,exceptionId:123,entityId:4});
+expectBank('bank batch keeps success and yields traceable missing-mapping exception',partialMissing.results.filter(r=>r.ok).length===1&&missingFailure.code==='BANK_MAPPING_MISSING'&&missingException.object_ref==='BANKTXN-MISSING'&&missingException.exception_type==='BANK_MAPPING_MISSING');
 console.log(`mtest components=${components.length} failed=${failed}`);
 if(failed) process.exitCode=1;

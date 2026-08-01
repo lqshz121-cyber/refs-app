@@ -3,6 +3,12 @@ import { jeTotals, validateJE, sum } from './engine.js';
 export const BANK_CATEGORY_OPTIONS=['651000','449200','421803','142000','641600','682000'];
 const TERMINAL_JE_STATUSES=new Set(['REVERSED','VOID']);
 
+export function buildBankWorkflowException({txn,failure,exceptionId,entityId}){
+  return {exception_id:exceptionId,occurred_date:'2026-07-31',aging_days:0,status:'OPEN',resolution:'',exception_type:failure.code,
+    severity:failure.code==='BANK_SPLIT_OUT_OF_BALANCE'?'MEDIUM':'HIGH',object_type:'BANK_TXN',object_ref:txn?.external_id||'UNKNOWN_BANK_SOURCE',
+    entity_id:entityId,owner:'ACCOUNTING',root_cause:failure.message||failure.code};
+}
+
 export function bankSuggestion(txn){
   if(txn.suggest==='FEE') return {mode:'Categorize',account_code:'651000',label:'651000 Bank Fees',confidence:.92,rule_code:'SET-BANK-FEE'};
   if(txn.suggest==='INTEREST') return {mode:'Categorize',account_code:'449200',label:'449200 Interest Income',confidence:.96,rule_code:'SET-BANK-INTEREST'};
@@ -71,6 +77,7 @@ export function findBankMatchCandidates({txn,jes=[],bank,acctCode,entityId}){
 export function validateBankMatch({txn,candidate,bank,acctCode,entityId,jes=[]}){
   if(!txn) return {ok:false,code:'BANK_SOURCE_NOT_FOUND',message:'Bank source no longer exists.'};
   if(txn.match_status==='MATCHED'||txn.draft_je_id) return {ok:false,code:'BANK_SOURCE_ALREADY_PROCESSED',message:'This bank source is already processed.'};
+  if(jes.some(j=>j.source_system==='BANK'&&j.source_doc_id===txn.external_id&&!TERMINAL_JE_STATUSES.has(j.posting_status))) return {ok:false,code:'BANK_DUPLICATE_SOURCE',message:'An active BANK JE already exists for this source.'};
   if(!candidate) return {ok:false,code:'BANK_MATCH_NOT_FOUND',message:'Select a real posted candidate.'};
   const je=jes.find(j=>j.je_id===candidate.je_id);
   if(!je) return {ok:false,code:'BANK_MATCH_NOT_FOUND',message:'Candidate JE no longer exists.'};
@@ -117,6 +124,30 @@ export function matchBankTransition({bank,jes,acctCode,txnId,candidate,entityId,
   nextTxn.matched_je_id=candidate.je_id;nextTxn.matched_je=validation.je.je_number;nextTxn.matched_cash_line=candidate.cash_line_index;
   nextBank.matches=[...(nextBank.matches||[]),{source_doc_id:txn.external_id,je_id:candidate.je_id,cash_line_index:candidate.cash_line_index,bank_account_code:acctCode,by:userId,at:'2026-07-31'}];
   return {ok:true,bank:nextBank,jes};
+}
+
+export function batchBankTransition({bank,jes,acctCode,items,entityId,userId,makeJE}){
+  let nextBank=bank;
+  let nextJes=jes;
+  const results=[];
+  for(const item of items){
+    let result;
+    if(item.mode==='MATCH'){
+      result=matchBankTransition({bank:nextBank,jes:nextJes,acctCode,txnId:item.txnId,candidate:item.candidate,entityId,userId});
+    }else{
+      const txn=nextBank.accounts[acctCode].txns.find(t=>t.bank_txn_id===item.txnId);
+      const validation=validateBankDraft({txn,spec:item.spec,jes:nextJes});
+      if(!validation.ok){result=validation;}
+      else{
+        const je=makeJE(item.spec);
+        result=createBankDraftTransition({bank:nextBank,jes:nextJes,acctCode,txnId:item.txnId,spec:item.spec,je});
+        if(result.ok) result={...result,je_id:je.je_id,je_number:je.je_number};
+      }
+    }
+    if(result.ok){nextBank=result.bank;nextJes=result.jes;results.push({...result,txnId:item.txnId,mode:item.mode});}
+    else results.push({...result,txnId:item.txnId,mode:item.mode});
+  }
+  return {ok:results.some(r=>r.ok),bank:nextBank,jes:nextJes,results};
 }
 
 export function undoBankTransition({bank,jes,acctCode,txnId}){
