@@ -1,8 +1,11 @@
 import * as esbuild from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+const root = dirname(fileURLToPath(import.meta.url));
 mkdirSync('dist', { recursive: true });
 const opts = {
-  entryPoints:['src/app.jsx'], bundle:true, outfile:'dist/bundle.js',
+  absWorkingDir:root, entryPoints:[join(root,'src/app.jsx')], bundle:true, outfile:join(root,'dist/bundle.js'),
   format:'iife', jsx:'automatic', loader:{'.js':'jsx','.jsx':'jsx'},
   minify:true, sourcemap:false, target:['es2020'], logLevel:'info',
 };

@@ -1,84 +1,80 @@
-import { useState } from 'react';
-import { Btn, Badge, Money, Table, Tabs, SectionTitle } from './ui.jsx';
-import { money, sum, acct } from './engine.js';
-import { aiJudge } from './ai.js';
-import { ENTITIES } from './data.js';
+import { useMemo, useState } from 'react';
+import { Btn, Badge, Money, Table } from './ui.jsx';
+import { money } from './engine.js';
 
-// QBO-style Bank Transactions: account cards + For Review workflow
+const queueLabel = { Review:'Pending', Posted:'Posted', Excluded:'Excluded' };
+
 export function BankTransactions({ctx}) {
   const {bank, actions, toast, goto} = ctx;
   const [acctCode, setAcct] = useState('BA-003');
-  const [tab, setTab] = useState('For Review');
+  const [queue, setQueue] = useState('Review');
+  const [query, setQuery] = useState('');
+  const [type, setType] = useState('All transactions');
   const [checked, setChecked] = useState({});
-  const [aiSel, setAiSel] = useState(null);
-  const a = bank.accounts[acctCode];
-  const st = t => t.ui_status || (t.match_status==='MATCHED' ? 'Categorized' : 'For Review');
-  const txns = a.txns.map(t=>({...t, _st:st(t)}));
-  const forReview = txns.filter(t=>t._st==='For Review');
-  const lists = {'For Review':forReview, 'Categorized':txns.filter(t=>t._st==='Categorized'), 'Excluded':txns.filter(t=>t._st==='Excluded'), 'Reconciled':bank.history};
-  const diff = a.stmt_end - a.gl_book_balance;
-  const suggName = t => t.suggest==='FEE'?'651000 Bank Fees':t.suggest==='INTEREST'?'449200 Interest Income':t.reference.includes('RENT')?'120200 A/R Rent (Match JE-1004)':'待分类 142000 Suspense';
-  const conf = t => t.suggest?'92%':t.reference.includes('RENT')?'88%':'40%';
-  const accept = (t) => { if(t.suggest) actions.bankRecord(acctCode,t.bank_txn_id); else actions.bankMatch(acctCode,t.bank_txn_id); toast(`已按建议入账: ${suggName(t)}`); };
-  const batchAccept = () => { const ids=Object.keys(checked).filter(k=>checked[k]); if(!ids.length){toast('先勾选交易','warn');return;}
-    ids.forEach(id=>{const t=forReview.find(x=>String(x.bank_txn_id)===id); if(t) accept(t);}); setChecked({}); toast(`批量接受 ${ids.length} 笔建议`); };
-  return <div className="full-bleed">
-    <h2 className="page-h">Bank Transactions</h2>
-    <div className="acct-cards">
-      {Object.entries(bank.accounts).map(([code,ac])=>{ const d=ac.stmt_end-ac.gl_book_balance; return (
-        <div key={code} className={`acct-card ${acctCode===code?'acct-on':''}`} onClick={()=>setAcct(code)}>
-          <div className="acct-head"><b>{ac.bank_name}</b><Badge tone="ok">Connected</Badge></div>
-          <div className="muted sm">{code} ·· {code.slice(-3)}··· · 更新于 {ac.stmt_date}</div>
-          <div className="acct-bal"><span><i>Bank Balance</i><Money v={ac.stmt_end}/></span><span><i>Book Balance</i><Money v={ac.gl_book_balance}/></span><span><i>Difference</i><b className={Math.abs(d)>0.005?'num-neg':''}>{money(d)}</b></span></div>
-          <div className="acct-review">{ac.txns.filter(t=>st(t)==='For Review').length} for review</div>
-        </div>);})}
+  const account = bank.accounts[acctCode];
+  const stateOf = t => t.ui_status === 'Excluded' ? 'Excluded' : t.match_status === 'MATCHED' ? 'Posted' : 'Review';
+  const transactions = account.txns.map(t=>({...t,_state:stateOf(t)}));
+  const queueRows = useMemo(()=>transactions.filter(t=>{
+    if(t._state!==queue) return false;
+    if(type==='Money in' && t.direction!=='CREDIT') return false;
+    if(type==='Money out' && t.direction!=='DEBIT') return false;
+    return !query || `${t.reference} ${t.external_id}`.toLowerCase().includes(query.toLowerCase());
+  }),[transactions,queue,type,query]);
+  const suggested = t => t.suggest==='FEE'?'Bank fees':t.suggest==='INTEREST'?'Interest income':t.reference.includes('RENT')?'Match existing rent receipt':'Uncategorized — review required';
+  const confidence = t => t.suggest ? 92 : t.reference.includes('RENT') ? 88 : 40;
+  const accept = t => {
+    if(t.suggest) actions.bankRecord(acctCode,t.bank_txn_id); else actions.bankMatch(acctCode,t.bank_txn_id);
+    toast(`Recorded using suggestion: ${suggested(t)}`);
+  };
+  const counts = k => transactions.filter(t=>t._state===k).length;
+  const selected = Object.keys(checked).filter(k=>checked[k]);
+  const batchAccept = () => {
+    if(!selected.length){ toast('Select at least one transaction first','warn'); return; }
+    selected.forEach(id=>{ const t=transactions.find(x=>String(x.bank_txn_id)===id); if(t) accept(t); });
+    setChecked({});
+  };
+  const cols = [
+    {h:'',w:36,render:r=><input aria-label={`Select ${r.external_id}`} type="checkbox" checked={!!checked[r.bank_txn_id]} onChange={e=>setChecked(c=>({...c,[r.bank_txn_id]:e.target.checked}))}/>},
+    {h:'Date',k:'txn_date'},
+    {h:'Bank description',render:r=><div className="bank-desc"><b>{r.reference}</b><span>{r.external_id}</span></div>},
+    {h:'Spent',num:true,render:r=>r.direction==='DEBIT'?<Money v={r.amount}/>:<span className="muted">—</span>},
+    {h:'Received',num:true,render:r=>r.direction==='CREDIT'?<Money v={r.amount}/>:<span className="muted">—</span>},
+    {h:'From / To',render:r=><span className="bank-party">{r.reference.includes('RENT')?'Tenant / customer':'Needs review'}</span>},
+    {h:'Match / Categorize',render:r=><div className="bank-suggestion"><b>{suggested(r)}</b>{queue==='Review'&&<span><i className={confidence(r)>=80?'confidence-good':'confidence-low'}>{confidence(r)}%</i> confidence</span>}</div>},
+    {h:'Action',render:r=>queue==='Review'?<span className="row-acts"><Btn size="sm" variant="primary" onClick={()=>accept(r)}>{r.suggest?'Add':'Match'}</Btn><Btn size="sm" variant="ghost" onClick={()=>{actions.bankExclude(acctCode,r.bank_txn_id);toast('Moved to Excluded','warn')}}>Exclude</Btn></span>:<Btn size="sm" variant="ghost" onClick={()=>{actions.bankUndo(acctCode,r.bank_txn_id);toast('Returned to Pending')}}>{queue==='Excluded'?'Restore':'Undo'}</Btn>}
+  ];
+
+  return <div className="full-bleed bank-workbench">
+    <div className="accounting-page-head">
+      <div><p className="eyebrow">ACCOUNTING / BANKING</p><h2 className="page-h">Bank transactions</h2><p className="page-subtitle">Review imported activity, match existing records, and keep book balances current.</p></div>
+      <div className="row-acts"><Btn variant="ghost" onClick={()=>goto('register')}>Go to bank register</Btn><Btn variant="primary" onClick={()=>toast('Account connections are read-only in this prototype')}>Link account</Btn></div>
     </div>
-    <Tabs tabs={['For Review','Categorized','Excluded','Reconciled']} active={tab} onChange={setTab}/>
-    {tab==='For Review' && <>
-      <div style={{display:'flex',gap:10,margin:'4px 0 10px'}}>
-        <Btn size="sm" variant="primary" onClick={batchAccept}>Batch Accept ({Object.values(checked).filter(Boolean).length})</Btn>
-        <Btn size="sm" variant="ghost" onClick={()=>toast('Bank Rule 已创建: SERVICE FEE → 6070 (下次自动分类)')}>Create Rule</Btn>
-        <Btn size="sm" variant="ghost" onClick={()=>goto('bankrec')}>Start Reconciliation →</Btn>
+
+    <div className="bank-health" role="status">
+      <span className="bank-health-icon">!</span><div><b>Connection attention required</b><p>Some account feeds are not current. Existing imported transactions remain available for review.</p></div><Btn size="sm" variant="ghost" onClick={()=>toast('Connection diagnostics opened')}>View diagnostics</Btn>
+    </div>
+
+    <div className="acct-cards bank-account-strip">
+      {Object.entries(bank.accounts).map(([code,ac])=>{const difference=ac.stmt_end-ac.gl_book_balance;return <button key={code} className={`acct-card bank-account-card ${acctCode===code?'acct-on':''}`} onClick={()=>{setAcct(code);setChecked({})}}>
+        <div className="acct-head"><span><b>{ac.bank_name}</b><small>{code} · Updated {ac.stmt_date}</small></span><Badge tone={Math.abs(difference)>.005?'warn':'ok'}>{Math.abs(difference)>.005?'Needs attention':'Connected'}</Badge></div>
+        <div className="acct-bal"><span><i>Bank balance</i><Money v={ac.stmt_end}/></span><span><i>In REFS</i><Money v={ac.gl_book_balance}/></span></div>
+        <div className="acct-review"><b>{ac.txns.filter(t=>stateOf(t)==='Review').length}</b> pending review</div>
+      </button>})}
+    </div>
+
+    <section className="bank-queue-card">
+      <div className="bank-queue-tabs" role="tablist">
+        {['Review','Posted','Excluded'].map(k=><button role="tab" aria-selected={queue===k} className={queue===k?'active':''} key={k} onClick={()=>{setQueue(k);setChecked({})}}>{queueLabel[k]} <span>{counts(k)}</span></button>)}
       </div>
-      <Table rowKey="bank_txn_id" cols={[
-        {h:'',w:34,render:r=><input type="checkbox" checked={!!checked[r.bank_txn_id]} onClick={e=>e.stopPropagation()} onChange={e=>setChecked(c=>({...c,[r.bank_txn_id]:e.target.checked}))}/>},
-        {h:'Date',k:'txn_date'},{h:'Bank Description',k:'reference'},
-        {h:'Amount',num:true,render:r=><Money v={r.direction==='DEBIT'?-r.amount:r.amount}/>,sortVal:r=>r.amount},
-        {h:'Suggested Category / Match',render:r=><span>{suggName(r)}</span>},
-        {h:'Confidence',render:r=><Badge tone={parseInt(conf(r))>80?'ok':'warn'}>{conf(r)}</Badge>},
-        {h:'AI',render:r=><Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation(); setAiSel(r);}}>🤖 判断</Btn>},
-        {h:'Action',render:r=><span className="row-acts">
-          <Btn size="sm" variant="primary" onClick={()=>accept(r)}>{r.suggest?'Add':'Match'}</Btn>
-          <Btn size="sm" variant="ghost" onClick={()=>{actions.bankExclude(acctCode,r.bank_txn_id); toast('已 Exclude','warn');}}>Exclude</Btn>
-          <Btn size="sm" variant="ghost" onClick={()=>actions.bankSuspense(acctCode,r.bank_txn_id)}>Suspense</Btn>
-        </span>},
-      ]} rows={forReview} empty="没有待审核的银行交易 🎉"/>
-    </>}
-    {aiSel && (()=>{ const en=ENTITIES.find(x=>x.entity_id===(ctx.entity||15))||ENTITIES[0];
-      const j=aiJudge({type: aiSel.suggest==='FEE'?'Bank':aiSel.suggest==='INTEREST'?'Bank':'Bank', detail:aiSel.reference, direction:aiSel.direction, amount:aiSel.amount, description:aiSel.reference, payee:aiSel.reference}, en);
-      return <div className="src-card" style={{marginTop:12}}>
-        <div className="src-chain"><span className="chip">Source: {aiSel.external_id}</span>→<span className="chip chip-on">AI Judge</span>→<span className="chip">Suggested JE</span></div>
-        <div className="src-grid">
-          <span><i>Suggested</i><b>Dr {j.suggested.dr} {j.suggested.dr_name} / Cr {j.suggested.cr} {j.suggested.cr_name}</b></span>
-          <span><i>Confidence</i><b>{(j.confidence*100).toFixed(0)}%</b></span>
-          <span><i>Rule</i><b>{j.rule_used}</b></span>
-          <span><i>Setting</i><b>{j.setting_used}</b></span>
-          <span><i>Risk</i><b>{j.risk}</b></span>
-          <span><i>需人工</i><b>{j.need_human?'YES':'no'}</b></span>
-        </div>
-        <p className="muted sm" style={{margin:'8px 0 0'}}>Reason: {j.reason} · Evidence: {j.evidence.slice(0,60)} · AI 只建议,确认后才入账</p>
-      </div>; })()}
-    {tab==='Categorized' && <Table rowKey="bank_txn_id" cols={[
-      {h:'Date',k:'txn_date'},{h:'Description',k:'reference'},{h:'Amount',num:true,render:r=><Money v={r.direction==='DEBIT'?-r.amount:r.amount}/>},
-      {h:'Categorized To',render:r=>r.matched_je||'—'},
-      {h:'Action',render:r=><Btn size="sm" variant="ghost" onClick={()=>{actions.bankUndo(acctCode,r.bank_txn_id); toast('已 Undo,退回 For Review','warn');}}>Undo</Btn>},
-    ]} rows={lists['Categorized']} empty="暂无已分类交易"/>}
-    {tab==='Excluded' && <Table rowKey="bank_txn_id" cols={[
-      {h:'Date',k:'txn_date'},{h:'Description',k:'reference'},{h:'Amount',num:true,render:r=><Money v={r.amount}/>},
-      {h:'Action',render:r=><Btn size="sm" variant="ghost" onClick={()=>{actions.bankUndo(acctCode,r.bank_txn_id); toast('已恢复到 For Review');}}>Restore</Btn>},
-    ]} rows={lists['Excluded']} empty="没有排除的交易"/>}
-    {tab==='Reconciled' && <Table rowKey="id" cols={[
-      {h:'Account',k:'account'},{h:'Period',k:'period'},{h:'Difference',num:true,render:r=><Money v={r.diff}/>},{h:'By',k:'by'},{h:'Date',k:'at'},
-    ]} rows={bank.history} empty="尚无对账历史,去 Reconciliation 完成第一笔"/>}
+      <div className="bank-toolbar">
+        <label className="bank-search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search bank description or ID"/></label>
+        <select aria-label="Date"><option>All dates</option><option>This month</option><option>Last 90 days</option></select>
+        <select aria-label="Transaction type" value={type} onChange={e=>setType(e.target.value)}><option>All transactions</option><option>Money in</option><option>Money out</option></select>
+        <span className="bank-result-count">{queueRows.length} transactions</span>
+        {queue==='Review'&&<Btn size="sm" variant="primary" onClick={batchAccept}>Accept selected ({selected.length})</Btn>}
+      </div>
+      <div className="bank-table"><Table rowKey="bank_txn_id" features={{filterable:false}} cols={cols} rows={queueRows} empty={`No ${queueLabel[queue].toLowerCase()} transactions`}/></div>
+      <div className="bank-footer"><span>Imported bank activity stays unchanged until you add, match, exclude, or restore it.</span><span><button onClick={()=>toast('Print preview')}>Print</button><button onClick={()=>toast('CSV export prepared')}>Export CSV</button><button onClick={()=>toast('Column settings opened')}>Columns</button></span></div>
+    </section>
   </div>;
 }
