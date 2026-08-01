@@ -6,6 +6,8 @@ function commonGuard({document, permission, can, period, sourceSystem, sourceDoc
   if (!document) return failure('AP_DOCUMENT_NOT_FOUND', 'AP document no longer exists.');
   if (!can(permission)) return failure('AP_PERMISSION_DENIED', `Missing permission ${permission}.`);
   if (!period) return failure('PERIOD_NOT_CONFIGURED', `Period ${document.period_code || ''} is not configured.`);
+  const accountingDate=document.accounting_date || document.bill_date || document.payment_date;
+  if (!accountingDate || String(accountingDate).slice(0,7)!==document.period_code || period.period_code!==document.period_code) return failure('PERIOD_DATE_MISMATCH','Accounting date must belong to the document-owned period.');
   if (period.status !== 'OPEN') return failure('4005', `Period ${period.period_code || document.period_code || ''} is not open.`);
   if (!Number.isFinite(+document.amount) || +document.amount <= 0) return failure('AP_AMOUNT_INVALID', 'Amount must be greater than zero.');
   if (!sourceDocId) return failure('AP_SOURCE_REQUIRED', 'source_doc_id is required.');
@@ -64,7 +66,7 @@ export function approveBillCommand({bill, user, can=()=>false, period, existingJ
     member:bill.vendor_name, description:`Due to/from_${bill.vendor_name}`});
   const draftJE=draftHeader({document:bill,user,jeId,jeNumber,sourceSystem,sourceDocId,sourceObjectType:'AP_BILL',sourceObjectId:bill.bill_id,ruleCode,settingUsed,mappingUsed,
     description:`${bill.bill_no || sourceDocId} · ${bill.vendor_name}`,lines});
-  return {ok:true, code:null, nextDocument:{...clone(bill),status:'APPROVED_PENDING_POST',approved_by:user.user_id,draft_je_id:jeId,draft_je_number:jeNumber}, draftJE};
+  return {ok:true, code:null, nextDocument:{...clone(bill),status:'APPROVED_PENDING_POST',approved_by:user.user_id,draft_je_id:jeId,draft_je_number:jeNumber,draft_source_doc_id:sourceDocId}, draftJE};
 }
 
 export function payBillCommand({bill, user, can=()=>false, period, existingJEs=[], jeId, jeNumber,
@@ -83,5 +85,5 @@ export function payBillCommand({bill, user, can=()=>false, period, existingJEs=[
   ];
   const draftJE=draftHeader({document:bill,user,jeId,jeNumber,sourceSystem,sourceDocId,sourceObjectType:'AP_BILL',sourceObjectId:bill.bill_id,ruleCode,settingUsed,mappingUsed,
     description:`Payment ${bill.bill_no || sourceDocId} · ${bill.vendor_name}`,lines});
-  return {ok:true, code:null, nextDocument:{...clone(bill),status:'PAYMENT_PENDING',payment_id:paymentId,payment_draft_je_id:jeId,payment_draft_je_number:jeNumber}, draftJE};
+  return {ok:true, code:null, nextDocument:{...clone(bill),status:'PAYMENT_PENDING',payment_id:paymentId,payment_draft_je_id:jeId,payment_draft_je_number:jeNumber,payment_source_doc_id:sourceDocId}, draftJE};
 }

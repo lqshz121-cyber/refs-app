@@ -4,6 +4,7 @@ import { CUSTOMERS, PROPERTIES } from './data.js';
 import { money, sum } from './engine.js';
 
 // Real AR: Invoices -> Receive Payment -> Aging (mirrors AP loop)
+export const arAgingDocuments = invoices => invoices.filter(i=>['OPEN','PAYMENT_PENDING'].includes(i.status));
 export function ARWorkspace({ctx}) {
   const {ar, actions, toast, can} = ctx;
   const [tab, setTab] = useState('Invoices');
@@ -11,7 +12,7 @@ export function ARWorkspace({ctx}) {
   const [bankMember,setBankMember] = useState('Operating Cash_BA-003');
   const emptyInvoice=()=>({client_request_id:`ARFORM-${Date.now()}-${Math.random()}`,customer_id:'',memo:'',inv_date:'2026-07-31',due_date:'2026-08-30',amount:''});
   const [f, setF] = useState(emptyInvoice);
-  const open = ar.invoices.filter(i=>i.status==='OPEN');
+  const open = arAgingDocuments(ar.invoices);
   const submit = () => {
     if(!f.customer_id||!f.amount||+f.amount<=0){toast('客户/金额必填','bad');return;}
     const result=actions.addInvoice({...f, customer_id:+f.customer_id, amount:+f.amount});

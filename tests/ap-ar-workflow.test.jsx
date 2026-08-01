@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {approveBillCommand,payBillCommand} from '../src/ap-workflow.js';
 import {createInvoiceCommand,receivePaymentCommand} from '../src/ar-workflow.js';
+import {applyPostedDocumentTransition,validateDocumentReversal} from '../src/document-posting.js';
 
 const open={period_code:'2026-07',status:'OPEN'};
 const closed={period_code:'2026-07',status:'CLOSED'};
@@ -38,6 +39,7 @@ for(const [period,code] of [[undefined,'PERIOD_NOT_CONFIGURED'],[closed,'4005'],
 }
 const duplicate=approveBillCommand({bill:baseBill,user:approver,can:allow,period:open,jeId:104,jeNumber:'JE-104',existingJEs:[{source_system:'AP',source_doc_id:'AP-BILL:1',posting_status:'DRAFT'}]});
 assert.deepEqual([duplicate.ok,duplicate.code],[false,'AP_DUPLICATE_SOURCE']);
+assert.equal(approveBillCommand({bill:{...baseBill,bill_date:'2026-06-30'},user:approver,can:allow,period:open,jeId:1041,jeNumber:'JE-1041'}).code,'PERIOD_DATE_MISMATCH');
 
 const paymentIdMissing=payBillCommand({bill:{...baseBill,status:'APPROVED'},user:approver,can:allow,period:open,jeId:105,jeNumber:'JE-105'});
 assert.equal(paymentIdMissing.code,'AP_PAYMENT_ID_REQUIRED');
@@ -52,6 +54,12 @@ assert.equal(payment.nextDocument.payment_id,'PAY-3');
 assert.equal(payment.draftJE.source_doc_id,'AP-PAYMENT:PAY-3');
 assert.deepEqual([payment.draftJE.source_object_type,payment.draftJE.source_object_id],['AP_BILL',1]);
 assert.equal(payment.draftJE.lines.find(l=>l.account_code==='111000').member,'Operating Cash_BA-001');
+const paid=applyPostedDocumentTransition({ap:{bills:[payment.nextDocument]},ar:{invoices:[]},je:{...payment.draftJE,posting_status:'POSTED',posted_by:'poster'}});
+assert.equal(paid.ap.bills[0].status,'PAID');
+assert.equal(paid.ap.bills[0].pay_je_number,'JE-108');
+assert.equal(applyPostedDocumentTransition({ap:{bills:[payment.nextDocument]},ar:{invoices:[]},je:{...payment.draftJE,je_id:999,posting_status:'POSTED'}}).code,'SOURCE_JE_LINK_MISMATCH');
+assert.equal(applyPostedDocumentTransition({ap:{bills:[payment.nextDocument]},ar:{invoices:[]},je:{...payment.draftJE,source_doc_id:'AP-PAYMENT:FORGED',posting_status:'POSTED'}}).code,'SOURCE_TRACE_MISMATCH');
+assert.equal(validateDocumentReversal({...payment.draftJE,posting_status:'POSTED'}).code,'JE_BUSINESS_REVERSAL_REQUIRED');
 const paymentDuplicate=payBillCommand({bill:{...baseBill,status:'APPROVED'},paymentId:'PAY-3',user:approver,can:allow,period:open,jeId:109,jeNumber:'JE-109',existingJEs:[{source_system:'AP_PAYMENT',source_doc_id:'AP-PAYMENT:PAY-3',posting_status:'DRAFT'}]});
 assert.equal(paymentDuplicate.code,'AP_DUPLICATE_SOURCE');
 
@@ -66,6 +74,7 @@ const missingInvoicePeriod=createInvoiceCommand({invoice:baseInvoice,user:maker,
 assert.equal(missingInvoicePeriod.code,'PERIOD_NOT_CONFIGURED');
 const closedInvoice=createInvoiceCommand({invoice:baseInvoice,user:maker,can:allow,period:closed,jeId:203,jeNumber:'JE-203'});
 assert.equal(closedInvoice.code,'4005');
+assert.equal(createInvoiceCommand({invoice:{...baseInvoice,inv_date:'2026-06-30'},user:maker,can:allow,period:open,jeId:2031,jeNumber:'JE-2031'}).code,'PERIOD_DATE_MISMATCH');
 
 const receiptIdMissing=receivePaymentCommand({invoice:{...baseInvoice,status:'OPEN'},user:maker,can:allow,period:open,jeId:204,jeNumber:'JE-204'});
 assert.equal(receiptIdMissing.code,'AR_PAYMENT_ID_REQUIRED');
@@ -80,6 +89,10 @@ assert.equal(receipt.nextDocument.payment_id,'RCPT-3');
 assert.equal(receipt.draftJE.source_doc_id,'AR-PAYMENT:RCPT-3');
 assert.deepEqual([receipt.draftJE.source_object_type,receipt.draftJE.source_object_id],['AR_INVOICE',2]);
 assert.equal(receipt.draftJE.lines.find(l=>l.account_code==='111000').member,'Operating Cash_BA-001');
+const received=applyPostedDocumentTransition({ap:{bills:[]},ar:{invoices:[receipt.nextDocument]},je:{...receipt.draftJE,posting_status:'POSTED',posted_by:'poster'}});
+assert.equal(received.ar.invoices[0].status,'PAID');
+assert.equal(received.ar.invoices[0].pay_je_number,'JE-207');
+assert.equal(applyPostedDocumentTransition({ap:{bills:[]},ar:{invoices:[receipt.nextDocument]},je:{...receipt.draftJE,source_object_id:999,posting_status:'POSTED'}}).code,'SOURCE_DOCUMENT_NOT_FOUND');
 const receiptDuplicate=receivePaymentCommand({invoice:{...baseInvoice,status:'OPEN'},paymentId:'RCPT-3',user:maker,can:allow,period:open,jeId:208,jeNumber:'JE-208',existingJEs:[{source_system:'AR_PAYMENT',source_doc_id:'AR-PAYMENT:RCPT-3',posting_status:'DRAFT'}]});
 assert.equal(receiptDuplicate.code,'AR_DUPLICATE_SOURCE');
 

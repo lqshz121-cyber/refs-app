@@ -4,6 +4,7 @@ import { VENDORS, PROPERTIES, PROJECTS, COA } from './data.js';
 import { acct, money, sum } from './engine.js';
 
 // AP closed loop: Bill(lines) -> duplicate check -> approval -> JE(Dr Exp/CIP, Cr AP) -> Payment run -> JE(Dr AP, Cr Cash) -> aging
+export const apAgingDocuments = bills => bills.filter(b=>['APPROVED','PAYMENT_PENDING'].includes(b.status));
 export function APWorkspace({ctx}) {
   const {ap, actions, toast, can, user} = ctx;             // ap: {bills:[...]}
   const [tab, setTab] = useState('Bills');
@@ -11,6 +12,7 @@ export function APWorkspace({ctx}) {
   const [sel, setSel] = useState(null);
   const bills = ap.bills;
   const open = bills.filter(b=>!['PAID','VOID'].includes(b.status));
+  const aging = apAgingDocuments(bills);
   const bill = bills.find(b=>b.bill_id===sel);
 
   const kpis = <div className="kpi-row">
@@ -38,7 +40,7 @@ export function APWorkspace({ctx}) {
       ]} rows={bills} empty="暂无 Bill" />
     </>}
     {tab==='付款 Payments' && <PaymentRun ctx={ctx} />}
-    {tab==='账龄 Aging' && <Aging bills={open} />}
+    {tab==='账龄 Aging' && <Aging bills={aging} />}
     {tab==='供应商 Vendors' && <Table exportName="vendors" rowKey="vendor_id" cols={[
       {h:'编码',k:'vendor_code'},{h:'名称',k:'vendor_name'},
       {h:'关联方',render:r=>r.is_related_party?<Badge tone="warn">RP</Badge>:'—',csv:r=>r.is_related_party?'RP':''},
@@ -62,6 +64,7 @@ function NewBill({open, onClose, ctx}) {
     const r = actions.addBill({...f, vendor_id:+f.vendor_id, amount:total, account_code:lines[0].account_code,
       property_id:f.property_id?+f.property_id:null, lines: lines.map(l=>({...l, amount:+l.amount||0}))});
     if (r.dup) { toast(`重复发票拦截 [4004]：${r.dup} 已存在同供应商+同发票号`,'bad'); return; }
+    if (!r.ok) { toast(r.message||'Bill 创建被拦截','bad'); return; }
     toast(`Bill 已创建(${lines.length} 行,合计 $${total.toLocaleString()})并提交审批`); onClose();
     setLines([{account_code:'612900', description:'', amount:'', cost_code:''}]);
   };

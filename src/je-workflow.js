@@ -82,7 +82,7 @@ export function saveJEDraft({current,draft,user,at='2026-07-31'}){
   if(current.posting_status!=='DRAFT'||draft.posting_status!=='DRAFT')return {ok:false,code:'JE_IMMUTABLE',message:'Only Draft journal entries can be edited.'};
   const autoOverride=current.je_type==='AUTO'&&JSON.stringify(current.lines||[])!==JSON.stringify(draft.lines||[])?{actor:user.user_id,at,reason:draft.override_reason||'Human review adjustment',before:structuredClone(current.lines||[]),after:structuredClone(draft.lines||[])}:null;
   const saved={...structuredClone(draft),created_by:current.created_by,je_id:current.je_id,je_number:current.je_number,entity_id:current.entity_id,period_code:current.period_code,
-    je_type:current.je_type,source_system:current.source_system,source_doc_id:current.source_doc_id,rule_code:current.rule_code,setting_used:current.setting_used,mapping_used:current.mapping_used,
+    je_type:current.je_type,source_system:current.source_system,source_doc_id:current.source_doc_id,source_object_type:current.source_object_type,source_object_id:current.source_object_id,rule_code:current.rule_code,setting_used:current.setting_used,mapping_used:current.mapping_used,
     posting_status:'DRAFT',dirty:false,
     revision:(current.revision||0)+1,updated_at:at,human_overrides:autoOverride?[...(current.human_overrides||[]),autoOverride]:(current.human_overrides||[]),history:[...(current.history||[]),{a:autoOverride?'SAVE WITH HUMAN OVERRIDE':'SAVE',by:user.user_id,at,override:autoOverride}]};
   return {ok:true,je:saved};

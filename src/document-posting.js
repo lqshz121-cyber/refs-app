@@ -1,5 +1,20 @@
 const postedLink = je => je?.posting_status === 'POSTED' && je?.source_object_type && je?.source_object_id != null;
 
+const verifyLink = ({document,je,payment,sourceSystem}) => {
+  const expectedJeId=payment?document.payment_draft_je_id:document.draft_je_id;
+  const expectedSource=payment?document.payment_source_doc_id:document.draft_source_doc_id;
+  if (String(expectedJeId) !== String(je.je_id)) return {ok:false,code:'SOURCE_JE_LINK_MISMATCH'};
+  if (je.source_system !== sourceSystem || !expectedSource || je.source_doc_id !== expectedSource) return {ok:false,code:'SOURCE_TRACE_MISMATCH'};
+  return {ok:true};
+};
+
+export function validateDocumentReversal(je) {
+  if (['AP_BILL','AR_INVOICE'].includes(je?.source_object_type)) {
+    return {ok:false,code:'JE_BUSINESS_REVERSAL_REQUIRED',message:'Use the source document void, refund, or payment-reversal workflow; a business-linked JE cannot be reversed directly.'};
+  }
+  return {ok:true};
+}
+
 export function applyPostedDocumentTransition({ap, ar, je}) {
   if (!postedLink(je)) return {ok:false, code:'SOURCE_LINK_MISSING', ap, ar};
   const id = Number(je.source_object_id);
@@ -9,6 +24,8 @@ export function applyPostedDocumentTransition({ap, ar, je}) {
     const payment = je.source_system === 'AP_PAYMENT';
     const expected = payment ? 'PAYMENT_PENDING' : 'APPROVED_PENDING_POST';
     const nextStatus = payment ? 'PAID' : 'APPROVED';
+    const link=verifyLink({document:bill,je,payment,sourceSystem:payment?'AP_PAYMENT':'AP'});
+    if(!link.ok)return {...link,ap,ar};
     if (bill.status === nextStatus) return {ok:true, idempotent:true, ap, ar};
     if (bill.status !== expected) return {ok:false, code:'SOURCE_STATE_INVALID', ap, ar};
     return {
@@ -29,6 +46,8 @@ export function applyPostedDocumentTransition({ap, ar, je}) {
     const payment = je.source_system === 'AR_PAYMENT';
     const expected = payment ? 'PAYMENT_PENDING' : 'OPEN_PENDING_POST';
     const nextStatus = payment ? 'PAID' : 'OPEN';
+    const link=verifyLink({document:invoice,je,payment,sourceSystem:payment?'AR_PAYMENT':'AR'});
+    if(!link.ok)return {...link,ap,ar};
     if (invoice.status === nextStatus) return {ok:true, idempotent:true, ap, ar};
     if (invoice.status !== expected) return {ok:false, code:'SOURCE_STATE_INVALID', ap, ar};
     return {
