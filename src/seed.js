@@ -260,7 +260,7 @@ export const AIWB_JES = AIWB.concat(REAL2);
 // ===== Normalization pass (AI Audit remediation): member + source doc completeness =====
 const SUBS_ALL={'111000':'Bank','112000':'Bank','220300':'Vendor','220200':'Vendor','225000':'Vendor','291000':'Affiliate','291001':'Affiliate','125000':'Affiliate','120200':'Customer','123700':'Customer','270100':'Loan','260100':'Loan'};
 const _ALL = FY.concat(AIWB_JES);
-_ALL.forEach(j=>{
+const _norm = j=>{
   j.lines.forEach(l=>{
     if (SUBS_ALL[l.account_code] && !l.member){
       const fromDesc = l.description && l.description.includes('_') ? l.description.split('_').slice(1).join('_').replace(/ \(clear\)$/,'') : null;
@@ -272,7 +272,9 @@ _ALL.forEach(j=>{
     j.source_doc_id = doc({type:'SERVICE_INVOICE', doc_no:'SVC-'+j.je_number, vendor:j.payee||'—', date:j.je_date, amount:j.lines.reduce((s,l)=>s+(l.debit_amount||0),0), source_system:'WBS · Contract & Invoice'});
     j.rule_code = j.rule_code || 'R-AP-STD-01';
   }
-});
+};
+_ALL.forEach(_norm);
+JOURNAL_ENTRIES.forEach(_norm);
 export const FY2026 = _ALL;
 // unit -> owner company (每个 unit 归属的 owner 实体)
 export const UNIT_OWNERS = { 'A-203':{entity_id:4, name:'WB Home LLC'}, 'B-110':{entity_id:2, name:'Wan Bridge Land LLC'}, 'C-050':{entity_id:11, name:'WB Pradera Oaks Land 1 LLC'} };
