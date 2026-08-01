@@ -341,6 +341,11 @@ CREATE TABLE permission_catalog (
   CHECK (effective_to IS NULL OR effective_to>effective_from)
 );
 INSERT INTO permission_catalog(permission_code,domain,risk_class,sod_class) VALUES
+  ('GL.JE.CREATE','GL','HIGH','JE_MAKER'),
+  ('GL.JE.SUBMIT','GL','HIGH','JE_MAKER'),
+  ('GL.JE.REVIEW','GL','HIGH','JE_REVIEW'),
+  ('GL.JE.APPROVE','GL','CRITICAL','JE_APPROVE'),
+  ('GL.JE.REJECT','GL','HIGH','JE_REVIEW'),
   ('GL.JE.POST','GL','CRITICAL','JE_POST'),
   ('GL.JE.EDIT','GL','HIGH','JE_MAKER'),
   ('GL.PERIOD.CLOSE','GL','CRITICAL','PERIOD_CLOSE'),
@@ -673,7 +678,9 @@ BEGIN
     RAISE EXCEPTION 'Actor must come from the authenticated session' USING ERRCODE='42501';
   END IF;
   IF p_scope NOT LIKE 'POST_JOURNAL:%' AND p_scope NOT LIKE 'EDIT_JOURNAL:%' AND p_scope NOT LIKE 'CLOSE_PERIOD:%'
-    AND p_scope NOT LIKE 'RETIRE_CONFIG:%' THEN
+    AND p_scope NOT LIKE 'RETIRE_CONFIG:%' AND p_scope NOT LIKE 'CREATE_MANUAL_JOURNAL:%'
+    AND p_scope NOT LIKE 'JOURNAL_SUBMIT:%' AND p_scope NOT LIKE 'JOURNAL_REVIEW:%'
+    AND p_scope NOT LIKE 'JOURNAL_APPROVE:%' AND p_scope NOT LIKE 'JOURNAL_REJECT:%' THEN
     RAISE EXCEPTION 'Idempotency operation scope denied' USING ERRCODE='42501';
   END IF;
   INSERT INTO idempotency_receipt(tenant_id,operation_scope,idempotency_key,request_hash,status,actor_id)
@@ -770,6 +777,156 @@ BEGIN
     VALUES(p_tenant,p_entity,kind||'_SNAPSHOT',p_snapshot,'CONFIG_SNAPSHOT_RETIRED',event_payload,refs_jsonb_hash(event_payload));
   UPDATE idempotency_receipt SET status='SUCCEEDED',response_status=200,response_body=response,completed_at=clock_timestamp()
     WHERE idempotency_receipt_id=receipt.idempotency_receipt_id;
+  RETURN response;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION refs_create_manual_journal_hash(
+  p_tenant uuid,p_entity uuid,p_period uuid,p_journal_number text,p_journal_date date,p_currency char(3),
+  p_description text,p_lines jsonb,p_attachment_ids uuid[]
+) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
+  SELECT refs_jsonb_hash(jsonb_build_object(
+    'tenant_id',p_tenant,'entity_id',p_entity,'period_id',p_period,'journal_number',btrim(p_journal_number),
+    'journal_date',p_journal_date,'currency',upper(p_currency),'description',p_description,'lines',p_lines,
+    'attachment_ids',to_jsonb(ARRAY(SELECT value FROM unnest(COALESCE(p_attachment_ids,'{}'::uuid[])) value ORDER BY value))
+  ))
+$$;
+
+CREATE OR REPLACE FUNCTION refs_create_manual_journal(
+  p_tenant uuid,p_entity uuid,p_period uuid,p_journal_number text,p_journal_date date,p_currency char(3),
+  p_description text,p_lines jsonb,p_attachment_ids uuid[],p_idempotency_key text,p_request_hash text
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE actor text:=refs_current_actor(); receipt idempotency_receipt; computed_hash text; journal_id uuid:=gen_random_uuid();
+DECLARE response jsonb; event_payload jsonb; line_count integer;
+BEGIN
+  PERFORM refs_assert_scope(p_tenant,p_entity,'GL.JE.CREATE');
+  IF actor IS NULL THEN RAISE EXCEPTION 'Authenticated actor missing' USING ERRCODE='42501'; END IF;
+  computed_hash:=refs_create_manual_journal_hash(p_tenant,p_entity,p_period,p_journal_number,p_journal_date,p_currency,p_description,p_lines,p_attachment_ids);
+  IF p_request_hash<>computed_hash THEN RAISE EXCEPTION 'Create journal request hash is not canonical' USING ERRCODE='22023'; END IF;
+  receipt:=refs_reserve_idempotency(p_tenant,'CREATE_MANUAL_JOURNAL:'||p_entity,p_idempotency_key,p_request_hash,actor);
+  IF receipt.status='SUCCEEDED' THEN RETURN receipt.response_body||jsonb_build_object('idempotent',true); END IF;
+  IF length(btrim(p_journal_number))=0 OR p_currency !~ '^[A-Z]{3}$' OR jsonb_typeof(p_lines)<>'array' OR jsonb_array_length(p_lines)<2 THEN
+    RAISE EXCEPTION 'Manual journal requires number, currency and at least two lines' USING ERRCODE='22023';
+  END IF;
+  PERFORM 1 FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity AND period_id=p_period
+    AND status='OPEN' AND p_journal_date BETWEEN starts_on AND ends_on FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Journal date must belong to the selected OPEN period' USING ERRCODE='55000'; END IF;
+  SELECT count(*) INTO line_count FROM jsonb_to_recordset(p_lines) AS x(line_no integer,account_code text,debit_amount numeric,credit_amount numeric,member_ref text,description text,dimensions jsonb);
+  IF line_count<>jsonb_array_length(p_lines) OR EXISTS (
+      SELECT 1 FROM jsonb_to_recordset(p_lines) AS x(line_no integer,account_code text,debit_amount numeric,credit_amount numeric,member_ref text,description text,dimensions jsonb)
+      WHERE x.line_no IS NULL OR x.line_no<=0 OR COALESCE(length(btrim(x.account_code)),0)=0
+        OR COALESCE(x.debit_amount,0)<0 OR COALESCE(x.credit_amount,0)<0
+        OR NOT ((COALESCE(x.debit_amount,0)>0 AND COALESCE(x.credit_amount,0)=0) OR (COALESCE(x.credit_amount,0)>0 AND COALESCE(x.debit_amount,0)=0))
+        OR (x.dimensions IS NOT NULL AND jsonb_typeof(x.dimensions)<>'object')
+    ) OR EXISTS (
+      SELECT 1 FROM jsonb_to_recordset(p_lines) AS x(line_no integer) GROUP BY x.line_no HAVING count(*)>1
+    ) OR (SELECT COALESCE(sum(COALESCE(x.debit_amount,0)),0)<>COALESCE(sum(COALESCE(x.credit_amount,0)),0)
+          FROM jsonb_to_recordset(p_lines) AS x(debit_amount numeric,credit_amount numeric)) THEN
+    RAISE EXCEPTION 'Journal lines must be unique, valid and balanced' USING ERRCODE='23514';
+  END IF;
+  IF COALESCE(cardinality(p_attachment_ids),0)=0 OR COALESCE(cardinality(p_attachment_ids),0)<>(
+    SELECT count(DISTINCT a.attachment_id) FROM attachment a WHERE a.tenant_id=p_tenant AND a.attachment_id=ANY(p_attachment_ids)
+  ) THEN RAISE EXCEPTION 'Manual journal requires tenant-owned attachment evidence' USING ERRCODE='23503'; END IF;
+
+  INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,description,created_by)
+    VALUES(journal_id,p_tenant,p_entity,p_period,btrim(p_journal_number),'MANUAL','DRAFT',p_journal_date,p_currency,p_description,actor);
+  INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref,description,dimensions)
+    SELECT p_tenant,p_entity,p_period,journal_id,x.line_no,btrim(x.account_code),x.debit_amount,x.credit_amount,x.member_ref,x.description,COALESCE(x.dimensions,'{}'::jsonb)
+    FROM jsonb_to_recordset(p_lines) AS x(line_no integer,account_code text,debit_amount numeric,credit_amount numeric,member_ref text,description text,dimensions jsonb);
+  INSERT INTO source_link(tenant_id,entity_id,link_type,journal_entry_id,attachment_id,created_by)
+    SELECT p_tenant,p_entity,'JE_ATTACHMENT',journal_id,value,actor FROM unnest(p_attachment_ids) value;
+  response:=jsonb_build_object('journal_entry_id',journal_id,'status','DRAFT','revision',0,'idempotent',false);
+  INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash)
+    VALUES(p_tenant,p_entity,'JOURNAL_CREATED','JOURNAL_ENTRY',journal_id,'CREATE',actor,'USER','GL.JE.CREATE',p_idempotency_key,p_idempotency_key,p_idempotency_key,p_request_hash);
+  event_payload:=jsonb_build_object('journal_entry_id',journal_id,'status','DRAFT','revision',0);
+  INSERT INTO outbox_event(tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
+    VALUES(p_tenant,p_entity,'JOURNAL_ENTRY',journal_id,'JOURNAL_CREATED',event_payload,refs_jsonb_hash(event_payload));
+  UPDATE idempotency_receipt SET status='SUCCEEDED',response_status=201,response_body=response,completed_at=clock_timestamp()
+    WHERE tenant_id=p_tenant AND operation_scope='CREATE_MANUAL_JOURNAL:'||p_entity AND idempotency_key=p_idempotency_key;
+  RETURN response;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION refs_journal_transition_hash(
+  p_tenant uuid,p_entity uuid,p_journal uuid,p_action text,p_expected_revision bigint,p_reason text
+) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
+  SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',p_tenant,'entity_id',p_entity,'journal_entry_id',p_journal,
+    'action',upper(p_action),'expected_revision',p_expected_revision,'reason',NULLIF(btrim(p_reason),'')))
+$$;
+
+CREATE OR REPLACE FUNCTION refs_transition_journal(
+  p_tenant uuid,p_entity uuid,p_journal uuid,p_action text,p_expected_revision bigint,p_reason text,
+  p_idempotency_key text,p_request_hash text
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE actor text:=refs_current_actor(); action text:=upper(p_action); required_permission text; receipt idempotency_receipt;
+DECLARE je journal_entry; target journal_status; response jsonb; event_payload jsonb; computed_hash text; initial_period uuid;
+BEGIN
+  required_permission:=CASE action WHEN 'SUBMIT' THEN 'GL.JE.SUBMIT' WHEN 'REVIEW' THEN 'GL.JE.REVIEW'
+    WHEN 'APPROVE' THEN 'GL.JE.APPROVE' WHEN 'REJECT' THEN 'GL.JE.REJECT' ELSE NULL END;
+  IF required_permission IS NULL THEN RAISE EXCEPTION 'Unsupported journal transition' USING ERRCODE='0A000'; END IF;
+  PERFORM refs_assert_scope(p_tenant,p_entity,required_permission);
+  IF actor IS NULL THEN RAISE EXCEPTION 'Authenticated actor missing' USING ERRCODE='42501'; END IF;
+  computed_hash:=refs_journal_transition_hash(p_tenant,p_entity,p_journal,action,p_expected_revision,p_reason);
+  IF p_request_hash<>computed_hash THEN RAISE EXCEPTION 'Journal transition request hash is not canonical' USING ERRCODE='22023'; END IF;
+  receipt:=refs_reserve_idempotency(p_tenant,'JOURNAL_'||action||':'||p_entity,p_idempotency_key,p_request_hash,actor);
+  IF receipt.status='SUCCEEDED' THEN RETURN receipt.response_body||jsonb_build_object('idempotent',true); END IF;
+  SELECT * INTO je FROM journal_entry WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=p_journal;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Journal not found' USING ERRCODE='P0002'; END IF;
+  initial_period:=je.period_id;
+  IF action<>'REJECT' THEN
+    PERFORM 1 FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity AND period_id=je.period_id
+      AND status='OPEN' AND je.journal_date BETWEEN starts_on AND ends_on FOR SHARE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Journal transition requires its accounting period to remain OPEN' USING ERRCODE='55000'; END IF;
+  END IF;
+  SELECT * INTO je FROM journal_entry WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=p_journal FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Journal not found after period lock' USING ERRCODE='P0002'; END IF;
+  IF action<>'REJECT' AND je.period_id<>initial_period THEN RAISE EXCEPTION 'Journal period changed during transition' USING ERRCODE='40001'; END IF;
+  IF je.revision<>p_expected_revision THEN RAISE EXCEPTION 'Journal revision conflict' USING ERRCODE='40001'; END IF;
+  IF action='SUBMIT' THEN
+    IF je.status<>'DRAFT' THEN RAISE EXCEPTION 'Only DRAFT journals can be submitted' USING ERRCODE='55000'; END IF;
+    IF (SELECT count(*)<2 OR COALESCE(sum(debit_amount),0)<>COALESCE(sum(credit_amount),0)
+        FROM journal_line WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=p_journal) THEN
+      RAISE EXCEPTION 'Submitted journal must remain balanced with at least two lines' USING ERRCODE='23514';
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM journal_line jl
+      LEFT JOIN account_master a ON (a.tenant_id,a.entity_id,a.account_code)=(jl.tenant_id,jl.entity_id,jl.account_code) AND a.active
+      LEFT JOIN member_master m ON (m.tenant_id,m.entity_id,m.member_ref)=(jl.tenant_id,jl.entity_id,jl.member_ref) AND m.active
+      WHERE jl.tenant_id=p_tenant AND jl.entity_id=p_entity AND jl.journal_entry_id=p_journal
+        AND (a.account_code IS NULL OR (a.requires_member AND jl.member_ref IS NULL) OR (jl.member_ref IS NOT NULL AND m.member_ref IS NULL)
+          OR (a.requires_member AND NOT (m.member_type=a.required_member_type OR (a.required_member_type='CUSTOMER_OR_AFFILIATE' AND m.member_type IN ('CUSTOMER','AFFILIATE')))))
+    ) THEN RAISE EXCEPTION 'Submitted journal account/member validation failed' USING ERRCODE='23514'; END IF;
+    IF je.journal_type IN ('MANUAL','RECLASS') AND NOT EXISTS (SELECT 1 FROM source_link WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=p_journal AND attachment_id IS NOT NULL) THEN
+      RAISE EXCEPTION 'Manual and reclass journals require attachment evidence before submit' USING ERRCODE='23514';
+    END IF;
+    target:='PENDING_REVIEW';
+  ELSIF action='REVIEW' THEN
+    IF je.status<>'PENDING_REVIEW' OR actor=je.created_by THEN RAISE EXCEPTION 'Review state or SoD violation' USING ERRCODE='42501'; END IF;
+    target:='PENDING_APPROVAL';
+  ELSIF action='APPROVE' THEN
+    IF je.status<>'PENDING_APPROVAL' OR actor IN (je.created_by,je.reviewed_by) THEN RAISE EXCEPTION 'Approval state or SoD violation' USING ERRCODE='42501'; END IF;
+    target:='APPROVED';
+  ELSE
+    IF je.status NOT IN ('PENDING_REVIEW','PENDING_APPROVAL','APPROVED') OR actor=je.created_by OR COALESCE(length(btrim(p_reason)),0)<8 THEN
+      RAISE EXCEPTION 'Reject state, reason or SoD violation' USING ERRCODE='42501';
+    END IF;
+    target:='DRAFT';
+  END IF;
+  UPDATE journal_entry SET status=target,reviewed_by=CASE WHEN action='REVIEW' THEN actor WHEN action='REJECT' THEN NULL ELSE reviewed_by END,
+    approved_by=CASE WHEN action='APPROVE' THEN actor WHEN action='REJECT' THEN NULL ELSE approved_by END,revision=revision+1
+    WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=p_journal;
+  response:=jsonb_build_object('journal_entry_id',p_journal,'status',target,'revision',p_expected_revision+1,'idempotent',false);
+  INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash,reason)
+    VALUES(p_tenant,p_entity,'JOURNAL_'||action,'JOURNAL_ENTRY',p_journal,action,actor,'USER',required_permission,p_idempotency_key,p_idempotency_key,p_idempotency_key,p_request_hash,NULLIF(btrim(p_reason),''));
+  event_payload:=jsonb_build_object('journal_entry_id',p_journal,'status',target,'revision',p_expected_revision+1);
+  INSERT INTO outbox_event(tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
+    VALUES(p_tenant,p_entity,'JOURNAL_ENTRY',p_journal,'JOURNAL_'||action,event_payload,refs_jsonb_hash(event_payload));
+  UPDATE idempotency_receipt SET status='SUCCEEDED',response_status=200,response_body=response,completed_at=clock_timestamp()
+    WHERE tenant_id=p_tenant AND operation_scope='JOURNAL_'||action||':'||p_entity AND idempotency_key=p_idempotency_key;
   RETURN response;
 END;
 $$;
@@ -1012,6 +1169,10 @@ REVOKE EXECUTE ON FUNCTION refs_claim_outbox(uuid,text,integer) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_complete_outbox(uuid,uuid,text,boolean,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_reserve_idempotency(uuid,text,text,text,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_update_draft_description(uuid,uuid,uuid,bigint,text,text,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_create_manual_journal_hash(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_create_manual_journal(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[],text,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_journal_transition_hash(uuid,uuid,uuid,text,bigint,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION refs_transition_journal(uuid,uuid,uuid,text,bigint,text,text,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_config_retire_hash(text,uuid,uuid,uuid,bigint,timestamptz,text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION refs_retire_config_snapshot(text,uuid,uuid,uuid,bigint,timestamptz,text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION refs_bootstrap_context(text) TO refs_app;
@@ -1031,6 +1192,10 @@ GRANT EXECUTE ON FUNCTION refs_close_period(uuid,uuid,uuid,bigint,text,text,text
 GRANT EXECUTE ON FUNCTION refs_claim_outbox(uuid,text,integer) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_complete_outbox(uuid,uuid,text,boolean,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_update_draft_description(uuid,uuid,uuid,bigint,text,text,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_create_manual_journal_hash(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[]) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_create_manual_journal(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[],text,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_journal_transition_hash(uuid,uuid,uuid,text,bigint,text) TO refs_app;
+GRANT EXECUTE ON FUNCTION refs_transition_journal(uuid,uuid,uuid,text,bigint,text,text,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_config_retire_hash(text,uuid,uuid,uuid,bigint,timestamptz,text) TO refs_app;
 GRANT EXECUTE ON FUNCTION refs_retire_config_snapshot(text,uuid,uuid,uuid,bigint,timestamptz,text,text,text) TO refs_app;
 

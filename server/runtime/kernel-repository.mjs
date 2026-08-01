@@ -37,6 +37,34 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createManualJournal(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_manual_journal_hash($1,$2,$3,$4,$5,$6,$7,$8,$9) AS request_hash',
+        [args.tenantId,args.entityId,args.periodId,args.journalNumber,args.journalDate,args.currency,args.description??null,JSON.stringify(args.lines),args.attachmentIds]
+      ),'JOURNAL_CREATE_HASH_FAILED','Manual journal hash was not produced').request_hash;
+      const row=requireRow(await client.query(
+        'SELECT refs_create_manual_journal($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS result',
+        [args.tenantId,args.entityId,args.periodId,args.journalNumber,args.journalDate,args.currency,args.description??null,JSON.stringify(args.lines),args.attachmentIds,args.idempotencyKey,requestHash]
+      ),'JOURNAL_CREATE_FAILED','Manual journal creation did not return a result');
+      return row.result;
+    });
+  }
+
+  async transitionJournal(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_journal_transition_hash($1,$2,$3,$4,$5,$6) AS request_hash',
+        [args.tenantId,args.entityId,args.journalEntryId,args.action,args.expectedRevision,args.reason??null]
+      ),'JOURNAL_TRANSITION_HASH_FAILED','Journal transition hash was not produced').request_hash;
+      const row=requireRow(await client.query(
+        'SELECT refs_transition_journal($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+        [args.tenantId,args.entityId,args.journalEntryId,args.action,args.expectedRevision,args.reason??null,args.idempotencyKey,requestHash]
+      ),'JOURNAL_TRANSITION_FAILED','Journal transition did not return a result');
+      return row.result;
+    });
+  }
+
   async postJournal(args){
     const requestHash=canonicalRequestHash({tenantId:args.tenantId,entityId:args.entityId,periodId:args.periodId,journalEntryId:args.journalEntryId,expectedRevision:args.expectedRevision});
     return this.inSession(async client=>{

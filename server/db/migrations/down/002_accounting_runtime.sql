@@ -2,6 +2,10 @@ BEGIN;
 
 DROP FUNCTION IF EXISTS refs_complete_outbox(uuid,uuid,text,boolean,text);
 DROP FUNCTION IF EXISTS refs_claim_outbox(uuid,text,integer);
+DROP FUNCTION IF EXISTS refs_transition_journal(uuid,uuid,uuid,text,bigint,text,text,text);
+DROP FUNCTION IF EXISTS refs_journal_transition_hash(uuid,uuid,uuid,text,bigint,text);
+DROP FUNCTION IF EXISTS refs_create_manual_journal(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[],text,text);
+DROP FUNCTION IF EXISTS refs_create_manual_journal_hash(uuid,uuid,uuid,text,date,char,text,jsonb,uuid[]);
 DROP FUNCTION IF EXISTS refs_post_journal(uuid,uuid,uuid,uuid,bigint,text,text,text);
 DROP FUNCTION IF EXISTS refs_close_period(uuid,uuid,uuid,bigint,text,text,text);
 DROP FUNCTION IF EXISTS refs_update_draft_description(uuid,uuid,uuid,bigint,text,text,text);

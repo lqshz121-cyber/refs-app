@@ -548,6 +548,33 @@ pgTest('down restores pre-hardened PUBLIC CREATE and exact direct USAGE ACLs',as
   await migrateUp(adminPool);
 });
 
+pgTest('runtime roles create, submit, review, approve and post a manual journal without admin DML',async()=>{
+  const ids=await seed({status:'DRAFT'});
+  const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
+  const createArgs={tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:'JE-RUNTIME-001',journalDate:'2026-07-16',currency:'USD',description:'Runtime-created manual journal',attachmentIds:[attachmentId],idempotencyKey:'create-manual-0001',lines:[
+    {line_no:1,account_code:'111000',debit_amount:125,credit_amount:0,member_ref:'BANK-1',description:'Cash',dimensions:{}},
+    {line_no:2,account_code:'291001',debit_amount:0,credit_amount:125,member_ref:'VENDOR-1',description:'AP',dimensions:{}}
+  ]};
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'runtime-maker',['GL.JE.CREATE','GL.JE.SUBMIT','GL.JE.REVIEW'])});
+  const created=await maker.createManualJournal(createArgs);const replay=await maker.createManualJournal(createArgs);
+  assert.equal(created.status,'DRAFT');assert.equal(replay.idempotent,true);assert.equal(replay.journal_entry_id,created.journal_entry_id);
+  const submitted=await maker.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:created.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'submit-manual-0001'});
+  assert.equal(submitted.status,'PENDING_REVIEW');
+  await assert.rejects(maker.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:created.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'self-review-manual-0001'}),error=>error.code==='42501');
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'runtime-reviewer',['GL.JE.REVIEW'])});
+  const reviewed=await reviewer.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:created.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'review-manual-0001'});
+  assert.equal(reviewed.status,'PENDING_APPROVAL');
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'runtime-approver',['GL.JE.APPROVE'])});
+  const approved=await approver.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:created.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'approve-manual-0001'});
+  assert.equal(approved.status,'APPROVED');
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'runtime-poster',['GL.JE.POST'])});
+  const posted=await poster.postJournal({...ids,journalEntryId:created.journal_entry_id,expectedRevision:3,idempotencyKey:'post-runtime-manual-0001'});
+  assert.equal(posted.idempotent,false);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[created.journal_entry_id])).rows[0].n,2);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[created.journal_entry_id])).rows[0].n,5);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[created.journal_entry_id])).rows[0].n,5);
+});
+
 pgTest('posting is atomic, same-hash retry replays before state validation, different hash conflicts',async()=>{
   const ids=await seed();
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids)});
