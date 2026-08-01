@@ -2,6 +2,9 @@ import {activeSourceExists,idempotencyExists} from '../db/memory-je-db.mjs';
 import {fail,ok,validateAccounting,validateDocuments,validateTrace,canonicalHash} from '../db/je-schema.mjs';
 import {authorize,resolveOpenPeriod,TRANSITIONS,validateTransition} from './je-policy.mjs';
 
+// NON_PRODUCTION_EXECUTABLE_SPEC: this service targets MemoryJEDatabase and is not the Phase A PostgreSQL runtime.
+export const NON_PRODUCTION_EXECUTABLE_SPEC=true;
+
 const clone=v=>structuredClone(v);
 
 export class JEService{

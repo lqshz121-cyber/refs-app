@@ -1,3 +1,6 @@
+// NON_PRODUCTION_EXECUTABLE_SPEC: single-process policy harness; never a durable accounting database.
+export const NON_PRODUCTION_EXECUTABLE_SPEC=true;
+
 const copy = value => structuredClone(value);
 
 export class MemoryJEDatabase {
