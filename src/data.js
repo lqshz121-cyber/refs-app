@@ -113,7 +113,7 @@ export const COA = [
   ['641600','Utilities','EXPENSE','DEBIT'],
   ['795000','Insurance Expense','EXPENSE','DEBIT'],
   ['142000','Suspense','ASSET','DEBIT'],
-].map(([code,name,type,nb])=>({account_code:code,account_name:name,account_type:type,normal_balance:nb}));
+].map(([code,name,type,nb])=>({account_code:code,account_name:name,account_type:type,normal_balance:nb})).filter((a,i,arr)=>arr.findIndex(x=>x.account_code===a.account_code)===i);
 
 export const ENTITIES = [
   {entity_id:1, entity_code:'WBGR', entity_name:'Wan Bridge Group LLC', entity_type:'ProjectCo'},
