@@ -45,3 +45,11 @@ test('real HTTP listener parses JSON, enforces size limits and emits no-store pr
     assert.equal(response.status,413);assert.equal((await response.json()).code,'BODY_TOO_LARGE');
   }finally{await new Promise(resolve=>server.close(resolve));}
 });
+
+test('liveness is process-local while readiness fails closed and reflects dependency checks',async()=>{
+  let ready=false;const server=createAccountingHttpServer({authenticate:async()=>null,kernelFactory:async()=>kernel,healthCheck:async()=>ready});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));try{
+    const base=`http://127.0.0.1:${server.address().port}`;let response=await fetch(`${base}/health/live`);assert.equal(response.status,200);
+    response=await fetch(`${base}/health/ready`);assert.equal(response.status,503);ready=true;response=await fetch(`${base}/health/ready`);assert.equal(response.status,200);
+  }finally{await new Promise(resolve=>server.close(resolve));}
+});

@@ -52,11 +52,19 @@ export function createAccountingApi({authenticate,kernelFactory}={}){
   };
 }
 
-export function createAccountingHttpServer({authenticate,kernelFactory,maxBodyBytes=1024*1024}={}){
+export function createAccountingHttpServer({authenticate,kernelFactory,maxBodyBytes=1024*1024,healthCheck}={}){
   const dispatch=createAccountingApi({authenticate,kernelFactory});
   return createServer(async(req,res)=>{
     const chunks=[];let size=0;
     try{
+      const pathname=new URL(req.url,'http://refs.local').pathname;
+      if(req.method==='GET'&&pathname==='/health/live'){
+        res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end('{"ok":true,"status":"live"}');return;
+      }
+      if(req.method==='GET'&&pathname==='/health/ready'){
+        let ready=false;try{ready=typeof healthCheck==='function'&&await healthCheck()===true;}catch{}
+        res.writeHead(ready?200:503,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({ok:ready,status:ready?'ready':'not_ready'}));return;
+      }
       for await(const chunk of req){size+=chunk.length;if(size>maxBodyBytes)throw new AccountingApiError(413,'BODY_TOO_LARGE','Request body exceeds limit');chunks.push(chunk);}
       let body={};if(chunks.length){try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new AccountingApiError(400,'INVALID_JSON','Request body is not valid JSON');}}
       const response=await dispatch({method:req.method,url:req.url,headers:req.headers,body});res.writeHead(response.status,response.headers);res.end(JSON.stringify(response.body));
