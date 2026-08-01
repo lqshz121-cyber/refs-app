@@ -5,6 +5,7 @@ import {runtimeConfig} from '../runtime/config.mjs';
 import {createPool} from '../runtime/db.mjs';
 import {migrateDown,migrateUp} from '../runtime/migrations.mjs';
 import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
+import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
 
@@ -573,6 +574,33 @@ pgTest('runtime roles create, submit, review, approve and post a manual journal 
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[created.journal_entry_id])).rows[0].n,2);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[created.journal_entry_id])).rows[0].n,5);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[created.journal_entry_id])).rows[0].n,5);
+});
+
+pgTest('authenticated HTTP commands traverse context issuance and PostgreSQL into the immutable ledger',async()=>{
+  const ids=await seed({status:'DRAFT'});
+  const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
+  const permissions={
+    'http-maker':['GL.JE.CREATE','GL.JE.SUBMIT'],'http-reviewer':['GL.JE.REVIEW'],
+    'http-approver':['GL.JE.APPROVE'],'http-poster':['GL.JE.POST']
+  };
+  const api=createAccountingApi({
+    authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
+    kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})
+  });
+  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
+  const base=`/api/v1/entities/${ids.entityId}/journal-entries`;
+  const create=await send('http-maker',`${base}/manual`,{periodId:ids.periodId,journalNumber:'JE-HTTP-PG-001',journalDate:'2026-07-18',currency:'USD',description:'HTTP to PG',attachmentIds:[attachmentId],lines:[
+    {line_no:1,account_code:'111000',debit_amount:75,credit_amount:0,member_ref:'BANK-1',dimensions:{}},
+    {line_no:2,account_code:'291001',debit_amount:0,credit_amount:75,member_ref:'VENDOR-1',dimensions:{}}
+  ]},'http-create-0001');
+  assert.equal(create.status,201);const journalId=create.body.data.journal_entry_id;
+  assert.equal((await send('http-maker',`${base}/${journalId}/transitions/submit`,{},'http-submit-0001',0)).status,201);
+  assert.equal((await send('http-reviewer',`${base}/${journalId}/transitions/review`,{},'http-review-0001',1)).status,201);
+  assert.equal((await send('http-approver',`${base}/${journalId}/transitions/approve`,{},'http-approve-0001',2)).status,201);
+  assert.equal((await send('http-poster',`${base}/${journalId}/post`,{periodId:ids.periodId},'http-post-0001',3)).status,201);
+  assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[journalId])).rows[0].status,'POSTED');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[journalId])).rows[0].n,2);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[journalId])).rows[0].n,5);
 });
 
 pgTest('runtime creates an evidence-backed Auto Draft and advances staging atomically through posting',async()=>{
