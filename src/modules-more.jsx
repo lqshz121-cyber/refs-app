@@ -170,7 +170,7 @@ export function ProjectCost() {
       {h:'Cost to Complete',num:true,render:r=><Money v={r.ctc}/>,csv:r=>r.ctc},
       {h:'超支预警',render:r=> r.commit>r.budget ? <Badge tone="bad">Commitment 超预算</Badge> : r.actual>r.budget ? <Badge tone="bad">Actual 超预算</Badge> : <Badge tone="ok">在控</Badge>,csv:r=>r.commit>r.budget||r.actual>r.budget?'OVER':'OK'},
     ]} rows={CC} />
-    <p className="muted sm">Actual 与 GL 1400 CIP 挂钩（Draw 资金化 + AP 资本化发票）；Commitment 来自合同/PO；CTC = Budget − Actual；超支即产生异常。</p>
+    <p className="muted sm">Actual 来自 AP/FAST/Faster PO 发票按 Cost Code 进 164xxx CWIP(Draw 是融资:Dr Cash/Cr Loan,不进成本);Commitment 来自合同/PO;CTC = Budget − Actual;超支即产生异常。</p>
   </div>;
 }
 export function Assets() {
@@ -244,18 +244,49 @@ export function MasterData() {
     <Tabs tabs={Object.keys(map)} active={tab} onChange={setTab} />
     <Table cols={cols} rows={rows} /></div>;
 }
-export function MappingCenter() {
-  return <SimpleList title="Mapping Center" note="PM Charge Code → Owner GL 映射，版本化。注意 PET_FEE 缺映射（会触发 GL_MAPPING_MISSING）。"
-    cols={[{h:'类型',render:r=><Badge tone="muted">{r.mapping_type}</Badge>},{h:'Charge Code',k:'source_code'},{h:'Owner GL',render:r=>r.owner_gl_account_code+' '+acct(r.owner_gl_account_code).account_name},{h:'收/支',k:'rev_exp_flag'},{h:'现/权',k:'cash_accrual_flag'}]} rows={MAPPINGS} />;
+export function MappingCenter({ctx}) {
+  const FAMILIES = [
+    ['Bank Detail → Account','Account Setting · Bank','银行账号→现金科目(111000子账)','setting'],
+    ['Construction Loan Detail → Account','Account Setting · Contruction Loan','Draw/Repayment/Interest/Escrow×7→科目+Project','setting'],
+    ['Cost Code Group → Account','Account Setting · Cost','0LD/2HD/24E/21E/9AM 码组→CWIP/费用','setting'],
+    ['Cost Code × Dr/Cr → Account','Cost Setting','Cost General Ledger 按单码借贷映射','setting'],
+    ['Payable Cost Code → Dr Account','Payable Setting','按码定借方+归属公司;Credit行=291001','setting'],
+    ['Batch Template → Dr/Cr Pair','Batch Setting','计提模板+Sequential+Reverse Next Month','setting'],
+    ['PM Charge Code → Owner GL','下表','RENT/LATE_FEE/SEC_DEPOSIT/UTILITIES/MGMT_FEE','pm'],
+    ['Project Status → Capitalization','Rule Center','在建→164500资本化;完工→795000费用化','rules'],
+    ['Unit Status → Inventory/COGS','Rule Center','在建CWIP→完工Inventory→售出COGS','rules'],
+    ['Company → Rule Profile','Company Setting','每公司独立四大Setting+Copy','setting'],
+  ];
+  return <div className="full-bleed"><h2 className="page-h">Mapping Center · 全映射索引</h2>
+    <p className="muted sm">所有外部 code → 会计维度/科目的映射家族;明细在对应 Setting/Rule 页维护(版本化+审批)。</p>
+    <Table cols={[
+      {h:'Mapping 家族',render:r=><b>{r[0]}</b>},
+      {h:'维护位置',render:r=><Badge tone="muted">{r[1]}</Badge>},
+      {h:'规则说明',render:r=>r[2]},
+      {h:'',render:r=><Btn size="sm" variant="ghost" onClick={()=>ctx.goto(r[3]==='pm'?'mapping':r[3]==='rules'?'rules':'setting')}>打开 →</Btn>},
+    ]} rows={FAMILIES}/>
+    <SectionTitle>PM Charge Code → Owner GL(本页维护)</SectionTitle>
+    <Table cols={[{h:'类型',render:r=><Badge tone="muted">{r.mapping_type}</Badge>},{h:'Charge Code',k:'source_code'},{h:'Owner GL',render:r=>r.owner_gl_account_code+' '+acct(r.owner_gl_account_code).account_name},{h:'收/支',k:'rev_exp_flag'},{h:'现/权',k:'cash_accrual_flag'}]} rows={MAPPINGS} />
+  </div>;
 }
 export function RuleCenter() {
   const rules = [
-    ['R-LOAN-01','LOAN.DRAW','借 1400 CIP / 贷 2500','LIVE'],
-    ['R-LOAN-03','LOAN.INTEREST(在建)','借 1405 / 贷 2100','LIVE'],
-    ['R-LOAN-04','LOAN.INTEREST(投运)','借 5000 / 贷 2100','LIVE'],
-    ['R-PM-11','PM.RENT','借 1000/1200 / 贷 4000','LIVE'],
-    ['R-PM-16','PM.SEC_DEPOSIT','借 1000 / 贷 2200(负债)','LIVE'],
-    ['R-CLS-21','CLOSING.ACQUISITION','借 Land/Building / 贷 Loan/Cash','TESTED'],
+    ['R-LOAN-01','LOAN.DRAW','Dr 111000 Cash / Cr 270100 Loan Payable(资金流入≠成本)','LIVE'],
+    ['R-LOAN-03','LOAN.INTEREST · 在建','Dr 164500 CWIP-Cap Interest / Cr 220410','LIVE'],
+    ['R-LOAN-04','LOAN.INTEREST · 完工','Dr 795000 Interest Expense / Cr 220410','LIVE'],
+    ['R-LOAN-05','LOAN.REPAYMENT','Dr 270100 / Cr 111000(或按公司Setting→291001)','LIVE'],
+    ['R-AP-STD-01','PAYABLE(按Payee挂账)','Dr 费用/CWIP(按Cost Setting) / Cr 291001_Payee','LIVE'],
+    ['R-EXPA-01','银行Feed自动清账','Dr 291001_Payee / Cr 111000(EXPA/AUTOC)','LIVE'],
+    ['R-COST-2HD','Hard Cost × 在建','Dr 164400 CWIP / Cr 220300','LIVE'],
+    ['R-COST-2HD-DONE','Hard Cost × 完工','Dr 510000 COGS / Cr 220300(状态驱动)','LIVE'],
+    ['R-PM-11','PM RENT(权责)','Dr 120200 AR / Cr 421803 Rental Income','LIVE'],
+    ['R-PM-16','SEC_DEPOSIT','Dr 111000 / Cr 225000 押金负债(禁入收入)','LIVE'],
+    ['R-CLS-SALE-01','Closing · Confirmed amount','Dr 111000 / Cr 491800;Title Withholding→220205','LIVE'],
+    ['R-CLS-COGS-01','Closing · 成本结转','Dr 510000 / Cr 164400(≤累计CWIP)','LIVE'],
+    ['R-DIV-01','Dividend 批次','Dr 291000_业主(按Lot) / Cr 111000 + Cr 220204代扣','LIVE'],
+    ['R-UT-OUT-01','Unit Transfer A转出','Dr 125000 Due from_B / Cr 164400 + 787001损益','LIVE'],
+    ['R-UT-IN-01','Unit Transfer B转入','Dr 164400(B Opening Basis) / Cr 291000 Due to_A','LIVE'],
+    ['R-IC-01','跨公司付款镜像','付方 Dr 125000/Cr 111000;受益方 Dr 成本/Cr 291000','LIVE'],
   ];
   return <div><h2 className="page-h">Accounting Rule Center</h2>
     <p className="muted sm">规则独立管理、版本化、沙箱测试；未 TESTED 不可 LIVE。</p>

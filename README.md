@@ -1,36 +1,30 @@
-# REFS — Real Estate Financial System (WanBridge) · Functional Prototype
+# REFS · AI Real Estate Accounting System (WanBridge)
 
-企业级房地产项目公司会计系统的**可运行原型**。React + esbuild 打包为纯静态站点，
-可直接双击 `dist/index.html` 打开，或部署到任意静态托管（Render Static Site）。
+**WBS Accounting Engine** — 在 WBS Auto Bank Reconciliation / Accounting System 基础上的升级版:
+Setting-Driven 自动记账 + QuickBooks 级工作流 + Apple 风格 UI + AI Accounting Judge + AI Audit。
 
-## 功能覆盖
-- 财务工作台 Dashboard（关账进度 / 待审批 / 同步状态 / 异常 / 待办）
-- Journal Entry Workspace：复式借贷**实时平衡校验**、状态机审批（Draft→Review→Approve→Post）、
-  **Maker≠Approver 职责分离拦截**、红字反冲、附件必填、已过账不可改
-- Construction Loan：利息**资本化 vs 费用化**由 `construction_status` 驱动，一键生成 Draft JE
-- Property Operations Pickup：Charge Code→GL 映射、**未映射转异常**、押金记负债、去重
-- Closing Workspace：科目拆分 + **平衡检查带**
-- Bank Reconciliation：匹配 / Suspense / **差异=0 才可 Sign-off**
-- Exception Center：24 类异常、Drawer 处置、**关闭需证据**
-- Month-End Close：任务依赖锁、Sign-off、锁定期间
-- General Ledger：由已过账分录实时汇总 **Trial Balance / BS / IS**
-- 其余模块（AP/AR/Cash/Loan Register/Project Cost/Assets/Intercompany/
-  Integration Hub/Master Data/Mapping/Rule Center/Reports/Admin）列示与导航
-- 顶栏切换**实体 / 角色**体验权限差异；⌘K 命令面板；明/暗模式
+Live: https://lqshz121-cyber.github.io/refs-app/ (演示登录,角色=所选账号;顶栏 ⟲ 重置种子)
 
-## 本地运行
-```bash
-npm install
-npm run build      # 产出 dist/（index.html + bundle.js）
-# 直接打开 dist/index.html
-```
-开发监听：`npm run dev`
+## 核心链路(禁止跳步)
+Source → Classification → Company Setting(四大Setting) → Rule/AI Coding → Staging(人审) → Draft JE → Approval → Posted → GL → Recon → Reports → AI Audit
 
-## 部署到 Render
-仓库含 `render.yaml`（Static Site 蓝图）。在 Render 中 **New → Blueprint**，
-选择本仓库即可自动按 `render.yaml` 部署；构建命令 `npm install && npm run build`，
-发布目录 `dist`。
+## 与 WBS 逐一对齐的机制
+- 四大 Setting(Account/Cost/Payable/Batch,62行真实taxonomy,Copy跨公司/年,Test Rule,LIVE/INACTIVE)
+- 双步过账:PAYABLE→Cr 291001_按Payee;银行Feed EXPA/AUTOC 自动清账;Not Match→Exception
+- 辅助核算:科目×核算对象(Bank/Vendor/Customer/Affiliate/Loan),缺member禁过账[4020]
+- Cost Code×Status 驱动分录(2HD在建→164400;完工→510000;利息资本化/费用化)
+- Loan Draw = Dr 111000 Cash / Cr 270100(资金≠成本;成本来自AP/FAST发票)
+- 766科目真实WBS COA(Header/Posting/Total);119家真实公司;辅助台账/Unit Cost/Unit Transfer(成本桥+Evidence)
+- AI Judge(建议Dr/Cr+Confidence+Reason+Rule+Setting+Risk,不代过账);AI Audit Center 八Tab+Resolve
 
-## 说明
-数据为演示种子数据（非真实账务）。这是产品原型，用于验证流程与交互；
-生产实现请对接后端（PostgreSQL DDL、规则引擎、集成 Hub、API 见配套规格文档 REFS-00~06）。
+## 模块(30+,均可操作非展示)
+Staging Center/Source Documents/四大Setting/AI Audit/AI Judge/JE(QBO表单+审批+红冲)/GL(期间范围+分组TB+BS/IS)/
+辅助核算台账/Account Register/COA/Bank Transactions(For Review)/Bank Rec(标准模型)/Auto Bank Rec(四步流水线)/
+Checks/AP(291001双步)/AR/Loan/Unit Cost/Unit Transfer/Project Cost/PM Pickup(Unit→Owner)/Closing/IC(镜像)/月结/16报表/Audit Log
+
+## 工程
+React18+esbuild 静态站(`node build.mjs`);状态 localStorage(src/repo.js=后端接入点);Chart.js CDN。
+**双测试门**:SSR冒烟(mtest,27组件) + 账本审计(audit.cjs,fails=0)。种子改动→app.jsx SEED_V 递增。
+协作规范见 COLLABORATION.md;路线图见 BLUEPRINT.md(P1: TypeScript+PostgreSQL+API,由 Codex 主导)。
+
+> 注:当前为可运行的前端引擎+模拟数据(标注 demo);接真实 WBS 数据仅需替换 repo.js 数据源。
