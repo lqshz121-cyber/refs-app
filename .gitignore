@@ -6,3 +6,5 @@ dist/
 smoke.mjs
 ssrtest.*
 moduletest.*
+mtest.cjs
+audit.cjs

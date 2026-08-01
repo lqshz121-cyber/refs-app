@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card, KPI, Btn, Badge, Money, Table, Tabs, SectionTitle } from './ui.jsx';
 import { COA, ENTITIES, VENDORS, CUSTOMERS, LOANS, BANK_ACCOUNTS, MAPPINGS, PROPERTIES, PROJECTS } from './data.js';
 import { LOAN_TXNS, IC_TXNS, CLOSINGS, PM_ROWS } from './seed.js';
-import { acct, money, sum, jeTotals, trialBalance, statements, downloadCSV } from './engine.js';
+import { acct, money, sum, jeTotals, trialBalance, statements, downloadCSV, ENGINE_RULE_CATALOG } from './engine.js';
 
 export function GLTrialBalance({ctx}) {
   const {jes, entity} = ctx;
@@ -347,27 +347,10 @@ export function MappingCenter({ctx}) {
   </div>;
 }
 export function RuleCenter() {
-  const rules = [
-    ['R-LOAN-01','LOAN.DRAW','Dr 111000 Cash / Cr 270100 Loan Payable(资金流入≠成本)','LIVE'],
-    ['R-LOAN-03','LOAN.INTEREST · 在建','Dr 164500 CWIP-Cap Interest / Cr 220410','LIVE'],
-    ['R-LOAN-04','LOAN.INTEREST · 完工','Dr 795000 Interest Expense / Cr 220410','LIVE'],
-    ['R-LOAN-05','LOAN.REPAYMENT','Dr 270100 / Cr 111000(或按公司Setting→291001)','LIVE'],
-    ['R-AP-STD-01','PAYABLE(按Payee挂账)','Dr 费用/CWIP(按Cost Setting) / Cr 291001_Payee','LIVE'],
-    ['R-EXPA-01','银行Feed自动清账','Dr 291001_Payee / Cr 111000(EXPA/AUTOC)','LIVE'],
-    ['R-COST-2HD','Hard Cost × 在建','Dr 164400 CWIP / Cr 220300','LIVE'],
-    ['R-COST-2HD-DONE','Hard Cost × 完工','Dr 510000 COGS / Cr 220300(状态驱动)','LIVE'],
-    ['R-PM-11','PM RENT(权责)','Dr 120200 AR / Cr 421803 Rental Income','LIVE'],
-    ['R-PM-16','SEC_DEPOSIT','Dr 111000 / Cr 225000 押金负债(禁入收入)','LIVE'],
-    ['R-CLS-SALE-01','Closing · Confirmed amount','Dr 111000 / Cr 491800;Title Withholding→220205','LIVE'],
-    ['R-CLS-COGS-01','Closing · 成本结转','Dr 510000 / Cr 164400(≤累计CWIP)','LIVE'],
-    ['R-DIV-01','Dividend 批次','Dr 291000_业主(按Lot) / Cr 111000 + Cr 220204代扣','LIVE'],
-    ['R-UT-OUT-01','Unit Transfer A转出','Dr 125000 Due from_B / Cr 164400 + 787001损益','LIVE'],
-    ['R-UT-IN-01','Unit Transfer B转入','Dr 164400(B Opening Basis) / Cr 291000 Due to_A','LIVE'],
-    ['R-IC-01','跨公司付款镜像','付方 Dr 125000/Cr 111000;受益方 Dr 成本/Cr 291000','LIVE'],
-  ];
+  const rules = ENGINE_RULE_CATALOG;
   return <div><h2 className="page-h">Accounting Rule Center</h2>
-    <p className="muted sm">规则独立管理、版本化、沙箱测试；未 TESTED 不可 LIVE。</p>
-    <Table cols={[{h:'Rule',k:0,render:r=>r[0]},{h:'Trigger',render:r=>r[1]},{h:'借贷逻辑',render:r=>r[2]},{h:'状态',render:r=><Badge tone={r[3]==='LIVE'?'ok':'warn'}>{r[3]}</Badge>}]} rows={rules} rowKey={0} /></div>;
+    <p className="muted sm">本页只展示 engine.js 中可执行的规则元数据；其他领域流程在集中到引擎前不会冒充 LIVE 规则。</p>
+    <Table cols={[{h:'Rule',render:r=>r.rule_code},{h:'Trigger',render:r=>r.trigger},{h:'借贷逻辑',render:r=>r.logic},{h:'状态',render:r=><Badge tone={r.status==='LIVE'?'ok':'warn'}>{r.status}</Badge>}]} rows={rules} rowKey="rule_code" /></div>;
 }
 export function AdminModule({ctx}) {
   return <div><h2 className="page-h">System Admin</h2>

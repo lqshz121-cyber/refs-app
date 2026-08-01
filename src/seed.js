@@ -21,7 +21,7 @@ export const JOURNAL_ENTRIES = [
     lines:[{account_code:'111000',debit_amount:800000,credit_amount:0},{account_code:'380104',debit_amount:0,credit_amount:800000}] },
   {je_id:1001, je_number:'JE-2026-07-1001', entity_id:2, period_code:'2026-07', je_type:'AUTO', je_date:'2026-07-05',
    description:'Construction Loan Draw #7 - Cedar Ridge', source_system:'WBS_CL', posting_status:'POSTED',
-   rule_code:'R-LOAN-01', lines:[L('164200',500000,0,{project_id:1,loan_id:1}), L('270100',0,500000,{loan_id:1})]},
+   rule_code:'R-LOAN-01', lines:[L('111000',500000,0,{loan_id:1}), L('270100',0,500000,{loan_id:1})]},
   {je_id:1002, je_number:'JE-2026-07-1002', entity_id:2, period_code:'2026-07', je_type:'AUTO', je_date:'2026-07-31',
    description:'Capitalized interest accrual (Under Construction)', source_system:'WBS_CL', posting_status:'POSTED',
    rule_code:'R-LOAN-03', lines:[L('164500',29200,0,{loan_id:1,project_id:1}), L('220410',0,29200,{loan_id:1})]},
@@ -50,7 +50,7 @@ export const JOURNAL_ENTRIES = [
    has_attachment:true, lines:[L('164200',5000,0,{project_id:1}), L('612900',0,5000)]},
   {je_id:2003, je_number:'JE-2026-07-2003', entity_id:2, period_code:'2026-07', je_type:'MANUAL', je_date:'2026-07-29',
    description:'Manual accrual - no support attached', source_system:'MAN', posting_status:'DRAFT',
-   has_attachment:false, lines:[L('6030',1800,0,{property_id:1}), L('2150',0,1800)]},
+   has_attachment:false, lines:[L('612900',1800,0,{property_id:1}), L('220300',0,1800,{vendor_id:1})]},
 ];
 
 export const EXCEPTIONS = [
@@ -268,9 +268,12 @@ const _norm = j=>{
       if (!l.description) l.description = (l.account_code.startsWith('291')?'Due to/from_':'') + l.member;
     }
   });
-  if (j.je_type==='AUTO' && ['PAYABLE','CLOSING'].includes(j.source_system) && !j.source_doc_id && !j.rule_code){
-    j.source_doc_id = doc({type:'SERVICE_INVOICE', doc_no:'SVC-'+j.je_number, vendor:j.payee||'—', date:j.je_date, amount:j.lines.reduce((s,l)=>s+(l.debit_amount||0),0), source_system:'WBS · Contract & Invoice'});
-    j.rule_code = j.rule_code || 'R-AP-STD-01';
+  if (j.je_type==='AUTO' && !j.source_doc_id){
+    j.source_doc_id = doc({type:'SOURCE_TRANSACTION', doc_no:'SRC-'+j.je_number, vendor:j.payee||'—', date:j.je_date, amount:j.lines.reduce((s,l)=>s+(l.debit_amount||0),0), source_system:j.source_system||'WBS'});
+  }
+  if (j.je_type==='AUTO' && !j.rule_code){
+    const source = String(j.source_system||'AUTO').replace(/[^A-Z0-9]+/gi,'-').toUpperCase();
+    j.rule_code = source==='AP' || source==='PAYABLE' ? 'R-AP-STD-01' : `R-WBS-${source}-01`;
   }
 };
 _ALL.forEach(_norm);

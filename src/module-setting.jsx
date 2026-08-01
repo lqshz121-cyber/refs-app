@@ -1,24 +1,46 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Btn, Badge, Table, Tabs, SectionTitle, Drawer, Field } from './ui.jsx';
 import { ENTITIES, COA } from './data.js';
 import { WBS_COA_MAP } from './coa-wbs.js';
 import { loadSetting, saveSetting, copySetting } from './settings.js';
 import { aiJudge } from './ai.js';
+import { repo } from './repo.js';
 
 export function CompanySetting({ctx}) {
-  const {entity, toast} = ctx;
+  const {entity, toast, user} = ctx;
   const en = ENTITIES.find(e=>e.entity_id===(entity||15)) || ENTITIES[0];
   const [tab, setTab] = useState('Account Setting');
   const [s, setS] = useState(()=>loadSetting(en));
   const [showCopy, setShowCopy] = useState(false);
   const [fromId, setFromId] = useState(15);
+  useEffect(()=>setS(loadSetting(en)),[en.entity_id]);
   const save = (next)=>{ setS(next); saveSetting(en, next); };
   const nameOf = c => (WBS_COA_MAP[c]||{}).name || (COA.find(a=>a.account_code===c)||{}).account_name || '';
   const KEY = {'Account Setting':'account_setting','Cost Setting':'cost_setting','Payable Setting':'payable_setting','Batch Setting':'batch_setting'}[tab];
   const rows = s[KEY];
-  const upd = (r, field, v)=>{ const n=structuredClone(s); const row=n[KEY][rows.indexOf(r)]; row[field]=v; row.updated_at=new Date().toISOString().slice(0,16).replace('T',' '); save(n); };
-  const testRule = (r)=>{ const j=aiJudge({category:r.category, type:r.type, detail:r.detail, cost_code:(r.detail||'').slice(0,6), status:'UNDER_CONSTRUCTION', payee:'Test Vendor', amount:1000, description:r.detail}, en); toast(`Test: Dr ${j.suggested.dr} / Cr ${j.suggested.cr} · ${(j.confidence*100).toFixed(0)}% · ${j.rule_used}`); };
-  const addRow = ()=>{ const n=structuredClone(s); n[KEY].push(KEY==='batch_setting'?{memo:'',dr:'',cr:'',sequential:false,reverse_next_month:false,status:'DRAFT'}:{category:rows[0]?.category||'Bank Transaction', type:'', detail:'', account:'', desc:'', project:'', status:'DRAFT'}); save(n); toast('已加行(DRAFT,测试通过后转 LIVE)'); };
+  const now=()=>new Date().toISOString().slice(0,19).replace('T',' ');
+  const mutate = (r, changes, action)=>{ const n=structuredClone(s); const row=n[KEY][rows.indexOf(r)]; Object.assign(row,changes,{updated_at:now(),updated_by:user.user_id}); row.history=[...(row.history||[]),{action,by:user.user_id,at:now()}]; save(n); repo.audit(user.user_id,action,'SETTING_RULE',`${en.entity_code}/${KEY}/${rows.indexOf(r)+1}`,JSON.stringify(changes)); };
+  const upd = (r, field, v)=>mutate(r,{[field]:v,status:'DRAFT',created_by:r.created_by||user.user_id,approved_by:null},'EDIT');
+  const validAccounts = r=>{
+    const codes=[r.account,r.dr,r.cr].filter(Boolean);
+    const complete=KEY==='batch_setting' ? !!r.dr&&!!r.cr : !!r.account;
+    return complete && codes.every(code=>WBS_COA_MAP[code]||COA.find(a=>a.account_code===code));
+  };
+  const testRule = (r)=>{ if(!validAccounts(r)){toast('Test 失败：科目缺失或不存在','bad');return;}
+    const j=aiJudge({category:r.category, type:r.type, detail:r.detail, cost_code:(r.detail||'').slice(0,6), status:'UNDER_CONSTRUCTION', payee:'Test Vendor', amount:1000, description:r.detail}, en);
+    mutate(r,{status:'TESTED',tested_by:user.user_id,test_result:{dr:j.suggested.dr,cr:j.suggested.cr,confidence:j.confidence}},'TEST');
+    toast(`Test PASS: Dr ${j.suggested.dr} / Cr ${j.suggested.cr} · ${(j.confidence*100).toFixed(0)}% · 等待审批`); };
+  const transition = r=>{
+    if(r.status==='DRAFT'){toast('必须先 Test Rule，不能直接 LIVE','warn');return;}
+    if(r.status==='TESTED'){
+      if((r.created_by||r.updated_by)===user.user_id){toast('SoD：规则制作者不能审批自己的 Mapping','bad');return;}
+      mutate(r,{status:'APPROVED',approved_by:user.user_id},'APPROVE'); return;
+    }
+    if(r.status==='APPROVED'){ if(!r.approved_by){toast('缺少审批记录，不能 LIVE','bad');return;} mutate(r,{status:'LIVE',activated_by:user.user_id},'ACTIVATE'); return; }
+    if(r.status==='LIVE'){mutate(r,{status:'INACTIVE'},'DEACTIVATE');return;}
+    mutate(r,{status:'DRAFT',approved_by:null},'REOPEN');
+  };
+  const addRow = ()=>{ const n=structuredClone(s); const base={status:'DRAFT',created_by:user.user_id,updated_by:user.user_id,updated_at:now(),history:[{action:'CREATE',by:user.user_id,at:now()}]}; n[KEY].push(KEY==='batch_setting'?{...base,memo:'',dr:'',cr:'',sequential:false,reverse_next_month:false}:{...base,category:rows[0]?.category||'Bank Transaction', type:'', detail:'', account:'', desc:'', project:''}); save(n); toast('已加行(DRAFT，测试并由另一用户审批后才能 LIVE)'); };
   const delRow = (r)=>{ const n=structuredClone(s); n[KEY].splice(rows.indexOf(r),1); save(n); toast('已删行','warn'); };
   const AcctIn = ({r,f})=><span className="row-acts"><input className="date-in" style={{width:74}} value={r[f]||''} onChange={e=>upd(r,f,e.target.value)}/><span className="muted sm">{nameOf(r[f])||'—'}</span></span>;
   const aiCheck = (r)=>{ const code=r.account||r.dr; if(!code) return <Badge tone="bad">缺科目</Badge>;
@@ -46,7 +68,7 @@ export function CompanySetting({ctx}) {
       {h:tab==='Payable Setting'?'Account':'Account →科目',render:r=><AcctIn r={r} f="account"/>},
       {h:'Description',k:'desc'},
       {h:'Entity',render:r=>r.entity||'—'},
-      {h:'Rule Status',render:r=><button className="link-btn" onClick={e=>{e.stopPropagation(); upd(r,'status', r.status==='LIVE'?'INACTIVE':'LIVE');}}><Badge tone={r.status==='LIVE'?'ok':'muted'}>{r.status||'LIVE'}</Badge></button>},
+      {h:'Rule Status',render:r=><button className="link-btn" title="DRAFT→TESTED→APPROVED→LIVE" onClick={e=>{e.stopPropagation(); transition(r);}}><Badge tone={r.status==='LIVE'?'ok':r.status==='TESTED'||r.status==='APPROVED'?'warn':'muted'}>{r.status||'DRAFT'}</Badge></button>},
       {h:'AI Check',render:aiCheck},
       {h:'Last Updated',render:r=><span className="muted sm">{r.updated_at||'—'}</span>},
       {h:'Test',render:r=><Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation(); testRule(r);}}>Test Rule</Btn>},
@@ -58,8 +80,9 @@ export function CompanySetting({ctx}) {
       {h:'Cr Account',render:r=><AcctIn r={r} f="cr"/>},
       {h:'Sequential',render:r=><input type="checkbox" checked={!!r.sequential} onChange={e=>upd(r,'sequential',e.target.checked)}/>},
       {h:'Reverse Next Month',render:r=><input type="checkbox" checked={!!r.reverse_next_month} onChange={e=>upd(r,'reverse_next_month',e.target.checked)}/>},
-      {h:'Rule Status',render:r=><Badge tone={r.status==='LIVE'?'ok':'muted'}>{r.status}</Badge>},
+      {h:'Rule Status',render:r=><button className="link-btn" onClick={()=>transition(r)}><Badge tone={r.status==='LIVE'?'ok':r.status==='TESTED'||r.status==='APPROVED'?'warn':'muted'}>{r.status}</Badge></button>},
       {h:'AI Check',render:aiCheck},
+      {h:'Test',render:r=><Btn size="sm" variant="ghost" onClick={()=>testRule(r)}>Test Rule</Btn>},
       {h:'',render:r=><button className="x-sm" onClick={()=>delRow(r)}>－</button>},
     ]} rows={rows}/>}
     <p className="muted sm">与 WBS cashOrBankBookAccountSetting 逐列对齐(No/Operate/Category/Type/Detail/Project/Account/Description/Supplementary);Batch 含 Sequential 与 Reverse Next Month(自动冲回)。</p>

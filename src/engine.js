@@ -44,6 +44,20 @@ export const JE_FLOW = {
   REVERSED:         {next:null,               action:null},
 };
 
+// Executable rule metadata is defined beside the implementation and consumed by
+// Rule Center. Keep this catalog and the rule functions in the same change so
+// the UI can never relabel an engine rule (for example repayment vs interest).
+export const ENGINE_RULE_CATALOG = [
+  {rule_code:'R-LOAN-01', trigger:'LOAN.DRAW', logic:'Dr 111000 Cash / Cr 270100 Loan Payable (资金流入≠成本)', status:'LIVE'},
+  {rule_code:'R-LOAN-03', trigger:'LOAN.INTEREST_ACCRUAL · 在建', logic:'Dr 164500 Capitalized Interest / Cr 220410 Interest Payable', status:'LIVE'},
+  {rule_code:'R-LOAN-04', trigger:'LOAN.INTEREST_ACCRUAL · 完工', logic:'Dr 795000 Interest Expense / Cr 220410 Interest Payable', status:'LIVE'},
+  {rule_code:'R-LOAN-05', trigger:'LOAN.INTEREST_PAYMENT', logic:'Dr 220410 Interest Payable / Cr 111000 Cash', status:'LIVE'},
+  {rule_code:'R-LOAN-08', trigger:'LOAN.REPAYMENT', logic:'Dr 270100 Loan Payable / Cr 111000 Cash', status:'LIVE'},
+  {rule_code:'R-PM-11', trigger:'PM · REVENUE', logic:'Dr 111000 Cash 或 120200 AR / Cr Mapping Owner GL', status:'LIVE'},
+  {rule_code:'R-PM-16', trigger:'PM · SECURITY DEPOSIT', logic:'Dr 111000 Cash / Cr 225000 Deposit Liability (禁入收入)', status:'LIVE'},
+  {rule_code:'R-PM-18', trigger:'PM · EXPENSE', logic:'Dr Mapping Owner GL / Cr 220200 Payable', status:'LIVE'},
+];
+
 // ---- Rule engine: generate draft JE from a source transaction ----
 // Capitalization decision driven by construction_status (spec R-LOAN-03/04)
 export function loanRule(txn) {

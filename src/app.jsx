@@ -22,6 +22,10 @@ import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
 
+const SEED_V='v10';
+const BUILD_SHA = typeof __REFS_BUILD_SHA__ !== 'undefined' ? __REFS_BUILD_SHA__ : 'dev';
+const BUILD_TIME = typeof __REFS_BUILD_TIME__ !== 'undefined' ? __REFS_BUILD_TIME__ : 'local';
+
 class ErrorBoundary extends Component {
   constructor(p){ super(p); this.state={err:null}; }
   static getDerivedStateFromError(err){ return {err}; }
@@ -113,8 +117,8 @@ function Login({onLogin}) {
 }
 
 function App() {
-  const SEED_V='v9';
-  const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
+  repo.ensureSchema(SEED_V);
+  const load=(k,d)=>repo.load(k,d);
   const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');
   const [jes, setJes] = useState(()=>load('jes',[...JOURNAL_ENTRIES, ...FY2026]));
@@ -223,7 +227,7 @@ function App() {
     addAccount: (f) => { if (coa.some(a=>a.account_code===f.account_code)) return {dup:true};
       setCoa(cs=>[...cs, f].sort((a,b)=>a.account_code.localeCompare(b.account_code))); return {ok:true}; },
     toggleAccount: (code) => setCoa(cs=>cs.map(a=>a.account_code===code?{...a, inactive:!a.inactive}:a)),
-    resetData: () => { try{['jes','exc','close','ap','bank','coa','user'].forEach(k=>localStorage.removeItem('refs_'+k))}catch(e){} location.reload(); },
+    resetData: () => { repo.reset(); location.reload(); },
     logout: () => { try{localStorage.removeItem('refs_user')}catch(e){} setUserId(null); },
   };
 
@@ -253,6 +257,7 @@ function App() {
         <label className="sw"><select value={entity} onChange={e=>setEntity(+e.target.value)}><option value={0}>全部实体 All Entities</option>{ENTITIES.map(en=><option key={en.entity_id} value={en.entity_id}>{en.entity_code} {en.entity_name}</option>)}</select></label>
         <button className="cmdk" onClick={()=>setPalette(true)}>⌘K 全局搜索 / 跳转</button>
         <div className="top-right">
+          <span className="muted sm" title={`Built ${BUILD_TIME}`}>build {BUILD_SHA} · {BUILD_TIME.slice(0,16).replace('T',' ')}Z</span>
           <span className="sw">期间 <b>2026-07</b> <span className={`badge badge-${period.status==='OPEN'?'ok':'muted'}`}>{period.status}</span></span>
           <button className="icon-btn" title="帮助" onClick={()=>showToast('帮助中心(原型)')}>?</button>
           <button className="icon-btn" title="通知" onClick={()=>setRoute('exceptions')}>🔔</button>
