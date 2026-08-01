@@ -7,7 +7,7 @@ import {dirname, join, resolve} from 'node:path';
 const here=dirname(fileURLToPath(import.meta.url));
 const serverRoot=resolve(here,'..');
 const sql=await readFile(join(serverRoot,'db','migrations','001_wbs_accounting_core.sql'),'utf8');
-const openapi=await readFile(join(serverRoot,'api','openapi-wbs.yaml'),'utf8');
+const openapi=(await readFile(join(serverRoot,'api','openapi-wbs.yaml'),'utf8')).replace(/\r\n/g,'\n');
 const fixtureDir=join(here,'fixtures','wbs');
 const fixtureNames=(await readdir(fixtureDir)).filter(name=>name.endsWith('.json')).sort();
 const fixtures=await Promise.all(fixtureNames.map(async name=>({name,data:JSON.parse(await readFile(join(fixtureDir,name),'utf8'))})));

@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {readdir,readFile} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {databaseName,runtimeConfig} from './config.mjs';
+import {runtimeConfig} from './config.mjs';
 import {KernelError,withTransaction} from './db.mjs';
 import {MIGRATION_MANIFEST} from './migration-manifest.mjs';
 
@@ -45,11 +45,30 @@ async function ensureMetadata(pool){
   )`);
 }
 
+async function assertMigrationConnection(client,{destructive=false}={}){
+  const config=runtimeConfig();
+  const expectedUser=decodeURIComponent(new URL(config.migrationDatabaseUrl).username);
+  const identity=(await client.query('SELECT current_database() AS database_name, current_user AS current_user, session_user AS session_user')).rows[0];
+  const forbidden=new Set(['refs_runtime','refs_context_issuer','refs_app']);
+  if(!identity||identity.current_user!==expectedUser||identity.session_user!==expectedUser||forbidden.has(identity.current_user)){
+    throw new KernelError('MIGRATION_IDENTITY_REJECTED','Migrations require the configured, isolated migrator login',{expectedUser,currentUser:identity?.current_user,sessionUser:identity?.session_user});
+  }
+  if(destructive&&!config.allowDown&&!String(identity.database_name||'').endsWith('_test')){
+    throw new KernelError('DB_DOWN_FORBIDDEN',`Refusing destructive migration against ${identity.database_name||'unknown database'}`);
+  }
+  return identity;
+}
+
+const pinnedClientPool=client=>({connect:async()=>({query:(...args)=>client.query(...args),release:()=>{}})});
+
 export async function migrateUp(pool){
-  await ensureMetadata(pool);
   const client=await pool.connect();
+  let locked=false;
   try{
     await client.query('SELECT pg_advisory_lock($1)',[lockKey]);
+    locked=true;
+    await assertMigrationConnection(client);
+    await ensureMetadata(client);
     const files=await filesAt(migrationRoot);
     assertManifest(files);
     for(const name of files){
@@ -60,29 +79,35 @@ export async function migrateUp(pool){
         if(applied.rows[0].checksum!==migration.checksum)throw new KernelError('MIGRATION_CHECKSUM_MISMATCH',`Applied migration changed: ${name}`);
         continue;
       }
-      await withTransaction({connect:async()=>({query:(...args)=>client.query(...args),release:()=>{}})},async tx=>{
+      await withTransaction(pinnedClientPool(client),async tx=>{
         await tx.query(migration.sql);
         await tx.query('INSERT INTO refs_schema_migration(migration_name,checksum) VALUES($1,$2)',[name,migration.checksum]);
       });
     }
   }finally{
-    try{await client.query('SELECT pg_advisory_unlock($1)',[lockKey]);}finally{client.release();}
+    try{if(locked)await client.query('SELECT pg_advisory_unlock($1)',[lockKey]);}finally{client.release();}
   }
 }
 
 export async function migrateDown(pool,{all=false}={}){
-  const config=runtimeConfig();
-  const dbName=databaseName(config.databaseUrl);
-  if(!config.allowDown&&!dbName.endsWith('_test'))throw new KernelError('DB_DOWN_FORBIDDEN',`Refusing destructive migration against ${dbName}`);
-  await ensureMetadata(pool);
-  const applied=(await pool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name DESC')).rows.map(row=>row.migration_name);
-  const selected=all?applied:applied.slice(0,1);
-  for(const name of selected){
-    const down=await migrationFile(downRoot,name);
-    assertChecksum(down,'down');
-    await withTransaction(pool,async client=>{
-      await client.query(down.sql);
-      await client.query('DELETE FROM refs_schema_migration WHERE migration_name=$1',[name]);
-    });
+  const client=await pool.connect();
+  let locked=false;
+  try{
+    await client.query('SELECT pg_advisory_lock($1)',[lockKey]);
+    locked=true;
+    await assertMigrationConnection(client,{destructive:true});
+    await ensureMetadata(client);
+    const applied=(await client.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name DESC')).rows.map(row=>row.migration_name);
+    const selected=all?applied:applied.slice(0,1);
+    for(const name of selected){
+      const down=await migrationFile(downRoot,name);
+      assertChecksum(down,'down');
+      await withTransaction(pinnedClientPool(client),async tx=>{
+        await tx.query(down.sql);
+        await tx.query('DELETE FROM refs_schema_migration WHERE migration_name=$1',[name]);
+      });
+    }
+  }finally{
+    try{if(locked)await client.query('SELECT pg_advisory_unlock($1)',[lockKey]);}finally{client.release();}
   }
 }

@@ -95,6 +95,14 @@ pgTest('migration clean down and up is reversible from the fixed manifest',async
   assert.ok(present.rows[0].post_fn);
 });
 
+pgTest('concurrent up and down runners serialize on the same advisory lock',async()=>{
+  await Promise.all([migrateDown(adminPool,{all:true}),migrateUp(adminPool)]);
+  await migrateUp(adminPool);
+  const applied=await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name');
+  assert.deepEqual(applied.rows.map(row=>row.migration_name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql']);
+  assert.ok((await adminPool.query("SELECT to_regprocedure('refs_post_journal(uuid,uuid,uuid,uuid,bigint,text,text,text)') AS post_fn")).rows[0].post_fn);
+});
+
 pgTest('runtime login is non-owner/non-superuser and RLS denies cross-tenant access and direct writes',async()=>{
   const one=await seed();
   const two=await seed();
