@@ -25,11 +25,13 @@ const apPaymentPostReducerSql=await readFile(new URL('../db/migrations/012_ap_pa
 const apPaymentPostReducerDown=await readFile(new URL('../db/migrations/down/012_ap_payment_post_reducer.sql',import.meta.url),'utf8');
 const arReceiptSql=await readFile(new URL('../db/migrations/013_ar_receipt_command.sql',import.meta.url),'utf8');
 const arReceiptDown=await readFile(new URL('../db/migrations/down/013_ar_receipt_command.sql',import.meta.url),'utf8');
+const arReceiptPostReducerSql=await readFile(new URL('../db/migrations/014_ar_receipt_post_reducer.sql',import.meta.url),'utf8');
+const arReceiptPostReducerDown=await readFile(new URL('../db/migrations/down/014_ar_receipt_post_reducer.sql',import.meta.url),'utf8');
 const repository=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -222,6 +224,17 @@ test('AR Receipt command creates Draft occurrence and pending allocation without
   assert.doesNotMatch(arReceiptSql,/INSERT INTO ledger_line/);
   assert.match(arReceiptDown,/DROP FUNCTION IF EXISTS refs_create_ar_receipt/);
   assert.match(arReceiptDown,/DROP FUNCTION IF EXISTS refs_ar_receipt_hash/);
+});
+
+test('AR Receipt post reducer activates allocation and updates invoice inside JE post transaction',()=>{
+  assert.match(arReceiptPostReducerSql,/CREATE OR REPLACE FUNCTION refs_apply_ar_receipt_posted_occurrence/);
+  assert.match(arReceiptPostReducerSql,/occ\.occurrence_kind<>'AR_RECEIPT'/);
+  assert.match(arReceiptPostReducerSql,/invoice\.document_kind<>'AR_INVOICE'/);
+  assert.match(arReceiptPostReducerSql,/UPDATE business_document[\s\S]*open_balance=invoice\.open_balance-occ\.amount/);
+  assert.match(arReceiptPostReducerSql,/UPDATE business_allocation[\s\S]*status='ACTIVE'/);
+  assert.match(arReceiptPostReducerSql,/UPDATE payment_occurrence[\s\S]*status='POSTED'/);
+  assert.match(arReceiptPostReducerSql,/CREATE TRIGGER ar_receipt_occurrence_posted_reducer/);
+  assert.match(arReceiptPostReducerDown,/DROP TRIGGER IF EXISTS ar_receipt_occurrence_posted_reducer/);
 });
 
 test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{
