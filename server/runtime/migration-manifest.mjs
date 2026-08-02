@@ -108,5 +108,10 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'022_ap_payment_reversal_command.sql',
     up:'1fe67674fe642bedae948abbf8eac6a28021a3686f520c3da130bdd7d5cbbbd0',
     down:'f0fa7e42eeb6a36da2fa8ea6abc7cf2842d5b6d3108f3860ebe4a9a7e593f5aa'
+  }),
+  Object.freeze({
+    name:'023_ap_payment_reversal_post_reducer.sql',
+    up:'0c238c18df691dda9d05cfb8b05996acb749161bd9e97dedea95aa6b5963d51c',
+    down:'3970b49df5a88313718eb024e9952b05f0438b80ce51809223f781e9ac1ecaf8'
   })
 ]);
