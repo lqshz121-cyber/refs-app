@@ -123,5 +123,20 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'025_idempotency_business_scope_allowlist.sql',
     up:'252fd5f03ed74f8548898f3b4533df22e44c8c5e752d091fcb43cf70e5470d0e',
     down:'fdc59e6d4b896b6d0033a80aef2b31332f781dec871b0fae316a30cd3837eaed'
+  }),
+  Object.freeze({
+    name:'026_allow_evidence_backed_auto_reversal.sql',
+    up:'6414c35c48fccba53168bdfaddf792dceceafa27986e6fa9e78fc98a0457b779',
+    down:'4a352a6a2fa56dd100aca378075f0618b8821701b1547505f570a046c9b7cdb5'
+  }),
+  Object.freeze({
+    name:'027_fix_auto_reversal_predicate_rewrite.sql',
+    up:'a88b1847de0aa32c0e2f7a40da62d36c00a008752b6bd696e266691165f3da86',
+    down:'3e6c773af40e15406c0f9d86697348387aeff0ad5e84c06a82e889b4856b541e'
+  }),
+  Object.freeze({
+    name:'028_ar_receipt_reversal_trigger_scope_fix.sql',
+    up:'a1272303e830252de4786a1ade4ee5b77c28e0834038d9c76b8ef322a022c94e',
+    down:'ee2e0622163338434f5ff7bda0fe3e330a9f87badb0e428651f9a0b41ec5418d'
   })
 ]);

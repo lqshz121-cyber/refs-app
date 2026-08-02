@@ -31,6 +31,12 @@ const arReceiptScopeFixSql=await readFile(new URL('../db/migrations/024_ar_recei
 const arReceiptScopeFixDown=await readFile(new URL('../db/migrations/down/024_ar_receipt_trigger_scope_fix.sql',import.meta.url),'utf8');
 const idempotencyScopeSql=await readFile(new URL('../db/migrations/025_idempotency_business_scope_allowlist.sql',import.meta.url),'utf8');
 const idempotencyScopeDown=await readFile(new URL('../db/migrations/down/025_idempotency_business_scope_allowlist.sql',import.meta.url),'utf8');
+const autoReversalSql=await readFile(new URL('../db/migrations/026_allow_evidence_backed_auto_reversal.sql',import.meta.url),'utf8');
+const autoReversalDown=await readFile(new URL('../db/migrations/down/026_allow_evidence_backed_auto_reversal.sql',import.meta.url),'utf8');
+const autoReversalRewriteSql=await readFile(new URL('../db/migrations/027_fix_auto_reversal_predicate_rewrite.sql',import.meta.url),'utf8');
+const autoReversalRewriteDown=await readFile(new URL('../db/migrations/down/027_fix_auto_reversal_predicate_rewrite.sql',import.meta.url),'utf8');
+const arReceiptReversalScopeSql=await readFile(new URL('../db/migrations/028_ar_receipt_reversal_trigger_scope_fix.sql',import.meta.url),'utf8');
+const arReceiptReversalScopeDown=await readFile(new URL('../db/migrations/down/028_ar_receipt_reversal_trigger_scope_fix.sql',import.meta.url),'utf8');
 const apArPostedReducerSql=await readFile(new URL('../db/migrations/009_ap_ar_posted_adjustment_reducer.sql',import.meta.url),'utf8');
 const apArPostedReducerDown=await readFile(new URL('../db/migrations/down/009_ap_ar_posted_adjustment_reducer.sql',import.meta.url),'utf8');
 const apBillVoidPostReducerSql=await readFile(new URL('../db/migrations/010_ap_bill_void_post_reducer.sql',import.meta.url),'utf8');
@@ -53,7 +59,7 @@ const repository=await readFile(new URL('../runtime/kernel-repository.mjs',impor
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql','018_ar_credit_memo_allocation.sql','019_ar_credit_memo_post_reducer.sql','020_ar_refund_command.sql','021_ar_refund_post_reducer.sql','022_ap_payment_reversal_command.sql','023_ap_payment_reversal_post_reducer.sql','024_ar_receipt_trigger_scope_fix.sql','025_idempotency_business_scope_allowlist.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql','018_ar_credit_memo_allocation.sql','019_ar_credit_memo_post_reducer.sql','020_ar_refund_command.sql','021_ar_refund_post_reducer.sql','022_ap_payment_reversal_command.sql','023_ap_payment_reversal_post_reducer.sql','024_ar_receipt_trigger_scope_fix.sql','025_idempotency_business_scope_allowlist.sql','026_allow_evidence_backed_auto_reversal.sql','027_fix_auto_reversal_predicate_rewrite.sql','028_ar_receipt_reversal_trigger_scope_fix.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -366,6 +372,23 @@ test('AR receipt posted trigger ignores AP payment occurrences',()=>{
   assert.match(arReceiptScopeFixSql,/NOT FOUND OR occ\.occurrence_kind<>'AR_RECEIPT'/);
   assert.match(arReceiptScopeFixSql,/CREATE OR REPLACE FUNCTION refs_apply_ar_receipt_posted_occurrence/);
   assert.match(arReceiptScopeFixDown,/retained on rollback/);
+});
+
+test('AUTO reversal evidence predicate is extended only by a 후속 migration',()=>{
+  assert.match(autoReversalSql,/pg_get_functiondef/);
+  assert.match(autoReversalSql,/RECLASS'',''AUTO/);
+  assert.match(autoReversalDown,/AUTO/);
+});
+
+test('AUTO reversal predicate rewrite is idempotent and preserves installed function body',()=>{
+  assert.match(autoReversalRewriteSql,/pg_get_functiondef/);
+  assert.match(autoReversalRewriteSql,/position\('AUTO' in fn\)/);
+  assert.match(autoReversalRewriteDown,/pg_get_functiondef/);
+});
+
+test('AR receipt reversal trigger is scoped and ignores AP payment adjustments',()=>{
+  assert.match(arReceiptReversalScopeSql,/AR_RECEIPT_REVERSAL/);
+  assert.match(arReceiptReversalScopeDown,/pg_get_functiondef/);
 });
 
 test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{

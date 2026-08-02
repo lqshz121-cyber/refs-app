@@ -806,3 +806,30 @@ pgTest('posted journal, ledger, audit and outbox payload are immutable; outbox c
   const second=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'worker-2',['OUTBOX.DISPATCH'])});
   assert.equal((await second.claimOutbox({tenantId:ids.tenantId})).length,0);
 });
+
+/* AP payment reversal integration is reserved for the AP/AR owner suite. */
+pgTest('AP payment partial occurrence posts and reversal restores bill balance atomically',async()=>{
+  const ids=await seed({status:'APPROVED'});const billId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by) VALUES($1,$2,$3,'AP_BILL','BILL-PARTIAL-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'payment-maker',['AP.PAYMENT.CREATE','GL.JE.SUBMIT'])});
+  const payment=await maker.createApPayment({...ids,businessDocumentId:billId,paymentNumber:'PAY-400',paymentDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:40,reason:'Partial payment',idempotencyKey:'payment-partial-400'});
+  await attachAutoSource({...ids,journalId:payment.journal_entry_id});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'payment-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'payment-approver',['GL.JE.APPROVE'])});
+  await maker.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'payment-submit-400'});
+  await reviewer.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'payment-review-400'});
+  await approver.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'payment-approve-400'});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'payment-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:payment.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'payment-post-400'});
+  assert.equal((await adminPool.query('SELECT open_balance FROM business_document WHERE business_document_id=$1',[billId])).rows[0].open_balance,'60.0000');
+  const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
+  const reversalMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'payment-reversal-maker',['AP.PAYMENT.REVERSE','GL.JE.SUBMIT'])});
+  const reversal=await reversalMaker.createApPaymentReversal({...ids,sourceOccurrenceId:payment.payment_occurrence_id,periodId:augustPeriod,journalNumber:'PAY-400-REV',journalDate:'2026-08-02',reason:'Reverse duplicate payment',idempotencyKey:'payment-reversal-400'});
+  await reversalMaker.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'payment-reversal-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'payment-reversal-review'});
+  await approver.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'payment-reversal-approve'});
+  await poster.postJournal({...ids,journalEntryId:reversal.journal_entry_id,periodId:augustPeriod,expectedRevision:3,idempotencyKey:'payment-reversal-post'});
+  assert.equal((await adminPool.query('SELECT open_balance FROM business_document WHERE business_document_id=$1',[billId])).rows[0].open_balance,'100.0000');
+  assert.equal((await adminPool.query('SELECT status FROM payment_occurrence WHERE payment_occurrence_id=$1',[payment.payment_occurrence_id])).rows[0].status,'REVERSED');
+  assert.equal((await adminPool.query("SELECT status FROM business_allocation WHERE payment_occurrence_id=$1",[payment.payment_occurrence_id])).rows[0].status,'REVERSED');
+});
