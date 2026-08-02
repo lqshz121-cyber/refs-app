@@ -3,7 +3,7 @@ import {createAccountingApi,createAccountingHttpServer} from '../api/accounting-
 
 const tenantId=randomUUID(),entityId=randomUUID(),journalEntryId=randomUUID(),periodId=randomUUID();
 const calls=[];const invoke=name=>async args=>{calls.push([name,args]);return {journal_entry_id:journalEntryId,status:'DRAFT',idempotent:false};};
-const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit')};
+const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit')};
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
@@ -80,6 +80,10 @@ test('AR Credit Memo allocation route creates only a pending reservation from tr
   calls.length=0;const creditId=randomUUID(),invoiceId=randomUUID();const body={businessDocumentId:invoiceId,amount:50,reason:'Apply credit memo to invoice'};
   const response=await command(`/api/v1/entities/${entityId}/ar/credit-memos/${creditId}/allocations`,body);
   assert.equal(response.status,201);assert.equal(calls[0][0],'applyArCreditMemo');assert.equal(calls[0][1].businessAdjustmentId,creditId);
+});
+test('AR Refund route creates only a Draft from a posted credit source',async()=>{
+  calls.length=0;const sourceAdjustmentId=randomUUID();const response=await command(`/api/v1/entities/${entityId}/ar/refunds`,{periodId,sourceAdjustmentId,refundNumber:'RF-1',refundDate:'2026-08-02',cashAccountCode:'100100',amount:50,reason:'Return customer overpayment'});
+  assert.equal(response.status,201);assert.equal(calls[0][0],'createArRefund');assert.equal(calls[0][1].sourceAdjustmentId,sourceAdjustmentId);
 });
 
 test('attachment routes derive scope from authentication and never accept caller storage evidence',async()=>{

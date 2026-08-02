@@ -215,6 +215,20 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createArRefund(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_ar_refund_hash($1,$2,$3,$4,$5,$6,$7,$8,$9) AS request_hash',
+        [args.tenantId,args.entityId,args.periodId,args.sourceAdjustmentId,args.refundNumber,args.refundDate,args.cashAccountCode,args.amount,args.reason]
+      ),'AR_REFUND_HASH_FAILED','AR refund hash was not produced').request_hash;
+      const row=requireRow(await client.query(
+        'SELECT refs_create_ar_refund($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS result',
+        [args.tenantId,args.entityId,args.periodId,args.sourceAdjustmentId,args.refundNumber,args.refundDate,args.cashAccountCode,args.amount,args.reason,args.idempotencyKey,requestHash]
+      ),'AR_REFUND_FAILED','AR refund Draft creation did not return a result');
+      return row.result;
+    });
+  }
+
   async transitionJournal(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
