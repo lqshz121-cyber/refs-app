@@ -718,6 +718,38 @@ pgTest('authenticated HTTP AR aging reads only the entity authorized by its DB c
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/ar/aging?asOf=2026-08-31`,headers:{},body:null})).status,403);
 });
 
+pgTest('authenticated HTTP posts a vendor credit and atomically applies it to an AP bill',async()=>{
+  const ids=await seed({status:'APPROVED'}),billId=randomUUID(),applierId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,'AP_BILL','BILL-HTTP-CREDIT','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
+  const permissions={
+    'http-credit-maker':['AP.VENDOR_CREDIT.CREATE','GL.JE.SUBMIT'],'http-credit-reviewer':['GL.JE.REVIEW'],
+    'http-credit-approver':['GL.JE.APPROVE'],'http-credit-poster':['GL.JE.POST'],[applierId]:['AP.VENDOR_CREDIT.APPLY']
+  };
+  const api=createAccountingApi({
+    authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
+    kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})
+  });
+  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
+  const root=`/api/v1/entities/${ids.entityId}`;
+  const created=await send('http-credit-maker',`${root}/ap/vendor-credits`,{periodId:ids.periodId,creditNumber:'VC-HTTP-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1',description:'Vendor credit'}],reason:'HTTP vendor price adjustment'},'http-credit-create');
+  assert.equal(created.status,201);const credit=created.body.data;
+  await attachAutoSource({...ids,journalId:credit.journal_entry_id});
+  const journalPath=`${root}/journal-entries/${credit.journal_entry_id}`;
+  assert.equal((await send('http-credit-maker',`${journalPath}/transitions/submit`,{},'http-credit-submit',0)).status,201);
+  assert.equal((await send('http-credit-reviewer',`${journalPath}/transitions/review`,{},'http-credit-review',1)).status,201);
+  assert.equal((await send('http-credit-approver',`${journalPath}/transitions/approve`,{},'http-credit-approve',2)).status,201);
+  assert.equal((await send('http-credit-poster',`${journalPath}/post`,{periodId:ids.periodId},'http-credit-post',3)).status,201);
+  const allocationPath=`${root}/ap/vendor-credits/${credit.business_adjustment_id}/allocations`;
+  const allocationBody={businessDocumentId:billId,amount:40,reason:'Apply posted vendor credit'};
+  assert.equal((await send(applierId,allocationPath,allocationBody,'http-credit-apply')).status,201);
+  const replay=await send(applierId,allocationPath,allocationBody,'http-credit-apply');assert.equal(replay.status,200);
+  assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0],{open_balance:'60.0000',status:'PARTIALLY_PAID'});
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_allocation WHERE business_adjustment_id=$1 AND status='ACTIVE'",[credit.business_adjustment_id])).rows[0].n,1);
+  assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[credit.journal_entry_id])).rows[0].status,'POSTED');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[credit.journal_entry_id])).rows[0].n,2);
+});
+
 pgTest('runtime creates an evidence-backed Auto Draft and advances staging atomically through posting',async()=>{
   const ids=await seed({status:'DRAFT'});
   const trace=await attachAutoSource(ids,{linkJournal:false});
