@@ -13,11 +13,13 @@ const apBillVoidHttpSql=await readFile(new URL('../db/migrations/006_ap_bill_voi
 const apBillVoidHttpDown=await readFile(new URL('../db/migrations/down/006_ap_bill_void_http_cas.sql',import.meta.url),'utf8');
 const apVendorCreditSql=await readFile(new URL('../db/migrations/007_ap_vendor_credit_command.sql',import.meta.url),'utf8');
 const apVendorCreditDown=await readFile(new URL('../db/migrations/down/007_ap_vendor_credit_command.sql',import.meta.url),'utf8');
+const apVendorCreditAllocationSql=await readFile(new URL('../db/migrations/008_ap_vendor_credit_allocation.sql',import.meta.url),'utf8');
+const apVendorCreditAllocationDown=await readFile(new URL('../db/migrations/down/008_ap_vendor_credit_allocation.sql',import.meta.url),'utf8');
 const repository=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -87,13 +89,36 @@ test('AP Vendor Credit command is Draft-only, idempotent and allocation-separate
   assert.match(apVendorCreditDown,/DROP FUNCTION IF EXISTS refs_ap_vendor_credit_hash/);
 });
 
+test('AP Vendor Credit allocation is pending-only, idempotent and does not mutate balances',()=>{
+  assert.match(apVendorCreditAllocationSql,/CREATE OR REPLACE FUNCTION refs_ap_vendor_credit_allocation_hash/);
+  assert.match(apVendorCreditAllocationSql,/CREATE OR REPLACE FUNCTION refs_apply_ap_vendor_credit/);
+  assert.match(repository,/async applyApVendorCredit/);
+  assert.match(repository,/refs_ap_vendor_credit_allocation_hash/);
+  assert.match(repository,/refs_apply_ap_vendor_credit/);
+  assert.match(apVendorCreditAllocationSql,/refs_assert_scope\(p_tenant,p_entity,'AP\.VENDOR_CREDIT\.APPLY'\)/);
+  assert.match(apVendorCreditAllocationSql,/operation_scope='AP_VENDOR_CREDIT_APPLY:'\|\|p_entity/);
+  assert.match(apVendorCreditAllocationSql,/credit\.adjustment_kind<>'AP_VENDOR_CREDIT' OR credit\.status<>'POSTED'/);
+  assert.match(apVendorCreditAllocationSql,/bill\.document_kind<>'AP_BILL'/);
+  assert.match(apVendorCreditAllocationSql,/bill\.open_balance<=0/);
+  assert.match(apVendorCreditAllocationSql,/bill\.currency<>credit\.currency/);
+  assert.match(apVendorCreditAllocationSql,/FOR UPDATE/);
+  assert.match(apVendorCreditAllocationSql,/allocated\+p_amount>credit\.amount OR p_amount>bill\.open_balance/);
+  assert.match(apVendorCreditAllocationSql,/INSERT INTO business_allocation[\s\S]*'PENDING'/);
+  assert.match(apVendorCreditAllocationSql,/AP_VENDOR_CREDIT_ALLOCATION_PENDING/);
+  assert.doesNotMatch(apVendorCreditAllocationSql,/UPDATE business_document/);
+  assert.doesNotMatch(apVendorCreditAllocationSql,/UPDATE business_adjustment/);
+  assert.doesNotMatch(apVendorCreditAllocationSql,/INSERT INTO ledger_line/);
+  assert.match(apVendorCreditAllocationDown,/DROP FUNCTION IF EXISTS refs_apply_ap_vendor_credit/);
+  assert.match(apVendorCreditAllocationDown,/DROP FUNCTION IF EXISTS refs_ap_vendor_credit_allocation_hash/);
+});
+
 test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{
   for(const table of ['business_document','payment_occurrence','business_adjustment','business_allocation','je_reversal_link']){
     assert.match(apArSql,new RegExp(`CREATE TABLE ${table}`));
     assert.match(apArSql,new RegExp(`ALTER TABLE %I ENABLE ROW LEVEL SECURITY|ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`));
     assert.match(apArDown,new RegExp(`DROP TABLE IF EXISTS ${table}`));
   }
-  for(const permission of ['AP.BILL.VOID.CREATE','AP.VENDOR_CREDIT.CREATE','AP.PAYMENT.REVERSE','AR.CREDIT_MEMO.CREATE','AR.REFUND.CREATE','AR.RECEIPT.REVERSE']){
+  for(const permission of ['AP.BILL.VOID.CREATE','AP.VENDOR_CREDIT.CREATE','AP.VENDOR_CREDIT.APPLY','AP.PAYMENT.REVERSE','AR.CREDIT_MEMO.CREATE','AR.CREDIT_MEMO.APPLY','AR.REFUND.CREATE','AR.RECEIPT.REVERSE']){
     assert.match(apArSql,new RegExp(permission.replaceAll('.','\\.')));
   }
   assert.match(apArSql,/document_kind text NOT NULL CHECK \(document_kind IN \('AP_BILL','AR_INVOICE'\)\)/);
