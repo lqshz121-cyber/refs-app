@@ -71,9 +71,11 @@ const repository=await readFile(new URL('../runtime/kernel-repository.mjs',impor
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 const postedCreditAllocationSql=await readFile(new URL('../db/migrations/035_posted_credit_allocation_reducer.sql',import.meta.url),'utf8');
 const postedCreditAllocationDown=await readFile(new URL('../db/migrations/down/035_posted_credit_allocation_reducer.sql',import.meta.url),'utf8');
+const postedArCreditAllocationSql=await readFile(new URL('../db/migrations/036_posted_ar_credit_allocation_reducer.sql',import.meta.url),'utf8');
+const postedArCreditAllocationDown=await readFile(new URL('../db/migrations/down/036_posted_ar_credit_allocation_reducer.sql',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql','018_ar_credit_memo_allocation.sql','019_ar_credit_memo_post_reducer.sql','020_ar_refund_command.sql','021_ar_refund_post_reducer.sql','022_ap_payment_reversal_command.sql','023_ap_payment_reversal_post_reducer.sql','024_ar_receipt_trigger_scope_fix.sql','025_idempotency_business_scope_allowlist.sql','026_allow_evidence_backed_auto_reversal.sql','027_fix_auto_reversal_predicate_rewrite.sql','028_ar_receipt_reversal_trigger_scope_fix.sql','029_ap_payment_trigger_scope_fix.sql','030_allocation_reservation_balance_fix.sql','031_ap_payment_reversal_trigger_scope_fix.sql','032_ap_bill_void_direct_source_workflow.sql','033_ap_bill_void_post_evidence.sql','034_ap_bill_void_post_stage_state.sql','035_posted_credit_allocation_reducer.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql','018_ar_credit_memo_allocation.sql','019_ar_credit_memo_post_reducer.sql','020_ar_refund_command.sql','021_ar_refund_post_reducer.sql','022_ap_payment_reversal_command.sql','023_ap_payment_reversal_post_reducer.sql','024_ar_receipt_trigger_scope_fix.sql','025_idempotency_business_scope_allowlist.sql','026_allow_evidence_backed_auto_reversal.sql','027_fix_auto_reversal_predicate_rewrite.sql','028_ar_receipt_reversal_trigger_scope_fix.sql','029_ap_payment_trigger_scope_fix.sql','030_allocation_reservation_balance_fix.sql','031_ap_payment_reversal_trigger_scope_fix.sql','032_ap_bill_void_direct_source_workflow.sql','033_ap_bill_void_post_evidence.sql','034_ap_bill_void_post_stage_state.sql','035_posted_credit_allocation_reducer.sql','036_posted_ar_credit_allocation_reducer.sql','037_order_ar_credit_post_reducer.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -89,6 +91,12 @@ test('posted vendor credit allocation activates only on the posted adjustment pa
   assert.match(postedCreditAllocationSql,/adj\.status<>'POSTED'/);
   assert.match(postedCreditAllocationSql,/CREATE TRIGGER posted_credit_allocation_reducer/);
   assert.match(postedCreditAllocationDown,/DROP TRIGGER IF EXISTS posted_credit_allocation_reducer/);
+});
+test('posted AR credit allocation activates only on the posted adjustment path',()=>{
+  assert.match(postedArCreditAllocationSql,/refs_activate_posted_ar_credit_allocation/);
+  assert.match(postedArCreditAllocationSql,/adj\.status<>'POSTED'/);
+  assert.match(postedArCreditAllocationSql,/CREATE TRIGGER posted_ar_credit_allocation_reducer/);
+  assert.match(postedArCreditAllocationDown,/DROP TRIGGER IF EXISTS posted_ar_credit_allocation_reducer/);
 });
 
 test('AP Bill Void HTTP contract adds optimistic CAS and disables the pre-CAS function grant',()=>{
