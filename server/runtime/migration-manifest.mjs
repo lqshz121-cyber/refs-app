@@ -73,5 +73,10 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'015_ar_receipt_reversal_command.sql',
     up:'e2c907394d7b0ef753040a48d0c26f923194eddca49c10121bb484f22269ef51',
     down:'3518a300f366a8f8de8e51085bc0a0d8a281771899603ab1b2b460be903b71a8'
+  }),
+  Object.freeze({
+    name:'016_ar_receipt_reversal_post_reducer.sql',
+    up:'841508af1e7386231907875f257f94e6cb63f422925418230fef4d17996ef104',
+    down:'5fd50eb36a89c1f6d02e4981db5be5421327fe9e686f3ba217514fc35ea07575'
   })
 ]);
