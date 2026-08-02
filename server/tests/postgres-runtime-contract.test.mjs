@@ -17,11 +17,13 @@ const apVendorCreditAllocationSql=await readFile(new URL('../db/migrations/008_a
 const apVendorCreditAllocationDown=await readFile(new URL('../db/migrations/down/008_ap_vendor_credit_allocation.sql',import.meta.url),'utf8');
 const apArPostedReducerSql=await readFile(new URL('../db/migrations/009_ap_ar_posted_adjustment_reducer.sql',import.meta.url),'utf8');
 const apArPostedReducerDown=await readFile(new URL('../db/migrations/down/009_ap_ar_posted_adjustment_reducer.sql',import.meta.url),'utf8');
+const apBillVoidPostReducerSql=await readFile(new URL('../db/migrations/010_ap_bill_void_post_reducer.sql',import.meta.url),'utf8');
+const apBillVoidPostReducerDown=await readFile(new URL('../db/migrations/down/010_ap_bill_void_post_reducer.sql',import.meta.url),'utf8');
 const repository=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -133,6 +135,23 @@ test('AP/AR posted adjustment reducer activates vendor-credit allocations inside
   assert.doesNotMatch(apArPostedReducerSql,/INSERT INTO ledger_line/);
   assert.match(apArPostedReducerDown,/DROP TRIGGER IF EXISTS business_adjustment_posted_reducer/);
   assert.match(apArPostedReducerDown,/DROP FUNCTION IF EXISTS refs_apply_ap_ar_posted_adjustment/);
+});
+
+test('AP Bill Void post reducer voids only fully-open bills inside JE post transaction',()=>{
+  assert.match(apBillVoidPostReducerSql,/CREATE OR REPLACE FUNCTION refs_apply_ap_ar_posted_adjustment/);
+  assert.match(apBillVoidPostReducerSql,/adj\.adjustment_kind='AP_BILL_VOID'/);
+  assert.match(apBillVoidPostReducerSql,/WHERE tenant_id=NEW\.tenant_id AND entity_id=NEW\.entity_id AND business_document_id=adj\.business_document_id[\s\S]*FOR UPDATE/);
+  assert.match(apBillVoidPostReducerSql,/bill\.document_kind<>'AP_BILL' OR bill\.status<>'APPROVED' OR bill\.open_balance<>bill\.gross_amount/);
+  assert.match(apBillVoidPostReducerSql,/status IN \('PENDING','ACTIVE'\)[\s\S]*FOR UPDATE/);
+  assert.match(apBillVoidPostReducerSql,/posted_credit_adjustments=posted_credit_adjustments\+bill\.open_balance/);
+  assert.match(apBillVoidPostReducerSql,/open_balance=0/);
+  assert.match(apBillVoidPostReducerSql,/status='VOID'/);
+  assert.match(apBillVoidPostReducerSql,/UPDATE business_adjustment[\s\S]*status='POSTED',posted_journal_entry_id=NEW\.journal_entry_id/);
+  assert.match(apBillVoidPostReducerSql,/AP_BILL_VOID_POSTED/);
+  assert.match(apBillVoidPostReducerSql,/INSERT INTO outbox_event/);
+  assert.doesNotMatch(apBillVoidPostReducerSql,/INSERT INTO ledger_line/);
+  assert.match(apBillVoidPostReducerDown,/CREATE OR REPLACE FUNCTION refs_apply_ap_ar_posted_adjustment/);
+  assert.doesNotMatch(apBillVoidPostReducerDown,/AP_BILL_VOID_POSTED/);
 });
 
 test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{
