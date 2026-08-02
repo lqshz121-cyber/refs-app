@@ -745,7 +745,10 @@ pgTest('authenticated HTTP posts a vendor credit and atomically applies it to an
   assert.equal((await send(applierId,allocationPath,allocationBody,'http-credit-apply')).status,201);
   const replay=await send(applierId,allocationPath,allocationBody,'http-credit-apply');assert.equal(replay.status,200);
   assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0],{open_balance:'60.0000',status:'PARTIALLY_PAID'});
-  assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_allocation WHERE business_adjustment_id=$1 AND status='ACTIVE'",[credit.business_adjustment_id])).rows[0].n,1);
+  const fullApply={businessDocumentId:billId,amount:60,reason:'Apply remaining posted vendor credit'};
+  assert.equal((await send(applierId,allocationPath,fullApply,'http-credit-apply-remaining')).status,201);
+  assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0],{open_balance:'0.0000',status:'PAID'});
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_allocation WHERE business_adjustment_id=$1 AND status='ACTIVE'",[credit.business_adjustment_id])).rows[0].n,2);
   assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[credit.journal_entry_id])).rows[0].status,'POSTED');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[credit.journal_entry_id])).rows[0].n,2);
 });
