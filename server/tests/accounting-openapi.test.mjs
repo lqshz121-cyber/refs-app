@@ -33,9 +33,12 @@ test('attachment create and replay responses use the exact attachment envelope',
   assert.deepEqual(result.required,['attachment_id','entity_id','status','idempotent']);
 });
 
-test('AR aging is a no-store authenticated GET with a required as-of date',()=>{
-  const operation=contract.paths['/entities/{entityId}/ar/aging'].get;
-  assert.equal(operation.operationId,'getArAging');assert.equal(operation.parameters[1].name,'asOf');assert.equal(operation.parameters[1].required,true);
-  assert.equal(operation.responses['200'].$ref,'#/components/responses/ReadOk');assert.equal(contract.components.responses.ReadOk.headers['Cache-Control'].schema.const,'no-store');
+test('AP and AR aging are no-store authenticated GETs with a required as-of date',()=>{
+  for(const [path,operationId] of [['/entities/{entityId}/ap/aging','getApAging'],['/entities/{entityId}/ar/aging','getArAging']]){
+    const operation=contract.paths[path].get;
+    assert.equal(operation.operationId,operationId);assert.equal(operation.parameters[1].name,'asOf');assert.equal(operation.parameters[1].required,true);
+    assert.equal(operation.responses['200'].$ref,'#/components/responses/ReadOk');
+  }
+  assert.equal(contract.components.responses.ReadOk.headers['Cache-Control'].schema.const,'no-store');
   assert.equal(contract.components.schemas.ArAgingRow.additionalProperties,false);
 });

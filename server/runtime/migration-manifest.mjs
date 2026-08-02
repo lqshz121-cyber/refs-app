@@ -198,5 +198,10 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'040_ar_aging.sql',
     up:'03b3910e0be9282d54bd858f5d50562fd48b775cdc7cf047eb042441ec06ddf9',
     down:'81ce6f1120a5ea0d64afb5dea21b58a95ab355107f700633ca3278396fd7d71d'
+  }),
+  Object.freeze({
+    name:'041_ap_aging.sql',
+    up:'5f351d22ea5ed0828b61bd60358c6e44ac3854ad018460bb58e228aa84ee0aae',
+    down:'803fc90182deda51d893706d71c1d459566399fa67c47ea9e425deb207572520'
   })
 ]);

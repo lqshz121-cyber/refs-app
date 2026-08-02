@@ -962,6 +962,42 @@ pgTest('AR receipt and reversal keep aging and the 120200 control balance in loc
   assert.deepEqual((await reader.inSession(client=>client.query('SELECT ar_open_balance,ar_control_balance,ar_in_balance FROM refs_ap_ar_control_reconciliation WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId]))).rows[0],{ar_open_balance:'100.0000',ar_control_balance:'100.0000',ar_in_balance:true});
 });
 
+pgTest('AP payment and reversal keep aging and the 291001 control balance in lockstep',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'610000',accountName:'Expense'}],
+    journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}]});
+  const source=await attachAutoSource(ids);
+  const sourcePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ap-bill-source-poster',['GL.JE.POST'])});
+  await sourcePoster.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'ap-bill-source-post'});
+  const billId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by)
+    VALUES($1,$2,$3,$4,'AP_BILL','BILL-AGING-1','VENDOR-1','Vendor','USD','2026-07-15','2026-07-15',100,100,'OPEN',$5,'fixture')`,[billId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-payment-maker',['AP.PAYMENT.CREATE','GL.JE.SUBMIT'])});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-payment-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-payment-approver',['GL.JE.APPROVE'])});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-payment-poster',['GL.JE.POST'])});
+  const payment=await maker.createApPayment({...ids,businessDocumentId:billId,paymentNumber:'PAY-AGING-40',paymentDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:40,reason:'Partial payment',idempotencyKey:'aging-payment-create'});
+  await attachAutoSource({...ids,journalId:payment.journal_entry_id},{reuseApprovedSnapshots:true});
+  await maker.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'aging-payment-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'aging-payment-review'});
+  await approver.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'aging-payment-approve'});
+  await poster.postJournal({...ids,journalEntryId:payment.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'aging-payment-post'});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ap-aging-reader',['AP.VIEW'])});
+  assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'60.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'60.0000'}]);
+  assert.deepEqual((await reader.inSession(client=>client.query('SELECT ap_open_balance,ap_control_balance,ap_in_balance FROM refs_ap_ar_control_reconciliation WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId]))).rows[0],{ap_open_balance:'60.0000',ap_control_balance:'60.0000',ap_in_balance:true});
+  const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ap-aging-period-closer',['GL.PERIOD.CLOSE'])});
+  await closer.closePeriod({...ids,expectedVersion:0,idempotencyKey:'ap-aging-period-close'});
+  const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
+  const reversalMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-payment-reversal-maker',['AP.PAYMENT.REVERSE','GL.JE.SUBMIT'])});
+  const reversal=await reversalMaker.createApPaymentReversal({...ids,sourceOccurrenceId:payment.payment_occurrence_id,periodId:augustPeriod,journalNumber:'PAY-AGING-40-REV',journalDate:'2026-08-02',reason:'Payment reversal',idempotencyKey:'aging-payment-reversal-create'});
+  await reversalMaker.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'aging-payment-reversal-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'aging-payment-reversal-review'});
+  await approver.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'aging-payment-reversal-approve'});
+  await poster.postJournal({...ids,journalEntryId:reversal.journal_entry_id,periodId:augustPeriod,expectedRevision:3,idempotencyKey:'aging-payment-reversal-post'});
+  assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'100.0000'}]);
+  assert.deepEqual((await reader.inSession(client=>client.query('SELECT ap_open_balance,ap_control_balance,ap_in_balance FROM refs_ap_ar_control_reconciliation WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId]))).rows[0],{ap_open_balance:'100.0000',ap_control_balance:'100.0000',ap_in_balance:true});
+});
+
 pgTest('AP vendor credit posted first then partial and full apply updates bill atomically',async()=>{
   const ids=await seed({status:'APPROVED'});const billId=randomUUID();
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by) VALUES($1,$2,$3,'AP_BILL','BILL-CREDIT-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
