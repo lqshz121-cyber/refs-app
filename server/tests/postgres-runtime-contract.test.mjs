@@ -7,11 +7,13 @@ import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 const sql=await readFile(new URL('../db/migrations/002_accounting_runtime.sql',import.meta.url),'utf8');
 const apArSql=await readFile(new URL('../db/migrations/004_ap_ar_business_runtime.sql',import.meta.url),'utf8');
 const apArDown=await readFile(new URL('../db/migrations/down/004_ap_ar_business_runtime.sql',import.meta.url),'utf8');
+const apBillVoidSql=await readFile(new URL('../db/migrations/005_ap_bill_void_command.sql',import.meta.url),'utf8');
+const apBillVoidDown=await readFile(new URL('../db/migrations/down/005_ap_bill_void_command.sql',import.meta.url),'utf8');
 const repository=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -20,6 +22,32 @@ test('migration manifest freezes normalized up and down artifacts without AutoRe
       assert.equal(checksum,item[direction],`${direction} checksum mismatch for ${item.name}`);
     }
   }
+});
+
+test('AP Bill Void command is Draft-only, idempotent and leaves posted source immutable',()=>{
+  assert.match(apBillVoidSql,/CREATE OR REPLACE FUNCTION refs_ap_bill_void_hash/);
+  assert.match(apBillVoidSql,/CREATE OR REPLACE FUNCTION refs_create_ap_bill_void/);
+  assert.match(repository,/async createApBillVoid/);
+  assert.match(repository,/refs_ap_bill_void_hash/);
+  assert.match(repository,/refs_create_ap_bill_void/);
+  assert.match(apBillVoidSql,/refs_assert_scope\(p_tenant,p_entity,'AP\.BILL\.VOID\.CREATE'\)/);
+  assert.match(apBillVoidSql,/operation_scope='AP_BILL_VOID:'\|\|p_entity/);
+  assert.match(apBillVoidSql,/receipt\.status='SUCCEEDED'[\s\S]*response_body\|\|jsonb_build_object\('idempotent',true\)/);
+  assert.match(apBillVoidSql,/business_document[\s\S]*FOR UPDATE/);
+  assert.match(apBillVoidSql,/journal_entry[\s\S]*FOR SHARE/);
+  assert.match(apBillVoidSql,/bill\.status<>'APPROVED'/);
+  assert.match(apBillVoidSql,/bill\.open_balance<>bill\.gross_amount/);
+  assert.match(apBillVoidSql,/business_allocation[\s\S]*status='ACTIVE'/);
+  assert.match(apBillVoidSql,/INSERT INTO journal_entry[\s\S]*'AUTO','DRAFT'/);
+  assert.match(apBillVoidSql,/SELECT p_tenant,p_entity,p_period,journal_id,line_no,account_code,credit_amount,debit_amount/);
+  assert.match(apBillVoidSql,/INSERT INTO business_adjustment[\s\S]*'AP_BILL_VOID'/);
+  assert.match(apBillVoidSql,/INSERT INTO audit_event[\s\S]*AP_BILL_VOID_DRAFT_CREATED/);
+  assert.match(apBillVoidSql,/INSERT INTO outbox_event[\s\S]*AP_BILL_VOID_DRAFT_CREATED/);
+  assert.doesNotMatch(apBillVoidSql,/UPDATE business_document/);
+  assert.doesNotMatch(apBillVoidSql,/UPDATE journal_entry SET status='REVERSED'/);
+  assert.doesNotMatch(apBillVoidSql,/INSERT INTO ledger_line/);
+  assert.match(apBillVoidDown,/DROP FUNCTION IF EXISTS refs_create_ap_bill_void/);
+  assert.match(apBillVoidDown,/DROP FUNCTION IF EXISTS refs_ap_bill_void_hash/);
 });
 
 test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{
