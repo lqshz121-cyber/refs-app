@@ -65,18 +65,20 @@ async function rejectsInTransaction(client,query,validator){
   }
 }
 
-async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VERIFIED_CLEAN',tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID(),journalId=randomUUID()}={}){
+async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VERIFIED_CLEAN',tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID(),journalId=randomUUID(),extraAccounts=[],extraMembers=[],journalLines=null}={}){
   const sourceEntityId=`E${entityId.replaceAll('-','').slice(0,8)}`.toUpperCase();
   await adminPool.query('INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,$2,$3) ON CONFLICT (tenant_id) DO NOTHING',[tenantId,`T${tenantId.replaceAll('-','').slice(0,8)}`.toUpperCase(),'Test tenant']);
   await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,$3,'WBS',$3,$3,'USD')",[entityId,tenantId,sourceEntityId]);
   await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-07','2026-07-01','2026-07-31','OPEN')",[periodId,tenantId,entityId]);
   await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type) VALUES($1,$2,'111000','Cash',true,'BANK'),($1,$2,'291001','Accounts Payable',true,'VENDOR'),($1,$2,'120200','Accounts Receivable',true,'CUSTOMER_OR_AFFILIATE')",[tenantId,entityId]);
   await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'BANK-1','BANK','Operating Cash'),($1,$2,'VENDOR-1','VENDOR','Vendor')",[tenantId,entityId]);
+  for(const account of extraAccounts)await adminPool.query('INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type) VALUES($1,$2,$3,$4,$5,$6)',[tenantId,entityId,account.accountCode,account.accountName,account.requiresMember??false,account.requiredMemberType??null]);
+  for(const member of extraMembers)await adminPool.query('INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,$3,$4,$5)',[tenantId,entityId,member.memberRef,member.memberType,member.displayName]);
   const actors=status==='DRAFT'?[null,null,null]:['reviewer','approver',null];
   await adminPool.query(`INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,created_by,reviewed_by,approved_by)
     VALUES($1,$2,$3,$4,$5,$6,$7,'2026-07-15','USD','maker',$8,$9)`,[journalId,tenantId,entityId,periodId,`JE-${journalId.slice(0,8)}`,journalType,status,actors[0],actors[1]]);
-  await adminPool.query(`INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref)
-    VALUES($1,$2,$3,$4,1,'111000',100,0,'BANK-1'),($1,$2,$3,$4,2,'291001',0,100,'VENDOR-1')`,[tenantId,entityId,periodId,journalId]);
+  const lines=journalLines||[{lineNo:1,accountCode:'111000',debit:100,credit:0,memberRef:'BANK-1'},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}];
+  for(const line of lines)await adminPool.query('INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[tenantId,entityId,periodId,journalId,line.lineNo,line.accountCode,line.debit,line.credit,line.memberRef??null]);
   if(attachmentStatus){
     const attachmentId=randomUUID();
     await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at)
@@ -907,6 +909,43 @@ pgTest('AR multiple receipt occurrences reverse independently without touching t
   const occurrences=(await adminPool.query('SELECT payment_occurrence_id,status,amount FROM payment_occurrence WHERE business_document_id=$1 ORDER BY amount',[invoiceId])).rows;
   assert.deepEqual(occurrences.map(row=>[row.payment_occurrence_id,row.status,Number(row.amount)]),[[first.payment_occurrence_id,'REVERSED',40],[second.payment_occurrence_id,'POSTED',60]]);
   assert.equal((await adminPool.query('SELECT open_balance FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0].open_balance,'40.0000');
+});
+
+pgTest('AR receipt and reversal keep aging and the 120200 control balance in lockstep',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'400000',accountName:'Revenue'}],
+    extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}],
+    journalLines:[{lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'CUSTOMER-1'},{lineNo:2,accountCode:'400000',debit:0,credit:100}]});
+  const source=await attachAutoSource(ids);
+  const sourcePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-invoice-source-poster',['GL.JE.POST'])});
+  await sourcePoster.postJournal({...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'ar-invoice-source-post'});
+  const invoiceId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by)
+    VALUES($1,$2,$3,$4,'AR_INVOICE','INV-AGING-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-07-15',100,100,'OPEN',$5,'fixture')`,[invoiceId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-receipt-maker',['AR.RECEIPT.CREATE','GL.JE.SUBMIT'])});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-receipt-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-receipt-approver',['GL.JE.APPROVE'])});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-receipt-poster',['GL.JE.POST'])});
+  const receipt=await maker.createArReceipt({...ids,businessDocumentId:invoiceId,receiptNumber:'REC-AGING-40',receiptDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:40,reason:'Partial receipt',idempotencyKey:'aging-receipt-create'});
+  await attachAutoSource({...ids,journalId:receipt.journal_entry_id},{reuseApprovedSnapshots:true});
+  await maker.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'aging-receipt-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'aging-receipt-review'});
+  await approver.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'aging-receipt-approve'});
+  await poster.postJournal({...ids,journalEntryId:receipt.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'aging-receipt-post'});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-reader',['AR.VIEW'])});
+  assert.deepEqual(await reader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'60.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'60.0000'}]);
+  assert.deepEqual((await reader.inSession(client=>client.query('SELECT ar_open_balance,ar_control_balance,ar_in_balance FROM refs_ap_ar_control_reconciliation WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId]))).rows[0],{ar_open_balance:'60.0000',ar_control_balance:'60.0000',ar_in_balance:true});
+  const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-period-closer',['GL.PERIOD.CLOSE'])});
+  await closer.closePeriod({...ids,expectedVersion:0,idempotencyKey:'aging-period-close'});
+  const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
+  const reversalMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-receipt-reversal-maker',['AR.RECEIPT.REVERSE','GL.JE.SUBMIT'])});
+  const reversal=await reversalMaker.createArReceiptReversal({...ids,sourceOccurrenceId:receipt.payment_occurrence_id,periodId:augustPeriod,journalNumber:'REC-AGING-40-REV',journalDate:'2026-08-02',reason:'Receipt reversal',idempotencyKey:'aging-receipt-reversal-create'});
+  await reversalMaker.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'aging-receipt-reversal-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'aging-receipt-reversal-review'});
+  await approver.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'aging-receipt-reversal-approve'});
+  await poster.postJournal({...ids,journalEntryId:reversal.journal_entry_id,periodId:augustPeriod,expectedRevision:3,idempotencyKey:'aging-receipt-reversal-post'});
+  assert.deepEqual(await reader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'100.0000'}]);
+  assert.deepEqual((await reader.inSession(client=>client.query('SELECT ar_open_balance,ar_control_balance,ar_in_balance FROM refs_ap_ar_control_reconciliation WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId]))).rows[0],{ar_open_balance:'100.0000',ar_control_balance:'100.0000',ar_in_balance:true});
 });
 
 pgTest('AP vendor credit posted first then partial and full apply updates bill atomically',async()=>{
