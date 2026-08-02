@@ -21,11 +21,13 @@ const apBillVoidPostReducerSql=await readFile(new URL('../db/migrations/010_ap_b
 const apBillVoidPostReducerDown=await readFile(new URL('../db/migrations/down/010_ap_bill_void_post_reducer.sql',import.meta.url),'utf8');
 const apPaymentSql=await readFile(new URL('../db/migrations/011_ap_payment_command.sql',import.meta.url),'utf8');
 const apPaymentDown=await readFile(new URL('../db/migrations/down/011_ap_payment_command.sql',import.meta.url),'utf8');
+const apPaymentPostReducerSql=await readFile(new URL('../db/migrations/012_ap_payment_post_reducer.sql',import.meta.url),'utf8');
+const apPaymentPostReducerDown=await readFile(new URL('../db/migrations/down/012_ap_payment_post_reducer.sql',import.meta.url),'utf8');
 const repository=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -176,6 +178,25 @@ test('AP Payment command creates Draft occurrence and pending allocation without
   assert.doesNotMatch(apPaymentSql,/INSERT INTO ledger_line/);
   assert.match(apPaymentDown,/DROP FUNCTION IF EXISTS refs_create_ap_payment/);
   assert.match(apPaymentDown,/DROP FUNCTION IF EXISTS refs_ap_payment_hash/);
+});
+
+test('AP Payment post reducer activates occurrence allocation and updates bill inside JE post transaction',()=>{
+  assert.match(apPaymentPostReducerSql,/CREATE OR REPLACE FUNCTION refs_apply_ap_payment_posted_occurrence/);
+  assert.match(apPaymentPostReducerSql,/CREATE TRIGGER payment_occurrence_posted_reducer/);
+  assert.match(apPaymentPostReducerSql,/AFTER UPDATE OF status ON journal_entry/);
+  assert.match(apPaymentPostReducerSql,/WHERE tenant_id=NEW\.tenant_id AND entity_id=NEW\.entity_id AND draft_journal_entry_id=NEW\.journal_entry_id[\s\S]*FOR UPDATE/);
+  assert.match(apPaymentPostReducerSql,/occ\.occurrence_kind<>'AP_PAYMENT' OR occ\.status<>'DRAFT'/);
+  assert.match(apPaymentPostReducerSql,/bill\.document_kind<>'AP_BILL'/);
+  assert.match(apPaymentPostReducerSql,/pending_total<>occ\.amount OR pending_total>bill\.open_balance/);
+  assert.match(apPaymentPostReducerSql,/UPDATE business_document[\s\S]*open_balance=bill\.open_balance-occ\.amount/);
+  assert.match(apPaymentPostReducerSql,/status=CASE WHEN bill\.open_balance-occ\.amount=0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END/);
+  assert.match(apPaymentPostReducerSql,/UPDATE business_allocation[\s\S]*status='ACTIVE',posted_journal_entry_id=NEW\.journal_entry_id/);
+  assert.match(apPaymentPostReducerSql,/UPDATE payment_occurrence[\s\S]*status='POSTED',posted_journal_entry_id=NEW\.journal_entry_id/);
+  assert.match(apPaymentPostReducerSql,/AP_PAYMENT_POSTED/);
+  assert.match(apPaymentPostReducerSql,/INSERT INTO outbox_event/);
+  assert.doesNotMatch(apPaymentPostReducerSql,/INSERT INTO ledger_line/);
+  assert.match(apPaymentPostReducerDown,/DROP TRIGGER IF EXISTS payment_occurrence_posted_reducer/);
+  assert.match(apPaymentPostReducerDown,/DROP FUNCTION IF EXISTS refs_apply_ap_payment_posted_occurrence/);
 });
 
 test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{
