@@ -42,3 +42,12 @@ test('AP and AR aging are no-store authenticated GETs with a required as-of date
   assert.equal(contract.components.responses.ReadOk.headers['Cache-Control'].schema.const,'no-store');
   assert.equal(contract.components.schemas.ArAgingRow.additionalProperties,false);
 });
+
+test('AP and AR control totals are no-store authenticated GETs',()=>{
+  for(const [path,operationId] of [['/entities/{entityId}/ap/control-totals','getApControlTotal'],['/entities/{entityId}/ar/control-totals','getArControlTotal']]){
+    const operation=contract.paths[path].get;
+    assert.equal(operation.operationId,operationId);assert.equal(operation.responses['200'].$ref,'#/components/responses/ControlTotalOk');
+  }
+  assert.equal(contract.components.responses.ControlTotalOk.headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(contract.components.schemas.ControlTotalRow.additionalProperties,false);
+});

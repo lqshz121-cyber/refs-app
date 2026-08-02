@@ -947,8 +947,9 @@ pgTest('AR receipt and reversal keep aging and the 120200 control balance in loc
   await approver.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'aging-receipt-approve'});
   await poster.postJournal({...ids,journalEntryId:receipt.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'aging-receipt-post'});
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-reader',['AR.VIEW'])});
+  await assert.rejects(reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),error=>error.code==='42501');
   assert.deepEqual(await reader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'60.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'60.0000'}]);
-  assert.deepEqual((await reader.inSession(client=>client.query('SELECT ar_open_balance,ar_control_balance,ar_in_balance FROM refs_ap_ar_control_reconciliation WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId]))).rows[0],{ar_open_balance:'60.0000',ar_control_balance:'60.0000',ar_in_balance:true});
+  assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'60.0000',control_balance:'60.0000',in_balance:true}]);
   const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'aging-period-closer',['GL.PERIOD.CLOSE'])});
   await closer.closePeriod({...ids,expectedVersion:0,idempotencyKey:'aging-period-close'});
   const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
@@ -959,7 +960,7 @@ pgTest('AR receipt and reversal keep aging and the 120200 control balance in loc
   await approver.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'aging-receipt-reversal-approve'});
   await poster.postJournal({...ids,journalEntryId:reversal.journal_entry_id,periodId:augustPeriod,expectedRevision:3,idempotencyKey:'aging-receipt-reversal-post'});
   assert.deepEqual(await reader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'100.0000'}]);
-  assert.deepEqual((await reader.inSession(client=>client.query('SELECT ar_open_balance,ar_control_balance,ar_in_balance FROM refs_ap_ar_control_reconciliation WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId]))).rows[0],{ar_open_balance:'100.0000',ar_control_balance:'100.0000',ar_in_balance:true});
+  assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'100.0000',control_balance:'100.0000',in_balance:true}]);
 });
 
 pgTest('AP payment and reversal keep aging and the 291001 control balance in lockstep',async()=>{
@@ -983,8 +984,9 @@ pgTest('AP payment and reversal keep aging and the 291001 control balance in loc
   await approver.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'aging-payment-approve'});
   await poster.postJournal({...ids,journalEntryId:payment.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'aging-payment-post'});
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ap-aging-reader',['AP.VIEW'])});
+  await assert.rejects(reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),error=>error.code==='42501');
   assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'60.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'60.0000'}]);
-  assert.deepEqual((await reader.inSession(client=>client.query('SELECT ap_open_balance,ap_control_balance,ap_in_balance FROM refs_ap_ar_control_reconciliation WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId]))).rows[0],{ap_open_balance:'60.0000',ap_control_balance:'60.0000',ap_in_balance:true});
+  assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'60.0000',control_balance:'60.0000',in_balance:true}]);
   const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ap-aging-period-closer',['GL.PERIOD.CLOSE'])});
   await closer.closePeriod({...ids,expectedVersion:0,idempotencyKey:'ap-aging-period-close'});
   const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
@@ -995,7 +997,7 @@ pgTest('AP payment and reversal keep aging and the 291001 control balance in loc
   await approver.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'aging-payment-reversal-approve'});
   await poster.postJournal({...ids,journalEntryId:reversal.journal_entry_id,periodId:augustPeriod,expectedRevision:3,idempotencyKey:'aging-payment-reversal-post'});
   assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'100.0000'}]);
-  assert.deepEqual((await reader.inSession(client=>client.query('SELECT ap_open_balance,ap_control_balance,ap_in_balance FROM refs_ap_ar_control_reconciliation WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId]))).rows[0],{ap_open_balance:'100.0000',ap_control_balance:'100.0000',ap_in_balance:true});
+  assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'100.0000',control_balance:'100.0000',in_balance:true}]);
 });
 
 pgTest('AP vendor credit posted first then partial and full apply updates bill atomically',async()=>{

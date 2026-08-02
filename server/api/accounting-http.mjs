@@ -36,12 +36,14 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       if(parts[0]!=='api'||parts[1]!=='v1'||parts[2]!=='entities')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
       const entityId=requireUuid(parts[3],'entityId');const payload=method==='GET'&&body==null?{}:validateBody(body);
       let result;
-      if(method==='GET'&&parts.length===6&&['ap','ar'].includes(parts[4])&&parts[5]==='aging'){
+      if(method==='GET'&&parts.length===6&&['ap','ar'].includes(parts[4])&&['aging','control-totals'].includes(parts[5])){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
         if(Object.keys(payload).length)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
-        const args={tenantId:principal.tenantId,entityId,asOfDate:requireIsoDate(parsedUrl.searchParams.get('asOf'),'asOf')};
-        result=await (parts[4]==='ap'?kernel.getApAging(args):kernel.getArAging(args));
+        if(parts[5]==='aging'){
+          const args={tenantId:principal.tenantId,entityId,asOfDate:requireIsoDate(parsedUrl.searchParams.get('asOf'),'asOf')};
+          result=await (parts[4]==='ap'?kernel.getApAging(args):kernel.getArAging(args));
+        }else result=await (parts[4]==='ap'?kernel.getApControlTotal({tenantId:principal.tenantId,entityId}):kernel.getArControlTotal({tenantId:principal.tenantId,entityId}));
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');

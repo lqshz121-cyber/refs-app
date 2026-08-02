@@ -205,6 +205,18 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getApControlTotal({tenantId,entityId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_ap_control_total($1,$2)',[tenantId,entityId]
+    )).rows);
+  }
+
+  async getArControlTotal({tenantId,entityId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_ar_control_total($1,$2)',[tenantId,entityId]
+    )).rows);
+  }
+
   async createArCreditMemo(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query('SELECT refs_ar_credit_memo_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS request_hash',[args.tenantId,args.entityId,args.periodId,args.memoNumber,args.memoDate,args.customerRef,args.customerName,args.amount,args.lines,args.reason]),'AR_CREDIT_MEMO_HASH_FAILED','AR credit memo hash was not produced').request_hash;
