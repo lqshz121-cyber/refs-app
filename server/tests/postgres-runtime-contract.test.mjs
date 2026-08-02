@@ -15,6 +15,8 @@ const apVendorCreditSql=await readFile(new URL('../db/migrations/007_ap_vendor_c
 const apVendorCreditDown=await readFile(new URL('../db/migrations/down/007_ap_vendor_credit_command.sql',import.meta.url),'utf8');
 const apVendorCreditAllocationSql=await readFile(new URL('../db/migrations/008_ap_vendor_credit_allocation.sql',import.meta.url),'utf8');
 const apVendorCreditAllocationDown=await readFile(new URL('../db/migrations/down/008_ap_vendor_credit_allocation.sql',import.meta.url),'utf8');
+const arCreditMemoAllocationSql=await readFile(new URL('../db/migrations/018_ar_credit_memo_allocation.sql',import.meta.url),'utf8');
+const arCreditMemoAllocationDown=await readFile(new URL('../db/migrations/down/018_ar_credit_memo_allocation.sql',import.meta.url),'utf8');
 const apArPostedReducerSql=await readFile(new URL('../db/migrations/009_ap_ar_posted_adjustment_reducer.sql',import.meta.url),'utf8');
 const apArPostedReducerDown=await readFile(new URL('../db/migrations/down/009_ap_ar_posted_adjustment_reducer.sql',import.meta.url),'utf8');
 const apBillVoidPostReducerSql=await readFile(new URL('../db/migrations/010_ap_bill_void_post_reducer.sql',import.meta.url),'utf8');
@@ -37,7 +39,7 @@ const repository=await readFile(new URL('../runtime/kernel-repository.mjs',impor
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql','018_ar_credit_memo_allocation.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -275,6 +277,17 @@ test('AR Credit Memo command is Draft-only and leaves invoice balances unchanged
   assert.doesNotMatch(arCreditMemoSql,/UPDATE business_document/);
   assert.doesNotMatch(arCreditMemoSql,/INSERT INTO ledger_line/);
   assert.match(arCreditMemoDown,/DROP FUNCTION IF EXISTS refs_create_ar_credit_memo/);
+});
+
+test('AR Credit Memo allocation is pending-only, idempotent and leaves invoice balances for post reducer',()=>{
+  assert.match(arCreditMemoAllocationSql,/AR\.CREDIT_MEMO\.APPLY/);
+  assert.match(arCreditMemoAllocationSql,/CREATE OR REPLACE FUNCTION refs_apply_ar_credit_memo/);
+  assert.match(arCreditMemoAllocationSql,/credit\.status<>'POSTED'/);
+  assert.match(arCreditMemoAllocationSql,/invoice\.status NOT IN \('APPROVED','OPEN','PARTIALLY_PAID'\)/);
+  assert.match(arCreditMemoAllocationSql,/INSERT INTO business_allocation[\s\S]*'PENDING'/);
+  assert.doesNotMatch(arCreditMemoAllocationSql,/UPDATE business_document/);
+  assert.doesNotMatch(arCreditMemoAllocationSql,/INSERT INTO ledger_line/);
+  assert.match(arCreditMemoAllocationDown,/DROP FUNCTION IF EXISTS refs_apply_ar_credit_memo/);
 });
 
 test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{

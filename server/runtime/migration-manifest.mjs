@@ -83,5 +83,10 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'017_ar_credit_memo_command.sql',
     up:'4e5e32973a5d50dcd6cc98a3198651630b78f605a3c5ad2fbe2bc14f40df049a',
     down:'abef81effbfcbb1c2dcba7048d6a090d388fc97d06699c3fbce3af87d23a079c'
+  }),
+  Object.freeze({
+    name:'018_ar_credit_memo_allocation.sql',
+    up:'0010066abfd10ad0fdfde3a59cb80b4815e2d0462c9a0c2beb3f3fbf5c20a9d4',
+    down:'b91db4eb1b4f8d962d98c6778d5b2ad85517016d399c3cbf5183d157311c4c2d'
   })
 ]);

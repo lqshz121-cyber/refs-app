@@ -87,6 +87,10 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['periodId','journalNumber','journalDate','reason']);
         result=await kernel.createArReceiptReversal({tenantId:principal.tenantId,entityId,sourceOccurrenceId:requireUuid(parts[6],'sourceOccurrenceId'),periodId:requireUuid(payload.periodId,'periodId'),journalNumber:payload.journalNumber,journalDate:payload.journalDate,reason:payload.reason,idempotencyKey});
+      }else if(parts.length===8&&parts[4]==='ar'&&parts[5]==='credit-memos'&&parts[7]==='allocations'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['businessDocumentId','amount','reason']);
+        result=await kernel.applyArCreditMemo({tenantId:principal.tenantId,entityId,businessAdjustmentId:requireUuid(parts[6],'businessAdjustmentId'),businessDocumentId:requireUuid(payload.businessDocumentId,'businessDocumentId'),amount:payload.amount,reason:payload.reason,idempotencyKey});
       }else if(parts.length===6&&parts[4]==='ar'&&parts[5]==='credit-memos'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['periodId','memoNumber','memoDate','customerRef','customerName','amount','lines','reason']);
