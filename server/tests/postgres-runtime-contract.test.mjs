@@ -15,11 +15,13 @@ const apVendorCreditSql=await readFile(new URL('../db/migrations/007_ap_vendor_c
 const apVendorCreditDown=await readFile(new URL('../db/migrations/down/007_ap_vendor_credit_command.sql',import.meta.url),'utf8');
 const apVendorCreditAllocationSql=await readFile(new URL('../db/migrations/008_ap_vendor_credit_allocation.sql',import.meta.url),'utf8');
 const apVendorCreditAllocationDown=await readFile(new URL('../db/migrations/down/008_ap_vendor_credit_allocation.sql',import.meta.url),'utf8');
+const apArPostedReducerSql=await readFile(new URL('../db/migrations/009_ap_ar_posted_adjustment_reducer.sql',import.meta.url),'utf8');
+const apArPostedReducerDown=await readFile(new URL('../db/migrations/down/009_ap_ar_posted_adjustment_reducer.sql',import.meta.url),'utf8');
 const repository=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -110,6 +112,27 @@ test('AP Vendor Credit allocation is pending-only, idempotent and does not mutat
   assert.doesNotMatch(apVendorCreditAllocationSql,/INSERT INTO ledger_line/);
   assert.match(apVendorCreditAllocationDown,/DROP FUNCTION IF EXISTS refs_apply_ap_vendor_credit/);
   assert.match(apVendorCreditAllocationDown,/DROP FUNCTION IF EXISTS refs_ap_vendor_credit_allocation_hash/);
+});
+
+test('AP/AR posted adjustment reducer activates vendor-credit allocations inside JE post transaction',()=>{
+  assert.match(apArPostedReducerSql,/CREATE OR REPLACE FUNCTION refs_apply_ap_ar_posted_adjustment/);
+  assert.match(apArPostedReducerSql,/CREATE TRIGGER business_adjustment_posted_reducer/);
+  assert.match(apArPostedReducerSql,/AFTER UPDATE OF status ON journal_entry/);
+  assert.match(apArPostedReducerSql,/NEW\.status<>'POSTED' OR OLD\.status='POSTED'/);
+  assert.match(apArPostedReducerSql,/adj\.adjustment_kind='AP_VENDOR_CREDIT'/);
+  assert.match(apArPostedReducerSql,/status='PENDING'[\s\S]*FOR UPDATE/);
+  assert.match(apArPostedReducerSql,/pending_total>adj\.amount/);
+  assert.match(apArPostedReducerSql,/pending\.amount>bd\.open_balance/);
+  assert.match(apArPostedReducerSql,/UPDATE business_document[\s\S]*posted_credit_adjustments=bd\.posted_credit_adjustments\+pending\.amount/);
+  assert.match(apArPostedReducerSql,/open_balance=bd\.open_balance-pending\.amount/);
+  assert.match(apArPostedReducerSql,/status=CASE WHEN bd\.open_balance-pending\.amount=0 THEN 'PAID' ELSE 'PARTIALLY_PAID' END/);
+  assert.match(apArPostedReducerSql,/UPDATE business_allocation[\s\S]*status='ACTIVE',posted_journal_entry_id=NEW\.journal_entry_id/);
+  assert.match(apArPostedReducerSql,/UPDATE business_adjustment[\s\S]*status='POSTED',posted_journal_entry_id=NEW\.journal_entry_id/);
+  assert.match(apArPostedReducerSql,/AP_VENDOR_CREDIT_POSTED/);
+  assert.match(apArPostedReducerSql,/INSERT INTO outbox_event/);
+  assert.doesNotMatch(apArPostedReducerSql,/INSERT INTO ledger_line/);
+  assert.match(apArPostedReducerDown,/DROP TRIGGER IF EXISTS business_adjustment_posted_reducer/);
+  assert.match(apArPostedReducerDown,/DROP FUNCTION IF EXISTS refs_apply_ap_ar_posted_adjustment/);
 });
 
 test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{
