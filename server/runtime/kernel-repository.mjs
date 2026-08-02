@@ -171,6 +171,20 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createArReceipt(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_ar_receipt_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS request_hash',
+        [args.tenantId,args.entityId,args.businessDocumentId,args.periodId,args.receiptNumber,args.receiptDate,args.cashAccountCode,args.bankMemberRef??null,args.amount,args.reason]
+      ),'AR_RECEIPT_HASH_FAILED','AR receipt hash was not produced').request_hash;
+      const row=requireRow(await client.query(
+        'SELECT refs_create_ar_receipt($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) AS result',
+        [args.tenantId,args.entityId,args.businessDocumentId,args.periodId,args.receiptNumber,args.receiptDate,args.cashAccountCode,args.bankMemberRef??null,args.amount,args.reason,args.idempotencyKey,requestHash]
+      ),'AR_RECEIPT_FAILED','AR receipt Draft creation did not return a result');
+      return row.result;
+    });
+  }
+
   async transitionJournal(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

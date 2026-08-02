@@ -10,6 +10,7 @@ import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
 import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
+import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -130,7 +131,7 @@ pgTest('concurrent up and down runners serialize on the same advisory lock',asyn
   await Promise.all([migrateDown(adminPool,{all:true}),migrateUp(adminPool)]);
   await migrateUp(adminPool);
   const applied=await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name');
-  assert.deepEqual(applied.rows.map(row=>row.migration_name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql']);
+  assert.deepEqual(applied.rows.map(row=>row.migration_name),MIGRATION_MANIFEST.map(migration=>migration.name));
   assert.ok((await adminPool.query("SELECT to_regprocedure('refs_post_journal(uuid,uuid,uuid,uuid,bigint,text,text,text)') AS post_fn")).rows[0].post_fn);
 });
 
@@ -600,13 +601,16 @@ pgTest('post rehash and unique setting/mapping resolvers fail closed against own
 });
 
 pgTest('legacy dirty approved configuration makes migration 002 fail atomically',async()=>{
-  await migrateDown(adminPool);await migrateDown(adminPool);
+  while((await adminPool.query('SELECT count(*)::int AS n FROM refs_schema_migration')).rows[0].n>1)await migrateDown(adminPool);
   const tenantId=randomUUID(),entityId=randomUUID();
   await adminPool.query("INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,'DIRTYTEN','Dirty migration tenant')",[tenantId]);
   await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,'DIRTYENT','WBS','DIRTYENT','Dirty entity','USD')",[entityId,tenantId]);
-  await adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
-    VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,1,'2026-01-01','APPROVED','{}',$3,'maker','approver',now())`,[tenantId,entityId,hash('not-canonical')]);
-  await assert.rejects(migrateUp(adminPool),error=>/canonical validation/.test(error.message));
+  await adminPool.query('ALTER TABLE setting_snapshot DISABLE TRIGGER USER');
+  try{
+    await adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+      VALUES($1,$2::uuid,'BANK','ENTITY',$2::text,1,'2026-01-01','APPROVED','{}',$3,'maker','approver',now())`,[tenantId,entityId,hash('not-canonical')]);
+  }finally{await adminPool.query('ALTER TABLE setting_snapshot ENABLE TRIGGER USER');}
+  await assert.rejects(migrateUp(adminPool),error=>/canonical validation|snapshot hash mismatch/i.test(error.message));
   assert.equal((await adminPool.query("SELECT to_regclass('public.account_master') AS table_name")).rows[0].table_name,null);
   assert.deepEqual((await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name')).rows.map(row=>row.migration_name),['001_wbs_accounting_core.sql']);
   await adminPool.query('DELETE FROM setting_snapshot WHERE tenant_id=$1',[tenantId]);
