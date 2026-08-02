@@ -750,6 +750,49 @@ pgTest('authenticated HTTP posts a vendor credit and atomically applies it to an
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[credit.journal_entry_id])).rows[0].n,2);
 });
 
+pgTest('authenticated HTTP posts an AR credit memo, applies it and refunds only remaining posted credit',async()=>{
+  const ids=await seed({status:'APPROVED'}),invoiceId=randomUUID();
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
+  await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member) VALUES($1,$2,'220000','Customer refunds',false)",[ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,'AR_INVOICE','INV-HTTP-MEMO','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN','fixture')`,[invoiceId,ids.tenantId,ids.entityId]);
+  const makerId=randomUUID(),reviewerId=randomUUID(),approverId=randomUUID(),posterId=randomUUID(),applierId=randomUUID(),refundMakerId=randomUUID();
+  const permissions={
+    [makerId]:['AR.CREDIT_MEMO.CREATE','GL.JE.SUBMIT'],[reviewerId]:['GL.JE.REVIEW'],[approverId]:['GL.JE.APPROVE'],[posterId]:['GL.JE.POST'],
+    [applierId]:['AR.CREDIT_MEMO.APPLY'],[refundMakerId]:['AR.REFUND.CREATE','GL.JE.SUBMIT']
+  };
+  const api=createAccountingApi({
+    authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
+    kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})
+  });
+  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
+  const root=`/api/v1/entities/${ids.entityId}`;
+  const memoResponse=await send(makerId,`${root}/ar/credit-memos`,{periodId:ids.periodId,memoNumber:'CM-HTTP-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:[{line_no:1,account_code:'120200',amount:100,member_ref:'CUSTOMER-1',description:'Customer credit'}],reason:'HTTP customer credit correction'},'http-memo-create');
+  assert.equal(memoResponse.status,201);const memo=memoResponse.body.data;
+  await attachAutoSource({...ids,journalId:memo.journal_entry_id});
+  const advance=async(journalId,prefix)=>{
+    const path=`${root}/journal-entries/${journalId}`;
+    assert.equal((await send(prefix==='memo'?makerId:refundMakerId,`${path}/transitions/submit`,{},`${prefix}-submit`,0)).status,201);
+    assert.equal((await send(reviewerId,`${path}/transitions/review`,{},`${prefix}-review`,1)).status,201);
+    assert.equal((await send(approverId,`${path}/transitions/approve`,{},`${prefix}-approve`,2)).status,201);
+    assert.equal((await send(posterId,`${path}/post`,{periodId:ids.periodId},`${prefix}-post`,3)).status,201);
+  };
+  await advance(memo.journal_entry_id,'memo');
+  const applyBody={businessDocumentId:invoiceId,amount:40,reason:'Apply part of posted credit memo'};
+  const applyPath=`${root}/ar/credit-memos/${memo.business_adjustment_id}/allocations`;
+  assert.equal((await send(applierId,applyPath,applyBody,'http-memo-apply')).status,201);
+  assert.equal((await send(applierId,applyPath,applyBody,'http-memo-apply')).status,200);
+  const refundResponse=await send(refundMakerId,`${root}/ar/refunds`,{periodId:ids.periodId,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'RF-HTTP-60',refundDate:'2026-07-17',cashAccountCode:'220000',amount:60,reason:'Refund remaining posted customer credit'},'http-refund-create');
+  assert.equal(refundResponse.status,201);const refund=refundResponse.body.data;
+  await attachAutoSource({...ids,journalId:refund.journal_entry_id},{reuseApprovedSnapshots:true});
+  await advance(refund.journal_entry_id,'refund');
+  assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0],{open_balance:'60.0000',status:'PARTIALLY_PAID'});
+  assert.equal((await adminPool.query('SELECT status FROM business_adjustment WHERE business_adjustment_id=$1',[refund.business_adjustment_id])).rows[0].status,'POSTED');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[refund.journal_entry_id])).rows[0].n,2);
+  const over=await send(refundMakerId,`${root}/ar/refunds`,{periodId:ids.periodId,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'RF-HTTP-01',refundDate:'2026-07-18',cashAccountCode:'220000',amount:1,reason:'Over refund must fail atomically'},'http-refund-over');
+  assert.equal(over.status,422);
+});
+
 pgTest('runtime creates an evidence-backed Auto Draft and advances staging atomically through posting',async()=>{
   const ids=await seed({status:'DRAFT'});
   const trace=await attachAutoSource(ids,{linkJournal:false});
