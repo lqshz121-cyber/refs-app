@@ -791,6 +791,9 @@ pgTest('authenticated HTTP posts an AR credit memo, applies it and refunds only 
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[refund.journal_entry_id])).rows[0].n,2);
   const over=await send(refundMakerId,`${root}/ar/refunds`,{periodId:ids.periodId,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'RF-HTTP-01',refundDate:'2026-07-18',cashAccountCode:'220000',amount:1,reason:'Over refund must fail atomically'},'http-refund-over');
   assert.equal(over.status,422);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE tenant_id=$1 AND entity_id=$2 AND adjustment_kind='AR_REFUND'",[ids.tenantId,ids.entityId])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_number='RF-HTTP-01'",[ids.tenantId,ids.entityId])).rows[0].n,0);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND operation_scope='AR_REFUND:'||$2::text AND idempotency_key='http-refund-over'",[ids.tenantId,ids.entityId])).rows[0].n,0);
 });
 
 pgTest('authenticated HTTP posts an AP payment and a cross-period Draft reversal without mutating the original ledger',async()=>{
