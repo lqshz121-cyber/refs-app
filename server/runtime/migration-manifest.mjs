@@ -183,5 +183,10 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'037_order_ar_credit_post_reducer.sql',
     up:'83f46c2c11e2c7502e9fddb87d40b1a498a25226cf9898d32112589795f828d2',
     down:'ed9c9d241965774a3b462b3301b9c48255dc6b380b63394d03d804f675d63941'
+  }),
+  Object.freeze({
+    name:'038_order_ar_refund_post_reducer.sql',
+    up:'0fcc7d84081558c670b7872a73b34e11447bce5ae7dfe524686d904cd50dc778',
+    down:'79b5c2d4f025061c403a362dc3e4d8debfd06d79e63035a63652a3f1c5887b49'
   })
 ]);
