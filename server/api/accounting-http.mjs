@@ -95,6 +95,10 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['periodId','sourceAdjustmentId','refundNumber','refundDate','cashAccountCode','amount','reason']);
         result=await kernel.createArRefund({tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),sourceAdjustmentId:requireUuid(payload.sourceAdjustmentId,'sourceAdjustmentId'),refundNumber:payload.refundNumber,refundDate:payload.refundDate,cashAccountCode:payload.cashAccountCode,amount:payload.amount,reason:payload.reason,idempotencyKey});
+      }else if(parts.length===8&&parts[4]==='ap'&&parts[5]==='payments'&&parts[7]==='reversals'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['periodId','journalNumber','journalDate','reason']);
+        result=await kernel.createApPaymentReversal({tenantId:principal.tenantId,entityId,sourceOccurrenceId:requireUuid(parts[6],'sourceOccurrenceId'),periodId:requireUuid(payload.periodId,'periodId'),journalNumber:payload.journalNumber,journalDate:payload.journalDate,reason:payload.reason,idempotencyKey});
       }else if(parts.length===6&&parts[4]==='ar'&&parts[5]==='credit-memos'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['periodId','memoNumber','memoDate','customerRef','customerName','amount','lines','reason']);

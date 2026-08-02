@@ -23,6 +23,8 @@ const arRefundSql=await readFile(new URL('../db/migrations/020_ar_refund_command
 const arRefundDown=await readFile(new URL('../db/migrations/down/020_ar_refund_command.sql',import.meta.url),'utf8');
 const arRefundPostSql=await readFile(new URL('../db/migrations/021_ar_refund_post_reducer.sql',import.meta.url),'utf8');
 const arRefundPostDown=await readFile(new URL('../db/migrations/down/021_ar_refund_post_reducer.sql',import.meta.url),'utf8');
+const apPaymentReversalSql=await readFile(new URL('../db/migrations/022_ap_payment_reversal_command.sql',import.meta.url),'utf8');
+const apPaymentReversalDown=await readFile(new URL('../db/migrations/down/022_ap_payment_reversal_command.sql',import.meta.url),'utf8');
 const apArPostedReducerSql=await readFile(new URL('../db/migrations/009_ap_ar_posted_adjustment_reducer.sql',import.meta.url),'utf8');
 const apArPostedReducerDown=await readFile(new URL('../db/migrations/down/009_ap_ar_posted_adjustment_reducer.sql',import.meta.url),'utf8');
 const apBillVoidPostReducerSql=await readFile(new URL('../db/migrations/010_ap_bill_void_post_reducer.sql',import.meta.url),'utf8');
@@ -45,7 +47,7 @@ const repository=await readFile(new URL('../runtime/kernel-repository.mjs',impor
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql','018_ar_credit_memo_allocation.sql','019_ar_credit_memo_post_reducer.sql','020_ar_refund_command.sql','021_ar_refund_post_reducer.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql','018_ar_credit_memo_allocation.sql','019_ar_credit_memo_post_reducer.sql','020_ar_refund_command.sql','021_ar_refund_post_reducer.sql','022_ap_payment_reversal_command.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -329,6 +331,17 @@ test('AR Refund post reducer locks source credit and records immutable Posted re
   assert.match(arRefundPostSql,/INSERT INTO audit_event/);
   assert.match(arRefundPostSql,/INSERT INTO outbox_event/);
   assert.match(arRefundPostDown,/DROP TRIGGER IF EXISTS ar_refund_posted_reducer/);
+});
+
+test('AP Payment reversal is Draft-only and preserves the Posted payment source',()=>{
+  assert.match(apPaymentReversalSql,/AP\.PAYMENT\.REVERSE/);
+  assert.match(apPaymentReversalSql,/occ\.occurrence_kind<>'AP_PAYMENT'/);
+  assert.match(apPaymentReversalSql,/occ\.status<>'POSTED'/);
+  assert.match(apPaymentReversalSql,/reversal_of_id/);
+  assert.match(apPaymentReversalSql,/INSERT INTO business_adjustment[\s\S]*'AP_PAYMENT_REVERSAL'/);
+  assert.doesNotMatch(apPaymentReversalSql,/UPDATE payment_occurrence/);
+  assert.doesNotMatch(apPaymentReversalSql,/INSERT INTO ledger_line/);
+  assert.match(apPaymentReversalDown,/DROP FUNCTION IF EXISTS refs_create_ap_payment_reversal/);
 });
 
 test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{
