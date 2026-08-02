@@ -14,7 +14,7 @@ const header=(headers,name)=>{
 };
 const requireUuid=(value,name)=>{if(!UUID.test(value||''))throw new AccountingApiError(400,'INVALID_PATH_PARAMETER',`${name} must be a UUID`);return value;};
 const requireIdempotency=headers=>{const value=header(headers,'idempotency-key');if(typeof value!=='string'||value.length<8||value.length>200)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_REQUIRED','Idempotency-Key must be 8-200 characters');return value;};
-const requireRevision=headers=>{const raw=header(headers,'if-match');if(raw==null)throw new AccountingApiError(428,'IF_MATCH_REQUIRED','If-Match is required');const cleaned=String(raw).replace(/^W\//,'').replace(/^"|"$/g,'');if(!/^\d+$/.test(cleaned))throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must contain a non-negative revision');return Number(cleaned);};
+const requireRevision=headers=>{const raw=header(headers,'if-match');if(raw==null)throw new AccountingApiError(428,'IF_MATCH_REQUIRED','If-Match is required');const value=String(raw).trim();if(value.startsWith('W/'))throw new AccountingApiError(412,'WEAK_IF_MATCH_REJECTED','If-Match must use a strong revision validator');const cleaned=value.replace(/^"|"$/g,'');if(!/^\d+$/.test(cleaned))throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must contain a non-negative revision');return Number(cleaned);};
 const validateBody=body=>{if(!body||typeof body!=='object'||Array.isArray(body))throw new AccountingApiError(400,'JSON_OBJECT_REQUIRED','Request body must be a JSON object');for(const key of Object.keys(body))if(FORBIDDEN_BODY_KEYS.has(key))throw new AccountingApiError(400,'IDENTITY_FIELD_FORBIDDEN',`${key} must come from authenticated context`);return body;};
 const allowOnly=(body,allowed)=>{const unexpected=Object.keys(body).filter(key=>!allowed.includes(key));if(unexpected.length)throw new AccountingApiError(400,'UNEXPECTED_FIELD',`Unexpected request field: ${unexpected[0]}`);return body;};
 
@@ -59,6 +59,12 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       }else if(parts.length===8&&parts[4]==='journal-entries'&&parts[6]==='adjustments'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.createJournalAdjustment({...payload,action:parts[7].toUpperCase(),tenantId:principal.tenantId,entityId,originalJournalEntryId:requireUuid(parts[5],'journalEntryId'),idempotencyKey});
+      }else if(parts.length===7&&parts[4]==='ap'&&parts[5]==='bills'&&parts[6].length>0&&parts[6]!=='voids'){
+        throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
+      }else if(parts.length===8&&parts[4]==='ap'&&parts[5]==='bills'&&parts[7]==='voids'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['periodId','journalNumber','journalDate','reason']);
+        result=await kernel.createApBillVoid({tenantId:principal.tenantId,entityId,businessDocumentId:requireUuid(parts[6],'businessDocumentId'),periodId:requireUuid(payload.periodId,'periodId'),expectedVersion:requireRevision(headers),journalNumber:payload.journalNumber,journalDate:payload.journalDate,reason:payload.reason,idempotencyKey});
       }else throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
       return {status:result?.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
     }catch(error){const status=statusFor(error);return {status,headers:{'content-type':'application/problem+json','cache-control':'no-store'},body:{ok:false,code:error.code||'INTERNAL_ERROR',message:status===500?'Internal server error':error.message}};}

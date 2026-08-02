@@ -3,7 +3,7 @@ import {createAccountingApi,createAccountingHttpServer} from '../api/accounting-
 
 const tenantId=randomUUID(),entityId=randomUUID(),journalEntryId=randomUUID(),periodId=randomUUID();
 const calls=[];const invoke=name=>async args=>{calls.push([name,args]);return {journal_entry_id:journalEntryId,status:'DRAFT',idempotent:false};};
-const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment')};
+const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid')};
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
@@ -18,6 +18,17 @@ test('transition and post require optimistic concurrency and route authoritative
   calls.length=0;let response=await command(`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/transitions/review`,{reason:'reviewed'},{'If-Match':'"3"'});
   assert.equal(response.status,201);assert.equal(calls[0][0],'transitionJournal');assert.equal(calls[0][1].expectedRevision,3);assert.equal(calls[0][1].action,'REVIEW');
   response=await command(`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/post`,{periodId});assert.equal(response.status,428);
+  response=await command(`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/transitions/review`,{reason:'reviewed'},{'If-Match':'W/"3"'});
+  assert.equal(response.status,412);assert.equal(response.body.code,'WEAK_IF_MATCH_REJECTED');
+});
+
+test('AP Bill Void route derives tenant entity bill id and revision from trusted boundaries',async()=>{
+  calls.length=0;const billId=randomUUID();const body={periodId,journalNumber:'APVOID-1',journalDate:'2026-08-02',reason:'Duplicate vendor bill'};
+  const response=await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/voids`,body,{'If-Match':'"4"'});
+  assert.equal(response.status,201);assert.equal(calls[0][0],'createApBillVoid');
+  assert.deepEqual(calls[0][1],{...body,tenantId,entityId,businessDocumentId:billId,expectedVersion:4,idempotencyKey:'idem-key-0001'});
+  assert.equal((await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/voids`,{...body,actorId:'attacker'},{'If-Match':'"4"'})).status,400);
+  assert.equal((await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/voids`,body)).status,428);
 });
 
 test('attachment routes derive scope from authentication and never accept caller storage evidence',async()=>{

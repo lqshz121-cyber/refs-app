@@ -9,11 +9,13 @@ const apArSql=await readFile(new URL('../db/migrations/004_ap_ar_business_runtim
 const apArDown=await readFile(new URL('../db/migrations/down/004_ap_ar_business_runtime.sql',import.meta.url),'utf8');
 const apBillVoidSql=await readFile(new URL('../db/migrations/005_ap_bill_void_command.sql',import.meta.url),'utf8');
 const apBillVoidDown=await readFile(new URL('../db/migrations/down/005_ap_bill_void_command.sql',import.meta.url),'utf8');
+const apBillVoidHttpSql=await readFile(new URL('../db/migrations/006_ap_bill_void_http_cas.sql',import.meta.url),'utf8');
+const apBillVoidHttpDown=await readFile(new URL('../db/migrations/down/006_ap_bill_void_http_cas.sql',import.meta.url),'utf8');
 const repository=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -22,6 +24,16 @@ test('migration manifest freezes normalized up and down artifacts without AutoRe
       assert.equal(checksum,item[direction],`${direction} checksum mismatch for ${item.name}`);
     }
   }
+});
+
+test('AP Bill Void HTTP contract adds optimistic CAS and disables the pre-CAS function grant',()=>{
+  assert.match(apBillVoidHttpSql,/REVOKE EXECUTE ON FUNCTION refs_create_ap_bill_void\(uuid,uuid,uuid,uuid,text,date,text,text,text\) FROM refs_app/);
+  assert.match(apBillVoidHttpSql,/p_expected_version bigint/);
+  assert.match(apBillVoidHttpSql,/expected_version',p_expected_version/);
+  assert.match(apBillVoidHttpSql,/bill\.version<>p_expected_version/);
+  assert.match(repository,/expectedVersion/);
+  assert.match(apBillVoidHttpSql,/GRANT EXECUTE ON FUNCTION refs_create_ap_bill_void\(uuid,uuid,uuid,uuid,bigint,text,date,text,text,text\) TO refs_app/);
+  assert.match(apBillVoidHttpDown,/GRANT EXECUTE ON FUNCTION refs_create_ap_bill_void\(uuid,uuid,uuid,uuid,text,date,text,text,text\) TO refs_app/);
 });
 
 test('AP Bill Void command is Draft-only, idempotent and leaves posted source immutable',()=>{
