@@ -86,8 +86,8 @@ async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VE
   return {tenantId,entityId,sourceEntityId,periodId,journalId};
 }
 
-async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effectiveTo=null,mappingPriority=0,evaluatedAt=null,linkJournal=true}={}){
-  const batchId=randomUUID(),rawId=randomUUID(),documentId=randomUUID(),settingId=randomUUID(),mappingId=randomUUID(),ruleId=randomUUID(),stagingId=randomUUID(),recordId=`AUTO-${ids.journalId}`;
+async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effectiveTo=null,mappingPriority=0,evaluatedAt=null,linkJournal=true,reuseApprovedSnapshots=false}={}){
+  const batchId=randomUUID(),rawId=randomUUID(),documentId=randomUUID(),ruleId=randomUUID(),stagingId=randomUUID(),recordId=`AUTO-${ids.journalId}`;let settingId=randomUUID(),mappingId=randomUUID();
   const inputKeyHash=hash('mapping-key');
   const configHashes=(await adminPool.query("SELECT refs_jsonb_hash('{}'::jsonb) AS setting_hash,refs_jsonb_hash(jsonb_build_object('input_keys','{}'::jsonb,'output_rules','{}'::jsonb)) AS mapping_hash")).rows[0];
   await adminPool.query("INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash) VALUES($1,$2,$3,'WBS_API','bankFeed',$4,$5,$6)",[batchId,ids.tenantId,ids.entityId,ids.sourceEntityId,'auto-import-'+ids.journalId,hash('auto-import')]);
@@ -95,10 +95,20 @@ async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effect
     VALUES($1,$2,$3,$4,'WBS','bankFeed',$5,$6,'1','UPSERT',now(),$7,$8,$6)`,[rawId,ids.tenantId,ids.entityId,batchId,ids.sourceEntityId,recordId,hash('auto-raw'),`object://raw/${rawId}`]);
   await adminPool.query(`INSERT INTO source_document(source_document_id,tenant_id,entity_id,raw_event_id,source_system,source_module,source_entity_id,source_record_id,source_version,document_type,business_date,accounting_date,currency,gross_amount,source_ref,payload_hash)
     VALUES($1,$2,$3,$4,'WBS','bankFeed',$5,$6,'1','BANK_TRANSACTION','2026-07-15','2026-07-15','USD',100,$7,$8)`,[documentId,ids.tenantId,ids.entityId,rawId,ids.sourceEntityId,recordId,`WBS:${recordId}`,hash('auto-doc')]);
-  await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
-    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,1,$4,$5,'APPROVED','{}',$6,'setting-maker','setting-approver',now())`,[settingId,ids.tenantId,ids.entityId,effectiveFrom,effectiveTo,configHashes.setting_hash]);
-  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,effective_to,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
-    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,$4,1,$5,$6,$7,'APPROVED','{}','{}',$8,'mapping-maker','mapping-approver',now())`,[mappingId,ids.tenantId,ids.entityId,inputKeyHash,mappingPriority,effectiveFrom,effectiveTo,configHashes.mapping_hash]);
+  if(reuseApprovedSnapshots){
+    const existingSetting=(await adminPool.query(`SELECT setting_snapshot_id FROM setting_snapshot WHERE tenant_id=$1 AND entity_id=$2 AND family='BANK' AND scope_type='ENTITY' AND scope_key=$2::text AND status IN ('APPROVED','RETIRED') ORDER BY version DESC LIMIT 1`,[ids.tenantId,ids.entityId])).rows[0];
+    const existingMapping=(await adminPool.query(`SELECT mapping_snapshot_id FROM mapping_snapshot WHERE tenant_id=$1 AND entity_id=$2 AND family='BANK' AND scope_type='ENTITY' AND scope_key=$2::text AND status IN ('APPROVED','RETIRED') ORDER BY version DESC LIMIT 1`,[ids.tenantId,ids.entityId])).rows[0];
+    if(existingSetting)settingId=existingSetting.setting_snapshot_id;
+    if(existingMapping)mappingId=existingMapping.mapping_snapshot_id;
+  }
+  if(!reuseApprovedSnapshots || !(await adminPool.query('SELECT 1 FROM setting_snapshot WHERE setting_snapshot_id=$1',[settingId])).rowCount){
+    await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+      VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,1,$4,$5,'APPROVED','{}',$6,'setting-maker','setting-approver',now())`,[settingId,ids.tenantId,ids.entityId,effectiveFrom,effectiveTo,configHashes.setting_hash]);
+  }
+  if(!reuseApprovedSnapshots || !(await adminPool.query('SELECT 1 FROM mapping_snapshot WHERE mapping_snapshot_id=$1',[mappingId])).rowCount){
+    await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,effective_to,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+      VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,$4,1,$5,$6,$7,'APPROVED','{}','{}',$8,'mapping-maker','mapping-approver',now())`,[mappingId,ids.tenantId,ids.entityId,inputKeyHash,mappingPriority,effectiveFrom,effectiveTo,configHashes.mapping_hash]);
+  }
   const inputDigest=hash('rule');
   const evaluationDigest=(await adminPool.query("SELECT refs_rule_evaluation_hash($1,$2,$3,'R-BANK-01',1,'{}'::jsonb,'{}'::jsonb,$4) AS digest",[documentId,settingId,mappingId,inputDigest])).rows[0].digest;
   await adminPool.query(`INSERT INTO rule_evaluation(rule_evaluation_id,tenant_id,source_document_id,setting_snapshot_id,mapping_snapshot_id,rule_code,rule_version,matched_facts,result,reason,input_digest,evaluation_digest,evaluated_at)
@@ -832,4 +842,36 @@ pgTest('AP payment partial occurrence posts and reversal restores bill balance a
   assert.equal((await adminPool.query('SELECT open_balance FROM business_document WHERE business_document_id=$1',[billId])).rows[0].open_balance,'100.0000');
   assert.equal((await adminPool.query('SELECT status FROM payment_occurrence WHERE payment_occurrence_id=$1',[payment.payment_occurrence_id])).rows[0].status,'REVERSED');
   assert.equal((await adminPool.query("SELECT status FROM business_allocation WHERE payment_occurrence_id=$1",[payment.payment_occurrence_id])).rows[0].status,'REVERSED');
+});
+
+pgTest('AP multiple payment occurrences reverse independently without touching the other Posted occurrence',async()=>{
+  const ids=await seed({status:'APPROVED'});const billId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by) VALUES($1,$2,$3,'AP_BILL','BILL-MULTI-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
+  const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'multi-payment-maker',['AP.PAYMENT.CREATE','GL.JE.SUBMIT'])});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'multi-payment-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'multi-payment-approver',['GL.JE.APPROVE'])});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'multi-payment-poster',['GL.JE.POST'])});
+  const postPayment=async(number,amount,suffix)=>{
+    const p=await maker.createApPayment({...ids,businessDocumentId:billId,paymentNumber:number,paymentDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount,reason:'Split payment',idempotencyKey:`multi-payment-${suffix}`});
+    await attachAutoSource({...ids,journalId:p.journal_entry_id},{reuseApprovedSnapshots:true});
+    await maker.transitionJournal({...ids,journalEntryId:p.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:`multi-submit-${suffix}`});
+    await reviewer.transitionJournal({...ids,journalEntryId:p.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:`multi-review-${suffix}`});
+    await approver.transitionJournal({...ids,journalEntryId:p.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:`multi-approve-${suffix}`});
+    await poster.postJournal({...ids,journalEntryId:p.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:`multi-post-${suffix}`});
+    return p;
+  };
+  const first=await postPayment('PAY-200',20,'200');const second=await postPayment('PAY-300',30,'300');
+  assert.equal((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0].open_balance,'50.0000');
+  const reversalMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'multi-payment-reversal',['AP.PAYMENT.REVERSE','GL.JE.SUBMIT'])});
+  const reversal=await reversalMaker.createApPaymentReversal({...ids,sourceOccurrenceId:first.payment_occurrence_id,periodId:augustPeriod,journalNumber:'PAY-200-REV',journalDate:'2026-08-02',reason:'Reverse first payment',idempotencyKey:'multi-payment-reversal-200'});
+  await reversalMaker.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'multi-reversal-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'multi-reversal-review'});
+  await approver.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'multi-reversal-approve'});
+  await poster.postJournal({...ids,journalEntryId:reversal.journal_entry_id,periodId:augustPeriod,expectedRevision:3,idempotencyKey:'multi-reversal-post'});
+  const occurrences=(await adminPool.query('SELECT payment_occurrence_id,status,amount FROM payment_occurrence WHERE business_document_id=$1 ORDER BY amount',[billId])).rows;
+  assert.deepEqual(occurrences.map(row=>[row.payment_occurrence_id,row.status,Number(row.amount)]),[[first.payment_occurrence_id,'REVERSED',20],[second.payment_occurrence_id,'POSTED',30]]);
+  assert.equal((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0].open_balance,'70.0000');
+  const original=(await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[first.journal_entry_id])).rows[0];
+  assert.equal(original.status,'POSTED');
 });
