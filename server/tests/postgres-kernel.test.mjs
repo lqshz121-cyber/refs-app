@@ -1004,4 +1004,6 @@ pgTest('AP bill void posts in a new open period and leaves the original Posted J
   assert.deepEqual(bill,{status:'VOID',open_balance:'0.0000',version:'1'});
   assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[ids.journalId])).rows[0].status,'POSTED');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,2);
+  const control=(await adminPool.query('SELECT ap_open_balance,ap_control_balance,ap_in_balance FROM refs_ap_ar_control_reconciliation WHERE tenant_id=$1 AND entity_id=$2 AND currency=$3',[ids.tenantId,ids.entityId,'USD'])).rows[0];
+  assert.deepEqual(control,{ap_open_balance:'0.0000',ap_control_balance:'0.0000',ap_in_balance:true});
 });
