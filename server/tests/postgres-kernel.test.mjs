@@ -908,3 +908,26 @@ pgTest('AR multiple receipt occurrences reverse independently without touching t
   assert.deepEqual(occurrences.map(row=>[row.payment_occurrence_id,row.status,Number(row.amount)]),[[first.payment_occurrence_id,'REVERSED',40],[second.payment_occurrence_id,'POSTED',60]]);
   assert.equal((await adminPool.query('SELECT open_balance FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0].open_balance,'40.0000');
 });
+
+pgTest('AP bill void posts in a new open period and leaves the original Posted JE immutable',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null});
+  const trace=await attachAutoSource(ids);
+  const originalPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bill-original-poster',['GL.JE.POST'])});
+  await originalPoster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'bill-original-post'});
+  const billId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,source_document_id,posted_journal_entry_id,created_by) VALUES($1,$2,$3,'AP_BILL','BILL-VOID-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED',$4,$5,'fixture')`,[billId,ids.tenantId,ids.entityId,trace.documentId,ids.journalId]);
+  const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bill-void-maker',['AP.BILL.VOID.CREATE','GL.JE.SUBMIT'])});
+  const draft=await maker.createApBillVoid({...ids,businessDocumentId:billId,periodId:augustPeriod,expectedVersion:0,journalNumber:'BILL-VOID-1-REV',journalDate:'2026-08-02',reason:'Void duplicate bill',idempotencyKey:'bill-void-create'});
+  await maker.transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'bill-void-submit'});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bill-void-reviewer',['GL.JE.REVIEW'])});
+  await reviewer.transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'bill-void-review'});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bill-void-approver',['GL.JE.APPROVE'])});
+  await approver.transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'bill-void-approve'});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bill-void-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:draft.journal_entry_id,periodId:augustPeriod,expectedRevision:3,idempotencyKey:'bill-void-post'});
+  const bill=(await adminPool.query('SELECT status,open_balance,version FROM business_document WHERE business_document_id=$1',[billId])).rows[0];
+  assert.deepEqual(bill,{status:'VOID',open_balance:'0.0000',version:'1'});
+  assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[ids.journalId])).rows[0].status,'POSTED');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,2);
+});
