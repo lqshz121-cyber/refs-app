@@ -1214,7 +1214,17 @@ pgTest('AR refund posts against available posted credit and rejects over-refund 
   await approver.transitionJournal({...ids,journalEntryId:memo.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'refund-source-approve'});
   await poster.postJournal({...ids,journalEntryId:memo.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'refund-source-post'});
   const refundMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-maker',['AR.REFUND.CREATE','GL.JE.SUBMIT'])});
-  const refund=await refundMaker.createArRefund({...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'REF-60',refundDate:'2026-07-17',cashAccountCode:'220000',amount:60,reason:'Return customer credit funds',idempotencyKey:'refund-60'});
+  const competingRefundMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-maker-2',['AR.REFUND.CREATE','GL.JE.SUBMIT'])});
+  const attempts=await Promise.allSettled([
+    refundMaker.createArRefund({...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'REF-60-A',refundDate:'2026-07-17',cashAccountCode:'220000',amount:60,reason:'Return customer credit funds',idempotencyKey:'refund-60-a'}),
+    competingRefundMaker.createArRefund({...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'REF-60-B',refundDate:'2026-07-17',cashAccountCode:'220000',amount:60,reason:'Return customer credit funds',idempotencyKey:'refund-60-b'})
+  ]);
+  assert.equal(attempts.filter(result=>result.status==='fulfilled').length,1);
+  assert.equal(attempts.filter(result=>result.status==='rejected').length,1);
+  assert.equal(attempts.find(result=>result.status==='rejected').reason.code,'23514');
+  const refund=attempts.find(result=>result.status==='fulfilled').value;
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_adjustment WHERE source_adjustment_id=$1 AND adjustment_kind='AR_REFUND'",[memo.business_adjustment_id])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM idempotency_receipt WHERE tenant_id=$1 AND operation_scope='AR_REFUND:'||$2::text AND idempotency_key IN ('refund-60-a','refund-60-b')",[ids.tenantId,ids.entityId])).rows[0].n,1);
   await attachAutoSource({...ids,journalId:refund.journal_entry_id},{reuseApprovedSnapshots:true});
   await refundMaker.transitionJournal({...ids,journalEntryId:refund.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'refund-submit'});
   await reviewer.transitionJournal({...ids,journalEntryId:refund.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'refund-review'});
