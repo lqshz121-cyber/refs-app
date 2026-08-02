@@ -909,6 +909,31 @@ pgTest('AR multiple receipt occurrences reverse independently without touching t
   assert.equal((await adminPool.query('SELECT open_balance FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0].open_balance,'40.0000');
 });
 
+pgTest('AP vendor credit posted first then partial and full apply updates bill atomically',async()=>{
+  const ids=await seed({status:'APPROVED'});const billId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by) VALUES($1,$2,$3,'AP_BILL','BILL-CREDIT-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-maker',['AP.VENDOR_CREDIT.CREATE','GL.JE.SUBMIT'])});
+  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1',description:'Credit'}],reason:'Vendor credit',idempotencyKey:'vendor-credit-100'});
+  await attachAutoSource({...ids,journalId:credit.journal_entry_id},{reuseApprovedSnapshots:true});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-approver',['GL.JE.APPROVE'])});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-poster',['GL.JE.POST'])});
+  await maker.transitionJournal({...ids,journalEntryId:credit.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'vendor-credit-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:credit.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'vendor-credit-review'});
+  await approver.transitionJournal({...ids,journalEntryId:credit.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'vendor-credit-approve'});
+  await poster.postJournal({...ids,journalEntryId:credit.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'vendor-credit-post'});
+  const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,randomUUID(),['AP.VENDOR_CREDIT.APPLY'])});
+  const first=await applier.applyApVendorCredit({...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:40,reason:'Partial apply',idempotencyKey:'vendor-credit-apply-40'});
+  assert.equal((await adminPool.query('SELECT status FROM business_allocation WHERE business_allocation_id=$1',[first.business_allocation_id])).rows[0].status,'ACTIVE');
+  assert.equal((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0].open_balance,'60.0000');
+  const replay=await applier.applyApVendorCredit({...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:40,reason:'Partial apply',idempotencyKey:'vendor-credit-apply-40'});
+  assert.equal(replay.idempotent,true);
+  const second=await applier.applyApVendorCredit({...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:60,reason:'Full apply',idempotencyKey:'vendor-credit-apply-60'});
+  assert.equal((await adminPool.query('SELECT status FROM business_allocation WHERE business_allocation_id=$1',[second.business_allocation_id])).rows[0].status,'ACTIVE');
+  assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0],{open_balance:'0.0000',status:'PAID'});
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_allocation WHERE business_adjustment_id=$1 AND status='ACTIVE'",[credit.business_adjustment_id])).rows[0].n,2);
+});
+
 pgTest('AP bill void posts in a new open period and leaves the original Posted JE immutable',async()=>{
   const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null});
   const trace=await attachAutoSource(ids);
