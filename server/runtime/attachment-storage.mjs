@@ -15,7 +15,8 @@ const tlsJsonFetch=(url,init,{ca,serverName})=>new Promise((resolve,reject)=>{co
 export class S3AttachmentStorage{
   constructor({endpoint,bucket,region,accessKeyId,secretAccessKey,sessionToken=null,prefix='refs-attachments',fetcher=globalThis.fetch,clock=()=>new Date(),uploadTtlSeconds=900,requireVersionId=true,allowInsecureLoopbackForTests=false,allowInsecureHttpForTests=false}={}){
     let parsed;try{parsed=new URL(endpoint);}catch{throw new Error('S3 endpoint must be a valid URL');}
-    const testLoopback=(allowInsecureLoopbackForTests&&['127.0.0.1','localhost'].includes(parsed.hostname)||allowInsecureHttpForTests)&&parsed.protocol==='http:';
+    const loopbackHost=['127.0.0.1','localhost','::1'].includes(parsed.hostname);
+    const testLoopback=(allowInsecureLoopbackForTests||allowInsecureHttpForTests)&&loopbackHost&&parsed.protocol==='http:';
     if((parsed.protocol!=='https:'&&!testLoopback)||parsed.username||parsed.password||parsed.search||parsed.hash)throw new Error('S3 endpoint must be a credential-free HTTPS URL');
     if(!bucket||!region||!accessKeyId||!secretAccessKey||typeof fetcher!=='function')throw new Error('S3 storage configuration is incomplete');
     this.endpoint=parsed;this.bucket=safeSegment(bucket);this.region=region;this.accessKeyId=accessKeyId;this.secretAccessKey=secretAccessKey;this.sessionToken=sessionToken;this.prefix=prefix.split('/').map(safeSegment).join('/');this.fetcher=fetcher;this.clock=clock;this.uploadTtlSeconds=uploadTtlSeconds;this.requireVersionId=requireVersionId;
