@@ -4,7 +4,7 @@ const operations=Object.values(contract.paths).map(path=>path.post);
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
-  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','createApBillVoid','createApVendorCredit','createAutoJournal','createJournalAdjustment','createManualJournal','finalizeAttachment','postJournal','reserveAttachment','transitionJournal']);
+  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','createApBillVoid','createApPayment','createApVendorCredit','createAutoJournal','createJournalAdjustment','createManualJournal','finalizeAttachment','postJournal','reserveAttachment','transitionJournal']);
 });
 
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{

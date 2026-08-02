@@ -19,11 +19,13 @@ const apArPostedReducerSql=await readFile(new URL('../db/migrations/009_ap_ar_po
 const apArPostedReducerDown=await readFile(new URL('../db/migrations/down/009_ap_ar_posted_adjustment_reducer.sql',import.meta.url),'utf8');
 const apBillVoidPostReducerSql=await readFile(new URL('../db/migrations/010_ap_bill_void_post_reducer.sql',import.meta.url),'utf8');
 const apBillVoidPostReducerDown=await readFile(new URL('../db/migrations/down/010_ap_bill_void_post_reducer.sql',import.meta.url),'utf8');
+const apPaymentSql=await readFile(new URL('../db/migrations/011_ap_payment_command.sql',import.meta.url),'utf8');
+const apPaymentDown=await readFile(new URL('../db/migrations/down/011_ap_payment_command.sql',import.meta.url),'utf8');
 const repository=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -152,6 +154,28 @@ test('AP Bill Void post reducer voids only fully-open bills inside JE post trans
   assert.doesNotMatch(apBillVoidPostReducerSql,/INSERT INTO ledger_line/);
   assert.match(apBillVoidPostReducerDown,/CREATE OR REPLACE FUNCTION refs_apply_ap_ar_posted_adjustment/);
   assert.doesNotMatch(apBillVoidPostReducerDown,/AP_BILL_VOID_POSTED/);
+});
+
+test('AP Payment command creates Draft occurrence and pending allocation without touching balances',()=>{
+  assert.match(apPaymentSql,/AP\.PAYMENT\.CREATE/);
+  assert.match(apPaymentSql,/CREATE OR REPLACE FUNCTION refs_ap_payment_hash/);
+  assert.match(apPaymentSql,/CREATE OR REPLACE FUNCTION refs_create_ap_payment/);
+  assert.match(repository,/async createApPayment/);
+  assert.match(repository,/refs_ap_payment_hash/);
+  assert.match(repository,/refs_create_ap_payment/);
+  assert.match(apPaymentSql,/refs_assert_scope\(p_tenant,p_entity,'AP\.PAYMENT\.CREATE'\)/);
+  assert.match(apPaymentSql,/operation_scope='AP_PAYMENT:'\|\|p_entity/);
+  assert.match(apPaymentSql,/bill\.document_kind<>'AP_BILL'/);
+  assert.match(apPaymentSql,/p_amount>bill\.open_balance-reserved/);
+  assert.match(apPaymentSql,/INSERT INTO journal_entry[\s\S]*'AUTO','DRAFT'/);
+  assert.match(apPaymentSql,/VALUES\(p_tenant,p_entity,p_period,journal_id,1,'291001',p_amount,0,bill\.counterparty_ref/);
+  assert.match(apPaymentSql,/btrim\(p_cash_account_code\),0,p_amount/);
+  assert.match(apPaymentSql,/INSERT INTO payment_occurrence[\s\S]*'AP_PAYMENT'[\s\S]*'DRAFT'/);
+  assert.match(apPaymentSql,/INSERT INTO business_allocation[\s\S]*occurrence_id[\s\S]*'PENDING'/);
+  assert.doesNotMatch(apPaymentSql,/UPDATE business_document/);
+  assert.doesNotMatch(apPaymentSql,/INSERT INTO ledger_line/);
+  assert.match(apPaymentDown,/DROP FUNCTION IF EXISTS refs_create_ap_payment/);
+  assert.match(apPaymentDown,/DROP FUNCTION IF EXISTS refs_ap_payment_hash/);
 });
 
 test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{
