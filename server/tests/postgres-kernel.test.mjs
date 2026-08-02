@@ -827,6 +827,41 @@ pgTest('authenticated HTTP posts an AP payment and a cross-period Draft reversal
   assert.equal((await adminPool.query('SELECT status FROM payment_occurrence WHERE payment_occurrence_id=$1',[payment.payment_occurrence_id])).rows[0].status,'REVERSED');
 });
 
+pgTest('authenticated HTTP posts an AR receipt and a cross-period Draft reversal without mutating the original ledger',async()=>{
+  const ids=await seed({status:'APPROVED'}),invoiceId=randomUUID(),reversalPeriodId=randomUUID();
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,'AR_INVOICE','INV-HTTP-RECEIPT','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN','fixture')`,[invoiceId,ids.tenantId,ids.entityId]);
+  await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[reversalPeriodId,ids.tenantId,ids.entityId]);
+  const makerId=randomUUID(),reviewerId=randomUUID(),approverId=randomUUID(),posterId=randomUUID(),reversalMakerId=randomUUID();
+  const permissions={
+    [makerId]:['AR.RECEIPT.CREATE','GL.JE.SUBMIT'],[reviewerId]:['GL.JE.REVIEW'],[approverId]:['GL.JE.APPROVE'],[posterId]:['GL.JE.POST'],[reversalMakerId]:['AR.RECEIPT.REVERSE','GL.JE.SUBMIT']
+  };
+  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
+  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
+  const root=`/api/v1/entities/${ids.entityId}`;
+  const advance=async(journalId,prefix,periodId,submitter)=>{
+    const path=`${root}/journal-entries/${journalId}`;
+    assert.equal((await send(submitter,`${path}/transitions/submit`,{},`${prefix}-submit`,0)).status,201);
+    assert.equal((await send(reviewerId,`${path}/transitions/review`,{},`${prefix}-review`,1)).status,201);
+    assert.equal((await send(approverId,`${path}/transitions/approve`,{},`${prefix}-approve`,2)).status,201);
+    assert.equal((await send(posterId,`${path}/post`,{periodId},`${prefix}-post`,3)).status,201);
+  };
+  const receiptResponse=await send(makerId,`${root}/ar/invoices/${invoiceId}/receipts`,{periodId:ids.periodId,receiptNumber:'REC-HTTP-40',receiptDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:40,reason:'HTTP partial customer receipt'},'http-receipt-create');
+  assert.equal(receiptResponse.status,201);const receipt=receiptResponse.body.data;
+  await attachAutoSource({...ids,journalId:receipt.journal_entry_id});
+  await advance(receipt.journal_entry_id,'receipt',ids.periodId,makerId);
+  assert.equal((await adminPool.query('SELECT open_balance FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0].open_balance,'60.0000');
+  const reversalResponse=await send(reversalMakerId,`${root}/ar/receipts/${receipt.payment_occurrence_id}/reversals`,{periodId:reversalPeriodId,journalNumber:'REC-HTTP-40-REV',journalDate:'2026-08-02',reason:'Reverse duplicate AR receipt'},'http-receipt-reversal');
+  assert.equal(reversalResponse.status,201);const reversal=reversalResponse.body.data;
+  await attachAutoSource({...ids,journalId:reversal.journal_entry_id},{reuseApprovedSnapshots:true});
+  await advance(reversal.journal_entry_id,'receipt-reversal',reversalPeriodId,reversalMakerId);
+  assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[receipt.journal_entry_id])).rows[0].status,'POSTED');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[receipt.journal_entry_id])).rows[0].n,2);
+  assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0],{open_balance:'100.0000',status:'OPEN'});
+  assert.equal((await adminPool.query('SELECT status FROM payment_occurrence WHERE payment_occurrence_id=$1',[receipt.payment_occurrence_id])).rows[0].status,'REVERSED');
+});
+
 pgTest('runtime creates an evidence-backed Auto Draft and advances staging atomically through posting',async()=>{
   const ids=await seed({status:'DRAFT'});
   const trace=await attachAutoSource(ids,{linkJournal:false});
