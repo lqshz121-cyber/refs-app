@@ -5,11 +5,13 @@ import {readFile} from 'node:fs/promises';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 
 const sql=await readFile(new URL('../db/migrations/002_accounting_runtime.sql',import.meta.url),'utf8');
+const apArSql=await readFile(new URL('../db/migrations/004_ap_ar_business_runtime.sql',import.meta.url),'utf8');
+const apArDown=await readFile(new URL('../db/migrations/down/004_ap_ar_business_runtime.sql',import.meta.url),'utf8');
 const repository=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -18,6 +20,24 @@ test('migration manifest freezes normalized up and down artifacts without AutoRe
       assert.equal(checksum,item[direction],`${direction} checksum mismatch for ${item.name}`);
     }
   }
+});
+
+test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{
+  for(const table of ['business_document','payment_occurrence','business_adjustment','business_allocation','je_reversal_link']){
+    assert.match(apArSql,new RegExp(`CREATE TABLE ${table}`));
+    assert.match(apArSql,new RegExp(`ALTER TABLE %I ENABLE ROW LEVEL SECURITY|ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`));
+    assert.match(apArDown,new RegExp(`DROP TABLE IF EXISTS ${table}`));
+  }
+  for(const permission of ['AP.BILL.VOID.CREATE','AP.VENDOR_CREDIT.CREATE','AP.PAYMENT.REVERSE','AR.CREDIT_MEMO.CREATE','AR.REFUND.CREATE','AR.RECEIPT.REVERSE']){
+    assert.match(apArSql,new RegExp(permission.replaceAll('.','\\.')));
+  }
+  assert.match(apArSql,/document_kind text NOT NULL CHECK \(document_kind IN \('AP_BILL','AR_INVOICE'\)\)/);
+  assert.match(apArSql,/adjustment_kind text NOT NULL CHECK \(adjustment_kind IN \('AP_BILL_VOID','AP_VENDOR_CREDIT','AP_PAYMENT_REVERSAL','AR_CREDIT_MEMO','AR_REFUND','AR_RECEIPT_REVERSAL'\)\)/);
+  assert.match(apArSql,/CHECK \(num_nonnulls\(payment_occurrence_id,business_adjustment_id\)=1\)/);
+  assert.match(apArSql,/Only ACTIVE allocations reduce open balance/);
+  assert.match(apArSql,/Original Posted JE and ledger remain immutable/);
+  assert.doesNotMatch(apArSql,/UPDATE journal_entry SET status='REVERSED'/);
+  assert.doesNotMatch(apArSql,/CREATE OR REPLACE FUNCTION refs_post_journal/);
 });
 
 test('outbox entity column exists before entity-scoped RLS policy',()=>{
