@@ -3,7 +3,7 @@ import {createAccountingApi,createAccountingHttpServer} from '../api/accounting-
 
 const tenantId=randomUUID(),entityId=randomUUID(),journalEntryId=randomUUID(),periodId=randomUUID();
 const calls=[];const invoke=name=>async args=>{calls.push([name,args]);return {journal_entry_id:journalEntryId,status:'DRAFT',idempotent:false};};
-const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid')};
+const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApVendorCredit:invoke('createApVendorCredit')};
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
@@ -29,6 +29,15 @@ test('AP Bill Void route derives tenant entity bill id and revision from trusted
   assert.deepEqual(calls[0][1],{...body,tenantId,entityId,businessDocumentId:billId,expectedVersion:4,idempotencyKey:'idem-key-0001'});
   assert.equal((await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/voids`,{...body,actorId:'attacker'},{'If-Match':'"4"'})).status,400);
   assert.equal((await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/voids`,body)).status,428);
+});
+
+test('AP Vendor Credit route creates only a Draft command from trusted tenant entity scope',async()=>{
+  calls.length=0;const body={periodId,creditNumber:'VC-1',creditDate:'2026-08-02',vendorRef:'V-100',vendorName:'Vendor',amount:125.25,lines:[{line_no:1,account_code:'610000',amount:125.25,dimensions:{property:'P1'}}],reason:'Vendor price adjustment'};
+  const response=await command(`/api/v1/entities/${entityId}/ap/vendor-credits`,body);
+  assert.equal(response.status,201);assert.equal(calls[0][0],'createApVendorCredit');
+  assert.deepEqual(calls[0][1],{...body,tenantId,entityId,idempotencyKey:'idem-key-0001'});
+  assert.equal((await command(`/api/v1/entities/${entityId}/ap/vendor-credits`,{...body,tenantId:randomUUID()})).status,400);
+  assert.equal((await command(`/api/v1/entities/${entityId}/ap/vendor-credits`,{...body,unexpected:true})).status,400);
 });
 
 test('attachment routes derive scope from authentication and never accept caller storage evidence',async()=>{

@@ -11,11 +11,13 @@ const apBillVoidSql=await readFile(new URL('../db/migrations/005_ap_bill_void_co
 const apBillVoidDown=await readFile(new URL('../db/migrations/down/005_ap_bill_void_command.sql',import.meta.url),'utf8');
 const apBillVoidHttpSql=await readFile(new URL('../db/migrations/006_ap_bill_void_http_cas.sql',import.meta.url),'utf8');
 const apBillVoidHttpDown=await readFile(new URL('../db/migrations/down/006_ap_bill_void_http_cas.sql',import.meta.url),'utf8');
+const apVendorCreditSql=await readFile(new URL('../db/migrations/007_ap_vendor_credit_command.sql',import.meta.url),'utf8');
+const apVendorCreditDown=await readFile(new URL('../db/migrations/down/007_ap_vendor_credit_command.sql',import.meta.url),'utf8');
 const repository=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -60,6 +62,29 @@ test('AP Bill Void command is Draft-only, idempotent and leaves posted source im
   assert.doesNotMatch(apBillVoidSql,/INSERT INTO ledger_line/);
   assert.match(apBillVoidDown,/DROP FUNCTION IF EXISTS refs_create_ap_bill_void/);
   assert.match(apBillVoidDown,/DROP FUNCTION IF EXISTS refs_ap_bill_void_hash/);
+});
+
+test('AP Vendor Credit command is Draft-only, idempotent and allocation-separated',()=>{
+  assert.match(apVendorCreditSql,/CREATE OR REPLACE FUNCTION refs_ap_vendor_credit_hash/);
+  assert.match(apVendorCreditSql,/CREATE OR REPLACE FUNCTION refs_create_ap_vendor_credit/);
+  assert.match(repository,/async createApVendorCredit/);
+  assert.match(repository,/refs_ap_vendor_credit_hash/);
+  assert.match(repository,/refs_create_ap_vendor_credit/);
+  assert.match(apVendorCreditSql,/refs_assert_scope\(p_tenant,p_entity,'AP\.VENDOR_CREDIT\.CREATE'\)/);
+  assert.match(apVendorCreditSql,/operation_scope='AP_VENDOR_CREDIT:'\|\|p_entity/);
+  assert.match(apVendorCreditSql,/receipt\.status='SUCCEEDED'[\s\S]*response_body\|\|jsonb_build_object\('idempotent',true\)/);
+  assert.match(apVendorCreditSql,/period_row\.status<>'OPEN'/);
+  assert.match(apVendorCreditSql,/jsonb_to_recordset\(p_lines\)/);
+  assert.match(apVendorCreditSql,/COALESCE\(sum\(x\.amount\),0\)<>p_amount/);
+  assert.match(apVendorCreditSql,/INSERT INTO journal_entry[\s\S]*'AUTO','DRAFT'/);
+  assert.match(apVendorCreditSql,/VALUES\(p_tenant,p_entity,p_period,journal_id,1,'291001',p_amount,0/);
+  assert.match(apVendorCreditSql,/SELECT p_tenant,p_entity,p_period,journal_id,x\.line_no\+1,btrim\(x\.account_code\),0,x\.amount/);
+  assert.match(apVendorCreditSql,/INSERT INTO business_adjustment[\s\S]*'AP_VENDOR_CREDIT'/);
+  assert.match(apVendorCreditSql,/AP_VENDOR_CREDIT_DRAFT_CREATED/);
+  assert.doesNotMatch(apVendorCreditSql,/INSERT INTO business_allocation/);
+  assert.doesNotMatch(apVendorCreditSql,/INSERT INTO ledger_line/);
+  assert.match(apVendorCreditDown,/DROP FUNCTION IF EXISTS refs_create_ap_vendor_credit/);
+  assert.match(apVendorCreditDown,/DROP FUNCTION IF EXISTS refs_ap_vendor_credit_hash/);
 });
 
 test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{

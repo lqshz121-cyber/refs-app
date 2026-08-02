@@ -65,6 +65,10 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['periodId','journalNumber','journalDate','reason']);
         result=await kernel.createApBillVoid({tenantId:principal.tenantId,entityId,businessDocumentId:requireUuid(parts[6],'businessDocumentId'),periodId:requireUuid(payload.periodId,'periodId'),expectedVersion:requireRevision(headers),journalNumber:payload.journalNumber,journalDate:payload.journalDate,reason:payload.reason,idempotencyKey});
+      }else if(parts.length===6&&parts[4]==='ap'&&parts[5]==='vendor-credits'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['periodId','creditNumber','creditDate','vendorRef','vendorName','amount','lines','reason']);
+        result=await kernel.createApVendorCredit({tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),creditNumber:payload.creditNumber,creditDate:payload.creditDate,vendorRef:payload.vendorRef,vendorName:payload.vendorName,amount:payload.amount,lines:payload.lines,reason:payload.reason,idempotencyKey});
       }else throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
       return {status:result?.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
     }catch(error){const status=statusFor(error);return {status,headers:{'content-type':'application/problem+json','cache-control':'no-store'},body:{ok:false,code:error.code||'INTERNAL_ERROR',message:status===500?'Internal server error':error.message}};}
