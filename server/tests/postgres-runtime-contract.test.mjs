@@ -31,11 +31,13 @@ const arReceiptReversalSql=await readFile(new URL('../db/migrations/015_ar_recei
 const arReceiptReversalDown=await readFile(new URL('../db/migrations/down/015_ar_receipt_reversal_command.sql',import.meta.url),'utf8');
 const arReceiptReversalPostSql=await readFile(new URL('../db/migrations/016_ar_receipt_reversal_post_reducer.sql',import.meta.url),'utf8');
 const arReceiptReversalPostDown=await readFile(new URL('../db/migrations/down/016_ar_receipt_reversal_post_reducer.sql',import.meta.url),'utf8');
+const arCreditMemoSql=await readFile(new URL('../db/migrations/017_ar_credit_memo_command.sql',import.meta.url),'utf8');
+const arCreditMemoDown=await readFile(new URL('../db/migrations/down/017_ar_credit_memo_command.sql',import.meta.url),'utf8');
 const repository=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const issuer=await readFile(new URL('../runtime/context-issuer.mjs',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -263,6 +265,16 @@ test('AR Receipt reversal post reducer restores invoice and reverses active allo
   assert.match(arReceiptReversalPostSql,/UPDATE business_adjustment[\s\S]*status='POSTED'/);
   assert.match(arReceiptReversalPostSql,/AR_RECEIPT_REVERSAL_POSTED/);
   assert.match(arReceiptReversalPostDown,/DROP TRIGGER IF EXISTS ar_receipt_reversal_posted_reducer/);
+});
+
+test('AR Credit Memo command is Draft-only and leaves invoice balances unchanged',()=>{
+  assert.match(arCreditMemoSql,/AR\.CREDIT_MEMO\.CREATE/);
+  assert.match(arCreditMemoSql,/CREATE OR REPLACE FUNCTION refs_create_ar_credit_memo/);
+  assert.match(arCreditMemoSql,/INSERT INTO journal_entry[\s\S]*'AUTO','DRAFT'/);
+  assert.match(arCreditMemoSql,/INSERT INTO business_adjustment[\s\S]*'AR_CREDIT_MEMO'[\s\S]*'DRAFT'/);
+  assert.doesNotMatch(arCreditMemoSql,/UPDATE business_document/);
+  assert.doesNotMatch(arCreditMemoSql,/INSERT INTO ledger_line/);
+  assert.match(arCreditMemoDown,/DROP FUNCTION IF EXISTS refs_create_ar_credit_memo/);
 });
 
 test('AP/AR business runtime schema exists without mutating journal or ledger immutability',()=>{
