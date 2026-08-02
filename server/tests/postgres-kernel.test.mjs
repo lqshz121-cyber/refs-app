@@ -875,3 +875,34 @@ pgTest('AP multiple payment occurrences reverse independently without touching t
   const original=(await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[first.journal_entry_id])).rows[0];
   assert.equal(original.status,'POSTED');
 });
+
+pgTest('AR multiple receipt occurrences reverse independently without touching the other Posted receipt',async()=>{
+  const ids=await seed({status:'APPROVED'});const invoiceId=randomUUID();
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by) VALUES($1,$2,$3,'AR_INVOICE','INV-MULTI-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN','fixture')`,[invoiceId,ids.tenantId,ids.entityId]);
+  const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'multi-receipt-maker',['AR.RECEIPT.CREATE','GL.JE.SUBMIT'])});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'multi-receipt-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'multi-receipt-approver',['GL.JE.APPROVE'])});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'multi-receipt-poster',['GL.JE.POST'])});
+  const postReceipt=async(number,amount,suffix)=>{
+    const p=await maker.createArReceipt({...ids,businessDocumentId:invoiceId,receiptNumber:number,receiptDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount,reason:'Split receipt',idempotencyKey:`multi-receipt-${suffix}`});
+    await attachAutoSource({...ids,journalId:p.journal_entry_id},{reuseApprovedSnapshots:true});
+    await maker.transitionJournal({...ids,journalEntryId:p.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:`multi-receipt-submit-${suffix}`});
+    await reviewer.transitionJournal({...ids,journalEntryId:p.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:`multi-receipt-review-${suffix}`});
+    await approver.transitionJournal({...ids,journalEntryId:p.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:`multi-receipt-approve-${suffix}`});
+    await poster.postJournal({...ids,journalEntryId:p.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:`multi-receipt-post-${suffix}`});
+    return p;
+  };
+  const first=await postReceipt('REC-400',40,'400');const second=await postReceipt('REC-600',60,'600');
+  assert.equal((await adminPool.query('SELECT open_balance FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0].open_balance,'0.0000');
+  const reversalMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'multi-receipt-reversal',['AR.RECEIPT.REVERSE','GL.JE.SUBMIT'])});
+  const reversal=await reversalMaker.createArReceiptReversal({...ids,sourceOccurrenceId:first.payment_occurrence_id,periodId:augustPeriod,journalNumber:'REC-400-REV',journalDate:'2026-08-02',reason:'Reverse first receipt',idempotencyKey:'multi-receipt-reversal-400'});
+  await reversalMaker.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'multi-receipt-reversal-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'multi-receipt-reversal-review'});
+  await approver.transitionJournal({...ids,journalEntryId:reversal.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'multi-receipt-reversal-approve'});
+  await poster.postJournal({...ids,journalEntryId:reversal.journal_entry_id,periodId:augustPeriod,expectedRevision:3,idempotencyKey:'multi-receipt-reversal-post'});
+  const occurrences=(await adminPool.query('SELECT payment_occurrence_id,status,amount FROM payment_occurrence WHERE business_document_id=$1 ORDER BY amount',[invoiceId])).rows;
+  assert.deepEqual(occurrences.map(row=>[row.payment_occurrence_id,row.status,Number(row.amount)]),[[first.payment_occurrence_id,'REVERSED',40],[second.payment_occurrence_id,'POSTED',60]]);
+  assert.equal((await adminPool.query('SELECT open_balance FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0].open_balance,'40.0000');
+});

@@ -138,5 +138,20 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'028_ar_receipt_reversal_trigger_scope_fix.sql',
     up:'a1272303e830252de4786a1ade4ee5b77c28e0834038d9c76b8ef322a022c94e',
     down:'ee2e0622163338434f5ff7bda0fe3e330a9f87badb0e428651f9a0b41ec5418d'
+  }),
+  Object.freeze({
+    name:'029_ap_payment_trigger_scope_fix.sql',
+    up:'191f01a811bcb16bdf2fcc4eb6b8a3bbcfe3ead448a365ab5a0581228a2545cc',
+    down:'05b8deb97efc4d4fe53f570f8701b6cb9496ea70c3b52da69bd35c8e7bc5b301'
+  }),
+  Object.freeze({
+    name:'030_allocation_reservation_balance_fix.sql',
+    up:'9b62ab4817430ca1c3f4c663f99d3bb553c30f98b3dc68d2e692eccadd746339',
+    down:'0f7fa1a5f04ccf229938f5f9a7a5a13ca0c53fc4c31c6061320c9a1195a051b9'
+  }),
+  Object.freeze({
+    name:'031_ap_payment_reversal_trigger_scope_fix.sql',
+    up:'3c33be06d1a0bbd61a9e5913f758b116828f51812f2f3e7fd51911b19525d1ea',
+    down:'fe1b90ebeeb943b73e17caa559c4fe1e4ff2e9bfa464904fb4a99ba287bae585'
   })
 ]);
