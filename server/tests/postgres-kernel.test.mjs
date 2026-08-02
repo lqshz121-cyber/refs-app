@@ -704,6 +704,20 @@ pgTest('authenticated HTTP commands traverse context issuance and PostgreSQL int
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[journalId])).rows[0].n,5);
 });
 
+pgTest('authenticated HTTP AR aging reads only the entity authorized by its DB context',async()=>{
+  const ids=await seed({status:'APPROVED'}),invoiceId=randomUUID(),other=await seed({status:'APPROVED',tenantId:ids.tenantId});
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,'AR_INVOICE','INV-HTTP-AGING','CUSTOMER-1','Customer','USD','2026-07-01','2026-07-01',30,30,'OPEN','fixture')`,[invoiceId,ids.tenantId,ids.entityId]);
+  const api=createAccountingApi({
+    authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'http-aging-reader'}),
+    kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'http-aging-reader',['AR.VIEW'])})
+  });
+  const path=`/api/v1/entities/${ids.entityId}/ar/aging?asOf=2026-08-31`;
+  const response=await api({method:'GET',url:path,headers:{},body:null});
+  assert.equal(response.status,200);assert.deepEqual(response.body.data,[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'0.0000',days_61_90:'30.0000',days_91_plus:'0.0000',total_open_balance:'30.0000'}]);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/ar/aging?asOf=2026-08-31`,headers:{},body:null})).status,403);
+});
+
 pgTest('runtime creates an evidence-backed Auto Draft and advances staging atomically through posting',async()=>{
   const ids=await seed({status:'DRAFT'});
   const trace=await attachAutoSource(ids,{linkJournal:false});

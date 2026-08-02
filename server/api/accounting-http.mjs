@@ -13,6 +13,7 @@ const header=(headers,name)=>{
   const value=key?headers[key]:null;return Array.isArray(value)?value[0]:value;
 };
 const requireUuid=(value,name)=>{if(!UUID.test(value||''))throw new AccountingApiError(400,'INVALID_PATH_PARAMETER',`${name} must be a UUID`);return value;};
+const requireIsoDate=(value,name)=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER',`${name} must be an ISO calendar date`);const date=new Date(`${value}T00:00:00.000Z`);if(!Number.isFinite(date.getTime())||date.toISOString().slice(0,10)!==value)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER',`${name} must be an ISO calendar date`);return value;};
 const requireIdempotency=headers=>{const value=header(headers,'idempotency-key');if(typeof value!=='string'||value.length<8||value.length>200)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_REQUIRED','Idempotency-Key must be 8-200 characters');return value;};
 const requireRevision=headers=>{const raw=header(headers,'if-match');if(raw==null)throw new AccountingApiError(428,'IF_MATCH_REQUIRED','If-Match is required');const value=String(raw).trim();if(value.startsWith('W/'))throw new AccountingApiError(412,'WEAK_IF_MATCH_REJECTED','If-Match must use a strong revision validator');const cleaned=value.replace(/^"|"$/g,'');if(!/^\d+$/.test(cleaned))throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must contain a non-negative revision');return Number(cleaned);};
 const validateBody=body=>{if(!body||typeof body!=='object'||Array.isArray(body))throw new AccountingApiError(400,'JSON_OBJECT_REQUIRED','Request body must be a JSON object');for(const key of Object.keys(body))if(FORBIDDEN_BODY_KEYS.has(key))throw new AccountingApiError(400,'IDENTITY_FIELD_FORBIDDEN',`${key} must come from authenticated context`);return body;};
@@ -31,11 +32,19 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
     try{
       const principal=await authenticate({method,url,headers});
       if(!principal||principal.trusted!==true||!UUID.test(principal.tenantId||'')||!principal.actorId)throw new AccountingApiError(401,'AUTHENTICATION_REQUIRED','Authenticated principal is required');
-      const pathname=new URL(url,'http://refs.local').pathname;const parts=pathname.split('/').filter(Boolean);
+      const parsedUrl=new URL(url,'http://refs.local');const pathname=parsedUrl.pathname;const parts=pathname.split('/').filter(Boolean);
       if(parts[0]!=='api'||parts[1]!=='v1'||parts[2]!=='entities')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
-      if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST is supported on this command API');
-      const entityId=requireUuid(parts[3],'entityId');const payload=validateBody(body);const idempotencyKey=requireIdempotency(headers);
+      const entityId=requireUuid(parts[3],'entityId');const payload=method==='GET'&&body==null?{}:validateBody(body);
       let result;
+      if(method==='GET'&&parts.length===6&&parts[4]==='ar'&&parts[5]==='aging'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(Object.keys(payload).length)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        result=await kernel.getArAging({tenantId:principal.tenantId,entityId,asOfDate:requireIsoDate(parsedUrl.searchParams.get('asOf'),'asOf')});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');
+      const idempotencyKey=requireIdempotency(headers);
       if(parts.length===6&&parts[4]==='attachments'&&parts[5]==='reservations'){
         if(typeof attachmentServiceFactory!=='function')throw new AccountingApiError(503,'ATTACHMENT_SERVICE_UNAVAILABLE','Attachment service is unavailable');
         allowOnly(payload,['name','mediaType','sizeBytes','contentHash']);const service=await attachmentServiceFactory(principal);result=await service.reserve(principal,{...payload,tenantId:principal.tenantId,entityId,idempotencyKey});

@@ -3,7 +3,7 @@ import {createAccountingApi,createAccountingHttpServer} from '../api/accounting-
 
 const tenantId=randomUUID(),entityId=randomUUID(),journalEntryId=randomUUID(),periodId=randomUUID();
 const calls=[];const invoke=name=>async args=>{calls.push([name,args]);return {journal_entry_id:journalEntryId,status:'DRAFT',idempotent:false};};
-const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit')};
+const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit')};
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
@@ -52,6 +52,15 @@ test('AR Receipt route creates only Draft occurrence and pending allocation from
 test('AR Receipt reversal route creates only a Draft adjustment from trusted scope',async()=>{
   calls.length=0;const response=await command('/api/v1/entities/'+entityId+'/ar/receipts/'+journalEntryId+'/reversals',{periodId,journalNumber:'AR-REV-1',journalDate:'2026-07-20',reason:'Customer receipt reversal'},{'Idempotency-Key':'ar-rev-0001'});
   assert.equal(response.status,201);assert.equal(calls[0][0],'createArReceiptReversal');assert.equal(calls[0][1].sourceOccurrenceId,journalEntryId);assert.equal(calls[0][1].tenantId,tenantId);
+});
+
+test('AR aging is an authenticated read scoped to entity and a strict as-of date',async()=>{
+  calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/ar/aging?asOf=2026-08-31`,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(calls[0][0],'getArAging');
+  assert.deepEqual(calls[0][1],{tenantId,entityId,asOfDate:'2026-08-31'});
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/ar/aging?asOf=2026-02-30`,body:null,headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/ar/aging?asOf=2026-08-31`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/ar/aging?asOf=2026-08-31`,body:{actorId:'attacker'},headers:{}})).status,400);
 });
 
 test('AR Credit Memo route creates only a Draft adjustment from trusted scope',async()=>{

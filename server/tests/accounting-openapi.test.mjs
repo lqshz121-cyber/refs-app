@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
 const contract=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
-const operations=Object.values(contract.paths).map(path=>path.post);
+const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.post]:[]);
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
@@ -31,4 +31,11 @@ test('attachment create and replay responses use the exact attachment envelope',
   }
   const result=contract.components.schemas.AttachmentResult;assert.equal(result.additionalProperties,false);
   assert.deepEqual(result.required,['attachment_id','entity_id','status','idempotent']);
+});
+
+test('AR aging is a no-store authenticated GET with a required as-of date',()=>{
+  const operation=contract.paths['/entities/{entityId}/ar/aging'].get;
+  assert.equal(operation.operationId,'getArAging');assert.equal(operation.parameters[1].name,'asOf');assert.equal(operation.parameters[1].required,true);
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/ReadOk');assert.equal(contract.components.responses.ReadOk.headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(contract.components.schemas.ArAgingRow.additionalProperties,false);
 });
