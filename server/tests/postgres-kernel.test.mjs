@@ -772,8 +772,10 @@ pgTest('authenticated HTTP creates AP Bills and AR Invoices only as evidence-bac
   };
   const bill=await create('ap/bills',{periodId:ids.periodId,documentNumber:'BILL-NATIVE-100',counterpartyRef:'VENDOR-1',counterpartyName:'Vendor',currency:'USD',accountingDate:'2026-07-18',dueDate:'2026-08-18',amount:100,offsetAccountCode:'610000',description:'Native AP bill',attachmentIds:[attachmentId]},'native-ap-bill-100');
   const invoice=await create('ar/invoices',{periodId:ids.periodId,documentNumber:'INV-NATIVE-100',counterpartyRef:'CUSTOMER-1',counterpartyName:'Customer',currency:'USD',accountingDate:'2026-07-18',dueDate:'2026-08-18',amount:100,offsetAccountCode:'400000',description:'Native AR invoice',attachmentIds:[attachmentId]},'native-ar-invoice-100');
-  assert.equal((await api({method:'GET',url:`${root}/ap/bills`,headers:{'x-test-actor':'document-reader'},body:null})).body.data[0].business_document_id,bill.business_document_id);
-  assert.equal((await api({method:'GET',url:`${root}/ar/invoices`,headers:{'x-test-actor':'document-reader'},body:null})).body.data[0].business_document_id,invoice.business_document_id);
+  const readBill=(await api({method:'GET',url:`${root}/ap/bills`,headers:{'x-test-actor':'document-reader'},body:null})).body.data[0];
+  assert.deepEqual({business_document_id:readBill.business_document_id,status:readBill.status,offset_account_code:readBill.offset_account_code,description:readBill.description},{business_document_id:bill.business_document_id,status:'OPEN',offset_account_code:'610000',description:'Native AP bill'});
+  const readInvoice=(await api({method:'GET',url:`${root}/ar/invoices`,headers:{'x-test-actor':'document-reader'},body:null})).body.data[0];
+  assert.deepEqual({business_document_id:readInvoice.business_document_id,status:readInvoice.status,offset_account_code:readInvoice.offset_account_code,description:readInvoice.description},{business_document_id:invoice.business_document_id,status:'OPEN',offset_account_code:'400000',description:'Native AR invoice'});
   const spoof=await send('document-maker',`${root}/ap/bills`,{periodId:ids.periodId,documentNumber:'BILL-NO-EVIDENCE',counterpartyRef:'VENDOR-1',counterpartyName:'Vendor',currency:'USD',accountingDate:'2026-07-18',amount:100,offsetAccountCode:'610000',attachmentIds:[]},'native-ap-bill-no-evidence');
   assert.equal(spoof.status,422);
 });

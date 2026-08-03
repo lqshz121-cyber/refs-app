@@ -55,8 +55,11 @@ test('AP and AR control totals are no-store authenticated GETs',()=>{
 test('AP Bill and AR Invoice list reads are authenticated no-store operations',()=>{
   for(const [path,operationId] of [['/entities/{entityId}/ap/bills','listApBills'],['/entities/{entityId}/ar/invoices','listArInvoices']]){
     const operation=contract.paths[path].get;
-    assert.equal(operation.operationId,operationId);assert.equal(operation.responses['200'].$ref,'#/components/responses/ReadOk');
+    assert.equal(operation.operationId,operationId);assert.equal(operation.responses['200'].$ref,'#/components/responses/BusinessDocumentReadOk');
   }
+  const row=contract.components.schemas.BusinessDocumentReadRow;
+  assert.equal(row.additionalProperties,false);
+  assert.deepEqual(row.required,['business_document_id','document_number','counterparty_ref','counterparty_name','currency','accounting_date','gross_amount','open_balance','status','version','offset_account_code','description']);
 });
 
 test('AP Bill and AR Invoice create commands are Draft-only and require a canonical business document body',()=>{
