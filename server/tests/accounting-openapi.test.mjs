@@ -20,7 +20,12 @@ test('identity and server-computed request hash are absent from all public reque
 
 test('all responses are no-store and use a structured success or problem envelope',()=>{
   assert.equal(contract.components.responses.CommandCreated.headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(contract.components.responses.CommandCreated.headers.ETag.schema.pattern,'^\\"[0-9]+\\"$');
+  assert.equal(contract.components.responses.CommandReplay.headers.ETag.schema.pattern,'^\\"[0-9]+\\"$');
   assert.equal(contract.components.responses.Problem.headers['Cache-Control'].schema.const,'no-store');
+  assert.deepEqual(contract.components.responses.Problem.headers['Retry-After'].schema,{type:'integer',minimum:0});
+  assert.match(contract.components.responses.Problem.description,/412/);
+  assert.match(contract.components.responses.Problem.description,/503/);
   for(const operation of operations){assert.ok(operation.responses['200']);assert.ok(operation.responses['201']);assert.ok(operation.responses.default);}
 });
 
