@@ -12,6 +12,7 @@ export function APWorkspace({ctx}) {
   const [tab, setTab] = useState('Bills');
   const [showNew, setShowNew] = useState(false);
   const [showCredit, setShowCredit] = useState(false);
+  const [applyCredit, setApplyCredit] = useState(null);
   const [sel, setSel] = useState(null);
   const bills = ap.bills;
   const open = bills.filter(b=>!['PAID','VOID'].includes(b.status));
@@ -48,7 +49,7 @@ export function APWorkspace({ctx}) {
       {h:'Credit #',k:'business_adjustment_id'},{h:'Type',k:'adjustment_kind'},{h:'Date',k:'accounting_date'},
       {h:'Amount',num:true,render:r=><Money v={Number(r.amount)}/>,sortVal:r=>Number(r.amount)},{h:'Status',render:r=><Badge>{r.status}</Badge>},
       {h:'Journal',k:'journal_entry_id'},
-      {h:'Action',render:r=>journalWorkflowAction(r.journal_status)&&r.journal_entry_id?<Btn size="sm" variant="primary" onClick={async()=>{const action=journalWorkflowAction(r.journal_status);const result=await actions.transitionDocumentJournal(r.journal_entry_id,r.journal_revision,action);toast(result?.ok?`${action} accepted.`:result?.message||'Workflow blocked',result?.ok?'ok':'bad');}}>{journalWorkflowAction(r.journal_status)}</Btn>:<span className="muted sm">{r.journal_status||r.status}</span>}
+      {h:'Action',render:r=>journalWorkflowAction(r.journal_status)&&r.journal_entry_id?<Btn size="sm" variant="primary" onClick={async()=>{const action=journalWorkflowAction(r.journal_status);const result=await actions.transitionDocumentJournal(r.journal_entry_id,r.journal_revision,action);toast(result?.ok?`${action} accepted.`:result?.message||'Workflow blocked',result?.ok?'ok':'bad');}}>{journalWorkflowAction(r.journal_status)}</Btn>:r.adjustment_kind==='AP_VENDOR_CREDIT'&&r.status==='POSTED'?<Btn size="sm" disabled={!authoritativeMode||apiStatus!=='READY'||!can('AP.VENDOR_CREDIT.APPLY')} onClick={()=>setApplyCredit(r)}>Apply</Btn>:<span className="muted sm">{r.journal_status||r.status}</span>}
     ]} rows={ap.adjustments||[]} empty="No authoritative AP credits or adjustments available." /></>}
     {tab==='账龄 Aging' && <Aging bills={aging} />}
     {tab==='供应商 Vendors' && <Table exportName="vendors" rowKey="vendor_id" cols={[
@@ -58,6 +59,7 @@ export function APWorkspace({ctx}) {
     ]} rows={VENDORS} />}
     <NewBill open={showNew} onClose={()=>setShowNew(false)} ctx={ctx} />
     <VendorCredit open={showCredit} onClose={()=>setShowCredit(false)} ctx={ctx} />
+    <ApplyVendorCredit open={!!applyCredit} credit={applyCredit} bills={bills} onClose={()=>setApplyCredit(null)} ctx={ctx}/>
     <BillDetail bill={bill} onClose={()=>setSel(null)} ctx={ctx} />
   </div>;
 }
@@ -73,6 +75,20 @@ function VendorCredit({open,onClose,ctx}){
     <div className="two-col"><Field label="Offset Account"><input value={f.account_code} onChange={e=>set('account_code',e.target.value)}/></Field><Field label="Amount" required><input type="number" min="0.0001" value={f.amount} onChange={e=>set('amount',e.target.value)}/></Field></div>
     <Field label="Reason" required><input value={f.reason} onChange={e=>set('reason',e.target.value)}/></Field>
     <p className="muted sm">This creates only a server-side Draft adjustment and linked Draft JE; it does not allocate, approve, or post.</p>
+  </Drawer>;
+}
+
+function ApplyVendorCredit({open,credit,bills,onClose,ctx}){
+  const {actions,toast}=ctx;
+  const empty=()=>({client_request_id:`AP-CREDIT-APPLY-${Date.now()}-${Math.random()}`,business_document_id:'',amount:'',reason:''});
+  const [f,setF]=useState(empty);const set=(key,value)=>setF(old=>({...old,[key]:value}));
+  const eligible=(bills||[]).filter(bill=>['APPROVED','OPEN','PARTIALLY_PAID'].includes(bill.status));
+  const submit=async()=>{if(!credit?.business_adjustment_id||!f.business_document_id||!f.reason||!(+f.amount>0)){toast('Bill, amount and reason are required.','bad');return;}const result=await actions.applyApVendorCredit({...f,business_adjustment_id:credit.business_adjustment_id,amount:+f.amount});if(!result?.ok){toast(result?.message||'Credit application was rejected.','bad');return;}toast('Credit application Draft was persisted. It activates only when the linked credit JE is posted.','ok');setF(empty());onClose();};
+  return <Drawer open={open} onClose={onClose} title="Apply Vendor Credit" width={520} actions={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit}>Create Draft Allocation</Btn></>}>
+    <p className="muted sm">Only an authoritative, posted Vendor Credit may be applied. The server validates vendor, open Bill and available credit.</p>
+    <Field label="Open Bill" required><select value={f.business_document_id} onChange={e=>set('business_document_id',e.target.value)}><option value="">— Select —</option>{eligible.map(bill=><option key={bill.bill_id} value={bill.bill_id}>{bill.bill_no} · {bill.vendor_name} · {money(bill.open_balance)}</option>)}</select></Field>
+    <Field label="Amount" required><input type="number" min="0.0001" value={f.amount} onChange={e=>set('amount',e.target.value)}/></Field>
+    <Field label="Reason" required><input value={f.reason} onChange={e=>set('reason',e.target.value)}/></Field>
   </Drawer>;
 }
 
