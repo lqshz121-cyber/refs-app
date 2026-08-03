@@ -1173,11 +1173,13 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[credit.journal_entry_id])).rows,[{account_code:'291001',debit_amount:'100.0000',credit_amount:'0.0000',member_ref:'VENDOR-1'},{account_code:'610000',debit_amount:'0.0000',credit_amount:'100.0000',member_ref:null}]);
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'vendor-credit-control-reader',['AP.VIEW'])});
   assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
+  assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
   const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,randomUUID(),['AP.VENDOR_CREDIT.APPLY'])});
   const first=await applier.applyApVendorCredit({...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:40,reason:'Partial apply',idempotencyKey:'vendor-credit-apply-40'});
   assert.equal((await adminPool.query('SELECT status FROM business_allocation WHERE business_allocation_id=$1',[first.business_allocation_id])).rows[0].status,'ACTIVE');
   assert.equal((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0].open_balance,'60.0000');
   assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
+  assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'60.0000',days_31_60:'-60.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
   const replay=await applier.applyApVendorCredit({...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:40,reason:'Partial apply',idempotencyKey:'vendor-credit-apply-40'});
   assert.equal(replay.idempotent,true);
   const second=await applier.applyApVendorCredit({...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:60,reason:'Full apply',idempotencyKey:'vendor-credit-apply-60'});
@@ -1185,6 +1187,7 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0],{open_balance:'0.0000',status:'PAID'});
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_allocation WHERE business_adjustment_id=$1 AND status='ACTIVE'",[credit.business_adjustment_id])).rows[0].n,2);
   assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
+  assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'0.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
 });
 
 pgTest('AR credit memo posted first then partial and full apply updates invoice atomically',async()=>{
@@ -1203,13 +1206,17 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
   await reviewer.transitionJournal({...ids,journalEntryId:memo.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'ar-credit-review'});
   await approver.transitionJournal({...ids,journalEntryId:memo.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'ar-credit-approve'});
   await poster.postJournal({...ids,journalEntryId:memo.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'ar-credit-post'});
+  const agingReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-aging-reader',['AR.VIEW'])});
+  assert.deepEqual(await agingReader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
   const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,randomUUID(),['AR.CREDIT_MEMO.APPLY'])});
   const first=await applier.applyArCreditMemo({...ids,businessAdjustmentId:memo.business_adjustment_id,businessDocumentId:invoiceId,amount:40,reason:'Partial apply',idempotencyKey:'ar-credit-apply-40'});
   assert.equal((await adminPool.query('SELECT status FROM business_allocation WHERE business_allocation_id=$1',[first.business_allocation_id])).rows[0].status,'ACTIVE');
   assert.equal((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0].open_balance,'60.0000');
+  assert.deepEqual(await agingReader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'60.0000',days_31_60:'-60.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
   const second=await applier.applyArCreditMemo({...ids,businessAdjustmentId:memo.business_adjustment_id,businessDocumentId:invoiceId,amount:60,reason:'Full apply',idempotencyKey:'ar-credit-apply-60'});
   assert.equal((await adminPool.query('SELECT status FROM business_allocation WHERE business_allocation_id=$1',[second.business_allocation_id])).rows[0].status,'ACTIVE');
   assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[invoiceId])).rows[0],{open_balance:'0.0000',status:'PAID'});
+  assert.deepEqual(await agingReader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'0.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
 });
 
 pgTest('AR refund posts against available posted credit and rejects over-refund atomically',async()=>{
@@ -1235,6 +1242,7 @@ pgTest('AR refund posts against available posted credit and rejects over-refund 
   assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[memo.journal_entry_id])).rows,[{account_code:'120200',debit_amount:'0.0000',credit_amount:'100.0000',member_ref:'CUSTOMER-1'},{account_code:'410000',debit_amount:'100.0000',credit_amount:'0.0000',member_ref:null}]);
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-control-reader',['AR.VIEW'])});
   assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
+  assert.deepEqual(await reader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'0.0000'}]);
   const refundMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-maker',['AR.REFUND.CREATE','GL.JE.SUBMIT'])});
   const competingRefundMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-maker-2',['AR.REFUND.CREATE','GL.JE.SUBMIT'])});
   const attempts=await Promise.allSettled([
@@ -1255,6 +1263,7 @@ pgTest('AR refund posts against available posted credit and rejects over-refund 
   assert.equal((await adminPool.query('SELECT status FROM business_adjustment WHERE business_adjustment_id=$1',[refund.business_adjustment_id])).rows[0].status,'POSTED');
   assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[refund.journal_entry_id])).rows,[{account_code:'120200',debit_amount:'60.0000',credit_amount:'0.0000',member_ref:'CUSTOMER-1'},{account_code:'220000',debit_amount:'0.0000',credit_amount:'60.0000',member_ref:null}]);
   assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'60.0000',control_balance:'60.0000',in_balance:true}]);
+  assert.deepEqual(await reader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'100.0000',days_31_60:'-40.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'60.0000'}]);
   await assert.rejects(refundMaker.createArRefund({...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'REF-50',refundDate:'2026-07-18',cashAccountCode:'220000',amount:50,reason:'Over available customer credit',idempotencyKey:'refund-50'}),error=>error.code==='23514');
 });
 
