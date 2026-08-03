@@ -5,6 +5,8 @@ import { acct, money, sum } from './engine.js';
 
 // AP closed loop: Bill(lines) -> duplicate check -> approval -> JE(Dr Exp/CIP, Cr AP) -> Payment run -> JE(Dr AP, Cr Cash) -> aging
 export const apAgingDocuments = bills => bills.filter(b=>['APPROVED','PAYMENT_PENDING'].includes(b.status));
+const journalWorkflowAction=status=>({DRAFT:'SUBMIT',PENDING_REVIEW:'REVIEW',APPROVED:'POST'})[status]||null;
+const journalWorkflowLabel=action=>({SUBMIT:'Submit for review',REVIEW:'Review',POST:'Post journal'})[action]||'';
 export function APWorkspace({ctx}) {
   const {ap, actions, toast, can, user} = ctx;             // ap: {bills:[...]}
   const [tab, setTab] = useState('Bills');
@@ -107,12 +109,13 @@ function BillDetail({bill, onClose, ctx}) {
     {label:'AP JE Posted · Dr 费用 / Cr AP', done:['APPROVED','PAYMENT_PENDING','PAID'].includes(bill.status), who:bill.je_number},
     {label:'付款 Dr AP / Cr Cash', done:bill.status==='PAID', who:bill.pay_je_number},
   ];
-  const approve = () => {
-    const result=actions.approveBill(bill.bill_id);
+  const workflowAction=journalWorkflowAction(bill.journal_status);
+  const approve = async () => {
+    const result=workflowAction&&bill.journal_entry_id?await actions.transitionDocumentJournal(bill.journal_entry_id,bill.journal_revision,workflowAction):actions.approveBill(bill.bill_id);
     toast(result?.ok?'审批完成：Draft JE 已进入复核队列':result?.message||'Bill 审批被拦截',result?.ok?'ok':'bad');
   };
   return <Drawer open onClose={onClose} title={bill.bill_no+' · '+bill.vendor_name} width={520}
-    actions={bill.status==='PENDING_APPROVAL' && can('AP.INVOICE.APPROVE') ? <Btn variant="primary" onClick={approve}>审批 + 生成分录</Btn> : null}>
+    actions={workflowAction&&bill.journal_entry_id ? <Btn variant="primary" onClick={approve}>{journalWorkflowLabel(workflowAction)}</Btn> : bill.status==='PENDING_APPROVAL' && can('AP.INVOICE.APPROVE') ? <Btn variant="primary" onClick={approve}>审批 + 生成分录</Btn> : null}>
     <div className="kv"><span>发票号</span><b>{bill.invoice_no}</b></div>
     <div className="kv"><span>金额</span><Money v={bill.amount} bold/></div>
     <div className="kv"><span>科目</span><b>{bill.account_code} {acct(bill.account_code).account_name}</b></div>

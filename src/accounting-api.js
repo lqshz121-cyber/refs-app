@@ -10,7 +10,7 @@ export const accountingApiConfig=(environment=globalThis)=>{
 
 const documentRow=(row,kind)=>({
   ...(kind==='AP_BILL'?{bill_id:row.business_document_id,bill_no:row.document_number,invoice_no:row.document_number,vendor_id:row.counterparty_ref,vendor_name:row.counterparty_name,bill_date:row.accounting_date}:{inv_id:row.business_document_id,inv_no:row.document_number,customer_id:row.counterparty_ref,customer_name:row.counterparty_name,inv_date:row.accounting_date}),
-  due_date:row.due_date,amount:Number(row.gross_amount),open_balance:Number(row.open_balance),currency:row.currency,status:row.status,je_number:row.posted_journal_entry_id||null,revision:row.version,
+  due_date:row.due_date,amount:Number(row.gross_amount),open_balance:Number(row.open_balance),currency:row.currency,status:row.status,je_number:row.posted_journal_entry_id||null,revision:row.version,journal_entry_id:row.journal_entry_id,journal_status:row.journal_status,journal_revision:row.journal_revision,period_id:row.period_id,account_code:row.offset_account_code,description:row.description,
 });
 
 export async function refreshAuthoritativeDocuments({config,fetcher=globalThis.fetch}={}){
@@ -33,4 +33,12 @@ export async function createAuthoritativeSettlement({config,kind,businessDocumen
   const path=kind==='AP_PAYMENT'?`/ap/bills/${businessDocumentId}/payments`:`/ar/invoices/${businessDocumentId}/receipts`;
   const body=kind==='AP_PAYMENT'?{periodId:config.periodId,paymentNumber:idempotencyKey,paymentDate:accountingDate,cashAccountCode:config.cashAccountCode,bankMemberRef:null,amount,reason:'UI-authoritative AP payment'}:{periodId:config.periodId,receiptNumber:idempotencyKey,receiptDate:accountingDate,cashAccountCode:config.cashAccountCode,bankMemberRef:null,amount,reason:'UI-authoritative AR receipt'};
   try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid settlement envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative settlement command failed.'};}
+}
+
+export async function transitionAuthoritativeJournal({config,journalEntryId,revision,action,fetcher=globalThis.fetch}={}){
+  const command=String(action||'').toUpperCase();
+  if(!config||typeof fetcher!=='function'||!UUID.test(journalEntryId||'')||!Number.isSafeInteger(revision)||revision<0||!['SUBMIT','REVIEW','APPROVE','POST'].includes(command))return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Journal workflow command is invalid.'};
+  const post=command==='POST',path=post?`/journal-entries/${journalEntryId}/post`:`/journal-entries/${journalEntryId}/transitions/${command.toLowerCase()}`,body=post?{periodId:config.periodId}:{};
+  const idempotencyKey=`UI-JE-${journalEntryId}-${revision}-${command}`;
+  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,'if-match':`"${revision}"`},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid workflow envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative journal workflow command failed.'};}
 }

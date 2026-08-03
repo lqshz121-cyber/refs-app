@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {accountingApiConfig,createAuthoritativeBusinessDocument,createAuthoritativeSettlement,refreshAuthoritativeDocuments} from '../src/accounting-api.js';
+import {accountingApiConfig,createAuthoritativeBusinessDocument,createAuthoritativeSettlement,refreshAuthoritativeDocuments,transitionAuthoritativeJournal} from '../src/accounting-api.js';
 const entityId='11111111-1111-4111-8111-111111111111';
 const periodId='33333333-3333-4333-8333-333333333333';
 assert.equal(accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'http://unsafe.example',entityId,periodId}}),null);
@@ -13,5 +13,7 @@ const config=accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'https://api.
   assert.equal(created.ok,true);assert.match(call.url,/\/ap\/bills$/);assert.equal(call.options.credentials,'include');assert.equal(call.options.headers['idempotency-key'],'AP-BILL-request-0001');assert.equal(JSON.parse(call.options.body).periodId,periodId);
   const settlementConfig={...config,cashAccountCode:'111000'};const paid=await createAuthoritativeSettlement({config:settlementConfig,kind:'AP_PAYMENT',businessDocumentId:entityId,accountingDate:'2026-08-02',amount:7.25,idempotencyKey:'AP-PAY-request-0001',fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{status:'DRAFT'}})};}});
   assert.equal(paid.ok,true);assert.match(call.url,/\/ap\/bills\/.+\/payments$/);assert.equal(JSON.parse(call.options.body).cashAccountCode,'111000');assert.equal(JSON.parse(call.options.body).bankMemberRef,null);
+  const advanced=await transitionAuthoritativeJournal({config,journalEntryId:entityId,revision:2,action:'POST',fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{status:'POSTED',revision:3}})};}});
+  assert.equal(advanced.ok,true);assert.match(call.url,/\/journal-entries\/.+\/post$/);assert.equal(call.options.headers['if-match'],'"2"');assert.equal(JSON.parse(call.options.body).periodId,periodId);
   console.log('accounting-api-client: all assertions passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

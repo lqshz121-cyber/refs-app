@@ -21,7 +21,7 @@ import { StagingCenter } from './module-staging.jsx';
 import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
-import { accountingApiConfig, createAuthoritativeBusinessDocument, createAuthoritativeSettlement, refreshAuthoritativeDocuments } from './accounting-api.js';
+import { accountingApiConfig, createAuthoritativeBusinessDocument, createAuthoritativeSettlement, refreshAuthoritativeDocuments, transitionAuthoritativeJournal } from './accounting-api.js';
 import { batchBankTransition, buildBankDraft, buildBankWorkflowException, createBankDraftTransition, excludeBankTransition, matchBankTransition, undoBankTransition, validateBankDraft } from './bank-workflow.js';
 import { authorizeJECommand, copyJEAsDraft, createReclassDraft, createRecurringTemplate, createReversal, rejectJETransition, reserveJESources, resolveJEPeriod, saveJEDraft, transitionJE, validateNewJEBatch, validateNewJESpec, verifyAttachmentContent } from './je-workflow.js';
 import { approveBillCommand, payBillCommand } from './ap-workflow.js';
@@ -242,6 +242,7 @@ function App() {
     signoffTask: (id) => setCloseTasks(ts=>ts.map(t=>t.close_task_id===id?{...t, status:'SIGNED_OFF', signed_off_by:userId}:t)),
     // ---- AP ----
     refreshAuthoritativeDocuments: refreshAuthority,
+    transitionDocumentJournal: async (journalEntryId,revision,action) => {const result=await transitionAuthoritativeJournal({config:accountingApiConfig(),journalEntryId,revision,action});if(!result.ok)return result;const refreshed=await refreshAuthority();return refreshed.ok?result:refreshed;},
     addBill: async (f) => { const config=accountingApiConfig();if(config){const vendor=VENDORS.find(x=>x.vendor_id===f.vendor_id);const result=await createAuthoritativeBusinessDocument({config,kind:'AP_BILL',idempotencyKey:f.client_request_id,document:{documentNumber:f.invoice_no,counterpartyRef:f.vendor_id,counterpartyName:vendor?.vendor_name||'',currency:'USD',accountingDate:f.bill_date,dueDate:f.due_date,amount:f.amount,offsetAccountCode:f.account_code,description:f.lines?.map(line=>line.description).filter(Boolean).join(' / ')}});if(!result.ok)return result;const refreshed=await refreshAuthority();return refreshed.ok?{ok:true,bill:result.data,idempotent:result.idempotent}:refreshed;}const auth=can('AP.INVOICE.CREATE');if(!auth)return {ok:false,code:'AP_PERMISSION_DENIED',message:'Missing permission AP.INVOICE.CREATE.'};const dup = ap.bills.find(b=>b.vendor_id===f.vendor_id && b.invoice_no.trim().toLowerCase()===f.invoice_no.trim().toLowerCase());
       if (dup){ setAp(s=>({...s, dupBlocked:(s.dupBlocked||0)+1})); return {dup:dup.bill_no}; }
       const id=nextId(); const v=VENDORS.find(x=>x.vendor_id===f.vendor_id);

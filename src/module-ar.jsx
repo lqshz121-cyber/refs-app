@@ -5,6 +5,7 @@ import { money, sum } from './engine.js';
 
 // Real AR: Invoices -> Receive Payment -> Aging (mirrors AP loop)
 export const arAgingDocuments = invoices => invoices.filter(i=>['OPEN','PAYMENT_PENDING'].includes(i.status));
+const journalWorkflowAction=status=>({DRAFT:'SUBMIT',PENDING_REVIEW:'REVIEW',APPROVED:'POST'})[status]||null;
 export function ARWorkspace({ctx}) {
   const {ar, actions, toast, can} = ctx;
   const [tab, setTab] = useState('Invoices');
@@ -37,7 +38,7 @@ export function ARWorkspace({ctx}) {
         {h:'Amount',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount,csv:r=>r.amount},
         {h:'Status',render:r=><Badge tone={r.status==='PAID'?'ok':'warn'}>{r.status}</Badge>,csv:r=>r.status},
         {h:'JE',k:'je_number'},
-        {h:'Action',render:r=>r.status==='OPEN'?<Btn size="sm" variant="primary" disabled={!can('AR.PAYMENT.CREATE')} onClick={async()=>{const result=await actions.receivePayment(r.inv_id,bankMember,receiptDate);toast(result?.ok?'Receipt Draft 已生成，Post 后才标记 Paid':result?.message||'收款被拦截',result?.ok?'ok':'bad');}}>Receive Payment</Btn>:<span className="muted sm">{r.pay_je_number||r.status}</span>},
+        {h:'Action',render:r=>journalWorkflowAction(r.journal_status)&&r.journal_entry_id?<Btn size="sm" variant="primary" onClick={async()=>{const result=await actions.transitionDocumentJournal(r.journal_entry_id,r.journal_revision,journalWorkflowAction(r.journal_status));toast(result?.ok?`${journalWorkflowAction(r.journal_status)} accepted.`:result?.message||'Workflow blocked',result?.ok?'ok':'bad');}}>{journalWorkflowAction(r.journal_status)}</Btn>:r.status==='OPEN'?<Btn size="sm" variant="primary" disabled={!can('AR.PAYMENT.CREATE')} onClick={async()=>{const result=await actions.receivePayment(r.inv_id,bankMember,receiptDate);toast(result?.ok?'Receipt Draft 已生成，Post 后才标记 Paid':result?.message||'收款被拦截',result?.ok?'ok':'bad');}}>Receive Payment</Btn>:<span className="muted sm">{r.pay_je_number||r.status}</span>},
       ]} rows={ar.invoices} empty="暂无 Invoice"/>
     </>}
     {tab==='AR Aging' && <div className="kpi-row">{['Current','1-30','31-60','60+'].map(g=>{const items=open.filter(i=>bucket(i)===g);
