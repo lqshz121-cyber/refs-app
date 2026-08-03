@@ -6,5 +6,7 @@ window.__REFS_ACCOUNTING_API__ = null;
 //   baseUrl: 'https://accounting.example.internal',
 //   entityId: '00000000-0000-4000-8000-000000000000',
 //   periodId: '00000000-0000-4000-8000-000000000000',
-//   cashAccountCode: '111000'
+//   cashAccountCode: '111000',
+//   // Install this provider from the OIDC/PKCE bootstrap. Never hard-code a token here.
+//   getAccessToken: async () => window.refsOidcClient.getAccessToken()
 // };
