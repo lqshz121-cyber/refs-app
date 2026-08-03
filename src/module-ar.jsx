@@ -31,7 +31,7 @@ export function ARWorkspace({ctx}) {
       <KPI label="逾期 60+" value={money(sum(open.filter(i=>bucket(i)==='60+'),i=>i.amount))} tone="bad"/>
       <KPI label="Customers" value={CUSTOMERS.length}/>
     </div>
-    <Tabs tabs={['Invoices','AR Aging','Customers']} active={tab} onChange={setTab}/>
+    <Tabs tabs={['Invoices','Credits & Refunds','AR Aging','Customers']} active={tab} onChange={setTab}/>
     {tab==='Invoices' && <>
       <div style={{marginBottom:12,display:'flex',gap:10,alignItems:'center'}}><Btn variant="primary" onClick={()=>setShowNew(true)} disabled={!can('AR.INVOICE.CREATE')}>+ Create Invoice</Btn><select value={bankMember} onChange={e=>setBankMember(e.target.value)} aria-label="Receipt bank account"><option value="Operating Cash_BA-003">Deposit to BA-003</option><option value="Operating Cash_BA-001">Deposit to BA-001</option></select><input type="date" value={receiptDate} onChange={e=>setReceiptDate(e.target.value)} aria-label="Receipt date" /></div>
       <Table exportName="ar-invoices" rowKey="inv_id" cols={[
@@ -44,6 +44,11 @@ export function ARWorkspace({ctx}) {
     </>}
     {tab==='AR Aging' && <div className="kpi-row">{['Current','1-30','31-60','60+'].map(g=>{const items=open.filter(i=>bucket(i)===g);
       return <KPI key={g} label={g} value={money(sum(items,i=>i.amount))} sub={items.length+' 张'} tone={g==='60+'&&items.length?'bad':undefined}/>;})}</div>}
+    {tab==='Credits & Refunds' && <Table exportName="ar-adjustments" rowKey="business_adjustment_id" cols={[
+      {h:'Adjustment #',k:'business_adjustment_id'},{h:'Type',k:'adjustment_kind'},{h:'Date',k:'accounting_date'},
+      {h:'Amount',num:true,render:r=><Money v={Number(r.amount)}/>,sortVal:r=>Number(r.amount)},{h:'Status',render:r=><Badge>{r.status}</Badge>},
+      {h:'Journal',k:'journal_entry_id'}
+    ]} rows={ar.adjustments||[]} empty="No authoritative AR credits or refunds available." />}
     {tab==='Customers' && <Table rowKey="customer_id" cols={[
       {h:'Customer',k:'customer_name'},{h:'Type',render:r=><Badge tone="muted">{r.customer_type}</Badge>},
       {h:'Related Party',render:r=>r.is_related_party?<Badge tone="warn">RP</Badge>:'—'},

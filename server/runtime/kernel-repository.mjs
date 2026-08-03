@@ -219,6 +219,13 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listBusinessAdjustments({tenantId,entityId,module}){
+    if(!['AP','AR'].includes(module))throw new KernelError('BUSINESS_ADJUSTMENT_MODULE_INVALID','Unsupported business adjustment module');
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_business_adjustments($1,$2,$3)',[tenantId,entityId,module]
+    )).rows);
+  }
+
   async getApAging({tenantId,entityId,asOfDate}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_ap_aging($1,$2,$3::date)',[tenantId,entityId,asOfDate]

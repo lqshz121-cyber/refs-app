@@ -3,7 +3,7 @@ import {createAccountingApi,createAccountingHttpServer} from '../api/accounting-
 
 const tenantId=randomUUID(),entityId=randomUUID(),journalEntryId=randomUUID(),periodId=randomUUID();
 const calls=[];const invoke=name=>async args=>{calls.push([name,args]);return {journal_entry_id:journalEntryId,status:'DRAFT',idempotent:false};};
-const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit')};
+const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),listBusinessAdjustments:invoke('listBusinessAdjustments'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit')};
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
@@ -92,6 +92,15 @@ test('AP Bills and AR Invoices refresh from authenticated entity-scoped business
     assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
     assert.deepEqual(calls[0],['listBusinessDocuments',{tenantId,entityId,documentKind:kind}]);
     assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
+  }
+});
+
+test('AP and AR adjustments refresh only through authenticated entity-scoped reads',async()=>{
+  for(const [module,expected] of [['ap','AP'],['ar','AR']]){
+    calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments`,body:null,headers:{}});
+    assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
+    assert.deepEqual(calls[0],['listBusinessAdjustments',{tenantId,entityId,module:expected}]);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
   }
 });
 

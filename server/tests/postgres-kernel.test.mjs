@@ -741,6 +741,23 @@ pgTest('authenticated HTTP refreshes AP Bills and AR Invoices only from its auth
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ap/bills`,headers:{'Idempotency-Key':'read-not-allowed'},body:null})).status,400);
 });
 
+pgTest('authenticated HTTP refreshes durable AP and AR adjustments with linked workflow state only from its authorized entity',async()=>{
+  const ids=await seed({status:'APPROVED'}),other=await seed({status:'APPROVED',tenantId:ids.tenantId});
+  const apId=randomUUID(),arId=randomUUID();
+  await adminPool.query(`INSERT INTO business_adjustment(business_adjustment_id,tenant_id,entity_id,adjustment_kind,amount,currency,accounting_date,period_id,reason,status,idempotency_key,request_hash,created_by)
+    VALUES($1,$2,$3,'AP_VENDOR_CREDIT',12.5,'USD','2026-07-15',$4,'Approved vendor credit','DRAFT','adjustment-read-ap-001',$5,'fixture'),
+      ($6,$2,$3,'AR_CREDIT_MEMO',8,'USD','2026-07-16',$4,'Approved customer credit','POSTED','adjustment-read-ar-001',$5,'fixture')`,[apId,ids.tenantId,ids.entityId,ids.periodId,`sha256:${'a'.repeat(64)}`,arId]);
+  const api=createAccountingApi({
+    authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'adjustment-reader'}),
+    kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'adjustment-reader',['AP.VIEW','AR.VIEW'])})
+  });
+  const ap=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ap/adjustments`,headers:{},body:null});
+  const ar=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ar/adjustments`,headers:{},body:null});
+  assert.equal(ap.status,200);assert.deepEqual(ap.body.data.map(row=>({business_adjustment_id:row.business_adjustment_id,adjustment_kind:row.adjustment_kind,amount:row.amount,status:row.status})),[{business_adjustment_id:apId,adjustment_kind:'AP_VENDOR_CREDIT',amount:'12.5000',status:'DRAFT'}]);
+  assert.equal(ar.status,200);assert.deepEqual(ar.body.data.map(row=>({business_adjustment_id:row.business_adjustment_id,adjustment_kind:row.adjustment_kind,amount:row.amount,status:row.status})),[{business_adjustment_id:arId,adjustment_kind:'AR_CREDIT_MEMO',amount:'8.0000',status:'POSTED'}]);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/ap/adjustments`,headers:{},body:null})).status,403);
+});
+
 pgTest('authenticated HTTP creates AP Bills and AR Invoices only as evidence-backed Draft JEs, then posts both atomically',async()=>{
   const ids=await seed({status:'APPROVED',extraAccounts:[{accountCode:'610000',accountName:'Expense'},{accountCode:'400000',accountName:'Revenue'}]});
   await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);

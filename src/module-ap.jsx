@@ -28,7 +28,7 @@ export function APWorkspace({ctx}) {
     <h2 className="page-h">应付管理 Accounts Payable</h2>
     {authoritativeMode&&apiStatus!=='READY'&&<div className="empty">Authoritative AP data is unavailable ({apiStatus}); no browser-local Bills are shown.</div>}
     {kpis}
-    <Tabs tabs={['Bills','付款 Payments','账龄 Aging','供应商 Vendors']} active={tab} onChange={setTab} />
+    <Tabs tabs={['Bills','Credits','付款 Payments','账龄 Aging','供应商 Vendors']} active={tab} onChange={setTab} />
     {tab==='Bills' && <>
       <div style={{marginBottom:12}}><Btn variant="primary" onClick={()=>setShowNew(true)} disabled={!can('AP.INVOICE.CREATE')}>+ 录入 Bill</Btn></div>
       <Table exportName="ap-bills" rowKey="bill_id" onRow={r=>setSel(r.bill_id)} cols={[
@@ -43,6 +43,11 @@ export function APWorkspace({ctx}) {
       ]} rows={bills} empty="暂无 Bill" />
     </>}
     {tab==='付款 Payments' && <PaymentRun ctx={ctx} />}
+    {tab==='Credits' && <Table exportName="ap-adjustments" rowKey="business_adjustment_id" cols={[
+      {h:'Credit #',k:'business_adjustment_id'},{h:'Type',k:'adjustment_kind'},{h:'Date',k:'accounting_date'},
+      {h:'Amount',num:true,render:r=><Money v={Number(r.amount)}/>,sortVal:r=>Number(r.amount)},{h:'Status',render:r=><Badge>{r.status}</Badge>},
+      {h:'Journal',k:'journal_entry_id'}
+    ]} rows={ap.adjustments||[]} empty="No authoritative AP credits or adjustments available." />}
     {tab==='账龄 Aging' && <Aging bills={aging} />}
     {tab==='供应商 Vendors' && <Table exportName="vendors" rowKey="vendor_id" cols={[
       {h:'编码',k:'vendor_code'},{h:'名称',k:'vendor_name'},

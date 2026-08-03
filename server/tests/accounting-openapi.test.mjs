@@ -69,6 +69,15 @@ test('AP Bill and AR Invoice list reads are authenticated no-store operations',(
   assert.deepEqual(row.required,['business_document_id','document_number','counterparty_ref','counterparty_name','currency','accounting_date','gross_amount','open_balance','status','version','offset_account_code','description','journal_entry_id','journal_status','journal_revision','period_id']);
 });
 
+test('AP and AR adjustment list reads expose only the authoritative scoped adjustment envelope',()=>{
+  for(const [path,operationId] of [['/entities/{entityId}/ap/adjustments','listApAdjustments'],['/entities/{entityId}/ar/adjustments','listArAdjustments']]){
+    const operation=contract.paths[path].get;
+    assert.equal(operation.operationId,operationId);assert.equal(operation.responses['200'].$ref,'#/components/responses/BusinessAdjustmentReadOk');
+  }
+  const row=contract.components.schemas.BusinessAdjustmentReadRow;
+  assert.equal(row.additionalProperties,false);assert.deepEqual(row.required,['business_adjustment_id','adjustment_kind','amount','currency','accounting_date','period_id','reason','status','version','created_at']);
+});
+
 test('AP Bill and AR Invoice create commands are Draft-only and require a canonical business document body',()=>{
   for(const [path,operationId] of [['/entities/{entityId}/ap/bills','createApBill'],['/entities/{entityId}/ar/invoices','createArInvoice']]){
     const operation=contract.paths[path].post;
