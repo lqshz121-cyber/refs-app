@@ -153,6 +153,8 @@ function App() {
   const [toast, setToastS] = useState(null);
   const [palette, setPalette] = useState(false);
   const [newMenu, setNewMenu] = useState(false);
+  const [mobileNav, setMobileNav] = useState(false);
+  const [narrowViewport, setNarrowViewport] = useState(()=>typeof window!=='undefined'&&window.matchMedia('(max-width:1080px)').matches);
   const [openGroups, setOpenGroups] = useState({Home:true, Transactions:true});
   const [q, setQ] = useState('');
   const [jeDirty, setJEDirty] = useState(false);
@@ -166,9 +168,10 @@ function App() {
   const showToast = (msg,tone='ok') => { setToastS({msg,tone}); setTimeout(()=>setToastS(null),3000); };
   const can = (perm) => { if(!user) return false; const p = ROLE_PERMS[user.role_code]; return p==='*' || (p||[]).includes(perm); };
   const requestLeaveJE = () => {if(!jeDirty)return true;const ok=typeof window==='undefined'||window.confirm('Discard unsaved journal entry changes?');if(ok)setJEDirty(false);return ok;};
-  const navigate = next => {if(route==='je'&&!requestLeaveJE())return false;setRoute(next);return true;};
+  const navigate = next => {if(route==='je'&&!requestLeaveJE())return false;setRoute(next);setMobileNav(false);return true;};
 
   useEffect(()=>{ document.body.className = dark?'dark':''; },[dark]);
+  useEffect(()=>{if(typeof window==='undefined')return;const media=window.matchMedia('(max-width:1080px)');const sync=()=>{setNarrowViewport(media.matches);if(!media.matches)setMobileNav(false);};sync();media.addEventListener('change',sync);return()=>media.removeEventListener('change',sync);},[]);
   const persist=(k,v)=>{try{localStorage.setItem('refs_'+k,JSON.stringify(v))}catch(e){}};
   useEffect(()=>{ const t=setTimeout(()=>persist('jes',jes), 400); return ()=>clearTimeout(t); },[jes]); useEffect(()=>{persist('exc',exceptions)},[exceptions]);
   useEffect(()=>{persist('close',closeTasks)},[closeTasks]); useEffect(()=>{persist('ap',ap)},[ap]);
@@ -178,7 +181,7 @@ function App() {
   useEffect(()=>{ if(userId) persist('user',userId); },[userId]);
   useEffect(()=>{ bumpId(Math.max(9000,...jes.map(j=>+j.je_id||0),...ap.bills.map(b=>+b.bill_id||0))); },[]);
   useEffect(()=>{
-    const h = (e)=>{ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault(); setPalette(p=>!p);} if(e.key==='Escape') setPalette(false); };
+    const h = (e)=>{ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault(); setPalette(p=>!p);} if(e.key==='Escape'){setPalette(false);setMobileNav(false);} };
     window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
   },[]);
 
@@ -338,10 +341,11 @@ function App() {
   const jeHits = q.length>=3 ? jes.filter(j=>(j.je_number||'').includes(q)||((j.payee||'').toLowerCase().includes(q.toLowerCase()))).slice(0,5) : [];
 
   return <div className="app">
-    <aside className="sidebar">
+    {narrowViewport&&mobileNav&&<button className="mobile-nav-scrim" aria-label="Close navigation" onClick={()=>setMobileNav(false)}/>}
+    <aside className={`sidebar ${mobileNav?'mobile-open':''}`} aria-hidden={narrowViewport&&!mobileNav}>
       <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
       <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New 新建</button>
-      <nav>{nav.map(g=>{ const opened = openGroups[g.group] ?? g.items.some(([k])=>route===k);
+      <nav id="primary-navigation">{nav.map(g=>{ const opened = openGroups[g.group] ?? g.items.some(([k])=>route===k);
         return <div key={g.group} className="nav-group">
         <button className="nav-group-h" onClick={()=>setOpenGroups(o=>({...o,[g.group]:!opened}))}>
           <span className="nav-ic">{g.icon}</span>{g.group}<span className="nav-caret">{opened?'▾':'▸'}</span></button>
@@ -350,6 +354,7 @@ function App() {
     </aside>
     <div className="main">
       <header className="topbar">
+        <button className="icon-btn mobile-menu" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded={mobileNav} onClick={()=>setMobileNav(true)}>☰</button>
         <span className="badge badge-warn" title="This browser build retains local prototype state and is not connected to a production accounting API.">LOCAL_PROTOTYPE — NOT FOR POSTING</span>
         <label className="sw"><select value={entity} onChange={e=>setEntity(+e.target.value)}><option value={0}>全部实体 All Entities</option>{ENTITIES.map(en=><option key={en.entity_id} value={en.entity_id}>{en.entity_code} {en.entity_name}</option>)}</select></label>
         <button className="cmdk" onClick={()=>setPalette(true)}>⌘K 全局搜索 / 跳转</button>

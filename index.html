@@ -152,7 +152,8 @@ code{font-family:var(--mono); background:var(--bg-canvas); padding:1px 5px; bord
 .desc-in{border:1px solid var(--divider);background:var(--bg-canvas);color:var(--text-1);border-radius:6px;padding:5px 8px;font-size:13px;width:340px;max-width:100%;margin-top:4px;}
 .link-btn{border:0;background:transparent;color:var(--brand);cursor:pointer;font-size:12px;padding:0;}
 @media(min-width:1800px){ .content{max-width:1680px;} }
-@media(max-width:1080px){ .kpi-row{grid-template-columns:repeat(2,1fr);} .todo-grid,.rep-grid{grid-template-columns:repeat(2,1fr);} .split{grid-template-columns:1fr;} .recon-model{grid-template-columns:1fr;} .sidebar{position:fixed; z-index:30; transform:translateX(-100%);} }
+@media(max-width:1080px){ .kpi-row{grid-template-columns:repeat(2,1fr);} .todo-grid,.rep-grid{grid-template-columns:repeat(2,1fr);} .split{grid-template-columns:1fr;} .recon-model{grid-template-columns:1fr;} .sidebar{position:fixed; z-index:80; transform:translateX(-100%); visibility:hidden; pointer-events:none; transition:transform .2s ease,visibility 0s linear .2s;} .sidebar.mobile-open{transform:translateX(0);visibility:visible;pointer-events:auto;transition:transform .2s ease;} .mobile-nav-scrim{position:fixed;inset:0;z-index:70;border:0;background:rgba(0,0,0,.35);cursor:pointer;} .mobile-menu{display:inline-flex;align-items:center;justify-content:center;} }
+@media(min-width:1081px){.mobile-menu{display:none;}.mobile-nav-scrim{display:none;}}
 
 /* ================= QBO RESKIN ================= */
 :root{ --qb-green:#2CA01C; --qb-green-h:#108000; --qb-side:#282828; --qb-side-t:#d5d7dc; --bg-canvas:#f4f5f8; --brand:#2CA01C; --brand-ink:#0f7a00; }
