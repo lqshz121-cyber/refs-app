@@ -78,6 +78,10 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       }else if(parts.length===8&&parts[4]==='journal-entries'&&parts[6]==='adjustments'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.createJournalAdjustment({...payload,action:parts[7].toUpperCase(),tenantId:principal.tenantId,entityId,originalJournalEntryId:requireUuid(parts[5],'journalEntryId'),idempotencyKey});
+      }else if(parts.length===6&&((parts[4]==='ap'&&parts[5]==='bills')||(parts[4]==='ar'&&parts[5]==='invoices'))){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['periodId','documentNumber','counterpartyRef','counterpartyName','currency','accountingDate','dueDate','amount','offsetAccountCode','description','attachmentIds']);
+        result=await kernel.createBusinessDocument({tenantId:principal.tenantId,entityId,documentKind:parts[4]==='ap'?'AP_BILL':'AR_INVOICE',periodId:requireUuid(payload.periodId,'periodId'),documentNumber:payload.documentNumber,counterpartyRef:payload.counterpartyRef,counterpartyName:payload.counterpartyName,currency:payload.currency,accountingDate:payload.accountingDate,dueDate:payload.dueDate??null,amount:payload.amount,offsetAccountCode:payload.offsetAccountCode,description:payload.description??null,attachmentIds:payload.attachmentIds,idempotencyKey});
       }else if(parts.length===7&&parts[4]==='ap'&&parts[5]==='bills'&&parts[6].length>0&&parts[6]!=='voids'){
         throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
       }else if(parts.length===8&&parts[4]==='ap'&&parts[5]==='bills'&&parts[7]==='voids'){

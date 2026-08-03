@@ -739,6 +739,45 @@ pgTest('authenticated HTTP refreshes AP Bills and AR Invoices only from its auth
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ap/bills`,headers:{'Idempotency-Key':'read-not-allowed'},body:null})).status,400);
 });
 
+pgTest('authenticated HTTP creates AP Bills and AR Invoices only as evidence-backed Draft JEs, then posts both atomically',async()=>{
+  const ids=await seed({status:'APPROVED',extraAccounts:[{accountCode:'610000',accountName:'Expense'},{accountCode:'400000',accountName:'Revenue'}]});
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
+  const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
+  const permissions={
+    'document-maker':['AP.BILL.CREATE','AR.INVOICE.CREATE','GL.JE.SUBMIT'],
+    'document-reviewer':['GL.JE.REVIEW'],'document-approver':['GL.JE.APPROVE'],'document-poster':['GL.JE.POST'],
+    'document-reader':['AP.VIEW','AR.VIEW']
+  };
+  const api=createAccountingApi({
+    authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
+    kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})
+  });
+  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
+  const root=`/api/v1/entities/${ids.entityId}`;
+  const create=async(module,body,key)=>{
+    const response=await send('document-maker',`${root}/${module}`,body,key);
+    assert.equal(response.status,201,JSON.stringify(response.body));assert.equal(response.body.data.status,'DRAFT');
+    const result=response.body.data;
+    assert.deepEqual((await adminPool.query('SELECT status,open_balance,draft_journal_entry_id,posted_journal_entry_id FROM business_document WHERE business_document_id=$1',[result.business_document_id])).rows[0],{status:'DRAFT',open_balance:'100.0000',draft_journal_entry_id:result.journal_entry_id,posted_journal_entry_id:null});
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[result.journal_entry_id])).rows[0].n,0);
+    const journalPath=`${root}/journal-entries/${result.journal_entry_id}`;
+    assert.equal((await send('document-maker',`${journalPath}/transitions/submit`,{},`${key}-submit`,0)).status,201);
+    assert.equal((await send('document-reviewer',`${journalPath}/transitions/review`,{},`${key}-review`,1)).status,201);
+    assert.equal((await send('document-approver',`${journalPath}/transitions/approve`,{},`${key}-approve`,2)).status,201);
+    assert.equal((await send('document-poster',`${journalPath}/post`,{periodId:ids.periodId},`${key}-post`,3)).status,201);
+    assert.deepEqual((await adminPool.query('SELECT status,open_balance,draft_journal_entry_id,posted_journal_entry_id,version FROM business_document WHERE business_document_id=$1',[result.business_document_id])).rows[0],{status:'OPEN',open_balance:'100.0000',draft_journal_entry_id:null,posted_journal_entry_id:result.journal_entry_id,version:'1'});
+    assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[result.journal_entry_id])).rows[0].n,2);
+    assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type IN ('AP_BILL_DRAFT_CREATED','AP_BILL_POSTED','AR_INVOICE_DRAFT_CREATED','AR_INVOICE_POSTED')",[result.business_document_id])).rows[0].n,2);
+    return result;
+  };
+  const bill=await create('ap/bills',{periodId:ids.periodId,documentNumber:'BILL-NATIVE-100',counterpartyRef:'VENDOR-1',counterpartyName:'Vendor',currency:'USD',accountingDate:'2026-07-18',dueDate:'2026-08-18',amount:100,offsetAccountCode:'610000',description:'Native AP bill',attachmentIds:[attachmentId]},'native-ap-bill-100');
+  const invoice=await create('ar/invoices',{periodId:ids.periodId,documentNumber:'INV-NATIVE-100',counterpartyRef:'CUSTOMER-1',counterpartyName:'Customer',currency:'USD',accountingDate:'2026-07-18',dueDate:'2026-08-18',amount:100,offsetAccountCode:'400000',description:'Native AR invoice',attachmentIds:[attachmentId]},'native-ar-invoice-100');
+  assert.equal((await api({method:'GET',url:`${root}/ap/bills`,headers:{'x-test-actor':'document-reader'},body:null})).body.data[0].business_document_id,bill.business_document_id);
+  assert.equal((await api({method:'GET',url:`${root}/ar/invoices`,headers:{'x-test-actor':'document-reader'},body:null})).body.data[0].business_document_id,invoice.business_document_id);
+  const spoof=await send('document-maker',`${root}/ap/bills`,{periodId:ids.periodId,documentNumber:'BILL-NO-EVIDENCE',counterpartyRef:'VENDOR-1',counterpartyName:'Vendor',currency:'USD',accountingDate:'2026-07-18',amount:100,offsetAccountCode:'610000',attachmentIds:[]},'native-ap-bill-no-evidence');
+  assert.equal(spoof.status,422);
+});
+
 pgTest('authenticated HTTP posts a vendor credit and atomically applies it to an AP bill',async()=>{
   const ids=await seed({status:'APPROVED',extraAccounts:[{accountCode:'610000',accountName:'Expense'}]}),billId=randomUUID(),applierId=randomUUID();
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)

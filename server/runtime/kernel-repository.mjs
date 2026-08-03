@@ -51,6 +51,19 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createBusinessDocument(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_business_document_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) AS request_hash',
+        [args.tenantId,args.entityId,args.documentKind,args.periodId,args.documentNumber,args.counterpartyRef,args.counterpartyName,args.currency,args.accountingDate,args.dueDate??null,args.amount,args.offsetAccountCode,args.description??null,args.attachmentIds]
+      ),'BUSINESS_DOCUMENT_CREATE_HASH_FAILED','Business document hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_business_document($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) AS result',
+        [args.tenantId,args.entityId,args.documentKind,args.periodId,args.documentNumber,args.counterpartyRef,args.counterpartyName,args.currency,args.accountingDate,args.dueDate??null,args.amount,args.offsetAccountCode,args.description??null,args.attachmentIds,args.idempotencyKey,requestHash]
+      ),'BUSINESS_DOCUMENT_CREATE_FAILED','Business document Draft creation did not return a result').result;
+    });
+  }
+
   async reserveAttachment(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

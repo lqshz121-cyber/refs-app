@@ -4,7 +4,7 @@ const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.pos
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
-  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','applyArCreditMemo','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createJournalAdjustment','createManualJournal','finalizeAttachment','postJournal','reserveAttachment','transitionJournal']);
+  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createJournalAdjustment','createManualJournal','finalizeAttachment','postJournal','reserveAttachment','transitionJournal']);
 });
 
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{
@@ -57,4 +57,14 @@ test('AP Bill and AR Invoice list reads are authenticated no-store operations',(
     const operation=contract.paths[path].get;
     assert.equal(operation.operationId,operationId);assert.equal(operation.responses['200'].$ref,'#/components/responses/ReadOk');
   }
+});
+
+test('AP Bill and AR Invoice create commands are Draft-only and require a canonical business document body',()=>{
+  for(const [path,operationId] of [['/entities/{entityId}/ap/bills','createApBill'],['/entities/{entityId}/ar/invoices','createArInvoice']]){
+    const operation=contract.paths[path].post;
+    assert.equal(operation.operationId,operationId);assert.equal(operation.requestBody.$ref,'#/components/requestBodies/BusinessDocument');
+    assert.equal(operation.responses['201'].$ref,'#/components/responses/CommandCreated');
+  }
+  const schema=contract.components.requestBodies.BusinessDocument.content['application/json'].schema;
+  assert.equal(schema.additionalProperties,false);assert.deepEqual(schema.required,['periodId','documentNumber','counterpartyRef','counterpartyName','currency','accountingDate','amount','offsetAccountCode','attachmentIds']);
 });
