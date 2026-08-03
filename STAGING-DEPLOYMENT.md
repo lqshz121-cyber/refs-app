@@ -14,6 +14,8 @@ This blueprint is a deployment contract, not evidence of a live deployment.
    from a browser cache.
 3. Provision versioned object storage, a TLS scanner bridge, its CA file, and a
    least-privileged cleanup worker identity plus DB-authorized entity scopes.
+   Also provision `WBS_SNAPSHOT_ED25519_PUBLIC_KEYS` as a JSON keyring of
+   trusted WBS public keys (`key_id` to PEM); do not put a private key in Render.
 4. Set the exact static frontend URL as `REFS_HTTP_ALLOWED_ORIGINS`.  The API
    allows only explicit HTTPS origins and requires the OIDC bearer token on all
    accounting reads and commands.

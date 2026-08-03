@@ -53,6 +53,10 @@ services:
         sync: false
       - key: ATTACHMENT_SCANNER_ACTOR_ID
         sync: false
+      # JSON keyring: {"key_id":"-----BEGIN PUBLIC KEY-----\\n..."}.
+      # Required by production startup before any signed WBS snapshot is accepted.
+      - key: WBS_SNAPSHOT_ED25519_PUBLIC_KEYS
+        sync: false
   - type: worker
     name: refs-attachment-cleanup-staging
     runtime: node
@@ -90,7 +94,7 @@ services:
   - type: web
     name: refs-app
     runtime: static
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
     pullRequestPreviewsEnabled: true
     autoDeployTrigger: checksPass
