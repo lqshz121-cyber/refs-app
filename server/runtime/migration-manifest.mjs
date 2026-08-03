@@ -258,5 +258,10 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'052_ap_ar_adjustment_read.sql',
     up:'3de4d1ae6e933d3606dc091daaec3fa00f5b2dafff3f46cb13187015e314bc3f',
     down:'53b42b181b3e1f9f0357a9e7587872fde7a2b539c0e8de6753f2dc7a991f726a'
+  }),
+  Object.freeze({
+    name:'053_credit_allocation_response_state.sql',
+    up:'dfb2e73a6f561c1f9756a73bf5e7d05bef4e35d44939ea16fe604b714a140af6',
+    down:'13ba423a9b2293cf585d981f3703eff88f59b70ca65dd95b7701e80c0bdb9ef0'
   })
 ]);
