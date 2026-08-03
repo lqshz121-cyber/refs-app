@@ -7,7 +7,7 @@ import { money, sum } from './engine.js';
 export const arAgingDocuments = invoices => invoices.filter(i=>['OPEN','PAYMENT_PENDING'].includes(i.status));
 const journalWorkflowAction=status=>({DRAFT:'SUBMIT',PENDING_REVIEW:'REVIEW',APPROVED:'POST'})[status]||null;
 export function ARWorkspace({ctx}) {
-  const {ar, actions, toast, can} = ctx;
+  const {ar, actions, toast, can, authoritativeMode, apiStatus} = ctx;
   const [tab, setTab] = useState('Invoices');
   const [showNew, setShowNew] = useState(false);
   const [bankMember,setBankMember] = useState('Operating Cash_BA-003');
@@ -24,6 +24,7 @@ export function ARWorkspace({ctx}) {
   const bucket=i=>{const d=Math.floor((new Date('2026-07-31')-new Date(i.due_date))/86400000); return d<=0?'Current':d<=30?'1-30':d<=60?'31-60':'60+';};
   return <div>
     <h2 className="page-h">Sales & Receivables</h2>
+    {authoritativeMode&&apiStatus!=='READY'&&<div className="empty">Authoritative AR data is unavailable ({apiStatus}); no browser-local Invoices are shown.</div>}
     <div className="kpi-row">
       <KPI label="Open Invoices" value={open.length} sub={money(sum(open,i=>i.amount))} tone={open.length?'warn':'ok'}/>
       <KPI label="Paid 本期" value={ar.invoices.filter(i=>i.status==='PAID').length} tone="ok"/>

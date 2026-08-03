@@ -135,21 +135,22 @@ function Login({onLogin}) {
 function App() {
   repo.ensureSchema(SEED_V);
   const load=(k,d)=>repo.load(k,d);
+  const apiConfigured=!!accountingApiConfig();
   const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');
   const [jes, setJes] = useState(()=>load('jes',[...JOURNAL_ENTRIES, ...FY2026]));
   const [exceptions, setExceptions] = useState(()=>load('exc',EXCEPTIONS));
   const [closeTasks, setCloseTasks] = useState(()=>load('close',CLOSE_TASKS));
-  const [ap, setAp] = useState(()=>load('ap',{bills:SEED_BILLS, dupBlocked:0}));
+  const [ap, setAp] = useState(()=>apiConfigured?{bills:[],dupBlocked:0}:load('ap',{bills:SEED_BILLS, dupBlocked:0}));
   const [bank, setBank] = useState(()=>load('bank',SEED_BANK));
   const [coa, setCoa] = useState(()=>load('coa',COA.map(a=>({...a}))));
-  const [ar, setAr] = useState(()=>load('ar',{invoices:[
+  const [ar, setAr] = useState(()=>apiConfigured?{invoices:[]}:load('ar',{invoices:[
     {inv_id:8001, inv_no:'INV-2026-8001', customer_id:1, customer_name:'Tenant - Unit A-203', inv_date:'2026-07-01', due_date:'2026-07-15', amount:2000, status:'OPEN', je_number:'20260701000009'},
     {inv_id:8002, inv_no:'INV-2026-8002', customer_id:2, customer_name:'WanBridge OpCo (Owner)', inv_date:'2026-07-10', due_date:'2026-08-10', amount:12500, status:'PAID', je_number:'20260710000012', pay_je_number:'20260728000031'},
   ]}));
   const [recurring, setRecurring] = useState(()=>load('recurring',[]));
   const [documents, setDocuments] = useState(()=>load('documents',[]));
-  const [apiStatus,setApiStatus] = useState(()=>accountingApiConfig()?'CONNECTING':'LOCAL_PROTOTYPE');
+  const [apiStatus,setApiStatus] = useState(()=>apiConfigured?'CONNECTING':'LOCAL_PROTOTYPE');
   const [entity, setEntity] = useState(0);
   const [dark, setDark] = useState(false);
   const [toast, setToastS] = useState(null);

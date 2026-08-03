@@ -8,7 +8,7 @@ export const apAgingDocuments = bills => bills.filter(b=>['APPROVED','PAYMENT_PE
 const journalWorkflowAction=status=>({DRAFT:'SUBMIT',PENDING_REVIEW:'REVIEW',APPROVED:'POST'})[status]||null;
 const journalWorkflowLabel=action=>({SUBMIT:'Submit for review',REVIEW:'Review',POST:'Post journal'})[action]||'';
 export function APWorkspace({ctx}) {
-  const {ap, actions, toast, can, user} = ctx;             // ap: {bills:[...]}
+  const {ap, actions, toast, can, user, authoritativeMode, apiStatus} = ctx;             // ap: {bills:[...]}
   const [tab, setTab] = useState('Bills');
   const [showNew, setShowNew] = useState(false);
   const [sel, setSel] = useState(null);
@@ -26,6 +26,7 @@ export function APWorkspace({ctx}) {
 
   return <div>
     <h2 className="page-h">应付管理 Accounts Payable</h2>
+    {authoritativeMode&&apiStatus!=='READY'&&<div className="empty">Authoritative AP data is unavailable ({apiStatus}); no browser-local Bills are shown.</div>}
     {kpis}
     <Tabs tabs={['Bills','付款 Payments','账龄 Aging','供应商 Vendors']} active={tab} onChange={setTab} />
     {tab==='Bills' && <>
