@@ -1,6 +1,6 @@
 import test,{after,before} from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash,randomUUID} from 'node:crypto';
+import {createHash,generateKeyPairSync,randomUUID,sign} from 'node:crypto';
 import {spawn} from 'node:child_process';import {fileURLToPath} from 'node:url';
 import {runtimeConfig} from '../runtime/config.mjs';
 import {createPool} from '../runtime/db.mjs';
@@ -12,6 +12,7 @@ import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
 import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
+import {createWbsSnapshotSignatureVerifier} from '../runtime/wbs-snapshot-signature.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -152,9 +153,9 @@ pgTest('authorized WBS snapshot import persists immutable observations without c
   assert.equal(created.receipt_count,1);assert.equal(created.idempotent,false);
   const replay=await kernel.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'snapshot-import-ok-001'});
   assert.equal(replay.idempotent,true);assert.equal(replay.wbs_snapshot_import_id,created.wbs_snapshot_import_id);
-  const production={...snapshot,snapshot_id:randomUUID(),environment:'PRODUCTION',detached_signature:{key_id:'wbs-prod-test',algorithm:'Ed25519',value:'test-signature'}};delete production.package_hash;const {detached_signature,...productionManifest}=production;production.package_hash=canonicalRequestHash(productionManifest);
+  const {privateKey,publicKey}=generateKeyPairSync('ed25519');const production={...snapshot,snapshot_id:randomUUID(),environment:'PRODUCTION',detached_signature:{key_id:'wbs-prod-test',algorithm:'Ed25519',value:''}};delete production.package_hash;const {detached_signature,...productionManifest}=production;production.package_hash=canonicalRequestHash(productionManifest);production.detached_signature.value=sign(null,Buffer.from(production.package_hash),privateKey).toString('base64');
   await assert.rejects(kernel.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot:production,idempotencyKey:'snapshot-production-unsigned-001'}),error=>error.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED');
-  const verified=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-importer',['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:async value=>value.detached_signature?.key_id==='wbs-prod-test'});
+  const verified=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-importer',['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:createWbsSnapshotSignatureVerifier({publicKeyPem:publicKey.export({type:'spki',format:'pem'})})});
   const productionCreated=await verified.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot:production,idempotencyKey:'snapshot-production-signed-001'});
   assert.equal(productionCreated.receipt_count,1);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_snapshot_receipt WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,2);

@@ -3,9 +3,9 @@ import {PostgresContextIssuer} from './context-issuer.mjs';
 import {PostgresAccountingKernel} from './kernel-repository.mjs';
 import {AttachmentEvidenceService} from './attachment-storage.mjs';
 
-export function createProductionAccountingServer({runtimePool,issuerPool,authenticator,attachmentStorage,virusScanner,scannerServiceActorId,runtimeLoginAllowlist=['refs_runtime'],maxBodyBytes,allowedOrigins=[]}={}){
-  if(!runtimePool||!issuerPool||typeof authenticator?.authenticate!=='function'||!attachmentStorage||!virusScanner||!scannerServiceActorId)throw new Error('Production accounting server requires runtime pool, isolated issuer pool, authenticator, object storage and scanner identity');
-  const kernelFor=principal=>{const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>principal});return new PostgresAccountingKernel(runtimePool,{runtimeLoginAllowlist,sessionProvider:()=>issuer.issue({tenantId:principal.tenantId})});};
+export function createProductionAccountingServer({runtimePool,issuerPool,authenticator,attachmentStorage,virusScanner,scannerServiceActorId,wbsSnapshotVerifier,runtimeLoginAllowlist=['refs_runtime'],maxBodyBytes,allowedOrigins=[]}={}){
+  if(!runtimePool||!issuerPool||typeof authenticator?.authenticate!=='function'||!attachmentStorage||!virusScanner||!scannerServiceActorId||typeof wbsSnapshotVerifier!=='function')throw new Error('Production accounting server requires runtime pool, isolated issuer pool, authenticator, object storage, scanner identity and WBS snapshot verifier');
+  const kernelFor=principal=>{const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>principal});return new PostgresAccountingKernel(runtimePool,{runtimeLoginAllowlist,wbsSnapshotVerifier,sessionProvider:()=>issuer.issue({tenantId:principal.tenantId})});};
   return createAccountingHttpServer({
     maxBodyBytes,
     healthCheck:async()=>{
