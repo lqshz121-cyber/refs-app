@@ -35,6 +35,7 @@ export function AutoBankRec({ctx}) {
   const incur = () => ctx.toast('AUTOREC_API_UNAVAILABLE: 未连接权威 REFS AutoRec API；未生成 JE。','warn');
   return <div className="full-bleed">
     <h2 className="page-h">自动银行对账 Auto Bank Reconciliation</h2>
+    <p className="alert alert-warn"><Badge tone="warn">AUTOREC_API_UNAVAILABLE</Badge> 未连接权威 REFS AutoRec API；所有命令均为只读且不会生成或显示入账结果。</p>
     <div className="stepper">{STEPS.map((s,i)=><button key={s} className={`step-chip ${step===i?'step-on':''} ${i<step?'step-done':''}`} onClick={()=>setStep(i)}>{s}</button>)}</div>
     {step===0 && <><SectionTitle>Company List(制单/审核分派 · M/R/C 完成度)</SectionTitle>
       <Table exportName="abr-companies" rowKey="entity_id" onRow={r=>{setSel(r.entity_id); setStep(1);}} pageSize={25} cols={[
