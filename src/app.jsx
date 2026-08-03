@@ -133,9 +133,10 @@ function Login({onLogin}) {
 }
 
 function App() {
+  const apiConfigured=!!accountingApiConfig();
+  if(!apiConfigured&&globalThis.__REFS_RUNTIME_MODE__==='REQUIRES_AUTHORITATIVE_API')return <main className="login-shell"><div className="login-card" role="alert"><h1>Authoritative API required</h1><p>The deployed REFS client is locked until its HTTPS accounting API and OIDC token provider are configured.</p></div></main>;
   repo.ensureSchema(SEED_V);
   const load=(k,d)=>repo.load(k,d);
-  const apiConfigured=!!accountingApiConfig();
   const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');
   const [jes, setJes] = useState(()=>load('jes',[...JOURNAL_ENTRIES, ...FY2026]));
@@ -347,7 +348,6 @@ function App() {
   delete actions.legacyBankMatch;
   delete actions.legacyBankSuspense;
 
-  if(!apiConfigured&&globalThis.__REFS_RUNTIME_MODE__==='REQUIRES_AUTHORITATIVE_API')return <main className="login-shell"><div className="login-card"><h1>Authoritative API required</h1><p>The deployed REFS client is locked until its HTTPS accounting API and OIDC token provider are configured.</p></div></main>;
   if (!user) return <Login onLogin={setUserId} />;
 
   const isAdmin = ADMIN_ROLES.includes(user.role_code);
