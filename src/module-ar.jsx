@@ -14,9 +14,9 @@ export function ARWorkspace({ctx}) {
   const emptyInvoice=()=>({client_request_id:`ARFORM-${Date.now()}-${Math.random()}`,customer_id:'',memo:'',inv_date:'2026-07-31',due_date:'2026-08-30',amount:''});
   const [f, setF] = useState(emptyInvoice);
   const open = arAgingDocuments(ar.invoices);
-  const submit = () => {
+  const submit = async () => {
     if(!f.customer_id||!f.amount||+f.amount<=0){toast('客户/金额必填','bad');return;}
-    const result=actions.addInvoice({...f, customer_id:+f.customer_id, amount:+f.amount});
+    const result=await actions.addInvoice({...f, customer_id:+f.customer_id, amount:+f.amount});
     if(!result?.ok){toast(result?.message||'Invoice 创建被拦截','bad');return;}
     toast('Invoice 已保存，Draft JE 已进入复核队列');setShowNew(false);setF(emptyInvoice());
   };

@@ -53,19 +53,21 @@ export function APWorkspace({ctx}) {
 
 function NewBill({open, onClose, ctx}) {
   const {actions, toast} = ctx;
-  const [f, setF] = useState({vendor_id:'', invoice_no:'', bill_date:'2026-07-31', due_date:'2026-08-30', property_id:''});
+  const emptyForm=()=>({client_request_id:`AP-BILL-${Date.now()}-${Math.random()}`,vendor_id:'', invoice_no:'', bill_date:'2026-07-31', due_date:'2026-08-30', property_id:''});
+  const [f, setF] = useState(emptyForm);
   const [lines, setLines] = useState([{account_code:'612900', description:'', amount:'', cost_code:''}]);
   const set=(k,v)=>setF(s=>({...s,[k]:v}));
   const setL=(i,k,v)=>setLines(ls=>ls.map((l,x)=>x===i?{...l,[k]:v}:l));
   const total = lines.reduce((s,l)=>s+(+l.amount||0),0);
-  const submit = () => {
+  const submit = async () => {
     if(!f.vendor_id||!f.invoice_no||total<=0){ toast('供应商/发票号/行金额必填','bad'); return; }
     if(lines.some(l=>!l.account_code)){ toast('每行必须选科目','bad'); return; }
-    const r = actions.addBill({...f, vendor_id:+f.vendor_id, amount:total, account_code:lines[0].account_code,
+    const r = await actions.addBill({...f, vendor_id:+f.vendor_id, amount:total, account_code:lines[0].account_code,
       property_id:f.property_id?+f.property_id:null, lines: lines.map(l=>({...l, amount:+l.amount||0}))});
     if (r.dup) { toast(`重复发票拦截 [4004]：${r.dup} 已存在同供应商+同发票号`,'bad'); return; }
     if (!r.ok) { toast(r.message||'Bill 创建被拦截','bad'); return; }
     toast(`Bill 已创建(${lines.length} 行,合计 $${total.toLocaleString()})并提交审批`); onClose();
+    setF(emptyForm());
     setLines([{account_code:'612900', description:'', amount:'', cost_code:''}]);
   };
   return <Drawer open={open} onClose={onClose} title="录入 Bill · Category Details" width={640}
