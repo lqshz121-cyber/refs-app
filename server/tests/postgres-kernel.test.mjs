@@ -719,7 +719,7 @@ pgTest('authenticated HTTP AR aging reads only the entity authorized by its DB c
 });
 
 pgTest('authenticated HTTP posts a vendor credit and atomically applies it to an AP bill',async()=>{
-  const ids=await seed({status:'APPROVED'}),billId=randomUUID(),applierId=randomUUID();
+  const ids=await seed({status:'APPROVED',extraAccounts:[{accountCode:'610000',accountName:'Expense'}]}),billId=randomUUID(),applierId=randomUUID();
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
     VALUES($1,$2,$3,'AP_BILL','BILL-HTTP-CREDIT','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
   const permissions={
@@ -732,7 +732,7 @@ pgTest('authenticated HTTP posts a vendor credit and atomically applies it to an
   });
   const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
   const root=`/api/v1/entities/${ids.entityId}`;
-  const created=await send('http-credit-maker',`${root}/ap/vendor-credits`,{periodId:ids.periodId,creditNumber:'VC-HTTP-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1',description:'Vendor credit'}],reason:'HTTP vendor price adjustment'},'http-credit-create');
+  const created=await send('http-credit-maker',`${root}/ap/vendor-credits`,{periodId:ids.periodId,creditNumber:'VC-HTTP-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Vendor credit'}],reason:'HTTP vendor price adjustment'},'http-credit-create');
   assert.equal(created.status,201);const credit=created.body.data;
   await attachAutoSource({...ids,journalId:credit.journal_entry_id});
   const journalPath=`${root}/journal-entries/${credit.journal_entry_id}`;
@@ -1151,10 +1151,15 @@ pgTest('AP payment and reversal keep aging and the 291001 control balance in loc
 });
 
 pgTest('AP vendor credit posted first then partial and full apply updates bill atomically',async()=>{
-  const ids=await seed({status:'APPROVED'});const billId=randomUUID();
-  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by) VALUES($1,$2,$3,'AP_BILL','BILL-CREDIT-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'610000',accountName:'Expense'}],
+    journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}]});const billId=randomUUID();
+  const source=await attachAutoSource(ids);
+  const sourcePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'vendor-credit-bill-source-poster',['GL.JE.POST'])});
+  await sourcePoster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'vendor-credit-bill-source-post'});
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AP_BILL','BILL-CREDIT-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[billId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-maker',['AP.VENDOR_CREDIT.CREATE','GL.JE.SUBMIT'])});
-  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'291001',amount:100,member_ref:'VENDOR-1',description:'Credit'}],reason:'Vendor credit',idempotencyKey:'vendor-credit-100'});
+  const credit=await maker.createApVendorCredit({...ids,creditNumber:'VC-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Credit'}],reason:'Vendor credit',idempotencyKey:'vendor-credit-100'});
   await attachAutoSource({...ids,journalId:credit.journal_entry_id},{reuseApprovedSnapshots:true});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'credit-approver',['GL.JE.APPROVE'])});
@@ -1163,16 +1168,21 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
   await reviewer.transitionJournal({...ids,journalEntryId:credit.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'vendor-credit-review'});
   await approver.transitionJournal({...ids,journalEntryId:credit.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'vendor-credit-approve'});
   await poster.postJournal({...ids,journalEntryId:credit.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'vendor-credit-post'});
+  assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[credit.journal_entry_id])).rows,[{account_code:'291001',debit_amount:'100.0000',credit_amount:'0.0000',member_ref:'VENDOR-1'},{account_code:'610000',debit_amount:'0.0000',credit_amount:'100.0000',member_ref:null}]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'vendor-credit-control-reader',['AP.VIEW'])});
+  assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
   const applier=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,randomUUID(),['AP.VENDOR_CREDIT.APPLY'])});
   const first=await applier.applyApVendorCredit({...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:40,reason:'Partial apply',idempotencyKey:'vendor-credit-apply-40'});
   assert.equal((await adminPool.query('SELECT status FROM business_allocation WHERE business_allocation_id=$1',[first.business_allocation_id])).rows[0].status,'ACTIVE');
   assert.equal((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0].open_balance,'60.0000');
+  assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
   const replay=await applier.applyApVendorCredit({...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:40,reason:'Partial apply',idempotencyKey:'vendor-credit-apply-40'});
   assert.equal(replay.idempotent,true);
   const second=await applier.applyApVendorCredit({...ids,businessAdjustmentId:credit.business_adjustment_id,businessDocumentId:billId,amount:60,reason:'Full apply',idempotencyKey:'vendor-credit-apply-60'});
   assert.equal((await adminPool.query('SELECT status FROM business_allocation WHERE business_allocation_id=$1',[second.business_allocation_id])).rows[0].status,'ACTIVE');
   assert.deepEqual((await adminPool.query('SELECT open_balance,status FROM business_document WHERE business_document_id=$1',[billId])).rows[0],{open_balance:'0.0000',status:'PAID'});
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM business_allocation WHERE business_adjustment_id=$1 AND status='ACTIVE'",[credit.business_adjustment_id])).rows[0].n,2);
+  assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
 });
 
 pgTest('AR credit memo posted first then partial and full apply updates invoice atomically',async()=>{
