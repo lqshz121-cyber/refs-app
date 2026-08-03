@@ -128,11 +128,11 @@ function PaymentRun({ctx}) {
   const [checked, setChecked] = useState({});
   const [bankMember,setBankMember] = useState('Operating Cash_BA-003');
   const [paymentDate,setPaymentDate] = useState('2026-07-31');
-  const selIds = Object.keys(checked).filter(k=>checked[k]).map(Number);
+  const selIds = Object.keys(checked).filter(k=>checked[k]).map(k=>{const numeric=Number(k);return Number.isSafeInteger(numeric)&&String(numeric)===k?numeric:k;});
   const total = sum(ap.bills.filter(b=>selIds.includes(b.bill_id)), b=>b.amount);
-  const run = () => {
+  const run = async () => {
     if (!selIds.length){ toast('先勾选要付款的 Bill','warn'); return; }
-    const result=actions.payBills(selIds,bankMember,paymentDate);toast(`${result.created||0} 张付款 Draft 已生成 · ${result.blocked||0} 张被拦截`,result.blocked?'warn':'ok');
+    const result=await actions.payBills(selIds,bankMember,paymentDate);toast(`${result.created||0} 张付款 Draft 已生成 · ${result.blocked||0} 张被拦截`,result.blocked?'warn':'ok');
     setChecked({});
   };
   return <div>

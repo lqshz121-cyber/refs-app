@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {accountingApiConfig,createAuthoritativeBusinessDocument,refreshAuthoritativeDocuments} from '../src/accounting-api.js';
+import {accountingApiConfig,createAuthoritativeBusinessDocument,createAuthoritativeSettlement,refreshAuthoritativeDocuments} from '../src/accounting-api.js';
 const entityId='11111111-1111-4111-8111-111111111111';
 const periodId='33333333-3333-4333-8333-333333333333';
 assert.equal(accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'http://unsafe.example',entityId,periodId}}),null);
@@ -11,5 +11,7 @@ const config=accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'https://api.
   assert.equal(result.ok,true);assert.equal(result.ap.bills[0].open_balance,7.25);assert.equal(result.ar.invoices[0].inv_no,'I-1');
   let call;const created=await createAuthoritativeBusinessDocument({config,kind:'AP_BILL',idempotencyKey:'AP-BILL-request-0001',document:{documentNumber:'B-2',counterpartyRef:'V-2',counterpartyName:'Vendor 2',currency:'USD',accountingDate:'2026-08-01',dueDate:'2026-08-31',amount:3,offsetAccountCode:'641600'},fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{business_document_id:entityId,status:'DRAFT'}})};}});
   assert.equal(created.ok,true);assert.match(call.url,/\/ap\/bills$/);assert.equal(call.options.credentials,'include');assert.equal(call.options.headers['idempotency-key'],'AP-BILL-request-0001');assert.equal(JSON.parse(call.options.body).periodId,periodId);
+  const settlementConfig={...config,cashAccountCode:'111000'};const paid=await createAuthoritativeSettlement({config:settlementConfig,kind:'AP_PAYMENT',businessDocumentId:entityId,accountingDate:'2026-08-02',amount:7.25,idempotencyKey:'AP-PAY-request-0001',fetcher:async(url,options)=>{call={url,options};return {ok:true,status:201,json:async()=>({ok:true,data:{status:'DRAFT'}})};}});
+  assert.equal(paid.ok,true);assert.match(call.url,/\/ap\/bills\/.+\/payments$/);assert.equal(JSON.parse(call.options.body).cashAccountCode,'111000');assert.equal(JSON.parse(call.options.body).bankMemberRef,null);
   console.log('accounting-api-client: all assertions passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
