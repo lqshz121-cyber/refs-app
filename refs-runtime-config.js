@@ -1,6 +1,9 @@
 // Replace this file during deployment; do not place access tokens or secrets here.
 // The API must be HTTPS and authenticate the browser session at the gateway.
 window.__REFS_ACCOUNTING_API__ = null;
+// Production/static deployments are fail-closed until an authoritative API is configured.
+// Developers may set LOCAL_DEMO only in a non-production local copy of this file.
+window.__REFS_RUNTIME_MODE__ = 'REQUIRES_AUTHORITATIVE_API';
 // Example:
 // window.__REFS_ACCOUNTING_API__ = {
 //   baseUrl: 'https://accounting.example.internal',
