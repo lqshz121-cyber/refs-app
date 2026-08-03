@@ -754,7 +754,7 @@ pgTest('authenticated HTTP posts a vendor credit and atomically applies it to an
 });
 
 pgTest('authenticated HTTP posts an AR credit memo, applies it and refunds only remaining posted credit',async()=>{
-  const ids=await seed({status:'APPROVED'}),invoiceId=randomUUID();
+  const ids=await seed({status:'APPROVED',extraAccounts:[{accountCode:'410000',accountName:'Sales returns'}]}),invoiceId=randomUUID();
   await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
   await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member) VALUES($1,$2,'220000','Customer refunds',false)",[ids.tenantId,ids.entityId]);
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
@@ -770,7 +770,7 @@ pgTest('authenticated HTTP posts an AR credit memo, applies it and refunds only 
   });
   const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
   const root=`/api/v1/entities/${ids.entityId}`;
-  const memoResponse=await send(makerId,`${root}/ar/credit-memos`,{periodId:ids.periodId,memoNumber:'CM-HTTP-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:[{line_no:1,account_code:'120200',amount:100,member_ref:'CUSTOMER-1',description:'Customer credit'}],reason:'HTTP customer credit correction'},'http-memo-create');
+  const memoResponse=await send(makerId,`${root}/ar/credit-memos`,{periodId:ids.periodId,memoNumber:'CM-HTTP-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:[{line_no:1,account_code:'410000',amount:100,description:'Customer credit'}],reason:'HTTP customer credit correction'},'http-memo-create');
   assert.equal(memoResponse.status,201);const memo=memoResponse.body.data;
   await attachAutoSource({...ids,journalId:memo.journal_entry_id});
   const advance=async(journalId,prefix)=>{
@@ -1176,11 +1176,11 @@ pgTest('AP vendor credit posted first then partial and full apply updates bill a
 });
 
 pgTest('AR credit memo posted first then partial and full apply updates invoice atomically',async()=>{
-  const ids=await seed({status:'APPROVED'});const invoiceId=randomUUID();
+  const ids=await seed({status:'APPROVED',extraAccounts:[{accountCode:'410000',accountName:'Sales returns'}]});const invoiceId=randomUUID();
   await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by) VALUES($1,$2,$3,'AR_INVOICE','INV-CREDIT-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN','fixture')`,[invoiceId,ids.tenantId,ids.entityId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-maker',['AR.CREDIT_MEMO.CREATE','GL.JE.SUBMIT'])});
-  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'120200',amount:100,member_ref:'CUSTOMER-1',description:'Memo'}]),reason:'Credit memo',idempotencyKey:'ar-credit-100'});
+  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'410000',amount:100,description:'Memo'}]),reason:'Credit memo',idempotencyKey:'ar-credit-100'});
   await attachAutoSource({...ids,journalId:memo.journal_entry_id},{reuseApprovedSnapshots:true});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ar-credit-approver',['GL.JE.APPROVE'])});
@@ -1199,12 +1199,17 @@ pgTest('AR credit memo posted first then partial and full apply updates invoice 
 });
 
 pgTest('AR refund posts against available posted credit and rejects over-refund atomically',async()=>{
-  const ids=await seed({status:'APPROVED'});const invoiceId=randomUUID();
-  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'400000',accountName:'Revenue'},{accountCode:'410000',accountName:'Sales returns'}],
+    extraMembers:[{memberRef:'CUSTOMER-1',memberType:'CUSTOMER',displayName:'Customer'}],
+    journalLines:[{lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'CUSTOMER-1'},{lineNo:2,accountCode:'400000',debit:0,credit:100}]});const invoiceId=randomUUID();
+  const source=await attachAutoSource(ids);
+  const sourcePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-invoice-source-poster',['GL.JE.POST'])});
+  await sourcePoster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'refund-invoice-source-post'});
   await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member) VALUES($1,$2,'220000','Customer refunds',false)",[ids.tenantId,ids.entityId]);
-  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by) VALUES($1,$2,$3,'AR_INVOICE','INV-REFUND-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN','fixture')`,[invoiceId,ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by) VALUES($1,$2,$3,$4,'AR_INVOICE','INV-REFUND-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',100,100,'OPEN',$5,'fixture')`,[invoiceId,ids.tenantId,ids.entityId,source.documentId,ids.journalId]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-credit-maker',['AR.CREDIT_MEMO.CREATE','GL.JE.SUBMIT'])});
-  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-REFUND',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'120200',amount:100,member_ref:'CUSTOMER-1',description:'Memo'}]),reason:'Refund source credit',idempotencyKey:'refund-credit-source'});
+  const memo=await maker.createArCreditMemo({...ids,memoNumber:'CM-REFUND',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:JSON.stringify([{line_no:1,account_code:'410000',amount:100,description:'Memo'}]),reason:'Refund source credit',idempotencyKey:'refund-credit-source'});
   await attachAutoSource({...ids,journalId:memo.journal_entry_id},{reuseApprovedSnapshots:true});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-approver',['GL.JE.APPROVE'])});
@@ -1213,6 +1218,9 @@ pgTest('AR refund posts against available posted credit and rejects over-refund 
   await reviewer.transitionJournal({...ids,journalEntryId:memo.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'refund-source-review'});
   await approver.transitionJournal({...ids,journalEntryId:memo.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'refund-source-approve'});
   await poster.postJournal({...ids,journalEntryId:memo.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'refund-source-post'});
+  assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[memo.journal_entry_id])).rows,[{account_code:'120200',debit_amount:'0.0000',credit_amount:'100.0000',member_ref:'CUSTOMER-1'},{account_code:'410000',debit_amount:'100.0000',credit_amount:'0.0000',member_ref:null}]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-control-reader',['AR.VIEW'])});
+  assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'0.0000',control_balance:'0.0000',in_balance:true}]);
   const refundMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-maker',['AR.REFUND.CREATE','GL.JE.SUBMIT'])});
   const competingRefundMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'refund-maker-2',['AR.REFUND.CREATE','GL.JE.SUBMIT'])});
   const attempts=await Promise.allSettled([
@@ -1231,6 +1239,8 @@ pgTest('AR refund posts against available posted credit and rejects over-refund 
   await approver.transitionJournal({...ids,journalEntryId:refund.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'refund-approve'});
   await poster.postJournal({...ids,journalEntryId:refund.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'refund-post'});
   assert.equal((await adminPool.query('SELECT status FROM business_adjustment WHERE business_adjustment_id=$1',[refund.business_adjustment_id])).rows[0].status,'POSTED');
+  assert.deepEqual((await adminPool.query('SELECT account_code,debit_amount,credit_amount,member_ref FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no',[refund.journal_entry_id])).rows,[{account_code:'120200',debit_amount:'60.0000',credit_amount:'0.0000',member_ref:'CUSTOMER-1'},{account_code:'220000',debit_amount:'0.0000',credit_amount:'60.0000',member_ref:null}]);
+  assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'60.0000',control_balance:'60.0000',in_balance:true}]);
   await assert.rejects(refundMaker.createArRefund({...ids,sourceAdjustmentId:memo.business_adjustment_id,refundNumber:'REF-50',refundDate:'2026-07-18',cashAccountCode:'220000',amount:50,reason:'Over available customer credit',idempotencyKey:'refund-50'}),error=>error.code==='23514');
 });
 
