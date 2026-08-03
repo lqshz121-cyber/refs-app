@@ -75,16 +75,13 @@ export function AutoBankRec({ctx}) {
 // ============ Payment Confirmation / Check Management (WBS) ============
 export function CheckMgmt({ctx}) {
   const [tab, setTab] = useState('Check Register');
-  const [checks, setChecks] = useState([
+  const [checks] = useState([
     {no:'CHK-1086', date:'07/12/2026', payee:'Summit General Contractors', amount:42000, status:'CLEARED', bank:'BA-001'},
     {no:'CHK-1087', date:'07/20/2026', payee:'BluePeak Utilities', amount:3200, status:'CLEARED', bank:'BA-003'},
     {no:'CHK-1088', date:'07/29/2026', payee:'WanBridge Property Mgmt', amount:2400, status:'OUTSTANDING', bank:'BA-003'},
     {no:'CHK-1089', date:'07/30/2026', payee:'Apex Title LLC', amount:1500, status:'PENDING', bank:'BA-001'},
   ]);
-  const voidChk = (no) => { const c=checks.find(x=>x.no===no);
-    ctx.actions.newJEFromRule({entity_id:2, je_type:'REVERSAL', source_system:'BANK', posting_status:'POSTED', description:`VOID ${no} · ${c.payee}`,
-      lines:[{account_code:'111000',debit_amount:c.amount,credit_amount:0},{account_code:'220200',debit_amount:0,credit_amount:c.amount}]});
-    setChecks(cs=>cs.map(x=>x.no===no?{...x, status:'VOID'}:x)); ctx.toast(`支票 ${no} 已作废,冲销分录已过账 (Dr Cash / Cr AP)`,'warn'); };
+  const voidChk = () => ctx.toast('CHECK_VOID_API_UNAVAILABLE: 未连接权威 REFS 支票/分录 API；未作废支票或生成冲销分录。','warn');
   const printChk = (no) => ctx.toast(`支票 ${no} 已发送打印队列`);
   return <div>
     <h2 className="page-h">付款确认 Payment Confirmation</h2>
