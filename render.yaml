@@ -1,10 +1,99 @@
 services:
+  # Secrets are intentionally not committed. Provision every sync:false value in the
+  # staging environment before first deploy; the API fails closed when any is absent.
+  - type: web
+    name: refs-accounting-api-staging
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    preDeployCommand: npm run db:up
+    startCommand: npm start
+    healthCheckPath: /health/ready
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REFS_HTTP_HOST
+        value: 0.0.0.0
+      - key: REFS_PG_REQUIRED
+        value: "1"
+      - key: DATABASE_URL
+        sync: false
+      - key: MIGRATION_DATABASE_URL
+        sync: false
+      - key: CONTEXT_ISSUER_DATABASE_URL
+        sync: false
+      - key: GRANT_SYNC_DATABASE_URL
+        sync: false
+      - key: OIDC_ISSUER
+        sync: false
+      - key: OIDC_AUDIENCE
+        sync: false
+      - key: OIDC_JWKS_URI
+        sync: false
+      - key: REFS_HTTP_ALLOWED_ORIGINS
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: VIRUS_SCANNER_ENDPOINT
+        sync: false
+      - key: VIRUS_SCANNER_TOKEN
+        sync: false
+      - key: VIRUS_SCANNER_CA_FILE
+        sync: false
+      - key: VIRUS_SCANNER_SERVER_NAME
+        sync: false
+      - key: ATTACHMENT_SCANNER_ACTOR_ID
+        sync: false
+  - type: worker
+    name: refs-attachment-cleanup-staging
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm run start:attachment-cleanup
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REFS_PG_REQUIRED
+        value: "1"
+      - key: DATABASE_URL
+        sync: false
+      - key: MIGRATION_DATABASE_URL
+        sync: false
+      - key: CONTEXT_ISSUER_DATABASE_URL
+        sync: false
+      - key: GRANT_SYNC_DATABASE_URL
+        sync: false
+      - key: ATTACHMENT_CLEANUP_ACTOR_ID
+        sync: false
+      - key: ATTACHMENT_CLEANUP_SCOPES
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
   - type: web
     name: refs-app
     runtime: static
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     pullRequestPreviewsEnabled: true
+    autoDeployTrigger: checksPass
     routes:
       - type: rewrite
         source: /*
