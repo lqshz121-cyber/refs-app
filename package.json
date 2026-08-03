@@ -4,6 +4,7 @@
   "private": true,
   "description": "REFS - Real Estate Financial System (WanBridge) functional prototype",
   "scripts": {
+    "test": "npm.cmd run test:ssr && npm.cmd run test:ap-ar && npm.cmd run test:autorecon && npm.cmd run test:audit",
     "build": "node build.mjs",
     "dev": "node build.mjs --watch",
     "test:ap-ar": "esbuild ./tests/ap-ar-workflow.test.jsx --bundle --platform=node --format=cjs --outfile=tests/ap-ar-workflow.test.cjs && node tests/ap-ar-workflow.test.cjs",
