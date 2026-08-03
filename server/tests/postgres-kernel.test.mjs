@@ -688,7 +688,7 @@ pgTest('authenticated HTTP commands traverse context issuance and PostgreSQL int
     authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
     kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})
   });
-  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
+  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':`"${revision}"`})}});
   const base=`/api/v1/entities/${ids.entityId}/journal-entries`;
   const create=await send('http-maker',`${base}/manual`,{periodId:ids.periodId,journalNumber:'JE-HTTP-PG-001',journalDate:'2026-07-18',currency:'USD',description:'HTTP to PG',attachmentIds:[attachmentId],lines:[
     {line_no:1,account_code:'111000',debit_amount:75,credit_amount:0,member_ref:'BANK-1',dimensions:{}},
@@ -752,7 +752,7 @@ pgTest('authenticated HTTP creates AP Bills and AR Invoices only as evidence-bac
     authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
     kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})
   });
-  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
+  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':`"${revision}"`})}});
   const root=`/api/v1/entities/${ids.entityId}`;
   const create=async(module,body,key)=>{
     const response=await send('document-maker',`${root}/${module}`,body,key);
@@ -792,7 +792,7 @@ pgTest('authenticated HTTP posts a vendor credit and atomically applies it to an
     authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
     kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})
   });
-  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
+  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':`"${revision}"`})}});
   const root=`/api/v1/entities/${ids.entityId}`;
   const created=await send('http-credit-maker',`${root}/ap/vendor-credits`,{periodId:ids.periodId,creditNumber:'VC-HTTP-100',creditDate:'2026-07-16',vendorRef:'VENDOR-1',vendorName:'Vendor',amount:100,lines:[{line_no:1,account_code:'610000',amount:100,description:'Vendor credit'}],reason:'HTTP vendor price adjustment'},'http-credit-create');
   assert.equal(created.status,201);const credit=created.body.data;
@@ -830,7 +830,7 @@ pgTest('authenticated HTTP posts an AR credit memo, applies it and refunds only 
     authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
     kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})
   });
-  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
+  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':`"${revision}"`})}});
   const root=`/api/v1/entities/${ids.entityId}`;
   const memoResponse=await send(makerId,`${root}/ar/credit-memos`,{periodId:ids.periodId,memoNumber:'CM-HTTP-100',memoDate:'2026-07-16',customerRef:'CUSTOMER-1',customerName:'Customer',amount:100,lines:[{line_no:1,account_code:'410000',amount:100,description:'Customer credit'}],reason:'HTTP customer credit correction'},'http-memo-create');
   assert.equal(memoResponse.status,201);const memo=memoResponse.body.data;
@@ -871,7 +871,7 @@ pgTest('authenticated HTTP posts an AP payment and a cross-period Draft reversal
     [makerId]:['AP.PAYMENT.CREATE','GL.JE.SUBMIT'],[reviewerId]:['GL.JE.REVIEW'],[approverId]:['GL.JE.APPROVE'],[posterId]:['GL.JE.POST'],[reversalMakerId]:['AP.PAYMENT.REVERSE','GL.JE.SUBMIT']
   };
   const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
-  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
+  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':`"${revision}"`})}});
   const root=`/api/v1/entities/${ids.entityId}`;
   const advance=async(journalId,prefix,periodId,submitter)=>{
     const path=`${root}/journal-entries/${journalId}`;
@@ -906,7 +906,7 @@ pgTest('authenticated HTTP posts an AR receipt and a cross-period Draft reversal
     [makerId]:['AR.RECEIPT.CREATE','GL.JE.SUBMIT'],[reviewerId]:['GL.JE.REVIEW'],[approverId]:['GL.JE.APPROVE'],[posterId]:['GL.JE.POST'],[reversalMakerId]:['AR.RECEIPT.REVERSE','GL.JE.SUBMIT']
   };
   const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
-  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':String(revision)})}});
+  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':`"${revision}"`})}});
   const root=`/api/v1/entities/${ids.entityId}`;
   const advance=async(journalId,prefix,periodId,submitter)=>{
     const path=`${root}/journal-entries/${journalId}`;
@@ -1019,12 +1019,15 @@ pgTest('posting is atomic, same-hash retry replays before state validation, diff
   const args={...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'post-key-0001',requestHash:hash('post')};
   const first=await kernel.postJournal(args);
   const replay=await kernel.postJournal(args);
-  assert.equal(first.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.posting_batch_id,first.posting_batch_id);
+  assert.equal(first.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.posting_batch_id,first.posting_batch_id);assert.equal(first.revision,1);assert.equal(replay.revision,1);
   await assert.rejects(kernel.postJournal({...args,expectedRevision:1,requestHash:hash('caller-is-ignored')}),error=>error.code==='23505');
   assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM ledger_line')).rows[0].n,2);
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM source_link WHERE link_type='JE_LINE_TO_LEDGER'")).rows[0].n,2);
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM outbox_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,1);
+  const audit=(await adminPool.query("SELECT after_hash,metadata FROM audit_event WHERE event_type='JOURNAL_POSTED' AND object_id=$1",[ids.journalId])).rows[0];
+  const state=(await adminPool.query('SELECT refs_jsonb_hash(to_jsonb(journal_entry)) AS state_hash FROM journal_entry WHERE journal_entry_id=$1',[ids.journalId])).rows[0].state_hash;
+  assert.equal(audit.after_hash,state);assert.match(audit.metadata.request_hash,/^sha256:[0-9a-f]{64}$/);assert.notEqual(audit.after_hash,audit.metadata.request_hash);
 });
 
 pgTest('posted journal, ledger, audit and outbox payload are immutable; outbox claim is exclusive',async()=>{

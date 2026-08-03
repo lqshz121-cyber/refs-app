@@ -248,5 +248,10 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'050_ap_ar_document_journal_workflow_read.sql',
     up:'c88f922eda1a1e72cf57228e72eddf894ac962c11444553981abad5c61bc8f88',
     down:'eccd53b1291edcbf72d9f932b62104eb3f45c7e054963aadd5dc0b6b5553b778'
+  }),
+  Object.freeze({
+    name:'051_post_journal_response_integrity.sql',
+    up:'6e4159d9bff6b1507a69eaff6a65157af6b75a1b63f975b826e551816051b653',
+    down:'300fce6850c9a0ec7a7541d962616396ecc03cd5e3df10135bfdf3cdefd739f3'
   })
 ]);
