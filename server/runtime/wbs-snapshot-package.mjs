@@ -26,9 +26,11 @@ export function validateWbsSnapshotPackage(snapshot){
   if(!object(snapshot))fail('WBS_SNAPSHOT_INVALID','WBS snapshot must be an object.');
   if(snapshot.schema_version!=='WBS_READONLY_SNAPSHOT_V1'||!UUID.test(snapshot.snapshot_id||'')||!iso(snapshot.captured_at)||!['SANDBOX','PRODUCTION'].includes(snapshot.environment)||snapshot.source_system!=='WBS'||!text(snapshot.dictionary_version)||!Array.isArray(snapshot.views)||snapshot.views.length===0)fail('WBS_SNAPSHOT_INVALID','WBS snapshot manifest is incomplete.');
   if(snapshot.package_hash!==canonicalRequestHash(without(snapshot,'package_hash')))fail('WBS_SNAPSHOT_HASH_MISMATCH','WBS snapshot package hash does not match its manifest.');
-  const names=new Set(),receipts=[];
+  const names=new Set(),receipts=[];let companyKey=null;
   for(const view of snapshot.views){
     if(!object(view)||!text(view.name,96)||!VIEW_POLICY[view.name]||names.has(view.name)||!text(view.company_key,128)||!Array.isArray(view.rows)||view.rows.length===0||view.content_hash!==canonicalRequestHash(view.rows))fail('WBS_SNAPSHOT_VIEW_INVALID','WBS snapshot view is incomplete, unsupported, duplicated, or tampered.');
+    if(companyKey!==null&&companyKey!==view.company_key)fail('WBS_SNAPSHOT_ENTITY_MIXED','A snapshot import must contain one exact WBS company scope.');
+    companyKey=view.company_key;
     names.add(view.name);const policy=VIEW_POLICY[view.name];const seen=new Set();
     for(const row of view.rows){
       if(!object(row)||!text(row[policy.id],128)||seen.has(row[policy.id]))fail('WBS_SNAPSHOT_ROW_INVALID','WBS snapshot row lacks a unique stable source key.');
@@ -39,5 +41,5 @@ export function validateWbsSnapshotPackage(snapshot){
       receipts.push(Object.freeze({snapshot_id:snapshot.snapshot_id,captured_at:snapshot.captured_at,environment:snapshot.environment,source_system:'WBS',source_module:view.name,source_entity_id:view.company_key,source_record_id:row[policy.id],source_version:`snapshot:${snapshot.snapshot_id}:${rowHash.slice(7,23)}`,payload_hash:rowHash,payload_ref:`object://wbs-snapshot/${snapshot.snapshot_id}/${encodeURIComponent(view.name)}/${encodeURIComponent(row[policy.id])}`,ingestion_kind:policy.kind}));
     }
   }
-  return Object.freeze({snapshot_id:snapshot.snapshot_id,captured_at:snapshot.captured_at,environment:snapshot.environment,package_hash:snapshot.package_hash,receipt_count:receipts.length,receipts:Object.freeze(receipts)});
+  return Object.freeze({snapshot_id:snapshot.snapshot_id,captured_at:snapshot.captured_at,environment:snapshot.environment,dictionary_version:snapshot.dictionary_version,company_key:companyKey,package_hash:snapshot.package_hash,receipt_count:receipts.length,receipts:Object.freeze(receipts)});
 }

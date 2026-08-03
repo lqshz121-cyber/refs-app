@@ -77,9 +77,11 @@ const postIntegritySql=await readFile(new URL('../db/migrations/051_post_journal
 const postIntegrityDown=await readFile(new URL('../db/migrations/down/051_post_journal_response_integrity.sql',import.meta.url),'utf8');
 const creditAllocationResponseSql=await readFile(new URL('../db/migrations/053_credit_allocation_response_state.sql',import.meta.url),'utf8');
 const creditAllocationResponseDown=await readFile(new URL('../db/migrations/down/053_credit_allocation_response_state.sql',import.meta.url),'utf8');
+const wbsSnapshotSql=await readFile(new URL('../db/migrations/054_wbs_snapshot_observation.sql',import.meta.url),'utf8');
+const wbsSnapshotDown=await readFile(new URL('../db/migrations/down/054_wbs_snapshot_observation.sql',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts without AutoRec scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql','018_ar_credit_memo_allocation.sql','019_ar_credit_memo_post_reducer.sql','020_ar_refund_command.sql','021_ar_refund_post_reducer.sql','022_ap_payment_reversal_command.sql','023_ap_payment_reversal_post_reducer.sql','024_ar_receipt_trigger_scope_fix.sql','025_idempotency_business_scope_allowlist.sql','026_allow_evidence_backed_auto_reversal.sql','027_fix_auto_reversal_predicate_rewrite.sql','028_ar_receipt_reversal_trigger_scope_fix.sql','029_ap_payment_trigger_scope_fix.sql','030_allocation_reservation_balance_fix.sql','031_ap_payment_reversal_trigger_scope_fix.sql','032_ap_bill_void_direct_source_workflow.sql','033_ap_bill_void_post_evidence.sql','034_ap_bill_void_post_stage_state.sql','035_posted_credit_allocation_reducer.sql','036_posted_ar_credit_allocation_reducer.sql','037_order_ar_credit_post_reducer.sql','038_order_ar_refund_post_reducer.sql','039_ap_ar_control_reconciliation.sql','040_ar_aging.sql','041_ap_aging.sql','042_ap_ar_control_total_read.sql','043_ar_refund_available_credit.sql','044_ar_credit_memo_control_integrity.sql','045_ap_vendor_credit_control_integrity.sql','046_ap_ar_aging_available_credits.sql','047_ap_ar_business_document_read.sql','048_ap_ar_native_document_command.sql','049_ap_ar_business_document_ui_read.sql','050_ap_ar_document_journal_workflow_read.sql','051_post_journal_response_integrity.sql','052_ap_ar_adjustment_read.sql','053_credit_allocation_response_state.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql','018_ar_credit_memo_allocation.sql','019_ar_credit_memo_post_reducer.sql','020_ar_refund_command.sql','021_ar_refund_post_reducer.sql','022_ap_payment_reversal_command.sql','023_ap_payment_reversal_post_reducer.sql','024_ar_receipt_trigger_scope_fix.sql','025_idempotency_business_scope_allowlist.sql','026_allow_evidence_backed_auto_reversal.sql','027_fix_auto_reversal_predicate_rewrite.sql','028_ar_receipt_reversal_trigger_scope_fix.sql','029_ap_payment_trigger_scope_fix.sql','030_allocation_reservation_balance_fix.sql','031_ap_payment_reversal_trigger_scope_fix.sql','032_ap_bill_void_direct_source_workflow.sql','033_ap_bill_void_post_evidence.sql','034_ap_bill_void_post_stage_state.sql','035_posted_credit_allocation_reducer.sql','036_posted_ar_credit_allocation_reducer.sql','037_order_ar_credit_post_reducer.sql','038_order_ar_refund_post_reducer.sql','039_ap_ar_control_reconciliation.sql','040_ar_aging.sql','041_ap_aging.sql','042_ap_ar_control_total_read.sql','043_ar_refund_available_credit.sql','044_ar_credit_memo_control_integrity.sql','045_ap_vendor_credit_control_integrity.sql','046_ap_ar_aging_available_credits.sql','047_ap_ar_business_document_read.sql','048_ap_ar_native_document_command.sql','049_ap_ar_business_document_ui_read.sql','050_ap_ar_document_journal_workflow_read.sql','051_post_journal_response_integrity.sql','052_ap_ar_adjustment_read.sql','053_credit_allocation_response_state.sql','054_wbs_snapshot_observation.sql']);
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -88,6 +90,22 @@ test('migration manifest freezes normalized up and down artifacts without AutoRe
       assert.equal(checksum,item[direction],`${direction} checksum mismatch for ${item.name}`);
     }
   }
+});
+
+test('WBS snapshots are immutable scoped observations, not current source events or journals',()=>{
+  assert.match(wbsSnapshotSql,/CREATE TABLE wbs_snapshot_import/);
+  assert.match(wbsSnapshotSql,/CREATE TABLE wbs_snapshot_receipt/);
+  assert.match(wbsSnapshotSql,/wbs_snapshot_import_append_only/);
+  assert.match(wbsSnapshotSql,/wbs_snapshot_receipt_append_only/);
+  assert.match(wbsSnapshotSql,/refs_assert_scope\(p_tenant,p_entity,'WBS\.SNAPSHOT\.IMPORT'\)/);
+  assert.match(wbsSnapshotSql,/entity_source_system<>'WBS'/);
+  assert.match(wbsSnapshotSql,/item_entity<>entity_source_id/);
+  assert.match(wbsSnapshotSql,/INSERT INTO audit_event/);
+  assert.match(wbsSnapshotSql,/INSERT INTO outbox_event/);
+  assert.doesNotMatch(wbsSnapshotSql,/INSERT INTO journal_entry/);
+  assert.doesNotMatch(wbsSnapshotSql,/INSERT INTO ledger_line/);
+  assert.match(wbsSnapshotDown,/DROP TABLE IF EXISTS wbs_snapshot_receipt/);
+  assert.match(wbsSnapshotDown,/DROP TABLE IF EXISTS wbs_snapshot_import/);
 });
 
 test('post integrity is introduced only by a forward migration and rolls back symmetrically',()=>{

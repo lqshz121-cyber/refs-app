@@ -16,6 +16,7 @@ test('snapshot package rejects tampering, display identifiers and unscoped bank 
     value=>{value.views[0].rows[0].apGuId='BILL-001';},
     value=>{delete value.views[1].rows[0].bank_account_ref;},
     value=>{delete value.views[4].rows[0].ledger_ref;}
+    ,value=>{value.views[4].company_key='COMPANY-B';}
   ];
   for(const mutate of scenarios){const value=make();mutate(value);assert.throws(()=>validateWbsSnapshotPackage(value),error=>error instanceof WbsSnapshotError&&/WBS_SNAPSHOT_(HASH_MISMATCH|VIEW_INVALID|ROW_INVALID)/.test(error.code));}
 });

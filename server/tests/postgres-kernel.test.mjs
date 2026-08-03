@@ -11,6 +11,7 @@ import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
 import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
+import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -137,6 +138,24 @@ pgTest('migration clean down and up is reversible from the fixed manifest',async
   await migrateUp(adminPool);
   const present=await adminPool.query("SELECT to_regprocedure('refs_post_journal(uuid,uuid,uuid,uuid,bigint,text,text,text)') AS post_fn");
   assert.ok(present.rows[0].post_fn);
+});
+
+pgTest('authorized WBS snapshot import persists immutable observations without creating source documents or journals',async()=>{
+  const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),rowId=randomUUID(),capturedAt=new Date().toISOString();
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:capturedAt,environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-TEST',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:rowId,ap_type:'AUTOC'}]}]};
+  snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));
+  snapshot.package_hash=canonicalRequestHash(snapshot);
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-reader',['AP.VIEW'])});
+  await assert.rejects(denied.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'snapshot-denied-0001'}),error=>error.code==='42501');
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-importer',['WBS.SNAPSHOT.IMPORT'])});
+  const created=await kernel.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'snapshot-import-ok-001'});
+  assert.equal(created.receipt_count,1);assert.equal(created.idempotent,false);
+  const replay=await kernel.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'snapshot-import-ok-001'});
+  assert.equal(replay.idempotent,true);assert.equal(replay.wbs_snapshot_import_id,created.wbs_snapshot_import_id);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_snapshot_receipt WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM source_document WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_SNAPSHOT_OBSERVED'",[ids.tenantId])).rows[0].n,1);
+  await assert.rejects(adminPool.query("UPDATE wbs_snapshot_receipt SET source_record_id='tampered' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
 });
 
 pgTest('concurrent up and down runners serialize on the same advisory lock',async()=>{

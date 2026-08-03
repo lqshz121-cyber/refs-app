@@ -1,5 +1,6 @@
 import {KernelError,requireRow,withSerializableRetry} from './db.mjs';
 import {canonicalRequestHash} from './request-hash.mjs';
+import {validateWbsSnapshotPackage} from './wbs-snapshot-package.mjs';
 
 function assertTrustedSession(session){
   if(!session||session.trusted!==true||typeof session.contextToken!=='string'||session.contextToken.length<32)throw new KernelError('TRUSTED_SESSION_REQUIRED','Kernel session requires an opaque DB-issued context token from authenticated middleware');
@@ -99,6 +100,20 @@ export class PostgresAccountingKernel{
 
   async claimExpiredAttachments({tenantId,entityId,limit=25}){return this.inSession(async client=>(await client.query('SELECT refs_claim_expired_attachments($1,$2,$3) AS items',[tenantId,entityId,limit])).rows[0].items);}
   async completeAttachmentCleanup({tenantId,entityId,attachmentId,claimToken,deleted,errorCode=null,errorCategory=null}){return this.inSession(async client=>(await client.query('SELECT refs_complete_attachment_cleanup($1,$2,$3,$4,$5,$6,$7) AS result',[tenantId,entityId,attachmentId,claimToken,deleted,errorCode,errorCategory])).rows[0].result);}
+
+  async recordWbsSnapshot({tenantId,entityId,snapshot,idempotencyKey}){
+    const validated=validateWbsSnapshotPackage(snapshot);
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_snapshot_import_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',
+        [tenantId,entityId,validated.snapshot_id,validated.captured_at,validated.environment,validated.dictionary_version,validated.package_hash,JSON.stringify(validated.receipts)]
+      ),'WBS_SNAPSHOT_HASH_FAILED','WBS snapshot import hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_record_wbs_snapshot_receipts($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+        [tenantId,entityId,validated.snapshot_id,validated.captured_at,validated.environment,validated.dictionary_version,validated.package_hash,JSON.stringify(validated.receipts),idempotencyKey,requestHash]
+      ),'WBS_SNAPSHOT_IMPORT_FAILED','WBS snapshot import did not return a result').result;
+    });
+  }
 
   async createAutoJournal(args){
     return this.inSession(async client=>{
