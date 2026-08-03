@@ -12,6 +12,7 @@ export function ARWorkspace({ctx}) {
   const [showNew, setShowNew] = useState(false);
   const [showCredit, setShowCredit] = useState(false);
   const [refundCredit, setRefundCredit] = useState(null);
+  const [applyCredit, setApplyCredit] = useState(null);
   const [bankMember,setBankMember] = useState('Operating Cash_BA-003');
   const [receiptDate,setReceiptDate] = useState('2026-07-31');
   const emptyInvoice=()=>({client_request_id:`ARFORM-${Date.now()}-${Math.random()}`,customer_id:'',memo:'',inv_date:'2026-07-31',due_date:'2026-08-30',amount:''});
@@ -50,7 +51,7 @@ export function ARWorkspace({ctx}) {
       {h:'Adjustment #',k:'business_adjustment_id'},{h:'Type',k:'adjustment_kind'},{h:'Date',k:'accounting_date'},
       {h:'Amount',num:true,render:r=><Money v={Number(r.amount)}/>,sortVal:r=>Number(r.amount)},{h:'Status',render:r=><Badge>{r.status}</Badge>},
       {h:'Journal',k:'journal_entry_id'},
-      {h:'Action',render:r=>journalWorkflowAction(r.journal_status)&&r.journal_entry_id?<Btn size="sm" variant="primary" onClick={async()=>{const action=journalWorkflowAction(r.journal_status);const result=await actions.transitionDocumentJournal(r.journal_entry_id,r.journal_revision,action);toast(result?.ok?`${action} accepted.`:result?.message||'Workflow blocked',result?.ok?'ok':'bad');}}>{journalWorkflowAction(r.journal_status)}</Btn>:r.adjustment_kind==='AR_CREDIT_MEMO'&&r.status==='POSTED'?<Btn size="sm" disabled={!authoritativeMode||apiStatus!=='READY'||!can('AR.REFUND.CREATE')} onClick={()=>setRefundCredit(r)}>Refund</Btn>:<span className="muted sm">{r.journal_status||r.status}</span>}
+      {h:'Action',render:r=>journalWorkflowAction(r.journal_status)&&r.journal_entry_id?<Btn size="sm" variant="primary" onClick={async()=>{const action=journalWorkflowAction(r.journal_status);const result=await actions.transitionDocumentJournal(r.journal_entry_id,r.journal_revision,action);toast(result?.ok?`${action} accepted.`:result?.message||'Workflow blocked',result?.ok?'ok':'bad');}}>{journalWorkflowAction(r.journal_status)}</Btn>:r.adjustment_kind==='AR_CREDIT_MEMO'&&r.status==='POSTED'?<span style={{display:'inline-flex',gap:6}}><Btn size="sm" disabled={!authoritativeMode||apiStatus!=='READY'||!can('AR.CREDIT_MEMO.APPLY')} onClick={()=>setApplyCredit(r)}>Apply</Btn><Btn size="sm" disabled={!authoritativeMode||apiStatus!=='READY'||!can('AR.REFUND.CREATE')} onClick={()=>setRefundCredit(r)}>Refund</Btn></span>:<span className="muted sm">{r.journal_status||r.status}</span>}
     ]} rows={ar.adjustments||[]} empty="No authoritative AR credits or refunds available." /></>}
     {tab==='Customers' && <Table rowKey="customer_id" cols={[
       {h:'Customer',k:'customer_name'},{h:'Type',render:r=><Badge tone="muted">{r.customer_type}</Badge>},
@@ -69,6 +70,7 @@ export function ARWorkspace({ctx}) {
       <Field label="Amount" required><input type="number" value={f.amount} onChange={e=>setF(s=>({...s,amount:e.target.value}))}/></Field>
     </Drawer>
     <CreditMemo open={showCredit} onClose={()=>setShowCredit(false)} ctx={ctx}/>
+    <ApplyCredit open={!!applyCredit} credit={applyCredit} invoices={open} onClose={()=>setApplyCredit(null)} ctx={ctx}/>
     <RefundCredit open={!!refundCredit} credit={refundCredit} onClose={()=>setRefundCredit(null)} ctx={ctx}/>
   </div>;
 }
@@ -98,5 +100,19 @@ function RefundCredit({open,credit,onClose,ctx}){
     <Field label="Amount" required><input type="number" min="0.0001" value={f.amount} onChange={e=>set('amount',e.target.value)}/></Field>
     <Field label="Reason" required><input value={f.reason} onChange={e=>set('reason',e.target.value)}/></Field>
     <p className="muted sm">This creates only a server-side Draft refund and linked Draft JE; it does not post cash.</p>
+  </Drawer>;
+}
+
+function ApplyCredit({open,credit,invoices,onClose,ctx}){
+  const {actions,toast}=ctx;
+  const empty=()=>({client_request_id:`AR-CREDIT-APPLY-${Date.now()}-${Math.random()}`,business_document_id:'',amount:'',reason:''});
+  const [f,setF]=useState(empty);const set=(key,value)=>setF(old=>({...old,[key]:value}));
+  const eligible=(invoices||[]).filter(invoice=>invoice.status==='OPEN');
+  const submit=async()=>{if(!credit?.business_adjustment_id||!f.business_document_id||!f.reason||!(+f.amount>0)){toast('Invoice, amount and reason are required.','bad');return;}const result=await actions.applyArCreditMemo({...f,business_adjustment_id:credit.business_adjustment_id,amount:+f.amount});if(!result?.ok){toast(result?.message||'Credit application was rejected.','bad');return;}toast('Credit application Draft was persisted. It activates only when the linked credit JE is posted.','ok');setF(empty());onClose();};
+  return <Drawer open={open} onClose={onClose} title="Apply Credit Memo" width={520} actions={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit}>Create Draft Allocation</Btn></>}>
+    <p className="muted sm">Only an authoritative, posted Credit Memo may be applied. The server validates the customer, open invoice and available credit.</p>
+    <Field label="Open Invoice" required><select value={f.business_document_id} onChange={e=>set('business_document_id',e.target.value)}><option value="">— Select —</option>{eligible.map(invoice=><option key={invoice.inv_id} value={invoice.inv_id}>{invoice.inv_no} · {invoice.customer_name} · {money(invoice.open_balance)}</option>)}</select></Field>
+    <Field label="Amount" required><input type="number" min="0.0001" value={f.amount} onChange={e=>set('amount',e.target.value)}/></Field>
+    <Field label="Reason" required><input value={f.reason} onChange={e=>set('reason',e.target.value)}/></Field>
   </Drawer>;
 }
