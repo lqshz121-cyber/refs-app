@@ -99,6 +99,14 @@ services:
         source: /*
         destination: /index.html
     headers:
+      # The deployment-time API adapter must never be served stale: a stale
+      # adapter can point a newly deployed UI at the wrong authoritative API.
+      - path: /refs-runtime-config.js
+        name: Cache-Control
+        value: no-store
+      - path: /index.html
+        name: Cache-Control
+        value: no-store
       - path: /*
         name: X-Frame-Options
         value: SAMEORIGIN

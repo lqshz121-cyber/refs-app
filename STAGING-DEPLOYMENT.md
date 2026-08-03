@@ -9,6 +9,9 @@ This blueprint is a deployment contract, not evidence of a live deployment.
    `tenant_id` and `sub`, with the configured audience.  Configure the static
    frontend's runtime adapter to supply a short-lived bearer token through
    `getAccessToken`; never place an access token in `refs-runtime-config.js`.
+   Render serves that file and `/index.html` with `Cache-Control: no-store` so
+   the adapter is replaced atomically with the UI deployment rather than read
+   from a browser cache.
 3. Provision versioned object storage, a TLS scanner bridge, its CA file, and a
    least-privileged cleanup worker identity plus DB-authorized entity scopes.
 4. Set the exact static frontend URL as `REFS_HTTP_ALLOWED_ORIGINS`.  The API
