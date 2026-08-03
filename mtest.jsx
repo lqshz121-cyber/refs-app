@@ -8,6 +8,7 @@ import { GLTrialBalance, Reports, CashModule, LoanRegister, ProjectCost, Assets,
 import { APWorkspace, apAgingDocuments } from './src/module-ap.jsx';
 import { ARWorkspace, arAgingDocuments } from './src/module-ar.jsx';
 import { BankTransactions } from './src/module-banktx.jsx';
+import { BankRec2 } from './src/module-bankrec.jsx';
 import { bankSuggestion, splitDifference, buildBankDraft, buildBankWorkflowException, validateBankDraft, findBankMatchCandidates, validateBankMatch, createBankDraftTransition, excludeBankTransition, matchBankTransition, batchBankTransition, undoBankTransition } from './src/bank-workflow.js';
 import { authorizeJECommand, copyJEAsDraft, createReclassDraft, createRecurringTemplate, createReversal, rejectJETransition, reserveJESources, resolveJEPeriod, saveJEDraft, transitionJE, validateAttachmentReferences, validateJETransition, validateNewJEBatch, validateNewJESpec, verifyAttachmentContent } from './src/je-workflow.js';
 import { COAWorkspace } from './src/module-coa.jsx';
@@ -40,6 +41,11 @@ for (const Component of components) {
   try { renderToStaticMarkup(<Component ctx={ctx}/>); console.log('PASS',Component.name); }
   catch (error) { failed++; console.error('FAIL',Component.name,error.message); }
 }
+const authoritativeBankCtx={...ctx,authoritativeMode:true,bank:{accounts:{'BA-003':{bank_name:'Pacific Bank',stmt_date:'2026-07-31',stmt_end:0,gl_book_balance:0,txns:[{bank_txn_id:1,external_id:'BANK-1',txn_date:'2026-07-31',amount:1,direction:'DEBIT',reference:'Fee',match_status:'UNMATCHED'}],outstanding_checks:[],deposits_in_transit:[]}},history:[]}};
+const authoritativeBankMarkup=renderToStaticMarkup(<BankTransactions ctx={authoritativeBankCtx}/>);
+if(!authoritativeBankMarkup.includes('BANK_API_UNAVAILABLE')||!authoritativeBankMarkup.includes('disabled')){failed++;console.error('FAIL authoritative Bank screen is not fail-closed');}else console.log('PASS authoritative Bank screen is fail-closed');
+const authoritativeReconciliationMarkup=renderToStaticMarkup(<BankRec2 ctx={authoritativeBankCtx}/>);
+if(!authoritativeReconciliationMarkup.includes('RECONCILIATION_API_UNAVAILABLE')){failed++;console.error('FAIL authoritative reconciliation screen is not fail-closed');}else console.log('PASS authoritative reconciliation screen is fail-closed');
 
 const expectRule=(name,actual,code,dr,cr)=>{
   const ok=actual?.rule_code===code && actual.lines[0].account_code===dr && actual.lines[1].account_code===cr;

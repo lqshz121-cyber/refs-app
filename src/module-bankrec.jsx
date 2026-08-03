@@ -8,6 +8,7 @@ import { money, sum } from './engine.js';
 // Sign-off allowed only when Adjusted Bank == Adjusted Book
 export function BankRec2({ctx}) {
   const {bank, actions, toast, can} = ctx;   // bank: {accounts:{code:{stmt_begin,stmt_end,txns:[...]}}, history:[]}
+  const authorityUnavailable=ctx.authoritativeMode===true;
   const [acctCode, setAcctCode] = useState('BA-003');
   const a = bank.accounts[acctCode];
   const txns = a.txns;
@@ -23,6 +24,7 @@ export function BankRec2({ctx}) {
   const adjBook = bookBalance + (a.recorded_adj||0);
   const diff = +(adjBank - adjBook).toFixed(2);
   const canSign = Math.abs(diff) < 0.005 && unmatched.length===0;
+  if(authorityUnavailable)return <div className="full-bleed"><h2 className="page-h">Bank Reconciliation</h2><div className="alert alert-warn"><Badge tone="warn">RECONCILIATION_API_UNAVAILABLE</Badge> 权威 Accounting API 已启用，但对账命令尚无后端契约；本页未记录、匹配、暂挂或签核任何结果。</div></div>;
 
   const record = (t) => { actions.bankRecord(acctCode, t.bank_txn_id); toast(`已入账：${t.suggest==='FEE'?'Dr 6070 Bank Fee / Cr Cash':'Dr Cash / Cr 4050 Interest Income'}`); };
   const match = (t) => { actions.bankMatch(acctCode, t.bank_txn_id); toast('已匹配至账面交易'); };
