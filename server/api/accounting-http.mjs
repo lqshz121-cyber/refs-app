@@ -19,12 +19,15 @@ const requireRevision=headers=>{const raw=header(headers,'if-match');if(raw==nul
 const validateBody=body=>{if(!body||typeof body!=='object'||Array.isArray(body))throw new AccountingApiError(400,'JSON_OBJECT_REQUIRED','Request body must be a JSON object');for(const key of Object.keys(body))if(FORBIDDEN_BODY_KEYS.has(key))throw new AccountingApiError(400,'IDENTITY_FIELD_FORBIDDEN',`${key} must come from authenticated context`);return body;};
 const allowOnly=(body,allowed)=>{const unexpected=Object.keys(body).filter(key=>!allowed.includes(key));if(unexpected.length)throw new AccountingApiError(400,'UNEXPECTED_FIELD',`Unexpected request field: ${unexpected[0]}`);return body;};
 
+const isRevisionPrecondition=error=>error?.code==='40001'&&/(revision conflict|version conflict|period changed during transition|staging source changed during journal creation|lease is absent, stale, or owned)/i.test(String(error.message||''));
 function statusFor(error){
   if(error instanceof AccountingApiError)return error.status;
   if(error?.code==='42501')return 403;if(error?.code==='P0002')return 404;
-  if(['23505','40001'].includes(error?.code))return 409;if(error?.code==='55000')return 423;
+  if(error?.code==='40001')return isRevisionPrecondition(error)?412:503;
+  if(error?.code==='23505')return 409;if(error?.code==='55000')return 423;
   if(['22023','23503','23514'].includes(error?.code))return 422;return 500;
 }
+const problemFor=error=>{const status=statusFor(error);const code=isRevisionPrecondition(error)?'PRECONDITION_FAILED':status===503?'SERIALIZATION_RETRY_EXHAUSTED':error.code||'INTERNAL_ERROR';const message=status>=500?'Internal server error':error.message;const headers={'content-type':'application/problem+json','cache-control':'no-store'};if(status===503)headers['retry-after']='1';return {status,headers,body:{ok:false,code,message}};};
 
 export function createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory}={}){
   if(typeof authenticate!=='function'||typeof kernelFactory!=='function')throw new Error('Accounting API requires authenticate and kernelFactory');
@@ -130,7 +133,7 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       const responseHeaders={'content-type':'application/json','cache-control':'no-store'};
       if(Number.isSafeInteger(result?.revision)&&result.revision>=0)responseHeaders.etag=`"${result.revision}"`;
       return {status:result?.idempotent?200:201,headers:responseHeaders,body:{ok:true,data:result}};
-    }catch(error){const status=statusFor(error);return {status,headers:{'content-type':'application/problem+json','cache-control':'no-store'},body:{ok:false,code:error.code||'INTERNAL_ERROR',message:status===500?'Internal server error':error.message}};}
+    }catch(error){return problemFor(error);}
   };
 }
 
@@ -150,6 +153,6 @@ export function createAccountingHttpServer({authenticate,kernelFactory,attachmen
       for await(const chunk of req){size+=chunk.length;if(size>maxBodyBytes)throw new AccountingApiError(413,'BODY_TOO_LARGE','Request body exceeds limit');chunks.push(chunk);}
       let body={};if(chunks.length){try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new AccountingApiError(400,'INVALID_JSON','Request body is not valid JSON');}}
       const response=await dispatch({method:req.method,url:req.url,headers:req.headers,body});res.writeHead(response.status,response.headers);res.end(JSON.stringify(response.body));
-    }catch(error){const status=statusFor(error);res.writeHead(status,{'content-type':'application/problem+json','cache-control':'no-store'});res.end(JSON.stringify({ok:false,code:error.code||'INTERNAL_ERROR',message:status===500?'Internal server error':error.message}));}
+    }catch(error){const problem=problemFor(error);res.writeHead(problem.status,problem.headers);res.end(JSON.stringify(problem.body));}
   });
 }

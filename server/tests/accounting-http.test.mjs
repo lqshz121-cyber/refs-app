@@ -162,6 +162,10 @@ test('database errors map to stable HTTP classes without leaking internal failur
   const denied=await failing({method:'POST',url:`/api/v1/entities/${entityId}/journal-entries/manual`,headers:{'Idempotency-Key':'idem-key-0002'},body:{}});assert.equal(denied.status,403);
   const broken=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>({createManualJournal:async()=>{throw new Error('database password leaked');}})});
   const internal=await broken({method:'POST',url:`/api/v1/entities/${entityId}/journal-entries/manual`,headers:{'Idempotency-Key':'idem-key-0003'},body:{}});assert.equal(internal.status,500);assert.equal(internal.body.message,'Internal server error');
+  const stale=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>({createManualJournal:async()=>{const error=new Error('Revision conflict');error.code='40001';throw error;}})});
+  const staleResponse=await stale({method:'POST',url:`/api/v1/entities/${entityId}/journal-entries/manual`,headers:{'Idempotency-Key':'idem-key-0004'},body:{}});assert.equal(staleResponse.status,412);assert.equal(staleResponse.body.code,'PRECONDITION_FAILED');
+  const serialization=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>({createManualJournal:async()=>{const error=new Error('serialization detail must not leak');error.code='40001';throw error;}})});
+  const retry=await serialization({method:'POST',url:`/api/v1/entities/${entityId}/journal-entries/manual`,headers:{'Idempotency-Key':'idem-key-0005'},body:{}});assert.equal(retry.status,503);assert.equal(retry.body.code,'SERIALIZATION_RETRY_EXHAUSTED');assert.equal(retry.body.message,'Internal server error');assert.equal(retry.headers['retry-after'],'1');
 });
 
 test('real HTTP listener parses JSON, enforces size limits and emits no-store problem responses',async()=>{
