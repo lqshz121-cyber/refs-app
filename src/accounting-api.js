@@ -1,11 +1,13 @@
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ACCOUNT_CODE=/^[A-Za-z0-9._-]{1,64}$/;
 
 export const accountingApiConfig=(environment=globalThis)=>{
   const source=environment?.__REFS_ACCOUNTING_API__;
   if(!source||typeof source!=='object'||!UUID.test(source.entityId||'')||!UUID.test(source.periodId||''))return null;
   let baseUrl;try{baseUrl=new URL(source.baseUrl);}catch{return null;}
   if(baseUrl.protocol!=='https:'||baseUrl.username||baseUrl.password)return null;
-  return {baseUrl:baseUrl.toString().replace(/\/$/,''),entityId:source.entityId,periodId:source.periodId};
+  const cashAccountCode=typeof source.cashAccountCode==='string'&&ACCOUNT_CODE.test(source.cashAccountCode)?source.cashAccountCode:null;
+  return {baseUrl:baseUrl.toString().replace(/\/$/,''),entityId:source.entityId,periodId:source.periodId,cashAccountCode};
 };
 
 const documentRow=(row,kind)=>({

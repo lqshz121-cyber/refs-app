@@ -37,6 +37,10 @@ jobs:
         run: npm run test:ssr
       - name: AP and AR workflow gate
         run: npm run test:ap-ar
+      - name: Authoritative API client gate
+        run: npm run test:api-client
+      - name: Auto reconciliation fail-closed gate
+        run: npm run test:autorecon
       - name: Frontend audit gate
         run: npm run test:audit
       - name: Accounting kernel static and unit gate
