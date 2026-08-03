@@ -59,7 +59,7 @@ test('AP Bill and AR Invoice list reads are authenticated no-store operations',(
   }
   const row=contract.components.schemas.BusinessDocumentReadRow;
   assert.equal(row.additionalProperties,false);
-  assert.deepEqual(row.required,['business_document_id','document_number','counterparty_ref','counterparty_name','currency','accounting_date','gross_amount','open_balance','status','version','offset_account_code','description']);
+  assert.deepEqual(row.required,['business_document_id','document_number','counterparty_ref','counterparty_name','currency','accounting_date','gross_amount','open_balance','status','version','offset_account_code','description','journal_entry_id','journal_status','journal_revision','period_id']);
 });
 
 test('AP Bill and AR Invoice create commands are Draft-only and require a canonical business document body',()=>{
