@@ -28,14 +28,15 @@ const AB_SEED = [
  ['WB Entopsis Investment LLC','张晓勇','Cathy Gao','09/2024','12/2023','12/2023',39,-1175.12,0,-594.99,'01-01-2024'],
 ].map((r,i)=>({entity_id:i+1, company:r[0], preparer:r[1], auditor:r[2], m:r[3], r:r[4], c:r[5], qty:r[6], amount:r[7], released:r[8], recon_bal:r[9], recon_date:r[10]}));
 export function AutoBankRec({ctx}) {
+  const authorityUnavailable=ctx.authoritativeMode===true;
   const [step, setStep] = useState(0);
-  const [rows] = useState(AB_SEED);
+  const [rows] = useState(()=>authorityUnavailable?[]:AB_SEED);
   const [sel, setSel] = useState(null);
   const release = () => ctx.toast('AUTOREC_API_UNAVAILABLE: 未连接权威 REFS AutoRec API；未执行 Release。','warn');
   const incur = () => ctx.toast('AUTOREC_API_UNAVAILABLE: 未连接权威 REFS AutoRec API；未生成 JE。','warn');
   return <div className="full-bleed">
     <h2 className="page-h">自动银行对账 Auto Bank Reconciliation</h2>
-    <p className="alert alert-warn"><Badge tone="warn">AUTOREC_API_UNAVAILABLE</Badge> 未连接权威 REFS AutoRec API；所有命令均为只读且不会生成或显示入账结果。</p>
+    <p className="alert alert-warn"><Badge tone="warn">{authorityUnavailable?'AUTOREC_API_UNAVAILABLE':'DEMO_DATA_ONLY'}</Badge> {authorityUnavailable?'未连接权威 REFS AutoRec API；不显示样例公司、银行金额或入账状态，也不执行命令。':'当前为演示样例；未连接权威 REFS API 时不会执行任何会计状态变更。'}</p>
     <div className="stepper">{STEPS.map((s,i)=><button key={s} className={`step-chip ${step===i?'step-on':''} ${i<step?'step-done':''}`} onClick={()=>setStep(i)}>{s}</button>)}</div>
     {step===0 && <><SectionTitle>Company List(制单/审核分派 · M/R/C 完成度)</SectionTitle>
       <Table exportName="abr-companies" rowKey="entity_id" onRow={r=>{setSel(r.entity_id); setStep(1);}} pageSize={25} cols={[
@@ -50,19 +51,19 @@ export function AutoBankRec({ctx}) {
         {h:'Reconciliation Balance',num:true,render:r=><Money v={r.recon_bal}/>,sortVal:r=>r.recon_bal,csv:r=>r.recon_bal},
         {h:'Recon Date',k:'recon_date'},
         {h:'',render:r=><span className="row-acts"><Btn size="sm" variant="ghost" onClick={e=>ctx.toast('View: 打开该公司银行流水明细')}>View</Btn><Btn size="sm" variant="ghost" onClick={e=>ctx.toast('已刷新银行 Feed')}>Refresh</Btn></span>},
-      ]} rows={rows}/></>}
+      ]} rows={rows} empty={authorityUnavailable?'AUTOREC_API_UNAVAILABLE — 尚未读取权威 REFS 公司控制数据。':'没有演示公司数据。'}/></>}
     {step===1 && <><SectionTitle>Data Processing & Release(校验后放行)</SectionTitle>
       <Table rowKey="entity_id" cols={[
         {h:'Company',k:'company'},{h:'待处理笔数',num:true,k:'qty'},{h:'金额',num:true,render:r=><Money v={r.amount}/>},
         {h:'校验',render:r=> r.qty>0 ? <Badge tone="ok">去重 ✓ 实体匹配 ✓ 期间 ✓</Badge> : <Badge tone="muted">无数据</Badge>},
         {h:'操作',render:r=> r.qty>0 && r.released<r.qty ? <Btn size="sm" variant="primary" onClick={()=>release(r.entity_id)}>Release {r.qty} 笔</Btn> : <span className="muted sm">{r.qty?'已 Release':'—'}</span>},
-      ]} rows={rows}/></>}
+      ]} rows={rows} empty={authorityUnavailable?'AUTOREC_API_UNAVAILABLE — 尚未读取可 Release 的权威 REFS 数据。':'没有演示 Release 数据。'}/></>}
     {step===2 && <><SectionTitle>Incur(按映射规则生成分录)</SectionTitle>
       <Table rowKey="entity_id" cols={[
         {h:'Company',k:'company'},{h:'已 Release',num:true,k:'released'},
         {h:'规则',render:r=>'BANK→GL 映射 · Journal No 自动编号'},
         {h:'操作',render:r=> r.released>0 && r.r!=='07/2026' ? <Btn size="sm" variant="primary" onClick={()=>incur(r.entity_id)}>Incur → 生成 JE</Btn> : <span className="muted sm">{r.released?'本期已 Incur':'—'}</span>},
-      ]} rows={rows}/></>}
+      ]} rows={rows} empty={authorityUnavailable?'AUTOREC_API_UNAVAILABLE — 尚未读取可 Incur 的权威 REFS 数据。':'没有演示 Incur 数据。'}/></>}
     {step===3 && <><SectionTitle>Incurred List(权威已入账分录)</SectionTitle>
       <Table exportName="abr-incurred" cols={[
         {h:'Journal No.',k:'jn'},{h:'Posting Date',k:'pd'},{h:'Source',render:r=><Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},
@@ -74,8 +75,9 @@ export function AutoBankRec({ctx}) {
 
 // ============ Payment Confirmation / Check Management (WBS) ============
 export function CheckMgmt({ctx}) {
+  const authorityUnavailable=ctx.authoritativeMode===true;
   const [tab, setTab] = useState('Check Register');
-  const [checks] = useState([
+  const [checks] = useState(()=>authorityUnavailable?[]:[
     {no:'CHK-1086', date:'07/12/2026', payee:'Summit General Contractors', amount:42000, status:'CLEARED', bank:'BA-001'},
     {no:'CHK-1087', date:'07/20/2026', payee:'BluePeak Utilities', amount:3200, status:'CLEARED', bank:'BA-003'},
     {no:'CHK-1088', date:'07/29/2026', payee:'WanBridge Property Mgmt', amount:2400, status:'OUTSTANDING', bank:'BA-003'},
@@ -85,6 +87,7 @@ export function CheckMgmt({ctx}) {
   const printChk = (no) => ctx.toast(`支票 ${no} 已发送打印队列`);
   return <div>
     <h2 className="page-h">付款确认 Payment Confirmation</h2>
+    {authorityUnavailable&&<p className="alert alert-warn"><Badge tone="warn">CHECK_API_UNAVAILABLE</Badge> 未连接权威 REFS 支票 API；不显示样例支票，也不执行打印、作废或入账。</p>}
     <div className="kpi-row">
       <KPI label="Outstanding Checks" value={checks.filter(c=>c.status==='OUTSTANDING').length} sub={money(sum(checks.filter(c=>c.status==='OUTSTANDING'),c=>c.amount))} tone="warn"/>
       <KPI label="Pending Print" value={checks.filter(c=>c.status==='PENDING').length}/>
@@ -100,11 +103,12 @@ export function CheckMgmt({ctx}) {
         {r.status==='PENDING' && <Btn size="sm" onClick={()=>printChk(r.no)}>Print</Btn>}
         {['PENDING','OUTSTANDING'].includes(r.status) && <Btn size="sm" variant="danger" onClick={()=>voidChk(r.no)}>Void</Btn>}
       </span>},
-    ]} rows={checks}/>}
+    ]} rows={checks}
+      empty={authorityUnavailable?'CHECK_API_UNAVAILABLE — 尚未读取权威 REFS 支票数据。':'无支票数据。'}/>}
     {tab==='Pending Payment' && <Table cols={[
       {h:'来源',render:r=><Badge tone="muted">AP</Badge>},{h:'Bill',k:'b'},{h:'Payee',k:'p'},{h:'金额',num:true,render:r=><Money v={r.a}/>},
       {h:'方式',k:'m'},{h:'状态',render:()=><Badge tone="warn">PENDING</Badge>},
-    ]} rows={[{b:'BILL-2026-9002',p:'Summit General Contractors',a:185000,m:'ACH'}]} empty="无待付款"/>}
-    <p className="muted sm">Void 生成红字分录并回写银行对账;支票号连续性校验;Print 走支票打印模板。</p>
+    ]} rows={authorityUnavailable?[]:[{b:'BILL-2026-9002',p:'Summit General Contractors',a:185000,m:'ACH'}]} empty={authorityUnavailable?'CHECK_API_UNAVAILABLE — 尚未读取权威 REFS 待付款数据。':'无待付款'}/>}
+    <p className="muted sm">{authorityUnavailable?'权威 API 未配置：页面不产生任何支票或分录状态。':'演示流程：生产环境必须通过权威 API 执行作废、打印与对账回写。'}</p>
   </div>;
 }
