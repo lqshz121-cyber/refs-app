@@ -22,6 +22,7 @@ import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
 import { accountingApiConfig, applyAuthoritativeCredit, createAuthoritativeAdjustment, createAuthoritativeBusinessDocument, createAuthoritativeSettlement, refreshAuthoritativeDocuments, transitionAuthoritativeJournal } from './accounting-api.js';
+import { bootstrapRuntimeOidc, oidcRuntimeConfig } from './oidc-client.js';
 import { batchBankTransition, buildBankDraft, buildBankWorkflowException, createBankDraftTransition, excludeBankTransition, matchBankTransition, undoBankTransition, validateBankDraft } from './bank-workflow.js';
 import { authorizeJECommand, copyJEAsDraft, createReclassDraft, createRecurringTemplate, createReversal, rejectJETransition, reserveJESources, resolveJEPeriod, saveJEDraft, transitionJE, validateNewJEBatch, validateNewJESpec, verifyAttachmentContent } from './je-workflow.js';
 import { approveBillCommand, payBillCommand } from './ap-workflow.js';
@@ -132,9 +133,8 @@ function Login({onLogin}) {
   </div>;
 }
 
-function App() {
-  const apiConfigured=!!accountingApiConfig();
-  if(!apiConfigured&&globalThis.__REFS_RUNTIME_MODE__==='REQUIRES_AUTHORITATIVE_API')return <main className="login-shell"><div className="login-card" role="alert"><h1>Authoritative API required</h1><p>The deployed REFS client is locked until its HTTPS accounting API and OIDC token provider are configured.</p></div></main>;
+function LegacyApp() {
+  const apiConfigured=false;
   repo.ensureSchema(SEED_V);
   const load=(k,d)=>repo.load(k,d);
   const [userId, setUserId] = useState(()=>load('user',null));
@@ -452,6 +452,27 @@ function Approvals({ctx}) {
       {can('AP.INVOICE.APPROVE') && <button className="btn btn-primary btn-sm" onClick={()=>{const result=actions.approveBill(b.bill_id);toast(result?.ok?'Bill approved · Draft JE created':result?.message||'Bill approval blocked',result?.ok?'ok':'bad');}}>Approve</button>}</span></div>)}
     {pb.length===0 && <div className="empty">没有待审批 Bill</div>}
   </div>;
+}
+
+function AuthoritativeReadWorkspace({config}){
+  const [state,setState]=useState({phase:'LOADING',bills:[],invoices:[],message:''});
+  const refresh=async()=>{setState(current=>({...current,phase:'LOADING',message:''}));const result=await refreshAuthoritativeDocuments({config});if(!result.ok){setState({phase:'FAILED',bills:[],invoices:[],message:result.message});return;}setState({phase:'READY',bills:result.ap.bills,invoices:result.ar.invoices,message:''});};
+  useEffect(()=>{refresh();},[]);
+  return <main className="login-shell"><section className="login-card" aria-live="polite"><h1>REFS authoritative read workspace</h1><p>Authenticated data is read directly from the accounting API. Browser-local accounting data is disabled.</p><button className="btn btn-primary" disabled={state.phase==='LOADING'} onClick={refresh}>Refresh authoritative records</button>{state.phase==='LOADING'&&<p className="muted">Loading authoritative AP/AR records…</p>}{state.phase==='FAILED'&&<p role="alert" className="muted">{state.message||'Authoritative accounting refresh failed.'}</p>}{state.phase==='READY'&&<><p className="muted">AP bills: {state.bills.length} · AR invoices: {state.invoices.length}</p><p className="muted">Write workflows remain unavailable until their complete server-backed UI and browser E2E gates are enabled.</p></>}</section></main>;
+}
+
+function AuthoritativeGateway({config}){
+  const clientRef=useRef(null);const [phase,setPhase]=useState('CHECKING');
+  useEffect(()=>{const client=bootstrapRuntimeOidc();clientRef.current=client;client.completeRedirect().then(result=>setPhase(result.ok?'AUTHENTICATED':result.code)).catch(()=>setPhase('OIDC_CONFIGURATION_REQUIRED'));},[]);
+  if(phase==='AUTHENTICATED')return <AuthoritativeReadWorkspace config={config}/>;
+  const configured=!!oidcRuntimeConfig()&&phase!=='OIDC_CONFIGURATION_REQUIRED';
+  return <main className="login-shell"><section className="login-card" aria-live="polite"><h1>{configured?'Sign in required':'Authoritative API required'}</h1><p>{configured?'Sign in with the configured OIDC provider before REFS reads accounting data.':'The deployed REFS client is locked until its HTTPS accounting API and OIDC token provider are configured.'}</p>{configured&&<button className="btn btn-primary login-btn" onClick={()=>clientRef.current?.startLogin().catch(()=>setPhase('OIDC_CONFIGURATION_REQUIRED'))}>Sign in with SSO</button>}</section></main>;
+}
+
+function App(){
+  const config=accountingApiConfig();
+  if(globalThis.__REFS_RUNTIME_MODE__==='REQUIRES_AUTHORITATIVE_API')return config?<AuthoritativeGateway config={config}/>:<main className="login-shell"><div className="login-card" role="alert"><h1>Authoritative API required</h1><p>The deployed REFS client is locked until its HTTPS accounting API and OIDC token provider are configured.</p></div></main>;
+  return <LegacyApp/>;
 }
 
 export { App };

@@ -51,6 +51,10 @@ globalThis.__REFS_RUNTIME_MODE__='REQUIRES_AUTHORITATIVE_API';globalThis.__REFS_
 const lockedRuntimeMarkup=renderToStaticMarkup(<App/>);
 delete globalThis.__REFS_RUNTIME_MODE__;delete globalThis.__REFS_ACCOUNTING_API__;
 if(!lockedRuntimeMarkup.includes('Authoritative API required')){failed++;console.error('FAIL unconfigured production runtime is not locked');}else console.log('PASS unconfigured production runtime is locked before app state');
+globalThis.__REFS_RUNTIME_MODE__='REQUIRES_AUTHORITATIVE_API';globalThis.__REFS_ACCOUNTING_API__={baseUrl:'https://api.example',entityId:'11111111-1111-4111-8111-111111111111',periodId:'33333333-3333-4333-8333-333333333333',cashAccountCode:'111000',getAccessToken:async()=>null};globalThis.__REFS_OIDC__=null;
+const configuredWithoutOidcMarkup=renderToStaticMarkup(<App/>);
+delete globalThis.__REFS_RUNTIME_MODE__;delete globalThis.__REFS_ACCOUNTING_API__;delete globalThis.__REFS_OIDC__;
+ if(!configuredWithoutOidcMarkup.includes('Authoritative API required')||configuredWithoutOidcMarkup.includes('Ricky (Controller)')){failed++;console.error('FAIL configured production runtime falls back to a local demo identity');}else console.log('PASS configured production runtime blocks without OIDC bootstrap');
 
 const expectRule=(name,actual,code,dr,cr)=>{
   const ok=actual?.rule_code===code && actual.lines[0].account_code===dr && actual.lines[1].account_code===cr;

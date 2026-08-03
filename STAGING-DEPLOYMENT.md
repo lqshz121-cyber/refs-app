@@ -6,9 +6,11 @@ This blueprint is a deployment contract, not evidence of a live deployment.
    migrator, context issuer, and grant sync.  Set the four corresponding URLs
    with `sslmode=verify-full`; do not reuse a role or password.
 2. Provision an HTTPS OIDC issuer that returns RS256 access tokens containing
-   `tenant_id` and `sub`, with the configured audience.  Configure the static
-   frontend's runtime adapter to supply a short-lived bearer token through
-   `getAccessToken`; never place an access token in `refs-runtime-config.js`.
+   `tenant_id` and `sub`, with the configured audience. Set the static service's
+   `REFS_PUBLIC_ACCOUNTING_API_BASE_URL`, entity/period/cash-account values and
+   all `REFS_PUBLIC_OIDC_*` values as one complete public configuration set.
+   The build rejects a partial set and emits a PKCE-only adapter; never place an
+   access token, client secret, or database credential in `refs-runtime-config.js`.
    Render serves that file and `/index.html` with `Cache-Control: no-store` so
    the adapter is replaced atomically with the UI deployment rather than read
    from a browser cache.

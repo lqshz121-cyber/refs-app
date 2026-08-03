@@ -98,6 +98,31 @@ services:
     staticPublishPath: ./dist
     pullRequestPreviewsEnabled: true
     autoDeployTrigger: checksPass
+    envVars:
+      # Public deployment coordinates only. OIDC tokens and database credentials
+      # never enter the static build; the browser obtains a PKCE access token.
+      - key: REFS_PUBLIC_ACCOUNTING_API_BASE_URL
+        sync: false
+      - key: REFS_PUBLIC_ENTITY_ID
+        sync: false
+      - key: REFS_PUBLIC_PERIOD_ID
+        sync: false
+      - key: REFS_PUBLIC_CASH_ACCOUNT_CODE
+        sync: false
+      - key: REFS_PUBLIC_OIDC_ISSUER
+        sync: false
+      - key: REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT
+        sync: false
+      - key: REFS_PUBLIC_OIDC_TOKEN_ENDPOINT
+        sync: false
+      - key: REFS_PUBLIC_OIDC_REDIRECT_URI
+        sync: false
+      - key: REFS_PUBLIC_OIDC_CLIENT_ID
+        sync: false
+      - key: REFS_PUBLIC_OIDC_AUDIENCE
+        sync: false
+      - key: REFS_PUBLIC_OIDC_SCOPE
+        value: openid profile
     routes:
       - type: rewrite
         source: /*
