@@ -1,0 +1,43 @@
+import {canonicalRequestHash} from './request-hash.mjs';
+
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const VIEW_POLICY=Object.freeze({
+  'BGDATA.payable':Object.freeze({id:'apGuId',kind:'TRANSACTION_CANDIDATE'}),
+  'BGDATA.bank_transaction':Object.freeze({id:'cashOrBankBookId',kind:'TRANSACTION_CANDIDATE',scoped:true}),
+  'BGDATA.autoc_detail':Object.freeze({id:'pdGuId',kind:'AUTOREC_CANDIDATE'}),
+  'BGDATA.autoc_bank':Object.freeze({id:'pbGuId',kind:'CONTROL_SOURCE'}),
+  'accounting.accounting_info':Object.freeze({id:'accountingInfoId',kind:'LEDGER_EVIDENCE',scoped:true}),
+  'accounting.balance_cell':Object.freeze({id:'controlCellId',kind:'CONTROL_EVIDENCE'}),
+  'accounting.income_cell':Object.freeze({id:'controlCellId',kind:'CONTROL_EVIDENCE'})
+});
+
+export class WbsSnapshotError extends Error {
+  constructor(code,message){super(message);this.name='WbsSnapshotError';this.code=code;}
+}
+
+const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype;
+const text=(value,max=256)=>typeof value==='string'&&value.trim().length>0&&value.length<=max;
+const iso=value=>text(value,64)&&Number.isFinite(Date.parse(value));
+const without=(value,key)=>Object.fromEntries(Object.entries(value).filter(([name])=>name!==key));
+
+function fail(code,message){throw new WbsSnapshotError(code,message);}
+
+export function validateWbsSnapshotPackage(snapshot){
+  if(!object(snapshot))fail('WBS_SNAPSHOT_INVALID','WBS snapshot must be an object.');
+  if(snapshot.schema_version!=='WBS_READONLY_SNAPSHOT_V1'||!UUID.test(snapshot.snapshot_id||'')||!iso(snapshot.captured_at)||!['SANDBOX','PRODUCTION'].includes(snapshot.environment)||snapshot.source_system!=='WBS'||!text(snapshot.dictionary_version)||!Array.isArray(snapshot.views)||snapshot.views.length===0)fail('WBS_SNAPSHOT_INVALID','WBS snapshot manifest is incomplete.');
+  if(snapshot.package_hash!==canonicalRequestHash(without(snapshot,'package_hash')))fail('WBS_SNAPSHOT_HASH_MISMATCH','WBS snapshot package hash does not match its manifest.');
+  const names=new Set(),receipts=[];
+  for(const view of snapshot.views){
+    if(!object(view)||!text(view.name,96)||!VIEW_POLICY[view.name]||names.has(view.name)||!text(view.company_key,128)||!Array.isArray(view.rows)||view.rows.length===0||view.content_hash!==canonicalRequestHash(view.rows))fail('WBS_SNAPSHOT_VIEW_INVALID','WBS snapshot view is incomplete, unsupported, duplicated, or tampered.');
+    names.add(view.name);const policy=VIEW_POLICY[view.name];const seen=new Set();
+    for(const row of view.rows){
+      if(!object(row)||!text(row[policy.id],128)||seen.has(row[policy.id]))fail('WBS_SNAPSHOT_ROW_INVALID','WBS snapshot row lacks a unique stable source key.');
+      if(['apGuId','pdGuId','pbGuId'].includes(policy.id)&&!UUID.test(row[policy.id]))fail('WBS_SNAPSHOT_ROW_INVALID','WBS GuId source key is invalid.');
+      if(policy.scoped&&(!text(row.bank_account_ref||row.account_book_ref||row.ledger_ref,128)))fail('WBS_SNAPSHOT_ROW_INVALID','WBS bank or ledger evidence lacks its required account scope.');
+      seen.add(row[policy.id]);
+      const rowHash=canonicalRequestHash(row);
+      receipts.push(Object.freeze({snapshot_id:snapshot.snapshot_id,captured_at:snapshot.captured_at,environment:snapshot.environment,source_system:'WBS',source_module:view.name,source_entity_id:view.company_key,source_record_id:row[policy.id],source_version:`snapshot:${snapshot.snapshot_id}:${rowHash.slice(7,23)}`,payload_hash:rowHash,payload_ref:`object://wbs-snapshot/${snapshot.snapshot_id}/${encodeURIComponent(view.name)}/${encodeURIComponent(row[policy.id])}`,ingestion_kind:policy.kind}));
+    }
+  }
+  return Object.freeze({snapshot_id:snapshot.snapshot_id,captured_at:snapshot.captured_at,environment:snapshot.environment,package_hash:snapshot.package_hash,receipt_count:receipts.length,receipts:Object.freeze(receipts)});
+}
