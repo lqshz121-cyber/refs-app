@@ -10,6 +10,7 @@ export function ARWorkspace({ctx}) {
   const {ar, actions, toast, can, authoritativeMode, apiStatus} = ctx;
   const [tab, setTab] = useState('Invoices');
   const [showNew, setShowNew] = useState(false);
+  const [showCredit, setShowCredit] = useState(false);
   const [bankMember,setBankMember] = useState('Operating Cash_BA-003');
   const [receiptDate,setReceiptDate] = useState('2026-07-31');
   const emptyInvoice=()=>({client_request_id:`ARFORM-${Date.now()}-${Math.random()}`,customer_id:'',memo:'',inv_date:'2026-07-31',due_date:'2026-08-30',amount:''});
@@ -44,11 +45,12 @@ export function ARWorkspace({ctx}) {
     </>}
     {tab==='AR Aging' && <div className="kpi-row">{['Current','1-30','31-60','60+'].map(g=>{const items=open.filter(i=>bucket(i)===g);
       return <KPI key={g} label={g} value={money(sum(items,i=>i.amount))} sub={items.length+' 张'} tone={g==='60+'&&items.length?'bad':undefined}/>;})}</div>}
-    {tab==='Credits & Refunds' && <Table exportName="ar-adjustments" rowKey="business_adjustment_id" cols={[
+    {tab==='Credits & Refunds' && <><div style={{marginBottom:12}}><Btn variant="primary" onClick={()=>setShowCredit(true)} disabled={!authoritativeMode||apiStatus!=='READY'||!can('AR.CREDIT_MEMO.CREATE')}>+ Create Credit Memo</Btn></div><Table exportName="ar-adjustments" rowKey="business_adjustment_id" cols={[
       {h:'Adjustment #',k:'business_adjustment_id'},{h:'Type',k:'adjustment_kind'},{h:'Date',k:'accounting_date'},
       {h:'Amount',num:true,render:r=><Money v={Number(r.amount)}/>,sortVal:r=>Number(r.amount)},{h:'Status',render:r=><Badge>{r.status}</Badge>},
-      {h:'Journal',k:'journal_entry_id'}
-    ]} rows={ar.adjustments||[]} empty="No authoritative AR credits or refunds available." />}
+      {h:'Journal',k:'journal_entry_id'},
+      {h:'Action',render:r=>journalWorkflowAction(r.journal_status)&&r.journal_entry_id?<Btn size="sm" variant="primary" onClick={async()=>{const action=journalWorkflowAction(r.journal_status);const result=await actions.transitionDocumentJournal(r.journal_entry_id,r.journal_revision,action);toast(result?.ok?`${action} accepted.`:result?.message||'Workflow blocked',result?.ok?'ok':'bad');}}>{journalWorkflowAction(r.journal_status)}</Btn>:<span className="muted sm">{r.journal_status||r.status}</span>}
+    ]} rows={ar.adjustments||[]} empty="No authoritative AR credits or refunds available." /></>}
     {tab==='Customers' && <Table rowKey="customer_id" cols={[
       {h:'Customer',k:'customer_name'},{h:'Type',render:r=><Badge tone="muted">{r.customer_type}</Badge>},
       {h:'Related Party',render:r=>r.is_related_party?<Badge tone="warn">RP</Badge>:'—'},
@@ -65,5 +67,20 @@ export function ARWorkspace({ctx}) {
       <Field label="Memo"><input value={f.memo} onChange={e=>setF(s=>({...s,memo:e.target.value}))} placeholder="Rent billing / service..."/></Field>
       <Field label="Amount" required><input type="number" value={f.amount} onChange={e=>setF(s=>({...s,amount:e.target.value}))}/></Field>
     </Drawer>
+    <CreditMemo open={showCredit} onClose={()=>setShowCredit(false)} ctx={ctx}/>
   </div>;
+}
+
+function CreditMemo({open,onClose,ctx}){
+  const {actions,toast}=ctx;
+  const empty=()=>({client_request_id:`AR-CREDIT-${Date.now()}-${Math.random()}`,customer_id:'',memo_number:'',memo_date:'2026-07-31',amount:'',account_code:'411100',reason:''});
+  const [f,setF]=useState(empty);const set=(key,value)=>setF(old=>({...old,[key]:value}));
+  const submit=async()=>{if(!f.customer_id||!f.memo_number||!f.reason||!(+f.amount>0)){toast('Customer, memo number, amount and reason are required.','bad');return;}const result=await actions.createArCreditMemo({...f,customer_id:+f.customer_id,amount:+f.amount});if(!result?.ok){toast(result?.message||'Credit memo was rejected.','bad');return;}toast('Credit memo Draft was persisted. Advance its linked JE through the authoritative workflow.','ok');setF(empty());onClose();};
+  return <Drawer open={open} onClose={onClose} title="Create Credit Memo" width={520} actions={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit}>Create Draft</Btn></>}>
+    <Field label="Customer" required><select value={f.customer_id} onChange={e=>set('customer_id',e.target.value)}><option value="">— Select —</option>{CUSTOMERS.map(c=><option key={c.customer_id} value={c.customer_id}>{c.customer_name}</option>)}</select></Field>
+    <div className="two-col"><Field label="Memo #" required><input value={f.memo_number} onChange={e=>set('memo_number',e.target.value)}/></Field><Field label="Memo Date"><input type="date" value={f.memo_date} onChange={e=>set('memo_date',e.target.value)}/></Field></div>
+    <div className="two-col"><Field label="Offset Account"><input value={f.account_code} onChange={e=>set('account_code',e.target.value)}/></Field><Field label="Amount" required><input type="number" min="0.0001" value={f.amount} onChange={e=>set('amount',e.target.value)}/></Field></div>
+    <Field label="Reason" required><input value={f.reason} onChange={e=>set('reason',e.target.value)}/></Field>
+    <p className="muted sm">This creates only a server-side Draft adjustment and linked Draft JE; it does not allocate, approve, or post.</p>
+  </Drawer>;
 }

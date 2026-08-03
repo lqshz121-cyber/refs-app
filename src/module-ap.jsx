@@ -11,6 +11,7 @@ export function APWorkspace({ctx}) {
   const {ap, actions, toast, can, user, authoritativeMode, apiStatus} = ctx;             // ap: {bills:[...]}
   const [tab, setTab] = useState('Bills');
   const [showNew, setShowNew] = useState(false);
+  const [showCredit, setShowCredit] = useState(false);
   const [sel, setSel] = useState(null);
   const bills = ap.bills;
   const open = bills.filter(b=>!['PAID','VOID'].includes(b.status));
@@ -43,11 +44,12 @@ export function APWorkspace({ctx}) {
       ]} rows={bills} empty="暂无 Bill" />
     </>}
     {tab==='付款 Payments' && <PaymentRun ctx={ctx} />}
-    {tab==='Credits' && <Table exportName="ap-adjustments" rowKey="business_adjustment_id" cols={[
+    {tab==='Credits' && <><div style={{marginBottom:12}}><Btn variant="primary" onClick={()=>setShowCredit(true)} disabled={!authoritativeMode||apiStatus!=='READY'||!can('AP.VENDOR_CREDIT.CREATE')}>+ Create Vendor Credit</Btn></div><Table exportName="ap-adjustments" rowKey="business_adjustment_id" cols={[
       {h:'Credit #',k:'business_adjustment_id'},{h:'Type',k:'adjustment_kind'},{h:'Date',k:'accounting_date'},
       {h:'Amount',num:true,render:r=><Money v={Number(r.amount)}/>,sortVal:r=>Number(r.amount)},{h:'Status',render:r=><Badge>{r.status}</Badge>},
-      {h:'Journal',k:'journal_entry_id'}
-    ]} rows={ap.adjustments||[]} empty="No authoritative AP credits or adjustments available." />}
+      {h:'Journal',k:'journal_entry_id'},
+      {h:'Action',render:r=>journalWorkflowAction(r.journal_status)&&r.journal_entry_id?<Btn size="sm" variant="primary" onClick={async()=>{const action=journalWorkflowAction(r.journal_status);const result=await actions.transitionDocumentJournal(r.journal_entry_id,r.journal_revision,action);toast(result?.ok?`${action} accepted.`:result?.message||'Workflow blocked',result?.ok?'ok':'bad');}}>{journalWorkflowAction(r.journal_status)}</Btn>:<span className="muted sm">{r.journal_status||r.status}</span>}
+    ]} rows={ap.adjustments||[]} empty="No authoritative AP credits or adjustments available." /></>}
     {tab==='账龄 Aging' && <Aging bills={aging} />}
     {tab==='供应商 Vendors' && <Table exportName="vendors" rowKey="vendor_id" cols={[
       {h:'编码',k:'vendor_code'},{h:'名称',k:'vendor_name'},
@@ -55,8 +57,23 @@ export function APWorkspace({ctx}) {
       {h:'1099',render:r=>r.is_1099?'✓':'—'},{h:'W-9',render:r=>'✓'},
     ]} rows={VENDORS} />}
     <NewBill open={showNew} onClose={()=>setShowNew(false)} ctx={ctx} />
+    <VendorCredit open={showCredit} onClose={()=>setShowCredit(false)} ctx={ctx} />
     <BillDetail bill={bill} onClose={()=>setSel(null)} ctx={ctx} />
   </div>;
+}
+
+function VendorCredit({open,onClose,ctx}){
+  const {actions,toast}=ctx;
+  const empty=()=>({client_request_id:`AP-CREDIT-${Date.now()}-${Math.random()}`,vendor_id:'',credit_number:'',credit_date:'2026-07-31',amount:'',account_code:'610000',reason:''});
+  const [f,setF]=useState(empty);const set=(key,value)=>setF(old=>({...old,[key]:value}));
+  const submit=async()=>{if(!f.vendor_id||!f.credit_number||!f.reason||!(+f.amount>0)){toast('Vendor, credit number, amount and reason are required.','bad');return;}const result=await actions.createApVendorCredit({...f,vendor_id:+f.vendor_id,amount:+f.amount});if(!result?.ok){toast(result?.message||'Vendor credit was rejected.','bad');return;}toast('Vendor credit Draft was persisted. Advance its linked JE through the authoritative workflow.','ok');setF(empty());onClose();};
+  return <Drawer open={open} onClose={onClose} title="Create Vendor Credit" width={520} actions={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit}>Create Draft</Btn></>}>
+    <Field label="Vendor" required><select value={f.vendor_id} onChange={e=>set('vendor_id',e.target.value)}><option value="">— Select —</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}</select></Field>
+    <div className="two-col"><Field label="Credit #" required><input value={f.credit_number} onChange={e=>set('credit_number',e.target.value)}/></Field><Field label="Credit Date"><input type="date" value={f.credit_date} onChange={e=>set('credit_date',e.target.value)}/></Field></div>
+    <div className="two-col"><Field label="Offset Account"><input value={f.account_code} onChange={e=>set('account_code',e.target.value)}/></Field><Field label="Amount" required><input type="number" min="0.0001" value={f.amount} onChange={e=>set('amount',e.target.value)}/></Field></div>
+    <Field label="Reason" required><input value={f.reason} onChange={e=>set('reason',e.target.value)}/></Field>
+    <p className="muted sm">This creates only a server-side Draft adjustment and linked Draft JE; it does not allocate, approve, or post.</p>
+  </Drawer>;
 }
 
 function NewBill({open, onClose, ctx}) {
