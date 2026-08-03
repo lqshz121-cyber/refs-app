@@ -144,22 +144,32 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
   };
 }
 
-export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,maxBodyBytes=1024*1024,healthCheck}={}){
+const corsHeaders=(origin,allowedOrigins)=>origin&&allowedOrigins.has(origin)?{'access-control-allow-origin':origin,'access-control-allow-credentials':'true','access-control-allow-methods':'GET, POST, OPTIONS','access-control-allow-headers':'content-type, idempotency-key, if-match','access-control-max-age':'600','vary':'Origin'}:{};
+
+export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,maxBodyBytes=1024*1024,healthCheck,allowedOrigins=[]}={}){
+  const allowed=new Set(allowedOrigins);
   const dispatch=createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory});
   return createServer(async(req,res)=>{
     const chunks=[];let size=0;
     try{
       const pathname=new URL(req.url,'http://refs.local').pathname;
+      const origin=typeof req.headers.origin==='string'?req.headers.origin:null;
+      if(origin&& !allowed.has(origin))throw new AccountingApiError(403,'CORS_ORIGIN_FORBIDDEN','Origin is not allowed');
+      const cors=corsHeaders(origin,allowed);
+      if(req.method==='OPTIONS'){
+        if(!origin)throw new AccountingApiError(400,'CORS_ORIGIN_REQUIRED','Origin is required for CORS preflight');
+        res.writeHead(204,cors);res.end();return;
+      }
       if(req.method==='GET'&&pathname==='/health/live'){
-        res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end('{"ok":true,"status":"live"}');return;
+        res.writeHead(200,{'content-type':'application/json','cache-control':'no-store',...cors});res.end('{"ok":true,"status":"live"}');return;
       }
       if(req.method==='GET'&&pathname==='/health/ready'){
         let ready=false;try{ready=typeof healthCheck==='function'&&await healthCheck()===true;}catch{}
-        res.writeHead(ready?200:503,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({ok:ready,status:ready?'ready':'not_ready'}));return;
+        res.writeHead(ready?200:503,{'content-type':'application/json','cache-control':'no-store',...cors});res.end(JSON.stringify({ok:ready,status:ready?'ready':'not_ready'}));return;
       }
       for await(const chunk of req){size+=chunk.length;if(size>maxBodyBytes)throw new AccountingApiError(413,'BODY_TOO_LARGE','Request body exceeds limit');chunks.push(chunk);}
       let body={};if(chunks.length){try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new AccountingApiError(400,'INVALID_JSON','Request body is not valid JSON');}}
-      const response=await dispatch({method:req.method,url:req.url,headers:req.headers,body});res.writeHead(response.status,response.headers);res.end(JSON.stringify(response.body));
+      const response=await dispatch({method:req.method,url:req.url,headers:req.headers,body});res.writeHead(response.status,{...response.headers,...cors});res.end(JSON.stringify(response.body));
     }catch(error){const problem=problemFor(error);res.writeHead(problem.status,problem.headers);res.end(JSON.stringify(problem.body));}
   });
 }
