@@ -1,5 +1,5 @@
 import * as esbuild from 'esbuild';
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { copyFileSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { execFileSync } from 'child_process';
 
 mkdirSync('dist', {recursive:true});
@@ -24,6 +24,7 @@ if(process.argv.includes('--watch')){
   console.log('watching...');
 }else{
   await esbuild.build(opts);
+  copyFileSync('refs-runtime-config.js','dist/refs-runtime-config.js');
   const html=readFileSync('index.html','utf8')
     .replace('bundle.js','bundle.js?b='+Date.now())
     .replace('</head>',`<script>window.__BUILD={sha:'${buildSha}',time:'${buildTime}'};</script></head>`);
