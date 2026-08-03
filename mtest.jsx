@@ -190,7 +190,7 @@ expectJE('JE recurring creates persistent business template payload',recurringTe
 const reclass=createReclassDraft({source:posted.je,newId:7003,newNumber:'JE-7003',user:maker});
 expectJE('JE Reclass creates linked Draft and never mutates Posted source',reclass.ok&&reclass.je.posting_status==='DRAFT'&&reclass.je.reclass_of===posted.je.je_id&&posted.je.posting_status==='POSTED');
 const reversal=createReversal({source:posted.je,newId:7004,user:poster,period:{status:'OPEN'},can:canAll});
-expectJE('JE Reverse is balanced, traced and linked without a backward transition',reversal.ok&&reversal.source.posting_status==='REVERSED'&&reversal.reversal.posting_status==='POSTED'&&reversal.reversal.reversal_of===posted.je.je_id&&reversal.reversal.source_doc_id&&reversal.reversal.rule_code&&reversal.reversal.lines[0].credit_amount===100);
+expectJE('JE Reverse creates a balanced traced Draft without changing the Posted source',reversal.ok&&reversal.source.posting_status==='POSTED'&&reversal.reversal.posting_status==='DRAFT'&&reversal.reversal.reversal_of===posted.je.je_id&&reversal.reversal.source_doc_id&&reversal.reversal.rule_code&&reversal.reversal.lines[0].credit_amount===100);
 expectJE('JE Reverse is blocked in a closed period',createReversal({source:posted.je,newId:7005,user:poster,period:{period_code:'2026-07',status:'CLOSED'},can:canAll}).code==='4005');
 expectJE('JE reject requires a reason',rejectJETransition({je:submitted.je,user:reviewer,reason:'',can:canAll}).code==='JE_REJECTION_REASON');
 expectJE('JE reject returns review item to Draft with reason history',rejectJETransition({je:submitted.je,user:reviewer,reason:'Fix account coding',can:canAll}).je?.history.at(-1).reason==='Fix account coding');

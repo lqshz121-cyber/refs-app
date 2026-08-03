@@ -181,7 +181,7 @@ function JEEditorV2({je,ctx,onClose,onOpen}){
   const advance=async()=>{const result=await (editable?actions.saveAndAdvanceJE(draft,flow.next,flow.action):actions.advanceJE(draft.je_id,flow.next,flow.action));if(!result?.ok){toast(result?.message||'Workflow action blocked.','bad');return;}setDraft(result.je);toast(`${flow.action} · ${flow.next}`);};
   const copy=()=>{const result=actions.copyJE(draft.je_id);if(!result?.ok){toast(result?.message||'Copy blocked.','bad');return;}toast('A new manual Draft copy was created.');onOpen(result.je_id);};
   const recurring=()=>{const result=actions.makeRecurringJE(draft.je_id);if(!result?.ok){toast(result?.message||'Recurring template blocked.','bad');return;}toast(`Recurring template ${result.template.template_id} created.`);};
-  const reverse=()=>{const result=actions.reverseJE(draft.je_id);if(!result?.ok){toast(result?.message||'Reverse blocked.','bad');return;}toast('Reversal posted with full source trace.');onOpen(result.je_id);};
+  const reverse=()=>{const result=actions.reverseJE(draft.je_id);if(!result?.ok){toast(result?.message||'Reverse blocked.','bad');return;}toast('Reversal Draft created; submit, approve, and post it through the standard workflow.');onOpen(result.je_id);};
   const reclass=()=>{const result=actions.reclassJE(draft.je_id);if(!result?.ok){toast(result?.message||'Reclass blocked.','bad');return;}toast('Reclass Draft created; attachment and approval are required.');onOpen(result.je_id);};
   const exit=()=>{if(changed)setConfirmExit(true);else onClose();};
   const difference=+(totals.debit-totals.credit).toFixed(2);

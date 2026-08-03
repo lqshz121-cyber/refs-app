@@ -71,7 +71,7 @@ export function AIAudit({ctx}) {
         const je = jeNum && jes.find(j=>j.je_number===jeNum||r.object.startsWith(j.je_number));
         return <span className="row-acts">
           {je && <Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation(); goto('je');}}>JE→</Btn>}
-          {je && r.rule==='AI-LOAN-01' && je.posting_status==='POSTED' && <Btn size="sm" variant="danger" onClick={e=>{e.stopPropagation(); ctx.actions.reverseJE(je.je_id); resolve(r); ctx.toast('已红字反冲并标记 Resolved(按规则重录请走 Staging)');}}>一键红冲</Btn>}
+          {je && r.rule==='AI-LOAN-01' && je.posting_status==='POSTED' && <Btn size="sm" variant="danger" onClick={e=>{e.stopPropagation(); const result=ctx.actions.reverseJE(je.je_id);ctx.toast(result?.ok?'已创建红字 Draft；需按标准审批并过账。':result?.message||'红冲 Draft 创建失败','warn');}}>创建红冲 Draft</Btn>}
         </span>; }},
       {h:'Status',render:r=> resolved[r.rule+'|'+r.object] ? <Badge tone="ok">RESOLVED · {resolved[r.rule+'|'+r.object].by}</Badge> : <Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation(); resolve(r);}}>Resolve</Btn>},
     ]} rows={findings.filter(TABMAP[tab]||(()=>true))} empty="✅ 全账本扫描通过:无异常发现"/>

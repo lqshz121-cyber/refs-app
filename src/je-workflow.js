@@ -117,12 +117,11 @@ export function createReversal({source,newId,user,period,can=()=>true,at='2026-0
   if(!source||source.posting_status!=='POSTED')return {ok:false,code:'JE_REVERSE_SOURCE',message:'Only Posted JEs can be reversed.'};
   if(!can('GL.JE.REVERSE'))return {ok:false,code:'JE_PERMISSION_DENIED',message:'Missing reverse permission.'};
   const ref=source.source_doc_id||source.je_number;
-  const reversal={...structuredClone(source),je_id:newId,je_number:`JE-REV-${newId}`,posting_status:'POSTED',je_type:'REVERSAL',source_system:'REVERSAL',
+  const reversal={...structuredClone(source),je_id:newId,je_number:`JE-REV-${newId}`,posting_status:'DRAFT',je_type:'REVERSAL',source_system:'REVERSAL',
     source_doc_id:`${ref}-REV-${newId}`,rule_code:`REV-${source.rule_code||'MAN'}`,description:`Reversal of ${source.je_number} · ${source.description||''}`,
-    created_by:user.user_id,posted_by:user.user_id,reversal_of:source.je_id,history:[{a:`REVERSAL OF ${source.je_number}`,by:user.user_id,at}],
+    created_by:user.user_id,reversal_of:source.je_id,history:[{a:`REVERSAL DRAFT OF ${source.je_number}`,by:user.user_id,at}],
     lines:(source.lines||[]).map(line=>({...line,debit_amount:line.credit_amount,credit_amount:line.debit_amount}))};
   const errors=validateJE(reversal,period);
   if(errors.length)return {ok:false,code:errors[0].code,message:errors[0].msg,errors};
-  return {ok:true,reversal,source:{...structuredClone(source),posting_status:'REVERSED',reversed_by:user.user_id,reversed_je_id:newId,
-    history:[...(source.history||[]),{a:`REVERSED BY ${reversal.je_number}`,by:user.user_id,at}]}};
+  return {ok:true,reversal,source:structuredClone(source)};
 }
