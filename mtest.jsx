@@ -16,6 +16,7 @@ import { AccountRegister } from './src/module-register.jsx';
 import { SubsidiaryLedger } from './src/module-subledger.jsx';
 import { UnitCostLedger } from './src/module-unitcost.jsx';
 import { SourceDocs } from './src/module-sourcedocs.jsx';
+import { App } from './src/app.jsx';
 import { CompanySetting } from './src/module-setting.jsx';
 import { approveBillCommand, payBillCommand } from './src/ap-workflow.js';
 import { createInvoiceCommand, receivePaymentCommand } from './src/ar-workflow.js';
@@ -46,6 +47,10 @@ const authoritativeBankMarkup=renderToStaticMarkup(<BankTransactions ctx={author
 if(!authoritativeBankMarkup.includes('BANK_API_UNAVAILABLE')||!authoritativeBankMarkup.includes('disabled')){failed++;console.error('FAIL authoritative Bank screen is not fail-closed');}else console.log('PASS authoritative Bank screen is fail-closed');
 const authoritativeReconciliationMarkup=renderToStaticMarkup(<BankRec2 ctx={authoritativeBankCtx}/>);
 if(!authoritativeReconciliationMarkup.includes('RECONCILIATION_API_UNAVAILABLE')){failed++;console.error('FAIL authoritative reconciliation screen is not fail-closed');}else console.log('PASS authoritative reconciliation screen is fail-closed');
+globalThis.__REFS_RUNTIME_MODE__='REQUIRES_AUTHORITATIVE_API';globalThis.__REFS_ACCOUNTING_API__=null;
+const lockedRuntimeMarkup=renderToStaticMarkup(<App/>);
+delete globalThis.__REFS_RUNTIME_MODE__;delete globalThis.__REFS_ACCOUNTING_API__;
+if(!lockedRuntimeMarkup.includes('Authoritative API required')){failed++;console.error('FAIL unconfigured production runtime is not locked');}else console.log('PASS unconfigured production runtime is locked before app state');
 
 const expectRule=(name,actual,code,dr,cr)=>{
   const ok=actual?.rule_code===code && actual.lines[0].account_code===dr && actual.lines[1].account_code===cr;
