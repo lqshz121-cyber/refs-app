@@ -29,10 +29,10 @@ const AB_SEED = [
 ].map((r,i)=>({entity_id:i+1, company:r[0], preparer:r[1], auditor:r[2], m:r[3], r:r[4], c:r[5], qty:r[6], amount:r[7], released:r[8], recon_bal:r[9], recon_date:r[10]}));
 export function AutoBankRec({ctx}) {
   const [step, setStep] = useState(0);
-  const [rows, setRows] = useState(AB_SEED);
+  const [rows] = useState(AB_SEED);
   const [sel, setSel] = useState(null);
-  const release = (id) => { setRows(rs=>rs.map(r=>r.entity_id===id?{...r, released:r.qty}:r)); ctx.toast('批次已 Release,进入 Incur 队列'); };
-  const incur = (id) => { setRows(rs=>rs.map(r=>r.entity_id===id?{...r, r:'07/2026'}:r)); ctx.toast('已 Incur:生成银行流水 JE(见 Journal Entries)'); };
+  const release = () => ctx.toast('AUTOREC_API_UNAVAILABLE: 未连接权威 REFS AutoRec API；未执行 Release。','warn');
+  const incur = () => ctx.toast('AUTOREC_API_UNAVAILABLE: 未连接权威 REFS AutoRec API；未生成 JE。','warn');
   return <div className="full-bleed">
     <h2 className="page-h">自动银行对账 Auto Bank Reconciliation</h2>
     <div className="stepper">{STEPS.map((s,i)=><button key={s} className={`step-chip ${step===i?'step-on':''} ${i<step?'step-done':''}`} onClick={()=>setStep(i)}>{s}</button>)}</div>
@@ -62,16 +62,12 @@ export function AutoBankRec({ctx}) {
         {h:'规则',render:r=>'BANK→GL 映射 · Journal No 自动编号'},
         {h:'操作',render:r=> r.released>0 && r.r!=='07/2026' ? <Btn size="sm" variant="primary" onClick={()=>incur(r.entity_id)}>Incur → 生成 JE</Btn> : <span className="muted sm">{r.released?'本期已 Incur':'—'}</span>},
       ]} rows={rows}/></>}
-    {step===3 && <><SectionTitle>Incurred List(已生成分录清单)</SectionTitle>
+    {step===3 && <><SectionTitle>Incurred List(权威已入账分录)</SectionTitle>
       <Table exportName="abr-incurred" cols={[
         {h:'Journal No.',k:'jn'},{h:'Posting Date',k:'pd'},{h:'Source',render:r=><Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},
         {h:'Payee',k:'payee'},{h:'Account',k:'acct'},{h:'金额',num:true,render:r=><Money v={r.amt}/>,csv:r=>r.amt},{h:'状态',render:r=><Badge>POSTED</Badge>},
-      ]} rows={[
-        {jn:'20260731000041', pd:'07/31/2026', src:'BANK', payee:'Pacific Bank', acct:'1000 Cash', amt:46000},
-        {jn:'20260731000042', pd:'07/31/2026', src:'BANK', payee:'First National Bank', acct:'2500 Construction Loan', amt:500000},
-        {jn:'20260731000043', pd:'07/31/2026', src:'BANK', payee:'Pacific Bank', acct:'6070 Bank Fee', amt:-85},
-      ]}/></>}
-    <p className="muted sm">复刻 WBS Auto Bank Reconciliation 四步流水线;人工对账见 Bank Rec 模块。</p>
+      ]} rows={[]} empty="AUTOREC_API_UNAVAILABLE — 尚未读取权威 REFS 已入账分录。"/></>}
+    <p className="muted sm">本页只展示文档化 WBS 工作流；在真实只读 WBS 证据、REFS API 回读、审批和过账链全部可用前，不执行或显示任何会计状态变更。</p>
   </div>;
 }
 
