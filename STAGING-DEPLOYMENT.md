@@ -27,3 +27,9 @@ test have actual recorded evidence.
 The two staging services intentionally use `autoDeployTrigger: off`; promote a
 tested commit manually.  The API's `preDeployCommand` needs a Render plan that
 supports pre-deploy commands.
+
+The static-site response policy is deliberately conservative: `X-Frame-Options`
+is `SAMEORIGIN`, MIME sniffing is disabled, and cross-origin requests receive
+only the origin as their Referer.  Add a Content Security Policy only after the
+OIDC bootstrap and every required third-party origin have been verified in a
+real browser; an untested CSP can silently disable login.
