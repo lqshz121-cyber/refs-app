@@ -708,6 +708,8 @@ pgTest('authenticated HTTP AR aging reads only the entity authorized by its DB c
   const ids=await seed({status:'APPROVED'}),invoiceId=randomUUID(),other=await seed({status:'APPROVED',tenantId:ids.tenantId});
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
     VALUES($1,$2,$3,'AR_INVOICE','INV-HTTP-AGING','CUSTOMER-1','Customer','USD','2026-07-01','2026-07-01',30,30,'OPEN','fixture')`,[invoiceId,ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,'AR_INVOICE','INV-FUTURE-AGING','CUSTOMER-1','Customer','USD','2026-09-01','2026-09-30',40,40,'OPEN','fixture')`,[randomUUID(),ids.tenantId,ids.entityId]);
   const api=createAccountingApi({
     authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'http-aging-reader'}),
     kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'http-aging-reader',['AR.VIEW'])})
