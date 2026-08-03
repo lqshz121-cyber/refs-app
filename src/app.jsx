@@ -160,6 +160,9 @@ function App() {
   const [jeDirty, setJEDirty] = useState(false);
   const bankSubmitLocks = useRef(new Set());
   const jeActionLocks = useRef(new Set());
+  const mobileMenuRef = useRef(null);
+  const sidebarRef = useRef(null);
+  const mobileWasOpen = useRef(false);
   const sourceStateRef = useRef({ap,ar});
   sourceStateRef.current={ap,ar};
 
@@ -169,9 +172,11 @@ function App() {
   const can = (perm) => { if(!user) return false; const p = ROLE_PERMS[user.role_code]; return p==='*' || (p||[]).includes(perm); };
   const requestLeaveJE = () => {if(!jeDirty)return true;const ok=typeof window==='undefined'||window.confirm('Discard unsaved journal entry changes?');if(ok)setJEDirty(false);return ok;};
   const navigate = next => {if(route==='je'&&!requestLeaveJE())return false;setRoute(next);setMobileNav(false);return true;};
+  const trapMobileNav = event => {if(!narrowViewport||!mobileNav||event.key!=='Tab')return;const nodes=[...event.currentTarget.querySelectorAll('button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')];if(!nodes.length)return;const first=nodes[0],last=nodes.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}};
 
   useEffect(()=>{ document.body.className = dark?'dark':''; },[dark]);
   useEffect(()=>{if(typeof window==='undefined')return;const media=window.matchMedia('(max-width:1080px)');const sync=()=>{setNarrowViewport(media.matches);if(!media.matches)setMobileNav(false);};sync();media.addEventListener('change',sync);return()=>media.removeEventListener('change',sync);},[]);
+  useEffect(()=>{if(!narrowViewport)return;if(mobileNav){requestAnimationFrame(()=>sidebarRef.current?.querySelector('button')?.focus());}else if(mobileWasOpen.current){mobileMenuRef.current?.focus();}mobileWasOpen.current=mobileNav;},[mobileNav,narrowViewport]);
   const persist=(k,v)=>{try{localStorage.setItem('refs_'+k,JSON.stringify(v))}catch(e){}};
   useEffect(()=>{ const t=setTimeout(()=>persist('jes',jes), 400); return ()=>clearTimeout(t); },[jes]); useEffect(()=>{persist('exc',exceptions)},[exceptions]);
   useEffect(()=>{persist('close',closeTasks)},[closeTasks]); useEffect(()=>{persist('ap',ap)},[ap]);
@@ -342,7 +347,7 @@ function App() {
 
   return <div className="app">
     {narrowViewport&&mobileNav&&<button className="mobile-nav-scrim" aria-label="Close navigation" onClick={()=>setMobileNav(false)}/>}
-    <aside className={`sidebar ${mobileNav?'mobile-open':''}`} aria-hidden={narrowViewport&&!mobileNav}>
+    <aside ref={sidebarRef} onKeyDown={trapMobileNav} className={`sidebar ${mobileNav?'mobile-open':''}`} aria-hidden={narrowViewport&&!mobileNav}>
       <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
       <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New 新建</button>
       <nav id="primary-navigation">{nav.map(g=>{ const opened = openGroups[g.group] ?? g.items.some(([k])=>route===k);
@@ -354,7 +359,7 @@ function App() {
     </aside>
     <div className="main">
       <header className="topbar">
-        <button className="icon-btn mobile-menu" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded={mobileNav} onClick={()=>setMobileNav(true)}>☰</button>
+        <button ref={mobileMenuRef} className="icon-btn mobile-menu" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded={mobileNav} onClick={()=>setMobileNav(true)}>☰</button>
         <span className="badge badge-warn" title="This browser build retains local prototype state and is not connected to a production accounting API.">LOCAL_PROTOTYPE — NOT FOR POSTING</span>
         <label className="sw"><select value={entity} onChange={e=>setEntity(+e.target.value)}><option value={0}>全部实体 All Entities</option>{ENTITIES.map(en=><option key={en.entity_id} value={en.entity_id}>{en.entity_code} {en.entity_name}</option>)}</select></label>
         <button className="cmdk" onClick={()=>setPalette(true)}>⌘K 全局搜索 / 跳转</button>
