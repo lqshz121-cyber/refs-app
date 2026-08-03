@@ -26,7 +26,9 @@ test('all responses are no-store and use a structured success or problem envelop
   assert.deepEqual(contract.components.responses.Problem.headers['Retry-After'].schema,{type:'integer',minimum:0});
   assert.match(contract.components.responses.Problem.description,/412/);
   assert.match(contract.components.responses.Problem.description,/503/);
-  for(const operation of operations){assert.ok(operation.responses['200']);assert.ok(operation.responses['201']);assert.ok(operation.responses.default);}
+  for(const operation of operations){assert.ok(operation.responses['200']);assert.ok(operation.responses['201']);assert.ok(operation.responses['503']);assert.ok(operation.responses.default);}
+  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid'].includes(item.operationId)))assert.equal(operation.responses['412'].$ref,'#/components/responses/PreconditionFailed');
+  assert.equal(contract.components.responses.SerializationRetryExhausted.headers['Retry-After'].schema.minimum,0);
 });
 
 test('attachment create and replay responses use the exact attachment envelope',()=>{
