@@ -51,3 +51,10 @@ test('AP and AR control totals are no-store authenticated GETs',()=>{
   assert.equal(contract.components.responses.ControlTotalOk.headers['Cache-Control'].schema.const,'no-store');
   assert.equal(contract.components.schemas.ControlTotalRow.additionalProperties,false);
 });
+
+test('AP Bill and AR Invoice list reads are authenticated no-store operations',()=>{
+  for(const [path,operationId] of [['/entities/{entityId}/ap/bills','listApBills'],['/entities/{entityId}/ar/invoices','listArInvoices']]){
+    const operation=contract.paths[path].get;
+    assert.equal(operation.operationId,operationId);assert.equal(operation.responses['200'].$ref,'#/components/responses/ReadOk');
+  }
+});

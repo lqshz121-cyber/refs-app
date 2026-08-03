@@ -720,6 +720,25 @@ pgTest('authenticated HTTP AR aging reads only the entity authorized by its DB c
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/ar/aging?asOf=2026-08-31`,headers:{},body:null})).status,403);
 });
 
+pgTest('authenticated HTTP refreshes AP Bills and AR Invoices only from its authorized entity',async()=>{
+  const ids=await seed({status:'APPROVED'}),other=await seed({status:'APPROVED',tenantId:ids.tenantId});
+  const billId=randomUUID(),invoiceId=randomUUID(),otherBillId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,'AP_BILL','BILL-HTTP-READ','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,60,'PARTIALLY_PAID','fixture'),
+      ($4,$2,$3,'AR_INVOICE','INV-HTTP-READ','CUSTOMER-1','Customer','USD','2026-07-16','2026-08-16',80,80,'OPEN','fixture'),
+      ($5,$2,$6,'AP_BILL','BILL-OTHER-ENTITY','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',50,50,'OPEN','fixture')`,[billId,ids.tenantId,ids.entityId,invoiceId,otherBillId,other.entityId]);
+  const api=createAccountingApi({
+    authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'http-document-reader'}),
+    kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'http-document-reader',['AP.VIEW','AR.VIEW'])})
+  });
+  const billResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ap/bills`,headers:{},body:null});
+  assert.equal(billResponse.status,200);assert.deepEqual(billResponse.body.data.map(row=>({business_document_id:row.business_document_id,document_number:row.document_number,open_balance:row.open_balance,status:row.status})),[{business_document_id:billId,document_number:'BILL-HTTP-READ',open_balance:'60.0000',status:'PARTIALLY_PAID'}]);
+  const invoiceResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ar/invoices`,headers:{},body:null});
+  assert.equal(invoiceResponse.status,200);assert.deepEqual(invoiceResponse.body.data.map(row=>({business_document_id:row.business_document_id,document_number:row.document_number,open_balance:row.open_balance,status:row.status})),[{business_document_id:invoiceId,document_number:'INV-HTTP-READ',open_balance:'80.0000',status:'OPEN'}]);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/ap/bills`,headers:{},body:null})).status,403);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ap/bills`,headers:{'Idempotency-Key':'read-not-allowed'},body:null})).status,400);
+});
+
 pgTest('authenticated HTTP posts a vendor credit and atomically applies it to an AP bill',async()=>{
   const ids=await seed({status:'APPROVED',extraAccounts:[{accountCode:'610000',accountName:'Expense'}]}),billId=randomUUID(),applierId=randomUUID();
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
