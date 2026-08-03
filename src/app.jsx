@@ -350,6 +350,7 @@ function App() {
     </aside>
     <div className="main">
       <header className="topbar">
+        <span className="badge badge-warn" title="This browser build retains local prototype state and is not connected to a production accounting API.">LOCAL_PROTOTYPE — NOT FOR POSTING</span>
         <label className="sw"><select value={entity} onChange={e=>setEntity(+e.target.value)}><option value={0}>全部实体 All Entities</option>{ENTITIES.map(en=><option key={en.entity_id} value={en.entity_id}>{en.entity_code} {en.entity_name}</option>)}</select></label>
         <button className="cmdk" onClick={()=>setPalette(true)}>⌘K 全局搜索 / 跳转</button>
         <div className="top-right">
