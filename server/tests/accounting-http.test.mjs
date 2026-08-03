@@ -20,6 +20,16 @@ test('transition and post require optimistic concurrency and route authoritative
   response=await command(`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/post`,{periodId});assert.equal(response.status,428);
   response=await command(`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/transitions/review`,{reason:'reviewed'},{'If-Match':'W/"3"'});
   assert.equal(response.status,412);assert.equal(response.body.code,'WEAK_IF_MATCH_REJECTED');
+  response=await command(`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/transitions/review`,{reason:'reviewed'},{'If-Match':'3'});
+  assert.equal(response.status,400);assert.equal(response.body.code,'INVALID_IF_MATCH');
+});
+
+test('successful mutations return a strong ETag only for an authoritative revision',async()=>{
+  const revisedApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>({...kernel,transitionJournal:async()=>({journal_entry_id:journalEntryId,revision:4,idempotent:false})})});
+  const response=await revisedApi({method:'POST',url:`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/transitions/review`,body:{reason:'reviewed'},headers:{'Idempotency-Key':'etag-test-0001','If-Match':'"3"'}});
+  assert.equal(response.status,201);assert.equal(response.headers.etag,'"4"');
+  const ordinary=await command(`/api/v1/entities/${entityId}/journal-entries/${journalEntryId}/post`,{periodId},{'If-Match':'"3"'});
+  assert.equal(ordinary.headers.etag,undefined);
 });
 
 test('AP Bill Void route derives tenant entity bill id and revision from trusted boundaries',async()=>{

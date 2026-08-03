@@ -10,7 +10,7 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{
   for(const operation of operations)assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IdempotencyKey'));
   for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid'].includes(item.operationId)))assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IfMatch'));
-  assert.equal(contract.components.parameters.IfMatch.schema.pattern,'^\\\"?[0-9]+\\\"?$');
+  assert.equal(contract.components.parameters.IfMatch.schema.pattern,'^\\\"[0-9]+\\\"$');
 });
 
 test('identity and server-computed request hash are absent from all public request schemas',()=>{
