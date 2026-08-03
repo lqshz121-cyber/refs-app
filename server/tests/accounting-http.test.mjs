@@ -3,7 +3,7 @@ import {createAccountingApi,createAccountingHttpServer} from '../api/accounting-
 
 const tenantId=randomUUID(),entityId=randomUUID(),journalEntryId=randomUUID(),periodId=randomUUID();
 const calls=[];const invoke=name=>async args=>{calls.push([name,args]);return {journal_entry_id:journalEntryId,status:'DRAFT',idempotent:false};};
-const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),listBusinessAdjustments:invoke('listBusinessAdjustments'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit')};
+const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),listBusinessAdjustments:invoke('listBusinessAdjustments'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit'),recordWbsSnapshot:invoke('recordWbsSnapshot')};
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
@@ -39,6 +39,24 @@ test('AP Bill Void route derives tenant entity bill id and revision from trusted
   assert.deepEqual(calls[0][1],{...body,tenantId,entityId,businessDocumentId:billId,expectedVersion:4,idempotencyKey:'idem-key-0001'});
   assert.equal((await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/voids`,{...body,actorId:'attacker'},{'If-Match':'"4"'})).status,400);
   assert.equal((await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/voids`,body)).status,428);
+});
+
+test('WBS snapshot route derives the immutable observation scope solely from authentication',async()=>{
+  calls.length=0;const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:randomUUID(),views:[]};
+  const response=await command(`/api/v1/entities/${entityId}/wbs/snapshots`,{snapshot});
+  assert.equal(response.status,201);assert.deepEqual(calls[0],['recordWbsSnapshot',{tenantId,entityId,snapshot,idempotencyKey:'idem-key-0001'}]);
+  assert.equal((await command(`/api/v1/entities/${entityId}/wbs/snapshots`,{snapshot,actorId:'attacker'})).status,400);
+  assert.equal((await command(`/api/v1/entities/${entityId}/wbs/snapshots`,{snapshot,sourceEntityId:'attacker'})).status,400);
+});
+
+test('WBS production snapshot signature failures are fail-closed and do not leak verifier internals',async()=>{
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:randomUUID(),views:[]};
+  const unavailable=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'snapshot-importer'}),kernelFactory:async()=>({...kernel,recordWbsSnapshot:async()=>{const error=new Error('missing public key from secure config');error.code='WBS_SNAPSHOT_SIGNATURE_REQUIRED';throw error;}})});
+  const required=await unavailable({method:'POST',url:`/api/v1/entities/${entityId}/wbs/snapshots`,body:{snapshot},headers:{'Idempotency-Key':'snapshot-signature-001'}});
+  assert.equal(required.status,503);assert.equal(required.body.code,'WBS_SNAPSHOT_SIGNATURE_REQUIRED');assert.equal(required.body.message,'Internal server error');assert.equal(required.headers['retry-after'],'1');
+  const invalid=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'snapshot-importer'}),kernelFactory:async()=>({...kernel,recordWbsSnapshot:async()=>{const error=new Error('Detached signature is invalid');error.code='WBS_SNAPSHOT_SIGNATURE_INVALID';throw error;}})});
+  const rejected=await invalid({method:'POST',url:`/api/v1/entities/${entityId}/wbs/snapshots`,body:{snapshot},headers:{'Idempotency-Key':'snapshot-signature-002'}});
+  assert.equal(rejected.status,422);assert.equal(rejected.body.code,'WBS_SNAPSHOT_SIGNATURE_INVALID');
 });
 
 test('AP Payment route creates only Draft occurrence and pending allocation from trusted scope',async()=>{

@@ -20,3 +20,11 @@ test('snapshot package rejects tampering, display identifiers and unscoped bank 
   ];
   for(const mutate of scenarios){const value=make();mutate(value);assert.throws(()=>validateWbsSnapshotPackage(value),error=>error instanceof WbsSnapshotError&&/WBS_SNAPSHOT_(HASH_MISMATCH|VIEW_INVALID|ROW_INVALID)/.test(error.code));}
 });
+
+test('production snapshot packages require a detached Ed25519 signature outside the package hash',()=>{
+  const unsigned={...make(),environment:'PRODUCTION'};delete unsigned.package_hash;unsigned.package_hash=canonicalRequestHash(unsigned);
+  assert.throws(()=>validateWbsSnapshotPackage(unsigned),error=>error instanceof WbsSnapshotError&&error.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED');
+  const signed={...unsigned,detached_signature:{key_id:'wbs-prod-2026-08',algorithm:'Ed25519',value:'base64-signature-placeholder'}};
+  const unsignedManifest={...signed};delete unsignedManifest.package_hash;delete unsignedManifest.detached_signature;signed.package_hash=canonicalRequestHash(unsignedManifest);
+  assert.equal(validateWbsSnapshotPackage(signed).environment,'PRODUCTION');
+});

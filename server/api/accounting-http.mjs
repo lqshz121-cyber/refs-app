@@ -23,11 +23,13 @@ const isRevisionPrecondition=error=>error?.code==='40001'&&/(revision conflict|v
 function statusFor(error){
   if(error instanceof AccountingApiError)return error.status;
   if(error?.code==='42501')return 403;if(error?.code==='P0002')return 404;
+  if(error?.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED')return 503;
+  if(error?.code==='WBS_SNAPSHOT_SIGNATURE_INVALID')return 422;
   if(error?.code==='40001')return isRevisionPrecondition(error)?412:503;
   if(error?.code==='23505')return 409;if(error?.code==='55000')return 423;
   if(['22023','23503','23514'].includes(error?.code))return 422;return 500;
 }
-const problemFor=error=>{const status=statusFor(error);const code=isRevisionPrecondition(error)?'PRECONDITION_FAILED':status===503?'SERIALIZATION_RETRY_EXHAUSTED':error.code||'INTERNAL_ERROR';const message=status>=500?'Internal server error':error.message;const headers={'content-type':'application/problem+json','cache-control':'no-store'};if(status===503)headers['retry-after']='1';return {status,headers,body:{ok:false,code,message}};};
+const problemFor=error=>{const status=statusFor(error);const code=isRevisionPrecondition(error)?'PRECONDITION_FAILED':error?.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED'?'WBS_SNAPSHOT_SIGNATURE_REQUIRED':status===503?'SERIALIZATION_RETRY_EXHAUSTED':error.code||'INTERNAL_ERROR';const message=status>=500?'Internal server error':error.message;const headers={'content-type':'application/problem+json','cache-control':'no-store'};if(status===503)headers['retry-after']='1';return {status,headers,body:{ok:false,code,message}};};
 
 export function createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory}={}){
   if(typeof authenticate!=='function'||typeof kernelFactory!=='function')throw new Error('Accounting API requires authenticate and kernelFactory');
@@ -73,6 +75,10 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         allowOnly(payload,[]);const service=await attachmentServiceFactory(principal);
         try{result=await service.finalize(principal,{tenantId:principal.tenantId,entityId,attachmentId:requireUuid(parts[5],'attachmentId'),idempotencyKey});}
         catch(error){if(['42501','P0002','ATTACHMENT_NOT_FOUND'].includes(error?.code))throw new AccountingApiError(404,'ATTACHMENT_NOT_FOUND','Attachment was not found');throw error;}
+      }else if(parts.length===6&&parts[4]==='wbs'&&parts[5]==='snapshots'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['snapshot']);
+        result=await kernel.recordWbsSnapshot({tenantId:principal.tenantId,entityId,snapshot:payload.snapshot,idempotencyKey});
       }else if(parts.length===6&&parts[4]==='journal-entries'&&parts[5]==='manual'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.createManualJournal({...payload,tenantId:principal.tenantId,entityId,idempotencyKey});

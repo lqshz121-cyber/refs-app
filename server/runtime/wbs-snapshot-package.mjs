@@ -25,7 +25,9 @@ function fail(code,message){throw new WbsSnapshotError(code,message);}
 export function validateWbsSnapshotPackage(snapshot){
   if(!object(snapshot))fail('WBS_SNAPSHOT_INVALID','WBS snapshot must be an object.');
   if(snapshot.schema_version!=='WBS_READONLY_SNAPSHOT_V1'||!UUID.test(snapshot.snapshot_id||'')||!iso(snapshot.captured_at)||!['SANDBOX','PRODUCTION'].includes(snapshot.environment)||snapshot.source_system!=='WBS'||!text(snapshot.dictionary_version)||!Array.isArray(snapshot.views)||snapshot.views.length===0)fail('WBS_SNAPSHOT_INVALID','WBS snapshot manifest is incomplete.');
-  if(snapshot.package_hash!==canonicalRequestHash(without(snapshot,'package_hash')))fail('WBS_SNAPSHOT_HASH_MISMATCH','WBS snapshot package hash does not match its manifest.');
+  const signature=snapshot.detached_signature;
+  if(snapshot.environment==='PRODUCTION'&&(!object(signature)||!text(signature.key_id,128)||signature.algorithm!=='Ed25519'||!text(signature.value,4096)))fail('WBS_SNAPSHOT_SIGNATURE_REQUIRED','Production WBS snapshots require an Ed25519 detached signature.');
+  if(snapshot.package_hash!==canonicalRequestHash(without(without(snapshot,'package_hash'),'detached_signature')))fail('WBS_SNAPSHOT_HASH_MISMATCH','WBS snapshot package hash does not match its manifest.');
   const names=new Set(),receipts=[];let companyKey=null;
   for(const view of snapshot.views){
     if(!object(view)||!text(view.name,96)||!VIEW_POLICY[view.name]||names.has(view.name)||!text(view.company_key,128)||!Array.isArray(view.rows)||view.rows.length===0||view.content_hash!==canonicalRequestHash(view.rows))fail('WBS_SNAPSHOT_VIEW_INVALID','WBS snapshot view is incomplete, unsupported, duplicated, or tampered.');

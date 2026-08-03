@@ -152,10 +152,28 @@ pgTest('authorized WBS snapshot import persists immutable observations without c
   assert.equal(created.receipt_count,1);assert.equal(created.idempotent,false);
   const replay=await kernel.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'snapshot-import-ok-001'});
   assert.equal(replay.idempotent,true);assert.equal(replay.wbs_snapshot_import_id,created.wbs_snapshot_import_id);
-  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_snapshot_receipt WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);
+  const production={...snapshot,snapshot_id:randomUUID(),environment:'PRODUCTION',detached_signature:{key_id:'wbs-prod-test',algorithm:'Ed25519',value:'test-signature'}};delete production.package_hash;const {detached_signature,...productionManifest}=production;production.package_hash=canonicalRequestHash(productionManifest);
+  await assert.rejects(kernel.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot:production,idempotencyKey:'snapshot-production-unsigned-001'}),error=>error.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED');
+  const verified=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-importer',['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:async value=>value.detached_signature?.key_id==='wbs-prod-test'});
+  const productionCreated=await verified.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot:production,idempotencyKey:'snapshot-production-signed-001'});
+  assert.equal(productionCreated.receipt_count,1);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_snapshot_receipt WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,2);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM source_document WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
-  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_SNAPSHOT_OBSERVED'",[ids.tenantId])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_SNAPSHOT_OBSERVED'",[ids.tenantId])).rows[0].n,2);
   await assert.rejects(adminPool.query("UPDATE wbs_snapshot_receipt SET source_record_id='tampered' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
+});
+
+pgTest('authenticated HTTP records only sandbox WBS snapshot observations in its authorized entity',async()=>{
+  const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),rowId=randomUUID();
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:new Date().toISOString(),environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-HTTP',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:rowId,ap_type:'AUTOC'}]}]};snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));snapshot.package_hash=canonicalRequestHash(snapshot);
+  const permissions={'snapshot-http-importer':['WBS.SNAPSHOT.IMPORT'],'snapshot-http-reader':['AP.VIEW']};
+  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
+  const request={method:'POST',url:`/api/v1/entities/${ids.entityId}/wbs/snapshots`,headers:{'x-test-actor':'snapshot-http-importer','Idempotency-Key':'snapshot-http-route-001'},body:{snapshot}};
+  const created=await api(request);assert.equal(created.status,201);assert.equal(created.body.data.receipt_count,1);
+  const replay=await api(request);assert.equal(replay.status,200);assert.equal(replay.body.data.idempotent,true);
+  const denied=await api({...request,headers:{...request.headers,'x-test-actor':'snapshot-http-reader','Idempotency-Key':'snapshot-http-route-002'}});assert.equal(denied.status,403);
+  const spoofed=await api({...request,body:{snapshot,entityId:randomUUID()}});assert.equal(spoofed.status,400);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM source_document WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
 });
 
 pgTest('concurrent up and down runners serialize on the same advisory lock',async()=>{

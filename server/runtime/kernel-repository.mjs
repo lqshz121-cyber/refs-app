@@ -8,9 +8,10 @@ function assertTrustedSession(session){
 }
 
 export class PostgresAccountingKernel{
-  constructor(pool,{sessionProvider,runtimeLoginAllowlist=['refs_runtime']}={}){
+  constructor(pool,{sessionProvider,runtimeLoginAllowlist=['refs_runtime'],wbsSnapshotVerifier=null}={}){
     if(typeof sessionProvider!=='function')throw new KernelError('SESSION_PROVIDER_REQUIRED','A trusted session provider is required');
     this.pool=pool;this.sessionProvider=sessionProvider;this.runtimeLoginAllowlist=new Set(runtimeLoginAllowlist);
+    this.wbsSnapshotVerifier=wbsSnapshotVerifier;
   }
 
   async inSession(work){
@@ -103,6 +104,13 @@ export class PostgresAccountingKernel{
 
   async recordWbsSnapshot({tenantId,entityId,snapshot,idempotencyKey}){
     const validated=validateWbsSnapshotPackage(snapshot);
+    if(validated.environment==='PRODUCTION'){
+      if(typeof this.wbsSnapshotVerifier!=='function')throw new KernelError('WBS_SNAPSHOT_SIGNATURE_REQUIRED','Production WBS snapshot imports require a configured detached-signature verifier');
+      let verified=false;
+      try{verified=await this.wbsSnapshotVerifier(snapshot);}
+      catch{throw new KernelError('WBS_SNAPSHOT_SIGNATURE_INVALID','Production WBS snapshot signature verification failed');}
+      if(verified!==true)throw new KernelError('WBS_SNAPSHOT_SIGNATURE_INVALID','Production WBS snapshot signature verification failed');
+    }
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
         'SELECT refs_wbs_snapshot_import_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',

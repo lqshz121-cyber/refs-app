@@ -4,7 +4,7 @@ const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.pos
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
-  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createJournalAdjustment','createManualJournal','finalizeAttachment','postJournal','reserveAttachment','transitionJournal']);
+  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createJournalAdjustment','createManualJournal','finalizeAttachment','postJournal','recordWbsSnapshot','reserveAttachment','transitionJournal']);
 });
 
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{
@@ -38,6 +38,15 @@ test('attachment create and replay responses use the exact attachment envelope',
   }
   const result=contract.components.schemas.AttachmentResult;assert.equal(result.additionalProperties,false);
   assert.deepEqual(result.required,['attachment_id','entity_id','status','idempotent']);
+});
+
+test('WBS snapshot observations are scoped idempotent evidence only and production signatures fail closed',()=>{
+  const operation=contract.paths['/entities/{entityId}/wbs/snapshots'].post;
+  assert.equal(operation.operationId,'recordWbsSnapshot');assert.equal(operation.requestBody.$ref,'#/components/requestBodies/WbsSnapshot');
+  assert.equal(operation.responses['422'].$ref,'#/components/responses/Problem');assert.equal(operation.responses['503'].$ref,'#/components/responses/SerializationRetryExhausted');
+  assert.match(operation.description,/never writes WBS, source documents, journal entries or ledger lines/i);assert.match(operation.description,/detached Ed25519 signature/i);
+  const body=contract.components.requestBodies.WbsSnapshot.content['application/json'].schema;
+  assert.equal(body.additionalProperties,false);assert.deepEqual(body.required,['snapshot']);
 });
 
 test('AP and AR aging are no-store authenticated GETs with a required as-of date',()=>{
