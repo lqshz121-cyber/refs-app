@@ -132,16 +132,16 @@ export function JEWorkspace({ctx}) {
     (!query || `${j.je_number} ${j.description||''} ${j.payee||''} ${j.source_system}`.toLowerCase().includes(query.toLowerCase())) &&
     (month==='ALL'||j.period_code==='2026-'+month));
   const pendCount = list.filter(j=>j.posting_status==='PENDING_APPROVAL').length;
-  const postAll = () => { list.filter(j=>j.posting_status==='PENDING_APPROVAL').forEach(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL')); toast('Post All 瀹屾垚'); };
+  const postAll = () => { list.filter(j=>j.posting_status==='PENDING_APPROVAL').forEach(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL')); toast('All eligible journals were posted.'); };
   const runBatch = () => {
     const en = {entity_id: ctx.entity||15, entity_code:'E'+(ctx.entity||15)};
     const s = loadSetting(en); let n=0;
     (s.batch_setting||[]).filter(b=>b.status!=='INACTIVE'&&b.dr&&b.cr).forEach(b=>{
       const amt = 1000; n++;
       actions.newJEFromRule({entity_id:en.entity_id, source_system:'INTERNAL', je_type:'AUTO', rule_code:'R-BATCH-'+n,
-        description:`[Batch] ${b.memo} 路 2026-07`, lines:[{account_code:b.dr,debit_amount:amt,credit_amount:0},{account_code:b.cr,debit_amount:0,credit_amount:amt,member:b.cr.startsWith('291')?'Batch':undefined,description:b.cr.startsWith('291')?'Due to/from_Batch':undefined}]});
+        description:`[Batch] ${b.memo} — 2026-07`, lines:[{account_code:b.dr,debit_amount:amt,credit_amount:0},{account_code:b.cr,debit_amount:0,credit_amount:amt,member:b.cr.startsWith('291')?'Batch':undefined,description:b.cr.startsWith('291')?'Due to/from_Batch':undefined}]});
       if (b.reverse_next_month) actions.newJEFromRule({entity_id:en.entity_id, source_system:'INTERNAL', je_type:'AUTO', rule_code:'R-BATCH-REV-'+n,
-        description:`[Batch路Auto-Reversal 2026-08] ${b.memo}`, lines:[{account_code:b.cr,debit_amount:amt,credit_amount:0,member:b.cr.startsWith('291')?'Batch':undefined},{account_code:b.dr,debit_amount:0,credit_amount:amt}]});
+        description:`[Batch — Auto-Reversal 2026-08] ${b.memo}`, lines:[{account_code:b.cr,debit_amount:amt,credit_amount:0,member:b.cr.startsWith('291')?'Batch':undefined},{account_code:b.dr,debit_amount:0,credit_amount:amt}]});
     });
     toast(`Batch template created: ${n} draft journal entries, including configured next-month reversals.`);
   };
@@ -158,26 +158,26 @@ export function JEWorkspace({ctx}) {
   return <div className="full-bleed">
     <div className="page-top accounting-page-head">
       <div>
-        <div className="page-eyebrow">GENERAL LEDGER 路 TRANSACTION REGISTER</div>
+        <div className="page-eyebrow">GENERAL LEDGER — TRANSACTION REGISTER</div>
         <h2 className="page-h" style={{margin:0}}>Journal Entries</h2>
         <div className="page-subtitle">Review source, approval status and posting evidence from one controlled workspace.</div>
       </div>
       <div className="row-acts">
         <Btn variant="ghost" onClick={runBatch}>Run Batch Templates</Btn>
-        {can('GL.JE.POST') && pendCount>0 && <Btn onClick={postAll}>鈿?Post All ({pendCount})</Btn>}
+        {can('GL.JE.POST') && pendCount>0 && <Btn onClick={postAll}>Post All ({pendCount})</Btn>}
         <Btn variant="primary" onClick={newJE} disabled={!can('GL.JE.CREATE')}>+ New Journal Entry</Btn>
       </div>
     </div>
     <div className="filter-bar accounting-filter-bar je-filter-bar">
       <label className="je-search"><span aria-hidden="true">⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search journal entries" /></label>
-      <label>鏈熼棿 <select value={month} onChange={e=>setMonth(e.target.value)}>
-        <option value="ALL">鍏ㄥ勾 2026</option>
+      <label>Period <select value={month} onChange={e=>setMonth(e.target.value)}>
+        <option value="ALL">Full year 2026</option>
         {['01','02','03','04','05','06','07'].map(m=><option key={m} value={m}>2026-{m}</option>)}
       </select></label>
-      <label>鐘舵€?<select value={status} onChange={e=>setStatus(e.target.value)}>
+      <label>Status <select value={status} onChange={e=>setStatus(e.target.value)}>
         {['ALL','DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED','REVERSED'].map(x=><option key={x}>{x}</option>)}
       </select></label>
-      <label>鏉ユ簮 <select value={srcF} onChange={e=>setSrcF(e.target.value)}>
+      <label>Source <select value={srcF} onChange={e=>setSrcF(e.target.value)}>
         {['ALL','MAN','WBS_CL','PM','AP','AR','BANK','CLOSING','PAYABLE','EXPA','AUTOC','DIVIDEND','REIMB','AUTO_BANK_REIMB','INTERNAL_TRANSFER','INTERNAL','INDIVIDUAL','NOT_MATCH'].map(x=><option key={x}>{x}</option>)}
       </select></label>
       <span className="result-count"><b>{list.length}</b> entries</span><div className="je-queue-chips"><button type="button" className={status==='ALL'?'on':''} onClick={()=>setStatus('ALL')}>All</button><button type="button" className={status==='PENDING_REVIEW'||status==='PENDING_APPROVAL'?'on':''} onClick={()=>setStatus('PENDING_REVIEW')}>Needs review</button><button type="button" className={status==='POSTED'?'on':''} onClick={()=>setStatus('POSTED')}>Posted</button><button type="button" className={status==='DRAFT'?'on':''} onClick={()=>setStatus('DRAFT')}>Draft</button></div><button type="button" className="btn btn-ghost btn-sm" onClick={()=>{setQuery('');setStatus('ALL');setSrcF('ALL');setMonth('ALL');}}>Clear filters</button>
@@ -185,7 +185,7 @@ export function JEWorkspace({ctx}) {
     <Table exportName="journal-entries" features={{exportable:false}} className="table-journal-entries" rowKey="je_id" onRow={r=>setSel(r.je_id)} pageSize={20} cols={[
       {h:'Journal No.',k:'je_number',w:'180px'},
       {h:'Date',k:'je_date',w:'112px'},
-      {h:'Memo / Description',render:r=><span className="cell-main">{r.description||<i className="muted">锛堟湭濉級</i>}</span>,csv:r=>r.description},
+      {h:'Memo / Description',render:r=><span className="cell-main">{r.description||<i className="muted">(Not entered)</i>}</span>,csv:r=>r.description},
       {h:'Source',render:r=><Badge tone="muted">{r.source_system}</Badge>,csv:r=>r.source_system,w:'110px'},
         {h:'Payee / Name',render:r=>r.payee||'—',csv:r=>r.payee||'',w:'210px'},
       {h:'Amount',num:true,render:r=><Money v={jeTotals(r).debit}/>,sortVal:r=>jeTotals(r).debit,csv:r=>jeTotals(r).debit,w:'140px'},
@@ -260,7 +260,7 @@ function JEEditor({je, ctx}) {
         </div></div>
       <Badge>{je.posting_status}</Badge>
     </div>
-    <div className="qbe-actionbar" aria-label="Journal entry actions"><span className="qbe-action-context"><b>{je.ai_proposed?'Evidence-locked AI Draft':readOnly ? 'View journal entry' : 'Edit journal entry'}</b><span>{je.je_type || 'MANUAL'} 路 {je.source_system || 'MAN'}</span></span><span className="qbe-action-buttons"><Btn size="sm" variant="ghost" onClick={()=>setShowAudit(open=>!open)}>{showAudit?'Hide audit history':'Audit history'}</Btn><Btn size="sm" variant="ghost" disabled title="External print/export is outside the local evidence scope">Print</Btn></span></div>
+    <div className="qbe-actionbar" aria-label="Journal entry actions"><span className="qbe-action-context"><b>{je.ai_proposed?'Evidence-locked AI Draft':readOnly ? 'View journal entry' : 'Edit journal entry'}</b><span>{je.je_type || 'MANUAL'} — {je.source_system || 'MAN'}</span></span><span className="qbe-action-buttons"><Btn size="sm" variant="ghost" onClick={()=>setShowAudit(open=>!open)}>{showAudit?'Hide audit history':'Audit history'}</Btn><Btn size="sm" variant="ghost" disabled title="External print/export is outside the local evidence scope">Print</Btn></span></div>
     <section className="report-workbench" aria-label="Local journal posting evidence" style={{margin:'12px 0'}}>
       <div className="report-workbench-head"><div><b>Local posting evidence</b><div className="page-subtitle">Read-only proof for this retained JE. It is not an immutable external audit trail.</div></div><Badge tone={postingEvidence.postingState==='LOCAL_POSTED_BALANCED'?'ok':'warn'}>{postingEvidence.postingState}</Badge></div>
       <div className="qbo-toolgrid">
@@ -288,14 +288,14 @@ function JEEditor({je, ctx}) {
           <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.debit_amount||''} onChange={e=>setLine(i,{debit_amount:+e.target.value||0, credit_amount:0})}/> : <Money v={l.debit_amount||0}/>}</td>
           <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.credit_amount||''} onChange={e=>setLine(i,{credit_amount:+e.target.value||0, debit_amount:0})}/> : <Money v={l.credit_amount||0}/>}</td>
           <td>{editable ? <input className="desc-line" value={l.description||''} placeholder="Line description" onChange={e=>setLine(i,{description:e.target.value})}/> : <span className="muted sm">{l.description||''}</span>}</td>
-          <td>{editable ? <input className="desc-line" list="member-list" placeholder={ (window.__subsOf&&window.__subsOf(l.account_code)) ? '鏍哥畻瀵硅薄*' : 'Name'} value={l.member||''} onChange={e=>setLine(i,{member:e.target.value})}/> : <span className="muted sm">{l.member||''}</span>}</td>
+          <td>{editable ? <input className="desc-line" list="member-list" placeholder={ (window.__subsOf&&window.__subsOf(l.account_code)) ? 'Accounting member*' : 'Name'} value={l.member||''} onChange={e=>setLine(i,{member:e.target.value})}/> : <span className="muted sm">{l.member||''}</span>}</td>
           <td>{editable ?
             <div className="dim-picks">
               <select value={l.property_id||''} onChange={e=>setLine(i,{property_id:e.target.value?+e.target.value:null})}><option value="">Property</option>{PROPERTIES.map(p=><option key={p.property_id} value={p.property_id}>{p.property_code}</option>)}</select>
               <select value={l.project_id||''} onChange={e=>setLine(i,{project_id:e.target.value?+e.target.value:null})}><option value="">Project</option>{PROJECTS.map(p=><option key={p.project_id} value={p.project_id}>{p.project_code}</option>)}</select>
             </div>
             : <span className="muted sm">{[(l.property_id&&('Prop'+l.property_id)),(l.project_id&&('P'+l.project_id)),(l.loan_id&&('L'+l.loan_id))].filter(Boolean).join(' ')}</span>}</td>
-          {editable && <td><button className="x-sm" onClick={()=>rmLine(i)}>脳</button></td>}
+          {editable && <td><button className="x-sm" onClick={()=>rmLine(i)}>×</button></td>}
         </tr>)}
       </tbody>
     </table>
@@ -304,7 +304,7 @@ function JEEditor({je, ctx}) {
       <div className="qbe-totals">
         <span>Total debits <Money v={totals.debit} bold/></span>
         <span>Total credits <Money v={totals.credit} bold/></span>
-        <span className={diff===0&&totals.debit>0?'bal-ok':'bal-bad'}>Difference {diff===0&&totals.debit>0?'鉁?$0.00':'$'+Math.abs(diff).toLocaleString()}</span>
+        <span className={diff===0&&totals.debit>0?'bal-ok':'bal-bad'}>Difference {diff===0&&totals.debit>0?'✓ $0.00':'$'+Math.abs(diff).toLocaleString()}</span>
       </div>
     </div>
     <div className="qbe-memo">
