@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { KPI, Btn, Badge, Money, Table, Tabs, Drawer, Field } from './ui.jsx';
 import { CUSTOMERS, PROPERTIES } from './data.js';
 import { money, sum } from './engine.js';
+import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 
 // Real AR: Invoices -> Receive Payment -> Aging (mirrors AP loop)
 export const arAgingDocuments = invoices => invoices.filter(i=>['OPEN','PAYMENT_PENDING'].includes(i.status));
-const journalWorkflowAction=status=>({DRAFT:'SUBMIT',PENDING_REVIEW:'REVIEW',APPROVED:'POST'})[status]||null;
+const journalWorkflowAction=nextAuthoritativeWorkflowAction;
 export function ARWorkspace({ctx}) {
   const {ar, actions, toast, can, authoritativeMode, apiStatus} = ctx;
   const [tab, setTab] = useState('Invoices');

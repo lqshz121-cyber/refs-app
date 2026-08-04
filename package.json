@@ -4,7 +4,7 @@
   "private": true,
   "description": "REFS - Real Estate Financial System (WanBridge) functional prototype",
   "scripts": {
-    "test": "npm.cmd run test:ssr && npm.cmd run test:ap-ar && npm.cmd run test:api-client && npm.cmd run test:attachment-client && npm.cmd run test:oidc && npm.cmd run test:runtime-config && npm.cmd run test:autorecon && npm.cmd run test:audit",
+    "test": "npm.cmd run test:ssr && npm.cmd run test:ap-ar && npm.cmd run test:api-client && npm.cmd run test:attachment-client && npm.cmd run test:oidc && npm.cmd run test:runtime-config && npm.cmd run test:workflow && npm.cmd run test:autorecon && npm.cmd run test:audit",
     "build": "node build.mjs && node scripts/write-runtime-config.mjs",
     "dev": "node build.mjs --watch",
     "test:ap-ar": "esbuild ./tests/ap-ar-workflow.test.jsx --bundle --platform=node --format=cjs --outfile=tests/ap-ar-workflow.test.cjs && node tests/ap-ar-workflow.test.cjs",
@@ -12,6 +12,7 @@
     "test:attachment-client": "esbuild ./tests/attachment-api-client.test.js --bundle --platform=node --format=cjs --outfile=tests/attachment-api-client.test.cjs && node tests/attachment-api-client.test.cjs",
     "test:oidc": "esbuild ./tests/oidc-client.test.js --bundle --platform=node --format=cjs --outfile=tests/oidc-client.test.cjs && node tests/oidc-client.test.cjs",
     "test:runtime-config": "esbuild ./tests/runtime-config.test.js --bundle --platform=node --format=cjs --outfile=tests/runtime-config.test.cjs && node tests/runtime-config.test.cjs",
+    "test:workflow": "esbuild ./tests/authoritative-workflow.test.js --bundle --platform=node --format=cjs --outfile=tests/authoritative-workflow.test.cjs && node tests/authoritative-workflow.test.cjs",
     "test:ssr": "esbuild ./mtest.jsx --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=mtest.cjs && node mtest.cjs",
     "test:audit": "esbuild ./audit.js --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=audit.cjs && node audit.cjs",
     "test:autorecon": "esbuild ./tests/autorecon-fail-closed.test.jsx --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=tests/autorecon-fail-closed.test.cjs && node tests/autorecon-fail-closed.test.cjs"

@@ -22,6 +22,7 @@ import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
 import { accountingApiConfig, applyAuthoritativeCredit, createAuthoritativeAdjustment, createAuthoritativeBusinessDocument, createAuthoritativeSettlement, refreshAuthoritativeDocuments, transitionAuthoritativeJournal } from './accounting-api.js';
+import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 import { uploadVerifiedAttachment } from './attachment-api.js';
 import { bootstrapRuntimeOidc, oidcRuntimeConfig } from './oidc-client.js';
 import { batchBankTransition, buildBankDraft, buildBankWorkflowException, createBankDraftTransition, excludeBankTransition, matchBankTransition, undoBankTransition, validateBankDraft } from './bank-workflow.js';
@@ -518,10 +519,25 @@ function AuthoritativeReadWorkspace({config}){
   return <main className="login-shell"><section className="login-card" aria-live="polite" style={{maxWidth:1180,width:'calc(100% - 32px)'}}><h1>REFS authoritative workspace</h1><p>Authenticated data is read directly from the accounting API. Browser-local accounting data is disabled.</p><button className="btn btn-primary" disabled={state.phase==='LOADING'} onClick={refresh}>Refresh authoritative records</button>{state.phase==='LOADING'&&<p className="muted">Loading authoritative AP/AR records…</p>}{state.phase==='FAILED'&&<p role="alert" className="muted">{state.message||'Authoritative accounting refresh failed.'}</p>}{state.phase==='READY'&&<><AuthoritativeDocumentTable title="Authoritative AP bills" documents={state.bills} kind="AP"/><AuthoritativeAdjustmentSummary title="Authoritative AP adjustments" adjustments={state.apAdjustments}/><AuthoritativeDocumentTable title="Authoritative AR invoices" documents={state.invoices} kind="AR"/><AuthoritativeAdjustmentSummary title="Authoritative AR adjustments" adjustments={state.arAdjustments}/><AuthoritativeDraftForm config={config} onCreated={refresh}/><p className="muted" style={{marginTop:20}}>Only Draft creation is available here. Review, approval, and posting remain server workflow commands with independent authorization and separation-of-duties checks.</p></>}</section></main>;
 }
 
+function AuthoritativeWorkflowTable({title,documents,kind,onWorkflow,workingJournalIds}){
+  const isBill=kind==='AP',numberKey=isBill?'bill_no':'inv_no',partyKey=isBill?'vendor_name':'customer_name';
+  return <section aria-label={title} style={{marginTop:20}}><h2 style={{fontSize:18,margin:'0 0 8px'}}>{title} ({documents.length})</h2>{!documents.length?<p className="muted">No authoritative records were returned.</p>:<div className="table-wrap"><table className="tbl"><thead><tr><th>Document</th><th>{isBill?'Vendor':'Customer'}</th><th>Due date</th><th className="ta-r">Gross</th><th className="ta-r">Open balance</th><th>Status</th><th>Workflow</th></tr></thead><tbody>{documents.map(document=>{const journalId=document.journal_entry_id,action=nextAuthoritativeWorkflowAction(document.journal_status),eligible=typeof journalId==='string'&&Number.isSafeInteger(document.journal_revision)&&action,working=workingJournalIds.has(journalId);return <tr key={journalId||document[numberKey]}><td>{document[numberKey]||'-'}</td><td>{document[partyKey]||'-'}</td><td>{document.due_date||'-'}</td><td className="ta-r">{authoritativeMoney(document.amount,document.currency)}</td><td className="ta-r">{authoritativeMoney(document.open_balance,document.currency)}</td><td><span className="badge badge-muted">{document.status||'UNKNOWN'}</span></td><td>{eligible?<button className="btn btn-primary btn-sm" disabled={working} onClick={()=>onWorkflow(document,action)}>{working?'Working…':action}</button>:<span className="muted sm">{document.journal_status||'-'}</span>}</td></tr>;})}</tbody></table></div>}</section>;
+}
+
+function AuthoritativeWorkflowWorkspace({config}){
+  const [state,setState]=useState({phase:'LOADING',bills:[],invoices:[],apAdjustments:[],arAdjustments:[],message:''});
+  const [workingJournalIds,setWorkingJournalIds]=useState(()=>new Set());
+  const [notice,setNotice]=useState('');
+  const refresh=async()=>{setState(current=>({...current,phase:'LOADING',message:''}));const result=await refreshAuthoritativeDocuments({config});if(!result.ok){setState({phase:'FAILED',bills:[],invoices:[],apAdjustments:[],arAdjustments:[],message:result.message});return result;}setState({phase:'READY',bills:result.ap.bills,invoices:result.ar.invoices,apAdjustments:result.ap.adjustments,arAdjustments:result.ar.adjustments,message:''});return result;};
+  useEffect(()=>{refresh();},[]);
+  const transition=async(document,action)=>{const journalId=document?.journal_entry_id;if(typeof journalId!=='string'||!Number.isSafeInteger(document?.journal_revision)||workingJournalIds.has(journalId))return;setNotice('');setWorkingJournalIds(current=>new Set([...current,journalId]));const result=await transitionAuthoritativeJournal({config,journalEntryId:journalId,revision:document.journal_revision,action});setWorkingJournalIds(current=>{const next=new Set(current);next.delete(journalId);return next;});if(!result.ok){setNotice(result.message||'Authoritative journal workflow command was rejected.');return;}const refreshed=await refresh();if(!refreshed.ok)setNotice('Workflow was accepted. Refresh is required to confirm the authoritative state.');};
+  return <main className="login-shell"><section className="login-card" aria-live="polite" style={{maxWidth:1180,width:'calc(100% - 32px)'}}><h1>REFS authoritative workspace</h1><p>Authenticated data is read directly from the accounting API. Browser-local accounting data is disabled.</p><button className="btn btn-primary" disabled={state.phase==='LOADING'} onClick={refresh}>Refresh authoritative records</button>{notice&&<p role="alert" className="muted">{notice}</p>}{state.phase==='LOADING'&&<p className="muted">Loading authoritative AP/AR records…</p>}{state.phase==='FAILED'&&<p role="alert" className="muted">{state.message||'Authoritative accounting refresh failed.'}</p>}{state.phase==='READY'&&<><AuthoritativeWorkflowTable title="Authoritative AP bills" documents={state.bills} kind="AP" onWorkflow={transition} workingJournalIds={workingJournalIds}/><AuthoritativeAdjustmentSummary title="Authoritative AP adjustments" adjustments={state.apAdjustments}/><AuthoritativeWorkflowTable title="Authoritative AR invoices" documents={state.invoices} kind="AR" onWorkflow={transition} workingJournalIds={workingJournalIds}/><AuthoritativeAdjustmentSummary title="Authoritative AR adjustments" adjustments={state.arAdjustments}/><AuthoritativeDraftForm config={config} onCreated={refresh}/><p className="muted" style={{marginTop:20}}>Workflow actions are sent with the authoritative revision. The server enforces permission and separation of duties; this browser never infers either.</p></>}</section></main>;
+}
+
 function AuthoritativeGateway({config}){
   const clientRef=useRef(null);const [phase,setPhase]=useState('CHECKING');
   useEffect(()=>{const client=bootstrapRuntimeOidc();clientRef.current=client;client.completeRedirect().then(result=>setPhase(result.ok?'AUTHENTICATED':result.code)).catch(()=>setPhase('OIDC_CONFIGURATION_REQUIRED'));},[]);
-  if(phase==='AUTHENTICATED')return <AuthoritativeReadWorkspace config={config}/>;
+  if(phase==='AUTHENTICATED')return <AuthoritativeWorkflowWorkspace config={config}/>;
   const configured=!!oidcRuntimeConfig()&&phase!=='OIDC_CONFIGURATION_REQUIRED';
   return <main className="login-shell"><section className="login-card" aria-live="polite"><h1>{configured?'Sign in required':'Authoritative API required'}</h1><p>{configured?'Sign in with the configured OIDC provider before REFS reads accounting data.':'The deployed REFS client is locked until its HTTPS accounting API and OIDC token provider are configured.'}</p>{configured&&<button className="btn btn-primary login-btn" onClick={()=>clientRef.current?.startLogin().catch(()=>setPhase('OIDC_CONFIGURATION_REQUIRED'))}>Sign in with SSO</button>}</section></main>;
 }
@@ -532,7 +548,7 @@ function App(){
   return <LegacyApp/>;
 }
 
-export { App, AuthoritativeAdjustmentSummary, AuthoritativeDocumentTable, AuthoritativeDraftForm };
+export { App, AuthoritativeAdjustmentSummary, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeWorkflowTable, nextAuthoritativeWorkflowAction };
 if (typeof document !== 'undefined' && document.getElementById('root')) {
   createRoot(document.getElementById('root')).render(<App/>);
 }

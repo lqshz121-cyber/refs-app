@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { KPI, Btn, Badge, Money, Table, Drawer, Field, SectionTitle, Tabs, ApprovalTimeline } from './ui.jsx';
 import { VENDORS, PROPERTIES, PROJECTS, COA } from './data.js';
 import { acct, money, sum } from './engine.js';
+import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 
 // AP closed loop: Bill(lines) -> duplicate check -> approval -> JE(Dr Exp/CIP, Cr AP) -> Payment run -> JE(Dr AP, Cr Cash) -> aging
 export const apAgingDocuments = bills => bills.filter(b=>['APPROVED','PAYMENT_PENDING'].includes(b.status));
-const journalWorkflowAction=status=>({DRAFT:'SUBMIT',PENDING_REVIEW:'REVIEW',APPROVED:'POST'})[status]||null;
+const journalWorkflowAction=nextAuthoritativeWorkflowAction;
 const journalWorkflowLabel=action=>({SUBMIT:'Submit for review',REVIEW:'Review',POST:'Post journal'})[action]||'';
 export function APWorkspace({ctx}) {
   const {ap, actions, toast, can, user, authoritativeMode, apiStatus} = ctx;             // ap: {bills:[...]}
