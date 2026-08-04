@@ -9,6 +9,7 @@ const eventStream=(events,{status=200,headers={}}={})=>new Response(events.map(e
 
 test('read-only MCP client permits only the approved HTTPS endpoint and an authenticated token provider',()=>{
   for(const bad of ['http://db-mcp.wbm3.com/mcp','https://evil.example/mcp','https://db-mcp.wbm3.com/mcp?x=1','https://db-mcp.wbm3.com/other'])assert.throws(()=>createReadOnlyWbsMcpClient({endpoint:bad,getAccessToken:token}),error=>error.code==='WBS_MCP_CONFIG_INVALID');
+  for(const timeoutMs of [0,999,60001,NaN])assert.throws(()=>createReadOnlyWbsMcpClient({endpoint,getAccessToken:token,timeoutMs}),error=>error.code==='WBS_MCP_CONFIG_INVALID');
 });
 
 test('initialize and tool inventory use MCP correlation, bearer auth and the session identifier without exposing a token',async()=>{
@@ -27,6 +28,8 @@ test('client accepts one correlated JSON-RPC response from a bounded Streamable 
   assert.deepEqual(await client.listTools(),[]);
   const ambiguous=createReadOnlyWbsMcpClient({endpoint,getAccessToken:token,fetcher:async(_url,request)=>{const {id}=JSON.parse(request.body);return eventStream([{jsonrpc:'2.0',id,result:{}},{jsonrpc:'2.0',id,result:{}}]);}});
   await assert.rejects(ambiguous.initialize(),error=>error.code==='WBS_MCP_PROTOCOL_INVALID');
+  const oversized=createReadOnlyWbsMcpClient({endpoint,getAccessToken:token,fetcher:async(_url,request)=>{const {id}=JSON.parse(request.body);return eventStream([{jsonrpc:'2.0',id,result:{padding:'x'.repeat(1024*1024)}}]);}});
+  await assert.rejects(oversized.initialize(),error=>error.code==='WBS_MCP_PROTOCOL_INVALID');
 });
 
 test('client fails closed on authentication and malformed protocol responses',async()=>{
