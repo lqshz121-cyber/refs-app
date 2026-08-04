@@ -2072,3 +2072,9 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
 |---|---|---|---|
 | Invoice, Receipt and AR Aging drill chain | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Replaced the open-invoice auto-receipt action with an explicit unavailable receipt-evidence control. Existing retained receipts still drill Invoice → full-page evidence → posted JE / exact bank credit / Reconcile and Back restores Invoice, Receipt filter, or AR Aging scope. | PARTIAL — local receipt boundary, evidence lifecycle and return contracts are verified; QBO Invoice/Receipt controls, permissions, audit, empty states and responsive layout remain unobserved. |
+
+## Reports: business-fit catalog wording (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Retained Reports Center catalog and full-page drill context | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Corrected the visible catalog language to `Core financial reports` and explicitly limits the workbench to retained financial statements, aging, and reconciliation evidence. The existing retained-name filter, full-page report/evidence detail, and Back-to-Reports-Center behavior remain unchanged; WBS control packs are not advertised as part of this business-fit report catalog. | PARTIAL — source, retained-scope, replacement-detail and build checks are local-only; QBO Reports catalog, permissions, populated rows and responsive behavior remain unobserved. |
