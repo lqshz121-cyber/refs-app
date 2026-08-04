@@ -2084,3 +2084,9 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
 |---|---|---|---|
 | Journal Entry and Reports parent navigation | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | A navigation group with one destination continues to route directly to that destination and never renders its duplicate child. The parent now also omits the expand/collapse caret, so `Journal Entry` and `Reports` visibly communicate direct navigation rather than a collapsed submenu. | PARTIAL — singleton route, absent duplicate child/caret and build checks are local-only; QBO navigation layout, permissions and responsive behavior remain unobserved. |
+
+## Reports: More Options detail route (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Retained report row action and detail navigation | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Replaced the report-row `More Options → Preview` state shortcut with `Open detail`, which uses the same retained report launch path as the row and primary action. Ledger/workflow reports now cannot bypass their full-page destination or its explicit Back path through this secondary menu. | PARTIAL — local source, full-page replacement and build checks are verified; QBO More Options contents, report access, audit and responsive behavior remain unobserved. |
