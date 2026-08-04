@@ -16,6 +16,9 @@ This blueprint is a deployment contract, not evidence of a live deployment.
    from a browser cache.
 3. Provision versioned object storage, a TLS scanner bridge, its CA file, and a
    least-privileged cleanup worker identity plus DB-authorized entity scopes.
+   The API storage identity must also have `s3:GetBucketLocation` on the configured
+   bucket; `/health/ready` probes that permission and the scanner bridge's TLS
+   `/health` endpoint before accepting traffic.
    Also provision `WBS_SNAPSHOT_ED25519_PUBLIC_KEYS` as a JSON keyring of
    trusted WBS public keys (`key_id` to PEM); do not put a private key in Render.
 4. Set the exact static frontend URL as `REFS_HTTP_ALLOWED_ORIGINS`.  The API

@@ -8,10 +8,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,authent
   const kernelFor=principal=>{const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>principal});return new PostgresAccountingKernel(runtimePool,{runtimeLoginAllowlist,wbsSnapshotVerifier,sessionProvider:()=>issuer.issue({tenantId:principal.tenantId})});};
   return createAccountingHttpServer({
     maxBodyBytes,
-    healthCheck:async()=>{
-      const [runtime,issuer]=await Promise.all([runtimePool.query('SELECT 1 AS ready'),issuerPool.query('SELECT 1 AS ready')]);
-      return runtime.rowCount===1&&issuer.rowCount===1;
-    },
+    healthCheck:async()=>{try{const [runtime,issuer]=await Promise.all([runtimePool.query('SELECT 1 AS ready'),issuerPool.query('SELECT 1 AS ready'),attachmentStorage.probe(),virusScanner.probe()]);return runtime.rowCount===1&&issuer.rowCount===1;}catch{return false;}},
     authenticate:request=>authenticator.authenticate(request),
     kernelFactory:kernelFor,
     allowedOrigins,attachmentServiceFactory:principal=>new AttachmentEvidenceService({storage:attachmentStorage,scanner:virusScanner,uploaderKernelFactory:kernelFor,
