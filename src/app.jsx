@@ -361,7 +361,7 @@ function LegacyApp() {
   const jeHits = q.length>=3 ? jes.filter(j=>(j.je_number||'').includes(q)||((j.payee||'').toLowerCase().includes(q.toLowerCase()))).slice(0,5) : [];
 
   return <div className="app">
-    {narrowViewport&&mobileNav&&<button className="mobile-nav-scrim" aria-label="Close navigation" onClick={()=>setMobileNav(false)}/>}
+    {narrowViewport&&mobileNav&&<button className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={()=>setMobileNav(false)}/>}
     <aside ref={sidebarRef} onKeyDown={trapMobileNav} className={`sidebar ${mobileNav?'mobile-open':''}`} aria-hidden={narrowViewport&&!mobileNav}>
       <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
       <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New 新建</button>
