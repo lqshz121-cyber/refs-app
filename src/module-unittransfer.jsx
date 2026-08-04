@@ -3,7 +3,7 @@ import { KPI, Btn, Badge, Money, Table, SectionTitle, Field } from './ui.jsx';
 import { money, sum, acct } from './engine.js';
 import { ENTITIES } from './data.js';
 
-// Unit Transfer Accounting Workspace — A转出/B转入 双分录 + 成本桥 + Evidence (规格§15/高风险场景)
+// Unit Transfer Accounting Workspace — paired A-out/B-in journals, cost bridge, and evidence.
 const EVIDENCE = ['Deed / Title','WBS Transfer Screenshot','Accounting Memo','A-B Agreement','Wan Pacific Cutoff Settlement','FAST Cost Export','Loan Draw Package','Lender Consent','Tax / Legal Memo'];
 export function UnitTransfer({ctx}) {
   const {jes, actions, toast, can} = ctx;
@@ -22,11 +22,11 @@ export function UnitTransfer({ctx}) {
   const evDone = EVIDENCE.filter(e=>ev[e]).length;
   const missing = EVIDENCE.filter(e=>!ev[e]);
   const doTransfer = ()=>{
-    if (!unit){ toast('先选择 Unit','bad'); return; }
-    if (carrying<=0){ toast('该 Unit 无账面成本','bad'); return; }
-    if (evDone < 4){ toast(`Evidence 不足(${evDone}/9):至少勾选 Deed/WBS/Memo/Agreement 四项`,'bad'); return; }
+    if (!unit){ toast('Select a unit first.','bad'); return; }
+    if (carrying<=0){ toast('The selected unit has no carrying cost.','bad'); return; }
+    if (evDone < 4){ toast(`Insufficient evidence (${evDone}/9): select Deed, WBS, Memo, and Agreement at minimum.`,'bad'); return; }
     const pair = 'UT-'+Date.now().toString().slice(-6);
-    // A transfer-out: Dr Due from B (price) / Cr CWIP (carrying) / Gain-Loss差额
+    // A transfer-out: Dr Due from B (price) / Cr CWIP (carrying) / gain or loss.
     const aLines=[{account_code:'125000',debit_amount:p,credit_amount:0,member:B.entity_name,description:'Due from_'+B.entity_name,unit_code:unit},
                   {account_code:'164400',debit_amount:0,credit_amount:carrying,unit_code:unit}];
     if (gain>0.005) aLines.push({account_code:'787001',debit_amount:0,credit_amount:gain,description:'Gain on transfer',unit_code:unit});
@@ -39,39 +39,39 @@ export function UnitTransfer({ctx}) {
       lines:[{account_code:'164400',debit_amount:p,credit_amount:0,unit_code:unit},
              {account_code:'291000',debit_amount:0,credit_amount:p,member:A.entity_name,description:'Due to/from_'+A.entity_name,unit_code:unit}]});
     setResult({pair, carrying, p, gain, missing});
-    toast(`双边分录已生成(pair ${pair}),进入审批流;IC 净额自动配平`);
+    toast(`Paired draft journals created (${pair}); they enter the approval workflow and IC is balanced by the paired entries.`);
   };
   return <div className="full-bleed">
     <h2 className="page-h">Unit Transfer Accounting</h2>
     <div className="filter-bar">
       <label>From <select value={fromId} onChange={e=>{setFromId(e.target.value); setUnit('');}}>{ENTITIES.filter(e=>['Vertical','ProjectCo','LandCo'].includes(e.entity_type)).map(e=><option key={e.entity_id} value={e.entity_id}>{e.entity_code} {e.entity_name}</option>)}</select></label>
       <label>To <select value={toId} onChange={e=>setToId(e.target.value)}>{ENTITIES.filter(e=>e.entity_id!==+fromId).map(e=><option key={e.entity_id} value={e.entity_id}>{e.entity_code} {e.entity_name}</option>)}</select></label>
-      <label>Unit <select value={unit} onChange={e=>setUnit(e.target.value)}><option value="">— 选择 —</option>{Object.keys(unitsA).map(u=><option key={u}>{u}</option>)}</select></label>
+      <label>Unit <select value={unit} onChange={e=>setUnit(e.target.value)}><option value="">— Select —</option>{Object.keys(unitsA).map(u=><option key={u}>{u}</option>)}</select></label>
       <label>Transfer Price <input className="date-in" style={{width:110}} type="number" placeholder={carrying||''} value={price} onChange={e=>setPrice(e.target.value)}/></label>
     </div>
     <div className="qbo-grid" style={{gridTemplateColumns:'repeat(3,1fr)'}}>
-      <div className="qbo-card"><h4>Unit Cost Bridge · 成本桥</h4>
+      <div className="qbo-card"><h4>Unit Cost Bridge</h4>
         <div className="kv"><span>A Carrying Cost ({A&&A.entity_code})</span><Money v={carrying}/></div>
         <div className="kv"><span>Transfer Price</span><Money v={p}/></div>
         <div className="kv"><span>Gain / (Loss) @A</span><Money v={gain}/></div>
         <div className="kv tot"><span>B Opening Basis</span><Money v={p} bold/></div>
       </div>
-      <div className="qbo-card"><h4>双边分录预览</h4>
+      <div className="qbo-card"><h4>Paired journal preview</h4>
         <p className="muted sm" style={{margin:'4px 0'}}><b>{A&&A.entity_code} OUT:</b> Dr 125000 Due from_{B&&B.entity_code} {money(p)} / Cr 164400 CWIP {money(carrying)}{Math.abs(gain)>0.005?` / ${gain>0?'Cr':'Dr'} 787001 ${money(Math.abs(gain))}`:''}</p>
         <p className="muted sm" style={{margin:'4px 0'}}><b>{B&&B.entity_code} IN:</b> Dr 164400 CWIP {money(p)} / Cr 291000 Due to_{A&&A.entity_code} {money(p)}</p>
-        <p className="muted sm">Pair 自动配对;Cutoff 以 Accounting Effective Date 为准。</p>
+        <p className="muted sm">The pair is linked by its immutable pair reference; cutoff follows the accounting effective date.</p>
       </div>
       <div className="qbo-card"><h4>Evidence Checklist ({evDone}/9)</h4>
         {EVIDENCE.map(e=><label key={e} style={{display:'flex',gap:8,fontSize:12.5,margin:'3px 0'}}><input type="checkbox" checked={!!ev[e]} onChange={x=>setEv(s=>({...s,[e]:x.target.checked}))}/>{e}</label>)}
       </div>
     </div>
     <div style={{marginTop:14}}>
-      <Btn variant="primary" onClick={doTransfer} disabled={!can('GL.JE.CREATE')}>生成 A/B 双边 Draft JE</Btn>
-      {evDone<9 && <span className="muted sm" style={{marginLeft:12}}>Evidence missing: {missing.slice(0,3).join(' · ')}{missing.length>3?` 等${missing.length}项`:''}</span>}
+      <Btn variant="primary" onClick={doTransfer} disabled={!can('GL.JE.CREATE')}>Create A/B paired draft JEs</Btn>
+      {evDone<9 && <span className="muted sm" style={{marginLeft:12}}>Evidence missing: {missing.slice(0,3).join(' · ')}{missing.length>3?` and ${missing.length} more`:''}</span>}
     </div>
     {result && <div className="src-card" style={{marginTop:14}}>
       <div className="src-chain"><span className="chip">WBS Transfer</span>→<span className="chip chip-on">Pair {result.pair}</span>→<span className="chip">A OUT JE</span>→<span className="chip">B IN JE</span>→<span className="chip">IC Matching</span></div>
-      <div className="src-grid"><span><i>Cost Bridge</i><b>{money(result.carrying)} → {money(result.p)}</b></span><span><i>Gain/(Loss)</i><b>{money(result.gain)}</b></span><span><i>Evidence 缺</i><b>{result.missing.length} 项</b></span></div>
+      <div className="src-grid"><span><i>Cost Bridge</i><b>{money(result.carrying)} → {money(result.p)}</b></span><span><i>Gain/(Loss)</i><b>{money(result.gain)}</b></span><span><i>Missing evidence</i><b>{result.missing.length} items</b></span></div>
     </div>}
   </div>;
 }
