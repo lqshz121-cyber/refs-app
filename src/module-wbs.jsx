@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { KPI, Btn, Badge, Money, Table, Tabs, SectionTitle } from './ui.jsx';
 import { ENTITIES } from './data.js';
 import { money, sum } from './engine.js';
+import { WBS_AUTORECON_PROGRESS } from './wbs-autorecon-progress.js';
 
 // ============ Auto Bank Reconciliation (WBS 4-step pipeline) ============
 const STEPS = ['1 Company Screening','2 Data Processing & Release','3 Incur','4 Incurred List'];
@@ -31,9 +32,34 @@ export function AutoBankRec({ctx}) {
   const [step, setStep] = useState(0);
   const [rows, setRows] = useState(AB_SEED);
   const [sel, setSel] = useState(null);
+  return <div className="full-bleed">
+    <h2 className="page-h">Auto Bank Reconciliation</h2>
+    <section className="card" style={{marginBottom:16}}>
+      <SectionTitle>WBS to REFS integration status</SectionTitle>
+      <p className="muted sm"><Badge tone="warn">{WBS_AUTORECON_PROGRESS.status}</Badge> {WBS_AUTORECON_PROGRESS.liveEvidence}</p>
+      <Table rowKey="source" rows={WBS_AUTORECON_PROGRESS.sources} cols={[
+        {h:'WBS source',k:'source'}, {h:'REFS role',k:'role'}, {h:'Entry path',k:'entry'}, {h:'Required gate',k:'gate'},
+      ]}/>
+      <SectionTitle>Implemented accounting controls</SectionTitle>
+      <ul className="muted sm">{WBS_AUTORECON_PROGRESS.controls.map(control=><li key={control}>{control}</li>)}</ul>
+    </section>
+    <section className="card">
+      <SectionTitle>Static release safeguards</SectionTitle>
+      <p className="muted sm">This website is a read-only progress view. Release, Incur, journal creation, approval, posting, and source refresh remain unavailable here until the service returns an immutable WBS receipt and authoritative state.</p>
+      <Badge tone="muted">NO LOCAL POSTING</Badge>
+    </section>
+  </div>;
   const release = (id) => { setRows(rs=>rs.map(r=>r.entity_id===id?{...r, released:r.qty}:r)); ctx.toast('批次已 Release,进入 Incur 队列'); };
   const incur = (id) => { setRows(rs=>rs.map(r=>r.entity_id===id?{...r, r:'07/2026'}:r)); ctx.toast('已 Incur:生成银行流水 JE(见 Journal Entries)'); };
   return <div className="full-bleed">
+    <section className="card" style={{marginBottom:16}}>
+      <SectionTitle>WBS → REFS integration status</SectionTitle>
+      <p className="muted sm"><Badge tone="warn">{WBS_AUTORECON_PROGRESS.status}</Badge> {WBS_AUTORECON_PROGRESS.liveEvidence}</p>
+      <Table rowKey="source" rows={WBS_AUTORECON_PROGRESS.sources} cols={[
+        {h:'WBS source',k:'source'}, {h:'REFS role',k:'role'}, {h:'Entry path',k:'entry'}, {h:'Required gate',k:'gate'},
+      ]}/>
+      <ul className="muted sm">{WBS_AUTORECON_PROGRESS.controls.map(control=><li key={control}>{control}</li>)}</ul>
+    </section>
     <h2 className="page-h">自动银行对账 Auto Bank Reconciliation</h2>
     <div className="stepper">{STEPS.map((s,i)=><button key={s} className={`step-chip ${step===i?'step-on':''} ${i<step?'step-done':''}`} onClick={()=>setStep(i)}>{s}</button>)}</div>
     {step===0 && <><SectionTitle>Company List(制单/审核分派 · M/R/C 完成度)</SectionTitle>
@@ -54,18 +80,18 @@ export function AutoBankRec({ctx}) {
       <Table rowKey="entity_id" cols={[
         {h:'Company',k:'company'},{h:'待处理笔数',num:true,k:'qty'},{h:'金额',num:true,render:r=><Money v={r.amount}/>},
         {h:'校验',render:r=> r.qty>0 ? <Badge tone="ok">去重 ✓ 实体匹配 ✓ 期间 ✓</Badge> : <Badge tone="muted">无数据</Badge>},
-        {h:'操作',render:r=> r.qty>0 && r.released<r.qty ? <Btn size="sm" variant="primary" onClick={()=>release(r.entity_id)}>Release {r.qty} 笔</Btn> : <span className="muted sm">{r.qty?'已 Release':'—'}</span>},
+        {h:'Action',render:r=> r.qty>0 && r.released<r.qty ? <Btn size="sm" variant="primary" disabled title="WBS receipt and server command required">Release requires receipt</Btn> : <span className="muted sm">{r.qty?'Release evidence required':'—'}</span>},
       ]} rows={rows}/></>}
     {step===2 && <><SectionTitle>Incur(按映射规则生成分录)</SectionTitle>
       <Table rowKey="entity_id" cols={[
         {h:'Company',k:'company'},{h:'已 Release',num:true,k:'released'},
         {h:'规则',render:r=>'BANK→GL 映射 · Journal No 自动编号'},
-        {h:'操作',render:r=> r.released>0 && r.r!=='07/2026' ? <Btn size="sm" variant="primary" onClick={()=>incur(r.entity_id)}>Incur → 生成 JE</Btn> : <span className="muted sm">{r.released?'本期已 Incur':'—'}</span>},
+        {h:'Action',render:r=> r.released>0 && r.r!=='07/2026' ? <Btn size="sm" variant="primary" disabled title="POSTED PAYABLE_INCUR and AUTOC evidence required">Incur requires posted evidence</Btn> : <span className="muted sm">{r.released?'Incur evidence required':'—'}</span>},
       ]} rows={rows}/></>}
-    {step===3 && <><SectionTitle>Incurred List(已生成分录清单)</SectionTitle>
+    {step===3 && <><SectionTitle>Incurred List (demo-only; not server evidence)</SectionTitle>
       <Table exportName="abr-incurred" cols={[
         {h:'Journal No.',k:'jn'},{h:'Posting Date',k:'pd'},{h:'Source',render:r=><Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},
-        {h:'Payee',k:'payee'},{h:'Account',k:'acct'},{h:'金额',num:true,render:r=><Money v={r.amt}/>,csv:r=>r.amt},{h:'状态',render:r=><Badge>POSTED</Badge>},
+        {h:'Payee',k:'payee'},{h:'Account',k:'acct'},{h:'Amount',num:true,render:r=><Money v={r.amt}/>,csv:r=>r.amt},{h:'Status',render:r=><Badge tone="warn">DEMO — NOT EVIDENCE</Badge>},
       ]} rows={[
         {jn:'20260731000041', pd:'07/31/2026', src:'BANK', payee:'Pacific Bank', acct:'1000 Cash', amt:46000},
         {jn:'20260731000042', pd:'07/31/2026', src:'BANK', payee:'First National Bank', acct:'2500 Construction Loan', amt:500000},
