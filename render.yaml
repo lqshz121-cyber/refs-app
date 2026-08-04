@@ -97,7 +97,8 @@ services:
     buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
     pullRequestPreviewsEnabled: true
-    autoDeployTrigger: checksPass
+    # Publish the static client only with the API/worker release after staging smoke.
+    autoDeployTrigger: off
     envVars:
       # Public deployment coordinates only. OIDC tokens and database credentials
       # never enter the static build; the browser obtains a PKCE access token.
