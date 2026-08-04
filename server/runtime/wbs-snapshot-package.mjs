@@ -23,8 +23,8 @@ const without=(value,key)=>Object.fromEntries(Object.entries(value).filter(([nam
 function deliveryMetadata(snapshot){
   const delivery=snapshot.delivery;
   const started=Date.parse(delivery?.extract_started_at),completed=Date.parse(delivery?.extract_completed_at),captured=Date.parse(snapshot.captured_at);
-  if(!object(delivery)||!['READONLY_VIEW_EXPORT','SIGNED_SNAPSHOT_PACKAGE'].includes(delivery.mode)||!iso(delivery.extract_started_at)||!iso(delivery.extract_completed_at)||delivery.consistency!=='COMPLETE'||delivery.pagination!=='PRIMARY_KEY_SEEK'||completed<started||captured<started||captured>completed)fail('WBS_SNAPSHOT_DELIVERY_INVALID','Production WBS snapshots require a complete primary-key-paged delivery receipt.');
-  return Object.freeze({mode:delivery.mode,extract_started_at:delivery.extract_started_at,extract_completed_at:delivery.extract_completed_at,consistency:delivery.consistency,pagination:delivery.pagination});
+  if(!object(delivery)||!['READONLY_VIEW_EXPORT','SIGNED_SNAPSHOT_PACKAGE'].includes(delivery.mode)||!iso(delivery.extract_started_at)||!iso(delivery.extract_completed_at)||delivery.consistency!=='COMPLETE'||!['SNAPSHOT_ISOLATION','REPEATABLE_READ_TRANSACTION'].includes(delivery.read_consistency)||delivery.pagination!=='PRIMARY_KEY_SEEK'||completed<started||captured<started||captured>completed)fail('WBS_SNAPSHOT_DELIVERY_INVALID','Production WBS snapshots require a complete consistent primary-key-paged delivery receipt.');
+  return Object.freeze({mode:delivery.mode,extract_started_at:delivery.extract_started_at,extract_completed_at:delivery.extract_completed_at,consistency:delivery.consistency,read_consistency:delivery.read_consistency,pagination:delivery.pagination});
 }
 
 function fail(code,message){throw new WbsSnapshotError(code,message);}
