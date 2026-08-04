@@ -26,6 +26,19 @@ export async function refreshAuthoritativeDocuments({config,fetcher=globalThis.f
   try{const [bills,invoices,apAdjustments,arAdjustments]=await Promise.all([read('/ap/bills'),read('/ar/invoices'),read('/ap/adjustments'),read('/ar/adjustments')]);if(!bills||!invoices||!apAdjustments||!arAdjustments)return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative accounting refresh failed.'};return {ok:true,ap:{bills:bills.map(row=>documentRow(row,'AP_BILL')),adjustments:apAdjustments,dupBlocked:0},ar:{invoices:invoices.map(row=>documentRow(row,'AR_INVOICE')),adjustments:arAdjustments}};}catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative accounting refresh failed.'};}
 }
 
+export async function refreshAuthoritativeJournalEntries({config,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function')return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'No authoritative accounting API is configured.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/journal-entries`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal Entry read envelope.'};
+    const journals=body.data.map(row=>({...row,revision:Number(row.revision),ledger_line_count:Number(row.ledger_line_count)}));
+    if(journals.some(row=>!UUID.test(row.journal_entry_id||'')||!Number.isSafeInteger(row.revision)||row.revision<0||!Number.isSafeInteger(row.ledger_line_count)||row.ledger_line_count<0))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal Entry row.'};
+    return {ok:true,journals};
+  }catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative Journal Entry refresh failed.'};}
+}
+
 const failure=async response=>{let body;try{body=await response.json();}catch{}return {ok:false,code:typeof body?.code==='string'?body.code:'ACCOUNTING_API_UNAVAILABLE',message:response.status>=500?'Authoritative accounting command failed.':typeof body?.message==='string'?body.message:'Authoritative accounting command was rejected.'};};
 
 export async function createAuthoritativeBusinessDocument({config,kind,document,idempotencyKey,fetcher=globalThis.fetch}={}){

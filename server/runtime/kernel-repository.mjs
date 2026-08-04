@@ -250,6 +250,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listJournalEntries({tenantId,entityId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_journal_entries($1,$2)',[tenantId,entityId]
+    )).rows);
+  }
+
   async getApAging({tenantId,entityId,asOfDate}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_ap_aging($1,$2,$3::date)',[tenantId,entityId,asOfDate]

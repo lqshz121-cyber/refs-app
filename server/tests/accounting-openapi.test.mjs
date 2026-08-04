@@ -78,6 +78,15 @@ test('AP Bill and AR Invoice list reads are authenticated no-store operations',(
   assert.deepEqual(row.required,['business_document_id','document_number','counterparty_ref','counterparty_name','currency','accounting_date','gross_amount','open_balance','status','version','offset_account_code','description','journal_entry_id','journal_status','journal_revision','period_id']);
 });
 
+test('Journal Entry list read is authenticated, scoped and no-store',()=>{
+  const operation=contract.paths['/entities/{entityId}/journal-entries'].get;
+  assert.equal(operation.operationId,'listJournalEntries');assert.equal(operation.responses['200'].$ref,'#/components/responses/JournalEntryReadOk');
+  const row=contract.components.schemas.JournalEntryReadRow;
+  assert.equal(row.additionalProperties,false);
+  assert.deepEqual(row.required,['journal_entry_id','journal_number','journal_type','status','journal_date','currency','revision','created_at','ledger_line_count']);
+  assert.equal(contract.components.responses.JournalEntryReadOk.headers['Cache-Control'].schema.const,'no-store');
+});
+
 test('AP and AR adjustment list reads expose only the authoritative scoped adjustment envelope',()=>{
   for(const [path,operationId] of [['/entities/{entityId}/ap/adjustments','listApAdjustments'],['/entities/{entityId}/ar/adjustments','listArAdjustments']]){
     const operation=contract.paths[path].get;
