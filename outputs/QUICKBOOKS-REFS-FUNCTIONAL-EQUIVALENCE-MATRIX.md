@@ -2066,3 +2066,9 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
 |---|---|---|---|
 | Bank queue candidate review and full-page evidence drill | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Removed dormant local categorize/match/batch action code and the inline match dialog. Queue rows now expose a read-only candidate explanation and explicit `Open evidence detail`; the detail retains its full-page Back path to the originating queue or report context. | PARTIAL — local source/build and return contracts are verified; QBO Bank transactions behavior, filters, match/categorize permissions, audit, empty states and responsive layout remain unobserved. |
+
+## Receivables: Receipt evidence-only invoice list (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Invoice, Receipt and AR Aging drill chain | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Replaced the open-invoice auto-receipt action with an explicit unavailable receipt-evidence control. Existing retained receipts still drill Invoice → full-page evidence → posted JE / exact bank credit / Reconcile and Back restores Invoice, Receipt filter, or AR Aging scope. | PARTIAL — local receipt boundary, evidence lifecycle and return contracts are verified; QBO Invoice/Receipt controls, permissions, audit, empty states and responsive layout remain unobserved. |
