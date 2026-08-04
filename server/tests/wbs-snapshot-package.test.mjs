@@ -34,4 +34,6 @@ test('production snapshot packages require a detached Ed25519 signature outside 
 test('V2 delivery receipts fail closed unless a complete primary-key extract is declared',()=>{
   const incomplete={...make(),schema_version:'WBS_READONLY_SNAPSHOT_V2',delivery:{mode:'READONLY_VIEW_EXPORT',extract_started_at:'2026-08-03T10:01:00.000Z',extract_completed_at:'2026-08-03T10:00:00.000Z',consistency:'COMPLETE',pagination:'PRIMARY_KEY_SEEK'}};delete incomplete.package_hash;incomplete.package_hash=canonicalRequestHash(incomplete);
   assert.throws(()=>validateWbsSnapshotPackage(incomplete),error=>error instanceof WbsSnapshotError&&error.code==='WBS_SNAPSHOT_DELIVERY_INVALID');
+  const stale={...make(),schema_version:'WBS_READONLY_SNAPSHOT_V2',delivery:{mode:'READONLY_VIEW_EXPORT',extract_started_at:'2026-08-03T10:01:00.000Z',extract_completed_at:'2026-08-03T10:02:00.000Z',consistency:'COMPLETE',pagination:'PRIMARY_KEY_SEEK'}};delete stale.package_hash;stale.package_hash=canonicalRequestHash(stale);
+  assert.throws(()=>validateWbsSnapshotPackage(stale),error=>error instanceof WbsSnapshotError&&error.code==='WBS_SNAPSHOT_DELIVERY_INVALID');
 });

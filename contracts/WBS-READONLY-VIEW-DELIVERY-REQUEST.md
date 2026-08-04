@@ -27,7 +27,7 @@ REFS 只从 WBS 读取数据；不会写回 BGDATA、MySQL `accounting`、WBS �
 ## 抽取一致性与安全
 
 - 不要求 CDC、revision、tombstone 或 replay；REFS 会把每次拉取作为独立 immutable observation。
-- 请提供 ETL 时刻表。REFS 避开全量 delete+insert 窗口；若无法保证一致读，请输出完成标记的 **`WBS_READONLY_SNAPSHOT_V2`** 快照包（含 `snapshot_id`、captured_at、dictionary_version、每视图 content hash、`delivery.extract_started_at`／`extract_completed_at`、`consistency=COMPLETE`、`pagination=PRIMARY_KEY_SEEK`）。
+- 请提供 ETL 时刻表。REFS 避开全量 delete+insert 窗口；若无法保证一致读，请输出完成标记的 **`WBS_READONLY_SNAPSHOT_V2`** 快照包（含 `snapshot_id`、captured_at、dictionary_version、每视图 content hash、`delivery.extract_started_at`／`extract_completed_at`、`consistency=COMPLETE`、`pagination=PRIMARY_KEY_SEEK`）；`captured_at` 必须落在声明的提取窗口内。
 - 每页按稳定主键升序；提供固定 page size 与最后主键续传方式，禁止 OFFSET 分页。
 - 生产访问只允许 VPN/IP 白名单、TLS、最小权限账号；不得提供公网数据库、表级写权限或共享管理员账号。
 - 视图／包不得含 cookie、会话 URL、密码、AK/SK、附件对象路径或可复用访问令牌。
