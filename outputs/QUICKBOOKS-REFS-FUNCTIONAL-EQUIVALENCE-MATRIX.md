@@ -2054,3 +2054,9 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
 |---|---|---|---|
 | TB, GL Detail, Balance Sheet, Income Statement and Cash Flow report shell | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Normalized visible report category, tie-status, statement headings, dimension column, Reports Center breadcrumb and full-page GL drill labels to English. Amount drill still replaces the report with scoped transaction detail and `Back to [report]`; cash/control, CWIP/prepaid, restricted/escrow and related-party review boundaries remain explicit. | PARTIAL — local source/build drill contract verified; QBO reports catalog, layout, filters, permissions and populated drill behavior remain unobserved. |
+
+## Accounting: Reconciliation English read-only shell (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Statement bridge, local evidence and signed-history drill | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Replaced visible localized/malformed reconciliation labels with direct English. Removed dormant record/suspense/sign-off posting helpers; retained drill paths open full-page bank/JE/report evidence with explicit Back. Existing local review/reopen metadata remains separate from ledger evidence. | PARTIAL — source/read-only boundary/build verification only; QBO reconcile behavior, permissions, sign-off/audit, empty states and responsive layout remain unobserved. |

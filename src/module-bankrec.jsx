@@ -74,16 +74,13 @@ export function BankRec2({ctx}) {
   const reportScopeCompatible = Boolean(entity && localEvidence.entityId && entity === localEvidence.entityId);
   const openScopedReport = (route, tab, extra = {}) => goto(route, {route, tab, ...localReconciliationReportReturnContext({acctCode,period:a.period,statementDate:a.stmt_date,cashScope:localEvidence.master?.cash_scope,cashAccountCode:localEvidence.cashAccountCode,bankTxnId:sourceBankEvidence?.transaction?.bank_txn_id || null}), ...extra});
 
-  const record = (t) => { actions.bankRecord(acctCode, t.bank_txn_id); toast(`已入账：${t.suggest==='FEE'?'Dr 651000 Bank Fee / Cr Cash':'Dr Cash / Cr 482000 Interest Income'}`); };
   const match = (t) => { goto('banktx',{route:'banktx',acctCode,bankTxnId:t.bank_txn_id,queue:'Review'}); toast('Select an exact posted source JE before matching this bank item.'); };
-  const suspense = (t) => { actions.bankSuspense(acctCode, t.bank_txn_id); toast('已暂挂 142000 Suspense + 登记异常','warn'); };
-  const signoff = () => { const result=actions.bankSignoff(acctCode); if(result?.ok) toast('对账 Sign-off 完成，已写入对账历史'); };
   const requestReopen = () => { const result=actions.bankRequestReopen(acctCode,reopenReason); toast(result.ok?'Local reopen request retained; no JE was changed.':`Reopen request blocked: ${result.reason}` ,result.ok?'warn':'bad'); if(result.ok) setReopenReason(''); };
   const reviewReopen = approved => { const result=actions.bankReviewReopen(acctCode,approved); toast(result.ok?(approved?'Local reopen approved; re-reconcile before sign-off.':'Local reopen rejected; signed snapshot retained.'):`Reopen review blocked: ${result.reason}`,result.ok?'warn':'bad'); };
 
   if (historyDetail) return <div className="full-bleed qbo-transaction-report" aria-label="Local reconciliation sign-off detail">
     <div className="qbo-report-back"><button type="button" onClick={()=>navContext?.bankTransactionReturn?.route === 'banktx' ? goto('banktx',navContext.bankTransactionReturn) : setHistoryDetailId(null)}>{navContext?.bankTransactionReturn?.route === 'banktx' ? 'Back to bank transaction' : 'Back to reconciliation history'}</button><span>{navContext?.bankTransactionReturn?.route === 'banktx' ? 'Retained bank item → signed statement snapshot' : 'Retained sign-off detail'}</span></div>
-    <div className="gl-drill-head"><div><div className="gl-drill-crumb">Local reconciliation 路 immutable snapshot</div><h2 className="page-h">{historyDetail.entry.account} · {historyDetail.entry.period}</h2><div className="gl-drill-account">Statement cutoff {historyDetail.entry.stmt_date}</div></div><Badge tone={historyDetail.lifecycle==='SIGNED_OFF'?'ok':'warn'}>{historyDetail.lifecycle}</Badge></div>
+    <div className="gl-drill-head"><div><div className="gl-drill-crumb">Local reconciliation · immutable snapshot</div><h2 className="page-h">{historyDetail.entry.account} · {historyDetail.entry.period}</h2><div className="gl-drill-account">Statement cutoff {historyDetail.entry.stmt_date}</div></div><Badge tone={historyDetail.lifecycle==='SIGNED_OFF'?'ok':'warn'}>{historyDetail.lifecycle}</Badge></div>
     <div className="qbo-drill-summary"><span><i>Signed by / at</i><b>{historyDetail.entry.by || '—'} / {historyDetail.entry.at || '—'}</b></span><span><i>Snapshot difference</i><b>{money(historyDetail.snapshot.diff)}</b></span><span><i>Statement ending</i><b>{money(historyDetail.snapshot.statementEnding)}</b></span><span><i>Book balance</i><b>{money(historyDetail.snapshot.bookBalance)}</b></span><span><i>Retained bank items</i><b>{historyDetail.sourceTxnIds.length}</b></span><span><i>Snapshot policy</i><b>IMMUTABLE</b></span></div>
     <p className="report-drill-hint">A reopened/rejected request changes only reconciliation workflow metadata. It does not rewrite the signed snapshot, bank item, JE, GL/TB, or aging evidence.</p>
     <Table rowKey="bank_txn_id" features={{exportable:false}} cols={[{h:'Bank item',render:row=>row.external_id || row.bank_txn_id},{h:'Date',k:'txn_date'},{h:'Direction',k:'direction'},{h:'Amount',num:true,render:row=><Money v={row.amount}/>},{h:'Match',render:row=><Badge tone={row.match_status==='MATCHED'?'ok':'warn'}>{row.match_status}</Badge>},{h:'Cleared',render:row=><Badge tone={row.cleared?'ok':'muted'}>{row.cleared?'CLEARED':'NOT_CLEARED'}</Badge>},{h:'JE',render:row=>row.matched_je?<Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:row.matched_je,reconciliationReturn:localReconciliationJournalReturnContext({acctCode:historyDetail.entry.account,historyId:historyDetail.entry.id,bankTxnId:row.bank_txn_id})})}>{row.matched_je}</Btn>:<span className="muted">No retained JE</span>},{h:'Bank drill',render:row=><Btn size="sm" variant="ghost" onClick={()=>goto('banktx',{route:'banktx',acctCode:historyDetail.entry.account,bankTxnId:row.bank_txn_id,reconciliationReturn:{route:'bankrec',acctCode:historyDetail.entry.account,historyId:historyDetail.entry.id}})}>Open bank evidence</Btn>}]} rows={historyDetail.sourceTransactions} empty="No current local bank item matches this retained signed snapshot."/>
@@ -104,7 +101,7 @@ export function BankRec2({ctx}) {
     <p className="muted sm" style={{margin:'0 0 12px'}}>QBO account connection, tutorial playback, reconciliation setup, permissions, audit, empty states, and responsive behavior remain unverified. These observed actions are evidence-only in REFS. POSTED is not treated as reconciled.</p>
     {sourceBankEvidence && <div className="bank-health" role="status" style={{marginBottom:12}}><span className="bank-health-icon">i</span><div><b>{sourceBankEvidence.eligible ? 'Local matched bank evidence applied' : 'No eligible local bank evidence'}</b><p>{sourceBankEvidence.eligible ? `Opened from ${sourceBankEvidence.transaction.external_id}; this does not alter the reconciliation worksheet or sign-off eligibility.` : `The requested bank item cannot enter local reconciliation context (${sourceBankEvidence.reason}).`}</p></div></div>}
     <div className="loan-select">{Object.keys(bank.accounts).map(c=><button key={c} className={`chip ${acctCode===c?'chip-on':''}`} onClick={()=>setAcctCode(c)}>{c} · {bank.accounts[c].bank_name}</button>)}
-      <span className="muted sm" style={{marginLeft:'auto'}}>对账期间 {a.period} · 截止 {a.stmt_date}</span></div>
+      <span className="muted sm" style={{marginLeft:'auto'}}>Reconciliation period {a.period} · cutoff {a.stmt_date}</span></div>
     <div className="row-acts" style={{marginBottom:10}}>
       <Badge tone={localEvidence.master?.cash_scope==='Operating'?'ok':'warn'}>{localEvidence.master?.cash_scope || 'UNMAPPED CASH SCOPE'}</Badge>
       <Badge tone={localPhase==='SIGNED_OFF'||localPhase==='BALANCED'?'ok':'warn'}>{localPhase}</Badge>
@@ -147,14 +144,14 @@ export function BankRec2({ctx}) {
       <div className="recon-col">
         <div className="recon-title">Book side</div>
         <div className="kv"><span>GL Book Balance (111000)</span><Money v={bookBalance} bold/></div>
-        <div className="kv"><span>± 已入账调整 (Fees/Interest)</span><Money v={a.recorded_adj||0}/></div>
-        <div className="kv"><span>待入账调整（下表处理）</span><Money v={unrecordedAdj}/></div>
+        <div className="kv"><span>± Retained adjustments (fees / interest)</span><Money v={a.recorded_adj||0}/></div>
+        <div className="kv"><span>Unrecorded adjustments (review below)</span><Money v={unrecordedAdj}/></div>
         <div className="kv tot"><span>Adjusted Book Balance</span><Money v={adjBook} bold/></div>
       </div>
       <div className={`recon-diff ${canSign?'ok':'bad'}`}>
-        <div>差异 Difference</div>
+        <div>Difference</div>
         <div className="recon-diff-n">{money(diff)}</div>
-        <div className="sm">{canSign?'✓ 可 Sign-off':`${unmatched.length} 笔未处理`}</div>
+        <div className="sm">{canSign?'✓ Ready to sign off':`${unmatched.length} items awaiting review`}</div>
       </div>
     </div>
     <SectionTitle>Bank transactions ({txns.length} retained · {unmatched.length} unmatched)</SectionTitle>
@@ -194,7 +191,7 @@ export function BankRec2({ctx}) {
     <div className="muted sm" style={{marginTop:14}}>Strict local sign-off gate: {localReadiness.reason || 'READY'}.</div>
     <div style={{marginTop:14, display:'flex', gap:14, alignItems:'center'}}>
       <Btn variant="primary" disabled title="Reconciliation sign-off is unavailable in the retained-evidence workflow">Sign-off unavailable</Btn>
-      <span className="muted sm">{signedHistory ? `Signed off by ${signedHistory.by} on ${signedHistory.at}; duplicate sign-off is blocked.` : 'Adjusted Bank = Adjusted Book 且无未处理流水才可关闭'}</span>
+      <span className="muted sm">{signedHistory ? `Signed off by ${signedHistory.by} on ${signedHistory.at}; duplicate sign-off is blocked.` : 'Adjusted Bank must equal Adjusted Book and all retained items must be handled before sign-off.'}</span>
     </div>
     {reopen.entry && <section className="report-workbench" aria-label="Local reconciliation reopen workflow" style={{marginTop:14}}><div className="report-workbench-head"><div><b>Local reopen / correction request</b><div className="page-subtitle">Changes reconciliation workflow metadata only; JE, GL/TB, and Aging remain read-only POSTED evidence.</div></div><Badge tone={reopen.state==='SIGNED_OFF'?'ok':'warn'}>{reopen.state}</Badge></div><div className="qbo-toolgrid"><span><i>Signed snapshot difference</i><b>{money(reopen.snapshot?.diff)}</b></span><span><i>Signed bank items</i><b>{(reopen.snapshot?.source_txn_ids||[]).length}</b></span><span><i>Statement cutoff</i><b>{reopen.snapshot?.statementDate||'—'}</b></span></div><p className="muted sm">Reason: {reopen.entry.reopen_reason||'No correction request retained.'} Requester/reviewer: {reopen.entry.reopen_requested_by||'—'} / {reopen.entry.reopen_reviewed_by||'—'}.</p>{reopen.canRequest&&<div className="row-acts"><input aria-label="Reopen correction reason" value={reopenReason} onChange={event=>setReopenReason(event.target.value)} placeholder="Reason for correction"/><Btn size="sm" variant="ghost" onClick={requestReopen}>Request reopen</Btn></div>}{reopen.state==='REOPEN_REQUESTED'&&<div className="row-acts"><Btn size="sm" variant="primary" disabled={!can('CASH.RECON.SIGNOFF')} onClick={()=>reviewReopen(true)}>Approve reopen</Btn><Btn size="sm" variant="ghost" disabled={!can('CASH.RECON.SIGNOFF')} onClick={()=>reviewReopen(false)}>Reject request</Btn></div>}<p className="muted sm">Reopened periods must satisfy the current zero-difference and local-source gates again before a new sign-off. The retained signed snapshot is not overwritten.</p></section>}
     {bank.history.length>0 && <><SectionTitle>Reconciliation history</SectionTitle>
