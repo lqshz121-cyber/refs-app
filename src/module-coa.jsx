@@ -59,21 +59,11 @@ export function COAWorkspace({ctx}) {
         {h:'Type',render:r=><Badge tone={r.kind==='H'?'muted':r.kind==='T'?'ok':'warn'}>{r.kind==='H'?'Header':r.kind==='T'?'Total':'Posting'}</Badge>,csv:r=>r.kind},
         {h:'Level',num:true,k:'lvl'},
       ]} rows={filteredWbs} />
-      <p className="muted sm">This retained view follows the observed WBS “Chart of Accounts - ALL” structure: Header, Posting, and Total rows. Only Posting rows are eligible for accounting entries.</p>
+      <p className="muted sm">This retained view follows the observed WBS Chart of Accounts - ALL structure: Header, Posting, and Total rows. Only Posting rows are eligible for accounting entries.</p>
     </>}
     {tab!=='WBS Chart of Accounts (766)' && <>
     <div style={{marginBottom:12}}><Btn variant="primary" disabled title="Creating accounts is excluded from the retained-evidence workflow">+ New account unavailable</Btn></div>
-    <Table exportName="chart-of-accounts" rowKey="account_code" cols={localAccountColumns /*
-      {h:'编码',k:'account_code'},
-      {h:'科目名称',k:'account_name'},
-      {h:'类型',render:r=><Badge tone="muted">{r.account_type}</Badge>,csv:r=>r.account_type},
-      {h:'方向',k:'normal_balance'},
-      {h:'当前余额',num:true,render:r=><Money v={balOf(r.account_code)}/>,sortVal:r=>balOf(r.account_code),csv:r=>balOf(r.account_code)},
-      {h:'状态',render:r=> r.inactive? <Badge tone="bad">停用</Badge> : <Badge tone="ok">启用</Badge>,csv:r=>r.inactive?'停用':'启用'},
-      {h:'操作',render:r=> Math.abs(balOf(r.account_code))<0.005 ?
-        <Btn size="sm" variant="ghost" onClick={()=>{actions.toggleAccount(r.account_code); toast(r.inactive?'已启用':'已停用');}}>{r.inactive?'启用':'停用'}</Btn>
-        : <span className="muted sm" title="有余额的科目不可停用">余额≠0 锁定</span>},
-    */} rows={filteredCoa} />
+    <Table exportName="chart-of-accounts" rowKey="account_code" cols={localAccountColumns} rows={filteredCoa} />
     <p className="muted sm">Control rules: account codes are unique; accounts with balances cannot be inactivated; historical journal entries remain versioned.</p>
     </>}
     <Drawer open={showNew} onClose={()=>setShowNew(false)} title="Create account"
