@@ -117,7 +117,7 @@ export function GLTrialBalance({ctx}) {
   const bsSt = statements(bsPosted);
   const tbAsOf = trialBalance(bsPosted);
   const ORDER=['ASSET','LIABILITY','EQUITY','REVENUE','EXPENSE'];
-  const CN={ASSET:'璧勪骇 Assets',LIABILITY:'璐熷€?Liabilities',EQUITY:'鏉冪泭 Equity',REVENUE:'鏀跺叆 Revenue',EXPENSE:'璐圭敤 Expenses'};
+  const CN={ASSET:'Assets',LIABILITY:'Liabilities',EQUITY:'Equity',REVENUE:'Revenue',EXPENSE:'Expenses'};
   const groups = ORDER.map(t=>({t, rows: tbAsOf.rows.filter(r=>r.type===t)})).filter(g=>g.rows.length);
   const openAccounts = (rows,label,options={}) => setDrill({accounts:localGLDrillAccountCodes(rows),label,...options});
   const openJournalFromReport = (jeNumber, options = {}) => ctx.goto('je',{jeNumber,reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:'ALL',drillAccounts:options.drillAccounts || null,drillLabel:options.drillLabel || '',asOf:options.asOf === true})});
@@ -241,7 +241,7 @@ export function GLTrialBalance({ctx}) {
           <tr key={i} className="tr-click balance-row" onClick={()=>openAccounts([r],`${r.account_code} ${r.name}`,{asOf:true})}><td><span className="acct-code">{r.account_code}</span> {r.name}{registerTargetForReport(r) && <button type="button" className="source-drill" onClick={event=>{event.stopPropagation();ctx.goto('register',registerTargetForReport(r));}} title="Open retained local account register">Open local register</button>}</td><td className="ta-r"><Money v={r.debit}/></td><td className="ta-r"><Money v={r.credit}/></td><td className="ta-r"><Money v={r.balance}/></td></tr>)}
         </tbody>
         <tfoot><tr className="grand-row"><td>TOTAL</td><td className="ta-r"><Money v={tbAsOf.totalDebit} bold/></td><td className="ta-r"><Money v={tbAsOf.totalCredit} bold/></td>
-          <td className="ta-r"><Badge tone={Math.abs(tbAsOf.totalDebit-tbAsOf.totalCredit)<0.01?'ok':'bad'}>{Math.abs(tbAsOf.totalDebit-tbAsOf.totalCredit)<0.01?'鉁?骞宠　':'鉁?涓嶅钩'}</Badge></td></tr></tfoot>
+          <td className="ta-r"><Badge tone={Math.abs(tbAsOf.totalDebit-tbAsOf.totalCredit)<0.01?'ok':'bad'}>{Math.abs(tbAsOf.totalDebit-tbAsOf.totalCredit)<0.01?'✓ Balanced':'✓ Out of balance'}</Badge></td></tr></tfoot>
       </table></div>
     </>}
     {tab==='Balance Sheet' && (()=>{ const rhs=bsSt.liabilities+bsSt.equity+bsSt.netIncome; const ok=Math.abs(bsSt.assets-rhs)<0.01;
@@ -252,7 +252,7 @@ export function GLTrialBalance({ctx}) {
       const assetCategory=(row)=>row.account_code.startsWith('164') ? 'CWIP / development' : row.account_code.startsWith('161') ? 'Land and buildings' : row.account_code.startsWith('165') ? 'Prepaids' : 'Other assets';
       const nonCashGroups=['CWIP / development','Land and buildings','Prepaids','Other assets'].map(group=>({group,rows:nonCashAssetRows.filter(row=>assetCategory(row)===group)})).filter(group=>group.rows.length);
       return <div className="stmt stmt-wide">
-        <div className="stmt-h">Balance Sheet 路 As of {toP} <span className="muted sm">(cumulative posted local evidence · {dimensionLabel})</span></div>
+        <div className="stmt-h">Balance Sheet · As of {toP} <span className="muted sm">(cumulative posted local evidence · {dimensionLabel})</span></div>
         {!bsTb.rows.length ? <div className="empty">No posted local activity through {toP} for {dimensionLabel}.</div> : <>
         <div className="stmt-sec">Assets</div>
         {cashGroups.map(group=><div key={group.group}><div className="stmt-sec">{group.group} cash</div>{group.rows.map(r=>drillLine(`${r.account_code} ${r.name}`,[r],r.balance,{key:r.account_code,asOf:true,registerTarget:balanceSheetRegisterTarget(r)}))}{drillLine(`Total ${group.group} cash`,group.rows,sum(group.rows,row=>row.balance),{key:`cash-${group.group}`,isTotal:true,asOf:true})}</div>)}
@@ -265,7 +265,7 @@ export function GLTrialBalance({ctx}) {
         {sec('EQUITY').map(r=>drillLine(`${r.account_code} ${r.name}`,[r],-r.balance,{key:r.account_code,asOf:true}))}
         {drillLine(`Cumulative earnings through ${toP}`,[...sec('REVENUE'),...sec('EXPENSE')],bsSt.netIncome,{extraClass:'',asOf:true})}
         {drillLine('Total Liabilities & Equity',[...sec('LIABILITY'),...sec('EQUITY'),...sec('REVENUE'),...sec('EXPENSE')],rhs,{isTotal:true,asOf:true})}
-        <div className="stmt-row" style={{borderBottom:0}}><span>Check: Assets = L + E</span><Badge tone={ok?'ok':'bad'}>{ok?'鉁?Balanced':'鉁?Off by $'+Math.abs(bsSt.assets-rhs).toLocaleString()}</Badge></div>
+        <div className="stmt-row" style={{borderBottom:0}}><span>Check: Assets = L + E</span><Badge tone={ok?'ok':'bad'}>{ok?'✓ Balanced':'✓ Off by $'+Math.abs(bsSt.assets-rhs).toLocaleString()}</Badge></div>
         </>}
       </div>; })()}
     {tab==='Income Statement' && (()=>{ const rev=tb.rows.filter(r=>r.type==='REVENUE'); const exp=tb.rows.filter(r=>r.type==='EXPENSE');
@@ -275,7 +275,7 @@ export function GLTrialBalance({ctx}) {
       const revT=sum(rev,r=>-r.balance), cogsT=sum(cogs,r=>r.balance), opexT=sum(exp.filter(r=>!cogs.includes(r)),r=>r.balance);
       const expenseGroups=[['Property operations',propertyOps],['Interest and financing',interestExpense],['Capital / completion review',capitalReview],['General and administrative',generalAdmin],['Other operating expense · review',otherOpex]].filter(([,rows])=>rows.length);
       return <div className="stmt stmt-wide">
-        <div className="stmt-h">Income Statement 路 {fromP} ~ {toP} <span className="muted sm">(same-entity, same-dimension POSTED accrual evidence)</span></div>
+        <div className="stmt-h">Income Statement · {fromP} ~ {toP} <span className="muted sm">(same-entity, same-dimension POSTED accrual evidence)</span></div>
         {!rev.length && !exp.length ? <div className="empty-state"><b>{incomeScopeState.state === 'NO_LOCAL_EVIDENCE_IN_SCOPE' ? 'Select an entity before viewing Income Statement' : incomeScopeState.state === 'NO_POSTED_LOCAL_ACTIVITY' ? 'No POSTED local activity in this Income Statement scope' : 'No revenue or expense activity in this Income Statement scope'}</b><span>{incomeScopeState.detail}</span><small>Scope: {fromP} to {toP} · {dimensionLabel}. CWIP, prepaid, deposits, escrow and restricted cash are not substituted for P&L activity.</small></div> : <>
         {[["Rental income",rentalIncome],["Other property income",otherPropertyIncome],["Other income · review",otherIncome]].filter(([,rows])=>rows.length).map(([section,rows])=><div key={section}><div className="stmt-sec">{section}</div>{rows.map(r=>drillLine(`${r.account_code} ${r.name}`,[r],-r.balance,{key:r.account_code}))}</div>)}
         {drillLine('Total Income',rev,revT,{isTotal:true})}
@@ -294,7 +294,7 @@ export function GLTrialBalance({ctx}) {
         {h:'Source',render:r=>r.sourceTarget?<button type="button" className="source-drill" onClick={e=>{e.stopPropagation();ctx.goto(r.sourceTarget.route, r.sourceTarget.context);}} title={'Open '+r.src+' source workflow'}><Badge tone="muted">{r.src}</Badge></button>:<Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},
         {h:'Account',render:r=><span><span className="acct-code">{r.acct}</span> {r.name}</span>,csv:r=>r.acct},
         {h:'Property / Project / Loan',k:'dimensions'},
-        {h:'Memo / 鏍哥畻瀵硅薄',render:r=><span>{r.memo}{r.member?<Badge tone="muted" >{r.member.slice(0,18)}</Badge>:null}</span>,csv:r=>r.memo},
+        {h:'Memo / dimension member',render:r=><span>{r.memo}{r.member?<Badge tone="muted" >{r.member.slice(0,18)}</Badge>:null}</span>,csv:r=>r.memo},
         {h:'Debit',num:true,render:r=>r.dr?<Money v={r.dr}/>:'',sortVal:r=>r.dr,csv:r=>r.dr||''},
         {h:'Credit',num:true,render:r=>r.cr?<Money v={r.cr}/>:'',csv:r=>r.cr||''},
         {h:'Running balance',num:true,render:r=><Money v={r.runningBalance}/>,csv:r=>r.runningBalance},
@@ -307,7 +307,7 @@ export function GLTrialBalance({ctx}) {
       const ready=Math.abs(cashFlow.reconciliationDifference)<0.01 && !cashFlow.unclassified.length && Math.abs(cashFlow.closingCash-bsCash)<0.01;
       const totalScopeReady=Math.abs(cashFlow.totalClosingCash-totalBsCash)<0.01;
       return <div className="stmt stmt-wide">
-        <div className="stmt-h">Statement of Cash Flows 路 {fromP} ~ {toP} <span className="muted sm">(posted local cash evidence · {dimensionLabel})</span></div>
+        <div className="stmt-h">Statement of Cash Flows · {fromP} ~ {toP} <span className="muted sm">(posted local cash evidence · {dimensionLabel})</span></div>
         {!cashFlow.entries.length ? <div className="empty">No posted local cash activity for {fromP} ~ {toP} in {dimensionLabel}.</div> : <>
         <div className="stmt-row"><span>Opening operating cash before {fromP}</span><Money v={cashFlow.openingCash}/></div>
         {['Operating','Investing','Financing'].map(category=><div key={category} className="stmt-row drill-target" role="button" tabIndex={0} onClick={()=>openCategory(category)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openCategory(category);}}}><span>Cash from {category} Activities</span><button type="button" className="report-drill" onClick={e=>{e.stopPropagation();openCategory(category);}}><Money v={cashFlow[category.toLowerCase()]}/><span aria-hidden="true" className="drill-caret" /></button></div>)}
@@ -324,7 +324,7 @@ export function GLTrialBalance({ctx}) {
     {drill && (()=>{ const accounts=drill.accounts||[drill]; const label=drill.label||accounts.join(', '); const scopeComplete=dimensionEvidence.state==='LOCAL_SCOPE_COMPLETE'; const registerTarget=accounts.length===1 ? registerTargetForReport({account_code:accounts[0],name:label}) : null; const agingTarget=scopeComplete && accounts.length===1 && ['120200','291001'].includes(accounts[0]) ? {route:accounts[0]==='120200'?'ar':'ap',tab:accounts[0]==='120200'?'AR Aging':'AP Aging',asOfDate:reportAsOfDate,reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:'CONTROL',drillAccounts:[accounts[0]],drillLabel:label})} : null; const drillJournals=(drill.asOf?bsPosted:posted).filter(j=>!drill.journalNumbers || drill.journalNumbers.includes(j.je_number)); const lines=[]; drillJournals.forEach(j=>j.lines.forEach(l=>{ if(accounts.includes(l.account_code)) lines.push({je:j.je_number, date:j.je_date, desc:j.description, src:j.source_system, account:l.account_code, dr:l.debit_amount, cr:l.credit_amount, sourceTarget:sourceTargetFor(j,{asOf:drill.asOf === true})}); }));
       const drillDebit=sum(lines,r=>r.dr||0), drillCredit=sum(lines,r=>r.cr||0);
       const drillState=localGLDrillState(lines,label,drill.asOf?'Opening':fromP,toP); const canCrossDrill=!drillState.isEmpty;
-      return <div className="report-drill-panel qbo-transaction-report"><div className="qbo-report-back"><button type="button" onClick={()=>setDrill(null)}>Back to {tab}</button><span>Transaction detail</span></div><div className="gl-drill-head"><div><div className="gl-drill-crumb">General Ledger 路 Drilldown</div><h3>Transaction detail</h3><div className="gl-drill-account" title={label}>{label}</div></div><div className="gl-drill-actions"><span className="gl-drill-count"><b>{lines.length}</b> transactions</span>{registerTarget&&canCrossDrill?<Btn size="sm" variant="ghost" onClick={()=>ctx.goto('register',registerTarget)}>Open local register</Btn>:<Btn size="sm" variant="ghost" disabled title={canCrossDrill?(scopeComplete?'Only a single local cash or AR/AP control account can open Account Register':'Dimension scope requires review before any cross-workspace drill'):'No posted local activity exists in this scoped drill'}>No register scope</Btn>}{agingTarget&&canCrossDrill&&<Btn size="sm" variant="ghost" onClick={()=>ctx.goto(agingTarget.route,agingTarget)}>{agingTarget.route==='ar'?'Open AR Aging':'Open AP Aging'}</Btn>}<Btn size="sm" variant="ghost" onClick={()=>setDrill(null)}>Close</Btn></div></div>
+      return <div className="report-drill-panel qbo-transaction-report"><div className="qbo-report-back"><button type="button" onClick={()=>setDrill(null)}>Back to {tab}</button><span>Transaction detail</span></div><div className="gl-drill-head"><div><div className="gl-drill-crumb">General Ledger · Drilldown</div><h3>Transaction detail</h3><div className="gl-drill-account" title={label}>{label}</div></div><div className="gl-drill-actions"><span className="gl-drill-count"><b>{lines.length}</b> transactions</span>{registerTarget&&canCrossDrill?<Btn size="sm" variant="ghost" onClick={()=>ctx.goto('register',registerTarget)}>Open local register</Btn>:<Btn size="sm" variant="ghost" disabled title={canCrossDrill?(scopeComplete?'Only a single local cash or AR/AP control account can open Account Register':'Dimension scope requires review before any cross-workspace drill'):'No posted local activity exists in this scoped drill'}>No register scope</Btn>}{agingTarget&&canCrossDrill&&<Btn size="sm" variant="ghost" onClick={()=>ctx.goto(agingTarget.route,agingTarget)}>{agingTarget.route==='ar'?'Open AR Aging':'Open AP Aging'}</Btn>}<Btn size="sm" variant="ghost" onClick={()=>setDrill(null)}>Close</Btn></div></div>
       <div className="qbo-report-previewbar"><button type="button" onClick={()=>notify('Drill report refreshed')}>Refresh</button><button type="button" disabled title="QBO-style report customization is outside the retained local evidence scope">Customize unavailable</button><button type="button" disabled title="Business-data export is outside the local evidence scope">Export</button><button type="button" disabled title="Printing is outside the local evidence scope">Print</button><button type="button" onClick={()=>notify('Source trace controls opened')}>More actions</button></div>
       <div className="qbo-drill-summary"><span><i>Report period</i><b>{drill.asOf?`Opening ~ ${toP}`:`${fromP} ~ ${toP}`}</b></span><span><i>Dimension scope</i><b>{dimensionLabel}</b></span><span><i>Accounting method</i><b>Accrual</b></span><span><i>Total debit</i><b>{money(drillDebit)}</b></span><span><i>Total credit</i><b>{money(drillCredit)}</b></span></div>
       <div className="report-drill-hint">Select a journal entry to review its posting; open a source badge to continue into the originating workflow.</div>
@@ -475,7 +475,7 @@ export function Reports({ctx}) {
   const previewMeta = open ? reportRows.find(r=>r.name===open) : null;
   if (open) return <div className="reports-library report-replacement-view">
     <div className="qbo-report-back"><button type="button" onClick={()=>{setOpen(null);setPreviewTool(null);setMenuReport(null)}}>Back to Reports Center</button><span>{previewMeta?.capability.state==='LOCAL_PREVIEW'?'Local report detail':'Reference-only report'}</span></div>
-    <div className="report-preview-head"><div className="report-preview-titlewrap"><div className="report-preview-crumb">Reports Center 路 {previewMeta?.capability.state==='LOCAL_PREVIEW'?'Local evidence':'Observed reference'}</div><SectionTitle>{open}</SectionTitle><p className="page-subtitle">{previewMeta?.capability.state==='LOCAL_PREVIEW'?'This replaces the report list. It uses retained local evidence only; use Back to return to the same Reports Center.':'This replaces the report list with an explicit unavailable state. It does not expose source data, a connector, or a local workflow.'}</p></div>{previewMeta && <div className="report-preview-meta"><span><i>Category</i><b>{previewMeta.category}</b></span><span><i>Capability</i><b>{previewMeta.capability.label}</b></span><span><i>Evidence</i><b><Badge tone={previewMeta.evidenceState==='AVAILABLE_LOCAL_EVIDENCE'?'ok':previewMeta.evidenceState==='REVIEW_REQUIRED'?'warn':'muted'}>{previewMeta.evidenceState}</Badge></b></span></div>}</div>
+    <div className="report-preview-head"><div className="report-preview-titlewrap"><div className="report-preview-crumb">Reports Center · {previewMeta?.capability.state==='LOCAL_PREVIEW'?'Local evidence':'Observed reference'}</div><SectionTitle>{open}</SectionTitle><p className="page-subtitle">{previewMeta?.capability.state==='LOCAL_PREVIEW'?'This replaces the report list. It uses retained local evidence only; use Back to return to the same Reports Center.':'This replaces the report list with an explicit unavailable state. It does not expose source data, a connector, or a local workflow.'}</p></div>{previewMeta && <div className="report-preview-meta"><span><i>Category</i><b>{previewMeta.category}</b></span><span><i>Capability</i><b>{previewMeta.capability.label}</b></span><span><i>Evidence</i><b><Badge tone={previewMeta.evidenceState==='AVAILABLE_LOCAL_EVIDENCE'?'ok':previewMeta.evidenceState==='REVIEW_REQUIRED'?'warn':'muted'}>{previewMeta.evidenceState}</Badge></b></span></div>}</div>
     <div className="qbo-report-previewbar"><button type="button" disabled={previewMeta?.capability.state!=='LOCAL_PREVIEW'} onClick={()=>ctx.toast('Local report view refreshed')}>Refresh</button><button type="button" className={previewTool==='Scope'?'on':''} onClick={()=>setPreviewTool(t=>t==='Scope'?null:'Scope')}>Evidence scope</button><button type="button" disabled title="Custom report creation is outside the local evidence scope">Save As</button><button type="button" disabled title="Printing is outside the local evidence scope">Print</button><button type="button" disabled title="Business-data export is outside the local evidence scope">Export</button></div>
     {previewTool==='Scope' && <div className="qbo-report-toolpanel qbo-preview-toolpanel"><div><b>Local evidence scope</b><span>Entity, period, dimension, account/control account and retained local source evidence are passed only by the destination workflow.</span></div><div className="qbo-toolgrid"><span><i>Authority</i><b>Local POSTED evidence</b></span><span><i>External delivery</i><b>Unavailable</b></span><span><i>QBO equivalence</i><b>Not claimed</b></span></div></div>}
     {previewMeta?.capability.state==='LOCAL_PREVIEW' && REPORTS[open]
@@ -485,12 +485,12 @@ export function Reports({ctx}) {
   return <div className="reports-library">
     <div className="accounting-page-head reports-head">
       <div>
-        <div className="page-eyebrow">FINANCIAL INTELLIGENCE 路 CONTROLLED REPORTING</div>
+        <div className="page-eyebrow">FINANCIAL INTELLIGENCE · CONTROLLED REPORTING</div>
         <h2 className="page-h">Reports Center</h2>
         <div className="reports-clean-title">Reports Center</div>
         <div className="page-subtitle">Local financial statements, aging, and reconciliation evidence with scoped drill-down context.</div>
       </div>
-      <div className="report-period-chip"><span>Reporting basis</span><b>Accrual 路 FY2026</b><small>{entity ? 'Entity ' + entity : 'Entity required'}</small></div>
+      <div className="report-period-chip"><span>Reporting basis</span><b>Accrual · FY2026</b><small>{entity ? 'Entity ' + entity : 'Entity required'}</small></div>
     </div>
     <nav aria-label="Observed QuickBooks Reports navigation" className="report-shelf" style={{marginBottom:12}}>
       {['Financial statements','Aging & reconciliation'].map(item=><span className="report-shelf-chip" key={item}>{item}</span>)}
@@ -506,7 +506,7 @@ export function Reports({ctx}) {
       <div className="qbo-toolgrid"><div><b>Included</b>{REPORT_BUSINESS_SCOPE.included.map(item=><div key={item} className="muted sm">{item}</div>)}</div><div><b>Reference-only or excluded</b>{REPORT_BUSINESS_SCOPE.excluded.map(item=><div key={item} className="muted sm">{item}</div>)}</div></div>
       <p className="muted sm" style={{margin:'10px 0 0'}}>QBO navigation is evidence only. REFS does not build or connect external sales channels, apps, spreadsheet sync, bulk sync, or multi-company reporting unless this business later requires them.</p>
     </section>
-    <div className="report-shelf"><span className="report-shelf-chip report-shelf-chip-on">Local control reports</span><span className="report-shelf-chip">Construction & WBS</span><span className="report-shelf-chip">Control reports</span><span className="report-shelf-chip">Drill to ledger</span><span className="report-shelf-spacer" /><span className="report-shelf-note">Posted-evidence cadence 路 source-linked</span></div>
+    <div className="report-shelf"><span className="report-shelf-chip report-shelf-chip-on">Local control reports</span><span className="report-shelf-chip">Construction & WBS</span><span className="report-shelf-chip">Control reports</span><span className="report-shelf-chip">Drill to ledger</span><span className="report-shelf-spacer" /><span className="report-shelf-note">Posted-evidence cadence · source-linked</span></div>
     <div className="qbo-report-centerbar">
       <label className="qbo-report-search"><span aria-hidden="true" /><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Type report name here" /></label>
       <button type="button" disabled title="Custom report creation is not adopted for the local close workflow">Create new report</button>
@@ -591,7 +591,7 @@ export function Reports({ctx}) {
       </Card>)}</div>
     <SectionTitle>Retained report workbench</SectionTitle>
     <div className="report-workbench">
-      <div className="report-workbench-head"><div><div className="report-preview-crumb">Reports Center 璺?Workbench</div><div className="page-subtitle">Browse linked statements, operational reports and WBS control packs with a consistent drill path.</div></div><div className="report-preview-meta"><span><i>Reports</i><b>{reportRows.length}</b></span><span><i>Linked statements</i><b>{reportRows.filter(r=>r.route==='gl').length}</b></span><span><i>Preview-only</i><b>{reportRows.filter(r=>!r.route).length}</b></span></div></div>
+      <div className="report-workbench-head"><div><div className="report-preview-crumb">Reports Center · Workbench</div><div className="page-subtitle">Browse linked statements, operational reports and WBS control packs with a consistent drill path.</div></div><div className="report-preview-meta"><span><i>Reports</i><b>{reportRows.length}</b></span><span><i>Linked statements</i><b>{reportRows.filter(r=>r.route==='gl').length}</b></span><span><i>Preview-only</i><b>{reportRows.filter(r=>!r.route).length}</b></span></div></div>
       <Table exportName="reports-workbench" features={{exportable:false}} className="table-journal-entries reports-workbench-table" onRow={r=>r.capability.state==='REFERENCE_ONLY' ? undefined : launchReport(r.name, r.route)} pageSize={12} cols={[
         {h:'Report',render:r=><span className="rep-table-name">{r.name}</span>,csv:r=>r.name},
         {h:'Category',render:r=><Badge tone="muted">{r.category}</Badge>,csv:r=>r.category},

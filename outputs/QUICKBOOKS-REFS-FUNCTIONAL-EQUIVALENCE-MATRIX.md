@@ -2048,3 +2048,9 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
 |---|---|---|---|
 | COA local evidence, account drill and controls | No fresh QBO evidence: the read-only browser bridge returned no auditable tab (`tabs.list()` returned an empty list). | Removed dormant account-create drawer and account-write code as well as legacy localized tab aliases. COA now presents English-only reference/posting-account tabs, name-or-number filter, disabled write/export/batch controls, and retained Register/GL drills with return context. | PARTIAL — direct source, business boundary and build verification only; QBO COA layout, populated fields, permissions, audit and drill behavior remain unobserved. |
+
+## Reports: English full-page statement and drill shell (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| TB, GL Detail, Balance Sheet, Income Statement and Cash Flow report shell | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Normalized visible report category, tie-status, statement headings, dimension column, Reports Center breadcrumb and full-page GL drill labels to English. Amount drill still replaces the report with scoped transaction detail and `Back to [report]`; cash/control, CWIP/prepaid, restricted/escrow and related-party review boundaries remain explicit. | PARTIAL — local source/build drill contract verified; QBO reports catalog, layout, filters, permissions and populated drill behavior remain unobserved. |
