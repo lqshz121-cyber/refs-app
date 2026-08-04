@@ -61,13 +61,13 @@ export function APWorkspace({ctx}) {
   const expenseReviewExceptions = localExpenseReviewExceptions({bills,vendorCredits,vendors:VENDORS,coa:COA});
   const selectedCredit = vendorCredits.find(credit => credit.journal.je_number === selectedCreditKey) || null;
   const selectedException = expenseReviewExceptions.find(exception => exception.exception_id === selectedExceptionId) || null;
-  const localTabFor = value => ({Payments:'浠樻 Payments','AP Aging':'璐﹂緞 Aging',Vendors:'渚涘簲鍟?Vendors'})[value] || value;
+  const localTabFor = value => ({Payments:'Payments','AP Aging':'AP Aging',Vendors:'Vendors'})[value] || value;
   const queueBills = filterLocalBillQueue(bills, billQueueView);
   const visibleBills = filterExpenseEvidence(queueBills, {transactionType, dateRange, status:statusFilter, query, fromDate, toDate, vendorId, categoryCode});
   const expenseTransactionRows = localExpenseTransactionRows({bills:visibleBills,vendorCredits});
   useEffect(() => {
     if (navContext?.route !== 'ap') return;
-    if (['Bills','Payments','Vendors','AP Aging','浠樻 Payments','璐﹂緞 Aging','渚涘簲鍟?Vendors'].includes(navContext.tab)) setTab(localTabFor(navContext.tab));
+    if (['Bills','Payments','Vendors','AP Aging'].includes(navContext.tab)) setTab(localTabFor(navContext.tab));
   }, [navContext?.route, navContext?.tab]);
   useEffect(()=>{ try { localStorage.setItem('refs_expense_columns', JSON.stringify(columnVisibility)); } catch {} }, [columnVisibility]);
   const toggleColumn = key => setColumnVisibility(current=>({...current, [key]:!current[key]}));
@@ -160,7 +160,7 @@ export function APWorkspace({ctx}) {
     closeDetail();
   };
   useEffect(() => {
-    if (tab !== '璐﹂緞 Aging') setAgingDetailScope(null);
+    if (tab !== 'AP Aging') setAgingDetailScope(null);
   }, [tab]);
   const selectedBillPayment = bills.find(candidate => candidate.bill_id === selectedBillPaymentId) || null;
   if (selectedBillPayment) return <PaymentEvidenceDetail bill={selectedBillPayment} paymentReturn={{route:'ap',tab:'Bills',billId:selectedBillPayment.bill_id,billDetail:true}} onClose={()=>setSelectedBillPaymentId(null)} backLabel="Back to Bill" ctx={ctx} />;
@@ -200,7 +200,7 @@ export function APWorkspace({ctx}) {
       <div><b>Need extra help categorizing transactions?</b><p className="muted sm" style={{margin:'4px 0 0'}}>Start your 30-day free trial of Intuit Expert Assisted now. Cancel anytime. Terms apply.</p><span className="muted sm">Observed QBO offer shell; enrollment, eligibility, and destination behavior remain unavailable in REFS.</span></div>
       <div style={{display:'flex',gap:8,alignItems:'center',whiteSpace:'nowrap'}}><Btn size="sm" disabled>Learn more</Btn><Btn size="sm" variant="ghost" onClick={()=>setShowExpertAssisted(false)}>Close</Btn></div>
     </section>}
-    <Tabs tabs={['Bills','浠樻 Payments','璐﹂緞 Aging','渚涘簲鍟?Vendors']} active={tab} onChange={setTab} />
+    <Tabs tabs={['Bills','Payments','AP Aging','Vendors']} active={tab} onChange={setTab} />
     {tab==='Bills' && <>
       <div role="tablist" aria-label="Observed QuickBooks Bills queues" style={{display:'flex',gap:8,flexWrap:'wrap',margin:'0 0 12px'}}>
         {['All', ...LOCAL_BILL_QUEUE_VIEWS].map(view=><button key={view} type="button" role="tab" aria-selected={billQueueView===view} className={billQueueView===view?'btn btn-sm':'btn btn-ghost btn-sm'} onClick={()=>{setBillQueueView(view);setStatusFilter('ALL');}}>{view}</button>)}
@@ -240,9 +240,9 @@ export function APWorkspace({ctx}) {
         ]} rows={expenseReviewExceptions} empty="No retained local expense exceptions match this scope." />
       </section>
     </>}
-    {tab==='浠樻 Payments' && <PaymentRun ctx={ctx} />}
-    {tab==='璐﹂緞 Aging' && <Aging bills={bills} journals={jes || []} bankTransactions={bankTransactions} vendorCredits={vendorCredits} entityId={ctx.entity || null} vendorId={vendorId} initialAsOfDate={agingDetailScope?.asOfDate || navContext?.asOfDate} initialBucket={agingDetailScope?.agingBucket || navContext?.agingBucket} onOpen={openBillDetail} onOpenCredit={(creditKey,scope)=>openAgingCreditDetail(creditKey,scope)} onScopeChange={scope=>setAgingDetailScope(localApAgingReturnContext(scope))} onOpenJournal={(jeNumber,scope)=>ctx.goto('je',{jeNumber,expenseReturn:localApAgingReturnContext({vendorId,...scope})})} />}
-    {tab==='渚涘簲鍟?Vendors' && <VendorWorkspace bills={bills} journals={jes || []} bankTransactions={bankTransactions} initialVendorId={navContext?.vendorEvidenceId} onCreateBill={vendorId=>{setNewBillVendorId(vendorId);setShowNew(true);}} onOpenJournal={jeNumber=>ctx.goto('je',{jeNumber})} onOpenBill={(billId,vendorEvidenceId)=>openVendorBillDetail(billId,vendorEvidenceId)} onOpenVendor={(vendorId, targetTab)=>{const target=localVendorWorkflowTarget(vendorId,targetTab); if(target) ctx.goto(target.route,target.context);}} />}
+    {tab==='Payments' && <PaymentRun ctx={ctx} />}
+    {tab==='AP Aging' && <Aging bills={bills} journals={jes || []} bankTransactions={bankTransactions} vendorCredits={vendorCredits} entityId={ctx.entity || null} vendorId={vendorId} initialAsOfDate={agingDetailScope?.asOfDate || navContext?.asOfDate} initialBucket={agingDetailScope?.agingBucket || navContext?.agingBucket} onOpen={openBillDetail} onOpenCredit={(creditKey,scope)=>openAgingCreditDetail(creditKey,scope)} onScopeChange={scope=>setAgingDetailScope(localApAgingReturnContext(scope))} onOpenJournal={(jeNumber,scope)=>ctx.goto('je',{jeNumber,expenseReturn:localApAgingReturnContext({vendorId,...scope})})} />}
+    {tab==='Vendors' && <VendorWorkspace bills={bills} journals={jes || []} bankTransactions={bankTransactions} initialVendorId={navContext?.vendorEvidenceId} onCreateBill={vendorId=>{setNewBillVendorId(vendorId);setShowNew(true);}} onOpenJournal={jeNumber=>ctx.goto('je',{jeNumber})} onOpenBill={(billId,vendorEvidenceId)=>openVendorBillDetail(billId,vendorEvidenceId)} onOpenVendor={(vendorId, targetTab)=>{const target=localVendorWorkflowTarget(vendorId,targetTab); if(target) ctx.goto(target.route,target.context);}} />}
     <NewBill open={showNew} initialVendorId={newBillVendorId} onClose={()=>{setShowNew(false);setNewBillVendorId('');}} ctx={ctx} />
   </div>;
 }

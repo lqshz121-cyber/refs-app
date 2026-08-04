@@ -30,8 +30,8 @@ class ErrorBoundary extends Component {
     if(this.state.err){
       return (
         <div className="empty" style={{margin:24,textAlign:'left',padding:'28px 30px'}}>
-          <h3 style={{marginTop:0,color:'var(--bad)'}}>此页面加载出错</h3>
-          <div className="muted sm" style={{marginBottom:14}}>该模块渲染异常，应用其余部分仍可正常使用。请切换到其他页面，或刷新重试。</div>
+          <h3 style={{marginTop:0,color:'var(--bad)'}}>This page could not load</h3>
+          <div className="muted sm" style={{marginBottom:14}}>This module encountered a rendering error. Other parts of the application remain available; switch pages or refresh to try again.</div>
           <pre style={{whiteSpace:'pre-wrap',fontSize:12,color:'var(--text-2)',background:'var(--bg-canvas)',padding:'10px 12px',borderRadius:8,overflow:'auto'}}>{String(this.state.err && this.state.err.message || this.state.err)}</pre>
         </div>
       );
@@ -71,11 +71,11 @@ const ROLE_PERMS = {
 };
 const NAV = [
   {group:'Control Center', icon:'◉', items:[['dashboard','Dashboard'],['approvals','Action Required'],['aireview','AI Audit Center']]},
-  {group:'Accounting Settings', icon:'⚙', items:[['setting','四大 Setting'],['rules','Rule Center'],['mapping','Mapping Center']]},
+  {group:'Accounting Settings', icon:'⚙', items:[['setting','Configuration'],['rules','Rule Center'],['mapping','Mapping Center']]},
   {group:'Source & Staging', icon:'⇅', items:[['staging','Accounting Staging'],['sourcedocs','Source Documents'],['integration','Integration Hub'],['exceptions','Mapping Exceptions']]},
   {group:'Auto Reconciliation', icon:'⟳', items:[['autobankrec','Bank Batch Pipeline'],['banktx','Bank Transaction Matching'],['bankrec','Reconciliation Worksheet'],['checks','Checks & Payments']]},
   {group:'Journal Entry', icon:'✎', items:[['je','Journal Entries']]},
-  {group:'General Ledger', icon:'☰', items:[['gl','GL / TB / BS / IS'],['register','Account Inquiry'],['subledger','辅助核算 Subsidiary'],['coa','Chart of Accounts']]},
+  {group:'General Ledger', icon:'☰', items:[['gl','GL / TB / BS / IS'],['register','Account Inquiry'],['subledger','Subsidiary Ledger'],['coa','Chart of Accounts']]},
   {group:'Real Estate Accounting', icon:'▲', items:[['cost','Project Cost & CWIP'],['unitcost','Unit Cost Ledger'],['unittransfer','Unit Transfer'],['loan','Construction Loan'],['loanreg','Loan Register'],['pmpickup','Property Ops Pickup'],['closing','Closing Accounting'],['intercompany','Intercompany'],['assets','Fixed Assets']]},
   {group:'Close', icon:'☑', items:[['close','Month-End Close']]},
   {group:'Reports', icon:'▤', items:[['reports','Reports Center']]},
@@ -119,12 +119,12 @@ function Login({onLogin}) {
     <div className="login-card">
       <div className="login-logo">◈ REFS</div>
       <div className="login-sub">WanBridge Real Estate Financial System</div>
-      <label className="login-label">登录账号（演示环境 · 角色由账号决定）</label>
+      <label className="login-label">Sign-in account (demo environment; role is determined by the account)</label>
       <select value={u} onChange={e=>setU(e.target.value)}>
         {USERS.map(x=><option key={x.user_id} value={x.user_id}>{x.name} · {x.role_code}</option>)}
       </select>
-      <button className="btn btn-primary login-btn" onClick={()=>onLogin(u)}>登录 Sign in</button>
-      <div className="login-note">生产环境将接入 SSO/OIDC。角色与权限来自登录身份，页面内不可切换。</div>
+      <button className="btn btn-primary login-btn" onClick={()=>onLogin(u)}>Sign in</button>
+      <div className="login-note">Production uses SSO/OIDC. Roles and permissions come from the authenticated identity and cannot be switched in the page.</div>
     </div>
   </div>;
 }
@@ -183,12 +183,12 @@ function App() {
     advanceJE: (id, next, label) => { audit(label||next,'JE','#'+id,''); return setJes(js=>js.map(j=>{
       if(j.je_id!==id) return j;
       if((next==='APPROVED'||next==='POSTED') && j.created_by===userId && user.role_code!=='CONTROLLER'){
-        showToast('SoD 拦截 [4009]：创建人不可审批/过账本分录','bad'); return j; }
+        showToast('SoD block [4009]: the creator cannot approve or post this journal entry.','bad'); return j; }
       return {...j, posting_status:next, history:[...(j.history||[]),{a:label||next,by:userId,at:'2026-07-31'}]};
     })); },
     reverseJE: (id) => setJes(js=>{ const src = js.find(j=>j.je_id===id); const nid=nextId();
       const rev = {...structuredClone(src), je_id:nid, je_number:'JE-REV-'+nid, posting_status:'POSTED', je_type:'REVERSAL',
-        description:'红字反冲: '+src.description, history:[{a:'REVERSAL of '+src.je_number,by:userId,at:'2026-07-31'}],
+        description:'Reversal: '+src.description, history:[{a:'REVERSAL of '+src.je_number,by:userId,at:'2026-07-31'}],
         lines:src.lines.map(l=>({...l, debit_amount:l.credit_amount, credit_amount:l.debit_amount}))};
       return js.map(j=>j.je_id===id?{...j, posting_status:'REVERSED'}:j).concat(rev); }),
     ensureException: (spec) => setExceptions(xs=>{ if(xs.some(e=>e.exception_type===spec.exception_type && e.object_ref===spec.object_ref && e.status!=='CLOSED')) return xs;
@@ -232,12 +232,12 @@ function App() {
       const adj = t.direction==='CREDIT'? t.amount : -t.amount; acc.recorded_adj=(acc.recorded_adj||0)+adj;
       t.matched_je = t.suggest==='FEE'?'Dr Bank Fee / Cr Cash':'Dr Cash / Cr Interest Income'; return a; }),
     bankMatch: (acctCode, txnId) => setBank(s=>{ const a=structuredClone(s); const acc=a.accounts[acctCode];
-      const t=acc.txns.find(x=>x.bank_txn_id===txnId); t.match_status='MATCHED'; t.matched_je='手工匹配';
+      const t=acc.txns.find(x=>x.bank_txn_id===txnId); t.match_status='MATCHED'; t.matched_je='MANUAL_MATCH';
       const adj = t.direction==='CREDIT'? t.amount : -t.amount; acc.recorded_adj=(acc.recorded_adj||0)+adj; return a; }),
     bankSuspense: (acctCode, txnId) => { setBank(s=>{ const a=structuredClone(s); const acc=a.accounts[acctCode];
         const t=acc.txns.find(x=>x.bank_txn_id===txnId); t.match_status='MATCHED'; t.matched_je='→ 9000 Suspense';
         const adj = t.direction==='CREDIT'? t.amount : -t.amount; acc.recorded_adj=(acc.recorded_adj||0)+adj; return a; });
-      actions.ensureException({exception_type:'SUSPENSE_BALANCE', severity:'MEDIUM', object_type:'BANK_TXN', object_ref:'txn#'+txnId, entity_id:entity||4, owner:'TREASURY', root_cause:'银行交易无法识别，暂挂 Suspense'}); },
+      actions.ensureException({exception_type:'SUSPENSE_BALANCE', severity:'MEDIUM', object_type:'BANK_TXN', object_ref:'txn#'+txnId, entity_id:entity||4, owner:'TREASURY', root_cause:'Unidentified bank transaction held in suspense'}); },
     bankSignoff: (acctCode) => setBank(s=>({...s, history:[{id:Date.now(), account:acctCode, period:s.accounts[acctCode].period, diff:0, by:userId, at:'2026-07-31'}, ...s.history]})),
     // ---- COA ----
     addAccount: (f) => { if (coa.some(a=>a.account_code===f.account_code)) return {dup:true};
@@ -260,7 +260,7 @@ function App() {
   return <div className="app"><SingletonNavigationDirect goto={goto}/>
     <aside className={`sidebar ${mobileNav?'mobile-open':''}`}>
       <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
-      <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New 新建</button>
+      <button className="new-btn" onClick={()=>setNewMenu(true)}>New</button>
       <nav>{nav.map(g=>{ const opened = openGroups[g.group] ?? g.items.some(([k])=>route===k);
         return <div key={g.group} className="nav-group">
         <button className="nav-group-h" onClick={()=>setOpenGroups(o=>({...o,[g.group]:!opened}))}>
@@ -272,19 +272,19 @@ function App() {
     <div className="main">
       <header className="topbar">
         <button className="mobile-nav-btn" aria-label="Open navigation" onClick={()=>setMobileNav(true)}>☰</button>
-        <label className="sw"><select value={entity} onChange={e=>setEntity(+e.target.value)}><option value={0}>全部实体 All Entities</option>{ENTITIES.map(en=><option key={en.entity_id} value={en.entity_id}>{en.entity_code} {en.entity_name}</option>)}</select></label>
-        <button className="cmdk" onClick={()=>setPalette(true)}>⌘K 全局搜索 / 跳转</button>
+        <label className="sw"><select value={entity} onChange={e=>setEntity(+e.target.value)}><option value={0}>All entities</option>{ENTITIES.map(en=><option key={en.entity_id} value={en.entity_id}>{en.entity_code} {en.entity_name}</option>)}</select></label>
+        <button className="cmdk" onClick={()=>setPalette(true)}>Command palette</button>
         <div className="top-right">
           <span className="period-chip"><span className="period-label">Period</span><b>2026-07</b><span className={`badge badge-${period.status==='OPEN'?'ok':'muted'}`}>{period.status}</span></span>
-          <button className="icon-btn" title="帮助" onClick={()=>showToast('帮助中心(原型)')}>?</button>
-          <button className="icon-btn" title="通知" onClick={()=>setRoute('exceptions')}>🔔</button>
-          <button className="icon-btn" onClick={()=>actions.resetData()} title="重置演示数据">⟲</button>
-          <button className="icon-btn" onClick={()=>setDark(d=>!d)} title="明/暗">{dark?'☀':'☾'}</button>
+          <button className="icon-btn" title="Help" onClick={()=>showToast('Help center is not available in this demo.')}>?</button>
+          <button className="icon-btn" title="Notifications" onClick={()=>setRoute('exceptions')}>Alerts</button>
+          <button className="icon-btn" onClick={()=>actions.resetData()} title="Reset demo data">Reset</button>
+          <button className="icon-btn" onClick={()=>setDark(d=>!d)} title="Toggle color theme">{dark?'Light':'Dark'}</button>
           <span className="muted" style={{fontSize:10.5,opacity:.7}} title="commit · build time">{typeof window!=='undefined'&&window.__BUILD?`${window.__BUILD.sha} · ${window.__BUILD.time}`:''}</span>
-          <div className="user-chip" title={'角色 '+user.role_code}>
+          <div className="user-chip" title={'Role '+user.role_code}>
             <span className="user-av">{user.name[0]}</span>
             <span className="user-nm">{user.name}<span className="muted sm"> · {user.role_code}</span></span>
-            <button className="link-btn" onClick={actions.logout}>退出</button>
+            <button className="link-btn" onClick={actions.logout}>Sign out</button>
           </div>
         </div>
       </header>
@@ -292,27 +292,27 @@ function App() {
     </div>
     {newMenu && <div className="newmenu-scrim" onClick={()=>setNewMenu(false)}>
       <div className="newmenu" onClick={e=>e.stopPropagation()}>
-        <div><h5>总账 Accounting</h5>
-          <button onClick={()=>{actions.newJE(); setRoute('je'); setNewMenu(false);}}>Journal Entry 手工分录</button>
-          <button onClick={()=>{setRoute('coa'); setNewMenu(false);}}>Account 科目</button>
-          <button onClick={()=>{setRoute('close'); setNewMenu(false);}}>Close Task 月结任务</button></div>
-        <div><h5>支出 Expenses</h5>
-          <button onClick={()=>{setRoute('ap'); setNewMenu(false);}}>Bill 应付账单</button>
-          <button onClick={()=>{setRoute('checks'); setNewMenu(false);}}>Check 支票</button>
-          <button onClick={()=>{setRoute('ap'); setNewMenu(false);}}>Pay Bills 付款批次</button></div>
-        <div><h5>房地产 Real Estate</h5>
-          <button onClick={()=>{setRoute('loan'); setNewMenu(false);}}>Loan Draw 提款</button>
-          <button onClick={()=>{setRoute('pmpickup'); setNewMenu(false);}}>PM Pickup 批次</button>
-          <button onClick={()=>{setRoute('closing'); setNewMenu(false);}}>Closing 交割</button></div>
-        <div><h5>其他 Other</h5>
-          <button onClick={()=>{setRoute('bankrec'); setNewMenu(false);}}>Reconcile 对账</button>
-          <button onClick={()=>{setRoute('exceptions'); setNewMenu(false);}}>Exception 异常</button>
-          <button onClick={()=>{setRoute('reports'); setNewMenu(false);}}>Report 报表</button></div>
+        <div><h5>Accounting</h5>
+          <button onClick={()=>{actions.newJE(); setRoute('je'); setNewMenu(false);}}>Journal entry</button>
+          <button onClick={()=>{setRoute('coa'); setNewMenu(false);}}>Chart of accounts</button>
+          <button onClick={()=>{setRoute('close'); setNewMenu(false);}}>Close task</button></div>
+        <div><h5>Expenses</h5>
+          <button onClick={()=>{setRoute('ap'); setNewMenu(false);}}>Bill</button>
+          <button onClick={()=>{setRoute('checks'); setNewMenu(false);}}>Check</button>
+          <button onClick={()=>{setRoute('ap'); setNewMenu(false);}}>Pay bills</button></div>
+        <div><h5>Real estate</h5>
+          <button onClick={()=>{setRoute('loan'); setNewMenu(false);}}>Loan draw</button>
+          <button onClick={()=>{setRoute('pmpickup'); setNewMenu(false);}}>Property-manager pickup</button>
+          <button onClick={()=>{setRoute('closing'); setNewMenu(false);}}>Closing</button></div>
+        <div><h5>Other</h5>
+          <button onClick={()=>{setRoute('bankrec'); setNewMenu(false);}}>Reconcile</button>
+          <button onClick={()=>{setRoute('exceptions'); setNewMenu(false);}}>Exceptions</button>
+          <button onClick={()=>{setRoute('reports'); setNewMenu(false);}}>Reports</button></div>
       </div>
     </div>}
     {palette && <div className="pal-scrim" onClick={()=>setPalette(false)}>
       <div className="pal" onClick={e=>e.stopPropagation()}>
-        <input autoFocus placeholder="跳转到模块…" value={q} onChange={e=>setQ(e.target.value)}
+        <input autoFocus placeholder="Go to a module..." value={q} onChange={e=>setQ(e.target.value)}
           onKeyDown={e=>{if(e.key==='Enter'&&paletteItems[0]){setRoute(paletteItems[0][0]); setPalette(false); setQ('');}}}/>
         <div className="pal-list">{jeHits.map(j=><button key={'je'+j.je_id} onClick={()=>{setRoute('je'); setPalette(false); setQ('');}}>✎ {j.je_number} · {(j.payee||j.description||'').slice(0,30)}<span className="muted sm">JE</span></button>)}{paletteItems.map(([k,ic,l])=>
           <button key={k} onClick={()=>{setRoute(k); setPalette(false); setQ('');}}>{ic} {l}<span className="muted sm">{k}</span></button>)}</div>
@@ -327,7 +327,7 @@ function AuditLog({ctx}) {
   const log = repo.auditLog();
   const T = ctx ? null : null;
   return <div className="full-bleed"><h2 className="page-h">Audit Log</h2>
-    {log.length===0 ? <div className="empty">尚无审计记录——所有关键动作(审批/过账/付款/排除)都会记录在这里</div> :
+    {log.length===0 ? <div className="empty">No audit records yet. Key actions such as approval, posting, payment, and exclusion are recorded here.</div> :
     <table className="tbl"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Object</th><th>Ref</th><th>Detail</th></tr></thead>
     <tbody>{log.map((e,i)=><tr key={i}><td>{e.ts}</td><td>{e.user}</td><td><span className="badge badge-muted">{e.action}</span></td><td>{e.objectType}</td><td>{e.objectRef}</td><td>{e.detail}</td></tr>)}</tbody></table>}
   </div>;
@@ -341,12 +341,12 @@ function Approvals({ctx}) {
     {pj.map(j=><div key={j.je_id} className="appr-row"><span>{j.je_number} · {j.description}</span>
       <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('je')}>Open</button>
       {can('GL.JE.APPROVE') && <button className="btn btn-primary btn-sm" onClick={()=>actions.advanceJE(j.je_id, j.posting_status==='PENDING_REVIEW'?'PENDING_APPROVAL':'APPROVED','APPROVE')}>Approve</button>}</span></div>)}
-    {pj.length===0 && <div className="empty">没有待审批分录</div>}
+    {pj.length===0 && <div className="empty">No journal entries are awaiting approval.</div>}
     <h3 style={{fontSize:17, marginTop:22}}>Bills ({pb.length})</h3>
     {pb.map(b=><div key={b.bill_id} className="appr-row"><span>{b.bill_no} · {b.vendor_name} · ${b.amount.toLocaleString()}</span>
       <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('ap')}>Open</button>
       {can('AP.INVOICE.APPROVE') && <button className="btn btn-primary btn-sm" onClick={()=>{actions.approveBill(b.bill_id); toast('Bill approved');}}>Approve</button>}</span></div>)}
-    {pb.length===0 && <div className="empty">没有待审批 Bill</div>}
+    {pb.length===0 && <div className="empty">No bills are awaiting approval.</div>}
   </div>;
 }
 

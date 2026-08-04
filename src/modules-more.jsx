@@ -702,40 +702,7 @@ export function Intercompany({ctx}) {
       {h:'Action',render:r=>r.match_status!=='MATCHED'?<Btn size="sm" variant="primary" onClick={()=>mirror(r)}>Create mirror entry</Btn>:<span className="muted sm">—</span>},
     ]} rows={ic} rowKey="ic_txn_id" /></div>;
 }
-export function IntegrationHub({ctx}) {
-  // P0 English-only shell. Integration sources are displayed as retained local
-  // evidence; external sync, retry, import and automated posting are excluded.
-  const localSourceContracts = [
-    ['Vendor Bill', 'Retained supplier bill and project-cost source', 'Review only: AP evidence may be traced to its posted journal', 'No portal, OCR, import, payment, or automatic posting'],
-    ['Bank Transaction', 'Retained local bank transaction evidence', 'Review only: a matching journal remains distinct from clearance and reconciliation', 'No bank feed connection or automatic matching'],
-    ['Project Cost', 'Retained property or project cost evidence', 'Classify to expense, prepaid, CWIP, or asset only after review', 'Cross-entity and missing-dimension evidence stays in Review'],
-    ['Journal Entry', 'Retained local journal evidence', 'Draft, review, approval, and posted states remain explicit', 'No external synchronization or bulk posting'],
-  ];
-  const localBatches = [
-    {batch_id:'LOCAL-AP-REVIEW', src:'Vendor Bill', status:'REVIEW_ONLY', count:'Retained evidence', err:'No external processing is available.'},
-    {batch_id:'LOCAL-BANK-REVIEW', src:'Bank Transaction', status:'REVIEW_ONLY', count:'Retained evidence', err:'No bank feed connection is available.'},
-  ];
-  return <div className="full-bleed" aria-label="Integration Hub">
-    <h2 className="page-h">Integration Hub</h2>
-    <p className="muted sm">Local source evidence is reviewed before it can be used by a controlled accounting workflow. This workspace does not connect, import, retry, synchronize, or post external data.</p>
-    <SectionTitle>Local source contracts</SectionTitle>
-    <Table cols={[
-      {h:'Source',render:row=><Badge tone="muted">{row[0]}</Badge>},
-      {h:'Evidence scope',render:row=>row[1]},
-      {h:'Accounting boundary',render:row=>row[2]},
-      {h:'Unavailable actions',render:row=><span className="muted sm">{row[3]}</span>},
-    ]} rows={localSourceContracts} />
-    <SectionTitle>Local review status</SectionTitle>
-    <Table rowKey="batch_id" cols={[
-      {h:'Review id',k:'batch_id'},
-      {h:'Source',render:row=><Badge tone="muted">{row.src}</Badge>},
-      {h:'Evidence',k:'count'},
-      {h:'Status',render:row=><Badge tone="warn">{row.status}</Badge>},
-      {h:'Notes',k:'err'},
-      {h:'Actions',render:()=> <Btn size="sm" variant="ghost" disabled title="External retry and source synchronization are outside the retained local evidence scope">Unavailable</Btn>},
-    ]} rows={localBatches} />
-  </div>;
-
+function IntegrationHubLegacy({ctx}) {
   const [batches, setBatches] = useState([
     {batch_id:'CL-20260731-007', src:'WBS_CL', status:'COMPLETED', n:4, ok:4, err:null},
     {batch_id:'PM-202607-P0020', src:'PM', status:'PARTIAL', n:5, ok:4, err:'琛?: PET_FEE 缂?GL 鏄犲皠 [3020]'},
@@ -773,6 +740,46 @@ export function IntegrationHub({ctx}) {
       {h:'Actions',render:r=>r.status!=='COMPLETED' ? <span className="row-acts"><Btn size="sm" onClick={()=>retry(r.batch_id)}>Retry</Btn><Btn size="sm" variant="ghost" onClick={()=>ctx.goto('mapping')}>Open mapping</Btn></span> : <span className="muted sm">—</span>},
     ]} rows={batches} /></div>;
 }
+export function IntegrationHub({ctx}) {
+  const batches = [
+    {batch_id:'CL-20260731-007', source:'WBS_CL', status:'COMPLETED', accepted:4, total:4, issue:null},
+    {batch_id:'PM-202607-P0020', source:'PM', status:'PARTIAL', accepted:4, total:5, issue:'PET_FEE requires an approved GL mapping before admission.'},
+    {batch_id:'BANK-20260731', source:'BANK', status:'COMPLETED', accepted:4, total:4, issue:null},
+  ];
+  const feeds = [
+    ['PAYABLE','Approved payable source document','Debit expense or CWIP; credit due to/from payee','Source evidence is admitted through controlled staging.'],
+    ['EXPA','Bank-payment feed','Debit due to/from payee; credit operating cash','Clears an eligible payable only through the controlled workflow.'],
+    ['AUTOC','Company-card or bank-purchase feed','Debit due to/from vendor; credit operating cash','Incurred items are business facts only after the authoritative lifecycle gate.'],
+    ['DIVIDEND','Owner distribution batch','Debit due to/from owner; credit cash and withholding tax','Requires controlled approval and a traceable journal entry.'],
+    ['NOT_MATCH','Unmatched bank transaction','Hold for review','A matching exception is required; no automatic posting occurs.'],
+    ['REIMB','Employee reimbursement invoice','Debit expense; credit due to/from employee','Requires controlled approval before accounting action.'],
+    ['INTERNAL_TRANSFER','Transfer between owned bank accounts','Debit receiving cash; credit paying cash','Each bank source remains independently reconciled.'],
+  ];
+  return <div className="full-bleed">
+    <div className="accounting-page-head"><div><div className="page-eyebrow">CONTROLLED SOURCE INTEGRATION</div><h2 className="page-h">Integration Hub</h2><div className="page-subtitle">Source data is evidence-gated. This workspace does not create, release, incur, or post WBS records.</div></div></div>
+    <section className="report-workbench" aria-label="Integration admission boundary" style={{marginBottom:12}}>
+      <div className="report-workbench-head"><div><b>Admission boundary</b><div className="page-subtitle">Records require immutable source identity, scoped validation, and an authoritative receipt before they can enter a controlled accounting lifecycle.</div></div><Badge tone="warn">READ_ONLY_EVIDENCE</Badge></div>
+      <div className="qbo-toolgrid"><span><i>Source write access</i><b>Unavailable</b></span><span><i>Automatic posting</i><b>Unavailable</b></span><span><i>Control totals</i><b>Observed only</b></span></div>
+    </section>
+    <SectionTitle>Source-to-accounting rules</SectionTitle>
+    <Table cols={[
+      {h:'Source',render:r=><Badge tone="muted">{r[0]}</Badge>},
+      {h:'Business source',render:r=>r[1]},
+      {h:'Controlled accounting treatment',render:r=>r[2]},
+      {h:'Boundary',render:r=><span className="muted sm">{r[3]}</span>},
+    ]} rows={feeds} />
+    <SectionTitle>Batch monitoring</SectionTitle>
+    <Table rowKey="batch_id" cols={[
+      {h:'Batch',k:'batch_id'},
+      {h:'Source',render:r=><Badge tone="muted">{r.source}</Badge>},
+      {h:'Accepted / total',num:true,render:r=>r.accepted+'/'+r.total},
+      {h:'Status',render:r=><Badge tone={r.status==='COMPLETED'?'ok':'warn'}>{r.status}</Badge>},
+      {h:'Review note',render:r=>r.issue||'No current exception.'},
+      {h:'Actions',render:r=>r.status==='COMPLETED'?<span className="muted sm">No action available</span>:<Btn size="sm" variant="ghost" onClick={()=>ctx.goto('mapping')}>Review mapping</Btn>},
+    ]} rows={batches} />
+  </div>;
+}
+
 export function MasterData() {
   const [tab,setTab] = useState('Entity');
   const map = {Entity:[ENTITIES,[{h:'缂栫爜',k:'entity_code'},{h:'鍚嶇О',k:'entity_name'},{h:'绫诲瀷',render:r=><Badge tone="muted">{r.entity_type}</Badge>}]],
@@ -810,7 +817,7 @@ export function MappingCenter({ctx}) {
   </div>;
 }
 export function RuleCenter() {
-  const legacyRuleEvidence = [
+  const legacyRuleEvidence = []; /*
     /* Legacy prototype descriptions are retained as non-executable reference text.
     ['R-LOAN-01','LOAN.DRAW','Dr 111000 Cash / Cr 270100 Loan Payable(璧勯噾娴佸叆鈮犳垚鏈?','LIVE'],
     ['R-LOAN-03','LOAN.INTEREST 路 鍦ㄥ缓','Dr 164500 CWIP-Cap Interest / Cr 220410','LIVE'],
@@ -829,7 +836,6 @@ export function RuleCenter() {
     ['R-UT-IN-01','Unit Transfer B杞叆','Dr 164400(B Opening Basis) / Cr 291000 Due to_A','LIVE'],
     ['R-IC-01','Intercompany payment','Paying entity: Dr 125000 / Cr 111000; receiving entity: Dr 111000 / Cr 291000','LIVE'],
     */
-  ];
   const rules = [
     {id:'R-LOAN-01', priority:1, trigger:'LOAN.DRAW', appliedTo:'Local controlled account set', conditions:'Local event is LOAN.DRAW', settings:'Local controlled rule-shell record', autoPost:'Unavailable', status:'Active (local)'},
     {id:'R-AP-STD-01', priority:2, trigger:'PAYABLE', appliedTo:'Local controlled account set', conditions:'Local event is PAYABLE', settings:'Local controlled rule-shell record', autoPost:'Unavailable', status:'Active (local)'},
