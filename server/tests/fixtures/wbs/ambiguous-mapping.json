@@ -1,0 +1,37 @@
+{
+  "scenario": "ambiguous_mapping",
+  "source": {
+    "source_system": "WBS",
+    "source_module": "accountRelation",
+    "source_entity_id": "WBAI",
+    "source_record_id": "cost-code-3100",
+    "source_version": "snapshot-20260731",
+    "cost_code": "03-100"
+  },
+  "mapping_candidates": [
+    {
+      "mapping_snapshot_id": "11111111-1111-4111-8111-111111111111",
+      "family": "COST_CODE_ACCOUNT",
+      "scope_type": "ENTITY",
+      "scope_key": "WBAI",
+      "version": 4,
+      "priority": 100,
+      "account_code": "164500"
+    },
+    {
+      "mapping_snapshot_id": "22222222-2222-4222-8222-222222222222",
+      "family": "COST_CODE_ACCOUNT",
+      "scope_type": "ENTITY",
+      "scope_key": "WBAI",
+      "version": 3,
+      "priority": 100,
+      "account_code": "795000"
+    }
+  ],
+  "expected": {
+    "outcome": "MAPPING_EXCEPTION",
+    "code": "MAPPING_AMBIGUOUS",
+    "no_draft": true,
+    "invariant": "Equal-priority approved mappings are never resolved by row order."
+  }
+}

@@ -378,7 +378,7 @@ export function Reports({ctx}) {
   const REPORTS = {
     'Construction Loan Rollforward': () => { const rows = LOANS.map(l=>{ const draws=sum(LOAN_TXNS.filter(t=>t.loan_id===l.loan_id&&t.txn_type==='DRAW'),t=>t.amount); const rep=sum(LOAN_TXNS.filter(t=>t.loan_id===l.loan_id&&t.txn_type==='REPAYMENT'),t=>t.amount);
         return {loan:l.loan_code, lender:l.lender_name, begin:l.current_principal-draws+rep, draws, repayments:rep, end:l.current_principal, avail:l.commitment_amount-l.current_principal}; });
-      return <Table exportName="loan-rollforward" cols={[{h:'璐锋',k:'loan'},{h:'Lender',k:'lender'},{h:'鏈熷垵鏈噾',num:true,render:r=><Money v={r.begin}/>,csv:r=>r.begin},{h:'+ Draws',num:true,render:r=><Money v={r.draws}/>,csv:r=>r.draws},{h:'鈭?Repayments',num:true,render:r=><Money v={r.repayments}/>,csv:r=>r.repayments},{h:'鏈熸湯鏈噾',num:true,render:r=><Money v={r.end}/>,csv:r=>r.end},{h:'鍓╀綑棰濆害',num:true,render:r=><Money v={r.avail}/>,csv:r=>r.avail}]} rows={rows}/>; },
+      return <Table exportName="loan-rollforward" cols={[{h:'Loan',k:'loan'},{h:'Lender',k:'lender'},{h:'Beginning principal',num:true,render:r=><Money v={r.begin}/>,csv:r=>r.begin},{h:'+ Draws',num:true,render:r=><Money v={r.draws}/>,csv:r=>r.draws},{h:'- Repayments',num:true,render:r=><Money v={r.repayments}/>,csv:r=>r.repayments},{h:'Ending principal',num:true,render:r=><Money v={r.end}/>,csv:r=>r.end},{h:'Available commitment',num:true,render:r=><Money v={r.avail}/>,csv:r=>r.avail}]} rows={rows}/>; },
     'Manual JE Report': () => <Table exportName="manual-je" cols={[{h:'JE',k:'je_number'},{h:'Date',k:'je_date'},{h:'Description',k:'description'},{h:'Amount',num:true,render:r=><Money v={jeTotals(r).dr}/>,csv:r=>jeTotals(r).dr},{h:'Created by',k:'created_by'},{h:'Attachment',render:r=>r.has_attachment?'Attached':'Missing',csv:r=>r.has_attachment?'Y':'N'},{h:'Status',render:r=><Badge>{r.posting_status}</Badge>,csv:r=>r.posting_status}]} rows={jes.filter(j=>j.je_type==='MANUAL')}/>,
     'Exception Aging': () => <Table exportName="exception-aging" cols={[{h:'Type',k:'exception_type'},{h:'Severity',render:r=><Badge>{r.severity}</Badge>,csv:r=>r.severity},{h:'Object',k:'object_ref'},{h:'Aging (days)',num:true,k:'aging_days'},{h:'Owner',k:'owner'},{h:'Status',render:r=><Badge>{r.status}</Badge>,csv:r=>r.status}]} rows={[...exceptions].sort((a,b)=>b.aging_days-a.aging_days)}/>,
     'Data Sync Report': () => <Table cols={[{h:'Source',k:'s'},{h:'Batch',k:'b'},{h:'Records',k:'n'},{h:'Success rate',k:'r'},{h:'Status',render:r=><Badge tone={r.r==='100%'?'ok':'warn'}>{r.r==='100%'?'COMPLETED':'PARTIAL'}</Badge>}]} rows={[{s:'WBS_CL',b:'CL-20260731-007',n:4,r:'100%'},{s:'PM',b:'PM-202607-P0020',n:5,r:'80%'},{s:'BANK',b:'BANK-20260731',n:4,r:'100%'}]}/>,
@@ -393,8 +393,8 @@ export function Reports({ctx}) {
       return <Table exportName="inventory-rollforward" cols={[
         {h:'Entity',render:r=><b>{r.e}</b>},{h:'Company',k:'name'},
         {h:'Beginning',num:true,render:r=><Money v={r.beg}/>},
-        {h:'+ CWIP鈫扞nventory',num:true,render:r=><Money v={r.xfer}/>},
-        {h:'鈭?COGS',num:true,render:r=><Money v={r.cogs}/>},
+        {h:'+ CWIP to Inventory',num:true,render:r=><Money v={r.xfer}/>},
+        {h:'- COGS',num:true,render:r=><Money v={r.cogs}/>},
         {h:'Ending Inventory',num:true,render:r=><Money v={r.end} bold/>},
         ]} rows={rows} empty="No inventory rollforward rows match the current data."/>; },
     'Cost GL Reconciliation': () => { const rows = ENTITIES.filter(e=>['Vertical','ProjectCo','LandCo'].includes(e.entity_type)).slice(0,20).map(en=>{
@@ -428,9 +428,9 @@ export function Reports({ctx}) {
         {h:'Beginning',num:true,render:r=><Money v={r.beg}/>,csv:r=>r.beg},
         {h:'+ Additions',num:true,render:r=><Money v={r.add}/>,csv:r=>r.add},
         {h:'+ Cap. Interest',num:true,render:r=><Money v={r.capint}/>,csv:r=>r.capint},
-        {h:'鈭?COGS Relief',num:true,render:r=><Money v={r.rel}/>,csv:r=>r.rel},
-        {h:'鈭?Transfer Out',num:true,render:r=><Money v={r.tout}/>,csv:r=>r.tout},
-        {h:'鈭?Other',num:true,render:r=><Money v={r.other}/>,csv:r=>r.other},
+        {h:'- COGS Relief',num:true,render:r=><Money v={r.rel}/>,csv:r=>r.rel},
+        {h:'- Transfer Out',num:true,render:r=><Money v={r.tout}/>,csv:r=>r.tout},
+        {h:'- Other',num:true,render:r=><Money v={r.other}/>,csv:r=>r.other},
         {h:'Ending CWIP',num:true,render:r=><Money v={r.end} bold/>,sortVal:r=>r.end,csv:r=>r.end},
       ]} rows={rows}/>; },
     'INTER COMPANY Balance Report': () => <Table exportName="ic-balance" cols={[{h:'IC pair',k:'ic_pair_id'},{h:'Initiator',k:'initiator_entity'},{h:'Counterparty',k:'counterparty_entity'},{h:'Due to/from amount',num:true,render:r=><Money v={r.amount}/>,csv:r=>r.amount},{h:'Match',render:r=><Badge tone={r.match_status==='MATCHED'?'ok':'bad'}>{r.match_status}</Badge>,csv:r=>r.match_status}]} rows={IC_TXNS}/>,
@@ -438,7 +438,7 @@ export function Reports({ctx}) {
     'Draw Request Report': () => <Table exportName="draw-requests" cols={[{h:'Draw',k:'wbs_txn_id'},{h:'Date',k:'transaction_date'},{h:'Type',render:r=><Badge tone="muted">{r.txn_type}</Badge>,csv:r=>r.txn_type},{h:'Amount',num:true,render:r=><Money v={r.amount}/>,csv:r=>r.amount},{h:'Status',render:()=> <Badge tone="ok">FUNDED</Badge>}]} rows={LOAN_TXNS.filter(t=>t.txn_type==='DRAW')}/>,
     'Payable Report': () => <Table exportName="payable-report" cols={[{h:'Bill',k:'bill_no'},{h:'Payee',k:'vendor_name'},{h:'Due date',k:'due_date'},{h:'Amount',num:true,render:r=><Money v={r.amount}/>,csv:r=>r.amount},{h:'Status',render:r=><Badge>{r.status}</Badge>,csv:r=>r.status}]} rows={ctx.ap.bills}/>,
     'Property Operating Statement': () => { const rev=sum(PM_ROWS.filter(r=>r.kind==='REVENUE'),r=>r.amount); const exp=sum(PM_ROWS.filter(r=>r.kind==='EXPENSE'),r=>r.amount);
-      return <div className="stmt"><div className="stmt-row"><span>杩愯惀鏀跺叆 (PM Pickup)</span><Money v={rev} bold/></div><div className="stmt-row"><span>杩愯惀璐圭敤</span><Money v={-exp}/></div><div className="stmt-row tot"><span>NOI</span><Money v={rev-exp} bold/></div></div>; },
+      return <div className="stmt"><div className="stmt-row"><span>Operating income (PM pickup)</span><Money v={rev} bold/></div><div className="stmt-row"><span>Operating expense</span><Money v={-exp}/></div><div className="stmt-row tot"><span>NOI</span><Money v={rev-exp} bold/></div></div>; },
   };
   const reports = [
     ['Trial Balance','GL','gl'],['Adjusted Trial Balance','GL',null],['General Ledger','GL','gl'],['Balance Sheet','GL','gl'],['Income Statement','GL','gl'],['Profit and Loss','GL','gl'],['Cash Flow','GL','gl'],
@@ -591,7 +591,7 @@ export function Reports({ctx}) {
       </Card>)}</div>
     <SectionTitle>Retained report workbench</SectionTitle>
     <div className="report-workbench">
-      <div className="report-workbench-head"><div><div className="report-preview-crumb">Reports Center · Workbench</div><div className="page-subtitle">Browse retained financial statements, aging, and reconciliation evidence with a consistent drill path.</div></div><div className="report-preview-meta"><span><i>Reports</i><b>{reportRows.length}</b></span><span><i>Linked statements</i><b>{reportRows.filter(r=>r.route==='gl').length}</b></span><span><i>Preview-only</i><b>{reportRows.filter(r=>!r.route).length}</b></span></div></div>
+      <div className="report-workbench-head"><div><div className="report-preview-crumb">Reports Center · Workbench</div><div className="page-subtitle">Browse retained financial statements, aging, and reconciliation evidence with a consistent drill path.</div></div><div className="report-preview-meta" aria-label="Report workbench summary"><span><i>Reports</i>{' '}<b>{reportRows.length}</b></span><span><i>Linked statements</i>{' '}<b>{reportRows.filter(r=>r.route==='gl').length}</b></span><span><i>Preview-only</i>{' '}<b>{reportRows.filter(r=>!r.route).length}</b></span></div></div>
       <Table exportName="reports-workbench" features={{exportable:false}} className="table-journal-entries reports-workbench-table" onRow={r=>r.capability.state==='REFERENCE_ONLY' ? undefined : launchReport(r.name, r.route)} pageSize={12} cols={[
         {h:'Report',render:r=><span className="rep-table-name">{r.name}</span>,csv:r=>r.name},
         {h:'Category',render:r=><Badge tone="muted">{r.category}</Badge>,csv:r=>r.category},
@@ -635,12 +635,12 @@ export function ProjectCost() {
   ].map(r=>({...r, ctc:Math.max(0,r.budget-r.actual), fac:Math.max(r.budget, r.commit>r.budget?r.commit:r.budget), var:r.budget-Math.max(r.budget,r.commit)}));
   const T = k => sum(CC, r=>r[k]);
   return <div className="full-bleed">
-    <h2 className="page-h">椤圭洰鎴愭湰 Project Cost 路 PRJ-CEDAR</h2>
+    <h2 className="page-h">Project Cost · PRJ-CEDAR</h2>
     <div className="kpi-row">
-      <KPI label="鎬婚绠?Budget" value={money(T('budget'))} />
-      <KPI label="宸叉壙璇?Committed" value={money(T('commit'))} sub={(T('commit')/T('budget')*100).toFixed(0)+'% of budget'} />
-      <KPI label="瀹為檯鍙戠敓 Actual" value={money(T('actual'))} sub={(T('actual')/T('budget')*100).toFixed(0)+'% complete'} tone="ok" />
-      <KPI label="瀹屽伐灏氶渶 CTC" value={money(T('ctc'))} tone="warn" />
+      <KPI label="Budget" value={money(T('budget'))} />
+      <KPI label="Committed" value={money(T('commit'))} sub={(T('commit')/T('budget')*100).toFixed(0)+'% of budget'} />
+      <KPI label="Actual" value={money(T('actual'))} sub={(T('actual')/T('budget')*100).toFixed(0)+'% complete'} tone="ok" />
+      <KPI label="Cost to Complete" value={money(T('ctc'))} tone="warn" />
     </div>
     <SectionTitle>Budget → Commitment → Actual → Forecast by Cost Code</SectionTitle>
     <Table exportName="project-cost" cols={[
@@ -700,10 +700,10 @@ export function Intercompany({ctx}) {
   return <div><h2 className="page-h">Intercompany</h2>
     <p className="muted sm">Due to/from balances, mirrored entries and matching controls. Imbalances become exceptions.</p>
     <Table cols={[
-      {h:'IC Pair',k:'ic_pair_id'},{h:'绫诲瀷',render:r=><Badge tone="muted">{r.ic_type}</Badge>},
+      {h:'IC Pair',k:'ic_pair_id'},{h:'Type',render:r=><Badge tone="muted">{r.ic_type}</Badge>},
         {h:'Initiator',k:'initiator_entity'},{h:'Counterparty',k:'counterparty_entity'},
       {h:'Amount',num:true,render:r=><Money v={r.amount}/>},
-      {h:'鍖归厤',render:r=><Badge tone={r.match_status==='MATCHED'?'ok':'bad'}>{r.match_status}</Badge>},
+      {h:'Match',render:r=><Badge tone={r.match_status==='MATCHED'?'ok':'bad'}>{r.match_status}</Badge>},
       {h:'Action',render:r=>r.match_status!=='MATCHED'?<Btn size="sm" variant="primary" onClick={()=>mirror(r)}>Create mirror entry</Btn>:<span className="muted sm">—</span>},
     ]} rows={ic} rowKey="ic_txn_id" /></div>;
 }
@@ -743,36 +743,36 @@ export function IntegrationHub({ctx}) {
 
   const [batches, setBatches] = useState([
     {batch_id:'CL-20260731-007', src:'WBS_CL', status:'COMPLETED', n:4, ok:4, err:null},
-    {batch_id:'PM-202607-P0020', src:'PM', status:'PARTIAL', n:5, ok:4, err:'琛?: PET_FEE 缂?GL 鏄犲皠 [3020]'},
+    {batch_id:'PM-202607-P0020', src:'PM', status:'PARTIAL', n:5, ok:4, err:'Line 3: PET_FEE is missing a GL mapping [3020]'},
     {batch_id:'BANK-20260731', src:'BANK', status:'COMPLETED', n:4, ok:4, err:null},
   ]);
   const retry = (id) => { setBatches(bs=>bs.map(b=>b.batch_id===id?{...b, status:'RETRYING'}:b));
     setTimeout(()=>setBatches(bs=>bs.map(b=>b.batch_id===id?{...b, status:'PARTIAL'}:b)), 900);
-    ctx.toast('閲嶈瘯瀹屾垚锛氭槧灏勪粛缂哄け锛岄渶鍏堝湪 Mapping Center 閰嶇疆 PET_FEE','warn'); };
+    ctx.toast('Retry completed: PET_FEE still needs a GL mapping in Mapping Center.','warn'); };
   const FEEDS = [
-    ['PAYABLE','涓婃父 AP 鍙戠エ(Contract & Invoice / Budget & Purchasing 瀹℃壒瀹屾垚)','Dr 璐圭敤绉戠洰(甯?Cost Code/Class/Payable No GUID/Unit) / Cr 291001 Due to/from_鎸塒ayee鎸傝处','涓よ涓€缁?Journal No=YYYYMMDD+搴忓彿'],
-    ['EXPA','閾惰娴佹按 Feed 鑷姩鍖归厤浠樻(Auto Payments Reconciliation)','Dr 291001 Due to/from_Payee(娓呰处) / Cr 111000 Operating Cash_鍏徃_閾惰_璐﹀彿灏惧彿','memo 淇濈暀鍘熷 ACH/CCD 閾惰鎻忚堪鍏ㄦ枃'],
+    ['PAYABLE','Upstream AP invoice after Contract & Invoice or Budget & Purchasing approval','Dr expense or CWIP with Cost Code/Class/Payable GUID/Unit; Cr 291001 Due to/from Payee','One journal entry per payable, with a sequence-based journal number'],
+    ['EXPA','Bank-feed automatic payment reconciliation','Dr 291001 Due to/from Payee to clear the payable; Cr 111000 Operating Cash','Retain the original ACH or CCD bank memo'],
     ['AUTOC','Company-card or bank purchase feed','Dr 291001 Due to/from Vendor / Cr 111000 Operating Cash','When paired with PAYABLE, clears the payable balance'],
-    ['DIVIDEND','涓氫富鍒嗙孩鍙戞斁鎵规(鎸?Lot/Unit)','Dr 291000 Due to/from_涓氫富(鎸?Lot 澶氳) / Cr 111000 鐜伴噾 + Cr 220204 Tax Payable(浠ｆ墸绋?','WBLD 瀹炴祴妯″紡'],
-    ['NOT_MATCH','閾惰娴佹按鏃犳硶鑷姩鍖归厤','鏆傛寕,浜哄伐澶勭悊 鈫?杞?Match 鎴?Exception','瀵瑰簲 REFS Bank Transactions For Review'],
-    ['REIMB / Reimbursement Invoice','鍛樺伐涓婁紶鎶ラ攢鍙戠エ(Upload Reimbursement Invoices)','瀹℃壒鍚?Dr 璐圭敤 / Cr 291001 Due to/from_鍛樺伐','Auto Reimbursement=鑷姩鐢熸垚鍒嗗綍'],
-    ['AUTO_BANK_REIMB','閾惰鎵ｆ鑷姩娓呮姤閿€鎸傝处','Dr 291001 / Cr 111000','涓?EXPA 鍚屾満鍒?鏉ユ簮涓烘姤閿€'],
+    ['DIVIDEND','Owner dividend distribution batch by lot or unit','Dr 291000 Due to/from Owner by lot; Cr 111000 Cash and Cr 220204 Tax Payable','Observed WBLD pattern'],
+    ['NOT_MATCH','Bank transaction cannot be matched automatically','Hold for review, then route to Match or Exception','Appears in REFS Bank Transactions for Review'],
+    ['REIMB / Reimbursement Invoice','Employee reimbursement invoice upload','After approval: Dr expense; Cr 291001 Due to/from employee','Automatic reimbursement creates a draft journal entry'],
+    ['AUTO_BANK_REIMB','Bank debit automatically clears a reimbursement hold','Dr 291001; Cr 111000','Same mechanism as EXPA; source is reimbursement'],
     ['INTERNAL_TRANSFER','Transfer between owned bank accounts','Dr 111000 receiving account / Cr 111000 paying account','Each bank feed is reconciled independently'],
     ['INTERNAL / INDIVIDUAL','Manual or individual journal entry','Draft → Review → Approve','Only reviewed items are available for posting'],
   ];
-  return <div className="full-bleed"><h2 className="page-h">闆嗘垚涓績 Integration Hub</h2>
+  return <div className="full-bleed"><h2 className="page-h">Integration Hub</h2>
     <p className="muted sm">External data first enters staging, then moves through validation, GL mapping, approval, and posting. Retry behavior is shell-only until verified.</p>
-    <SectionTitle>WBS 鏁版嵁鏉ユ簮瑙勫垯(涓?WBS 鐢熶骇绯荤粺閫愭潯瀵归綈)</SectionTitle>
+    <SectionTitle>WBS source rules</SectionTitle>
     <Table cols={[
       {h:'Source',render:r=><Badge tone="muted">{r[0]}</Badge>},
-      {h:'涓氬姟鏁版嵁鏉ユ簮',render:r=>r[1]},
-      {h:'璁拌处瑙勫垯',render:r=>r[2]},
-      {h:'澶囨敞',render:r=><span className="muted sm">{r[3]}</span>},
+      {h:'Business source',render:r=>r[1]},
+      {h:'Accounting rule',render:r=>r[2]},
+      {h:'Notes',render:r=><span className="muted sm">{r[3]}</span>},
     ]} rows={FEEDS} />
-    <SectionTitle>鎵规鐩戞帶</SectionTitle>
+    <SectionTitle>Batch monitoring</SectionTitle>
     <Table rowKey="batch_id" cols={[
-      {h:'鎵规',k:'batch_id'},{h:'鏉ユ簮',render:r=><Badge tone="muted">{r.src}</Badge>},
-      {h:'璁板綍',num:true,render:r=>r.ok+'/'+r.n},
+      {h:'Batch',k:'batch_id'},{h:'Source',render:r=><Badge tone="muted">{r.src}</Badge>},
+      {h:'Records',num:true,render:r=>r.ok+'/'+r.n},
       {h:'Status',render:r=><Badge tone={r.status==='COMPLETED'?'ok':'warn'}>{r.status}</Badge>},
       {h:'Error details',render:r=>r.err||'—'},
       {h:'Actions',render:r=>r.status!=='COMPLETED' ? <span className="row-acts"><Btn size="sm" onClick={()=>retry(r.batch_id)}>Retry</Btn><Btn size="sm" variant="ghost" onClick={()=>ctx.goto('mapping')}>Open mapping</Btn></span> : <span className="muted sm">—</span>},
@@ -780,7 +780,7 @@ export function IntegrationHub({ctx}) {
 }
 export function MasterData() {
   const [tab,setTab] = useState('Entity');
-  const map = {Entity:[ENTITIES,[{h:'缂栫爜',k:'entity_code'},{h:'鍚嶇О',k:'entity_name'},{h:'绫诲瀷',render:r=><Badge tone="muted">{r.entity_type}</Badge>}]],
+  const map = {Entity:[ENTITIES,[{h:'Code',k:'entity_code'},{h:'Name',k:'entity_name'},{h:'Type',render:r=><Badge tone="muted">{r.entity_type}</Badge>}]],
     Project:[PROJECTS,[{h:'Project code',k:'project_code'},{h:'Project name',k:'project_name'},{h:'Construction status',render:r=><Badge tone={r.construction_status==='UNDER_CONSTRUCTION'?'warn':'ok'}>{r.construction_status}</Badge>}]],
     Property:[PROPERTIES,[{h:'Property code',k:'property_code'},{h:'Property name',k:'property_name'},{h:'Status',render:r=><Badge tone="muted">{r.property_status}</Badge>}]]};
   const [rows,cols] = map[tab];
@@ -791,23 +791,23 @@ export function MasterData() {
 }
 export function MappingCenter({ctx}) {
   const FAMILIES = [
-    ['Bank Detail 鈫?Account','Account Setting 路 Bank','閾惰璐﹀彿鈫掔幇閲戠鐩?111000瀛愯处)','setting'],
-    ['Construction Loan Detail 鈫?Account','Account Setting 路 Contruction Loan','Draw/Repayment/Interest/Escrow脳7鈫掔鐩?Project','setting'],
-    ['Cost Code Group 鈫?Account','Account Setting 路 Cost','0LD/2HD/24E/21E/9AM 鐮佺粍鈫扖WIP/璐圭敤','setting'],
-    ['Cost Code 脳 Dr/Cr 鈫?Account','Cost Setting','Cost General Ledger 鎸夊崟鐮佸€熻捶鏄犲皠','setting'],
-    ['Payable Cost Code 鈫?Dr Account','Payable Setting','鎸夌爜瀹氬€熸柟+褰掑睘鍏徃;Credit琛?291001','setting'],
-    ['Batch Template 鈫?Dr/Cr Pair','Batch Setting','璁℃彁妯℃澘+Sequential+Reverse Next Month','setting'],
-    ['PM Charge Code 鈫?Owner GL','涓嬭〃','RENT/LATE_FEE/SEC_DEPOSIT/UTILITIES/MGMT_FEE','pm'],
+    ['Bank Detail to Account','Account Setting · Bank','Map bank account to cash GL 111000 subledger','setting'],
+    ['Construction Loan Detail to Account','Account Setting · Construction Loan','Map Draw, Repayment, Interest, and Escrow to account/project','setting'],
+    ['Cost Code Group to Account','Account Setting · Cost','Map 0LD/2HD/24E/21E/9AM code groups to CWIP or expense','setting'],
+    ['Cost Code Dr/Cr to Account','Cost Setting','Map Cost GL debit and credit by source cost code','setting'],
+    ['Payable Cost Code to Dr Account','Payable Setting','Map payable cost code and entity; credit uses 291001','setting'],
+    ['Batch Template to Dr/Cr Pair','Batch Setting','Accrual template with sequential and next-month reversal','setting'],
+    ['PM Charge Code to Owner GL','PM Pickup','RENT/LATE_FEE/SEC_DEPOSIT/UTILITIES/MGMT_FEE','pm'],
     ['Project Status → Capitalization','Rules Center','Under construction → 64500 Capitalized interest; complete → 95000 Expense','rules'],
-    ['Unit Status 鈫?Inventory/COGS','Rule Center','鍦ㄥ缓CWIP鈫掑畬宸nventory鈫掑敭鍑篊OGS','rules'],
-    ['Company 鈫?Rule Profile','Company Setting','姣忓叕鍙哥嫭绔嬪洓澶etting+Copy','setting'],
+    ['Unit Status to Inventory/COGS','Rule Center','Under construction CWIP → completed Inventory → sold COGS','rules'],
+    ['Company to Rule Profile','Company Setting','Each company has four independent settings plus Copy','setting'],
   ];
   return <div className="full-bleed"><h2 className="page-h">Mapping Center</h2>
     <p className="muted sm">Mapping families link source codes to controlled settings and rules. Behavior remains REFS-local until QBO evidence is observed.</p>
     <Table cols={[
-      {h:'Mapping 瀹舵棌',render:r=><b>{r[0]}</b>},
-      {h:'缁存姢浣嶇疆',render:r=><Badge tone="muted">{r[1]}</Badge>},
-      {h:'瑙勫垯璇存槑',render:r=>r[2]},
+      {h:'Mapping family',render:r=><b>{r[0]}</b>},
+      {h:'Maintain in',render:r=><Badge tone="muted">{r[1]}</Badge>},
+      {h:'Rule description',render:r=>r[2]},
       {h:'Open',render:r=><Btn size="sm" variant="ghost" onClick={()=>ctx.goto(r[3]==='pm'?'mapping':r[3]==='rules'?'rules':'setting')}>Open</Btn>},
     ]} rows={FAMILIES}/>
     <SectionTitle>PM Charge Code to Owner GL mapping</SectionTitle>
@@ -815,26 +815,6 @@ export function MappingCenter({ctx}) {
   </div>;
 }
 export function RuleCenter() {
-  const legacyRuleEvidence = [
-    /* Legacy prototype descriptions are retained as non-executable reference text.
-    ['R-LOAN-01','LOAN.DRAW','Dr 111000 Cash / Cr 270100 Loan Payable(璧勯噾娴佸叆鈮犳垚鏈?','LIVE'],
-    ['R-LOAN-03','LOAN.INTEREST 路 鍦ㄥ缓','Dr 164500 CWIP-Cap Interest / Cr 220410','LIVE'],
-    ['R-LOAN-04','LOAN.INTEREST 路 瀹屽伐','Dr 795000 Interest Expense / Cr 220410','LIVE'],
-    ['R-LOAN-05','LOAN.REPAYMENT','Dr 270100 / Cr 111000(鎴栨寜鍏徃Setting鈫?91001)','LIVE'],
-    ['R-AP-STD-01','PAYABLE(鎸塒ayee鎸傝处)','Dr 璐圭敤/CWIP(鎸塁ost Setting) / Cr 291001_Payee','LIVE'],
-    ['R-EXPA-01','閾惰Feed鑷姩娓呰处','Dr 291001_Payee / Cr 111000(EXPA/AUTOC)','LIVE'],
-    ['R-COST-2HD','Hard Cost 脳 鍦ㄥ缓','Dr 164400 CWIP / Cr 220300','LIVE'],
-    ['R-COST-2HD-DONE','Hard Cost 脳 瀹屽伐','Dr 510000 COGS / Cr 220300(鐘舵€侀┍鍔?','LIVE'],
-    ['R-PM-11','PM RENT(鏉冭矗)','Dr 120200 AR / Cr 421803 Rental Income','LIVE'],
-    ['R-PM-16','SEC_DEPOSIT','Dr 111000 / Cr 225000 鎶奸噾璐熷€?绂佸叆鏀跺叆)','LIVE'],
-    ['R-CLS-SALE-01','Closing 路 Confirmed amount','Dr 111000 / Cr 491800;Title Withholding鈫?20205','LIVE'],
-    ['R-CLS-COGS-01','Closing 路 鎴愭湰缁撹浆','Dr 510000 / Cr 164400(鈮ょ疮璁WIP)','LIVE'],
-    ['R-DIV-01','Dividend 鎵规','Dr 291000_涓氫富(鎸塋ot) / Cr 111000 + Cr 220204浠ｆ墸','LIVE'],
-    ['R-UT-OUT-01','Unit Transfer A杞嚭','Dr 125000 Due from_B / Cr 164400 + 787001鎹熺泭','LIVE'],
-    ['R-UT-IN-01','Unit Transfer B杞叆','Dr 164400(B Opening Basis) / Cr 291000 Due to_A','LIVE'],
-    ['R-IC-01','Intercompany payment','Paying entity: Dr 125000 / Cr 111000; receiving entity: Dr 111000 / Cr 291000','LIVE'],
-    */
-  ];
   const rules = [
     {id:'R-LOAN-01', priority:1, trigger:'LOAN.DRAW', appliedTo:'Local controlled account set', conditions:'Local event is LOAN.DRAW', settings:'Local controlled rule-shell record', autoPost:'Unavailable', status:'Active (local)'},
     {id:'R-AP-STD-01', priority:2, trigger:'PAYABLE', appliedTo:'Local controlled account set', conditions:'Local event is PAYABLE', settings:'Local controlled rule-shell record', autoPost:'Unavailable', status:'Active (local)'},

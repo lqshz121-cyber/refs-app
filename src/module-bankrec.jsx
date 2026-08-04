@@ -21,6 +21,7 @@ import { localReconciliationHistoryRegisterContext } from './reconciliation-regi
 // Sign-off allowed only when Adjusted Bank == Adjusted Book
 export function BankRec2({ctx}) {
   const {bank, jes, actions, toast, can, goto, navContext, entity} = ctx;   // bank: {accounts:{code:{stmt_begin,stmt_end,txns:[...]}}, history:[]}
+  if(ctx.authoritativeMode)return <section className="card" role="status"><h2 className="page-h">Reconciliation</h2><p>RECONCILIATION_API_UNAVAILABLE</p></section>;
   const [acctCode, setAcctCode] = useState('BA-003');
   const [reopenReason, setReopenReason] = useState('');
   const [historyDetailId, setHistoryDetailId] = useState(null);

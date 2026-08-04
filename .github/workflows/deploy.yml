@@ -18,8 +18,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Install
-        run: npm install
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+      - name: Install frontend dependencies exactly
+        run: npm ci
+      - name: Install kernel dependencies exactly
+        working-directory: server
+        run: npm ci
+      - name: Run frontend gate
+        run: npm test
+      - name: Run kernel static and unit gate
+        working-directory: server
+        run: npm test
       - name: Build
         run: npm run build
       - name: Upload artifact

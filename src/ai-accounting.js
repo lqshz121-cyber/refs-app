@@ -382,9 +382,9 @@ export function makeFinding({skill, rule, risk='MEDIUM', objectType, objectRef, 
 }
 
 const textOf = x => `${x?.description||''} ${x?.memo||''} ${x?.reference||''} ${x?.vendor_name||''} ${x?.payee||''}`.toLowerCase();
-const isInsurance = x => /insurance|premium|coverage|保[险險]/i.test(textOf(x));
-const isPrepaidLike = x => isInsurance(x)||/property tax|subscription|license|warranty|maintenance contract|物业税|订阅|许可证|保修/.test(textOf(x));
-const isLoan = x => /loan|draw|lender|interest|repay|借款|贷款|利息/i.test(textOf(x));
+const isInsurance = x => /insurance|premium|coverage|\u4fdd[\u9669\u96aa]/i.test(textOf(x));
+const isPrepaidLike = x => isInsurance(x)||/property tax|subscription|license|warranty|maintenance contract|\u7269\u4e1a\u7a0e|\u8ba2\u9605|\u8bb8\u53ef\u8bc1|\u4fdd\u4fee/.test(textOf(x));
+const isLoan = x => /loan|draw|lender|interest|repay|\u501f\u6b3e|\u8d37\u6b3e|\u5229\u606f/i.test(textOf(x));
 
 export function runAccountingBrain({jes=[], bills=[], bankTransactions=[], bankReconciliations=[], sourceDocs=[], accrualCandidates=[], reports=[], trialBalances=[], revenueRecords=[], loanRecords=[], constructionProjects=[], intercompanyBalances=[], period, entity, asOfDate}={}) {
   const findings=[];

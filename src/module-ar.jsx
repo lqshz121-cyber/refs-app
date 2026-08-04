@@ -12,6 +12,7 @@ import { localInvoiceVoidEvidence } from './invoice-void-evidence.js';
 import { LOCAL_AGING_BUCKETS, localArAgingEvidenceRows, localAgingControl, localAgingGlReconciliation, localAgingControlDifferenceEvidence } from './aging-local-evidence.js';
 import { localReportReturnScopeLabel } from './report-return-context.js';
 import { localReconciliationJournalReturnScopeLabel } from './reconciliation-journal-return.js';
+export const arAgingDocuments=invoices=>invoices.filter(invoice=>['OPEN','PAYMENT_PENDING'].includes(invoice.status));
 
 // Local property receivables: evidence, receipt, bank proof, then aging.
 export function ARWorkspace({ctx}) {

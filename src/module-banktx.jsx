@@ -23,6 +23,7 @@ const queueLabel = { Review:'Pending', Posted:'Posted', Excluded:'Excluded' };
 
 export function BankTransactions({ctx}) {
   const {bank, jes, goto, navContext, ar, entity} = ctx;
+  if(ctx.authoritativeMode)return <section className="card" role="status"><h2 className="page-h">Bank Transactions</h2><p>BANK_API_UNAVAILABLE</p><button className="btn" disabled>Server data required</button></section>;
   const [acctCode, setAcct] = useState('BA-003');
   const [queue, setQueue] = useState('Review');
   const [query, setQuery] = useState('');

@@ -3,7 +3,7 @@ const RAW = `100000|ASSETS|D|H|1~110000|CASH|D|H|2~110100|Petty cash|D|R|3~11100
 export const WBS_COA_FULL = RAW.split('~').map(r=>{ const [code,name,nb,typ,lvl]=r.split('|');
   return {code, name, nb:nb==='C'?'CREDIT':'DEBIT', kind:typ, lvl:+lvl||0}; });
 export const WBS_COA_MAP = Object.fromEntries(WBS_COA_FULL.map(a=>[a.code,a]));
-// 辅助核算类型 (real WBS Subsidiary Account column + convention)
+// Subsidiary tracking types (WBS Subsidiary Account convention).
 export const SUBSIDIARY = {
   '111000':'Bank','114000':'Bank','116000':'Bank','117010':'Bank','118000':'Bank','112000':'Bank',
   '117001':'Vendor','220200':'Vendor','220300':'Vendor','220465':'Vendor','225000':'Vendor',
@@ -12,5 +12,5 @@ export const SUBSIDIARY = {
   '260100':'Loan','260200':'Loan','270100':'Loan','270200':'Loan','270700':'Loan','289500':'Loan',
 };
 export const subsidiaryOf = (code)=>SUBSIDIARY[code]||null;
-// 从行取核算对象: 显式 member 优先, 否则解析 description 的 '_' 后缀
+// Read the tracked member: explicit member wins; otherwise parse a description suffix.
 export const memberOf = (l)=> l.member || (l.description && l.description.includes('_') ? l.description.split('_').slice(1).join('_').replace(/ \(clear\)$/,'') : null);
