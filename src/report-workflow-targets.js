@@ -1,5 +1,5 @@
 const LOCAL_REPORT_WORKFLOW_TARGETS = Object.freeze({
-  'AP Aging': Object.freeze({ route: 'ap', context: Object.freeze({ route: 'ap', tab: '璐﹂緞 Aging' }) }),
+  'AP Aging': Object.freeze({ route: 'ap', context: Object.freeze({ route: 'ap', tab: 'AP Aging' }) }),
   'Accounts receivable aging summary': Object.freeze({ route: 'ar', context: Object.freeze({ route: 'ar', tab: 'AR Aging' }) }),
   'Reconciliation History': Object.freeze({ route: 'bankrec', context: Object.freeze({ route: 'bankrec' }) }),
 });
