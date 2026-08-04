@@ -12,6 +12,15 @@
 
 - Assistant3 business-fit review: retain only same-scope local POSTED evidence and real-estate dimensions; exclude external connections, bank feeds, imports, email/print/export/share, Spreadsheet Sync, automatic matching/adjustment/posting, QBO mutations, Sales/KPI/payment channels.
 
+## Accounting: Reconcile statement-level bridge (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Statement-level reconciliation bridge | No fresh QBO evidence: the read-only browser bridge returned no auditable tab on the QBO homepage. Assistant3 business-fit review identified the required Book/Bank/Difference bridge. | Reconcile displays entity, one bank account, cash scope, statement dates, book balance, retained adjustments, cleared/uncleared movement, adjusted book/bank and difference. Each retained bank item drills to a full-page Bank detail and Back restores the reconciliation statement scope. | PARTIAL - local source/history/build contracts verified; QBO worksheet fields, permissions, audit and responsive behavior remain unobserved. |
+| Evidence-only reconciliation boundary | Assistant3 scope requires POSTED cash JE/Bill/Receipt evidence, explicit match/cleared/signed-off/reopen states, and Review for non-zero difference, reopened statement, missing/cross-entity dimensions or unproven bank evidence. | Reconcile no longer offers categorization/posting, suspense posting, or sign-off from this retained-evidence workflow. Match does not imply cleared or signed-off; no bank feed/import/OCR, auto-match/adjust/clear/post, payment/refund, external sharing/export, Sales or sync action is enabled. | PARTIAL - business-fit local control, not QBO equivalence. |
+
+- Verification: `node verify-reconciliation-statement-bridge.mjs`, reconciliation history/detail-return gates, report replacement, English gate, build, and `git diff --check`. Browser bridge evidence remains unavailable for this cycle.
+
 ## Expenses: Bill AP balance explanation (2026-08-04)
 
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
