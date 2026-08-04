@@ -31,6 +31,14 @@ This blueprint is a deployment contract, not evidence of a live deployment.
 The staging gate remains failed until those external resources and the browser
 test have actual recorded evidence.
 
+Before each staging promotion, take a provider-managed encrypted PostgreSQL
+backup and retain its immutable restore-point identifier with the release
+record. `cd server && npm run test:backup:restore` is an isolated `*_test`
+restore drill only: it proves a fresh dump restores the migration manifest and
+a persisted tenant row, then destroys its own Docker project and volumes. It
+does not prove provider retention, PITR, or a production restore; those require
+a separately recorded staging drill with the platform owner.
+
 The two staging services intentionally use `autoDeployTrigger: off`; promote a
 tested commit manually.  The API's `preDeployCommand` needs a Render plan that
 supports pre-deploy commands.

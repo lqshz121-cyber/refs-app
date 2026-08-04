@@ -70,6 +70,11 @@ jobs:
         env:
           POSTGRES_IMAGE: postgres:${{ matrix.postgres }}-alpine
         run: npm run test:postgres:fresh
+      - name: Run isolated backup and restore drill
+        working-directory: server
+        env:
+          POSTGRES_IMAGE: postgres:${{ matrix.postgres }}-alpine
+        run: npm run test:backup:restore
 
   attachment-containers:
     name: Versioned object storage and malware scan gate
