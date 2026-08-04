@@ -2060,3 +2060,9 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
 |---|---|---|---|
 | Statement bridge, local evidence and signed-history drill | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Replaced visible localized/malformed reconciliation labels with direct English. Removed dormant record/suspense/sign-off posting helpers; retained drill paths open full-page bank/JE/report evidence with explicit Back. Existing local review/reopen metadata remains separate from ledger evidence. | PARTIAL — source/read-only boundary/build verification only; QBO reconcile behavior, permissions, sign-off/audit, empty states and responsive layout remain unobserved. |
+
+## Accounting: Bank Transaction evidence-only queue (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Bank queue candidate review and full-page evidence drill | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Removed dormant local categorize/match/batch action code and the inline match dialog. Queue rows now expose a read-only candidate explanation and explicit `Open evidence detail`; the detail retains its full-page Back path to the originating queue or report context. | PARTIAL — local source/build and return contracts are verified; QBO Bank transactions behavior, filters, match/categorize permissions, audit, empty states and responsive layout remain unobserved. |
