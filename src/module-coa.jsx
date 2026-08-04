@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Btn, Badge, Money, Table, Drawer, Field, SectionTitle } from './ui.jsx';
+import { Btn, Badge, Money, Table } from './ui.jsx';
 import { trialBalance } from './engine.js';
 import { WBS_COA_FULL } from './coa-wbs.js';
 import { Tabs } from './ui.jsx';
@@ -7,20 +7,16 @@ import { chartAccountControlState, chartAccountDrill, chartAccountScope } from '
 
 const WBS_TAB = 'WBS chart of accounts (766)';
 const LOCAL_TAB = 'Local posting accounts';
-const LEGACY_WBS_TAB = 'WBS 全量科目表 (766)';
-const LEGACY_LOCAL_TAB = '实体过账科目(可维护)';
 
 export function COAWorkspace({ctx}) {
-  const {coa, jes, actions, toast, can, entity, goto, navContext} = ctx;
-  const [showNew, setShowNew] = useState(false);
+  const {coa, jes, entity, goto, navContext} = ctx;
   const [tab, setTab] = useState(WBS_TAB);
-  const [f, setF] = useState({account_code:'', account_name:'', account_type:'EXPENSE'});
   const [qboQuery, setQboQuery] = useState('');
   useEffect(() => {
     if (navContext?.route !== 'coa' || !navContext.coaReturn) return;
     if (navContext.coaReturn.tab) {
       const returnedTab = navContext.coaReturn.tab;
-      setTab(returnedTab === LEGACY_WBS_TAB ? WBS_TAB : returnedTab === LEGACY_LOCAL_TAB ? LOCAL_TAB : returnedTab);
+      setTab(returnedTab === WBS_TAB || returnedTab === LOCAL_TAB ? returnedTab : WBS_TAB);
     }
     setQboQuery(String(navContext.coaReturn.qboQuery || ''));
   }, [navContext?.route, navContext?.coaReturn]);
@@ -40,12 +36,6 @@ export function COAWorkspace({ctx}) {
     {h:'Status',render:r=> r.inactive? <Badge tone="bad">Inactive</Badge> : <Badge tone="ok">Active</Badge>,csv:r=>r.inactive?'Inactive':'Active'},
     {h:'Action',render:r=> { const action=chartAccountDrill(r); const context={...action.context,entityId:entity || '',coaReturn:{route:'coa',tab,qboQuery,entityId:entity || ''}}; return <span className="row-acts"><Btn size="sm" variant="ghost" onClick={()=>goto(action.route,context)}>{action.label}</Btn><Btn size="sm" variant="ghost" disabled title="COA activation changes are excluded from the retained-evidence workflow">{r.inactive?'Activate unavailable':'Make inactive unavailable'}</Btn></span>; }},
   ];
-  const add = () => {
-    if(!/^[0-9]{6}$/.test(f.account_code)){ toast('科目编码需为6位数字(与WBS一致)','bad'); return; }
-    const r = actions.addAccount({...f, normal_balance:['ASSET','EXPENSE'].includes(f.account_type)?'DEBIT':'CREDIT'});
-    if (r.dup){ toast('编码已存在 [4004]','bad'); return; }
-    toast('科目已创建'); setShowNew(false); setF({account_code:'',account_name:'',account_type:'EXPENSE'});
-  };
   return <div>
     <h2 className="page-h">Chart of Accounts</h2>
     <nav aria-label="Observed QuickBooks Accounting navigation" style={{display:'flex',gap:8,flexWrap:'wrap',margin:'0 0 12px'}}>
@@ -71,25 +61,8 @@ export function COAWorkspace({ctx}) {
     </>}
     {tab!==WBS_TAB && <>
     <div style={{marginBottom:12}}><Btn variant="primary" disabled title="Creating accounts is excluded from the retained-evidence workflow">+ New account unavailable</Btn></div>
-    <Table exportName="chart-of-accounts" rowKey="account_code" cols={localAccountColumns /*
-      {h:'编码',k:'account_code'},
-      {h:'科目名称',k:'account_name'},
-      {h:'类型',render:r=><Badge tone="muted">{r.account_type}</Badge>,csv:r=>r.account_type},
-      {h:'方向',k:'normal_balance'},
-      {h:'当前余额',num:true,render:r=><Money v={balOf(r.account_code)}/>,sortVal:r=>balOf(r.account_code),csv:r=>balOf(r.account_code)},
-      {h:'状态',render:r=> r.inactive? <Badge tone="bad">停用</Badge> : <Badge tone="ok">启用</Badge>,csv:r=>r.inactive?'停用':'启用'},
-      {h:'操作',render:r=> Math.abs(balOf(r.account_code))<0.005 ?
-        <Btn size="sm" variant="ghost" onClick={()=>{actions.toggleAccount(r.account_code); toast(r.inactive?'已启用':'已停用');}}>{r.inactive?'启用':'停用'}</Btn>
-        : <span className="muted sm" title="有余额的科目不可停用">余额≠0 锁定</span>},
-    */} rows={filteredCoa} />
+    <Table exportName="chart-of-accounts" rowKey="account_code" cols={localAccountColumns} rows={filteredCoa} />
     <p className="muted sm">Control boundary: account code remains unique; accounts with non-zero balance cannot be inactivated; historical journal evidence is retained. Account creation, editing, activation, and deactivation are unavailable.</p>
     </>}
-    <Drawer open={showNew} onClose={()=>setShowNew(false)} title="新建科目"
-      actions={<><Btn onClick={()=>setShowNew(false)}>取消</Btn><Btn variant="primary" onClick={add}>创建</Btn></>}>
-      <Field label="编码 (4位)" required><input value={f.account_code} onChange={e=>setF(s=>({...s,account_code:e.target.value}))} maxLength={4}/></Field>
-      <Field label="名称" required><input value={f.account_name} onChange={e=>setF(s=>({...s,account_name:e.target.value}))}/></Field>
-      <Field label="类型"><select value={f.account_type} onChange={e=>setF(s=>({...s,account_type:e.target.value}))}>
-        {['ASSET','LIABILITY','EQUITY','REVENUE','EXPENSE'].map(t=><option key={t}>{t}</option>)}</select></Field>
-    </Drawer>
   </div>;
 }

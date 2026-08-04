@@ -12,4 +12,7 @@ for (const required of [
   'Register/GL drills are functional',
 ]) assert.ok(source.includes(required), `missing Accounting English-shell contract: ${required}`);
 assert.ok(!source.includes('<h2 className="page-h">科目'), 'COA page heading must be English-only');
-console.log('PASS: Accounting COA English tab and retained-drill contract is present.');
+assert.doesNotMatch(source, /[\p{Script=Han}]/u, 'COA source must not retain CJK visible labels or legacy aliases');
+assert.ok(source.includes('Creating accounts is excluded from the retained-evidence workflow'), 'COA writes must remain unavailable');
+assert.ok(!source.includes('actions.addAccount'), 'COA write action must not remain reachable');
+console.log('PASS: Accounting COA English tab, read-only boundary, and retained-drill contract are present.');
