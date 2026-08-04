@@ -241,8 +241,6 @@ export const PERIODS = [
   {period_id:1, entity_id:2, period_code:'2026-06', status:'CLOSED'},
   {period_id:2, entity_id:2, period_code:'2026-07', status:'OPEN'},
   {period_id:3, entity_id:4, period_code:'2026-07', status:'OPEN'},
-  {period_id:4, entity_id:2, period_code:'2026-08', status:'OPEN'},
-  {period_id:5, entity_id:4, period_code:'2026-08', status:'OPEN'},
 ];
 
 export const PROJECTS = [
@@ -265,9 +263,9 @@ export const LOANS = [
 ];
 
 export const BANK_ACCOUNTS = [
-  {bank_account_id:1, bank_account_code:'BA-001', entity_id:2, bank_name:'First National Bank', account_type:'OPERATING'},
-  {bank_account_id:2, bank_account_code:'BA-003', entity_id:4, bank_name:'Pacific Bank', account_type:'OPERATING'},
-  {bank_account_id:3, bank_account_code:'BA-ESC', entity_id:2, bank_name:'First National Bank', account_type:'ESCROW'},
+  {bank_account_id:1, bank_account_code:'BA-001', entity_id:2, bank_name:'First National Bank', account_type:'OPERATING', gl_account_code:'111000', cash_scope:'Operating'},
+  {bank_account_id:2, bank_account_code:'BA-003', entity_id:4, bank_name:'Pacific Bank', account_type:'OPERATING', gl_account_code:'111000', cash_scope:'Operating'},
+  {bank_account_id:3, bank_account_code:'BA-ESC', entity_id:2, bank_name:'First National Bank', account_type:'ESCROW', gl_account_code:'111000', cash_scope:'Escrow'},
 ];
 
 export const VENDORS = [

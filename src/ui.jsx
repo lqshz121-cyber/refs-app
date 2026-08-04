@@ -1,8 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { money } from './engine.js';
 
 export function Card({children, className='', onClick, hover}) {
-  return <div className={`card ${hover?'card-hover':''} ${className}`} onClick={onClick}>{children}</div>;
+  const interactive = typeof onClick === 'function';
+  return <div className={`card ${hover?'card-hover':''} ${className}`} onClick={onClick}
+    role={interactive ? 'button' : undefined} tabIndex={interactive ? 0 : undefined}
+    onKeyDown={interactive ? event=>{ if(event.key==='Enter'||event.key===' '){ event.preventDefault(); onClick(event); } } : undefined}>{children}</div>;
 }
 export function KPI({label, value, sub, tone}) {
   return <div className={`kpi ${tone||''}`}>
@@ -11,8 +14,8 @@ export function KPI({label, value, sub, tone}) {
     {sub!=null && <div className="kpi-sub">{sub}</div>}
   </div>;
 }
-export function Btn({children, onClick, variant='default', size, disabled, title}) {
-  return <button className={`btn btn-${variant} ${size?'btn-'+size:''}`} onClick={onClick} disabled={disabled} title={title}>{children}</button>;
+export function Btn({children, onClick, variant='default', size, disabled, title, ariaLabel}) {
+  return <button type="button" className={`btn btn-${variant} ${size?'btn-'+size:''}`} onClick={onClick} disabled={disabled} title={title} aria-label={ariaLabel}>{children}</button>;
 }
 const STATUS_TONE = {
   POSTED:'ok', APPROVED:'ok', MATCHED:'ok', DONE:'ok', BALANCED:'ok', SIGNED_OFF:'ok', PAID:'ok', RESOLVED:'ok',
@@ -33,7 +36,7 @@ export function Money({v, bold}) {
 // sort / text filter / CSV export / pagination / density / row click
 const _loadView = (k)=>{ try{ return JSON.parse(localStorage.getItem('refs_view_'+k))||{}; }catch(e){ return {}; } };
 const _saveView = (k,v)=>{ try{ localStorage.setItem('refs_view_'+k, JSON.stringify(v)); }catch(e){} };
-export function Table({cols, rows, onRow, empty='暂无数据', rowKey, features={}, pageSize=25, exportName}) {
+export function Table({cols, rows, onRow, empty='No records to display.', rowKey, features={}, pageSize=25, exportName}) {
   const V = exportName ? _loadView(exportName) : {};
   const {sortable=true, filterable=rows&&rows.length>8, exportable=!!exportName, paginate=rows&&rows.length>pageSize} = features;
   const [sortK, setSortK] = useState(V.sortK??null);
@@ -64,28 +67,29 @@ export function Table({cols, rows, onRow, empty='暂无数据', rowKey, features
     const head = cols.map(c=>c.h);
     const data = sorted.map(r=>cols.map(c=>{ const v=c.csv?c.csv(r):cellVal(r,c); return v==null?'':v; }));
     const csv=[head,...data].map(row=>row.map(c=>{const s=String(c);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');
-    const blob=new Blob(["﻿"+csv],{type:'text/csv;charset=utf-8'});
+    const blob=new Blob(["\uFEFF"+csv],{type:'text/csv;charset=utf-8'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=(exportName||'export')+'.csv'; a.click(); URL.revokeObjectURL(a.href);
   };
 
   if (!rows || rows.length===0) return <div className="empty">{empty}</div>;
   return <div>
     {(filterable||exportable) && <div className="grid-bar">
-      {filterable && <input className="grid-search" placeholder="🔍 筛选…(视图自动保存)" value={q} onChange={e=>{setQ(e.target.value); setPage(0); persist({q:e.target.value});}}/>}
-      <span className="grid-count muted">{sorted.length} 行</span>
+      {filterable && <input className="grid-search" aria-label="Search table records" placeholder="Search this view" value={q} onChange={e=>{setQ(e.target.value); setPage(0); persist({q:e.target.value});}}/>}
+      <span className="grid-count muted">{sorted.length} records</span>
       <span style={{flex:1}}/>
-      <button className="grid-tool" onClick={()=>{setDense(d=>{persist({dense:!d}); return !d;});}} title="密度">{dense?'Comfortable':'Compact'}</button>
-      {exportable && <button className="grid-tool" onClick={doExport}>导出 CSV</button>}
+      <button type="button" className="grid-tool" onClick={()=>{setDense(d=>{persist({dense:!d}); return !d;});}} title="Change row density" aria-label={`Use ${dense?'comfortable':'compact'} table density`}>{dense?'Comfortable':'Compact'}</button>
+      {exportable && <button type="button" className="grid-tool" onClick={doExport} aria-label="Export table as CSV">Export CSV</button>}
     </div>}
-    <div className="table-wrap" tabIndex={0} onKeyDown={e=>{ if(!view.length) return;
+    <div className={`table-wrap ${exportName?'table-'+exportName.replace(/[^a-z0-9_-]/gi,'-').toLowerCase():''}`} role="region" aria-label={exportName ? `${exportName} table` : 'Records table'} tabIndex={0} onKeyDown={e=>{ if(!view.length) return;
       if(e.key==='ArrowDown'){ e.preventDefault(); setHi(h=>Math.min(view.length-1,h+1)); }
       if(e.key==='ArrowUp'){ e.preventDefault(); setHi(h=>Math.max(0,h-1)); }
       if(e.key==='Enter' && hi>=0 && onRow){ e.preventDefault(); onRow(view[hi]); }
     }}><table className={`tbl ${dense?'tbl-dense':''}`}>
       <thead><tr>{cols.map((c,i)=>
-        <th key={i} className={`${c.num?'ta-r':''} ${sortable?'th-sort':''}`} style={c.w?{width:c.w}:null}
-          onClick={sortable?()=>{ if(sortK===i){ setSortDir(d=>{persist({sortK:i,sortDir:-d}); return -d;}); } else {setSortK(i); setSortDir(1); persist({sortK:i,sortDir:1});} }:null}>
-          {c.h}{sortK===i && <span className="sort-ind">{sortDir>0?' ▲':' ▼'}</span>}
+        <th key={i} className={c.num?'ta-r':''} style={c.w?{width:c.w}:null} aria-sort={sortK===i ? (sortDir>0?'ascending':'descending') : 'none'}>
+          {sortable ? <button type="button" className="th-sort" onClick={()=>{ if(sortK===i){ setSortDir(d=>{persist({sortK:i,sortDir:-d}); return -d;}); } else {setSortK(i); setSortDir(1); persist({sortK:i,sortDir:1});} }} aria-label={`Sort by ${c.h}${sortK===i ? sortDir>0?', ascending':', descending' : ''}`}>
+            {c.h}{sortK===i && <span className="sort-ind" aria-hidden="true">{sortDir>0?' ▲':' ▼'}</span>}
+          </button> : c.h}
         </th>)}</tr></thead>
       <tbody>{view.map((r,ri)=>
         <tr key={rowKey?r[rowKey]:ri} className={`${onRow?'tr-click':''} ${hi===ri?'tr-hi':''}`} onClick={onRow?()=>onRow(r):null} onMouseEnter={()=>setHi(ri)}>
@@ -94,26 +98,27 @@ export function Table({cols, rows, onRow, empty='暂无数据', rowKey, features
       </tbody>
     </table></div>
     {paginate && <div className="grid-pager">
-      <button className="grid-tool" disabled={page===0} onClick={()=>setPage(p=>p-1)}>‹ 上一页</button>
-      <span className="muted">{page+1} / {pages}</span>
-      <button className="grid-tool" disabled={page>=pages-1} onClick={()=>setPage(p=>p+1)}>下一页 ›</button>
+      <button type="button" className="grid-tool" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Previous</button>
+      <span className="muted" aria-live="polite">Page {page+1} of {pages}</span>
+      <button type="button" className="grid-tool" disabled={page>=pages-1} onClick={()=>setPage(p=>p+1)}>Next</button>
     </div>}
   </div>;
 }
 
 export function Drawer({open, onClose, title, children, width=480, actions}) {
+  const titleId = useId();
   if (!open) return null;
   return <div className="drawer-scrim" onClick={onClose}>
-    <div className="drawer" style={{width}} onClick={e=>e.stopPropagation()}>
-      <div className="drawer-head"><div className="drawer-title">{title}</div><button className="x" onClick={onClose}>×</button></div>
+    <div className="drawer" role="dialog" aria-modal="true" aria-labelledby={titleId} style={{width}} onClick={e=>e.stopPropagation()}>
+      <div className="drawer-head"><div id={titleId} className="drawer-title">{title}</div><button type="button" className="x" onClick={onClose} aria-label="Close">×</button></div>
       <div className="drawer-body">{children}</div>
       {actions && <div className="drawer-foot">{actions}</div>}
     </div>
   </div>;
 }
 export function Tabs({tabs, active, onChange}) {
-  return <div className="tabs">{tabs.map(t=>
-    <button key={t} className={`tab ${active===t?'tab-on':''}`} onClick={()=>onChange(t)}>{t}</button>)}</div>;
+  return <div className="tabs" role="tablist">{tabs.map(t=>
+    <button type="button" key={t} role="tab" aria-selected={active===t} className={`tab ${active===t?'tab-on':''}`} onClick={()=>onChange(t)}>{t}</button>)}</div>;
 }
 export function Field({label, children, hint, error, required}) {
   return <div className={`field ${error?'field-err':''}`}>
@@ -124,7 +129,7 @@ export function Field({label, children, hint, error, required}) {
 }
 export function Toast({msg, tone}) {
   if (!msg) return null;
-  return <div className={`toast toast-${tone||'ok'}`}>{msg}</div>;
+  return <div className={`toast toast-${tone||'ok'}`} role="status" aria-live="polite">{msg}</div>;
 }
 export function SectionTitle({children, right}) {
   return <div className="sec-title"><h3>{children}</h3>{right}</div>;
