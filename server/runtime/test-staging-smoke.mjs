@@ -29,6 +29,9 @@ export async function runStagingSmoke({config=stagingSmokeConfig(),fetcher=globa
   const web=await fetcher(`${config.webOrigin}/`,{method:'GET',redirect:'error',cache:'no-store',headers:{accept:'text/html'}});
   expect(web.status===200,'Staging web root did not return HTTP 200');
   expect(noStore(web),'Staging web root must be no-store');
+  expect(header(web,'x-frame-options')==='sameorigin','Staging web root must deny cross-origin framing');
+  expect(header(web,'x-content-type-options')==='nosniff','Staging web root must disable MIME sniffing');
+  expect(header(web,'referrer-policy')==='strict-origin-when-cross-origin','Staging web root has an unexpected referrer policy');
   const csp=header(web,'content-security-policy');
   for(const directive of ["default-src 'self'","base-uri 'self'","object-src 'none'","frame-ancestors 'self'","script-src 'self' https://cdnjs.cloudflare.com","form-action 'self'"])expect(csp.includes(directive),`Staging web CSP is missing ${directive}`);
   expect(!csp.includes("script-src 'self' 'unsafe-inline'"),'Staging web CSP must not allow inline scripts');

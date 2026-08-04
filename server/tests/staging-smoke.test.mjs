@@ -4,7 +4,7 @@ import {runStagingSmoke,stagingSmokeConfig} from '../runtime/test-staging-smoke.
 
 const config={apiBaseUrl:'https://api.staging.example',webOrigin:'https://app.staging.example'};
 const response=(status,body,headers={})=>({status,headers:new Headers(headers),json:async()=>body,text:async()=>String(body??'')});
-const webHeaders={'cache-control':'no-store','content-security-policy':"default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' https://cdnjs.cloudflare.com; form-action 'self'"};
+const webHeaders={'cache-control':'no-store','x-frame-options':'SAMEORIGIN','x-content-type-options':'nosniff','referrer-policy':'strict-origin-when-cross-origin','content-security-policy':"default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' https://cdnjs.cloudflare.com; form-action 'self'"};
 const webHtml='<!doctype html><script src="./refs-build.js"></script><script src="./refs-runtime-lock.js"></script><script src="./refs-runtime-config.js"></script><script src="./bundle.js"></script>';
 const runtimeSource="window.__REFS_OIDC__={};window.__REFS_ACCOUNTING_API__={};window.__REFS_RUNTIME_MODE__='REQUIRES_AUTHORITATIVE_API';";
 
