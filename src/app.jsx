@@ -454,11 +454,39 @@ function Approvals({ctx}) {
   </div>;
 }
 
+const authoritativeMoney=(amount,currency)=>{
+  const value=Number(amount);
+  if(!Number.isFinite(value))return '—';
+  if(!/^[A-Z]{3}$/.test(currency||''))return `${value.toFixed(2)} (currency unavailable)`;
+  return new Intl.NumberFormat('en-US',{style:'currency',currency,minimumFractionDigits:2,maximumFractionDigits:2}).format(value);
+};
+
+function AuthoritativeDocumentTable({title,documents,kind}){
+  const isBill=kind==='AP';
+  const counterpartyLabel=isBill?'Vendor':'Customer';
+  const numberKey=isBill?'bill_no':'inv_no';
+  const partyKey=isBill?'vendor_name':'customer_name';
+  const empty=`No authoritative ${isBill?'AP bills':'AR invoices'} were returned.`;
+  return <section aria-label={title} style={{marginTop:20}}>
+    <h2 style={{fontSize:18,margin:'0 0 8px'}}>{title} ({documents.length})</h2>
+    {!documents.length?<p className="muted">{empty}</p>:<div className="table-wrap"><table className="tbl"><thead><tr><th>Document</th><th>{counterpartyLabel}</th><th>Due date</th><th className="ta-r">Gross</th><th className="ta-r">Open balance</th><th>Status</th></tr></thead><tbody>{documents.map(document=><tr key={document.journal_entry_id||document[numberKey]}><td>{document[numberKey]||'—'}</td><td>{document[partyKey]||'—'}</td><td>{document.due_date||'—'}</td><td className="ta-r">{authoritativeMoney(document.amount,document.currency)}</td><td className="ta-r">{authoritativeMoney(document.open_balance,document.currency)}</td><td><span className="badge badge-muted">{document.status||'UNKNOWN'}</span></td></tr>)}</tbody></table></div>}
+  </section>;
+}
+
+function AuthoritativeAdjustmentSummary({title,adjustments}){
+  return <section aria-label={title} style={{marginTop:20}}><h2 style={{fontSize:18,margin:'0 0 8px'}}>{title} ({adjustments.length})</h2>{!adjustments.length?<p className="muted">No authoritative adjustments were returned.</p>:<div className="table-wrap"><table className="tbl"><thead><tr><th>Kind</th><th className="ta-r">Amount</th><th>Status</th></tr></thead><tbody>{adjustments.map(adjustment=><tr key={adjustment.business_adjustment_id}><td>{adjustment.adjustment_kind||'UNKNOWN'}</td><td className="ta-r">{authoritativeMoney(adjustment.amount,adjustment.currency)}</td><td><span className="badge badge-muted">{adjustment.status||'UNKNOWN'}</span></td></tr>)}</tbody></table></div>}</section>;
+}
+
 function AuthoritativeReadWorkspace({config}){
-  const [state,setState]=useState({phase:'LOADING',bills:[],invoices:[],message:''});
-  const refresh=async()=>{setState(current=>({...current,phase:'LOADING',message:''}));const result=await refreshAuthoritativeDocuments({config});if(!result.ok){setState({phase:'FAILED',bills:[],invoices:[],message:result.message});return;}setState({phase:'READY',bills:result.ap.bills,invoices:result.ar.invoices,message:''});};
+  const [state,setState]=useState({phase:'LOADING',bills:[],invoices:[],apAdjustments:[],arAdjustments:[],message:''});
+  const refresh=async()=>{
+    setState(current=>({...current,phase:'LOADING',message:''}));
+    const result=await refreshAuthoritativeDocuments({config});
+    if(!result.ok){setState({phase:'FAILED',bills:[],invoices:[],apAdjustments:[],arAdjustments:[],message:result.message});return;}
+    setState({phase:'READY',bills:result.ap.bills,invoices:result.ar.invoices,apAdjustments:result.ap.adjustments,arAdjustments:result.ar.adjustments,message:''});
+  };
   useEffect(()=>{refresh();},[]);
-  return <main className="login-shell"><section className="login-card" aria-live="polite"><h1>REFS authoritative read workspace</h1><p>Authenticated data is read directly from the accounting API. Browser-local accounting data is disabled.</p><button className="btn btn-primary" disabled={state.phase==='LOADING'} onClick={refresh}>Refresh authoritative records</button>{state.phase==='LOADING'&&<p className="muted">Loading authoritative AP/AR records…</p>}{state.phase==='FAILED'&&<p role="alert" className="muted">{state.message||'Authoritative accounting refresh failed.'}</p>}{state.phase==='READY'&&<><p className="muted">AP bills: {state.bills.length} · AR invoices: {state.invoices.length}</p><p className="muted">Write workflows remain unavailable until their complete server-backed UI and browser E2E gates are enabled.</p></>}</section></main>;
+  return <main className="login-shell"><section className="login-card" aria-live="polite" style={{maxWidth:1180,width:'calc(100% - 32px)'}}><h1>REFS authoritative read workspace</h1><p>Authenticated data is read directly from the accounting API. Browser-local accounting data is disabled.</p><button className="btn btn-primary" disabled={state.phase==='LOADING'} onClick={refresh}>Refresh authoritative records</button>{state.phase==='LOADING'&&<p className="muted">Loading authoritative AP/AR records…</p>}{state.phase==='FAILED'&&<p role="alert" className="muted">{state.message||'Authoritative accounting refresh failed.'}</p>}{state.phase==='READY'&&<><AuthoritativeDocumentTable title="Authoritative AP bills" documents={state.bills} kind="AP"/><AuthoritativeAdjustmentSummary title="Authoritative AP adjustments" adjustments={state.apAdjustments}/><AuthoritativeDocumentTable title="Authoritative AR invoices" documents={state.invoices} kind="AR"/><AuthoritativeAdjustmentSummary title="Authoritative AR adjustments" adjustments={state.arAdjustments}/><p className="muted" style={{marginTop:20}}>Write workflows remain unavailable until their complete server-backed UI and browser E2E gates are enabled.</p></>}</section></main>;
 }
 
 function AuthoritativeGateway({config}){
@@ -475,7 +503,7 @@ function App(){
   return <LegacyApp/>;
 }
 
-export { App };
+export { App, AuthoritativeAdjustmentSummary, AuthoritativeDocumentTable };
 if (typeof document !== 'undefined' && document.getElementById('root')) {
   createRoot(document.getElementById('root')).render(<App/>);
 }
