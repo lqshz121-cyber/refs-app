@@ -32,6 +32,15 @@ REFS 只从 WBS 读取数据；不会写回 BGDATA、MySQL `accounting`、WBS �
 - 生产访问只允许 VPN/IP 白名单、TLS、最小权限账号；不得提供公网数据库、表级写权限或共享管理员账号。
 - 视图／包不得含 cookie、会话 URL、密码、AK/SK、附件对象路径或可复用访问令牌。
 
+## 可选 MCP 交付（仅作为视图/快照的受控运输层）
+
+若 IT 选择 `https://db-mcp.wbm3.com/mcp` 而不是直连只读视图，必须同时交付以下内容；仅给出 URL 或个人开发者模式密钥不构成可用生产接入：
+
+1. 非交互式、可撤销的 **只读 service-account** 认证方式（OAuth client credentials、短期 bearer token 的签发端点，或明确的 mTLS 方案）、受众、过期时间、轮换与吊销流程；不得要求 REFS 使用个人 ChatGPT 会话、浏览器 cookie 或共享密钥。
+2. `initialize` 与 `tools/list` 的脱敏成功回执；所有可用工具必须带 `readOnlyHint=true`，并限定为上表的命名视图/快照读取工具。`database.query`、SQL 参数或任意写工具一律不接入。
+3. 每个读取工具的固定输入 schema：company/account-book scope、稳定 GuId 主键 seek cursor、page size、提取窗口与完备性元数据。工具输出必须能形成本文件要求的 `WBS_READONLY_SNAPSHOT_V2` 签名包。
+4. Sandbox 先行，并允许 REFS 出网 IP/VPN；生产必须另行白名单、最小权限、可审计。认证失败、工具缺失、非只读声明或不完整分页均由 REFS fail-closed，不读取任何业务行。
+
 ## REFS 验收回执
 
 每次导入 REFS 将返回：source/response hash、retrieval time、公司范围、accepted/quarantined 行数、每行 immutable receipt、Raw→Normalized→Staging trace roots，以及 observed control-total 差异。控制总额仅标记 `OBSERVED`，绝不用于自动平账。
