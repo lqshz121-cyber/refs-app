@@ -12,6 +12,15 @@
 
 - Assistant3 business-fit review: retain only same-scope local POSTED evidence and real-estate dimensions; exclude external connections, bank feeds, imports, email/print/export/share, Spreadsheet Sync, automatic matching/adjustment/posting, QBO mutations, Sales/KPI/payment channels.
 
+## Accounting: English Chart of Accounts shell and retained Register/GL drills (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Chart of Accounts labels and tabs | No fresh QBO evidence: the read-only browser bridge returned no auditable tab on the QBO homepage. | The COA heading and tab labels render as `Chart of Accounts`, `WBS chart of accounts (766)`, and `Local posting accounts`. Legacy localized return context normalizes to these English labels. | PARTIAL - local source contract/build verified; QBO labels, responsive behavior, permissions, and populated tab interactions remain unobserved. |
+| Read-only accounting drill boundary | Assistant3 business-fit review: preserve entity, account code/name/type, control, property/project, loan, cash scope, source, debit/credit/balance, and POSTED/matched/cleared/reconciled/review status. | The local posting-account table retains functional Register/GL drills and explicit returns. Account creation/edit/merge/delete/activation, imports/exports/print, external feeds/sync, automatic actions, and Sales are unavailable. | PARTIAL - business-fit local workflow, not a QBO equivalence claim. |
+
+- Verification: `node verify-accounting-english-tabs.mjs`, English gate, report drill replacement gate, build, and `git diff --check`. The browser bridge exposed no QBO tab during this cycle.
+
 ## Expenses: English tab normalization and retained drill scope (2026-08-04)
 
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
