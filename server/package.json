@@ -18,7 +18,8 @@
     "test:postgres:fresh": "node runtime/test-postgres-fresh.mjs",
     "test:backup:restore": "node runtime/test-backup-restore-drill.mjs",
     "test:attachments:containers": "node runtime/test-attachment-containers.mjs",
-    "test:staging:smoke": "node runtime/test-staging-smoke.mjs"
+    "test:staging:smoke": "node runtime/test-staging-smoke.mjs",
+    "validate:staging-env": "node runtime/validate-staging-env.mjs"
   },
   "dependencies": {
     "pg": "^8.13.1"

@@ -1,6 +1,6 @@
 # Staging configuration handoff
 
-Target application revision: `537fa396dbb25682f1235c7097c6212fc6671171`.
+Target application revision: `b874bc00e19449e2b532c8e446897299d4ffbabc` on `release/b874bc0-staging`.
 
 This checklist contains names and operational requirements only. Supply values through the deployment provider's encrypted secret store; never commit, paste into browser configuration, or place them in logs.
 
@@ -47,3 +47,9 @@ npm.cmd run test:staging:smoke
 Expected result is exit `0`: API readiness, exact CORS origin, and anonymous accounting-read rejection. Then record an authenticated OIDC browser login and refresh on Dashboard, Reports, Rule Center, Integration Hub, Accounting, Expenses, Reconcile, and Bank Transactions; run a versioned S3 upload/scan/read/delete-lifecycle test; finally import one signed, nonempty, read-only WBS receipt and retain only its immutable receipt reference, version, and hash in release evidence.
 
 Until those records exist, this revision remains a local integrated candidate, not a staging or production release.
+
+## Preview and promotion
+
+GitHub Pages deploys only `main`; pushing `release/b874bc0-staging` deliberately does not publish it. A Platform administrator must either create a protected pull request preview for that branch or configure a Render preview from its exact commit SHA. Do not force-push or retarget `main` to create a preview.
+
+Before starting the API/static/worker preview, load values into the provider secret store from `.env.staging.example` and run `cd server; npm.cmd run validate:staging-env`. It prints variable names only. Then run `test:staging:smoke`; authenticated browser capture, S3/scanner, and WBS receipt gates require their respective external services and cannot be simulated by this checklist.
