@@ -7,9 +7,11 @@ assert.deepEqual(
 );
 assert.equal(localReconciliationReceiptReturnTarget({bankTransactionReturn:{route:'banktx',arReturn:{route:'ar',tab:'AR Aging'}}}), null);
 assert.equal(localReconciliationReceiptReturnTarget({}), null);
+assert.equal(localReconciliationReceiptReturnTarget(null), null, 'the standalone reconciliation route has no return context');
 assert.deepEqual(
   localReconciliationPaymentReturnTarget({bankTransactionReturn:{route:'banktx',acctCode:'BA-003',bankTxnId:'BT-43',paymentReturn:{route:'ap',tab:'Payments',billId:19,paymentDate:'This month'}}}),
   {route:'ap',context:{route:'ap',tab:'Payments',billId:19,paymentDate:'This month'},label:'Back to Bill payments'},
 );
 assert.equal(localReconciliationPaymentReturnTarget({bankTransactionReturn:{paymentReturn:{route:'ap',tab:'AP Aging',billId:19}}}), null);
+assert.equal(localReconciliationPaymentReturnTarget(null), null, 'the standalone reconciliation route has no payment return context');
 console.log('reconciliation receipt return: only preserved AR Receipts scope may return');
