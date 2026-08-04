@@ -81,6 +81,7 @@ export function BankTransactions({ctx}) {
   const sourceOf = t => t.suggest ? 'Bank import / local category suggestion' : t.reference.includes('RENT') ? 'Tenant / owner receipt candidate' : 'Needs source mapping';
   const counterpartyOf = t => t.reference.includes('RENT') ? 'Tenant / owner' : 'Needs review';
   const actionLabel = t => t.suggest ? 'Categorize' : 'Match';
+  const openEvidenceDetail = transaction => goto('banktx',{route:'banktx',acctCode,bankTxnId:transaction.bank_txn_id,queue,query,dateRange,type,page});
   const accept = t => {
     const duplicate=duplicateByTxn.get(String(t.bank_txn_id));
     if (duplicate?.state==='SUSPECTED_DUPLICATE_BLOCKED') { toast('Suspected duplicate: retain for review before any match or category action.','bad'); return; }
@@ -153,6 +154,16 @@ export function BankTransactions({ctx}) {
   const bankEvidenceDetail = !navContext?.paymentReturn && navContext?.route === 'banktx' && navContext.bankTxnId != null && requestedFocus?.found ? requestedFocus.transaction : null;
   if (bankEvidenceDetail) {
     const bankEvidence = bankEvidenceDetail.local_evidence;
+    const duplicateEvidence = duplicateByTxn.get(String(bankEvidenceDetail.bank_txn_id));
+    const sourceJournal = bankEvidence?.journal || null;
+    const dimensions = key => [...new Set((sourceJournal?.lines || []).map(line => line[key]).filter(value => value != null))];
+    const decisionReasons = [
+      `Decision: ${bankEvidence?.state || 'REVIEW_REQUIRED'}`,
+      bankEvidence?.state === 'VALID_LOCAL_MATCH' ? 'Exact retained POSTED cash JE evidence is present.' : 'No eligible retained POSTED cash JE is proven.',
+      duplicateEvidence?.state === 'SUSPECTED_DUPLICATE_BLOCKED' ? 'Duplicate bank-ID boundary requires review.' : null,
+      bankEvidenceDetail.lifecycle?.clearingState === 'CLEARED' ? 'Clearing evidence retained.' : 'Not cleared in retained statement evidence.',
+      bankEvidenceDetail.lifecycle?.reconciliationState === 'SIGNED_OFF' ? 'Signed-off statement evidence retained.' : 'Not signed off in retained reconciliation evidence.',
+    ].filter(Boolean);
     const backTarget = localBankTransactionDetailBackTarget(navContext, requestedFocus);
     const bankJournalReturn = localBankTransactionJournalReturnContext({acctCode,bankTxnId:bankEvidenceDetail.bank_txn_id,origin:navContext});
     const signedHistoryTarget = bankEvidenceDetail.lifecycle?.signedEntry ? {
@@ -163,6 +174,7 @@ export function BankTransactions({ctx}) {
       <div className="qbo-report-back"><button type="button" onClick={() => goto(backTarget.route, backTarget.context)}>{backTarget.label}</button><span>Retained local bank evidence</span></div>
       <div className="gl-drill-head"><div><div className="gl-drill-crumb">Bank transactions / evidence detail</div><h2 className="page-h">{bankEvidenceDetail.external_id || bankEvidenceDetail.bank_txn_id}</h2><div className="gl-drill-account">{acctCode} · {account.bank_name} · statement {account.stmt_date}</div></div><Badge tone={bankEvidence?.state === 'VALID_LOCAL_MATCH' ? 'ok' : 'warn'}>{bankEvidence?.state || 'REVIEW_REQUIRED'}</Badge></div>
       <div className="qbo-drill-summary"><span><i>Bank / book date</i><b>{bankEvidenceDetail.txn_date || 'Not retained'} / {bankEvidence?.journal?.je_date || 'No retained JE'}</b></span><span><i>Direction / amount</i><b>{bankEvidenceDetail.direction} / {money(bankEvidenceDetail.amount)}</b></span><span><i>Cash scope</i><b>{bankEvidence?.cashScope || 'Unmapped — review'}</b></span><span><i>Entity</i><b>{bankEvidence?.entityId || 'Unproven'}</b></span><span><i>Matched JE</i><b>{bankEvidenceDetail.matched_je || 'No retained match'}</b></span><span><i>Lifecycle</i><b>{bankEvidenceDetail.lifecycle?.matchState || 'UNMATCHED'} / {bankEvidenceDetail.lifecycle?.clearingState || 'NOT_CLEARED'} / {bankEvidenceDetail.lifecycle?.reconciliationState || 'NOT_SIGNED_OFF'}</b></span></div>
+      <section className="report-workbench" aria-label="Bank transaction evidence decision" style={{marginTop:12}}><div className="report-workbench-head"><div><b>Evidence decision</b><div className="page-subtitle">Decision labels are read-only: they do not categorize, match, clear, exclude, restore, or post this transaction.</div></div><Badge tone={bankEvidence?.state === 'VALID_LOCAL_MATCH' ? 'ok' : 'warn'}>{bankEvidence?.state || 'REVIEW_REQUIRED'}</Badge></div><div className="qbo-toolgrid"><span><i>Bank ID / description</i><b>{bankEvidenceDetail.external_id || bankEvidenceDetail.bank_txn_id} / {bankEvidenceDetail.reference || 'Not retained'}</b></span><span><i>Entity / account</i><b>{bankEvidence?.entityId || 'Unproven'} / {acctCode}</b></span><span><i>Property / project / loan</i><b>{dimensions('property_id').join(', ') || 'Unassigned'} / {dimensions('project_id').join(', ') || 'Unassigned'} / {dimensions('loan_id').join(', ') || 'Unassigned'}</b></span><span><i>Source completeness</i><b>{sourceJournal ? 'POSTED JE retained' : 'No eligible retained source'}</b></span><span><i>Candidate / linked source</i><b>{bankEvidenceDetail.matched_je || (bankEvidenceDetail.ai_match?.bill_id ? `Bill ${bankEvidenceDetail.ai_match.bill_id}` : 'No exact candidate')}</b></span><span><i>Reason code</i><b>{duplicateEvidence?.state || bankEvidence?.state || 'REVIEW_REQUIRED'}</b></span></div><p className="muted sm" style={{margin:'10px 0 0'}}>{decisionReasons.join(' ')}</p></section>
       <p className="report-drill-hint">This detail is read-only local evidence. An amount match alone never links a JE: entity, cash account, direction, amount, POSTED state and duplicate boundary must all agree. It cannot import, auto-match, categorize, post, clear, sign off, connect, pay or alter a statement.</p>
       <div className="row-acts" style={{marginTop:12}}>
         {bankEvidenceDetail.matched_je ? <Btn size="sm" variant="ghost" onClick={() => goto('je',{jeNumber:bankEvidenceDetail.matched_je,bankTransactionReturn:bankJournalReturn})}>Open retained JE</Btn> : <Btn size="sm" variant="ghost" disabled>No retained JE</Btn>}
@@ -184,11 +196,9 @@ export function BankTransactions({ctx}) {
     {h:'From / To',render:r=><div className="bank-party"><b>{counterpartyOf(r)}</b><span>{r.reference.includes('RENT')?'Receipt can link to subledger activity':'No counterparty confirmed yet'}</span></div>},
     {h:'Proof state',render:r=><span className="row-acts"><Badge tone={r.local_evidence?.state==='VALID_LOCAL_MATCH'?'ok':r._state==='Excluded'?'warn':'bad'}>{r.local_evidence?.state || 'PENDING_REVIEW'}</Badge>{duplicateByTxn.get(String(r.bank_txn_id))?.state==='SUSPECTED_DUPLICATE_BLOCKED'&&<Badge tone="bad">DUPLICATE REVIEW</Badge>}</span>},
     {h:'Lifecycle',render:r=><span className="row-acts"><Badge tone={r.lifecycle.matchState==='MATCHED'?'ok':'warn'}>{r.lifecycle.matchState}</Badge><Badge tone={r.lifecycle.clearingState==='CLEARED'?'ok':'muted'}>{r.lifecycle.clearingState}</Badge><Badge tone={r.lifecycle.reconciliationState==='SIGNED_OFF'?'ok':'muted'}>{r.lifecycle.reconciliationState}</Badge></span>},
-    {h:'AI evidence',render:r=>{ const recommendation=r.ai_match; if(!recommendation) return <span className="muted sm">No recommendation</span>; const tone=recommendation.status==='SUSPICIOUS'?'bad':recommendation.status==='MATCHED'?'ok':'warn'; return <div className="bank-suggestion"><Badge tone={tone}>{recommendation.status}</Badge><span><i className={recommendation.confidence>=.8?'confidence-good':'confidence-low'}>{(recommendation.confidence*100).toFixed(0)}%</i> · {recommendation.reason}</span>{recommendation.bill_id&&<span className="acct-code">Source: bill:{recommendation.bill_id}</span>}</div>;}},
+    {h:'Candidate evidence',render:r=>{ const recommendation=r.ai_match; if(!recommendation) return <span className="muted sm">No retained candidate</span>; const tone=recommendation.status==='SUSPICIOUS'?'bad':recommendation.status==='MATCHED'?'ok':'warn'; return <div className="bank-suggestion"><Badge tone={tone}>{recommendation.status}</Badge><span><i className={recommendation.confidence>=.8?'confidence-good':'confidence-low'}>{(recommendation.confidence*100).toFixed(0)}%</i> · {recommendation.reason}</span>{recommendation.bill_id&&<span className="acct-code">Source: bill:{recommendation.bill_id}</span>}</div>;}},
     {h:'Match / Categorize',render:r=>queue==='Review' ? <div className="bank-suggestion"><b>{suggested(r)}</b><span><i className={confidence(r)>=80?'confidence-good':'confidence-low'}>{confidence(r)}%</i> confidence</span></div> : (r.matched_je&&jes.some(j=>j.je_number===r.matched_je) ? <Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:r.matched_je})}>{r.matched_je}</Btn> : <span className="muted sm">{r.matched_je||'—'}</span>)},
-    {h:'Action',render:r=>queue==='Review'
-      ? <span className="row-acts bank-row-actions"><Btn size="sm" variant="primary" onClick={()=>accept(r)}>{actionLabel(r)}</Btn><Btn size="sm" variant="ghost" disabled title="QBO Post semantics are not verified for this local record">Post</Btn><Btn size="sm" variant="ghost" onClick={()=>{actions.bankExclude(acctCode,r.bank_txn_id);toast('Moved to Excluded','warn')}}>Exclude</Btn></span>
-      : <Btn size="sm" variant="ghost" onClick={()=>{actions.bankUndo(acctCode,r.bank_txn_id);toast('Returned to Pending')}}>{queue==='Excluded'?'Restore':'Undo'}</Btn>}
+    {h:'Evidence action',render:r=><Btn size="sm" variant="ghost" onClick={()=>openEvidenceDetail(r)}>Open evidence detail</Btn>}
   ];
 
   return <div className="full-bleed bank-workbench">
@@ -303,7 +313,7 @@ export function BankTransactions({ctx}) {
         <select aria-label="Date" value={dateRange} onChange={e=>setDateRange(e.target.value)}><option>All dates</option><option>This month</option><option>Last 90 days</option></select>
         <select aria-label="Transaction type" value={type} onChange={e=>setType(e.target.value)}><option>All transactions</option><option>Money in</option><option>Money out</option></select>
         <span className="bank-result-count">{pagedQueueRows.total ? `${pagedQueueRows.start}-${pagedQueueRows.end} of ${pagedQueueRows.total}` : '0-0 of 0'} local transactions in {queueLabel[queue]}</span>
-        {queue==='Review'&&<Btn size="sm" variant="primary" onClick={batchAccept}>Accept selected ({selected.length})</Btn>}
+        {queue==='Review'&&<Btn size="sm" variant="primary" disabled title="Batch categorization/matching is unavailable in the retained-evidence workflow">Batch decision unavailable</Btn>}
         <span className="bank-toolbar-actions"><button type="button" disabled>Print</button><button type="button" disabled>Export CSV</button><button type="button" disabled>Columns</button></span>
       </div>
       <div className="bank-table"><Table rowKey="bank_txn_id" className="table-journal-entries" features={{filterable:false}} cols={cols} rows={pagedQueueRows.rows} empty={bankScopeEmpty.title || `No ${queueLabel[queue].toLowerCase()} transactions`}/></div>

@@ -12,6 +12,15 @@
 
 - Assistant3 business-fit review: retain only same-scope local POSTED evidence and real-estate dimensions; exclude external connections, bank feeds, imports, email/print/export/share, Spreadsheet Sync, automatic matching/adjustment/posting, QBO mutations, Sales/KPI/payment channels.
 
+## Accounting: Bank transaction evidence decision (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Bank transaction decision detail | No fresh QBO evidence: the read-only browser bridge returned no auditable tab on the QBO homepage. Assistant3 business-fit review identified the missing decision explanation. | Each Bank Transaction now opens a full-page evidence detail with Bank ID/date/direction/amount/description, entity/account/cash scope, property/project/loan, candidate or linked source, source completeness, lifecycle, reason code and a read-only decision explanation. Back retains the original queue, account, filters and page context. | PARTIAL - local source/build and existing Bank return contracts verified; QBO queue detail, permissions, audit and responsive behavior remain unobserved. |
+| Evidence-only Bank boundary | Assistant3 scope excludes bank feed/import/OCR, auto-match/categorize/clear/post, online payment/refund, external connectors/sync/export and Sales/payment channels. | Row and batch actions now open evidence detail only. Categorization, matching, excluding/restoring and posting are not exposed from the retained-evidence Bank shell; unresolved items remain Review with explicit cause. | PARTIAL - business-fit local control, not QBO equivalence. |
+
+- Verification: `node verify-bank-evidence-decision.mjs`, existing Bank transaction evidence/return/pagination/lifecycle gates, reconciliation return, English gate, build, and `git diff --check`. Retained bank-account masters now carry the local GL/cash-scope mapping required for exact POSTED cash-JE proof. `verify-bank-transaction-focus.mjs` is not present in this worktree; its absence is recorded rather than treated as a passing check. Browser bridge evidence remains unavailable for this cycle.
+
 ## Accounting: Reconcile statement-level bridge (2026-08-04)
 
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
