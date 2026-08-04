@@ -276,5 +276,5 @@ const _norm = j=>{
 _ALL.forEach(_norm);
 JOURNAL_ENTRIES.forEach(_norm);
 export const FY2026 = _ALL;
-// unit -> owner company (每个 unit 归属的 owner 实体)
+// Unit-to-owner-company map.
 export const UNIT_OWNERS = { 'A-203':{entity_id:4, name:'WB Home LLC'}, 'B-110':{entity_id:2, name:'Wan Bridge Land LLC'}, 'C-050':{entity_id:11, name:'WB Pradera Oaks Land 1 LLC'} };
