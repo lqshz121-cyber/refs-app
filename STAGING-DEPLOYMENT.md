@@ -28,6 +28,13 @@ This blueprint is a deployment contract, not evidence of a live deployment.
    `/health/ready`, then execute a real browser login, refresh, Draft →
    Approve → Post, refresh persistence, and a rejected cross-tenant request.
 
+Before the browser step, run the no-write deployment smoke gate from `server`.
+Set `REFS_STAGING_API_BASE_URL=https://api.example` and
+`REFS_STAGING_WEB_ORIGIN=https://app.example`, then run
+`npm run test:staging:smoke` (in PowerShell: set both with `$env:` first).
+It verifies readiness, the exact CORS origin, and anonymous accounting-read rejection;
+it neither accepts an access token nor creates accounting data.
+
 The staging gate remains failed until those external resources and the browser
 test have actual recorded evidence.
 
