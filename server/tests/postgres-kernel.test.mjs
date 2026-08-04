@@ -13,6 +13,8 @@ import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/att
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {createWbsSnapshotSignatureVerifier} from '../runtime/wbs-snapshot-signature.mjs';
+import {createProductionAccountingServer} from '../runtime/accounting-server.mjs';
+import {OidcJwtAuthenticator} from '../api/oidc-authenticator.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -742,6 +744,24 @@ pgTest('authenticated HTTP commands traverse context issuance and PostgreSQL int
   assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[journalId])).rows[0].status,'POSTED');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[journalId])).rows[0].n,2);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[journalId])).rows[0].n,5);
+});
+
+pgTest('production HTTP listener verifies an RS256 access token before DB context issuance and immutable posting',async()=>{
+  const ids=await seed({status:'DRAFT'}),attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
+  const permissions={maker:['GL.JE.CREATE','GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']};
+  for(const [actor,grants] of Object.entries(permissions))for(const permission of grants)await adminPool.query('INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,$4)',[ids.tenantId,actor,ids.entityId,permission]);
+  const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048}),issuer='https://issuer.refs.test',audience='refs-accounting',authenticator=new OidcJwtAuthenticator({issuer,audience,keyResolver:{resolve:async()=>publicKey}});
+  const token=actor=>{const now=Math.floor(Date.now()/1000),header=Buffer.from(JSON.stringify({alg:'RS256',kid:'test-key',typ:'JWT'})).toString('base64url'),payload=Buffer.from(JSON.stringify({iss:issuer,aud:audience,iat:now,exp:now+300,tenant_id:ids.tenantId,sub:actor})).toString('base64url'),signature=sign('RSA-SHA256',Buffer.from(`${header}.${payload}`),privateKey).toString('base64url');return `${header}.${payload}.${signature}`;};
+  const server=createProductionAccountingServer({runtimePool,issuerPool,authenticator,attachmentStorage:{probe:async()=>true},virusScanner:{probe:async()=>true},scannerServiceActorId:'scanner-service',wbsSnapshotVerifier:()=>true,allowedOrigins:['https://app.example']});
+  await new Promise((resolve,reject)=>server.listen(0,'127.0.0.1',error=>error?reject(error):resolve()));
+  try{
+    const base=`http://127.0.0.1:${server.address().port}`,request=async(actor,path,body,idempotencyKey,revision)=>{const response=await fetch(`${base}${path}`,{method:'POST',headers:{authorization:`Bearer ${token(actor)}`,'content-type':'application/json','idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':`"${revision}"`})},body:JSON.stringify(body)});return {status:response.status,body:await response.json()};};
+    assert.equal((await fetch(`${base}/health/ready`)).status,200);assert.equal((await fetch(`${base}/api/v1/entities/${ids.entityId}/journal-entries/manual`,{method:'POST'})).status,401);
+    const path=`/api/v1/entities/${ids.entityId}/journal-entries`,created=await request('maker',`${path}/manual`,{periodId:ids.periodId,journalNumber:'JE-PROD-OIDC-001',journalDate:'2026-07-18',currency:'USD',description:'Production composition',attachmentIds:[attachmentId],lines:[{line_no:1,account_code:'111000',debit_amount:75,credit_amount:0,member_ref:'BANK-1',dimensions:{}},{line_no:2,account_code:'291001',debit_amount:0,credit_amount:75,member_ref:'VENDOR-1',dimensions:{}}]},'prod-create-0001');
+    assert.equal(created.status,201);const journalId=created.body.data.journal_entry_id;
+    assert.equal((await request('maker',`${path}/${journalId}/transitions/submit`,{},'prod-submit-0001',0)).status,201);assert.equal((await request('reviewer',`${path}/${journalId}/transitions/review`,{},'prod-review-0001',1)).status,201);assert.equal((await request('approver',`${path}/${journalId}/transitions/approve`,{},'prod-approve-0001',2)).status,201);assert.equal((await request('poster',`${path}/${journalId}/post`,{periodId:ids.periodId},'prod-post-0001',3)).status,201);
+    assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE journal_entry_id=$1',[journalId])).rows[0].status,'POSTED');assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[journalId])).rows[0].n,2);assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='JOURNAL_POSTED'",[journalId])).rows[0].n,1);
+  }finally{await new Promise(resolve=>server.close(resolve));}
 });
 
 pgTest('authenticated HTTP AR aging reads only the entity authorized by its DB context',async()=>{
