@@ -28,13 +28,13 @@ export function Dashboard({ctx}) {
   const openBills = ap.bills.filter(b=>!['PAID','VOID'].includes(b.status));
   const paidBills = ap.bills.filter(b=>b.status==='PAID');
   const bankUnmatched = Object.values(bank.accounts).reduce((n,a)=>n+a.txns.filter(t=>t.match_status==='UNMATCHED').length,0);
-  const expCats = [['杩愯惀 Opex', Math.max(1,st.expense*0.42), '#2CA01C'], ['鍒╂伅 Interest', Math.max(1,st.expense*0.31), '#0077C5'], ['绠＄悊璐?Mgmt', Math.max(1,st.expense*0.17), '#FF8000'], ['鍏朵粬 Other', Math.max(1,st.expense*0.10), '#8A5BE0']];
+  const expCats = [['Opex', Math.max(1,st.expense*0.42), '#2CA01C'], ['Interest', Math.max(1,st.expense*0.31), '#0077C5'], ['Management', Math.max(1,st.expense*0.17), '#FF8000'], ['Other', Math.max(1,st.expense*0.10), '#8A5BE0']];
   const expTot = expCats.reduce((s,[,v])=>s+v,0);
   let acc=0; const segs = expCats.map(([n,v,c])=>{ const from=acc/expTot*360; acc+=v; return `${c} ${from}deg ${acc/expTot*360}deg`; }).join(', ');
   const plBars = [12,18,9,22,15,26,Math.max(4,Math.round(st.netIncome/4000))];
   return <div>
     <div className="qbo-home-hero">
-      <div><span className="qbo-eyebrow">REFS 路 Finance workspace</span><h2 className="page-h">Business overview</h2><p>One place for the work that needs attention, your live financial position, and a clean path back to source records.</p></div>
+      <div><span className="qbo-eyebrow">REFS — Finance workspace</span><h2 className="page-h">Business overview</h2><p>One place for the work that needs attention, your live financial position, and a clean path back to source records.</p></div>
       <div className="qbo-home-actions"><Btn onClick={()=>goto('je')}>Create journal entry</Btn><Btn variant="ghost" onClick={()=>goto('reports')}>Open reports</Btn><Btn variant="ghost" onClick={()=>goto('audit')}>See all activity</Btn></div>
     </div>
     <div className="qbo-quicklinks" aria-label="Quick links">
@@ -43,35 +43,35 @@ export function Dashboard({ctx}) {
     <h2 className="page-h">Business at a glance</h2>
     <div className="qbo-grid">
       <div className="qbo-card" onClick={()=>goto('gl')} style={{cursor:'pointer'}}>
-        <h4>Profit & Loss 路 2026-07</h4>
+        <h4>Profit & Loss — 2026-07</h4>
         <div className={`qbo-big ${st.netIncome<0?'num-neg':''}`}>{money(st.netIncome)}</div>
-        <div className="qbo-sub">鍑€鍒?Net income 路 鏀跺叆 {money(st.revenue)} 鈭?璐圭敤 {money(st.expense)}</div>
+        <div className="qbo-sub">Net income — Revenue {money(st.revenue)} − Expense {money(st.expense)}</div>
         <PLChart jes={jes} entity={entity}/>
       </div>
       <div className="qbo-card" onClick={()=>goto('reports')} style={{cursor:'pointer'}}>
-        <h4>Expenses 路 鏈湡璐圭敤</h4>
+        <h4>Expenses — Current period</h4>
         <div className="qbo-big">{money(st.expense)}</div>
         <ExpDonut cats={expCats}/>
       </div>
       <div className="qbo-card" onClick={()=>goto('bankrec')} style={{cursor:'pointer'}}>
-        <h4>Bank Accounts 路 閾惰璐︽埛</h4>
-        {Object.entries(bank.accounts).map(([code,a])=><div key={code} className="bank-row"><span>{code} 路 {a.bank_name}</span><Money v={a.gl_book_balance}/></div>)}
+        <h4>Bank Accounts</h4>
+        {Object.entries(bank.accounts).map(([code,a])=><div key={code} className="bank-row"><span>{code} — {a.bank_name}</span><Money v={a.gl_book_balance}/></div>)}
         <div className="qbo-sub" style={{marginTop:8}}>{bankUnmatched} unmatched bank transactions · review reconciliation</div>
       </div>
       <div className="qbo-card" onClick={()=>goto('ap')} style={{cursor:'pointer'}}>
-        <h4>Bills 路 搴斾粯</h4>
+        <h4>Bills</h4>
         <div className="qbo-big">{money(sum(openBills,b=>b.amount))}</div>
         <div className="split-bar"><span style={{flex:Math.max(1,openBills.length), background:'#FF8000'}}/><span style={{flex:Math.max(1,paidBills.length), background:'#2CA01C'}}/></div>
         <div className="qbo-sub">{openBills.length} open bills · {paidBills.length} paid bills</div>
       </div>
       <div className="qbo-card" onClick={()=>goto('close')} style={{cursor:'pointer'}}>
-        <h4>Month-End Close 路 鍏宠处</h4>
+        <h4>Month-End Close</h4>
         <div className="qbo-big">{Math.round(doneTasks/closeTasks.length*100)}%</div>
         <div className="split-bar"><span style={{flex:Math.max(1,doneTasks), background:'#2CA01C'}}/><span style={{flex:Math.max(1,closeTasks.length-doneTasks), background:'#d4d7dc'}}/></div>
-        <div className="qbo-sub">{doneTasks}/{closeTasks.length} 浠诲姟瀹屾垚 路 鏈熼棿 2026-07 OPEN</div>
+        <div className="qbo-sub">{doneTasks}/{closeTasks.length} tasks complete — Period 2026-07 OPEN</div>
       </div>
       <div className="qbo-card" onClick={()=>goto('exceptions')} style={{cursor:'pointer'}}>
-        <h4>Exceptions 路 鏈喅寮傚父</h4>
+        <h4>Exceptions — Open</h4>
         <div className="qbo-big num-neg">{openExc.length}</div>
         <div className="qbo-sub">{openExc.filter(e=>e.severity==='HIGH').length} high · {openExc.filter(e=>e.severity==='MEDIUM').length} medium · oldest aging {Math.max(0,...openExc.map(e=>e.aging_days))} days</div>
       </div>
@@ -97,16 +97,16 @@ export function Dashboard({ctx}) {
       {[['Run payroll','close'],['Get paid online','ar'],['Create invoice','ar'],['Record expense','ap'],['Add bank deposit','banktx']].map(([l,r])=>
         <Btn key={l} onClick={()=>goto(r)}>{l}</Btn>)}
     </div>
-    <SectionTitle>Shortcuts 路 蹇嵎鎿嶄綔</SectionTitle>
+    <SectionTitle>Shortcuts</SectionTitle>
     <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:22}}>
       {[['+ Create Bill','ap'],['+ Journal Entry','je'],['Match Bank Txn','banktx'],['Run PM Pickup','pmpickup'],['Import Loan Txns','loan'],['Start Reconciliation','bankrec'],['+ Invoice','ar'],['Process Closing','closing']].map(([l,r])=>
         <Btn key={l} onClick={()=>goto(r)}>{l}</Btn>)}
     </div>
-    <SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>goto('approvals')}>鏌ョ湅鍏ㄩ儴</Btn>}>寰呭鎵归槦鍒?Approvals ({pendingApprovals.length})</SectionTitle>
+    <SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>goto('approvals')}>View all</Btn>}>Approvals ({pendingApprovals.length})</SectionTitle>
     <Table rowKey="je_id" onRow={r=>goto('je',{jeNumber:r.je_number})} cols={[
-      {h:'JE 缂栧彿',k:'je_number'},{h:'鎻忚堪',k:'description'},
-      {h:'鏉ユ簮',render:r=><Badge tone="muted">{r.source_system}</Badge>},
-      {h:'閲戦',num:true,render:r=><Money v={jeTotals(r).dr}/>},
+      {h:'JE number',k:'je_number'},{h:'Description',k:'description'},
+      {h:'Source',render:r=><Badge tone="muted">{r.source_system}</Badge>},
+      {h:'Amount',num:true,render:r=><Money v={jeTotals(r).dr}/>},
         {h:'Status',render:r=><Badge>{r.posting_status}</Badge>},
     ]} rows={pendingApprovals} empty="No journal entries are pending approval."/>
   </div>;
