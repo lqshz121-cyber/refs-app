@@ -702,44 +702,6 @@ export function Intercompany({ctx}) {
       {h:'Action',render:r=>r.match_status!=='MATCHED'?<Btn size="sm" variant="primary" onClick={()=>mirror(r)}>Create mirror entry</Btn>:<span className="muted sm">—</span>},
     ]} rows={ic} rowKey="ic_txn_id" /></div>;
 }
-function IntegrationHubLegacy({ctx}) {
-  const [batches, setBatches] = useState([
-    {batch_id:'CL-20260731-007', src:'WBS_CL', status:'COMPLETED', n:4, ok:4, err:null},
-    {batch_id:'PM-202607-P0020', src:'PM', status:'PARTIAL', n:5, ok:4, err:'琛?: PET_FEE 缂?GL 鏄犲皠 [3020]'},
-    {batch_id:'BANK-20260731', src:'BANK', status:'COMPLETED', n:4, ok:4, err:null},
-  ]);
-  const retry = (id) => { setBatches(bs=>bs.map(b=>b.batch_id===id?{...b, status:'RETRYING'}:b));
-    setTimeout(()=>setBatches(bs=>bs.map(b=>b.batch_id===id?{...b, status:'PARTIAL'}:b)), 900);
-    ctx.toast('閲嶈瘯瀹屾垚锛氭槧灏勪粛缂哄け锛岄渶鍏堝湪 Mapping Center 閰嶇疆 PET_FEE','warn'); };
-  const FEEDS = [
-    ['PAYABLE','涓婃父 AP 鍙戠エ(Contract & Invoice / Budget & Purchasing 瀹℃壒瀹屾垚)','Dr 璐圭敤绉戠洰(甯?Cost Code/Class/Payable No GUID/Unit) / Cr 291001 Due to/from_鎸塒ayee鎸傝处','涓よ涓€缁?Journal No=YYYYMMDD+搴忓彿'],
-    ['EXPA','閾惰娴佹按 Feed 鑷姩鍖归厤浠樻(Auto Payments Reconciliation)','Dr 291001 Due to/from_Payee(娓呰处) / Cr 111000 Operating Cash_鍏徃_閾惰_璐﹀彿灏惧彿','memo 淇濈暀鍘熷 ACH/CCD 閾惰鎻忚堪鍏ㄦ枃'],
-    ['AUTOC','Company-card or bank purchase feed','Dr 291001 Due to/from Vendor / Cr 111000 Operating Cash','When paired with PAYABLE, clears the payable balance'],
-    ['DIVIDEND','涓氫富鍒嗙孩鍙戞斁鎵规(鎸?Lot/Unit)','Dr 291000 Due to/from_涓氫富(鎸?Lot 澶氳) / Cr 111000 鐜伴噾 + Cr 220204 Tax Payable(浠ｆ墸绋?','WBLD 瀹炴祴妯″紡'],
-    ['NOT_MATCH','閾惰娴佹按鏃犳硶鑷姩鍖归厤','鏆傛寕,浜哄伐澶勭悊 鈫?杞?Match 鎴?Exception','瀵瑰簲 REFS Bank Transactions For Review'],
-    ['REIMB / Reimbursement Invoice','鍛樺伐涓婁紶鎶ラ攢鍙戠エ(Upload Reimbursement Invoices)','瀹℃壒鍚?Dr 璐圭敤 / Cr 291001 Due to/from_鍛樺伐','Auto Reimbursement=鑷姩鐢熸垚鍒嗗綍'],
-    ['AUTO_BANK_REIMB','閾惰鎵ｆ鑷姩娓呮姤閿€鎸傝处','Dr 291001 / Cr 111000','涓?EXPA 鍚屾満鍒?鏉ユ簮涓烘姤閿€'],
-    ['INTERNAL_TRANSFER','Transfer between owned bank accounts','Dr 111000 receiving account / Cr 111000 paying account','Each bank feed is reconciled independently'],
-    ['INTERNAL / INDIVIDUAL','Manual or individual journal entry','Draft → Review → Approve','Only reviewed items are available for posting'],
-  ];
-  return <div className="full-bleed"><h2 className="page-h">闆嗘垚涓績 Integration Hub</h2>
-    <p className="muted sm">External data first enters staging, then moves through validation, GL mapping, approval, and posting. Retry behavior is shell-only until verified.</p>
-    <SectionTitle>WBS 鏁版嵁鏉ユ簮瑙勫垯(涓?WBS 鐢熶骇绯荤粺閫愭潯瀵归綈)</SectionTitle>
-    <Table cols={[
-      {h:'Source',render:r=><Badge tone="muted">{r[0]}</Badge>},
-      {h:'涓氬姟鏁版嵁鏉ユ簮',render:r=>r[1]},
-      {h:'璁拌处瑙勫垯',render:r=>r[2]},
-      {h:'澶囨敞',render:r=><span className="muted sm">{r[3]}</span>},
-    ]} rows={FEEDS} />
-    <SectionTitle>鎵规鐩戞帶</SectionTitle>
-    <Table rowKey="batch_id" cols={[
-      {h:'鎵规',k:'batch_id'},{h:'鏉ユ簮',render:r=><Badge tone="muted">{r.src}</Badge>},
-      {h:'璁板綍',num:true,render:r=>r.ok+'/'+r.n},
-      {h:'Status',render:r=><Badge tone={r.status==='COMPLETED'?'ok':'warn'}>{r.status}</Badge>},
-      {h:'Error details',render:r=>r.err||'—'},
-      {h:'Actions',render:r=>r.status!=='COMPLETED' ? <span className="row-acts"><Btn size="sm" onClick={()=>retry(r.batch_id)}>Retry</Btn><Btn size="sm" variant="ghost" onClick={()=>ctx.goto('mapping')}>Open mapping</Btn></span> : <span className="muted sm">—</span>},
-    ]} rows={batches} /></div>;
-}
 export function IntegrationHub({ctx}) {
   const batches = [
     {batch_id:'CL-20260731-007', source:'WBS_CL', status:'COMPLETED', accepted:4, total:4, issue:null},
@@ -817,25 +779,6 @@ export function MappingCenter({ctx}) {
   </div>;
 }
 export function RuleCenter() {
-  const legacyRuleEvidence = []; /*
-    /* Legacy prototype descriptions are retained as non-executable reference text.
-    ['R-LOAN-01','LOAN.DRAW','Dr 111000 Cash / Cr 270100 Loan Payable(璧勯噾娴佸叆鈮犳垚鏈?','LIVE'],
-    ['R-LOAN-03','LOAN.INTEREST 路 鍦ㄥ缓','Dr 164500 CWIP-Cap Interest / Cr 220410','LIVE'],
-    ['R-LOAN-04','LOAN.INTEREST 路 瀹屽伐','Dr 795000 Interest Expense / Cr 220410','LIVE'],
-    ['R-LOAN-05','LOAN.REPAYMENT','Dr 270100 / Cr 111000(鎴栨寜鍏徃Setting鈫?91001)','LIVE'],
-    ['R-AP-STD-01','PAYABLE(鎸塒ayee鎸傝处)','Dr 璐圭敤/CWIP(鎸塁ost Setting) / Cr 291001_Payee','LIVE'],
-    ['R-EXPA-01','閾惰Feed鑷姩娓呰处','Dr 291001_Payee / Cr 111000(EXPA/AUTOC)','LIVE'],
-    ['R-COST-2HD','Hard Cost 脳 鍦ㄥ缓','Dr 164400 CWIP / Cr 220300','LIVE'],
-    ['R-COST-2HD-DONE','Hard Cost 脳 瀹屽伐','Dr 510000 COGS / Cr 220300(鐘舵€侀┍鍔?','LIVE'],
-    ['R-PM-11','PM RENT(鏉冭矗)','Dr 120200 AR / Cr 421803 Rental Income','LIVE'],
-    ['R-PM-16','SEC_DEPOSIT','Dr 111000 / Cr 225000 鎶奸噾璐熷€?绂佸叆鏀跺叆)','LIVE'],
-    ['R-CLS-SALE-01','Closing 路 Confirmed amount','Dr 111000 / Cr 491800;Title Withholding鈫?20205','LIVE'],
-    ['R-CLS-COGS-01','Closing 路 鎴愭湰缁撹浆','Dr 510000 / Cr 164400(鈮ょ疮璁WIP)','LIVE'],
-    ['R-DIV-01','Dividend 鎵规','Dr 291000_涓氫富(鎸塋ot) / Cr 111000 + Cr 220204浠ｆ墸','LIVE'],
-    ['R-UT-OUT-01','Unit Transfer A杞嚭','Dr 125000 Due from_B / Cr 164400 + 787001鎹熺泭','LIVE'],
-    ['R-UT-IN-01','Unit Transfer B杞叆','Dr 164400(B Opening Basis) / Cr 291000 Due to_A','LIVE'],
-    ['R-IC-01','Intercompany payment','Paying entity: Dr 125000 / Cr 111000; receiving entity: Dr 111000 / Cr 291000','LIVE'],
-    */
   const rules = [
     {id:'R-LOAN-01', priority:1, trigger:'LOAN.DRAW', appliedTo:'Local controlled account set', conditions:'Local event is LOAN.DRAW', settings:'Local controlled rule-shell record', autoPost:'Unavailable', status:'Active (local)'},
     {id:'R-AP-STD-01', priority:2, trigger:'PAYABLE', appliedTo:'Local controlled account set', conditions:'Local event is PAYABLE', settings:'Local controlled rule-shell record', autoPost:'Unavailable', status:'Active (local)'},
