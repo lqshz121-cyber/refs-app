@@ -481,7 +481,7 @@ export function Reports({ctx}) {
     <div className="accounting-page-head reports-head">
       <div>
         <div className="page-eyebrow">FINANCIAL INTELLIGENCE 路 CONTROLLED REPORTING</div>
-        <h2 className="page-h">鎶ヨ〃涓績 Reports</h2>
+        <h2 className="page-h">Reports Center</h2>
         <div className="reports-clean-title">Reports Center</div>
         <div className="page-subtitle">Financial statements, operational controls and WBS reconciliations with drill-down context.</div>
       </div>
@@ -568,7 +568,7 @@ export function Reports({ctx}) {
     <div className="qbo-report-promo"><span>FOR YOU</span><b>Financial summary for June is ready</b><p>Review key local balance, income, and control signals before opening the report.</p><button type="button" onClick={()=>launchReport('Balance Sheet','gl')}>Review Summary</button></div>
     <div className="kpi-row">
       <KPI label="Total assets" value={money(st.assets)} />
-      <KPI label="鏈湡鏀跺叆" value={money(st.revenue)} tone="ok" />
+      <KPI label="Current period revenue" value={money(st.revenue)} tone="ok" />
       <KPI label="Net income" value={money(st.netIncome)} tone={st.netIncome>=0?'ok':'bad'} />
       <KPI label="Posted JEs" value={posted.length} />
     </div>

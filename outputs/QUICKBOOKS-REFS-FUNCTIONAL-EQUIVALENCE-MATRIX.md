@@ -12,6 +12,15 @@
 
 - Assistant3 business-fit review: retain only same-scope local POSTED evidence and real-estate dimensions; exclude external connections, bank feeds, imports, email/print/export/share, Spreadsheet Sync, automatic matching/adjustment/posting, QBO mutations, Sales/KPI/payment channels.
 
+## Reports: single-destination navigation and English report shell (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| One-child navigation | User-provided REFS screenshot showed Journal Entry and Reports exposing duplicate child rows despite having one destination each. | Every one-child navigation group now opens its destination from the parent click and does not render a redundant child row. This includes Journal Entry and Reports. | PARTIAL - local runtime contract/build verified; browser bridge exposes no page for screenshot verification. |
+| Report title and independent detail return | Assistant3 business-fit review: retain TB, GL Detail, Balance Sheet, P&L, Cash Flow, AP/AR Aging and Bank/Reconcile History, with all amounts drilling to a scoped independent detail and Back. | Reports Center and the current-period revenue KPI render in English. Existing report details replace the list and provide `Back to Reports Center` / `Back to [Report]`, retaining the local evidence scope rather than appending detail underneath. | PARTIAL - local source contract/build verified; QBO report labels, populated drills, permissions and responsive behavior remain unobserved. |
+
+- Business boundary: include entity, period/as-of, property/project, loan, cash scope and local-evidence/Review state. Exclude custom/save/share/subscribe/email/print/export, management packs, forecasts/KPIs, external/bank connections, Spreadsheet Sync, automatic posting/adjustments, and Sales/payment channels.
+
 ## Accounting: English Chart of Accounts shell and retained Register/GL drills (2026-08-04)
 
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
