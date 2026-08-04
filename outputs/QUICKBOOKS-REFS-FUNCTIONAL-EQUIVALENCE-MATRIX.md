@@ -12,6 +12,15 @@
 
 - Assistant3 business-fit review: retain only same-scope local POSTED evidence and real-estate dimensions; exclude external connections, bank feeds, imports, email/print/export/share, Spreadsheet Sync, automatic matching/adjustment/posting, QBO mutations, Sales/KPI/payment channels.
 
+## Reports: retained business-fit catalog (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Retained report catalog | No fresh QBO evidence: the read-only browser bridge returned no auditable tab on the QBO homepage. | The visible Reports Center catalog is limited to Trial Balance, General Ledger, Balance Sheet, Income Statement/P&L, Cash Flow, AP Aging, AR Aging, and Reconciliation History. It keeps entity/period scope, POSTED local evidence state, full-page drill, and explicit Back. | PARTIAL - local source contract/build verified; QBO catalog, labels, permissions and responsive behavior remain unobserved. |
+| Excluded QBO surfaces | Assistant3 business-fit review excludes custom/management reports, dashboards/KPIs, financial planning, Spreadsheet Sync, external/bank connections, automatic actions, Sales and payment channels. | Those reference-only shells are not rendered in the local Reports Center; retained catalog actions do not create, save, share, subscribe, email, print, export, connect, sync, post, or adjust. | PARTIAL - business-fit local scope, not a QBO equivalence claim. |
+
+- Verification: `node verify-reports-business-scope.mjs`, report English/full-page gates, singleton navigation gate, build, and `git diff --check`. Browser bridge evidence remains unavailable for this cycle.
+
 ## Reports: single-destination navigation and English report shell (2026-08-04)
 
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |

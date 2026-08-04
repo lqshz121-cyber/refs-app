@@ -345,6 +345,11 @@ export function Reports({ctx}) {
   const [previewTool, setPreviewTool] = useState(null);
   const [managementView, setManagementView] = useState('Published');
   const [dashboardQuery, setDashboardQuery] = useState('');
+  const RETAINED_REPORT_NAMES = new Set([
+    'Trial Balance', 'General Ledger', 'Balance Sheet', 'Income Statement',
+    'Profit and Loss', 'Cash Flow', 'AP Aging',
+    'Accounts receivable aging summary', 'Reconciliation History',
+  ]);
   const st = statements(jes, entity);
   const posted = jes.filter(j=>j.posting_status==='POSTED' && (!entity||j.entity_id===entity));
   const reportScope = localReportScopeState({journals:jes,entityId:entity,fromPeriod:'2026-01',toPeriod:'2026-07'});
@@ -445,12 +450,12 @@ export function Reports({ctx}) {
     ['Cost General Ledger','WBS','gl'],['Unit CWIP and EM Report','WBS','cost'],['Budget and Execution Report','WBS','cost'],['Project Cost Reconciliation','WBS','cost'],
   ];
   const featuredReports = [
-    {name:'Balance Sheet', caption:'Board-ready position with account drillback', route:'gl', badge:'Quick drill'},
+    {name:'Trial Balance', caption:'Control totals with account drillback', route:'gl', badge:'Quick drill'},
+    {name:'Balance Sheet', caption:'As-of position with account drillback', route:'gl', badge:'Quick drill'},
     {name:'Profit and Loss', caption:'Local P&L drill into ledger and source workflow', route:'gl', badge:'Quick drill'},
-    {name:'Cost General Ledger', caption:'Construction cost detail and coding trace', route:'gl', badge:'Quick drill'},
-    {name:'Payable Report', caption:'Open items, approvals and AutoRec lineage', route:null, badge:'Control report'},
+    {name:'Cash Flow', caption:'Posted cash movement with scope cross-checks', route:'gl', badge:'Quick drill'},
   ];
-  const reportRows = reports.map(([name, category, route])=>({
+  const reportRows = reports.filter(([name])=>RETAINED_REPORT_NAMES.has(name)).map(([name, category, route])=>({
     name,
     category,
     route,
@@ -465,7 +470,7 @@ export function Reports({ctx}) {
     try { localStorage.setItem('refs_report_favorites', JSON.stringify([...normalized])); } catch {}
   }, [favorites, reportNames.join('|')]);
   const toggleFavorite = reportName => setFavorites(current=>toggledReportFavorites(current, reportName, reportNames));
-  const shortcutNames = new Set(['Balance Sheet','Income Statement','Profit and Loss','Trial Balance','General Ledger','Cash Flow','Cost General Ledger','Payable Report']);
+  const shortcutNames = new Set(['Balance Sheet','Income Statement','Profit and Loss','Trial Balance','General Ledger','Cash Flow','AP Aging','Accounts receivable aging summary','Reconciliation History']);
   const visibleRows = reportRows.filter(r=>((category==='Standard reports' && shortcutNames.has(r.name)) || (category==='All reports') || (category==='Favorites' && favorites.has(r.name)) || r.category===category) && (!search || `${r.name} ${r.category} ${r.drillPath}`.toLowerCase().includes(search.toLowerCase())));
   const previewMeta = open ? reportRows.find(r=>r.name===open) : null;
   if (open) return <div className="reports-library report-replacement-view">
@@ -483,12 +488,12 @@ export function Reports({ctx}) {
         <div className="page-eyebrow">FINANCIAL INTELLIGENCE 路 CONTROLLED REPORTING</div>
         <h2 className="page-h">Reports Center</h2>
         <div className="reports-clean-title">Reports Center</div>
-        <div className="page-subtitle">Financial statements, operational controls and WBS reconciliations with drill-down context.</div>
+        <div className="page-subtitle">Local financial statements, aging, and reconciliation evidence with scoped drill-down context.</div>
       </div>
       <div className="report-period-chip"><span>Reporting basis</span><b>Accrual 路 FY2026</b><small>{entity ? 'Entity ' + entity : 'Entity required'}</small></div>
     </div>
     <nav aria-label="Observed QuickBooks Reports navigation" className="report-shelf" style={{marginBottom:12}}>
-      {['Standard reports','Custom reports','Management reports','KPIs','Dashboards','Spreadsheet sync','Performance center','Financial planning'].map(item=><span className="report-shelf-chip" key={item}>{item}{isReportCapabilityExcluded(item) && <small>Reference only</small>}</span>)}
+      {['Financial statements','Aging & reconciliation'].map(item=><span className="report-shelf-chip" key={item}>{item}</span>)}
     </nav>
     <p className="muted sm" style={{margin:'0 0 12px'}}>Observed QuickBooks Reports navigation shell. The local workspaces below remain separately scoped and are not a claim of destination-level equivalence.</p>
     <section className="report-workbench" aria-label="Local reports scope and evidence state" style={{marginBottom:12}}>
@@ -507,7 +512,7 @@ export function Reports({ctx}) {
       <button type="button" disabled title="Custom report creation is not adopted for the local close workflow">Create new report</button>
       <button type="button" className="qbo-icon-btn" disabled title="Custom report creation is not adopted for the local close workflow">+</button>
     </div>
-    <section className="qbo-report-promo" aria-label="Observed QuickBooks smart reporting tip">
+    {false && <><section className="qbo-report-promo" aria-label="Observed QuickBooks smart reporting tip">
       <span>YOUR SMART TIP: SMART REPORTING</span><b>Keep a pulse on your key metrics with smart reporting and customizable dashboards in Advanced.</b>
       <p>Performance center: view and create custom charts to track your business performance.</p>
       <div className="row-acts"><button type="button" disabled>Check out smart reporting</button><button type="button" disabled>View dashboard</button></div>
@@ -563,8 +568,8 @@ export function Reports({ctx}) {
       <div className="qbo-toolgrid"><span><b>Get a real-time view of your cash flow.</b></span><span><b>Plan future cash inflow and outflow from past trends and patterns.</b></span><span><b>Play with different outcomes without touching your books.</b></span></div>
       <div className="row-acts"><button type="button" disabled>See how it works</button><button type="button" disabled>Start planning</button></div>
     </section>
-    <p className="muted sm" style={{margin:'0 0 12px'}}>Cash-flow calculation, historical-trend modelling, scenario inputs, planner setup, preview, permissions, audit, and responsive behavior remain unverified in REFS.</p>
-    <div className="report-shelf qbo-report-tabs"><button type="button" className={`report-shelf-chip ${category==='Standard reports'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('Standard reports')}>Shortcuts</button><button type="button" className={`report-shelf-chip ${category==='Favorites'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('Favorites')}>Favorites</button><button type="button" className={`report-shelf-chip ${category==='WBS'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('WBS')}>Construction & WBS</button><button type="button" className={`report-shelf-chip ${category==='All reports'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('All reports')}>All reports</button><span className="report-shelf-spacer" /><span className="report-shelf-note">Performance center 路 custom reports 路 management pack</span></div>
+    <p className="muted sm" style={{margin:'0 0 12px'}}>Cash-flow calculation, historical-trend modelling, scenario inputs, planner setup, preview, permissions, audit, and responsive behavior remain unverified in REFS.</p></>}
+    <div className="report-shelf qbo-report-tabs"><button type="button" className={`report-shelf-chip ${category==='Standard reports'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('Standard reports')}>Close reports</button><button type="button" className={`report-shelf-chip ${category==='Favorites'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('Favorites')}>Favorites</button><button type="button" className={`report-shelf-chip ${category==='All reports'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('All reports')}>All retained reports</button><span className="report-shelf-spacer" /><span className="report-shelf-note">POSTED local evidence · scoped drill and return</span></div>
     <div className="qbo-report-promo"><span>FOR YOU</span><b>Financial summary for June is ready</b><p>Review key local balance, income, and control signals before opening the report.</p><button type="button" onClick={()=>launchReport('Balance Sheet','gl')}>Review Summary</button></div>
     <div className="kpi-row">
       <KPI label="Total assets" value={money(st.assets)} />
@@ -584,7 +589,7 @@ export function Reports({ctx}) {
           <span className="rep-arrow" aria-hidden="true" />
         </div>
       </Card>)}</div>
-    <SectionTitle>Custom report workbench</SectionTitle>
+    <SectionTitle>Retained report workbench</SectionTitle>
     <div className="report-workbench">
       <div className="report-workbench-head"><div><div className="report-preview-crumb">Reports Center 璺?Workbench</div><div className="page-subtitle">Browse linked statements, operational reports and WBS control packs with a consistent drill path.</div></div><div className="report-preview-meta"><span><i>Reports</i><b>{reportRows.length}</b></span><span><i>Linked statements</i><b>{reportRows.filter(r=>r.route==='gl').length}</b></span><span><i>Preview-only</i><b>{reportRows.filter(r=>!r.route).length}</b></span></div></div>
       <Table exportName="reports-workbench" features={{exportable:false}} className="table-journal-entries reports-workbench-table" onRow={r=>r.capability.state==='REFERENCE_ONLY' ? undefined : launchReport(r.name, r.route)} pageSize={12} cols={[
