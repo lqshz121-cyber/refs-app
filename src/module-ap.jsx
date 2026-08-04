@@ -23,6 +23,7 @@ import { localPaymentReportDrillContext } from './payment-return-context.js';
 import { localApAgingReturnContext, localApAgingReturnScopeLabel } from './ap-aging-return-context.js';
 import { localVendorCreditLinkedBillReturn, localVendorCreditJournalReturnContext } from './vendor-credit-return.js';
 import { localReconciliationJournalReturnScopeLabel } from './reconciliation-journal-return.js';
+import { localBillBalanceExplanation } from './bill-balance-explanation.js';
 
 // AP closed loop: Bill(lines) -> duplicate check -> approval -> JE(Dr Exp/CIP, Cr AP) -> Payment run -> JE(Dr AP, Cr Cash) -> aging
 export function APWorkspace({ctx}) {
@@ -328,6 +329,12 @@ function BillDetail({bill, onClose, onOpenPayment, agingReturn, vendorReturnId, 
     const {actions, toast, can, user, goto, jes, bank} = ctx;
     if (!bill) return null;
     const trace = localBillEvidenceTrace(bill, jes);
+    const bankTransactions = Object.entries(bank?.accounts || {}).flatMap(([bank_account_code, account]) => (account.txns || []).map(transaction => ({...transaction, bank_account_code})));
+    const allBills = ctx.ap?.bills || [bill];
+    const billsWithPaymentEvidence = allBills.map(item => ({...item, paymentEvidence:localBillPaymentEvidence(item, jes || [], bankTransactions)}));
+    const vendorCredits = localVendorCreditEvidence({bills:billsWithPaymentEvidence,journals:jes || [],bankTransactions});
+    const asOfDate = agingReturn?.asOfDate || DEFAULT_AP_AGING_AS_OF;
+    const balance = localBillBalanceExplanation({bill,journals:jes || [],bankTransactions,vendorCredits,asOfDate});
   const steps = [
     {label:'Created by', done:true, who:bill.created_by},
     {label:'Approved by', done:['APPROVED','PAID'].includes(bill.status), who:bill.approved_by},
@@ -340,14 +347,20 @@ function BillDetail({bill, onClose, onOpenPayment, agingReturn, vendorReturnId, 
   };
   return <div className="full-bleed qbo-transaction-report" aria-label="Local bill evidence detail">
     <div className="qbo-report-back"><button type="button" onClick={onClose}>{agingReturn?.tab === 'AP Aging' ? 'Back to AP Aging' : vendorReturnId ? 'Back to Vendor evidence' : 'Back to Expenses'}</button><span>{agingReturn?.tab === 'AP Aging' ? localApAgingReturnScopeLabel(agingReturn) : vendorReturnId ? 'Vendor → Bill · retained same-vendor local evidence' : 'Bill · retained local evidence'}</span></div>
-    <div className="gl-drill-head"><div><div className="gl-drill-crumb">Expenses / Bill detail</div><h2 className="page-h">{bill.bill_no} · {bill.vendor_name}</h2><div className="gl-drill-account">{bill.bill_date} · due {bill.due_date} · local entity evidence only</div></div>{bill.status==='PENDING_APPROVAL' && can('AP.INVOICE.APPROVE') ? <Btn variant="primary" onClick={approve}>瀹℃壒 + 鐢熸垚鍒嗗綍</Btn> : <Badge tone="muted">{bill.status}</Badge>}</div>
+    <div className="gl-drill-head"><div><div className="gl-drill-crumb">Expenses / Bill detail</div><h2 className="page-h">{bill.bill_no} · {bill.vendor_name}</h2><div className="gl-drill-account">{bill.bill_date} · due {bill.due_date} · local entity evidence only</div></div>{bill.status==='PENDING_APPROVAL' && can('AP.INVOICE.APPROVE') ? <Btn variant="primary" onClick={approve}>Approve and create AP journal</Btn> : <Badge tone="muted">{bill.status}</Badge>}</div>
     <div className="kv"><span>Invoice #</span><b>{bill.invoice_no}</b></div>
-    <div className="kv"><span>閲戦</span><Money v={bill.amount} bold/></div>
-    <div className="kv"><span>绉戠洰</span><b>{bill.account_code} {acct(bill.account_code).account_name}</b></div>
+    <div className="kv"><span>Original bill amount</span><Money v={bill.amount} bold/></div>
+    <div className="kv"><span>Account category</span><b>{bill.account_code} {acct(bill.account_code).account_name}</b></div>
     <div className="kv"><span>Status</span><Badge>{bill.status}</Badge></div>
     <div className="kv"><span>Local AP proof</span><Badge tone={bill.paymentEvidence?.billState==='VALID_POSTED_AP'?'ok':'warn'}>{bill.paymentEvidence?.billState || 'UNVERIFIED'}</Badge></div>
     <div className="kv"><span>Payment / bank proof</span><Badge tone={bill.paymentEvidence?.bankState==='BANK_MATCHED'?'ok':bill.paymentEvidence?.bankState==='POSTED_UNMATCHED'?'warn':'muted'}>{bill.paymentEvidence?.bankState || 'NO_LOCAL_PAYMENT'}</Badge></div>
     <div className="kv"><span>Void / reversal evidence</span><Badge tone={bill.voidEvidence?.state==='VOID_EVIDENCE_RETAINED'?'ok':'warn'}>{bill.voidEvidence?.state || 'UNVERIFIED'}</Badge></div>
+    <section className="report-workbench" aria-label="Bill AP balance explanation" style={{marginTop:12}}>
+      <div className="report-workbench-head"><div><b>AP balance explanation</b><div className="page-subtitle">As of {balance.asOfDate}: Original bill − effective POSTED payments − applied vendor credits = open AP.</div></div><Badge tone={balance.state==='OPEN_AP_RETAINED'||balance.state==='NO_OPEN_AP_AS_OF'?'ok':'warn'}>{balance.state}</Badge></div>
+      <div className="qbo-toolgrid"><span><i>Original bill</i><b><Money v={balance.originalAmount}/></b></span><span><i>Effective POSTED payments</i><b><Money v={balance.effectivePayments}/></b></span><span><i>Applied credits</i><b><Money v={balance.appliedCredits}/></b></span><span><i>Open AP as of date</i><b><Money v={balance.openAmount}/></b></span></div>
+      <div className="qbo-drill-summary"><span><i>Entity / vendor</i><b>{bill.entity_id || 'Not retained'} / {bill.vendor_name || 'Not retained'}</b></span><span><i>Property / project</i><b>{balance.dimensions?.property_ids?.join(', ') || 'Unassigned'} / {balance.dimensions?.project_ids?.join(', ') || 'Unassigned'}</b></span><span><i>Source / Bank-Reconcile</i><b>{balance.sourceState} / {balance.bankState}</b></span><span><i>Credit links</i><b>{balance.linkedCredits.length}</b></span></div>
+      {balance.reviewReasons.length > 0 && <p className="muted sm" style={{margin:'10px 0 0'}}>Review: {balance.reviewReasons.join(' · ')}. No payment, credit, Bank, Reconcile, or AP state is changed here.</p>}
+    </section>
     {(bill.je_number||bill.pay_je_number) && <div className="row-acts" style={{margin:'10px 0'}}>
       {bill.je_number&&<Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:bill.je_number,expenseReturn:{route:'ap',tab:'Bills',billId:bill.bill_id}})}>Open AP JE</Btn>}
       {bill.pay_je_number&&<Btn size="sm" variant="ghost" onClick={onOpenPayment}>Open payment detail</Btn>}

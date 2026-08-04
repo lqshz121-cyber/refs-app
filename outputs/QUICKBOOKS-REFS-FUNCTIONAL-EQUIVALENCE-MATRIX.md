@@ -12,6 +12,15 @@
 
 - Assistant3 business-fit review: retain only same-scope local POSTED evidence and real-estate dimensions; exclude external connections, bank feeds, imports, email/print/export/share, Spreadsheet Sync, automatic matching/adjustment/posting, QBO mutations, Sales/KPI/payment channels.
 
+## Expenses: Bill AP balance explanation (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Bill balance explanation | No fresh QBO evidence: the read-only browser bridge returned no auditable tab on the QBO homepage. Assistant3 business-fit review identified the missing operator explanation. | Bill Detail displays the selected as-of date and `Original bill − effective POSTED payments − applied vendor credits = open AP`, plus entity/vendor, property/project, source, Bank/Reconcile, credit-link and explicit Review evidence. | PARTIAL - local unit/build verified; QBO Bill balance allocation, permissions, audit and responsive behavior remain unobserved. |
+| Read-only evidence boundary | Assistant3 scope: no posted payment, unapplied/over-applied credit, later payment, cross-entity/dimension conflict, void/reversal timing and missing Bank evidence must remain Review/empty. | Any unproven reduction is kept out of the displayed effective payment/credit amount and surfaced as Review. No Bill Pay, external bank/supplier/OCR, online payment/refund, auto-apply/post, Sales/marketplace, export or sync action is enabled. | PARTIAL - local property-finance control, not QBO equivalence. |
+
+- Verification: `node verify-bill-balance-explanation.mjs`, Bill payment evidence, Expenses tabs, report replacement, English gate, build, and `git diff --check`. Browser bridge evidence remains unavailable for this cycle.
+
 ## Reports: retained business-fit catalog (2026-08-04)
 
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
