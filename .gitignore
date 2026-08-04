@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.log
+server/outputs/
 .DS_Store
 # local smoke-test artifacts (sandbox-locked)
 smoke.mjs
