@@ -37,12 +37,14 @@ export function validateWbsSnapshotPackage(snapshot){
   const signature=snapshot.detached_signature;
   if(snapshot.environment==='PRODUCTION'&&(!object(signature)||!text(signature.key_id,128)||signature.algorithm!=='Ed25519'||!text(signature.value,4096)))fail('WBS_SNAPSHOT_SIGNATURE_REQUIRED','Production WBS snapshots require an Ed25519 detached signature.');
   if(snapshot.package_hash!==canonicalRequestHash(without(without(snapshot,'package_hash'),'detached_signature')))fail('WBS_SNAPSHOT_HASH_MISMATCH','WBS snapshot package hash does not match its manifest.');
-  const names=new Set(),receipts=[];let companyKey=null;
+  const names=new Set(),receipts=[],strictDelivery=snapshot.schema_version==='WBS_READONLY_SNAPSHOT_V2';let companyKey=null;
   for(const view of snapshot.views){
     if(!object(view)||!text(view.name,96)||!VIEW_POLICY[view.name]||names.has(view.name)||!text(view.company_key,128)||!Array.isArray(view.rows)||view.rows.length===0||view.content_hash!==canonicalRequestHash(view.rows))fail('WBS_SNAPSHOT_VIEW_INVALID','WBS snapshot view is incomplete, unsupported, duplicated, or tampered.');
     if(companyKey!==null&&companyKey!==view.company_key)fail('WBS_SNAPSHOT_ENTITY_MIXED','A snapshot import must contain one exact WBS company scope.');
     companyKey=view.company_key;
-    names.add(view.name);const policy=VIEW_POLICY[view.name];const seen=new Set();
+    names.add(view.name);const policy=VIEW_POLICY[view.name];
+    if(strictDelivery&&(!Number.isSafeInteger(view.row_count)||view.row_count!==view.rows.length||view.first_primary_key!==view.rows[0]?.[policy.id]||view.last_primary_key!==view.rows.at(-1)?.[policy.id]))fail('WBS_SNAPSHOT_DELIVERY_INVALID','Production WBS snapshot view receipt is incomplete.');
+    const seen=new Set();
     for(const row of view.rows){
       if(!object(row)||!text(row[policy.id],128)||seen.has(row[policy.id]))fail('WBS_SNAPSHOT_ROW_INVALID','WBS snapshot row lacks a unique stable source key.');
       if(['apGuId','pdGuId','pbGuId'].includes(policy.id)&&!UUID.test(row[policy.id]))fail('WBS_SNAPSHOT_ROW_INVALID','WBS GuId source key is invalid.');
