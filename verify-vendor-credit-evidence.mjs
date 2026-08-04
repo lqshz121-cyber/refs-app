@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { localVendorCreditEvidence } from './src/vendor-credit-evidence.js';
+
+const bill = {bill_id:7,bill_no:'BILL-7',entity_id:2,vendor_id:9,vendor_name:'Concrete Co',status:'APPROVED',amount:1000};
+const credit = extra => ({je_number:'VCR-1',source_system:'AP_CREDIT',posting_status:'POSTED',entity_id:2,payee:'Concrete Co',source_bill_no:'BILL-7',lines:[{account_code:'291001',debit_amount:200,credit_amount:0},{account_code:'610000',debit_amount:0,credit_amount:200}],...extra});
+assert.equal(localVendorCreditEvidence({bills:[bill],journals:[credit()]}).at(0).state,'POSTED_UNAPPLIED_CREDIT');
+assert.equal(localVendorCreditEvidence({bills:[bill],journals:[credit({applied_amount:200})]}).at(0).state,'APPLIED_CREDIT_EVIDENCE');
+assert.equal(localVendorCreditEvidence({bills:[bill],journals:[credit({applied_amount:1100})]}).at(0).state,'CREDIT_REVIEW_APPLICATION_LIMIT');
+assert.equal(localVendorCreditEvidence({bills:[bill],journals:[credit({entity_id:3,applied_amount:100})]}).at(0).state,'CREDIT_REVIEW_CROSS_ENTITY');
+assert.equal(localVendorCreditEvidence({bills:[bill],journals:[credit({payee:'Other Vendor',applied_amount:100})]}).at(0).state,'CREDIT_REVIEW_VENDOR_MISMATCH');
+const capitalBill={...bill,bill_no:'BILL-CAP',je_number:'BILL-CAP',account_code:'164100'};
+const capitalBillJe={je_number:'BILL-CAP',posting_status:'POSTED',lines:[{account_code:'164100',property_id:44}]};
+const capCredit=credit({source_bill_no:'BILL-CAP',applied_amount:100,lines:[{account_code:'291001',debit_amount:100,property_id:44},{account_code:'164100',credit_amount:100,property_id:44}]});
+assert.equal(localVendorCreditEvidence({bills:[capitalBill],journals:[capitalBillJe,capCredit]}).at(0).state,'CREDIT_REVIEW_CAPITAL_OR_PREPAID_SOURCE');
+assert.equal(localVendorCreditEvidence({bills:[capitalBill],journals:[capitalBillJe,{...capCredit,source_doc_id:'DOC-1'}]}).at(0).state,'APPLIED_CREDIT_EVIDENCE');
+assert.equal(localVendorCreditEvidence({bills:[bill],journals:[credit()],bankTransactions:[{matched_je:'VCR-1',cleared:true}]}).at(0).creditBankEvidence.state,'MATCHED_BANK_CLEARED');
+const apUi = readFileSync(new URL('./src/module-ap.jsx', import.meta.url), 'utf8');
+assert.match(apUi, /VendorCreditDetail credit=\{selectedCredit\} agingReturn=\{agingDetailScope\}/, 'Vendor Credit receives its AP Aging origin');
+assert.match(apUi, /agingReturn\?\.tab === 'AP Aging' \? 'Back to AP Aging' : 'Back to Expenses'/, 'Vendor Credit visibly returns to the AP Aging origin rather than a generic Expenses list');
+console.log('vendor credit evidence: posted AP direction, unapplied/application limit, and entity boundary verified');

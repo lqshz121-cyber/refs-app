@@ -36,7 +36,7 @@ export function SubsidiaryLedger({ctx}) {
       <KPI label="净额 Net" value={money(sum(list,r=>r.net))} tone={Math.abs(sum(list,r=>r.net))<0.01?'ok':undefined}/>
     </div>
     <SectionTitle>按核算对象余额（点击对象查看明细分录）</SectionTitle>
-    <Table exportName={'subledger-'+code} rowKey="member" onRow={r=>setSel(r.member)} cols={[
+    <Table exportName={'subledger-'+code} className="table-journal-entries" rowKey="member" onRow={r=>setSel(r.member)} cols={[
       {h:stype+' · 核算对象',k:'member'},
       {h:'笔数',num:true,k:'n'},
       {h:'借方 Dr',num:true,render:r=><Money v={r.dr}/>,sortVal:r=>r.dr,csv:r=>r.dr},
@@ -45,7 +45,7 @@ export function SubsidiaryLedger({ctx}) {
       {h:'方向',render:r=> r.net>0.005?<Badge tone="warn">Due from / Dr</Badge>: r.net<-0.005?<Badge tone="ok">Due to / Cr</Badge>:<Badge tone="muted">平</Badge>},
     ]} rows={list} empty="该科目本期无辅助核算记录"/>
     {sel && <><SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>setSel(null)}>关闭</Btn>}>{sel} · 明细（{selLines.length} 行）</SectionTitle>
-      <Table exportName={'subledger-'+code+'-detail'} onRow={()=>goto('je')} cols={[
+      <Table exportName={'subledger-'+code+'-detail'} className="table-journal-entries" onRow={(r)=>goto('je',{jeNumber:r.je})} cols={[
         {h:'Journal No.',k:'je'},{h:'Date',k:'date'},
         {h:'Source',render:r=><Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},
         {h:'Memo',k:'memo'},

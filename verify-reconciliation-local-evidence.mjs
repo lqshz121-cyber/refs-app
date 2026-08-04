@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import { localReconciliationEvidence, localReconciliationPhase, localReconciliationReadiness, localReconciliationWorksheet } from './src/reconciliation-local-evidence.js';
+
+const master = [{bank_account_code:'BA-1',entity_id:2,account_type:'OPERATING',cash_scope:'Operating',gl_account_code:'111000'}];
+const journals = [{je_number:'JE-1',entity_id:2,je_date:'2026-07-02',posting_status:'POSTED',lines:[{account_code:'111000',debit_amount:100,credit_amount:0}]}];
+const account = {stmt_date:'2026-07-31',gl_book_balance:100,txns:[{bank_txn_id:1,direction:'CREDIT',amount:100,match_status:'MATCHED',matched_je:'JE-1'}]};
+const evidence = localReconciliationEvidence({accountCode:'BA-1',bankAccount:account,journals,bankAccountMaster:master});
+assert.equal(evidence.localBookBalance, 100);
+assert.equal(evidence.matched[0].state, 'VERIFIED_LOCAL_MATCH');
+assert.equal(localReconciliationReadiness({canSign:true}, evidence).canSign, true, 'balanced local evidence permits the existing guarded sign-off');
+const mismatch = localReconciliationEvidence({accountCode:'BA-1',bankAccount:{...account,gl_book_balance:99},journals,bankAccountMaster:master});
+assert.equal(localReconciliationReadiness({canSign:true}, mismatch).reason, 'LOCAL_LEDGER_MISMATCH');
+const missingJE = localReconciliationEvidence({accountCode:'BA-1',bankAccount:{...account,txns:[{...account.txns[0],matched_je:'JE-MISSING'}]},journals,bankAccountMaster:master});
+assert.equal(localReconciliationReadiness({canSign:true}, missingJE).reason, 'UNVERIFIED_MATCHED_ACTIVITY');
+assert.equal(localReconciliationPhase({signedHistory:{id:1}}, {canSign:false}, evidence), 'SIGNED_OFF');
+assert.equal(localReconciliationPhase({}, {canSign:false,reason:'MISSING_LOCAL_ACCOUNT_MAPPING'}, null), 'DRAFT', 'missing retained mapping remains draft rather than silently in review');
+const worksheet = localReconciliationWorksheet({accountCode:'BA-1',bankAccount:{...account,period:'2026-07',stmt_begin:0,stmt_end:100,outstanding_checks:[],deposits_in_transit:[]},baseStatus:{canSign:false,unmatched:[],adjustedBank:100,adjustedBook:99,diff:1},evidence,readiness:{canSign:false,reason:'LOCAL_LEDGER_MISMATCH'},phase:'IN_REVIEW'});
+assert.deepEqual(worksheet.scope, {accountCode:'BA-1',entityId:2,cashScope:'Operating',period:'2026-07',statementDate:'2026-07-31',statementBeginning:0,statementEnding:100});
+assert.equal(worksheet.closeState, 'BLOCKED');
+assert.equal(worksheet.closeReason, 'LOCAL_LEDGER_MISMATCH');
+assert.deepEqual(worksheet.balances, {adjustedBank:100,adjustedBook:99,difference:1});
+assert.equal(worksheet.phase, 'IN_REVIEW');
+console.log('reconciliation local evidence: GL scope, matched-JE proof, and strict sign-off gate verified');

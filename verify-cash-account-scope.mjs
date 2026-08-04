@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { isOperatingCashAccount, localBankEvidenceForCashGroup, localCashAccountGroup, localCashAccountRows } from './src/cash-account-scope.js';
+assert.equal(localCashAccountGroup('111000'), 'Operating');
+assert.equal(localCashAccountGroup('112003'), 'Escrow');
+assert.equal(localCashAccountGroup('113000'), 'Restricted');
+assert.equal(isOperatingCashAccount('112000'), false);
+const rows = localCashAccountRows([{posting_status:'POSTED',entity_id:2,period_code:'2026-07',je_number:'JE-1',lines:[{account_code:'111000',debit_amount:50},{account_code:'112000',credit_amount:20}]},{posting_status:'DRAFT',entity_id:2,period_code:'2026-07',je_number:'JE-2',lines:[{account_code:'111000',debit_amount:100}]}], {entityId:2,toPeriod:'2026-07'});
+assert.deepEqual(rows.map(row=>[row.account_code,row.balance,row.posted_je_count]), [['111000',50,1],['112000',-20,1]]);
+assert.deepEqual(localBankEvidenceForCashGroup('Escrow', [{bank_account_code:'BA-ESC',account_type:'ESCROW',entity_id:2}], 2), {state:'LOCAL_MASTER_ONLY',label:'BA-ESC'});
+console.log('cash account scope: operating and restricted local cash evidence is separated');

@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { localReportReturnContext } from './src/report-return-context.js';
+
+const cashScope = localReportReturnContext({tab:'Trial Balance',fromP:'2026-01',toP:'2026-07',entityId:'E-1',propertyId:'P-1',projectId:'ALL',loanId:'L-1',cashScope:'Escrow',drillAccounts:['112000'],drillLabel:'112000 Escrow cash'});
+assert.equal(cashScope.state, 'LOCAL_REPORT_RETURN_READY');
+assert.deepEqual(cashScope.drillAccounts, ['112000']);
+assert.equal(cashScope.cashScope, 'Escrow');
+const reportsUi = readFileSync(new URL('./src/modules-more.jsx', import.meta.url), 'utf8');
+const registerUi = readFileSync(new URL('./src/module-register.jsx', import.meta.url), 'utf8');
+assert.match(reportsUi, /localCashAccountGroup\(accountCode\) && !\['120200','291001'\]/, 'only local cash and AP\/AR controls can launch Register');
+assert.match(reportsUi, /Open local register/, 'eligible TB accounts expose an explicit register action');
+assert.match(reportsUi, /accountCode, fromPeriod:fromP, throughPeriod:toP, reportReturn:localReportReturnContext/, 'TB/GL Register target carries the source From/Through period instead of only an as-of date');
+assert.match(reportsUi, /accounts\.length===1 \? registerTargetForReport/, 'only a single GL drill account can enter Register');
+assert.match(reportsUi, /No register scope/, 'ineligible or aggregate GL drills are visibly unavailable');
+assert.match(reportsUi, /\['120200','291001'\]\.includes\(accounts\[0\]\)/, 'only one AR\/AP control account can open Aging');
+assert.match(reportsUi, /Open AR Aging.*Open AP Aging/, 'GL control drill exposes explicit AR\/AP aging targets');
+assert.match(reportsUi, /dimensionEvidence\.state !== 'LOCAL_SCOPE_COMPLETE'/, 'dimension-review scopes cannot launch Register');
+assert.match(reportsUi, /Dimension scope requires review before any cross-workspace drill/, 'the unavailable drill explains the dimension-review boundary');
+assert.match(reportsUi, /const canCrossDrill=!drillState\.isEmpty/, 'empty GL detail cannot launch another workspace');
+assert.match(reportsUi, /No posted local activity exists in this scoped drill/, 'empty GL detail explains its unavailable cross-workspace drill');
+assert.match(registerUi, /Back to \{navContext\.reportReturn\.tab \|\| 'report'\}/, 'Register visibly returns to the originating report');
+console.log('report account-register return: scoped eligible-account return verified');
