@@ -2035,3 +2035,9 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
 |---|---|---|---|
 | Bill full-page detail → AP / payment / reversal JE → Back | No fresh QBO evidence: the read-only browser bridge returned no auditable tab. | The three JE drills preserve the source Bill id. Journal Entry now visibly returns to that full-page Bill rather than dropping into the Expenses list. | PARTIAL — local navigation/build verified; QBO bill-to-JE drill behavior remains unobserved. |
+
+## P0: Global shell direct English labels (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Global navigation, sign-in, quick-create and empty states | No fresh QBO evidence: the read-only browser bridge returned no auditable tab on the QBO homepage. | Replaced localized source labels directly in the visible application shell with English labels, including navigation, sign-in, search, quick-create, user actions, error boundary and approval/audit empty states. The one-child `Journal Entry` and `Reports` navigation contract remains direct-route only; report drills remain full-page replacement views with Back. | PARTIAL — direct source-label, singleton-navigation and build checks pass; visual QBO comparison and every runtime route remain unobserved this cycle. |
