@@ -264,7 +264,7 @@ function App() {
       <nav>{nav.map(g=>{ const isSingleton = g.items.length === 1; const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k));
         return <div key={g.group} className="nav-group">
         <button className="nav-group-h" onClick={()=>isSingleton ? goto(g.items[0][0]) : setOpenGroups(o=>({...o,[g.group]:!opened}))}>
-          <span className="nav-ic">{g.icon}</span>{g.group}<span className="nav-caret">{opened?'▾':'▸'}</span></button>
+          <span className="nav-ic">{g.icon}</span>{g.group}{!isSingleton && <span className="nav-caret">{opened?'▾':'▸'}</span>}</button>
         {!isSingleton && opened && g.items.map(([k,l])=><button key={k} className={`nav-item nav-sub ${route===k?'nav-on':''}`} onClick={()=>goto(k)}>{l}</button>)}
       </div>;})}</nav>
     </aside>

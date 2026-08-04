@@ -2078,3 +2078,9 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
 |---|---|---|---|
 | Retained Reports Center catalog and full-page drill context | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Corrected the visible catalog language to `Core financial reports` and explicitly limits the workbench to retained financial statements, aging, and reconciliation evidence. The existing retained-name filter, full-page report/evidence detail, and Back-to-Reports-Center behavior remain unchanged; WBS control packs are not advertised as part of this business-fit report catalog. | PARTIAL — source, retained-scope, replacement-detail and build checks are local-only; QBO Reports catalog, permissions, populated rows and responsive behavior remain unobserved. |
+
+## Navigation: one-destination parent affordance (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Journal Entry and Reports parent navigation | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | A navigation group with one destination continues to route directly to that destination and never renders its duplicate child. The parent now also omits the expand/collapse caret, so `Journal Entry` and `Reports` visibly communicate direct navigation rather than a collapsed submenu. | PARTIAL — singleton route, absent duplicate child/caret and build checks are local-only; QBO navigation layout, permissions and responsive behavior remain unobserved. |
