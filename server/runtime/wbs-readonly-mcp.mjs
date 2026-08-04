@@ -8,6 +8,25 @@ export class WbsMcpError extends Error {
 const plainObject=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype;
 const safeToolName=value=>typeof value==='string'&&/^[A-Za-z][A-Za-z0-9._-]{0,127}$/.test(value);
 
+async function responseEnvelope(response,requestId){
+  const contentType=response.headers.get('content-type')||'';
+  if(/application\/json/i.test(contentType)){
+    try{return await response.json();}catch{throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP returned invalid JSON.');}
+  }
+  if(!/text\/event-stream/i.test(contentType))throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP returned an unsupported response format.');
+  let text;try{text=await response.text();}catch{throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP returned an unreadable event stream.');}
+  if(text.length>1024*1024)throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP event stream exceeded the response limit.');
+  const matches=[];
+  for(const event of text.replace(/\r\n/g,'\n').split(/\n\n+/)){
+    const payload=event.split('\n').filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trimStart()).join('\n');
+    if(!payload)continue;
+    let candidate;try{candidate=JSON.parse(payload);}catch{throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP event stream contained invalid JSON.');}
+    if(plainObject(candidate)&&candidate.id===requestId)matches.push(candidate);
+  }
+  if(matches.length!==1)throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP event stream did not contain one correlated response.');
+  return matches[0];
+}
+
 function endpointUrl(value){
   let url;try{url=new URL(value);}catch{throw new WbsMcpError('WBS_MCP_CONFIG_INVALID','WBS MCP endpoint is invalid.');}
   if(url.origin!==WBS_MCP_ORIGIN||url.pathname!=='/mcp'||url.search||url.hash||url.username||url.password)throw new WbsMcpError('WBS_MCP_CONFIG_INVALID','WBS MCP endpoint is not the approved read-only endpoint.');
@@ -44,9 +63,7 @@ export function createReadOnlyWbsMcpClient({endpoint,getAccessToken,allowedReadT
     catch{throw new WbsMcpError('WBS_MCP_UNAVAILABLE','WBS MCP is unavailable.');}
     if(response.status===401||response.status===403)throw new WbsMcpError('WBS_MCP_AUTHENTICATION_REQUIRED','WBS MCP authentication is required.');
     if(!response.ok)throw new WbsMcpError('WBS_MCP_UNAVAILABLE','WBS MCP request was rejected.');
-    const contentType=response.headers.get('content-type')||'';
-    if(!/application\/json/i.test(contentType))throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP did not return a JSON response.');
-    let envelope;try{envelope=await response.json();}catch{throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP returned invalid JSON.');}
+    const envelope=await responseEnvelope(response,requestId);
     if(!plainObject(envelope)||envelope.jsonrpc!=='2.0'||envelope.id!==requestId)throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP response correlation failed.');
     if(envelope.error)throw new WbsMcpError('WBS_MCP_REMOTE_REJECTED','WBS MCP rejected the request.');
     if(!Object.hasOwn(envelope,'result'))throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP response has no result.');

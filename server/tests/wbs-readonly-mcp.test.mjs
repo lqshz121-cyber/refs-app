@@ -5,6 +5,7 @@ import {createReadOnlyWbsMcpClient,WbsMcpError,WBS_MCP_PROTOCOL_VERSION} from '.
 const endpoint='https://db-mcp.wbm3.com/mcp';
 const token=async()=>'test-access-token-that-is-never-logged';
 const json=(body,{status=200,headers={}}={})=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json',...headers}});
+const eventStream=(events,{status=200,headers={}}={})=>new Response(events.map(event=>`event: message\ndata: ${JSON.stringify(event)}\n\n`).join(''),{status,headers:{'content-type':'text/event-stream',...headers}});
 
 test('read-only MCP client permits only the approved HTTPS endpoint and an authenticated token provider',()=>{
   for(const bad of ['http://db-mcp.wbm3.com/mcp','https://evil.example/mcp','https://db-mcp.wbm3.com/mcp?x=1','https://db-mcp.wbm3.com/other'])assert.throws(()=>createReadOnlyWbsMcpClient({endpoint:bad,getAccessToken:token}),error=>error.code==='WBS_MCP_CONFIG_INVALID');
@@ -18,6 +19,14 @@ test('initialize and tool inventory use MCP correlation, bearer auth and the ses
   assert.equal(calls[0].headers.authorization,'Bearer test-access-token-that-is-never-logged');
   assert.equal(calls[1].headers['mcp-session-id'],'session-12345678');
   assert.equal(calls[0].headers['mcp-protocol-version'],WBS_MCP_PROTOCOL_VERSION);
+});
+
+test('client accepts one correlated JSON-RPC response from a bounded Streamable HTTP event stream',async()=>{
+  const client=createReadOnlyWbsMcpClient({endpoint,getAccessToken:token,fetcher:async(_url,request)=>{const {id,method}=JSON.parse(request.body);return method==='initialize'?eventStream([{jsonrpc:'2.0',method:'notifications/progress',params:{}},{jsonrpc:'2.0',id,result:{protocolVersion:WBS_MCP_PROTOCOL_VERSION,serverInfo:{name:'WBS'}}}]):eventStream([{jsonrpc:'2.0',id,result:{tools:[]}}]);}});
+  assert.deepEqual(await client.initialize(),{protocolVersion:WBS_MCP_PROTOCOL_VERSION,serverName:'WBS'});
+  assert.deepEqual(await client.listTools(),[]);
+  const ambiguous=createReadOnlyWbsMcpClient({endpoint,getAccessToken:token,fetcher:async(_url,request)=>{const {id}=JSON.parse(request.body);return eventStream([{jsonrpc:'2.0',id,result:{}},{jsonrpc:'2.0',id,result:{}}]);}});
+  await assert.rejects(ambiguous.initialize(),error=>error.code==='WBS_MCP_PROTOCOL_INVALID');
 });
 
 test('client fails closed on authentication and malformed protocol responses',async()=>{
