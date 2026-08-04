@@ -53,11 +53,11 @@ export function SourceDocs({ctx}) {
 
   return <div className="full-bleed">
     {navContext?.reportReturn?.route==='gl' && <div className="qbo-report-back"><button type="button" onClick={()=>goto('gl',navContext.reportReturn)}>Back to {navContext.reportReturn.tab || 'report'}</button><span>{localReportReturnScopeLabel(navContext.reportReturn)}</span></div>}
-    <h2 className="page-h">Source Documents · 源单据登记簿</h2>
+    <h2 className="page-h">Source Documents Register</h2>
     <div className="kpi-row">
-      <KPI label="源单据总数" value={docs.length}/>
-      <KPI label="已关联 JE" value={Object.keys(jeOf).length} tone="ok"/>
-      <KPI label="孤儿单据" value={docs.length-Object.keys(jeOf).length} tone={docs.length-Object.keys(jeOf).length?'warn':'ok'}/>
+      <KPI label="Source documents" value={docs.length}/>
+      <KPI label="Linked JEs" value={Object.keys(jeOf).length} tone="ok"/>
+      <KPI label="Unlinked documents" value={docs.length-Object.keys(jeOf).length} tone={docs.length-Object.keys(jeOf).length?'warn':'ok'}/>
     </div>
 
     {navContext?.route==='sourcedocs' && selectedId && <div className="bank-health" role="status" style={{marginBottom:14}}>
@@ -148,7 +148,7 @@ export function SourceDocs({ctx}) {
       {h:'Vendor/Buyer',render:r=>r.vendor||r.buyer||'—'},
       {h:'Date',k:'date'},
       {h:'Amount',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount,csv:r=>r.amount},
-      {h:'JE Trace',render:r=>(jeOf[r.id]||[]).slice(0,2).join(', ')||<Badge tone="warn">未关联</Badge>,csv:r=>(jeOf[r.id]||[]).join(';')},
+      {h:'JE Trace',render:r=>(jeOf[r.id]||[]).slice(0,2).join(', ')||<Badge tone="warn">UNLINKED</Badge>,csv:r=>(jeOf[r.id]||[]).join(';')},
       {h:'Action',render:r=>{ const jeList = jeOf[r.id] || []; const jeNumber = jeList[jeList.length - 1]; const ws = workspaceTargetFor(r, jeNumber);
         return <span className="row-acts">
           <Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation(); setSelectedId(r.id);}}>View</Btn>
