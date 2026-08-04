@@ -37,13 +37,14 @@ export function validateWbsSnapshotPackage(snapshot){
   const signature=snapshot.detached_signature;
   if(snapshot.environment==='PRODUCTION'&&(!object(signature)||!text(signature.key_id,128)||signature.algorithm!=='Ed25519'||!text(signature.value,4096)))fail('WBS_SNAPSHOT_SIGNATURE_REQUIRED','Production WBS snapshots require an Ed25519 detached signature.');
   if(snapshot.package_hash!==canonicalRequestHash(without(without(snapshot,'package_hash'),'detached_signature')))fail('WBS_SNAPSHOT_HASH_MISMATCH','WBS snapshot package hash does not match its manifest.');
-  const names=new Set(),receipts=[],strictDelivery=snapshot.schema_version==='WBS_READONLY_SNAPSHOT_V2';let companyKey=null;
+  const names=new Set(),receipts=[],viewAttestations=[],strictDelivery=snapshot.schema_version==='WBS_READONLY_SNAPSHOT_V2';let companyKey=null;
   for(const view of snapshot.views){
     if(!object(view)||!text(view.name,96)||!VIEW_POLICY[view.name]||names.has(view.name)||!text(view.company_key,128)||!Array.isArray(view.rows)||(!strictDelivery&&view.rows.length===0)||view.content_hash!==canonicalRequestHash(view.rows))fail('WBS_SNAPSHOT_VIEW_INVALID','WBS snapshot view is incomplete, unsupported, duplicated, or tampered.');
     if(companyKey!==null&&companyKey!==view.company_key)fail('WBS_SNAPSHOT_ENTITY_MIXED','A snapshot import must contain one exact WBS company scope.');
     companyKey=view.company_key;
     names.add(view.name);const policy=VIEW_POLICY[view.name];
     if(strictDelivery&&(!Number.isSafeInteger(view.row_count)||view.row_count!==view.rows.length||(view.row_count===0?(view.first_primary_key!==null||view.last_primary_key!==null):(view.first_primary_key!==view.rows[0]?.[policy.id]||view.last_primary_key!==view.rows.at(-1)?.[policy.id]))))fail('WBS_SNAPSHOT_DELIVERY_INVALID','Production WBS snapshot view receipt is incomplete.');
+    if(strictDelivery)viewAttestations.push(Object.freeze({name:view.name,company_key:view.company_key,row_count:view.row_count,first_primary_key:view.first_primary_key,last_primary_key:view.last_primary_key,content_hash:view.content_hash}));
     const seen=new Set();
     for(const row of view.rows){
       if(!object(row)||!text(row[policy.id],128)||seen.has(row[policy.id]))fail('WBS_SNAPSHOT_ROW_INVALID','WBS snapshot row lacks a unique stable source key.');
@@ -54,5 +55,6 @@ export function validateWbsSnapshotPackage(snapshot){
       receipts.push(Object.freeze({snapshot_id:snapshot.snapshot_id,captured_at:snapshot.captured_at,environment:snapshot.environment,source_system:'WBS',source_module:view.name,source_entity_id:view.company_key,source_record_id:row[policy.id],source_version:`snapshot:${snapshot.snapshot_id}:${rowHash.slice(7,23)}`,payload_hash:rowHash,payload_ref:`object://wbs-snapshot/${snapshot.snapshot_id}/${encodeURIComponent(view.name)}/${encodeURIComponent(row[policy.id])}`,ingestion_kind:policy.kind}));
     }
   }
-  return Object.freeze({snapshot_id:snapshot.snapshot_id,captured_at:snapshot.captured_at,environment:snapshot.environment,dictionary_version:snapshot.dictionary_version,company_key:companyKey,package_hash:snapshot.package_hash,delivery,receipt_count:receipts.length,receipts:Object.freeze(receipts)});
+  const deliveryAttestation=strictDelivery?Object.freeze({schema_version:snapshot.schema_version,delivery,views:Object.freeze(viewAttestations)}):null;
+  return Object.freeze({snapshot_id:snapshot.snapshot_id,captured_at:snapshot.captured_at,environment:snapshot.environment,dictionary_version:snapshot.dictionary_version,company_key:companyKey,package_hash:snapshot.package_hash,delivery,delivery_attestation:deliveryAttestation,receipt_count:receipts.length,receipts:Object.freeze(receipts)});
 }

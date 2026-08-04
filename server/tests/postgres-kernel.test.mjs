@@ -161,8 +161,11 @@ pgTest('authorized WBS snapshot import persists immutable observations without c
   const productionCreated=await verified.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot:production,idempotencyKey:'snapshot-production-signed-001'});
   assert.equal(productionCreated.receipt_count,0);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_snapshot_receipt WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);
+  const delivery=(await adminPool.query('SELECT attestation,attestation_hash FROM wbs_snapshot_delivery_attestation WHERE tenant_id=$1 AND entity_id=$2 AND wbs_snapshot_import_id=$3',[ids.tenantId,ids.entityId,productionCreated.wbs_snapshot_import_id])).rows[0];
+  assert.equal(delivery.attestation.views.find(view=>view.name==='BGDATA.payable').row_count,0);assert.equal(delivery.attestation.views.find(view=>view.name==='BGDATA.payable').first_primary_key,null);assert.match(delivery.attestation_hash,/^sha256:[0-9a-f]{64}$/);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM source_document WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,0);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_SNAPSHOT_OBSERVED'",[ids.tenantId])).rows[0].n,2);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_SNAPSHOT_DELIVERY_ATTESTED'",[ids.tenantId])).rows[0].n,1);
   await assert.rejects(adminPool.query("UPDATE wbs_snapshot_receipt SET source_record_id='tampered' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
 });
 

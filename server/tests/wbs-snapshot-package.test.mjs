@@ -46,5 +46,7 @@ test('V2 delivery receipts fail closed unless a complete primary-key extract is 
 test('a complete production delivery can attest an explicitly empty scoped view',()=>{
   const views=productionViews(make().views);views[1]={...views[1],rows:[],content_hash:canonicalRequestHash([]),row_count:0,first_primary_key:null,last_primary_key:null};
   const value={...make(),schema_version:'WBS_READONLY_SNAPSHOT_V2',environment:'PRODUCTION',views,delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',extract_started_at:'2026-08-03T09:59:00.000Z',extract_completed_at:'2026-08-03T10:00:00.000Z',consistency:'COMPLETE',read_consistency:'REPEATABLE_READ_TRANSACTION',pagination:'PRIMARY_KEY_SEEK'},detached_signature:{key_id:'wbs-prod-test',algorithm:'Ed25519',value:'base64-signature-placeholder'}};delete value.package_hash;const {detached_signature,...manifest}=value;value.package_hash=canonicalRequestHash(manifest);
-  assert.equal(validateWbsSnapshotPackage(value).receipt_count,4);
+  const validated=validateWbsSnapshotPackage(value);
+  assert.equal(validated.receipt_count,4);
+  assert.deepEqual(validated.delivery_attestation.views.find(view=>view.name==='BGDATA.bank_transaction'),{name:'BGDATA.bank_transaction',company_key:'COMPANY-A',row_count:0,first_primary_key:null,last_primary_key:null,content_hash:canonicalRequestHash([])});
 });
