@@ -2,6 +2,16 @@
 
 ## Accounting — AP Aging control evidence → Source retained return (2026-08-04)
 
+## P0 operator navigation and report replacement (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Single-destination navigation | User-provided REFS screenshots showed Journal Entry and Reports expanding despite one child. | The parent click routes directly to its sole destination and suppresses the duplicate child row. | PARTIAL - local runtime contract verified; browser bridge exposes no tab for screenshot verification. |
+| Report drill detail | User-required behavior: a clicked report amount must open a separate detail view with an explicit return. | GL/TB/financial-statement drill rendering is a replacement view with `Back to [Report]`; no detail panel is rendered below the statement. Scope retains entity, period/as-of, dimensions, account/control account, cash/loan/related-party context and POSTED-only evidence. | PARTIAL - local contract verified; QBO populated report drill behavior remains unobserved. |
+| English-only UI | No fresh QBO evidence: the read-only browser bridge returned no auditable tab on the QBO homepage. | An English-only visible-text gate prevents legacy Chinese/mojibake source labels from rendering in the operator UI. | PARTIAL - source/build verification passed; browser screenshot remains unavailable. |
+
+- Assistant3 business-fit review: retain only same-scope local POSTED evidence and real-estate dimensions; exclude external connections, bank feeds, imports, email/print/export/share, Spreadsheet Sync, automatic matching/adjustment/posting, QBO mutations, Sales/KPI/payment channels.
+
 ## Expenses: Vendor evidence to Bill full-page return (2026-08-04)
 
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |

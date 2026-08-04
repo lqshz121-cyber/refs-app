@@ -21,6 +21,7 @@ import { StagingCenter } from './module-staging.jsx';
 import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
+import { sanitizeVisibleEnglishText } from './english-only-text.js';
 
 class ErrorBoundary extends Component {
   constructor(p){ super(p); this.state={err:null}; }
@@ -38,6 +39,37 @@ class ErrorBoundary extends Component {
     }
     return this.props.children;
   }
+}
+
+function EnglishOnlyVisibleText(){
+  useEffect(()=>{
+    const root=document.getElementById('root');
+    if(!root) return undefined;
+    const sanitize=()=>sanitizeVisibleEnglishText(root);
+    sanitize();
+    const observer=new MutationObserver(sanitize);
+    observer.observe(root,{childList:true,subtree:true,characterData:true});
+    return ()=>observer.disconnect();
+  },[]);
+  return null;
+}
+
+
+function SingletonNavigationDirect({goto}){
+  useEffect(()=>{
+    const directRoutes={'Journal Entry':'je',Reports:'reports'};
+    const onClick=(event)=>{
+      const header=event.target?.closest?.('.nav-group-h');
+      if(!header) return;
+      const route=directRoutes[header.textContent?.replace(/[????]/g,'').trim()];
+      if(!route) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      goto(route);
+    };
+    document.addEventListener('click',onClick,true);
+    return ()=>document.removeEventListener('click',onClick,true);
+  },[goto]);
+  return null;
 }
 
 const ROLE_PERMS = {
@@ -230,7 +262,7 @@ function App() {
     logout: () => { try{localStorage.removeItem('refs_user')}catch(e){} setUserId(null); },
   };
 
-  if (!user) return <Login onLogin={setUserId} />;
+  if (!user) return <><EnglishOnlyVisibleText/><Login onLogin={setUserId}/></>;
 
   const isAdmin = ADMIN_ROLES.includes(user.role_code);
   const nav = NAV.filter(g=>!g.adminOnly || isAdmin);
@@ -240,7 +272,7 @@ function App() {
   const paletteItems = flat.filter(([k,ic,l])=>l.toLowerCase().includes(q.toLowerCase())||k.includes(q.toLowerCase()));
   const jeHits = q.length>=3 ? jes.filter(j=>(j.je_number||'').includes(q)||((j.payee||'').toLowerCase().includes(q.toLowerCase()))).slice(0,5) : [];
 
-  return <div className="app">
+  return <div className="app"><EnglishOnlyVisibleText/><SingletonNavigationDirect goto={goto}/>
     <aside className={`sidebar ${mobileNav?'mobile-open':''}`}>
       <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
       <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New 新建</button>

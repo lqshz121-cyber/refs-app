@@ -192,7 +192,9 @@ export function GLTrialBalance({ctx}) {
     <label><span className="filter-label">To</span><select aria-label="To period" value={toP} onChange={e=>setToP(e.target.value)}>{MONTHS.filter(m=>m>=fromP).map(m=><option key={m}>{m}</option>)}</select></label>
     <span className="muted sm">Accrual basis · as of {toP} · {tbAsOf.rows.length} accounts with activity · {dimensionLabel}</span>
   </div>;
-  return <div className="full-bleed">
+  // A drill replaces the report surface. It never appends a transaction table
+  // below the statement, so the Back action has one unambiguous destination.
+  return <div className={drill ? 'full-bleed report-replacement-view' : 'full-bleed'}>
     <h2 className="page-h">{drill ? 'General Ledger · Transaction detail' : 'General Ledger'}</h2>
     {!drill && <>
     {reportShell}
@@ -701,6 +703,39 @@ export function Intercompany({ctx}) {
     ]} rows={ic} rowKey="ic_txn_id" /></div>;
 }
 export function IntegrationHub({ctx}) {
+  // P0 English-only shell. Integration sources are displayed as retained local
+  // evidence; external sync, retry, import and automated posting are excluded.
+  const localSourceContracts = [
+    ['Vendor Bill', 'Retained supplier bill and project-cost source', 'Review only: AP evidence may be traced to its posted journal', 'No portal, OCR, import, payment, or automatic posting'],
+    ['Bank Transaction', 'Retained local bank transaction evidence', 'Review only: a matching journal remains distinct from clearance and reconciliation', 'No bank feed connection or automatic matching'],
+    ['Project Cost', 'Retained property or project cost evidence', 'Classify to expense, prepaid, CWIP, or asset only after review', 'Cross-entity and missing-dimension evidence stays in Review'],
+    ['Journal Entry', 'Retained local journal evidence', 'Draft, review, approval, and posted states remain explicit', 'No external synchronization or bulk posting'],
+  ];
+  const localBatches = [
+    {batch_id:'LOCAL-AP-REVIEW', src:'Vendor Bill', status:'REVIEW_ONLY', count:'Retained evidence', err:'No external processing is available.'},
+    {batch_id:'LOCAL-BANK-REVIEW', src:'Bank Transaction', status:'REVIEW_ONLY', count:'Retained evidence', err:'No bank feed connection is available.'},
+  ];
+  return <div className="full-bleed" aria-label="Integration Hub">
+    <h2 className="page-h">Integration Hub</h2>
+    <p className="muted sm">Local source evidence is reviewed before it can be used by a controlled accounting workflow. This workspace does not connect, import, retry, synchronize, or post external data.</p>
+    <SectionTitle>Local source contracts</SectionTitle>
+    <Table cols={[
+      {h:'Source',render:row=><Badge tone="muted">{row[0]}</Badge>},
+      {h:'Evidence scope',render:row=>row[1]},
+      {h:'Accounting boundary',render:row=>row[2]},
+      {h:'Unavailable actions',render:row=><span className="muted sm">{row[3]}</span>},
+    ]} rows={localSourceContracts} />
+    <SectionTitle>Local review status</SectionTitle>
+    <Table rowKey="batch_id" cols={[
+      {h:'Review id',k:'batch_id'},
+      {h:'Source',render:row=><Badge tone="muted">{row.src}</Badge>},
+      {h:'Evidence',k:'count'},
+      {h:'Status',render:row=><Badge tone="warn">{row.status}</Badge>},
+      {h:'Notes',k:'err'},
+      {h:'Actions',render:()=> <Btn size="sm" variant="ghost" disabled title="External retry and source synchronization are outside the retained local evidence scope">Unavailable</Btn>},
+    ]} rows={localBatches} />
+  </div>;
+
   const [batches, setBatches] = useState([
     {batch_id:'CL-20260731-007', src:'WBS_CL', status:'COMPLETED', n:4, ok:4, err:null},
     {batch_id:'PM-202607-P0020', src:'PM', status:'PARTIAL', n:5, ok:4, err:'琛?: PET_FEE 缂?GL 鏄犲皠 [3020]'},
