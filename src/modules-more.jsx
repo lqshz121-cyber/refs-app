@@ -117,7 +117,7 @@ export function GLTrialBalance({ctx}) {
   const bsSt = statements(bsPosted);
   const tbAsOf = trialBalance(bsPosted);
   const ORDER=['ASSET','LIABILITY','EQUITY','REVENUE','EXPENSE'];
-  const CN={ASSET:'璧勪骇 Assets',LIABILITY:'璐熷€?Liabilities',EQUITY:'鏉冪泭 Equity',REVENUE:'鏀跺叆 Revenue',EXPENSE:'璐圭敤 Expenses'};
+  const CN={ASSET:'Assets',LIABILITY:'Liabilities',EQUITY:'Equity',REVENUE:'Revenue',EXPENSE:'Expenses'};
   const groups = ORDER.map(t=>({t, rows: tbAsOf.rows.filter(r=>r.type===t)})).filter(g=>g.rows.length);
   const openAccounts = (rows,label,options={}) => setDrill({accounts:localGLDrillAccountCodes(rows),label,...options});
   const openJournalFromReport = (jeNumber, options = {}) => ctx.goto('je',{jeNumber,reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:'ALL',drillAccounts:options.drillAccounts || null,drillLabel:options.drillLabel || '',asOf:options.asOf === true})});
@@ -294,7 +294,7 @@ export function GLTrialBalance({ctx}) {
         {h:'Source',render:r=>r.sourceTarget?<button type="button" className="source-drill" onClick={e=>{e.stopPropagation();ctx.goto(r.sourceTarget.route, r.sourceTarget.context);}} title={'Open '+r.src+' source workflow'}><Badge tone="muted">{r.src}</Badge></button>:<Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},
         {h:'Account',render:r=><span><span className="acct-code">{r.acct}</span> {r.name}</span>,csv:r=>r.acct},
         {h:'Property / Project / Loan',k:'dimensions'},
-        {h:'Memo / 鏍哥畻瀵硅薄',render:r=><span>{r.memo}{r.member?<Badge tone="muted" >{r.member.slice(0,18)}</Badge>:null}</span>,csv:r=>r.memo},
+        {h:'Memo / dimension',render:r=><span>{r.memo}{r.member?<Badge tone="muted" >{r.member.slice(0,18)}</Badge>:null}</span>,csv:r=>r.memo},
         {h:'Debit',num:true,render:r=>r.dr?<Money v={r.dr}/>:'',sortVal:r=>r.dr,csv:r=>r.dr||''},
         {h:'Credit',num:true,render:r=>r.cr?<Money v={r.cr}/>:'',csv:r=>r.cr||''},
         {h:'Running balance',num:true,render:r=><Money v={r.runningBalance}/>,csv:r=>r.runningBalance},
@@ -481,7 +481,7 @@ export function Reports({ctx}) {
     <div className="accounting-page-head reports-head">
       <div>
         <div className="page-eyebrow">FINANCIAL INTELLIGENCE 路 CONTROLLED REPORTING</div>
-        <h2 className="page-h">鎶ヨ〃涓績 Reports</h2>
+        <h2 className="page-h">Reports Center</h2>
         <div className="reports-clean-title">Reports Center</div>
         <div className="page-subtitle">Financial statements, operational controls and WBS reconciliations with drill-down context.</div>
       </div>
@@ -568,7 +568,7 @@ export function Reports({ctx}) {
     <div className="qbo-report-promo"><span>FOR YOU</span><b>Financial summary for June is ready</b><p>Review key local balance, income, and control signals before opening the report.</p><button type="button" onClick={()=>launchReport('Balance Sheet','gl')}>Review Summary</button></div>
     <div className="kpi-row">
       <KPI label="Total assets" value={money(st.assets)} />
-      <KPI label="鏈湡鏀跺叆" value={money(st.revenue)} tone="ok" />
+      <KPI label="Current-period revenue" value={money(st.revenue)} tone="ok" />
       <KPI label="Net income" value={money(st.netIncome)} tone={st.netIncome>=0?'ok':'bad'} />
       <KPI label="Posted JEs" value={posted.length} />
     </div>
@@ -630,12 +630,12 @@ export function ProjectCost() {
   ].map(r=>({...r, ctc:Math.max(0,r.budget-r.actual), fac:Math.max(r.budget, r.commit>r.budget?r.commit:r.budget), var:r.budget-Math.max(r.budget,r.commit)}));
   const T = k => sum(CC, r=>r[k]);
   return <div className="full-bleed">
-    <h2 className="page-h">椤圭洰鎴愭湰 Project Cost 路 PRJ-CEDAR</h2>
+    <h2 className="page-h">Project Cost · PRJ-CEDAR</h2>
     <div className="kpi-row">
-      <KPI label="鎬婚绠?Budget" value={money(T('budget'))} />
-      <KPI label="宸叉壙璇?Committed" value={money(T('commit'))} sub={(T('commit')/T('budget')*100).toFixed(0)+'% of budget'} />
-      <KPI label="瀹為檯鍙戠敓 Actual" value={money(T('actual'))} sub={(T('actual')/T('budget')*100).toFixed(0)+'% complete'} tone="ok" />
-      <KPI label="瀹屽伐灏氶渶 CTC" value={money(T('ctc'))} tone="warn" />
+      <KPI label="Budget" value={money(T('budget'))} />
+      <KPI label="Committed" value={money(T('commit'))} sub={(T('commit')/T('budget')*100).toFixed(0)+'% of budget'} />
+      <KPI label="Actual" value={money(T('actual'))} sub={(T('actual')/T('budget')*100).toFixed(0)+'% complete'} tone="ok" />
+      <KPI label="Cost to complete" value={money(T('ctc'))} tone="warn" />
     </div>
     <SectionTitle>Budget → Commitment → Actual → Forecast by Cost Code</SectionTitle>
     <Table exportName="project-cost" cols={[
@@ -695,10 +695,10 @@ export function Intercompany({ctx}) {
   return <div><h2 className="page-h">Intercompany</h2>
     <p className="muted sm">Due to/from balances, mirrored entries and matching controls. Imbalances become exceptions.</p>
     <Table cols={[
-      {h:'IC Pair',k:'ic_pair_id'},{h:'绫诲瀷',render:r=><Badge tone="muted">{r.ic_type}</Badge>},
+      {h:'IC Pair',k:'ic_pair_id'},{h:'Type',render:r=><Badge tone="muted">{r.ic_type}</Badge>},
         {h:'Initiator',k:'initiator_entity'},{h:'Counterparty',k:'counterparty_entity'},
       {h:'Amount',num:true,render:r=><Money v={r.amount}/>},
-      {h:'鍖归厤',render:r=><Badge tone={r.match_status==='MATCHED'?'ok':'bad'}>{r.match_status}</Badge>},
+      {h:'Match',render:r=><Badge tone={r.match_status==='MATCHED'?'ok':'bad'}>{r.match_status}</Badge>},
       {h:'Action',render:r=>r.match_status!=='MATCHED'?<Btn size="sm" variant="primary" onClick={()=>mirror(r)}>Create mirror entry</Btn>:<span className="muted sm">—</span>},
     ]} rows={ic} rowKey="ic_txn_id" /></div>;
 }
@@ -744,7 +744,7 @@ export function IntegrationHub({ctx}) {
 
 export function MasterData() {
   const [tab,setTab] = useState('Entity');
-  const map = {Entity:[ENTITIES,[{h:'缂栫爜',k:'entity_code'},{h:'鍚嶇О',k:'entity_name'},{h:'绫诲瀷',render:r=><Badge tone="muted">{r.entity_type}</Badge>}]],
+  const map = {Entity:[ENTITIES,[{h:'Code',k:'entity_code'},{h:'Name',k:'entity_name'},{h:'Type',render:r=><Badge tone="muted">{r.entity_type}</Badge>}]],
     Project:[PROJECTS,[{h:'Project code',k:'project_code'},{h:'Project name',k:'project_name'},{h:'Construction status',render:r=><Badge tone={r.construction_status==='UNDER_CONSTRUCTION'?'warn':'ok'}>{r.construction_status}</Badge>}]],
     Property:[PROPERTIES,[{h:'Property code',k:'property_code'},{h:'Property name',k:'property_name'},{h:'Status',render:r=><Badge tone="muted">{r.property_status}</Badge>}]]};
   const [rows,cols] = map[tab];
@@ -755,23 +755,23 @@ export function MasterData() {
 }
 export function MappingCenter({ctx}) {
   const FAMILIES = [
-    ['Bank Detail 鈫?Account','Account Setting 路 Bank','閾惰璐﹀彿鈫掔幇閲戠鐩?111000瀛愯处)','setting'],
-    ['Construction Loan Detail 鈫?Account','Account Setting 路 Contruction Loan','Draw/Repayment/Interest/Escrow脳7鈫掔鐩?Project','setting'],
-    ['Cost Code Group 鈫?Account','Account Setting 路 Cost','0LD/2HD/24E/21E/9AM 鐮佺粍鈫扖WIP/璐圭敤','setting'],
-    ['Cost Code 脳 Dr/Cr 鈫?Account','Cost Setting','Cost General Ledger 鎸夊崟鐮佸€熻捶鏄犲皠','setting'],
-    ['Payable Cost Code 鈫?Dr Account','Payable Setting','鎸夌爜瀹氬€熸柟+褰掑睘鍏徃;Credit琛?291001','setting'],
-    ['Batch Template 鈫?Dr/Cr Pair','Batch Setting','璁℃彁妯℃澘+Sequential+Reverse Next Month','setting'],
-    ['PM Charge Code 鈫?Owner GL','涓嬭〃','RENT/LATE_FEE/SEC_DEPOSIT/UTILITIES/MGMT_FEE','pm'],
+    ['Bank Detail → Account','Account Settings · Bank','Maps an approved bank account to the 111000 cash subledger.','setting'],
+    ['Construction Loan Detail → Account','Account Settings · Construction Loan','Maps draw, repayment, interest, and escrow evidence to scoped accounts and projects.','setting'],
+    ['Cost Code Group → Account','Account Settings · Cost','Maps approved WBS cost-code groups to CWIP or expense accounts.','setting'],
+    ['Cost Code → Debit/Credit Account','Cost Settings','Maps Cost General Ledger debit and credit treatment by approved cost code.','setting'],
+    ['Payable Cost Code → Debit Account','Payable Settings','Maps approved payable cost code and entity to debit treatment; credit remains the controlled 291001 account.','setting'],
+    ['Batch Template → Debit/Credit Pair','Batch Settings','Defines controlled accrual template, sequencing, and next-period reversal.','setting'],
+    ['PM Charge Code → Owner GL','Owner GL','Supports retained RENT, LATE_FEE, SEC_DEPOSIT, UTILITIES, and MGMT_FEE evidence.','pm'],
     ['Project Status → Capitalization','Rules Center','Under construction → 64500 Capitalized interest; complete → 95000 Expense','rules'],
-    ['Unit Status 鈫?Inventory/COGS','Rule Center','鍦ㄥ缓CWIP鈫掑畬宸nventory鈫掑敭鍑篊OGS','rules'],
-    ['Company 鈫?Rule Profile','Company Setting','姣忓叕鍙哥嫭绔嬪洓澶etting+Copy','setting'],
+    ['Unit Status → Inventory/COGS','Rule Center','Controls the CWIP → inventory → COGS lifecycle boundary.','rules'],
+    ['Company → Rule Profile','Company Settings','Each company retains a separate controlled settings profile.','setting'],
   ];
   return <div className="full-bleed"><h2 className="page-h">Mapping Center</h2>
     <p className="muted sm">Mapping families link source codes to controlled settings and rules. Behavior remains REFS-local until QBO evidence is observed.</p>
     <Table cols={[
-      {h:'Mapping 瀹舵棌',render:r=><b>{r[0]}</b>},
-      {h:'缁存姢浣嶇疆',render:r=><Badge tone="muted">{r[1]}</Badge>},
-      {h:'瑙勫垯璇存槑',render:r=>r[2]},
+      {h:'Mapping family',render:r=><b>{r[0]}</b>},
+      {h:'Maintenance location',render:r=><Badge tone="muted">{r[1]}</Badge>},
+      {h:'Rule description',render:r=>r[2]},
       {h:'Open',render:r=><Btn size="sm" variant="ghost" onClick={()=>ctx.goto(r[3]==='pm'?'mapping':r[3]==='rules'?'rules':'setting')}>Open</Btn>},
     ]} rows={FAMILIES}/>
     <SectionTitle>PM Charge Code to Owner GL mapping</SectionTitle>
