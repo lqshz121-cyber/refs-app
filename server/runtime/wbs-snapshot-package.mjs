@@ -20,11 +20,19 @@ const text=(value,max=256)=>typeof value==='string'&&value.trim().length>0&&valu
 const iso=value=>text(value,64)&&Number.isFinite(Date.parse(value));
 const without=(value,key)=>Object.fromEntries(Object.entries(value).filter(([name])=>name!==key));
 
+function deliveryMetadata(snapshot){
+  const delivery=snapshot.delivery;
+  if(!object(delivery)||!['READONLY_VIEW_EXPORT','SIGNED_SNAPSHOT_PACKAGE'].includes(delivery.mode)||!iso(delivery.extract_started_at)||!iso(delivery.extract_completed_at)||delivery.consistency!=='COMPLETE'||delivery.pagination!=='PRIMARY_KEY_SEEK'||Date.parse(delivery.extract_completed_at)<Date.parse(delivery.extract_started_at))fail('WBS_SNAPSHOT_DELIVERY_INVALID','Production WBS snapshots require a complete primary-key-paged delivery receipt.');
+  return Object.freeze({mode:delivery.mode,extract_started_at:delivery.extract_started_at,extract_completed_at:delivery.extract_completed_at,consistency:delivery.consistency,pagination:delivery.pagination});
+}
+
 function fail(code,message){throw new WbsSnapshotError(code,message);}
 
 export function validateWbsSnapshotPackage(snapshot){
   if(!object(snapshot))fail('WBS_SNAPSHOT_INVALID','WBS snapshot must be an object.');
-  if(snapshot.schema_version!=='WBS_READONLY_SNAPSHOT_V1'||!UUID.test(snapshot.snapshot_id||'')||!iso(snapshot.captured_at)||!['SANDBOX','PRODUCTION'].includes(snapshot.environment)||snapshot.source_system!=='WBS'||!text(snapshot.dictionary_version)||!Array.isArray(snapshot.views)||snapshot.views.length===0)fail('WBS_SNAPSHOT_INVALID','WBS snapshot manifest is incomplete.');
+  if(!['WBS_READONLY_SNAPSHOT_V1','WBS_READONLY_SNAPSHOT_V2'].includes(snapshot.schema_version)||!UUID.test(snapshot.snapshot_id||'')||!iso(snapshot.captured_at)||!['SANDBOX','PRODUCTION'].includes(snapshot.environment)||snapshot.source_system!=='WBS'||!text(snapshot.dictionary_version)||!Array.isArray(snapshot.views)||snapshot.views.length===0)fail('WBS_SNAPSHOT_INVALID','WBS snapshot manifest is incomplete.');
+  if(snapshot.environment==='PRODUCTION'&&snapshot.schema_version!=='WBS_READONLY_SNAPSHOT_V2')fail('WBS_SNAPSHOT_DELIVERY_INVALID','Production WBS snapshots require schema version V2.');
+  const delivery=snapshot.schema_version==='WBS_READONLY_SNAPSHOT_V2'?deliveryMetadata(snapshot):null;
   const signature=snapshot.detached_signature;
   if(snapshot.environment==='PRODUCTION'&&(!object(signature)||!text(signature.key_id,128)||signature.algorithm!=='Ed25519'||!text(signature.value,4096)))fail('WBS_SNAPSHOT_SIGNATURE_REQUIRED','Production WBS snapshots require an Ed25519 detached signature.');
   if(snapshot.package_hash!==canonicalRequestHash(without(without(snapshot,'package_hash'),'detached_signature')))fail('WBS_SNAPSHOT_HASH_MISMATCH','WBS snapshot package hash does not match its manifest.');
@@ -43,5 +51,5 @@ export function validateWbsSnapshotPackage(snapshot){
       receipts.push(Object.freeze({snapshot_id:snapshot.snapshot_id,captured_at:snapshot.captured_at,environment:snapshot.environment,source_system:'WBS',source_module:view.name,source_entity_id:view.company_key,source_record_id:row[policy.id],source_version:`snapshot:${snapshot.snapshot_id}:${rowHash.slice(7,23)}`,payload_hash:rowHash,payload_ref:`object://wbs-snapshot/${snapshot.snapshot_id}/${encodeURIComponent(view.name)}/${encodeURIComponent(row[policy.id])}`,ingestion_kind:policy.kind}));
     }
   }
-  return Object.freeze({snapshot_id:snapshot.snapshot_id,captured_at:snapshot.captured_at,environment:snapshot.environment,dictionary_version:snapshot.dictionary_version,company_key:companyKey,package_hash:snapshot.package_hash,receipt_count:receipts.length,receipts:Object.freeze(receipts)});
+  return Object.freeze({snapshot_id:snapshot.snapshot_id,captured_at:snapshot.captured_at,environment:snapshot.environment,dictionary_version:snapshot.dictionary_version,company_key:companyKey,package_hash:snapshot.package_hash,delivery,receipt_count:receipts.length,receipts:Object.freeze(receipts)});
 }
