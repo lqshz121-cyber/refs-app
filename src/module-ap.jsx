@@ -62,13 +62,13 @@ export function APWorkspace({ctx}) {
   const expenseReviewExceptions = localExpenseReviewExceptions({bills,vendorCredits,vendors:VENDORS,coa:COA});
   const selectedCredit = vendorCredits.find(credit => credit.journal.je_number === selectedCreditKey) || null;
   const selectedException = expenseReviewExceptions.find(exception => exception.exception_id === selectedExceptionId) || null;
-  const localTabFor = value => ({Payments:'Payments','AP Aging':'AP Aging',Vendors:'Vendors','浠樻 Payments':'Payments','璐﹂緞 Aging':'AP Aging','渚涘簲鍟?Vendors':'Vendors'})[value] || value;
+  const localTabFor = value => ({Payments:'Payments','AP Aging':'AP Aging',Vendors:'Vendors'})[value] || value;
   const queueBills = filterLocalBillQueue(bills, billQueueView);
   const visibleBills = filterExpenseEvidence(queueBills, {transactionType, dateRange, status:statusFilter, query, fromDate, toDate, vendorId, categoryCode});
   const expenseTransactionRows = localExpenseTransactionRows({bills:visibleBills,vendorCredits});
   useEffect(() => {
     if (navContext?.route !== 'ap') return;
-    if (['Bills','Payments','Vendors','AP Aging','浠樻 Payments','璐﹂緞 Aging','渚涘簲鍟?Vendors'].includes(navContext.tab)) setTab(localTabFor(navContext.tab));
+    if (['Bills','Payments','Vendors','AP Aging'].includes(navContext.tab)) setTab(localTabFor(navContext.tab));
   }, [navContext?.route, navContext?.tab]);
   useEffect(()=>{ try { localStorage.setItem('refs_expense_columns', JSON.stringify(columnVisibility)); } catch {} }, [columnVisibility]);
   const toggleColumn = key => setColumnVisibility(current=>({...current, [key]:!current[key]}));
@@ -297,27 +297,27 @@ function NewBill({open, onClose, ctx, initialVendorId}) {
     toast('Bill created with '+lines.length+' lines totaling $'+total.toLocaleString()+'.'); onClose();
     setLines([{account_code:'612900', description:'', amount:'', cost_code:''}]);
   };
-  return <Drawer open={open} onClose={onClose} title="褰曞叆 Bill 路 Category Details" width={640}
-    actions={<><Btn onClick={onClose}>鍙栨秷</Btn><Btn variant="primary" onClick={submit}>鍒涘缓 Bill (${total.toLocaleString()})</Btn></>}>
+  return <Drawer open={open} onClose={onClose} title="New bill · category details" width={640}
+    actions={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit}>Create bill (${total.toLocaleString()})</Btn></>}>
     <div className="two-col">
       <Field label="Vendor" required><select value={f.vendor_id} onChange={e=>set('vendor_id',e.target.value)}>
         <option value="">— Select —</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}{v.is_related_party?' (RP)':''}</option>)}</select></Field>
-      <Field label="鍙戠エ鍙?Invoice #" required><input value={f.invoice_no} onChange={e=>set('invoice_no',e.target.value)}/></Field>
+      <Field label="Invoice #" required><input value={f.invoice_no} onChange={e=>set('invoice_no',e.target.value)}/></Field>
     </div>
     <div className="two-col">
-      <Field label="Bill 鏃ユ湡"><input type="date" value={f.bill_date} onChange={e=>set('bill_date',e.target.value)}/></Field>
+      <Field label="Bill date"><input type="date" value={f.bill_date} onChange={e=>set('bill_date',e.target.value)}/></Field>
       <Field label="Due date"><input type="date" value={f.due_date} onChange={e=>set('due_date',e.target.value)}/></Field>
     </div>
     <SectionTitle right={<Btn size="sm" onClick={()=>setLines(ls=>[...ls,{account_code:'',description:'',amount:'',cost_code:''}])}>+ Add line</Btn>}>Category Details ({lines.length} lines)</SectionTitle>
-    <table className="tbl tbl-dense"><thead><tr><th>#</th><th>Category / 绉戠洰</th><th>Description</th><th>Cost Code</th><th className="ta-r">Amount</th><th></th></tr></thead>
+    <table className="tbl tbl-dense"><thead><tr><th>#</th><th>Category</th><th>Description</th><th>Cost code</th><th className="ta-r">Amount</th><th></th></tr></thead>
       <tbody>{lines.map((l,i)=><tr key={i}>
         <td className="muted">{i+1}</td>
         <td><select value={l.account_code} onChange={e=>setL(i,'account_code',e.target.value)} style={{maxWidth:210}}>
-          <option value="">閫夋嫨绉戠洰</option>{COA.filter(a=>['EXPENSE','ASSET'].includes(a.account_type)).map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} {a.account_name}</option>)}</select></td>
+          <option value="">Select a category</option>{COA.filter(a=>['EXPENSE','ASSET'].includes(a.account_type)).map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} {a.account_name}</option>)}</select></td>
         <td><input className="desc-line" value={l.description} onChange={e=>setL(i,'description',e.target.value)}/></td>
         <td><input className="date-in" style={{width:80}} placeholder="Cost code" value={l.cost_code} onChange={e=>setL(i,'cost_code',e.target.value)}/></td>
         <td className="ta-r"><input className="num-in" type="number" value={l.amount} onChange={e=>setL(i,'amount',e.target.value)}/></td>
-        <td>{lines.length>1&&<button className="x-sm" onClick={()=>setLines(ls=>ls.filter((_,x)=>x!==i))}>脳</button>}</td>
+        <td>{lines.length>1&&<button className="x-sm" onClick={()=>setLines(ls=>ls.filter((_,x)=>x!==i))}>×</button>}</td>
       </tr>)}</tbody>
       <tfoot><tr><td colSpan={4}>Total</td><td className="ta-r"><b>${total.toLocaleString()}</b></td><td/></tr></tfoot>
     </table>
