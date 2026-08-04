@@ -363,6 +363,7 @@ function LegacyApp() {
   return <div className="app">
     {narrowViewport&&mobileNav&&<button className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={()=>setMobileNav(false)}/>}
     <aside ref={sidebarRef} onKeyDown={trapMobileNav} className={`sidebar ${mobileNav?'mobile-open':''}`} aria-hidden={narrowViewport&&!mobileNav}>
+      <button className="mobile-nav-close" aria-label="Close navigation" onClick={()=>setMobileNav(false)}>×</button>
       <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
       <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New 新建</button>
       <nav id="primary-navigation">{nav.map(g=>{ const opened = openGroups[g.group] ?? g.items.some(([k])=>route===k);
