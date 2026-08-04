@@ -13,6 +13,7 @@ import { localPaymentEvidenceDrill } from './payment-evidence-drill.js';
 import { localBillEvidenceTrace } from './bill-evidence-trace.js';
 import { localBillPaymentEvidence } from './bill-payment-evidence.js';
 import { localBillVoidEvidence } from './bill-void-evidence.js';
+export const apAgingDocuments=bills=>bills.filter(b=>['APPROVED','PAYMENT_PENDING'].includes(b.status));
 import { localVendorCreditEvidence } from './vendor-credit-evidence.js';
 import { LOCAL_AGING_BUCKETS, localApAgingEvidenceRows, localAgingControl, localAgingGlReconciliation, localAgingControlDifferenceEvidence } from './aging-local-evidence.js';
 import { localExpenseReviewExceptions } from './expense-review-exceptions.js';

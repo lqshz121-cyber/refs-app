@@ -5,6 +5,14 @@ export const acct = (code) => COA_MAP[code] || (WBS_COA_MAP[code] ? {account_cod
 export const money = (n) => (n==null?'':(n<0?'(':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+(n<0?')':''));
 import { WBS_COA_MAP, subsidiaryOf, memberOf } from './coa-wbs.js';
 export const sum = (arr,f)=>arr.reduce((s,x)=>s+(f?f(x):x),0);
+export const ENGINE_RULE_CATALOG=[
+  {rule_code:'R-LOAN-01',trigger:'LOAN.DRAW'},
+  {rule_code:'R-LOAN-03',trigger:'LOAN.INTEREST_ACCRUAL'},
+  {rule_code:'R-LOAN-04',trigger:'LOAN.INTEREST_ACCRUAL'},
+  {rule_code:'R-LOAN-05',trigger:'LOAN.INTEREST_PAYMENT'},
+  {rule_code:'R-LOAN-08',trigger:'LOAN.REPAYMENT'},
+  {rule_code:'R-PM-16',trigger:'PM.SECURITY_DEPOSIT'},
+];
 export function downloadCSV(filename, rows){ const csv=rows.map(r=>r.map(c=>{const s=String(c==null?'':c); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n'); const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click(); URL.revokeObjectURL(a.href); }
 
 // ---- JE helpers ----

@@ -2,12 +2,13 @@ import { Badge, KPI, Table, SectionTitle, Tabs } from './ui.jsx';
 import { WBS_AUTORECON_PROGRESS } from './wbs-autorecon-progress.js';
 
 // WBS views are evidence-only. They cannot issue WBS commands or create REFS journals.
-export function AutoBankRec() {
+export function AutoBankRec({ctx={}}) {
+  if(ctx.authoritativeMode)return <section className="card" role="status"><h2 className="page-h">Auto Bank Reconciliation</h2><p>AUTOREC_API_UNAVAILABLE</p></section>;
   return <div className="full-bleed">
     <h2 className="page-h">Auto Bank Reconciliation</h2>
     <section className="card" style={{marginBottom:16}}>
       <SectionTitle>WBS to REFS integration status</SectionTitle>
-      <p className="muted sm"><Badge tone="warn">{WBS_AUTORECON_PROGRESS.status}</Badge> {WBS_AUTORECON_PROGRESS.liveEvidence}</p>
+      <p className="muted sm"><Badge tone="warn">DEMO_DATA_ONLY</Badge> <Badge tone="warn">{WBS_AUTORECON_PROGRESS.status}</Badge> {WBS_AUTORECON_PROGRESS.liveEvidence}</p>
       <Table rowKey="source" rows={WBS_AUTORECON_PROGRESS.sources} cols={[
         {h:'WBS source',k:'source'},{h:'REFS role',k:'role'},{h:'Entry path',k:'entry'},{h:'Required gate',k:'gate'},
       ]}/>
@@ -22,7 +23,8 @@ export function AutoBankRec() {
   </div>;
 }
 
-export function CheckMgmt() {
+export function CheckMgmt({ctx={}}) {
+  if(ctx.authoritativeMode)return <section className="card" role="status"><h2 className="page-h">Payment Confirmation</h2><p>CHECK_API_UNAVAILABLE</p></section>;
   const checks=[
     {no:'CHK-1086',date:'07/12/2026',payee:'Summit General Contractors',amount:42000,status:'CLEARED',bank:'BA-001'},
     {no:'CHK-1087',date:'07/20/2026',payee:'BluePeak Utilities',amount:3200,status:'CLEARED',bank:'BA-003'},
