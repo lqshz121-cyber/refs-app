@@ -14,6 +14,7 @@ export const authoritativeBearerHeaders=async config=>{try{const token=await con
 const authenticationRequired=()=>({ok:false,code:'AUTHENTICATION_REQUIRED',message:'An OIDC access token is required for the authoritative accounting API.'});
 
 const documentRow=(row,kind)=>({
+  business_document_id:row.business_document_id,
   ...(kind==='AP_BILL'?{bill_id:row.business_document_id,bill_no:row.document_number,invoice_no:row.document_number,vendor_id:row.counterparty_ref,vendor_name:row.counterparty_name,bill_date:row.accounting_date}:{inv_id:row.business_document_id,inv_no:row.document_number,customer_id:row.counterparty_ref,customer_name:row.counterparty_name,inv_date:row.accounting_date}),
   due_date:row.due_date,amount:Number(row.gross_amount),open_balance:Number(row.open_balance),currency:row.currency,status:row.status,je_number:row.posted_journal_entry_id||null,revision:row.version,journal_entry_id:row.journal_entry_id,journal_status:row.journal_status,journal_revision:row.journal_revision,period_id:row.period_id,account_code:row.offset_account_code,description:row.description,
 });

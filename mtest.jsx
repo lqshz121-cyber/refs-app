@@ -16,7 +16,7 @@ import { AccountRegister } from './src/module-register.jsx';
 import { SubsidiaryLedger } from './src/module-subledger.jsx';
 import { UnitCostLedger } from './src/module-unitcost.jsx';
 import { SourceDocs } from './src/module-sourcedocs.jsx';
-import { App, AuthoritativeAdjustmentSummary, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './src/app.jsx';
+import { App, AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './src/app.jsx';
 import { CompanySetting } from './src/module-setting.jsx';
 import { approveBillCommand, payBillCommand } from './src/ap-workflow.js';
 import { createInvoiceCommand, receivePaymentCommand } from './src/ar-workflow.js';
@@ -61,6 +61,13 @@ const workflowMarkup=renderToStaticMarkup(<AuthoritativeWorkflowTable title="Aut
 if(!['SUBMIT','REVIEW','APPROVE','POST'].every(action=>workflowMarkup.includes(`>${action}<`))){failed++;console.error('FAIL authoritative workflow omits a server transition action');}else console.log('PASS authoritative workflow exposes the complete server transition sequence');
 const adjustmentWorkflowMarkup=renderToStaticMarkup(<AuthoritativeWorkflowAdjustmentTable title="Authoritative adjustment workflow" onWorkflow={noop} workingJournalIds={new Set()} adjustments={[{business_adjustment_id:'adj-1',journal_entry_id:'00000000-0000-4000-8000-000000000010',journal_revision:2,journal_status:'PENDING_APPROVAL',adjustment_kind:'AR_CREDIT_MEMO',amount:3,currency:'USD',status:'DRAFT'}]}/>);
 if(!adjustmentWorkflowMarkup.includes('>APPROVE<')||adjustmentWorkflowMarkup.includes('Ricky (Controller)')){failed++;console.error('FAIL authoritative adjustment workflow is not server-driven');}else console.log('PASS authoritative adjustment workflow exposes server approval only');
+const authoritativeConfig={cashAccountCode:'111000'};
+const postedCredit={business_adjustment_id:'00000000-0000-4000-8000-000000000020',adjustment_kind:'AR_CREDIT_MEMO',status:'POSTED',amount:3,currency:'USD'};
+const postedInvoice={business_document_id:'00000000-0000-4000-8000-000000000021',inv_no:'INV-21',status:'OPEN',journal_status:'POSTED',open_balance:5,currency:'USD'};
+const creditApplicationMarkup=renderToStaticMarkup(<AuthoritativeCreditApplicationForm config={authoritativeConfig} kind="AR_CREDIT_MEMO" credits={[postedCredit]} documents={[postedInvoice]} onCompleted={async()=>({ok:true})}/>);
+if(!creditApplicationMarkup.includes('Apply Credit memo')||!creditApplicationMarkup.includes('INV-21')||creditApplicationMarkup.includes('localStorage')){failed++;console.error('FAIL authoritative credit application is not API-shaped');}else console.log('PASS authoritative credit application only selects API returned posted records');
+const refundMarkup=renderToStaticMarkup(<AuthoritativeRefundForm config={authoritativeConfig} credits={[postedCredit]} onCompleted={async()=>({ok:true})}/>);
+if(!refundMarkup.includes('Create refund Draft')||!refundMarkup.includes('Credit memo')){failed++;console.error('FAIL authoritative refund form is absent');}else console.log('PASS authoritative refund creates Draft through server command');
 const authoritativeDraft=validateAuthoritativeDocumentDraft({kind:'AP_BILL',documentNumber:'BILL-101',counterpartyRef:'VENDOR-1',counterpartyName:'Authoritative Vendor',currency:'usd',accountingDate:'2026-08-04',dueDate:'2026-08-31',amount:'125.2500',offsetAccountCode:'641600',description:'Authoritative source'});const authoritativeDraftMarkup=renderToStaticMarkup(<AuthoritativeDraftForm config={{}} onCreated={async()=>({ok:true})}/>);
 if(!authoritativeDraft.ok||authoritativeDraft.document.amount!=='125.2500'||validateAuthoritativeDocumentDraft({...authoritativeDraft.document,kind:'AR_INVOICE',amount:'1.00000'}).ok||!authoritativeDraftMarkup.includes('Create Draft only')||authoritativeDraftMarkup.includes('Post')){failed++;console.error('FAIL authoritative Draft form does not preserve Draft-only validation');}else console.log('PASS authoritative Draft form is validated and Draft-only');
 
