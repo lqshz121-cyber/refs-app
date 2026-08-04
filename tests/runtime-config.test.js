@@ -6,7 +6,7 @@ const environment={REFS_PUBLIC_ACCOUNTING_API_BASE_URL:'https://api.example/',RE
 assert.equal(renderRuntimeConfig({}),null);assert.throws(()=>renderRuntimeConfig({REFS_PUBLIC_ACCOUNTING_API_BASE_URL:'https://api.example'}),/incomplete/);
 const rendered=renderRuntimeConfig(environment);assert.match(rendered,/window\.__REFS_OIDC__/);assert.match(rendered,/window\.refsOidcClient\?\.getAccessToken/);assert.match(rendered,/https:\/\/api\.example/);assert.doesNotMatch(rendered,/REFS_PUBLIC_|DATABASE_URL|S3_ACCESS_KEY/i);
 assert.throws(()=>renderRuntimeConfig({...environment,REFS_PUBLIC_OIDC_TOKEN_ENDPOINT:'http://issuer.example/token'}),/invalid/);
-const index=readFileSync('index.html','utf8'),lock=index.indexOf("window.__REFS_RUNTIME_MODE__='REQUIRES_AUTHORITATIVE_API'"),adapter=index.indexOf('src="./refs-runtime-config.js"');
+const index=readFileSync('index.html','utf8'),lock=index.indexOf('src="./refs-runtime-lock.js"'),adapter=index.indexOf('src="./refs-runtime-config.js"');
 assert.ok(lock>=0&&adapter>lock,'index must lock the browser before loading the deployment adapter');
 assert.match(index,/Chart\.js\/4\.4\.1\/chart\.umd\.min\.js" integrity="sha384-bs\/nf9FbdNouRbMiFcrcZfLXYPKiPaGVGplVbv7dLGECccEXDW\+S3zjqSKR5ZEaD" crossorigin="anonymous"/);
 console.log('runtime-config: all assertions passed');

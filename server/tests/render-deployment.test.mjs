@@ -16,5 +16,6 @@ test('Render staging manifest declares every production startup secret and uses 
   assert.match(pages,/run: npm ci/);assert.doesNotMatch(pages,/run: npm install/);
   assert.match(pages,/name: Run frontend gate\r?\n\s+run: npm test/);
   assert.match(pages,/name: Run kernel static and unit gate\r?\n\s+working-directory: server\r?\n\s+run: npm test/);
-  assert.match(manifest,/name: Content-Security-Policy\r?\n\s+value: "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self';/);
+  assert.match(manifest,/name: Content-Security-Policy\r?\n\s+value: "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' https:\/\/cdnjs\.cloudflare\.com;/);
+  assert.doesNotMatch(manifest,/script-src 'self' 'unsafe-inline'/);
 });
