@@ -296,27 +296,27 @@ function NewBill({open, onClose, ctx, initialVendorId}) {
     toast('Bill created with '+lines.length+' lines totaling $'+total.toLocaleString()+'.'); onClose();
     setLines([{account_code:'612900', description:'', amount:'', cost_code:''}]);
   };
-  return <Drawer open={open} onClose={onClose} title="褰曞叆 Bill 路 Category Details" width={640}
-    actions={<><Btn onClick={onClose}>鍙栨秷</Btn><Btn variant="primary" onClick={submit}>鍒涘缓 Bill (${total.toLocaleString()})</Btn></>}>
+  return <Drawer open={open} onClose={onClose} title="Enter Bill — Category Details" width={640}
+    actions={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit}>Create Bill (${total.toLocaleString()})</Btn></>}>
     <div className="two-col">
       <Field label="Vendor" required><select value={f.vendor_id} onChange={e=>set('vendor_id',e.target.value)}>
         <option value="">— Select —</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}{v.is_related_party?' (RP)':''}</option>)}</select></Field>
-      <Field label="鍙戠エ鍙?Invoice #" required><input value={f.invoice_no} onChange={e=>set('invoice_no',e.target.value)}/></Field>
+      <Field label="Invoice #" required><input value={f.invoice_no} onChange={e=>set('invoice_no',e.target.value)}/></Field>
     </div>
     <div className="two-col">
-      <Field label="Bill 鏃ユ湡"><input type="date" value={f.bill_date} onChange={e=>set('bill_date',e.target.value)}/></Field>
+      <Field label="Bill date"><input type="date" value={f.bill_date} onChange={e=>set('bill_date',e.target.value)}/></Field>
       <Field label="Due date"><input type="date" value={f.due_date} onChange={e=>set('due_date',e.target.value)}/></Field>
     </div>
     <SectionTitle right={<Btn size="sm" onClick={()=>setLines(ls=>[...ls,{account_code:'',description:'',amount:'',cost_code:''}])}>+ Add line</Btn>}>Category Details ({lines.length} lines)</SectionTitle>
-    <table className="tbl tbl-dense"><thead><tr><th>#</th><th>Category / 绉戠洰</th><th>Description</th><th>Cost Code</th><th className="ta-r">Amount</th><th></th></tr></thead>
+    <table className="tbl tbl-dense"><thead><tr><th>#</th><th>Category / Account</th><th>Description</th><th>Cost Code</th><th className="ta-r">Amount</th><th></th></tr></thead>
       <tbody>{lines.map((l,i)=><tr key={i}>
         <td className="muted">{i+1}</td>
         <td><select value={l.account_code} onChange={e=>setL(i,'account_code',e.target.value)} style={{maxWidth:210}}>
-          <option value="">閫夋嫨绉戠洰</option>{COA.filter(a=>['EXPENSE','ASSET'].includes(a.account_type)).map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} {a.account_name}</option>)}</select></td>
+          <option value="">Select account</option>{COA.filter(a=>['EXPENSE','ASSET'].includes(a.account_type)).map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} {a.account_name}</option>)}</select></td>
         <td><input className="desc-line" value={l.description} onChange={e=>setL(i,'description',e.target.value)}/></td>
         <td><input className="date-in" style={{width:80}} placeholder="Cost code" value={l.cost_code} onChange={e=>setL(i,'cost_code',e.target.value)}/></td>
         <td className="ta-r"><input className="num-in" type="number" value={l.amount} onChange={e=>setL(i,'amount',e.target.value)}/></td>
-        <td>{lines.length>1&&<button className="x-sm" onClick={()=>setLines(ls=>ls.filter((_,x)=>x!==i))}>脳</button>}</td>
+        <td>{lines.length>1&&<button className="x-sm" onClick={()=>setLines(ls=>ls.filter((_,x)=>x!==i))}>×</button>}</td>
       </tr>)}</tbody>
       <tfoot><tr><td colSpan={4}>Total</td><td className="ta-r"><b>${total.toLocaleString()}</b></td><td/></tr></tfoot>
     </table>
@@ -329,10 +329,10 @@ function BillDetail({bill, onClose, onOpenPayment, agingReturn, vendorReturnId, 
     if (!bill) return null;
     const trace = localBillEvidenceTrace(bill, jes);
   const steps = [
-    {label:'鍒涘缓 Maker', done:true, who:bill.created_by},
-    {label:'瀹℃壒 Approver', done:['APPROVED','PAID'].includes(bill.status), who:bill.approved_by},
-    {label:'鍏ヨ处 Dr 璐圭敤 / Cr AP', done:!!bill.je_number, who:bill.je_number},
-    {label:'浠樻 Dr AP / Cr Cash', done:bill.status==='PAID', who:bill.pay_je_number},
+    {label:'Created — maker', done:true, who:bill.created_by},
+    {label:'Approved — approver', done:['APPROVED','PAID'].includes(bill.status), who:bill.approved_by},
+    {label:'Posted — Dr Expense / Cr AP', done:!!bill.je_number, who:bill.je_number},
+    {label:'Paid — Dr AP / Cr Cash', done:bill.status==='PAID', who:bill.pay_je_number},
   ];
   const approve = () => {
     if (bill.created_by===user.user_id && user.role_code!=='CONTROLLER'){ toast('SoD block [4009]: preparer cannot approve this bill.','bad'); return; }
@@ -340,10 +340,10 @@ function BillDetail({bill, onClose, onOpenPayment, agingReturn, vendorReturnId, 
   };
   return <div className="full-bleed qbo-transaction-report" aria-label="Local bill evidence detail">
     <div className="qbo-report-back"><button type="button" onClick={onClose}>{agingReturn?.tab === 'AP Aging' ? 'Back to AP Aging' : vendorReturnId ? 'Back to Vendor evidence' : 'Back to Expenses'}</button><span>{agingReturn?.tab === 'AP Aging' ? localApAgingReturnScopeLabel(agingReturn) : vendorReturnId ? 'Vendor → Bill · retained same-vendor local evidence' : 'Bill · retained local evidence'}</span></div>
-    <div className="gl-drill-head"><div><div className="gl-drill-crumb">Expenses / Bill detail</div><h2 className="page-h">{bill.bill_no} · {bill.vendor_name}</h2><div className="gl-drill-account">{bill.bill_date} · due {bill.due_date} · local entity evidence only</div></div>{bill.status==='PENDING_APPROVAL' && can('AP.INVOICE.APPROVE') ? <Btn variant="primary" onClick={approve}>瀹℃壒 + 鐢熸垚鍒嗗綍</Btn> : <Badge tone="muted">{bill.status}</Badge>}</div>
+    <div className="gl-drill-head"><div><div className="gl-drill-crumb">Expenses / Bill detail</div><h2 className="page-h">{bill.bill_no} · {bill.vendor_name}</h2><div className="gl-drill-account">{bill.bill_date} · due {bill.due_date} · local entity evidence only</div></div>{bill.status==='PENDING_APPROVAL' && can('AP.INVOICE.APPROVE') ? <Btn variant="primary" onClick={approve}>Approve + create journal</Btn> : <Badge tone="muted">{bill.status}</Badge>}</div>
     <div className="kv"><span>Invoice #</span><b>{bill.invoice_no}</b></div>
-    <div className="kv"><span>閲戦</span><Money v={bill.amount} bold/></div>
-    <div className="kv"><span>绉戠洰</span><b>{bill.account_code} {acct(bill.account_code).account_name}</b></div>
+    <div className="kv"><span>Amount</span><Money v={bill.amount} bold/></div>
+    <div className="kv"><span>Account</span><b>{bill.account_code} {acct(bill.account_code).account_name}</b></div>
     <div className="kv"><span>Status</span><Badge>{bill.status}</Badge></div>
     <div className="kv"><span>Local AP proof</span><Badge tone={bill.paymentEvidence?.billState==='VALID_POSTED_AP'?'ok':'warn'}>{bill.paymentEvidence?.billState || 'UNVERIFIED'}</Badge></div>
     <div className="kv"><span>Payment / bank proof</span><Badge tone={bill.paymentEvidence?.bankState==='BANK_MATCHED'?'ok':bill.paymentEvidence?.bankState==='POSTED_UNMATCHED'?'warn':'muted'}>{bill.paymentEvidence?.bankState || 'NO_LOCAL_PAYMENT'}</Badge></div>
@@ -359,7 +359,7 @@ function BillDetail({bill, onClose, onOpenPayment, agingReturn, vendorReturnId, 
     {trace.canOpenSourceDocument && <div className="row-acts" style={{margin:'10px 0'}}><Btn size="sm" variant="ghost" onClick={()=>goto('sourcedocs',{route:'sourcedocs',docId:trace.sourceDocId,jeNumber:trace.apJournal.je_number,sourceSystem:trace.apJournal.source_system,expenseReturn:{route:'ap',tab:'Bills',billId:bill.bill_id}})}>Open local source document</Btn></div>}
     <p className="muted sm" style={{margin:'8px 0 0'}}>This trace reads local retained evidence only. It cannot upload, autofill, create, approve, edit, or pay a QBO bill.</p>
     <p className="muted sm" style={{margin:'8px 0 0'}}>Void/reversal is evidence-only. {bill.voidEvidence?.canRequest ? 'A posted, unpaid AP source may enter controller review, but this UI cannot create a reversal.' : 'Paid/partially paid, bank-matched, CWIP/prepaid, related-party, restricted/escrow/loan, cross-entity, or ambiguous cases require exception/reopen review; no bill or payment is deleted.'}</p>
-    <SectionTitle>澶勭悊閾捐矾</SectionTitle>
+    <SectionTitle>Processing trail</SectionTitle>
     <ApprovalTimeline steps={steps} />
   </div>;
 }
