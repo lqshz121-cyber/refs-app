@@ -12,4 +12,8 @@ test('Render staging manifest declares every production startup secret and uses 
   for(const key of ['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE','REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT','REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE'])assert.match(manifest,new RegExp(`- key: ${key}\\r?\\n\\s+sync: false`));
   assert.match(manifest,/buildCommand: npm ci && npm run build/);
   assert.doesNotMatch(manifest,/buildCommand: npm install && npm run build/);
+  const pages=await readFile(resolve(root,'.github','workflows','deploy.yml'),'utf8');
+  assert.match(pages,/run: npm ci/);assert.doesNotMatch(pages,/run: npm install/);
+  assert.match(pages,/name: Run frontend gate\r?\n\s+run: npm test/);
+  assert.match(pages,/name: Run kernel static and unit gate\r?\n\s+working-directory: server\r?\n\s+run: npm test/);
 });
