@@ -12,6 +12,15 @@
 
 - Assistant3 business-fit review: retain only same-scope local POSTED evidence and real-estate dimensions; exclude external connections, bank feeds, imports, email/print/export/share, Spreadsheet Sync, automatic matching/adjustment/posting, QBO mutations, Sales/KPI/payment channels.
 
+## Expenses: English tab normalization and retained drill scope (2026-08-04)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Expenses workspace labels | No fresh QBO evidence: the read-only browser bridge returned no auditable tab on the QBO homepage. | Expenses tabs render as Bills, Payments, AP Aging, and Vendors. Legacy localized route contexts normalize to the English tabs, including Vendor-to-AP-Aging returns. | PARTIAL - local source contract/build verified; QBO labels and tab behavior remain unobserved. |
+| Local drill boundary | Assistant3 review for property finance: retain entity, vendor/related-party, property/project, category, dates, original/paid/credit/open amount, cash scope, source and posted/matched/cleared/reconciled status. | Existing full-page Bill/Payment/Vendor/Aging drills retain scope and explicit Back. Missing or cross-scope evidence remains Review/empty; no external connection, payment rail, OCR, auto-match/post, export, sync, marketplace or Sales workflow is added. | PARTIAL - business-fit local workflow, not a QBO equivalence claim. |
+
+- Verification: `node verify-expenses-english-tabs.mjs`, `node build.mjs`, and `git diff --check`. Browser evidence remains unavailable for this cycle.
+
 ## Expenses: Vendor evidence to Bill full-page return (2026-08-04)
 
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
