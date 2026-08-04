@@ -22,6 +22,7 @@ import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
 import { accountingApiConfig, applyAuthoritativeCredit, createAuthoritativeAdjustment, createAuthoritativeBusinessDocument, createAuthoritativeSettlement, refreshAuthoritativeDocuments, transitionAuthoritativeJournal } from './accounting-api.js';
+import { uploadVerifiedAttachment } from './attachment-api.js';
 import { bootstrapRuntimeOidc, oidcRuntimeConfig } from './oidc-client.js';
 import { batchBankTransition, buildBankDraft, buildBankWorkflowException, createBankDraftTransition, excludeBankTransition, matchBankTransition, undoBankTransition, validateBankDraft } from './bank-workflow.js';
 import { authorizeJECommand, copyJEAsDraft, createReclassDraft, createRecurringTemplate, createReversal, rejectJETransition, reserveJESources, resolveJEPeriod, saveJEDraft, transitionJE, validateNewJEBatch, validateNewJESpec, verifyAttachmentContent } from './je-workflow.js';
@@ -461,6 +462,33 @@ const authoritativeMoney=(amount,currency)=>{
   return new Intl.NumberFormat('en-US',{style:'currency',currency,minimumFractionDigits:2,maximumFractionDigits:2}).format(value);
 };
 
+const AUTHORITATIVE_DATE=/^\d{4}-\d{2}-\d{2}$/;
+const AUTHORITATIVE_AMOUNT=/^(?:0|[1-9]\d{0,15})(?:\.\d{1,4})?$/;
+const AUTHORITATIVE_ACCOUNT=/^[A-Za-z0-9._-]{1,64}$/;
+
+export const validateAuthoritativeDocumentDraft=values=>{
+  const kind=values?.kind==='AR_INVOICE'?'AR_INVOICE':values?.kind==='AP_BILL'?'AP_BILL':null;
+  const documentNumber=String(values?.documentNumber||'').trim(),counterpartyRef=String(values?.counterpartyRef||'').trim(),counterpartyName=String(values?.counterpartyName||'').trim(),currency=String(values?.currency||'').trim().toUpperCase(),accountingDate=String(values?.accountingDate||'').trim(),dueDate=String(values?.dueDate||'').trim(),amount=String(values?.amount||'').trim(),offsetAccountCode=String(values?.offsetAccountCode||'').trim(),description=String(values?.description||'').trim();
+  if(!kind||!documentNumber||documentNumber.length>128||!counterpartyRef||counterpartyRef.length>128||!counterpartyName||counterpartyName.length>255||!/^[A-Z]{3}$/.test(currency)||!AUTHORITATIVE_DATE.test(accountingDate)||!AUTHORITATIVE_AMOUNT.test(amount)||Number(amount)<=0||!AUTHORITATIVE_ACCOUNT.test(offsetAccountCode)||description.length>2000||(dueDate&&!AUTHORITATIVE_DATE.test(dueDate)))return {ok:false,code:'AUTHORITATIVE_DOCUMENT_INVALID',message:'Complete the Draft fields with valid dates, a positive four-decimal amount, and an account code.'};
+  return {ok:true,kind,document:{documentNumber,counterpartyRef,counterpartyName,currency,accountingDate,dueDate:dueDate||null,amount,offsetAccountCode,description:description||null}};
+};
+
+function AuthoritativeDraftForm({config,onCreated}){
+  const [values,setValues]=useState({kind:'AP_BILL',documentNumber:'',counterpartyRef:'',counterpartyName:'',currency:'USD',accountingDate:'',dueDate:'',amount:'',offsetAccountCode:'',description:''});
+  const [file,setFile]=useState(null),[state,setState]=useState({phase:'IDLE',message:''}),keyRef=useRef(null);
+  const update=(key,value)=>{keyRef.current=null;setValues(current=>({...current,[key]:value}));};
+  const submit=async event=>{
+    event.preventDefault();const validated=validateAuthoritativeDocumentDraft(values);if(!validated.ok){setState({phase:'FAILED',message:validated.message});return;}if(!file){setState({phase:'FAILED',message:'A verified source attachment is required before a Draft can be created.'});return;}
+    const idempotency=keyRef.current||(globalThis.crypto?.randomUUID?`UI-DRAFT-${globalThis.crypto.randomUUID()}`:null);if(!idempotency){setState({phase:'FAILED',message:'Browser cryptography is required to create an idempotent Draft command.'});return;}keyRef.current=idempotency;setState({phase:'WORKING',message:'Uploading and verifying source evidence…'});
+    const attachment=await uploadVerifiedAttachment({config,file,idempotencyKey:`${idempotency}:attachment`});if(!attachment.ok){setState({phase:'FAILED',message:attachment.message});return;}
+    setState({phase:'WORKING',message:'Creating authoritative Draft…'});const created=await createAuthoritativeBusinessDocument({config,kind:validated.kind,idempotencyKey:`${idempotency}:document`,document:{...validated.document,attachmentIds:[attachment.attachmentId]}});if(!created.ok){setState({phase:'FAILED',message:created.message});return;}
+    const refreshed=await onCreated();if(!refreshed?.ok){setState({phase:'REFRESH_REQUIRED',message:'Draft was created by the accounting API. Refresh authoritative records to confirm its current state.'});return;}
+    keyRef.current=null;setValues(current=>({...current,documentNumber:'',counterpartyRef:'',counterpartyName:'',dueDate:'',amount:'',description:''}));setFile(null);setState({phase:'SUCCEEDED',message:'Authoritative Draft created. It still requires the server workflow for review, approval, and posting.'});
+  };
+  const counterparty=values.kind==='AP_BILL'?'Vendor':'Customer';
+  return <section aria-label="Create authoritative Draft" style={{marginTop:24,borderTop:'1px solid var(--border)',paddingTop:20}}><h2 style={{fontSize:18,margin:'0 0 8px'}}>Create authoritative Draft</h2><p className="muted">Uploads are bound to the source file hash and must be verified clean before this command reaches the accounting API.</p><form onSubmit={submit}><div className="form-grid"><label>Document type<select value={values.kind} disabled={state.phase==='WORKING'} onChange={event=>update('kind',event.target.value)}><option value="AP_BILL">AP bill</option><option value="AR_INVOICE">AR invoice</option></select></label><label>Document number<input required maxLength="128" value={values.documentNumber} disabled={state.phase==='WORKING'} onChange={event=>update('documentNumber',event.target.value)}/></label><label>{counterparty} reference<input required maxLength="128" value={values.counterpartyRef} disabled={state.phase==='WORKING'} onChange={event=>update('counterpartyRef',event.target.value)}/></label><label>{counterparty} name<input required maxLength="255" value={values.counterpartyName} disabled={state.phase==='WORKING'} onChange={event=>update('counterpartyName',event.target.value)}/></label><label>Currency<input required pattern="[A-Za-z]{3}" maxLength="3" value={values.currency} disabled={state.phase==='WORKING'} onChange={event=>update('currency',event.target.value.toUpperCase())}/></label><label>Accounting date<input required type="date" value={values.accountingDate} disabled={state.phase==='WORKING'} onChange={event=>update('accountingDate',event.target.value)}/></label><label>Due date<input type="date" value={values.dueDate} disabled={state.phase==='WORKING'} onChange={event=>update('dueDate',event.target.value)}/></label><label>Amount<input required inputMode="decimal" placeholder="0.0000" value={values.amount} disabled={state.phase==='WORKING'} onChange={event=>update('amount',event.target.value)}/></label><label>Offset account<input required maxLength="64" value={values.offsetAccountCode} disabled={state.phase==='WORKING'} onChange={event=>update('offsetAccountCode',event.target.value)}/></label><label>Source attachment<input required type="file" accept="application/pdf,image/png,image/jpeg,text/csv" disabled={state.phase==='WORKING'} onChange={event=>{keyRef.current=null;setFile(event.target.files?.[0]||null);}}/></label></div><label style={{display:'block',marginTop:12}}>Description<textarea maxLength="2000" value={values.description} disabled={state.phase==='WORKING'} onChange={event=>update('description',event.target.value)}/></label><div style={{display:'flex',gap:10,alignItems:'center',marginTop:14}}><button className="btn btn-primary" disabled={state.phase==='WORKING'} type="submit">Create Draft only</button>{state.message&&<span className="muted" role={state.phase==='FAILED'||state.phase==='REFRESH_REQUIRED'?'alert':undefined}>{state.message}</span>}</div></form></section>;
+}
+
 function AuthoritativeDocumentTable({title,documents,kind}){
   const isBill=kind==='AP';
   const counterpartyLabel=isBill?'Vendor':'Customer';
@@ -482,11 +510,12 @@ function AuthoritativeReadWorkspace({config}){
   const refresh=async()=>{
     setState(current=>({...current,phase:'LOADING',message:''}));
     const result=await refreshAuthoritativeDocuments({config});
-    if(!result.ok){setState({phase:'FAILED',bills:[],invoices:[],apAdjustments:[],arAdjustments:[],message:result.message});return;}
+    if(!result.ok){setState({phase:'FAILED',bills:[],invoices:[],apAdjustments:[],arAdjustments:[],message:result.message});return result;}
     setState({phase:'READY',bills:result.ap.bills,invoices:result.ar.invoices,apAdjustments:result.ap.adjustments,arAdjustments:result.ar.adjustments,message:''});
+    return result;
   };
   useEffect(()=>{refresh();},[]);
-  return <main className="login-shell"><section className="login-card" aria-live="polite" style={{maxWidth:1180,width:'calc(100% - 32px)'}}><h1>REFS authoritative read workspace</h1><p>Authenticated data is read directly from the accounting API. Browser-local accounting data is disabled.</p><button className="btn btn-primary" disabled={state.phase==='LOADING'} onClick={refresh}>Refresh authoritative records</button>{state.phase==='LOADING'&&<p className="muted">Loading authoritative AP/AR records…</p>}{state.phase==='FAILED'&&<p role="alert" className="muted">{state.message||'Authoritative accounting refresh failed.'}</p>}{state.phase==='READY'&&<><AuthoritativeDocumentTable title="Authoritative AP bills" documents={state.bills} kind="AP"/><AuthoritativeAdjustmentSummary title="Authoritative AP adjustments" adjustments={state.apAdjustments}/><AuthoritativeDocumentTable title="Authoritative AR invoices" documents={state.invoices} kind="AR"/><AuthoritativeAdjustmentSummary title="Authoritative AR adjustments" adjustments={state.arAdjustments}/><p className="muted" style={{marginTop:20}}>Write workflows remain unavailable until their complete server-backed UI and browser E2E gates are enabled.</p></>}</section></main>;
+  return <main className="login-shell"><section className="login-card" aria-live="polite" style={{maxWidth:1180,width:'calc(100% - 32px)'}}><h1>REFS authoritative workspace</h1><p>Authenticated data is read directly from the accounting API. Browser-local accounting data is disabled.</p><button className="btn btn-primary" disabled={state.phase==='LOADING'} onClick={refresh}>Refresh authoritative records</button>{state.phase==='LOADING'&&<p className="muted">Loading authoritative AP/AR records…</p>}{state.phase==='FAILED'&&<p role="alert" className="muted">{state.message||'Authoritative accounting refresh failed.'}</p>}{state.phase==='READY'&&<><AuthoritativeDocumentTable title="Authoritative AP bills" documents={state.bills} kind="AP"/><AuthoritativeAdjustmentSummary title="Authoritative AP adjustments" adjustments={state.apAdjustments}/><AuthoritativeDocumentTable title="Authoritative AR invoices" documents={state.invoices} kind="AR"/><AuthoritativeAdjustmentSummary title="Authoritative AR adjustments" adjustments={state.arAdjustments}/><AuthoritativeDraftForm config={config} onCreated={refresh}/><p className="muted" style={{marginTop:20}}>Only Draft creation is available here. Review, approval, and posting remain server workflow commands with independent authorization and separation-of-duties checks.</p></>}</section></main>;
 }
 
 function AuthoritativeGateway({config}){
@@ -503,7 +532,7 @@ function App(){
   return <LegacyApp/>;
 }
 
-export { App, AuthoritativeAdjustmentSummary, AuthoritativeDocumentTable };
+export { App, AuthoritativeAdjustmentSummary, AuthoritativeDocumentTable, AuthoritativeDraftForm };
 if (typeof document !== 'undefined' && document.getElementById('root')) {
   createRoot(document.getElementById('root')).render(<App/>);
 }

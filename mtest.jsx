@@ -16,7 +16,7 @@ import { AccountRegister } from './src/module-register.jsx';
 import { SubsidiaryLedger } from './src/module-subledger.jsx';
 import { UnitCostLedger } from './src/module-unitcost.jsx';
 import { SourceDocs } from './src/module-sourcedocs.jsx';
-import { App, AuthoritativeAdjustmentSummary, AuthoritativeDocumentTable } from './src/app.jsx';
+import { App, AuthoritativeAdjustmentSummary, AuthoritativeDocumentTable, AuthoritativeDraftForm, validateAuthoritativeDocumentDraft } from './src/app.jsx';
 import { CompanySetting } from './src/module-setting.jsx';
 import { approveBillCommand, payBillCommand } from './src/ap-workflow.js';
 import { createInvoiceCommand, receivePaymentCommand } from './src/ar-workflow.js';
@@ -54,9 +54,11 @@ if(!lockedRuntimeMarkup.includes('Authoritative API required')){failed++;console
 globalThis.__REFS_RUNTIME_MODE__='REQUIRES_AUTHORITATIVE_API';globalThis.__REFS_ACCOUNTING_API__={baseUrl:'https://api.example',entityId:'11111111-1111-4111-8111-111111111111',periodId:'33333333-3333-4333-8333-333333333333',cashAccountCode:'111000',getAccessToken:async()=>null};globalThis.__REFS_OIDC__=null;
 const configuredWithoutOidcMarkup=renderToStaticMarkup(<App/>);
 delete globalThis.__REFS_RUNTIME_MODE__;delete globalThis.__REFS_ACCOUNTING_API__;delete globalThis.__REFS_OIDC__;
- if(!configuredWithoutOidcMarkup.includes('Authoritative API required')||configuredWithoutOidcMarkup.includes('Ricky (Controller)')){failed++;console.error('FAIL configured production runtime falls back to a local demo identity');}else console.log('PASS configured production runtime blocks without OIDC bootstrap');
+if(!configuredWithoutOidcMarkup.includes('Authoritative API required')||configuredWithoutOidcMarkup.includes('Ricky (Controller)')){failed++;console.error('FAIL configured production runtime falls back to a local demo identity');}else console.log('PASS configured production runtime blocks without OIDC bootstrap');
 const authoritativeRowsMarkup=renderToStaticMarkup(<><AuthoritativeDocumentTable title="Authoritative AP bills" kind="AP" documents={[{journal_entry_id:'je-1',bill_no:'BILL-100',vendor_name:'Authoritative Vendor',due_date:'2026-08-31',amount:125.25,open_balance:25.25,currency:'USD',status:'PARTIALLY_PAID'}]}/><AuthoritativeAdjustmentSummary title="Authoritative AP adjustments" adjustments={[{business_adjustment_id:'adj-1',adjustment_kind:'AP_VENDOR_CREDIT',amount:5,currency:'USD',status:'POSTED'}]}/></>);
 if(!authoritativeRowsMarkup.includes('BILL-100')||!authoritativeRowsMarkup.includes('Authoritative Vendor')||!authoritativeRowsMarkup.includes('AP_VENDOR_CREDIT')||authoritativeRowsMarkup.includes('Ricky (Controller)')){failed++;console.error('FAIL authoritative workspace does not render only API-shaped business rows');}else console.log('PASS authoritative workspace renders API-shaped business rows without local identity');
+const authoritativeDraft=validateAuthoritativeDocumentDraft({kind:'AP_BILL',documentNumber:'BILL-101',counterpartyRef:'VENDOR-1',counterpartyName:'Authoritative Vendor',currency:'usd',accountingDate:'2026-08-04',dueDate:'2026-08-31',amount:'125.2500',offsetAccountCode:'641600',description:'Authoritative source'});const authoritativeDraftMarkup=renderToStaticMarkup(<AuthoritativeDraftForm config={{}} onCreated={async()=>({ok:true})}/>);
+if(!authoritativeDraft.ok||authoritativeDraft.document.amount!=='125.2500'||validateAuthoritativeDocumentDraft({...authoritativeDraft.document,kind:'AR_INVOICE',amount:'1.00000'}).ok||!authoritativeDraftMarkup.includes('Create Draft only')||authoritativeDraftMarkup.includes('Post')){failed++;console.error('FAIL authoritative Draft form does not preserve Draft-only validation');}else console.log('PASS authoritative Draft form is validated and Draft-only');
 
 const expectRule=(name,actual,code,dr,cr)=>{
   const ok=actual?.rule_code===code && actual.lines[0].account_code===dr && actual.lines[1].account_code===cr;
