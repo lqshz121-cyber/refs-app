@@ -33,7 +33,8 @@ async function boundedText(response){
 async function responseEnvelope(response,requestId){
   const contentType=response.headers.get('content-type')||'';
   if(/application\/json/i.test(contentType)){
-    try{return await response.json();}catch{throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP returned invalid JSON.');}
+    let text;try{text=await boundedText(response);}catch(error){if(error instanceof WbsMcpError)throw error;throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP returned an unreadable JSON response.');}
+    try{return JSON.parse(text);}catch{throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP returned invalid JSON.');}
   }
   if(!/text\/event-stream/i.test(contentType))throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP returned an unsupported response format.');
   let text;try{text=await boundedText(response);}catch(error){if(error instanceof WbsMcpError)throw error;throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP returned an unreadable event stream.');}
@@ -56,7 +57,7 @@ function endpointUrl(value){
 
 function toolMetadata(tool){
   if(!plainObject(tool)||!safeToolName(tool.name))throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP returned an invalid tool descriptor.');
-  return {name:tool.name,description:typeof tool.description==='string'?tool.description:'',readOnly:tool.annotations?.readOnlyHint===true,inputSchema:plainObject(tool.inputSchema)?tool.inputSchema:{}};
+  return {name:tool.name,description:typeof tool.description==='string'?tool.description:'',readOnly:tool.annotations?.readOnlyHint===true,destructive:tool.annotations?.destructiveHint===true,idempotent:tool.annotations?.idempotentHint===true,inputSchema:plainObject(tool.inputSchema)?tool.inputSchema:{}};
 }
 
 function safeArguments(args){
@@ -70,9 +71,9 @@ function safeArguments(args){
 
 const stableKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
 export function validateWbsReadEnvelope({toolName,envelope}={}){
-  if(!WBS_READONLY_TOOLS.includes(toolName)||!plainObject(envelope)||!Array.isArray(envelope.rows)||!/^[0-9a-f]{64}$/.test(envelope.content_sha256)||typeof envelope.contract_version!=='string'||!envelope.contract_version.trim()||envelope.tool!==toolName||typeof envelope.environment!=='string'||envelope.environment.toLowerCase()!=='production'||typeof envelope.captured_at!=='string'||Number.isNaN(Date.parse(envelope.captured_at))||!plainObject(envelope.source)||!plainObject(envelope.scope)||!Number.isSafeInteger(envelope.record_count)||envelope.record_count!==envelope.rows.length||(envelope.cursor_next!==null&&typeof envelope.cursor_next!=='string')||typeof envelope.etl_notice!=='string')throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS production read envelope, scope, count, hash, or cursor is invalid.');
+  if(!WBS_READONLY_TOOLS.includes(toolName)||!plainObject(envelope)||!Array.isArray(envelope.rows)||!/^[0-9a-f]{64}$/.test(envelope.content_sha256)||typeof envelope.contract_version!=='string'||!envelope.contract_version.trim()||envelope.tool!==toolName||typeof envelope.environment!=='string'||envelope.environment.toLowerCase()!=='production'||typeof envelope.captured_at!=='string'||Number.isNaN(Date.parse(envelope.captured_at))||!plainObject(envelope.source)||!plainObject(envelope.scope)||!Number.isSafeInteger(envelope.record_count)||envelope.record_count!==envelope.rows.length||(envelope.cursor_next!==null&&typeof envelope.cursor_next!=='string')||(envelope.etl_notice!==null&&typeof envelope.etl_notice!=='string'))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS production read envelope, scope, count, hash, or cursor is invalid.');
   const stableKey=stableKeyByTool[toolName];
-  if(stableKey&&envelope.rows.some(row=>!plainObject(row)||typeof row[stableKey]!=='string'||!row[stableKey].trim()))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} rows require stable ${stableKey}.`);
+  if(stableKey&&envelope.rows.some(row=>!plainObject(row)||(stableKey==='id'?!Number.isSafeInteger(row[stableKey]):typeof row[stableKey]!=='string'||!row[stableKey].trim())))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} rows require stable ${stableKey}.`);
   if(envelope.rows.some(row=>plainObject(row)&&row.currency!=null&&row.currency!=='USD'))throw new WbsMcpError('WBS_MCP_CURRENCY_UNSUPPORTED','WBS pilot accepts USD rows only.');
   const expectedHash=createHash('sha256').update(canonicalRequestBody(envelope.rows),'utf8').digest('hex');
   if(!timingSafeEqual(Buffer.from(envelope.content_sha256,'hex'),Buffer.from(expectedHash,'hex')))throw new WbsMcpError('WBS_MCP_CONTENT_HASH_MISMATCH','WBS content_sha256 does not match canonical sorted compact rows.');
@@ -117,23 +118,30 @@ export function createReadOnlyWbsMcpClient({endpoint,getAuthHeaders,allowedReadT
   return Object.freeze({
     async initialize(){
       const result=await rpc('initialize',{protocolVersion:WBS_MCP_PROTOCOL_VERSION,capabilities:{},clientInfo:{name:'refs-wbs-readonly-connector',version:'0.1.0'}});
-      if(!plainObject(result)||typeof result.protocolVersion!=='string')throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP initialize response is invalid.');
+      if(!plainObject(result)||result.protocolVersion!==WBS_MCP_PROTOCOL_VERSION)throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP initialize protocol version is invalid.');
       initialized=true;return {protocolVersion:result.protocolVersion,serverName:typeof result.serverInfo?.name==='string'?result.serverInfo.name:null};
     },
     async listTools(){
       if(!initialized)throw new WbsMcpError('WBS_MCP_NOT_INITIALIZED','Initialize WBS MCP before listing tools.');
       const result=await rpc('tools/list',{});
       if(!plainObject(result)||!Array.isArray(result.tools))throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP tool list is invalid.');
-      tools=result.tools.map(toolMetadata);return tools.map(tool=>({...tool}));
+      tools=result.tools.map(toolMetadata);
+      const names=tools.map(tool=>tool.name).sort();
+      if(JSON.stringify(names)!==JSON.stringify([...WBS_READONLY_TOOLS].sort())||tools.some(tool=>!tool.readOnly||tool.destructive||!tool.idempotent))throw new WbsMcpError('WBS_MCP_TOOL_CATALOG_INVALID','WBS MCP tool catalog is not the exact read-only idempotent contract.');
+      return tools.map(tool=>({...tool}));
     },
     async readView({toolName,args}={}){
       if(!initialized||!tools)throw new WbsMcpError('WBS_MCP_NOT_READY','Initialize and inspect WBS MCP tools before reading a view.');
       if(!allowed.has(toolName))throw new WbsMcpError('WBS_MCP_TOOL_FORBIDDEN','WBS tool is not allowlisted for read-only use.');
       const tool=tools.find(candidate=>candidate.name===toolName);
-      if(!tool||!tool.readOnly)throw new WbsMcpError('WBS_MCP_TOOL_FORBIDDEN','WBS tool is not declared read-only by the MCP server.');
-      const result=await rpc('tools/call',{name:toolName,arguments:safeArguments(args)});
+      if(!tool||!tool.readOnly||tool.destructive||!tool.idempotent)throw new WbsMcpError('WBS_MCP_TOOL_FORBIDDEN','WBS tool is not declared read-only and idempotent by the MCP server.');
+      const safe=safeArguments(args),properties=plainObject(tool.inputSchema?.properties)?tool.inputSchema.properties:{};
+      if(Object.keys(safe).some(key=>!Object.hasOwn(properties,key)))throw new WbsMcpError('WBS_MCP_ARGUMENTS_INVALID','WBS tool arguments must match the published input schema.');
+      const result=await rpc('tools/call',{name:toolName,arguments:safe});
       if(!plainObject(result)||!Array.isArray(result.content)||result.isError===true)throw new WbsMcpError('WBS_MCP_REMOTE_REJECTED','WBS read-only tool rejected the request.');
-      return structuredClone(result);
+      const text=result.content.find(item=>plainObject(item)&&item.type==='text'&&typeof item.text==='string')?.text;
+      let payload;try{payload=text?JSON.parse(text):result.structuredContent;}catch{throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS tool returned invalid envelope JSON.');}
+      return validateWbsReadEnvelope({toolName,envelope:payload});
     }
   });
 }
