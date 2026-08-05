@@ -41,13 +41,12 @@ export function COAWorkspace({ctx}) {
     <nav aria-label="Observed QuickBooks Accounting navigation" style={{display:'flex',gap:8,flexWrap:'wrap',margin:'0 0 12px'}}>
       {['Bank transactions','Integration transactions','Receipts','Reconcile','Rules','Chart of accounts','Recurring transactions'].map(label=><span key={label} className="badge muted">{label}</span>)}
     </nav>
-    <p className="muted sm" style={{margin:'0 0 12px'}}>Observed QBO Accounting navigation shell. Chart-of-accounts table controls, row actions, permissions, and drill paths are not yet verified from this page.</p>
+    <p className="muted sm" style={{margin:'0 0 12px'}}>Local chart-of-accounts evidence for retained balances, cash scope, control-account review, and Register/GL drillback.</p>
     <section className="filter-bar accounting-filter-bar" aria-label="Observed QuickBooks Chart of accounts controls" style={{marginBottom:12}}>
       <label><span className="filter-label">Filter by name or number</span><input aria-label="Filter by name or number" value={qboQuery} onChange={e=>setQboQuery(e.target.value)} placeholder="Filter by name or number" /></label>
       <label><span className="filter-label">Filter by limit</span><select aria-label="Filter by limit" value="All" disabled><option>All</option></select></label>
-      <Btn size="sm" variant="ghost" disabled>Batch actions</Btn><Btn size="sm" variant="ghost" disabled>Batch edit</Btn><Btn size="sm" variant="ghost" disabled>Export chart of accounts</Btn><Btn size="sm" variant="ghost" disabled>Print</Btn><Btn size="sm" variant="ghost" disabled>Settings</Btn>
     </section>
-    <p className="muted sm" style={{margin:'0 0 12px'}}>The local name-or-number filter and retained Register/GL drills are functional. QBO limit, batch edit, export, print, settings, New account, account activation and other writes are excluded from the local evidence workflow.</p>
+    <p className="muted sm" style={{margin:'0 0 12px'}}>The local name-or-number filter and retained Register/GL drills are functional. Account creation, activation changes, batch edits, external balances, exports, print workflows and connector actions are intentionally absent from this evidence workspace.</p>
     <Tabs tabs={[WBS_TAB, LOCAL_TAB]} active={tab} onChange={setTab}/>
     {tab===WBS_TAB && <>
       <Table exportName="wbs-coa-full" rowKey="code" pageSize={40} cols={[
@@ -60,7 +59,6 @@ export function COAWorkspace({ctx}) {
       <p className="muted sm">WBS Chart of Accounts - ALL is retained as a reference template. Header, Posting, and Total rows are distinct; only Posting rows can be included in local accounting evidence.</p>
     </>}
     {tab!==WBS_TAB && <>
-    <div style={{marginBottom:12}}><Btn variant="primary" disabled title="Creating accounts is excluded from the retained-evidence workflow">+ New account unavailable</Btn></div>
     <Table exportName="chart-of-accounts" rowKey="account_code" cols={localAccountColumns} rows={filteredCoa} />
     <p className="muted sm">Control boundary: account code remains unique; accounts with non-zero balance cannot be inactivated; historical journal evidence is retained. Account creation, editing, activation, and deactivation are unavailable.</p>
     </>}

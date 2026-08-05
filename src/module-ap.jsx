@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { KPI, Btn, Badge, Money, Table, Drawer, Field, SectionTitle, Tabs, ApprovalTimeline } from './ui.jsx';
+import { KPI, Btn, Badge, Money, Table, SectionTitle, Tabs, ApprovalTimeline } from './ui.jsx';
 import { VENDORS, PROPERTIES, PROJECTS, COA } from './data.js';
 import { acct, money, sum } from './engine.js';
 import { DEFAULT_EXPENSE_COLUMNS, filterExpenseEvidence, normalizeExpenseColumnVisibility } from './expense-listing.js';
@@ -19,7 +19,6 @@ import { LOCAL_AGING_BUCKETS, localApAgingEvidenceRows, localAgingControl, local
 import { localExpenseReviewExceptions } from './expense-review-exceptions.js';
 import { localExpenseDetailReturnScope } from './expense-detail-return.js';
 import { localReportReturnScopeLabel } from './report-return-context.js';
-import { localExpenseFeatureState } from './expense-business-scope.js';
 import { localPaymentReportDrillContext } from './payment-return-context.js';
 import { localApAgingReturnContext, localApAgingReturnScopeLabel } from './ap-aging-return-context.js';
 import { localVendorCreditLinkedBillReturn, localVendorCreditJournalReturnContext } from './vendor-credit-return.js';
@@ -30,8 +29,6 @@ import { localBillBalanceExplanation } from './bill-balance-explanation.js';
 export function APWorkspace({ctx}) {
   const {ap, actions, toast, can, user, navContext, jes, bank} = ctx;             // ap: {bills:[...]}
   const [tab, setTab] = useState('Bills');
-  const [showNew, setShowNew] = useState(false);
-  const [newBillVendorId, setNewBillVendorId] = useState('');
   const [sel, setSel] = useState(null);
   const [selectedBillPaymentId, setSelectedBillPaymentId] = useState(null);
   const [selectedCreditKey, setSelectedCreditKey] = useState(null);
@@ -54,9 +51,6 @@ export function APWorkspace({ctx}) {
     catch { return {...DEFAULT_EXPENSE_COLUMNS}; }
   });
   const [shellPanel, setShellPanel] = useState(null);
-  const [showPayrollPromo, setShowPayrollPromo] = useState(true);
-  const [showExpertAssisted, setShowExpertAssisted] = useState(true);
-  const [showPrintCheckSetup, setShowPrintCheckSetup] = useState(false);
   const bankTransactions = Object.entries(bank?.accounts || {}).flatMap(([bank_account_code, account]) => (account.txns || []).map(transaction => ({...transaction, bank_account_code})));
   const bills = ap.bills.map(bill => ({...bill,paymentEvidence:localBillPaymentEvidence(bill,jes || [],bankTransactions),voidEvidence:localBillVoidEvidence(bill,jes || [],bankTransactions)}));
   const vendorCredits = localVendorCreditEvidence({bills,journals:jes || [],bankTransactions});
@@ -194,14 +188,6 @@ export function APWorkspace({ctx}) {
     </nav>
     <p className="muted sm" style={{margin:'0 0 12px'}}>Observed QBO Expenses navigation shell. REFS coverage is currently limited to its local Bills, Payments, Aging, and Vendors workspaces below.</p>
     {kpis}
-    {showPayrollPromo && <section aria-label="Payroll promotion" style={{display:'flex',justifyContent:'space-between',gap:16,alignItems:'center',padding:'14px 16px',margin:'0 0 14px',border:'1px solid #d8e5f3',borderRadius:8,background:'#f4f9fd'}}>
-      <div><b>Ready to get same-day direct deposit?</b><p className="muted sm" style={{margin:'4px 0 0'}}>Hold onto your cash longer with same-day direct deposit. You can run payroll and pay your team the same day.</p><span className="muted sm">Observed QBO promotional shell; payroll route remains unavailable in REFS.</span></div>
-      <div style={{display:'flex',gap:8,alignItems:'center',whiteSpace:'nowrap'}}><Btn size="sm" disabled>Explore payroll</Btn><Btn size="sm" variant="ghost" onClick={()=>setShowPayrollPromo(false)}>Close</Btn></div>
-    </section>}
-    {showExpertAssisted && <section aria-label="Intuit Expert Assisted offer" style={{display:'flex',justifyContent:'space-between',gap:16,alignItems:'center',padding:'14px 16px',margin:'0 0 14px',border:'1px solid #d8e5f3',borderRadius:8,background:'#f4f9fd'}}>
-      <div><b>Need extra help categorizing transactions?</b><p className="muted sm" style={{margin:'4px 0 0'}}>Start your 30-day free trial of Intuit Expert Assisted now. Cancel anytime. Terms apply.</p><span className="muted sm">Observed QBO offer shell; enrollment, eligibility, and destination behavior remain unavailable in REFS.</span></div>
-      <div style={{display:'flex',gap:8,alignItems:'center',whiteSpace:'nowrap'}}><Btn size="sm" disabled>Learn more</Btn><Btn size="sm" variant="ghost" onClick={()=>setShowExpertAssisted(false)}>Close</Btn></div>
-    </section>}
     <Tabs tabs={['Bills','Payments','AP Aging','Vendors']} active={tab} onChange={setTab} />
     {tab==='Bills' && <>
       <div role="tablist" aria-label="Observed QuickBooks Bills queues" style={{display:'flex',gap:8,flexWrap:'wrap',margin:'0 0 12px'}}>
@@ -209,8 +195,7 @@ export function APWorkspace({ctx}) {
         <button type="button" className="btn btn-ghost btn-sm" disabled title="Recurring bills are not established by local evidence">Recurring</button>
       </div>
       <p className="muted sm" style={{margin:'-4px 0 10px'}}>Local queue mapping only: For review = pending approval; Unpaid = draft or approved; Paid = paid. Recurring remains unavailable.</p>
-      <div className="expense-toolbar" style={{marginBottom:12}}><label className="expense-search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search bills, vendors or invoice #" /></label><label><span>Transaction type</span><select aria-label="Transaction Type" value={transactionType} onChange={e=>setTransactionType(e.target.value)}><option value="ALL">All transactions</option><option value="BILLS">Bills — local evidence</option><option value="BILL_PAYMENTS">Bill payments — local evidence</option>{['Expense','Check','Purchase order','Recently paid','Vendor credit','Item Receipt','Expense (Receipt reminder)'].map(label=><option key={label} value={label} disabled>{label}</option>)}</select></label><label><span>Dates</span><select value={dateRange} onChange={e=>setDateRange(e.target.value)}><option value="LAST_12_MONTHS">Last 12 months</option><option value="THIS_MONTH">This month</option><option value="ALL">All dates</option></select></label><label><span>Status</span><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}><option value="ALL">All statuses</option>{['DRAFT','PENDING_APPROVAL','APPROVED','PAID','VOID'].map(s=><option key={s}>{s}</option>)}</select></label><span className="result-count"><b>{expenseTransactionRows.length}</b> local evidence rows</span><Btn variant="ghost" disabled title={localExpenseFeatureState('Purchase notifications').reason}>Purchase notifications</Btn><Btn variant="ghost" onClick={()=>setShowPrintCheckSetup(true)}>Print Checks</Btn><Btn variant="primary" onClick={()=>{setNewBillVendorId('');setShowNew(true);}} disabled={!can('AP.INVOICE.CREATE')}>+ New transaction</Btn><Btn variant="ghost" onClick={()=>setShellPanel(shellPanel==='Filter'?null:'Filter')}>Filter</Btn><Btn variant="ghost" disabled title="Printing is not adopted for the local evidence view">Print</Btn><Btn variant="ghost" disabled title="Exporting business data is not adopted for the local evidence view">Export to Excel</Btn><Btn variant="ghost" onClick={()=>setShellPanel(shellPanel==='Settings'?null:'Settings')}>Settings</Btn><Btn variant="ghost" onClick={clearBillFilters}>Clear</Btn></div>
-      {showPrintCheckSetup && <section className="expense-shell-panel" role="dialog" aria-modal="false" aria-label="Print checks setup"><div><b>Print checks setup</b><span>Observed QBO setup flow. This local shell does not alter printer, check, or payment settings.</span></div><div className="expense-filter-evidence"><div><b>1. Print Sample</b><p>Select a check type and print a sample.</p><label><input type="radio" checked disabled readOnly/> Voucher</label><label><input type="radio" disabled readOnly/> Standard</label><p className="muted sm">Load blank paper in your printer. The setup preview shows sample data, not real check data.</p></div><div><b>2. Set up PDF Reader</b><p className="muted sm">Observed as the second setup step.</p></div><div><b>3. Adjust Alignment</b><p className="muted sm">Align numbers to the amount box and verify printed fields.</p></div></div><div className="expense-shell-actions"><button type="button" disabled>View preview and print sample</button><button type="button" disabled>No, continue setup</button><button type="button" disabled>Yes, I’m finished with setup</button><button type="button" onClick={()=>setShowPrintCheckSetup(false)}>Cancel</button><button type="button" onClick={()=>setShowPrintCheckSetup(false)}>Close</button></div></section>}
+      <div className="expense-toolbar" style={{marginBottom:12}}><label className="expense-search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search bills, vendors or invoice #" /></label><label><span>Transaction type</span><select aria-label="Transaction Type" value={transactionType} onChange={e=>setTransactionType(e.target.value)}><option value="ALL">All transactions</option><option value="BILLS">Bills — local evidence</option><option value="BILL_PAYMENTS">Bill payments — local evidence</option>{['Expense','Check','Purchase order','Recently paid','Vendor credit','Item Receipt','Expense (Receipt reminder)'].map(label=><option key={label} value={label} disabled>{label}</option>)}</select></label><label><span>Dates</span><select value={dateRange} onChange={e=>setDateRange(e.target.value)}><option value="LAST_12_MONTHS">Last 12 months</option><option value="THIS_MONTH">This month</option><option value="ALL">All dates</option></select></label><label><span>Status</span><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}><option value="ALL">All statuses</option>{['DRAFT','PENDING_APPROVAL','APPROVED','PAID','VOID'].map(s=><option key={s}>{s}</option>)}</select></label><span className="result-count"><b>{expenseTransactionRows.length}</b> local evidence rows</span><Btn variant="ghost" onClick={()=>setShellPanel(shellPanel==='Filter'?null:'Filter')}>Filter</Btn><Btn variant="ghost" onClick={()=>setShellPanel(shellPanel==='Settings'?null:'Settings')}>Columns</Btn><Btn variant="ghost" onClick={clearBillFilters}>Clear</Btn></div>
       {shellPanel && <div className="expense-shell-panel" role="region" aria-label={`${shellPanel} options`}><div><b>{shellPanel}</b><span>{shellPanel==='Filter'?'Observed QBO filter fields are represented below. Local evidence supports Status, Date, From/To, Payee, and Category only.':'Observed QBO columns are represented below. Local evidence-backed columns are configurable and persist in this browser.'}</span></div>{shellPanel==='Filter'&&<><div className="expense-filter-evidence"><label>Status <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}><option value="ALL">All statuses</option>{['DRAFT','PENDING_APPROVAL','APPROVED','PAID','VOID'].map(s=><option key={s}>{s}</option>)}</select></label><label>Delivery method <select disabled><option>Any — unverified</option></select></label><label>Date <select value={dateRange} onChange={e=>setDateRange(e.target.value)}><option value="LAST_12_MONTHS">Last 12 months</option><option value="THIS_MONTH">This month</option><option value="ALL">All dates</option></select></label><label>From <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} placeholder="mm/dd/yyyy" /></label><label>To <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} placeholder="mm/dd/yyyy" /></label><label>Payee <select value={vendorId} onChange={e=>setVendorId(e.target.value)}><option value="ALL">All payees</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}</select></label><label>Category <select value={categoryCode} onChange={e=>setCategoryCode(e.target.value)}><option value="ALL">All categories</option>{COA.filter(a=>['EXPENSE','ASSET'].includes(a.account_type)).map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} {a.account_name}</option>)}</select></label></div><div className="expense-shell-actions"><button type="button" onClick={()=>setShellPanel(null)}>Apply</button><button type="button" onClick={clearBillFilters}>Reset</button><button type="button" onClick={()=>setShellPanel(null)}>Close</button></div></>}{shellPanel==='Settings'&&<><div className="expense-filter-evidence">{[['Date','DATE'],['Type','TYPE'],['No.','NUMBER'],['Payee','PAYEE'],['Class',null],['Location',null],['Status',null],['Method',null],['Source',null],['Category','CATEGORY'],['Memo',null],['Due date','DUE_DATE'],['Balance',null],['Total','TOTAL'],['Attachments',null],['Bill Approval','BILL_APPROVAL']].map(([label,key])=><label key={label}><input type="checkbox" checked={key?columnVisibility[key]:false} disabled={!key} onChange={key?()=>toggleColumn(key):undefined}/> {label}{!key&&<small className="muted"> — unavailable</small>}</label>)}<label>Rows <select disabled value="50" onChange={()=>{}}><option>50</option></select></label></div><div className="expense-shell-actions"><button type="button" onClick={()=>setColumnVisibility({...DEFAULT_EXPENSE_COLUMNS})}>Restore local defaults</button><button type="button" onClick={()=>setShellPanel(null)}>Close</button></div></>}</div>}
       <Table rowKey="key" features={{exportable:false}} onRow={row=>row.kind==='BILL' ? openBillDetail(row.record.bill_id) : openCreditDetail(row.record.journal.je_number)} cols={[
         {h:'Date',k:'date'}, {h:'Type',k:'type'}, {h:'No.',k:'number'}, {h:'Payee',k:'payee'}, {h:'Category',k:'category'},
@@ -244,11 +229,10 @@ export function APWorkspace({ctx}) {
     </>}
     {tab==='Payments' && <PaymentRun ctx={ctx} />}
     {tab==='AP Aging' && <Aging bills={bills} journals={jes || []} bankTransactions={bankTransactions} vendorCredits={vendorCredits} entityId={ctx.entity || null} vendorId={vendorId} initialAsOfDate={agingDetailScope?.asOfDate || navContext?.asOfDate} initialBucket={agingDetailScope?.agingBucket || navContext?.agingBucket} onOpen={openBillDetail} onOpenCredit={(creditKey,scope)=>openAgingCreditDetail(creditKey,scope)} onScopeChange={scope=>setAgingDetailScope(localApAgingReturnContext(scope))} onOpenJournal={(jeNumber,scope)=>ctx.goto('je',{jeNumber,expenseReturn:localApAgingReturnContext({vendorId,...scope})})} />}
-    {tab==='Vendors' && <VendorWorkspace bills={bills} journals={jes || []} bankTransactions={bankTransactions} initialVendorId={navContext?.vendorEvidenceId} onCreateBill={vendorId=>{setNewBillVendorId(vendorId);setShowNew(true);}} onOpenJournal={jeNumber=>ctx.goto('je',{jeNumber})} onOpenBill={(billId,vendorEvidenceId)=>openVendorBillDetail(billId,vendorEvidenceId)} onOpenVendor={(vendorId, targetTab)=>{const target=localVendorWorkflowTarget(vendorId,targetTab); if(target) ctx.goto(target.route,target.context);}} />}
-    <NewBill open={showNew} initialVendorId={newBillVendorId} onClose={()=>{setShowNew(false);setNewBillVendorId('');}} ctx={ctx} />
+    {tab==='Vendors' && <VendorWorkspace bills={bills} journals={jes || []} bankTransactions={bankTransactions} initialVendorId={navContext?.vendorEvidenceId} onOpenJournal={jeNumber=>ctx.goto('je',{jeNumber})} onOpenBill={(billId,vendorEvidenceId)=>openVendorBillDetail(billId,vendorEvidenceId)} onOpenVendor={(vendorId, targetTab)=>{const target=localVendorWorkflowTarget(vendorId,targetTab); if(target) ctx.goto(target.route,target.context);}} />}
   </div>;
 }
-function VendorWorkspace({bills, journals, bankTransactions, initialVendorId, onCreateBill, onOpenJournal, onOpenBill, onOpenVendor}) {
+function VendorWorkspace({bills, journals, bankTransactions, initialVendorId, onOpenJournal, onOpenBill, onOpenVendor}) {
   const [query, setQuery] = useState('');
   const [selectedVendorId, setSelectedVendorId] = useState(null);
   const vendors = filterLocalVendors(VENDORS, query).map(vendor => ({...vendor, localEvidence:localVendorEvidence(vendor, bills, journals, bankTransactions)}));
@@ -256,10 +240,10 @@ function VendorWorkspace({bills, journals, bankTransactions, initialVendorId, on
   const paidThisPeriod = bills.filter(bill=>bill.status==='PAID' && String(bill.paid_date || '').startsWith('2026-07'));
   const selectedVendor = vendors.find(vendor=>vendor.vendor_id===selectedVendorId) || null;
   useEffect(()=>{ if (initialVendorId != null) setSelectedVendorId(Number(initialVendorId)); }, [initialVendorId]);
-  if (selectedVendor) return <div className="full-bleed qbo-transaction-report"><div className="qbo-report-back"><button type="button" onClick={()=>setSelectedVendorId(null)}>Back to Vendors</button><span>Vendor evidence detail</span></div><h2 className="page-h">{selectedVendor.vendor_name}</h2><div className="gl-drill-head"><div><div className="gl-drill-crumb">Local vendor master and AP evidence</div><h3>{selectedVendor.vendor_code || 'Vendor code not retained'}</h3><div className="gl-drill-account">{selectedVendor.is_related_party ? 'Related party — review required' : 'Independent vendor evidence'}</div></div><Badge tone={selectedVendor.localEvidence.state==='ENTITY_SCOPED_LOCAL_VENDOR'?'ok':'warn'}>{selectedVendor.localEvidence.state}</Badge></div><div className="qbo-drill-summary"><span><i>Open balance</i><b><Money v={selectedVendor.localEvidence.open_balance}/></b></span><span><i>Tax review</i><b>{selectedVendor.localEvidence.taxState}</b></span><span><i>Entities</i><b>{selectedVendor.localEvidence.byEntity.map(row=>row.entity_id).join(', ') || 'No posted evidence'}</b></span><span><i>Local sources</i><b>{selectedVendor.localEvidence.evidenceBills.length}</b></span></div><Table rowKey="key" features={{exportable:false}} cols={[{h:'Bill',render:row=><Btn size="sm" variant="ghost" onClick={()=>onOpenBill(row.bill.bill_id,selectedVendor.vendor_id)}>{row.bill.bill_no}</Btn>},{h:'Date',render:row=>row.bill.bill_date},{h:'Account',render:row=>row.bill.account_code},{h:'Amount',num:true,render:row=><Money v={row.bill.amount}/>},{h:'Status',render:row=><Badge tone={row.proof.billState==='VALID_POSTED_AP'?'ok':'warn'}>{row.bill.status}</Badge>},{h:'Posted evidence',render:row=><Badge tone={row.proof.billState==='VALID_POSTED_AP'?'ok':'warn'}>{row.proof.billState}</Badge>},{h:'Drill',render:row=>row.proof.apJournal?<Btn size="sm" variant="ghost" onClick={()=>onOpenJournal(row.proof.apJournal.je_number)}>Open retained JE</Btn>:<Btn size="sm" variant="ghost" disabled>No posted JE</Btn>}]} rows={selectedVendor.localEvidence.evidenceBills.map(row=>({...row,key:row.bill.bill_id}))} empty="No retained local Bill or Payment evidence for this vendor."/><div className="row-acts" style={{marginTop:12}}><Btn size="sm" variant="ghost" onClick={()=>onOpenVendor(selectedVendor.vendor_id,'Bills')}>Open local bills</Btn><Btn size="sm" variant="ghost" disabled={!selectedVendor.localEvidence.open_balance} onClick={()=>onOpenVendor(selectedVendor.vendor_id,'AP Aging')}>Open AP aging</Btn><Btn size="sm" variant="primary" onClick={()=>onCreateBill(selectedVendor.vendor_id)}>Create local bill</Btn></div><p className="muted sm" style={{marginTop:10}}>This local evidence detail does not send email, accept a supplier connection, pay a vendor, create a tax filing, synchronize a portal, or aggregate balances across entities. Missing source, dimensions, approval or POSTED evidence remains unavailable for drill.</p></div>;
+  if (selectedVendor) return <div className="full-bleed qbo-transaction-report"><div className="qbo-report-back"><button type="button" onClick={()=>setSelectedVendorId(null)}>Back to Vendors</button><span>Vendor evidence detail</span></div><h2 className="page-h">{selectedVendor.vendor_name}</h2><div className="gl-drill-head"><div><div className="gl-drill-crumb">Local vendor master and AP evidence</div><h3>{selectedVendor.vendor_code || 'Vendor code not retained'}</h3><div className="gl-drill-account">{selectedVendor.is_related_party ? 'Related party — review required' : 'Independent vendor evidence'}</div></div><Badge tone={selectedVendor.localEvidence.state==='ENTITY_SCOPED_LOCAL_VENDOR'?'ok':'warn'}>{selectedVendor.localEvidence.state}</Badge></div><div className="qbo-drill-summary"><span><i>Open balance</i><b><Money v={selectedVendor.localEvidence.open_balance}/></b></span><span><i>Tax review</i><b>{selectedVendor.localEvidence.taxState}</b></span><span><i>Entities</i><b>{selectedVendor.localEvidence.byEntity.map(row=>row.entity_id).join(', ') || 'No posted evidence'}</b></span><span><i>Local sources</i><b>{selectedVendor.localEvidence.evidenceBills.length}</b></span></div><Table rowKey="key" features={{exportable:false}} cols={[{h:'Bill',render:row=><Btn size="sm" variant="ghost" onClick={()=>onOpenBill(row.bill.bill_id,selectedVendor.vendor_id)}>{row.bill.bill_no}</Btn>},{h:'Date',render:row=>row.bill.bill_date},{h:'Account',render:row=>row.bill.account_code},{h:'Amount',num:true,render:row=><Money v={row.bill.amount}/>},{h:'Status',render:row=><Badge tone={row.proof.billState==='VALID_POSTED_AP'?'ok':'warn'}>{row.bill.status}</Badge>},{h:'Posted evidence',render:row=><Badge tone={row.proof.billState==='VALID_POSTED_AP'?'ok':'warn'}>{row.proof.billState}</Badge>},{h:'Drill',render:row=>row.proof.apJournal?<Btn size="sm" variant="ghost" onClick={()=>onOpenJournal(row.proof.apJournal.je_number)}>Open retained JE</Btn>:<Btn size="sm" variant="ghost" disabled>No posted JE</Btn>}]} rows={selectedVendor.localEvidence.evidenceBills.map(row=>({...row,key:row.bill.bill_id}))} empty="No retained local Bill or Payment evidence for this vendor."/><div className="row-acts" style={{marginTop:12}}><Btn size="sm" variant="ghost" onClick={()=>onOpenVendor(selectedVendor.vendor_id,'Bills')}>Open local bills</Btn><Btn size="sm" variant="ghost" disabled={!selectedVendor.localEvidence.open_balance} onClick={()=>onOpenVendor(selectedVendor.vendor_id,'AP Aging')}>Open AP aging</Btn></div><p className="muted sm" style={{marginTop:10}}>This local evidence detail does not send email, accept a supplier connection, pay a vendor, create a tax filing, synchronize a portal, create bills, or aggregate balances across entities. Missing source, dimensions, approval or POSTED evidence remains unavailable for drill.</p></div>;
   return <div>
     <div className="accounting-page-head"><div><div className="page-eyebrow">EXPENSES / VENDORS</div><h3 className="page-h" style={{fontSize:22}}>Vendors</h3><p className="page-subtitle">Local vendor evidence and bill-entry access.</p></div></div>
-    <p className="muted sm" style={{margin:'0 0 12px'}}>Observed QBO shell includes Pay vendors, New vendor, unpaid/paid summaries, and a vendor list. REFS exposes only existing local master data and posted AP/payment proof; vendor creation and QBO payments remain unavailable.</p>
+    <p className="muted sm" style={{margin:'0 0 12px'}}>REFS exposes existing local vendor master data and posted AP/payment proof only. Vendor creation, payment execution, printing and exports are outside this evidence workspace.</p>
     <div className="kpi-row" style={{marginBottom:12}}>
       <KPI label="Unpaid last 365 days" value={money(sum(unpaid,bill=>bill.amount))} sub={unpaid.length+' local open bills'} tone={unpaid.length?'warn':'ok'} />
       <KPI label="Paid" value={money(sum(paidThisPeriod,bill=>bill.amount))} sub={paidThisPeriod.length+' paid in local reference month'} tone="ok" />
@@ -267,7 +251,6 @@ function VendorWorkspace({bills, journals, bankTransactions, initialVendorId, on
     <div className="expense-toolbar" style={{marginBottom:12}}>
       <label className="expense-search"><span>⌕</span><input aria-label="Search local vendors" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search vendor name or code" /></label>
       <span className="result-count"><b>{vendors.length}</b> local vendors</span>
-      <Btn variant="ghost" disabled>Print</Btn><Btn variant="ghost" disabled>Export</Btn><Btn variant="ghost" disabled>Settings</Btn><Btn variant="ghost" disabled>Pay vendors</Btn><Btn variant="ghost" disabled>New vendor</Btn>
     </div>
     <Table exportName="vendors" rowKey="vendor_id" cols={[
       {h:'Vendor',render:r=><Btn size="sm" variant="ghost" onClick={event=>{event.stopPropagation();setSelectedVendorId(r.vendor_id)}}>{r.vendor_name}</Btn>}, {h:'Company name',render:r=>r.vendor_name},
@@ -276,54 +259,9 @@ function VendorWorkspace({bills, journals, bankTransactions, initialVendorId, on
       {h:'1099 review',render:r=><Badge tone={r.localEvidence.taxState==='POSSIBLE_1099_REVIEW'?'warn':'muted'}>{r.localEvidence.taxState}</Badge>},
       {h:'Entity proof',render:r=><Badge tone={r.localEvidence.state==='ENTITY_SCOPED_LOCAL_VENDOR'?'ok':'muted'}>{r.localEvidence.state}</Badge>},
       {h:'Open balance',num:true,render:r=><Money v={r.localEvidence.open_balance}/>,sortVal:r=>r.localEvidence.open_balance},
-      {h:'Action',render:r=>{const balance=r.localEvidence.open_balance; return <span className="row-acts"><Btn size="sm" variant="ghost" onClick={event=>{event.stopPropagation();setSelectedVendorId(r.vendor_id);}}>View evidence</Btn><Btn size="sm" variant="ghost" onClick={event=>{event.stopPropagation();onOpenVendor(r.vendor_id,'Bills');}}>Open local bills</Btn><Btn size="sm" variant="ghost" disabled={!balance} onClick={event=>{event.stopPropagation();onOpenVendor(r.vendor_id,'AP Aging');}}>Open aging</Btn><Btn size="sm" variant="ghost" onClick={event=>{event.stopPropagation();onCreateBill(r.vendor_id);}}>Create local bill</Btn></span>;}},
+      {h:'Action',render:r=>{const balance=r.localEvidence.open_balance; return <span className="row-acts"><Btn size="sm" variant="ghost" onClick={event=>{event.stopPropagation();setSelectedVendorId(r.vendor_id);}}>View evidence</Btn><Btn size="sm" variant="ghost" onClick={event=>{event.stopPropagation();onOpenVendor(r.vendor_id,'Bills');}}>Open local bills</Btn><Btn size="sm" variant="ghost" disabled={!balance} onClick={event=>{event.stopPropagation();onOpenVendor(r.vendor_id,'AP Aging');}}>Open aging</Btn></span>;}},
     ]} rows={vendors} empty="No local vendors match the current search." />
   </div>;
-}
-
-function NewBill({open, onClose, ctx, initialVendorId}) {
-  const {actions, toast} = ctx;
-  const [f, setF] = useState({vendor_id:'', invoice_no:'', bill_date:'2026-07-31', due_date:'2026-08-30', property_id:''});
-  const [lines, setLines] = useState([{account_code:'612900', description:'', amount:'', cost_code:''}]);
-  useEffect(()=>{ if (open) setF(current=>({...current, vendor_id:initialVendorId ? String(initialVendorId) : current.vendor_id})); }, [open, initialVendorId]);
-  const set=(k,v)=>setF(s=>({...s,[k]:v}));
-  const setL=(i,k,v)=>setLines(ls=>ls.map((l,x)=>x===i?{...l,[k]:v}:l));
-  const total = lines.reduce((s,l)=>s+(+l.amount||0),0);
-  const submit = () => {
-    if(!f.vendor_id||!f.invoice_no||total<=0){ toast('Vendor, invoice number and a positive line amount are required.','bad'); return; }
-    if(lines.some(l=>!l.account_code)){ toast('Every line requires an account.','bad'); return; }
-    const r = actions.addBill({...f, vendor_id:+f.vendor_id, amount:total, account_code:lines[0].account_code,
-      property_id:f.property_id?+f.property_id:null, lines: lines.map(l=>({...l, amount:+l.amount||0}))});
-    if (r.dup) { toast('Duplicate invoice blocked [4004]: '+r.dup+' already exists for this vendor.','bad'); return; }
-    toast('Bill created with '+lines.length+' lines totaling $'+total.toLocaleString()+'.'); onClose();
-    setLines([{account_code:'612900', description:'', amount:'', cost_code:''}]);
-  };
-  return <Drawer open={open} onClose={onClose} title="New bill · category details" width={640}
-    actions={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit}>Create bill (${total.toLocaleString()})</Btn></>}>
-    <div className="two-col">
-      <Field label="Vendor" required><select value={f.vendor_id} onChange={e=>set('vendor_id',e.target.value)}>
-        <option value="">— Select —</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}{v.is_related_party?' (RP)':''}</option>)}</select></Field>
-      <Field label="Invoice #" required><input value={f.invoice_no} onChange={e=>set('invoice_no',e.target.value)}/></Field>
-    </div>
-    <div className="two-col">
-      <Field label="Bill date"><input type="date" value={f.bill_date} onChange={e=>set('bill_date',e.target.value)}/></Field>
-      <Field label="Due date"><input type="date" value={f.due_date} onChange={e=>set('due_date',e.target.value)}/></Field>
-    </div>
-    <SectionTitle right={<Btn size="sm" onClick={()=>setLines(ls=>[...ls,{account_code:'',description:'',amount:'',cost_code:''}])}>+ Add line</Btn>}>Category Details ({lines.length} lines)</SectionTitle>
-    <table className="tbl tbl-dense"><thead><tr><th>#</th><th>Category</th><th>Description</th><th>Cost code</th><th className="ta-r">Amount</th><th></th></tr></thead>
-      <tbody>{lines.map((l,i)=><tr key={i}>
-        <td className="muted">{i+1}</td>
-        <td><select value={l.account_code} onChange={e=>setL(i,'account_code',e.target.value)} style={{maxWidth:210}}>
-          <option value="">Select a category</option>{COA.filter(a=>['EXPENSE','ASSET'].includes(a.account_type)).map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} {a.account_name}</option>)}</select></td>
-        <td><input className="desc-line" value={l.description} onChange={e=>setL(i,'description',e.target.value)}/></td>
-        <td><input className="date-in" style={{width:80}} placeholder="Cost code" value={l.cost_code} onChange={e=>setL(i,'cost_code',e.target.value)}/></td>
-        <td className="ta-r"><input className="num-in" type="number" value={l.amount} onChange={e=>setL(i,'amount',e.target.value)}/></td>
-        <td>{lines.length>1&&<button className="x-sm" onClick={()=>setLines(ls=>ls.filter((_,x)=>x!==i))}>×</button>}</td>
-      </tr>)}</tbody>
-      <tfoot><tr><td colSpan={4}>Total</td><td className="ta-r"><b>${total.toLocaleString()}</b></td><td/></tr></tfoot>
-    </table>
-    <p className="muted sm">After approval, lines post Dr expense or cost code / Cr accounts payable. Cost codes support CWIP and expense classification.</p>
-  </Drawer>;
 }
 
 function BillDetail({bill, onClose, onOpenPayment, agingReturn, vendorReturnId, ctx}) {
@@ -467,14 +405,6 @@ function PaymentRun({ctx}) {
   };
   const selectedPaymentReturn = selectedPayment ? {route:'ap',tab:'Payments',billId:selectedPayment.bill_id,paymentDate} : null;
   if (selectedPayment) return <PaymentEvidenceDetail bill={selectedPayment} paymentReturn={selectedPaymentReturn} onClose={()=>setSelectedPayment(null)} ctx={ctx} />;
-  const ids = Object.keys(checked).filter(id=>checked[id]).map(Number);
-  const total = sum(payable.filter(b=>ids.includes(b.bill_id)), b=>b.amount);
-  const run = () => {
-    if (!ids.length) return toast('Select at least one bill to pay.','warn');
-    actions.payBills(ids);
-    toast(`Payment batch completed: ${ids.length} bills, ${money(total)}.`);
-    setChecked({});
-  };
   return <div className="bill-payments-workspace">
     <div className="accounting-page-head"><div><div className="page-eyebrow">EXPENSES / BILL PAYMENTS</div><h3 className="page-h" style={{fontSize:22}}>Bill payments</h3><p className="page-subtitle">Review approval readiness, payment history, and local payment-run evidence.</p></div></div>
     <p className="muted sm" style={{margin:'0 0 12px'}}>Observed QBO shell: Bill payments displays only payments made through QuickBooks Bill Pay. REFS lists local AP evidence below; payment-network behavior is not claimed equivalent.</p>
@@ -496,18 +426,15 @@ function PaymentRun({ctx}) {
         {h:'Local bank proof',render:r=><Badge tone={r.paymentEvidence.bankState==='BANK_MATCHED'?'ok':r.paymentEvidence.bankState==='POSTED_UNMATCHED'?'warn':'bad'}>{r.paymentEvidence.bankState}</Badge>},
         {h:'Drill',render:r=>{const drill=localPaymentEvidenceDrill(r,jes); const paymentReturn={route:'ap',tab:'Payments',billId:r.bill_id,paymentDate}; return <span className="row-acts"><Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation();setSelectedPayment(r);}}>Details</Btn>{drill.eligible&&<><Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation();goto('gl',localPaymentReportDrillContext({tab:'GL Detail',entityId:entity,drillLabel:drill.journalNumber,paymentReturn}));}}>GL</Btn><Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation();goto('gl',localPaymentReportDrillContext({tab:'Trial Balance',entityId:entity,drillLabel:drill.journalNumber,paymentReturn}));}}>TB</Btn></>}{r.paymentEvidence.exactBankDebits?.[0]?.bank_account_code?<Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation();openBankEvidence(r);}}>Bank</Btn>:<Btn size="sm" variant="ghost" disabled>No exact Bank DEBIT</Btn>}</span>;}},
       ]} rows={payments} empty="No payment evidence matches the selected date."/>
-      {paymentHistoryEmpty && <section aria-label="Observed QuickBooks Bill Pay empty state" className="expense-shell-panel" style={{marginTop:12}}><div><b>Make payments easy with QuickBooks Bill Pay</b><span>When you use QuickBooks Bill Pay, you’ll find all your payment details here.</span></div><p className="muted sm" style={{margin:0}}>Observed QBO empty-state copy. This local payment run is separate from QBO Bill Pay and does not schedule a network payment.</p></section>}
-      <SectionTitle>REFS local payment run</SectionTitle>
+      {paymentHistoryEmpty && <section aria-label="Local payment evidence empty state" className="expense-shell-panel" style={{marginTop:12}}><div><b>No retained local payment evidence</b><span>Approved bills remain reviewable, but this workspace does not initiate a payment network action.</span></div><p className="muted sm" style={{margin:0}}>REFS keeps AP/payment evidence read-only here: no Bill Pay, ACH, check printing, card payment, refund, or cash posting is created.</p></section>}
+      <SectionTitle>Payment readiness review</SectionTitle>
     <Table rowKey="bill_id" cols={[
-      {h:'',w:36,render:r=><input type="checkbox" checked={!!checked[r.bill_id]} onClick={e=>e.stopPropagation()} onChange={e=>setChecked(c=>({...c,[r.bill_id]:e.target.checked}))}/>},
       {h:'Bill #',k:'bill_no'},{h:'Vendor',render:r=>r.vendor_name},{h:'Due date',k:'due_date'},
       {h:'Amount',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount},
       {h:'AP proof',render:r=><Badge tone={r.paymentEvidence.billState==='VALID_POSTED_AP'?'ok':'bad'}>{r.paymentEvidence.billState}</Badge>},
+      {h:'Review action',render:r=><Btn size="sm" variant="ghost" onClick={()=>goto('ap',{route:'ap',tab:'Bills',billId:r.bill_id})}>Open bill evidence</Btn>},
     ]} rows={payable} empty="No approved bills are ready for payment."/>
-    <div style={{marginTop:12,display:'flex',alignItems:'center',gap:14}}>
-      <Btn variant="primary" onClick={run} disabled={!can('AP.PAYMENT.CREATE')||!ids.length}>Pay selected ({ids.length} · {money(total)})</Btn>
-      <span className="muted sm">Posts Dr AP / Cr Cash, stores payment date/method, and preserves the payment audit trail.</span>
-    </div>
+    <p className="muted sm" style={{marginTop:12}}>This queue is evidence review only. Payment execution, payment-date assignment, bank posting, Bill Pay, refund, check printing and external payment rails are unavailable from this workspace.</p>
     </>}
   </div>;
 }
