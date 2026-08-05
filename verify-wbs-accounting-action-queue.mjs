@@ -40,7 +40,9 @@ if (!queue.actions.every(row => row.can_post_without_review === false)) fail('No
 if (!queue.actions.some(row => row.action_type === 'CREATE_AMORTIZATION_REVIEW')) fail('Prepaid/amortization action missing.');
 if (!queue.actions.some(row => row.action_type === 'CREATE_ACCRUAL_DRAFT')) fail('Accrual action missing.');
 if (!queue.actions.some(row => row.action_type === 'RECONCILIATION_EXCEPTION_REVIEW')) fail('Reconciliation exception action missing.');
-if (!queue.actions.some(row => row.action_type === 'WAIT_FOR_SOURCE_CONTRACT')) fail('Source-contract blocker action missing.');
+if (!queue.actions.some(row => row.title === 'PROPERTY_TAX_ACCRUAL_REQUIRED' && row.action_type === 'CREATE_ACCRUAL_DRAFT')) fail('Property-tax accrual action missing.');
+if (!queue.actions.some(row => row.title === 'PROPERTY_TAX_PREPAID_REQUIRED' && row.action_type === 'CREATE_AMORTIZATION_REVIEW')) fail('Property-tax prepaid review action missing.');
+if (queue.actions.some(row => row.title === 'Property Tax Report -> accrual analysis -> source contract')) fail('Implemented property-tax source must not remain a source-contract placeholder.');
 if (!queue.actions.some(row => row.source_type === 'CLOSE_WORKFLOW' && row.readiness === 'REVIEW_REQUIRED')) fail('Workflow review actions must be retained.');
 ['PAYMENT_WITHOUT_BILL', 'DUPLICATE_INVOICE_RISK', 'MISSING_SOURCE_DOCUMENT', 'MANUAL_JE_LARGE_NO_ATTACHMENT'].forEach(ruleId => {
   const row = queue.actions.find(action => action.title === ruleId);

@@ -60,7 +60,7 @@ export function buildWbsAccountingAnalysisReport(snapshot) {
     { area: 'Posting gate', control: 'Suggested JE postability', state: postableSuggestedJEs.length ? 'REVIEW_READY' : 'REVIEW_REQUIRED', evidence: `${postableSuggestedJEs.length}/${suggestedJEs.length} suggested JEs are balanced and source-backed` },
     { area: 'Exception gate', control: 'Review-only blockers retained', state: blockedFlows.length ? 'REVIEW_REQUIRED' : 'TIED', evidence: `${blockedFlows.length} flows require human review before close` },
   ];
-  const executiveFindings = findings.slice(0, 8).map(finding => ({
+  const findingRows = findings.map(finding => ({
     rule_id: finding.rule_id,
     risk_level: finding.risk_level,
     object_id: finding.object_id,
@@ -90,7 +90,8 @@ export function buildWbsAccountingAnalysisReport(snapshot) {
       net_income: money(reportImpact.statement.netIncome),
       closing_cash: money(reportImpact.cashFlow.closingCash),
     },
-    executiveFindings,
+    findingRows,
+    executiveFindings: findingRows.slice(0, 8),
     controlRows,
     workflowRows: flowEvidence.flows.map(flow => ({
       id: flow.id,

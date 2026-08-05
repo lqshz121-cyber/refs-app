@@ -58,7 +58,9 @@ if (insurance.control_state !== 'SCHEDULE_READY' || insurance.gl_line_count !== 
 const bankException = evidence.flows.find(flow => flow.id === 'BANK_TO_EXCEPTION');
 if (bankException.posted_state !== 'BLOCKED_OR_REVIEW_ONLY' || bankException.control_state !== 'EXCEPTION_RETAINED') fail('Unmatched bank payment must remain exception/review only.');
 const propertyTax = evidence.flows.find(flow => flow.id === 'PROPERTY_TAX_TO_ACCRUAL');
-if (propertyTax.control_state !== 'CONTRACT_READY_NO_SOURCE' || propertyTax.gl_line_count !== 0 || propertyTax.report_impact_count !== 0) fail('Property tax flow must fail closed until a WBS source exists.');
+if (propertyTax.source_id !== 'PTAX-TRAVIS-2026' || propertyTax.rule_id !== 'PROPERTY_TAX_ACCRUAL_REQUIRED') fail('Property tax flow must derive from the WBS mock statement and deterministic accrual rule.');
+if (!propertyTax.suggested_je_balanced || propertyTax.review_status !== 'REVIEW_REQUIRED') fail('Property tax flow must retain a balanced Draft and human review state before the mock posted projection.');
+if (propertyTax.control_state !== 'POSTED_MOCK_IMPACT_TIED' || propertyTax.posted_state !== 'POSTED' || propertyTax.gl_line_count !== 2 || propertyTax.report_impact_count !== 2 || propertyTax.audit_trail_count < 4) fail('Property tax flow must retain explicit review, posted, GL, report and audit evidence after the guarded mock gate.');
 if (!evidence.controls.trial_balance_tied || !evidence.controls.balance_sheet_tied) fail('E2E report controls must tie for the mock posted set.');
 if (!evidence.allFlowsTraceable) fail('Every E2E mock flow must have source, event, JE/blocker, GL/report or blocker, and audit evidence.');
 if (!evidence.boundaries.includes('No production WBS call')) fail('Missing production WBS boundary.');

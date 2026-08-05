@@ -37,6 +37,7 @@ export const WBS_MCP_CONTRACTS = Object.freeze({
   ConstructionLoan: [...commonFields, 'lender_vendor_id', 'loan_number', 'loan_status', 'lender_balance', 'gl_balance'],
   LoanTransaction: [...commonFields, 'loan_id', 'loan_transaction_type', 'memo'],
   PropertyOperation: [...commonFields, 'operation_type', 'metric_name'],
+  PropertyTaxStatement: [...commonFields, 'vendor_id', 'document_type', 'statement_number', 'jurisdiction', 'tax_year', 'assessment_period_start', 'assessment_period_end', 'due_date', 'payment_status', 'paid_date'],
   RentRoll: [...commonFields, 'customer_id', 'lease_id', 'scheduled_rent'],
   ResidentActivity: [...commonFields, 'customer_id', 'activity_type'],
   ClosingStatement: [...commonFields, 'closing_type', 'settlement_agent'],
@@ -76,6 +77,7 @@ export const ACCOUNT_MAP = Object.freeze({
   cash: '111000',
   ar: '120200',
   prepaidInsurance: '140100',
+  prepaidPropertyTax: '140200',
   cwip: '164400',
   capitalizedInterest: '164500',
   ap: '220100',
@@ -94,6 +96,29 @@ const periodOf = date => String(date || '').slice(0, 7);
 const lower = value => String(value || '').toLowerCase();
 const sourceRef = item => item.source_document_id || item.id;
 const auditTrail = (id, action) => ({ id: `AUD-${id}-${action}`, action, at: now, actor: 'SYSTEM_RULE_ENGINE' });
+
+const monthIndex = value => {
+  const match = /^(\d{4})-(\d{2})/.exec(String(value || ''));
+  return match ? Number(match[1]) * 12 + Number(match[2]) - 1 : null;
+};
+
+export function classifyPropertyTaxStatement(statement) {
+  const startMonth = monthIndex(statement.assessment_period_start);
+  const endMonth = monthIndex(statement.assessment_period_end);
+  const closeMonth = monthIndex(statement.accounting_period);
+  const totalMonths = startMonth == null || endMonth == null ? 0 : endMonth - startMonth + 1;
+  if (!statement.source_document_id || totalMonths < 1 || closeMonth == null || Number(statement.amount) <= 0) {
+    return { decision: 'REVIEW_REQUIRED', amount: 0, total_months: totalMonths, recognized_months: 0, reason: 'Property tax source, assessment period, close period, and positive amount are required.' };
+  }
+  if (statement.payment_status === 'PAID' && startMonth > closeMonth) {
+    return { decision: 'PREPAID', amount: money(statement.amount), total_months: totalMonths, recognized_months: 0, reason: 'Paid property tax applies entirely after the selected accounting close.' };
+  }
+  const recognizedMonths = Math.max(0, Math.min(totalMonths, closeMonth - startMonth + 1));
+  if (statement.payment_status === 'UNPAID' && recognizedMonths > 0) {
+    return { decision: 'ACCRUAL', amount: money(Number(statement.amount) * recognizedMonths / totalMonths), total_months: totalMonths, recognized_months: recognizedMonths, reason: `${recognizedMonths} of ${totalMonths} assessment months have elapsed and remain unpaid at close.` };
+  }
+  return { decision: 'REVIEW_REQUIRED', amount: 0, total_months: totalMonths, recognized_months: recognizedMonths, reason: 'The paid and elapsed assessment periods require a split allocation review.' };
+}
 
 const base = (kind, id, overrides = {}) => ({
   id,
@@ -126,6 +151,7 @@ export function createWbsMockDataset() {
     base('VENDOR', 'VEN-INS-01', { amount: 0, vendor_id: 'VEN-INS-01', vendor_name: 'Continental Insurance', vendor_type: 'INSURANCE' }),
     base('VENDOR', 'VEN-LEND-01', { amount: 0, vendor_id: 'VEN-LEND-01', vendor_name: 'Texas Construction Bank', vendor_type: 'LENDER' }),
     base('VENDOR', 'VEN-GC-01', { amount: 0, vendor_id: 'VEN-GC-01', vendor_name: 'Hill Country GC', vendor_type: 'CONTRACTOR' }),
+    base('VENDOR', 'VEN-TAX-TRAVIS', { amount: 0, vendor_id: 'VEN-TAX-TRAVIS', vendor_name: 'Travis County Tax Office', vendor_type: 'TAX_AUTHORITY' }),
   ];
   const sourceDocuments = [
     base('DOC', 'DOC-INS-12MO', { amount: 12000, document_type: 'INSURANCE_POLICY', document_hash: 'sha256-insurance-12mo', storage_ref: 'mock://wbs/documents/insurance-12mo.pdf' }),
@@ -133,6 +159,8 @@ export function createWbsMockDataset() {
     base('DOC', 'DOC-BANK-UNMATCHED', { amount: -8500, document_type: 'BANK_STATEMENT', document_hash: 'sha256-bank-unmatched', storage_ref: 'mock://wbs/bank/july.csv' }),
     base('DOC', 'DOC-LOAN-DRAW', { amount: 250000, document_type: 'LOAN_DRAW_SCHEDULE', document_hash: 'sha256-loan-draw', storage_ref: 'mock://wbs/loan/draw-07.pdf' }),
     base('DOC', 'DOC-RENT-ROLL', { amount: 98000, document_type: 'RENT_ROLL', document_hash: 'sha256-rent-roll', storage_ref: 'mock://wbs/pm/rent-roll.json' }),
+    base('DOC', 'DOC-PROPERTY-TAX-2026', { amount: 24000, vendor_id: 'VEN-TAX-TRAVIS', document_type: 'PROPERTY_TAX_STATEMENT', document_hash: 'sha256-property-tax-2026', storage_ref: 'mock://wbs/tax/travis-2026.json' }),
+    base('DOC', 'DOC-PROPERTY-TAX-2027-PREPAID', { amount: 12000, vendor_id: 'VEN-TAX-TRAVIS', document_type: 'PROPERTY_TAX_STATEMENT', document_hash: 'sha256-property-tax-2027-prepaid', storage_ref: 'mock://wbs/tax/travis-2027-prepaid.json' }),
   ];
   const payableInvoices = [
     base('AP', 'AP-INS-12MO', { amount: 12000, vendor_id: 'VEN-INS-01', invoice_number: 'INS-2026-12', invoice_date: '2026-07-01', due_date: '2026-07-15', coverage_start: '2026-07-01', coverage_end: '2027-06-30', open_amount: 0, source_document_id: 'DOC-INS-12MO' }),
@@ -156,6 +184,10 @@ export function createWbsMockDataset() {
   ];
   const rentRoll = [base('RENT', 'RENT-JULY-01', { amount: 98000, customer_id: 'TENANT-GROUP-01', lease_id: 'LEASE-JULY', scheduled_rent: 98000, source_document_id: 'DOC-RENT-ROLL' })];
   const propertyOperations = [base('OPS', 'OPS-JULY-01', { amount: 87500, operation_type: 'RENT_REVENUE_GL', metric_name: 'GL rent revenue' })];
+  const propertyTaxStatements = [
+    base('PROPERTY_TAX', 'PTAX-TRAVIS-2026', { amount: 24000, vendor_id: 'VEN-TAX-TRAVIS', document_type: 'PROPERTY_TAX_STATEMENT', statement_number: 'TRAVIS-2026-PROP-AUSTIN-01', jurisdiction: 'Travis County, Texas', tax_year: 2026, assessment_period_start: '2026-01-01', assessment_period_end: '2026-12-31', due_date: '2027-01-31', payment_status: 'UNPAID', paid_date: null, source_document_id: 'DOC-PROPERTY-TAX-2026' }),
+    base('PROPERTY_TAX', 'PTAX-TRAVIS-2027-PREPAID', { amount: 12000, vendor_id: 'VEN-TAX-TRAVIS', document_type: 'PROPERTY_TAX_STATEMENT', statement_number: 'TRAVIS-2027-PROP-AUSTIN-01', jurisdiction: 'Travis County, Texas', tax_year: 2027, assessment_period_start: '2027-01-01', assessment_period_end: '2027-12-31', due_date: '2027-01-31', payment_status: 'PAID', paid_date: '2026-07-25', source_document_id: 'DOC-PROPERTY-TAX-2027-PREPAID' }),
+  ];
   const journalEntries = [
     journal('JE-POSTED-INS-PAY', 'POSTED', '2026-07-15', 'DOC-INS-12MO', [
       line(ACCOUNT_MAP.prepaidInsurance, 12000, 0),
@@ -170,7 +202,7 @@ export function createWbsMockDataset() {
       line(ACCOUNT_MAP.dueToFrom, 0, 50000),
     ], { je_type: 'MANUAL', has_attachment: false }),
   ];
-  return { entities, projects, properties, vendors, sourceDocuments, payableInvoices, bankTransactions, costGlTransactions, constructionLoans, loanTransactions, rentRoll, propertyOperations, journalEntries, accountingPeriods: [{ period_code: '2026-07', status: 'OPEN' }, { period_code: '2026-06', status: 'CLOSED' }] };
+  return { entities, projects, properties, vendors, sourceDocuments, payableInvoices, bankTransactions, costGlTransactions, constructionLoans, loanTransactions, rentRoll, propertyOperations, propertyTaxStatements, journalEntries, accountingPeriods: [{ period_code: '2026-07', status: 'OPEN' }, { period_code: '2026-06', status: 'CLOSED' }] };
 }
 
 function line(account_code, debit_amount, credit_amount) {
@@ -238,6 +270,11 @@ export function buildAccountingEvents(snapshot) {
     requires_review: patch.requires_review ?? true,
     source_document_id: source.source_document_id,
     source_system: source.source_system,
+    accounting_decision: patch.accounting_decision || null,
+    assessment_period_start: patch.assessment_period_start || null,
+    assessment_period_end: patch.assessment_period_end || null,
+    recognized_months: patch.recognized_months ?? null,
+    total_months: patch.total_months ?? null,
   });
   snapshot.payableInvoices.forEach(invoice => {
     const text = lower(`${invoice.invoice_number} ${invoice.vendor_id}`);
@@ -251,6 +288,22 @@ export function buildAccountingEvents(snapshot) {
   snapshot.costGlTransactions.forEach(cost => push(cost.cost_class === 'INTEREST' ? 'loan_interest' : 'construction_cost', cost, { suggested_debit_account: cost.cost_class === 'INTEREST' ? ACCOUNT_MAP.capitalizedInterest : ACCOUNT_MAP.cwip, suggested_credit_account: ACCOUNT_MAP.ap, rule_id: cost.cost_class === 'INTEREST' ? 'INTEREST_CAPITALIZATION_REQUIRED' : 'CONSTRUCTION_COST_CLASSIFICATION' }));
   snapshot.loanTransactions.forEach(txn => push(txn.loan_transaction_type === 'INTEREST' ? 'loan_interest' : 'loan_draw', txn, { suggested_debit_account: txn.loan_transaction_type === 'INTEREST' ? ACCOUNT_MAP.capitalizedInterest : ACCOUNT_MAP.cash, suggested_credit_account: txn.loan_transaction_type === 'INTEREST' ? ACCOUNT_MAP.ap : ACCOUNT_MAP.loanPayable, rule_id: `LOAN_${txn.loan_transaction_type}` }));
   snapshot.rentRoll.forEach(rent => push('rent_income', rent, { suggested_debit_account: ACCOUNT_MAP.ar, suggested_credit_account: ACCOUNT_MAP.rentRevenue, rule_id: 'RENT_ROLL_REVENUE' }));
+  (snapshot.propertyTaxStatements || []).forEach(statement => {
+    const classification = classifyPropertyTaxStatement(statement);
+    const common = {
+      amount: classification.amount,
+      accounting_decision: classification.decision,
+      assessment_period_start: statement.assessment_period_start,
+      assessment_period_end: statement.assessment_period_end,
+      recognized_months: classification.recognized_months,
+      total_months: classification.total_months,
+      reason: classification.reason,
+      confidence_score: classification.decision === 'REVIEW_REQUIRED' ? 0.5 : 0.97,
+    };
+    if (classification.decision === 'ACCRUAL') push('property_expense', { ...statement, amount: classification.amount }, { ...common, suggested_debit_account: ACCOUNT_MAP.propertyTaxExpense, suggested_credit_account: ACCOUNT_MAP.ap, rule_id: 'PROPERTY_TAX_ACCRUAL_REQUIRED' });
+    else if (classification.decision === 'PREPAID') push('prepaid', { ...statement, amount: classification.amount }, { ...common, suggested_debit_account: ACCOUNT_MAP.prepaidPropertyTax, suggested_credit_account: ACCOUNT_MAP.cash, rule_id: 'PROPERTY_TAX_PREPAID_REQUIRED' });
+    else push('property_expense', { ...statement, amount: classification.amount }, { ...common, suggested_debit_account: null, suggested_credit_account: null, rule_id: 'PROPERTY_TAX_CLASSIFICATION_REVIEW', status: 'REVIEW_REQUIRED' });
+  });
   return events;
 }
 
@@ -277,7 +330,9 @@ export function runDeterministicAccountingRules(snapshot, events = buildAccounti
     audit_trail: [auditTrail(event.source_transaction_id, rule.rule_id)],
   });
   events.forEach(event => {
-    if (event.event_type === 'prepaid') add(event, { rule_id: 'PREPAID_SCHEDULE_REQUIRED', rule_name: 'Insurance coverage period requires amortization', risk_level: 'HIGH', reason: 'Insurance payable covers more than one accounting month.', suggested_action: 'Create prepaid asset and monthly amortization schedule before period close.', confidence_score: 0.98 });
+    if (event.rule_id === 'PREPAID_COVERAGE_REQUIRED') add(event, { rule_id: 'PREPAID_SCHEDULE_REQUIRED', rule_name: 'Insurance coverage period requires amortization', risk_level: 'HIGH', reason: 'Insurance payable covers more than one accounting month.', suggested_action: 'Create prepaid asset and monthly amortization schedule before period close.', confidence_score: 0.98 });
+    if (event.rule_id === 'PROPERTY_TAX_ACCRUAL_REQUIRED') add(event, { rule_id: 'PROPERTY_TAX_ACCRUAL_REQUIRED', rule_name: 'Elapsed property tax requires accrual', risk_level: 'HIGH', reason: event.reason, suggested_action: 'Review the source-backed property tax accrual Draft JE before posting.', confidence_score: 0.97 });
+    if (event.rule_id === 'PROPERTY_TAX_PREPAID_REQUIRED') add(event, { rule_id: 'PROPERTY_TAX_PREPAID_REQUIRED', rule_name: 'Future property tax requires prepaid classification', risk_level: 'HIGH', reason: event.reason, suggested_action: 'Review the source-backed prepaid property tax Draft JE and future expense schedule.', confidence_score: 0.97 });
     if (event.event_type === 'payment' && /NO_MATCH/.test(event.rule_id)) add(event, { rule_id: 'PAYMENT_WITHOUT_BILL', rule_name: 'Bank payment missing AP source', risk_level: 'HIGH', reason: 'Outgoing bank payment has no matched payable invoice.', suggested_action: 'Route to bank exception queue and obtain invoice support before matching.', confidence_score: 0.96 });
     if (event.event_type === 'loan_draw') add(event, { rule_id: 'LOAN_DRAW_RECOGNITION', rule_name: 'Construction loan draw recognition', risk_level: 'MEDIUM', reason: 'Bank credit or loan transaction indicates lender draw funding.', suggested_action: 'Prepare loan draw JE after source review.', confidence_score: 0.95 });
     if (event.event_type === 'loan_interest') add(event, { rule_id: 'INTEREST_CAPITALIZATION_REQUIRED', rule_name: 'Loan interest capitalization', risk_level: 'HIGH', reason: 'Interest relates to an active construction project and should be reviewed for capitalization.', suggested_action: 'Prepare capitalized interest JE or reclass from expense after controller review.', confidence_score: 0.94 });

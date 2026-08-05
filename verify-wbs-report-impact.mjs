@@ -33,16 +33,24 @@ if (reportsSource.includes('aria-label="WBS mock posted JE report impact"')) fai
 
 const impact = buildWbsReportImpact();
 if (impact.mode !== 'WBS_MOCK_POSTED_REPORT_IMPACT') fail('Unexpected report-impact mode.');
-if (impact.postedWbsJEs.length !== 1) fail(`Expected exactly one posted WBS mock JE, got ${impact.postedWbsJEs.length}.`);
-const loanJe = impact.postedWbsJEs[0];
+if (impact.postedWbsJEs.length !== 2) fail(`Expected loan draw and reviewed property tax accrual mock JEs, got ${impact.postedWbsJEs.length}.`);
+const loanJe = impact.postedWbsJEs.find(je => je.ai_rule_id === 'LOAN_DRAW_RECOGNITION');
 if (loanJe.posting_status !== 'POSTED' || loanJe.ai_rule_id !== 'LOAN_DRAW_RECOGNITION') fail('Loan draw mock JE must be posted and rule-bound.');
+const propertyTaxJe = impact.postedWbsJEs.find(je => je.ai_rule_id === 'PROPERTY_TAX_ACCRUAL_REQUIRED');
+if (propertyTaxJe?.posting_status !== 'POSTED' || propertyTaxJe.source_document_id !== 'DOC-PROPERTY-TAX-2026') fail('Reviewed property tax accrual must be posted and source-bound in the mock report projection.');
+const propertyTaxReview = impact.mockReviewDecisions.find(row => row.rule_id === 'PROPERTY_TAX_ACCRUAL_REQUIRED');
+if (propertyTaxReview?.decision !== 'APPROVED_FOR_MOCK_POSTING' || propertyTaxReview.actor !== 'CONTROLLER_MOCK' || !propertyTaxJe.audit_trail.some(row => row.action === 'review-approved')) fail('Property tax report impact requires explicit mock controller review evidence before posting.');
+if (impact.postedWbsJEs.some(je => je.ai_rule_id === 'PROPERTY_TAX_PREPAID_REQUIRED')) fail('Future property tax prepaid suggestion must remain Draft and never auto-post into reports.');
 if (impact.postedJournalEntries.some(je => je.posting_status !== 'POSTED')) fail('Report impact must include POSTED journal entries only.');
 if (!impact.glLines.some(line => line.source_document_id === 'DOC-LOAN-DRAW' && line.account_code === '111000' && line.debit_amount === 250000)) fail('Loan draw cash GL impact is missing.');
 if (!impact.glLines.some(line => line.source_document_id === 'DOC-LOAN-DRAW' && line.account_code === '211000' && line.credit_amount === 250000)) fail('Loan draw loan-payable GL impact is missing.');
+if (!impact.glLines.some(line => line.source_document_id === 'DOC-PROPERTY-TAX-2026' && line.account_code === '610200' && line.debit_amount === 14000)) fail('Property tax expense GL impact is missing.');
+if (!impact.glLines.some(line => line.source_document_id === 'DOC-PROPERTY-TAX-2026' && line.account_code === '220100' && line.credit_amount === 14000)) fail('Property tax AP GL impact is missing.');
 if (!impact.trialBalance.balanced) fail('WBS mock Trial Balance projection must tie.');
 if (!impact.statement.balanceSheetTied) fail('WBS mock Balance Sheet projection must tie.');
 if (impact.statement.revenue !== 87500) fail(`Expected rent revenue 87500, got ${impact.statement.revenue}.`);
-if (impact.statement.netIncome !== 87500) fail(`Expected net income 87500, got ${impact.statement.netIncome}.`);
+if (impact.statement.expenses !== 14000) fail(`Expected property tax expense 14000, got ${impact.statement.expenses}.`);
+if (impact.statement.netIncome !== 73500) fail(`Expected net income 73500 after property tax accrual, got ${impact.statement.netIncome}.`);
 if (impact.cashFlow.financing !== 250000) fail(`Expected financing cash flow 250000, got ${impact.cashFlow.financing}.`);
 if (impact.cashFlow.closingCash !== 238000) fail(`Expected closing cash 238000, got ${impact.cashFlow.closingCash}.`);
 if (impact.controls.some(control => control.state !== 'TIED')) fail('All local report impact controls should tie for the deterministic mock dataset.');

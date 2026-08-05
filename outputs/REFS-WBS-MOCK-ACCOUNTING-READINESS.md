@@ -23,6 +23,7 @@ Required contract objects:
 | ConstructionLoan | Loan master and statement control | common accounting fields plus lender_vendor_id, loan_number, loan_status, lender_balance, gl_balance |
 | LoanTransaction | Draw, interest, fee or repayment source | common accounting fields plus loan_id, loan_transaction_type, memo |
 | PropertyOperation | Property-management operating metric | common accounting fields plus operation_type, metric_name |
+| PropertyTaxStatement | County or local tax assessment source | common accounting fields plus vendor_id, document_type, statement_number, jurisdiction, tax_year, assessment period, due date and payment state |
 | RentRoll | Rent roll source | common accounting fields plus customer_id, lease_id, scheduled_rent |
 | ResidentActivity | Tenant activity source | common accounting fields plus customer_id, activity_type |
 | ClosingStatement | Closing and settlement source | common accounting fields plus closing_type, settlement_agent |
@@ -55,6 +56,7 @@ Current implementation is a mixed local prototype plus server kernel. The mock-r
 | payable_invoices / payable_payments | local AP module and WBS mock payable collections | AP owner |
 | construction_loans / loan_transactions | local loan module and WBS mock loan collections | Loan owner |
 | cost_gl_transactions / property_operations | local property and cost modules | Cost GL owner |
+| property_tax_statements | WBS mock `propertyTaxStatements` | WBS adapter and Accrual owners |
 | accounting_events | `buildAccountingEvents` output | AI Accounting owner |
 | journal_entries / journal_entry_lines | local JE workflow and server kernel | JE owner |
 | recurring_journal_entries | local recurring review | JE owner |
@@ -85,8 +87,10 @@ Current scenario coverage:
 | Completed project still capitalizing cost | `COST-POST-COMPLETE-01`, `PROJ-DONE-01` | Cutoff and capitalization review |
 | Rent roll does not tie to GL revenue | `RENT-JULY-01`, `OPS-JULY-01` | Revenue mismatch finding |
 | Loan statement does not tie to GL loan balance | `LOAN-HOU-01` | Loan reconciliation risk |
+| Elapsed unpaid property tax | `PTAX-TRAVIS-2026`, `DOC-PROPERTY-TAX-2026` | Prorated seven-month property tax accrual, reviewed Draft JE, guarded mock posting, GL and report trace |
+| Paid future-period property tax | `PTAX-TRAVIS-2027-PREPAID`, `DOC-PROPERTY-TAX-2027-PREPAID` | Prepaid property tax Draft JE; remains review-only and is never auto-posted |
 
-Known gap: explicit intercompany wrong-entity payment and real property tax source are contract-ready but not yet represented as full WBS mock source rows.
+Known gap: explicit intercompany wrong-entity payment is contract-ready but not yet represented as a full WBS mock source row. Property tax now has adapter-shaped mock accrual and prepaid records; these remain local mock evidence and do not represent a real WBS receipt.
 
 ## 4. AI Accounting Rule Engine
 
@@ -108,6 +112,8 @@ Rules currently covered:
 | MISSING_SOURCE_DOCUMENT | JE lacks source document | Posting blocker |
 | JE_CONTROL_FAILURE | JE debit does not equal credit | Save/post blocker |
 | MANUAL_JE_LARGE_NO_ATTACHMENT | Large manual JE lacks attachment | High-risk review |
+| PROPERTY_TAX_ACCRUAL_REQUIRED | Unpaid assessment months have elapsed through the close | Prorated property tax expense/AP Draft JE and controller review |
+| PROPERTY_TAX_PREPAID_REQUIRED | Paid assessment applies entirely after the close | Prepaid property tax/cash Draft JE and future expense review |
 
 Rule output must keep rule_id, rule_name, risk_level, object_type, object_id, reason, suggested_action, suggested_je, confidence_score, owner, due_date, status and audit_trail.
 

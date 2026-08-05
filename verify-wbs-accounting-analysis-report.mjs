@@ -32,7 +32,8 @@ if (report.summary.open_high_risk < 6) fail('Analysis report must expose high-ri
 if (report.summary.suggested_jes < 8 || report.summary.postable_suggested_jes < 8) fail('Analysis report must expose balanced source-backed suggested JEs.');
 if (report.summary.workflows !== 10) fail('Analysis report must include the 10 mock E2E close workflows.');
 if (report.summary.trial_balance_state !== 'TIED' || report.summary.balance_sheet_state !== 'TIED') fail('Financial statement controls must tie in the deterministic mock report.');
-if (report.summary.net_income !== 87500 || report.summary.closing_cash !== 238000) fail('Report summary must retain deterministic net income and closing cash.');
+if (report.summary.net_income !== 73500 || report.summary.closing_cash !== 238000) fail('Report summary must retain property-tax-adjusted net income and deterministic closing cash.');
+if (report.findingRows.length !== report.summary.total_findings) fail('Analysis report must retain every deterministic finding for downstream queues.');
 if (report.executiveFindings.length < 6) fail('Executive findings must provide a usable close-review list.');
 report.executiveFindings.forEach(row => {
   ['rule_id', 'risk_level', 'object_id', 'reason', 'suggested_action', 'confidence_score', 'owner', 'due_date', 'audit_trail_count'].forEach(field => {

@@ -23,8 +23,15 @@ export function buildWbsReportImpact(snapshot = createWbsMockDataset()) {
   const events = buildAccountingEvents(snapshot);
   const findings = runDeterministicAccountingRules(snapshot, events);
   const suggestedJEs = findings.map(finding => finding.suggested_je).filter(Boolean);
-  const postableJEs = [suggestedJEs.find(je => je.ai_rule_id === 'LOAN_DRAW_RECOGNITION')].filter(Boolean);
-  const postedWbsJEs = approveAndPostSuggestedJEs({ suggestedJEs: postableJEs, periods: snapshot.accountingPeriods });
+  const mockReviewDecisions = [
+    { rule_id: 'LOAN_DRAW_RECOGNITION', source_document_id: 'DOC-LOAN-DRAW', decision: 'APPROVED_FOR_MOCK_POSTING', actor: 'CONTROLLER_MOCK', reviewed_at: '2026-08-05T00:00:00.000Z' },
+    { rule_id: 'PROPERTY_TAX_ACCRUAL_REQUIRED', source_document_id: 'DOC-PROPERTY-TAX-2026', decision: 'APPROVED_FOR_MOCK_POSTING', actor: 'CONTROLLER_MOCK', reviewed_at: '2026-08-05T00:00:00.000Z' },
+  ];
+  const reviewApprovedJEs = mockReviewDecisions.map(decision => {
+    const suggested = suggestedJEs.find(je => je.ai_rule_id === decision.rule_id && je.source_document_id === decision.source_document_id);
+    return suggested ? { ...suggested, audit_trail: [...suggested.audit_trail, { id: `AUD-${suggested.je_id}-review-approved`, action: 'review-approved', at: decision.reviewed_at, actor: decision.actor }] } : null;
+  }).filter(Boolean);
+  const postedWbsJEs = approveAndPostSuggestedJEs({ suggestedJEs: reviewApprovedJEs, periods: snapshot.accountingPeriods });
   const postedJournalEntries = [...snapshot.journalEntries, ...postedWbsJEs].filter(je => je.posting_status === 'POSTED');
   const glLines = projectToGeneralLedger(postedJournalEntries);
   const tb = buildTrialBalance(glLines);
@@ -80,6 +87,7 @@ export function buildWbsReportImpact(snapshot = createWbsMockDataset()) {
     snapshot,
     events,
     findings,
+    mockReviewDecisions,
     postedWbsJEs,
     postedJournalEntries,
     glLines,

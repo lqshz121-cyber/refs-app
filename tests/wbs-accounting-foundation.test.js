@@ -1,9 +1,11 @@
 import {
+  ACCOUNT_MAP,
   ACCOUNTING_EVENT_TYPES,
   WBS_MCP_CONTRACTS,
   approveAndPostSuggestedJEs,
   buildAccountingEvents,
   buildTrialBalance,
+  classifyPropertyTaxStatement,
   createAmortizationScheduleFromInsurance,
   createWbsMockConnector,
   createWbsMockDataset,
@@ -23,23 +25,32 @@ const sum = rows => Math.round(rows.reduce((total, row) => total + Number(row.am
 async function main() {
   const dataset = createWbsMockDataset();
 
-  ['BankTransaction', 'PayableInvoice', 'ConstructionLoan', 'SourceDocument', 'AIFinding', 'JournalEntry', 'JournalEntryLine', 'AmortizationSchedule', 'AccrualSchedule'].forEach(contractName => {
+  ['BankTransaction', 'PayableInvoice', 'ConstructionLoan', 'PropertyTaxStatement', 'SourceDocument', 'AIFinding', 'JournalEntry', 'JournalEntryLine', 'AmortizationSchedule', 'AccrualSchedule'].forEach(contractName => {
     ['id', 'external_source_id', 'source_system', 'entity_id', 'project_id', 'property_id', 'transaction_date', 'accounting_period', 'amount', 'currency', 'status', 'source_document_id', 'created_at', 'updated_at', 'confidence_score', 'audit_trail_id'].forEach(field => {
       assert(WBS_MCP_CONTRACTS[contractName].includes(field), `${contractName} is missing common field ${field}`);
     });
   });
   assert(ACCOUNTING_EVENT_TYPES.includes('loan_draw') && ACCOUNTING_EVENT_TYPES.includes('amortization') && ACCOUNTING_EVENT_TYPES.includes('manual_je'), 'required accounting event types are registered');
   assert(validateWbsContractRecord('PayableInvoice', dataset.payableInvoices[0]).ok, 'mock payable invoice must satisfy WBS contract');
+  assert(dataset.propertyTaxStatements.length === 2 && dataset.propertyTaxStatements.every(row => validateWbsContractRecord('PropertyTaxStatement', row).ok), 'mock property tax statements must satisfy the adapter-ready WBS contract');
+  const propertyTaxAccrual = classifyPropertyTaxStatement(dataset.propertyTaxStatements.find(row => row.id === 'PTAX-TRAVIS-2026'));
+  const propertyTaxPrepaid = classifyPropertyTaxStatement(dataset.propertyTaxStatements.find(row => row.id === 'PTAX-TRAVIS-2027-PREPAID'));
+  assert(propertyTaxAccrual.decision === 'ACCRUAL' && propertyTaxAccrual.amount === 14000 && propertyTaxAccrual.recognized_months === 7, 'elapsed unpaid property tax must classify as a seven-month accrual');
+  assert(propertyTaxPrepaid.decision === 'PREPAID' && propertyTaxPrepaid.amount === 12000 && propertyTaxPrepaid.recognized_months === 0, 'paid future-period property tax must classify as prepaid');
 
   const connector = createWbsMockConnector(dataset);
   const snapshot = await connector.fetchSnapshot();
   assert(snapshot !== dataset && snapshot.payableInvoices.length >= 4, 'mock connector returns an isolated WBS snapshot');
-  assert(snapshot.sourceDocuments.length >= 5, 'mock connector includes source-document evidence');
+  assert(snapshot.sourceDocuments.length >= 7, 'mock connector includes property-tax source-document evidence');
 
   const events = buildAccountingEvents(snapshot);
-  ['prepaid', 'invoice', 'payment', 'loan_draw', 'loan_interest', 'construction_cost', 'rent_income'].forEach(eventType => {
+  ['prepaid', 'invoice', 'payment', 'loan_draw', 'loan_interest', 'construction_cost', 'rent_income', 'property_expense'].forEach(eventType => {
     assert(events.some(event => event.event_type === eventType), `missing accounting event type ${eventType}`);
   });
+  const taxAccrualEvent = events.find(event => event.source_transaction_id === 'PTAX-TRAVIS-2026');
+  const taxPrepaidEvent = events.find(event => event.source_transaction_id === 'PTAX-TRAVIS-2027-PREPAID');
+  assert(taxAccrualEvent?.accounting_decision === 'ACCRUAL' && taxAccrualEvent.amount === 14000 && taxAccrualEvent.suggested_debit_account === ACCOUNT_MAP.propertyTaxExpense && taxAccrualEvent.suggested_credit_account === ACCOUNT_MAP.ap, 'property tax accrual event must be prorated and mapped to expense/AP');
+  assert(taxPrepaidEvent?.accounting_decision === 'PREPAID' && taxPrepaidEvent.amount === 12000 && taxPrepaidEvent.suggested_debit_account === ACCOUNT_MAP.prepaidPropertyTax && taxPrepaidEvent.suggested_credit_account === ACCOUNT_MAP.cash, 'future property tax event must be mapped to prepaid/cash');
   events.forEach(event => {
     ['event_id', 'event_type', 'source_transaction_id', 'entity_id', 'project_id', 'property_id', 'amount', 'accounting_period', 'suggested_debit_account', 'suggested_credit_account', 'rule_id', 'confidence_score', 'status', 'reason', 'requires_review'].forEach(field => {
       assert(field in event, `event ${event.event_id} missing ${field}`);
@@ -59,6 +70,8 @@ async function main() {
     'RENT_ROLL_REVENUE_MISMATCH',
     'MISSING_SOURCE_DOCUMENT',
     'MANUAL_JE_LARGE_NO_ATTACHMENT',
+    'PROPERTY_TAX_ACCRUAL_REQUIRED',
+    'PROPERTY_TAX_PREPAID_REQUIRED',
   ].forEach(ruleId => assert(byRule(findings, ruleId), `missing deterministic finding ${ruleId}`));
   findings.forEach(finding => {
     ['finding_id', 'rule_id', 'rule_name', 'risk_level', 'object_type', 'object_id', 'reason', 'suggested_action', 'confidence_score', 'owner', 'due_date', 'status', 'audit_trail'].forEach(field => {
@@ -76,6 +89,10 @@ async function main() {
     assert(je.source_document_id, `${je.je_id} must retain source reference`);
     assert(je.audit_trail.length >= 1, `${je.je_id} must retain audit trail`);
   });
+  const propertyTaxAccrualJe = suggested.find(je => je.ai_rule_id === 'PROPERTY_TAX_ACCRUAL_REQUIRED');
+  const propertyTaxPrepaidJe = suggested.find(je => je.ai_rule_id === 'PROPERTY_TAX_PREPAID_REQUIRED');
+  assert(propertyTaxAccrualJe?.source_document_id === 'DOC-PROPERTY-TAX-2026' && propertyTaxAccrualJe.lines.some(row => row.account_code === ACCOUNT_MAP.propertyTaxExpense && row.debit_amount === 14000), 'property tax accrual Draft JE must remain source-backed and debit property tax expense');
+  assert(propertyTaxPrepaidJe?.posting_status === 'DRAFT' && propertyTaxPrepaidJe.lines.some(row => row.account_code === ACCOUNT_MAP.prepaidPropertyTax && row.debit_amount === 12000), 'property tax prepaid suggestion must remain a source-backed Draft and never auto-post');
 
   const blocked = approveAndPostSuggestedJEs({
     suggestedJEs: [{ ...suggested[0], source_document_id: null }],
@@ -90,8 +107,12 @@ async function main() {
   assert(posted.posting_status === 'POSTED', 'approved balanced source-backed JE posts');
   assert(posted.audit_trail.some(entry => entry.action === 'posted'), 'posted JE records audit trail');
 
-  const gl = projectToGeneralLedger([...snapshot.journalEntries, posted]);
+  const postedPropertyTax = approveAndPostSuggestedJEs({ suggestedJEs: [propertyTaxAccrualJe], periods: snapshot.accountingPeriods })[0];
+  assert(postedPropertyTax.posting_status === 'POSTED' && postedPropertyTax.audit_trail.some(entry => entry.action === 'approved') && postedPropertyTax.audit_trail.some(entry => entry.action === 'posted'), 'reviewed property tax accrual can enter the guarded mock posting projection with audit evidence');
+
+  const gl = projectToGeneralLedger([...snapshot.journalEntries, posted, postedPropertyTax]);
   assert(gl.some(line => line.je_id === posted.je_id), 'posted JE flows into GL projection');
+  assert(gl.filter(line => line.source_document_id === 'DOC-PROPERTY-TAX-2026').length === 2, 'posted property tax accrual produces two source-linked GL lines');
   const tb = buildTrialBalance(gl);
   assert(tb.balanced, 'Trial Balance generated from posted JE must balance');
   assert(tb.total_debit === tb.total_credit, 'Trial Balance debit equals credit');

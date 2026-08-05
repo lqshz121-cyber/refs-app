@@ -42,7 +42,7 @@ export function buildWbsAccountingActionQueue(input = createWbsMockDataset()) {
   const report = input?.mode === 'WBS_MOCK_ACCOUNTING_ANALYSIS_REPORT'
     ? input
     : buildWbsAccountingAnalysisReport(input);
-  const findingActions = report.executiveFindings.map(row => ({
+  const findingActions = (report.findingRows || report.executiveFindings).map(row => ({
     action_id: `ACT-FINDING-${row.rule_id}-${row.object_id}`,
     source_type: 'AI_FINDING',
     source_id: row.object_id,
