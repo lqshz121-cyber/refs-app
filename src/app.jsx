@@ -18,6 +18,7 @@ import { UnitCostLedger } from './module-unitcost.jsx';
 import { CompanySetting } from './module-setting.jsx';
 import { AIAudit } from './module-aiaudit.jsx';
 import { AIJEWorkbench } from './module-ai-je-workbench.jsx';
+import { AccrualCenter, AmortizationCenter } from './module-amortization-accrual.jsx';
 import { StagingCenter } from './module-staging.jsx';
 import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
@@ -83,10 +84,13 @@ const NAV = [
   {group:'Reports', icon:'▤', items:[['reports','Reports Center']]},
   {group:'Admin', icon:'◈', adminOnly:true, items:[['masterdata','Master Data'],['ap','AP (legacy)'],['ar','AR (legacy)'],['cash','Bank Accounts'],['audit','Audit Log'],['admin','Users & Settings']]},
 ];
+NAV.find(group => group.group === 'Real Estate Accounting')?.items.splice(3, 0, ['amortization', 'Amortization Center'], ['accruals', 'Accrual Center']);
 const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, setting:CompanySetting, aireview:AIAudit, aijeworkbench:AIJEWorkbench, staging:StagingCenter, unittransfer:UnitTransfer, sourcedocs:SourceDocs, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
   pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARWorkspace,
   cash:CashModule, bankrec:BankRec2, autobankrec:AutoBankRec, checks:CheckMgmt, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
   mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, reports:Reports, admin:AdminModule };
+COMP.amortization = AmortizationCenter;
+COMP.accruals = AccrualCenter;
 const ADMIN_ROLES = ['CONTROLLER','SYS_ADMIN','AUDITOR'];
 
 // ---- seed AP bills & bank rec model ----
