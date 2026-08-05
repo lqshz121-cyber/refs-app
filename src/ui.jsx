@@ -33,7 +33,7 @@ export function Money({v, bold}) {
 // sort / text filter / CSV export / pagination / density / row click
 const _loadView = (k)=>{ try{ return JSON.parse(localStorage.getItem('refs_view_'+k))||{}; }catch(e){ return {}; } };
 const _saveView = (k,v)=>{ try{ localStorage.setItem('refs_view_'+k, JSON.stringify(v)); }catch(e){} };
-export function Table({cols, rows, onRow, empty='暂无数据', rowKey, features={}, pageSize=25, exportName}) {
+export function Table({cols, rows, onRow, empty='No data', rowKey, features={}, pageSize=25, exportName}) {
   const V = exportName ? _loadView(exportName) : {};
   const {sortable=true, filterable=rows&&rows.length>8, exportable=!!exportName, paginate=rows&&rows.length>pageSize} = features;
   const [sortK, setSortK] = useState(V.sortK??null);
@@ -71,11 +71,11 @@ export function Table({cols, rows, onRow, empty='暂无数据', rowKey, features
   if (!rows || rows.length===0) return <div className="empty">{empty}</div>;
   return <div>
     {(filterable||exportable) && <div className="grid-bar">
-      {filterable && <input className="grid-search" placeholder="🔍 筛选…(视图自动保存)" value={q} onChange={e=>{setQ(e.target.value); setPage(0); persist({q:e.target.value});}}/>}
-      <span className="grid-count muted">{sorted.length} 行</span>
+      {filterable && <input className="grid-search" placeholder="Search records" value={q} onChange={e=>{setQ(e.target.value); setPage(0); persist({q:e.target.value});}}/>}
+      <span className="grid-count muted">{sorted.length} rows</span>
       <span style={{flex:1}}/>
-      <button className="grid-tool" onClick={()=>{setDense(d=>{persist({dense:!d}); return !d;});}} title="密度">{dense?'Comfortable':'Compact'}</button>
-      {exportable && <button className="grid-tool" onClick={doExport}>导出 CSV</button>}
+      <button className="grid-tool" onClick={()=>{setDense(d=>{persist({dense:!d}); return !d;});}} title="Density">{dense?'Comfortable':'Compact'}</button>
+      {exportable && <button className="grid-tool" onClick={doExport}>Export CSV</button>}
     </div>}
     <div className={`table-wrap ${exportName?'table-'+exportName.replace(/[^a-z0-9_-]/gi,'-').toLowerCase():''}`} tabIndex={0} onKeyDown={e=>{ if(!view.length) return;
       if(e.key==='ArrowDown'){ e.preventDefault(); setHi(h=>Math.min(view.length-1,h+1)); }
@@ -94,9 +94,9 @@ export function Table({cols, rows, onRow, empty='暂无数据', rowKey, features
       </tbody>
     </table></div>
     {paginate && <div className="grid-pager">
-      <button className="grid-tool" disabled={page===0} onClick={()=>setPage(p=>p-1)}>‹ 上一页</button>
+      <button className="grid-tool" disabled={page===0} onClick={()=>setPage(p=>p-1)}>‹ Previous</button>
       <span className="muted">{page+1} / {pages}</span>
-      <button className="grid-tool" disabled={page>=pages-1} onClick={()=>setPage(p=>p+1)}>下一页 ›</button>
+      <button className="grid-tool" disabled={page>=pages-1} onClick={()=>setPage(p=>p+1)}>Next ›</button>
     </div>}
   </div>;
 }
