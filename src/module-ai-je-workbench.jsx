@@ -7,6 +7,7 @@ import {
   createWbsMockDataset,
   runDeterministicAccountingRules,
 } from './wbs-accounting-foundation.js';
+import { createAIReviewOutcomeRepository } from './ai-accounting.js';
 
 const riskTone = risk => risk === 'HIGH' ? 'bad' : risk === 'MEDIUM' ? 'warn' : 'muted';
 const stableKey = item => `${item.finding_id}:${item.suggested_je?.je_id || 'NO_JE'}`;
@@ -69,12 +70,18 @@ function specFromItem(item, status = 'DRAFT') {
   };
 }
 
+function reviewDraftFromItem(item) {
+  const draft=specFromItem(item,'DRAFT');
+  return {...draft,je_id:item.je.je_id,accounting_period:item.period,idempotency_key:`AI-DRAFT:${item.je.source_document_id}:${item.rule}:${item.je.je_id}`,member_trace:{entity_id:draft.entity_id,project_id:draft.project_id||null,property_id:draft.property_id||null}};
+}
+
 export function AIJEWorkbench({ ctx }) {
   const { actions, toast, goto, user } = ctx;
   const [tab, setTab] = useState('Ready');
   const [selectedKey, setSelectedKey] = useState(null);
   const [state, setState] = useState(() => repo.load('ai_je_workbench_state', {}));
   const [note, setNote] = useState('');
+  const reviewRepository = useMemo(() => createAIReviewOutcomeRepository(repo), []);
   const items = useMemo(() => workbenchItems(), []);
   const enriched = items.map(item => ({ ...item, workflow: state[item.key]?.status || 'READY', note: state[item.key]?.note || '' }));
   const selected = enriched.find(item => item.key === selectedKey) || enriched[0];
@@ -89,16 +96,24 @@ export function AIJEWorkbench({ ctx }) {
       toast('Cannot approve: debit/credit and source-document controls must pass.', 'bad');
       return;
     }
-    update(item, { status: 'APPROVED', note: note || item.note });
+    const revision=(Number(state[item.key]?.review_revision)||0)+1;
+    const result=reviewRepository.apply({draft:reviewDraftFromItem(item),outcome:{decision:'APPROVE',idempotency_key:`AI-REVIEW:${item.key}:${revision}`,reason:note||'Approved for Draft preparation',review_metadata:{source_refs:item.sourceRefs}},actor:user.user_id});
+    update(item, { status: 'APPROVED', note: note || item.note, review_revision: result.draft.ai_review_revision, review_outcome_id: result.draft.ai_review_outcome_id });
     audit('AI_JE_APPROVED', item);
     toast('AI JE candidate approved for Draft creation.');
   };
   const reject = item => {
-    update(item, { status: 'REJECTED', note: note || 'Rejected by reviewer' });
+    const revision=(Number(state[item.key]?.review_revision)||0)+1;
+    const result=reviewRepository.apply({draft:reviewDraftFromItem(item),outcome:{decision:'REJECT',idempotency_key:`AI-REVIEW:${item.key}:${revision}`,reason:note||'Rejected by reviewer',review_metadata:{source_refs:item.sourceRefs}},actor:user.user_id});
+    update(item, { status: 'REJECTED', note: note || 'Rejected by reviewer', review_revision: result.draft.ai_review_revision, review_outcome_id: result.draft.ai_review_outcome_id });
     audit('AI_JE_REJECTED', item, note);
     toast('AI JE candidate rejected.', 'warn');
   };
   const createDraft = item => {
+    if (item.workflow !== 'APPROVED') {
+      toast('Draft blocked: a retained human approval outcome is required first.', 'bad');
+      return;
+    }
     if (!item.balanced || !item.hasSource) {
       toast('Draft blocked: candidate must be balanced and source-backed.', 'bad');
       return;
@@ -169,7 +184,7 @@ export function AIJEWorkbench({ ctx }) {
           <textarea className="input" rows={3} value={note} onChange={event => setNote(event.target.value)} placeholder="Add reviewer note before approve/reject/post" />
           <div className="row-acts" style={{ marginTop: 14 }}>
             <Btn variant="primary" onClick={() => approve(selected)}>Approve</Btn>
-            <Btn onClick={() => createDraft(selected)}>Create Draft JE</Btn>
+            <Btn onClick={() => createDraft(selected)} disabled={selected.workflow !== 'APPROVED'} title={selected.workflow === 'APPROVED' ? 'Create a Draft JE through the application action boundary' : 'Retain a human approval outcome first'}>Create Draft JE</Btn>
             <Btn variant="danger" onClick={() => reject(selected)}>Reject</Btn>
           </div>
           <p className="muted sm">This workbench records human review and can create a Draft JE only. Review, approval, and posting remain in the controlled Journal Entry workflow.</p>
@@ -177,6 +192,7 @@ export function AIJEWorkbench({ ctx }) {
           <ul className="mini-list">
             {selected.auditTrail.map((entry, index) => <li key={index}>{entry.action} <span className="muted">by {entry.actor || 'system'} at {entry.at || 'runtime'}</span></li>)}
             {state[selected.key] && <li>{state[selected.key].status} <span className="muted">by {state[selected.key].by} at {state[selected.key].at}</span></li>}
+            {state[selected.key]?.review_outcome_id && <li>Review outcome {state[selected.key].review_outcome_id} <span className="muted">revision {state[selected.key].review_revision}</span></li>}
           </ul>
         </> : <div className="empty">Select an AI journal candidate to review.</div>}
       </div>

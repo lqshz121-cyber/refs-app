@@ -36,6 +36,9 @@ if (!moduleSource.includes('posting remain in the controlled Journal Entry workf
 if (!moduleSource.includes('actions.newJEFromRule')) fail('AI JE Workbench must create JE records through app action boundary.');
 if (!moduleSource.includes("specFromItem(item, 'DRAFT')")) fail('AI JE Workbench may create Draft JEs only.');
 if (moduleSource.includes("specFromItem(item, 'POSTED')")) fail('AI JE Workbench must never create a Posted JE.');
+if (!moduleSource.includes('createAIReviewOutcomeRepository')) fail('AI JE Workbench must persist canonical human review outcomes.');
+if (!moduleSource.includes("decision:'APPROVE'") || !moduleSource.includes("decision:'REJECT'")) fail('AI JE Workbench must retain explicit human approve/reject decisions.');
+if (!moduleSource.includes("item.workflow !== 'APPROVED'")) fail('AI JE Workbench must block Draft creation until a retained approval outcome exists.');
 
 const snapshot = createWbsMockDataset();
 const events = buildAccountingEvents(snapshot);
