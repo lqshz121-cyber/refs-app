@@ -71,7 +71,7 @@ export function Table({cols, rows, onRow, empty='No records to display.', rowKey
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=(exportName||'export')+'.csv'; a.click(); URL.revokeObjectURL(a.href);
   };
 
-  if (!rows || rows.length===0) return <div className="empty">{empty}</div>;
+  if (!rows || rows.length===0) return <div className="empty empty-state" role="status" aria-live="polite">{empty}</div>;
   return <div>
     {(filterable||exportable) && <div className="grid-bar">
       {filterable && <input className="grid-search" aria-label="Search table records" placeholder="Search this view" value={q} onChange={e=>{setQ(e.target.value); setPage(0); persist({q:e.target.value});}}/>}
