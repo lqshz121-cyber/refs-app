@@ -210,8 +210,24 @@ export function proposeDraftJE({finding,evidence,jeSpec}={}) {
   if (jeSpec.posting_status && jeSpec.posting_status!=='DRAFT') throw new Error('AI proposal cannot be POSTED');
   const confidence=Number(finding.confidence);
   if(!Number.isFinite(confidence)||confidence<0.6) throw new Error('AI proposal confidence below 0.60 must remain in the exception queue');
-  ['entity_id','project_id','property_id'].forEach(key=>{ if(finding.dimensions?.[key]!==undefined&&finding.dimensions?.[key]!==null&&String(jeSpec[key])!==String(finding.dimensions[key])) throw new Error(`AI proposal ${key} must match the finding dimension`); });
+  if(!jeSpec.entity_id) throw new Error('AI proposal requires an entity');
+  if(!jeSpec.je_type) throw new Error('AI proposal requires a JE type');
+  if(!finding.rule) throw new Error('AI proposal requires an AI rule');
+  const memberTrace=jeSpec.member_trace;
+  if(!memberTrace || typeof memberTrace!=='object' || !['entity_id','project_id','property_id'].every(key=>Object.hasOwn(memberTrace,key))) throw new Error('AI proposal requires explicit entity, project and property member trace');
+  if(String(memberTrace.entity_id)!==String(jeSpec.entity_id)) throw new Error('AI proposal member trace entity must match the JE entity');
+  ['entity_id','project_id','property_id'].forEach(key=>{
+    const declared=finding.dimensions?.[key];
+    if(declared!==undefined&&declared!==null&&String(memberTrace[key])!==String(declared)) throw new Error(`AI proposal ${key} member trace must match the finding dimension`);
+    if(jeSpec[key]!==undefined&&jeSpec[key]!==null&&String(jeSpec[key])!==String(memberTrace[key])) throw new Error(`AI proposal ${key} must match the member trace`);
+  });
+  const accountingPeriod=jeSpec.accounting_period||jeSpec.period_code;
+  const sourceDocumentId=jeSpec.source_document_id||jeSpec.source_doc_id;
+  if(!isValidPeriodCode(accountingPeriod)) throw new Error('AI proposal requires a valid accounting period');
+  if(!isValidISODate(jeSpec.je_date)||jeSpec.je_date.slice(0,7)!==accountingPeriod) throw new Error('AI proposal date must belong to its accounting period');
+  if(!sourceDocumentId) throw new Error('AI proposal requires a source document trace');
   if(evidence.schema!=='AI_DECISION_EVIDENCE_V1' || !Array.isArray(evidence.input_refs) || evidence.input_refs.length===0) throw new Error('AI proposal evidence requires a valid schema and source references');
+  if(!evidence.input_refs.some(ref=>String(ref)===String(sourceDocumentId)||String(ref).endsWith(`:${sourceDocumentId}`))) throw new Error('AI proposal source document must be retained in evidence');
   const gates=evidence.policy_gates||[];
   if(!['DRAFT_ONLY','HUMAN_REVIEW_REQUIRED','NO_AUTOMATIC_POSTING'].every(gate=>gates.includes(gate))) throw new Error('AI proposal evidence requires Draft, human-review and no-posting gates');
   const lines=jeSpec.lines||[];
@@ -220,8 +236,10 @@ export function proposeDraftJE({finding,evidence,jeSpec}={}) {
   if(lines.length<2 || !(debit>0) || Math.abs(debit-credit)>=0.005) throw new Error('AI proposal Draft JE must be balanced');
   const routedFinding=finding.id&&finding.review_owner?finding:{...finding,id:finding.id||`${finding.skill||'AI'}:${finding.rule||'PROPOSAL'}:${jeSpec.je_id||jeSpec.je_number||'DRAFT'}`,risk:finding.risk||'MEDIUM',object_type:finding.object_type||'JE',object:finding.object||jeSpec.je_id||jeSpec.je_number||'DRAFT',review_owner:reviewBand(finding.confidence).owner};
   const reviewTask=createAIReviewTask({finding:routedFinding,evidence});
-  const proposalId=jeSpec.ai_proposal_id||`AI-PROP:${routedFinding.id}:${jeSpec.period_code||jeSpec.je_date||'DRAFT'}`;
-  const draft={...redactSecrets(jeSpec),posting_status:'DRAFT',ai_proposed:true,ai_proposal_id:proposalId,ai_finding_id:routedFinding.id,ai_rule_id:finding.rule,ai_confidence:finding.confidence,ai_evidence:evidence,ai_source_refs:[...(finding.source_refs||evidence.input_refs||[])],ai_review_task_id:reviewTask.task_id,history:[...(jeSpec.history||[]),{a:'AI_PROPOSE_DRAFT',by:'AI_ACCOUNTING_BRAIN',at:new Date().toISOString()}]};
+  const proposalId=jeSpec.ai_proposal_id||`AI-PROP:${routedFinding.id}:${accountingPeriod}`;
+  if(Object.hasOwn(jeSpec,'idempotency_key')&&!jeSpec.idempotency_key) throw new Error('AI proposal requires a non-empty idempotency key');
+  const idempotencyKey=jeSpec.idempotency_key||`AI-DRAFT:${sourceDocumentId}:${finding.rule}:${proposalId}`;
+  const draft={...redactSecrets(jeSpec),entity_id:jeSpec.entity_id,project_id:memberTrace.project_id,property_id:memberTrace.property_id,member_trace:redactSecrets(memberTrace),period_code:accountingPeriod,accounting_period:accountingPeriod,source_doc_id:sourceDocumentId,source_document_id:sourceDocumentId,idempotency_key:idempotencyKey,posting_status:'DRAFT',ai_proposed:true,ai_proposal_id:proposalId,ai_finding_id:routedFinding.id,ai_rule_id:finding.rule,ai_confidence:finding.confidence,ai_evidence:evidence,ai_source_refs:[...(finding.source_refs||evidence.input_refs||[])],ai_review_task_id:reviewTask.task_id,history:[...(jeSpec.history||[]),{a:'AI_PROPOSE_DRAFT',by:'AI_ACCOUNTING_BRAIN',at:new Date().toISOString()}]};
   return {draft,review_task:reviewTask,events:[createAIEvent({eventType:'AI_DRAFT_PROPOSED',objectType:'JE',objectId:draft.je_number||draft.je_id,payload:{finding_id:routedFinding.id,rule:finding.rule,confidence:finding.confidence,evidence:evidence.schema,review_task_id:reviewTask.task_id}})]};
 }
 
@@ -233,7 +251,7 @@ export function prepareAmortizationDraftJE({schedule,periodCode,entityId,expense
   if(!line || line.status!=='PENDING' || !(Number(line.amount)>0)) throw new Error('Amortization period is not available for Draft JE preparation');
   const finding=makeFinding({skill:'PREPAID_AMORTIZATION',rule:'AMORTIZATION_DUE',risk:'LOW',objectType:'AMORTIZATION_SCHEDULE',objectRef:schedule.schedule_id,reason:`Scheduled amortization for ${periodCode}`,action:'Prepare Draft JE for review',confidence:0.99,sourceRefs:[schedule.bill_id],dimensions:{entity_id:entityId,period_code:periodCode}});
   const evidence=buildDecisionEvidence({skill:finding.skill,rule:finding.rule,inputRefs:[`bill:${schedule.bill_id}`,`schedule:${schedule.schedule_id}`],observations:[`Coverage ${schedule.coverage_start} through ${schedule.coverage_end}`,`Scheduled amount ${line.amount} for ${periodCode}`],alternatives:['Defer until coverage or source evidence is corrected'],policyGates:['DRAFT_ONLY','HUMAN_REVIEW_REQUIRED','NO_AUTOMATIC_POSTING'],confidence:finding.confidence,reasoning:'Deterministic monthly allocation from the approved coverage period'});
-  return proposeDraftJE({finding,evidence,jeSpec:{entity_id:entityId,je_type:'AUTO',source_system:'AMORTIZATION',posting_status:'DRAFT',je_date:`${periodCode}-01`,period_code:periodCode,description:`Amortization ${schedule.source} - ${periodCode}`,rule_code:'R-PREPAID-AMORT',source_doc_id:schedule.bill_id,lines:[{account_code:expenseAccount,debit_amount:line.amount,credit_amount:0},{account_code:prepaidAccount,debit_amount:0,credit_amount:line.amount}]}});
+  return proposeDraftJE({finding,evidence,jeSpec:{entity_id:entityId,member_trace:{entity_id:entityId,project_id:schedule.project_id||null,property_id:schedule.property_id||null},je_type:'AUTO',source_system:'AMORTIZATION',posting_status:'DRAFT',je_date:`${periodCode}-01`,period_code:periodCode,description:`Amortization ${schedule.source} - ${periodCode}`,rule_code:'R-PREPAID-AMORT',source_doc_id:schedule.bill_id,lines:[{account_code:expenseAccount,debit_amount:line.amount,credit_amount:0},{account_code:prepaidAccount,debit_amount:0,credit_amount:line.amount}]}});
 }
 
 // A close-period accrual is a proposal schedule, never a balance mutation.
@@ -250,14 +268,14 @@ export function prepareAccrualDraftJE({schedule}={}) {
   if(!schedule?.schedule_id || schedule.status!=='DRAFT') throw new Error('Accrual schedule must be in Draft status');
   const finding=makeFinding({skill:'ACCRUAL_ACCOUNTING',rule:'MISSING_ACCRUAL',risk:'MEDIUM',objectType:'ACCRUAL_SCHEDULE',objectRef:schedule.schedule_id,reason:`Accrual is due for ${schedule.period_code}`,action:'Prepare Draft accrual JE for controller review',confidence:0.9,sourceRefs:[schedule.source_ref],dimensions:{entity_id:schedule.entity_id,period_code:schedule.period_code}});
   const evidence=buildDecisionEvidence({skill:finding.skill,rule:finding.rule,inputRefs:[schedule.source_ref,`schedule:${schedule.schedule_id}`],observations:[schedule.description,`Accrual ${schedule.amount} on ${schedule.accrual_date}`,`Reverse on ${schedule.reversal_date}`],alternatives:['Do not accrue until source support is available'],policyGates:['DRAFT_ONLY','HUMAN_REVIEW_REQUIRED','NO_AUTOMATIC_POSTING'],confidence:finding.confidence,reasoning:'Deterministic close-period accrual based on supplied source support and account mapping'});
-  return proposeDraftJE({finding,evidence,jeSpec:{entity_id:schedule.entity_id,je_type:'AUTO',source_system:'ACCRUAL',posting_status:'DRAFT',je_date:schedule.accrual_date,period_code:schedule.period_code,description:schedule.description,rule_code:'R-ACCRUAL',source_doc_id:schedule.source_ref,accrual_schedule_id:schedule.schedule_id,lines:[{account_code:schedule.expense_account,debit_amount:schedule.amount,credit_amount:0},{account_code:schedule.liability_account,debit_amount:0,credit_amount:schedule.amount}]}});
+  return proposeDraftJE({finding,evidence,jeSpec:{entity_id:schedule.entity_id,member_trace:{entity_id:schedule.entity_id,project_id:schedule.project_id||null,property_id:schedule.property_id||null},je_type:'AUTO',source_system:'ACCRUAL',posting_status:'DRAFT',je_date:schedule.accrual_date,period_code:schedule.period_code,description:schedule.description,rule_code:'R-ACCRUAL',source_doc_id:schedule.source_ref,accrual_schedule_id:schedule.schedule_id,lines:[{account_code:schedule.expense_account,debit_amount:schedule.amount,credit_amount:0},{account_code:schedule.liability_account,debit_amount:0,credit_amount:schedule.amount}]}});
 }
 
 export function prepareAccrualReversalDraftJE({schedule,accrualDraft}={}) {
   if(!schedule?.schedule_id || !accrualDraft?.ai_proposed || accrualDraft.posting_status!=='DRAFT') throw new Error('Accrual reversal requires its AI Draft accrual JE');
   const finding=makeFinding({skill:'ACCRUAL_ACCOUNTING',rule:'ACCRUAL_REVERSAL_DUE',risk:'LOW',objectType:'ACCRUAL_SCHEDULE',objectRef:schedule.schedule_id,reason:`Reverse accrual on ${schedule.reversal_date}`,action:'Prepare Draft reversal JE for review',confidence:0.99,sourceRefs:[schedule.source_ref,accrualDraft.je_id||accrualDraft.je_number||schedule.schedule_id],dimensions:{entity_id:schedule.entity_id}});
   const evidence=buildDecisionEvidence({skill:finding.skill,rule:finding.rule,inputRefs:[schedule.source_ref,`accrual_draft:${accrualDraft.je_id||accrualDraft.je_number||schedule.schedule_id}`],observations:[`Reverse ${schedule.amount} on ${schedule.reversal_date}`],alternatives:['Keep accrual open pending human review'],policyGates:['DRAFT_ONLY','HUMAN_REVIEW_REQUIRED','NO_AUTOMATIC_POSTING'],confidence:finding.confidence,reasoning:'Reversal mirrors the related AI accrual Draft and must follow the same approval workflow'});
-  return proposeDraftJE({finding,evidence,jeSpec:{entity_id:schedule.entity_id,je_type:'AUTO',source_system:'ACCRUAL_REVERSAL',posting_status:'DRAFT',je_date:schedule.reversal_date,period_code:schedule.reversal_date.slice(0,7),description:`Reversal: ${schedule.description}`,rule_code:'R-ACCRUAL-REVERSAL',source_doc_id:schedule.source_ref,accrual_schedule_id:schedule.schedule_id,reverses_ai_draft:accrualDraft.je_id||accrualDraft.je_number||null,lines:[{account_code:schedule.liability_account,debit_amount:schedule.amount,credit_amount:0},{account_code:schedule.expense_account,debit_amount:0,credit_amount:schedule.amount}]}});
+  return proposeDraftJE({finding,evidence,jeSpec:{entity_id:schedule.entity_id,member_trace:{entity_id:schedule.entity_id,project_id:schedule.project_id||null,property_id:schedule.property_id||null},je_type:'AUTO',source_system:'ACCRUAL_REVERSAL',posting_status:'DRAFT',je_date:schedule.reversal_date,period_code:schedule.reversal_date.slice(0,7),description:`Reversal: ${schedule.description}`,rule_code:'R-ACCRUAL-REVERSAL',source_doc_id:schedule.source_ref,accrual_schedule_id:schedule.schedule_id,reverses_ai_draft:accrualDraft.je_id||accrualDraft.je_number||null,lines:[{account_code:schedule.liability_account,debit_amount:schedule.amount,credit_amount:0},{account_code:schedule.expense_account,debit_amount:0,credit_amount:schedule.amount}]}});
 }
 
 export function createAIWALRecord({proposalId, finding, evidence, draft}={}) {
