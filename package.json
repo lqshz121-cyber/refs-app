@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node build.mjs && node scripts/write-runtime-config.mjs",
     "dev": "node build.mjs --watch",
-    "test": "npm.cmd run test:ssr && npm.cmd run test:wbs-accounting-foundation && npm.cmd run test:ap-ar && npm.cmd run test:api-client && npm.cmd run test:attachment-client && npm.cmd run test:oidc && npm.cmd run test:runtime-config && npm.cmd run test:navigation-a11y && npm.cmd run test:workflow && npm.cmd run test:autorecon && npm.cmd run test:audit && npm.cmd run test:visual && npm.cmd run test:release-harness && npm.cmd run test:release-simulation",
+    "test": "npm.cmd run test:ssr && npm.cmd run test:wbs-accounting-foundation && npm.cmd run test:ap-ar && npm.cmd run test:api-client && npm.cmd run test:attachment-client && npm.cmd run test:oidc && npm.cmd run test:runtime-config && npm.cmd run test:navigation-a11y && npm.cmd run test:workflow && npm.cmd run test:autorecon && npm.cmd run test:audit && npm.cmd run test:visual && npm.cmd run test:release-harness && npm.cmd run test:release-simulation && npm.cmd run test:release-evidence-bundle",
     "test:ap-ar": "esbuild ./tests/ap-ar-workflow.test.jsx --bundle --platform=node --format=cjs --outfile=tests/ap-ar-workflow.test.cjs && node tests/ap-ar-workflow.test.cjs",
     "test:api-client": "esbuild ./tests/accounting-api-client.test.js --bundle --platform=node --format=cjs --outfile=tests/accounting-api-client.test.cjs && node tests/accounting-api-client.test.cjs",
     "test:attachment-client": "esbuild ./tests/attachment-api-client.test.js --bundle --platform=node --format=cjs --outfile=tests/attachment-api-client.test.cjs && node tests/attachment-api-client.test.cjs",
@@ -21,6 +21,8 @@
     "test:visual": "npm.cmd run build && node tools/run-verifiers.mjs",
     "test:release-harness": "node tools/verify-external-release-gate.test.mjs",
     "test:release-simulation": "node tools/verify-local-release-simulation.test.mjs",
+    "test:release-evidence-bundle": "node tools/create-release-evidence-bundle.test.mjs",
+    "create:release-evidence-bundle": "node tools/create-release-evidence-bundle.mjs --strict-clean",
     "verify:external-release-gate": "node tools/verify-external-release-gate.mjs all",
     "verify:release-ui-e2e": "node tools/verify-external-release-gate.mjs ui",
     "verify:release-s3-scanner": "node tools/verify-external-release-gate.mjs s3",
