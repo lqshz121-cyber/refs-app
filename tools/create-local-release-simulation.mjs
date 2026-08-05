@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 
 const outRoot = resolve('outputs/local-release-simulation');
@@ -46,15 +47,16 @@ writeJson(resolve(outRoot, 's3-scanner-receipt.json'), {
   steps: ['upload', 'scan_clean', 'head_versioned', 'delete', 'delete_verified'],
 });
 
+const { privateKey: wbsPrivateKey, publicKey: wbsPublicKey } = generateKeyPairSync('ed25519');
+const wbsKeyId = 'local-sim-key-1';
+const wbsPackageHash = `sha256:${'2'.repeat(64)}`;
+const wbsSignature = sign(null, Buffer.from(wbsPackageHash, 'utf8'), wbsPrivateKey).toString('base64');
+
 writeJson(resolve(outRoot, 'wbs-public-keys.json'), {
   mode: 'LOCAL_SIMULATION',
-  keys: [
-    {
-      kid: 'local-sim-key-1',
-      algorithm: 'Ed25519',
-      public_key: 'LOCAL_SIMULATION_PUBLIC_KEY_NOT_FOR_PRODUCTION',
-    },
-  ],
+  publicKeys: {
+    [wbsKeyId]: wbsPublicKey.export({ type: 'spki', format: 'pem' }),
+  },
 });
 
 writeJson(resolve(outRoot, 'wbs-signed-receipt.json'), {
@@ -62,10 +64,16 @@ writeJson(resolve(outRoot, 'wbs-signed-receipt.json'), {
   warning: 'This verifies release harness wiring only. It is not a live WBS signed receipt.',
   nonempty: true,
   issuer: 'wbs-local-simulation',
-  kid: 'local-sim-key-1',
+  kid: wbsKeyId,
   algorithm: 'Ed25519',
   response_sha256: '0'.repeat(64),
   request_sha256: '1'.repeat(64),
+  package_hash: wbsPackageHash,
+  detached_signature: {
+    key_id: wbsKeyId,
+    algorithm: 'Ed25519',
+    value: wbsSignature,
+  },
   nonce: 'local-simulation-nonce',
   signed_at: '2026-08-05T00:00:00.000Z',
   expires_at: '2026-08-06T00:00:00.000Z',

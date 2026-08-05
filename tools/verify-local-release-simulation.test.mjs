@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const node = process.execPath;
@@ -41,5 +41,15 @@ assert.match(s3Receipt.warning, /not provider-backed/i);
 const wbsReceipt = JSON.parse(readFileSync(envConfig.REFS_WBS_SIGNED_RECEIPT_FILE, 'utf8'));
 assert.equal(wbsReceipt.mode, 'LOCAL_SIMULATION');
 assert.match(wbsReceipt.warning, /not a live WBS signed receipt/i);
+assert.equal(wbsReceipt.detached_signature?.algorithm, 'Ed25519');
+
+const tamperedReceipt = resolve('outputs/local-release-simulation/wbs-signed-receipt-tampered.json');
+writeFileSync(tamperedReceipt, `${JSON.stringify({ ...wbsReceipt, package_hash: 'sha256:'.concat('9'.repeat(64)) }, null, 2)}\n`, 'utf8');
+const tampered = spawnSync(node, [gate, 'wbs'], {
+  encoding: 'utf8',
+  env: { ...env, REFS_WBS_SIGNED_RECEIPT_FILE: tamperedReceipt },
+});
+assert.equal(tampered.status, 2, 'tampered WBS receipt must fail closed');
+assert.match(`${tampered.stdout}${tampered.stderr}`, /RELEASE_WBS_RECEIPT_SIGNATURE_INVALID/);
 
 console.log('local-release-simulation: ui, s3, and wbs gates pass with local simulation artifacts');

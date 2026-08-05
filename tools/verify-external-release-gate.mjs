@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { createPublicKey, verify } from 'node:crypto';
 import { resolve } from 'node:path';
 
 const forbidden = /[\p{Script=Han}\uFFFD\u0080-\u009F]/u;
@@ -17,6 +18,22 @@ const jsonFile = (path, label) => {
   if (!existsSync(path)) return fail('RELEASE_GATE_EVIDENCE_MISSING', `${label}=${path}`);
   try { return JSON.parse(readFileSync(path, 'utf8')); }
   catch { return fail('RELEASE_GATE_EVIDENCE_INVALID', `${label} is not JSON`); }
+};
+const normalizeWbsPublicKeys = value => {
+  const raw = value?.publicKeys || value?.public_keys || value;
+  const entries = Array.isArray(raw?.keys)
+    ? raw.keys.map(row => [row.kid || row.key_id, row.public_key || row.publicKey])
+    : Object.entries(raw || {});
+  const keys = new Map();
+  for (const [keyId, pem] of entries) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(String(keyId || ''))) return null;
+    if (typeof pem !== 'string' || pem.trim().length < 64) return null;
+    let key;
+    try { key = createPublicKey(pem.replace(/\\n/g, '\n')); } catch { return null; }
+    if (key.asymmetricKeyType !== 'ed25519') return null;
+    keys.set(keyId, key);
+  }
+  return keys.size ? keys : null;
 };
 
 export function verifyUiEvidence(environment = process.env) {
@@ -44,11 +61,22 @@ export function verifyS3ScannerEvidence(environment = process.env) {
 
 export function verifyWbsReceiptEvidence(environment = process.env) {
   if (!requireEnv(environment, ['WBS_SNAPSHOT_ED25519_PUBLIC_KEYS', 'REFS_WBS_SIGNED_RECEIPT_FILE'])) return false;
+  const keyring = jsonFile(resolve(environment.WBS_SNAPSHOT_ED25519_PUBLIC_KEYS), 'WBS_SNAPSHOT_ED25519_PUBLIC_KEYS');
+  if (!keyring) return false;
+  const keys = normalizeWbsPublicKeys(keyring);
+  if (!keys) return fail('RELEASE_WBS_KEYRING_INVALID', 'expected pinned Ed25519 public keys');
   const receipt = jsonFile(resolve(environment.REFS_WBS_SIGNED_RECEIPT_FILE), 'REFS_WBS_SIGNED_RECEIPT_FILE');
   if (!receipt) return false;
-  const required = ['issuer', 'kid', 'algorithm', 'response_sha256', 'request_sha256', 'nonce', 'signed_at', 'expires_at', 'tenant_id', 'entity_id', 'company_code', 'immutable_version'];
+  const required = ['issuer', 'kid', 'algorithm', 'response_sha256', 'request_sha256', 'package_hash', 'nonce', 'signed_at', 'expires_at', 'tenant_id', 'entity_id', 'company_code', 'immutable_version'];
   if (!required.every(field => String(receipt[field] || '').trim()) || receipt.nonempty !== true) return fail('RELEASE_WBS_RECEIPT_INCOMPLETE', required.join(','));
-  console.log('release-wbs-receipt: handoff evidence shape verified; server admission must be run separately');
+  const signature = receipt.detached_signature;
+  if (!signature || signature.key_id !== receipt.kid || signature.algorithm !== 'Ed25519' || typeof signature.value !== 'string') return fail('RELEASE_WBS_RECEIPT_SIGNATURE_MISSING', receipt.kid || 'unknown');
+  const publicKey = keys.get(signature.key_id);
+  if (!publicKey) return fail('RELEASE_WBS_RECEIPT_KEY_UNKNOWN', signature.key_id);
+  let verified = false;
+  try { verified = verify(null, Buffer.from(receipt.package_hash, 'utf8'), publicKey, Buffer.from(signature.value, 'base64')); } catch {}
+  if (!verified) return fail('RELEASE_WBS_RECEIPT_SIGNATURE_INVALID', signature.key_id);
+  console.log('release-wbs-receipt: signed nonempty receipt evidence verified');
   return true;
 }
 
