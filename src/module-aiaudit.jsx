@@ -11,6 +11,7 @@ import {
 } from './wbs-accounting-foundation.js';
 import { buildWbsEndToEndFlowEvidence } from './wbs-e2e-flow-evidence.js';
 import { buildWbsAccountingAnalysisReport } from './wbs-accounting-analysis-report.js';
+import { buildWbsAccountingActionQueue } from './wbs-accounting-action-queue.js';
 
 const TAB_RULES = {
   'Critical Findings': finding => finding.risk === 'HIGH',
@@ -154,7 +155,8 @@ export function AIAudit({ ctx }) {
     const amortizationSchedule = createAmortizationScheduleFromInsurance(insuranceInvoice);
     const e2eFlowEvidence = buildWbsEndToEndFlowEvidence(snapshot);
     const accountingAnalysisReport = buildWbsAccountingAnalysisReport(snapshot);
-    return { snapshot, events, findings, amortizationSchedule, e2eFlowEvidence, accountingAnalysisReport };
+    const accountingActionQueue = buildWbsAccountingActionQueue(accountingAnalysisReport);
+    return { snapshot, events, findings, amortizationSchedule, e2eFlowEvidence, accountingAnalysisReport, accountingActionQueue };
   }, [jes, entity, runId]);
 
   const resolve = finding => {
@@ -217,6 +219,31 @@ export function AIAudit({ ctx }) {
           {h:'Audit',render:row=><Badge tone={row.audit_trail_count?'ok':'warn'}>{row.audit_trail_count}</Badge>,csv:row=>row.audit_trail_count},
         ]} rows={model.accountingAnalysisReport.executiveFindings}/>
         <p className="muted sm" style={{margin:'10px 0 0'}}>This local report never calls production WBS, never exports report data, and never posts outside the guarded mock posting gate. Global release still requires real HTTPS/OIDC, provider S3/scanner, and signed WBS receipt evidence.</p>
+      </section>
+      <section className="report-workbench wbs-accounting-action-queue" aria-label="WBS accounting action queue" style={{marginBottom:12}}>
+        <div className="report-workbench-head">
+          <div><b>Accounting action queue</b><div className="page-subtitle">Controller-ready work items generated from AI findings, workflow blockers and source-backed suggested journals.</div></div>
+          <Badge tone={model.accountingActionQueue.summary.no_post_without_review ? 'ok' : 'bad'}>{model.accountingActionQueue.mode}</Badge>
+        </div>
+        <div className="qbo-toolgrid">
+          <span><i>Total actions</i><b>{model.accountingActionQueue.summary.total_actions}</b></span>
+          <span><i>P0 actions</i><b>{model.accountingActionQueue.summary.p0_actions}</b></span>
+          <span><i>Draft ready</i><b>{model.accountingActionQueue.summary.draft_ready}</b></span>
+          <span><i>Review required</i><b>{model.accountingActionQueue.summary.review_required}</b></span>
+          <span><i>Workflow blockers</i><b>{model.accountingActionQueue.summary.blocked_workflows}</b></span>
+          <span><i>Auto-post allowed</i><b>No</b></span>
+        </div>
+        <Table features={{exportable:false}} rowKey="action_id" pageSize={10} cols={[
+          {h:'Priority',render:row=><Badge tone={row.priority === 'P0' ? 'bad' : row.priority === 'P1' ? 'warn' : 'muted'}>{row.priority}</Badge>,csv:row=>row.priority},
+          {h:'Action type',render:row=><span className="acct-code">{row.action_type}</span>,csv:row=>row.action_type},
+          {h:'Source',render:row=><span>{row.source_type} / {row.source_id}</span>,csv:row=>row.source_id},
+          {h:'Reason',k:'reason'},
+          {h:'Next action',k:'next_action'},
+          {h:'Owner / due',render:row=><span>{row.owner} / {row.due_date}</span>,csv:row=>`${row.owner} ${row.due_date}`},
+          {h:'Readiness',render:row=><Badge tone={row.readiness === 'DRAFT_READY' ? 'ok' : 'warn'}>{row.readiness}</Badge>,csv:row=>row.readiness},
+          {h:'Draft JE',render:row=><span>{row.suggested_je_number || 'Review only'}</span>,csv:row=>row.suggested_je_number || ''},
+        ]} rows={model.accountingActionQueue.actions}/>
+        <p className="muted sm" style={{margin:'10px 0 0'}}>The queue can prepare Draft JE review work only when source-backed balanced suggestions exist. It never posts, exports, syncs, or calls production WBS.</p>
       </section>
       <section className="report-workbench wbs-e2e-flow-evidence" aria-label="WBS mock end-to-end accounting flow evidence" style={{marginBottom:12}}>
         <div className="report-workbench-head">
