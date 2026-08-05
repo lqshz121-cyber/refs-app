@@ -342,7 +342,7 @@ export function GLTrialBalance({ctx}) {
 
 export function Reports({ctx}) {
   const {jes, exceptions, entity, navContext} = ctx;
-  const [open, setOpen] = useState(null);
+  const [open, setOpen] = useState(()=>navContext?.reportCenterReturn?.openReport || null);
   const [search, setSearch] = useState(navContext?.reportCenterReturn?.search || '');
   const [category, setCategory] = useState(navContext?.reportCenterReturn?.category || 'Standard reports');
   const [menuReport, setMenuReport] = useState(null);
@@ -355,7 +355,7 @@ export function Reports({ctx}) {
   const [dashboardQuery, setDashboardQuery] = useState('');
   const RETAINED_REPORT_NAMES = new Set([
     'Trial Balance', 'General Ledger', 'Balance Sheet', 'Income Statement',
-    'Profit and Loss', 'Cash Flow', 'AP Aging',
+    'Profit and Loss', 'Cash Flow', 'Cash & Restricted Cash Control', 'AP Aging',
     'Accounts receivable aging summary', 'Reconciliation History',
   ]);
   const hasEntity = entity != null && entity !== '' && entity !== 'ALL';
@@ -365,6 +365,36 @@ export function Reports({ctx}) {
   const reportScope = localReportScopeState({journals:jes,entityId:entity,fromPeriod:'2026-01',toPeriod:'2026-07'});
   const openGLReport = (tab, options={}) => {
     ctx.goto('gl', localLedgerReportLaunchContext(tab, entity, {...options,reportCenterReturn:{route:'reports',reportName:tab,category,search}}));
+  };
+  const cashControlReportReturn = {
+    route:'reports', reportName:'Cash & Restricted Cash Control', category, search,
+    openReport:'Cash & Restricted Cash Control',
+  };
+  const cashControlRows = hasEntity
+    ? localCashAccountRows(jes, {entityId:Number(entity), toPeriod:'2026-07'}).map(row => ({
+      ...row,
+      name:acct(row.account_code).account_name,
+      bankEvidence:localBankEvidenceForCashGroup(row.group, BANK_ACCOUNTS, Number(entity)),
+      bankAccount:BANK_ACCOUNTS.find(account => account.entity_id === Number(entity) && account.gl_account_code === row.account_code) || null,
+    }))
+    : [];
+  const cashControlReturnToGL = row => ({
+    ...localReportReturnContext({
+      tab:'GL Detail', fromP:'2026-01', toP:'2026-07', entityId:entity,
+      cashScope:row.group, drillAccounts:[row.account_code],
+      drillLabel:`${row.account_code} ${row.name}`,
+      asOf:true,
+    }),
+    reportCenterReturn:cashControlReportReturn,
+  });
+  const openCashControlLedger = row => ctx.goto('gl', cashControlReturnToGL(row));
+  const openCashControlRegister = row => ctx.goto('register', {
+    route:'register', entityId:String(entity), accountCode:row.account_code,
+    fromPeriod:'2026-01', throughPeriod:'2026-07', reportReturn:cashControlReturnToGL(row),
+  });
+  const openCashControlReconcile = row => {
+    if (!row.bankAccount) return;
+    ctx.goto('bankrec', {route:'bankrec', acctCode:row.bankAccount.bank_account_code, reportReturn:cashControlReturnToGL(row)});
   };
   const launchReport = (name, route) => {
     const capability = localReportCapability(name);
@@ -387,6 +417,24 @@ export function Reports({ctx}) {
     'Cost GL Reconciliation':'GL Detail',
   };
   const REPORTS = {
+    'Cash & Restricted Cash Control': () => {
+      const controlRows = cashControlRows.filter(row => ['Operating','Restricted','Escrow','Security deposit','Payroll restricted'].includes(row.group));
+      const operatingBalance = sum(controlRows.filter(row => row.group === 'Operating'), row => row.balance);
+      const restrictedBalance = sum(controlRows.filter(row => row.group !== 'Operating'), row => row.balance);
+      return <section className="report-workbench" aria-label="Cash and restricted cash control evidence">
+        <div className="report-workbench-head"><div><b>Local control evidence</b><div className="page-subtitle">Operating cash, restricted cash, escrow, security deposits, and payroll-restricted funds remain distinct. This page never assumes restricted funds are available operating cash.</div></div><Badge tone={controlRows.length ? 'ok' : 'warn'}>{controlRows.length ? 'LOCAL POSTED EVIDENCE' : 'NO LOCAL EVIDENCE'}</Badge></div>
+        <div className="kpi-row"><KPI label="Operating cash" value={money(operatingBalance)} tone="ok" /><KPI label="Restricted and custodial cash" value={money(restrictedBalance)} tone="warn" /><KPI label="Cash control accounts" value={controlRows.length} /></div>
+        <p className="report-drill-hint">Open a retained evidence destination to review the same entity, account and period. All destinations are read-only; missing bank mapping remains unavailable rather than inferred.</p>
+        <Table rowKey="account_code" features={{exportable:false}} empty={hasEntity ? 'No posted local cash-control evidence is available for this entity through 2026-07.' : 'Select one entity before opening cash-control evidence.'} cols={[
+          {h:'Cash GL',render:row=><span><span className="acct-code">{row.account_code}</span> {row.name}</span>,csv:row=>row.account_code},
+          {h:'Scope',render:row=><Badge tone={row.group==='Operating'?'ok':'warn'}>{row.group}</Badge>,csv:row=>row.group},
+          {h:'Posted balance',num:true,render:row=><Money v={row.balance}/>,csv:row=>row.balance},
+          {h:'Posted JEs',k:'posted_je_count'},
+          {h:'Bank mapping',render:row=><Badge tone={row.bankAccount?'ok':'muted'}>{row.bankAccount ? row.bankAccount.bank_account_code : 'No local mapping'}</Badge>,csv:row=>row.bankAccount?.bank_account_code || ''},
+          {h:'Evidence actions',render:row=><span className="qbo-report-row-actions"><Btn size="sm" variant="ghost" onClick={()=>openCashControlLedger(row)}>Open GL detail</Btn><Btn size="sm" variant="ghost" onClick={()=>openCashControlRegister(row)}>Open account register</Btn><Btn size="sm" variant="ghost" disabled={!row.bankAccount} title={row.bankAccount ? 'Open the mapped local reconciliation evidence' : 'No local bank-account mapping is retained for this cash-control account'} onClick={()=>openCashControlReconcile(row)}>Open local reconciliation</Btn></span>},
+        ]} rows={controlRows}/>
+      </section>;
+    },
     'Construction Loan Rollforward': () => { const rows = LOANS.map(l=>{ const draws=sum(LOAN_TXNS.filter(t=>t.loan_id===l.loan_id&&t.txn_type==='DRAW'),t=>t.amount); const rep=sum(LOAN_TXNS.filter(t=>t.loan_id===l.loan_id&&t.txn_type==='REPAYMENT'),t=>t.amount);
         return {loan:l.loan_code, lender:l.lender_name, begin:l.current_principal-draws+rep, draws, repayments:rep, end:l.current_principal, avail:l.commitment_amount-l.current_principal}; });
       return <Table exportName="loan-rollforward" cols={[{h:'Loan',k:'loan'},{h:'Lender',k:'lender'},{h:'Beginning principal',num:true,render:r=><Money v={r.begin}/>,csv:r=>r.begin},{h:'+ Draws',num:true,render:r=><Money v={r.draws}/>,csv:r=>r.draws},{h:'- Repayments',num:true,render:r=><Money v={r.repayments}/>,csv:r=>r.repayments},{h:'Ending principal',num:true,render:r=><Money v={r.end}/>,csv:r=>r.end},{h:'Available commitment',num:true,render:r=><Money v={r.avail}/>,csv:r=>r.avail}]} rows={rows}/>; },
@@ -453,6 +501,7 @@ export function Reports({ctx}) {
   };
   const reports = [
     ['Trial Balance','GL','gl'],['Adjusted Trial Balance','GL',null],['General Ledger','GL','gl'],['Balance Sheet','GL','gl'],['Income Statement','GL','gl'],['Profit and Loss','GL','gl'],['Cash Flow','GL','gl'],
+    ['Cash & Restricted Cash Control','Cash controls',null],
     ['Construction Loan Rollforward','Construction',null],['Manual JE Report','Management',null],['Exception Aging','Management',null],
     ['Data Sync Report','Management',null],['Property Operating Statement','Property',null],
     ['Budget vs Actual','Projects','cost'],['Cost to Complete','Projects','cost'],['AP Aging','Transactions','ap'],['Accounts receivable aging summary','Transactions','ar'],['Reconciliation History','Transactions','bankrec'],
@@ -465,15 +514,16 @@ export function Reports({ctx}) {
     {name:'Balance Sheet', caption:'As-of position with account drillback', route:'gl', badge:'Quick drill'},
     {name:'Profit and Loss', caption:'Local P&L drill into ledger and source workflow', route:'gl', badge:'Quick drill'},
     {name:'Cash Flow', caption:'Posted cash movement with scope cross-checks', route:'gl', badge:'Quick drill'},
+    {name:'Cash & Restricted Cash Control', caption:'Read-only cash-control evidence with retained GL, register, and reconciliation return paths', route:null, badge:'Control drill'},
   ];
   const reportRows = reports.filter(([name])=>RETAINED_REPORT_NAMES.has(name)).map(([name, category, route])=>({
     name,
     category,
     route,
     capability:localReportCapability(name),
-    evidenceState: localReportCapability(name).state==='REFERENCE_ONLY' ? 'REFERENCE_ONLY' : localReportCapability(name).state==='LOCAL_PREVIEW' ? 'REVIEW_REQUIRED' : posted.length ? 'AVAILABLE_LOCAL_EVIDENCE' : 'NO_LOCAL_EVIDENCE',
-    experience: localReportCapability(name).state==='LOCAL_LEDGER' ? 'Linked statement' : localReportCapability(name).state==='LOCAL_WORKFLOW' ? 'Operational workspace' : localReportCapability(name).state==='LOCAL_PREVIEW' ? 'Local preview' : 'QBO reference only',
-    drillPath: localReportCapability(name).state==='LOCAL_LEDGER' ? 'Report -> account detail -> JE -> source queue' : localReportCapability(name).state==='LOCAL_WORKFLOW' ? 'Report hub -> source workspace' : localReportCapability(name).state==='LOCAL_PREVIEW' ? 'Preview only; no source drill' : 'No local workflow target',
+    evidenceState: localReportCapability(name).state==='REFERENCE_ONLY' ? 'REFERENCE_ONLY' : ['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(localReportCapability(name).state) ? 'REVIEW_REQUIRED' : posted.length ? 'AVAILABLE_LOCAL_EVIDENCE' : 'NO_LOCAL_EVIDENCE',
+    experience: localReportCapability(name).state==='LOCAL_LEDGER' ? 'Linked statement' : localReportCapability(name).state==='LOCAL_WORKFLOW' ? 'Operational workspace' : localReportCapability(name).state==='LOCAL_CONTROL' ? 'Local control drill' : localReportCapability(name).state==='LOCAL_PREVIEW' ? 'Local preview' : 'QBO reference only',
+    drillPath: localReportCapability(name).state==='LOCAL_LEDGER' ? 'Report -> account detail -> JE -> source queue' : localReportCapability(name).state==='LOCAL_WORKFLOW' ? 'Report hub -> source workspace' : localReportCapability(name).state==='LOCAL_CONTROL' ? 'Control report -> GL / register / reconcile -> Back' : localReportCapability(name).state==='LOCAL_PREVIEW' ? 'Preview only; no source drill' : 'No local workflow target',
   }));
   const reportNames = reportRows.filter(report=>report.capability.state!=='REFERENCE_ONLY').map(report=>report.name);
   useEffect(()=>{
@@ -481,15 +531,15 @@ export function Reports({ctx}) {
     try { localStorage.setItem('refs_report_favorites', JSON.stringify([...normalized])); } catch {}
   }, [favorites, reportNames.join('|')]);
   const toggleFavorite = reportName => setFavorites(current=>toggledReportFavorites(current, reportName, reportNames));
-  const shortcutNames = new Set(['Balance Sheet','Income Statement','Profit and Loss','Trial Balance','General Ledger','Cash Flow','AP Aging','Accounts receivable aging summary','Reconciliation History']);
+  const shortcutNames = new Set(['Balance Sheet','Income Statement','Profit and Loss','Trial Balance','General Ledger','Cash Flow','Cash & Restricted Cash Control','AP Aging','Accounts receivable aging summary','Reconciliation History']);
   const visibleRows = reportRows.filter(r=>((category==='Standard reports' && shortcutNames.has(r.name)) || (category==='All reports') || (category==='Favorites' && favorites.has(r.name)) || r.category===category) && (!search || `${r.name} ${r.category} ${r.drillPath}`.toLowerCase().includes(search.toLowerCase())));
   const previewMeta = open ? reportRows.find(r=>r.name===open) : null;
   if (open) return <div className="reports-library report-replacement-view">
-    <div className="qbo-report-back"><button type="button" onClick={()=>{setOpen(null);setPreviewTool(null);setMenuReport(null)}}>Back to Reports Center</button><span>{previewMeta?.capability.state==='LOCAL_PREVIEW'?'Local report detail':'Reference-only report'}</span></div>
-    <div className="report-preview-head"><div className="report-preview-titlewrap"><div className="report-preview-crumb">Reports Center · {previewMeta?.capability.state==='LOCAL_PREVIEW'?'Local evidence':'Observed reference'}</div><SectionTitle>{open}</SectionTitle><p className="page-subtitle">{previewMeta?.capability.state==='LOCAL_PREVIEW'?'This replaces the report list. It uses retained local evidence only; use Back to return to the same Reports Center.':'This replaces the report list with an explicit unavailable state. It does not expose source data, a connector, or a local workflow.'}</p></div>{previewMeta && <div className="report-preview-meta"><span><i>Category</i><b>{previewMeta.category}</b></span><span><i>Capability</i><b>{previewMeta.capability.label}</b></span><span><i>Evidence</i><b><Badge tone={previewMeta.evidenceState==='AVAILABLE_LOCAL_EVIDENCE'?'ok':previewMeta.evidenceState==='REVIEW_REQUIRED'?'warn':'muted'}>{previewMeta.evidenceState}</Badge></b></span></div>}</div>
-    <div className="qbo-report-previewbar"><button type="button" disabled={previewMeta?.capability.state!=='LOCAL_PREVIEW'} onClick={()=>ctx.toast('Local report view refreshed')}>Refresh</button><button type="button" className={previewTool==='Scope'?'on':''} onClick={()=>setPreviewTool(t=>t==='Scope'?null:'Scope')}>Evidence scope</button><button type="button" disabled title="Custom report creation is outside the local evidence scope">Save As</button><button type="button" disabled title="Printing is outside the local evidence scope">Print</button><button type="button" disabled title="Business-data export is outside the local evidence scope">Export</button></div>
+    <div className="qbo-report-back"><button type="button" onClick={()=>{setOpen(null);setPreviewTool(null);setMenuReport(null)}}>Back to Reports Center</button><span>{['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)?'Local report detail':'Reference-only report'}</span></div>
+    <div className="report-preview-head"><div className="report-preview-titlewrap"><div className="report-preview-crumb">Reports Center · {['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)?'Local evidence':'Observed reference'}</div><SectionTitle>{open}</SectionTitle><p className="page-subtitle">{['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)?'This replaces the report list. It uses retained local evidence only; use Back to return to the same Reports Center.':'This replaces the report list with an explicit unavailable state. It does not expose source data, a connector, or a local workflow.'}</p></div>{previewMeta && <div className="report-preview-meta"><span><i>Category</i><b>{previewMeta.category}</b></span><span><i>Capability</i><b>{previewMeta.capability.label}</b></span><span><i>Evidence</i><b><Badge tone={previewMeta.evidenceState==='AVAILABLE_LOCAL_EVIDENCE'?'ok':previewMeta.evidenceState==='REVIEW_REQUIRED'?'warn':'muted'}>{previewMeta.evidenceState}</Badge></b></span></div>}</div>
+    <div className="qbo-report-previewbar"><button type="button" disabled={!['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)} onClick={()=>ctx.toast('Local report view refreshed')}>Refresh</button><button type="button" className={previewTool==='Scope'?'on':''} onClick={()=>setPreviewTool(t=>t==='Scope'?null:'Scope')}>Evidence scope</button><button type="button" disabled title="Custom report creation is outside the local evidence scope">Save As</button><button type="button" disabled title="Printing is outside the local evidence scope">Print</button><button type="button" disabled title="Business-data export is outside the local evidence scope">Export</button></div>
     {previewTool==='Scope' && <div className="qbo-report-toolpanel qbo-preview-toolpanel"><div><b>Local evidence scope</b><span>Entity, period, dimension, account/control account and retained local source evidence are passed only by the destination workflow.</span></div><div className="qbo-toolgrid"><span><i>Authority</i><b>Local POSTED evidence</b></span><span><i>External delivery</i><b>Unavailable</b></span><span><i>QBO equivalence</i><b>Not claimed</b></span></div></div>}
-    {previewMeta?.capability.state==='LOCAL_PREVIEW' && REPORTS[open]
+    {['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state) && REPORTS[open]
       ? REPORTS[open]()
       : <div className="empty-state"><b>Reference only — no local workflow</b><span>This observed QuickBooks report surface is not part of the real-estate close scope. REFS does not connect, synchronize, create, save, share, email, print, export, or expose its source data here.</span><small>Use Back to return to the Reports Center.</small></div>}
   </div>;

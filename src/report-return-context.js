@@ -15,5 +15,5 @@ export function localReportReturnContext({ tab = 'Trial Balance', fromP = '', to
 
 // Visible in every full-page source drill: the user can tell what Back restores.
 export function localReportReturnScopeLabel(context = {}) {
-  return `Retained local scope · entity ${context.entityId || 'required'} · ${context.propertyId || 'ALL'} / ${context.projectId || 'ALL'} / ${context.loanId || 'ALL'} · cash ${context.cashScope || 'ALL'} · ${context.fromP || '—'} ~ ${context.toP || '—'}`;
+  return `Retained local scope · entity ${context.entityId || 'required'} · ${context.propertyId || 'ALL'} / ${context.projectId || 'ALL'} / ${context.loanId || 'ALL'} · cash ${context.cashScope || 'ALL'} · ${context.fromP || 'not set'} to ${context.toP || 'not set'}`;
 }

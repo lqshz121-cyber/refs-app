@@ -2085,6 +2085,15 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 |---|---|---|---|
 | Journal Entry and Reports parent navigation | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | A navigation group with one destination continues to route directly to that destination and never renders its duplicate child. The parent now also omits the expand/collapse caret, so `Journal Entry` and `Reports` visibly communicate direct navigation rather than a collapsed submenu. | PARTIAL — singleton route, absent duplicate child/caret and build checks are local-only; QBO navigation layout, permissions and responsive behavior remain unobserved. |
 
+## Accounting: Cash and restricted-cash control drill (2026-08-05)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Cash-control evidence report | Read-only QBO Banking audit (2026-08-05) showed account cards with separate Bank and Posted balances; Review / Posted / Excluded tabs; Search, date and transaction-type filters; and table columns for Date, Bank description, Spent, Received, Attach file, From/To, Match/Categorize, and Action. A populated restricted-cash control report was not observed. | A Reports Center control card opens a full-page Cash & Restricted Cash Control detail. It separates Operating, Restricted, Escrow, Security deposit, and Payroll restricted cash; it exposes only retained POSTED GL, Account Register, and mapped local Reconciliation evidence with explicit return state. | PARTIAL - local contract only; QBO report equivalence is not claimed. |
+| Controller boundary | The same QBO page displayed Link account, Update accounts, Print, Export to CSV, AI suggestions, Match/Categorize and Post controls. Assistant3 and the current QB owner boundary require AP/AR/Bank/Reconcile/JE/GL/Close/Reports; WBS is read-only source/staging only. | No Construction Loan, Project Cost, Property Ops, bank connection, payment, matching, posting, adjustment, external sync, AI suggestion, or export action is added to this QB control report. Missing bank mapping remains unavailable rather than inferred. | PARTIAL - local business-fit boundary, not QBO equivalence. |
+
+- Verification: `node verify-cash-restricted-control-return.mjs`, `node verify-reports-workbench-layout.mjs`, `node build.mjs`, and `git diff --check`. Browser audit remains read-only; populated QBO restricted-cash detail has not been observed.
+
 ## Reports: More Options detail route (2026-08-04)
 
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |

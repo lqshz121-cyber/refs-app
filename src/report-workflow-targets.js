@@ -10,6 +10,7 @@ export function localReportWorkflowTarget(name) {
 
 const LOCAL_LEDGER_REPORTS = new Set(['Trial Balance', 'General Ledger', 'Balance Sheet', 'Income Statement', 'Profit and Loss', 'Cash Flow', 'Cost General Ledger']);
 const LOCAL_PREVIEW_REPORTS = new Set(['Property Operating Statement', 'Construction Loan Rollforward', 'Manual JE Report', 'Exception Aging']);
+const LOCAL_CONTROL_REPORTS = new Set(['Cash & Restricted Cash Control']);
 
 // A capability marker for the Reports Center. Reference-only names may remain
 // visible as observed QBO IA, but never become a ready/drillable local report.
@@ -17,6 +18,7 @@ export function localReportCapability(name) {
   const reportName = String(name || '');
   if (localReportWorkflowTarget(reportName)) return { state:'LOCAL_WORKFLOW', label:'Local workflow' };
   if (LOCAL_LEDGER_REPORTS.has(reportName)) return { state:'LOCAL_LEDGER', label:'Local ledger workflow' };
+  if (LOCAL_CONTROL_REPORTS.has(reportName)) return { state:'LOCAL_CONTROL', label:'Local control drill' };
   if (LOCAL_PREVIEW_REPORTS.has(reportName)) return { state:'LOCAL_PREVIEW', label:'Local preview — no source drill' };
   return { state:'REFERENCE_ONLY', label:'Reference only — unavailable' };
 }
