@@ -1,6 +1,6 @@
 # WBS to REFS Read-Only Accounting Intake Runbook
 
-Date: 2026-08-05  
+Date: 2026-08-05
 Scope: production pilot reads from the existing WBS accounting and Auto Bank Reconciliation data. REFS must never reconstruct WBS business modules or write back to WBS.
 
 ## Accepted MCP contract
