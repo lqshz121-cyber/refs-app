@@ -40,7 +40,7 @@ export function Dashboard({ctx}) {
       <div className="qbo-home-actions"><Btn onClick={()=>goto('je')}>Create journal entry</Btn><Btn variant="ghost" onClick={()=>goto('reports')}>Open reports</Btn><Btn variant="ghost" onClick={()=>goto('audit')}>See all activity</Btn></div>
     </div>
     <div className="qbo-quicklinks" aria-label="Quick links">
-      {[['Accounting','gl'],['Expenses & Pay Bills','ap'],['Banking','banktx'],['Projects','cost'],['Reports','reports'],['Close','close']].map(([label,route])=><button key={route} type="button" onClick={()=>goto(route)}><span>{label}</span><i aria-hidden="true">→</i></button>)}
+      {[['Accounting','gl'],['Expenses & Pay Bills','ap'],['Banking','banktx'],['Reports','reports'],['Close','close']].map(([label,route])=><button key={route} type="button" onClick={()=>goto(route)}><span>{label}</span><i aria-hidden="true">→</i></button>)}
     </div>
     <h2 className="page-h">Business at a glance</h2>
     <div className="qbo-grid">
@@ -96,7 +96,7 @@ export function Dashboard({ctx}) {
     </div>
     <SectionTitle>Shortcuts</SectionTitle>
     <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:22}}>
-      {[['+ Create Bill','ap'],['+ Journal Entry','je'],['Match Bank Txn','banktx'],['Run PM Pickup','pmpickup'],['Import Loan Txns','loan'],['Start Reconciliation','bankrec'],['+ Invoice','ar'],['Process Closing','closing']].map(([l,r])=>
+      {[['+ Create Bill','ap'],['+ Journal Entry','je'],['Match Bank Txn','banktx'],['Start Reconciliation','bankrec'],['+ Invoice','ar'],['Process Closing','closing']].map(([l,r])=>
         <Btn key={l} onClick={()=>goto(r)}>{l}</Btn>)}
     </div>
     <SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>goto('approvals')}>View all</Btn>}>Approvals ({pendingApprovals.length})</SectionTitle>

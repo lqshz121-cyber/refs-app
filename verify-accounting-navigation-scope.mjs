@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync('src/app.jsx', 'utf8');
+const dashboard = readFileSync('src/modules-core.jsx', 'utf8');
 const fail = message => {
   console.error(message);
   process.exit(1);
@@ -18,5 +19,8 @@ if (!source.includes("group:'Accounting Operations'")) {
 if (/IA_HIDDEN_ROUTES[^\n]+(?:intercompany|assets)/.test(source)) {
   fail('Intercompany and Fixed Assets are accounting workspaces and must not be hidden with WBS operations.');
 }
+for (const forbidden of ["['Projects','cost']", "['Run PM Pickup','pmpickup']", "['Import Loan Txns','loan']"]) {
+  if (dashboard.includes(forbidden)) fail(`Dashboard must not bypass hidden WBS operations: ${forbidden}`);
+}
 
-console.log('PASS: navigation exposes accounting workspaces and hides WBS operational modules');
+console.log('PASS: navigation exposes accounting workspaces and blocks Dashboard WBS bypasses');
