@@ -140,6 +140,42 @@ export function buildWbsInboundPersistencePlan({snapshot,prepared,tenantId,entit
   });
 }
 
+const succeeded=value=>value!==null&&value!==undefined&&value.ok!==false&&value.status!=='FAILED';
+
+// The kernel implementation is injected so this adapter never owns SQL or a
+// posting command.  It can move to persistent staging only after the exact
+// immutable snapshot receipt command succeeds.  Results are memoized by the
+// caller's stable idempotency key and the server-independent plan fingerprint.
+export function createWbsInboundOrchestrator({adapter,kernel}={}){
+  if(!adapter||typeof adapter.prepare!=='function')throw new WbsInboundDataError('WBS_INBOUND_ADAPTER_INVALID','A WBS inbound adapter with prepare is required');
+  const replay=new Map();
+  return Object.freeze({
+    mode:'WBS_INBOUND_ORCHESTRATOR_V1',read_only:true,
+    async persist({snapshot,prepared=null,tenantId,entityId,importBatchId,idempotencyKey}={}){
+      if(!kernel||typeof kernel.recordWbsSnapshot!=='function'||typeof kernel.persistWbsInboundRows!=='function')fail('WBS_INBOUND_KERNEL_PERSISTENCE_UNAVAILABLE','Kernel must provide recordWbsSnapshot and persistWbsInboundRows before WBS inbound persistence can start');
+      const canonicalPrepared=prepared??adapter.prepare(snapshot);
+      const plan=buildWbsInboundPersistencePlan({snapshot,prepared:canonicalPrepared,tenantId,entityId,importBatchId,idempotencyKey});
+      const existing=replay.get(idempotencyKey);
+      if(existing){
+        if(existing.plan_fingerprint!==plan.plan_fingerprint)fail('WBS_INBOUND_IDEMPOTENCY_CONFLICT','Idempotency key was already used for a different immutable WBS inbound plan');
+        return existing.promise;
+      }
+      const promise=(async()=>{
+        let receiptResult;
+        try{receiptResult=await kernel.recordWbsSnapshot(plan.receipt_persistence.request);}catch{fail('WBS_INBOUND_RECEIPT_PERSISTENCE_FAILED','Immutable WBS receipt persistence failed');}
+        if(!succeeded(receiptResult))fail('WBS_INBOUND_RECEIPT_PERSISTENCE_FAILED','Immutable WBS receipt persistence did not succeed');
+        const rowRequest=Object.freeze({tenantId,entityId,importBatchId,idempotencyKey,planFingerprint:plan.plan_fingerprint,receiptTrace:plan.ingress.trace_rows,raw:canonicalPrepared.raw,normalized:canonicalPrepared.normalized,staging:canonicalPrepared.staging,exceptions:canonicalPrepared.exceptions});
+        let rowResult;
+        try{rowResult=await kernel.persistWbsInboundRows(rowRequest);}catch{fail('WBS_INBOUND_ROW_PERSISTENCE_FAILED','WBS Raw, Normalized and Staging persistence failed');}
+        if(!succeeded(rowResult))fail('WBS_INBOUND_ROW_PERSISTENCE_FAILED','WBS Raw, Normalized and Staging persistence did not succeed');
+        return Object.freeze({status:'PERSISTED_STAGING_REVIEW_REQUIRED',can_dispatch_draft:false,can_dispatch_autorec:false,can_post:false,plan_fingerprint:plan.plan_fingerprint,receipt_persistence:receiptResult,row_persistence:rowResult,trace:plan.ingress});
+      })();
+      replay.set(idempotencyKey,Object.freeze({plan_fingerprint:plan.plan_fingerprint,promise}));
+      return promise;
+    }
+  });
+}
+
 export function validatePostedJournalTrace({draftRequest,postedEvidence}={}){
   if(text(draftRequest?.status)!=='READY_FOR_STANDARD_JE_COMMAND')fail('WBS_DRAFT_REQUEST_REQUIRED','A standard Draft request is required');
   if(text(postedEvidence?.source_system)!=='REFS_STANDARD_JE'||text(postedEvidence?.status)!=='POSTED')fail('WBS_POSTED_EVIDENCE_REQUIRED','A POSTED standard REFS journal receipt is required');

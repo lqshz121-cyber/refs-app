@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,buildWbsInboundPersistencePlan,createWbsInboundDataAdapter,validatePostedJournalTrace,WbsInboundDataError} from '../runtime/wbs-inbound-data-adapter.mjs';
+import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,buildWbsInboundPersistencePlan,createWbsInboundDataAdapter,createWbsInboundOrchestrator,validatePostedJournalTrace,WbsInboundDataError} from '../runtime/wbs-inbound-data-adapter.mjs';
 
 const guid='11111111-1111-4111-8111-111111111111';
 const snapshot=()=>{const value={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-05T10:00:00.000Z',environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-2026-08-05',views:[
@@ -42,6 +42,23 @@ test('persistence plan binds receipt/raw/normalized/staging trace and idempotenc
   assert.equal(plan.receipt_persistence.kernel_method,'recordWbsSnapshot');assert.equal(plan.receipt_persistence.supported,true);assert.equal(plan.raw_normalized_staging_persistence.supported,false);assert.equal(plan.raw_normalized_staging_persistence.code,'WBS_RAW_NORMALIZED_STAGING_PERSISTENCE_UNAVAILABLE');assert.equal(plan.ingress.trace_rows.length,3);assert.equal(plan.can_dispatch,false);
   assert.throws(()=>buildWbsInboundPersistencePlan({snapshot:value,prepared,tenantId:'bad',entityId:'66666666-6666-4666-8666-666666666666',importBatchId:'77777777-7777-4777-8777-777777777777',idempotencyKey:'short'}),error=>error.code==='WBS_INBOUND_SCOPE_INVALID');
   assert.throws(()=>buildWbsInboundPersistencePlan({snapshot:value,prepared:{...prepared,package_hash:'sha256:forged'},tenantId:'55555555-5555-4555-8555-555555555555',entityId:'66666666-6666-4666-8666-666666666666',importBatchId:'77777777-7777-4777-8777-777777777777',idempotencyKey:'wbs-inbound-20260805-company-a-0001'}),error=>error.code==='WBS_INBOUND_PREPARED_TRACE_INVALID');
+});
+
+test('orchestrator persists receipt before typed rows, blocks Draft/AutoRec dispatch, and replays one stable result',async()=>{
+  const value=snapshot(),adapter=createWbsInboundDataAdapter({snapshotReader:reader(value)}),calls=[];
+  const kernel={recordWbsSnapshot:async request=>(calls.push(['receipt',request]),{ok:true,receipt_id:'receipt-1'}),persistWbsInboundRows:async request=>(calls.push(['rows',request]),{ok:true,raw_event_ids:['raw-1'],staging_item_ids:['stg-1']})};
+  const service=createWbsInboundOrchestrator({adapter,kernel});
+  const input={snapshot:value,tenantId:'55555555-5555-4555-8555-555555555555',entityId:'66666666-6666-4666-8666-666666666666',importBatchId:'77777777-7777-4777-8777-777777777777',idempotencyKey:'wbs-inbound-20260805-company-a-0001'};
+  const first=await service.persist(input),replay=await service.persist(input);
+  assert.strictEqual(first,replay);assert.deepEqual(calls.map(([kind])=>kind),['receipt','rows']);assert.equal(calls[1][1].receiptTrace.length,3);assert.deepEqual({draft:first.can_dispatch_draft,autorec:first.can_dispatch_autorec,post:first.can_post},{draft:false,autorec:false,post:false});
+  await assert.rejects(()=>service.persist({...input,importBatchId:'88888888-8888-4888-8888-888888888888'}),error=>error.code==='WBS_INBOUND_IDEMPOTENCY_CONFLICT');assert.equal(calls.length,2);
+});
+
+test('orchestrator fails closed without capability, after receipt failure, and after row persistence failure',async()=>{
+  const value=snapshot(),adapter=createWbsInboundDataAdapter({snapshotReader:reader(value)}),input={snapshot:value,tenantId:'55555555-5555-4555-8555-555555555555',entityId:'66666666-6666-4666-8666-666666666666',importBatchId:'77777777-7777-4777-8777-777777777777',idempotencyKey:'wbs-inbound-20260805-company-a-0001'};
+  const noCapability=createWbsInboundOrchestrator({adapter,kernel:{recordWbsSnapshot:async()=>({ok:true})}});await assert.rejects(()=>noCapability.persist(input),error=>error.code==='WBS_INBOUND_KERNEL_PERSISTENCE_UNAVAILABLE');
+  let rows=0;const receiptFailure=createWbsInboundOrchestrator({adapter,kernel:{recordWbsSnapshot:async()=>({ok:false}),persistWbsInboundRows:async()=>{rows++;return {ok:true};}}});await assert.rejects(()=>receiptFailure.persist(input),error=>error.code==='WBS_INBOUND_RECEIPT_PERSISTENCE_FAILED');assert.equal(rows,0);
+  let receiptCalls=0,rowCalls=0;const rowFailure=createWbsInboundOrchestrator({adapter,kernel:{recordWbsSnapshot:async()=>{receiptCalls++;return {ok:true};},persistWbsInboundRows:async()=>{rowCalls++;throw new Error('masked');}}});await assert.rejects(()=>rowFailure.persist(input),error=>error.code==='WBS_INBOUND_ROW_PERSISTENCE_FAILED');await assert.rejects(()=>rowFailure.persist(input),error=>error.code==='WBS_INBOUND_ROW_PERSISTENCE_FAILED');assert.deepEqual({receiptCalls,rowCalls},{receiptCalls:1,rowCalls:1});
 });
 
 test('adapter rejects a mutable reader, cross-currency AutoRec pair, and unbalanced Draft request',async()=>{
