@@ -1440,3 +1440,43 @@ pgTest('AP bill void posts in a new open period and leaves the original Posted J
   const control=(await adminPool.query('SELECT ap_open_balance,ap_control_balance,ap_in_balance FROM refs_ap_ar_control_reconciliation WHERE tenant_id=$1 AND entity_id=$2 AND currency=$3',[ids.tenantId,ids.entityId,'USD'])).rows[0];
   assert.deepEqual(control,{ap_open_balance:'0.0000',ap_control_balance:'0.0000',ap_in_balance:true});
 });
+
+pgTest('bank and reconciliation reads enforce permission, tenant, entity, account and statement scope',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null});
+  const trace=await attachAutoSource(ids);
+  const bankSourceId=randomUUID(),bankMatchId=randomUUID(),reconciliationId=randomUUID();
+  const journalLineId=(await adminPool.query('SELECT journal_line_id FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no LIMIT 1',[ids.journalId])).rows[0].journal_line_id;
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','BANK-LINE-1','2026-07-15','USD',100)`,[bankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
+  await adminPool.query(`INSERT INTO bank_match(bank_match_id,tenant_id,entity_id,bank_source_id,business_source_document_id,journal_entry_id,journal_line_id,candidate_rule_code,amount_delta,currency_match,date_delta_days,status,matched_by)
+    VALUES($1,$2,$3,$4,$5,$6,$7,'R-BANK-01',0,true,0,'ACTIVE','bank-reviewer')`,[bankMatchId,ids.tenantId,ids.entityId,bankSourceId,trace.documentId,ids.journalId,journalLineId]);
+  await adminPool.query(`INSERT INTO reconciliation(reconciliation_id,tenant_id,entity_id,bank_account_ref,statement_ending_date,statement_ending_balance,difference,status)
+    VALUES($1,$2,$3,'BANK-1','2026-07-31',100,0,'DRAFT')`,[reconciliationId,ids.tenantId,ids.entityId]);
+
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bank-denied',['AP.VIEW'])});
+  await assert.rejects(denied.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1'}),error=>error.code==='42501');
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bank-reader',['BANK.VIEW'])});
+  const rows=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:25});
+  assert.equal(rows.length,1);assert.equal(rows[0].bank_source_id,bankSourceId);assert.equal(rows[0].bank_match_id,bankMatchId);
+  assert.equal(rows[0].match_status,'ACTIVE');assert.equal(rows[0].journal_entry_id,ids.journalId);assert.equal(rows[0].amount,'100.0000');
+  await assert.rejects(reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',limit:null}),error=>error.code==='22023');
+  assert.deepEqual(await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'OTHER',limit:25}),[]);
+  const oldBankSourceId=randomUUID(),priorReconciliationId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','BANK-LINE-OLD','2026-07-05','USD',25)`,[oldBankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
+  await adminPool.query(`INSERT INTO reconciliation(reconciliation_id,tenant_id,entity_id,bank_account_ref,statement_ending_date,statement_ending_balance,difference,status,reconciled_by,reconciled_at)
+    VALUES($1,$2,$3,'BANK-1','2026-07-10',25,0,'RECONCILED','bank-reviewer',now())`,[priorReconciliationId,ids.tenantId,ids.entityId]);
+  const summaries=await reader.getReconciliationSummary({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'});
+  assert.equal(summaries.length,1);assert.equal(summaries[0].reconciliation_id,reconciliationId);
+  assert.equal(summaries[0].bank_transaction_count,'1');assert.equal(summaries[0].active_match_count,'1');assert.equal(summaries[0].unmatched_transaction_count,'0');
+  assert.equal(summaries[0].statement_activity_amount,'100.0000');
+  assert.deepEqual(await reader.getReconciliationSummary({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-10'}),[]);
+  const indexes=(await adminPool.query("SELECT to_regclass('public.bank_source_read_scope_idx') bank, to_regclass('public.reconciliation_live_read_scope_idx') live, to_regclass('public.reconciliation_reconciled_cutoff_idx') cutoff")).rows[0];
+  assert.deepEqual(indexes,{bank:'bank_source_read_scope_idx',live:'reconciliation_live_read_scope_idx',cutoff:'reconciliation_reconciled_cutoff_idx'});
+
+  const outside=await seed({status:'DRAFT',attachmentStatus:null,tenantId:ids.tenantId});
+  await assert.rejects(reader.listBankTransactions({tenantId:ids.tenantId,entityId:outside.entityId,bankAccountRef:'BANK-1'}),error=>error.code==='42501');
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'bank-reader'}),kernelFactory:async()=>reader});
+  const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/bank/reconciliation?bankAccountRef=BANK-1&statementEndingDate=2026-07-31`,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data[0].reconciliation_id,reconciliationId);
+});

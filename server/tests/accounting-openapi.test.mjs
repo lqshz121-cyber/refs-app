@@ -87,6 +87,28 @@ test('Journal Entry list read is authenticated, scoped and no-store',()=>{
   assert.equal(contract.components.responses.JournalEntryReadOk.headers['Cache-Control'].schema.const,'no-store');
 });
 
+test('bank transaction and reconciliation reads are scoped no-store evidence only',()=>{
+  const transactions=contract.paths['/entities/{entityId}/bank/transactions'].get;
+  assert.equal(transactions.operationId,'listBankTransactions');
+  assert.equal(transactions.responses['200'].$ref,'#/components/responses/BankTransactionReadOk');
+  assert.deepEqual(transactions.parameters.slice(1).map(parameter=>parameter.name),['bankAccountRef','from','through','limit']);
+  assert.equal(transactions.parameters.find(parameter=>parameter.name==='bankAccountRef').required,true);
+  assert.equal(transactions.parameters.find(parameter=>parameter.name==='bankAccountRef').schema.pattern,'^(?:\\S|\\S.*\\S)$');
+  assert.equal(transactions.parameters.find(parameter=>parameter.name==='limit').schema.maximum,200);
+  assert.match(transactions.description,/cannot match, clear, sign off, or post/i);
+  const reconciliation=contract.paths['/entities/{entityId}/bank/reconciliation'].get;
+  assert.equal(reconciliation.operationId,'getReconciliationSummary');
+  assert.equal(reconciliation.responses['200'].$ref,'#/components/responses/ReconciliationSummaryOk');
+  assert.equal(reconciliation.parameters.find(parameter=>parameter.name==='statementEndingDate').required,true);
+  assert.equal(reconciliation.parameters.find(parameter=>parameter.name==='bankAccountRef').schema.pattern,'^(?:\\S|\\S.*\\S)$');
+  assert.match(reconciliation.description,/cannot match, clear, reopen, sign off, or post/i);
+  assert.match(reconciliation.description,/DRAFT, IN_REVIEW, or REOPENED/);assert.match(reconciliation.description,/prior RECONCILED/);assert.match(reconciliation.description,/not dynamically recomputed or returned/);
+  assert.equal(contract.components.responses.BankTransactionReadOk.headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(contract.components.responses.ReconciliationSummaryOk.headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(contract.components.schemas.BankTransactionReadRow.additionalProperties,false);
+  assert.equal(contract.components.schemas.ReconciliationSummaryRow.additionalProperties,false);
+});
+
 test('AP and AR adjustment list reads expose only the authoritative scoped adjustment envelope',()=>{
   for(const [path,operationId] of [['/entities/{entityId}/ap/adjustments','listApAdjustments'],['/entities/{entityId}/ar/adjustments','listArAdjustments']]){
     const operation=contract.paths[path].get;

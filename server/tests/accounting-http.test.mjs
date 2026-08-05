@@ -3,7 +3,7 @@ import {createAccountingApi,createAccountingHttpServer} from '../api/accounting-
 
 const tenantId=randomUUID(),entityId=randomUUID(),journalEntryId=randomUUID(),periodId=randomUUID();
 const calls=[];const invoke=name=>async args=>{calls.push([name,args]);return {journal_entry_id:journalEntryId,status:'DRAFT',idempotent:false};};
-const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),listBusinessAdjustments:invoke('listBusinessAdjustments'),listJournalEntries:invoke('listJournalEntries'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit'),recordWbsSnapshot:invoke('recordWbsSnapshot')};
+const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),listBusinessAdjustments:invoke('listBusinessAdjustments'),listJournalEntries:invoke('listJournalEntries'),listBankTransactions:invoke('listBankTransactions'),getReconciliationSummary:invoke('getReconciliationSummary'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit'),recordWbsSnapshot:invoke('recordWbsSnapshot')};
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
@@ -128,6 +128,32 @@ test('Journal Entries refresh only through an authenticated entity-scoped read',
   assert.deepEqual(calls[0],['listJournalEntries',{tenantId,entityId}]);
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries`,body:{unexpected:true},headers:{}})).status,400);
+});
+
+test('Bank transactions are a bounded authenticated entity and account scoped read',async()=>{
+  calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1&from=2026-07-01&through=2026-07-31&limit=25`,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
+  assert.deepEqual(calls[0],['listBankTransactions',{tenantId,entityId,bankAccountRef:'BANK-1',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:25}]);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions`,body:null,headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1&from=2026-08-01&through=2026-07-31`,body:null,headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1&limit=201`,body:null,headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1`,body:{tenantId},headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1`,body:{},headers:{}})).body.code,'READ_BODY_FORBIDDEN');
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=%20BANK-1%20`,body:null,headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1&unexpected=x`,body:null,headers:{}})).body.code,'UNEXPECTED_QUERY_PARAMETER');
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1&bankAccountRef=BANK-2`,body:null,headers:{}})).body.code,'DUPLICATE_QUERY_PARAMETER');
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
+});
+
+test('Reconciliation summary is an authenticated entity, account and statement scoped read',async()=>{
+  calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/reconciliation?bankAccountRef=BANK-1&statementEndingDate=2026-07-31`,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
+  assert.deepEqual(calls[0],['getReconciliationSummary',{tenantId,entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}]);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/reconciliation?bankAccountRef=BANK-1`,body:null,headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/reconciliation?bankAccountRef=BANK-1&statementEndingDate=2026-02-30`,body:null,headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/reconciliation?bankAccountRef=BANK-1&statementEndingDate=2026-07-31`,body:{},headers:{}})).body.code,'READ_BODY_FORBIDDEN');
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/reconciliation?bankAccountRef=BANK-1&statementEndingDate=2026-07-31&extra=1`,body:null,headers:{}})).body.code,'UNEXPECTED_QUERY_PARAMETER');
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/reconciliation?bankAccountRef=BANK-1&statementEndingDate=2026-07-31&statementEndingDate=2026-08-31`,body:null,headers:{}})).body.code,'DUPLICATE_QUERY_PARAMETER');
 });
 
 test('AR Credit Memo route creates only a Draft adjustment from trusted scope',async()=>{

@@ -284,6 +284,20 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listBankTransactions({tenantId,entityId,bankAccountRef,fromDate=null,throughDate=null,limit=100}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_bank_transactions($1,$2,$3,$4::date,$5::date,$6)',
+      [tenantId,entityId,bankAccountRef,fromDate,throughDate,limit]
+    )).rows);
+  }
+
+  async getReconciliationSummary({tenantId,entityId,bankAccountRef,statementEndingDate}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_reconciliation_summary($1,$2,$3,$4::date)',
+      [tenantId,entityId,bankAccountRef,statementEndingDate]
+    )).rows);
+  }
+
   async getApAging({tenantId,entityId,asOfDate}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_ap_aging($1,$2,$3::date)',[tenantId,entityId,asOfDate]
