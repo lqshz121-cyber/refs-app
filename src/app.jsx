@@ -25,6 +25,7 @@ import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
 import { AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeRuntimeLock, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './authoritative-workspace.jsx';
 import { AuthoritativeApp, authoritativeRuntimeConfigured } from './authoritative-app.jsx';
+import { retainActiveNavigationGroup, toggleNavigationGroup } from './navigation-open-state.js';
 
 class ErrorBoundary extends Component {
   constructor(p){ super(p); this.state={err:null}; }
@@ -160,7 +161,7 @@ function App() {
   const [toast, setToastS] = useState(null);
   const [palette, setPalette] = useState(false);
   const [newMenu, setNewMenu] = useState(false);
-  const [openGroups, setOpenGroups] = useState({Home:true, Transactions:true});
+  const [openGroups, setOpenGroups] = useState({});
   const [q, setQ] = useState('');
 
   const user = USERS.find(u=>u.user_id===userId);
@@ -176,6 +177,10 @@ function App() {
   useEffect(()=>{persist('bank',bank)},[bank]); useEffect(()=>{persist('coa',coa)},[coa]); useEffect(()=>{persist('ar',ar)},[ar]);
   useEffect(()=>{ if(userId) persist('user',userId); },[userId]);
   useEffect(()=>{ bumpId(Math.max(9000,...jes.map(j=>+j.je_id||0),...ap.bills.map(b=>+b.bill_id||0))); },[]);
+  useEffect(()=>{
+    const groups = [...NAV,{group:'Payables & Receivables',items:[['ap','Accounts Payable'],['ar','Accounts Receivable']]}];
+    setOpenGroups(current=>retainActiveNavigationGroup(current,groups,route));
+  },[route]);
   useEffect(()=>{
     const h = (e)=>{ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault(); setPalette(p=>!p);} if(e.key==='Escape') setPalette(false); };
     window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
@@ -273,7 +278,7 @@ function App() {
       <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New</button>
       <nav>{nav.map(g=>{ const isSingleton = g.items.length === 1; const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k));
         return <div key={g.group} className="nav-group">
-        <button className="nav-group-h" onClick={()=>isSingleton ? goto(g.items[0][0]) : setOpenGroups(o=>({...o,[g.group]:!opened}))}>
+        <button className="nav-group-h" onClick={()=>isSingleton ? goto(g.items[0][0]) : setOpenGroups(o=>toggleNavigationGroup(o,g.group))}>
           <span className="nav-ic">{g.icon}</span>{g.group}{!isSingleton && <span className="nav-caret">{opened?'▾':'▸'}</span>}</button>
         {!isSingleton && opened && g.items.map(([k,l])=><button key={k} className={`nav-item nav-sub ${route===k?'nav-on':''}`} onClick={()=>goto(k)}>{l}</button>)}
       </div>;})}</nav>
