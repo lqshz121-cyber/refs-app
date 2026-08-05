@@ -11,6 +11,15 @@ const writeJson = (path, value) => writeText(path, `${JSON.stringify(value, null
 
 const webOrigin = 'https://local.refs.example.test';
 const apiBaseUrl = 'https://api.local.refs.example.test';
+const s3Endpoint = 'https://s3.local.refs.example.test';
+const s3Bucket = 'local-simulation-bucket';
+const s3Region = 'us-east-1';
+const scannerEndpoint = 'https://scanner.local.refs.example.test';
+const scannerServerName = 'scanner.local.refs.example.test';
+const scannerCaFile = resolve(outRoot, 'scanner-ca.pem');
+const objectKey = 'simulation/clean-document.pdf';
+const objectVersion = 'local-version-0001';
+const objectContentHash = `sha256:${'3'.repeat(64)}`;
 const pages = ['Dashboard', 'Reports', 'Reconcile', 'BankTx', 'Expenses', 'Accounting', 'Rule Center', 'Integration Hub'];
 
 const pageEvidence = {};
@@ -52,10 +61,37 @@ writeJson(resolve(outRoot, 's3-scanner-receipt.json'), {
   mode: 'LOCAL_SIMULATION',
   warning: 'This verifies release harness wiring only. It is not provider-backed S3/scanner evidence.',
   ok: true,
-  bucket: 'local-simulation-bucket',
-  object_key: 'simulation/clean-document.pdf',
-  object_version: 'local-version-0001',
-  scanner: 'local-simulation-scanner',
+  endpoint: s3Endpoint,
+  bucket: s3Bucket,
+  region: s3Region,
+  object_key: objectKey,
+  object_version: objectVersion,
+  content_hash: objectContentHash,
+  head_versioned: {
+    object_key: objectKey,
+    object_version: objectVersion,
+    content_hash: objectContentHash,
+    size_bytes: 31,
+  },
+  scanner: {
+    endpoint: scannerEndpoint,
+    server_name: scannerServerName,
+    engine: 'local-simulation-scanner',
+    scanned_object_key: objectKey,
+    scanned_object_version: objectVersion,
+    result: 'CLEAN',
+  },
+  delete: {
+    object_key: objectKey,
+    object_version: objectVersion,
+    delete_marker_removed: true,
+  },
+  delete_verified: {
+    object_key: objectKey,
+    remaining_versions: 0,
+    remaining_delete_markers: 0,
+    object_lock_retention_blocked: false,
+  },
   steps: ['upload', 'scan_clean', 'head_versioned', 'delete', 'delete_verified'],
 });
 
@@ -104,17 +140,17 @@ writeJson(resolve(outRoot, 'env.json'), {
   REFS_STAGING_WEB_ORIGIN: webOrigin,
   REFS_STAGING_API_BASE_URL: apiBaseUrl,
   REFS_UI_E2E_MANIFEST: resolve(outRoot, 'ui-manifest.json'),
-  S3_ENDPOINT: 'https://s3.local.refs.example.test',
-  S3_BUCKET: 'local-simulation-bucket',
-  S3_REGION: 'us-east-1',
-  VIRUS_SCANNER_ENDPOINT: 'https://scanner.local.refs.example.test',
-  VIRUS_SCANNER_CA_FILE: resolve(outRoot, 'scanner-ca.pem'),
-  VIRUS_SCANNER_SERVER_NAME: 'scanner.local.refs.example.test',
+  S3_ENDPOINT: s3Endpoint,
+  S3_BUCKET: s3Bucket,
+  S3_REGION: s3Region,
+  VIRUS_SCANNER_ENDPOINT: scannerEndpoint,
+  VIRUS_SCANNER_CA_FILE: scannerCaFile,
+  VIRUS_SCANNER_SERVER_NAME: scannerServerName,
   REFS_S3_SCANNER_LIFECYCLE_RECEIPT: resolve(outRoot, 's3-scanner-receipt.json'),
   WBS_SNAPSHOT_ED25519_PUBLIC_KEYS: resolve(outRoot, 'wbs-public-keys.json'),
   REFS_WBS_SIGNED_RECEIPT_FILE: resolve(outRoot, 'wbs-signed-receipt.json'),
 });
 
-writeText(resolve(outRoot, 'scanner-ca.pem'), 'LOCAL SIMULATION CA PLACEHOLDER\n');
+writeText(scannerCaFile, 'LOCAL SIMULATION CA PLACEHOLDER\n');
 
 console.log(`local-release-simulation: wrote artifacts to ${outRoot}`);

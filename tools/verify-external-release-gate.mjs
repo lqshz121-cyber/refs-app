@@ -60,6 +60,16 @@ export function verifyS3ScannerEvidence(environment = process.env) {
   if (!receipt) return false;
   const required = ['upload', 'scan_clean', 'head_versioned', 'delete', 'delete_verified'];
   if (!required.every(step => receipt.steps?.includes(step)) || receipt.ok !== true) return fail('RELEASE_S3_SCANNER_LIFECYCLE_INCOMPLETE', required.join(','));
+  if (receipt.endpoint !== environment.S3_ENDPOINT || receipt.bucket !== environment.S3_BUCKET || receipt.region !== environment.S3_REGION) return fail('RELEASE_S3_SCANNER_SCOPE_MISMATCH', 'receipt S3 endpoint, bucket, or region does not match configured release environment');
+  const objectKey = String(receipt.object_key || '');
+  const objectVersion = String(receipt.object_version || '');
+  if (!objectKey || !objectVersion || receipt.head_versioned?.object_key !== objectKey || receipt.head_versioned?.object_version !== objectVersion) return fail('RELEASE_S3_SCANNER_VERSION_MISMATCH', 'versioned HEAD evidence must bind to the uploaded object version');
+  const scanner = receipt.scanner || {};
+  if (scanner.endpoint !== environment.VIRUS_SCANNER_ENDPOINT || scanner.server_name !== environment.VIRUS_SCANNER_SERVER_NAME || scanner.scanned_object_key !== objectKey || scanner.scanned_object_version !== objectVersion || scanner.result !== 'CLEAN') return fail('RELEASE_S3_SCANNER_VERSION_MISMATCH', 'scanner must prove CLEAN result for the uploaded object version');
+  const deletion = receipt.delete || {};
+  if (deletion.object_key !== objectKey || deletion.object_version !== objectVersion || deletion.delete_marker_removed !== true) return fail('RELEASE_S3_SCANNER_DELETE_INCOMPLETE', 'delete proof must remove the exact object version and delete marker');
+  const verified = receipt.delete_verified || {};
+  if (verified.object_key !== objectKey || verified.remaining_versions !== 0 || verified.remaining_delete_markers !== 0 || verified.object_lock_retention_blocked !== false) return fail('RELEASE_S3_SCANNER_DELETE_INCOMPLETE', 'delete verification must prove zero remaining versions and delete markers');
   console.log('release-s3-scanner: lifecycle receipt verified');
   return true;
 }

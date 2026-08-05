@@ -58,6 +58,36 @@ assert.match(`${badApi.stdout}${badApi.stderr}`, /RELEASE_UI_API_SMOKE_INCOMPLET
 const s3Receipt = JSON.parse(readFileSync(envConfig.REFS_S3_SCANNER_LIFECYCLE_RECEIPT, 'utf8'));
 assert.equal(s3Receipt.mode, 'LOCAL_SIMULATION');
 assert.match(s3Receipt.warning, /not provider-backed/i);
+assert.equal(s3Receipt.scanner?.scanned_object_version, s3Receipt.object_version);
+assert.equal(s3Receipt.delete_verified?.remaining_versions, 0);
+assert.equal(s3Receipt.delete_verified?.remaining_delete_markers, 0);
+
+const wrongScannerVersionReceipt = resolve('outputs/local-release-simulation/s3-scanner-wrong-version.json');
+writeFileSync(wrongScannerVersionReceipt, `${JSON.stringify({ ...s3Receipt, scanner: { ...s3Receipt.scanner, scanned_object_version: 'wrong-version' } }, null, 2)}\n`, 'utf8');
+const wrongScannerVersion = spawnSync(node, [gate, 's3'], {
+  encoding: 'utf8',
+  env: { ...env, REFS_S3_SCANNER_LIFECYCLE_RECEIPT: wrongScannerVersionReceipt },
+});
+assert.equal(wrongScannerVersion.status, 2, 'scanner evidence must bind to the exact object version');
+assert.match(`${wrongScannerVersion.stdout}${wrongScannerVersion.stderr}`, /RELEASE_S3_SCANNER_VERSION_MISMATCH/);
+
+const incompleteDeleteReceipt = resolve('outputs/local-release-simulation/s3-scanner-incomplete-delete.json');
+writeFileSync(incompleteDeleteReceipt, `${JSON.stringify({ ...s3Receipt, delete_verified: { ...s3Receipt.delete_verified, remaining_versions: 1 } }, null, 2)}\n`, 'utf8');
+const incompleteDelete = spawnSync(node, [gate, 's3'], {
+  encoding: 'utf8',
+  env: { ...env, REFS_S3_SCANNER_LIFECYCLE_RECEIPT: incompleteDeleteReceipt },
+});
+assert.equal(incompleteDelete.status, 2, 'delete verification must fail closed when any object version remains');
+assert.match(`${incompleteDelete.stdout}${incompleteDelete.stderr}`, /RELEASE_S3_SCANNER_DELETE_INCOMPLETE/);
+
+const wrongBucketReceipt = resolve('outputs/local-release-simulation/s3-scanner-wrong-bucket.json');
+writeFileSync(wrongBucketReceipt, `${JSON.stringify({ ...s3Receipt, bucket: 'other-bucket' }, null, 2)}\n`, 'utf8');
+const wrongBucket = spawnSync(node, [gate, 's3'], {
+  encoding: 'utf8',
+  env: { ...env, REFS_S3_SCANNER_LIFECYCLE_RECEIPT: wrongBucketReceipt },
+});
+assert.equal(wrongBucket.status, 2, 'S3 receipt must bind to configured endpoint, bucket, and region');
+assert.match(`${wrongBucket.stdout}${wrongBucket.stderr}`, /RELEASE_S3_SCANNER_SCOPE_MISMATCH/);
 
 const wbsReceipt = JSON.parse(readFileSync(envConfig.REFS_WBS_SIGNED_RECEIPT_FILE, 'utf8'));
 assert.equal(wbsReceipt.mode, 'LOCAL_SIMULATION');
