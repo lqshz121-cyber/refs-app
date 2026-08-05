@@ -1,5 +1,15 @@
 # QuickBooks → REFS Functional Equivalence Matrix
 
+## Expenses — Bills evidence queues and retained return scope (2026-08-05)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Bills review queues | QBO Bills labels observed read-only: For review, Unpaid, Paid and Recurring, with Filters and Bill Date. Pay bills, Add bill, Print, Export and Customize were visible but not operated. | Bills shows only evidence-proven For review, Unpaid and Paid tabs. Recurring is explicitly reference-only/unavailable. Unpaid requires a retained posted AP source; Paid requires retained posted payment evidence. | PARTIAL — local queue rules verified; QBO membership, permissions and populated-state behavior remain unobserved. |
+| Full-page Bill evidence return | QBO Bill detail interactions were not operated. | List → Bill replaces the list with a full-page evidence view. Bill → JE/source carries tab, Bill Date/date range, vendor, query and local filters; Back rehydrates the originating Bills scope. Payment remains a nested full-page detail that returns to the Bill before the queue. | PARTIAL — local return contract verified; QBO deep-drill, audit and responsive behavior remain unobserved. |
+| Read-only boundary | QBO mutations were intentionally not operated. | Pay bills, Add bill, Print, Export, Customize and local approve/post actions are not rendered or enabled in this workflow. | PARTIAL — business-fit local boundary, not QBO equivalence. |
+
+- Assistant3 business-fit review applied before implementation. Required verification: `node verify-bills-evidence-queue-scope.mjs`, `node build.mjs`, visual verification and `git diff --check`.
+
 ## Accounting — AP Aging control evidence → Source retained return (2026-08-04)
 
 ## P0 operator navigation and report replacement (2026-08-04)

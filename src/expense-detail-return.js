@@ -11,6 +11,6 @@ export function localExpenseDetailReturnScope(scope = {}) {
     toDate:scope.toDate || '',
     vendorId:scope.vendorId || 'ALL',
     categoryCode:scope.categoryCode || 'ALL',
-    billQueueView:scope.billQueueView || 'All',
+    billQueueView:scope.billQueueView || 'For review',
   });
 }

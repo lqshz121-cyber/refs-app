@@ -46,7 +46,7 @@ export function APWorkspace({ctx}) {
   const [toDate, setToDate] = useState('');
   const [vendorId, setVendorId] = useState('ALL');
   const [categoryCode, setCategoryCode] = useState('ALL');
-  const [billQueueView, setBillQueueView] = useState('All');
+  const [billQueueView, setBillQueueView] = useState('For review');
   const [columnVisibility, setColumnVisibility] = useState(()=>{
     try { return normalizeExpenseColumnVisibility(JSON.parse(localStorage.getItem('refs_expense_columns') || '{}')); }
     catch { return {...DEFAULT_EXPENSE_COLUMNS}; }
@@ -104,7 +104,7 @@ export function APWorkspace({ctx}) {
     setFromDate('');
     setToDate('');
     setCategoryCode('ALL');
-    setBillQueueView('All');
+    setBillQueueView('For review');
     setSel(billId);
   };
   const openCreditDetail = creditKey => { captureDetailScope(); setSelectedCreditKey(creditKey); };
@@ -114,7 +114,19 @@ export function APWorkspace({ctx}) {
   useEffect(() => {
     if (navContext?.route !== 'ap') return;
     if (navContext.tab) setTab(localTabFor(navContext.tab));
-    if (navContext.vendorId != null) {
+    if (navContext.billQueueView) {
+      const returnedScope = localExpenseDetailReturnScope({
+        tab:'Bills', query:navContext.query, statusFilter:navContext.statusFilter,
+        transactionType:navContext.transactionType, dateRange:navContext.dateRange,
+        fromDate:navContext.fromDate, toDate:navContext.toDate, vendorId:navContext.vendorId,
+        categoryCode:navContext.categoryCode, billQueueView:navContext.billQueueView,
+      });
+      setQuery(returnedScope.query); setStatusFilter(returnedScope.statusFilter); setTransactionType(returnedScope.transactionType);
+      setDateRange(returnedScope.dateRange); setFromDate(returnedScope.fromDate); setToDate(returnedScope.toDate);
+      setVendorId(returnedScope.vendorId); setCategoryCode(returnedScope.categoryCode); setBillQueueView(returnedScope.billQueueView);
+      setDetailReturnScope(returnedScope);
+    }
+    if (navContext.vendorId != null && !navContext.billQueueView) {
       setVendorId(String(navContext.vendorId));
       setQuery('');
       setStatusFilter('ALL');
@@ -123,7 +135,7 @@ export function APWorkspace({ctx}) {
       setFromDate('');
       setToDate('');
       setCategoryCode('ALL');
-      setBillQueueView('All');
+      setBillQueueView('For review');
     }
     if (navContext.creditKey) {
       setSelectedCreditKey(String(navContext.creditKey));
@@ -146,7 +158,7 @@ export function APWorkspace({ctx}) {
       openBillDetail(matchedBill.bill_id);
       setTab(navContext.tab || 'Bills');
     }
-  }, [navContext?.route, navContext?.tab, navContext?.vendorId, navContext?.creditKey, navContext?.billId, navContext?.billNo, navContext?.jeNumber, navContext?.paymentBillDetail, bills]);
+  }, [navContext?.route, navContext?.tab, navContext?.vendorId, navContext?.creditKey, navContext?.billId, navContext?.billNo, navContext?.jeNumber, navContext?.paymentBillDetail, navContext?.billQueueView, navContext?.query, navContext?.statusFilter, navContext?.transactionType, navContext?.dateRange, navContext?.fromDate, navContext?.toDate, navContext?.categoryCode, bills]);
 
   const closeBillDetail = () => {
     setSel(null);
@@ -168,7 +180,7 @@ export function APWorkspace({ctx}) {
   }, [tab]);
   const selectedBillPayment = bills.find(candidate => candidate.bill_id === selectedBillPaymentId) || null;
   if (selectedBillPayment) return <PaymentEvidenceDetail bill={selectedBillPayment} paymentReturn={{route:'ap',tab:'Bills',billId:selectedBillPayment.bill_id,billDetail:true,entityId:selectedBillPayment.entity_id || '',vendorId:selectedBillPayment.vendor_id || '',vendorName:selectedBillPayment.vendor_name || '',paymentDate:selectedBillPayment.paid_date || 'Not retained'}} onClose={()=>setSelectedBillPaymentId(null)} backLabel="Back to Bill" ctx={ctx} />;
-  if (bill) return <BillDetail bill={bill} onClose={closeBillDetail} onOpenPayment={()=>setSelectedBillPaymentId(bill.bill_id)} agingReturn={agingDetailScope} vendorReturnId={vendorEvidenceReturnId} vendorReturnSearch={vendorEvidenceReturnSearch} ctx={ctx} />;
+  if (bill) return <BillDetail bill={bill} onClose={closeBillDetail} onOpenPayment={()=>setSelectedBillPaymentId(bill.bill_id)} agingReturn={agingDetailScope} billReturnScope={detailReturnScope || localExpenseDetailReturnScope({tab,query,statusFilter,transactionType,dateRange,fromDate,toDate,vendorId,categoryCode,billQueueView})} vendorReturnId={vendorEvidenceReturnId} vendorReturnSearch={vendorEvidenceReturnSearch} ctx={ctx} />;
   if (selectedCredit) return <VendorCreditDetail credit={selectedCredit} agingReturn={agingDetailScope} onClose={closeDetail} onOpenBill={billId=>{setBillReturnCreditKey(localVendorCreditLinkedBillReturn(selectedCreditKey));setSelectedCreditKey(null);openBillDetail(billId);}} ctx={ctx} />;
   if (selectedException) return <ExpenseReviewExceptionDetail exception={selectedException} onClose={closeDetail} onOpenSource={()=>{
     setSelectedExceptionId(null);
@@ -183,7 +195,7 @@ export function APWorkspace({ctx}) {
     <KPI label="Duplicate blocks" value={ap.dupBlocked||0} tone={ap.dupBlocked?'bad':'ok'} />
   </div>;
 
-  const clearBillFilters = () => { setQuery(''); setStatusFilter('ALL'); setTransactionType('ALL'); setDateRange('LAST_12_MONTHS'); setFromDate(''); setToDate(''); setVendorId('ALL'); setCategoryCode('ALL'); setBillQueueView('All'); };
+  const clearBillFilters = () => { setQuery(''); setStatusFilter('ALL'); setTransactionType('ALL'); setDateRange('LAST_12_MONTHS'); setFromDate(''); setToDate(''); setVendorId('ALL'); setCategoryCode('ALL'); setBillQueueView('For review'); };
   return <div>
     {navContext?.reportCenterReturn?.route==='reports' && <div className="qbo-report-back"><button type="button" onClick={()=>ctx.goto('reports')}>Back to reports</button><span>{navContext.reportCenterReturn.reportName || 'A/P Aging'}</span></div>}
     {navContext?.reportReturn?.route==='gl' && <div className="qbo-report-back"><button type="button" onClick={()=>ctx.goto('gl',navContext.reportReturn)}>Back to {navContext.reportReturn.tab || 'report'}</button><span>{localReportReturnScopeLabel(navContext.reportReturn)}</span></div>}
@@ -193,9 +205,10 @@ export function APWorkspace({ctx}) {
     <Tabs tabs={['Bills','Payments','AP Aging','Vendors']} active={tab} onChange={setTab} />
     {tab==='Bills' && <>
       <div role="tablist" aria-label="Bill review queues" style={{display:'flex',gap:8,flexWrap:'wrap',margin:'0 0 12px'}}>
-        {['All', ...LOCAL_BILL_QUEUE_VIEWS].map(view=><button key={view} type="button" role="tab" aria-selected={billQueueView===view} className={billQueueView===view?'btn btn-sm':'btn btn-ghost btn-sm'} onClick={()=>{setBillQueueView(view);setStatusFilter('ALL');}}>{view}</button>)}
+        {LOCAL_BILL_QUEUE_VIEWS.map(view=><button key={view} type="button" role="tab" aria-selected={billQueueView===view} className={billQueueView===view?'btn btn-sm':'btn btn-ghost btn-sm'} onClick={()=>{setBillQueueView(view);setStatusFilter('ALL');}}>{view}</button>)}
+        <button type="button" className="btn btn-ghost btn-sm" disabled title="Reference-only: recurring schedules are not modeled in REFS.">Recurring unavailable</button>
       </div>
-      <p className="muted sm" style={{margin:'-4px 0 10px'}}>For review contains pending approvals; Unpaid contains draft or approved bills; Paid contains retained payment evidence.</p>
+      <p className="muted sm" style={{margin:'-4px 0 10px'}}>For review contains retained pending-review evidence. Unpaid requires a posted AP source with no retained paid state. Paid requires retained posted payment evidence. Recurring is reference-only and unavailable.</p>
       <div className="expense-toolbar" style={{marginBottom:12}}><label className="expense-search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search bills, vendors or invoice #" /></label><label><span>Transaction type</span><select aria-label="Transaction Type" value={transactionType} onChange={e=>setTransactionType(e.target.value)}><option value="ALL">All transactions</option><option value="BILLS">Bills</option><option value="BILL_PAYMENTS">Bill payments</option></select></label><label><span>Dates</span><select value={dateRange} onChange={e=>setDateRange(e.target.value)}><option value="LAST_12_MONTHS">Last 12 months</option><option value="THIS_MONTH">This month</option><option value="ALL">All dates</option></select></label><label><span>Status</span><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}><option value="ALL">All statuses</option>{['DRAFT','PENDING_APPROVAL','APPROVED','PAID','VOID'].map(s=><option key={s}>{s}</option>)}</select></label><span className="result-count"><b>{expenseTransactionRows.length}</b> evidence rows</span><Btn variant="ghost" onClick={()=>setShellPanel(shellPanel==='Filter'?null:'Filter')}>More filters</Btn><Btn variant="ghost" onClick={()=>setShellPanel(shellPanel==='Settings'?null:'Settings')}>Columns</Btn><Btn variant="ghost" onClick={clearBillFilters}>Clear</Btn></div>
       {shellPanel && <div className="expense-shell-panel" role="region" aria-label={`${shellPanel} options`}>
         <div><b>{shellPanel==='Filter'?'More filters':'Visible columns'}</b><span>{shellPanel==='Filter'?'Refine retained AP evidence by date, payee, and account category.':'Choose the evidence-backed columns shown in the bill queue.'}</span></div>
@@ -271,7 +284,7 @@ function VendorWorkspace({bills, journals, bankTransactions, initialVendorId, in
   </div>;
 }
 
-function BillDetail({bill, onClose, onOpenPayment, agingReturn, vendorReturnId, vendorReturnSearch, ctx}) {
+function BillDetail({bill, onClose, onOpenPayment, agingReturn, billReturnScope, vendorReturnId, vendorReturnSearch, ctx}) {
     const {goto, jes, bank} = ctx;
     if (!bill) return null;
     const trace = localBillEvidenceTrace(bill, jes);
@@ -288,6 +301,7 @@ function BillDetail({bill, onClose, onOpenPayment, agingReturn, vendorReturnId, 
     {label:'Payment journal', done:bill.status==='PAID', who:bill.pay_je_number},
   ];
   const vendorReturnContext = vendorReturnId ? {vendorEvidenceId:vendorReturnId,vendorSearch:vendorReturnSearch || ''} : {};
+  const evidenceReturnContext = {...(billReturnScope || {}), ...vendorReturnContext};
   return <div className="full-bleed qbo-transaction-report" aria-label="Local bill evidence detail">
     <div className="qbo-report-back"><button type="button" onClick={onClose}>{agingReturn?.tab === 'AP Aging' ? 'Back to AP Aging' : vendorReturnId ? 'Back to Vendor evidence' : 'Back to Expenses'}</button><span>{agingReturn?.tab === 'AP Aging' ? localApAgingReturnScopeLabel(agingReturn) : vendorReturnId ? 'Vendor → Bill · retained same-vendor local evidence' : 'Bill · retained local evidence'}</span></div>
     <div className="gl-drill-head"><div><div className="gl-drill-crumb">Expenses / Bill detail</div><h2 className="page-h">{bill.bill_no} · {bill.vendor_name}</h2><div className="gl-drill-account">{bill.bill_date} · due {bill.due_date} · local entity evidence only</div></div><Badge tone="muted">{bill.status}</Badge></div>
@@ -305,14 +319,14 @@ function BillDetail({bill, onClose, onOpenPayment, agingReturn, vendorReturnId, 
       {balance.reviewReasons.length > 0 && <p className="muted sm" style={{margin:'10px 0 0'}}>Review: {balance.reviewReasons.join(' · ')}. No payment, credit, Bank, Reconcile, or AP state is changed here.</p>}
     </section>
     {(bill.je_number||bill.pay_je_number) && <div className="row-acts" style={{margin:'10px 0'}}>
-      {bill.je_number&&<Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:bill.je_number,expenseReturn:{route:'ap',tab:'Bills',billId:bill.bill_id,...vendorReturnContext}})}>Open AP JE</Btn>}
+      {bill.je_number&&<Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:bill.je_number,expenseReturn:{route:'ap',tab:'Bills',billId:bill.bill_id,...evidenceReturnContext}})}>Open AP JE</Btn>}
       {bill.pay_je_number&&<Btn size="sm" variant="ghost" onClick={onOpenPayment}>Open payment detail</Btn>}
-      {bill.pay_je_number&&<Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:bill.pay_je_number,expenseReturn:{route:'ap',tab:'Bills',billId:bill.bill_id,...vendorReturnContext}})}>Open payment JE</Btn>}
-      {bill.voidEvidence?.apReversals?.[0]&&<Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:bill.voidEvidence.apReversals[0].je_number,expenseReturn:{route:'ap',tab:'Bills',billId:bill.bill_id,...vendorReturnContext}})}>Open reversal JE</Btn>}
+      {bill.pay_je_number&&<Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:bill.pay_je_number,expenseReturn:{route:'ap',tab:'Bills',billId:bill.bill_id,...evidenceReturnContext}})}>Open payment JE</Btn>}
+      {bill.voidEvidence?.apReversals?.[0]&&<Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:bill.voidEvidence.apReversals[0].je_number,expenseReturn:{route:'ap',tab:'Bills',billId:bill.bill_id,...evidenceReturnContext}})}>Open reversal JE</Btn>}
     </div>}
     <SectionTitle>Local evidence trace</SectionTitle>
     <div className="qbo-drill-summary"><span><i>AP JE</i><b>{trace.apJournal ? `${trace.apJournal.je_number} · ${trace.apJournal.posting_status}` : 'No retained local AP JE'}</b></span><span><i>Payment JE</i><b>{trace.paymentJournal ? `${trace.paymentJournal.je_number} · ${trace.paymentJournal.posting_status}` : 'No retained local payment JE'}</b></span><span><i>Source document</i><b>{trace.sourceDocId || 'No retained local source document'}</b></span></div>
-    {trace.canOpenSourceDocument && <div className="row-acts" style={{margin:'10px 0'}}><Btn size="sm" variant="ghost" onClick={()=>goto('sourcedocs',{route:'sourcedocs',docId:trace.sourceDocId,jeNumber:trace.apJournal.je_number,sourceSystem:trace.apJournal.source_system,expenseReturn:{route:'ap',tab:'Bills',billId:bill.bill_id,...vendorReturnContext}})}>Open local source document</Btn></div>}
+    {trace.canOpenSourceDocument && <div className="row-acts" style={{margin:'10px 0'}}><Btn size="sm" variant="ghost" onClick={()=>goto('sourcedocs',{route:'sourcedocs',docId:trace.sourceDocId,jeNumber:trace.apJournal.je_number,sourceSystem:trace.apJournal.source_system,expenseReturn:{route:'ap',tab:'Bills',billId:bill.bill_id,...evidenceReturnContext}})}>Open local source document</Btn></div>}
     <p className="muted sm" style={{margin:'8px 0 0'}}>This trace reads local retained evidence only. It cannot upload, autofill, create, approve, edit, or pay a QBO bill.</p>
     <p className="muted sm" style={{margin:'8px 0 0'}}>Void/reversal is evidence-only. {bill.voidEvidence?.canRequest ? 'A posted, unpaid AP source may enter controller review, but this UI cannot create a reversal.' : 'Paid/partially paid, bank-matched, CWIP/prepaid, related-party, restricted/escrow/loan, cross-entity, or ambiguous cases require exception/reopen review; no bill or payment is deleted.'}</p>
     <SectionTitle>Evidence workflow</SectionTitle>
