@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createPublicKey, verify } from 'node:crypto';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const forbidden = /[\p{Script=Han}\uFFFD\u0080-\u009F]/u;
 const pages = ['Dashboard', 'Reports', 'Reconcile', 'BankTx', 'Expenses', 'Accounting', 'Rule Center', 'Integration Hub'];
@@ -109,7 +110,7 @@ export function verifyAllExternalReleaseEvidence(environment = process.env) {
   return ok;
 }
 
-if (import.meta.url === `file:///${process.argv[1]?.replaceAll('\\', '/')}`) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const gate = process.argv[2];
   const runner = { ui: verifyUiEvidence, s3: verifyS3ScannerEvidence, wbs: verifyWbsReceiptEvidence, all: verifyAllExternalReleaseEvidence }[gate];
   if (!runner) fail('RELEASE_GATE_ARGUMENT_INVALID', 'use ui, s3, wbs, or all');
