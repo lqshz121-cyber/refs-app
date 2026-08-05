@@ -131,6 +131,27 @@ export class PostgresAccountingKernel{
     ),'WBS_INBOUND_PERSIST_FAILED','WBS inbound persistence did not return a result').result);
   }
 
+  async readPersistedWbsInboundRows({tenantId,entityId,companyKey,sourceRecordIds,read_only}){
+    if(read_only!==true||!Array.isArray(sourceRecordIds)||sourceRecordIds.length===0)throw new KernelError('WBS_AUTOREC_READ_SCOPE_INVALID','A non-empty read-only WBS inbound selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_inbound_rows($1,$2,$3,$4::text[]) AS rows',[tenantId,entityId,companyKey,sourceRecordIds]
+    ),'WBS_AUTOREC_READ_FAILED','WBS inbound read did not return a result').rows);
+  }
+
+  async readPersistedWbsControlRows({tenantId,entityId,companyKey,sourceRecordIds,read_only}){
+    if(read_only!==true||!Array.isArray(sourceRecordIds)||sourceRecordIds.length===0)throw new KernelError('WBS_AUTOREC_READ_SCOPE_INVALID','A non-empty read-only WBS control selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_autorec_control_rows($1,$2,$3,$4::text[]) AS rows',[tenantId,entityId,companyKey,sourceRecordIds]
+    ),'WBS_AUTOREC_READ_FAILED','WBS control read did not return a result').rows);
+  }
+
+  async readApprovedWbsAutoRecMappings({tenantId,entityId,companyKey,read_only}){
+    if(read_only!==true)throw new KernelError('WBS_AUTOREC_READ_SCOPE_INVALID','An explicit read-only WBS mapping selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_autorec_mappings($1,$2,$3) AS rows',[tenantId,entityId,companyKey]
+    ),'WBS_AUTOREC_READ_FAILED','WBS approved mapping read did not return a result').rows);
+  }
+
   async createAutoJournal(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
