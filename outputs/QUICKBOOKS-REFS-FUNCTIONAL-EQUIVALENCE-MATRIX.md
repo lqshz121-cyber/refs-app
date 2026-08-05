@@ -1,5 +1,14 @@
 # QuickBooks → REFS Functional Equivalence Matrix
 
+## Accounting — COA/Register retained evidence query (2026-08-05)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| COA list and Register scope | Read-only QBO Chart of accounts showed name/number filter, account-type and QuickBooks/Bank balance columns, plus pagination. New account, batch edit, export and print were visible but not operated. | COA retains its local name/number query when opening a permitted cash Register. Register now carries its local posted-evidence query with entity, account and period through JE/GL/Reconcile returns and explains a scoped empty search result. | PARTIAL — local return contract verified; QBO populated Register, role behavior and page/scroll behavior remain unobserved. |
+| Cash-only reconciliation | QBO account actions were not operated. | Only a same-entity mapped cash Register exposes Reconcile. Non-cash COA accounts remain GL-only with no Bank/Reconcile drill. | PARTIAL — local safety boundary, not QBO equivalence. |
+
+- Assistant3 scope review applied. Required verification: `node verify-coa-register-return-query.mjs`, `node build.mjs`, visual verification and `git diff --check`.
+
 ## Banking — retained queue scope through evidence drills (2026-08-05)
 
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |

@@ -15,12 +15,14 @@ export function AccountRegister({ctx}) {
   const periods = [...new Set(jes.map(journal => journal.period_code).filter(Boolean))].sort();
   const [fromPeriod, setFromPeriod] = useState(periods[0] || '');
   const [throughPeriod, setThroughPeriod] = useState(periods[periods.length - 1] || '');
+  const [query, setQuery] = useState('');
   useEffect(() => {
     if (navContext?.route === 'register' && coa.some(account => account.account_code === navContext.accountCode)) setCode(navContext.accountCode);
     if (navContext?.route === 'register' && navContext.throughPeriod) setThroughPeriod(navContext.throughPeriod);
     if (navContext?.route === 'register' && navContext.fromPeriod) setFromPeriod(navContext.fromPeriod);
     if (navContext?.route === 'register' && navContext.entryId) setSelectedEntryId(String(navContext.entryId));
-  }, [navContext?.route, navContext?.accountCode, navContext?.fromPeriod, navContext?.throughPeriod, navContext?.entryId, coa]);
+    if (navContext?.route === 'register' && navContext.query != null) setQuery(String(navContext.query));
+  }, [navContext?.route, navContext?.accountCode, navContext?.fromPeriod, navContext?.throughPeriod, navContext?.entryId, navContext?.query, coa]);
 
   const account = coa.find(row => row.account_code === code) || {};
   const registerAccounts = localRegisterAccountOptions(coa);
@@ -42,12 +44,14 @@ export function AccountRegister({ctx}) {
     sourceTarget:sourceTargetFor(entry.journal),
   })).map(row => ({...row,reconciliationEvidence:localReconciliationRegisterEvidence(row.bankEvidenceTransactions,navContext?.reconciliationHistoryReturn)}));
   const endingBalance = localRegisterEndingBalance(rows);
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleRows = normalizedQuery ? rows.filter(row => `${row.ref} ${row.source} ${row.counterparty} ${row.memo} ${row.dimensions}`.toLowerCase().includes(normalizedQuery)) : rows;
   const scope = localRegisterScope(code);
   const cashRegisterScope = localCashRegisterScope({entityId:entity || null,accountCode:code,bankAccountMaster:BANK_ACCOUNTS});
   const coaReturn = navContext?.coaReturn?.route === 'coa' ? navContext.coaReturn : null;
   const registerReturnContext = (entryId = '') => entryId
-    ? localAccountRegisterJournalReturnContext({entityId:entity,accountCode:code,fromPeriod,throughPeriod,entryId,coaReturn})
-    : localAccountRegisterReportReturnContext({entityId:entity,accountCode:code,fromPeriod,throughPeriod,coaReturn});
+    ? localAccountRegisterJournalReturnContext({entityId:entity,accountCode:code,fromPeriod,throughPeriod,entryId,query,coaReturn})
+    : localAccountRegisterReportReturnContext({entityId:entity,accountCode:code,fromPeriod,throughPeriod,query,coaReturn});
   const selectedEntry = rows.find(row => row.id === selectedEntryId) || null;
   const openScopedGeneralLedger = () => goto('gl',{
     route:'gl', tab:'GL Detail', entityId:entity || '', fromP:fromPeriod, toP:throughPeriod,
@@ -88,6 +92,7 @@ export function AccountRegister({ctx}) {
       <select value={throughPeriod} onChange={event=>setThroughPeriod(event.target.value)} style={{padding:'9px 12px',borderRadius:8,border:'1px solid #d4d7dc',fontSize:14}} aria-label="Through period">
         {periods.map(period=><option key={period} value={period}>Through {period}</option>)}
       </select>
+      <label><span className="filter-label">Search posted evidence</span><input aria-label="Search posted evidence" value={query} onChange={event=>setQuery(event.target.value)} placeholder="JE, source, counterparty or memo" /></label>
       <Badge tone="muted">{account.account_type}</Badge>
       <Badge tone={scope === 'Operating' ? 'ok' : 'warn'}>{scope}</Badge>
       <Badge tone={cashRegisterScope.state==='LOCAL_CASH_REGISTER'?'ok':'warn'}>{cashRegisterScope.state}</Badge>
@@ -107,6 +112,6 @@ export function AccountRegister({ctx}) {
       {h:'Running balance',num:true,render:row=><Money v={row.runningBalance} bold/>,csv:row=>row.runningBalance},
       {h:'Bank evidence',render:row=><Badge tone={row.bankEvidence.state === 'LOCAL_MATCHED' ? 'ok' : 'warn'}>{row.bankEvidence.state === 'LOCAL_MATCHED' ? 'LOCAL MATCHED' : row.bankEvidence.state === 'LOCAL_UNMATCHED' ? 'LOCAL UNMATCHED' : 'NO LOCAL MATCH'}</Badge>,csv:row=>row.bankEvidence.state},
       {h:'Reconcile evidence',render:row=><Badge tone={row.reconciliationEvidence.state === 'CLEARED_SIGNED_OFF' ? 'ok' : row.reconciliationEvidence.state === 'NO_SIGNED_SCOPE' ? 'muted' : 'warn'}>{row.reconciliationEvidence.state}</Badge>,csv:row=>row.reconciliationEvidence.state},
-    ]} rows={rows} empty={entity ? 'No posted local entries in this entity/account/period scope.' : 'Select an entity before viewing a local cash register.'}/>
+    ]} rows={visibleRows} empty={entity ? (normalizedQuery ? 'No posted local entries match this search in the current entity, account and period scope.' : 'No posted local entries in this entity/account/period scope.') : 'Select an entity before viewing a local cash register.'}/>
   </div>;
 }
