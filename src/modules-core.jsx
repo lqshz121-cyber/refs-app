@@ -38,7 +38,7 @@ export function Dashboard({ctx}) {
       <div className="qbo-home-actions"><Btn onClick={()=>goto('je')}>Create journal entry</Btn><Btn variant="ghost" onClick={()=>goto('reports')}>Open reports</Btn><Btn variant="ghost" onClick={()=>goto('audit')}>See all activity</Btn></div>
     </div>
     <div className="qbo-quicklinks" aria-label="Quick links">
-      {[['Accounting','gl'],['Expenses & Pay Bills','ap'],['Banking','banktx'],['Auto reconciliation','autobankrec'],['Projects','cost'],['Reports','reports'],['Customer hub','ar'],['Team','approvals'],['Time','pmpickup'],['Inventory','cost'],['Sales tax','reports'],['Lending','loan'],['Payroll','close']].map(([label,route])=><button key={route} type="button" onClick={()=>goto(route)}><span>{label}</span><i aria-hidden="true">→</i></button>)}
+      {[['Accounting','gl'],['Expenses & Pay Bills','ap'],['Banking','banktx'],['Projects','cost'],['Reports','reports'],['Close','close']].map(([label,route])=><button key={route} type="button" onClick={()=>goto(route)}><span>{label}</span><i aria-hidden="true">→</i></button>)}
     </div>
     <h2 className="page-h">Business at a glance</h2>
     <div className="qbo-grid">
@@ -76,11 +76,6 @@ export function Dashboard({ctx}) {
         <div className="qbo-sub">{openExc.filter(e=>e.severity==='HIGH').length} high · {openExc.filter(e=>e.severity==='MEDIUM').length} medium · oldest aging {Math.max(0,...openExc.map(e=>e.aging_days))} days</div>
       </div>
     </div>
-    <SectionTitle>Suggestions for you · observed shell</SectionTitle>
-    <div className="qbo-grid" style={{marginBottom:20}}>
-      <div className="qbo-card"><span className="eyebrow">TIP</span><h4>Smart Tip: workflows</h4><p className="qbo-sub">Save time and improve your cash flow with automated reminders.</p><Btn size="sm" disabled>Check it out</Btn></div>
-      <div className="qbo-card"><span className="eyebrow">ADD ON</span><h4>Automate your payroll in minutes</h4><p className="qbo-sub">QuickBooks Workforce calculates, files, and pays your payroll taxes for you.</p><Btn size="sm" disabled>Try free for 30 days</Btn></div>
-    </div>
     <SectionTitle>Needs attention · REFS local queue</SectionTitle>
     <div className="todo-grid" style={{marginBottom:20}}>
       {[[bankUnmatched,'Bank transactions for review','banktx'],
@@ -92,9 +87,9 @@ export function Dashboard({ctx}) {
         <div key={l} className="todo-item" onClick={()=>goto(r)} style={{cursor:'pointer'}}>
           <span className={`todo-n ${n>0?'warn':'ok'}`}>{n}</span><span className="todo-l">{l}</span></div>)}
     </div>
-    <SectionTitle>Create actions · REFS local routes</SectionTitle>
+    <SectionTitle>Create actions</SectionTitle>
     <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:22}}>
-      {[['Run payroll','close'],['Get paid online','ar'],['Create invoice','ar'],['Record expense','ap'],['Add bank deposit','banktx']].map(([l,r])=>
+      {[['Create invoice','ar'],['Record expense','ap']].map(([l,r])=>
         <Btn key={l} onClick={()=>goto(r)}>{l}</Btn>)}
     </div>
     <SectionTitle>Shortcuts</SectionTitle>
