@@ -9,6 +9,7 @@ import {
   createWbsMockDataset,
   runDeterministicAccountingRules,
 } from './wbs-accounting-foundation.js';
+import { buildWbsEndToEndFlowEvidence } from './wbs-e2e-flow-evidence.js';
 
 const TAB_RULES = {
   'Critical Findings': finding => finding.risk === 'HIGH',
@@ -150,7 +151,8 @@ export function AIAudit({ ctx }) {
     const findings = [...wbsFindings, ...ledgerFindings].sort((a, b) => (({ HIGH: 0, MEDIUM: 1, LOW: 2 }[a.risk] ?? 3) - ({ HIGH: 0, MEDIUM: 1, LOW: 2 }[b.risk] ?? 3)) || b.conf - a.conf);
     const insuranceInvoice = snapshot.payableInvoices.find(invoice => invoice.id === 'AP-INS-12MO');
     const amortizationSchedule = createAmortizationScheduleFromInsurance(insuranceInvoice);
-    return { snapshot, events, findings, amortizationSchedule };
+    const e2eFlowEvidence = buildWbsEndToEndFlowEvidence(snapshot);
+    return { snapshot, events, findings, amortizationSchedule, e2eFlowEvidence };
   }, [jes, entity, runId]);
 
   const resolve = finding => {
@@ -190,6 +192,28 @@ export function AIAudit({ ctx }) {
         <KPI label="Accounting events" value={model.events.length} />
         <KPI label="Amortization lines" value={model.amortizationSchedule.lines.length} />
       </div>
+      <section className="report-workbench wbs-e2e-flow-evidence" aria-label="WBS mock end-to-end accounting flow evidence" style={{marginBottom:12}}>
+        <div className="report-workbench-head">
+          <div><b>WBS mock end-to-end accounting flow evidence</b><div className="page-subtitle">Source data, accounting event, finding, suggested JE, review state, posted JE, GL impact, report impact, and audit trail are visible for each mock close workflow.</div></div>
+          <Badge tone={model.e2eFlowEvidence.allFlowsTraceable ? 'ok' : 'warn'}>{model.e2eFlowEvidence.mode}</Badge>
+        </div>
+        <div className="qbo-toolgrid">
+          <span><i>Mock flows</i><b>{model.e2eFlowEvidence.controls.total_flows}</b></span>
+          <span><i>Source + event</i><b>{model.e2eFlowEvidence.controls.flows_with_event}</b></span>
+          <span><i>JE or blocker</i><b>{model.e2eFlowEvidence.controls.flows_with_suggested_je_or_explicit_blocker}</b></span>
+          <span><i>Audit trail</i><b>{model.e2eFlowEvidence.controls.flows_with_audit}</b></span>
+        </div>
+        <Table features={{exportable:false}} rowKey="id" pageSize={10} cols={[
+          {h:'Workflow',k:'name'},
+          {h:'Source',render:row=><span>{row.source_id} · {row.source_type}</span>,csv:row=>row.source_id},
+          {h:'Event',render:row=><span>{row.event_type} · {row.event_id}</span>,csv:row=>row.event_id},
+          {h:'Rule / review',render:row=><span><span className="acct-code">{row.rule_id}</span> · {row.review_status}</span>,csv:row=>row.rule_id},
+          {h:'Suggested JE',k:'suggested_je_number'},
+          {h:'Posted / report',render:row=><span>{row.posted_state} · GL {row.gl_line_count} · Report {row.report_impact_count}</span>,csv:row=>row.posted_state},
+          {h:'Control',render:row=><Badge tone={/TIED|POSTED|READY|RETAINED/.test(row.control_state)?'ok':'warn'}>{row.control_state}</Badge>,csv:row=>row.control_state},
+        ]} rows={model.e2eFlowEvidence.flows}/>
+        <p className="muted sm" style={{margin:'10px 0 0'}}>This is a local simulation gate. Incomplete source evidence stays review-only; the screen does not call production WBS, auto-post, export, sync, or replace the external release gates.</p>
+      </section>
       <Tabs tabs={Object.keys(TAB_RULES)} active={tab} onChange={setTab} />
       <div className="split two">
         <div>
