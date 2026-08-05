@@ -1,0 +1,18 @@
+{
+  "contract_version": "wbs-finance-data-input-coverage-v1",
+  "provider_status": "REAL_WBS_PROVIDER_DEFERRED",
+  "policy": "This is REFS inbound-data coverage only; it does not reconstruct any WBS business module, page, workflow, or WBS write operation. Every external source is read-only, receipt-bound, and fail-closed. A MOCK adapter may prove the REFS contract but never proves live WBS behavior.",
+  "data_inputs": [
+    {"input_name":"Payable receipt","source_type":"PAYABLE","role":"TRANSACTION_PRODUCER","path":"receipt→Raw→Normalized→Staging→AutoRec allocation→standard PAYABLE_INCUR/AUTOC workflow","status":"IMPLEMENTED_GENERIC_CONTRACT"},
+    {"input_name":"Bank Journal receipt classified as Construction Loan Draw","source_type":"BANK_TRANSACTION_JE","role":"TRANSACTION_PRODUCER","path":"receipt→Raw→Normalized→Staging→approved mapping→standard Draft JE request→Review/Approve/Post evidence→GL/report/audit trace","status":"IMPLEMENTED_MOCK_DATA_INPUT_CONTRACT","selected":true},
+    {"input_name":"Bank Journal receipt classified as repayment","source_type":"BANK_TRANSACTION_JE","role":"TRANSACTION_PRODUCER","path":"receipt→Raw→Normalized→Staging→approved mapping","status":"PLANNED_DATA_INPUT_ONLY"},
+    {"input_name":"Payable receipt classified as HOA assessment","source_type":"PAYABLE","role":"TRANSACTION_PRODUCER","path":"receipt→Raw→Normalized→Staging→approved mapping→standard JE workflow","status":"PLANNED_DATA_INPUT_ONLY"},
+    {"input_name":"Payable receipt classified as CWIP cost","source_type":"PAYABLE","role":"TRANSACTION_PRODUCER","path":"receipt→Raw→Normalized→Staging→approved mapping→standard JE workflow","status":"PLANNED_DATA_INPUT_ONLY"},
+    {"input_name":"Cost General Ledger metric receipt","source_type":"COST_GENERAL_LEDGER","role":"CONTROL_SOURCE","path":"receipt→Raw→metric snapshot→control reconciliation/trace","status":"IMPLEMENTED_CONTROL_ONLY","forbidden":["source_document","allocation","Draft JE","Post"]},
+    {"input_name":"Property Comparison control receipt","source_type":"PROPERTY_COMPARISON","role":"CONTROL_SOURCE","path":"receipt→Raw→control snapshot→control reconciliation/trace","status":"RESERVED_PROPERTY_TAX_OWNER","forbidden":["source_document","allocation","Draft JE","Post"]},
+    {"input_name":"AutoRec payment-detail receipt","source_type":"AUTOREC_PAYMENT_DETAIL","role":"TRANSACTION_PRODUCER","path":"receipt(pdGuid required)→Raw→Normalized→Staging→allocation","status":"IMPLEMENTED_RECEIPT_GATED"},
+    {"input_name":"AutoRec match relation receipt","source_type":"AUTOREC_MATCH","role":"RELATION_FACT","path":"receipt(match id required)→Raw→append-only relation evidence","status":"IMPLEMENTED_RELATION_ONLY","forbidden":["allocation","Draft JE","Post"]}
+  ],
+  "real_adapter_minimum": ["immutable record and line key","record revision or immutable payload version","tenant/entity/company","business/accounting/posting dates","currency and signed amount","bank account and business dimensions","immutable payload reference/version/hash","approved effective mapping id/version","read-only provider identity and signature metadata"],
+  "unknowns": ["live WBS result schema and nonempty signed receipts","WBS tolerance and cancellation semantics","provider key/signature delivery"]
+}
