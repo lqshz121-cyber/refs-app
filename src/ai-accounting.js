@@ -368,7 +368,9 @@ const aiReviewOutcomePayload=({draft,outcome,actor}={})=>redactSecrets({
   draft_id:draft?.je_id||draft?.je_number||null,
   draft_idempotency_key:draft?.idempotency_key||null,
   decision:outcome?.decision||null,
+  reason:outcome?.reason||null,
   patch:outcome?.patch||null,
+  review_metadata:outcome?.review_metadata||null,
   actor:actor||null
 });
 // Persist the full canonical, already-redacted payload. Equality is exact, rather
@@ -424,12 +426,17 @@ export function createAIReviewOutcomeRepository(storage,{key='ai_accounting_revi
     const confirmed=read();
     if(confirmed.wals.length!==next.wals.length||confirmed.drafts.length!==next.drafts.length||confirmed.events.length!==next.events.length) throw new Error('AI review outcome persistence was not confirmed');
   };
-  const commit=(state,wal)=>{
+  const commit=(state,wal,{recovered=false}={})=>{
     const result=applyAIReviewOutcome(wal.input);
-    const drafts=[...state.drafts.filter(row=>row.ai_proposal_id!==result.draft.ai_proposal_id),result.draft];
-    const events=state.events.some(event=>event.event_id===result.event.event_id)?state.events:[...state.events,result.event];
-    const wals=state.wals.map(row=>row.idempotency_key===wal.idempotency_key?{...row,state:'COMMITTED',committed_at:new Date().toISOString()}:row);
-    const next={wals,drafts,events}; persist(next); return {status:'COMMITTED',draft:result.draft,event:result.event,wal:wals.find(row=>row.idempotency_key===wal.idempotency_key)};
+    const priorRevision=Math.max(0,...state.wals.filter(row=>row.state==='COMMITTED'&&row.input?.draft?.ai_proposal_id===result.draft.ai_proposal_id).map(row=>Number(row.revision)||0));
+    const revision=priorRevision+1;
+    const reviewedDraft={...result.draft,ai_review_revision:revision};
+    const reviewEvent={...result.event,payload:{...result.event.payload,revision}};
+    const drafts=[...state.drafts.filter(row=>row.ai_proposal_id!==reviewedDraft.ai_proposal_id),reviewedDraft];
+    const events=state.events.some(event=>event.event_id===reviewEvent.event_id)?state.events:[...state.events,reviewEvent];
+    const committedAt=new Date().toISOString();
+    const wals=state.wals.map(row=>row.idempotency_key===wal.idempotency_key?{...row,state:'COMMITTED',revision,committed_at:committedAt,...(recovered?{recovered_at:committedAt}:{})}:row);
+    const next={wals,drafts,events}; persist(next); return {status:'COMMITTED',draft:reviewedDraft,event:reviewEvent,wal:wals.find(row=>row.idempotency_key===wal.idempotency_key)};
   };
   return {
     apply(input){
@@ -447,12 +454,46 @@ export function createAIReviewOutcomeRepository(storage,{key='ai_accounting_revi
       let state=read(); const results=[];
       for(const wal of state.wals.filter(row=>row.state==='PREPARED')) {
         if(!wal.payload_canonical||wal.payload_canonical!==canonicalAIReviewOutcomePayload(wal.input)) throw new Error('AI review outcome recovery idempotency conflict');
-        const result=commit(state,wal); results.push({...result,status:'RECOVERED'}); state=read();
+        const result=commit(state,wal,{recovered:true}); results.push({...result,status:'RECOVERED'}); state=read();
       }
       return results;
     },
     read
   };
+}
+
+// Immutable, read-only projection for controller/auditor screens. The canonical
+// payload is already secret-redacted and is never reparsed into an executable
+// command. Missing or incomplete WAL/event evidence remains visibly incomplete.
+export function buildAIReviewOutcomeTrace(state={}) {
+  const wals=Array.isArray(state.wals)?state.wals:[];
+  const drafts=Array.isArray(state.drafts)?state.drafts:[];
+  const events=Array.isArray(state.events)?state.events:[];
+  return wals.map(wal=>{
+    const proposalId=wal.input?.draft?.ai_proposal_id||null;
+    const draft=drafts.find(row=>row.ai_review_outcome_id===wal.idempotency_key)||null;
+    const event=events.find(row=>row.event_id===`AI-REVIEW-OUTCOME:${wal.idempotency_key}`)||null;
+    const evidenceComplete=Boolean(wal.payload_canonical&&proposalId&&wal.input?.actor&&wal.input?.outcome?.decision&&wal.created_at&&wal.state==='COMMITTED'&&wal.committed_at&&draft&&event);
+    return Object.freeze({
+      trace_id:wal.wal_id||`AI-REVIEW-WAL:${wal.idempotency_key}`,
+      idempotency_key:wal.idempotency_key||null,
+      proposal_id:proposalId,
+      draft_id:wal.input?.draft?.je_id||wal.input?.draft?.je_number||null,
+      actor:wal.input?.actor||null,
+      decision:wal.input?.outcome?.decision||null,
+      revision:Number(wal.revision)||0,
+      prepared_at:wal.created_at||null,
+      committed_at:wal.committed_at||null,
+      recovered_at:wal.recovered_at||null,
+      wal_state:wal.state||'UNKNOWN',
+      recovery_state:wal.state==='PREPARED'?'RECOVERY_REQUIRED':wal.recovered_at?'RECOVERED':'NOT_REQUIRED',
+      canonical_redacted_payload:wal.payload_canonical||null,
+      event_id:event?.event_id||null,
+      posting_status:draft?.posting_status||wal.input?.draft?.posting_status||null,
+      evidence_state:evidenceComplete?'COMPLETE':'INCOMPLETE',
+      controls:Object.freeze({read_only:true,can_create_draft:false,can_approve:false,can_post:false})
+    });
+  });
 }
 
 export function createAIReviewTask({finding,evidence}={}) {

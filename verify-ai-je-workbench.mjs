@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
 import {
-  approveAndPostSuggestedJEs,
   buildAccountingEvents,
   createWbsMockDataset,
   runDeterministicAccountingRules,
@@ -24,7 +23,6 @@ if (!appSource.includes('aijeworkbench:AIJEWorkbench')) fail('AI JE Workbench is
   'Credit preview',
   'Source retained',
   'Create Draft JE',
-  'Post with controls',
   'Approve',
   'Reject',
   'Review note',
@@ -32,8 +30,12 @@ if (!appSource.includes('aijeworkbench:AIJEWorkbench')) fail('AI JE Workbench is
 ].forEach(label => {
   if (!moduleSource.includes(label)) fail(`AI JE Workbench missing visible label/action ${label}.`);
 });
-if (!moduleSource.includes('approveAndPostSuggestedJEs')) fail('AI JE Workbench must use posting controls before post action.');
+if (moduleSource.includes('approveAndPostSuggestedJEs') || moduleSource.includes('postCandidate') || moduleSource.includes('Post with controls')) fail('AI JE Workbench must not expose a posting path.');
+if (!moduleSource.includes('Posting from workbench') || !moduleSource.includes('value="Disabled"')) fail('AI JE Workbench must visibly disable posting.');
+if (!moduleSource.includes('posting remain in the controlled Journal Entry workflow')) fail('AI JE Workbench must route posting to the controlled JE workflow.');
 if (!moduleSource.includes('actions.newJEFromRule')) fail('AI JE Workbench must create JE records through app action boundary.');
+if (!moduleSource.includes("specFromItem(item, 'DRAFT')")) fail('AI JE Workbench may create Draft JEs only.');
+if (moduleSource.includes("specFromItem(item, 'POSTED')")) fail('AI JE Workbench must never create a Posted JE.');
 
 const snapshot = createWbsMockDataset();
 const events = buildAccountingEvents(snapshot);
@@ -46,15 +48,4 @@ candidates.forEach(candidate => {
   if (!candidate.suggested_je.source_document_id) fail(`${candidate.rule_id} candidate lacks source document.`);
 });
 
-const [posted] = approveAndPostSuggestedJEs({
-  suggestedJEs: [candidates.find(item => item.rule_id === 'LOAN_DRAW_RECOGNITION').suggested_je],
-  periods: snapshot.accountingPeriods,
-});
-if (posted.posting_status !== 'POSTED') fail('AI JE Workbench posting control should allow a balanced source-backed open-period JE.');
-const [blocked] = approveAndPostSuggestedJEs({
-  suggestedJEs: [{ ...candidates[0].suggested_je, source_document_id: null }],
-  periods: snapshot.accountingPeriods,
-});
-if (blocked.posting_status !== 'BLOCKED' || !/source/i.test(blocked.block_reason)) fail('AI JE Workbench posting control must block missing source documents.');
-
-console.log('ai-je-workbench: route, controls, balanced candidates, source blockers and post validation passed');
+console.log('ai-je-workbench: route, human review, balanced candidates, source blockers, Draft-only creation and no posting path passed');

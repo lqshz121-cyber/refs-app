@@ -3,7 +3,6 @@ import { KPI, Btn, Badge, Table, Tabs } from './ui.jsx';
 import { money, sum } from './engine.js';
 import { repo } from './repo.js';
 import {
-  approveAndPostSuggestedJEs,
   buildAccountingEvents,
   createWbsMockDataset,
   runDeterministicAccountingRules,
@@ -71,7 +70,7 @@ function specFromItem(item, status = 'DRAFT') {
 }
 
 export function AIJEWorkbench({ ctx }) {
-  const { actions, toast, goto, period, user } = ctx;
+  const { actions, toast, goto, user } = ctx;
   const [tab, setTab] = useState('Ready');
   const [selectedKey, setSelectedKey] = useState(null);
   const [state, setState] = useState(() => repo.load('ai_je_workbench_state', {}));
@@ -110,32 +109,16 @@ export function AIJEWorkbench({ ctx }) {
     toast('Draft JE created from AI candidate.');
     goto('je');
   };
-  const postCandidate = item => {
-    const [posted] = approveAndPostSuggestedJEs({ suggestedJEs: [item.je], periods: [period] });
-    if (posted.posting_status === 'BLOCKED') {
-      update(item, { status: 'BLOCKED', block_reason: posted.block_reason });
-      audit('AI_JE_POST_BLOCKED', item, posted.block_reason);
-      toast(`Posting blocked: ${posted.block_reason}`, 'bad');
-      return;
-    }
-    const jeId = actions.newJEFromRule(specFromItem(item, 'POSTED'));
-    update(item, { status: 'POSTED', je_id: jeId, note: note || item.note });
-    audit('AI_JE_POSTED', item, `JE ${jeId}`);
-    toast('AI JE posted through workbench controls.');
-    goto('je');
-  };
   const filtered = enriched.filter(item => {
-    if (tab === 'Ready') return !['REJECTED', 'POSTED'].includes(item.workflow);
+    if (tab === 'Ready') return item.workflow === 'READY';
     if (tab === 'Approved') return item.workflow === 'APPROVED';
     if (tab === 'Drafted') return item.workflow === 'DRAFT_CREATED';
-    if (tab === 'Posted') return item.workflow === 'POSTED';
     if (tab === 'Rejected') return item.workflow === 'REJECTED';
     if (tab === 'Blocked') return item.workflow === 'BLOCKED' || !item.balanced || !item.hasSource;
     return true;
   });
   const high = enriched.filter(item => item.risk === 'HIGH').length;
   const approved = enriched.filter(item => item.workflow === 'APPROVED').length;
-  const postedCount = enriched.filter(item => item.workflow === 'POSTED').length;
 
   return <div className="full-bleed">
     <h2 className="page-h">AI JE Workbench</h2>
@@ -144,9 +127,9 @@ export function AIJEWorkbench({ ctx }) {
       <KPI label="AI candidates" value={enriched.length} />
       <KPI label="High risk" value={high} tone={high ? 'bad' : 'ok'} />
       <KPI label="Approved" value={approved} />
-      <KPI label="Posted from workbench" value={postedCount} tone={postedCount ? 'ok' : 'muted'} />
+      <KPI label="Posting from workbench" value="Disabled" tone="muted" />
     </div>
-    <Tabs tabs={['Ready', 'Approved', 'Drafted', 'Posted', 'Rejected', 'Blocked', 'All']} active={tab} onChange={setTab} />
+    <Tabs tabs={['Ready', 'Approved', 'Drafted', 'Rejected', 'Blocked', 'All']} active={tab} onChange={setTab} />
     <div className="split two">
       <Table
         pageSize={18}
@@ -188,8 +171,8 @@ export function AIJEWorkbench({ ctx }) {
             <Btn variant="primary" onClick={() => approve(selected)}>Approve</Btn>
             <Btn onClick={() => createDraft(selected)}>Create Draft JE</Btn>
             <Btn variant="danger" onClick={() => reject(selected)}>Reject</Btn>
-            <Btn variant="ghost" onClick={() => postCandidate(selected)}>Post with controls</Btn>
           </div>
+          <p className="muted sm">This workbench records human review and can create a Draft JE only. Review, approval, and posting remain in the controlled Journal Entry workflow.</p>
           <h4>Audit trail</h4>
           <ul className="mini-list">
             {selected.auditTrail.map((entry, index) => <li key={index}>{entry.action} <span className="muted">by {entry.actor || 'system'} at {entry.at || 'runtime'}</span></li>)}

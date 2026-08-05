@@ -12,6 +12,7 @@ import {
 import { buildWbsEndToEndFlowEvidence } from './wbs-e2e-flow-evidence.js';
 import { buildWbsAccountingAnalysisReport } from './wbs-accounting-analysis-report.js';
 import { buildWbsAccountingActionQueue } from './wbs-accounting-action-queue.js';
+import { buildAIReviewOutcomeTrace } from './ai-accounting.js';
 
 const TAB_RULES = {
   'Critical Findings': finding => finding.risk === 'HIGH',
@@ -144,6 +145,10 @@ export function AIAudit({ ctx }) {
   const [tab, setTab] = useState('All');
   const [selectedId, setSelectedId] = useState(null);
   const [resolved, setResolved] = useState(() => repo.load('audit_resolved', {}));
+  const reviewOutcomeTrace = useMemo(
+    () => buildAIReviewOutcomeTrace(repo.load('ai_accounting_review_outcomes', { wals: [], drafts: [], events: [] })),
+    [runId],
+  );
 
   const model = useMemo(() => {
     const snapshot = createWbsMockDataset();
@@ -196,6 +201,30 @@ export function AIAudit({ ctx }) {
         <KPI label="Accounting events" value={model.events.length} />
         <KPI label="Amortization lines" value={model.amortizationSchedule.lines.length} />
       </div>
+      <section className="report-workbench ai-review-outcome-trace" aria-label="AI review outcome trace" style={{marginBottom:12}}>
+        <div className="report-workbench-head">
+          <div><b>Human review outcome trace</b><div className="page-subtitle">Read-only, secret-redacted evidence for controller decisions and WAL recovery. This trace cannot create, approve, or post a journal entry.</div></div>
+          <Badge tone={reviewOutcomeTrace.some(row => row.evidence_state === 'INCOMPLETE') ? 'warn' : 'ok'}>READ_ONLY_AUDIT</Badge>
+        </div>
+        <div className="qbo-toolgrid">
+          <span><i>Outcomes</i><b>{reviewOutcomeTrace.length}</b></span>
+          <span><i>Committed</i><b>{reviewOutcomeTrace.filter(row => row.wal_state === 'COMMITTED').length}</b></span>
+          <span><i>Recovered</i><b>{reviewOutcomeTrace.filter(row => row.recovery_state === 'RECOVERED').length}</b></span>
+          <span><i>Incomplete evidence</i><b>{reviewOutcomeTrace.filter(row => row.evidence_state === 'INCOMPLETE').length}</b></span>
+          <span><i>Draft creation</i><b>Disabled</b></span>
+          <span><i>Approval / posting</i><b>Disabled</b></span>
+        </div>
+        <Table features={{exportable:false}} rowKey="trace_id" pageSize={8} cols={[
+          {h:'Decision',render:row=><Badge tone={row.decision === 'REJECT' ? 'bad' : row.decision === 'EDIT' ? 'warn' : 'ok'}>{row.decision || 'UNKNOWN'}</Badge>,csv:row=>row.decision},
+          {h:'Actor / time',render:row=><span>{row.actor || 'Unknown'} / {row.committed_at || row.prepared_at || 'Not recorded'}</span>,csv:row=>`${row.actor || ''} ${row.committed_at || row.prepared_at || ''}`},
+          {h:'Revision',render:row=><span className="acct-code">R{row.revision}</span>,csv:row=>row.revision},
+          {h:'WAL / recovery',render:row=><span>{row.wal_state} / {row.recovery_state}</span>,csv:row=>`${row.wal_state} ${row.recovery_state}`},
+          {h:'Proposal / event',render:row=><span>{row.proposal_id || 'Missing proposal'} / {row.event_id || 'Missing event'}</span>,csv:row=>`${row.proposal_id || ''} ${row.event_id || ''}`},
+          {h:'Draft state',render:row=><Badge tone={row.posting_status === 'DRAFT' ? 'ok' : 'bad'}>{row.posting_status || 'UNKNOWN'}</Badge>,csv:row=>row.posting_status},
+          {h:'Evidence',render:row=><Badge tone={row.evidence_state === 'COMPLETE' ? 'ok' : 'warn'}>{row.evidence_state}</Badge>,csv:row=>row.evidence_state},
+          {h:'Canonical redacted payload',render:row=><span className="mono sm" title={row.canonical_redacted_payload || ''}>{row.canonical_redacted_payload ? `${row.canonical_redacted_payload.slice(0, 120)}${row.canonical_redacted_payload.length > 120 ? '…' : ''}` : 'Missing'}</span>,csv:row=>row.canonical_redacted_payload || ''},
+        ]} rows={reviewOutcomeTrace} empty="No human review outcomes have been retained."/>
+      </section>
       <section className="report-workbench wbs-accounting-analysis-report" aria-label="Accounting analysis report" style={{marginBottom:12}}>
         <div className="report-workbench-head">
           <div><b>Accounting analysis report</b><div className="page-subtitle">Findings, close controls, posted impact and workflow blockers from the WBS mock accounting pipeline.</div></div>
