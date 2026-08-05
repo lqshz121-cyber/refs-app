@@ -10,6 +10,8 @@ import {
   createWbsMockConnector,
   createWbsMockDataset,
   projectToGeneralLedger,
+  retainMockReviewApproval,
+  mockJeReviewFingerprint,
   runDeterministicAccountingRules,
 } from '../src/wbs-accounting-foundation.js';
 import { buildWbsBankReconciliationEvidence } from '../src/wbs-bank-reconciliation-evidence.js';
@@ -81,10 +83,11 @@ async function main() {
   assert(taxAccrualSuggested.lines.some(line => line.account_code === ACCOUNT_MAP.propertyTaxExpense && line.debit_amount === 14000) && taxAccrualSuggested.lines.some(line => line.account_code === ACCOUNT_MAP.ap && line.credit_amount === 14000), 'acceptance 4/16: elapsed property tax must debit expense and credit AP for 14000');
   assert(taxPrepaidSuggested?.posting_status === 'DRAFT' && taxPrepaidSuggested.lines.some(line => line.account_code === ACCOUNT_MAP.prepaidPropertyTax && line.debit_amount === 12000), 'acceptance 4/16: future property tax remains a prepaid Draft and is not auto-posted');
 
-  const postedLoan = approveAndPostSuggestedJEs({ suggestedJEs: [loanSuggested], periods: snapshot.accountingPeriods })[0];
+  const loanReview = { rule_id: 'LOAN_DRAW_RECOGNITION', source_document_id: loanSuggested.source_document_id, je_fingerprint: mockJeReviewFingerprint(loanSuggested), decision: 'APPROVED_FOR_MOCK_POSTING', actor: 'CONTROLLER_MOCK', reviewed_at: '2026-08-05T00:00:00.000Z' };
+  const postedLoan = approveAndPostSuggestedJEs({ suggestedJEs: [retainMockReviewApproval({ suggestedJe: loanSuggested, decision: loanReview })], periods: snapshot.accountingPeriods })[0];
   assert(postedLoan.posting_status === 'POSTED', 'acceptance 6/16: source-backed balanced suggested JE can approve/post');
   assert(postedLoan.audit_trail.some(entry => entry.action === 'approved') && postedLoan.audit_trail.some(entry => entry.action === 'posted'), 'acceptance 15/16: post action must add approval/post audit trail');
-  const postedTaxAccrual = approveAndPostSuggestedJEs({ suggestedJEs: [taxAccrualSuggested], periods: snapshot.accountingPeriods })[0];
+  const postedTaxAccrual = approveAndPostSuggestedJEs({ suggestedJEs: [retainMockReviewApproval({ suggestedJe: taxAccrualSuggested, decision: { rule_id: 'PROPERTY_TAX_ACCRUAL_REQUIRED', source_document_id: taxAccrualSuggested.source_document_id, je_fingerprint: mockJeReviewFingerprint(taxAccrualSuggested), decision: 'APPROVED_FOR_MOCK_POSTING', actor: 'CONTROLLER_MOCK', reviewed_at: '2026-08-05T00:00:00.000Z' } })], periods: snapshot.accountingPeriods })[0];
   assert(postedTaxAccrual.posting_status === 'POSTED' && postedTaxAccrual.audit_trail.some(entry => entry.action === 'approved') && postedTaxAccrual.audit_trail.some(entry => entry.action === 'posted'), 'acceptance 6/16: reviewed property tax accrual can post with approval and audit evidence');
 
   const missingSourceBlocked = approveAndPostSuggestedJEs({ suggestedJEs: [{ ...loanSuggested, source_document_id: null }], periods: snapshot.accountingPeriods })[0];
@@ -113,7 +116,7 @@ async function main() {
 
   const e2e = buildWbsEndToEndFlowEvidence(snapshot);
   assert(e2e.controls.total_flows === 10 && e2e.allFlowsReported, 'acceptance 13/16: AI Audit flow evidence must report all 10 source-to-report workflows');
-  assert(e2e.controls.complete_flows === 2 && e2e.controls.incomplete_flows === 8 && !e2e.allFlowsTraceable && !e2e.allFlowsComplete, 'acceptance 13/16: mock evidence must distinguish two same-lineage complete flows from eight explicit gaps');
+  assert(e2e.controls.complete_flows === 3 && e2e.controls.incomplete_flows === 7 && !e2e.allFlowsTraceable && !e2e.allFlowsComplete, 'acceptance 13/16: mock evidence must distinguish three same-lineage complete flows from seven explicit gaps');
   ['PAYABLE_TO_ACCRUAL', 'BANK_TO_EXCEPTION', 'LOAN_DRAW_TO_REPORTS', 'INSURANCE_TO_AMORTIZATION', 'PROPERTY_TAX_TO_ACCRUAL', 'SOURCE_TO_TB', 'TB_TO_STATEMENTS', 'GL_TO_AI_ANALYSIS'].forEach(id => {
     const row = e2e.flows.find(flow => flow.id === id);
     assert(row?.source_id && row.event_id && ['COMPLETE', 'INCOMPLETE'].includes(row.evidence_state), `acceptance 13/16: E2E flow ${id} must remain reported with an explicit evidence state`);
@@ -122,6 +125,8 @@ async function main() {
   });
   const propertyTaxFlow = e2e.flows.find(flow => flow.id === 'PROPERTY_TAX_TO_ACCRUAL');
   assert(propertyTaxFlow.control_state === 'POSTED_MOCK_IMPACT_TIED' && propertyTaxFlow.gl_line_count === 2 && propertyTaxFlow.report_impact_count === 2 && propertyTaxFlow.audit_trail_count >= 3, 'acceptance 13/16: property tax flow must retain reviewed posted, GL, report and audit evidence');
+  const payableFlow = e2e.flows.find(flow => flow.id === 'PAYABLE_TO_ACCRUAL');
+  assert(payableFlow.evidence_state === 'COMPLETE' && payableFlow.posted_je_id === payableFlow.suggested_je_id && payableFlow.gl_line_count === 2 && payableFlow.report_impact_count === 2 && payableFlow.audit_trail_count >= 4, 'acceptance 13/16: payable accrual must retain reviewed same-lineage posted, GL, report and audit evidence');
 
   ['PayableInvoice', 'BankTransaction', 'PropertyTaxStatement', 'SourceDocument', 'JournalEntry', 'JournalEntryLine', 'AIFinding', 'AIRuleResult'].forEach(contractName => {
     assert(WBS_MCP_CONTRACTS[contractName]?.includes('external_source_id') && WBS_MCP_CONTRACTS[contractName]?.includes('audit_trail_id'), `acceptance 16/16: ${contractName} contract must remain adapter-ready`);

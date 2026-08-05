@@ -543,6 +543,37 @@ export function createAmortizationScheduleFromInsurance(invoice) {
   };
 }
 
+export function mockJeReviewFingerprint(suggestedJe) {
+  if (!suggestedJe) return null;
+  const lifecycleFields = new Set(['audit_trail', 'review_status', 'posting_status', 'posted_at', 'block_reason']);
+  const canonicalize = value => {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalize(value[key])]));
+  };
+  const postingPayload = Object.fromEntries(Object.entries(suggestedJe).filter(([key]) => !lifecycleFields.has(key)));
+  return JSON.stringify(canonicalize(postingPayload));
+}
+
+export function retainMockReviewApproval({ suggestedJe, decision } = {}) {
+  const reviewFingerprint = mockJeReviewFingerprint(suggestedJe);
+  if (!suggestedJe || decision?.decision !== 'APPROVED_FOR_MOCK_POSTING'
+    || decision.rule_id !== suggestedJe.ai_rule_id
+    || decision.source_document_id !== suggestedJe.source_document_id
+    || decision.je_fingerprint !== reviewFingerprint
+    || !decision.actor || !decision.reviewed_at) {
+    return suggestedJe ? { ...suggestedJe, posting_status: 'BLOCKED', block_reason: 'Explicit matching mock review approval required' } : null;
+  }
+  return {
+    ...suggestedJe,
+    review_status: 'APPROVED',
+    audit_trail: [
+      ...(suggestedJe.audit_trail || []),
+      { id: `AUD-${suggestedJe.je_id}-review-approved`, action: 'review-approved', at: decision.reviewed_at, actor: decision.actor, je_fingerprint: reviewFingerprint },
+    ],
+  };
+}
+
 export function approveAndPostSuggestedJEs({ suggestedJEs = [], periods = [] } = {}) {
   const periodByCode = new Map(periods.map(period => [period.period_code, period]));
   return suggestedJEs.map(je => {
@@ -551,6 +582,8 @@ export function approveAndPostSuggestedJEs({ suggestedJEs = [], periods = [] } =
     if (Math.abs(debit - credit) > 0.005) return { ...je, posting_status: 'BLOCKED', block_reason: 'JE debit must equal credit' };
     if (!je.source_document_id) return { ...je, posting_status: 'BLOCKED', block_reason: 'Missing source document' };
     if (periodByCode.get(je.accounting_period)?.status === 'CLOSED') return { ...je, posting_status: 'BLOCKED', block_reason: 'Closed period' };
+    const currentFingerprint = mockJeReviewFingerprint(je);
+    if (!(je.audit_trail || []).some(entry => entry.action === 'review-approved' && entry.je_fingerprint === currentFingerprint)) return { ...je, posting_status: 'BLOCKED', block_reason: 'Explicit content-bound mock review approval required' };
     return { ...je, posting_status: 'POSTED', review_status: 'POSTED', posted_at: now, audit_trail: [...(je.audit_trail || []), auditTrail(je.je_id, 'approved'), auditTrail(je.je_id, 'posted')] };
   });
 }
@@ -593,7 +626,12 @@ export async function runWbsAccountingMockPipeline(connector = createWbsMockConn
   const suggestedJEs = findings.map(finding => finding.suggested_je).filter(Boolean);
   const insuranceInvoice = snapshot.payableInvoices.find(invoice => invoice.coverage_start && invoice.coverage_end);
   const amortizationSchedule = createAmortizationScheduleFromInsurance(insuranceInvoice);
-  const postedJEs = approveAndPostSuggestedJEs({ suggestedJEs: [suggestedJEs.find(je => je.ai_rule_id === 'LOAN_DRAW_RECOGNITION')].filter(Boolean), periods: snapshot.accountingPeriods });
+  const reviewDecisions = ['LOAN_DRAW_RECOGNITION','ACCRUAL_CANDIDATE'].map(ruleId => {
+    const suggestedJe = suggestedJEs.find(je => je.ai_rule_id === ruleId);
+    return { rule_id: ruleId, source_document_id: suggestedJe?.source_document_id, je_fingerprint: mockJeReviewFingerprint(suggestedJe), decision: 'APPROVED_FOR_MOCK_POSTING', actor: 'CONTROLLER_MOCK', reviewed_at: '2026-08-05T00:00:00.000Z' };
+  });
+  const reviewedJEs = reviewDecisions.map(decision => retainMockReviewApproval({ suggestedJe: suggestedJEs.find(je => je.ai_rule_id === decision.rule_id && je.source_document_id === decision.source_document_id), decision })).filter(Boolean);
+  const postedJEs = approveAndPostSuggestedJEs({ suggestedJEs: reviewedJEs, periods: snapshot.accountingPeriods });
   const glLines = projectToGeneralLedger([...snapshot.journalEntries, ...postedJEs]);
   const trialBalance = buildTrialBalance(glLines);
   return { snapshot, events, findings, suggestedJEs, amortizationSchedule, postedJEs, glLines, trialBalance };

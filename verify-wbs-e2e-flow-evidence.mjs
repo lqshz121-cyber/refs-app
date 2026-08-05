@@ -36,8 +36,8 @@ if (evidence.mode !== 'WBS_MOCK_E2E_FLOW_EVIDENCE') fail('Unexpected E2E evidenc
 if (evidence.controls.total_flows !== 10) fail(`Expected 10 E2E mock flows, got ${evidence.controls.total_flows}.`);
 if (!evidence.allFlowsReported) fail('All 10 named E2E flows must remain visible even when their evidence is incomplete.');
 if (evidence.allFlowsTraceable || evidence.allFlowsComplete) fail('Incomplete or synthetic flows must not be reported as fully traceable or complete.');
-if (evidence.controls.complete_flows !== 2 || evidence.controls.incomplete_flows !== 8) fail('Only the same-lineage loan draw and property-tax flows are currently complete.');
-if (evidence.controls.flows_with_suggested_je !== 7 || evidence.controls.flows_with_review !== 2 || evidence.controls.flows_with_posted_je !== 2 || evidence.controls.flows_with_gl_impact !== 2 || evidence.controls.flows_with_report_impact !== 2) fail('Strict evidence counters must not substitute blockers or aggregate rows for missing JE, review, GL or report evidence.');
+if (evidence.controls.complete_flows !== 3 || evidence.controls.incomplete_flows !== 7) fail('Only the same-lineage payable accrual, loan draw and property-tax flows are currently complete.');
+if (evidence.controls.flows_with_suggested_je !== 7 || evidence.controls.flows_with_review !== 3 || evidence.controls.flows_with_posted_je !== 3 || evidence.controls.flows_with_gl_impact !== 3 || evidence.controls.flows_with_report_impact !== 3) fail('Strict evidence counters must not substitute blockers or aggregate rows for missing JE, review, GL or report evidence.');
 if (evidence.controls.flows_with_suggested_je_or_explicit_blocker !== evidence.controls.flows_with_suggested_je
   || evidence.controls.flows_with_posted_or_blocked_state !== evidence.controls.flows_with_posted_je
   || evidence.controls.flows_with_gl_or_blocker !== evidence.controls.flows_with_gl_impact
@@ -74,7 +74,7 @@ if (propertyTax.source_id !== 'PTAX-TRAVIS-2026' || propertyTax.rule_id !== 'PRO
 if (!propertyTax.suggested_je_balanced || propertyTax.review_status !== 'APPROVED_FOR_MOCK_POSTING') fail('Property tax flow must retain its explicit review approval before the mock posted projection.');
 if (propertyTax.evidence_state !== 'COMPLETE' || propertyTax.control_state !== 'POSTED_MOCK_IMPACT_TIED' || propertyTax.posted_state !== 'POSTED_SAME_LINEAGE' || propertyTax.posted_je_id !== propertyTax.suggested_je_id || propertyTax.gl_line_count !== 2 || propertyTax.report_impact_count !== 2 || propertyTax.audit_trail_count < 4) fail('Property tax flow must retain the same source and JE identity through review, posting, GL, report and audit evidence.');
 const payable = evidence.flows.find(flow => flow.id === 'PAYABLE_TO_ACCRUAL');
-if (payable.evidence_state !== 'INCOMPLETE' || !['review', 'posted_je', 'gl_impact', 'report_impact'].every(key => payable.missing_evidence.includes(key))) fail('Payable flow must expose its missing review/post/GL/report evidence instead of treating a blocker as completion.');
+if (payable.evidence_state !== 'COMPLETE' || payable.control_state !== 'POSTED_MOCK_IMPACT_TIED' || payable.posted_state !== 'POSTED_SAME_LINEAGE' || payable.posted_je_id !== payable.suggested_je_id || payable.gl_line_count !== 2 || payable.report_impact_count !== 2 || payable.audit_trail_count < 4) fail('Payable accrual flow must retain the same source and JE identity through explicit review, posting, GL, report and audit evidence.');
 const cost = evidence.flows.find(flow => flow.id === 'COST_GL_TO_CWIP_REVIEW');
 if (cost.evidence_state !== 'INCOMPLETE' || cost.gl_line_count !== 0 || cost.report_impact_count !== 0) fail('Cost GL cutoff review must remain incomplete until a same-lineage reviewed posting exists.');
 const rent = evidence.flows.find(flow => flow.id === 'PROPERTY_OPS_TO_REVENUE');
@@ -88,4 +88,4 @@ if (analysis.evidence_state !== 'INCOMPLETE' || analysis.posted_state !== 'INCOM
 if (!evidence.controls.trial_balance_tied || !evidence.controls.balance_sheet_tied) fail('E2E report controls must tie for the mock posted set.');
 if (!evidence.boundaries.includes('No production WBS call')) fail('Missing production WBS boundary.');
 
-console.log('wbs-e2e-flow-evidence: 10 workflows reported truthfully; 2 same-lineage complete and 8 explicitly incomplete');
+console.log('wbs-e2e-flow-evidence: 10 workflows reported truthfully; 3 same-lineage complete and 7 explicitly incomplete');

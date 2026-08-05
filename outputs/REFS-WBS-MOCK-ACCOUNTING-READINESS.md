@@ -79,7 +79,7 @@ Current scenario coverage:
 | Scenario | Mock evidence | Expected accounting treatment |
 | --- | --- | --- |
 | Twelve-month insurance payment | `AP-INS-12MO`, `DOC-INS-12MO`, `BANK-INS-PAY` | Prepaid asset and 12-line amortization schedule |
-| Payable invoice without GL entry | `AP-ACCRUAL-01`, `DOC-AP-MISSING-GL` | Accrual candidate and reversing JE review |
+| Payable invoice without GL entry | `AP-ACCRUAL-01`, `DOC-AP-MISSING-GL` | Reviewed accrual candidate, guarded standard mock JE posting, GL and report trace |
 | Bank payment without invoice match | `BANK-UNMATCHED-01`, `DOC-BANK-UNMATCHED` | Missing AP exception queue |
 | Construction loan draw without local loan payable | `BANK-LOAN-DRAW-01`, `LOAN-DRAW-01`, `DOC-LOAN-DRAW` | Loan draw recognition and loan payable JE |
 | Loan interest should be capitalized | `LOAN-INT-01`, `COST-INTEREST-EXPENSED` | Capitalized-interest review |
@@ -142,11 +142,11 @@ REFS aligns to QuickBooks Online Advanced only where it helps the real-estate cl
 
 Authoritative evidence builder: `src/wbs-e2e-flow-evidence.js`.
 
-Ten local mock close workflows are reported with this evidence summary: 2 COMPLETE, 8 INCOMPLETE. Only the two complete flows have the required same-lineage evidence. A finding, blocker, suggested JE, trial-balance tie, or aggregate report observation is not evidence that review, posting, GL impact, report impact, and audit trace occurred.
+Ten local mock close workflows are reported with this evidence summary: 3 COMPLETE, 7 INCOMPLETE. Only the three complete flows have the required same-lineage evidence. A finding, blocker, suggested JE, trial-balance tie, or aggregate report observation is not evidence that review, posting, GL impact, report impact, and audit trace occurred.
 
 | Flow | Evidence state | Missing retained evidence |
 | --- | --- | --- |
-| Payable Report -> AI finding -> Accrual Draft -> review | INCOMPLETE | review, posted JE, GL impact, report impact |
+| Payable Report -> AI finding -> Accrual Draft -> review | COMPLETE | none |
 | Bank Statement -> exception queue -> reconciliation review | INCOMPLETE | review, posted JE, GL impact, report impact |
 | Cost GL -> project cost classification -> CWIP cutoff review | INCOMPLETE | review, posted JE, GL impact, report impact |
 | Construction Loan Draw -> Loan JE -> GL -> reports | COMPLETE | none |

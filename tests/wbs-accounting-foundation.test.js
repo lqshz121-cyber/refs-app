@@ -12,6 +12,8 @@ import {
   createWbsMockConnector,
   createWbsMockDataset,
   projectToGeneralLedger,
+  retainMockReviewApproval,
+  mockJeReviewFingerprint,
   runDeterministicAccountingRules,
   runWbsAccountingMockPipeline,
   validateWbsContractRecord,
@@ -126,14 +128,32 @@ async function main() {
   })[0];
   assert(blocked.posting_status === 'BLOCKED' && /source/i.test(blocked.block_reason), 'missing source document blocks posting');
 
+  const unreviewed = approveAndPostSuggestedJEs({ suggestedJEs: [suggested.find(je => je.ai_rule_id === 'LOAN_DRAW_RECOGNITION')], periods: snapshot.accountingPeriods })[0];
+  assert(unreviewed.posting_status === 'BLOCKED' && /review approval/i.test(unreviewed.block_reason), 'unreviewed suggested JE cannot bypass the mock review gate');
+  const loanSuggested = suggested.find(je => je.ai_rule_id === 'LOAN_DRAW_RECOGNITION');
+  const reviewedLoan = retainMockReviewApproval({ suggestedJe: loanSuggested, decision: { rule_id: 'LOAN_DRAW_RECOGNITION', source_document_id: loanSuggested.source_document_id, je_fingerprint: mockJeReviewFingerprint(loanSuggested), decision: 'APPROVED_FOR_MOCK_POSTING', actor: 'CONTROLLER_MOCK', reviewed_at: '2026-08-05T00:00:00.000Z' } });
+  const tamperedAfterReview = approveAndPostSuggestedJEs({ suggestedJEs: [{ ...reviewedLoan, lines: reviewedLoan.lines.map(line => ({ ...line, debit_amount: line.debit_amount ? line.debit_amount + 1 : 0, credit_amount: line.credit_amount ? line.credit_amount + 1 : 0 })) }], periods: snapshot.accountingPeriods })[0];
+  assert(tamperedAfterReview.posting_status === 'BLOCKED' && /content-bound/i.test(tamperedAfterReview.block_reason), 'mock approval is bound to the reviewed JE content');
+  for (const mutation of [
+    { je_date: '2026-07-16' },
+    { project_id: 'PROJ-TAMPERED' },
+    { property_id: 'PROP-TAMPERED' },
+    { source_system: 'UNREVIEWED_SOURCE' },
+    { has_attachment: false },
+  ]) {
+    const tampered = approveAndPostSuggestedJEs({ suggestedJEs: [{ ...reviewedLoan, ...mutation }], periods: snapshot.accountingPeriods })[0];
+    assert(tampered.posting_status === 'BLOCKED' && /content-bound/i.test(tampered.block_reason), `mock approval rejects changed ${Object.keys(mutation)[0]}`);
+  }
+  const lineDimensionTamper = approveAndPostSuggestedJEs({ suggestedJEs: [{ ...reviewedLoan, lines: reviewedLoan.lines.map((item, index) => index ? item : { ...item, property_id: 'PROP-TAMPERED' }) }], periods: snapshot.accountingPeriods })[0];
+  assert(lineDimensionTamper.posting_status === 'BLOCKED' && /content-bound/i.test(lineDimensionTamper.block_reason), 'mock approval rejects changed line dimensions');
   const posted = approveAndPostSuggestedJEs({
-    suggestedJEs: [suggested.find(je => je.ai_rule_id === 'LOAN_DRAW_RECOGNITION')],
+    suggestedJEs: [reviewedLoan],
     periods: snapshot.accountingPeriods,
   })[0];
   assert(posted.posting_status === 'POSTED', 'approved balanced source-backed JE posts');
   assert(posted.audit_trail.some(entry => entry.action === 'posted'), 'posted JE records audit trail');
 
-  const postedPropertyTax = approveAndPostSuggestedJEs({ suggestedJEs: [propertyTaxAccrualJe], periods: snapshot.accountingPeriods })[0];
+  const postedPropertyTax = approveAndPostSuggestedJEs({ suggestedJEs: [retainMockReviewApproval({ suggestedJe: propertyTaxAccrualJe, decision: { rule_id: 'PROPERTY_TAX_ACCRUAL_REQUIRED', source_document_id: propertyTaxAccrualJe.source_document_id, je_fingerprint: mockJeReviewFingerprint(propertyTaxAccrualJe), decision: 'APPROVED_FOR_MOCK_POSTING', actor: 'CONTROLLER_MOCK', reviewed_at: '2026-08-05T00:00:00.000Z' } })], periods: snapshot.accountingPeriods })[0];
   assert(postedPropertyTax.posting_status === 'POSTED' && postedPropertyTax.audit_trail.some(entry => entry.action === 'approved') && postedPropertyTax.audit_trail.some(entry => entry.action === 'posted'), 'reviewed property tax accrual can enter the guarded mock posting projection with audit evidence');
 
   const gl = projectToGeneralLedger([...snapshot.journalEntries, posted, postedPropertyTax]);
@@ -157,6 +177,7 @@ async function main() {
   assert(pipeline.events.length === events.length, 'pipeline returns the accounting events');
   assert(pipeline.findings.length === findings.length, 'pipeline returns deterministic rule results');
   assert(pipeline.postedJEs.every(je => je.posting_status === 'POSTED'), 'pipeline can approve and post eligible source-backed suggested JEs');
+  assert(pipeline.postedJEs.some(je => je.ai_rule_id === 'ACCRUAL_CANDIDATE' && je.source_document_id === 'DOC-AP-MISSING-GL'), 'pipeline retains reviewed payable accrual through the standard mock JE gate');
   assert(pipeline.glLines.length > snapshot.journalEntries.length, 'pipeline projects posted JE lines into GL');
   assert(pipeline.trialBalance.balanced, 'pipeline Trial Balance is balanced');
 

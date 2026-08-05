@@ -104,8 +104,8 @@ if (
   || !e2e.allFlowsReported
   || e2e.allFlowsTraceable
   || e2e.allFlowsComplete
-  || e2e.controls.complete_flows !== 2
-  || e2e.controls.incomplete_flows !== 8
+  || e2e.controls.complete_flows !== 3
+  || e2e.controls.incomplete_flows !== 7
 ) fail('Readiness pack E2E status is not backed by the current evidence builder.');
 e2e.flows.forEach(flow => {
   if (!doc.includes(flow.name)) fail(`Readiness pack missing E2E flow: ${flow.name}`);
@@ -116,8 +116,8 @@ e2e.flows.forEach(flow => {
 });
 
 [
-  '2 COMPLETE',
-  '8 INCOMPLETE',
+  '3 COMPLETE',
+  '7 INCOMPLETE',
   'Blockers and aggregate observations do not substitute for retained posted JE, GL, report, or audit evidence.',
 ].forEach(statement => {
   if (!doc.includes(statement)) fail(`Readiness pack missing truthful E2E statement: ${statement}`);
@@ -136,4 +136,4 @@ e2e.flows.forEach(flow => {
   if (!doc.includes(gate)) fail(`Readiness pack missing verifier/gate: ${gate}`);
 });
 
-console.log('wbs-readiness-pack: contracts, DB mapping, QB backlog, AI rules, and 2 COMPLETE / 8 INCOMPLETE E2E evidence states are documented and code-backed');
+console.log('wbs-readiness-pack: contracts, DB mapping, QB backlog, AI rules, and 3 COMPLETE / 7 INCOMPLETE E2E evidence states are documented and code-backed');
