@@ -356,6 +356,84 @@ export function createAIWALRepository(storage,{walKey='ai_accounting_wal',eventK
   };
 }
 
+const AI_REVIEW_OUTCOMES=Object.freeze(['APPROVE','REJECT','EDIT']);
+const AI_REVIEW_IMMUTABLE_FIELDS=Object.freeze(['posting_status','entity_id','period_code','accounting_period','source_doc_id','source_document_id','idempotency_key','ai_proposal_id','ai_finding_id','ai_rule_id','member_trace']);
+const aiReviewOutcomeEvent=({proposalId,outcome,actor,draft}={})=>({
+  event_id:`AI-REVIEW-OUTCOME:${outcome.idempotency_key}`,
+  event_type:`AI_REVIEW_${outcome.decision}`,
+  actor,
+  correlation_id:proposalId,
+  object_type:'JE',
+  object_id:draft.je_number||draft.je_id||proposalId,
+  payload:redactSecrets({finding_id:draft.ai_finding_id,proposal_id:proposalId,decision:outcome.decision,idempotency_key:outcome.idempotency_key,reason:outcome.reason||null,review_state:draft.ai_review_state,posting_status:draft.posting_status}),
+  occurred_at:new Date().toISOString()
+});
+
+function validateAIReviewOutcome({draft,outcome,actor}={}) {
+  if(!draft?.ai_proposed || !draft.ai_proposal_id || draft.posting_status!=='DRAFT') throw new Error('AI review outcome requires an AI Draft JE');
+  if(!actor || actor==='AI_ACCOUNTING_BRAIN') throw new Error('AI review outcome requires a human reviewer');
+  if(!outcome || !AI_REVIEW_OUTCOMES.includes(outcome.decision)) throw new Error('AI review outcome must be APPROVE, REJECT or EDIT');
+  if(!outcome.idempotency_key) throw new Error('AI review outcome requires an idempotency key');
+  if(outcome.decision==='EDIT') {
+    if(!outcome.patch || typeof outcome.patch!=='object') throw new Error('AI review edit requires a patch');
+    if(AI_REVIEW_IMMUTABLE_FIELDS.some(field=>Object.hasOwn(outcome.patch,field))) throw new Error('AI review edit cannot change immutable Draft trace or posting fields');
+  } else if(outcome.patch) throw new Error('Only EDIT may include a Draft patch');
+}
+
+function validateAIReviewDraft(draft) {
+  if(draft.posting_status!=='DRAFT' || !draft.entity_id || !draft.accounting_period || !draft.je_date || !draft.source_document_id || !draft.ai_rule_id || !draft.idempotency_key) throw new Error('AI review outcome cannot persist an incomplete Draft JE');
+  const debit=(draft.lines||[]).reduce((total,line)=>total+Number(line.debit_amount??line.debit??0),0);
+  const credit=(draft.lines||[]).reduce((total,line)=>total+Number(line.credit_amount??line.credit??0),0);
+  if((draft.lines||[]).length<2 || !(debit>0) || Math.abs(debit-credit)>=0.005) throw new Error('AI review outcome cannot persist an unbalanced Draft JE');
+}
+
+// Review outcomes only update Draft review metadata. Posting remains exclusively in the JE workflow.
+export function applyAIReviewOutcome({draft,outcome,actor}={}) {
+  validateAIReviewOutcome({draft,outcome,actor});
+  const reviewedAt=new Date().toISOString();
+  const updated={...draft,...(outcome.decision==='EDIT'?redactSecrets(outcome.patch):{}),posting_status:'DRAFT',ai_review_state:outcome.decision,ai_reviewed_by:actor,ai_reviewed_at:reviewedAt,ai_review_outcome_id:outcome.idempotency_key,history:[...(draft.history||[]),{a:`AI_REVIEW_${outcome.decision}`,by:actor,at:reviewedAt,idempotency_key:outcome.idempotency_key}]};
+  validateAIReviewDraft(updated);
+  const event=aiReviewOutcomeEvent({proposalId:draft.ai_proposal_id,outcome,actor,draft:updated});
+  return {draft:updated,event};
+}
+
+// The first write is a recoverable PREPARED intent; the second persists Draft state,
+// audit event and COMMITTED WAL together in one adapter document.
+export function createAIReviewOutcomeRepository(storage,{key='ai_accounting_review_outcomes'}={}) {
+  if(!storage?.load || !storage?.save) throw new Error('AI review outcome repository requires load/save storage adapter');
+  const empty=()=>({wals:[],drafts:[],events:[]});
+  const read=()=>{const value=storage.load(key,empty()); return value&&Array.isArray(value.wals)&&Array.isArray(value.drafts)&&Array.isArray(value.events)?value:empty();};
+  const persist=next=>{
+    storage.save(key,redactSecrets(next));
+    const confirmed=read();
+    if(confirmed.wals.length!==next.wals.length||confirmed.drafts.length!==next.drafts.length||confirmed.events.length!==next.events.length) throw new Error('AI review outcome persistence was not confirmed');
+  };
+  const commit=(state,wal)=>{
+    const result=applyAIReviewOutcome(wal.input);
+    const drafts=[...state.drafts.filter(row=>row.ai_proposal_id!==result.draft.ai_proposal_id),result.draft];
+    const events=state.events.some(event=>event.event_id===result.event.event_id)?state.events:[...state.events,result.event];
+    const wals=state.wals.map(row=>row.idempotency_key===wal.idempotency_key?{...row,state:'COMMITTED',committed_at:new Date().toISOString()}:row);
+    const next={wals,drafts,events}; persist(next); return {status:'COMMITTED',draft:result.draft,event:result.event,wal:wals.find(row=>row.idempotency_key===wal.idempotency_key)};
+  };
+  return {
+    apply(input){
+      validateAIReviewOutcome(input);
+      const state=read(), idempotencyKey=input.outcome.idempotency_key;
+      const existing=state.wals.find(row=>row.idempotency_key===idempotencyKey);
+      if(existing?.state==='COMMITTED') return {status:'IDEMPOTENT_REUSE',draft:state.drafts.find(row=>row.ai_review_outcome_id===idempotencyKey)||null,event:state.events.find(row=>row.event_id===`AI-REVIEW-OUTCOME:${idempotencyKey}`)||null,wal:existing};
+      const wal=existing||{wal_id:`AI-REVIEW-WAL:${idempotencyKey}`,idempotency_key:idempotencyKey,state:'PREPARED',input:redactSecrets(input),created_at:new Date().toISOString()};
+      if(!existing) persist({...state,wals:[...state.wals,wal]});
+      return commit(read(),wal);
+    },
+    recover(){
+      let state=read(); const results=[];
+      for(const wal of state.wals.filter(row=>row.state==='PREPARED')) { const result=commit(state,wal); results.push({...result,status:'RECOVERED'}); state=read(); }
+      return results;
+    },
+    read
+  };
+}
+
 export function createAIReviewTask({finding,evidence}={}) {
   if(!finding?.id || !finding.review_owner) throw new Error('AI review task requires a routed finding');
   const createdAt=new Date();
