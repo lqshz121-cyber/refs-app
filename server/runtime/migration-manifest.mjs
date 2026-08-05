@@ -286,12 +286,12 @@ export const MIGRATION_MANIFEST=Object.freeze([
   }),
   Object.freeze({
     name:'058_wbs_inbound_atomic_persistence.sql',
-    up:'1189eca269602d0b9e4e20fa2a7bd8b0a0018d9a3a26ae3e488eb1283cfc8eda',
+    up:'2c069adaec19f7eaf2df7cde0652a78fcd3a65fa63f5318cdc403cafad4d5030',
     down:'b03928afe8fc12aded4f7b8d5499519ffd13fc99ac1f5660b94f048fedc1d9fb'
   }),
   Object.freeze({
     name:'059_wbs_inbound_autorec_read.sql',
-    up:'8da1b466c8d4b448d28f473d2a203d3838320151435053f1a53920f3a14a39a3',
+    up:'ab4a11d231e1f57597d034d0fa8da14252e7b835f840c9220324151dade75781',
     down:'d9b8c47843dc27ce9bb9005af554f2236830a34e1d1ac28e781d0d2aa97e2e44'
   })
 ]);

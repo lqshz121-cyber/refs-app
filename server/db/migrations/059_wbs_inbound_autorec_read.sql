@@ -47,7 +47,7 @@ BEGIN
  PERFORM refs_assert_scope(p_tenant,p_entity,'WBS.SNAPSHOT.IMPORT');
  IF coalesce(length(btrim(p_company)),0)=0 THEN RAISE EXCEPTION 'WBS mapping read scope is invalid' USING ERRCODE='22023'; END IF;
  SELECT coalesce(jsonb_agg(jsonb_build_object('mapping_id',mapping_snapshot_id,'version',version::text,'status',status,'entity_id',p_entity,'company_key',input_keys->>'company_key','source_type',input_keys->>'source_type','currency',input_keys->>'currency','bank_account_ref',input_keys->>'bank_account_ref') ORDER BY priority DESC,mapping_snapshot_id),'[]'::jsonb) INTO result
- FROM mapping_snapshot WHERE tenant_id=p_tenant AND (entity_id IS NULL OR entity_id=p_entity) AND family='WBS_AUTOREC' AND status='APPROVED'
+ FROM mapping_snapshot WHERE tenant_id=p_tenant AND entity_id=p_entity AND family='WBS_AUTOREC' AND status='APPROVED'
   AND effective_from<=clock_timestamp() AND (effective_to IS NULL OR effective_to>clock_timestamp()) AND input_keys->>'company_key'=p_company
   AND coalesce(input_keys->>'source_type','')<>'' AND coalesce(input_keys->>'currency','')<>'';
  RETURN result;

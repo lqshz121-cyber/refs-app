@@ -19,6 +19,7 @@ CREATE OR REPLACE FUNCTION refs_persist_wbs_inbound_rows(p_tenant uuid,p_entity 
 DECLARE rec idempotency_receipt; rid uuid; row jsonb; result jsonb; actor text:=refs_current_actor(); n integer:=0;
 BEGIN
  PERFORM refs_assert_scope(p_tenant,p_entity,'WBS.SNAPSHOT.IMPORT'); IF actor IS NULL THEN RAISE EXCEPTION 'Authenticated actor missing' USING ERRCODE='42501'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM import_batch WHERE tenant_id=p_tenant AND entity_id=p_entity AND import_batch_id=p_batch) THEN RAISE EXCEPTION 'Inbound batch scope is invalid' USING ERRCODE='42501'; END IF;
  IF jsonb_typeof(p_rows)<>'array' OR jsonb_array_length(p_rows)=0 THEN RAISE EXCEPTION 'Inbound rows are required' USING ERRCODE='22023'; END IF;
  INSERT INTO idempotency_receipt(tenant_id,operation_scope,idempotency_key,request_hash,status,actor_id) VALUES(p_tenant,'WBS_INBOUND:'||p_entity,p_idempotency,p_request_hash,'IN_PROGRESS',actor) ON CONFLICT DO NOTHING;
  SELECT * INTO rec FROM idempotency_receipt WHERE tenant_id=p_tenant AND operation_scope='WBS_INBOUND:'||p_entity AND idempotency_key=p_idempotency FOR UPDATE;

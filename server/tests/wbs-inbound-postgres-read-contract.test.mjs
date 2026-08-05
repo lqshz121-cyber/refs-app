@@ -7,6 +7,8 @@ test('Postgres WBS AutoRec readers are explicitly read-only, scoped, and expose 
   const up=await readFile(new URL('../db/migrations/059_wbs_inbound_autorec_read.sql',import.meta.url),'utf8');
   const down=await readFile(new URL('../db/migrations/down/059_wbs_inbound_autorec_read.sql',import.meta.url),'utf8');
   for(const token of ['refs_assert_scope','row.tenant_id=p_tenant','row.entity_id=p_entity','row.source_record_id=ANY\\(p_source_records\\)','company_key',"status='APPROVED'","family='WBS_AUTOREC'",'REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token));
+  assert.match(up,/mapping_snapshot WHERE tenant_id=p_tenant AND entity_id=p_entity/);
+  assert.doesNotMatch(up,/entity_id IS NULL OR entity_id=p_entity/);
   assert.doesNotMatch(up,/\b(?:INSERT|UPDATE|DELETE)\b|refs_create_auto_journal|refs_post_journal/i);
   for(const name of ['refs_read_wbs_inbound_rows','refs_read_wbs_autorec_control_rows','refs_read_wbs_autorec_mappings'])assert.match(down,new RegExp(`DROP FUNCTION IF EXISTS ${name}`));
   const calls=[],kernel=Object.create(PostgresAccountingKernel.prototype);
@@ -17,5 +19,8 @@ test('Postgres WBS AutoRec readers are explicitly read-only, scoped, and expose 
   assert.deepEqual(await kernel.readApprovedWbsAutoRecMappings(selection),[]);
   assert.equal(calls.length,3);assert.ok(calls.every(call=>call.args[0]==='t'&&call.args[1]==='e'&&call.args[2]==='C'));
   await assert.rejects(()=>kernel.readPersistedWbsInboundRows({...selection,read_only:false}),error=>error.code==='WBS_AUTOREC_READ_SCOPE_INVALID');
+  await assert.rejects(()=>kernel.readPersistedWbsInboundRows({...selection,companyKey:' '}),error=>error.code==='WBS_AUTOREC_READ_SCOPE_INVALID');
+  await assert.rejects(()=>kernel.readPersistedWbsControlRows({...selection,sourceRecordIds:['one','']}),error=>error.code==='WBS_AUTOREC_READ_SCOPE_INVALID');
+  await assert.rejects(()=>kernel.readApprovedWbsAutoRecMappings({...selection,companyKey:''}),error=>error.code==='WBS_AUTOREC_READ_SCOPE_INVALID');
   assert.equal(calls.length,3);
 });
