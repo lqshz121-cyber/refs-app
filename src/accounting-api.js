@@ -1,5 +1,9 @@
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ACCOUNT_CODE=/^[A-Za-z0-9._-]{1,64}$/;
+const BANK_ACCOUNT_REF=/^[^\u0000-\u001f\u007f]{1,128}$/;
+const ISO_DATE=/^\d{4}-\d{2}-\d{2}$/;
+const MONEY4=/^-?[0-9]+\.[0-9]{4}$/;
+const UNSIGNED_INTEGER=/^[0-9]+$/;
 
 export const accountingApiConfig=(environment=globalThis)=>{
   const source=environment?.__REFS_ACCOUNTING_API__;
@@ -12,6 +16,7 @@ export const accountingApiConfig=(environment=globalThis)=>{
 
 export const authoritativeBearerHeaders=async config=>{try{const token=await config?.getAccessToken?.();return typeof token==='string'&&/^[A-Za-z0-9._~-]{16,8192}$/.test(token)?{authorization:`Bearer ${token}`} : null;}catch{return null;}};
 const authenticationRequired=()=>({ok:false,code:'AUTHENTICATION_REQUIRED',message:'An OIDC access token is required for the authoritative accounting API.'});
+const validDate=value=>{if(!ISO_DATE.test(String(value||'')))return false;const parsed=new Date(`${value}T00:00:00.000Z`);return !Number.isNaN(parsed.valueOf())&&parsed.toISOString().slice(0,10)===value;};
 
 const documentRow=(row,kind)=>({
   business_document_id:row.business_document_id,
@@ -37,6 +42,38 @@ export async function refreshAuthoritativeJournalEntries({config,fetcher=globalT
     if(journals.some(row=>!UUID.test(row.journal_entry_id||'')||!Number.isSafeInteger(row.revision)||row.revision<0||!Number.isSafeInteger(row.ledger_line_count)||row.ledger_line_count<0))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal Entry row.'};
     return {ok:true,journals};
   }catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative Journal Entry refresh failed.'};}
+}
+
+export async function refreshAuthoritativeBankTransactions({config,bankAccountRef,from=null,through=null,limit=100,fetcher=globalThis.fetch}={}){
+  const account=String(bankAccountRef||'').trim();
+  if(!config||typeof fetcher!=='function'||!BANK_ACCOUNT_REF.test(account)||from!==null&&!validDate(from)||through!==null&&!validDate(through)||from&&through&&from>through||!Number.isSafeInteger(limit)||limit<1||limit>200)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Bank transaction scope requires a valid account, date range, and row limit.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({bankAccountRef:account,limit:String(limit)});if(from)query.set('from',from);if(through)query.set('through',through);
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/bank/transactions?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid bank transaction envelope.'};
+    if(body.data.some(row=>!UUID.test(row?.bank_source_id||'')||!UUID.test(row?.source_document_id||'')||row.bank_account_ref!==account||!validDate(row.transaction_date)||!/^[A-Z]{3}$/.test(row.currency||'')||!MONEY4.test(row.amount||'')||!UNSIGNED_INTEGER.test(row.version||'')||row.amount_delta!==null&&!MONEY4.test(row.amount_delta||'')))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid bank transaction row.'};
+    const rows=body.data.map(row=>({...row,amount:Number(row.amount),version:Number(row.version),amount_delta:row.amount_delta===null?null:Number(row.amount_delta)}));
+    if(rows.some(row=>!Number.isSafeInteger(row.version)||row.version<0))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid bank transaction row.'};
+    return {ok:true,rows,scope:{entityId:config.entityId,bankAccountRef:account,from,through,limit}};
+  }catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative bank transaction refresh failed.'};}
+}
+
+export async function refreshAuthoritativeReconciliation({config,bankAccountRef,statementEndingDate,fetcher=globalThis.fetch}={}){
+  const account=String(bankAccountRef||'').trim();
+  if(!config||typeof fetcher!=='function'||!BANK_ACCOUNT_REF.test(account)||!validDate(statementEndingDate))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Reconciliation scope requires a valid account and statement ending date.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({bankAccountRef:account,statementEndingDate});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/bank/reconciliation?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data)||body.data.length>1)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation envelope.'};
+    if(body.data.some(row=>!UUID.test(row?.reconciliation_id||'')||row.bank_account_ref!==account||row.statement_ending_date!==statementEndingDate||!['DRAFT','IN_REVIEW','RECONCILED','REOPENED'].includes(row.status)||!MONEY4.test(row.statement_ending_balance||'')||!MONEY4.test(row.difference||'')||!UNSIGNED_INTEGER.test(row.version||'')||![row.bank_transaction_count,row.active_match_count,row.unmatched_transaction_count].every(value=>UNSIGNED_INTEGER.test(value||''))||!MONEY4.test(row.statement_activity_amount||'')))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation row.'};
+    const rows=body.data.map(row=>({...row,statement_ending_balance:Number(row.statement_ending_balance),difference:Number(row.difference),version:Number(row.version),bank_transaction_count:Number(row.bank_transaction_count),active_match_count:Number(row.active_match_count),unmatched_transaction_count:Number(row.unmatched_transaction_count),statement_activity_amount:Number(row.statement_activity_amount)}));
+    if(rows.some(row=>!Number.isSafeInteger(row.version)||![row.bank_transaction_count,row.active_match_count,row.unmatched_transaction_count].every(Number.isSafeInteger)))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation row.'};
+    return {ok:true,row:rows[0]||null,scope:{entityId:config.entityId,bankAccountRef:account,statementEndingDate}};
+  }catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative reconciliation refresh failed.'};}
 }
 
 const failure=async response=>{let body;try{body=await response.json();}catch{}return {ok:false,code:typeof body?.code==='string'?body.code:'ACCOUNTING_API_UNAVAILABLE',message:response.status>=500?'Authoritative accounting command failed.':typeof body?.message==='string'?body.message:'Authoritative accounting command was rejected.'};};

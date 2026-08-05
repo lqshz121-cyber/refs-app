@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { accountingApiConfig, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, transitionAuthoritativeJournal } from './accounting-api.js';
 import { BrowserOidcClient, oidcRuntimeConfig } from './oidc-client.js';
 import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
+import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
 import {
   AuthoritativeAdjustmentSummary,
   AuthoritativeDocumentTable,
@@ -107,7 +108,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       <div className="brand"><span className="logo">◇</span> REFS<span className="brand-sub">Authoritative</span></div>
       <nav aria-label="Authoritative accounting navigation">
         <div className="nav-group"><div className="nav-group-h"><span className="nav-ic">●</span>Accounting API</div>
-        {['overview','payables','receivables','journals','drafts'].map(item => <button type="button" key={item} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => setRoute(item)}>{item === 'overview' ? 'Control overview' : item[0].toUpperCase()+item.slice(1)}</button>)}</div>
+        {[['overview','Control overview'],['payables','Payables'],['receivables','Receivables'],['bank','Bank transactions'],['reconciliation','Reconciliation'],['journals','Journal entries'],['drafts','Draft entry']].map(([item,label]) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => setRoute(item)}>{label}</button>)}</div>
       </nav>
     </aside>
     <div className="main">
@@ -118,6 +119,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'overview' && <><h1>Accounting control overview</h1><p className="page-subtitle">Live records are loaded from the configured accounting API. Browser seeds and localStorage are not accounting authority.</p><div className="qbo-toolgrid"><span><i>AP bills</i><b>{counts.bills}</b></span><span><i>AR invoices</i><b>{counts.invoices}</b></span><span><i>Adjustments</i><b>{counts.adjustments}</b></span><span><i>Journal entries</i><b>{counts.journals}</b></span></div></>}
         {phase === 'READY' && route === 'payables' && <><AuthoritativeDocumentTable title="AP bills" documents={data.ap.bills} kind="AP"/><AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={data.ap.adjustments}/><AuthoritativeWorkflowTable title="AP journal workflow" documents={data.ap.bills} kind="AP" onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeWorkflowAdjustmentTable title="AP adjustment workflow" adjustments={data.ap.adjustments} onWorkflow={workflow} workingJournalIds={workingJournalIds}/></>}
         {phase === 'READY' && route === 'receivables' && <><AuthoritativeDocumentTable title="AR invoices" documents={data.ar.invoices} kind="AR"/><AuthoritativeAdjustmentSummary title="AR adjustments" adjustments={data.ar.adjustments}/><AuthoritativeWorkflowTable title="AR journal workflow" documents={data.ar.invoices} kind="AR" onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeWorkflowAdjustmentTable title="AR adjustment workflow" adjustments={data.ar.adjustments} onWorkflow={workflow} workingJournalIds={workingJournalIds}/></>}
+        {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace config={config} fetcher={fetcher}/>}
+        {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace config={config} fetcher={fetcher}/>}
         {phase === 'READY' && route === 'journals' && <JournalTable journals={data.journals} workingJournalIds={workingJournalIds} onWorkflow={workflow}/>} 
         {phase === 'READY' && route === 'drafts' && <AuthoritativeDraftForm/>}
       </main>
