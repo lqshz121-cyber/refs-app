@@ -51,6 +51,16 @@ globalThis.__REFS_RUNTIME_MODE__='REQUIRES_AUTHORITATIVE_API';globalThis.__REFS_
 const lockedRuntimeMarkup=renderToStaticMarkup(<App/>);
 delete globalThis.__REFS_RUNTIME_MODE__;delete globalThis.__REFS_ACCOUNTING_API__;
 if(!lockedRuntimeMarkup.includes('Authoritative API required')){failed++;console.error('FAIL unconfigured production runtime is not locked');}else console.log('PASS unconfigured production runtime is locked before app state');
+const missingModeMarkup=renderToStaticMarkup(<App/>);
+if(!missingModeMarkup.includes('Authoritative API required')||missingModeMarkup.includes('Ricky (Controller)')){failed++;console.error('FAIL missing runtime mode falls back to local mock');}else console.log('PASS missing runtime mode fails closed');
+globalThis.__REFS_RUNTIME_MODE__='UNRECOGNIZED_MODE';
+const unknownModeMarkup=renderToStaticMarkup(<App/>);
+delete globalThis.__REFS_RUNTIME_MODE__;
+if(!unknownModeMarkup.includes('Authoritative API required')||unknownModeMarkup.includes('Ricky (Controller)')){failed++;console.error('FAIL unknown runtime mode falls back to local mock');}else console.log('PASS unknown runtime mode fails closed');
+globalThis.__REFS_RUNTIME_MODE__='LOCAL_MOCK';
+const explicitMockMarkup=renderToStaticMarkup(<App/>);
+delete globalThis.__REFS_RUNTIME_MODE__;
+if(!explicitMockMarkup.includes('WanBridge Real Estate Financial System')||explicitMockMarkup.includes('Authoritative API required')){failed++;console.error('FAIL explicit LOCAL_MOCK mode is unavailable');}else console.log('PASS only explicit LOCAL_MOCK enters the demonstration');
 globalThis.__REFS_RUNTIME_MODE__='REQUIRES_AUTHORITATIVE_API';globalThis.__REFS_ACCOUNTING_API__={baseUrl:'https://api.example',entityId:'11111111-1111-4111-8111-111111111111',periodId:'33333333-3333-4333-8333-333333333333',cashAccountCode:'111000',getAccessToken:async()=>null};globalThis.__REFS_OIDC__=null;
 const configuredWithoutOidcMarkup=renderToStaticMarkup(<App/>);
 delete globalThis.__REFS_RUNTIME_MODE__;delete globalThis.__REFS_ACCOUNTING_API__;delete globalThis.__REFS_OIDC__;

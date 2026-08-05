@@ -139,7 +139,7 @@ function Login({onLogin}) {
 }
 
 function App() {
-  if(globalThis.__REFS_RUNTIME_MODE__==='REQUIRES_AUTHORITATIVE_API') return <AuthoritativeApp environment={globalThis}/>;
+  if(globalThis.__REFS_RUNTIME_MODE__!=='LOCAL_MOCK') return <AuthoritativeApp environment={globalThis}/>;
   const SEED_V='v9';
   const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
   const [userId, setUserId] = useState(()=>load('user',null));
