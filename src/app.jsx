@@ -24,6 +24,7 @@ import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
 import { AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeRuntimeLock, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './authoritative-workspace.jsx';
+import { AuthoritativeApp, authoritativeRuntimeConfigured } from './authoritative-app.jsx';
 
 class ErrorBoundary extends Component {
   constructor(p){ super(p); this.state={err:null}; }
@@ -137,7 +138,7 @@ function Login({onLogin}) {
 }
 
 function App() {
-  if(globalThis.__REFS_RUNTIME_MODE__==='REQUIRES_AUTHORITATIVE_API') return <AuthoritativeRuntimeLock/>;
+  if(globalThis.__REFS_RUNTIME_MODE__==='REQUIRES_AUTHORITATIVE_API') return <AuthoritativeApp environment={globalThis}/>;
   const SEED_V='v9';
   const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
   const [userId, setUserId] = useState(()=>load('user',null));
@@ -358,7 +359,7 @@ function Approvals({ctx}) {
   </div>;
 }
 
-export { App, AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft };
+export { App, AuthoritativeApp, authoritativeRuntimeConfigured, AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft };
 if (typeof document !== 'undefined' && document.getElementById('root')) {
   createRoot(document.getElementById('root')).render(<App/>);
 }
