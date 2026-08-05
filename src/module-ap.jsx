@@ -159,7 +159,7 @@ export function APWorkspace({ctx}) {
     if (tab !== 'AP Aging') setAgingDetailScope(null);
   }, [tab]);
   const selectedBillPayment = bills.find(candidate => candidate.bill_id === selectedBillPaymentId) || null;
-  if (selectedBillPayment) return <PaymentEvidenceDetail bill={selectedBillPayment} paymentReturn={{route:'ap',tab:'Bills',billId:selectedBillPayment.bill_id,billDetail:true}} onClose={()=>setSelectedBillPaymentId(null)} backLabel="Back to Bill" ctx={ctx} />;
+  if (selectedBillPayment) return <PaymentEvidenceDetail bill={selectedBillPayment} paymentReturn={{route:'ap',tab:'Bills',billId:selectedBillPayment.bill_id,billDetail:true,entityId:selectedBillPayment.entity_id || '',vendorId:selectedBillPayment.vendor_id || '',vendorName:selectedBillPayment.vendor_name || '',paymentDate:selectedBillPayment.paid_date || 'Not retained'}} onClose={()=>setSelectedBillPaymentId(null)} backLabel="Back to Bill" ctx={ctx} />;
   if (bill) return <BillDetail bill={bill} onClose={closeBillDetail} onOpenPayment={()=>setSelectedBillPaymentId(bill.bill_id)} agingReturn={agingDetailScope} vendorReturnId={vendorEvidenceReturnId} ctx={ctx} />;
   if (selectedCredit) return <VendorCreditDetail credit={selectedCredit} agingReturn={agingDetailScope} onClose={closeDetail} onOpenBill={billId=>{setBillReturnCreditKey(localVendorCreditLinkedBillReturn(selectedCreditKey));setSelectedCreditKey(null);openBillDetail(billId);}} ctx={ctx} />;
   if (selectedException) return <ExpenseReviewExceptionDetail exception={selectedException} onClose={closeDetail} onOpenSource={()=>{
@@ -398,9 +398,9 @@ function PaymentRun({ctx}) {
   const openBankEvidence = bill => {
     const bankTxn = bill.paymentEvidence?.exactBankDebits?.[0];
     if (!bankTxn?.bank_account_code) return;
-    goto('banktx',{route:'banktx',acctCode:bankTxn.bank_account_code,bankTxnId:bankTxn.bank_txn_id,paymentReturn:{route:'ap',tab:'Payments',billId:bill.bill_id,paymentDate}});
+    goto('banktx',{route:'banktx',acctCode:bankTxn.bank_account_code,bankTxnId:bankTxn.bank_txn_id,paymentReturn:{route:'ap',tab:'Payments',billId:bill.bill_id,paymentDate,entityId:bill.entity_id || entity || '',vendorId:bill.vendor_id || '',vendorName:bill.vendor_name || ''}});
   };
-  const selectedPaymentReturn = selectedPayment ? {route:'ap',tab:'Payments',billId:selectedPayment.bill_id,paymentDate} : null;
+  const selectedPaymentReturn = selectedPayment ? {route:'ap',tab:'Payments',billId:selectedPayment.bill_id,paymentDate,entityId:selectedPayment.entity_id || entity || '',vendorId:selectedPayment.vendor_id || '',vendorName:selectedPayment.vendor_name || ''} : null;
   if (selectedPayment) return <PaymentEvidenceDetail bill={selectedPayment} paymentReturn={selectedPaymentReturn} onClose={()=>setSelectedPayment(null)} ctx={ctx} />;
   return <div className="bill-payments-workspace">
     <div className="accounting-page-head"><div><div className="page-eyebrow">EXPENSES / BILL PAYMENTS</div><h3 className="page-h" style={{fontSize:22}}>Bill payments</h3><p className="page-subtitle">Review approval readiness, posted payment history, and exact retained bank evidence.</p></div></div>

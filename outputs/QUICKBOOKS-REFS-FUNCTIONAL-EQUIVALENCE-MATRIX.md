@@ -2094,6 +2094,15 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 
 - Verification: `node verify-cash-restricted-control-return.mjs`, `node verify-reports-workbench-layout.mjs`, `node build.mjs`, and `git diff --check`. Browser audit remains read-only; populated QBO restricted-cash detail has not been observed.
 
+## Expenses: Bill payment to bank-debit return chain (2026-08-05)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Bill / Payment → exact Bank DEBIT → Reconcile → JE/GL/TB → Back | Earlier read-only QBO Banking evidence showed a review surface with Posted/Review states, amount columns, and match/categorize actions. No payment, match, or reconciliation operation was performed. | A Bill-origin Payment detail now carries entity, vendor, and payment-date context through its retained exact Bank DEBIT and reconciliation route. Reconciliation accepts that Bill-detail context and returns to the full-page Bill payment evidence rather than dropping to the payment list. Existing JE, GL Detail, and Trial Balance drills preserve the same payment origin. | PARTIAL - focused local return contract verified; QBO populated payment/reconcile, role, audit, empty-state, and responsive behavior are unobserved. |
+| Controller safety boundary | No new QBO mutation evidence was collected. Assistant3 confirmed property-vendor, tax, loan/escrow, and related-party disbursement evidence must not default to operating cash. | Exact evidence requires the same POSTED payment JE, DEBIT direction, exact amount, entity and retained bank scope. The flow cannot pay, connect a bank, auto-match, clear, sign off, post, refund, export, or synchronize. | PARTIAL - local control contract, not QBO equivalence. |
+
+- Verification: `node verify-ap-payment-bank-reconcile-return.mjs`, `node verify-expenses-ap-customer-flow.mjs`, and `git diff --check`.
+
 ## Reports: More Options detail route (2026-08-04)
 
 ## Receivables: Customer payment to bank-credit return chain (2026-08-05)

@@ -9,6 +9,8 @@ export function localReconciliationReceiptReturnTarget(navContext = {}) {
 
 export function localReconciliationPaymentReturnTarget(navContext = {}) {
   const paymentReturn = navContext?.bankTransactionReturn?.paymentReturn;
-  if (paymentReturn?.route !== 'ap' || paymentReturn.tab !== 'Payments' || !paymentReturn.billId) return null;
-  return {route:'ap', context:paymentReturn, label:'Back to Bill payments'};
+  const isPaymentList = paymentReturn?.tab === 'Payments';
+  const isBillPaymentDetail = paymentReturn?.tab === 'Bills' && (paymentReturn.billDetail || paymentReturn.paymentBillDetail);
+  if (paymentReturn?.route !== 'ap' || !paymentReturn.billId || (!isPaymentList && !isBillPaymentDetail)) return null;
+  return {route:'ap', context:paymentReturn, label:isBillPaymentDetail ? 'Back to Bill payment evidence' : 'Back to Bill payments'};
 }
