@@ -1,5 +1,15 @@
 # QuickBooks → REFS Functional Equivalence Matrix
 
+## Banking — retained queue scope through evidence drills (2026-08-05)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Banking queue surface | Read-only QBO Banking page showed account cards, Pending/Posted/Excluded queues, Search, date and transaction-type filters, and columns for Date, Bank description, Spent, Received, attachment, From/To and Match/Categorize. Link/Update/Print/Export controls were visible but not operated. | Bank Transactions retains local account, Pending/Posted/Excluded queue, query, date range, transaction type and page only; action controls open read-only evidence rather than a banking mutation. | PARTIAL — QBO screen observed read-only; detailed permissions, populated row behavior and responsive layout remain unverified. |
+| Queue → detail → JE/GL/Reconcile → Back | QBO row detail and Match/Categorize actions were not operated. | A retained Bank item now carries its originating queue/query/date/type/page through JE, GL Detail, Trial Balance, signed-history and Reconcile links. Returning to the Bank evidence rehydrates that scope instead of clearing it to a default queue. | PARTIAL — local contract verified; QBO deep drill and audit behavior remain unobserved. |
+| Read-only boundary | QBO Link/Update/Print/Export and Match/Categorize were intentionally not operated. | No feed/connect/import/OCR, auto-match/categorize/clear/sign-off/post, payment, export or account mutation is enabled. Matched, cleared and signed-off remain independent retained evidence states. | PARTIAL — business-fit local boundary, not QBO equivalence. |
+
+- Assistant3 Banking/Reconcile business-fit review applied. Required verification: `node verify-bank-evidence-return-scope.mjs`, existing Bank return/lifecycle contracts, `node build.mjs`, visual verification and `git diff --check`.
+
 ## Expenses — Bills evidence queues and retained return scope (2026-08-05)
 
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |

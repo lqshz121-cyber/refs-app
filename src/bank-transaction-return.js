@@ -28,6 +28,9 @@ export function localBankTransactionJournalReturnContext({acctCode = '', bankTxn
   if (!account || !transaction) return null;
   return {
     route:'banktx', acctCode:account, bankTxnId:transaction,
+    queue:origin.queue || 'Review', query:origin.query || '',
+    dateRange:origin.dateRange || 'All dates', type:origin.type || 'All transactions',
+    page:Number(origin.page) || 1, entityId:origin.entityId || '',
     receiptReturn:origin.receiptReturn?.route === 'receipts' ? origin.receiptReturn : null,
     reconciliationReturn:origin.reconciliationReturn?.route === 'bankrec' ? origin.reconciliationReturn : null,
   };

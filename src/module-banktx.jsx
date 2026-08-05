@@ -81,11 +81,11 @@ export function BankTransactions({ctx}) {
     if (navContext?.route !== 'banktx') return;
     if (!navContext.bankTxnId) return;
     if (requestedFocus?.found) {
-      setQueue(requestedFocus.queue);
-      setQuery('');
-      setDateRange('All dates');
-      setType('All transactions');
-      setPage(requestedFocus.page);
+      setQueue(navContext.queue || requestedFocus.queue);
+      setQuery(navContext.query ?? '');
+      setDateRange(navContext.dateRange || 'All dates');
+      setType(navContext.type || 'All transactions');
+      setPage(navContext.page || requestedFocus.page);
     }
   }, [navContext?.route, navContext?.bankTxnId, requestedFocus?.found, requestedFocus?.queue, requestedFocus?.page, requestedFocus?.transaction?.bank_txn_id]);
   useEffect(() => {
@@ -141,7 +141,7 @@ export function BankTransactions({ctx}) {
     const bankJournalReturn = localBankTransactionJournalReturnContext({acctCode,bankTxnId:bankEvidenceDetail.bank_txn_id,origin:navContext});
     const signedHistoryTarget = bankEvidenceDetail.lifecycle?.signedEntry ? {
       route:'bankrec', acctCode, historyId:bankEvidenceDetail.lifecycle.signedEntry.id,
-      bankTransactionReturn:{route:'banktx',acctCode,bankTxnId:bankEvidenceDetail.bank_txn_id,queue:requestedFocus.queue || navContext.queue || 'Review'},
+      bankTransactionReturn:bankJournalReturn,
     } : null;
     return <div className="full-bleed qbo-transaction-report" aria-label="Local bank transaction evidence detail">
       <div className="qbo-report-back"><button type="button" onClick={() => goto(backTarget.route, backTarget.context)}>{backTarget.label}</button><span>Retained local bank evidence</span></div>
@@ -153,7 +153,7 @@ export function BankTransactions({ctx}) {
         {bankEvidenceDetail.matched_je ? <Btn size="sm" variant="ghost" onClick={() => goto('je',{jeNumber:bankEvidenceDetail.matched_je,bankTransactionReturn:bankJournalReturn})}>Open retained JE</Btn> : <Btn size="sm" variant="ghost" disabled>No retained JE</Btn>}
         <Btn size="sm" variant="ghost" disabled={bankEvidence?.state !== 'VALID_LOCAL_MATCH'} onClick={() => goto('gl',{route:'gl',tab:'GL Detail',drillLabel:bankEvidenceDetail.matched_je || bankEvidenceDetail.external_id,bankTransactionReturn:bankJournalReturn})}>Open GL Detail</Btn>
         <Btn size="sm" variant="ghost" disabled={bankEvidence?.state !== 'VALID_LOCAL_MATCH'} onClick={() => goto('gl',{route:'gl',tab:'Trial Balance',drillLabel:bankEvidenceDetail.matched_je || bankEvidenceDetail.external_id,bankTransactionReturn:bankJournalReturn})}>Open Trial Balance</Btn>
-        <Btn size="sm" variant="ghost" disabled={bankEvidence?.state !== 'VALID_LOCAL_MATCH'} title={bankEvidence?.state === 'VALID_LOCAL_MATCH' ? 'Open the retained local reconciliation evidence' : 'Blocked: exact posted local bank evidence is required'} onClick={() => goto('bankrec',{route:'bankrec',acctCode,bankTxnId:bankEvidenceDetail.bank_txn_id,bankTransactionReturn:{route:'banktx',acctCode,bankTxnId:bankEvidenceDetail.bank_txn_id,arReturn:navContext.arReturn || null,reconciliationReturn:navContext.reconciliationReturn || null}})}>Open local reconcile evidence</Btn>
+        <Btn size="sm" variant="ghost" disabled={bankEvidence?.state !== 'VALID_LOCAL_MATCH'} title={bankEvidence?.state === 'VALID_LOCAL_MATCH' ? 'Open the retained local reconciliation evidence' : 'Blocked: exact posted local bank evidence is required'} onClick={() => goto('bankrec',{route:'bankrec',acctCode,bankTxnId:bankEvidenceDetail.bank_txn_id,bankTransactionReturn:bankJournalReturn})}>Open local reconcile evidence</Btn>
         <Btn size="sm" variant="ghost" disabled={!signedHistoryTarget} title={signedHistoryTarget ? 'Open the retained signed reconciliation snapshot for this bank item' : bankEvidenceDetail.lifecycle?.clearingState === 'CLEARED' ? 'No eligible signed reconciliation record for this cleared bank item' : 'Not cleared in a retained signed statement'} onClick={() => goto('bankrec',signedHistoryTarget)}>Open signed reconciliation history</Btn>
       </div>
     </div>;
