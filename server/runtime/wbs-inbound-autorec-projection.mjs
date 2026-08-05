@@ -18,7 +18,7 @@ const sensitiveInput=value=>{
 };
 
 export class WbsInboundProjectionError extends Error { constructor(code,message){super(message);this.name='WbsInboundProjectionError';this.code=code;} }
-const exception=(row,code,message)=>freeze({stage:'EXCEPTION',code,message,company_key:text(row?.company_key)||null,source_record_id:text(row?.source_record_id)||null,raw_event_id:text(row?.raw_event_id)||null,staging_item_id:text(row?.staging_item_id)||null,can_dispatch:false,can_post:false});
+const exception=(row,code,message)=>freeze({stage:'EXCEPTION',code,message,company_key:text(row?.company_key)||null,source_record_id:text(row?.source_record_id)||null,bank_source_record_id:text(row?.bank_source_record_id)||null,raw_event_id:text(row?.raw_event_id)||null,staging_item_id:text(row?.staging_item_id)||null,can_dispatch:false,can_post:false});
 
 function missingFields(row){
   const required=['receipt_id','receipt_ref','receipt_hash','raw_event_id','source_document_id','staging_item_id','source_record_id','source_version','entity_id','company_key','currency','amount','business_date','accounting_date','source_type'];
@@ -59,10 +59,18 @@ function detailControl(row){
     const workflow=text(row.workflow_status).toUpperCase();
     if(unmatchedMissing.length||assignments.some(key=>text(row[key])==='')||workflow===''||workflow==='NO_WORKFLOW'||workflow==='ADD')return {error:exception(row,'WBS_AUTOREC_UNMATCHED_REVIEW_REQUIRED','Unmatched WBS payment requires source identity, dimensions, and human review before any REFS candidate')};
   }
+  if(text(row.detail_kind)==='INCURRED_PAYMENT'){
+    const incurredRequired=['bank_source_record_id','bank_source_version','autoc_payable_long_id','match_status','transaction_date','posting_date','bank_account_code','ref_no','memo','direction','amount'];
+    const incurredMissing=incurredRequired.filter(key=>key==='amount'?decimal(row[key])===null:text(row[key])==='');
+    const dimensions=['project_department','cost_code'];
+    const humanTrace=['user_ref','reviewer','comments_log'];
+    if(incurredMissing.length||dimensions.some(key=>text(row[key])==='')||humanTrace.some(key=>text(row[key])==='')||(text(row.vendor)===''&&text(row.payee)==='')||text(row.invoice_receipt_evidence)==='')return {error:exception(row,'WBS_AUTOREC_INCURRED_RELATION_REQUIRED','Incurred WBS payment requires immutable bank-to-AUTOC relation, dimensions, attachment evidence, and human review trace')};
+  }
   const fields=['seq_no','transaction_date','posting_date','create_date','source','journal_no','check_no','payee','vendor','memo','ref_no','account_code','bank_account_code','cost_code','cost_class','project_department','brief_description','payable_ref','unit_ref','invoice_receipt_evidence','comments_log','direction','amount','deposit','payment','debit','credit','originator','reviewer','approver','user_ref','workflow_status','review_status','approval_status','posting_status','bank_source_record_id','bank_source_version'];
   const observed_fields=Object.fromEntries(fields.filter(key=>row[key]!=null&&text(row[key])!=='').map(key=>[key,(key==='debit'||key==='credit')?decimalText(row[key]):text(row[key])]));
   if(('transaction_date' in observed_fields&&!validDate(observed_fields.transaction_date))||('posting_date' in observed_fields&&!validDate(observed_fields.posting_date))||('create_date' in observed_fields&&!validDate(observed_fields.create_date))||['amount','deposit','payment','debit','credit'].some(key=>key in observed_fields&&decimal(observed_fields[key])===null))return {error:exception(row,'WBS_AUTOREC_CONTROL_TRACE_INVALID','Observed WBS detail has an invalid transaction, posting, creation, or monetary value')};
-  return {detail:freeze({detail_kind:text(row.detail_kind),receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),observed_fields:freeze(observed_fields),can_dispatch:false,can_post:false})};
+  const retained_relation=text(row.detail_kind)==='INCURRED_PAYMENT'?freeze({bank_record:freeze({source_record_id:text(row.bank_source_record_id),source_version:text(row.bank_source_version),bank_account_code:text(row.bank_account_code)}),autoc_payable:freeze({long_id:text(row.autoc_payable_long_id)}),match_status:text(row.match_status),dimensions:freeze({project_department:text(row.project_department),cost_code:text(row.cost_code)}),attachment_invoice_evidence:text(row.invoice_receipt_evidence),human_review_trace:freeze({user_ref:text(row.user_ref),reviewer:text(row.reviewer),comments_log:text(row.comments_log)}),can_create_transaction:false,can_approve:false,can_post:false}):null;
+  return {detail:freeze({detail_kind:text(row.detail_kind),receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),observed_fields:freeze(observed_fields),retained_relation,can_dispatch:false,can_post:false})};
 }
 
 // A read-only copy of the observed WBS Auto Bank Reconciliation controls. It
@@ -86,13 +94,15 @@ export function projectPersistedWbsInboundAutoRec({rows,mappings=[],companyContr
   const candidates=[],exceptions=[];
   const control_evidence=companyControlRows===null?null:projectObservedWbsAutoRecControlEvidence({companyRows:companyControlRows,detailRows:detailControlRows});
   if(control_evidence?.exceptions.length)exceptions.push(...control_evidence.exceptions);
-  const blockedCompanies=new Set((control_evidence?.exceptions||[]).map(item=>item.company_key).filter(Boolean));
-  const globallyBlocked=(control_evidence?.exceptions||[]).some(item=>!item.company_key);
+  const evidenceExceptions=control_evidence?.exceptions||[];
+  const blockedCompanies=new Set(evidenceExceptions.map(item=>item.company_key).filter(Boolean));
+  const blockedSources=new Set(evidenceExceptions.map(item=>item.bank_source_record_id||item.source_record_id).filter(Boolean));
+  const globallyBlocked=evidenceExceptions.some(item=>!item.company_key&&!item.bank_source_record_id&&!item.source_record_id);
   for(const row of rows){
     if(!row||typeof row!=='object'){exceptions.push(exception(null,'WBS_AUTOREC_PERSISTED_ROW_INVALID','Persisted WBS inbound row is invalid'));continue;}
     if(text(row.stage)==='EXCEPTION'){exceptions.push(exception(row,text(row.exception_code)||'WBS_INBOUND_EXCEPTION',text(row.exception_message)||'Persisted inbound exception remains blocked'));continue;}
     if(text(row.stage)!=='STAGING_REVIEWED'){exceptions.push(exception(row,'WBS_AUTOREC_STAGING_REVIEW_REQUIRED','Persisted WBS source must be reviewed before Auto Reconciliation review'));continue;}
-    if(globallyBlocked||blockedCompanies.has(text(row.company_key))){exceptions.push(exception(row,'WBS_AUTOREC_CONTROL_SCOPE_BLOCKED','Observed WBS control evidence blocks this company scope'));continue;}
+    if(globallyBlocked||blockedCompanies.has(text(row.company_key))||blockedSources.has(text(row.source_record_id))){exceptions.push(exception(row,'WBS_AUTOREC_CONTROL_SCOPE_BLOCKED','Observed WBS control evidence blocks this company or source scope'));continue;}
     if(!TRANSACTION_TYPES.has(text(row.source_type))){exceptions.push(exception(row,'WBS_AUTOREC_SOURCE_TYPE_INVALID','Persisted WBS source type cannot enter Auto Reconciliation'));continue;}
     const missing=missingFields(row);if(missing.length){exceptions.push(exception(row,'WBS_AUTOREC_TRACE_REQUIRED',`Persisted WBS source is missing ${missing.join(', ')}`));continue;}
     const resolution=mappingFor(row,mappings);if(resolution.error){exceptions.push(resolution.error);continue;}
