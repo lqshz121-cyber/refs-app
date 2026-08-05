@@ -25,14 +25,26 @@ for (const page of pages) {
     'No external provider, production OIDC, or WBS data was used.',
   ].join('\n'));
   writeFileSync(screenshot, Buffer.from(`LOCAL_SIMULATION_SCREENSHOT:${page}\n`, 'utf8'));
-  pageEvidence[page] = { webOrigin, apiBaseUrl, visibleText, screenshot };
+  pageEvidence[page] = { webOrigin, apiBaseUrl, authenticated: true, visibleText, screenshot };
 }
 
 writeJson(resolve(outRoot, 'ui-manifest.json'), {
   mode: 'LOCAL_SIMULATION',
   warning: 'This verifies release harness wiring only. It is not production/live evidence.',
+  authenticated: true,
   webOrigin,
   apiBaseUrl,
+  oidc: {
+    issuer: 'https://oidc.local.refs.example.test',
+    audience: 'refs-accounting-api',
+    subject: 'local-simulation-controller',
+    token_refresh_verified: true,
+  },
+  apiSmoke: {
+    baseUrl: apiBaseUrl,
+    authenticated_status: 200,
+    anonymous_rejection_status: 401,
+  },
   pages: pageEvidence,
 });
 

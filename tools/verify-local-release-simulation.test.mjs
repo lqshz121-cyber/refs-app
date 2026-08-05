@@ -33,6 +33,27 @@ assert.match(aggregate.stdout, /external-release-gate: 3\/3 provider evidence ga
 const uiManifest = JSON.parse(readFileSync(envConfig.REFS_UI_E2E_MANIFEST, 'utf8'));
 assert.equal(uiManifest.mode, 'LOCAL_SIMULATION');
 assert.match(uiManifest.warning, /not production\/live evidence/i);
+assert.equal(uiManifest.authenticated, true);
+assert.equal(uiManifest.oidc?.token_refresh_verified, true);
+assert.equal(uiManifest.apiSmoke?.authenticated_status, 200);
+
+const unauthenticatedManifest = resolve('outputs/local-release-simulation/ui-manifest-unauthenticated.json');
+writeFileSync(unauthenticatedManifest, `${JSON.stringify({ ...uiManifest, authenticated: false }, null, 2)}\n`, 'utf8');
+const unauthenticated = spawnSync(node, [gate, 'ui'], {
+  encoding: 'utf8',
+  env: { ...env, REFS_UI_E2E_MANIFEST: unauthenticatedManifest },
+});
+assert.equal(unauthenticated.status, 2, 'unauthenticated UI evidence must fail closed');
+assert.match(`${unauthenticated.stdout}${unauthenticated.stderr}`, /RELEASE_UI_OIDC_EVIDENCE_INCOMPLETE/);
+
+const badApiManifest = resolve('outputs/local-release-simulation/ui-manifest-bad-api.json');
+writeFileSync(badApiManifest, `${JSON.stringify({ ...uiManifest, apiSmoke: { ...uiManifest.apiSmoke, anonymous_rejection_status: 200 } }, null, 2)}\n`, 'utf8');
+const badApi = spawnSync(node, [gate, 'ui'], {
+  encoding: 'utf8',
+  env: { ...env, REFS_UI_E2E_MANIFEST: badApiManifest },
+});
+assert.equal(badApi.status, 2, 'UI evidence with weak API auth smoke must fail closed');
+assert.match(`${badApi.stdout}${badApi.stderr}`, /RELEASE_UI_API_SMOKE_INCOMPLETE/);
 
 const s3Receipt = JSON.parse(readFileSync(envConfig.REFS_S3_SCANNER_LIFECYCLE_RECEIPT, 'utf8'));
 assert.equal(s3Receipt.mode, 'LOCAL_SIMULATION');

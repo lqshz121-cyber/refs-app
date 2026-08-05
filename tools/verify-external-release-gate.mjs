@@ -40,9 +40,14 @@ export function verifyUiEvidence(environment = process.env) {
   if (!requireEnv(environment, ['REFS_STAGING_WEB_ORIGIN', 'REFS_STAGING_API_BASE_URL', 'REFS_UI_E2E_MANIFEST'])) return false;
   const manifest = jsonFile(resolve(environment.REFS_UI_E2E_MANIFEST), 'REFS_UI_E2E_MANIFEST');
   if (!manifest) return false;
+  if (manifest.webOrigin !== environment.REFS_STAGING_WEB_ORIGIN || manifest.apiBaseUrl !== environment.REFS_STAGING_API_BASE_URL) return fail('RELEASE_UI_ORIGIN_MISMATCH', 'manifest origin does not match configured staging endpoints');
+  const oidc = manifest.oidc || {};
+  if (manifest.authenticated !== true || !oidc.issuer || !oidc.audience || !oidc.subject || oidc.token_refresh_verified !== true) return fail('RELEASE_UI_OIDC_EVIDENCE_INCOMPLETE', 'authenticated OIDC session and token refresh evidence are required');
+  const apiSmoke = manifest.apiSmoke || {};
+  if (apiSmoke.baseUrl !== environment.REFS_STAGING_API_BASE_URL || apiSmoke.authenticated_status !== 200 || apiSmoke.anonymous_rejection_status !== 401) return fail('RELEASE_UI_API_SMOKE_INCOMPLETE', 'authenticated API and anonymous rejection evidence are required');
   for (const page of pages) {
     const row = manifest.pages?.[page];
-    if (!row || row.webOrigin !== environment.REFS_STAGING_WEB_ORIGIN || !existsSync(row.screenshot) || !existsSync(row.visibleText)) return fail('RELEASE_UI_E2E_INCOMPLETE', page);
+    if (!row || row.webOrigin !== environment.REFS_STAGING_WEB_ORIGIN || row.apiBaseUrl !== environment.REFS_STAGING_API_BASE_URL || row.authenticated !== true || !existsSync(row.screenshot) || !existsSync(row.visibleText)) return fail('RELEASE_UI_E2E_INCOMPLETE', page);
     if (forbidden.test(readFileSync(row.visibleText, 'utf8'))) return fail('RELEASE_UI_VISIBLE_TEXT_INVALID', page);
   }
   console.log(`release-ui-e2e: ${pages.length}/8 evidence artifacts verified`);
