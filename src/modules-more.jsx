@@ -3,7 +3,6 @@ import { Card, KPI, Btn, Badge, Money, Table, Tabs, SectionTitle } from './ui.js
 import { COA, ENTITIES, VENDORS, CUSTOMERS, LOANS, BANK_ACCOUNTS, MAPPINGS, PROPERTIES, PROJECTS } from './data.js';
 import { LOAN_TXNS, IC_TXNS, CLOSINGS, PM_ROWS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, trialBalance, statements, downloadCSV } from './engine.js';
-import { normalizeReportFavorites, toggledReportFavorites } from './report-favorites.js';
 import { filterAccountingRuleEvidence } from './accounting-rule-listing.js';
 import { localReportCapability, localReportWorkflowTarget } from './report-workflow-targets.js';
 import { localGLSourceTarget } from './gl-source-target.js';
@@ -348,11 +347,6 @@ export function Reports({ctx}) {
   const [open, setOpen] = useState(()=>reportsReturn?.openReport || null);
   const [search, setSearch] = useState(reportsReturn?.search || '');
   const [category, setCategory] = useState(reportsReturn?.category || 'Standard reports');
-  const [menuReport, setMenuReport] = useState(null);
-  const [favorites, setFavorites] = useState(()=>{
-    try { return new Set(JSON.parse(localStorage.getItem('refs_report_favorites') || '[]')); }
-    catch { return new Set(); }
-  });
   const [previewTool, setPreviewTool] = useState(null);
   const [managementView, setManagementView] = useState('Published');
   const [dashboardQuery, setDashboardQuery] = useState('');
@@ -527,17 +521,11 @@ export function Reports({ctx}) {
     experience: localReportCapability(name).state==='LOCAL_LEDGER' ? 'Linked statement' : localReportCapability(name).state==='LOCAL_WORKFLOW' ? 'Operational workspace' : localReportCapability(name).state==='LOCAL_CONTROL' ? 'Local control drill' : localReportCapability(name).state==='LOCAL_PREVIEW' ? 'Local preview' : 'QBO reference only',
     drillPath: localReportCapability(name).state==='LOCAL_LEDGER' ? 'Report -> account detail -> JE -> source queue' : localReportCapability(name).state==='LOCAL_WORKFLOW' ? 'Report hub -> source workspace' : localReportCapability(name).state==='LOCAL_CONTROL' ? 'Control report -> GL / register / reconcile -> Back' : localReportCapability(name).state==='LOCAL_PREVIEW' ? 'Preview only; no source drill' : 'No local workflow target',
   }));
-  const reportNames = reportRows.filter(report=>report.capability.state!=='REFERENCE_ONLY').map(report=>report.name);
-  useEffect(()=>{
-    const normalized = normalizeReportFavorites([...favorites], reportNames);
-    try { localStorage.setItem('refs_report_favorites', JSON.stringify([...normalized])); } catch {}
-  }, [favorites, reportNames.join('|')]);
-  const toggleFavorite = reportName => setFavorites(current=>toggledReportFavorites(current, reportName, reportNames));
   const shortcutNames = new Set(['Balance Sheet','Income Statement','Profit and Loss','Trial Balance','General Ledger','Cash Flow','Cash & Restricted Cash Control','AP Aging','Accounts receivable aging summary','Reconciliation History']);
-  const visibleRows = reportRows.filter(r=>((category==='Standard reports' && shortcutNames.has(r.name)) || (category==='All reports') || (category==='Favorites' && favorites.has(r.name)) || r.category===category) && (!search || `${r.name} ${r.category} ${r.drillPath}`.toLowerCase().includes(search.toLowerCase())));
+  const visibleRows = reportRows.filter(r=>((category==='Standard reports' && shortcutNames.has(r.name)) || (category==='All reports') || r.category===category) && (!search || `${r.name} ${r.category} ${r.drillPath}`.toLowerCase().includes(search.toLowerCase())));
   const previewMeta = open ? reportRows.find(r=>r.name===open) : null;
   if (open) return <div className="reports-library report-replacement-view">
-    <div className="qbo-report-back"><button type="button" onClick={()=>{setOpen(null);setPreviewTool(null);setMenuReport(null)}}>Back to Reports Center</button><span>{['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)?'Local report detail':'Reference-only report'}</span></div>
+    <div className="qbo-report-back"><button type="button" onClick={()=>{setOpen(null);setPreviewTool(null)}}>Back to Reports Center</button><span>{['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)?'Local report detail':'Reference-only report'}</span></div>
     <div className="report-preview-head"><div className="report-preview-titlewrap"><div className="report-preview-crumb">Reports Center · {['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)?'Local evidence':'Observed reference'}</div><SectionTitle>{open}</SectionTitle><p className="page-subtitle">{['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)?'This replaces the report list. It uses retained local evidence only; use Back to return to the same Reports Center.':'This replaces the report list with an explicit unavailable state. It does not expose source data, a connector, or a local workflow.'}</p></div>{previewMeta && <div className="report-preview-meta"><span><i>Category</i><b>{previewMeta.category}</b></span><span><i>Capability</i><b>{previewMeta.capability.label}</b></span><span><i>Evidence</i><b><Badge tone={previewMeta.evidenceState==='AVAILABLE_LOCAL_EVIDENCE'?'ok':previewMeta.evidenceState==='REVIEW_REQUIRED'?'warn':'muted'}>{previewMeta.evidenceState}</Badge></b></span></div>}</div>
     <div className="qbo-report-previewbar"><button type="button" disabled={!['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)} onClick={()=>ctx.toast('Local report view refreshed')}>Refresh</button><button type="button" className={previewTool==='Scope'?'on':''} onClick={()=>setPreviewTool(t=>t==='Scope'?null:'Scope')}>Evidence scope</button><button type="button" disabled title="Custom report creation is outside the local evidence scope">Save As</button><button type="button" disabled title="Printing is outside the local evidence scope">Print</button><button type="button" disabled title="Business-data export is outside the local evidence scope">Export</button></div>
     {previewTool==='Scope' && <div className="qbo-report-toolpanel qbo-preview-toolpanel"><div><b>Local evidence scope</b><span>Entity, period, dimension, account/control account and retained local source evidence are passed only by the destination workflow.</span></div><div className="qbo-toolgrid"><span><i>Authority</i><b>Local POSTED evidence</b></span><span><i>External delivery</i><b>Unavailable</b></span><span><i>QBO equivalence</i><b>Not claimed</b></span></div></div>}
@@ -572,11 +560,6 @@ export function Reports({ctx}) {
       <div className="row-acts"><button type="button" disabled>Check out smart reporting</button><button type="button" disabled>View dashboard</button></div>
     </section>
     <p className="muted sm" style={{margin:'0 0 12px'}}>Observed Standard reports tip and Performance center shortcut. Their destination, plan eligibility, chart configuration, and dashboard behavior are not verified in REFS.</p>
-    <section className="report-shelf" aria-label="Observed QuickBooks Standard reports favorites" style={{marginBottom:12}}>
-      <b>Favorites</b>
-      {['Accounts receivable aging summary','Balance Sheet','Profit and Loss'].map(name=><span className="report-shelf-chip" key={name}>{name} <button type="button" aria-label={`Favorite ${name}`} aria-pressed="true" disabled>★</button><button type="button" aria-label={`More options for ${name}`} disabled>More Options</button></span>)}
-    </section>
-    <p className="muted sm" style={{margin:'0 0 12px'}}>These QBO favorite states and More Options controls are visual evidence only; REFS does not infer their persistence or actions.</p>
     <section className="report-workbench" aria-label="Observed QuickBooks Management reports shell" style={{marginBottom:12}}>
       <div className="report-workbench-head"><div><b>Management reports</b><div className="page-subtitle">Observed Published list shell and its empty state.</div></div><div className="row-acts"><Btn size="sm" variant="ghost" disabled>Switch to legacy management reports</Btn><Btn size="sm" variant="ghost" disabled>+ Create report</Btn></div></div>
       <div className="report-shelf"><button type="button" className={`report-shelf-chip ${managementView==='Drafts'?'report-shelf-chip-on':''}`} onClick={()=>setManagementView('Drafts')}>Drafts</button><button type="button" className={`report-shelf-chip ${managementView==='Published'?'report-shelf-chip-on':''}`} onClick={()=>setManagementView('Published')}>Published</button><span className="report-shelf-spacer" /><Btn size="sm" variant="ghost" disabled>Filters</Btn><Btn size="sm" variant="ghost" disabled>Search</Btn></div>
@@ -623,7 +606,7 @@ export function Reports({ctx}) {
       <div className="row-acts"><button type="button" disabled>See how it works</button><button type="button" disabled>Start planning</button></div>
     </section>
     <p className="muted sm" style={{margin:'0 0 12px'}}>Cash-flow calculation, historical-trend modelling, scenario inputs, planner setup, preview, permissions, audit, and responsive behavior remain unverified in REFS.</p></>}
-    <div className="report-shelf qbo-report-tabs"><button type="button" className={`report-shelf-chip ${category==='Standard reports'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('Standard reports')}>Core financial reports</button><button type="button" className={`report-shelf-chip ${category==='Favorites'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('Favorites')}>Favorites</button><button type="button" className={`report-shelf-chip ${category==='All reports'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('All reports')}>All retained reports</button><span className="report-shelf-spacer" /><span className="report-shelf-note">POSTED local evidence · scoped drill and return</span></div>
+    <div className="report-shelf qbo-report-tabs"><button type="button" className={`report-shelf-chip ${category==='Standard reports'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('Standard reports')}>Core financial reports</button><button type="button" className={`report-shelf-chip ${category==='All reports'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('All reports')}>All retained reports</button><span className="report-shelf-spacer" /><span className="report-shelf-note">POSTED local evidence · scoped drill and return · favorites and report menus unavailable</span></div>
     {hasEntity ? <><div className="qbo-report-promo"><span>SELECTED ENTITY</span><b>Financial summary for the current reporting scope</b><p>Review same-entity POSTED balance, income, and control signals before opening the report.</p><button type="button" onClick={()=>launchReport('Balance Sheet','gl')}>Review summary</button></div>
     <div className="kpi-row">
       <KPI label="Total assets" value={money(st.assets)} />
@@ -653,8 +636,8 @@ export function Reports({ctx}) {
         {h:'Capability',render:r=><Badge tone={r.capability.state==='REFERENCE_ONLY'?'muted':r.capability.state==='LOCAL_PREVIEW'?'warn':'ok'}>{r.capability.label}</Badge>,csv:r=>r.capability.state},
         {h:'Evidence',render:r=><Badge tone={r.evidenceState==='AVAILABLE_LOCAL_EVIDENCE'?'ok':r.evidenceState==='REVIEW_REQUIRED'?'warn':'muted'}>{r.evidenceState}</Badge>,csv:r=>r.evidenceState},
         {h:'Drill path',k:'drillPath'},
-        {h:'Favorite',render:r=>r.capability.state==='REFERENCE_ONLY'?<span className="muted sm">Unavailable</span>:<button type="button" className={'qbo-star-btn '+(favorites.has(r.name)?'is-favorite':'')} aria-label={'Favorite '+r.name} onClick={e=>{e.stopPropagation();toggleFavorite(r.name);ctx.toast(r.name+' favorite toggled');}}>{favorites.has(r.name)?'★':'☆'}</button>,csv:()=>''},
-        {h:'Action',render:r=>r.capability.state==='REFERENCE_ONLY'?<span className="muted sm">Reference only — no local target</span>:<span className="qbo-report-row-actions"><button type="button" className="report-open-link" onClick={(e)=>{e.stopPropagation(); launchReport(r.name, r.route);}}><span>{r.capability.state==='LOCAL_PREVIEW'?'Preview':'Open'}</span><span className="rep-arrow" aria-hidden="true" /></button><span className="qbo-more-wrap"><button type="button" className="qbo-more-btn" onClick={(e)=>{e.stopPropagation();setMenuReport(prev=>prev===r.name?null:r.name)}}>More Options</button>{menuReport===r.name&&<span className="qbo-more-menu" role="menu"><button type="button" onClick={()=>{setFavorites(prev=>new Set(prev).add(r.name));setMenuReport(null);ctx.toast('Added to favorites')}}>Add to favorites</button><button type="button" onClick={()=>{launchReport(r.name, r.route);setMenuReport(null)}}>Open detail</button></span>}</span></span>,csv:r=>r.capability.state},
+        {h:'Favorite',render:()=> <span className="muted sm">Unavailable</span>,csv:()=>''},
+        {h:'Action',render:r=>r.capability.state==='REFERENCE_ONLY'?<span className="muted sm">Reference only — no local target</span>:<button type="button" className="report-open-link" onClick={(e)=>{e.stopPropagation(); launchReport(r.name, r.route);}}><span>{r.capability.state==='LOCAL_PREVIEW'?'Preview':'Open'}</span><span className="rep-arrow" aria-hidden="true" /></button>,csv:r=>r.capability.state},
       ]} rows={visibleRows} empty={reportScope.state==='POSTED_LOCAL_EVIDENCE_AVAILABLE' ? 'No local reports match this catalog/search scope.' : reportScope.detail} />
     </div>
   </div>;

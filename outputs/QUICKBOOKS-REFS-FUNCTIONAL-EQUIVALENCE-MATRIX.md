@@ -1,5 +1,14 @@
 # QuickBooks → REFS Functional Equivalence Matrix
 
+## Reports Center — read-only catalog boundary (2026-08-05)
+
+| Capability | QBO evidence | REFS implementation | Status |
+|---|---|---|---|
+| Core report launch and return | Existing QBO-style Reports shell evidence; favorites/menu actions are out of business scope. | Core financial catalog and search retain TB, GL, BS, IS, CF and scoped control report launches with full-page Back. | PARTIAL — local contract verified; QBO permissions and report personalization remain unobserved. |
+| Favorites and report menus | Favorites, Add to favorites and More Options would persist or manage a report view. | These controls and storage are removed; the table states `Unavailable`. No customize/share/export/report-management action is exposed. | PARTIAL — business-fit read-only boundary, not QBO equivalence. |
+
+- Verification: `node verify-reports-readonly-catalog.mjs` and `git diff --check`; integration build/visual required before release.
+
 ## Accounting — COA/Register retained evidence query (2026-08-05)
 
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
