@@ -107,7 +107,7 @@ export function ARWorkspace({ctx}) {
   if (selectedInvoice) return <InvoiceDetail invoice={selectedInvoice} onClose={closeInvoiceDetail} goto={goto} sourceStateTone={sourceStateTone} returnScope={invoiceReturnScope} />;
   if (selectedReceipt) return <ReceiptDetail receipt={selectedReceipt} onClose={closeReceiptDetail} goto={goto} sourceStateTone={sourceStateTone} returnScope={receiptReturnScope} />;
 
-  return <div>
+  return <div className="ar-workspace">
     {navContext?.reportCenterReturn?.route==='reports' && <div className="qbo-report-back"><button type="button" onClick={()=>goto('reports')}>Back to reports</button><span>{navContext.reportCenterReturn.reportName || 'A/R Aging Summary'}</span></div>}
     {navContext?.reportReturn?.route==='gl' && <div className="qbo-report-back"><button type="button" onClick={()=>goto('gl',navContext.reportReturn)}>Back to {navContext.reportReturn.tab || 'report'}</button><span>{localReportReturnScopeLabel(navContext.reportReturn)}</span></div>}
     {navContext?.reconciliationReturn?.route==='bankrec' && <div className="qbo-report-back"><button type="button" onClick={()=>goto('bankrec',navContext.reconciliationReturn)}>Back to reconciliation</button><span>{localReconciliationJournalReturnScopeLabel(navContext.reconciliationReturn)}</span></div>}

@@ -774,7 +774,7 @@ export function IntegrationHub({ctx}) {
     {batch_id:'LOCAL-AP-REVIEW', src:'Vendor Bill', status:'REVIEW_ONLY', count:'Retained evidence', err:'No external processing is available.'},
     {batch_id:'LOCAL-BANK-REVIEW', src:'Bank Transaction', status:'REVIEW_ONLY', count:'Retained evidence', err:'No bank feed connection is available.'},
   ];
-  return <div className="full-bleed" aria-label="Integration Hub">
+  return <div className="full-bleed integration-hub" aria-label="Integration Hub">
     <h2 className="page-h">Integration Hub</h2>
     <p className="muted sm">Local source evidence is reviewed before it can be used by a controlled accounting workflow. This workspace does not connect, import, retry, synchronize, or post external data.</p>
     <SectionTitle>Local source contracts</SectionTitle>

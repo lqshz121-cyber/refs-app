@@ -642,7 +642,10 @@ body.dark .mobile-nav-btn{background:var(--bg-elev);border-color:#46515b;color:v
 .reports-library .kpi.ok{border-top-color:#2ca01c;}
 .reports-library .sec-title{padding-bottom:8px;border-bottom:1px solid #d9deda;}
 .reports-library .rep-grid{gap:8px;}
-.reports-library .rep-card{min-height:60px;padding:12px 14px;border-radius:6px;box-shadow:none;}
+.reports-library .rep-card{min-width:0;min-height:68px;padding:12px 14px;border-radius:6px;box-shadow:none;}
+.reports-library .rep-name{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.reports-library .rep-tag{min-width:0;flex:0 0 auto;}
+.reports-library .rep-tag .badge{max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .reports-library .rep-card:hover{background:#f3f8f5!important;border-color:#7eb493;box-shadow:inset 3px 0 0 #2ca01c;}
 .reports-library .rep-card.rep-on{background:#edf7f0!important;border-color:#2ca01c;box-shadow:inset 3px 0 0 #2ca01c;}
 .reports-library .rep-tag{display:flex;align-items:center;gap:5px;}
