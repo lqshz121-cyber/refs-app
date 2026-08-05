@@ -3,7 +3,7 @@ import {createAccountingApi,createAccountingHttpServer} from '../api/accounting-
 
 const tenantId=randomUUID(),entityId=randomUUID(),journalEntryId=randomUUID(),periodId=randomUUID();
 const calls=[];const invoke=name=>async args=>{calls.push([name,args]);return {journal_entry_id:journalEntryId,status:'DRAFT',idempotent:false};};
-const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),listBusinessAdjustments:invoke('listBusinessAdjustments'),listJournalEntries:invoke('listJournalEntries'),listBankTransactions:invoke('listBankTransactions'),getReconciliationSummary:invoke('getReconciliationSummary'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit'),recordWbsSnapshot:invoke('recordWbsSnapshot')};
+const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),listBusinessAdjustments:invoke('listBusinessAdjustments'),listJournalEntries:invoke('listJournalEntries'),listBankTransactions:invoke('listBankTransactions'),getReconciliationSummary:invoke('getReconciliationSummary'),getFinancialStatements:invoke('getFinancialStatements'),createBankPaymentMatch:invoke('createBankPaymentMatch'),unmatchBankPayment:invoke('unmatchBankPayment'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit'),recordWbsSnapshot:invoke('recordWbsSnapshot')};
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
@@ -66,6 +66,27 @@ test('AP Payment route creates only Draft occurrence and pending allocation from
   assert.deepEqual(calls[0][1],{...body,tenantId,entityId,businessDocumentId:billId,idempotencyKey:'idem-key-0001'});
   assert.equal((await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/payments`,{...body,actorId:'attacker'})).status,400);
   assert.equal((await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/payments`,{...body,periodId:'not-uuid'})).status,400);
+});
+
+test('Bank match command derives scope and requires revisions, idempotency, and a posted occurrence reference',async()=>{
+  calls.length=0;const bankSourceId=randomUUID(),paymentOccurrenceId=randomUUID();
+  const body={paymentOccurrenceId,expectedOccurrenceRevision:2,reason:'Controller reviewed exact posted payment evidence'};
+  const response=await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches`,body,{'If-Match':'"3"'});
+  assert.equal(response.status,201);assert.equal(calls[0][0],'createBankPaymentMatch');
+  assert.deepEqual(calls[0][1],{tenantId,entityId,bankSourceId,paymentOccurrenceId,expectedBankVersion:3,expectedOccurrenceVersion:2,reason:body.reason,idempotencyKey:'idem-key-0001'});
+  assert.equal((await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches`,body)).status,428);
+  assert.equal((await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches`,{...body,expectedOccurrenceRevision:-1},{'If-Match':'"3"'})).status,400);
+  assert.equal((await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches`,{...body,actorId:'attacker'},{'If-Match':'"3"'})).status,400);
+  assert.equal((await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches`,{...body,reason:'x'.repeat(2001)},{'If-Match':'"3"'})).body.code,'INVALID_REASON');
+});
+
+test('Bank unmatch command retains scope and requires the active match revision and canonical review reason',async()=>{
+  calls.length=0;const bankSourceId=randomUUID(),bankMatchId=randomUUID();const body={reason:'Controller approved evidence-preserving unmatch'};
+  const response=await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches/${bankMatchId}/unmatch`,body,{'If-Match':'"0"'});
+  assert.equal(response.status,201);assert.equal(calls[0][0],'unmatchBankPayment');
+  assert.deepEqual(calls[0][1],{tenantId,entityId,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:body.reason,idempotencyKey:'idem-key-0001'});
+  assert.equal((await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches/${bankMatchId}/unmatch`,body)).status,428);
+  assert.equal((await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches/${bankMatchId}/unmatch`,{reason:' short '},{'If-Match':'"0"'})).body.code,'INVALID_REASON');
 });
 
 test('AR Receipt route creates only Draft occurrence and pending allocation from trusted scope',async()=>{

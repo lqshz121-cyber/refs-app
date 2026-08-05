@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+import {createAccountingApi} from '../api/accounting-http.mjs';
+import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
+
+test('financial statement SQL is POSTED-only, scoped, traceable, reversible, and read-only',async()=>{
+  const up=await readFile(new URL('../db/migrations/062_financial_statement_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/062_financial_statement_read.sql',import.meta.url),'utf8');
+  for(const token of ["'GL.REPORT.VIEW'",'refs_assert_scope','p.tenant_id=p_tenant','p.entity_id=p_entity','p.period_id=p_period',"j.status='POSTED'",'journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids','ACCOUNT_CODE_PREFIX_AND_BANK_MEMBER','REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token));
+  for(const statement of ['TRIAL_BALANCE','BALANCE_SHEET','INCOME_STATEMENT','CASH_FLOW'])assert.match(up,new RegExp(statement));
+  assert.match(up,/required_member_type='BANK'/);
+  assert.match(up,/DIRECT_CASH_MOVEMENT/);
+  assert.match(up,/direct cash-account movement evidence/);
+  assert.match(up,/Operating\/investing\/financing classification is not inferred/);
+  assert.doesNotMatch(up,/\b(?:INSERT INTO journal_entry|UPDATE journal_entry|DELETE FROM journal_entry|INSERT INTO ledger_line|UPDATE ledger_line|DELETE FROM ledger_line|refs_post_journal)\b/i);
+  assert.match(down,/DROP FUNCTION refs_get_financial_statements/);assert.match(down,/active=false/);assert.doesNotMatch(down,/DELETE FROM permission_catalog/i);
+});
+
+test('repository and HTTP expose one authenticated entity-period no-store read',async()=>{
+  const calls=[],kernel=Object.create(PostgresAccountingKernel.prototype);
+  kernel.inSession=async work=>work({query:async(sql,args)=>{calls.push({sql,args});return {rows:[{statement_type:'TRIAL_BALANCE'}]};}});
+  assert.deepEqual(await kernel.getFinancialStatements({tenantId:'tenant',entityId:'entity',periodId:'period'}),[{statement_type:'TRIAL_BALANCE'}]);
+  assert.deepEqual(calls,[{sql:'SELECT * FROM refs_get_financial_statements($1,$2,$3)',args:['tenant','entity','period']}]);
+  const tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID(),httpCalls=[];
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({getFinancialStatements:async scope=>{httpCalls.push(scope);return [];}})});
+  const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/reports/financial-statements?periodId=${periodId}`,headers:{},body:null});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body,{ok:true,data:[]});assert.deepEqual(httpCalls,[{tenantId,entityId,periodId}]);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/reports/financial-statements`,headers:{},body:null})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/reports/financial-statements?periodId=${periodId}&extra=1`,headers:{},body:null})).body.code,'UNEXPECTED_QUERY_PARAMETER');
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/reports/financial-statements?periodId=${periodId}`,headers:{'idempotency-key':'forbidden'},body:null})).body.code,'IDEMPOTENCY_KEY_NOT_ALLOWED');
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/reports/financial-statements?periodId=${periodId}`,headers:{},body:{}})).body.code,'READ_BODY_FORBIDDEN');
+});

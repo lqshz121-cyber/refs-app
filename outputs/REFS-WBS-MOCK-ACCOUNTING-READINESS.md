@@ -35,7 +35,7 @@ Required contract objects:
 | AmortizationSchedule | Prepaid amortization control | common accounting fields plus schedule_id, coverage_start, coverage_end, monthly_amount |
 | AccrualSchedule | Month-end accrual control | common accounting fields plus schedule_id, accrual_type, reversal_period |
 
-Adapter rule: UI and accounting logic must consume this contract shape. Production WBS should implement the same collections and field names, then prove a signed nonempty receipt before data is admitted.
+Adapter rule: UI and accounting logic must consume only validated contract collections. The current registry reports partial coverage; an unsupported or invalid collection remains unavailable and cannot be inferred from a nearby mock collection. Production WBS must prove a signed nonempty receipt before data is admitted.
 
 ## 2. Database Architecture and Mock Persistence
 
@@ -142,20 +142,22 @@ REFS aligns to QuickBooks Online Advanced only where it helps the real-estate cl
 
 Authoritative evidence builder: `src/wbs-e2e-flow-evidence.js`.
 
-Ten local mock close workflows are now traceable:
+Ten local mock close workflows are reported with this evidence summary: 2 COMPLETE, 8 INCOMPLETE. Only the two complete flows have the required same-lineage evidence. A finding, blocker, suggested JE, trial-balance tie, or aggregate report observation is not evidence that review, posting, GL impact, report impact, and audit trace occurred.
 
-1. Payable Report -> AI finding -> Accrual Draft -> review
-2. Bank Statement -> exception queue -> reconciliation review
-3. Cost GL -> project cost classification -> CWIP cutoff review
-4. Construction Loan Draw -> Loan JE -> GL -> reports
-5. Insurance payment -> prepaid -> amortization schedule
-6. Property tax statement -> accrual or prepaid decision
-7. Property Operation Data -> rent income pickup -> entity GL
-8. Source Transactions -> Journal Entries -> Trial Balance
-9. Trial Balance -> BS / IS / Cash Flow
-10. Full GL -> AI Audit Center -> Accounting Analysis Report
+| Flow | Evidence state | Missing retained evidence |
+| --- | --- | --- |
+| Payable Report -> AI finding -> Accrual Draft -> review | INCOMPLETE | review, posted JE, GL impact, report impact |
+| Bank Statement -> exception queue -> reconciliation review | INCOMPLETE | review, posted JE, GL impact, report impact |
+| Cost GL -> project cost classification -> CWIP cutoff review | INCOMPLETE | review, posted JE, GL impact, report impact |
+| Construction Loan Draw -> Loan JE -> GL -> reports | COMPLETE | none |
+| Insurance payment -> prepaid -> amortization schedule | INCOMPLETE | review, posted JE, GL impact, report impact |
+| Property tax statement -> accrual or prepaid decision | COMPLETE | none |
+| Property Operation Data -> rent income pickup -> entity GL | INCOMPLETE | review, posted JE, GL impact, report impact |
+| Source Transactions -> Journal Entries -> Trial Balance | INCOMPLETE | source data, accounting event, suggested JE, review, posted JE, GL impact, report impact, audit trail |
+| Trial Balance -> BS / IS / Cash Flow | INCOMPLETE | source data, accounting event, suggested JE, review, posted JE, GL impact, report impact, audit trail |
+| Full GL -> AI Audit Center -> Accounting Analysis Report | INCOMPLETE | source data, accounting event, suggested JE, review, posted JE, GL impact, report impact, audit trail |
 
-Every flow row must show source data, accounting event, rule or review reason, suggested JE or explicit blocker, review status, posted state, GL impact or blocker, report impact or blocker, and audit evidence.
+Blockers and aggregate observations do not substitute for retained posted JE, GL, report, or audit evidence. A flow becomes COMPLETE only when its source, accounting event, suggested JE, review, posted JE, GL impact, report impact, and audit trail are retained on the same lineage. Until then its explicit `missing_evidence` list is the acceptance boundary.
 
 ## 7. MCP Readiness Checklist
 

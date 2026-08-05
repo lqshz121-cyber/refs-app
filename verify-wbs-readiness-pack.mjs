@@ -99,9 +99,28 @@ const e2e = buildWbsEndToEndFlowEvidence(snapshot);
 
 if (events.length < 10) fail(`Expected accounting events from WBS mock dataset, got ${events.length}.`);
 if (findings.length < 10) fail(`Expected deterministic AI findings, got ${findings.length}.`);
-if (e2e.controls.total_flows !== 10 || !e2e.allFlowsTraceable) fail('Readiness pack E2E claims are not backed by the current evidence builder.');
+if (
+  e2e.controls.total_flows !== 10
+  || !e2e.allFlowsReported
+  || e2e.allFlowsTraceable
+  || e2e.allFlowsComplete
+  || e2e.controls.complete_flows !== 2
+  || e2e.controls.incomplete_flows !== 8
+) fail('Readiness pack E2E status is not backed by the current evidence builder.');
 e2e.flows.forEach(flow => {
   if (!doc.includes(flow.name)) fail(`Readiness pack missing E2E flow: ${flow.name}`);
+  if (!['COMPLETE', 'INCOMPLETE'].includes(flow.evidence_state)) fail(`E2E flow has no explicit evidence state: ${flow.name}`);
+  if (flow.evidence_state === 'COMPLETE' && flow.missing_evidence.length !== 0) fail(`Complete E2E flow still has missing evidence: ${flow.name}`);
+  if (flow.evidence_state === 'INCOMPLETE' && flow.missing_evidence.length === 0) fail(`Incomplete E2E flow does not identify missing evidence: ${flow.name}`);
+  if (!doc.includes(`| ${flow.name} | ${flow.evidence_state} |`)) fail(`Readiness pack missing truthful E2E status row: ${flow.name}`);
+});
+
+[
+  '2 COMPLETE',
+  '8 INCOMPLETE',
+  'Blockers and aggregate observations do not substitute for retained posted JE, GL, report, or audit evidence.',
+].forEach(statement => {
+  if (!doc.includes(statement)) fail(`Readiness pack missing truthful E2E statement: ${statement}`);
 });
 
 [
@@ -117,4 +136,4 @@ e2e.flows.forEach(flow => {
   if (!doc.includes(gate)) fail(`Readiness pack missing verifier/gate: ${gate}`);
 });
 
-console.log('wbs-readiness-pack: contracts, DB mapping, QB backlog, AI rules, E2E flows and MCP checklist are documented and code-backed');
+console.log('wbs-readiness-pack: contracts, DB mapping, QB backlog, AI rules, and 2 COMPLETE / 8 INCOMPLETE E2E evidence states are documented and code-backed');

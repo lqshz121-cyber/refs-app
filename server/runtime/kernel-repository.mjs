@@ -298,6 +298,39 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async createBankPaymentMatch(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_bank_match_hash($1,$2,$3,$4,$5,$6,$7) AS request_hash',
+        [args.tenantId,args.entityId,args.bankSourceId,args.paymentOccurrenceId,args.expectedBankVersion,args.expectedOccurrenceVersion,args.reason]
+      ),'BANK_MATCH_HASH_FAILED','Bank match hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_bank_payment_match($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',
+        [args.tenantId,args.entityId,args.bankSourceId,args.paymentOccurrenceId,args.expectedBankVersion,args.expectedOccurrenceVersion,args.reason,args.idempotencyKey,requestHash]
+      ),'BANK_MATCH_FAILED','Bank match creation did not return a result').result;
+    });
+  }
+
+  async unmatchBankPayment(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_bank_unmatch_hash($1,$2,$3,$4,$5,$6) AS request_hash',
+        [args.tenantId,args.entityId,args.bankSourceId,args.bankMatchId,args.expectedMatchVersion,args.reason]
+      ),'BANK_UNMATCH_HASH_FAILED','Bank unmatch hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_unmatch_bank_payment($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+        [args.tenantId,args.entityId,args.bankSourceId,args.bankMatchId,args.expectedMatchVersion,args.reason,args.idempotencyKey,requestHash]
+      ),'BANK_UNMATCH_FAILED','Bank unmatch did not return a result').result;
+    });
+  }
+
+  async getFinancialStatements({tenantId,entityId,periodId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_financial_statements($1,$2,$3)',
+      [tenantId,entityId,periodId]
+    )).rows);
+  }
+
   async getApAging({tenantId,entityId,asOfDate}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_ap_aging($1,$2,$3::date)',[tenantId,entityId,asOfDate]

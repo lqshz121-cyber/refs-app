@@ -1,7 +1,9 @@
 import {
   ACCOUNT_MAP,
   ACCOUNTING_EVENT_TYPES,
+  WBS_MCP_CONTRACT_RULES,
   WBS_MCP_CONTRACTS,
+  WBS_MOCK_CONTRACT_COLLECTIONS,
   approveAndPostSuggestedJEs,
   buildAccountingEvents,
   buildTrialBalance,
@@ -13,6 +15,7 @@ import {
   runDeterministicAccountingRules,
   runWbsAccountingMockPipeline,
   validateWbsContractRecord,
+  validateWbsMockContractCollections,
 } from '../src/wbs-accounting-foundation.js';
 
 const assert = (condition, message) => {
@@ -31,8 +34,29 @@ async function main() {
     });
   });
   assert(ACCOUNTING_EVENT_TYPES.includes('loan_draw') && ACCOUNTING_EVENT_TYPES.includes('amortization') && ACCOUNTING_EVENT_TYPES.includes('manual_je'), 'required accounting event types are registered');
+  assert(WBS_MCP_CONTRACT_RULES.Entity.kind === 'MASTER', 'Entity must be an explicit master-record exception to transaction common fields');
+  assert(Object.keys(WBS_MCP_CONTRACTS).every(name => name in WBS_MOCK_CONTRACT_COLLECTIONS), 'every declared contract must have an explicit mock collection registration');
   assert(validateWbsContractRecord('PayableInvoice', dataset.payableInvoices[0]).ok, 'mock payable invoice must satisfy WBS contract');
+  assert(dataset.bankTransactions.every(row => validateWbsContractRecord('BankTransaction', row).ok), 'bank transactions must accept either vendor or customer party identity');
+  assert(dataset.sourceDocuments.every(row => validateWbsContractRecord('SourceDocument', row).ok), 'source documents must accept either vendor or customer party identity');
+  assert(validateWbsContractRecord('BankTransaction', { ...dataset.bankTransactions[0], vendor_id: null, customer_id: null }).ok, 'unidentified bank parties must remain valid optional adapter fields');
   assert(dataset.propertyTaxStatements.length === 2 && dataset.propertyTaxStatements.every(row => validateWbsContractRecord('PropertyTaxStatement', row).ok), 'mock property tax statements must satisfy the adapter-ready WBS contract');
+  const conformance = validateWbsMockContractCollections(dataset);
+  assert(conformance.all_contracts_registered, 'contract registry must cover every declared contract without unknown entries');
+  assert(conformance.contract_count === Object.keys(WBS_MCP_CONTRACTS).length, 'conformance report must include every declared contract');
+  assert(conformance.results.find(result => result.contract === 'CustomerTenant')?.status === 'UNSUPPORTED', 'missing Customer/Tenant data must be reported as unsupported, not fabricated');
+  assert(conformance.results.find(result => result.contract === 'ResidentActivity')?.status === 'UNSUPPORTED', 'missing Resident Activity data must be reported as unsupported, not fabricated');
+  assert(conformance.results.find(result => result.contract === 'ClosingStatement')?.status === 'UNSUPPORTED', 'missing Closing Statement data must be reported as unsupported, not fabricated');
+  assert(conformance.results.find(result => result.contract === 'JournalEntry')?.status === 'INVALID_ROWS', 'workflow journal projections must not be claimed as connector-contract conformant');
+  assert(conformance.complete === false && conformance.supported_collections_conform === false, 'current mock contract coverage must truthfully remain incomplete and non-conformant');
+  const invalidDataset = structuredClone(dataset);
+  delete invalidDataset.projects[1].project_code;
+  invalidDataset.properties = [];
+  delete invalidDataset.vendors;
+  const invalidConformance = validateWbsMockContractCollections(invalidDataset);
+  assert(invalidConformance.results.find(result => result.contract === 'Project')?.invalid_rows[0]?.index === 1, 'conformance gate must validate and locate every invalid collection row');
+  assert(invalidConformance.results.find(result => result.contract === 'Property')?.status === 'EMPTY_COLLECTION', 'an available but empty collection must not be called conformant');
+  assert(invalidConformance.results.find(result => result.contract === 'Vendor')?.status === 'MISSING_COLLECTION', 'a registered but absent collection must be reported as missing');
   const propertyTaxAccrual = classifyPropertyTaxStatement(dataset.propertyTaxStatements.find(row => row.id === 'PTAX-TRAVIS-2026'));
   const propertyTaxPrepaid = classifyPropertyTaxStatement(dataset.propertyTaxStatements.find(row => row.id === 'PTAX-TRAVIS-2027-PREPAID'));
   assert(propertyTaxAccrual.decision === 'ACCRUAL' && propertyTaxAccrual.amount === 14000 && propertyTaxAccrual.recognized_months === 7, 'elapsed unpaid property tax must classify as a seven-month accrual');
@@ -42,6 +66,8 @@ async function main() {
   const snapshot = await connector.fetchSnapshot();
   assert(snapshot !== dataset && snapshot.payableInvoices.length >= 4, 'mock connector returns an isolated WBS snapshot');
   assert(snapshot.sourceDocuments.length >= 7, 'mock connector includes property-tax source-document evidence');
+  const connectorConformance = await connector.inspectContractConformance();
+  assert(connectorConformance.unsupported_contract_count > 0 && connectorConformance.invalid_collection_count > 0, 'connector must expose unsupported and invalid contract coverage truthfully');
 
   const events = buildAccountingEvents(snapshot);
   ['prepaid', 'invoice', 'payment', 'loan_draw', 'loan_interest', 'construction_cost', 'rent_income', 'property_expense'].forEach(eventType => {
@@ -134,7 +160,7 @@ async function main() {
   assert(pipeline.glLines.length > snapshot.journalEntries.length, 'pipeline projects posted JE lines into GL');
   assert(pipeline.trialBalance.balanced, 'pipeline Trial Balance is balanced');
 
-  console.log('wbs-accounting-foundation: contracts, mock connector, events, rules, JE, GL, TB and amortization passed');
+  console.log('wbs-accounting-foundation: implemented mock collections conform where reported; unsupported and invalid contract outputs remain explicit');
 }
 
 main().catch(error => {

@@ -3,6 +3,8 @@ const ACCOUNT_CODE=/^[A-Za-z0-9._-]{1,64}$/;
 const BANK_ACCOUNT_REF=/^[^\u0000-\u001f\u007f]{1,128}$/;
 const ISO_DATE=/^\d{4}-\d{2}-\d{2}$/;
 const MONEY4=/^-?[0-9]+\.[0-9]{4}$/;
+const REPORT_MONEY4=/^-?(?:0|[1-9][0-9]{0,15})\.[0-9]{4}$/;
+const PERIOD_CODE=/^[0-9]{4}-(?:0[1-9]|1[0-2])$/;
 const UNSIGNED_INTEGER=/^[0-9]+$/;
 
 export const accountingApiConfig=(environment=globalThis)=>{
@@ -74,6 +76,25 @@ export async function refreshAuthoritativeReconciliation({config,bankAccountRef,
     if(rows.some(row=>!Number.isSafeInteger(row.version)||![row.bank_transaction_count,row.active_match_count,row.unmatched_transaction_count].every(Number.isSafeInteger)))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation row.'};
     return {ok:true,row:rows[0]||null,scope:{entityId:config.entityId,bankAccountRef:account,statementEndingDate}};
   }catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative reconciliation refresh failed.'};}
+}
+
+export async function refreshAuthoritativeFinancialStatements({config,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!UUID.test(config.periodId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Financial statements require one authoritative entity and accounting period.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({periodId:config.periodId});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/reports/financial-statements?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid financial statement envelope.'};
+    const statements=new Set(['TRIAL_BALANCE','BALANCE_SHEET','INCOME_STATEMENT','CASH_FLOW']);
+    const sections={TRIAL_BALANCE:new Set(['ALL_ACCOUNTS']),BALANCE_SHEET:new Set(['ASSETS','LIABILITIES','EQUITY','CURRENT_EARNINGS']),INCOME_STATEMENT:new Set(['REVENUE','EXPENSES']),CASH_FLOW:new Set(['DIRECT_CASH_MOVEMENT'])};
+    const numericFields=['opening_debit','opening_credit','period_debit','period_credit','ending_debit','ending_credit','display_balance'];
+    const idFields=['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'];
+    if(body.data.some(row=>row?.period_id!==config.periodId||!PERIOD_CODE.test(row.period_code||'')||!validDate(row.period_start)||!validDate(row.period_end)||row.period_start>row.period_end||row.period_start.slice(0,7)!==row.period_code||row.period_end.slice(0,7)!==row.period_code||!statements.has(row.statement_type)||!sections[row.statement_type]?.has(row.statement_section)||row.classification_basis!=='ACCOUNT_CODE_PREFIX_AND_BANK_MEMBER'||!ACCOUNT_CODE.test(row.account_code||'')||typeof row.account_name!=='string'||!row.account_name.trim()||numericFields.some(field=>!REPORT_MONEY4.test(String(row[field]??'')))||idFields.some(field=>!Array.isArray(row[field])||row[field].some(id=>!UUID.test(id||'')))))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid financial statement row.'};
+    if(new Set(body.data.map(row=>`${row.statement_type}:${row.account_code}`)).size!==body.data.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate financial statement rows.'};
+    const rows=body.data.map(row=>({...row,...Object.fromEntries(numericFields.map(field=>[field,String(row[field])]))}));
+    return {ok:true,rows,scope:{entityId:config.entityId,periodId:config.periodId}};
+  }catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative financial statement refresh failed.'};}
 }
 
 const failure=async response=>{let body;try{body=await response.json();}catch{}return {ok:false,code:typeof body?.code==='string'?body.code:'ACCOUNTING_API_UNAVAILABLE',message:response.status>=500?'Authoritative accounting command failed.':typeof body?.message==='string'?body.message:'Authoritative accounting command was rejected.'};};

@@ -1,0 +1,52 @@
+import assert from 'node:assert/strict';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {refreshAuthoritativeFinancialStatements} from '../src/accounting-api.js';
+import {AuthoritativeReportsWorkspace,FinancialStatementSummary} from '../src/authoritative-reports-workspace.jsx';
+
+const entityId='00000000-0000-4000-8000-000000000101',periodId='00000000-0000-4000-8000-000000000102';
+const config={baseUrl:'https://accounting.example',entityId,periodId,getAccessToken:async()=>'oidc.token.value-123456789'};
+const row={period_id:periodId,period_code:'2026-07',period_start:'2026-07-01',period_end:'2026-07-31',statement_type:'TRIAL_BALANCE',statement_section:'ALL_ACCOUNTS',classification_basis:'ACCOUNT_CODE_PREFIX_AND_BANK_MEMBER',account_code:'111000',account_name:'Operating Cash',opening_debit:'100.0000',opening_credit:'0.0000',period_debit:'25.0000',period_credit:'5.0000',ending_debit:'125.0000',ending_credit:'5.0000',display_balance:'120.0000',journal_entry_ids:['00000000-0000-4000-8000-000000000201'],journal_line_ids:['00000000-0000-4000-8000-000000000202'],ledger_line_ids:['00000000-0000-4000-8000-000000000203'],source_document_ids:['00000000-0000-4000-8000-000000000204']};
+const requests=[];
+const fetcher=async(url,init)=>{requests.push({url,init});return new Response(JSON.stringify({ok:true,data:[row]}),{status:200,headers:{'content-type':'application/json'}});};
+
+async function main(){
+  const result=await refreshAuthoritativeFinancialStatements({config,fetcher});
+  assert.equal(result.ok,true);assert.equal(result.rows[0].display_balance,'120.0000');
+  assert.equal(requests[0].url,`https://accounting.example/api/v1/entities/${entityId}/reports/financial-statements?periodId=${periodId}`);
+  assert.equal(requests[0].init.method,'GET');assert.equal(requests[0].init.cache,'no-store');assert.equal(requests[0].init.headers.authorization,'Bearer oidc.token.value-123456789');assert.equal(requests[0].init.body,undefined);
+  const malformed=await refreshAuthoritativeFinancialStatements({config,fetcher:async()=>new Response(JSON.stringify({ok:true,data:[{...row,source_document_ids:['not-a-uuid']}]}),{status:200})});
+  assert.equal(malformed.ok,false);assert.equal(malformed.code,'ACCOUNTING_API_PROTOCOL');
+  for(const invalid of [
+    {...row,period_code:'July 2026'},
+    {...row,period_start:'2026-02-30'},
+    {...row,period_end:'2026-08-01'},
+    {...row,classification_basis:'INFERRED'},
+    {...row,statement_section:'ASSETS'},
+    {...row,display_balance:'90071992547409920.0000'},
+  ]){
+    const rejected=await refreshAuthoritativeFinancialStatements({config,fetcher:async()=>new Response(JSON.stringify({ok:true,data:[invalid]}),{status:200})});
+    assert.equal(rejected.ok,false);assert.equal(rejected.code,'ACCOUNTING_API_PROTOCOL');
+  }
+  const duplicate=await refreshAuthoritativeFinancialStatements({config,fetcher:async()=>new Response(JSON.stringify({ok:true,data:[row,row]}),{status:200})});
+  assert.equal(duplicate.ok,false);assert.equal(duplicate.code,'ACCOUNTING_API_PROTOCOL');
+  const noToken=await refreshAuthoritativeFinancialStatements({config:{...config,getAccessToken:async()=>''},fetcher});assert.equal(noToken.code,'AUTHENTICATION_REQUIRED');
+  const markup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher}/>);
+  assert.match(markup,/Financial statements/);assert.match(markup,/Trial Balance/);assert.match(markup,/Balance Sheet/);assert.match(markup,/Income Statement/);assert.match(markup,/Cash movement evidence/);assert.doesNotMatch(markup,/>Cash Flow</);assert.match(markup,/Browser seed data and local storage are not used/);
+  const balanceMarkup=renderToStaticMarkup(<FinancialStatementSummary report="BALANCE_SHEET" rows={[
+    {...row,statement_type:'BALANCE_SHEET',statement_section:'ASSETS',display_balance:'125.1000'},
+    {...row,statement_type:'BALANCE_SHEET',statement_section:'LIABILITIES',account_code:'291001',display_balance:'25.0500'},
+    {...row,statement_type:'BALANCE_SHEET',statement_section:'EQUITY',account_code:'310000',display_balance:'90.0000'},
+    {...row,statement_type:'BALANCE_SHEET',statement_section:'CURRENT_EARNINGS',account_code:'399999',display_balance:'10.0500'},
+  ]}/>);
+  assert.match(balanceMarkup,/Assets/);assert.match(balanceMarkup,/Liabilities/);assert.match(balanceMarkup,/Equity and current earnings/);assert.match(balanceMarkup,/\$0\.00/);
+  const incomeMarkup=renderToStaticMarkup(<FinancialStatementSummary report="INCOME_STATEMENT" rows={[
+    {...row,statement_type:'INCOME_STATEMENT',statement_section:'REVENUE',display_balance:'120.1000'},
+    {...row,statement_type:'INCOME_STATEMENT',statement_section:'EXPENSES',account_code:'610000',display_balance:'20.0500'},
+  ]}/>);
+  assert.match(incomeMarkup,/Revenue/);assert.match(incomeMarkup,/Expenses/);assert.match(incomeMarkup,/Net income/);assert.match(incomeMarkup,/\$100\.05/);
+  const cashMarkup=renderToStaticMarkup(<FinancialStatementSummary report="CASH_FLOW" rows={[{...row,statement_type:'CASH_FLOW',statement_section:'DIRECT_CASH_MOVEMENT',display_balance:'-2.0050'}]}/>);
+  assert.match(cashMarkup,/Direct cash-account movement/);assert.match(cashMarkup,/Not classified as operating, investing, or financing/);assert.match(cashMarkup,/-\$2\.01/);
+  console.log('authoritative financial statement contract tests passed');
+}
+main().catch(error=>{console.error(error);process.exitCode=1;});

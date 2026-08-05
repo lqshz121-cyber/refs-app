@@ -4,12 +4,12 @@ const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.pos
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
-  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createJournalAdjustment','createManualJournal','finalizeAttachment','postJournal','recordWbsSnapshot','reserveAttachment','transitionJournal']);
+  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','finalizeAttachment','postJournal','recordWbsSnapshot','reserveAttachment','transitionJournal','unmatchBankPayment']);
 });
 
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{
   for(const operation of operations)assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IdempotencyKey'));
-  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid'].includes(item.operationId)))assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IfMatch'));
+  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment'].includes(item.operationId)))assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IfMatch'));
   assert.equal(contract.components.parameters.IfMatch.schema.pattern,'^\\\"[0-9]+\\\"$');
 });
 
@@ -27,7 +27,7 @@ test('all responses are no-store and use a structured success or problem envelop
   assert.match(contract.components.responses.Problem.description,/412/);
   assert.match(contract.components.responses.Problem.description,/503/);
   for(const operation of operations){assert.ok(operation.responses['200']);assert.ok(operation.responses['201']);assert.ok(operation.responses['503']);assert.ok(operation.responses.default);}
-  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid'].includes(item.operationId)))assert.equal(operation.responses['412'].$ref,'#/components/responses/PreconditionFailed');
+  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment'].includes(item.operationId)))assert.equal(operation.responses['412'].$ref,'#/components/responses/PreconditionFailed');
   assert.equal(contract.components.responses.SerializationRetryExhausted.headers['Retry-After'].schema.minimum,0);
 });
 
@@ -107,6 +107,20 @@ test('bank transaction and reconciliation reads are scoped no-store evidence onl
   assert.equal(contract.components.responses.ReconciliationSummaryOk.headers['Cache-Control'].schema.const,'no-store');
   assert.equal(contract.components.schemas.BankTransactionReadRow.additionalProperties,false);
   assert.equal(contract.components.schemas.ReconciliationSummaryRow.additionalProperties,false);
+});
+
+test('financial statements are an authenticated period-scoped POSTED evidence read',()=>{
+  const operation=contract.paths['/entities/{entityId}/reports/financial-statements'].get;
+  assert.equal(operation.operationId,'getFinancialStatements');
+  assert.equal(operation.parameters.find(parameter=>parameter.name==='periodId').required,true);
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/FinancialStatementReadOk');
+  assert.match(operation.description,/cannot create, adjust, post, export, or persist/i);
+  const row=contract.components.schemas.FinancialStatementReadRow;
+  assert.equal(row.additionalProperties,false);
+  assert.deepEqual(row.properties.statement_type.enum,['TRIAL_BALANCE','BALANCE_SHEET','INCOME_STATEMENT','CASH_FLOW']);
+  assert.equal(row.properties.classification_basis.const,'ACCOUNT_CODE_PREFIX_AND_BANK_MEMBER');
+  for(const key of ['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'])assert.equal(row.properties[key].items.$ref,'#/components/schemas/Uuid');
+  assert.equal(contract.components.responses.FinancialStatementReadOk.headers['Cache-Control'].schema.const,'no-store');
 });
 
 test('AP and AR adjustment list reads expose only the authoritative scoped adjustment envelope',()=>{

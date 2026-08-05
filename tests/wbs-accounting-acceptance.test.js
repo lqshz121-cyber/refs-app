@@ -112,10 +112,13 @@ async function main() {
   assert(aiAuditSource.includes('runDeterministicAccountingRules(snapshot, events)') && aiAuditSource.includes('buildWbsEndToEndFlowEvidence(snapshot)'), 'acceptance 13/16: AI Audit Center must display rule results from real mock pipeline functions');
 
   const e2e = buildWbsEndToEndFlowEvidence(snapshot);
-  assert(e2e.controls.total_flows === 10 && e2e.allFlowsTraceable, 'acceptance 13/16: AI Audit flow evidence must cover all 10 source-to-report workflows with trace');
+  assert(e2e.controls.total_flows === 10 && e2e.allFlowsReported, 'acceptance 13/16: AI Audit flow evidence must report all 10 source-to-report workflows');
+  assert(e2e.controls.complete_flows === 2 && e2e.controls.incomplete_flows === 8 && !e2e.allFlowsTraceable && !e2e.allFlowsComplete, 'acceptance 13/16: mock evidence must distinguish two same-lineage complete flows from eight explicit gaps');
   ['PAYABLE_TO_ACCRUAL', 'BANK_TO_EXCEPTION', 'LOAN_DRAW_TO_REPORTS', 'INSURANCE_TO_AMORTIZATION', 'PROPERTY_TAX_TO_ACCRUAL', 'SOURCE_TO_TB', 'TB_TO_STATEMENTS', 'GL_TO_AI_ANALYSIS'].forEach(id => {
     const row = e2e.flows.find(flow => flow.id === id);
-    assert(row?.source_id && row.event_id && row.audit_trail_count > 0, `acceptance 13/16: E2E flow ${id} must retain source, event and audit`);
+    assert(row?.source_id && row.event_id && ['COMPLETE', 'INCOMPLETE'].includes(row.evidence_state), `acceptance 13/16: E2E flow ${id} must remain reported with an explicit evidence state`);
+    if (row.evidence_state === 'COMPLETE') assert(row.audit_trail_count > 0, `acceptance 13/16: complete E2E flow ${id} must retain same-lineage audit evidence`);
+    else assert(row.missing_evidence.length > 0, `acceptance 13/16: incomplete E2E flow ${id} must name its missing evidence`);
   });
   const propertyTaxFlow = e2e.flows.find(flow => flow.id === 'PROPERTY_TAX_TO_ACCRUAL');
   assert(propertyTaxFlow.control_state === 'POSTED_MOCK_IMPACT_TIED' && propertyTaxFlow.gl_line_count === 2 && propertyTaxFlow.report_impact_count === 2 && propertyTaxFlow.audit_trail_count >= 3, 'acceptance 13/16: property tax flow must retain reviewed posted, GL, report and audit evidence');

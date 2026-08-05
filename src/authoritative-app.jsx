@@ -3,6 +3,7 @@ import { accountingApiConfig, refreshAuthoritativeDocuments, refreshAuthoritativ
 import { BrowserOidcClient, oidcRuntimeConfig } from './oidc-client.js';
 import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
+import { AuthoritativeReportsWorkspace } from './authoritative-reports-workspace.jsx';
 import {
   AuthoritativeAdjustmentSummary,
   AuthoritativeDocumentTable,
@@ -108,7 +109,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       <div className="brand"><span className="logo">◇</span> REFS<span className="brand-sub">Authoritative</span></div>
       <nav aria-label="Authoritative accounting navigation">
         <div className="nav-group"><div className="nav-group-h"><span className="nav-ic">●</span>Accounting API</div>
-        {[['overview','Control overview'],['payables','Payables'],['receivables','Receivables'],['bank','Bank transactions'],['reconciliation','Reconciliation'],['journals','Journal entries'],['drafts','Draft entry']].map(([item,label]) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => setRoute(item)}>{label}</button>)}</div>
+        {[['overview','Control overview'],['payables','Payables'],['receivables','Receivables'],['bank','Bank transactions'],['reconciliation','Reconciliation'],['reports','Financial statements'],['journals','Journal entries'],['drafts','Draft entry']].map(([item,label]) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => setRoute(item)}>{label}</button>)}</div>
       </nav>
     </aside>
     <div className="main">
@@ -121,6 +122,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'receivables' && <><AuthoritativeDocumentTable title="AR invoices" documents={data.ar.invoices} kind="AR"/><AuthoritativeAdjustmentSummary title="AR adjustments" adjustments={data.ar.adjustments}/><AuthoritativeWorkflowTable title="AR journal workflow" documents={data.ar.invoices} kind="AR" onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeWorkflowAdjustmentTable title="AR adjustment workflow" adjustments={data.ar.adjustments} onWorkflow={workflow} workingJournalIds={workingJournalIds}/></>}
         {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace config={config} fetcher={fetcher}/>}
         {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace config={config} fetcher={fetcher}/>}
+        {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace config={config} fetcher={fetcher}/>}
         {phase === 'READY' && route === 'journals' && <JournalTable journals={data.journals} workingJournalIds={workingJournalIds} onWorkflow={workflow}/>} 
         {phase === 'READY' && route === 'drafts' && <AuthoritativeDraftForm/>}
       </main>

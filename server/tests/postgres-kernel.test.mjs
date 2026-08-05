@@ -1480,3 +1480,94 @@ pgTest('bank and reconciliation reads enforce permission, tenant, entity, accoun
   const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/bank/reconciliation?bankAccountRef=BANK-1&statementEndingDate=2026-07-31`,body:null,headers:{}});
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data[0].reconciliation_id,reconciliationId);
 });
+
+pgTest('061 bank match creates exact posted AP evidence once and fails closed for reversal and ambiguous cash account evidence',async()=>{
+  const ids=await seed({status:'APPROVED',attachmentStatus:null});const billId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,'AP_BILL','BILL-BANK-MATCH-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',120,120,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bank-payment-maker',['AP.PAYMENT.CREATE','GL.JE.SUBMIT'])});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bank-payment-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bank-payment-approver',['GL.JE.APPROVE'])});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bank-payment-poster',['GL.JE.POST'])});
+  const postPayment=async({number,suffix,ambiguous=false})=>{
+    const payment=await maker.createApPayment({...ids,businessDocumentId:billId,paymentNumber:number,paymentDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:40,reason:'Bank match AP payment',idempotencyKey:`bank-payment-${suffix}`});
+    if(ambiguous){
+      await adminPool.query('UPDATE journal_line SET debit_amount=80 WHERE journal_entry_id=$1 AND line_no=1',[payment.journal_entry_id]);
+      await adminPool.query(`INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref,description,dimensions)
+        VALUES($1,$2,$3,$4,3,'111000',0,40,'BANK-1','Ambiguous duplicate cash evidence','{}'::jsonb)`,[ids.tenantId,ids.entityId,ids.periodId,payment.journal_entry_id]);
+    }
+    const trace=await attachAutoSource({...ids,journalId:payment.journal_entry_id},{reuseApprovedSnapshots:suffix!=='exact'});
+    await maker.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:`bank-payment-submit-${suffix}`});
+    await reviewer.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:`bank-payment-review-${suffix}`});
+    await approver.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:`bank-payment-approve-${suffix}`});
+    await poster.postJournal({...ids,journalEntryId:payment.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:`bank-payment-post-${suffix}`});
+    return {payment,trace};
+  };
+  const exact=await postPayment({number:'PAY-BANK-40',suffix:'exact'});const bankSourceId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','BANK-MATCH-EXACT','2026-07-16','USD',-40)`,[bankSourceId,ids.tenantId,ids.entityId,exact.trace.documentId]);
+  const matcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bank-payment-matcher',['BANK.MATCH.CREATE'])});
+  const unmatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bank-payment-unmatcher',['BANK.MATCH.UNMATCH'])});
+  const matchArgs={...ids,bankSourceId,paymentOccurrenceId:exact.payment.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Reviewed exact posted AP payment',idempotencyKey:'bank-match-exact-001'};
+  const created=await matcher.createBankPaymentMatch(matchArgs);const replay=await matcher.createBankPaymentMatch(matchArgs);
+  assert.equal(created.status,'ACTIVE');assert.equal(created.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.bank_match_id,created.bank_match_id);
+  const evidence=(await adminPool.query('SELECT payment_occurrence_id,journal_entry_id,journal_line_id,ledger_line_id FROM bank_match WHERE bank_match_id=$1',[created.bank_match_id])).rows[0];
+  assert.equal(evidence.payment_occurrence_id,exact.payment.payment_occurrence_id);assert.equal(evidence.journal_entry_id,exact.payment.journal_entry_id);assert.ok(evidence.journal_line_id);assert.ok(evidence.ledger_line_id);
+  const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
+  const reversalMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bank-payment-reversal',['AP.PAYMENT.REVERSE','GL.JE.SUBMIT'])});
+  await assert.rejects(reversalMaker.createApPaymentReversal({...ids,sourceOccurrenceId:exact.payment.payment_occurrence_id,periodId:augustPeriod,journalNumber:'PAY-BANK-40-REV',journalDate:'2026-08-02',reason:'Attempt reversal while actively matched',idempotencyKey:'bank-match-reversal-001'}),error=>error.code==='23514'&&/explicitly unmatched/i.test(error.message));
+  assert.equal((await adminPool.query('SELECT status FROM payment_occurrence WHERE payment_occurrence_id=$1',[exact.payment.payment_occurrence_id])).rows[0].status,'POSTED');
+  const unmatchArgs={...ids,bankSourceId,bankMatchId:created.bank_match_id,expectedMatchVersion:0,reason:'Controller approved unmatch before payment reversal',idempotencyKey:'bank-unmatch-exact-001'};
+  const unmatched=await unmatcher.unmatchBankPayment(unmatchArgs);const unmatchReplay=await unmatcher.unmatchBankPayment(unmatchArgs);
+  assert.equal(unmatched.status,'UNMATCHED');assert.equal(unmatched.revision,1);assert.equal(unmatchReplay.idempotent,true);
+  const reversal=await reversalMaker.createApPaymentReversal({...ids,sourceOccurrenceId:exact.payment.payment_occurrence_id,periodId:augustPeriod,journalNumber:'PAY-BANK-40-REV',journalDate:'2026-08-02',reason:'Reverse payment after controlled bank unmatch',idempotencyKey:'bank-match-reversal-002'});
+  assert.equal(reversal.status,'DRAFT');
+
+  const ambiguous=await postPayment({number:'PAY-BANK-AMBIG',suffix:'ambiguous',ambiguous:true});const ambiguousBankSourceId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','BANK-MATCH-AMBIGUOUS','2026-07-16','USD',-40)`,[ambiguousBankSourceId,ids.tenantId,ids.entityId,ambiguous.trace.documentId]);
+  await assert.rejects(matcher.createBankPaymentMatch({...ids,bankSourceId:ambiguousBankSourceId,paymentOccurrenceId:ambiguous.payment.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Reject ambiguous posted cash evidence',idempotencyKey:'bank-match-ambiguous-001'}),error=>error.code==='23514'&&/exactly one posted cash ledger line/i.test(error.message));
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM bank_match WHERE bank_source_id=$1',[ambiguousBankSourceId])).rows[0].n,0);
+
+  const invoiceId=randomUUID();
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-1','CUSTOMER','Customer')",[ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,'AR_INVOICE','INV-BANK-MATCH-1','CUSTOMER-1','Customer','USD','2026-07-15','2026-08-15',35,35,'OPEN','fixture')`,[invoiceId,ids.tenantId,ids.entityId]);
+  const receiptMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bank-receipt-maker',['AR.RECEIPT.CREATE','GL.JE.SUBMIT'])});
+  const receipt=await receiptMaker.createArReceipt({...ids,businessDocumentId:invoiceId,receiptNumber:'RCPT-BANK-35',receiptDate:'2026-07-17',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:35,reason:'Bank match AR receipt',idempotencyKey:'bank-receipt-exact-001'});
+  await attachAutoSource({...ids,journalId:receipt.journal_entry_id},{reuseApprovedSnapshots:true});
+  await receiptMaker.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'bank-receipt-submit-001'});
+  await reviewer.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'bank-receipt-review-001'});
+  await approver.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'bank-receipt-approve-001'});
+  await poster.postJournal({...ids,journalEntryId:receipt.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'bank-receipt-post-001'});
+  const receiptBankSourceId=randomUUID();await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','BANK-MATCH-RECEIPT','2026-07-17','USD',35)`,[receiptBankSourceId,ids.tenantId,ids.entityId,exact.trace.documentId]);
+  const receiptMatch=await matcher.createBankPaymentMatch({...ids,bankSourceId:receiptBankSourceId,paymentOccurrenceId:receipt.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Reviewed exact posted AR receipt',idempotencyKey:'bank-match-receipt-001'});
+  assert.equal(receiptMatch.status,'ACTIVE');
+  assert.equal((await unmatcher.unmatchBankPayment({...ids,bankSourceId:receiptBankSourceId,bankMatchId:receiptMatch.bank_match_id,expectedMatchVersion:0,reason:'Controller approved receipt unmatch',idempotencyKey:'bank-unmatch-receipt-001'})).status,'UNMATCHED');
+});
+
+pgTest('financial statements read only POSTED ledger evidence with entity, period, and source drill scope',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'610000',accountName:'Operating Expense'}],
+    journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'111000',debit:0,credit:100,memberRef:'BANK-1'}]});
+  const trace=await attachAutoSource(ids);
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'report-denied',['AP.VIEW'])});
+  await assert.rejects(denied.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId}),error=>error.code==='42501');
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'report-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'report-post-001'});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'report-reader',['GL.REPORT.VIEW'])});
+  const rows=await reader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  assert.deepEqual([...new Set(rows.map(row=>row.statement_type))].sort(),['BALANCE_SHEET','CASH_FLOW','INCOME_STATEMENT','TRIAL_BALANCE']);
+  const expense=rows.find(row=>row.statement_type==='INCOME_STATEMENT'&&row.account_code==='610000');
+  assert.equal(expense.statement_section,'EXPENSES');assert.equal(expense.period_debit,'100.0000');assert.equal(expense.display_balance,'100.0000');
+  assert.deepEqual(expense.journal_entry_ids,[ids.journalId]);assert.ok(expense.journal_line_ids.length===1);assert.ok(expense.ledger_line_ids.length===1);assert.deepEqual(expense.source_document_ids,[trace.documentId]);
+  const cash=rows.find(row=>row.statement_type==='CASH_FLOW'&&row.account_code==='111000');
+  assert.equal(cash.statement_section,'DIRECT_CASH_MOVEMENT');assert.equal(cash.display_balance,'-100.0000');
+  assert.ok(rows.every(row=>row.period_id===ids.periodId&&row.period_code==='2026-07'&&row.classification_basis==='ACCOUNT_CODE_PREFIX_AND_BANK_MEMBER'));
+  const other=await seed({status:'DRAFT',attachmentStatus:null,tenantId:ids.tenantId});
+  await assert.rejects(reader.getFinancialStatements({tenantId:ids.tenantId,entityId:other.entityId,periodId:other.periodId}),error=>error.code==='42501');
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'report-reader'}),kernelFactory:async()=>reader});
+  const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/financial-statements?periodId=${ids.periodId}`,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.length,rows.length);
+});

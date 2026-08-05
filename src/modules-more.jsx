@@ -308,7 +308,7 @@ export function GLTrialBalance({ctx}) {
         {h:'Credit',num:true,render:r=>r.cr?<Money v={r.cr}/>:'',csv:r=>r.cr||''},
         {h:'Running balance',num:true,render:r=><Money v={r.runningBalance}/>,csv:r=>r.runningBalance},
       ]} rows={detailRows}/>; })()}
-    {tab==='Cash Flow' && (()=>{ const openCategory=(category)=>{ const matches=cashFlow.entries.filter(entry=>entry.category===category); setDrill({accounts:cashFlow.cashAccounts,label:`Cash flow · ${category}`,journalNumbers:matches.map(entry=>entry.je)}); };
+    {tab==='Cash Flow' && (()=>{ const openCategory=(category)=>{ const matches=cashFlow.entries.filter(entry=>entry.category===category); setDrill({accounts:cashFlow.cashAccounts,label:`Cash movement evidence - ${category}`,journalNumbers:matches.map(entry=>entry.je)}); };
       const openCashScope = (scope) => { const group=reportControls.cashGroups.find(row=>row.group===scope); if (!group?.accounts.length) return; setDrill({accounts:group.accounts,label:`Cash scope · ${scope}`,asOf:true}); };
       const cashFlowRegisterTarget = scope => { const group=reportControls.cashGroups.find(row=>row.group===scope); return localCashFlowRegisterTarget({entityId:reportEntity,accountCodes:group?.accounts || [],scope,fromP,toP,propertyId,projectId,loanId,dimensionState:dimensionEvidence.state,reportCenterReturn}); };
       const bsCash=sum(bsTb.rows.filter(row=>isOperatingCashAccount(row.account_code)),row=>row.balance);
@@ -316,10 +316,11 @@ export function GLTrialBalance({ctx}) {
       const ready=Math.abs(cashFlow.reconciliationDifference)<0.01 && !cashFlow.unclassified.length && Math.abs(cashFlow.closingCash-bsCash)<0.01;
       const totalScopeReady=Math.abs(cashFlow.totalClosingCash-totalBsCash)<0.01;
       return <div className="stmt stmt-wide">
-        <div className="stmt-h">Statement of Cash Flows · {fromP} ~ {toP} <span className="muted sm">(posted local cash evidence · {dimensionLabel})</span></div>
+        <div className="stmt-h">Cash movement evidence · {fromP} ~ {toP} <span className="muted sm">(posted local cash evidence · {dimensionLabel})</span></div>
+        <p className="muted sm">This evidence view is not a complete statement of cash flows. Operating, investing, and financing labels remain retained classifications and unclassified activity stays in Review.</p>
         {!cashFlow.entries.length ? <div className="empty">No posted local cash activity for {fromP} ~ {toP} in {dimensionLabel}.</div> : <>
         <div className="stmt-row"><span>Opening operating cash before {fromP}</span><Money v={cashFlow.openingCash}/></div>
-        {['Operating','Investing','Financing'].map(category=><div key={category} className="stmt-row drill-target" role="button" tabIndex={0} onClick={()=>openCategory(category)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openCategory(category);}}}><span>Cash from {category} Activities</span><button type="button" className="report-drill" onClick={e=>{e.stopPropagation();openCategory(category);}}><Money v={cashFlow[category.toLowerCase()]}/><span aria-hidden="true" className="drill-caret" /></button></div>)}
+        {['Operating','Investing','Financing'].map(category=><div key={category} className="stmt-row drill-target" role="button" tabIndex={0} onClick={()=>openCategory(category)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openCategory(category);}}}><span>Retained {category.toLowerCase()} classification</span><button type="button" className="report-drill" onClick={e=>{e.stopPropagation();openCategory(category);}}><Money v={cashFlow[category.toLowerCase()]}/><span aria-hidden="true" className="drill-caret" /></button></div>)}
         {cashFlow.unclassified.length>0 && <div className="stmt-row"><span>Unclassified cash evidence — review required</span><Badge tone="bad">{cashFlow.unclassified.length} JE{cashFlow.unclassified.length===1?'':'s'}</Badge></div>}
         <div className="stmt-row tot"><span>Closing operating cash through {toP}</span><Money v={cashFlow.closingCash} bold/></div>
         <div className="stmt-sec">Cash scope reconciliation</div>

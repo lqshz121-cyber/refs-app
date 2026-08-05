@@ -50,6 +50,49 @@ export const WBS_MCP_CONTRACTS = Object.freeze({
   AccrualSchedule: [...commonFields, 'schedule_id', 'accrual_type', 'reversal_period'],
 });
 
+// Contract field arrays remain the readable provider dictionary. Validation rules
+// capture the two shapes that cannot be expressed by a flat list: Entity is a
+// master record (not a transaction), and party identity is conditional because
+// an unmatched bank line or generic source document may not identify a party.
+export const WBS_MCP_CONTRACT_RULES = Object.freeze({
+  Entity: Object.freeze({ kind: 'MASTER', optionalFields: Object.freeze([]) }),
+  BankTransaction: Object.freeze({ kind: 'TRANSACTION', optionalFields: partyFields }),
+  SourceDocument: Object.freeze({ kind: 'TRANSACTION', optionalFields: partyFields }),
+});
+
+const unsupportedCollection = reason => Object.freeze({ collection: null, status: 'UNSUPPORTED', reason });
+const collection = name => Object.freeze({ collection: name, status: 'AVAILABLE' });
+
+// This registry is deliberately exhaustive and truthful. A null collection means
+// the current mock connector does not publish that contract; it must not be
+// interpreted as an empty or implemented collection.
+export const WBS_MOCK_CONTRACT_COLLECTIONS = Object.freeze({
+  Entity: collection('entities'),
+  Project: collection('projects'),
+  Property: collection('properties'),
+  Vendor: collection('vendors'),
+  CustomerTenant: unsupportedCollection('No Customer/Tenant collection is published by the current mock connector.'),
+  ChartOfAccounts: unsupportedCollection('No Chart of Accounts collection is published by the current mock connector.'),
+  BankTransaction: collection('bankTransactions'),
+  PayableInvoice: collection('payableInvoices'),
+  PayablePayment: unsupportedCollection('No Payable Payment collection is published by the current mock connector.'),
+  CostGLTransaction: collection('costGlTransactions'),
+  ConstructionLoan: collection('constructionLoans'),
+  LoanTransaction: collection('loanTransactions'),
+  PropertyOperation: collection('propertyOperations'),
+  PropertyTaxStatement: collection('propertyTaxStatements'),
+  RentRoll: collection('rentRoll'),
+  ResidentActivity: unsupportedCollection('No Resident Activity collection is published by the current mock connector.'),
+  ClosingStatement: unsupportedCollection('No Closing Statement collection is published by the current mock connector.'),
+  SourceDocument: collection('sourceDocuments'),
+  JournalEntry: collection('journalEntries'),
+  JournalEntryLine: unsupportedCollection('Journal lines are nested workflow projections, not a connector collection.'),
+  AIFinding: unsupportedCollection('AI findings are derived rule output, not a connector collection.'),
+  AIRuleResult: unsupportedCollection('AI rule results are derived rule output, not a connector collection.'),
+  AmortizationSchedule: unsupportedCollection('Amortization schedules are derived workflow output, not a connector collection.'),
+  AccrualSchedule: unsupportedCollection('Accrual schedules are derived workflow output, not a connector collection.'),
+});
+
 export const ACCOUNTING_EVENT_TYPES = Object.freeze([
   'invoice',
   'payment',
@@ -240,14 +283,71 @@ export function createWbsMockConnector(dataset = createWbsMockDataset()) {
       if (!(name in dataset)) throw new Error(`Unknown WBS mock collection: ${name}`);
       return structuredClone(dataset[name]);
     },
+    async inspectContractConformance() {
+      return structuredClone(validateWbsMockContractCollections(dataset));
+    },
   });
 }
 
 export function validateWbsContractRecord(contractName, record) {
   const fields = WBS_MCP_CONTRACTS[contractName];
   if (!fields) return { ok: false, missing: [], code: 'UNKNOWN_CONTRACT' };
-  const missing = fields.filter(field => !(field in record));
-  return { ok: missing.length === 0, missing, code: missing.length ? 'CONTRACT_FIELD_MISSING' : 'OK' };
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    return { ok: false, missing: [...fields], code: 'CONTRACT_RECORD_INVALID' };
+  }
+  const optionalFields = new Set(WBS_MCP_CONTRACT_RULES[contractName]?.optionalFields || []);
+  const missing = fields.filter(field => !optionalFields.has(field) && !(field in record));
+  const ok = missing.length === 0;
+  return {
+    ok,
+    missing,
+    optional_fields: [...optionalFields],
+    code: ok ? 'OK' : 'CONTRACT_FIELD_MISSING',
+  };
+}
+
+export function validateWbsMockContractCollections(dataset = createWbsMockDataset()) {
+  const contractNames = Object.keys(WBS_MCP_CONTRACTS);
+  const registeredNames = Object.keys(WBS_MOCK_CONTRACT_COLLECTIONS);
+  const unregistered = contractNames.filter(name => !(name in WBS_MOCK_CONTRACT_COLLECTIONS));
+  const unknownRegistrations = registeredNames.filter(name => !(name in WBS_MCP_CONTRACTS));
+  const results = contractNames.map(contractName => {
+    const registration = WBS_MOCK_CONTRACT_COLLECTIONS[contractName];
+    if (!registration) return { contract: contractName, collection: null, status: 'UNREGISTERED', row_count: 0, invalid_rows: [] };
+    if (registration.status === 'UNSUPPORTED') {
+      return { contract: contractName, collection: null, status: 'UNSUPPORTED', reason: registration.reason, row_count: 0, invalid_rows: [] };
+    }
+    const rows = dataset?.[registration.collection];
+    if (!Array.isArray(rows)) {
+      return { contract: contractName, collection: registration.collection, status: 'MISSING_COLLECTION', row_count: 0, invalid_rows: [] };
+    }
+    if (rows.length === 0) {
+      return { contract: contractName, collection: registration.collection, status: 'EMPTY_COLLECTION', row_count: 0, invalid_rows: [] };
+    }
+    const invalidRows = rows.map((record, index) => ({ index, validation: validateWbsContractRecord(contractName, record) })).filter(row => !row.validation.ok);
+    return {
+      contract: contractName,
+      collection: registration.collection,
+      status: invalidRows.length ? 'INVALID_ROWS' : 'CONFORMANT',
+      row_count: rows.length,
+      invalid_rows: invalidRows,
+    };
+  });
+  const statusCount = status => results.filter(result => result.status === status).length;
+  const supportedResults = results.filter(result => result.status !== 'UNSUPPORTED' && result.status !== 'UNREGISTERED');
+  return {
+    contract_count: contractNames.length,
+    all_contracts_registered: unregistered.length === 0 && unknownRegistrations.length === 0,
+    unregistered_contracts: unregistered,
+    unknown_registrations: unknownRegistrations,
+    supported_collection_count: supportedResults.length,
+    conformant_collection_count: statusCount('CONFORMANT'),
+    invalid_collection_count: statusCount('INVALID_ROWS') + statusCount('MISSING_COLLECTION') + statusCount('EMPTY_COLLECTION'),
+    unsupported_contract_count: statusCount('UNSUPPORTED'),
+    supported_collections_conform: supportedResults.every(result => result.status === 'CONFORMANT'),
+    complete: results.every(result => result.status === 'CONFORMANT'),
+    results,
+  };
 }
 
 export function buildAccountingEvents(snapshot) {

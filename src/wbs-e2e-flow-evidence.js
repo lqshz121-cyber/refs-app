@@ -8,29 +8,79 @@ import {
 import { buildWbsBankReconciliationEvidence } from './wbs-bank-reconciliation-evidence.js';
 import { buildWbsReportImpact } from './wbs-report-impact.js';
 
-const has = (items, predicate) => items.some(predicate);
 const byId = items => new Map(items.map(item => [item.id || item.je_id || item.finding_id || item.event_id, item]));
 
-function flow({ id, name, source, event, finding, suggestedJe, postedJe, glLines, reportRows, auditTrail, status, blocker, nextAction }) {
+function flow({ id, name, source, lineageSourceDocumentId = null, event, finding, suggestedJe, postedJe, glLines, reportRows, auditTrail, status, blocker, nextAction }) {
+  const sourceId = source?.id || source?.source_transaction_id || source?.source_document_id || null;
+  const sourceDocumentId = lineageSourceDocumentId || source?.source_document_id || (source?.document_type && /^DOC-/.test(String(source?.id || '')) ? source.id : null);
+  const eventId = event?.event_id || null;
+  const suggestedJeId = suggestedJe?.je_id || null;
+  const postedJeId = postedJe?.je_id || null;
+  const suggestedBalanced = Boolean(suggestedJe) && Math.abs(suggestedJe.lines.reduce((sum, line) => sum + Number(line.debit_amount || 0) - Number(line.credit_amount || 0), 0)) < 0.005;
+  const sourceEvidence = Boolean(sourceId && sourceDocumentId);
+  const eventEvidence = Boolean(eventId && sourceDocumentId && event?.source_document_id === sourceDocumentId);
+  const suggestedEvidence = Boolean(suggestedJeId && suggestedBalanced && sourceDocumentId && suggestedJe?.source_document_id === sourceDocumentId);
+  const postedEvidence = Boolean(
+    postedJeId
+    && postedJe?.posting_status === 'POSTED'
+    && postedJeId === suggestedJeId
+    && sourceDocumentId
+    && postedJe?.source_document_id === sourceDocumentId
+  );
+  const postedAudit = postedEvidence && Array.isArray(postedJe?.audit_trail) ? postedJe.audit_trail : [];
+  const reviewEvidence = postedEvidence && postedAudit.some(entry => ['review-approved', 'approved'].includes(String(entry?.action || '').toLowerCase()));
+  const postedAuditEvidence = postedEvidence && postedAudit.some(entry => String(entry?.action || '').toLowerCase() === 'posted');
+  const sameLineageGl = postedEvidence
+    ? glLines.filter(line => line.je_id === postedJeId && line.source_document_id === sourceDocumentId)
+    : [];
+  const sameLineageReport = postedEvidence
+    ? reportRows.filter(row => row.je_number === postedJe?.je_number && row.source_document_id === sourceDocumentId)
+    : [];
+  const pendingAudit = sourceEvidence && suggestedEvidence
+    ? (suggestedJe?.audit_trail || finding?.audit_trail || auditTrail || [])
+    : [];
+  const lineageAudit = postedEvidence ? postedAudit : pendingAudit;
+  const evidence = {
+    source_data: sourceEvidence,
+    accounting_event: eventEvidence,
+    suggested_je: suggestedEvidence,
+    review: reviewEvidence,
+    posted_je: postedEvidence,
+    gl_impact: sameLineageGl.length > 0,
+    report_impact: sameLineageReport.length > 0,
+    audit_trail: postedEvidence ? postedAuditEvidence : lineageAudit.length > 0,
+  };
+  const missingEvidence = Object.entries(evidence).filter(([, present]) => !present).map(([key]) => key);
   return {
     id,
     name,
-    source_id: source?.id || source?.source_transaction_id || source?.source_document_id || 'REVIEW_SOURCE',
+    source_id: sourceId || 'REVIEW_SOURCE',
+    lineage_source_document_id: sourceDocumentId,
     source_type: source?.document_type || source?.event_type || source?.loan_transaction_type || source?.invoice_number || 'WBS mock source',
-    event_id: event?.event_id || 'EVENT_NOT_REQUIRED',
+    event_id: eventId || 'EVENT_NOT_REQUIRED',
+    event_source_document_id: event?.source_document_id || null,
     event_type: event?.event_type || 'review',
     rule_id: finding?.rule_id || event?.rule_id || 'REVIEW_ONLY',
     risk_level: finding?.risk_level || 'MEDIUM',
     reason: finding?.reason || event?.reason || 'Retained source evidence is reviewed before accounting impact.',
     suggested_action: finding?.suggested_action || nextAction,
     suggested_je_number: suggestedJe?.je_number || suggestedJe?.je_id || 'No Draft JE',
-    suggested_je_balanced: suggestedJe ? Math.abs(suggestedJe.lines.reduce((sum, line) => sum + Number(line.debit_amount || 0) - Number(line.credit_amount || 0), 0)) < 0.005 : false,
-    review_status: finding?.status || suggestedJe?.review_status || (blocker ? 'REVIEW_REQUIRED' : 'POSTED'),
+    suggested_je_id: suggestedJeId,
+    suggested_je_source_document_id: suggestedJe?.source_document_id || null,
+    suggested_je_balanced: suggestedBalanced,
+    review_status: reviewEvidence ? 'APPROVED_FOR_MOCK_POSTING' : (finding?.status || suggestedJe?.review_status || (blocker ? 'REVIEW_REQUIRED' : 'EVIDENCE_INCOMPLETE')),
     posted_je_number: postedJe?.je_number || postedJe?.je_id || 'Not posted by mock gate',
-    posted_state: postedJe?.posting_status || (blocker ? 'BLOCKED_OR_REVIEW_ONLY' : 'POSTED_SOURCE_ONLY'),
-    gl_line_count: glLines.length,
-    report_impact_count: reportRows.length,
-    audit_trail_count: auditTrail?.length || finding?.audit_trail?.length || suggestedJe?.audit_trail?.length || 0,
+    posted_je_id: postedJeId,
+    posted_je_source_document_id: postedJe?.source_document_id || null,
+    posted_state: postedEvidence ? 'POSTED_SAME_LINEAGE' : (postedJe ? 'POSTED_LINEAGE_MISMATCH' : (blocker ? 'BLOCKED_OR_REVIEW_ONLY' : 'INCOMPLETE_NO_POSTED_JE')),
+    gl_line_count: sameLineageGl.length,
+    observed_gl_line_count: glLines.length,
+    report_impact_count: sameLineageReport.length,
+    observed_report_impact_count: reportRows.length,
+    audit_trail_count: lineageAudit.length,
+    evidence,
+    evidence_state: missingEvidence.length === 0 ? 'COMPLETE' : 'INCOMPLETE',
+    missing_evidence: missingEvidence,
     control_state: status,
     next_action: nextAction,
   };
@@ -102,6 +152,7 @@ export function buildWbsEndToEndFlowEvidence(snapshot = createWbsMockDataset()) 
       id: 'LOAN_DRAW_TO_REPORTS',
       name: 'Construction Loan Draw -> Loan JE -> GL -> reports',
       source: sourceDocs.get(loanSourceId),
+      lineageSourceDocumentId: loanSourceId,
       event: eventBySource.get('BANK-LOAN-DRAW-01'),
       finding: findingByRule('LOAN_DRAW_RECOGNITION'),
       suggestedJe: suggestedByRule('LOAN_DRAW_RECOGNITION'),
@@ -200,13 +251,21 @@ export function buildWbsEndToEndFlowEvidence(snapshot = createWbsMockDataset()) 
 
   const controls = {
     total_flows: flows.length,
-    flows_with_source: flows.filter(row => row.source_id !== 'REVIEW_SOURCE').length,
-    flows_with_event: flows.filter(row => row.event_id !== 'EVENT_NOT_REQUIRED').length,
-    flows_with_suggested_je_or_explicit_blocker: flows.filter(row => row.suggested_je_number !== 'No Draft JE' || /REVIEW|BLOCK|EXCEPTION|CONTRACT_READY|POSTED|TIED|ANALYSIS/.test(row.control_state)).length,
-    flows_with_posted_or_blocked_state: flows.filter(row => row.posted_state).length,
-    flows_with_gl_or_blocker: flows.filter(row => row.gl_line_count > 0 || /REVIEW|BLOCK|EXCEPTION|CONTRACT_READY/.test(row.control_state)).length,
-    flows_with_report_or_blocker: flows.filter(row => row.report_impact_count > 0 || /REVIEW|BLOCK|EXCEPTION|CONTRACT_READY/.test(row.control_state)).length,
-    flows_with_audit: flows.filter(row => row.audit_trail_count > 0).length,
+    flows_with_source: flows.filter(row => row.evidence.source_data).length,
+    flows_with_event: flows.filter(row => row.evidence.accounting_event).length,
+    flows_with_suggested_je: flows.filter(row => row.evidence.suggested_je).length,
+    flows_with_review: flows.filter(row => row.evidence.review).length,
+    flows_with_posted_je: flows.filter(row => row.evidence.posted_je).length,
+    flows_with_gl_impact: flows.filter(row => row.evidence.gl_impact).length,
+    flows_with_report_impact: flows.filter(row => row.evidence.report_impact).length,
+    flows_with_audit: flows.filter(row => row.evidence.audit_trail).length,
+    complete_flows: flows.filter(row => row.evidence_state === 'COMPLETE').length,
+    incomplete_flows: flows.filter(row => row.evidence_state === 'INCOMPLETE').length,
+    // Legacy UI counters remain available, but blockers are never counted as evidence.
+    flows_with_suggested_je_or_explicit_blocker: flows.filter(row => row.evidence.suggested_je).length,
+    flows_with_posted_or_blocked_state: flows.filter(row => row.evidence.posted_je).length,
+    flows_with_gl_or_blocker: flows.filter(row => row.evidence.gl_impact).length,
+    flows_with_report_or_blocker: flows.filter(row => row.evidence.report_impact).length,
     trial_balance_tied: reportImpact.trialBalance.balanced,
     balance_sheet_tied: reportImpact.statement.balanceSheetTied,
   };
@@ -214,7 +273,9 @@ export function buildWbsEndToEndFlowEvidence(snapshot = createWbsMockDataset()) 
     mode: 'WBS_MOCK_E2E_FLOW_EVIDENCE',
     flows,
     controls,
-    allFlowsTraceable: Object.entries(controls).every(([key, value]) => key.startsWith('flows_') ? value === flows.length : true),
+    allFlowsReported: flows.length === 10 && new Set(flows.map(row => row.id)).size === flows.length,
+    allFlowsTraceable: flows.every(row => row.evidence.source_data && row.evidence.accounting_event && row.evidence.audit_trail),
+    allFlowsComplete: controls.complete_flows === flows.length,
     boundaries: [
       'Mock WBS connector only',
       'Review-only where source evidence is incomplete',

@@ -20,6 +20,7 @@ const optionalReadLimit=value=>{if(value==null||value==='')return 100;if(!/^[1-9
 const requireExactQuery=(searchParams,allowed)=>{const permitted=new Set(allowed);for(const key of searchParams.keys())if(!permitted.has(key))throw new AccountingApiError(400,'UNEXPECTED_QUERY_PARAMETER',`Unexpected query parameter: ${key}`);for(const key of allowed)if(searchParams.getAll(key).length>1)throw new AccountingApiError(400,'DUPLICATE_QUERY_PARAMETER',`Query parameter must not be repeated: ${key}`);};
 const requireIdempotency=headers=>{const value=header(headers,'idempotency-key');if(typeof value!=='string'||value.length<8||value.length>200)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_REQUIRED','Idempotency-Key must be 8-200 characters');return value;};
 const requireRevision=headers=>{const raw=header(headers,'if-match');if(raw==null)throw new AccountingApiError(428,'IF_MATCH_REQUIRED','If-Match is required');const value=String(raw).trim();if(value.startsWith('W/'))throw new AccountingApiError(412,'WEAK_IF_MATCH_REJECTED','If-Match must use a strong revision validator');const match=/^"(\d+)"$/.exec(value);if(!match)throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must be a quoted non-negative strong revision');const revision=Number(match[1]);if(!Number.isSafeInteger(revision))throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must contain a safe non-negative revision');return revision;};
+const requireReviewReason=value=>{if(typeof value!=='string'||value!==value.trim()||value.length<8||value.length>2000||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_REASON','reason must be a canonical 8-2000 character review explanation');return value;};
 const validateBody=body=>{if(!body||typeof body!=='object'||Array.isArray(body))throw new AccountingApiError(400,'JSON_OBJECT_REQUIRED','Request body must be a JSON object');for(const key of Object.keys(body))if(FORBIDDEN_BODY_KEYS.has(key))throw new AccountingApiError(400,'IDENTITY_FIELD_FORBIDDEN',`${key} must come from authenticated context`);return body;};
 const allowOnly=(body,allowed)=>{const unexpected=Object.keys(body).filter(key=>!allowed.includes(key));if(unexpected.length)throw new AccountingApiError(400,'UNEXPECTED_FIELD',`Unexpected request field: ${unexpected[0]}`);return body;};
 
@@ -81,6 +82,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await kernel.getReconciliationSummary({tenantId:principal.tenantId,entityId,bankAccountRef,statementEndingDate});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===6&&parts[4]==='reports'&&parts[5]==='financial-statements'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId');
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        result=await kernel.getFinancialStatements({tenantId:principal.tenantId,entityId,periodId});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===6&&['ap','ar'].includes(parts[4])&&parts[5]==='adjustments'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
         if(Object.keys(payload).length)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
@@ -118,6 +128,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       }else if(parts.length===6&&parts[4]==='journal-entries'&&parts[5]==='auto'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.createAutoJournal({...payload,tenantId:principal.tenantId,entityId,idempotencyKey});
+      }else if(parts.length===8&&parts[4]==='bank'&&parts[5]==='transactions'&&parts[7]==='matches'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['paymentOccurrenceId','expectedOccurrenceRevision','reason']);
+        if(!Number.isSafeInteger(payload.expectedOccurrenceRevision)||payload.expectedOccurrenceRevision<0)throw new AccountingApiError(400,'INVALID_REVISION','expectedOccurrenceRevision must be a non-negative safe integer');
+        result=await kernel.createBankPaymentMatch({tenantId:principal.tenantId,entityId,bankSourceId:requireUuid(parts[6],'bankSourceId'),paymentOccurrenceId:requireUuid(payload.paymentOccurrenceId,'paymentOccurrenceId'),expectedBankVersion:requireRevision(headers),expectedOccurrenceVersion:payload.expectedOccurrenceRevision,reason:requireReviewReason(payload.reason),idempotencyKey});
+      }else if(parts.length===10&&parts[4]==='bank'&&parts[5]==='transactions'&&parts[7]==='matches'&&parts[9]==='unmatch'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['reason']);
+        result=await kernel.unmatchBankPayment({tenantId:principal.tenantId,entityId,bankSourceId:requireUuid(parts[6],'bankSourceId'),bankMatchId:requireUuid(parts[8],'bankMatchId'),expectedMatchVersion:requireRevision(headers),reason:requireReviewReason(payload.reason),idempotencyKey});
       }else if(parts.length===8&&parts[4]==='journal-entries'&&parts[6]==='transitions'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.transitionJournal({tenantId:principal.tenantId,entityId,journalEntryId:requireUuid(parts[5],'journalEntryId'),action:parts[7].toUpperCase(),expectedRevision:requireRevision(headers),reason:payload.reason??null,idempotencyKey});
