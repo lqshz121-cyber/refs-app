@@ -46,7 +46,7 @@ export function COAWorkspace({ctx}) {
       <label><span className="filter-label">Filter by name or number</span><input aria-label="Filter by name or number" value={qboQuery} onChange={e=>setQboQuery(e.target.value)} placeholder="Filter by name or number" /></label>
       <label><span className="filter-label">Filter by limit</span><select aria-label="Filter by limit" value="All" disabled><option>All</option></select></label>
     </section>
-    <p className="muted sm" style={{margin:'0 0 12px'}}>The local name-or-number filter and retained Register/GL drills are functional. Account creation, activation changes, batch edits, external balances, exports, print workflows and connector actions are intentionally absent from this evidence workspace.</p>
+    <p className="muted sm" style={{margin:'0 0 12px'}}>The local name-or-number filter and retained Register/GL drills are functional. This evidence workspace is read-only: it does not manage account setup, external balances, downloads, print workflows, or connector actions.</p>
     <Tabs tabs={[WBS_TAB, LOCAL_TAB]} active={tab} onChange={setTab}/>
     {tab===WBS_TAB && <>
       <Table exportName="wbs-coa-full" rowKey="code" pageSize={40} cols={[

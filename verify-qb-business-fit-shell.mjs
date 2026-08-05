@@ -37,7 +37,7 @@ const checks = [
     present: [
       'Local chart-of-accounts evidence',
       'Register/GL drills are functional',
-      'Account creation, activation changes, batch edits',
+      'This evidence workspace is read-only',
     ],
   },
   {
