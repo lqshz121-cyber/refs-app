@@ -15,6 +15,8 @@ import { localAccountRegisterReturnScopeLabel } from './account-register-return.
 import { localGLSourceTarget } from './gl-source-target.js';
 import { subsidiaryOf, memberOf, SUBSIDIARY } from './coa-wbs.js';
 import { loadSetting } from './settings.js';
+import { repo } from './repo.js';
+import { buildAccountingEvents, createWbsMockDataset, runDeterministicAccountingRules } from './wbs-accounting-foundation.js';
 if (typeof window!=='undefined') window.__subsOf = subsidiaryOf;
 
 // ---------------- Dashboard ----------------
@@ -348,38 +350,80 @@ function JEEditor({je, ctx}) {
 
 // ---------------- Construction Loan Workspace ----------------
 export function LoanWorkspace({ctx}) {
-  const {actions, toast, jes, can} = ctx;
-  const [loanId, setLoanId] = useState(1);
-  const [tab, setTab] = useState('Draw / Repayment');
-  const loan = LOANS.find(l=>l.loan_id===loanId);
-  const txns = LOAN_TXNS.filter(t=>t.loan_id===loanId && (tab.startsWith('Draw')? ['DRAW','REPAYMENT'].includes(t.txn_type) : t.txn_type.startsWith('INTEREST')));
-  const gen = (t) => {
-    const r = loanRule(t);
-    if (!r) { toast('No matching rule was found.','bad'); return; }
-    actions.newJEFromRule({entity_id:loan.entity_id, source_system:'WBS_CL', description:`${t.txn_type} · ${loan.loan_code}`, rule_code:r.rule_code, je_type:'AUTO', lines:r.lines});
-    toast('Draft JE created using rule '+r.rule_code+'.');
+  const {actions, toast, goto, user} = ctx;
+  const [tab, setTab] = useState('Rule findings');
+  const [selectedKey, setSelectedKey] = useState(null);
+  const [state, setState] = useState(()=>repo.load('construction_loan_workspace_state', {}));
+  const model = useMemo(()=>{
+    const snapshot = createWbsMockDataset();
+    const events = buildAccountingEvents(snapshot);
+    const findings = runDeterministicAccountingRules(snapshot, events).filter(f=>/LOAN|INTEREST/i.test(f.rule_id));
+    const loan = snapshot.constructionLoans[0];
+    const relatedEvents = events.filter(e=>/loan/i.test(e.event_type) || /LOAN|INTEREST/i.test(e.rule_id));
+    return {snapshot, events:relatedEvents, findings, loan};
+  },[]);
+  const draftKeys = new Set(state.draftKeys || []);
+  const selected = model.findings.find(f=>f.finding_id===selectedKey) || model.findings[0];
+  const variance = Number(model.loan.lender_balance || 0) - Number(model.loan.gl_balance || 0);
+  const save = patch => {
+    const next = {...state, ...patch, updated_at:new Date().toISOString().slice(0,19), updated_by:user.user_id};
+    setState(next); repo.save('construction_loan_workspace_state', next);
   };
-  return <div>
+  const debit = je => sum(je?.lines || [], l=>l.debit_amount || 0);
+  const credit = je => sum(je?.lines || [], l=>l.credit_amount || 0);
+  const balanced = je => Math.abs(debit(je)-credit(je))<0.005;
+  const createDraft = finding => {
+    const je = finding?.suggested_je;
+    if (!je || !balanced(je) || !je.source_document_id) {
+      toast('Draft blocked: construction-loan JE must be balanced and source-backed.', 'bad');
+      repo.audit(user.user_id, 'CONSTRUCTION_LOAN_DRAFT_BLOCKED', 'AI_FINDING', finding?.finding_id || 'NO_FINDING', finding?.rule_id || 'NO_RULE');
+      return;
+    }
+    const jeId = actions.newJEFromRule({entity_id:je.entity_id || 2, project_id:je.project_id, property_id:je.property_id, je_type:'AUTO', source_system:'WBS_LOAN_MOCK', source_doc_id:je.source_document_id, source_document_id:je.source_document_id, description:`Construction loan: ${finding.rule_id} / ${finding.object_id}`, posting_status:'DRAFT', review_status:'DRAFT', ai_proposed:true, ai_rule_id:finding.rule_id, ai_confidence:finding.confidence_score, has_attachment:true, lines:je.lines.map(line=>({...line, description:finding.reason}))});
+    save({draftKeys:Array.from(new Set([...(state.draftKeys || []), finding.finding_id])), last_je_id:jeId});
+    repo.audit(user.user_id, 'CONSTRUCTION_LOAN_DRAFT_CREATED', 'AI_FINDING', finding.finding_id, `JE ${jeId}`);
+    toast('Construction loan Draft JE created for controller review.');
+    goto('je');
+  };
+  const findingRows = model.findings.map(f=>({key:f.finding_id, risk:f.risk_level, rule:f.rule_id, object:f.object_id, amount:Math.abs(Number(f.suggested_je?.lines?.[0]?.debit_amount || f.suggested_je?.lines?.[0]?.credit_amount || 0)), source:f.suggested_je?.source_document_id || '', balanced:balanced(f.suggested_je), status:draftKeys.has(f.finding_id)?'DRAFT_CREATED':f.suggested_je?.source_document_id?'READY':'SOURCE_REQUIRED', reason:f.reason, action:f.suggested_action, finding:f}));
+  const eventRows = model.events.map(e=>({event_id:e.event_id, type:e.event_type, source:e.source_transaction_id, amount:Math.abs(Number(e.amount || 0)), debit:e.suggested_debit_account, credit:e.suggested_credit_account, confidence:e.confidence_score, status:e.source_document_id?'SOURCE_RETAINED':'SOURCE_REVIEW'}));
+  const visibleFindings = tab==='Rule findings' ? findingRows : tab==='Accounting events' ? [] : findingRows.filter(r=>r.status!=='DRAFT_CREATED');
+  return <div className="full-bleed">
     <h2 className="page-h">Construction Loan Workspace</h2>
-    <div className="loan-select">
-      {LOANS.map(l=><button key={l.loan_id} className={`chip ${loanId===l.loan_id?'chip-on':''}`} onClick={()=>setLoanId(l.loan_id)}>{l.loan_code}</button>)}
-    </div>
+    <div className="filter-bar"><span className="muted sm">WBS mock loan draw, lender statement and interest evidence are reviewed here. The workspace creates Draft JEs only and blocks missing-source loan entries.</span></div>
     <div className="kpi-row">
-      <KPI label="Commitment" value={money(loan.commitment_amount)} />
-      <KPI label="Outstanding principal" value={money(loan.current_principal)} />
-      <KPI label="Available commitment" value={money(loan.commitment_amount-loan.current_principal)} tone="ok" />
-      <KPI label="Rate / maturity" value={(loan.interest_rate*100).toFixed(2)+'%'} sub={loan.maturity_date} />
+      <KPI label="Loan number" value={model.loan.loan_number} />
+      <KPI label="Lender balance" value={money(model.loan.lender_balance)} />
+      <KPI label="GL loan balance" value={money(model.loan.gl_balance)} />
+      <KPI label="Variance" value={money(variance)} tone={Math.abs(variance)>0.01?'bad':'ok'} />
+      <KPI label="Loan findings" value={model.findings.length} tone={model.findings.some(f=>f.risk_level==='HIGH')?'bad':'warn'} />
     </div>
-    <Tabs tabs={['Draw / Repayment','Interest']} active={tab} onChange={setTab} />
-    <Table onRow={r=>setFocusExternalId(r.external_id)} cols={[
-      {h:'WBS transaction',k:'wbs_txn_id'},
-      {h:'Type',render:r=><Badge tone="muted">{r.txn_type}</Badge>},
-      {h:'Date',k:'transaction_date'},
-      {h:'Amount',num:true,render:r=><Money v={r.amount}/>},
-      {h:'Construction status',render:r=>r.txn_type.startsWith('INTEREST') ? <Badge tone={r.construction_status==='UNDER_CONSTRUCTION'?'warn':'ok'}>{r.construction_status==='UNDER_CONSTRUCTION'?'Under construction':'Expensed'}</Badge> : '—'},
-      {h:'Journal entry',render:r=>r.generated_je ? <span className="link">{r.generated_je}</span> : (can('GL.JE.CREATE') ? <Btn size="sm" variant="primary" onClick={()=>gen(r)}>Create draft</Btn> : <span className="muted">Pending</span>)},
-    ]} rows={txns} rowKey="loan_txn_id" />
-    <p className="muted sm">Interest capitalization is driven by <code>construction_status</code>; posting targets are shown as audit-ready examples.</p>
+    <Tabs tabs={['Rule findings','Accounting events','Open review']} active={tab} onChange={setTab} />
+    {tab==='Accounting events' ? <Table rowKey="event_id" rows={eventRows} cols={[
+      {h:'Event ID',k:'event_id'}, {h:'Type',render:r=><Badge tone="muted">{r.type}</Badge>,csv:r=>r.type}, {h:'Source transaction',k:'source'},
+      {h:'Amount',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount}, {h:'Suggested debit',k:'debit'}, {h:'Suggested credit',k:'credit'},
+      {h:'Confidence',render:r=>(r.confidence*100).toFixed(0)+'%',csv:r=>r.confidence}, {h:'Status',render:r=><Badge tone={r.status==='SOURCE_RETAINED'?'ok':'warn'}>{r.status}</Badge>,csv:r=>r.status},
+    ]} empty="No construction loan events are available."/> : <div className="split two">
+      <div><Table rowKey="key" rows={visibleFindings} onRow={r=>setSelectedKey(r.key)} cols={[
+        {h:'Risk',render:r=><Badge tone={r.risk==='HIGH'?'bad':'warn'}>{r.risk}</Badge>,csv:r=>r.risk}, {h:'Rule',render:r=><span className="acct-code">{r.rule}</span>,csv:r=>r.rule}, {h:'Object',k:'object'},
+        {h:'Amount',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount}, {h:'Source document',render:r=>r.source || <span className="muted">Missing source</span>,csv:r=>r.source},
+        {h:'Controls',render:r=><span className="row-acts"><Badge tone={r.balanced?'ok':'bad'}>{r.balanced?'Balanced':'Blocked'}</Badge><Badge tone={r.source?'ok':'bad'}>{r.source?'Source retained':'Source required'}</Badge></span>,csv:r=>`${r.balanced}/${r.source}`},
+        {h:'Status',render:r=><Badge tone={r.status==='DRAFT_CREATED'?'ok':r.status==='READY'?'warn':'bad'}>{r.status}</Badge>,csv:r=>r.status},
+        {h:'Action',render:r=><Btn size="sm" variant="primary" disabled={r.status==='DRAFT_CREATED'} onClick={event=>{event.stopPropagation(); createDraft(r.finding);}}>Create Draft JE</Btn>},
+      ]} empty="No construction loan findings are available."/></div>
+      <div className="card sticky-card"><div className="card-h">Loan review detail</div>{selected ? <>
+        <h3 style={{margin:'8px 0 6px'}}>{selected.rule_id}</h3>
+        <p>{selected.reason}</p>
+        <div className="kv-grid">
+          <div><span>Object</span><b>{selected.object_id}</b></div><div><span>Risk</span><b>{selected.risk_level}</b></div>
+          <div><span>Source document</span><b>{selected.suggested_je?.source_document_id || 'Missing source'}</b></div><div><span>Confidence</span><b>{(selected.confidence_score*100).toFixed(0)}%</b></div>
+          <div><span>Suggested action</span><b>{selected.suggested_action}</b></div><div><span>Draft status</span><b>{draftKeys.has(selected.finding_id)?'Created':'Not created'}</b></div>
+        </div>
+        {selected.suggested_je ? <table className="mini-table"><tbody>{selected.suggested_je.lines.map((line,index)=><tr key={`${line.account_code}-${index}`}><td>{line.account_code}</td><td>{money(line.debit_amount || 0)}</td><td>{money(line.credit_amount || 0)}</td></tr>)}</tbody></table> : <div className="empty">No suggested journal entry is available.</div>}
+        <div className="row-acts" style={{marginTop:14}}><Btn variant="primary" onClick={()=>createDraft(selected)} disabled={draftKeys.has(selected.finding_id)}>Create Draft JE</Btn><Btn variant="ghost" onClick={()=>setTab('Accounting events')}>View source events</Btn></div>
+      </> : <div className="empty">Select a construction loan finding to review.</div>}</div>
+    </div>}
+    <p className="muted sm">Business boundary: lender balance, bank draw, capitalized interest and GL loan payable are reviewed with retained WBS mock evidence. No lender connection, bank feed, automatic capitalization, posting or reconciliation sign-off is performed here.</p>
   </div>;
 }
 
