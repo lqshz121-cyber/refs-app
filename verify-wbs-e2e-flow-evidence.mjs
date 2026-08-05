@@ -24,7 +24,7 @@ if (!aiAuditSource.includes('const e2eFlowEvidence = buildWbsEndToEndFlowEvidenc
   'JE or blocker',
   'Audit trail',
   'does not call production WBS',
-  'auto-post',
+  'create automatic postings',
   'export',
   'external release gates',
 ].forEach(label => {

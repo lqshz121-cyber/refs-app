@@ -231,7 +231,7 @@ export function AIAudit({ ctx }) {
           <span><i>Draft ready</i><b>{model.accountingActionQueue.summary.draft_ready}</b></span>
           <span><i>Review required</i><b>{model.accountingActionQueue.summary.review_required}</b></span>
           <span><i>Workflow blockers</i><b>{model.accountingActionQueue.summary.blocked_workflows}</b></span>
-          <span><i>Auto-post allowed</i><b>No</b></span>
+          <span><i>Posting disabled</i><b>Yes</b></span>
         </div>
         <Table features={{exportable:false}} rowKey="action_id" pageSize={10} cols={[
           {h:'Priority',render:row=><Badge tone={row.priority === 'P0' ? 'bad' : row.priority === 'P1' ? 'warn' : 'muted'}>{row.priority}</Badge>,csv:row=>row.priority},
@@ -265,7 +265,7 @@ export function AIAudit({ ctx }) {
           {h:'Posted / report',render:row=><span>{row.posted_state} · GL {row.gl_line_count} · Report {row.report_impact_count}</span>,csv:row=>row.posted_state},
           {h:'Control',render:row=><Badge tone={/TIED|POSTED|READY|RETAINED/.test(row.control_state)?'ok':'warn'}>{row.control_state}</Badge>,csv:row=>row.control_state},
         ]} rows={model.e2eFlowEvidence.flows}/>
-        <p className="muted sm" style={{margin:'10px 0 0'}}>This is a local simulation gate. Incomplete source evidence stays review-only; the screen does not call production WBS, auto-post, export, sync, or replace the external release gates.</p>
+        <p className="muted sm" style={{margin:'10px 0 0'}}>This is a local simulation gate. Incomplete source evidence stays review-only; the screen does not call production WBS, create automatic postings, export, sync, or replace the external release gates.</p>
       </section>
       <Tabs tabs={Object.keys(TAB_RULES)} active={tab} onChange={setTab} />
       <div className="split two">

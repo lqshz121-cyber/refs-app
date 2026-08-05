@@ -20,7 +20,7 @@ if (!uiSource.includes('const accountingActionQueue = buildWbsAccountingActionQu
   'P0 actions',
   'Draft ready',
   'Review required',
-  'Auto-post allowed',
+  'Posting disabled',
   'The queue can prepare Draft JE review work only when source-backed balanced suggestions exist.',
 ].forEach(label => {
   if (!uiSource.includes(label)) fail(`AI Audit accounting action queue section missing label: ${label}`);
@@ -34,7 +34,7 @@ if (queue.summary.total_actions < 10) fail('Action queue must include findings a
 if (queue.summary.p0_actions < 6) fail('Action queue must expose critical controller work.');
 if (queue.summary.draft_ready < 4) fail('Action queue must expose source-backed draft-ready work.');
 if (queue.summary.review_required < 3) fail('Action queue must retain review-only blockers.');
-if (!queue.summary.no_post_without_review) fail('Action queue must fail closed on auto-post.');
+if (!queue.summary.no_post_without_review) fail('Action queue must fail closed on automatic posting.');
 if (!queue.actions.every(row => row.can_post_without_review === false)) fail('No action may allow posting without review.');
 if (!queue.actions.some(row => row.action_type === 'CREATE_AMORTIZATION_REVIEW')) fail('Prepaid/amortization action missing.');
 if (!queue.actions.some(row => row.action_type === 'CREATE_ACCRUAL_DRAFT')) fail('Accrual action missing.');
@@ -56,4 +56,4 @@ queue.actions.forEach(row => {
 });
 if (!queue.boundaries.includes('No production WBS call, export, sync, or automatic posting')) fail('Missing production boundary.');
 
-console.log('wbs-accounting-action-queue: controller action queue, draft readiness, blockers and no-auto-post gate passed');
+console.log('wbs-accounting-action-queue: controller action queue, draft readiness, blockers and automatic-posting-disabled gate passed');
