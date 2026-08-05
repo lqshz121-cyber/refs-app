@@ -276,11 +276,11 @@ function App() {
       {mobileNav && <button className="mobile-nav-close" aria-label="Close navigation" onClick={()=>setMobileNav(false)}>Close</button>}
       <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
       <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New</button>
-      <nav>{nav.map(g=>{ const isSingleton = g.items.length === 1; const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k));
+      <nav>{nav.map(g=>{ const isSingleton = g.items.length === 1; const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k)); const groupPanelId=`nav-group-${g.group.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`;
         return <div key={g.group} className="nav-group">
-        <button className="nav-group-h" onClick={()=>isSingleton ? goto(g.items[0][0]) : setOpenGroups(o=>toggleNavigationGroup(o,g.group))}>
+        <button className="nav-group-h" aria-expanded={isSingleton?undefined:opened} aria-controls={isSingleton?undefined:groupPanelId} aria-current={isSingleton&&route===g.items[0][0]?'page':undefined} onClick={()=>isSingleton ? goto(g.items[0][0]) : setOpenGroups(o=>toggleNavigationGroup(o,g.group))}>
           <span className="nav-ic">{g.icon}</span>{g.group}{!isSingleton && <span className="nav-caret">{opened?'▾':'▸'}</span>}</button>
-        {!isSingleton && opened && g.items.map(([k,l])=><button key={k} className={`nav-item nav-sub ${route===k?'nav-on':''}`} onClick={()=>goto(k)}>{l}</button>)}
+        {!isSingleton && opened && <div id={groupPanelId} className="nav-group-items">{g.items.map(([k,l])=><button key={k} aria-current={route===k?'page':undefined} className={`nav-item nav-sub ${route===k?'nav-on':''}`} onClick={()=>goto(k)}>{l}</button>)}</div>}
       </div>;})}</nav>
     </aside>
     {mobileNav && <button className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={()=>setMobileNav(false)} />}

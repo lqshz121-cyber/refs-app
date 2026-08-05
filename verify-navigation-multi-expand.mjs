@@ -19,4 +19,23 @@ assert.equal(unchanged,state,'singleton navigation must not alter expanded multi
 state = toggleNavigationGroup(state,'Control Center');
 assert.deepEqual(state,{'Control Center':false,'Accounting Settings':true},'only an explicit group-header toggle may collapse that group');
 
+const collapsedState = state;
+state = retainActiveNavigationGroup(state,groups,'rules');
+assert.equal(state,collapsedState,'navigating inside an already-open group must not rewrite other group state');
+
+state = retainActiveNavigationGroup(state,groups,'dashboard');
+assert.deepEqual(
+  state,
+  {'Control Center':true,'Accounting Settings':true},
+  'a direct route into an explicitly collapsed group must reopen it without folding another group',
+);
+
+const beforeToggle = state;
+state = toggleNavigationGroup(state,'Accounting Settings');
+assert.deepEqual(state,{'Control Center':true,'Accounting Settings':false});
+assert.deepEqual(beforeToggle,{'Control Center':true,'Accounting Settings':true},'group state updates must be immutable');
+
+state = toggleNavigationGroup(state,'Accounting Settings');
+assert.deepEqual(state,{'Control Center':true,'Accounting Settings':true},'the same group header must explicitly reopen the group');
+
 console.log('Navigation multi-expand contract verified.');
