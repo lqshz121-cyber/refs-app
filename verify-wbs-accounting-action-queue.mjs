@@ -21,7 +21,8 @@ if (!uiSource.includes('const accountingActionQueue = buildWbsAccountingActionQu
   'Draft ready',
   'Review required',
   'Posting disabled',
-  'The queue can prepare Draft JE review work only when source-backed balanced suggestions exist.',
+  'JE gate',
+  'entity, period, date, type, source document, rule, idempotency, balanced lines, and member trace',
 ].forEach(label => {
   if (!uiSource.includes(label)) fail(`AI Audit accounting action queue section missing label: ${label}`);
 });
@@ -52,8 +53,20 @@ queue.actions.forEach(row => {
   });
   if (!/^P[0-3]$/.test(row.priority)) fail(`${row.action_id} has invalid priority.`);
   if (row.readiness === 'DRAFT_READY' && (!row.can_create_draft_je || !row.suggested_je_number)) fail(`${row.action_id} is draft-ready without a suggested JE.`);
+  if (!row.draft_je_gate || !row.draft_je_gate.state) fail(`${row.action_id} is missing draft JE gate state.`);
+  if (row.readiness === 'DRAFT_READY' && row.draft_je_gate.state !== 'PASS') fail(`${row.action_id} is draft-ready without a passing Draft JE gate.`);
+  if (row.draft_je_gate.state === 'PASS') {
+    ['je_number', 'entity_id', 'accounting_period', 'je_date', 'je_type', 'source_document_id', 'rule_id', 'idempotency_key', 'debit', 'credit', 'line_count', 'member_trace'].forEach(field => {
+      if (!(field in row.draft_je_gate)) fail(`${row.action_id} passing Draft JE gate missing ${field}.`);
+    });
+    if (Math.abs(row.draft_je_gate.debit - row.draft_je_gate.credit) >= 0.005) fail(`${row.action_id} passing Draft JE gate is not balanced.`);
+    ['entity_id', 'project_id', 'property_id'].forEach(field => {
+      if (!row.draft_je_gate.member_trace[field]) fail(`${row.action_id} passing Draft JE gate missing member trace ${field}.`);
+    });
+  }
   if (row.readiness === 'REVIEW_REQUIRED' && !row.blockers.length) fail(`${row.action_id} review-required action must explain blockers.`);
 });
 if (!queue.boundaries.includes('No production WBS call, export, sync, or automatic posting')) fail('Missing production boundary.');
+if (!queue.boundaries.includes('Draft JE gate requires entity, period, date, type, source document, rule, idempotency, balanced lines, and member trace')) fail('Missing Draft JE required-field boundary.');
 
 console.log('wbs-accounting-action-queue: controller action queue, draft readiness, blockers and automatic-posting-disabled gate passed');

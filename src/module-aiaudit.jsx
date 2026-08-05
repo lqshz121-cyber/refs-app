@@ -241,9 +241,10 @@ export function AIAudit({ ctx }) {
           {h:'Next action',k:'next_action'},
           {h:'Owner / due',render:row=><span>{row.owner} / {row.due_date}</span>,csv:row=>`${row.owner} ${row.due_date}`},
           {h:'Readiness',render:row=><Badge tone={row.readiness === 'DRAFT_READY' ? 'ok' : 'warn'}>{row.readiness}</Badge>,csv:row=>row.readiness},
+          {h:'JE gate',render:row=><Badge tone={row.draft_je_gate?.state === 'PASS' ? 'ok' : 'warn'}>{row.draft_je_gate?.state || 'NOT_AVAILABLE'}</Badge>,csv:row=>row.draft_je_gate?.state || ''},
           {h:'Draft JE',render:row=><span>{row.suggested_je_number || 'Review only'}</span>,csv:row=>row.suggested_je_number || ''},
         ]} rows={model.accountingActionQueue.actions}/>
-        <p className="muted sm" style={{margin:'10px 0 0'}}>The queue can prepare Draft JE review work only when source-backed balanced suggestions exist. It never posts, exports, syncs, or calls production WBS.</p>
+        <p className="muted sm" style={{margin:'10px 0 0'}}>The queue can prepare Draft JE review work only when entity, period, date, type, source document, rule, idempotency, balanced lines, and member trace are complete. It never posts, exports, syncs, or calls production WBS.</p>
       </section>
       <section className="report-workbench wbs-e2e-flow-evidence" aria-label="WBS mock end-to-end accounting flow evidence" style={{marginBottom:12}}>
         <div className="report-workbench-head">

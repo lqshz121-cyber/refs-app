@@ -28,7 +28,14 @@ function actionTypeForWorkflow(row) {
 
 function isPostableFinding(row) {
   if (/PAYMENT_WITHOUT_BILL|MISSING_SOURCE|DUPLICATE|MANUAL_JE_LARGE_NO_ATTACHMENT/i.test(row.rule_id)) return false;
-  return Boolean(row.suggested_je_number && row.audit_trail_count > 0);
+  return Boolean(row.suggested_je_number && row.audit_trail_count > 0 && row.suggested_je_gate?.state === 'PASS');
+}
+
+function blockersForFinding(row) {
+  if (isPostableFinding(row)) return [];
+  const missing = row.suggested_je_gate?.missing || [];
+  const base = ['Review-only exception: source completeness, duplicate risk, attachment support, or reconciliation status must be resolved before any Draft JE is prepared.'];
+  return missing.length ? [`Draft JE gate missing: ${missing.join(', ')}`, ...base] : base;
 }
 
 export function buildWbsAccountingActionQueue(input = createWbsMockDataset()) {
@@ -50,8 +57,9 @@ export function buildWbsAccountingActionQueue(input = createWbsMockDataset()) {
     can_create_draft_je: isPostableFinding(row),
     can_post_without_review: false,
     suggested_je_number: row.suggested_je_number,
+    draft_je_gate: row.suggested_je_gate || { state: 'NOT_AVAILABLE', missing: ['suggested_je'] },
     audit_trail_count: row.audit_trail_count,
-    blockers: isPostableFinding(row) ? [] : ['Review-only exception: source completeness, duplicate risk, attachment support, or reconciliation status must be resolved before any Draft JE is prepared.'],
+    blockers: blockersForFinding(row),
   }));
   const workflowActions = report.workflowRows
     .filter(row => workflowStates.test(row.control_state))
@@ -70,6 +78,7 @@ export function buildWbsAccountingActionQueue(input = createWbsMockDataset()) {
       can_create_draft_je: false,
       can_post_without_review: false,
       suggested_je_number: null,
+      draft_je_gate: { state: 'NOT_AVAILABLE', missing: ['workflow_review_required'] },
       audit_trail_count: row.audit_trail_count,
       blockers: ['Workflow remains review-only until retained source evidence is complete.'],
     }));
@@ -93,6 +102,7 @@ export function buildWbsAccountingActionQueue(input = createWbsMockDataset()) {
       'Local WBS mock action queue only',
       'Every action requires human review before posting',
       'Draft JE creation is allowed only for source-backed balanced suggested JEs',
+      'Draft JE gate requires entity, period, date, type, source document, rule, idempotency, balanced lines, and member trace',
       'No production WBS call, export, sync, or automatic posting',
     ],
   };

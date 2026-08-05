@@ -4,6 +4,44 @@ import { buildWbsReportImpact } from './wbs-report-impact.js';
 const money = value => Math.round(Number(value || 0) * 100) / 100;
 const riskRank = { HIGH: 0, MEDIUM: 1, LOW: 2 };
 
+function summarizeSuggestedJeGate(je) {
+  if (!je) return null;
+  const debit = money((je.lines || []).reduce((sum, line) => sum + Number(line.debit_amount || 0), 0));
+  const credit = money((je.lines || []).reduce((sum, line) => sum + Number(line.credit_amount || 0), 0));
+  const required = {
+    entity: Boolean(je.entity_id),
+    period: Boolean(je.accounting_period),
+    date: Boolean(je.je_date),
+    type: Boolean(je.je_type),
+    source_document: Boolean(je.source_document_id),
+    rule: Boolean(je.ai_rule_id),
+    idempotency: Boolean(je.je_number && je.source_document_id && je.ai_rule_id),
+    balanced_lines: (je.lines || []).length >= 2 && Math.abs(debit - credit) < 0.005,
+    member_trace: Boolean(je.entity_id && je.project_id && je.property_id),
+  };
+  const missing = Object.entries(required).filter(([, ok]) => !ok).map(([field]) => field);
+  return {
+    state: missing.length ? 'REVIEW_REQUIRED' : 'PASS',
+    missing,
+    je_number: je.je_number,
+    entity_id: je.entity_id || null,
+    accounting_period: je.accounting_period || null,
+    je_date: je.je_date || null,
+    je_type: je.je_type || null,
+    source_document_id: je.source_document_id || null,
+    rule_id: je.ai_rule_id || null,
+    idempotency_key: required.idempotency ? `${je.source_document_id}:${je.ai_rule_id}:${je.je_number}` : null,
+    debit,
+    credit,
+    line_count: (je.lines || []).length,
+    member_trace: {
+      entity_id: je.entity_id || null,
+      project_id: je.project_id || null,
+      property_id: je.property_id || null,
+    },
+  };
+}
+
 export function buildWbsAccountingAnalysisReport(snapshot) {
   const reportImpact = buildWbsReportImpact(snapshot);
   const flowEvidence = buildWbsEndToEndFlowEvidence(snapshot);
@@ -32,6 +70,7 @@ export function buildWbsAccountingAnalysisReport(snapshot) {
     owner: finding.owner,
     due_date: finding.due_date,
     suggested_je_number: finding.suggested_je?.je_number || null,
+    suggested_je_gate: summarizeSuggestedJeGate(finding.suggested_je),
     audit_trail_count: finding.audit_trail?.length || 0,
   }));
   return {
