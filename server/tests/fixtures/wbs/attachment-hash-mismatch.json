@@ -1,0 +1,25 @@
+{
+  "scenario": "attachment_hash_mismatch",
+  "source": {
+    "source_system": "WBS",
+    "source_module": "sourceDetail",
+    "source_entity_id": "WBLD",
+    "source_record_id": "opaque-4004",
+    "source_version": "2026-07-31T14:00:00Z"
+  },
+  "attachment": {
+    "name": "invoice.pdf",
+    "media_type": "application/pdf",
+    "size_bytes": 2048,
+    "declared_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stored_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "storage_ref": "object://raw/wbs/WBLD/opaque-4004/invoice.pdf",
+    "storage_version": "v1"
+  },
+  "expected": {
+    "outcome": "QUARANTINED",
+    "code": "ATTACHMENT_HASH_MISMATCH",
+    "no_draft": true,
+    "invariant": "Attachment metadata is not accepted until the stored object exists and its size, type and SHA-256 match."
+  }
+}

@@ -1,0 +1,46 @@
+BEGIN;
+
+DROP TABLE IF EXISTS outbox_event CASCADE;
+DROP TABLE IF EXISTS audit_event CASCADE;
+DROP TABLE IF EXISTS idempotency_receipt CASCADE;
+DROP TABLE IF EXISTS source_link CASCADE;
+DROP TABLE IF EXISTS reconciliation CASCADE;
+DROP TABLE IF EXISTS bank_match CASCADE;
+DROP TABLE IF EXISTS bank_source CASCADE;
+DROP TABLE IF EXISTS ledger_line CASCADE;
+DROP TABLE IF EXISTS posting_batch CASCADE;
+DROP TABLE IF EXISTS journal_line CASCADE;
+DROP TABLE IF EXISTS journal_entry CASCADE;
+DROP TABLE IF EXISTS accounting_exception CASCADE;
+DROP TABLE IF EXISTS staging_item CASCADE;
+DROP TABLE IF EXISTS ai_decision CASCADE;
+DROP TABLE IF EXISTS rule_evaluation CASCADE;
+DROP TABLE IF EXISTS mapping_snapshot CASCADE;
+DROP TABLE IF EXISTS setting_snapshot CASCADE;
+DROP TABLE IF EXISTS source_document_line CASCADE;
+DROP TABLE IF EXISTS source_document CASCADE;
+DROP TABLE IF EXISTS attachment CASCADE;
+DROP TABLE IF EXISTS raw_event CASCADE;
+DROP TABLE IF EXISTS import_batch CASCADE;
+DROP TABLE IF EXISTS sync_cursor CASCADE;
+DROP TABLE IF EXISTS accounting_period CASCADE;
+DROP TABLE IF EXISTS entity CASCADE;
+DROP TABLE IF EXISTS tenant CASCADE;
+
+DROP FUNCTION IF EXISTS enforce_source_link_entity_scope() CASCADE;
+DROP FUNCTION IF EXISTS require_finalized_source_link_attachment() CASCADE;
+DROP FUNCTION IF EXISTS protect_posted_journal_line() CASCADE;
+DROP FUNCTION IF EXISTS protect_posted_journal() CASCADE;
+DROP FUNCTION IF EXISTS reject_mutation() CASCADE;
+
+DROP TYPE IF EXISTS reconciliation_status;
+DROP TYPE IF EXISTS match_status;
+DROP TYPE IF EXISTS outbox_status;
+DROP TYPE IF EXISTS exception_status;
+DROP TYPE IF EXISTS journal_status;
+DROP TYPE IF EXISTS source_status;
+DROP TYPE IF EXISTS source_event_type;
+DROP TYPE IF EXISTS import_status;
+DROP TYPE IF EXISTS period_status;
+
+COMMIT;

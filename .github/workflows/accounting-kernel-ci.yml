@@ -1,0 +1,95 @@
+name: Accounting Kernel Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accounting-kernel-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-and-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+      - name: Install frontend dependencies exactly
+        run: npm ci
+      - name: Install kernel dependencies exactly
+        working-directory: server
+        run: npm ci
+      - name: Frontend build
+        run: npm run build
+      - name: Frontend SSR gate
+        run: npm run test:ssr
+      - name: AP and AR workflow gate
+        run: npm run test:ap-ar
+      - name: Authoritative API client gate
+        run: npm run test:api-client
+      - name: Auto reconciliation fail-closed gate
+        run: npm run test:autorecon
+      - name: Frontend audit gate
+        run: npm run test:audit
+      - name: Accounting kernel static and unit gate
+        working-directory: server
+        run: npm test
+
+  postgres-required:
+    name: PostgreSQL ${{ matrix.postgres }} required gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ['15', '16']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install kernel dependencies exactly
+        working-directory: server
+        run: npm ci
+      - name: Run fresh zero-skip PostgreSQL gate
+        working-directory: server
+        env:
+          POSTGRES_IMAGE: postgres:${{ matrix.postgres }}-alpine
+        run: npm run test:postgres:fresh
+      - name: Run isolated backup and restore drill
+        working-directory: server
+        env:
+          POSTGRES_IMAGE: postgres:${{ matrix.postgres }}-alpine
+        run: npm run test:backup:restore
+
+  attachment-containers:
+    name: Versioned object storage and malware scan gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install kernel dependencies exactly
+        working-directory: server
+        run: npm ci
+      - name: Run real MinIO versioning and ClamAV gate
+        working-directory: server
+        run: npm run test:attachments:containers

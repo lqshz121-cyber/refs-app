@@ -1,0 +1,29 @@
+{
+  "scenario": "out_of_order_tombstone",
+  "events": [
+    {
+      "source_system": "WBS",
+      "source_module": "companyAccount",
+      "source_entity_id": "WBDE",
+      "source_record_id": "opaque-2002",
+      "source_version": "00000042",
+      "event_type": "TOMBSTONE",
+      "payload_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "source_system": "WBS",
+      "source_module": "companyAccount",
+      "source_entity_id": "WBDE",
+      "source_record_id": "opaque-2002",
+      "source_version": "00000041",
+      "event_type": "UPSERT",
+      "payload_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "expected": {
+    "outcome": "QUARANTINED",
+    "code": "SOURCE_VERSION_OUT_OF_ORDER",
+    "no_draft": true,
+    "invariant": "An older UPSERT cannot resurrect a record after a newer tombstone; history remains append-only."
+  }
+}

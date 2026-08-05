@@ -1,15 +1,151 @@
 services:
+  # Secrets are intentionally not committed. Provision every sync:false value in the
+  # staging environment before first deploy; the API fails closed when any is absent.
+  - type: web
+    name: refs-accounting-api-staging
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    preDeployCommand: npm run db:up
+    startCommand: npm start
+    healthCheckPath: /health/ready
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REFS_HTTP_HOST
+        value: 0.0.0.0
+      - key: REFS_PG_REQUIRED
+        value: "1"
+      - key: DATABASE_URL
+        sync: false
+      - key: MIGRATION_DATABASE_URL
+        sync: false
+      - key: CONTEXT_ISSUER_DATABASE_URL
+        sync: false
+      - key: GRANT_SYNC_DATABASE_URL
+        sync: false
+      - key: OIDC_ISSUER
+        sync: false
+      - key: OIDC_AUDIENCE
+        sync: false
+      - key: OIDC_JWKS_URI
+        sync: false
+      - key: REFS_HTTP_ALLOWED_ORIGINS
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: VIRUS_SCANNER_ENDPOINT
+        sync: false
+      - key: VIRUS_SCANNER_TOKEN
+        sync: false
+      - key: VIRUS_SCANNER_CA_FILE
+        sync: false
+      - key: VIRUS_SCANNER_SERVER_NAME
+        sync: false
+      - key: ATTACHMENT_SCANNER_ACTOR_ID
+        sync: false
+      # JSON keyring: {"key_id":"-----BEGIN PUBLIC KEY-----\\n..."}.
+      # Required by production startup before any signed WBS snapshot is accepted.
+      - key: WBS_SNAPSHOT_ED25519_PUBLIC_KEYS
+        sync: false
+  - type: worker
+    name: refs-attachment-cleanup-staging
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm run start:attachment-cleanup
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REFS_PG_REQUIRED
+        value: "1"
+      - key: DATABASE_URL
+        sync: false
+      - key: MIGRATION_DATABASE_URL
+        sync: false
+      - key: CONTEXT_ISSUER_DATABASE_URL
+        sync: false
+      - key: GRANT_SYNC_DATABASE_URL
+        sync: false
+      - key: ATTACHMENT_CLEANUP_ACTOR_ID
+        sync: false
+      - key: ATTACHMENT_CLEANUP_SCOPES
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
   - type: web
     name: refs-app
     runtime: static
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
     pullRequestPreviewsEnabled: true
+    # Publish the static client only with the API/worker release after staging smoke.
+    autoDeployTrigger: off
+    envVars:
+      # Public deployment coordinates only. OIDC tokens and database credentials
+      # never enter the static build; the browser obtains a PKCE access token.
+      - key: REFS_PUBLIC_ACCOUNTING_API_BASE_URL
+        sync: false
+      - key: REFS_PUBLIC_ENTITY_ID
+        sync: false
+      - key: REFS_PUBLIC_PERIOD_ID
+        sync: false
+      - key: REFS_PUBLIC_CASH_ACCOUNT_CODE
+        sync: false
+      - key: REFS_PUBLIC_OIDC_ISSUER
+        sync: false
+      - key: REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT
+        sync: false
+      - key: REFS_PUBLIC_OIDC_TOKEN_ENDPOINT
+        sync: false
+      - key: REFS_PUBLIC_OIDC_REDIRECT_URI
+        sync: false
+      - key: REFS_PUBLIC_OIDC_CLIENT_ID
+        sync: false
+      - key: REFS_PUBLIC_OIDC_AUDIENCE
+        sync: false
+      - key: REFS_PUBLIC_OIDC_SCOPE
+        value: openid profile
     routes:
       - type: rewrite
         source: /*
         destination: /index.html
     headers:
+      # The deployment-time API adapter must never be served stale: a stale
+      # adapter can point a newly deployed UI at the wrong authoritative API.
+      - path: /refs-runtime-config.js
+        name: Cache-Control
+        value: no-store
+      - path: /index.html
+        name: Cache-Control
+        value: no-store
       - path: /*
         name: X-Frame-Options
         value: SAMEORIGIN
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https:; form-action 'self'"

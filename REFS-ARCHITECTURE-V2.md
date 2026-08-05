@@ -1,7 +1,7 @@
 # REFS Architecture V2 — QuickBooks 体验 × WBS 地产业财一体化
 
-版本：2026-08-01 Draft 1  
-面向：Ricky、Claude、Codex  
+版本：2026-08-01 Draft 1
+面向：Ricky、Claude、Codex
 目标：重建产品与技术架构，不在现有原型上继续堆叠孤立页面。
 
 ## 1. 产品定义
@@ -24,7 +24,7 @@ QuickBooks 的交互模型是参照，REFS 的会计控制模型是最终约束�
 - QuickBooks Banking 支持 Match、Categorize、Exclude、Split、Undo；REFS 对齐这些操作。
 - QuickBooks 银行规则可自动分类，部分场景可自动确认；REFS 只能生成建议或 Draft，不允许 AI/规则自动 Post。
 - REFS 强制 Draft → Review → Approval → Posted，且 Maker ≠ Approver。
-- Posted 不可编辑；更正必须 Reverse、Reclass 或 Void-and-reissue，并保留完整链路。
+- Posted ledger lines 不可编辑；JE 更正只能通过 Reverse 或 Reclass，并保留完整链路。业务单据可以有 `VOIDED` 状态，但若已过账，Void command 必须追加 reversal/linkage/audit，不能删除或修改原 Posted ledger lines。
 - 关闭期间禁止新过账；重开必须独立权限、原因与审计记录。
 - 手工 JE 必须有附件；自动 JE 必须有 `source_document_id`、`source_record_id`、`rule_code`、`setting_version`。
 - 辅助核算科目必须带合法 `member`；六位科目不可降级为四位。
@@ -87,7 +87,7 @@ QuickBooks 的交互模型是参照，REFS 的会计控制模型是最终约束�
 
 `DRAFT → PENDING_REVIEW → PENDING_APPROVAL → APPROVED → POSTED`
 
-驳回回到 `DRAFT`；Posted 只能进入 `REVERSED` 或产生 Reclass 子交易，原记录不变。
+驳回回到 `DRAFT`；Posted 只能追加 reversal 或产生 Reclass 子交易。原 ledger lines 永久不变；允许追加 reversal/reclass linkage、actor/time 和只读状态投影。
 
 ### 5.3 Banking
 
@@ -116,7 +116,7 @@ Undo 将关联对象安全退回 Review；已完成银行对账的交易必须�
 1. PAYABLE 入账：费用/CWIP 借方，`Cr 291001`，按 Payee/公司挂辅助核算。
 2. Bank Feed 清账：`Dr 291001 / Cr 111000`，关联原 payable、银行交易和匹配证据。
 
-同步策略：按源表主键和更新时间做增量游标；原始 payload 只读保存；规范化记录可重跑；`source_system + source_id + source_version` 唯一，确保幂等。
+同步策略：按源表主键和更新时间做增量游标；原始 payload 只读保存；规范化记录可重跑。Raw event 使用 `UNIQUE(source_system, source_module, source_entity_id, source_record_id, source_version)`；当前态使用同一前四元组的 partial unique；业务 posting/idempotency key 另按事件 occurrence 定义，三者不得混用。
 
 ## 7. 地产会计规则包
 
@@ -174,7 +174,7 @@ Undo 将关联对象安全退回 Review；已完成银行对账的交易必须�
 
 AI 输出固定结构：建议 Dr/Cr、维度、置信度、理由、证据、命中 Setting/Rule、风险、是否需人工。
 
-AI 可以：分类、匹配候选、异常解释、审计发现、补充信息请求。  
+AI 可以：分类、匹配候选、异常解释、审计发现、补充信息请求。
 AI 不可以：自动 Post、绕过 Mapping、修改 Posted、解除期间锁、代替审批人。
 
 每个 AI 判断保存 model/prompt version、输入摘要、候选、最终人工选择和差异，用于可解释性与后续评估。
@@ -227,8 +227,11 @@ AI 不可以：自动 Post、绕过 Mapping、修改 Posted、解除期间锁、
 
 ## 14. Claude × Codex 分工
 
-**Claude**：QuickBooks 风格 UI/交互、页面对象模型、WBS 字段语义、Setting/AI 展示、线上 E2E。  
-**Codex**：TypeScript/domain 抽离、PostgreSQL、API/Auth/RBAC/Audit、Posting Engine、golden tests、OpenAPI。  
+**Codex**：QuickBooks 风格前端、页面对象模型、交互一致性、响应式、WBS/REFS 端到端补缺与浏览器 E2E。
+
+**Claude**：PostgreSQL、API/Auth/RBAC/Audit、WBS ingestion/worker、Posting service 与后端集成测试。
+
+**交叉复核**：Codex 审查 API 是否能真正支撑前端闭环；Claude 审查前端是否遵循事务、幂等、状态机与审计契约。每批先声明文件 owner，另一方只读 reviewer。
 **共同冻结**：对象命名、状态机、OpenAPI、会计错误码、验收 fixture。
 
 任何前后端接口冲突先追加 ADR，再实现；不得靠组件内特殊判断绕过领域规则。

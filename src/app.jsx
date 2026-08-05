@@ -17,10 +17,13 @@ import { SubsidiaryLedger } from './module-subledger.jsx';
 import { UnitCostLedger } from './module-unitcost.jsx';
 import { CompanySetting } from './module-setting.jsx';
 import { AIAudit } from './module-aiaudit.jsx';
+import { AIJEWorkbench } from './module-ai-je-workbench.jsx';
+import { AccrualCenter, AmortizationCenter } from './module-amortization-accrual.jsx';
 import { StagingCenter } from './module-staging.jsx';
 import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
+import { AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeRuntimeLock, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './authoritative-workspace.jsx';
 
 class ErrorBoundary extends Component {
   constructor(p){ super(p); this.state={err:null}; }
@@ -70,7 +73,7 @@ const ROLE_PERMS = {
   AUDITOR: [], READ_ONLY: [], SYS_ADMIN: [],
 };
 const NAV = [
-  {group:'Control Center', icon:'◉', items:[['dashboard','Dashboard'],['approvals','Action Required'],['aireview','AI Audit Center']]},
+  {group:'Control Center', icon:'◉', items:[['dashboard','Dashboard'],['approvals','Action Required'],['aireview','AI Audit Center'],['aijeworkbench','AI JE Workbench']]},
   {group:'Accounting Settings', icon:'⚙', items:[['setting','Core settings'],['rules','Rule Center'],['mapping','Mapping Center']]},
   {group:'Source & Staging', icon:'⇅', items:[['staging','Accounting Staging'],['sourcedocs','Source Documents'],['integration','Integration Hub'],['exceptions','Mapping Exceptions']]},
   {group:'Auto Reconciliation', icon:'⟳', items:[['autobankrec','Bank Batch Pipeline'],['banktx','Bank Transaction Matching'],['bankrec','Reconciliation Worksheet'],['checks','Checks & Payments']]},
@@ -81,10 +84,13 @@ const NAV = [
   {group:'Reports', icon:'▤', items:[['reports','Reports Center']]},
   {group:'Admin', icon:'◈', adminOnly:true, items:[['masterdata','Master Data'],['ap','AP (legacy)'],['ar','AR (legacy)'],['cash','Bank Accounts'],['audit','Audit Log'],['admin','Users & Settings']]},
 ];
-const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, setting:CompanySetting, aireview:AIAudit, staging:StagingCenter, unittransfer:UnitTransfer, sourcedocs:SourceDocs, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
+NAV.find(group => group.group === 'Real Estate Accounting')?.items.splice(3, 0, ['amortization', 'Amortization Center'], ['accruals', 'Accrual Center']);
+const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, setting:CompanySetting, aireview:AIAudit, aijeworkbench:AIJEWorkbench, staging:StagingCenter, unittransfer:UnitTransfer, sourcedocs:SourceDocs, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
   pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARWorkspace,
   cash:CashModule, bankrec:BankRec2, autobankrec:AutoBankRec, checks:CheckMgmt, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
   mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, reports:Reports, admin:AdminModule };
+COMP.amortization = AmortizationCenter;
+COMP.accruals = AccrualCenter;
 const ADMIN_ROLES = ['CONTROLLER','SYS_ADMIN','AUDITOR'];
 
 // ---- seed AP bills & bank rec model ----
@@ -130,6 +136,7 @@ function Login({onLogin}) {
 }
 
 function App() {
+  if(globalThis.__REFS_RUNTIME_MODE__==='REQUIRES_AUTHORITATIVE_API') return <AuthoritativeRuntimeLock/>;
   const SEED_V='v9';
   const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
   const [userId, setUserId] = useState(()=>load('user',null));
@@ -258,7 +265,8 @@ function App() {
   const jeHits = q.length>=3 ? jes.filter(j=>(j.je_number||'').includes(q)||((j.payee||'').toLowerCase().includes(q.toLowerCase()))).slice(0,5) : [];
 
   return <div className="app"><SingletonNavigationDirect goto={goto}/>
-    <aside className={`sidebar ${mobileNav?'mobile-open':''}`}>
+    <aside id="primary-navigation" className={`sidebar ${mobileNav?'mobile-open':''}`}>
+      {mobileNav && <button className="mobile-nav-close" aria-label="Close navigation" onClick={()=>setMobileNav(false)}>Close</button>}
       <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
       <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New</button>
       <nav>{nav.map(g=>{ const isSingleton = g.items.length === 1; const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k));
@@ -268,7 +276,7 @@ function App() {
         {!isSingleton && opened && g.items.map(([k,l])=><button key={k} className={`nav-item nav-sub ${route===k?'nav-on':''}`} onClick={()=>goto(k)}>{l}</button>)}
       </div>;})}</nav>
     </aside>
-    {mobileNav && <button className="mobile-nav-scrim" aria-label="Close navigation" onClick={()=>setMobileNav(false)} />}
+    {mobileNav && <button className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={()=>setMobileNav(false)} />}
     <div className="main">
       <header className="topbar">
         <button className="mobile-nav-btn" aria-label="Open navigation" onClick={()=>setMobileNav(true)}>☰</button>
@@ -350,7 +358,7 @@ function Approvals({ctx}) {
   </div>;
 }
 
-export { App };
+export { App, AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft };
 if (typeof document !== 'undefined' && document.getElementById('root')) {
   createRoot(document.getElementById('root')).render(<App/>);
 }

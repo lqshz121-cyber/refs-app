@@ -15,6 +15,8 @@ import { localAccountRegisterReturnScopeLabel } from './account-register-return.
 import { localGLSourceTarget } from './gl-source-target.js';
 import { subsidiaryOf, memberOf, SUBSIDIARY } from './coa-wbs.js';
 import { loadSetting } from './settings.js';
+import { repo } from './repo.js';
+import { buildAccountingEvents, createWbsMockDataset, runDeterministicAccountingRules } from './wbs-accounting-foundation.js';
 if (typeof window!=='undefined') window.__subsOf = subsidiaryOf;
 
 // ---------------- Dashboard ----------------
@@ -127,16 +129,16 @@ export function JEWorkspace({ctx}) {
     (!query || `${j.je_number} ${j.description||''} ${j.payee||''} ${j.source_system}`.toLowerCase().includes(query.toLowerCase())) &&
     (month==='ALL'||j.period_code==='2026-'+month));
   const pendCount = list.filter(j=>j.posting_status==='PENDING_APPROVAL').length;
-  const postAll = () => { list.filter(j=>j.posting_status==='PENDING_APPROVAL').forEach(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL')); toast('Post All 瀹屾垚'); };
+  const postAll = () => { list.filter(j=>j.posting_status==='PENDING_APPROVAL').forEach(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL')); toast('All eligible journal entries were posted.'); };
   const runBatch = () => {
     const en = {entity_id: ctx.entity||15, entity_code:'E'+(ctx.entity||15)};
     const s = loadSetting(en); let n=0;
     (s.batch_setting||[]).filter(b=>b.status!=='INACTIVE'&&b.dr&&b.cr).forEach(b=>{
       const amt = 1000; n++;
       actions.newJEFromRule({entity_id:en.entity_id, source_system:'INTERNAL', je_type:'AUTO', rule_code:'R-BATCH-'+n,
-        description:`[Batch] ${b.memo} 路 2026-07`, lines:[{account_code:b.dr,debit_amount:amt,credit_amount:0},{account_code:b.cr,debit_amount:0,credit_amount:amt,member:b.cr.startsWith('291')?'Batch':undefined,description:b.cr.startsWith('291')?'Due to/from_Batch':undefined}]});
+        description:`[Batch] ${b.memo} · 2026-07`, lines:[{account_code:b.dr,debit_amount:amt,credit_amount:0},{account_code:b.cr,debit_amount:0,credit_amount:amt,member:b.cr.startsWith('291')?'Batch':undefined,description:b.cr.startsWith('291')?'Due to/from_Batch':undefined}]});
       if (b.reverse_next_month) actions.newJEFromRule({entity_id:en.entity_id, source_system:'INTERNAL', je_type:'AUTO', rule_code:'R-BATCH-REV-'+n,
-        description:`[Batch路Auto-Reversal 2026-08] ${b.memo}`, lines:[{account_code:b.cr,debit_amount:amt,credit_amount:0,member:b.cr.startsWith('291')?'Batch':undefined},{account_code:b.dr,debit_amount:0,credit_amount:amt}]});
+        description:`[Batch · Auto-Reversal 2026-08] ${b.memo}`, lines:[{account_code:b.cr,debit_amount:amt,credit_amount:0,member:b.cr.startsWith('291')?'Batch':undefined},{account_code:b.dr,debit_amount:0,credit_amount:amt}]});
     });
     toast(`Batch template created: ${n} draft journal entries, including configured next-month reversals.`);
   };
@@ -153,26 +155,26 @@ export function JEWorkspace({ctx}) {
   return <div className="full-bleed">
     <div className="page-top accounting-page-head">
       <div>
-        <div className="page-eyebrow">GENERAL LEDGER 路 TRANSACTION REGISTER</div>
+        <div className="page-eyebrow">GENERAL LEDGER · TRANSACTION REGISTER</div>
         <h2 className="page-h" style={{margin:0}}>Journal Entries</h2>
         <div className="page-subtitle">Review source, approval status and posting evidence from one controlled workspace.</div>
       </div>
       <div className="row-acts">
         <Btn variant="ghost" onClick={runBatch}>Run Batch Templates</Btn>
-        {can('GL.JE.POST') && pendCount>0 && <Btn onClick={postAll}>鈿?Post All ({pendCount})</Btn>}
+        {can('GL.JE.POST') && pendCount>0 && <Btn onClick={postAll}>Post All ({pendCount})</Btn>}
         <Btn variant="primary" onClick={newJE} disabled={!can('GL.JE.CREATE')}>+ New Journal Entry</Btn>
       </div>
     </div>
     <div className="filter-bar accounting-filter-bar je-filter-bar">
       <label className="je-search"><span aria-hidden="true">⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search journal entries" /></label>
-      <label>鏈熼棿 <select value={month} onChange={e=>setMonth(e.target.value)}>
-        <option value="ALL">鍏ㄥ勾 2026</option>
+      <label>Period <select value={month} onChange={e=>setMonth(e.target.value)}>
+        <option value="ALL">All of 2026</option>
         {['01','02','03','04','05','06','07'].map(m=><option key={m} value={m}>2026-{m}</option>)}
       </select></label>
-      <label>鐘舵€?<select value={status} onChange={e=>setStatus(e.target.value)}>
+      <label>Status <select value={status} onChange={e=>setStatus(e.target.value)}>
         {['ALL','DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED','REVERSED'].map(x=><option key={x}>{x}</option>)}
       </select></label>
-      <label>鏉ユ簮 <select value={srcF} onChange={e=>setSrcF(e.target.value)}>
+      <label>Source <select value={srcF} onChange={e=>setSrcF(e.target.value)}>
         {['ALL','MAN','WBS_CL','PM','AP','AR','BANK','CLOSING','PAYABLE','EXPA','AUTOC','DIVIDEND','REIMB','AUTO_BANK_REIMB','INTERNAL_TRANSFER','INTERNAL','INDIVIDUAL','NOT_MATCH'].map(x=><option key={x}>{x}</option>)}
       </select></label>
       <span className="result-count"><b>{list.length}</b> entries</span><div className="je-queue-chips"><button type="button" className={status==='ALL'?'on':''} onClick={()=>setStatus('ALL')}>All</button><button type="button" className={status==='PENDING_REVIEW'||status==='PENDING_APPROVAL'?'on':''} onClick={()=>setStatus('PENDING_REVIEW')}>Needs review</button><button type="button" className={status==='POSTED'?'on':''} onClick={()=>setStatus('POSTED')}>Posted</button><button type="button" className={status==='DRAFT'?'on':''} onClick={()=>setStatus('DRAFT')}>Draft</button></div><button type="button" className="btn btn-ghost btn-sm" onClick={()=>{setQuery('');setStatus('ALL');setSrcF('ALL');setMonth('ALL');}}>Clear filters</button>
@@ -180,7 +182,7 @@ export function JEWorkspace({ctx}) {
     <Table exportName="journal-entries" features={{exportable:false}} className="table-journal-entries" rowKey="je_id" onRow={r=>setSel(r.je_id)} pageSize={20} cols={[
       {h:'Journal No.',k:'je_number',w:'180px'},
       {h:'Date',k:'je_date',w:'112px'},
-      {h:'Memo / Description',render:r=><span className="cell-main">{r.description||<i className="muted">锛堟湭濉級</i>}</span>,csv:r=>r.description},
+      {h:'Memo / Description',render:r=><span className="cell-main">{r.description||<i className="muted">Not entered</i>}</span>,csv:r=>r.description},
       {h:'Source',render:r=><Badge tone="muted">{r.source_system}</Badge>,csv:r=>r.source_system,w:'110px'},
         {h:'Payee / Name',render:r=>r.payee||'—',csv:r=>r.payee||'',w:'210px'},
       {h:'Amount',num:true,render:r=><Money v={jeTotals(r).debit}/>,sortVal:r=>jeTotals(r).debit,csv:r=>jeTotals(r).debit,w:'140px'},
@@ -255,7 +257,7 @@ function JEEditor({je, ctx}) {
         </div></div>
       <Badge>{je.posting_status}</Badge>
     </div>
-    <div className="qbe-actionbar" aria-label="Journal entry actions"><span className="qbe-action-context"><b>{je.ai_proposed?'Evidence-locked AI Draft':readOnly ? 'View journal entry' : 'Edit journal entry'}</b><span>{je.je_type || 'MANUAL'} 路 {je.source_system || 'MAN'}</span></span><span className="qbe-action-buttons"><Btn size="sm" variant="ghost" onClick={()=>setShowAudit(open=>!open)}>{showAudit?'Hide audit history':'Audit history'}</Btn><Btn size="sm" variant="ghost" disabled title="External print/export is outside the local evidence scope">Print</Btn></span></div>
+    <div className="qbe-actionbar" aria-label="Journal entry actions"><span className="qbe-action-context"><b>{je.ai_proposed?'Evidence-locked AI Draft':readOnly ? 'View journal entry' : 'Edit journal entry'}</b><span>{je.je_type || 'MANUAL'} · {je.source_system || 'MAN'}</span></span><span className="qbe-action-buttons"><Btn size="sm" variant="ghost" onClick={()=>setShowAudit(open=>!open)}>{showAudit?'Hide audit history':'Audit history'}</Btn><Btn size="sm" variant="ghost" disabled title="External print/export is outside the local evidence scope">Print</Btn></span></div>
     <section className="report-workbench" aria-label="Local journal posting evidence" style={{margin:'12px 0'}}>
       <div className="report-workbench-head"><div><b>Local posting evidence</b><div className="page-subtitle">Read-only proof for this retained JE. It is not an immutable external audit trail.</div></div><Badge tone={postingEvidence.postingState==='LOCAL_POSTED_BALANCED'?'ok':'warn'}>{postingEvidence.postingState}</Badge></div>
       <div className="qbo-toolgrid">
@@ -283,14 +285,14 @@ function JEEditor({je, ctx}) {
           <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.debit_amount||''} onChange={e=>setLine(i,{debit_amount:+e.target.value||0, credit_amount:0})}/> : <Money v={l.debit_amount||0}/>}</td>
           <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.credit_amount||''} onChange={e=>setLine(i,{credit_amount:+e.target.value||0, debit_amount:0})}/> : <Money v={l.credit_amount||0}/>}</td>
           <td>{editable ? <input className="desc-line" value={l.description||''} placeholder="Line description" onChange={e=>setLine(i,{description:e.target.value})}/> : <span className="muted sm">{l.description||''}</span>}</td>
-          <td>{editable ? <input className="desc-line" list="member-list" placeholder={ (window.__subsOf&&window.__subsOf(l.account_code)) ? '鏍哥畻瀵硅薄*' : 'Name'} value={l.member||''} onChange={e=>setLine(i,{member:e.target.value})}/> : <span className="muted sm">{l.member||''}</span>}</td>
+          <td>{editable ? <input className="desc-line" list="member-list" placeholder={ (window.__subsOf&&window.__subsOf(l.account_code)) ? 'Required member*' : 'Name'} value={l.member||''} onChange={e=>setLine(i,{member:e.target.value})}/> : <span className="muted sm">{l.member||''}</span>}</td>
           <td>{editable ?
             <div className="dim-picks">
               <select value={l.property_id||''} onChange={e=>setLine(i,{property_id:e.target.value?+e.target.value:null})}><option value="">Property</option>{PROPERTIES.map(p=><option key={p.property_id} value={p.property_id}>{p.property_code}</option>)}</select>
               <select value={l.project_id||''} onChange={e=>setLine(i,{project_id:e.target.value?+e.target.value:null})}><option value="">Project</option>{PROJECTS.map(p=><option key={p.project_id} value={p.project_id}>{p.project_code}</option>)}</select>
             </div>
             : <span className="muted sm">{[(l.property_id&&('Prop'+l.property_id)),(l.project_id&&('P'+l.project_id)),(l.loan_id&&('L'+l.loan_id))].filter(Boolean).join(' ')}</span>}</td>
-          {editable && <td><button className="x-sm" onClick={()=>rmLine(i)}>脳</button></td>}
+          {editable && <td><button className="x-sm" onClick={()=>rmLine(i)} aria-label="Remove line">×</button></td>}
         </tr>)}
       </tbody>
     </table>
@@ -299,7 +301,7 @@ function JEEditor({je, ctx}) {
       <div className="qbe-totals">
         <span>Total debits <Money v={totals.debit} bold/></span>
         <span>Total credits <Money v={totals.credit} bold/></span>
-        <span className={diff===0&&totals.debit>0?'bal-ok':'bal-bad'}>Difference {diff===0&&totals.debit>0?'鉁?$0.00':'$'+Math.abs(diff).toLocaleString()}</span>
+        <span className={diff===0&&totals.debit>0?'bal-ok':'bal-bad'}>Difference {diff===0&&totals.debit>0?'✓ $0.00':'$'+Math.abs(diff).toLocaleString()}</span>
       </div>
     </div>
     <div className="qbe-memo">
@@ -318,12 +320,12 @@ function JEEditor({je, ctx}) {
       <div className="src-grid">
         <span><i>Document #</i><b>{d.doc_no}</b></span>
         {d.po_no && <span><i>PO</i><b>{d.po_no}</b></span>}
-        {d.contract && <span><i>鍚堝悓</i><b>{d.contract}</b></span>}
+        {d.contract && <span><i>Contract</i><b>{d.contract}</b></span>}
         {d.unit && <span><i>Unit</i><b>{d.unit}</b></span>}
         {d.vendor && <span><i>Vendor</i><b>{d.vendor}</b></span>}
         {d.buyer && <span><i>Buyer</i><b>{d.buyer}</b></span>}
         {d.cost_code && <span><i>Cost Code</i><b>{d.cost_code}</b></span>}
-        <span><i>閲戦</i><b>{'$'+(+d.amount).toLocaleString()}</b></span>
+        <span><i>Amount</i><b>{'$'+(+d.amount).toLocaleString()}</b></span>
       </div>
       <div className="src-actions">
         <Btn size="sm" variant="ghost" onClick={()=>ctx.goto('sourcedocs',{route:'sourcedocs', docId:je.source_doc_id, jeNumber:je.je_number, sourceSystem:je.source_system})}>Open source document</Btn>
@@ -331,15 +333,15 @@ function JEEditor({je, ctx}) {
       </div>
     </div>; })()}
     {je.ai_proposed && <div className="ai-report-note"><b>AI evidence is locked.</b><p>To amend amounts, accounts or dimensions, use Copy to create a separate manual amendment Draft linked to proposal {je.ai_proposal_id}. The original AI evidence remains unchanged for review.</p></div>}
-    {errs.length>0 && <div className="err-box">{errs.map((e,i)=><div key={i}>鈥?[{e.code}] {e.msg}</div>)}</div>}
+    {errs.length>0 && <div className="err-box">{errs.map((e,i)=><div key={i}>• [{e.code}] {e.msg}</div>)}</div>}
     <div className="qbe-footbar">
       <div><Btn variant="ghost" disabled title="Copy is outside the controlled local evidence workflow">Copy</Btn>
-        <Btn variant="ghost" onClick={()=>toast('Recurring 妯℃澘宸蹭繚瀛?姣忔湀1鏃ヨ嚜鍔ㄧ敓鎴愯崏绋?')}>Make recurring</Btn></div>
+        <Btn variant="ghost" onClick={()=>toast('Recurring template saved; draft entries will be created on the first day of each month.')}>Make recurring</Btn></div>
       <div className="row-acts">
         {flow.reject && can('GL.JE.REVIEW') && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id,flow.reject,'REJECT');toast('Returned to draft.','warn');}}>Reject</Btn>}
-        {je.posting_status==='POSTED' && ctx.user.role_code==='CONTROLLER' && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id,'APPROVED','CANCEL POST'); toast('宸?Cancel Post','warn');}}>Cancel Post</Btn>}
+        {je.posting_status==='POSTED' && ctx.user.role_code==='CONTROLLER' && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id,'APPROVED','CANCEL POST'); toast('Cancel Post completed.','warn');}}>Cancel Post</Btn>}
         {je.posting_status==='POSTED' && can('GL.JE.REVERSE') && <Btn variant="danger" onClick={reverse}>Reverse</Btn>}
-        {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'鏃犳鏉冮檺':''}>{flow.action==='鎻愪氦'?'Save and submit':flow.action}</Btn>}
+        {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'Permission unavailable':''}>{flow.action}</Btn>}
       </div>
     </div>
     {showAudit && <section className="report-workbench" aria-label="Retained journal audit history" style={{marginTop:12}}><div className="report-workbench-head"><div><b>Retained audit history</b><div className="page-subtitle">Local event metadata only; it does not claim an immutable external audit record.</div></div><Badge tone={postingEvidence.historyState==='LOCAL_HISTORY_PRESENT_UNVERIFIED'?'ok':'warn'}>{postingEvidence.historyState}</Badge></div>{je.history?.length ? <ApprovalTimeline steps={je.history.map(h=>({label:h.a,done:true,who:h.by,at:h.at}))}/> : <p className="muted sm">No retained posting-history events were found for this journal entry.</p>}</section>}
@@ -348,38 +350,80 @@ function JEEditor({je, ctx}) {
 
 // ---------------- Construction Loan Workspace ----------------
 export function LoanWorkspace({ctx}) {
-  const {actions, toast, jes, can} = ctx;
-  const [loanId, setLoanId] = useState(1);
-  const [tab, setTab] = useState('Draw / 鎻愭杩樻');
-  const loan = LOANS.find(l=>l.loan_id===loanId);
-  const txns = LOAN_TXNS.filter(t=>t.loan_id===loanId && (tab.startsWith('Draw')? ['DRAW','REPAYMENT'].includes(t.txn_type) : t.txn_type.startsWith('INTEREST')));
-  const gen = (t) => {
-    const r = loanRule(t);
-    if (!r) { toast('No matching rule was found.','bad'); return; }
-    actions.newJEFromRule({entity_id:loan.entity_id, source_system:'WBS_CL', description:`${t.txn_type} 路 ${loan.loan_code}`, rule_code:r.rule_code, je_type:'AUTO', lines:r.lines});
-    toast('Draft JE created using rule '+r.rule_code+'.');
+  const {actions, toast, goto, user} = ctx;
+  const [tab, setTab] = useState('Rule findings');
+  const [selectedKey, setSelectedKey] = useState(null);
+  const [state, setState] = useState(()=>repo.load('construction_loan_workspace_state', {}));
+  const model = useMemo(()=>{
+    const snapshot = createWbsMockDataset();
+    const events = buildAccountingEvents(snapshot);
+    const findings = runDeterministicAccountingRules(snapshot, events).filter(f=>/LOAN|INTEREST/i.test(f.rule_id));
+    const loan = snapshot.constructionLoans[0];
+    const relatedEvents = events.filter(e=>/loan/i.test(e.event_type) || /LOAN|INTEREST/i.test(e.rule_id));
+    return {snapshot, events:relatedEvents, findings, loan};
+  },[]);
+  const draftKeys = new Set(state.draftKeys || []);
+  const selected = model.findings.find(f=>f.finding_id===selectedKey) || model.findings[0];
+  const variance = Number(model.loan.lender_balance || 0) - Number(model.loan.gl_balance || 0);
+  const save = patch => {
+    const next = {...state, ...patch, updated_at:new Date().toISOString().slice(0,19), updated_by:user.user_id};
+    setState(next); repo.save('construction_loan_workspace_state', next);
   };
-  return <div>
+  const debit = je => sum(je?.lines || [], l=>l.debit_amount || 0);
+  const credit = je => sum(je?.lines || [], l=>l.credit_amount || 0);
+  const balanced = je => Math.abs(debit(je)-credit(je))<0.005;
+  const createDraft = finding => {
+    const je = finding?.suggested_je;
+    if (!je || !balanced(je) || !je.source_document_id) {
+      toast('Draft blocked: construction-loan JE must be balanced and source-backed.', 'bad');
+      repo.audit(user.user_id, 'CONSTRUCTION_LOAN_DRAFT_BLOCKED', 'AI_FINDING', finding?.finding_id || 'NO_FINDING', finding?.rule_id || 'NO_RULE');
+      return;
+    }
+    const jeId = actions.newJEFromRule({entity_id:je.entity_id || 2, project_id:je.project_id, property_id:je.property_id, je_type:'AUTO', source_system:'WBS_LOAN_MOCK', source_doc_id:je.source_document_id, source_document_id:je.source_document_id, description:`Construction loan: ${finding.rule_id} / ${finding.object_id}`, posting_status:'DRAFT', review_status:'DRAFT', ai_proposed:true, ai_rule_id:finding.rule_id, ai_confidence:finding.confidence_score, has_attachment:true, lines:je.lines.map(line=>({...line, description:finding.reason}))});
+    save({draftKeys:Array.from(new Set([...(state.draftKeys || []), finding.finding_id])), last_je_id:jeId});
+    repo.audit(user.user_id, 'CONSTRUCTION_LOAN_DRAFT_CREATED', 'AI_FINDING', finding.finding_id, `JE ${jeId}`);
+    toast('Construction loan Draft JE created for controller review.');
+    goto('je');
+  };
+  const findingRows = model.findings.map(f=>({key:f.finding_id, risk:f.risk_level, rule:f.rule_id, object:f.object_id, amount:Math.abs(Number(f.suggested_je?.lines?.[0]?.debit_amount || f.suggested_je?.lines?.[0]?.credit_amount || 0)), source:f.suggested_je?.source_document_id || '', balanced:balanced(f.suggested_je), status:draftKeys.has(f.finding_id)?'DRAFT_CREATED':f.suggested_je?.source_document_id?'READY':'SOURCE_REQUIRED', reason:f.reason, action:f.suggested_action, finding:f}));
+  const eventRows = model.events.map(e=>({event_id:e.event_id, type:e.event_type, source:e.source_transaction_id, amount:Math.abs(Number(e.amount || 0)), debit:e.suggested_debit_account, credit:e.suggested_credit_account, confidence:e.confidence_score, status:e.source_document_id?'SOURCE_RETAINED':'SOURCE_REVIEW'}));
+  const visibleFindings = tab==='Rule findings' ? findingRows : tab==='Accounting events' ? [] : findingRows.filter(r=>r.status!=='DRAFT_CREATED');
+  return <div className="full-bleed">
     <h2 className="page-h">Construction Loan Workspace</h2>
-    <div className="loan-select">
-      {LOANS.map(l=><button key={l.loan_id} className={`chip ${loanId===l.loan_id?'chip-on':''}`} onClick={()=>setLoanId(l.loan_id)}>{l.loan_code}</button>)}
-    </div>
+    <div className="filter-bar"><span className="muted sm">WBS mock loan draw, lender statement and interest evidence are reviewed here. The workspace creates Draft JEs only and blocks missing-source loan entries.</span></div>
     <div className="kpi-row">
-      <KPI label="Commitment" value={money(loan.commitment_amount)} />
-      <KPI label="褰撳墠鏈噾" value={money(loan.current_principal)} />
-      <KPI label="鍙敤棰濆害" value={money(loan.commitment_amount-loan.current_principal)} tone="ok" />
-      <KPI label="鍒╃巼 / 鍒版湡" value={(loan.interest_rate*100).toFixed(2)+'%'} sub={loan.maturity_date} />
+      <KPI label="Loan number" value={model.loan.loan_number} />
+      <KPI label="Lender balance" value={money(model.loan.lender_balance)} />
+      <KPI label="GL loan balance" value={money(model.loan.gl_balance)} />
+      <KPI label="Variance" value={money(variance)} tone={Math.abs(variance)>0.01?'bad':'ok'} />
+      <KPI label="Loan findings" value={model.findings.length} tone={model.findings.some(f=>f.risk_level==='HIGH')?'bad':'warn'} />
     </div>
-    <Tabs tabs={['Draw / 鎻愭杩樻','鍒╂伅 Interest']} active={tab} onChange={setTab} />
-    <Table onRow={r=>setFocusExternalId(r.external_id)} cols={[
-      {h:'WBS transaction',k:'wbs_txn_id'},
-      {h:'绫诲瀷',render:r=><Badge tone="muted">{r.txn_type}</Badge>},
-      {h:'鏃ユ湡',k:'transaction_date'},
-      {h:'閲戦',num:true,render:r=><Money v={r.amount}/>},
-      {h:'Construction status',render:r=>r.txn_type.startsWith('INTEREST') ? <Badge tone={r.construction_status==='UNDER_CONSTRUCTION'?'warn':'ok'}>{r.construction_status==='UNDER_CONSTRUCTION'?'Under construction':'Expensed'}</Badge> : '—'},
-      {h:'Journal entry',render:r=>r.generated_je ? <span className="link">{r.generated_je}</span> : (can('GL.JE.CREATE') ? <Btn size="sm" variant="primary" onClick={()=>gen(r)}>Create draft</Btn> : <span className="muted">Pending</span>)},
-    ]} rows={txns} rowKey="loan_txn_id" />
-    <p className="muted sm">Interest capitalization is driven by <code>construction_status</code>; posting targets are shown as audit-ready examples.</p>
+    <Tabs tabs={['Rule findings','Accounting events','Open review']} active={tab} onChange={setTab} />
+    {tab==='Accounting events' ? <Table rowKey="event_id" rows={eventRows} cols={[
+      {h:'Event ID',k:'event_id'}, {h:'Type',render:r=><Badge tone="muted">{r.type}</Badge>,csv:r=>r.type}, {h:'Source transaction',k:'source'},
+      {h:'Amount',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount}, {h:'Suggested debit',k:'debit'}, {h:'Suggested credit',k:'credit'},
+      {h:'Confidence',render:r=>(r.confidence*100).toFixed(0)+'%',csv:r=>r.confidence}, {h:'Status',render:r=><Badge tone={r.status==='SOURCE_RETAINED'?'ok':'warn'}>{r.status}</Badge>,csv:r=>r.status},
+    ]} empty="No construction loan events are available."/> : <div className="split two">
+      <div><Table rowKey="key" rows={visibleFindings} onRow={r=>setSelectedKey(r.key)} cols={[
+        {h:'Risk',render:r=><Badge tone={r.risk==='HIGH'?'bad':'warn'}>{r.risk}</Badge>,csv:r=>r.risk}, {h:'Rule',render:r=><span className="acct-code">{r.rule}</span>,csv:r=>r.rule}, {h:'Object',k:'object'},
+        {h:'Amount',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount}, {h:'Source document',render:r=>r.source || <span className="muted">Missing source</span>,csv:r=>r.source},
+        {h:'Controls',render:r=><span className="row-acts"><Badge tone={r.balanced?'ok':'bad'}>{r.balanced?'Balanced':'Blocked'}</Badge><Badge tone={r.source?'ok':'bad'}>{r.source?'Source retained':'Source required'}</Badge></span>,csv:r=>`${r.balanced}/${r.source}`},
+        {h:'Status',render:r=><Badge tone={r.status==='DRAFT_CREATED'?'ok':r.status==='READY'?'warn':'bad'}>{r.status}</Badge>,csv:r=>r.status},
+        {h:'Action',render:r=><Btn size="sm" variant="primary" disabled={r.status==='DRAFT_CREATED'} onClick={event=>{event.stopPropagation(); createDraft(r.finding);}}>Create Draft JE</Btn>},
+      ]} empty="No construction loan findings are available."/></div>
+      <div className="card sticky-card"><div className="card-h">Loan review detail</div>{selected ? <>
+        <h3 style={{margin:'8px 0 6px'}}>{selected.rule_id}</h3>
+        <p>{selected.reason}</p>
+        <div className="kv-grid">
+          <div><span>Object</span><b>{selected.object_id}</b></div><div><span>Risk</span><b>{selected.risk_level}</b></div>
+          <div><span>Source document</span><b>{selected.suggested_je?.source_document_id || 'Missing source'}</b></div><div><span>Confidence</span><b>{(selected.confidence_score*100).toFixed(0)}%</b></div>
+          <div><span>Suggested action</span><b>{selected.suggested_action}</b></div><div><span>Draft status</span><b>{draftKeys.has(selected.finding_id)?'Created':'Not created'}</b></div>
+        </div>
+        {selected.suggested_je ? <table className="mini-table"><tbody>{selected.suggested_je.lines.map((line,index)=><tr key={`${line.account_code}-${index}`}><td>{line.account_code}</td><td>{money(line.debit_amount || 0)}</td><td>{money(line.credit_amount || 0)}</td></tr>)}</tbody></table> : <div className="empty">No suggested journal entry is available.</div>}
+        <div className="row-acts" style={{marginTop:14}}><Btn variant="primary" onClick={()=>createDraft(selected)} disabled={draftKeys.has(selected.finding_id)}>Create Draft JE</Btn><Btn variant="ghost" onClick={()=>setTab('Accounting events')}>View source events</Btn></div>
+      </> : <div className="empty">Select a construction loan finding to review.</div>}</div>
+    </div>}
+    <p className="muted sm">Business boundary: lender balance, bank draw, capitalized interest and GL loan payable are reviewed with retained WBS mock evidence. No lender connection, bank feed, automatic capitalization, posting or reconciliation sign-off is performed here.</p>
   </div>;
 }
 
@@ -407,7 +451,7 @@ export function PMPickup({ctx}) {
     if (matched) setFocusExternalId(matched.external_id);
   }, [navContext?.route, navContext?.externalId, navContext?.jeNumber, jes, rows]);
   const generate = () => {
-    if (already){ toast('璇ユ壒娆″凡鐢熸垚杩?Owner GL Draft,绂佹閲嶅 Pickup [4004]','bad'); return; }
+    if (already){ toast('This batch already has an Owner GL Draft; duplicate pickup is blocked [4004].','bad'); return; }
     mapped.forEach(r=>{ const own = UNIT_OWNERS[r.unit] || {entity_id:4, name:'WB Home LLC'}; actions.newJEFromRule({entity_id:own.entity_id, source_system:'PM', description:'PM pickup '+r.charge_code+' / '+r.property_code+' / Unit '+r.unit_code+' / '+own.name, rule_code:r.rule.rule_code, je_type:'AUTO', lines:r.rule.lines}); });
     unmapped.forEach(r=> actions.ensureException({exception_type:'GL_MAPPING_MISSING', severity:'HIGH', object_type:'PM_PICKUP', object_ref:r.charge_code+' / '+r.property_code, entity_id:4, owner:'PROPERTY_ACCT', root_cause:'Charge code '+r.charge_code+' lacks a GL mapping'}));
     const owners=[...new Set(mapped.map(r=>(UNIT_OWNERS[r.unit]||{name:'WB Home LLC'}).name))];
@@ -418,9 +462,9 @@ export function PMPickup({ctx}) {
     {navContext?.route==='pmpickup' && (navContext.jeNumber || focusExternalId) && <div className="bank-health" role="status" style={{marginBottom:14}}>
       <span className="bank-health-icon">i</span><div><b>Drill context applied</b><p>{focusExternalId ? `Focused row ${focusExternalId} from report / JE drill.` : `Opened from journal entry ${navContext.jeNumber}.`}</p></div></div>}
     <div className="pickup-bar">
-      <span>鐗╀笟 <strong>P0020 路 Maple Court</strong></span>
-      <span>鏈熼棿 <strong>{month}</strong></span>
-      <span>鎵规 <strong>PM-202607-P0020</strong></span>
+      <span>Property <strong>P0020 · Maple Court</strong></span>
+      <span>Period <strong>{month}</strong></span>
+      <span>Batch <strong>PM-202607-P0020</strong></span>
     </div>
     <div className="check-band">
       <span className="ck ok">Deduplication checked</span>
@@ -431,15 +475,15 @@ export function PMPickup({ctx}) {
       {h:'External ID',k:'external_id'},
       {h:'Charge Code',render:r=><Badge tone="muted">{r.charge_code}</Badge>},
       {h:'Unit',k:'unit'},
-      {h:'Owner 鍏徃',render:r=>(UNIT_OWNERS[r.unit]||{name:'WB Home LLC'}).name},
-      {h:'鏄犲皠 GL',render:r=> r.rule.unmapped ? <span className="warn-txt">鏈槧灏?路 闇€鍘?Mapping Center</span> : <span>{r.rule.gl} {acct(r.rule.gl).account_name}</span>},
+      {h:'Owner entity',render:r=>(UNIT_OWNERS[r.unit]||{name:'WB Home LLC'}).name},
+      {h:'GL mapping',render:r=> r.rule.unmapped ? <span className="warn-txt">Unmapped · review Mapping Center</span> : <span>{r.rule.gl} {acct(r.rule.gl).account_name}</span>},
       {h:'Rule status',render:r=>r.rule.unmapped?'Unmapped':r.rule.rule_code==='R-PM-11'?'Cross-entity':r.rule.rule_code==='R-PM-16'?'Capitalization':'Standard'},
-      {h:'閲戦',num:true,render:r=><Money v={r.amount}/>},
+      {h:'Amount',num:true,render:r=><Money v={r.amount}/>},
     ]} rows={rows} />
     <div className="pickup-sum">
-      <span>鏀跺叆 <Money v={rev}/></span><span>璐圭敤 <Money v={exp}/></span><span>NOI <Money v={rev-exp}/></span>
+      <span>Revenue <Money v={rev}/></span><span>Expense <Money v={exp}/></span><span>NOI <Money v={rev-exp}/></span>
     </div>
-    <Btn variant="primary" onClick={generate} disabled={!can('GL.JE.CREATE')}>鐢熸垚 Owner GL Draft</Btn>
+    <Btn variant="primary" onClick={generate} disabled={!can('GL.JE.CREATE')}>Create Owner GL Draft</Btn>
     <span className="muted sm" style={{marginLeft:12}}>Security-deposit items without a mapping are retained as GL_MAPPING_MISSING exceptions.</span>
   </div>;
 }
@@ -457,10 +501,10 @@ export function ClosingWorkspace({ctx}) {
     </div>
     <SectionTitle>Closing worksheet</SectionTitle>
     <Table cols={[
-      {h:'椤圭洰',k:'label'},
+      {h:'Item',k:'label'},
       {h:'Account',render:r=>r.account_code+' '+acct(r.account_code).account_name},
-      {h:'鍊熸柟',num:true,render:r=><Money v={r.debit}/>},
-      {h:'璐锋柟',num:true,render:r=><Money v={r.credit}/>},
+      {h:'Debit',num:true,render:r=><Money v={r.debit}/>},
+      {h:'Credit',num:true,render:r=><Money v={r.credit}/>},
     ]} rows={c.lines} />
     <div className="check-band">
       <span className={balanced ? 'ck ok' : 'ck bad'}>Balanced: {balanced ? 'Yes' : 'No'} ({money(dr)}/{money(cr)})</span>
@@ -475,7 +519,7 @@ export function ClosingWorkspace({ctx}) {
 // ---------------- Exception Center ----------------
 export function ExceptionCenter({ctx}) {
   const {exceptions, actions, toast, can} = ctx;
-  const [sev, setSev] = useState('鍏ㄩ儴');
+  const [sev, setSev] = useState('ALL');
   const [st, setSt] = useState('ALL');
   const [sel, setSel] = useState(null);
   const [resolution, setResolution] = useState('');
@@ -495,10 +539,10 @@ export function ExceptionCenter({ctx}) {
       <span style={{marginLeft:16}}>Status</span>{['ALL','OPEN','IN_PROGRESS','CLOSED'].map(s=><button key={s} className={st===s?'chip chip-on':'chip'} onClick={()=>setSt(s)}>{s}</button>)}
     </div>
     <Table cols={[
-      {h:'涓ラ噸',render:r=><Badge tone={r.severity==='HIGH'?'bad':r.severity==='MEDIUM'?'warn':'muted'}>{r.severity}</Badge>},
-      {h:'绫诲瀷',k:'exception_type'},
-      {h:'瀵硅薄',k:'object_ref'},
-      {h:'瀹炰綋',render:r=>'E'+r.entity_id},
+      {h:'Severity',render:r=><Badge tone={r.severity==='HIGH'?'bad':r.severity==='MEDIUM'?'warn':'muted'}>{r.severity}</Badge>},
+      {h:'Type',k:'exception_type'},
+      {h:'Reference',k:'object_ref'},
+      {h:'Entity',render:r=>'E'+r.entity_id},
       {h:'Aging',num:true,render:r=>r.aging_days+'d'},
       {h:'Owner',k:'owner'},
       {h:'Status',render:r=><Badge>{r.status}</Badge>},

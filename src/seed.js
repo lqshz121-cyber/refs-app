@@ -50,7 +50,7 @@ export const JOURNAL_ENTRIES = [
    has_attachment:true, lines:[L('164200',5000,0,{project_id:1}), L('612900',0,5000)]},
   {je_id:2003, je_number:'JE-2026-07-2003', entity_id:2, period_code:'2026-07', je_type:'MANUAL', je_date:'2026-07-29',
    description:'Manual accrual - no support attached', source_system:'MAN', posting_status:'DRAFT',
-   has_attachment:false, lines:[L('6030',1800,0,{property_id:1}), L('2150',0,1800)]},
+   has_attachment:false, lines:[L('612900',1800,0,{property_id:1}), L('220300',0,1800)]},
 ];
 
 export const EXCEPTIONS = [
@@ -272,9 +272,14 @@ const _norm = j=>{
     j.source_doc_id = doc({type:'SERVICE_INVOICE', doc_no:'SVC-'+j.je_number, vendor:j.payee||'—', date:j.je_date, amount:j.lines.reduce((s,l)=>s+(l.debit_amount||0),0), source_system:'WBS · Contract & Invoice'});
     j.rule_code = j.rule_code || 'R-AP-STD-01';
   }
+  if (j.je_type==='AUTO' && (!j.source_doc_id || !j.rule_code)){
+    const source=String(j.source_system||'INTERNAL').replace(/[^A-Z0-9_]/gi,'_').toUpperCase();
+    j.source_doc_id = j.source_doc_id || doc({type:'DEMO_SOURCE_SNAPSHOT',doc_no:`DEMO-${source}-${j.je_number||j.je_id}`,vendor:j.payee||'Demo counterparty',date:j.je_date,amount:j.lines.reduce((s,l)=>s+(l.debit_amount||0),0),source_system:'REFS demo fixture'});
+    j.rule_code = j.rule_code || `R-DEMO-${source}`;
+  }
 };
 _ALL.forEach(_norm);
 JOURNAL_ENTRIES.forEach(_norm);
 export const FY2026 = _ALL;
-// unit -> owner company (每个 unit 归属的 owner 实体)
+// Unit to owner-company relationship.
 export const UNIT_OWNERS = { 'A-203':{entity_id:4, name:'WB Home LLC'}, 'B-110':{entity_id:2, name:'Wan Bridge Land LLC'}, 'C-050':{entity_id:11, name:'WB Pradera Oaks Land 1 LLC'} };

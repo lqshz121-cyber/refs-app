@@ -5,6 +5,14 @@ export const acct = (code) => COA_MAP[code] || (WBS_COA_MAP[code] ? {account_cod
 export const money = (n) => (n==null?'':(n<0?'(':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+(n<0?')':''));
 import { WBS_COA_MAP, subsidiaryOf, memberOf } from './coa-wbs.js';
 export const sum = (arr,f)=>arr.reduce((s,x)=>s+(f?f(x):x),0);
+export const ENGINE_RULE_CATALOG=[
+  {rule_code:'R-LOAN-01',trigger:'LOAN.DRAW'},
+  {rule_code:'R-LOAN-03',trigger:'LOAN.INTEREST_ACCRUAL'},
+  {rule_code:'R-LOAN-04',trigger:'LOAN.INTEREST_ACCRUAL'},
+  {rule_code:'R-LOAN-05',trigger:'LOAN.INTEREST_PAYMENT'},
+  {rule_code:'R-LOAN-08',trigger:'LOAN.REPAYMENT'},
+  {rule_code:'R-PM-16',trigger:'PM.SECURITY_DEPOSIT'},
+];
 export function downloadCSV(filename, rows){ const csv=rows.map(r=>r.map(c=>{const s=String(c==null?'':c); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n'); const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click(); URL.revokeObjectURL(a.href); }
 
 // ---- JE helpers ----
@@ -18,28 +26,28 @@ export const isBalanced = (je) => { const t=jeTotals(je); return Math.abs(t.debi
 export function validateJE(je, period) {
   const errs = [];
   je.lines.forEach((l,i)=>{ const st=subsidiaryOf(l.account_code);
-    if (st && !memberOf(l)) errs.push({code:'4020', msg:`第${i+1}行 ${l.account_code} 为辅助核算科目(${st}),必须填写核算对象`}); });
+    if (st && !memberOf(l)) errs.push({code:'4020', msg:`Line ${i+1}: ${l.account_code} requires a ${st} member.`}); });
   const t = jeTotals(je);
-  if (t.debit <= 0) errs.push({code:'VAL-001', msg:'分录金额为空'});
-  if (Math.abs(t.debit - t.credit) >= 0.005) errs.push({code:'4006', msg:`借贷不平 借${money(t.debit)} 贷${money(t.credit)}`});
+  if (t.debit <= 0) errs.push({code:'VAL-001', msg:'Journal amount is required.'});
+  if (Math.abs(t.debit - t.credit) >= 0.005) errs.push({code:'4006', msg:`Journal is out of balance: debit ${money(t.debit)}, credit ${money(t.credit)}.`});
   je.lines.forEach((l,i)=>{
     const bothZero = (!l.debit_amount && !l.credit_amount);
     const both = (l.debit_amount>0 && l.credit_amount>0);
-    if (bothZero) errs.push({code:'VAL-002', msg:`第${i+1}行 借贷均为空`});
-    if (both) errs.push({code:'VAL-003', msg:`第${i+1}行 借贷不能同时有值`});
-    if (!l.account_code) errs.push({code:'VAL-004', msg:`第${i+1}行 缺少科目`});
+    if (bothZero) errs.push({code:'VAL-002', msg:`Line ${i+1}: enter either a debit or credit.`});
+    if (both) errs.push({code:'VAL-003', msg:`Line ${i+1}: debit and credit cannot both have a value.`});
+    if (!l.account_code) errs.push({code:'VAL-004', msg:`Line ${i+1}: account is required.`});
   });
-  if (period && period.status === 'CLOSED') errs.push({code:'4005', msg:`期间 ${period.period_code} 已关闭`});
-  if (je.je_type === 'MANUAL' && je.has_attachment === false) errs.push({code:'4010', msg:'手工分录缺少附件(过账前必填)'});
+  if (period && period.status === 'CLOSED') errs.push({code:'4005', msg:`Period ${period.period_code} is closed.`});
+  if (je.je_type === 'MANUAL' && je.has_attachment === false) errs.push({code:'4010', msg:'Manual journal entries require an attachment before posting.'});
   return errs;
 }
 
 // ---- State machine for JE ----
 export const JE_FLOW = {
-  DRAFT:            {next:'PENDING_REVIEW',   action:'提交复核', perm:'GL.JE.CREATE'},
-  PENDING_REVIEW:   {next:'PENDING_APPROVAL', action:'复核通过', perm:'GL.JE.REVIEW', reject:'DRAFT'},
-  PENDING_APPROVAL: {next:'APPROVED',         action:'审批通过', perm:'GL.JE.APPROVE', reject:'DRAFT'},
-  APPROVED:         {next:'POSTED',           action:'过账 Post', perm:'GL.JE.POST'},
+  DRAFT:            {next:'PENDING_REVIEW',   action:'Submit for review', perm:'GL.JE.CREATE'},
+  PENDING_REVIEW:   {next:'PENDING_APPROVAL', action:'Approve review', perm:'GL.JE.REVIEW', reject:'DRAFT'},
+  PENDING_APPROVAL: {next:'APPROVED',         action:'Approve journal', perm:'GL.JE.APPROVE', reject:'DRAFT'},
+  APPROVED:         {next:'POSTED',           action:'Post journal', perm:'GL.JE.POST'},
   POSTED:           {next:null,               action:null},
   REVERSED:         {next:null,               action:null},
 };

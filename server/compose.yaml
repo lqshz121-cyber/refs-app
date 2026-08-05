@@ -1,0 +1,21 @@
+services:
+  postgres:
+    # LOCAL TEST ONLY. Defaults are intentionally rejected by production runtime validation.
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-refs_kernel_test}
+      POSTGRES_USER: ${POSTGRES_USER:-refs_migrator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-refs_migrator_test_K8r3w5T1z9Hp}
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - refs_kernel_pgdata:/var/lib/postgresql/data
+      - ./runtime/docker-init.sql:/docker-entrypoint-initdb.d/010-runtime-role.sql:ro
+
+volumes:
+  refs_kernel_pgdata:

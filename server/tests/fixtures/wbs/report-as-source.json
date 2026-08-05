@@ -1,0 +1,20 @@
+{
+  "scenario": "report_as_source_reject",
+  "source": {
+    "source_system": "WBS",
+    "source_module": "accountLink",
+    "source_entity_id": "WBLD",
+    "source_record_id": "balance-report-202607",
+    "source_version": "artifact-hash-v1",
+    "report_type": "Balance",
+    "period_code": "2026-07",
+    "account_code": "111000",
+    "artifact_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "expected": {
+    "outcome": "QUARANTINED",
+    "code": "REPORT_SOURCE_NOT_POSTABLE",
+    "no_draft": true,
+    "invariant": "Report and control-total artifacts may support reconciliation but never create source documents or journals."
+  }
+}

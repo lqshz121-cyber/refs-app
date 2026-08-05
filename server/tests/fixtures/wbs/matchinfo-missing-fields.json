@@ -1,0 +1,29 @@
+{
+  "scenario": "matchinfo_missing_fields",
+  "source": {
+    "source_system": "WBS",
+    "source_module": "matchInfo",
+    "source_entity_id": "UNKNOWN",
+    "source_record_id": "match-3003",
+    "source_version": "2026-07-31T13:00:00Z",
+    "MB_BusinessType": "PAYABLE",
+    "MB_BusinessId": "biz-3003",
+    "MB_BatchGuId": "batch-3003",
+    "MB_Source": "WBS"
+  },
+  "missing_required_fields": [
+    "entity_id",
+    "bank_account_ref",
+    "external_bank_line_id",
+    "amount",
+    "currency",
+    "match_status",
+    "source_version_or_undo_version"
+  ],
+  "expected": {
+    "outcome": "QUARANTINED",
+    "code": "MATCH_SOURCE_INCOMPLETE",
+    "no_draft": true,
+    "invariant": "The matchInfo route name alone never authorizes creation of a bank match."
+  }
+}
