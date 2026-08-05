@@ -39,7 +39,9 @@ export function GLTrialBalance({ctx}) {
   const reconciliationReturn = preset.reconciliationReturn?.route === 'bankrec' ? preset.reconciliationReturn : null;
   const registerReturn = preset.registerReturn?.route === 'register' ? preset.registerReturn : null;
   const coaReturn = preset.coaReturn?.route === 'coa' ? preset.coaReturn : null;
-  const reportCenterReturn = preset.reportCenterReturn?.route === 'reports' ? preset.reportCenterReturn : null;
+  const reportCenterReturn = preset.reportCenterReturn?.route === 'reports'
+    ? preset.reportCenterReturn
+    : preset.reportReturn?.reportCenterReturn?.route === 'reports' ? preset.reportReturn.reportCenterReturn : null;
   const reportEntity = preset.entityId || entity || null;
   const hasReportEntity = reportEntity != null && reportEntity !== '' && reportEntity !== 'ALL';
   const presetTab = ['Trial Balance','GL Detail','Balance Sheet','Income Statement','Cash Flow'].includes(preset.tab) ? preset.tab : null;
@@ -121,16 +123,16 @@ export function GLTrialBalance({ctx}) {
   const CN={ASSET:'Assets',LIABILITY:'Liabilities',EQUITY:'Equity',REVENUE:'Revenue',EXPENSE:'Expenses'};
   const groups = ORDER.map(t=>({t, rows: tbAsOf.rows.filter(r=>r.type===t)})).filter(g=>g.rows.length);
   const openAccounts = (rows,label,options={}) => setDrill({accounts:localGLDrillAccountCodes(rows),label,...options});
-  const openJournalFromReport = (jeNumber, options = {}) => ctx.goto('je',{jeNumber,reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:'ALL',drillAccounts:options.drillAccounts || null,drillLabel:options.drillLabel || '',asOf:options.asOf === true})});
+  const openJournalFromReport = (jeNumber, options = {}) => ctx.goto('je',{jeNumber,reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:'ALL',drillAccounts:options.drillAccounts || null,drillLabel:options.drillLabel || '',asOf:options.asOf === true,reportCenterReturn})});
   const registerTargetForReport = (row) => {
     const accountCode = String(row?.account_code || '');
     if (!accountCode || dimensionEvidence.state !== 'LOCAL_SCOPE_COMPLETE' || (!localCashAccountGroup(accountCode) && !['120200','291001'].includes(accountCode))) return null;
-    return {route:'register', accountCode, fromPeriod:fromP, throughPeriod:toP, reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:localCashAccountGroup(accountCode) || 'CONTROL',drillAccounts:[accountCode],drillLabel:`${accountCode} ${row?.name || ''}`.trim()})};
+    return {route:'register', accountCode, fromPeriod:fromP, throughPeriod:toP, reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:localCashAccountGroup(accountCode) || 'CONTROL',drillAccounts:[accountCode],drillLabel:`${accountCode} ${row?.name || ''}`.trim(),reportCenterReturn})};
   };
-  const balanceSheetRegisterTarget = row => localBalanceSheetRegisterTarget({entityId:reportEntity,accountCode:row?.account_code,accountName:row?.name,fromP,toP,propertyId,projectId,loanId,dimensionState:dimensionEvidence.state});
+  const balanceSheetRegisterTarget = row => localBalanceSheetRegisterTarget({entityId:reportEntity,accountCode:row?.account_code,accountName:row?.name,fromP,toP,propertyId,projectId,loanId,dimensionState:dimensionEvidence.state,reportCenterReturn});
   const sourceTargetFor = (journal, options = {}) => {
     const target = localGLSourceTarget(journal, { apBills: ap?.bills || [], arInvoices: ar?.invoices || [], bankAccounts: bank?.accounts || {}, sourceDocuments: SOURCE_DOCS });
-    return target ? {...target,context:{...target.context,reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:'ALL',drillLabel:`${journal.je_number} source trace`,asOf:options.asOf === true})}} : null;
+    return target ? {...target,context:{...target.context,reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:'ALL',drillLabel:`${journal.je_number} source trace`,asOf:options.asOf === true,reportCenterReturn})}} : null;
   };
   const drillLine = (label,accounts,value,options={}) => {
     const {key,isTotal=false,extraClass='',style={},registerTarget=null} = options;
@@ -232,7 +234,7 @@ export function GLTrialBalance({ctx}) {
     </section>
     <section className="report-workbench" aria-label="Bank reconcile GL TB evidence bridge" style={{marginBottom:12}}>
       <div className="report-workbench-head"><div><b>Bank / Reconcile ↔ GL / TB evidence</b><div className="page-subtitle">Matched, cleared, and signed-off are independent retained facts; the report never infers one from another.</div></div><Badge tone={reconciliationGlTbBridge.state==='LOCAL_BANK_GL_TB_EVIDENCE_RETAINED'?'ok':'warn'}>{reconciliationGlTbBridge.state}</Badge></div>
-      {reconciliationGlTbBridge.rows.length ? <Table rowKey="key" features={{exportable:false}} cols={[{h:'Bank account',k:'accountCode'},{h:'Bank date',render:r=>r.bankTransaction?.txn_date || '—'},{h:'Matched',render:r=><Badge tone={r.matched?'ok':'muted'}>{String(r.matched)}</Badge>},{h:'Cleared',render:r=><Badge tone={r.cleared?'ok':'muted'}>{String(r.cleared)}</Badge>},{h:'Signed off',render:r=><Badge tone={r.signedOff?'ok':'muted'}>{String(r.signedOff)}</Badge>},{h:'State',render:r=><Badge tone={r.state==='RETAINED_BANK_GL_EVIDENCE'?'ok':'warn'}>{r.state}</Badge>},{h:'JE',render:r=>r.journal?<Btn size="sm" variant="ghost" onClick={()=>openJournalFromReport(r.journal.je_number,{drillLabel:`${r.accountCode} bank evidence`})}>{r.journal.je_number}</Btn>:<span className="muted">No retained drill</span>},{h:'Reconcile',render:r=><Btn size="sm" variant="ghost" onClick={()=>ctx.goto('bankrec',{route:'bankrec',acctCode:r.accountCode,bankTxnId:r.bankTransaction?.bank_txn_id,reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:r.accountCode,drillLabel:`${r.accountCode} bank evidence`})})}>Open local review</Btn>}]} rows={reconciliationGlTbBridge.rows}/>:<div className="empty-state">No retained matched bank evidence for this entity/date/dimension scope.</div>}
+      {reconciliationGlTbBridge.rows.length ? <Table rowKey="key" features={{exportable:false}} cols={[{h:'Bank account',k:'accountCode'},{h:'Bank date',render:r=>r.bankTransaction?.txn_date || '—'},{h:'Matched',render:r=><Badge tone={r.matched?'ok':'muted'}>{String(r.matched)}</Badge>},{h:'Cleared',render:r=><Badge tone={r.cleared?'ok':'muted'}>{String(r.cleared)}</Badge>},{h:'Signed off',render:r=><Badge tone={r.signedOff?'ok':'muted'}>{String(r.signedOff)}</Badge>},{h:'State',render:r=><Badge tone={r.state==='RETAINED_BANK_GL_EVIDENCE'?'ok':'warn'}>{r.state}</Badge>},{h:'JE',render:r=>r.journal?<Btn size="sm" variant="ghost" onClick={()=>openJournalFromReport(r.journal.je_number,{drillLabel:`${r.accountCode} bank evidence`})}>{r.journal.je_number}</Btn>:<span className="muted">No retained drill</span>},{h:'Reconcile',render:r=><Btn size="sm" variant="ghost" onClick={()=>ctx.goto('bankrec',{route:'bankrec',acctCode:r.accountCode,bankTxnId:r.bankTransaction?.bank_txn_id,reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:r.accountCode,drillLabel:`${r.accountCode} bank evidence`,reportCenterReturn})})}>Open local review</Btn>}]} rows={reconciliationGlTbBridge.rows}/>:<div className="empty-state">No retained matched bank evidence for this entity/date/dimension scope.</div>}
       <p className="muted sm" style={{margin:'8px 0 0'}}>Operating cash only can be retained as a same-scope bridge. Escrow/trust/restricted cash, loan draws, deposits, and unresolved bank items remain separate review boundaries; no feed import, auto-match, quick adjustment, or sign-off is performed here.</p>
     </section>
     {tab==='Trial Balance' && <>
@@ -309,7 +311,7 @@ export function GLTrialBalance({ctx}) {
       ]} rows={detailRows}/>; })()}
     {tab==='Cash Flow' && (()=>{ const openCategory=(category)=>{ const matches=cashFlow.entries.filter(entry=>entry.category===category); setDrill({accounts:cashFlow.cashAccounts,label:`Cash flow · ${category}`,journalNumbers:matches.map(entry=>entry.je)}); };
       const openCashScope = (scope) => { const group=reportControls.cashGroups.find(row=>row.group===scope); if (!group?.accounts.length) return; setDrill({accounts:group.accounts,label:`Cash scope · ${scope}`,asOf:true}); };
-      const cashFlowRegisterTarget = scope => { const group=reportControls.cashGroups.find(row=>row.group===scope); return localCashFlowRegisterTarget({entityId:reportEntity,accountCodes:group?.accounts || [],scope,fromP,toP,propertyId,projectId,loanId,dimensionState:dimensionEvidence.state}); };
+      const cashFlowRegisterTarget = scope => { const group=reportControls.cashGroups.find(row=>row.group===scope); return localCashFlowRegisterTarget({entityId:reportEntity,accountCodes:group?.accounts || [],scope,fromP,toP,propertyId,projectId,loanId,dimensionState:dimensionEvidence.state,reportCenterReturn}); };
       const bsCash=sum(bsTb.rows.filter(row=>isOperatingCashAccount(row.account_code)),row=>row.balance);
       const totalBsCash=reportControls.totalCash;
       const ready=Math.abs(cashFlow.reconciliationDifference)<0.01 && !cashFlow.unclassified.length && Math.abs(cashFlow.closingCash-bsCash)<0.01;
@@ -329,7 +331,7 @@ export function GLTrialBalance({ctx}) {
         </>}
       </div>; })()}
     </>}
-    {drill && (()=>{ const accounts=drill.accounts||[drill]; const label=drill.label||accounts.join(', '); const scopeComplete=dimensionEvidence.state==='LOCAL_SCOPE_COMPLETE'; const registerTarget=accounts.length===1 ? registerTargetForReport({account_code:accounts[0],name:label}) : null; const agingTarget=scopeComplete && accounts.length===1 && ['120200','291001'].includes(accounts[0]) ? {route:accounts[0]==='120200'?'ar':'ap',tab:accounts[0]==='120200'?'AR Aging':'AP Aging',asOfDate:reportAsOfDate,reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:'CONTROL',drillAccounts:[accounts[0]],drillLabel:label})} : null; const drillJournals=(drill.asOf?bsPosted:posted).filter(j=>!drill.journalNumbers || drill.journalNumbers.includes(j.je_number)); const lines=[]; drillJournals.forEach(j=>j.lines.forEach(l=>{ if(accounts.includes(l.account_code)) lines.push({je:j.je_number, date:j.je_date, desc:j.description, src:j.source_system, account:l.account_code, dr:l.debit_amount, cr:l.credit_amount, sourceTarget:sourceTargetFor(j,{asOf:drill.asOf === true})}); }));
+    {drill && (()=>{ const accounts=drill.accounts||[drill]; const label=drill.label||accounts.join(', '); const scopeComplete=dimensionEvidence.state==='LOCAL_SCOPE_COMPLETE'; const registerTarget=accounts.length===1 ? registerTargetForReport({account_code:accounts[0],name:label}) : null; const agingTarget=scopeComplete && accounts.length===1 && ['120200','291001'].includes(accounts[0]) ? {route:accounts[0]==='120200'?'ar':'ap',tab:accounts[0]==='120200'?'AR Aging':'AP Aging',asOfDate:reportAsOfDate,reportReturn:localReportReturnContext({tab,fromP,toP,entityId:reportEntity,propertyId,projectId,loanId,cashScope:'CONTROL',drillAccounts:[accounts[0]],drillLabel:label,reportCenterReturn})} : null; const drillJournals=(drill.asOf?bsPosted:posted).filter(j=>!drill.journalNumbers || drill.journalNumbers.includes(j.je_number)); const lines=[]; drillJournals.forEach(j=>j.lines.forEach(l=>{ if(accounts.includes(l.account_code)) lines.push({je:j.je_number, date:j.je_date, desc:j.description, src:j.source_system, account:l.account_code, dr:l.debit_amount, cr:l.credit_amount, sourceTarget:sourceTargetFor(j,{asOf:drill.asOf === true})}); }));
       const drillDebit=sum(lines,r=>r.dr||0), drillCredit=sum(lines,r=>r.cr||0);
       const drillState=localGLDrillState(lines,label,drill.asOf?'Opening':fromP,toP); const canCrossDrill=!drillState.isEmpty;
       return <div className="report-drill-panel qbo-transaction-report"><div className="qbo-report-back"><button type="button" onClick={()=>setDrill(null)}>Back to {tab}</button><span>Transaction detail</span></div><div className="gl-drill-head"><div><div className="gl-drill-crumb">General Ledger · Drilldown</div><h3>Transaction detail</h3><div className="gl-drill-account" title={label}>{label}</div></div><div className="gl-drill-actions"><span className="gl-drill-count"><b>{lines.length}</b> transactions</span>{registerTarget&&canCrossDrill?<Btn size="sm" variant="ghost" onClick={()=>ctx.goto('register',registerTarget)}>Open local register</Btn>:<Btn size="sm" variant="ghost" disabled title={canCrossDrill?(scopeComplete?'Only a single local cash or AR/AP control account can open Account Register':'Dimension scope requires review before any cross-workspace drill'):'No posted local activity exists in this scoped drill'}>No register scope</Btn>}{agingTarget&&canCrossDrill&&<Btn size="sm" variant="ghost" onClick={()=>ctx.goto(agingTarget.route,agingTarget)}>{agingTarget.route==='ar'?'Open AR Aging':'Open AP Aging'}</Btn>}<Btn size="sm" variant="ghost" onClick={()=>setDrill(null)}>Close</Btn></div></div>
@@ -342,9 +344,10 @@ export function GLTrialBalance({ctx}) {
 
 export function Reports({ctx}) {
   const {jes, exceptions, entity, navContext} = ctx;
-  const [open, setOpen] = useState(()=>navContext?.reportCenterReturn?.openReport || null);
-  const [search, setSearch] = useState(navContext?.reportCenterReturn?.search || '');
-  const [category, setCategory] = useState(navContext?.reportCenterReturn?.category || 'Standard reports');
+  const reportsReturn = navContext?.route === 'reports' ? navContext : navContext?.reportCenterReturn?.route === 'reports' ? navContext.reportCenterReturn : null;
+  const [open, setOpen] = useState(()=>reportsReturn?.openReport || null);
+  const [search, setSearch] = useState(reportsReturn?.search || '');
+  const [category, setCategory] = useState(reportsReturn?.category || 'Standard reports');
   const [menuReport, setMenuReport] = useState(null);
   const [favorites, setFavorites] = useState(()=>{
     try { return new Set(JSON.parse(localStorage.getItem('refs_report_favorites') || '[]')); }
@@ -383,9 +386,8 @@ export function Reports({ctx}) {
       tab:'GL Detail', fromP:'2026-01', toP:'2026-07', entityId:entity,
       cashScope:row.group, drillAccounts:[row.account_code],
       drillLabel:`${row.account_code} ${row.name}`,
-      asOf:true,
+      asOf:true, reportCenterReturn:cashControlReportReturn,
     }),
-    reportCenterReturn:cashControlReportReturn,
   });
   const openCashControlLedger = row => ctx.goto('gl', cashControlReturnToGL(row));
   const openCashControlRegister = row => ctx.goto('register', {

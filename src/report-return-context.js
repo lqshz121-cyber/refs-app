@@ -1,6 +1,6 @@
 // A local navigation contract only. It preserves a report's currently visible
 // scope while reviewing a retained JE; it does not save/share a QBO report.
-export function localReportReturnContext({ tab = 'Trial Balance', fromP = '', toP = '', entityId = '', propertyId = 'ALL', projectId = 'ALL', loanId = 'ALL', cashScope = 'ALL', drillAccounts = null, drillLabel = '', asOf = false } = {}) {
+export function localReportReturnContext({ tab = 'Trial Balance', fromP = '', toP = '', entityId = '', propertyId = 'ALL', projectId = 'ALL', loanId = 'ALL', cashScope = 'ALL', drillAccounts = null, drillLabel = '', asOf = false, reportCenterReturn = null } = {}) {
   const validPeriod = Boolean(fromP && toP && fromP <= toP);
   const context = {
     route:'gl', tab, fromP, toP,
@@ -9,6 +9,7 @@ export function localReportReturnContext({ tab = 'Trial Balance', fromP = '', to
     drillAccounts:Array.isArray(drillAccounts) ? drillAccounts : null,
     drillLabel:drillLabel || '',
     state:validPeriod ? 'LOCAL_REPORT_RETURN_READY' : 'LOCAL_REPORT_RETURN_SCOPE_MISSING',
+    ...(reportCenterReturn?.route === 'reports' ? {reportCenterReturn} : {}),
   };
   return asOf === true ? {...context,asOf:true} : context;
 }

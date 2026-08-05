@@ -2126,3 +2126,11 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
 |---|---|---|---|
 | Retained report row action and detail navigation | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Replaced the report-row `More Options → Preview` state shortcut with `Open detail`, which uses the same retained report launch path as the row and primary action. Ledger/workflow reports now cannot bypass their full-page destination or its explicit Back path through this secondary menu. | PARTIAL — local source, full-page replacement and build checks are verified; QBO More Options contents, report access, audit and responsive behavior remain unobserved. |
+
+## Reports: return scope through evidence drills (2026-08-05)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Reports Center → statement/aging → source evidence → Back | No fresh QBO report drill was operated this cycle. The read-only QBO Banking audit remains limited to the previously observed review surface, so QBO report-category and search persistence is unverified. | The local report-return contract now nests the Reports Center target with the existing entity, period/as-of, property, project, loan, cash, account, and drill scope. Trial Balance, GL, Balance Sheet, Income Statement, Cash Flow, AP/AR Aging, source/JE, Account Register, and local Reconcile evidence recover it; the final Back fully replaces the detail page with Reports Center while retaining its report category and search query. | PARTIAL — focused local return-contract verification only; QBO populated report drills, permission behavior, empty states, and responsive interaction remain unobserved. |
+
+- Verification: `node verify-reports-center-return-scope.mjs` and `git diff --check`. The release owner must rerun build/visual validation from the integration worktree before selecting this candidate.
