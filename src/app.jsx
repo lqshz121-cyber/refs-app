@@ -17,6 +17,7 @@ import { SubsidiaryLedger } from './module-subledger.jsx';
 import { UnitCostLedger } from './module-unitcost.jsx';
 import { CompanySetting } from './module-setting.jsx';
 import { AIAudit } from './module-aiaudit.jsx';
+import { AIJEWorkbench } from './module-ai-je-workbench.jsx';
 import { StagingCenter } from './module-staging.jsx';
 import { UnitTransfer } from './module-unittransfer.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
@@ -71,7 +72,7 @@ const ROLE_PERMS = {
   AUDITOR: [], READ_ONLY: [], SYS_ADMIN: [],
 };
 const NAV = [
-  {group:'Control Center', icon:'◉', items:[['dashboard','Dashboard'],['approvals','Action Required'],['aireview','AI Audit Center']]},
+  {group:'Control Center', icon:'◉', items:[['dashboard','Dashboard'],['approvals','Action Required'],['aireview','AI Audit Center'],['aijeworkbench','AI JE Workbench']]},
   {group:'Accounting Settings', icon:'⚙', items:[['setting','Core settings'],['rules','Rule Center'],['mapping','Mapping Center']]},
   {group:'Source & Staging', icon:'⇅', items:[['staging','Accounting Staging'],['sourcedocs','Source Documents'],['integration','Integration Hub'],['exceptions','Mapping Exceptions']]},
   {group:'Auto Reconciliation', icon:'⟳', items:[['autobankrec','Bank Batch Pipeline'],['banktx','Bank Transaction Matching'],['bankrec','Reconciliation Worksheet'],['checks','Checks & Payments']]},
@@ -82,7 +83,7 @@ const NAV = [
   {group:'Reports', icon:'▤', items:[['reports','Reports Center']]},
   {group:'Admin', icon:'◈', adminOnly:true, items:[['masterdata','Master Data'],['ap','AP (legacy)'],['ar','AR (legacy)'],['cash','Bank Accounts'],['audit','Audit Log'],['admin','Users & Settings']]},
 ];
-const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, setting:CompanySetting, aireview:AIAudit, staging:StagingCenter, unittransfer:UnitTransfer, sourcedocs:SourceDocs, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
+const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, setting:CompanySetting, aireview:AIAudit, aijeworkbench:AIJEWorkbench, staging:StagingCenter, unittransfer:UnitTransfer, sourcedocs:SourceDocs, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
   pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARWorkspace,
   cash:CashModule, bankrec:BankRec2, autobankrec:AutoBankRec, checks:CheckMgmt, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
   mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, reports:Reports, admin:AdminModule };
