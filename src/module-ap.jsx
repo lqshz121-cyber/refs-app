@@ -180,7 +180,7 @@ export function APWorkspace({ctx}) {
   }, [tab]);
   const selectedBillPayment = bills.find(candidate => candidate.bill_id === selectedBillPaymentId) || null;
   if (selectedBillPayment) return <PaymentEvidenceDetail bill={selectedBillPayment} paymentReturn={{route:'ap',tab:'Bills',billId:selectedBillPayment.bill_id,billDetail:true,entityId:selectedBillPayment.entity_id || '',vendorId:selectedBillPayment.vendor_id || '',vendorName:selectedBillPayment.vendor_name || '',paymentDate:selectedBillPayment.paid_date || 'Not retained'}} onClose={()=>setSelectedBillPaymentId(null)} backLabel="Back to Bill" ctx={ctx} />;
-  if (bill) return <BillDetail bill={bill} onClose={closeBillDetail} onOpenPayment={()=>setSelectedBillPaymentId(bill.bill_id)} agingReturn={agingDetailScope} billReturnScope={detailReturnScope || localExpenseDetailReturnScope({tab,query,statusFilter,transactionType,dateRange,fromDate,toDate,vendorId,categoryCode,billQueueView})} vendorReturnId={vendorEvidenceReturnId} vendorReturnSearch={vendorEvidenceReturnSearch} ctx={ctx} />;
+  if (bill) return <BillDetail bill={bill} onClose={navContext?.actionQueueReturn?.route === 'approvals' ? ()=>ctx.goto('approvals') : closeBillDetail} onOpenPayment={()=>setSelectedBillPaymentId(bill.bill_id)} agingReturn={agingDetailScope} billReturnScope={detailReturnScope || localExpenseDetailReturnScope({tab,query,statusFilter,transactionType,dateRange,fromDate,toDate,vendorId,categoryCode,billQueueView})} vendorReturnId={vendorEvidenceReturnId} vendorReturnSearch={vendorEvidenceReturnSearch} actionQueueReturn={navContext?.actionQueueReturn} ctx={ctx} />;
   if (selectedCredit) return <VendorCreditDetail credit={selectedCredit} agingReturn={agingDetailScope} onClose={closeDetail} onOpenBill={billId=>{setBillReturnCreditKey(localVendorCreditLinkedBillReturn(selectedCreditKey));setSelectedCreditKey(null);openBillDetail(billId);}} ctx={ctx} />;
   if (selectedException) return <ExpenseReviewExceptionDetail exception={selectedException} onClose={closeDetail} onOpenSource={()=>{
     setSelectedExceptionId(null);
@@ -284,7 +284,7 @@ function VendorWorkspace({bills, journals, bankTransactions, initialVendorId, in
   </div>;
 }
 
-function BillDetail({bill, onClose, onOpenPayment, agingReturn, billReturnScope, vendorReturnId, vendorReturnSearch, ctx}) {
+function BillDetail({bill, onClose, onOpenPayment, agingReturn, billReturnScope, vendorReturnId, vendorReturnSearch, actionQueueReturn, ctx}) {
     const {goto, jes, bank} = ctx;
     if (!bill) return null;
     const trace = localBillEvidenceTrace(bill, jes);
@@ -303,7 +303,7 @@ function BillDetail({bill, onClose, onOpenPayment, agingReturn, billReturnScope,
   const vendorReturnContext = vendorReturnId ? {vendorEvidenceId:vendorReturnId,vendorSearch:vendorReturnSearch || ''} : {};
   const evidenceReturnContext = {...(billReturnScope || {}), ...vendorReturnContext};
   return <div className="full-bleed qbo-transaction-report" aria-label="Local bill evidence detail">
-    <div className="qbo-report-back"><button type="button" onClick={onClose}>{agingReturn?.tab === 'AP Aging' ? 'Back to AP Aging' : vendorReturnId ? 'Back to Vendor evidence' : 'Back to Expenses'}</button><span>{agingReturn?.tab === 'AP Aging' ? localApAgingReturnScopeLabel(agingReturn) : vendorReturnId ? 'Vendor → Bill · retained same-vendor local evidence' : 'Bill · retained local evidence'}</span></div>
+    <div className="qbo-report-back"><button type="button" onClick={onClose}>{actionQueueReturn?.route === 'approvals' ? 'Back to Action Required' : agingReturn?.tab === 'AP Aging' ? 'Back to AP Aging' : vendorReturnId ? 'Back to Vendor evidence' : 'Back to Expenses'}</button><span>{actionQueueReturn?.route === 'approvals' ? 'Controller evidence review queue' : agingReturn?.tab === 'AP Aging' ? localApAgingReturnScopeLabel(agingReturn) : vendorReturnId ? 'Vendor → Bill · retained same-vendor local evidence' : 'Bill · retained local evidence'}</span></div>
     <div className="gl-drill-head"><div><div className="gl-drill-crumb">Expenses / Bill detail</div><h2 className="page-h">{bill.bill_no} · {bill.vendor_name}</h2><div className="gl-drill-account">{bill.bill_date} · due {bill.due_date} · local entity evidence only</div></div><Badge tone="muted">{bill.status}</Badge></div>
     <div className="kv"><span>Invoice #</span><b>{bill.invoice_no}</b></div>
     <div className="kv"><span>Original bill amount</span><Money v={bill.amount} bold/></div>

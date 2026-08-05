@@ -217,7 +217,9 @@ function JEEditor({je, ctx}) {
   const returnToBankTransaction = ctx.navContext?.bankTransactionReturn?.route === 'banktx' ? ctx.navContext.bankTransactionReturn : null;
   const returnToReconciliation = ctx.navContext?.reconciliationReturn?.route === 'bankrec' ? ctx.navContext.reconciliationReturn : null;
   const returnToRegister = ctx.navContext?.registerReturn?.route === 'register' ? ctx.navContext.registerReturn : null;
+  const returnToActionQueue = ctx.navContext?.actionQueueReturn?.route === 'approvals' ? ctx.navContext.actionQueueReturn : null;
   return <div className="qbe qbe-document">
+    {returnToActionQueue && <div className="qbo-report-back"><button type="button" onClick={()=>ctx.goto('approvals')}>Back to Action Required</button><span>Controller evidence review queue</span></div>}
     {returnToReport && <div className="qbo-report-back"><button type="button" onClick={()=>ctx.goto('gl',returnToReport)}>Back to {returnToReport.tab || 'report'}</button><span>{localReportReturnScopeLabel(returnToReport)}</span></div>}
     {returnToApAging && <div className="qbo-report-back"><button type="button" onClick={()=>ctx.goto('ap',returnToApAging)}>Back to AP Aging</button><span>{localApAgingReturnScopeLabel(returnToApAging)}</span></div>}
     {returnToVendorCredit && <div className="qbo-report-back"><button type="button" onClick={()=>ctx.goto('ap',returnToVendorCredit)}>Back to Vendor Credit</button><span>{localVendorCreditReturnScopeLabel(returnToVendorCredit)}</span></div>}

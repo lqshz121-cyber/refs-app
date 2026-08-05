@@ -342,19 +342,18 @@ function AuditLog({ctx}) {
   </div>;
 }
 function Approvals({ctx}) {
-  const {jes, ap, actions, can, toast, goto} = ctx;
+  const {jes, ap, goto} = ctx;
   const pj = jes.filter(j=>['PENDING_REVIEW','PENDING_APPROVAL'].includes(j.posting_status));
   const pb = ap.bills.filter(b=>b.status==='PENDING_APPROVAL');
-  return <div><h2 className="page-h">Approvals</h2>
+  return <div><h2 className="page-h">Action Required</h2>
+    <p className="page-subtitle">Review retained evidence here. Approval and posting remain in their controlled accounting workflows.</p>
     <h3 style={{fontSize:17}}>Journal Entries ({pj.length})</h3>
-    {pj.map(j=><div key={j.je_id} className="appr-row"><span>{j.je_number} · {j.description}</span>
-      <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('je')}>Open</button>
-      {can('GL.JE.APPROVE') && <button className="btn btn-primary btn-sm" onClick={()=>actions.advanceJE(j.je_id, j.posting_status==='PENDING_REVIEW'?'PENDING_APPROVAL':'APPROVED','APPROVE')}>Approve</button>}</span></div>)}
+    {pj.map(j=><div key={j.je_id} className="appr-row"><span>{j.je_number} · {j.description} · {j.posting_status}</span>
+      <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('je',{jeNumber:j.je_number,actionQueueReturn:{route:'approvals'}})}>Open JE evidence</button></span></div>)}
     {pj.length===0 && <div className="empty">No journal entries awaiting approval.</div>}
     <h3 style={{fontSize:17, marginTop:22}}>Bills ({pb.length})</h3>
-    {pb.map(b=><div key={b.bill_id} className="appr-row"><span>{b.bill_no} · {b.vendor_name} · ${b.amount.toLocaleString()}</span>
-      <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('ap')}>Open</button>
-      {can('AP.INVOICE.APPROVE') && <button className="btn btn-primary btn-sm" onClick={()=>{actions.approveBill(b.bill_id); toast('Bill approved');}}>Approve</button>}</span></div>)}
+    {pb.map(b=><div key={b.bill_id} className="appr-row"><span>{b.bill_no} · {b.vendor_name} · ${b.amount.toLocaleString()} · {b.status}</span>
+      <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('ap',{route:'ap',tab:'Bills',billId:b.bill_id,actionQueueReturn:{route:'approvals'}})}>Open bill evidence</button></span></div>)}
     {pb.length===0 && <div className="empty">No bills awaiting approval.</div>}
   </div>;
 }
