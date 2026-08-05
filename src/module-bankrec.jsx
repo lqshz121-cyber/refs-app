@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { KPI, Btn, Badge, Money, Table, SectionTitle } from './ui.jsx';
 import { money, sum } from './engine.js';
 import { BANK_ACCOUNTS } from './data.js';
@@ -14,6 +14,7 @@ import { localReconciliationReportReturnContext } from './reconciliation-report-
 import { localAccountRegisterReturnScopeLabel } from './account-register-return.js';
 import { localReconciliationPaymentReturnTarget, localReconciliationReceiptReturnTarget } from './reconciliation-receipt-return.js';
 import { localReconciliationHistoryRegisterContext } from './reconciliation-register-return.js';
+import { buildWbsBankReconciliationEvidence } from './wbs-bank-reconciliation-evidence.js';
 
 // Standard reconciliation model:
 // Statement Ending Balance + Deposits in Transit - Outstanding Checks = Adjusted Bank Balance
@@ -55,6 +56,7 @@ export function BankRec2({ctx}) {
   const localEvidence = localReconciliationEvidence({accountCode:acctCode, bankAccount:a, journals:jes, bankAccountMaster:BANK_ACCOUNTS});
   const localReadiness = localReconciliationReadiness(reconStatus, localEvidence);
   const worksheet = localReconciliationWorksheet({accountCode:acctCode, bankAccount:a, baseStatus:reconStatus, evidence:localEvidence, readiness:localReadiness, phase:localReconciliationPhase(reconStatus, localReadiness, localEvidence)});
+  const wbsBankEvidence = useMemo(()=>buildWbsBankReconciliationEvidence(),[]);
   const canSign = localReadiness.canSign;
   const localPhase = worksheet.phase;
   const signedHistory = reconStatus.signedHistory;
@@ -126,6 +128,20 @@ export function BankRec2({ctx}) {
         <Btn size="sm" variant="ghost" disabled={!reportScopeCompatible} title={reportScopeCompatible?'Open the same active entity and statement cutoff':'Select the matching local entity before drilling to aging'} onClick={()=>openScopedReport('ar','AR Aging')}>Open AR Aging</Btn>
         <Btn size="sm" variant="ghost" disabled={!reportScopeCompatible} title={reportScopeCompatible?'Open the same active entity and statement cutoff':'Select the matching local entity before drilling to aging'} onClick={()=>openScopedReport('ap','AP Aging')}>Open AP Aging</Btn>
       </div>
+    </section>
+    <section className="report-workbench" aria-label="WBS mock bank rule evidence" style={{marginBottom:14}}>
+      <div className="report-workbench-head"><div><b>WBS mock bank rule evidence</b><div className="page-subtitle">Read-only WBS mock bank transactions are classified before reconciliation. This layer never auto-matches, clears, posts, or signs off.</div></div><Badge tone={wbsBankEvidence.summary.reviewRequired?'warn':'ok'}>{wbsBankEvidence.mode}</Badge></div>
+      <div className="qbo-toolgrid"><span><i>Total WBS bank rows</i><b>{wbsBankEvidence.summary.total}</b></span><span><i>Matched candidates</i><b>{wbsBankEvidence.summary.matched}</b></span><span><i>Missing AP exceptions</i><b>{wbsBankEvidence.summary.missingAp}</b></span><span><i>Loan draws detected</i><b>{wbsBankEvidence.summary.loanDraws}</b></span><span><i>Review required</i><b>{wbsBankEvidence.summary.reviewRequired}</b></span><span><i>Signed amount total</i><b>{money(wbsBankEvidence.summary.totalAmount)}</b></span></div>
+      <Table rowKey="bank_txn_id" features={{exportable:false}} pageSize={8} cols={[
+        {h:'WBS bank item',render:row=>row.bank_txn_id},
+        {h:'Direction',k:'direction'},
+        {h:'Amount',num:true,render:row=><Money v={row.amount}/>,sortVal:row=>row.amount},
+        {h:'Rule',render:row=><span className="acct-code">{row.rule_id}</span>,csv:row=>row.rule_id},
+        {h:'Queue',render:row=><Badge tone={row.suggested_queue==='EXACT_MATCH_REVIEW'?'ok':row.suggested_queue==='LOAN_DRAW_REVIEW'?'warn':'bad'}>{row.suggested_queue}</Badge>,csv:row=>row.suggested_queue},
+        {h:'Control state',render:row=><Badge tone={row.control_state==='MATCH_CANDIDATE_RETAINED'?'ok':row.control_state==='LOAN_DRAW_DETECTED'?'warn':'bad'}>{row.control_state}</Badge>,csv:row=>row.control_state},
+        {h:'Reason',k:'reason'},
+      ]} rows={wbsBankEvidence.bankRows} empty="No WBS mock bank rows are available."/>
+      <p className="muted sm" style={{margin:'10px 0 0'}}>Business boundary: WBS mock evidence can route exact matches, missing-AP exceptions and loan-draw review, but it cannot update the local worksheet or create accounting until a human-controlled Draft JE workflow is used.</p>
     </section>
     <section className="report-workbench" aria-label="Reconciliation statement bridge" style={{marginBottom:14}}>
       <div className="report-workbench-head"><div><b>Statement-level reconciliation bridge</b><div className="page-subtitle">Book balance + retained adjustments = adjusted book; statement ending + retained timing evidence = adjusted bank.</div></div><Badge tone={Math.abs(diff) < 0.005 && localEvidence.bookBalanceAligned ? 'ok' : 'warn'}>{Math.abs(diff) < 0.005 && localEvidence.bookBalanceAligned ? 'STATEMENT_TIED' : 'STATEMENT_REVIEW'}</Badge></div>
