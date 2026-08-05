@@ -52,9 +52,23 @@ export function verifyWbsReceiptEvidence(environment = process.env) {
   return true;
 }
 
+export function verifyAllExternalReleaseEvidence(environment = process.env) {
+  const checks = [
+    ['ui', verifyUiEvidence],
+    ['s3', verifyS3ScannerEvidence],
+    ['wbs', verifyWbsReceiptEvidence],
+  ];
+  let ok = true;
+  for (const [, runner] of checks) {
+    ok = runner(environment) && ok;
+  }
+  if (ok) console.log(`external-release-gate: ${checks.length}/3 provider evidence gates verified`);
+  return ok;
+}
+
 if (import.meta.url === `file:///${process.argv[1]?.replaceAll('\\', '/')}`) {
   const gate = process.argv[2];
-  const runner = { ui: verifyUiEvidence, s3: verifyS3ScannerEvidence, wbs: verifyWbsReceiptEvidence }[gate];
-  if (!runner) fail('RELEASE_GATE_ARGUMENT_INVALID', 'use ui, s3, or wbs');
+  const runner = { ui: verifyUiEvidence, s3: verifyS3ScannerEvidence, wbs: verifyWbsReceiptEvidence, all: verifyAllExternalReleaseEvidence }[gate];
+  if (!runner) fail('RELEASE_GATE_ARGUMENT_INVALID', 'use ui, s3, wbs, or all');
   else if (!runner()) process.exitCode ||= 1;
 }

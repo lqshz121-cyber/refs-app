@@ -22,6 +22,14 @@ for (const name of ['ui', 's3', 'wbs']) {
   );
 }
 
+const aggregate = spawnSync(node, [gate, 'all'], { encoding: 'utf8', env });
+assert.equal(
+  aggregate.status,
+  0,
+  `aggregate local simulation gate failed\nSTDOUT:\n${aggregate.stdout}\nSTDERR:\n${aggregate.stderr}`,
+);
+assert.match(aggregate.stdout, /external-release-gate: 3\/3 provider evidence gates verified/);
+
 const uiManifest = JSON.parse(readFileSync(envConfig.REFS_UI_E2E_MANIFEST, 'utf8'));
 assert.equal(uiManifest.mode, 'LOCAL_SIMULATION');
 assert.match(uiManifest.warning, /not production\/live evidence/i);

@@ -21,6 +21,7 @@
     "test:visual": "npm.cmd run build && node tools/run-verifiers.mjs",
     "test:release-harness": "node tools/verify-external-release-gate.test.mjs",
     "test:release-simulation": "node tools/verify-local-release-simulation.test.mjs",
+    "verify:external-release-gate": "node tools/verify-external-release-gate.mjs all",
     "verify:release-ui-e2e": "node tools/verify-external-release-gate.mjs ui",
     "verify:release-s3-scanner": "node tools/verify-external-release-gate.mjs s3",
     "verify:release-wbs-receipt": "node tools/verify-external-release-gate.mjs wbs"
