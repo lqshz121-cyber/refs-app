@@ -1,10 +1,21 @@
 import {canonicalRequestHash} from './request-hash.mjs';
 
 const TRANSACTION_TYPES=new Set(['BANK_TRANSACTION','PAYABLE','AUTOREC_PAYMENT_DETAIL']);
+const OBSERVED_DETAIL_KINDS=new Set(['NOT_MATCH_PAYMENT','RELEASED_PAYMENT','INCURRED_PAYMENT','COMPANY_ACCOUNT','JE_TRACE','BS_CONTROL','IS_CONTROL']);
 const text=value=>value==null?'':String(value).trim();
 const decimal=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
+const decimalText=value=>{const parsed=decimal(value);return parsed===null?null:parsed.toFixed(4);};
 const validDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(text(value));
 const freeze=value=>Object.freeze(value);
+const FORBIDDEN_WBS_OPERATIONS=freeze(['Add','Refresh','Delete','Create','Post','Post All','Cancel Post','Review']);
+const validPeriod=value=>{const candidate=text(value);return candidate!==''&&candidate.length<=64&&!/[\u0000-\u001f\u007f]/.test(candidate);};
+const sensitiveInput=value=>{
+  if(value==null)return false;
+  if(typeof value==='string')return /(?:[?&]token=|authorization\s*:|bearer\s+)/i.test(value);
+  if(Array.isArray(value))return value.some(sensitiveInput);
+  if(typeof value==='object')return Object.entries(value).some(([key,item])=>/(token|authorization|cookie|password|secret)/i.test(key)||sensitiveInput(item));
+  return false;
+};
 
 export class WbsInboundProjectionError extends Error { constructor(code,message){super(message);this.name='WbsInboundProjectionError';this.code=code;} }
 const exception=(row,code,message)=>freeze({stage:'EXCEPTION',code,message,source_record_id:text(row?.source_record_id)||null,raw_event_id:text(row?.raw_event_id)||null,staging_item_id:text(row?.staging_item_id)||null,can_dispatch:false,can_post:false});
@@ -25,14 +36,47 @@ function mappingFor(row,mappings){
   return {mapping:matches[0]};
 }
 
+function companyControl(row){
+  if(!row||typeof row!=='object'||sensitiveInput(row))return {error:exception(row,'WBS_AUTOREC_CONTROL_INPUT_INVALID','Observed WBS control evidence contains an unsafe or invalid locator')};
+  const quantities={quantity:decimal(row.quantity),released_quantity:decimal(row.released_quantity),incurred_quantity:decimal(row.incurred_quantity)};
+  const amounts={amount:decimal(row.amount),released_amount:decimal(row.released_amount),incurred_amount:decimal(row.incurred_amount),reconciliation_balance:decimal(row.reconciliation_balance),new_balance:decimal(row.new_balance)};
+  const invalid=text(row.company_key)===''||text(row.user_ref)===''||!validPeriod(row.completed_match_period)||!validPeriod(row.completed_release_period)||!validPeriod(row.completed_incur_period)||!validDate(row.balance_date)||Object.values(quantities).some(value=>value===null||value<0)||Object.values(amounts).some(value=>value===null)||quantities.released_quantity>quantities.quantity||quantities.incurred_quantity>quantities.released_quantity||amounts.released_amount>amounts.amount||amounts.incurred_amount>amounts.released_amount;
+  if(invalid)return {error:exception(row,'WBS_AUTOREC_CONTROL_INVALID','Observed WBS M/R/C quantity, amount, or balance controls are incomplete or do not conserve')};
+  return {control:freeze({company_key:text(row.company_key),user_ref:text(row.user_ref),completed_periods:freeze({match:text(row.completed_match_period),release:text(row.completed_release_period),incur:text(row.completed_incur_period)}),quantity:quantities.quantity,released_quantity:quantities.released_quantity,incurred_quantity:quantities.incurred_quantity,amount:decimalText(amounts.amount),released_amount:decimalText(amounts.released_amount),incurred_amount:decimalText(amounts.incurred_amount),reconciliation_balance:decimalText(amounts.reconciliation_balance),new_balance:decimalText(amounts.new_balance),balance_date:text(row.balance_date),can_dispatch:false,can_post:false})};
+}
+
+function detailControl(row){
+  if(!row||typeof row!=='object'||sensitiveInput(row))return {error:exception(row,'WBS_AUTOREC_CONTROL_INPUT_INVALID','Observed WBS detail evidence contains an unsafe or invalid locator')};
+  const required=['detail_kind','receipt_id','receipt_ref','receipt_hash','source_record_id','source_version'];
+  const missing=required.filter(key=>text(row[key])==='');
+  if(!OBSERVED_DETAIL_KINDS.has(text(row.detail_kind))||missing.length)return {error:exception(row,'WBS_AUTOREC_CONTROL_TRACE_REQUIRED',`Observed WBS detail requires ${missing.join(', ')||'a supported detail kind'}`)};
+  const fields=['posting_date','create_date','source','journal_no','check_no','payee','memo','account_code','cost_code','cost_class','payable_ref','unit_ref','debit','credit','originator','reviewer','approver','review_status','approval_status','posting_status'];
+  const observed_fields=Object.fromEntries(fields.filter(key=>row[key]!=null&&text(row[key])!=='').map(key=>[key,(key==='debit'||key==='credit')?decimalText(row[key]):text(row[key])]));
+  if(('posting_date' in observed_fields&&!validDate(observed_fields.posting_date))||('create_date' in observed_fields&&!validDate(observed_fields.create_date))||(('debit' in observed_fields)&&observed_fields.debit===null)||(('credit' in observed_fields)&&observed_fields.credit===null))return {error:exception(row,'WBS_AUTOREC_CONTROL_TRACE_INVALID','Observed WBS detail has an invalid posting, creation, debit, or credit value')};
+  return {detail:freeze({detail_kind:text(row.detail_kind),receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),observed_fields:freeze(observed_fields),can_dispatch:false,can_post:false})};
+}
+
+// A read-only copy of the observed WBS Auto Bank Reconciliation controls. It
+// records four display steps (Company Screening, Data Processing & Release,
+// Incur, Incurred List) as evidence only: no WBS action is callable here.
+export function projectObservedWbsAutoRecControlEvidence({companyRows,detailRows=[]}={}){
+  if(!Array.isArray(companyRows)||!Array.isArray(detailRows))throw new WbsInboundProjectionError('WBS_AUTOREC_CONTROL_ROWS_REQUIRED','Observed WBS company and detail control rows must be arrays');
+  const controls=[],details=[],exceptions=[];
+  for(const row of companyRows){const result=companyControl(row);result.error?exceptions.push(result.error):controls.push(result.control);}
+  for(const row of detailRows){const result=detailControl(row);result.error?exceptions.push(result.error):details.push(result.detail);}
+  return freeze({evidence_type:'WBS_AUTOREC_OBSERVED_CONTROL_EVIDENCE_V1',observed_steps:freeze(['Company Screening','Data Processing & Release','Incur','Incurred List']),controls:freeze(controls),details:freeze(details),exceptions:freeze(exceptions),forbidden_wbs_operations:FORBIDDEN_WBS_OPERATIONS,can_dispatch:false,can_create_draft:false,can_post:false});
+}
+
 // Read-only projection from a persisted staging/exception read model. It does
 // not allocate, release, dispatch a Draft command, or post. The source rows
 // must already carry the immutable receipt and Raw→Staging identifiers created
 // by the atomic intake command.
-export function projectPersistedWbsInboundAutoRec({rows,mappings=[]}={}){
+export function projectPersistedWbsInboundAutoRec({rows,mappings=[],companyControlRows=null,detailControlRows=[]}={}){
   if(!Array.isArray(rows))throw new WbsInboundProjectionError('WBS_AUTOREC_PROJECTION_ROWS_REQUIRED','Persisted WBS inbound rows are required');
   if(!Array.isArray(mappings))throw new WbsInboundProjectionError('WBS_AUTOREC_PROJECTION_MAPPINGS_INVALID','Approved mapping read rows must be an array');
   const candidates=[],exceptions=[];
+  const control_evidence=companyControlRows===null?null:projectObservedWbsAutoRecControlEvidence({companyRows:companyControlRows,detailRows:detailControlRows});
+  if(control_evidence?.exceptions.length)exceptions.push(...control_evidence.exceptions);
   for(const row of rows){
     if(!row||typeof row!=='object'){exceptions.push(exception(null,'WBS_AUTOREC_PERSISTED_ROW_INVALID','Persisted WBS inbound row is invalid'));continue;}
     if(text(row.stage)==='EXCEPTION'){exceptions.push(exception(row,text(row.exception_code)||'WBS_INBOUND_EXCEPTION',text(row.exception_message)||'Persisted inbound exception remains blocked'));continue;}
@@ -44,5 +88,6 @@ export function projectPersistedWbsInboundAutoRec({rows,mappings=[]}={}){
     const trace=freeze({receipt_id:row.receipt_id,receipt_ref:row.receipt_ref,receipt_hash:row.receipt_hash,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,source_record_id:row.source_record_id,source_version:row.source_version,mapping_id:resolution.mapping.mapping_id,mapping_version:resolution.mapping.version});
     candidates.push(freeze({review_candidate_id:canonicalRequestHash({side,trace}),stage:'STAGING_REVIEWED',side,source_type:row.source_type,entity_id:row.entity_id,company_key:row.company_key,currency:row.currency,amount:decimal(row.amount),business_date:row.business_date,accounting_date:row.accounting_date,bank_account_ref:row.bank_account_ref??null,source_record_id:row.source_record_id,source_version:row.source_version,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,mapping:freeze({mapping_id:resolution.mapping.mapping_id,version:resolution.mapping.version}),trace,can_dispatch:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false}));
   }
-  return freeze({projection:'WBS_PERSISTED_INBOUND_AUTOREC_REVIEW_V1',candidates:freeze(candidates),exceptions:freeze(exceptions),controls:freeze({candidate_count:candidates.length,exception_count:exceptions.length,can_dispatch:false,can_post:false}),required_next_controls:freeze(['human Auto Reconciliation review','separate authoritative allocation/release command','standard Draft JE workflow'])});
+  const failClosed=control_evidence?.exceptions.length>0;
+  return freeze({projection:'WBS_PERSISTED_INBOUND_AUTOREC_REVIEW_V1',candidates:freeze(failClosed?[]:candidates),exceptions:freeze(exceptions),control_evidence,controls:freeze({candidate_count:failClosed?0:candidates.length,exception_count:exceptions.length,can_dispatch:false,can_post:false}),required_next_controls:freeze(['human Auto Reconciliation review','separate authoritative allocation/release command','standard Draft JE workflow'])});
 }
