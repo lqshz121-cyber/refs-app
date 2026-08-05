@@ -26,6 +26,11 @@ assert.throws(()=>repo.apply({...input,outcome:{decision:'EDIT',idempotency_key:
 assert.throws(()=>repo.apply({...input,actor:'controller-2'}),/idempotency conflict/);
 assert.throws(()=>repo.apply({...input,draft:{...draft,ai_proposal_id:'other-proposal'}}),/idempotency conflict/);
 
+const orderingRepo=createAIReviewOutcomeRepository(memory());
+const orderedEdit={draft,outcome:{decision:'EDIT',idempotency_key:'ordered-edit-1',patch:{description:'Canonical edit',metadata:{z:'last',a:'first'}}},actor:'controller-1'};
+assert.equal(orderingRepo.apply(orderedEdit).status,'COMMITTED');
+assert.equal(orderingRepo.apply({...orderedEdit,outcome:{...orderedEdit.outcome,patch:{metadata:{a:'first',z:'last'},description:'Canonical edit'}}}).status,'IDEMPOTENT_REUSE');
+
 const failingStore=memory(); let writes=0; const failing={load:failingStore.load,save:(key,value)=>{writes+=1;if(writes===2) throw new Error('simulated commit failure');failingStore.save(key,value);}};
 const recoverable=createAIReviewOutcomeRepository(failing);
 assert.throws(()=>recoverable.apply({...input,outcome:{...input.outcome,idempotency_key:'recover-1'}}),/simulated/);
