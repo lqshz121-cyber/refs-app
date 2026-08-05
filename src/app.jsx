@@ -79,18 +79,19 @@ const NAV = [
   {group:'Auto Reconciliation', icon:'⟳', items:[['autobankrec','Bank Batch Pipeline'],['banktx','Bank Transaction Matching'],['bankrec','Reconciliation Worksheet'],['checks','Checks & Payments']]},
   {group:'Journal Entry', icon:'✎', items:[['je','Journal Entries']]},
   {group:'General Ledger', icon:'☰', items:[['gl','GL / TB / BS / IS'],['register','Account Inquiry'],['subledger','Subsidiary ledger'],['coa','Chart of Accounts']]},
-  {group:'Real Estate Accounting', icon:'▲', items:[['cost','Project Cost & CWIP'],['unitcost','Unit Cost Ledger'],['unittransfer','Unit Transfer'],['loan','Construction Loan'],['loanreg','Loan Register'],['pmpickup','Property Ops Pickup'],['closing','Closing Accounting'],['intercompany','Intercompany'],['assets','Fixed Assets']]},
+  {group:'Accounting Operations', icon:'▲', items:[['cost','Project Cost & CWIP'],['unitcost','Unit Cost Ledger'],['unittransfer','Unit Transfer'],['loan','Construction Loan'],['loanreg','Loan Register'],['pmpickup','Property Ops Pickup'],['closing','Closing Accounting'],['intercompany','Intercompany'],['assets','Fixed Assets']]},
   {group:'Close', icon:'☑', items:[['close','Month-End Close']]},
   {group:'Reports', icon:'▤', items:[['reports','Reports Center']]},
   {group:'Admin', icon:'◈', adminOnly:true, items:[['masterdata','Master Data'],['ap','AP (legacy)'],['ar','AR (legacy)'],['cash','Bank Accounts'],['audit','Audit Log'],['admin','Users & Settings']]},
 ];
-NAV.find(group => group.group === 'Real Estate Accounting')?.items.splice(3, 0, ['amortization', 'Amortization Center'], ['accruals', 'Accrual Center']);
+NAV.find(group => group.group === 'Accounting Operations')?.items.splice(3, 0, ['amortization', 'Amortization Center'], ['accruals', 'Accrual Center']);
 const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, setting:CompanySetting, aireview:AIAudit, aijeworkbench:AIJEWorkbench, staging:StagingCenter, unittransfer:UnitTransfer, sourcedocs:SourceDocs, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
   pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARWorkspace,
   cash:CashModule, bankrec:BankRec2, autobankrec:AutoBankRec, checks:CheckMgmt, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
   mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, reports:Reports, admin:AdminModule };
 COMP.amortization = AmortizationCenter;
 COMP.accruals = AccrualCenter;
+const IA_HIDDEN_ROUTES = new Set(['cost','unitcost','unittransfer','loan','loanreg','pmpickup']);
 const ADMIN_ROLES = ['CONTROLLER','SYS_ADMIN','AUDITOR'];
 
 // ---- seed AP bills & bank rec model ----
@@ -257,7 +258,7 @@ function App() {
   if (!user) return <Login onLogin={setUserId}/>;
 
   const isAdmin = ADMIN_ROLES.includes(user.role_code);
-  const nav = NAV.filter(g=>!g.adminOnly || isAdmin);
+  const nav = [...NAV,{group:'Accounts Payable & Receivable',icon:'▣',items:[['ap','Accounts Payable'],['ar','Accounts Receivable']]}].filter(g=>!g.adminOnly || isAdmin).map(g=>({...g,items:g.items.filter(([k])=>!IA_HIDDEN_ROUTES.has(k))})).filter(g=>g.items.length);
   const flat = nav.flatMap(g=>g.items.map(([k,l])=>[k,'·',l]));
   const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, user, entity, period, can, actions, toast:showToast, goto, navContext};
   const Comp = COMP[route] || Dashboard;
