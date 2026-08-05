@@ -298,6 +298,45 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async startReconciliation(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_reconciliation_start_hash($1,$2,$3,$4::date,$5,$6,$7) AS request_hash',
+        [args.tenantId,args.entityId,args.bankAccountRef,args.statementEndingDate,args.statementOpeningBalance,args.statementEndingBalance,args.reason]
+      ),'RECONCILIATION_START_HASH_FAILED','Reconciliation start hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_start_reconciliation($1,$2,$3,$4::date,$5,$6,$7,$8,$9) AS result',
+        [args.tenantId,args.entityId,args.bankAccountRef,args.statementEndingDate,args.statementOpeningBalance,args.statementEndingBalance,args.reason,args.idempotencyKey,requestHash]
+      ),'RECONCILIATION_START_FAILED','Reconciliation start did not return a result').result;
+    });
+  }
+
+  async setReconciliationClearance(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_reconciliation_clearance_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',
+        [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceId,args.expectedReconciliationVersion,args.expectedBankVersion,args.clear,args.reason]
+      ),'RECONCILIATION_CLEARANCE_HASH_FAILED','Reconciliation clearance hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_set_reconciliation_clearance($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+        [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceId,args.expectedReconciliationVersion,args.expectedBankVersion,args.clear,args.reason,args.idempotencyKey,requestHash]
+      ),'RECONCILIATION_CLEARANCE_FAILED','Reconciliation clearance did not return a result').result;
+    });
+  }
+
+  async transitionReconciliation(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_reconciliation_transition_hash($1,$2,$3,$4,$5,$6) AS request_hash',
+        [args.tenantId,args.entityId,args.reconciliationId,args.action,args.expectedVersion,args.reason]
+      ),'RECONCILIATION_TRANSITION_HASH_FAILED','Reconciliation transition hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_transition_reconciliation($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+        [args.tenantId,args.entityId,args.reconciliationId,args.action,args.expectedVersion,args.reason,args.idempotencyKey,requestHash]
+      ),'RECONCILIATION_TRANSITION_FAILED','Reconciliation transition did not return a result').result;
+    });
+  }
+
   async createBankPaymentMatch(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

@@ -1481,6 +1481,94 @@ pgTest('bank and reconciliation reads enforce permission, tenant, entity, accoun
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data[0].reconciliation_id,reconciliationId);
 });
 
+pgTest('reconciliation lifecycle is scoped, idempotent, separated by role, snapshotted, and reopen-gated',async()=>{
+  const ids=await seed({status:'APPROVED',attachmentStatus:null});const billId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,'AP_BILL','BILL-RECON-1','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
+  const paymentMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-maker',['AP.PAYMENT.CREATE','GL.JE.SUBMIT'])});
+  const paymentReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-reviewer',['GL.JE.REVIEW'])});
+  const paymentApprover=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-approver',['GL.JE.APPROVE'])});
+  const paymentPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-payment-poster',['GL.JE.POST'])});
+  const payment=await paymentMaker.createApPayment({...ids,businessDocumentId:billId,paymentNumber:'PAY-RECON-100',paymentDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:100,reason:'Reconciliation exact payment evidence',idempotencyKey:'recon-payment-create-001'});
+  const trace=await attachAutoSource({...ids,journalId:payment.journal_entry_id});
+  await paymentMaker.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'recon-payment-submit-001'});
+  await paymentReviewer.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'recon-payment-review-001'});
+  await paymentApprover.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'recon-payment-approve-001'});
+  await paymentPoster.postJournal({...ids,journalEntryId:payment.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'recon-payment-post-001'});
+  const bankSourceId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','BANK-RECON-1','2026-07-16','USD',-100)`,[bankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
+  const matcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-matcher',['BANK.MATCH.CREATE'])});
+  const matched=await matcher.createBankPaymentMatch({...ids,bankSourceId,paymentOccurrenceId:payment.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Exact posted payment selected for reconciliation',idempotencyKey:'recon-bank-match-001'});
+  const bankMatchId=matched.bank_match_id;
+  const starter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-starter',['BANK.RECONCILIATION.START'])});
+  const clearer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-clearer',['BANK.RECONCILIATION.CLEAR'])});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-reviewer',['BANK.RECONCILIATION.REVIEW'])});
+  const signer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-signer',['BANK.RECONCILIATION.SIGN_OFF'])});
+  const reopener=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-reopener',['BANK.RECONCILIATION.REOPEN'])});
+  const unmatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-unmatcher',['BANK.MATCH.UNMATCH'])});
+  const startArgs={...ids,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'-100.0000',reason:'Start July statement review',idempotencyKey:'reconciliation-start-001'};
+  const started=await starter.startReconciliation(startArgs),startReplay=await starter.startReconciliation(startArgs);
+  assert.equal(started.status,'DRAFT');assert.equal(started.revision,0);assert.equal(startReplay.idempotent,true);
+  await adminPool.query("UPDATE payment_occurrence SET status='DRAFT' WHERE payment_occurrence_id=$1",[payment.payment_occurrence_id]);
+  await assert.rejects(clearer.setReconciliationClearance({...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Changed occurrence must not clear',idempotencyKey:'reconciliation-clear-tampered-occurrence-001'}),error=>error.code==='23514'&&/exact actively matched/i.test(error.message));
+  await adminPool.query("UPDATE payment_occurrence SET status='POSTED' WHERE payment_occurrence_id=$1",[payment.payment_occurrence_id]);
+  const cleared=await clearer.setReconciliationClearance({...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Exact active match cleared',idempotencyKey:'reconciliation-clear-001'});
+  assert.equal(Number(cleared.difference),0);assert.equal(cleared.revision,1);
+  const reviewed=await reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:1,reason:'Reviewer verified complete statement evidence',idempotencyKey:'reconciliation-review-001'});
+  assert.equal(reviewed.status,'IN_REVIEW');assert.equal(reviewed.revision,2);
+  await assert.rejects(reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Reviewer cannot sign own work',idempotencyKey:'reconciliation-signoff-bad-001'}),error=>error.code==='42501');
+  const signed=await signer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Independent controller statement sign off',idempotencyKey:'reconciliation-signoff-001'});
+  assert.equal(signed.status,'RECONCILED');assert.ok(signed.snapshot_id);assert.match(signed.snapshot_hash,/^sha256:[0-9a-f]{64}$/);
+  await assert.rejects(starter.startReconciliation({...startArgs,statementEndingDate:'2026-07-30',idempotencyKey:'reconciliation-retro-start-001'}),error=>error.code==='23514'&&/latest signed-off/i.test(error.message));
+  await assert.rejects(unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Blocked while statement is signed',idempotencyKey:'reconciliation-unmatch-bad-001'}),error=>error.code==='23514'&&/reopened/i.test(error.message));
+  const laterReconciliationId=randomUUID();
+  await adminPool.query(`INSERT INTO reconciliation(reconciliation_id,tenant_id,entity_id,bank_account_ref,statement_ending_date,statement_opening_balance,statement_ending_balance,book_ending_balance,currency,difference,status,reconciled_by,reconciled_at)
+    VALUES($1,$2,$3,'BANK-1','2026-08-31',-100,-100,-100,'USD',0,'RECONCILED','later-signer',now())`,[laterReconciliationId,ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO reconciliation_snapshot(reconciliation_snapshot_id,tenant_id,entity_id,reconciliation_id,reconciliation_version,statement_ending_date,snapshot_body,snapshot_hash,signed_off_by)
+    VALUES(gen_random_uuid(),$1,$2,$3,0,'2026-08-31',jsonb_build_object('fixture','later-signed'),refs_jsonb_hash(jsonb_build_object('fixture','later-signed')),'later-signer')`,[ids.tenantId,ids.entityId,laterReconciliationId]);
+  await assert.rejects(reopener.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REOPEN',expectedVersion:3,reason:'Older statement cannot reopen after later sign off',idempotencyKey:'reconciliation-reopen-out-of-order-001'}),error=>error.code==='23514'&&/latest signed-off/i.test(error.message));
+  const laterReopened=await reopener.transitionReconciliation({...ids,reconciliationId:laterReconciliationId,action:'REOPEN',expectedVersion:0,reason:'Latest signed statement may be reopened',idempotencyKey:'reconciliation-reopen-later-001'});
+  assert.equal(laterReopened.status,'REOPENED');
+  await assert.rejects(reopener.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REOPEN',expectedVersion:3,reason:'Older statement remains blocked after latest reopen',idempotencyKey:'reconciliation-reopen-after-latest-reopened-001'}),error=>error.code==='23514'&&/latest signed-off/i.test(error.message));
+  await adminPool.query('DELETE FROM reconciliation_snapshot WHERE reconciliation_id=$1',[laterReconciliationId]);
+  await adminPool.query('DELETE FROM reconciliation WHERE reconciliation_id=$1',[laterReconciliationId]);
+  const reopened=await reopener.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REOPEN',expectedVersion:3,reason:'Independent controller approved reopen',idempotencyKey:'reconciliation-reopen-001'});
+  assert.equal(reopened.status,'REOPENED');assert.equal(reopened.revision,4);
+  assert.equal((await unmatcher.unmatchBankPayment({...ids,bankSourceId,bankMatchId,expectedMatchVersion:0,reason:'Unmatch after controlled statement reopen',idempotencyKey:'reconciliation-unmatch-001'})).status,'UNMATCHED');
+  const snapshot=(await adminPool.query('SELECT signed_off_by,snapshot_hash FROM reconciliation_snapshot WHERE reconciliation_id=$1',[started.reconciliation_id])).rows[0];
+  assert.equal(snapshot.signed_off_by,'recon-signer');assert.equal(snapshot.snapshot_hash,signed.snapshot_hash);
+});
+
+pgTest('reconciliation rejects mixed currencies and non-posted hand-made match evidence',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null});const trace=await attachAutoSource(ids);
+  const starter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-negative-starter',['BANK.RECONCILIATION.START'])});
+  const clearer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-negative-clearer',['BANK.RECONCILIATION.CLEAR'])});
+  const mixedUsd=randomUUID(),mixedEur=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$3,$4,$5,'BANK-MIX','BANK-MIX-USD','2026-07-15','USD',10),($2,$3,$4,$5,'BANK-MIX','BANK-MIX-EUR','2026-07-16','EUR',10)`,[mixedUsd,mixedEur,ids.tenantId,ids.entityId,trace.documentId]);
+  await assert.rejects(starter.startReconciliation({...ids,bankAccountRef:'BANK-MIX',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'20.0000',reason:'Mixed currency statement must fail closed',idempotencyKey:'reconciliation-mixed-currency-001'}),error=>error.code==='23514'&&/one statement currency/i.test(error.message));
+
+  const concurrentSource=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-CONCURRENT','BANK-CONCURRENT-1','2026-07-15','USD',10)`,[concurrentSource,ids.tenantId,ids.entityId,trace.documentId]);
+  const concurrent=await Promise.allSettled([
+    starter.startReconciliation({...ids,bankAccountRef:'BANK-CONCURRENT',statementEndingDate:'2026-07-30',statementOpeningBalance:'0.0000',statementEndingBalance:'0.0000',reason:'Concurrent statement candidate one',idempotencyKey:'reconciliation-concurrent-start-001'}),
+    starter.startReconciliation({...ids,bankAccountRef:'BANK-CONCURRENT',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'0.0000',reason:'Concurrent statement candidate two',idempotencyKey:'reconciliation-concurrent-start-002'}),
+  ]);
+  assert.equal(concurrent.filter(result=>result.status==='fulfilled').length,1);
+  assert.equal(concurrent.filter(result=>result.status==='rejected'&&result.reason?.code==='23505').length,1);
+
+  const bankSourceId=randomUUID(),bankMatchId=randomUUID();
+  const journalLineId=(await adminPool.query('SELECT journal_line_id FROM journal_line WHERE journal_entry_id=$1 ORDER BY line_no LIMIT 1',[ids.journalId])).rows[0].journal_line_id;
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-FAKE','BANK-FAKE-1','2026-07-15','USD',100)`,[bankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
+  await adminPool.query(`INSERT INTO bank_match(bank_match_id,tenant_id,entity_id,bank_source_id,business_source_document_id,journal_entry_id,journal_line_id,candidate_rule_code,amount_delta,currency_match,date_delta_days,status,matched_by)
+    VALUES($1,$2,$3,$4,$5,$6,$7,'EXACT_POSTED_PAYMENT',0,true,0,'ACTIVE','fixture-matcher')`,[bankMatchId,ids.tenantId,ids.entityId,bankSourceId,trace.documentId,ids.journalId,journalLineId]);
+  const started=await starter.startReconciliation({...ids,bankAccountRef:'BANK-FAKE',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'100.0000',reason:'Start fake evidence negative statement',idempotencyKey:'reconciliation-fake-start-001'});
+  await assert.rejects(clearer.setReconciliationClearance({...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Hand-made active match must not clear',idempotencyKey:'reconciliation-fake-clear-001'}),error=>error.code==='23514'&&/exact actively matched/i.test(error.message));
+});
+
 pgTest('061 bank match creates exact posted AP evidence once and fails closed for reversal and ambiguous cash account evidence',async()=>{
   const ids=await seed({status:'APPROVED',attachmentStatus:null});const billId=randomUUID();
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)

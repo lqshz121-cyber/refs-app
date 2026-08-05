@@ -21,6 +21,7 @@ const requireExactQuery=(searchParams,allowed)=>{const permitted=new Set(allowed
 const requireIdempotency=headers=>{const value=header(headers,'idempotency-key');if(typeof value!=='string'||value.length<8||value.length>200)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_REQUIRED','Idempotency-Key must be 8-200 characters');return value;};
 const requireRevision=headers=>{const raw=header(headers,'if-match');if(raw==null)throw new AccountingApiError(428,'IF_MATCH_REQUIRED','If-Match is required');const value=String(raw).trim();if(value.startsWith('W/'))throw new AccountingApiError(412,'WEAK_IF_MATCH_REJECTED','If-Match must use a strong revision validator');const match=/^"(\d+)"$/.exec(value);if(!match)throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must be a quoted non-negative strong revision');const revision=Number(match[1]);if(!Number.isSafeInteger(revision))throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must contain a safe non-negative revision');return revision;};
 const requireReviewReason=value=>{if(typeof value!=='string'||value!==value.trim()||value.length<8||value.length>2000||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_REASON','reason must be a canonical 8-2000 character review explanation');return value;};
+const requireDecimalAmount=(value,name)=>{if(typeof value!=='string'||!/^-?(?:0|[1-9]\d{0,15})(?:\.\d{1,4})?$/.test(value))throw new AccountingApiError(400,'INVALID_AMOUNT',`${name} must be a canonical decimal string with at most four fractional digits`);return value;};
 const validateBody=body=>{if(!body||typeof body!=='object'||Array.isArray(body))throw new AccountingApiError(400,'JSON_OBJECT_REQUIRED','Request body must be a JSON object');for(const key of Object.keys(body))if(FORBIDDEN_BODY_KEYS.has(key))throw new AccountingApiError(400,'IDENTITY_FIELD_FORBIDDEN',`${key} must come from authenticated context`);return body;};
 const allowOnly=(body,allowed)=>{const unexpected=Object.keys(body).filter(key=>!allowed.includes(key));if(unexpected.length)throw new AccountingApiError(400,'UNEXPECTED_FIELD',`Unexpected request field: ${unexpected[0]}`);return body;};
 
@@ -137,6 +138,21 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['reason']);
         result=await kernel.unmatchBankPayment({tenantId:principal.tenantId,entityId,bankSourceId:requireUuid(parts[6],'bankSourceId'),bankMatchId:requireUuid(parts[8],'bankMatchId'),expectedMatchVersion:requireRevision(headers),reason:requireReviewReason(payload.reason),idempotencyKey});
+      }else if(parts.length===6&&parts[4]==='bank'&&parts[5]==='reconciliations'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['bankAccountRef','statementEndingDate','statementOpeningBalance','statementEndingBalance','reason']);
+        result=await kernel.startReconciliation({tenantId:principal.tenantId,entityId,bankAccountRef:requireBankAccountRef(payload.bankAccountRef),statementEndingDate:requireIsoDate(payload.statementEndingDate,'statementEndingDate'),statementOpeningBalance:requireDecimalAmount(payload.statementOpeningBalance,'statementOpeningBalance'),statementEndingBalance:requireDecimalAmount(payload.statementEndingBalance,'statementEndingBalance'),reason:requireReviewReason(payload.reason),idempotencyKey});
+      }else if(parts.length===10&&parts[4]==='bank'&&parts[5]==='reconciliations'&&parts[7]==='items'&&parts[9]==='clearance'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['clear','expectedBankRevision','reason']);
+        if(typeof payload.clear!=='boolean')throw new AccountingApiError(400,'INVALID_CLEARANCE_STATE','clear must be an explicit boolean');
+        if(!Number.isSafeInteger(payload.expectedBankRevision)||payload.expectedBankRevision<0)throw new AccountingApiError(400,'INVALID_REVISION','expectedBankRevision must be a non-negative safe integer');
+        result=await kernel.setReconciliationClearance({tenantId:principal.tenantId,entityId,reconciliationId:requireUuid(parts[6],'reconciliationId'),bankSourceId:requireUuid(parts[8],'bankSourceId'),expectedReconciliationVersion:requireRevision(headers),expectedBankVersion:payload.expectedBankRevision,clear:payload.clear,reason:requireReviewReason(payload.reason),idempotencyKey});
+      }else if(parts.length===9&&parts[4]==='bank'&&parts[5]==='reconciliations'&&parts[7]==='transitions'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['reason']);
+        const action=parts[8].toUpperCase();if(!['REVIEW','SIGN_OFF','REOPEN'].includes(action))throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
+        result=await kernel.transitionReconciliation({tenantId:principal.tenantId,entityId,reconciliationId:requireUuid(parts[6],'reconciliationId'),action,expectedVersion:requireRevision(headers),reason:requireReviewReason(payload.reason),idempotencyKey});
       }else if(parts.length===8&&parts[4]==='journal-entries'&&parts[6]==='transitions'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.transitionJournal({tenantId:principal.tenantId,entityId,journalEntryId:requireUuid(parts[5],'journalEntryId'),action:parts[7].toUpperCase(),expectedRevision:requireRevision(headers),reason:payload.reason??null,idempotencyKey});
