@@ -7,8 +7,14 @@ export function localDimensionScopeEvidence(journals = [], {entityId = null, pro
   const projectByProperty = new Map(properties.map(row => [String(row.property_id), String(row.project_id)]));
   const totals = {inScope:0,missingDimension:0,crossScope:0,entityMismatch:0};
   const reviewRows = [];
+  if (!selected(entityId)) return {
+    totals,
+    reviewRows,
+    state:'ENTITY_REQUIRED',
+    detail:'Select one entity before evaluating report scope evidence.',
+  };
   journals.filter(journal => journal.posting_status === 'POSTED').forEach(journal => (journal.lines || []).forEach(line => {
-    if (entityId && journal.entity_id !== entityId) { totals.entityMismatch++; reviewRows.push({journal,line,reason:'ENTITY_MISMATCH'}); return; }
+    if (!same(journal.entity_id, entityId)) { totals.entityMismatch++; reviewRows.push({journal,line,reason:'ENTITY_MISMATCH'}); return; }
     const inferredProject = line.project_id ?? projectByProperty.get(String(line.property_id));
     const requirements = [[propertyId,line.property_id,'PROPERTY'],[projectId,inferredProject,'PROJECT'],[loanId,line.loan_id,'LOAN']].filter(([value])=>selected(value));
     const missing = requirements.find(([,actual])=>actual == null || actual === '');

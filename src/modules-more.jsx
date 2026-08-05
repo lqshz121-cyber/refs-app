@@ -5,7 +5,6 @@ import { LOAN_TXNS, IC_TXNS, CLOSINGS, PM_ROWS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, trialBalance, statements, downloadCSV } from './engine.js';
 import { normalizeReportFavorites, toggledReportFavorites } from './report-favorites.js';
 import { filterAccountingRuleEvidence } from './accounting-rule-listing.js';
-import { REPORT_BUSINESS_SCOPE, isReportCapabilityExcluded } from './report-business-scope.js';
 import { localReportCapability, localReportWorkflowTarget } from './report-workflow-targets.js';
 import { localGLSourceTarget } from './gl-source-target.js';
 import { localGLDrillState, localGLDrillAccountCodes, localGLRunningBalanceRows } from './gl-drill-state.js';
@@ -31,7 +30,6 @@ import { localAccountRegisterReturnScopeLabel } from './account-register-return.
 import { localBalanceSheetRegisterTarget } from './balance-sheet-register-return.js';
 import { localCashFlowRegisterTarget } from './cash-flow-register-return.js';
 import { localBankTransactionJournalReturnScopeLabel } from './bank-transaction-return.js';
-import { buildWbsReportImpact } from './wbs-report-impact.js';
 
 export function GLTrialBalance({ctx}) {
   const {jes, entity, navContext, ap, ar, bank, toast} = ctx;
@@ -41,7 +39,9 @@ export function GLTrialBalance({ctx}) {
   const reconciliationReturn = preset.reconciliationReturn?.route === 'bankrec' ? preset.reconciliationReturn : null;
   const registerReturn = preset.registerReturn?.route === 'register' ? preset.registerReturn : null;
   const coaReturn = preset.coaReturn?.route === 'coa' ? preset.coaReturn : null;
+  const reportCenterReturn = preset.reportCenterReturn?.route === 'reports' ? preset.reportCenterReturn : null;
   const reportEntity = preset.entityId || entity || null;
+  const hasReportEntity = reportEntity != null && reportEntity !== '' && reportEntity !== 'ALL';
   const presetTab = ['Trial Balance','GL Detail','Balance Sheet','Income Statement','Cash Flow'].includes(preset.tab) ? preset.tab : null;
   const toCodeList = (raw) => {
     if (!raw) return [];
@@ -62,9 +62,9 @@ export function GLTrialBalance({ctx}) {
     try { return normalizeLocalReportScopes(JSON.parse(localStorage.getItem('refs_local_report_scopes') || '[]')); }
     catch { return []; }
   });
-  const postedBase = jes.filter(j=>j.posting_status==='POSTED' && (!reportEntity||j.entity_id===Number(reportEntity)) && j.period_code>=fromP && j.period_code<=toP);
+  const postedBase = hasReportEntity ? jes.filter(j=>j.posting_status==='POSTED' && j.entity_id===Number(reportEntity) && j.period_code>=fromP && j.period_code<=toP) : [];
   const posted = scopedPostedJournalEntries(postedBase, { propertyId, projectId, loanId, properties:PROPERTIES });
-  const asOfBase = postedJournalEntriesAsOf(jes, { entityId:reportEntity, toPeriod:toP });
+  const asOfBase = hasReportEntity ? postedJournalEntriesAsOf(jes, { entityId:reportEntity, toPeriod:toP }) : [];
   const bsPosted = scopedPostedJournalEntries(asOfBase, { propertyId, projectId, loanId, properties:PROPERTIES });
   const reportAsOfDate = `${toP}-${String(new Date(Number(toP.slice(0,4)), Number(toP.slice(5)), 0).getDate()).padStart(2,'0')}`;
   const reportBankTransactions = Object.values(bank?.accounts || {}).flatMap(account => account.txns || []);
@@ -73,7 +73,7 @@ export function GLTrialBalance({ctx}) {
   const reportArAgingRows = localArAgingEvidenceRows(ar?.invoices || [], jes || [], reportBankTransactions, reportAsOfDate);
   const agingGlTbBridge = localAgingGlTbBridgeEvidence({apRows:reportApAgingRows,arRows:reportArAgingRows,journals:bsPosted,entityId:reportEntity,asOfDate:reportAsOfDate,propertyId,projectId});
   const reconciliationGlTbBridge = localReconciliationGlTbBridgeEvidence({bankAccounts:bank?.accounts || {},history:bank?.history || [],journals:jes || [],bankAccountMaster:BANK_ACCOUNTS,entityId:reportEntity,asOfDate:reportAsOfDate,propertyId,projectId});
-  const openingBase = jes.filter(j=>j.posting_status==='POSTED' && (!reportEntity||j.entity_id===Number(reportEntity)) && j.period_code<fromP);
+  const openingBase = hasReportEntity ? jes.filter(j=>j.posting_status==='POSTED' && j.entity_id===Number(reportEntity) && j.period_code<fromP) : [];
   const openingPosted = scopedPostedJournalEntries(openingBase, { propertyId, projectId, loanId, properties:PROPERTIES });
   const cashFlow = buildLocalCashFlow({ openingJournals:openingPosted, periodJournals:posted });
   const reportControls = localReportControlEvidence({ periodJournals:posted, asOfJournals:bsPosted, entityId:reportEntity, toPeriod:toP, cashFlow });
@@ -158,7 +158,7 @@ export function GLTrialBalance({ctx}) {
     secRows.push({_sub:g.t, debit:sum(g.rows,r=>r.debit), credit:sum(g.rows,r=>r.credit), balance:sum(g.rows,r=>r.balance)}); });
   const notify = msg => toast ? toast(msg) : undefined;
   const reportShell = <div className="qbo-report-builder">
-    <div className="qbo-report-back"><button type="button" onClick={()=>paymentReturn ? ctx.goto('ap', paymentReturn) : bankTransactionReturn ? ctx.goto('banktx', bankTransactionReturn) : reconciliationReturn ? ctx.goto('bankrec', reconciliationReturn) : registerReturn ? ctx.goto('register', registerReturn) : coaReturn ? ctx.goto('coa', coaReturn) : ctx.goto('reports')}>{paymentReturn ? 'Back to Bill payments' : bankTransactionReturn ? 'Back to bank evidence' : reconciliationReturn ? 'Back to reconciliation' : registerReturn ? 'Back to Account Register' : coaReturn ? 'Back to Chart of Accounts' : 'Back to reports'}</button><span>{paymentReturn ? localPaymentReturnScopeLabel(paymentReturn) : bankTransactionReturn ? localBankTransactionJournalReturnScopeLabel(bankTransactionReturn) : reconciliationReturn ? localReconciliationJournalReturnScopeLabel(reconciliationReturn) : registerReturn ? localAccountRegisterReturnScopeLabel(registerReturn) : coaReturn ? `Retained COA scope · ${coaReturn.qboQuery || 'all accounts'}` : tab}</span></div>
+    {(paymentReturn || bankTransactionReturn || reconciliationReturn || registerReturn || coaReturn || reportCenterReturn) && <div className="qbo-report-back"><button type="button" onClick={()=>paymentReturn ? ctx.goto('ap', paymentReturn) : bankTransactionReturn ? ctx.goto('banktx', bankTransactionReturn) : reconciliationReturn ? ctx.goto('bankrec', reconciliationReturn) : registerReturn ? ctx.goto('register', registerReturn) : coaReturn ? ctx.goto('coa', coaReturn) : ctx.goto('reports', reportCenterReturn)}>{paymentReturn ? 'Back to Bill payments' : bankTransactionReturn ? 'Back to bank evidence' : reconciliationReturn ? 'Back to reconciliation' : registerReturn ? 'Back to Account Register' : coaReturn ? 'Back to Chart of Accounts' : 'Back to Reports Center'}</button><span>{paymentReturn ? localPaymentReturnScopeLabel(paymentReturn) : bankTransactionReturn ? localBankTransactionJournalReturnScopeLabel(bankTransactionReturn) : reconciliationReturn ? localReconciliationJournalReturnScopeLabel(reconciliationReturn) : registerReturn ? localAccountRegisterReturnScopeLabel(registerReturn) : coaReturn ? `Retained COA scope · ${coaReturn.qboQuery || 'all accounts'}` : reportCenterReturn?.reportName || tab}</span></div>}
     <div className="qbo-report-controls" aria-label="Report controls">
       <label><span>Report period</span><select value={`${fromP}|${toP}`} onChange={e=>{const [f,t]=e.target.value.split('|');setFromP(f);setToP(t);}}><option value="2026-01|2026-07">Year to date</option><option value="2026-07|2026-07">This month</option><option value="2026-04|2026-06">Last quarter</option></select></label>
       <label><span>From</span><select value={fromP} onChange={e=>setFromP(e.target.value)}>{MONTHS.map(m=><option key={m}>{m}</option>)}</select></label>
@@ -192,6 +192,13 @@ export function GLTrialBalance({ctx}) {
     <label><span className="filter-label">From</span><select aria-label="From period" value={fromP} onChange={e=>setFromP(e.target.value)}>{MONTHS.map(m=><option key={m}>{m}</option>)}</select></label>
     <label><span className="filter-label">To</span><select aria-label="To period" value={toP} onChange={e=>setToP(e.target.value)}>{MONTHS.filter(m=>m>=fromP).map(m=><option key={m}>{m}</option>)}</select></label>
     <span className="muted sm">Accrual basis · as of {toP} · {tbAsOf.rows.length} accounts with activity · {dimensionLabel}</span>
+  </div>;
+  if (!hasReportEntity && !drill) return <div className="full-bleed">
+    <h2 className="page-h">General Ledger</h2>
+    {reportShell}
+    <Tabs tabs={['Trial Balance','GL Detail','Balance Sheet','Income Statement','Cash Flow']} active={tab} onChange={t=>{setTab(t); setDrill(null);}} />
+    {periodBar}
+    <div className="empty-state report-entity-required" role="status"><b>Select an entity to run this report</b><span>Financial statements, control totals, drill-downs, and evidence status are never calculated across all entities.</span><small>Choose one entity in the global entity selector to load same-entity POSTED evidence.</small></div>
   </div>;
   // A drill replaces the report surface. It never appends a transaction table
   // below the statement, so the Back action has one unambiguous destination.
@@ -334,10 +341,10 @@ export function GLTrialBalance({ctx}) {
 }
 
 export function Reports({ctx}) {
-  const {jes, exceptions, entity} = ctx;
+  const {jes, exceptions, entity, navContext} = ctx;
   const [open, setOpen] = useState(null);
-  const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('Standard reports');
+  const [search, setSearch] = useState(navContext?.reportCenterReturn?.search || '');
+  const [category, setCategory] = useState(navContext?.reportCenterReturn?.category || 'Standard reports');
   const [menuReport, setMenuReport] = useState(null);
   const [favorites, setFavorites] = useState(()=>{
     try { return new Set(JSON.parse(localStorage.getItem('refs_report_favorites') || '[]')); }
@@ -351,16 +358,18 @@ export function Reports({ctx}) {
     'Profit and Loss', 'Cash Flow', 'AP Aging',
     'Accounts receivable aging summary', 'Reconciliation History',
   ]);
-  const st = statements(jes, entity);
-  const posted = jes.filter(j=>j.posting_status==='POSTED' && (!entity||j.entity_id===entity));
+  const hasEntity = entity != null && entity !== '' && entity !== 'ALL';
+  const scopedJournals = hasEntity ? jes.filter(j=>j.entity_id===Number(entity)) : [];
+  const st = statements(scopedJournals);
+  const posted = scopedJournals.filter(j=>j.posting_status==='POSTED');
   const reportScope = localReportScopeState({journals:jes,entityId:entity,fromPeriod:'2026-01',toPeriod:'2026-07'});
-  const wbsReportImpact = buildWbsReportImpact();
   const openGLReport = (tab, options={}) => {
-    ctx.goto('gl', localLedgerReportLaunchContext(tab, entity, options));
+    ctx.goto('gl', localLedgerReportLaunchContext(tab, entity, {...options,reportCenterReturn:{route:'reports',reportName:tab,category,search}}));
   };
   const launchReport = (name, route) => {
     const capability = localReportCapability(name);
     if (capability.state === 'REFERENCE_ONLY') { setOpen(name); return; }
+    if (!hasEntity) { ctx.toast('Select one entity before opening local report evidence.','bad'); return; }
     const workflowTarget = localReportWorkflowTarget(name);
     if (workflowTarget) return ctx.goto(workflowTarget.route, localReportWorkflowContext(workflowTarget, name));
     if (route==='gl' && glReportHints[name]) return openGLReport(glReportHints[name], { drillLabel:name });
@@ -489,30 +498,21 @@ export function Reports({ctx}) {
       <div>
         <div className="page-eyebrow">FINANCIAL INTELLIGENCE · CONTROLLED REPORTING</div>
         <h2 className="page-h">Reports Center</h2>
-        <div className="reports-clean-title">Reports Center</div>
         <div className="page-subtitle">Local financial statements, aging, and reconciliation evidence with scoped drill-down context.</div>
       </div>
       <div className="report-period-chip"><span>Reporting basis</span><b>Accrual · FY2026</b><small>{entity ? 'Entity ' + entity : 'Entity required'}</small></div>
     </div>
-    <nav aria-label="Observed QuickBooks Reports navigation" className="report-shelf" style={{marginBottom:12}}>
+    <nav aria-label="Reports categories" className="report-shelf" style={{marginBottom:12}}>
       {['Financial statements','Aging & reconciliation'].map(item=><span className="report-shelf-chip" key={item}>{item}</span>)}
     </nav>
-    <p className="muted sm" style={{margin:'0 0 12px'}}>Observed QuickBooks Reports navigation shell. The local workspaces below remain separately scoped and are not a claim of destination-level equivalence.</p>
     <section className="report-workbench" aria-label="Local reports scope and evidence state" style={{marginBottom:12}}>
       <div className="report-workbench-head"><div><b>Local reports scope</b><div className="page-subtitle">Entity {entity || 'required'} · 2026-01 to 2026-07 · accrual · retained local POSTED evidence only.</div></div><Badge tone={reportScope.state==='POSTED_LOCAL_EVIDENCE_AVAILABLE'?'ok':'warn'}>{reportScope.state}</Badge></div>
       <div className="qbo-toolgrid"><span><i>Posted local journals</i><b>{reportScope.postedCount}</b></span><span><i>Cash scope</i><b>Operating / Restricted / Escrow / Trust / Loan draw separated</b></span><span><i>Dimension boundary</i><b>{reportScope.missingDimensions || 0} review-required</b></span></div>
       <p className="muted sm" style={{margin:'10px 0 0'}}>{reportScope.detail}</p>
     </section>
-    <section className="report-workbench" aria-label="REFS business-fit reporting scope" style={{marginBottom:12}}>
-      <div className="report-workbench-head"><div><b>Business-fit reporting scope</b><div className="page-subtitle">Use QuickBooks as a reference, but keep REFS focused on the local bookkeeping close.</div></div></div>
-      <div className="qbo-toolgrid"><div><b>Included</b>{REPORT_BUSINESS_SCOPE.included.map(item=><div key={item} className="muted sm">{item}</div>)}</div><div><b>Reference-only or excluded</b>{REPORT_BUSINESS_SCOPE.excluded.map(item=><div key={item} className="muted sm">{item}</div>)}</div></div>
-      <p className="muted sm" style={{margin:'10px 0 0'}}>QBO navigation is evidence only. REFS does not build or connect external sales channels, apps, spreadsheet sync, bulk sync, or multi-company reporting unless this business later requires them.</p>
-    </section>
     <div className="report-shelf"><span className="report-shelf-chip report-shelf-chip-on">Local control reports</span><span className="report-shelf-chip">Construction & WBS</span><span className="report-shelf-chip">Control reports</span><span className="report-shelf-chip">Drill to ledger</span><span className="report-shelf-spacer" /><span className="report-shelf-note">Posted-evidence cadence · source-linked</span></div>
     <div className="qbo-report-centerbar">
       <label className="qbo-report-search"><span aria-hidden="true" /><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Type report name here" /></label>
-      <button type="button" disabled title="Custom report creation is not adopted for the local close workflow">Create new report</button>
-      <button type="button" className="qbo-icon-btn" disabled title="Custom report creation is not adopted for the local close workflow">+</button>
     </div>
     {false && <><section className="qbo-report-promo" aria-label="Observed QuickBooks smart reporting tip">
       <span>YOUR SMART TIP: SMART REPORTING</span><b>Keep a pulse on your key metrics with smart reporting and customizable dashboards in Advanced.</b>
@@ -572,35 +572,13 @@ export function Reports({ctx}) {
     </section>
     <p className="muted sm" style={{margin:'0 0 12px'}}>Cash-flow calculation, historical-trend modelling, scenario inputs, planner setup, preview, permissions, audit, and responsive behavior remain unverified in REFS.</p></>}
     <div className="report-shelf qbo-report-tabs"><button type="button" className={`report-shelf-chip ${category==='Standard reports'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('Standard reports')}>Core financial reports</button><button type="button" className={`report-shelf-chip ${category==='Favorites'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('Favorites')}>Favorites</button><button type="button" className={`report-shelf-chip ${category==='All reports'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('All reports')}>All retained reports</button><span className="report-shelf-spacer" /><span className="report-shelf-note">POSTED local evidence · scoped drill and return</span></div>
-    <div className="qbo-report-promo"><span>FOR YOU</span><b>Financial summary for June is ready</b><p>Review key local balance, income, and control signals before opening the report.</p><button type="button" onClick={()=>launchReport('Balance Sheet','gl')}>Review Summary</button></div>
+    {hasEntity ? <><div className="qbo-report-promo"><span>SELECTED ENTITY</span><b>Financial summary for the current reporting scope</b><p>Review same-entity POSTED balance, income, and control signals before opening the report.</p><button type="button" onClick={()=>launchReport('Balance Sheet','gl')}>Review summary</button></div>
     <div className="kpi-row">
       <KPI label="Total assets" value={money(st.assets)} />
       <KPI label="Current period revenue" value={money(st.revenue)} tone="ok" />
       <KPI label="Net income" value={money(st.netIncome)} tone={st.netIncome>=0?'ok':'bad'} />
       <KPI label="Posted JEs" value={posted.length} />
-    </div>
-    <section className="report-workbench wbs-report-impact" aria-label="WBS mock posted JE report impact" style={{marginBottom:12}}>
-      <div className="report-workbench-head">
-        <div><b>WBS mock posted JE report impact</b><div className="page-subtitle">Deterministic WBS mock evidence projected into GL, Trial Balance, Balance Sheet, Income Statement, and Cash Flow.</div></div>
-        <Badge tone={wbsReportImpact.controls.every(control=>control.state==='TIED')?'ok':'warn'}>{wbsReportImpact.mode}</Badge>
-      </div>
-      <div className="qbo-toolgrid">
-        <span><i>Posted WBS mock JEs</i><b>{wbsReportImpact.postedWbsJEs.length}</b></span>
-        <span><i>Projected GL lines</i><b>{wbsReportImpact.glLines.length}</b></span>
-        <span><i>Trial Balance</i><b>{wbsReportImpact.trialBalance.balanced ? 'TIED' : 'Review required'}</b></span>
-        <span><i>Balance Sheet</i><b>{wbsReportImpact.statement.balanceSheetTied ? 'TIED' : 'Review required'}</b></span>
-        <span><i>Closing cash</i><b>{money(wbsReportImpact.cashFlow.closingCash)}</b></span>
-      </div>
-      <Table features={{exportable:false}} rowKey="key" pageSize={6} cols={[
-        {h:'Statement',k:'statement'},
-        {h:'Account',render:row=><span><span className="acct-code">{row.account_code}</span> {row.account_type}</span>,csv:row=>row.account_code},
-        {h:'Amount',num:true,render:row=><Money v={row.amount}/>,csv:row=>row.amount},
-        {h:'Source',render:row=><span>{row.source_document_id} · {row.source_type}</span>,csv:row=>row.source_document_id},
-        {h:'JE',k:'je_number'},
-        {h:'Control',render:row=><Badge tone={row.control_state==='SOURCE_LINKED_POSTED'?'ok':'warn'}>{row.control_state}</Badge>,csv:row=>row.control_state},
-      ]} rows={wbsReportImpact.impactRows}/>
-      <p className="muted sm" style={{margin:'10px 0 0'}}>This section is local WBS mock evidence only. It never calls production WBS, never signs a receipt, never exports report data, and never posts a new journal entry.</p>
-    </section>
+    </div></> : <div className="empty-state report-entity-required" role="status"><b>Select an entity to view financial results</b><span>REFS does not aggregate entity balances, journal counts, or mock projections into an “All entities” report.</span><small>The report catalog remains available below; local report actions require one selected entity.</small></div>}
     <SectionTitle>Local report shortcuts · open retained evidence</SectionTitle>
     <div className="rep-grid rep-grid-featured">{featuredReports.map(r=>
       <Card key={r.name} hover className={`rep-card rep-card-featured ${open===r.name?'rep-on':''}`} onClick={()=>launchReport(r.name, r.route)}>

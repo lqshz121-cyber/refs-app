@@ -8,26 +8,25 @@ const fail = message => {
 
 const source = readFileSync('src/wbs-report-impact.js', 'utf8');
 const reportsSource = readFileSync('src/modules-more.jsx', 'utf8');
-const sectionStart = reportsSource.indexOf('WBS mock posted JE report impact');
-const sectionEnd = reportsSource.indexOf('<SectionTitle>Local report shortcuts', sectionStart);
-const section = sectionStart >= 0 && sectionEnd > sectionStart ? reportsSource.slice(sectionStart, sectionEnd) : '';
+const auditSource = readFileSync('src/module-aiaudit.jsx', 'utf8');
+const sectionStart = auditSource.indexOf('Accounting analysis report');
+const sectionEnd = auditSource.indexOf('Accounting action queue', sectionStart);
+const section = sectionStart >= 0 && sectionEnd > sectionStart ? auditSource.slice(sectionStart, sectionEnd) : '';
 
 if (/[\p{Script=Han}\uFFFD]/u.test(source)) fail('WBS report impact source contains visible CJK or replacement characters.');
 if (/[\p{Script=Han}\uFFFD]/u.test(section)) fail('WBS report impact UI section contains visible CJK or replacement characters.');
-if (!reportsSource.includes("import { buildWbsReportImpact }")) fail('Reports Center does not import WBS report impact.');
-if (!reportsSource.includes('const wbsReportImpact = buildWbsReportImpact();')) fail('Reports Center does not build WBS report impact.');
+if (!auditSource.includes("import { buildWbsAccountingAnalysisReport }")) fail('AI Audit does not import the WBS accounting analysis report.');
+if (!auditSource.includes('const accountingAnalysisReport = buildWbsAccountingAnalysisReport(snapshot);')) fail('AI Audit does not build the WBS accounting analysis report.');
+if (reportsSource.includes('aria-label="WBS mock posted JE report impact"')) fail('Unscoped WBS mock values must not be rendered inside entity-scoped Reports Center results.');
 [
-  'WBS mock posted JE report impact',
-  'GL, Trial Balance, Balance Sheet, Income Statement, and Cash Flow',
-  'Posted WBS mock JEs',
-  'Projected GL lines',
-  'Trial Balance',
-  'Balance Sheet',
+  'Accounting analysis report',
+  'Findings, close controls, posted impact and workflow blockers',
+  'Controls tied',
+  'Net income',
   'Closing cash',
   'never calls production WBS',
-  'never signs a receipt',
   'never exports report data',
-  'never posts a new journal entry',
+  'never posts outside the guarded mock posting gate',
 ].forEach(label => {
   if (!section.includes(label)) fail(`Missing report-impact UI label/boundary: ${label}`);
 });
