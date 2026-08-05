@@ -1,5 +1,8 @@
 const WBS_MCP_ORIGIN='https://db-mcp.wbm3.com';
 export const WBS_MCP_PROTOCOL_VERSION='2025-03-26';
+export const WBS_READONLY_TOOLS=Object.freeze(['get_meta','list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
+export const WBS_MCP_PILOT_LIMIT=10;
+export const WBS_MCP_MAX_CONCURRENCY=2;
 
 export class WbsMcpError extends Error {
   constructor(code,message){super(message);this.name='WbsMcpError';this.code=code;}
@@ -50,7 +53,17 @@ function safeArguments(args){
   for(const [key,value] of Object.entries(args)){
     if(/(?:sql|query|statement|command)/i.test(key)||typeof value==='function'||typeof value==='symbol')throw new WbsMcpError('WBS_MCP_ARGUMENTS_INVALID','WBS raw query arguments are forbidden.');
   }
+  if(Object.hasOwn(args,'limit')&&(!Number.isSafeInteger(args.limit)||args.limit<1||args.limit>WBS_MCP_PILOT_LIMIT))throw new WbsMcpError('WBS_MCP_ARGUMENTS_INVALID','WBS pilot page limit must be between 1 and 10.');
   return structuredClone(args);
+}
+
+const stableKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'je_id'});
+export function validateWbsReadEnvelope({toolName,envelope}={}){
+  if(!WBS_READONLY_TOOLS.includes(toolName)||!plainObject(envelope)||!Array.isArray(envelope.rows)||!/^sha256:[0-9a-f]{64}$/.test(envelope.content_sha256)||typeof envelope.snapshot_id!=='string'||!envelope.snapshot_id.trim()||typeof envelope.captured_at!=='string'||Number.isNaN(Date.parse(envelope.captured_at))||(envelope.cursor_next!==null&&typeof envelope.cursor_next!=='string'))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS read envelope, content hash, snapshot, or cursor is invalid.');
+  const stableKey=stableKeyByTool[toolName];
+  if(stableKey&&envelope.rows.some(row=>!plainObject(row)||typeof row[stableKey]!=='string'||!row[stableKey].trim()))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} rows require stable ${stableKey}.`);
+  if(envelope.rows.some(row=>plainObject(row)&&row.currency!=null&&row.currency!=='USD'))throw new WbsMcpError('WBS_MCP_CURRENCY_UNSUPPORTED','WBS pilot accepts USD rows only.');
+  return Object.freeze({tool_name:toolName,snapshot_id:envelope.snapshot_id,captured_at:envelope.captured_at,content_sha256:envelope.content_sha256,cursor_next:envelope.cursor_next,rows:Object.freeze(structuredClone(envelope.rows)),requires_snapshot_diff:true,has_revision_contract:false});
 }
 
 export function createReadOnlyWbsMcpClient({endpoint,getAccessToken,allowedReadTools=[],fetcher=globalThis.fetch,timeoutMs=15000}={}){
@@ -58,10 +71,13 @@ export function createReadOnlyWbsMcpClient({endpoint,getAccessToken,allowedReadT
   if(typeof getAccessToken!=='function'||typeof fetcher!=='function')throw new WbsMcpError('WBS_MCP_CONFIG_INVALID','WBS MCP requires an access-token provider and fetch implementation.');
   if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1000||timeoutMs>60000)throw new WbsMcpError('WBS_MCP_CONFIG_INVALID','WBS MCP timeout is invalid.');
   const allowed=new Set(allowedReadTools);
-  if([...allowed].some(name=>!safeToolName(name)))throw new WbsMcpError('WBS_MCP_CONFIG_INVALID','WBS read-tool allowlist is invalid.');
-  let requestId=0,sessionId=null,initialized=false,tools=null;
+  if([...allowed].some(name=>!safeToolName(name)||!WBS_READONLY_TOOLS.includes(name)))throw new WbsMcpError('WBS_MCP_CONFIG_INVALID','WBS read-tool allowlist must use only the eight approved tools.');
+  let requestId=0,sessionId=null,initialized=false,tools=null,activeRequests=0;
 
   async function rpc(method,params){
+    if(activeRequests>=WBS_MCP_MAX_CONCURRENCY)throw new WbsMcpError('WBS_MCP_CONCURRENCY_LIMIT','WBS pilot permits at most two concurrent reads.');
+    activeRequests++;
+    try{
     const token=await getAccessToken();
     if(typeof token!=='string'||token.length<16||token.length>8192)throw new WbsMcpError('WBS_MCP_AUTHENTICATION_REQUIRED','WBS MCP authentication is required.');
     const headers={accept:'application/json, text/event-stream','content-type':'application/json',authorization:`Bearer ${token}`,'mcp-protocol-version':WBS_MCP_PROTOCOL_VERSION};
@@ -80,6 +96,7 @@ export function createReadOnlyWbsMcpClient({endpoint,getAccessToken,allowedReadT
       if(receivedSession){if(!/^[A-Za-z0-9._~-]{8,512}$/.test(receivedSession))throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP returned an invalid session identifier.');sessionId=receivedSession;}
       return envelope.result;
     }finally{if(timeout)clearTimeout(timeout);}
+    }finally{activeRequests--;}
   }
 
   return Object.freeze({

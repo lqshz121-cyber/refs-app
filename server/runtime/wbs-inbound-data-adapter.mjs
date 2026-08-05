@@ -14,6 +14,17 @@ const VIEW_TYPES=Object.freeze({
   'accounting.income_cell':'CONTROL_EVIDENCE'
 });
 const TRANSACTION_TYPES=new Set(['PAYABLE','BANK_TRANSACTION','AUTOREC_PAYMENT_DETAIL']);
+export const WBS_AUTOREC_OBSERVED_CONTRACT=Object.freeze({
+  company_account_sources:Object.freeze(['Auto Bank Reimbursement','Auto Payment','Auto Reimbursement','Contract Invoice','Reimbursement Invoice','Manually Importing','FAST','FASTER','GC','Internal Transfer','Income','Individual','Internal','Monthly','Payable','Reversal','ROE']),
+  company_account_come_from:Object.freeze(['FAST','Work Order','FASTER','Contract Invoice','Reimbursement Invoice','Manually Importing','Internal Transfer','Sales Income','Sales2','Sales3','Dividend','Const Loan','FINDRAW','FINREPAYMENT','FINPAYINT','FINFEE','Auto Payment','Auto Reimbursement','Auto Bank Reimbursement','Multiplier','Collection funds','Internal payment process','Paid expenses','HOA','Yardi','Yardi S.L','CONSOLIDATE']),
+  bankbook_come_from:Object.freeze(['Not Match','Construction Loan','Financing','Reversal','YARDI','YARDISL','No Need To Match']),
+  bank_row_fields:Object.freeze(['bank_source_record_id','bank_source_version','transaction_date','posting_date','bank_account_ref','account_code','vendor','payee','memo','ref_no','deposit','payment','project_department','cost_code','brief_description','invoice_receipt_evidence','user_ref','reviewer','comments_log']),
+  released_row_fields:Object.freeze(['released_date','incur_status']),
+  incurred_row_fields:Object.freeze(['incurred_date','match_status']),
+  source_relation_fields:Object.freeze(['bank_source_record_id','bank_source_version','business_source_record_id','business_source_version','bill_no','journal_no','direction','bank_account_ref','payee_no','project_ref','project_code','account_before','account_after','review_event_id','relation_type','relation_content_hash']),
+  audit_log_fields:Object.freeze(['company_code','relation_content','content_field_changes','bill_no','relation_type','create_user','create_time']),
+  forbidden_wbs_operations:Object.freeze(['Create','Copy','Delete','Release','Incur','Revocation','Post','Post All','Cancel Post','Upload','Refresh'])
+});
 const text=value=>value==null?'':String(value).trim();
 const amount=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
 const date=value=>/^\d{4}-\d{2}-\d{2}$/.test(text(value))?text(value):null;
@@ -43,6 +54,7 @@ function normalize(type,companyKey,row,receipt){
     receipt_ref:receipt.payload_ref,receipt_hash:receipt.payload_hash,
     currency:text(row.currency).toUpperCase(),amount:amount(row.amount),
     business_date:businessDate,accounting_date:accountingDate,
+    direction:text(row.direction).toUpperCase()||null,source_label:text(row.source??row.source_name)||null,come_from:text(row.come_from??row.comeFrom)||null,
     bank_account_ref:text(row.bank_account_ref)||null,
     vendor_ref:text(row.vendor_ref)||null,project_ref:text(row.project_ref)||null,cost_code_ref:text(row.cost_code_ref)||null,
     description:text(row.description)||null,pb_guid:text(row.pbGuId)||null
@@ -105,13 +117,40 @@ export function buildStandardDraftRequest({stagingItem,mapping,journal}={}){
   });
 }
 
-export function buildAutoReconciliationReviewRequest({bankStaging,businessStaging,tolerance=0}={}){
-  for(const candidate of [bankStaging,businessStaging])if(text(candidate?.stage)!=='STAGING_REVIEWED'||!text(candidate?.source_record_id)||!text(candidate?.currency)||amount(candidate?.amount)===null)fail('WBS_AUTOREC_STAGING_REQUIRED','Reviewed persistent staging evidence is required for Auto Reconciliation review');
-  if(bankStaging.source_type!=='BANK_TRANSACTION'||!['PAYABLE','AUTOREC_PAYMENT_DETAIL'].includes(businessStaging.source_type))fail('WBS_AUTOREC_SOURCE_TYPE_INVALID','Auto Reconciliation requires one Bank Transaction and one business-side source');
-  if(text(bankStaging.company_key)!==text(businessStaging.company_key)||text(bankStaging.currency)!==text(businessStaging.currency))fail('WBS_AUTOREC_SCOPE_MISMATCH','Auto Reconciliation sources must share company and currency');
+const validIsoDate=value=>{const candidate=date(value);if(!candidate)return false;return new Date(`${candidate}T00:00:00.000Z`).toISOString().slice(0,10)===candidate;};
+const dayDistance=(left,right)=>Math.abs((new Date(`${left}T00:00:00.000Z`)-new Date(`${right}T00:00:00.000Z`))/86400000);
+const eligibilityException=(side,row,code,message,missing=[])=>Object.freeze({stage:'EXCEPTION',block_scope:'SOURCE',side,source_record_id:text(row?.source_record_id)||null,code,message,missing:Object.freeze(missing),can_allocate:false,can_dispatch:false,can_create_draft:false,can_post:false});
+
+export function evaluateWbsAutoReconciliationEligibility({bankStaging,businessStaging,tolerance=0,dateWindowDays=3}={}){
+  const exceptions=[];
+  const commonRequired=['receipt_id','receipt_ref','receipt_hash','raw_event_id','source_document_id','staging_item_id','source_record_id','source_version','company_key','currency','amount','business_date','accounting_date','bank_account_ref','direction','account_before','account_after','review_event_id'];
+  for(const [side,row] of [['BANK_SIDE',bankStaging],['BUSINESS_SIDE',businessStaging]]){
+    const required=side==='BANK_SIDE'?[...commonRequired,'journal_no','payee_no']:[...commonRequired,'bill_no','project_ref','project_code'];
+    const missing=required.filter(field=>field==='amount'?amount(row?.amount)===null||amount(row?.amount)===0:text(row?.[field])==='');
+    if(text(row?.stage)!=='STAGING_REVIEWED')missing.push('STAGING_REVIEWED');
+    if(!/^sha256:[0-9a-f]{64}$/.test(text(row?.receipt_hash)))missing.push('receipt_hash');
+    if(!/^[A-Z]{3}$/.test(text(row?.currency)))missing.push('currency');
+    if(!['DEBIT','CREDIT'].includes(text(row?.direction).toUpperCase()))missing.push('direction');
+    if(!validIsoDate(row?.business_date)||!validIsoDate(row?.accounting_date))missing.push('business_or_accounting_date');
+    if(missing.length)exceptions.push(eligibilityException(side,row,'WBS_AUTOREC_ELIGIBILITY_TRACE_REQUIRED','Auto Reconciliation eligibility requires immutable receipt, source, staging, direction, account, amount, and date trace',[...new Set(missing)]));
+  }
+  if(exceptions.length)return Object.freeze({status:'BLOCKED',candidates:Object.freeze([]),exceptions:Object.freeze(exceptions),can_allocate:false,can_dispatch:false,can_create_draft:false,can_post:false});
+  if(bankStaging.source_type!=='BANK_TRANSACTION'||!['PAYABLE','AUTOREC_PAYMENT_DETAIL'].includes(businessStaging.source_type))exceptions.push(eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_SOURCE_TYPE_INVALID','Auto Reconciliation requires one Bank Transaction and one business-side source'));
+  if(text(bankStaging.company_key)!==text(businessStaging.company_key)||text(bankStaging.currency)!==text(businessStaging.currency))exceptions.push(eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_SCOPE_MISMATCH','Auto Reconciliation sources must share exact company and currency'));
+  if(text(bankStaging.direction).toUpperCase()===text(businessStaging.direction).toUpperCase())exceptions.push(eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_DIRECTION_MISMATCH','Bank and business evidence must have opposite directions'));
+  if(text(bankStaging.bank_account_ref)!==text(businessStaging.bank_account_ref))exceptions.push(eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_BANK_ACCOUNT_MISMATCH','Bank and business evidence must reference the exact same bank account'));
+  if(!Number.isSafeInteger(Number(dateWindowDays))||Number(dateWindowDays)<0||dayDistance(bankStaging.business_date,businessStaging.business_date)>Number(dateWindowDays)||dayDistance(bankStaging.accounting_date,businessStaging.accounting_date)>Number(dateWindowDays))exceptions.push(eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_DATE_WINDOW_MISMATCH','Bank and business dates exceed the approved review window'));
   const difference=Math.abs(Math.abs(amount(bankStaging.amount))-Math.abs(amount(businessStaging.amount)));
-  if(!Number.isFinite(Number(tolerance))||Number(tolerance)<0||difference>Number(tolerance))fail('WBS_AUTOREC_AMOUNT_MISMATCH','Auto Reconciliation source amounts exceed the approved tolerance');
-  return Object.freeze({request_type:'AUTOREC_REVIEW_REQUEST',status:'REVIEW_REQUIRED',can_allocate:false,can_release:false,can_create_draft:false,can_post:false,bank_source_record_id:bankStaging.source_record_id,business_source_record_id:businessStaging.source_record_id,currency:bankStaging.currency,amount_difference:difference,trace:{bank_raw_event_id:bankStaging.raw_event_id,business_raw_event_id:businessStaging.raw_event_id}});
+  if(!Number.isFinite(Number(tolerance))||Number(tolerance)<0||difference>Number(tolerance))exceptions.push(eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_AMOUNT_MISMATCH','Auto Reconciliation source amounts exceed the approved capacity'));
+  if(exceptions.length)return Object.freeze({status:'BLOCKED',candidates:Object.freeze([]),exceptions:Object.freeze(exceptions),can_allocate:false,can_dispatch:false,can_create_draft:false,can_post:false});
+  const candidate=Object.freeze({request_type:'AUTOREC_REVIEW_REQUEST',status:'REVIEW_REQUIRED',can_allocate:false,can_release:false,can_dispatch:false,can_create_draft:false,can_post:false,bank_source_record_id:bankStaging.source_record_id,business_source_record_id:businessStaging.source_record_id,company_key:bankStaging.company_key,bank_account_ref:bankStaging.bank_account_ref,currency:bankStaging.currency,amount_difference:difference,date_window_days:Number(dateWindowDays),trace:Object.freeze({bank_receipt_id:bankStaging.receipt_id,business_receipt_id:businessStaging.receipt_id,bank_raw_event_id:bankStaging.raw_event_id,business_raw_event_id:businessStaging.raw_event_id,bank_source_record_id:bankStaging.source_record_id,bank_source_version:bankStaging.source_version,business_source_record_id:businessStaging.source_record_id,business_source_version:businessStaging.source_version,bank_staging_item_id:bankStaging.staging_item_id,business_staging_item_id:businessStaging.staging_item_id,bill_no:businessStaging.bill_no,journal_no:bankStaging.journal_no,payee_no:bankStaging.payee_no,project_ref:businessStaging.project_ref,project_code:businessStaging.project_code,bank_account_before:bankStaging.account_before,bank_account_after:bankStaging.account_after,business_account_before:businessStaging.account_before,business_account_after:businessStaging.account_after,bank_review_event_id:bankStaging.review_event_id,business_review_event_id:businessStaging.review_event_id})});
+  return Object.freeze({status:'REVIEW_REQUIRED',candidates:Object.freeze([candidate]),exceptions:Object.freeze([]),can_allocate:false,can_dispatch:false,can_create_draft:false,can_post:false});
+}
+
+export function buildAutoReconciliationReviewRequest(args={}){
+  const evaluated=evaluateWbsAutoReconciliationEligibility(args);
+  if(!evaluated.candidates.length){const first=evaluated.exceptions[0];fail(first?.code||'WBS_AUTOREC_ELIGIBILITY_BLOCKED',first?.message||'Auto Reconciliation eligibility is blocked');}
+  return evaluated.candidates[0];
 }
 
 // The integrated kernel currently persists immutable snapshot receipts through

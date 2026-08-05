@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createReadOnlyWbsMcpClient,WbsMcpError,WBS_MCP_PROTOCOL_VERSION} from '../runtime/wbs-readonly-mcp.mjs';
+import {createReadOnlyWbsMcpClient,validateWbsReadEnvelope,WbsMcpError,WBS_MCP_PILOT_LIMIT,WBS_MCP_PROTOCOL_VERSION,WBS_READONLY_TOOLS} from '../runtime/wbs-readonly-mcp.mjs';
 
 const endpoint='https://db-mcp.wbm3.com/mcp';
 const token=async()=>'test-access-token-that-is-never-logged';
@@ -10,6 +10,7 @@ const eventStream=(events,{status=200,headers={}}={})=>new Response(events.map(e
 test('read-only MCP client permits only the approved HTTPS endpoint and an authenticated token provider',()=>{
   for(const bad of ['http://db-mcp.wbm3.com/mcp','https://evil.example/mcp','https://db-mcp.wbm3.com/mcp?x=1','https://db-mcp.wbm3.com/other'])assert.throws(()=>createReadOnlyWbsMcpClient({endpoint:bad,getAccessToken:token}),error=>error.code==='WBS_MCP_CONFIG_INVALID');
   for(const timeoutMs of [0,999,60001,NaN])assert.throws(()=>createReadOnlyWbsMcpClient({endpoint,getAccessToken:token,timeoutMs}),error=>error.code==='WBS_MCP_CONFIG_INVALID');
+  assert.throws(()=>createReadOnlyWbsMcpClient({endpoint,getAccessToken:token,allowedReadTools:['database.query']}),error=>error.code==='WBS_MCP_CONFIG_INVALID');
 });
 
 test('initialize and tool inventory use MCP correlation, bearer auth and the session identifier without exposing a token',async()=>{
@@ -41,10 +42,20 @@ test('client fails closed on authentication and malformed protocol responses',as
 
 test('data reads require both a local allowlist and the remote read-only declaration',async()=>{
   let calls=0;
-  const client=createReadOnlyWbsMcpClient({endpoint,getAccessToken:token,allowedReadTools:['wbs.payable.snapshot'],fetcher:async(_url,request)=>{calls++;const {id,method}=JSON.parse(request.body);if(method==='initialize')return json({jsonrpc:'2.0',id,result:{protocolVersion:WBS_MCP_PROTOCOL_VERSION}});if(method==='tools/list')return json({jsonrpc:'2.0',id,result:{tools:[{name:'wbs.payable.snapshot',annotations:{readOnlyHint:true},inputSchema:{type:'object'}},{name:'database.query',annotations:{readOnlyHint:false}}]}});return json({jsonrpc:'2.0',id,result:{content:[{type:'text',text:'masked snapshot receipt'}]}});}});
+  const client=createReadOnlyWbsMcpClient({endpoint,getAccessToken:token,allowedReadTools:['list_payables'],fetcher:async(_url,request)=>{calls++;const {id,method}=JSON.parse(request.body);if(method==='initialize')return json({jsonrpc:'2.0',id,result:{protocolVersion:WBS_MCP_PROTOCOL_VERSION}});if(method==='tools/list')return json({jsonrpc:'2.0',id,result:{tools:[{name:'list_payables',annotations:{readOnlyHint:true},inputSchema:{type:'object'}},{name:'database.query',annotations:{readOnlyHint:false}}]}});return json({jsonrpc:'2.0',id,result:{content:[{type:'text',text:'masked snapshot receipt'}]}});}});
   await client.initialize();await client.listTools();
   await assert.rejects(client.readView({toolName:'database.query',args:{}}),error=>error.code==='WBS_MCP_TOOL_FORBIDDEN');
-  await assert.rejects(client.readView({toolName:'wbs.payable.snapshot',args:{sql:'select *'}}),error=>error.code==='WBS_MCP_ARGUMENTS_INVALID');
-  const result=await client.readView({toolName:'wbs.payable.snapshot',args:{companyGuid:'11111111-1111-4111-8111-111111111111'}});
+  await assert.rejects(client.readView({toolName:'list_payables',args:{sql:'select *'}}),error=>error.code==='WBS_MCP_ARGUMENTS_INVALID');
+  await assert.rejects(client.readView({toolName:'list_payables',args:{limit:WBS_MCP_PILOT_LIMIT+1}}),error=>error.code==='WBS_MCP_ARGUMENTS_INVALID');
+  const result=await client.readView({toolName:'list_payables',args:{companyGuid:'11111111-1111-4111-8111-111111111111',limit:10}});
   assert.equal(result.content[0].text,'masked snapshot receipt');assert.equal(calls,3);
+});
+
+test('formal provider contract accepts only eight tools and uniform hash/cursor envelopes with stable keys',()=>{
+  assert.deepEqual(WBS_READONLY_TOOLS,['get_meta','list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
+  const envelope={snapshot_id:'snapshot-1',captured_at:'2026-08-05T12:00:00.000Z',content_sha256:'sha256:'+'a'.repeat(64),cursor_next:null,rows:[{ap_guid:'AP-1',currency:'USD'}]};
+  const accepted=validateWbsReadEnvelope({toolName:'list_payables',envelope});assert.equal(accepted.requires_snapshot_diff,true);assert.equal(accepted.has_revision_contract,false);
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,rows:[{currency:'USD'}]}}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,content_sha256:'caller-value'}}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,rows:[{ap_guid:'AP-1',currency:'CAD'}]}}),error=>error.code==='WBS_MCP_CURRENCY_UNSUPPORTED');
 });

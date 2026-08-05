@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,buildWbsInboundPersistencePlan,createWbsInboundDataAdapter,createWbsInboundOrchestrator,validatePostedJournalTrace,WbsInboundDataError} from '../runtime/wbs-inbound-data-adapter.mjs';
+import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,buildWbsInboundPersistencePlan,createWbsInboundDataAdapter,createWbsInboundOrchestrator,evaluateWbsAutoReconciliationEligibility,validatePostedJournalTrace,WBS_AUTOREC_OBSERVED_CONTRACT,WbsInboundDataError} from '../runtime/wbs-inbound-data-adapter.mjs';
 
 const guid='11111111-1111-4111-8111-111111111111';
 const snapshot=()=>{const value={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-05T10:00:00.000Z',environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-2026-08-05',views:[
-  {name:'BGDATA.payable',company_key:'COMPANY-A',rows:[{apGuId:guid,currency:'USD',amount:'100.0000',invoice_date:'2026-08-01'}]},
-  {name:'BGDATA.bank_transaction',company_key:'COMPANY-A',rows:[{cashOrBankBookId:'BANK-1',bank_account_ref:'BANK-OP',currency:'USD',amount:'-100.0000',transaction_date:'2026-08-02'}]},
+  {name:'BGDATA.payable',company_key:'COMPANY-A',rows:[{apGuId:guid,currency:'USD',amount:'100.0000',invoice_date:'2026-08-01',direction:'DEBIT',bank_account_ref:'BANK-OP'}]},
+  {name:'BGDATA.bank_transaction',company_key:'COMPANY-A',rows:[{cashOrBankBookId:'BANK-1',bank_account_ref:'BANK-OP',currency:'USD',amount:'-100.0000',transaction_date:'2026-08-02',direction:'CREDIT',source:'AUTOC',come_from:'Auto Payment'}]},
   {name:'BGDATA.autoc_detail',company_key:'COMPANY-A',rows:[{pdGuId:'33333333-3333-4333-8333-333333333333',pbGuId:'44444444-4444-4444-8444-444444444444',currency:'USD',amount:'100.0000',payment_date:'2026-08-02',vendor_ref:'VEN-1',project_ref:'PROJ-1',cost_code_ref:'COST-1',description:'masked'}]}
 ]};value.views=value.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));return {...value,package_hash:canonicalRequestHash(value)};};
 const reader=value=>({readOnly:true,readSnapshot:async()=>structuredClone(value)});
@@ -27,13 +27,39 @@ test('Draft and AutoRec requests are review-only seams with immutable source tra
   const result=await createWbsInboundDataAdapter({snapshotReader:reader(snapshot())}).pull();
   const payable=result.staging.find(item=>item.raw_trace.source_type==='PAYABLE').raw_trace;
   const bank=result.staging.find(item=>item.raw_trace.source_type==='BANK_TRANSACTION').raw_trace;
-  const reviewedPayable={...payable,stage:'STAGING_REVIEWED',staging_item_id:'stg-pay',source_document_id:'doc-pay',raw_event_id:'raw-pay'};
-  const reviewedBank={...bank,stage:'STAGING_REVIEWED',staging_item_id:'stg-bank',source_document_id:'doc-bank',raw_event_id:'raw-bank'};
+  const reviewedPayable={...payable,receipt_id:'receipt-pay',stage:'STAGING_REVIEWED',staging_item_id:'stg-pay',source_document_id:'doc-pay',raw_event_id:'raw-pay',bill_no:'BILL-1',project_ref:'PROJECT-1',project_code:'PJ-1',account_before:'291000',account_after:'291001',review_event_id:'review-pay'};
+  const reviewedBank={...bank,receipt_id:'receipt-bank',stage:'STAGING_REVIEWED',staging_item_id:'stg-bank',source_document_id:'doc-bank',raw_event_id:'raw-bank',journal_no:'JE-1',payee_no:'PAYEE-1',account_before:'111000',account_after:'291001',review_event_id:'review-bank'};
   const autoRec=buildAutoReconciliationReviewRequest({bankStaging:reviewedBank,businessStaging:reviewedPayable});assert.equal(autoRec.status,'REVIEW_REQUIRED');assert.equal(autoRec.can_release,false);
   const draft=buildStandardDraftRequest({stagingItem:reviewedPayable,mapping:{mapping_id:'map-1',version:'4',status:'APPROVED'},journal:{period_id:'period-1',journal_number:'AUTO-1',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:100}]}});
   assert.equal(draft.kernel_method,'createAutoJournal');assert.equal(draft.can_dispatch,false);assert.equal(draft.can_post,false);
   const trace=validatePostedJournalTrace({draftRequest:draft,postedEvidence:{source_system:'REFS_STANDARD_JE',status:'POSTED',journal_entry_id:'je-1',ledger_line_ids:['ll-1','ll-2'],review_audit_id:'audit-r',approval_audit_id:'audit-a',post_audit_id:'audit-p'}});
   assert.equal(trace.ok,true);assert.equal(trace.trace.raw_event_id,'raw-pay');
+});
+
+test('observed WBS source, Come From, detail, relation, audit and forbidden-operation contract is exact and read-only',()=>{
+  assert(WBS_AUTOREC_OBSERVED_CONTRACT.company_account_sources.includes('Auto Bank Reimbursement'));assert(WBS_AUTOREC_OBSERVED_CONTRACT.company_account_sources.includes('ROE'));
+  assert(WBS_AUTOREC_OBSERVED_CONTRACT.company_account_come_from.includes('FINREPAYMENT'));assert(WBS_AUTOREC_OBSERVED_CONTRACT.company_account_come_from.includes('Yardi S.L'));
+  assert.deepEqual(WBS_AUTOREC_OBSERVED_CONTRACT.bankbook_come_from,['Not Match','Construction Loan','Financing','Reversal','YARDI','YARDISL','No Need To Match']);
+  for(const field of ['bank_source_record_id','memo','project_department','invoice_receipt_evidence','comments_log'])assert(WBS_AUTOREC_OBSERVED_CONTRACT.bank_row_fields.includes(field));
+  for(const field of ['business_source_version','bill_no','journal_no','account_before','account_after','review_event_id'])assert(WBS_AUTOREC_OBSERVED_CONTRACT.source_relation_fields.includes(field));
+  for(const operation of ['Create','Copy','Delete','Release','Incur','Revocation','Post','Post All','Cancel Post','Upload','Refresh'])assert(WBS_AUTOREC_OBSERVED_CONTRACT.forbidden_wbs_operations.includes(operation));
+});
+
+test('AutoRec eligibility fails line-scoped with zero candidates for missing trace and pair mismatches',()=>{
+  const trace={receipt_id:'receipt',receipt_ref:'object://wbs/receipt',receipt_hash:'sha256:'+'a'.repeat(64),raw_event_id:'raw',source_document_id:'doc',staging_item_id:'stg',source_record_id:'source',source_version:'v1',company_key:'COMPANY-A',currency:'USD',amount:100,business_date:'2026-08-01',accounting_date:'2026-08-02',bank_account_ref:'BANK-OP',stage:'STAGING_REVIEWED',account_before:'291000',account_after:'291001',review_event_id:'review'};
+  const bank={...trace,source_type:'BANK_TRANSACTION',source_record_id:'bank',direction:'CREDIT',journal_no:'JE-1',payee_no:'PAYEE-1'};
+  const business={...trace,source_type:'PAYABLE',source_record_id:'payable',direction:'DEBIT',bill_no:'BILL-1',project_ref:'PROJECT-1',project_code:'PJ-1'};
+  const accepted=evaluateWbsAutoReconciliationEligibility({bankStaging:bank,businessStaging:business});assert.equal(accepted.candidates.length,1);assert.equal(accepted.candidates[0].can_dispatch,false);assert.equal(accepted.candidates[0].trace.business_source_version,'v1');
+  const cases=[
+    [{...bank,receipt_id:''},business,'WBS_AUTOREC_ELIGIBILITY_TRACE_REQUIRED'],
+    [bank,{...business,direction:'CREDIT'},'WBS_AUTOREC_DIRECTION_MISMATCH'],
+    [bank,{...business,bank_account_ref:'BANK-OTHER'},'WBS_AUTOREC_BANK_ACCOUNT_MISMATCH'],
+    [bank,{...business,business_date:'2026-08-20'},'WBS_AUTOREC_DATE_WINDOW_MISMATCH'],
+    [bank,{...business,amount:101},'WBS_AUTOREC_AMOUNT_MISMATCH'],
+    [bank,{...business,company_key:'COMPANY-B'},'WBS_AUTOREC_SCOPE_MISMATCH'],
+    [bank,{...business,review_event_id:''},'WBS_AUTOREC_ELIGIBILITY_TRACE_REQUIRED']
+  ];
+  for(const [bankRow,businessRow,code] of cases){const result=evaluateWbsAutoReconciliationEligibility({bankStaging:bankRow,businessStaging:businessRow});assert.equal(result.candidates.length,0);assert(result.exceptions.some(item=>item.code===code));assert(result.exceptions.every(item=>item.block_scope==='SOURCE'&&item.can_allocate===false&&item.can_dispatch===false&&item.can_create_draft===false&&item.can_post===false));}
 });
 
 test('persistence plan binds receipt/raw/normalized/staging trace and idempotency to the actual snapshot command seam',async()=>{
@@ -63,7 +89,7 @@ test('orchestrator fails closed without capability, after receipt failure, and a
 
 test('adapter rejects a mutable reader, cross-currency AutoRec pair, and unbalanced Draft request',async()=>{
   assert.throws(()=>createWbsInboundDataAdapter({snapshotReader:{readSnapshot:async()=>snapshot()}}),error=>error instanceof WbsInboundDataError&&error.code==='WBS_INBOUND_READER_INVALID');
-  const staged={stage:'STAGING_REVIEWED',source_record_id:'one',currency:'USD',amount:100,company_key:'C',raw_event_id:'raw',source_document_id:'doc',source_version:'v'};
-  assert.throws(()=>buildAutoReconciliationReviewRequest({bankStaging:{...staged,source_type:'BANK_TRANSACTION'},businessStaging:{...staged,source_type:'PAYABLE',currency:'CAD'}}),error=>error.code==='WBS_AUTOREC_SCOPE_MISMATCH');
+  const staged={receipt_id:'receipt',receipt_ref:'object://wbs/receipt',receipt_hash:'sha256:'+'a'.repeat(64),stage:'STAGING_REVIEWED',source_record_id:'one',source_version:'v',currency:'USD',amount:100,company_key:'C',raw_event_id:'raw',source_document_id:'doc',staging_item_id:'stg',business_date:'2026-08-01',accounting_date:'2026-08-01',bank_account_ref:'BANK',account_before:'291000',account_after:'291001',review_event_id:'review'};
+  assert.throws(()=>buildAutoReconciliationReviewRequest({bankStaging:{...staged,source_type:'BANK_TRANSACTION',direction:'CREDIT',journal_no:'JE',payee_no:'PAYEE'},businessStaging:{...staged,source_type:'PAYABLE',direction:'DEBIT',currency:'CAD',bill_no:'BILL',project_ref:'PROJECT',project_code:'PJ'}}),error=>error.code==='WBS_AUTOREC_SCOPE_MISMATCH');
   assert.throws(()=>buildStandardDraftRequest({stagingItem:{...staged,staging_item_id:'stg'},mapping:{mapping_id:'m',version:'1',status:'APPROVED'},journal:{period_id:'p',journal_number:'j',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:99}]}}),error=>error.code==='WBS_DRAFT_REQUEST_UNBALANCED');
 });
