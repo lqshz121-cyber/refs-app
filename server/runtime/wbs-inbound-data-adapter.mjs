@@ -1,4 +1,5 @@
 import {validateWbsSnapshotPackage,WbsSnapshotError} from './wbs-snapshot-package.mjs';
+import {canonicalRequestHash} from './request-hash.mjs';
 
 // This adapter is the REFS-side seam for a future read-only WBS MCP provider.
 // It neither exposes WBS business operations nor writes WBS. Persistence,
@@ -17,6 +18,7 @@ const text=value=>value==null?'':String(value).trim();
 const amount=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
 const date=value=>/^\d{4}-\d{2}-\d{2}$/.test(text(value))?text(value):null;
 const error=(code,message)=>Object.freeze({code,message});
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class WbsInboundDataError extends Error {
   constructor(code,message){super(message);this.name='WbsInboundDataError';this.code=code;}
@@ -110,6 +112,32 @@ export function buildAutoReconciliationReviewRequest({bankStaging,businessStagin
   const difference=Math.abs(Math.abs(amount(bankStaging.amount))-Math.abs(amount(businessStaging.amount)));
   if(!Number.isFinite(Number(tolerance))||Number(tolerance)<0||difference>Number(tolerance))fail('WBS_AUTOREC_AMOUNT_MISMATCH','Auto Reconciliation source amounts exceed the approved tolerance');
   return Object.freeze({request_type:'AUTOREC_REVIEW_REQUEST',status:'REVIEW_REQUIRED',can_allocate:false,can_release:false,can_create_draft:false,can_post:false,bank_source_record_id:bankStaging.source_record_id,business_source_record_id:businessStaging.source_record_id,currency:bankStaging.currency,amount_difference:difference,trace:{bank_raw_event_id:bankStaging.raw_event_id,business_raw_event_id:businessStaging.raw_event_id}});
+}
+
+// The integrated kernel currently persists immutable snapshot receipts through
+// recordWbsSnapshot, but has no Raw→Normalized→Staging writer. Build both
+// sides explicitly: the supported receipt command and the intentionally
+// non-dispatchable ingestion request that a future kernel command must accept.
+export function buildWbsInboundPersistencePlan({snapshot,prepared,tenantId,entityId,idempotencyKey,importBatchId}={}){
+  let validated;try{validated=validateWbsSnapshotPackage(snapshot);}catch(cause){if(cause instanceof WbsSnapshotError)fail(cause.code,cause.message);throw cause;}
+  if(!UUID.test(text(tenantId))||!UUID.test(text(entityId))||!UUID.test(text(importBatchId)))fail('WBS_INBOUND_SCOPE_INVALID','Tenant, entity and import batch identifiers must be UUIDs');
+  if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{15,255}$/.test(text(idempotencyKey)))fail('WBS_INBOUND_IDEMPOTENCY_REQUIRED','A stable WBS inbound idempotency key is required');
+  if(!prepared||prepared.snapshot_id!==validated.snapshot_id||prepared.package_hash!==validated.package_hash||!Array.isArray(prepared.raw)||!Array.isArray(prepared.normalized)||!Array.isArray(prepared.staging)||!Array.isArray(prepared.exceptions))fail('WBS_INBOUND_PREPARED_TRACE_INVALID','Prepared WBS adapter output does not bind the supplied immutable snapshot');
+  const traceRows=[...prepared.staging,...prepared.exceptions].map(row=>row.raw_trace).filter(Boolean);
+  if(traceRows.length!==prepared.normalized.length||traceRows.some(row=>!text(row.receipt_ref)||!text(row.receipt_hash)||!text(row.source_record_id)||!text(row.source_version)))fail('WBS_INBOUND_TRACE_REQUIRED','Every normalized WBS row requires immutable receipt and source-version trace');
+  const ingress=Object.freeze({
+    tenant_id:tenantId,entity_id:entityId,import_batch_id:importBatchId,snapshot_id:validated.snapshot_id,package_hash:validated.package_hash,
+    receipt_count:validated.receipt_count,raw_count:prepared.raw.length,normalized_count:prepared.normalized.length,staging_count:prepared.staging.length,exception_count:prepared.exceptions.length,
+    trace_rows:Object.freeze(traceRows.map(row=>Object.freeze({source_type:row.source_type,source_record_id:row.source_record_id,source_version:row.source_version,receipt_ref:row.receipt_ref,receipt_hash:row.receipt_hash})))
+  });
+  const planFingerprint=canonicalRequestHash({ingress,idempotency_key:idempotencyKey});
+  return Object.freeze({
+    request_type:'WBS_INBOUND_PERSISTENCE_PLAN_V1',status:'BLOCKED_ON_RAW_NORMALIZED_STAGING_COMMAND',can_dispatch:false,can_create_draft:false,can_post:false,
+    idempotency_key:idempotencyKey,plan_fingerprint:planFingerprint,ingress,
+    receipt_persistence:Object.freeze({kernel_method:'recordWbsSnapshot',supported:true,request:{tenantId,entityId,snapshot,idempotencyKey}}),
+    raw_normalized_staging_persistence:Object.freeze({supported:false,code:'WBS_RAW_NORMALIZED_STAGING_PERSISTENCE_UNAVAILABLE',required_command:'persistWbsInboundRows',required_fields:['tenant_id','entity_id','import_batch_id','receipt_ref','receipt_hash','source_record_id','source_version','raw','normalized','staging_or_exception','idempotency_key']}),
+    required_next_controls:Object.freeze(['persist receipt with recordWbsSnapshot','implement and authorize atomic raw/normalized/staging persistence','staging review','approved mapping','standard JE command'])
+  });
 }
 
 export function validatePostedJournalTrace({draftRequest,postedEvidence}={}){

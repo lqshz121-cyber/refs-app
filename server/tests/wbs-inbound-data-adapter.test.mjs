@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,createWbsInboundDataAdapter,validatePostedJournalTrace,WbsInboundDataError} from '../runtime/wbs-inbound-data-adapter.mjs';
+import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,buildWbsInboundPersistencePlan,createWbsInboundDataAdapter,validatePostedJournalTrace,WbsInboundDataError} from '../runtime/wbs-inbound-data-adapter.mjs';
 
 const guid='11111111-1111-4111-8111-111111111111';
 const snapshot=()=>{const value={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-05T10:00:00.000Z',environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-2026-08-05',views:[
@@ -34,6 +34,14 @@ test('Draft and AutoRec requests are review-only seams with immutable source tra
   assert.equal(draft.kernel_method,'createAutoJournal');assert.equal(draft.can_dispatch,false);assert.equal(draft.can_post,false);
   const trace=validatePostedJournalTrace({draftRequest:draft,postedEvidence:{source_system:'REFS_STANDARD_JE',status:'POSTED',journal_entry_id:'je-1',ledger_line_ids:['ll-1','ll-2'],review_audit_id:'audit-r',approval_audit_id:'audit-a',post_audit_id:'audit-p'}});
   assert.equal(trace.ok,true);assert.equal(trace.trace.raw_event_id,'raw-pay');
+});
+
+test('persistence plan binds receipt/raw/normalized/staging trace and idempotency to the actual snapshot command seam',async()=>{
+  const value=snapshot(),prepared=await createWbsInboundDataAdapter({snapshotReader:reader(value)}).pull();
+  const plan=buildWbsInboundPersistencePlan({snapshot:value,prepared,tenantId:'55555555-5555-4555-8555-555555555555',entityId:'66666666-6666-4666-8666-666666666666',importBatchId:'77777777-7777-4777-8777-777777777777',idempotencyKey:'wbs-inbound-20260805-company-a-0001'});
+  assert.equal(plan.receipt_persistence.kernel_method,'recordWbsSnapshot');assert.equal(plan.receipt_persistence.supported,true);assert.equal(plan.raw_normalized_staging_persistence.supported,false);assert.equal(plan.raw_normalized_staging_persistence.code,'WBS_RAW_NORMALIZED_STAGING_PERSISTENCE_UNAVAILABLE');assert.equal(plan.ingress.trace_rows.length,3);assert.equal(plan.can_dispatch,false);
+  assert.throws(()=>buildWbsInboundPersistencePlan({snapshot:value,prepared,tenantId:'bad',entityId:'66666666-6666-4666-8666-666666666666',importBatchId:'77777777-7777-4777-8777-777777777777',idempotencyKey:'short'}),error=>error.code==='WBS_INBOUND_SCOPE_INVALID');
+  assert.throws(()=>buildWbsInboundPersistencePlan({snapshot:value,prepared:{...prepared,package_hash:'sha256:forged'},tenantId:'55555555-5555-4555-8555-555555555555',entityId:'66666666-6666-4666-8666-666666666666',importBatchId:'77777777-7777-4777-8777-777777777777',idempotencyKey:'wbs-inbound-20260805-company-a-0001'}),error=>error.code==='WBS_INBOUND_PREPARED_TRACE_INVALID');
 });
 
 test('adapter rejects a mutable reader, cross-currency AutoRec pair, and unbalanced Draft request',async()=>{
