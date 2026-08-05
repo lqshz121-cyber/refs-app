@@ -258,7 +258,7 @@ function App() {
   if (!user) return <Login onLogin={setUserId}/>;
 
   const isAdmin = ADMIN_ROLES.includes(user.role_code);
-  const nav = [...NAV,{group:'Accounts Payable & Receivable',icon:'▣',items:[['ap','Accounts Payable'],['ar','Accounts Receivable']]}].filter(g=>!g.adminOnly || isAdmin).map(g=>({...g,items:g.items.filter(([k])=>!IA_HIDDEN_ROUTES.has(k))})).filter(g=>g.items.length);
+  const nav = [...NAV,{group:'Payables & Receivables',icon:'▣',items:[['ap','Accounts Payable'],['ar','Accounts Receivable']]}].filter(g=>!g.adminOnly || isAdmin).map(g=>({...g,items:g.items.filter(([k])=>!IA_HIDDEN_ROUTES.has(k))})).filter(g=>g.items.length);
   const flat = nav.flatMap(g=>g.items.map(([k,l])=>[k,'·',l]));
   const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, user, entity, period, can, actions, toast:showToast, goto, navContext};
   const Comp = COMP[route] || Dashboard;
