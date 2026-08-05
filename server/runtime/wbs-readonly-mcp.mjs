@@ -1,8 +1,19 @@
-const WBS_MCP_ORIGIN='https://db-mcp.wbm3.com';
-export const WBS_MCP_PROTOCOL_VERSION='2025-03-26';
+import {createHash,timingSafeEqual} from 'node:crypto';
+import {canonicalRequestBody} from './request-hash.mjs';
+
+const WBS_MCP_ORIGIN='https://refs-mcp.wbm3.com';
+export const WBS_MCP_PROTOCOL_VERSION='2025-06-18';
 export const WBS_READONLY_TOOLS=Object.freeze(['get_meta','list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
 export const WBS_MCP_PILOT_LIMIT=10;
 export const WBS_MCP_MAX_CONCURRENCY=2;
+export const WBS_READONLY_ROW_FIELDS=Object.freeze({
+  list_payables:Object.freeze(['amount','ap_guid','ap_long_id','ap_type','business_status','cb_id','check_date','check_no','clear_date','company_code','company_name','cost_id','cost_ledger_id','description','incurred_date','journal_no','pay_status','pay_type','pj_code','pj_name','posting_date','project_guid','review_status','vendor_name','vendor_no']),
+  list_bank_transactions:Object.freeze(['account_code','cb_id','child_come_from','child_count','come_from','company_code','debtor','description','lender','payee','payee_no','review','set_date','statistical_business','sys_id','turn_flag']),
+  list_autorec_details:Object.freeze(['batch_guid','biz_type','cb_id','clear_date','cost_code','data_source','deposit','incurred_date','match_guid','match_status','payment','pd_guid','pd_pv_guid','project_guid','released_by','released_date','status','vendor_no']),
+  list_autorec_banks:Object.freeze(['ah_id','ah_name','company_code','company_name','debit_amount','incurred','pay_amount','pb_guid','quantity','reconciliation_start_date','released','released_quantity','status']),
+  list_journal_entries:Object.freeze(['account','bill_no','cb_id','closed','come_from','company','cost_code','debtor','id','journal_no','lender','pj_code','posting_date','project','reverse','review','reviewer','set_date','sys_id']),
+  list_control_totals:Object.freeze(['cell_count','company','formula','period','quality','total_balance','total_credit','total_debit'])
+});
 
 export class WbsMcpError extends Error {
   constructor(code,message){super(message);this.name='WbsMcpError';this.code=code;}
@@ -57,18 +68,20 @@ function safeArguments(args){
   return structuredClone(args);
 }
 
-const stableKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'je_id'});
+const stableKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
 export function validateWbsReadEnvelope({toolName,envelope}={}){
-  if(!WBS_READONLY_TOOLS.includes(toolName)||!plainObject(envelope)||!Array.isArray(envelope.rows)||!/^sha256:[0-9a-f]{64}$/.test(envelope.content_sha256)||typeof envelope.snapshot_id!=='string'||!envelope.snapshot_id.trim()||typeof envelope.captured_at!=='string'||Number.isNaN(Date.parse(envelope.captured_at))||(envelope.cursor_next!==null&&typeof envelope.cursor_next!=='string'))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS read envelope, content hash, snapshot, or cursor is invalid.');
+  if(!WBS_READONLY_TOOLS.includes(toolName)||!plainObject(envelope)||!Array.isArray(envelope.rows)||!/^[0-9a-f]{64}$/.test(envelope.content_sha256)||typeof envelope.contract_version!=='string'||!envelope.contract_version.trim()||envelope.tool!==toolName||typeof envelope.environment!=='string'||envelope.environment.toLowerCase()!=='production'||typeof envelope.captured_at!=='string'||Number.isNaN(Date.parse(envelope.captured_at))||!plainObject(envelope.source)||!plainObject(envelope.scope)||!Number.isSafeInteger(envelope.record_count)||envelope.record_count!==envelope.rows.length||(envelope.cursor_next!==null&&typeof envelope.cursor_next!=='string')||typeof envelope.etl_notice!=='string')throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS production read envelope, scope, count, hash, or cursor is invalid.');
   const stableKey=stableKeyByTool[toolName];
   if(stableKey&&envelope.rows.some(row=>!plainObject(row)||typeof row[stableKey]!=='string'||!row[stableKey].trim()))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} rows require stable ${stableKey}.`);
   if(envelope.rows.some(row=>plainObject(row)&&row.currency!=null&&row.currency!=='USD'))throw new WbsMcpError('WBS_MCP_CURRENCY_UNSUPPORTED','WBS pilot accepts USD rows only.');
-  return Object.freeze({tool_name:toolName,snapshot_id:envelope.snapshot_id,captured_at:envelope.captured_at,content_sha256:envelope.content_sha256,cursor_next:envelope.cursor_next,rows:Object.freeze(structuredClone(envelope.rows)),requires_snapshot_diff:true,has_revision_contract:false});
+  const expectedHash=createHash('sha256').update(canonicalRequestBody(envelope.rows),'utf8').digest('hex');
+  if(!timingSafeEqual(Buffer.from(envelope.content_sha256,'hex'),Buffer.from(expectedHash,'hex')))throw new WbsMcpError('WBS_MCP_CONTENT_HASH_MISMATCH','WBS content_sha256 does not match canonical sorted compact rows.');
+  return Object.freeze({tool_name:toolName,contract_version:envelope.contract_version,environment:envelope.environment,captured_at:envelope.captured_at,source:Object.freeze(structuredClone(envelope.source)),scope:Object.freeze(structuredClone(envelope.scope)),record_count:envelope.record_count,content_sha256:envelope.content_sha256,cursor_next:envelope.cursor_next,etl_notice:envelope.etl_notice,rows:Object.freeze(structuredClone(envelope.rows)),requires_snapshot_diff:true,has_revision_contract:false,has_cdc_contract:false,has_tombstone_contract:false});
 }
 
-export function createReadOnlyWbsMcpClient({endpoint,getAccessToken,allowedReadTools=[],fetcher=globalThis.fetch,timeoutMs=15000}={}){
+export function createReadOnlyWbsMcpClient({endpoint,getAuthHeaders,allowedReadTools=[],fetcher=globalThis.fetch,timeoutMs=15000}={}){
   const url=endpointUrl(endpoint);
-  if(typeof getAccessToken!=='function'||typeof fetcher!=='function')throw new WbsMcpError('WBS_MCP_CONFIG_INVALID','WBS MCP requires an access-token provider and fetch implementation.');
+  if(typeof getAuthHeaders!=='function'||typeof fetcher!=='function')throw new WbsMcpError('WBS_MCP_CONFIG_INVALID','WBS MCP requires an injected credential-header provider and fetch implementation.');
   if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1000||timeoutMs>60000)throw new WbsMcpError('WBS_MCP_CONFIG_INVALID','WBS MCP timeout is invalid.');
   const allowed=new Set(allowedReadTools);
   if([...allowed].some(name=>!safeToolName(name)||!WBS_READONLY_TOOLS.includes(name)))throw new WbsMcpError('WBS_MCP_CONFIG_INVALID','WBS read-tool allowlist must use only the eight approved tools.');
@@ -78,18 +91,20 @@ export function createReadOnlyWbsMcpClient({endpoint,getAccessToken,allowedReadT
     if(activeRequests>=WBS_MCP_MAX_CONCURRENCY)throw new WbsMcpError('WBS_MCP_CONCURRENCY_LIMIT','WBS pilot permits at most two concurrent reads.');
     activeRequests++;
     try{
-    const token=await getAccessToken();
-    if(typeof token!=='string'||token.length<16||token.length>8192)throw new WbsMcpError('WBS_MCP_AUTHENTICATION_REQUIRED','WBS MCP authentication is required.');
-    const headers={accept:'application/json, text/event-stream','content-type':'application/json',authorization:`Bearer ${token}`,'mcp-protocol-version':WBS_MCP_PROTOCOL_VERSION};
+    const credentials=await getAuthHeaders();
+    const required=['CF-Access-Client-Id','CF-Access-Client-Secret','X-REFS-Auth'];
+    if(!plainObject(credentials)||required.some(name=>typeof credentials[name]!=='string'||credentials[name].length<8||credentials[name].length>8192)||Object.keys(credentials).some(name=>!required.includes(name)))throw new WbsMcpError('WBS_MCP_AUTHENTICATION_REQUIRED','WBS MCP authentication headers are required.');
+    const headers={accept:'application/json, text/event-stream','content-type':'application/json','user-agent':'REFS-WBS-ReadOnly/1.0','mcp-protocol-version':WBS_MCP_PROTOCOL_VERSION,...credentials};
     if(sessionId)headers['mcp-session-id']=sessionId;
+    const id=++requestId;
     const controller=typeof AbortController==='function'?new AbortController():null,timeout=controller?setTimeout(()=>controller.abort(),timeoutMs):null;
     try{
-      let response;try{response=await fetcher(url,{method:'POST',headers,redirect:'error',cache:'no-store',signal:controller?.signal,body:JSON.stringify({jsonrpc:'2.0',id:++requestId,method,params})});}
+      let response;try{response=await fetcher(url,{method:'POST',headers,redirect:'error',cache:'no-store',signal:controller?.signal,body:JSON.stringify({jsonrpc:'2.0',id,method,params})});}
       catch{throw new WbsMcpError('WBS_MCP_UNAVAILABLE','WBS MCP is unavailable.');}
       if(response.status===401||response.status===403)throw new WbsMcpError('WBS_MCP_AUTHENTICATION_REQUIRED','WBS MCP authentication is required.');
       if(!response.ok)throw new WbsMcpError('WBS_MCP_UNAVAILABLE','WBS MCP request was rejected.');
-      const envelope=await responseEnvelope(response,requestId);
-      if(!plainObject(envelope)||envelope.jsonrpc!=='2.0'||envelope.id!==requestId)throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP response correlation failed.');
+      const envelope=await responseEnvelope(response,id);
+      if(!plainObject(envelope)||envelope.jsonrpc!=='2.0'||envelope.id!==id)throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP response correlation failed.');
       if(envelope.error)throw new WbsMcpError('WBS_MCP_REMOTE_REJECTED','WBS MCP rejected the request.');
       if(!Object.hasOwn(envelope,'result'))throw new WbsMcpError('WBS_MCP_PROTOCOL_INVALID','WBS MCP response has no result.');
       const receivedSession=response.headers.get('mcp-session-id');
