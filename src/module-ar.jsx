@@ -20,6 +20,8 @@ export function ARWorkspace({ctx}) {
   const [tab, setTab] = useState('Invoices');
   const [selectedInvoiceId, setSelectedInvoiceId] = useState(null);
   const [invoiceReturnScope, setInvoiceReturnScope] = useState(null);
+  const [selectedReceiptId, setSelectedReceiptId] = useState(null);
+  const [receiptReturnScope, setReceiptReturnScope] = useState(null);
   const priorTabRef = useRef('Invoices');
   const [receiptView, setReceiptView] = useState('All');
   const [unappliedView, setUnappliedView] = useState('Unapplied');
@@ -41,10 +43,15 @@ export function ARWorkspace({ctx}) {
   const unappliedPayments = localUnappliedCustomerPayments(invoices, jes || [], bankTransactions).filter(row => !entity || row.entity_id === entity);
   const visibleUnappliedPayments = localUnappliedPaymentView(unappliedPayments, unappliedView);
   const selectedInvoice = invoices.find(invoice => invoice.inv_id === selectedInvoiceId) || null;
+  const selectedReceipt = customerPayments.find(receipt => receipt.payment_id === selectedReceiptId) || null;
   const open = agingRows;
   const openInvoiceDetail = (invoiceId, returnScope = {tab,asOfDate}) => {
     setInvoiceReturnScope(returnScope);
     setSelectedInvoiceId(invoiceId);
+  };
+  const openReceiptDetail = (receiptId, returnScope = {tab:'Receipts',receiptView,asOfDate}) => {
+    setReceiptReturnScope(returnScope);
+    setSelectedReceiptId(receiptId);
   };
   useEffect(() => {
     if (selectedInvoice && !invoiceReturnScope) setInvoiceReturnScope({tab:priorTabRef.current,asOfDate});
@@ -59,13 +66,20 @@ export function ARWorkspace({ctx}) {
     if (['All','Bank matched','Posted unmatched','Review'].includes(navContext.receiptView)) setReceiptView(navContext.receiptView);
     if (navContext.asOfDate) setAsOfDate(navContext.asOfDate);
     const invoice = invoices.find(item => item.inv_id === navContext.invoiceId || item.je_number === navContext.jeNumber || item.pay_je_number === navContext.jeNumber);
-    if (invoice) {
+    if (invoice && !navContext.receiptId && !navContext.receiptJournal) {
       const retainedScope = navContext.invoiceReturn || {tab:navContext.tab || 'Invoices',receiptView:navContext.receiptView || receiptView,asOfDate:navContext.asOfDate || asOfDate};
       setInvoiceReturnScope(retainedScope);
       if (['All','Bank matched','Posted unmatched','Review'].includes(retainedScope.receiptView)) setReceiptView(retainedScope.receiptView);
       setSelectedInvoiceId(invoice.inv_id); setTab(navContext.tab || 'Invoices');
     }
-  }, [navContext?.route, navContext?.tab, navContext?.receiptView, navContext?.asOfDate, navContext?.invoiceId, navContext?.jeNumber, navContext?.invoiceReturn, ar.invoices]);
+    const receipt = customerPayments.find(item => item.payment_id === navContext.receiptId || item.payment_journal === navContext.receiptJournal);
+    if (receipt) {
+      const retainedScope = navContext.receiptReturn || {tab:'Receipts',receiptView:navContext.receiptView || receiptView,asOfDate:navContext.asOfDate || asOfDate};
+      setReceiptReturnScope(retainedScope);
+      if (['All','Bank matched','Posted unmatched','Review'].includes(retainedScope.receiptView)) setReceiptView(retainedScope.receiptView);
+      setSelectedReceiptId(receipt.payment_id); setTab('Receipts');
+    }
+  }, [navContext?.route, navContext?.tab, navContext?.receiptView, navContext?.asOfDate, navContext?.invoiceId, navContext?.jeNumber, navContext?.invoiceReturn, navContext?.receiptId, navContext?.receiptJournal, navContext?.receiptReturn, ar.invoices]);
 
   const submit = () => {
     if (!form.customer_id || !form.amount || +form.amount <= 0) { toast('Customer and amount are required.','bad'); return; }
@@ -82,7 +96,16 @@ export function ARWorkspace({ctx}) {
     if (['All','Bank matched','Posted unmatched','Review'].includes(restore.receiptView)) setReceiptView(restore.receiptView);
     if (restore.asOfDate) setAsOfDate(restore.asOfDate);
   };
+  const closeReceiptDetail = () => {
+    const restore = receiptReturnScope || {tab:'Receipts',receiptView,asOfDate};
+    setSelectedReceiptId(null);
+    setReceiptReturnScope(null);
+    setTab('Receipts');
+    if (['All','Bank matched','Posted unmatched','Review'].includes(restore.receiptView)) setReceiptView(restore.receiptView);
+    if (restore.asOfDate) setAsOfDate(restore.asOfDate);
+  };
   if (selectedInvoice) return <InvoiceDetail invoice={selectedInvoice} onClose={closeInvoiceDetail} goto={goto} sourceStateTone={sourceStateTone} returnScope={invoiceReturnScope} />;
+  if (selectedReceipt) return <ReceiptDetail receipt={selectedReceipt} onClose={closeReceiptDetail} goto={goto} sourceStateTone={sourceStateTone} returnScope={receiptReturnScope} />;
 
   return <div>
     {navContext?.reportCenterReturn?.route==='reports' && <div className="qbo-report-back"><button type="button" onClick={()=>goto('reports')}>Back to reports</button><span>{navContext.reportCenterReturn.reportName || 'A/R Aging Summary'}</span></div>}
@@ -125,13 +148,14 @@ export function ARWorkspace({ctx}) {
       <div role="tablist" aria-label="Customer payment evidence views" style={{display:'flex',gap:8,flexWrap:'wrap',margin:'0 0 12px'}}>
         {['All','Bank matched','Posted unmatched','Review'].map(view=><button key={view} type="button" role="tab" aria-selected={receiptView===view} className={receiptView===view?'btn btn-sm':'btn btn-ghost btn-sm'} onClick={()=>setReceiptView(view)}>{view}</button>)}
       </div>
-      {visibleCustomerPayments.length ? <Table rowKey="payment_id" features={{exportable:false}} cols={[
-        {h:'Invoice #',render:row=><Btn size="sm" variant="ghost" onClick={()=>openInvoiceDetail(row.invoice_id, {tab:'Receipts',receiptView,asOfDate})}>{row.invoice_no}</Btn>},
+      {visibleCustomerPayments.length ? <Table rowKey="payment_id" features={{exportable:false}} onRow={row=>openReceiptDetail(row.payment_id, {tab:'Receipts',receiptView,asOfDate})} cols={[
+        {h:'Receipt',render:row=><Btn size="sm" variant="ghost" onClick={event=>{event.stopPropagation();openReceiptDetail(row.payment_id, {tab:'Receipts',receiptView,asOfDate});}}>Open receipt detail</Btn>},
+        {h:'Invoice #',render:row=><Btn size="sm" variant="ghost" onClick={event=>{event.stopPropagation();openInvoiceDetail(row.invoice_id, {tab:'Receipts',receiptView,asOfDate});}}>{row.invoice_no}</Btn>},
         {h:'Counterparty',k:'customer_name'}, {h:'Entity',render:row=>row.entity_id == null?<Badge tone="warn">Missing entity</Badge>:row.entity_id},
         {h:'Receipt date',k:'received_date'}, {h:'Received',num:true,render:row=><Money v={row.amount}/>,sortVal:row=>row.amount},
-        {h:'Receipt JE',render:row=><Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:row.payment_journal})}>{row.payment_journal}</Btn>},
+        {h:'Receipt JE',render:row=><Btn size="sm" variant="ghost" onClick={event=>{event.stopPropagation();goto('je',{jeNumber:row.payment_journal,arReturn:{route:'ar',tab:'Receipts',receiptView,asOfDate,receiptId:row.payment_id}});}}>{row.payment_journal}</Btn>},
         {h:'Bank status',render:row=><Badge tone={sourceStateTone(row.state)}>{row.state}</Badge>},
-        {h:'Bank evidence',render:row=>row.exact_bank_credits[0]?<Btn size="sm" variant="ghost" onClick={()=>goto('banktx',{route:'banktx',acctCode:row.exact_bank_credits[0].bank_account_code,bankTxnId:row.exact_bank_credits[0].bank_txn_id,arReturn:{route:'ar',tab:'Receipts',receiptView,asOfDate}})}>Open bank item</Btn>:<span className="muted">No exact local credit</span>},
+        {h:'Bank evidence',render:row=>row.exact_bank_credits[0]?<Btn size="sm" variant="ghost" onClick={event=>{event.stopPropagation();goto('banktx',{route:'banktx',acctCode:row.exact_bank_credits[0].bank_account_code,bankTxnId:row.exact_bank_credits[0].bank_txn_id,arReturn:{route:'ar',tab:'Receipts',receiptView,asOfDate,receiptId:row.payment_id}});}}>Open bank item</Btn>:<span className="muted">No exact local credit</span>},
       ]} rows={visibleCustomerPayments}/>:<div className="empty-state">No retained customer receipts match this view.</div>}
       <p className="muted sm" style={{margin:'10px 0 0'}}>A payment is visible only when its retained receipt JE is linked to a local invoice. Bank matched requires the same posted receipt JE, CREDIT direction, and exact amount. The present local action supports full-invoice receipts only; partial, split/combined, deposit-versus-rent, cross-property/entity, and unmatched receipts remain review work, not automatic allocations.</p>
       <section className="report-workbench" aria-label="Unapplied customer payment exceptions" style={{marginTop:14}}><div className="report-workbench-head"><div><b>Unapplied / prepayment receipt exceptions</b><div className="page-subtitle">Unapplied cash never reduces AR until an explicit retained allocation exists.</div></div><Badge tone={unappliedPayments.some(row=>row.state.startsWith('UNAPPLIED'))?'warn':'ok'}>{unappliedPayments.filter(row=>row.state.startsWith('UNAPPLIED')).length + ' unapplied'}</Badge></div><div role="tablist" aria-label="Unapplied customer receipt views" style={{display:'flex',gap:8,flexWrap:'wrap',margin:'0 0 12px'}}>{['All','Unapplied','Partial review','Allocated'].map(view=><button key={view} type="button" role="tab" aria-selected={unappliedView===view} className={unappliedView===view?'btn btn-sm':'btn btn-ghost btn-sm'} onClick={()=>setUnappliedView(view)}>{view}</button>)}</div>{visibleUnappliedPayments.length?<Table rowKey="payment_id" features={{exportable:false}} cols={[
@@ -168,5 +192,25 @@ function InvoiceDetail({invoice, onClose, goto, sourceStateTone, returnScope}) {
     </div>
     <p className="report-drill-hint">Bank status: {sourceStateTone(invoice.localEvidence.receiptState)}. This is retained local evidence only: it cannot send, collect, settle, refund, delete, or synchronize an invoice.</p>
     <p className="muted sm">Deposit and restricted-fund treatment remains a liability/availability review, not inferred rent revenue. Missing or cross-entity/property/project evidence, partial allocations, and void/reversal cases remain review items.</p>
+  </div>;
+}
+
+function ReceiptDetail({receipt, onClose, goto, sourceStateTone, returnScope}) {
+  const receiptEvidenceReturn = {
+    route:'ar', tab:'Receipts', receiptView:returnScope?.receiptView || 'All', asOfDate:returnScope?.asOfDate || '',
+    receiptId:receipt.payment_id, receiptJournal:receipt.payment_journal, receiptReturn:returnScope || {tab:'Receipts'},
+  };
+  const bankCredit = receipt.exact_bank_credits[0] || null;
+  return <div className="full-bleed qbo-transaction-report">
+    <div className="qbo-report-back"><button type="button" onClick={onClose}>Back to customer receipts</button><span>Returns to the retained receipt view and report date</span></div>
+    <div className="gl-drill-head"><div><div className="gl-drill-crumb">Receivables / retained local receipt evidence</div><h2 className="page-h">Receipt detail</h2><div className="gl-drill-account">{receipt.invoice_no} / {receipt.customer_name}</div></div><Badge tone={sourceStateTone(receipt.state)}>{receipt.state}</Badge></div>
+    <div className="qbo-drill-summary"><span><i>Entity</i><b>{receipt.entity_id || 'Missing entity'}</b></span><span><i>Receipt date</i><b>{receipt.received_date}</b></span><span><i>Received</i><b><Money v={receipt.amount}/></b></span><span><i>Invoice</i><b>{receipt.invoice_no}</b></span><span><i>Receipt JE</i><b>{receipt.payment_journal}</b></span><span><i>Exact bank credits</i><b>{receipt.exact_bank_credits.length}</b></span></div>
+    <div className="row-acts" style={{marginTop:12}}>
+      <Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:receipt.payment_journal,arReturn:receiptEvidenceReturn})}>Open receipt JE</Btn>
+      {bankCredit ? <Btn size="sm" variant="ghost" onClick={()=>goto('banktx',{route:'banktx',acctCode:bankCredit.bank_account_code,bankTxnId:bankCredit.bank_txn_id,arReturn:receiptEvidenceReturn})}>Open bank credit</Btn> : <Btn size="sm" variant="ghost" disabled>No exact bank credit</Btn>}
+    </div>
+    <section className="report-workbench" aria-label="Receipt evidence controls" style={{marginTop:14}}><div className="report-workbench-head"><div><b>Evidence controls</b><div className="page-subtitle">Bank evidence must retain the same posted receipt JE, CREDIT direction, and exact amount.</div></div><Badge tone={bankCredit?'ok':'warn'}>{bankCredit?'BANK CREDIT RETAINED':'BANK REVIEW REQUIRED'}</Badge></div><div className="qbo-toolgrid"><span><i>Entity scope</i><b>Must match receipt evidence</b></span><span><i>Period scope</i><b>{returnScope?.asOfDate || 'Current receipt view'}</b></span><span><i>Cash scope</i><b>Verify at bank and reconciliation</b></span><span><i>Allocation</i><b>Retained full-invoice evidence only</b></span></div></section>
+    <p className="report-drill-hint">Read-only evidence only. This page cannot collect a payment, allocate unapplied cash, match a bank item, post a journal, reconcile an account, refund, export, or synchronize an external service.</p>
+    <p className="muted sm">Deposit, escrow, restricted cash, owner collection, and prepayment classifications require explicit retained accounting evidence. A bank-cleared item is not a reconciliation sign-off.</p>
   </div>;
 }

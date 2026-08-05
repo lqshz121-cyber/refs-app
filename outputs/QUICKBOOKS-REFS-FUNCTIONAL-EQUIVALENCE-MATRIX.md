@@ -2096,6 +2096,15 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 
 ## Reports: More Options detail route (2026-08-04)
 
+## Receivables: Customer payment to bank-credit return chain (2026-08-05)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| Customer Payment / Receipt → Bank CREDIT → Reconcile → JE/GL/TB → Back | Earlier read-only QBO Banking evidence showed a Bank transactions review surface with posted/review states and credit/received amounts. No QBO customer-payment or reconciliation drill sequence was operated or mutated. | Receipt rows now replace the list with a standalone Receipt detail page. Its retained receipt JE and exact Bank CREDIT drills carry the customer-receipts filter and report-date context. Existing Bank → Reconcile → JE/GL/TB return contexts can then lead back to that receipt detail; receipt Back restores the original receipts view. | PARTIAL - focused local contract verified only. Customer-payment permissions, audit-history UI, populated QBO flow, and responsive behavior remain unobserved. |
+| Controller safety boundary | No new QBO mutation evidence was collected. Assistant3 confirmed that deposits, prepayments, escrow/restricted cash, owner collections, and cross-entity receipts must not default to AR. | The detail is explicitly read-only. It offers no collection, allocation, match, posting, reconcile, refund, export, or external-sync operation. Exact evidence requires a posted receipt JE, CREDIT direction, and exact amount; bank-cleared is explicitly not reconciliation sign-off. | PARTIAL - local control contract, not QBO equivalence. |
+
+- Verification: `node verify-ar-receipt-bank-reconcile-return.mjs` and `git diff --check`. Full visual/build must be rerun by the release owner in the integration worktree because this isolated worktree's sandbox blocks esbuild directory traversal.
+
 | Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
 |---|---|---|---|
 | Retained report row action and detail navigation | No fresh QBO evidence: the read-only browser bridge returned no auditable tab this cycle. | Replaced the report-row `More Options → Preview` state shortcut with `Open detail`, which uses the same retained report launch path as the row and primary action. Ledger/workflow reports now cannot bypass their full-page destination or its explicit Back path through this secondary menu. | PARTIAL — local source, full-page replacement and build checks are verified; QBO More Options contents, report access, audit and responsive behavior remain unobserved. |
