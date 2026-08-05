@@ -10,6 +10,7 @@ import {
   runDeterministicAccountingRules,
 } from './wbs-accounting-foundation.js';
 import { buildWbsEndToEndFlowEvidence } from './wbs-e2e-flow-evidence.js';
+import { buildWbsAccountingAnalysisReport } from './wbs-accounting-analysis-report.js';
 
 const TAB_RULES = {
   'Critical Findings': finding => finding.risk === 'HIGH',
@@ -152,7 +153,8 @@ export function AIAudit({ ctx }) {
     const insuranceInvoice = snapshot.payableInvoices.find(invoice => invoice.id === 'AP-INS-12MO');
     const amortizationSchedule = createAmortizationScheduleFromInsurance(insuranceInvoice);
     const e2eFlowEvidence = buildWbsEndToEndFlowEvidence(snapshot);
-    return { snapshot, events, findings, amortizationSchedule, e2eFlowEvidence };
+    const accountingAnalysisReport = buildWbsAccountingAnalysisReport(snapshot);
+    return { snapshot, events, findings, amortizationSchedule, e2eFlowEvidence, accountingAnalysisReport };
   }, [jes, entity, runId]);
 
   const resolve = finding => {
@@ -192,6 +194,30 @@ export function AIAudit({ ctx }) {
         <KPI label="Accounting events" value={model.events.length} />
         <KPI label="Amortization lines" value={model.amortizationSchedule.lines.length} />
       </div>
+      <section className="report-workbench wbs-accounting-analysis-report" aria-label="Accounting analysis report" style={{marginBottom:12}}>
+        <div className="report-workbench-head">
+          <div><b>Accounting analysis report</b><div className="page-subtitle">Findings, close controls, posted impact and workflow blockers from the WBS mock accounting pipeline.</div></div>
+          <Badge tone={model.accountingAnalysisReport.summary.trial_balance_state === 'TIED' && model.accountingAnalysisReport.summary.balance_sheet_state === 'TIED' ? 'ok' : 'warn'}>{model.accountingAnalysisReport.mode}</Badge>
+        </div>
+        <div className="qbo-toolgrid">
+          <span><i>High-risk open</i><b>{model.accountingAnalysisReport.summary.open_high_risk}</b></span>
+          <span><i>Postable JEs</i><b>{model.accountingAnalysisReport.summary.postable_suggested_jes}/{model.accountingAnalysisReport.summary.suggested_jes}</b></span>
+          <span><i>Blocked workflows</i><b>{model.accountingAnalysisReport.summary.blocked_or_review_flows}</b></span>
+          <span><i>Controls tied</i><b>{model.accountingAnalysisReport.controlRows.filter(row=>row.state==='TIED').length}/{model.accountingAnalysisReport.controlRows.length}</b></span>
+          <span><i>Net income</i><b>{money(model.accountingAnalysisReport.summary.net_income)}</b></span>
+          <span><i>Closing cash</i><b>{money(model.accountingAnalysisReport.summary.closing_cash)}</b></span>
+        </div>
+        <Table features={{exportable:false}} rowKey="rule_id" pageSize={8} cols={[
+          {h:'Rule',render:row=><span className="acct-code">{row.rule_id}</span>,csv:row=>row.rule_id},
+          {h:'Risk',render:row=><Badge tone={riskTone(row.risk_level)}>{row.risk_level}</Badge>,csv:row=>row.risk_level},
+          {h:'Object',k:'object_id'},
+          {h:'Reason',k:'reason'},
+          {h:'Action',k:'suggested_action'},
+          {h:'Owner / due',render:row=><span>{row.owner} · {row.due_date}</span>,csv:row=>row.owner},
+          {h:'Audit',render:row=><Badge tone={row.audit_trail_count?'ok':'warn'}>{row.audit_trail_count}</Badge>,csv:row=>row.audit_trail_count},
+        ]} rows={model.accountingAnalysisReport.executiveFindings}/>
+        <p className="muted sm" style={{margin:'10px 0 0'}}>This local report never calls production WBS, never exports report data, and never posts outside the guarded mock posting gate. Global release still requires real HTTPS/OIDC, provider S3/scanner, and signed WBS receipt evidence.</p>
+      </section>
       <section className="report-workbench wbs-e2e-flow-evidence" aria-label="WBS mock end-to-end accounting flow evidence" style={{marginBottom:12}}>
         <div className="report-workbench-head">
           <div><b>WBS mock end-to-end accounting flow evidence</b><div className="page-subtitle">Source data, accounting event, finding, suggested JE, review state, posted JE, GL impact, report impact, and audit trail are visible for each mock close workflow.</div></div>
