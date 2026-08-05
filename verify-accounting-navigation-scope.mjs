@@ -9,7 +9,7 @@ const fail = message => {
 if (!source.includes("const IA_HIDDEN_ROUTES = new Set(['cost','unitcost','unittransfer','loan','loanreg','pmpickup'])")) {
   fail('WBS operational routes must be hidden from the REFS accounting navigation.');
 }
-if (!source.includes("group:'Accounts Payable & Receivable'")) {
+if (!source.includes("group:'Payables & Receivables'")) {
   fail('AP and AR must have a first-class accounting navigation group.');
 }
 if (!source.includes("group:'Accounting Operations'")) {
