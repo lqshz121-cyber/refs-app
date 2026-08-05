@@ -1,0 +1,61 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { createAIReviewOutcomeRepository, buildAIReviewOutcomeTrace } from './src/ai-accounting.js';
+import { buildRentRollRevenueReview } from './src/ai-rent-roll-review.js';
+import { createWbsMockDataset } from './src/wbs-accounting-foundation.js';
+
+const balanced=je=>Math.abs(je.lines.reduce((sum,line)=>sum+Number(line.debit_amount||0),0)-je.lines.reduce((sum,line)=>sum+Number(line.credit_amount||0),0))<0.005;
+const memory=()=>{const rows=new Map();return {load:(key,fallback)=>rows.has(key)?structuredClone(rows.get(key)):structuredClone(fallback),save:(key,value)=>rows.set(key,structuredClone(value))};};
+const snapshot=createWbsMockDataset();
+const initial=buildRentRollRevenueReview({snapshot,periodCode:'2026-07'});
+assert.equal(initial.mode,'AI_RENT_ROLL_REVIEW_MOCK');
+assert.equal(initial.cases.length,1);
+assert.equal(initial.exceptions.length,0);
+const reviewCase=initial.cases[0];
+assert.equal(reviewCase.scheduled_rent,98000);
+assert.equal(reviewCase.posted_revenue,87500);
+assert.equal(reviewCase.difference,10500);
+assert.equal(reviewCase.state,'HUMAN_REVIEW_REQUIRED');
+assert.equal(reviewCase.suggested_draft.posting_status,'DRAFT');
+assert.equal(balanced(reviewCase.suggested_draft),true);
+assert.deepEqual(reviewCase.suggested_draft.lines.map(line=>[line.account_code,line.debit_amount,line.credit_amount]),[['120200',10500,0],['411000',0,10500]]);
+assert.equal(reviewCase.draft_request,null);
+assert.equal(reviewCase.report_impact.state,'DRAFT_PREVIEW_ONLY');
+assert.equal(reviewCase.report_impact.net_income_delta,10500);
+assert.equal(reviewCase.controls.can_dispatch,false);
+assert.equal(reviewCase.controls.can_post,false);
+
+const repository=createAIReviewOutcomeRepository(memory());
+repository.apply({draft:reviewCase.suggested_draft,outcome:{decision:'APPROVE',idempotency_key:'rent-review-1',reason:'Rent roll and tenant activity reviewed'},actor:'controller-rent'});
+const reviewed=buildRentRollRevenueReview({snapshot,periodCode:'2026-07',reviewTrace:buildAIReviewOutcomeTrace(repository.read())});
+const reviewedCase=reviewed.cases[0];
+assert.equal(reviewedCase.state,'HUMAN_REVIEW_RETAINED');
+assert.equal(reviewedCase.draft_request.state,'READY_FOR_APPLICATION_COMMAND');
+assert.equal(reviewedCase.draft_request.request_type,'STANDARD_JE_DRAFT_REQUEST');
+assert.equal(reviewedCase.draft_request.payload.posting_status,'DRAFT');
+assert.equal(reviewedCase.draft_request.can_dispatch,false);
+assert.equal(reviewedCase.draft_request.can_approve,false);
+assert.equal(reviewedCase.draft_request.can_post,false);
+assert.ok(reviewedCase.audit_trail.some(row=>row.action==='HUMAN_REVIEW_OUTCOME_RETAINED'));
+assert.ok(reviewedCase.audit_trail.some(row=>row.action==='STANDARD_JE_DRAFT_REQUEST_PREPARED'));
+
+const missingSource=structuredClone(snapshot);
+missingSource.sourceDocuments=missingSource.sourceDocuments.filter(row=>row.id!=='DOC-RENT-ROLL');
+const missingResult=buildRentRollRevenueReview({snapshot:missingSource,periodCode:'2026-07'});
+assert.equal(missingResult.cases.length,0);
+assert.equal(missingResult.exceptions[0].code,'SOURCE_DOCUMENT_NOT_RETAINED');
+const crossScope=structuredClone(snapshot);
+crossScope.journalEntries.find(row=>row.source_document_id==='DOC-RENT-ROLL').entity_id='ENT-OTHER';
+const crossScopeResult=buildRentRollRevenueReview({snapshot:crossScope,periodCode:'2026-07'});
+assert.equal(crossScopeResult.cases.length,0);
+assert.equal(crossScopeResult.exceptions[0].code,'POSTED_SCOPE_CONFLICT');
+
+const source=fs.readFileSync(new URL('./src/ai-rent-roll-review.js',import.meta.url),'utf8');
+const ui=fs.readFileSync(new URL('./src/module-aiaudit.jsx',import.meta.url),'utf8');
+assert.doesNotMatch(source,/fetch\(|axios|XMLHttpRequest|posting_status\s*:\s*['"]POSTED['"]/);
+assert.match(source,/can_dispatch:false/);
+assert.match(source,/can_post:false/);
+assert.match(ui,/Rent roll revenue mismatch review/);
+assert.match(ui,/BLOCKED_PENDING_REVIEW/);
+
+console.log('ai-rent-roll-review: difference-only balanced Draft, human outcome, non-dispatching standard JE request, report preview, audit trace and fail-closed scope passed');

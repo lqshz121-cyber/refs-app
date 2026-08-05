@@ -13,6 +13,7 @@ import { buildWbsEndToEndFlowEvidence } from './wbs-e2e-flow-evidence.js';
 import { buildWbsAccountingAnalysisReport } from './wbs-accounting-analysis-report.js';
 import { buildWbsAccountingActionQueue } from './wbs-accounting-action-queue.js';
 import { buildAIReviewOutcomeTrace } from './ai-accounting.js';
+import { buildRentRollRevenueReview } from './ai-rent-roll-review.js';
 
 const TAB_RULES = {
   'Critical Findings': finding => finding.risk === 'HIGH',
@@ -161,8 +162,9 @@ export function AIAudit({ ctx }) {
     const e2eFlowEvidence = buildWbsEndToEndFlowEvidence(snapshot);
     const accountingAnalysisReport = buildWbsAccountingAnalysisReport(snapshot);
     const accountingActionQueue = buildWbsAccountingActionQueue(accountingAnalysisReport);
-    return { snapshot, events, findings, amortizationSchedule, e2eFlowEvidence, accountingAnalysisReport, accountingActionQueue };
-  }, [jes, entity, runId]);
+    const rentRollReview = buildRentRollRevenueReview({ snapshot, periodCode:'2026-07', reviewTrace:reviewOutcomeTrace });
+    return { snapshot, events, findings, amortizationSchedule, e2eFlowEvidence, accountingAnalysisReport, accountingActionQueue, rentRollReview };
+  }, [jes, entity, runId, reviewOutcomeTrace]);
 
   const resolve = finding => {
     const next = { ...resolved, [finding.key]: { by: user.user_id, at: new Date().toISOString().slice(0, 10), rule: finding.rule } };
@@ -224,6 +226,31 @@ export function AIAudit({ ctx }) {
           {h:'Evidence',render:row=><Badge tone={row.evidence_state === 'COMPLETE' ? 'ok' : 'warn'}>{row.evidence_state}</Badge>,csv:row=>row.evidence_state},
           {h:'Canonical redacted payload',render:row=><span className="mono sm" title={row.canonical_redacted_payload || ''}>{row.canonical_redacted_payload ? `${row.canonical_redacted_payload.slice(0, 120)}${row.canonical_redacted_payload.length > 120 ? '…' : ''}` : 'Missing'}</span>,csv:row=>row.canonical_redacted_payload || ''},
         ]} rows={reviewOutcomeTrace} empty="No human review outcomes have been retained."/>
+      </section>
+      <section className="report-workbench ai-rent-roll-review" aria-label="Rent roll revenue mismatch review" style={{marginBottom:12}}>
+        <div className="report-workbench-head">
+          <div><b>Rent roll revenue mismatch review</b><div className="page-subtitle">Difference-only, source-scoped Draft proposals. A retained human outcome is required before a non-dispatching standard JE Draft request can be prepared.</div></div>
+          <Badge tone={model.rentRollReview.exceptions.length ? 'warn' : 'ok'}>{model.rentRollReview.mode}</Badge>
+        </div>
+        <div className="qbo-toolgrid">
+          <span><i>Rent roll sources</i><b>{model.rentRollReview.summary.sources}</b></span>
+          <span><i>Mismatches</i><b>{model.rentRollReview.summary.mismatches}</b></span>
+          <span><i>Human review required</i><b>{model.rentRollReview.summary.human_review_required}</b></span>
+          <span><i>Draft requests</i><b>{model.rentRollReview.summary.draft_requests}</b></span>
+          <span><i>Exceptions</i><b>{model.rentRollReview.summary.exceptions}</b></span>
+          <span><i>Posting</i><b>Disabled</b></span>
+        </div>
+        <Table features={{exportable:false}} rowKey="case_id" pageSize={8} cols={[
+          {h:'Source',render:row=><span>{row.source_id} / {row.source_document_id}</span>,csv:row=>row.source_id},
+          {h:'Scheduled rent',num:true,render:row=>money(row.scheduled_rent),csv:row=>row.scheduled_rent},
+          {h:'Posted revenue',num:true,render:row=>money(row.posted_revenue),csv:row=>row.posted_revenue},
+          {h:'Difference',num:true,render:row=>money(row.difference),csv:row=>row.difference},
+          {h:'Review state',render:row=><Badge tone={row.state==='HUMAN_REVIEW_REQUIRED'?'warn':'ok'}>{row.state}</Badge>,csv:row=>row.state},
+          {h:'Suggested JE',render:row=><span>{row.suggested_draft?.je_id||'Not required'} / {row.suggested_draft?.posting_status||'—'}</span>,csv:row=>row.suggested_draft?.je_id||''},
+          {h:'Draft request',render:row=><Badge tone={row.draft_request?'ok':'warn'}>{row.draft_request?.state||'BLOCKED_PENDING_REVIEW'}</Badge>,csv:row=>row.draft_request?.state||''},
+          {h:'Report impact',render:row=><span>AR {money(row.report_impact.ar_delta)} / Revenue {money(row.report_impact.revenue_delta)}</span>,csv:row=>row.report_impact.revenue_delta},
+        ]} rows={model.rentRollReview.cases} empty="No source-scoped rent roll review case is available."/>
+        <p className="muted sm" style={{margin:'10px 0 0'}}>This mock review never calls WBS, changes rent data, dispatches a journal command, approves, or posts. Scope conflicts and missing evidence remain exceptions.</p>
       </section>
       <section className="report-workbench wbs-accounting-analysis-report" aria-label="Accounting analysis report" style={{marginBottom:12}}>
         <div className="report-workbench-head">
