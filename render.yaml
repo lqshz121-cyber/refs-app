@@ -134,6 +134,9 @@ services:
       - path: /refs-runtime-config.js
         name: Cache-Control
         value: no-store
+      - path: /refs-build.js
+        name: Cache-Control
+        value: no-store
       - path: /index.html
         name: Cache-Control
         value: no-store

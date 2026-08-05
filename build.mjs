@@ -1,5 +1,5 @@
 import * as esbuild from 'esbuild';
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { copyFileSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 const root = dirname(fileURLToPath(import.meta.url));
@@ -9,6 +9,11 @@ const opts = {
   format:'iife', jsx:'automatic', loader:{'.js':'jsx','.jsx':'jsx'},
   minify:true, sourcemap:false, target:['es2020'], logLevel:'info',
 };
-if (process.argv.includes('--watch')) { const c=await esbuild.context(opts); await c.watch(); console.log('watching...'); }
-else { await esbuild.build(opts); const sha=(process.env.GITHUB_SHA||'dev').slice(0,7); const bt=new Date().toISOString().slice(0,16).replace('T',' ');
-  writeFileSync('dist/index.html', readFileSync('index.html','utf8').replace('bundle.js','bundle.js?b='+Date.now()).replace('</head>', `<script>window.__BUILD={sha:'${sha}',time:'${bt} UTC'};</script></head>`)); console.log('build done -> dist/'); }
+const writeStaticShell=()=>{ const candidateSha=(process.env.GITHUB_SHA||process.env.RENDER_GIT_COMMIT||'dev').slice(0,40),sha=/^[0-9a-f]{7,40}$/i.test(candidateSha)?candidateSha.slice(0,7):'dev',bt=new Date().toISOString().slice(0,16).replace('T',' '),cacheKey=Date.now();
+  writeFileSync('dist/index.html',readFileSync('index.html','utf8').replace('refs-build.js',`refs-build.js?b=${cacheKey}`).replace('refs-runtime-config.js',`refs-runtime-config.js?b=${cacheKey}`).replace('bundle.js',`bundle.js?b=${cacheKey}`));
+  writeFileSync('dist/refs-build.js',`window.__BUILD=${JSON.stringify({sha,time:`${bt} UTC`})};\n`,{encoding:'utf8'});
+  copyFileSync(join(root,'refs-runtime-lock.js'),join(root,'dist/refs-runtime-lock.js'));
+  copyFileSync(join(root,'refs-runtime-config.js'),join(root,'dist/refs-runtime-config.js'));
+};
+if (process.argv.includes('--watch')) { writeStaticShell(); const c=await esbuild.context(opts); await c.watch(); console.log('watching...'); }
+else { await esbuild.build(opts); writeStaticShell(); console.log('build done -> dist/'); }

@@ -41,7 +41,13 @@ jobs:
         working-directory: server
         run: npm test
       - name: Build
+        env:
+          # GitHub Pages is the public, non-provider accounting demonstration.
+          # Authoritative deployments use Render and must supply every API/OIDC value.
+          REFS_PUBLIC_RUNTIME_MODE: LOCAL_MOCK
         run: npm run build
+      - name: Verify runtime deployment assets
+        run: npm run verify:runtime-deployment-assets
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

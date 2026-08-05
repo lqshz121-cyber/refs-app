@@ -4,7 +4,7 @@
   "private": true,
   "description": "REFS - Real Estate Financial System (WanBridge) functional prototype",
   "scripts": {
-    "build": "node build.mjs && node scripts/write-runtime-config.mjs",
+    "build": "node build.mjs && node scripts/write-runtime-config.mjs && npm run verify:runtime-deployment-assets",
     "dev": "node build.mjs --watch",
     "test": "npm run test:ssr && npm run test:authoritative-bank && npm run test:authoritative-reports && npm run test:wbs-accounting-foundation && npm run test:wbs-accounting-acceptance && npm run test:ap-ar && npm run test:api-client && npm run test:attachment-client && npm run test:oidc && npm run test:runtime-config && npm run test:ai-draft-je-contract && npm run test:ai-review-outcome-contract && npm run test:navigation-a11y && npm run test:workflow && npm run test:autorecon && npm run test:audit && npm run test:visual && npm run test:release-harness && npm run test:release-simulation && npm run test:release-evidence-bundle",
     "test:ap-ar": "esbuild ./tests/ap-ar-workflow.test.jsx --bundle --platform=node --format=cjs --outfile=tests/ap-ar-workflow.test.cjs && node tests/ap-ar-workflow.test.cjs",
@@ -31,7 +31,8 @@
     "verify:external-release-gate": "node tools/verify-external-release-gate.mjs all",
     "verify:release-ui-e2e": "node tools/verify-external-release-gate.mjs ui",
     "verify:release-s3-scanner": "node tools/verify-external-release-gate.mjs s3",
-    "verify:release-wbs-receipt": "node tools/verify-external-release-gate.mjs wbs"
+    "verify:release-wbs-receipt": "node tools/verify-external-release-gate.mjs wbs",
+    "verify:runtime-deployment-assets": "node scripts/verify-runtime-deployment-assets.mjs"
   },
   "dependencies": {
     "react": "18.3.1",

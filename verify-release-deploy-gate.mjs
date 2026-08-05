@@ -8,4 +8,5 @@ assert.match(workflow, /workflow_run\.conclusion == 'success'/, 'Pages build mus
 assert.match(workflow, /workflow_run\.head_branch == 'main'/, 'automatic Pages deploy must be restricted to main');
 assert.match(workflow, /ref: \$\{\{ github\.event\.workflow_run\.head_sha \|\| github\.sha \}\}/, 'Pages must checkout the exact gated SHA');
 assert.match(workflow, /deploy:\s*\n\s+needs: build/, 'deployment must require the gated build job');
+assert.match(workflow, /npm run verify:runtime-deployment-assets/, 'Pages must verify runtime deployment assets before upload');
 console.log('PASS release deploy: Pages waits for the successful same-SHA accounting kernel gate');
