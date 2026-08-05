@@ -1,47 +1,145 @@
-# REFS · AI Real Estate Accounting System (WanBridge)
+# REFS Real Estate Financial System
 
-**WBS Accounting Engine** — 在 WBS Auto Bank Reconciliation / Accounting System 基础上的升级版:
-Setting-Driven 自动记账 + QuickBooks 级工作流 + Apple 风格 UI + AI Accounting Judge + AI Audit。
+REFS is WanBridge's real-estate accounting platform: an Accounting Kernel,
+property and project accounting workspaces, bank/AP/AR controls, financial
+statements, and an AI Accounting review layer.
 
-Live: https://lqshz121-cyber.github.io/refs-app/ (演示登录,角色=所选账号;顶栏 ⟲ 重置种子)
+Live static application: <https://lqshz121-cyber.github.io/refs-app/>
 
-## 核心链路(禁止跳步)
-Source → Classification → Company Setting(四大Setting) → Rule/AI Coding → Staging(人审) → Draft JE → Approval → Posted → GL → Recon → Reports → AI Audit
+The Pages deployment demonstrates the current UI and local/mock accounting
+workflows. It is not evidence of a production API, identity provider, attachment
+provider, or real WBS connection.
 
-## 与 WBS 逐一对齐的机制
-- 四大 Setting(Account/Cost/Payable/Batch,62行 WBS reference snapshot taxonomy,Copy跨公司/年,Test Rule,LIVE/INACTIVE)
-- 双步过账:PAYABLE→Cr 291001_按Payee;银行Feed EXPA/AUTOC 自动清账;Not Match→Exception
-- 辅助核算:科目×核算对象(Bank/Vendor/Customer/Affiliate/Loan),缺member禁过账[4020]
-- Cost Code×Status 驱动分录(2HD在建→164400;完工→510000;利息资本化/费用化)
-- Loan Draw = Dr 111000 Cash / Cr 270100(资金≠成本;成本来自AP/FAST发票)
-- 766科目 WBS reference snapshot COA(Header/Posting/Total);119家 WBS reference snapshot公司;辅助台账/Unit Cost/Unit Transfer(成本桥+Evidence)
-- AI Judge(建议Dr/Cr+Confidence+Reason+Rule+Setting+Risk,不代过账);AI Audit Center 八Tab+Resolve
+## Product principles
 
-## 十组导航与模块
+- Every journal must balance: debit equals credit.
+- Every automatic journal requires immutable source, rule, mapping, setting,
+  idempotency, entity, period, and member trace.
+- Closed periods, missing source evidence, ambiguous mappings, and unbalanced
+  lines fail closed.
+- Posted journals, ledger lines, audit events, and source trace are append-only.
+- AI proposes and explains work; it never bypasses review, approval, or posting
+  controls.
+- WBS is read-only. The current implementation uses a replaceable mock adapter;
+  real WBS production access is intentionally deferred.
 
-| 导航组 | 模块 |
-|---|---|
-| Control Center | Dashboard · Action Required · AI Audit Center |
-| Accounting Settings | 四大 Setting · Rule Center · Mapping Center |
-| Source & Staging | Accounting Staging · Source Documents · Integration Hub · Mapping Exceptions |
-| Auto Reconciliation | Bank Batch Pipeline · Bank Transaction Matching · Reconciliation Worksheet · Checks & Payments |
-| Journal Entry | Journal Entries（QBO 表单、复核、审批、过账、红冲） |
-| General Ledger | GL / TB / BS / IS · Account Inquiry · 辅助核算 · Chart of Accounts |
-| Real Estate Accounting | Project Cost & CWIP · Unit Cost · Unit Transfer · Construction Loan · Loan Register · PM Pickup · Closing · Intercompany · Fixed Assets |
-| Close | Month-End Close |
-| Reports | Reports Center（16 张报表） |
-| Admin | Master Data · AP · AR · Bank Accounts · Audit Log · Users & Settings |
+## Main accounting flow
 
-模块存在不等于已达到生产完备度；产品完成口径见 `PRODUCT-NORTHSTAR.md`，WBS 实际路由/API 摸排与同步契约见 `WBS-SOURCE-CONTRACT.md`，当前能力与缺口以验收矩阵和 `REFS-ARCHITECTURE-V2.md` 为准。
+```text
+Source receipt
+  -> Raw / Normalized
+  -> Staging or exception
+  -> deterministic accounting event and rule result
+  -> suggested Draft JE
+  -> Review
+  -> Approve
+  -> Post
+  -> General Ledger
+  -> Trial Balance / Balance Sheet / Income Statement / Cash Flow
+  -> AI Audit and analysis
+```
 
-## 工程
-React18+esbuild 静态站(`node build.mjs`);状态 localStorage(src/repo.js=后端接入点);Chart.js CDN。
-**双测试门**：SSR 冒烟（`mtest.jsx`，27 组件）+ 账本审计（`audit.js`，119 实体、fails=0）。种子改动→app.jsx SEED_V 递增。
+## Implemented workspaces
+
+- Dashboard and controller action queues
+- AI Audit Center and AI JE Workbench
+- Accounting Staging, Source Documents, Integration Hub, and Mapping Exceptions
+- Journal Entry workflow and General Ledger
+- Trial Balance, Balance Sheet, Income Statement, Cash Flow, AP/AR Aging, and
+  reconciliation evidence
+- Bills, payments, vendor credits, invoices, receipts, vendors, and customers
+- Bank transactions and reconciliation worksheet/history
+- Chart of Accounts, Account Register, and subsidiary evidence
+- Project Cost/CWIP, Unit Cost, Unit Transfer, Fixed Assets, Prepaids,
+  Amortization, Accruals, Intercompany, and Construction Loans
+- Month-end close, permissions, audit trail, attachment boundaries, and release
+  gates
+
+## WBS mock accounting coverage
+
+The mock connector and deterministic rule engine cover payable recognition,
+payment exceptions, loan draws, interest capitalization, prepaid insurance,
+amortization, accrual candidates, duplicate invoices, missing source, cutoff,
+rent-roll mismatch, loan reconciliation, bank exceptions, and manual-JE risk.
+
+See:
+
+- [WBS-SOURCE-CONTRACT.md](WBS-SOURCE-CONTRACT.md)
+- [outputs/REFS-WBS-MOCK-ACCOUNTING-READINESS.md](outputs/REFS-WBS-MOCK-ACCOUNTING-READINESS.md)
+- [contracts/E2E-SCENARIOS.md](contracts/E2E-SCENARIOS.md)
+- [REFS-ARCHITECTURE-V2.md](REFS-ARCHITECTURE-V2.md)
+
+## Local setup
+
+Requirements: Node.js, npm, Docker, and PowerShell on Windows for the command
+examples below.
 
 ```powershell
-npx esbuild mtest.jsx --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=mtest.cjs; node mtest.cjs
-npx esbuild audit.js --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=audit.cjs; node audit.cjs
+npm.cmd ci
+npm.cmd run build
+npm.cmd test
 ```
-协作规范见 COLLABORATION.md；路线图见 BLUEPRINT.md。当前 owner：Codex 主负责 QuickBooks 风格前端与 E2E，Claude 主负责 PostgreSQL/API/WBS ingestion；双方交叉复核。
 
-> 注：当前是可运行的前端引擎与 demo 数据，不是 WBS 生产账簿。真实接入需要只读 WBS API、PostgreSQL 原始/规范化/Staging 数据层、幂等同步、附件存储、事务 Posting、备份恢复和生产 E2E；不能只替换 `repo.js`。
+The production-style API is in `server/`:
+
+```powershell
+npm.cmd --prefix server ci
+npm.cmd --prefix server test
+```
+
+Fresh PostgreSQL gates:
+
+```powershell
+$env:POSTGRES_IMAGE='postgres:16-alpine'
+npm.cmd --prefix server run test:postgres:fresh
+
+$env:POSTGRES_IMAGE='postgres:15-alpine'
+npm.cmd --prefix server run test:postgres:fresh
+```
+
+## Focused WBS mock verification
+
+```powershell
+npm.cmd run test:wbs-accounting-foundation
+npm.cmd run test:wbs-accounting-acceptance
+node verify-wbs-e2e-flow-evidence.mjs
+node verify-wbs-report-impact.mjs
+```
+
+No command above calls real WBS production.
+
+## Release boundary
+
+Local tests and GitHub Pages are not a global production release. A production
+claim additionally requires raw exit evidence for:
+
+- a deployed HTTPS API and OIDC session, including authenticated `200`, anonymous
+  `401`, and token-refresh proof;
+- authenticated eight-page browser evidence for Dashboard, Reports, Reconcile,
+  Bank Transactions, Expenses, Accounting, Rule Center, and Integration Hub;
+- provider-backed object upload, versioned scan, exact-version deletion, and
+  cleanup;
+- a signed, nonempty, read-only WBS receipt when real WBS access is eventually
+  authorized.
+
+The external evidence verifier is fail-closed:
+
+```powershell
+npm.cmd run verify:external-release-gate
+```
+
+Without the required provider configuration and artifacts, it exits nonzero by
+design.
+
+## Repository map
+
+- `src/`: React UI, accounting helpers, mock adapter, and deterministic rules
+- `server/`: API, PostgreSQL kernel, migrations, OIDC, attachments, and WBS
+  read-only boundary
+- `tests/`: root application and contract tests
+- `server/tests/`: API/kernel/provider-boundary tests
+- `contracts/`: state machines, error codes, fixtures, and source contracts
+- `outputs/`: readiness matrices and audit artifacts
+- `tools/`: verifiers, local release simulation, and evidence-bundle tooling
+
+Contributor guardrails are defined in [AGENTS.md](AGENTS.md).
