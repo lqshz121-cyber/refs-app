@@ -124,6 +124,13 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async persistWbsInboundRows({tenantId,entityId,importBatchId,receipt,rows,idempotencyKey,requestHash}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_persist_wbs_inbound_rows($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+      [tenantId,entityId,importBatchId,receipt.payload_hash,receipt.payload_ref,JSON.stringify(rows),idempotencyKey,requestHash]
+    ),'WBS_INBOUND_PERSIST_FAILED','WBS inbound persistence did not return a result').result);
+  }
+
   async createAutoJournal(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
