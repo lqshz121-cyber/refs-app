@@ -31,6 +31,7 @@ import { localAccountRegisterReturnScopeLabel } from './account-register-return.
 import { localBalanceSheetRegisterTarget } from './balance-sheet-register-return.js';
 import { localCashFlowRegisterTarget } from './cash-flow-register-return.js';
 import { localBankTransactionJournalReturnScopeLabel } from './bank-transaction-return.js';
+import { buildWbsReportImpact } from './wbs-report-impact.js';
 
 export function GLTrialBalance({ctx}) {
   const {jes, entity, navContext, ap, ar, bank, toast} = ctx;
@@ -353,6 +354,7 @@ export function Reports({ctx}) {
   const st = statements(jes, entity);
   const posted = jes.filter(j=>j.posting_status==='POSTED' && (!entity||j.entity_id===entity));
   const reportScope = localReportScopeState({journals:jes,entityId:entity,fromPeriod:'2026-01',toPeriod:'2026-07'});
+  const wbsReportImpact = buildWbsReportImpact();
   const openGLReport = (tab, options={}) => {
     ctx.goto('gl', localLedgerReportLaunchContext(tab, entity, options));
   };
@@ -577,6 +579,28 @@ export function Reports({ctx}) {
       <KPI label="Net income" value={money(st.netIncome)} tone={st.netIncome>=0?'ok':'bad'} />
       <KPI label="Posted JEs" value={posted.length} />
     </div>
+    <section className="report-workbench wbs-report-impact" aria-label="WBS mock posted JE report impact" style={{marginBottom:12}}>
+      <div className="report-workbench-head">
+        <div><b>WBS mock posted JE report impact</b><div className="page-subtitle">Deterministic WBS mock evidence projected into GL, Trial Balance, Balance Sheet, Income Statement, and Cash Flow.</div></div>
+        <Badge tone={wbsReportImpact.controls.every(control=>control.state==='TIED')?'ok':'warn'}>{wbsReportImpact.mode}</Badge>
+      </div>
+      <div className="qbo-toolgrid">
+        <span><i>Posted WBS mock JEs</i><b>{wbsReportImpact.postedWbsJEs.length}</b></span>
+        <span><i>Projected GL lines</i><b>{wbsReportImpact.glLines.length}</b></span>
+        <span><i>Trial Balance</i><b>{wbsReportImpact.trialBalance.balanced ? 'TIED' : 'Review required'}</b></span>
+        <span><i>Balance Sheet</i><b>{wbsReportImpact.statement.balanceSheetTied ? 'TIED' : 'Review required'}</b></span>
+        <span><i>Closing cash</i><b>{money(wbsReportImpact.cashFlow.closingCash)}</b></span>
+      </div>
+      <Table features={{exportable:false}} rowKey="key" pageSize={6} cols={[
+        {h:'Statement',k:'statement'},
+        {h:'Account',render:row=><span><span className="acct-code">{row.account_code}</span> {row.account_type}</span>,csv:row=>row.account_code},
+        {h:'Amount',num:true,render:row=><Money v={row.amount}/>,csv:row=>row.amount},
+        {h:'Source',render:row=><span>{row.source_document_id} · {row.source_type}</span>,csv:row=>row.source_document_id},
+        {h:'JE',k:'je_number'},
+        {h:'Control',render:row=><Badge tone={row.control_state==='SOURCE_LINKED_POSTED'?'ok':'warn'}>{row.control_state}</Badge>,csv:row=>row.control_state},
+      ]} rows={wbsReportImpact.impactRows}/>
+      <p className="muted sm" style={{margin:'10px 0 0'}}>This section is local WBS mock evidence only. It never calls production WBS, never signs a receipt, never exports report data, and never posts a new journal entry.</p>
+    </section>
     <SectionTitle>Local report shortcuts · open retained evidence</SectionTitle>
     <div className="rep-grid rep-grid-featured">{featuredReports.map(r=>
       <Card key={r.name} hover className={`rep-card rep-card-featured ${open===r.name?'rep-on':''}`} onClick={()=>launchReport(r.name, r.route)}>
