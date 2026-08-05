@@ -14,7 +14,6 @@ import { localReconciliationJournalReturnScopeLabel } from './reconciliation-jou
 import { localAccountRegisterReturnScopeLabel } from './account-register-return.js';
 import { localGLSourceTarget } from './gl-source-target.js';
 import { subsidiaryOf, memberOf, SUBSIDIARY } from './coa-wbs.js';
-import { loadSetting } from './settings.js';
 import { repo } from './repo.js';
 import { buildAccountingEvents, createWbsMockDataset, runDeterministicAccountingRules } from './wbs-accounting-foundation.js';
 if (typeof window!=='undefined') window.__subsOf = subsidiaryOf;
@@ -128,26 +127,13 @@ export function JEWorkspace({ctx}) {
     (srcF==='ALL'||j.source_system===srcF) &&
     (!query || `${j.je_number} ${j.description||''} ${j.payee||''} ${j.source_system}`.toLowerCase().includes(query.toLowerCase())) &&
     (month==='ALL'||j.period_code==='2026-'+month));
-  const pendCount = list.filter(j=>j.posting_status==='PENDING_APPROVAL').length;
-  const postAll = () => { list.filter(j=>j.posting_status==='PENDING_APPROVAL').forEach(j=>actions.advanceJE(j.je_id,'POSTED','POST ALL')); toast('All eligible journal entries were posted.'); };
-  const runBatch = () => {
-    const en = {entity_id: ctx.entity||15, entity_code:'E'+(ctx.entity||15)};
-    const s = loadSetting(en); let n=0;
-    (s.batch_setting||[]).filter(b=>b.status!=='INACTIVE'&&b.dr&&b.cr).forEach(b=>{
-      const amt = 1000; n++;
-      actions.newJEFromRule({entity_id:en.entity_id, source_system:'INTERNAL', je_type:'AUTO', rule_code:'R-BATCH-'+n,
-        description:`[Batch] ${b.memo} · 2026-07`, lines:[{account_code:b.dr,debit_amount:amt,credit_amount:0},{account_code:b.cr,debit_amount:0,credit_amount:amt,member:b.cr.startsWith('291')?'Batch':undefined,description:b.cr.startsWith('291')?'Due to/from_Batch':undefined}]});
-      if (b.reverse_next_month) actions.newJEFromRule({entity_id:en.entity_id, source_system:'INTERNAL', je_type:'AUTO', rule_code:'R-BATCH-REV-'+n,
-        description:`[Batch · Auto-Reversal 2026-08] ${b.memo}`, lines:[{account_code:b.cr,debit_amount:amt,credit_amount:0,member:b.cr.startsWith('291')?'Batch':undefined},{account_code:b.dr,debit_amount:0,credit_amount:amt}]});
-    });
-    toast(`Batch template created: ${n} draft journal entries, including configured next-month reversals.`);
-  };
   const je = jes.find(j=>j.je_id===sel);
   const newJE = () => { const id = actions.newJE(); setSel(id); };
+  const hasScopedReturn = Boolean(ctx.navContext?.reportReturn || ctx.navContext?.expenseReturn || ctx.navContext?.paymentBankReturn || ctx.navContext?.paymentReturn || ctx.navContext?.receiptReturn || ctx.navContext?.arReturn || ctx.navContext?.sourceDocumentReturn || ctx.navContext?.bankTransactionReturn || ctx.navContext?.reconciliationReturn || ctx.navContext?.registerReturn);
 
   // -------- Full-page editor view (QBO-style) --------
   if (je) return <div className="focused">
-    <button className="crumb" onClick={()=>setSel(null)}><span className="crumb-icon" aria-hidden="true">←</span><span>Journal Entries</span></button>
+    {!hasScopedReturn && <button className="crumb" onClick={()=>setSel(null)}><span className="crumb-icon" aria-hidden="true">←</span><span>Journal Entries</span></button>}
     <JEEditor je={je} ctx={ctx} onChange={()=>{}} />
   </div>;
 
@@ -160,8 +146,6 @@ export function JEWorkspace({ctx}) {
         <div className="page-subtitle">Review source, approval status and posting evidence from one controlled workspace.</div>
       </div>
       <div className="row-acts">
-        <Btn variant="ghost" onClick={runBatch}>Run Batch Templates</Btn>
-        {can('GL.JE.POST') && pendCount>0 && <Btn onClick={postAll}>Post All ({pendCount})</Btn>}
         <Btn variant="primary" onClick={newJE} disabled={!can('GL.JE.CREATE')}>+ New Journal Entry</Btn>
       </div>
     </div>
@@ -309,6 +293,10 @@ function JEEditor({je, ctx}) {
       {editable ? <input className="desc-in" style={{width:'100%'}} value={je.description} onChange={e=>actions.updateJE(je.je_id,d=>{d.description=e.target.value;})} placeholder="What is this journal entry for?"/> : <div className="muted">{je.description}</div>}
       {je.je_type==='MANUAL' && <span className="muted sm">External attachments are outside the local evidence scope. {je.has_attachment ? `Retained attachment flag: ${je.attachment_name||'attached'}` : 'No retained attachment flag.'}</span>}
     </div>
+    <section className="report-workbench" aria-label="Journal entry workflow history" style={{margin:'12px 0'}}>
+      <div className="report-workbench-head"><div><b>Workflow history</b><div className="page-subtitle">Retained preparer, review, approval, and posting events. Drafts do not affect reporting.</div></div><Badge tone={je.history?.length ? 'ok' : 'warn'}>{je.history?.length || 0} retained event{je.history?.length===1 ? '' : 's'}</Badge></div>
+      {je.history?.length ? <div className="qbo-toolgrid">{[...je.history].slice(-4).reverse().map((event,index)=><span key={`${event.a}-${event.at}-${index}`}><i>{event.a || 'Workflow event'}</i><b>{event.by || 'Unattributed'} · {event.at || 'time unavailable'}</b></span>)}</div> : <p className="muted sm">No retained workflow events are available for this journal entry.</p>}
+    </section>
     {je.source_doc_id && SOURCE_DOCS[je.source_doc_id] && (()=>{ const d=SOURCE_DOCS[je.source_doc_id];
       const src = `${d.source_system||''} ${d.type||''}`.toUpperCase();
       const sourceWorkspace = src.includes('CLOSING') ? {route:'closing', label:'Open closing workspace'}
@@ -336,10 +324,9 @@ function JEEditor({je, ctx}) {
     {errs.length>0 && <div className="err-box">{errs.map((e,i)=><div key={i}>• [{e.code}] {e.msg}</div>)}</div>}
     <div className="qbe-footbar">
       <div><Btn variant="ghost" disabled title="Copy is outside the controlled local evidence workflow">Copy</Btn>
-        <Btn variant="ghost" onClick={()=>toast('Recurring template saved; draft entries will be created on the first day of each month.')}>Make recurring</Btn></div>
+        <Btn variant="ghost" disabled title="Recurring entries are outside the controlled Journal Entry evidence workflow">Make recurring</Btn></div>
       <div className="row-acts">
         {flow.reject && can('GL.JE.REVIEW') && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id,flow.reject,'REJECT');toast('Returned to draft.','warn');}}>Reject</Btn>}
-        {je.posting_status==='POSTED' && ctx.user.role_code==='CONTROLLER' && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id,'APPROVED','CANCEL POST'); toast('Cancel Post completed.','warn');}}>Cancel Post</Btn>}
         {je.posting_status==='POSTED' && can('GL.JE.REVERSE') && <Btn variant="danger" onClick={reverse}>Reverse</Btn>}
         {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'Permission unavailable':''}>{flow.action}</Btn>}
       </div>
