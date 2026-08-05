@@ -1,18 +1,18 @@
 // Read-only Account Register -> JE return scope. It retains the selected local
 // entity/account/period/entry and cannot edit, delete, post, or reconcile it.
-export function localAccountRegisterJournalReturnContext({ entityId = '', accountCode = '', fromPeriod = '', throughPeriod = '', entryId = '' } = {}) {
+export function localAccountRegisterJournalReturnContext({ entityId = '', accountCode = '', fromPeriod = '', throughPeriod = '', entryId = '', coaReturn = null } = {}) {
   const account = String(accountCode || '');
   const entry = String(entryId || '');
   if (!account || !entry) return null;
-  return {route:'register', entityId:String(entityId || ''), accountCode:account, ...(fromPeriod ? {fromPeriod:String(fromPeriod)} : {}), throughPeriod:String(throughPeriod || ''), entryId:entry};
+  return {route:'register', entityId:String(entityId || ''), accountCode:account, ...(fromPeriod ? {fromPeriod:String(fromPeriod)} : {}), throughPeriod:String(throughPeriod || ''), entryId:entry, ...(coaReturn?.route === 'coa' ? {coaReturn} : {})};
 }
 
 // Report launches have no selected register row; retain the parent register
 // scope without manufacturing an entry id.
-export function localAccountRegisterReportReturnContext({ entityId = '', accountCode = '', fromPeriod = '', throughPeriod = '' } = {}) {
+export function localAccountRegisterReportReturnContext({ entityId = '', accountCode = '', fromPeriod = '', throughPeriod = '', coaReturn = null } = {}) {
   const account = String(accountCode || '');
   if (!account) return null;
-  return {route:'register', entityId:String(entityId || ''), accountCode:account, ...(fromPeriod ? {fromPeriod:String(fromPeriod)} : {}), throughPeriod:String(throughPeriod || '')};
+  return {route:'register', entityId:String(entityId || ''), accountCode:account, ...(fromPeriod ? {fromPeriod:String(fromPeriod)} : {}), throughPeriod:String(throughPeriod || ''), ...(coaReturn?.route === 'coa' ? {coaReturn} : {})};
 }
 
 export function localAccountRegisterReturnScopeLabel(context = {}) {

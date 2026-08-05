@@ -2103,6 +2103,15 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 
 - Verification: `node verify-ap-payment-bank-reconcile-return.mjs`, `node verify-expenses-ap-customer-flow.mjs`, and `git diff --check`.
 
+## Accounting: COA cash-register scope return (2026-08-05)
+
+| Capability | Newly observed QuickBooks evidence | REFS implementation | Status |
+|---|---|---|---|
+| COA → cash Register → Reconcile / GL/TB/BS → Back | Earlier read-only QBO Banking evidence showed separate bank and posted balances plus review/posted/excluded states. No COA, register, or reconciliation action was created or changed. | A cash Register launched from COA now propagates its COA tab/filter context into JE, GL, and Reconcile returns. After a full-page Reconcile or GL drill returns to Register, the user can return to the original filtered COA view. Entity, account, From/Through period and selected entry remain in the retained register context. | PARTIAL - local navigation/control contract verified; populated QBO COA/register behavior, roles, audit, empty state, and responsive layout remain unobserved. |
+| Cash-only reconciliation boundary | No QBO mutation evidence collected. Assistant3 confirmed AP/AR, P&L, assets, liabilities, equity, and other non-cash accounts must never imply a bank statement or reconciliation scope. | Only locally classified cash accounts expose Register/Reconcile. Non-cash COA rows route to scoped GL Detail; Register Reconcile remains disabled without one entity-safe mapped bank account. No account write, feed, auto-match, post, export, or sign-off operation is added. | PARTIAL - local control boundary, not QBO equivalence. |
+
+- Verification: `node verify-coa-register-cash-return.mjs` and `git diff --check`.
+
 ## Reports: More Options detail route (2026-08-04)
 
 ## Receivables: Customer payment to bank-credit return chain (2026-08-05)

@@ -44,11 +44,15 @@ export function AccountRegister({ctx}) {
   const endingBalance = localRegisterEndingBalance(rows);
   const scope = localRegisterScope(code);
   const cashRegisterScope = localCashRegisterScope({entityId:entity || null,accountCode:code,bankAccountMaster:BANK_ACCOUNTS});
+  const coaReturn = navContext?.coaReturn?.route === 'coa' ? navContext.coaReturn : null;
+  const registerReturnContext = (entryId = '') => entryId
+    ? localAccountRegisterJournalReturnContext({entityId:entity,accountCode:code,fromPeriod,throughPeriod,entryId,coaReturn})
+    : localAccountRegisterReportReturnContext({entityId:entity,accountCode:code,fromPeriod,throughPeriod,coaReturn});
   const selectedEntry = rows.find(row => row.id === selectedEntryId) || null;
   const openScopedGeneralLedger = () => goto('gl',{
     route:'gl', tab:'GL Detail', entityId:entity || '', fromP:fromPeriod, toP:throughPeriod,
     drillAccounts:[code], drillLabel:(account.account_name || code),
-    registerReturn:localAccountRegisterReportReturnContext({entityId:entity,accountCode:code,fromPeriod,throughPeriod}),
+    registerReturn:registerReturnContext(),
   });
 
   if (selectedEntry) return <div className="full-bleed qbo-transaction-report" aria-label="Local account-register entry detail">
@@ -56,7 +60,7 @@ export function AccountRegister({ctx}) {
     <div className="gl-drill-head"><div><div className="gl-drill-crumb">Account register · local posted evidence</div><h2 className="page-h">{selectedEntry.ref}</h2><div className="gl-drill-account">{code} {account.account_name || ''} · {selectedEntry.date}</div></div><Badge tone="ok">POSTED</Badge></div>
     <div className="qbo-drill-summary"><span><i>Entity / period</i><b>{entity || '—'} / {selectedEntry.period}</b></span><span><i>Transaction type</i><b>{selectedEntry.transactionType}</b></span><span><i>Source</i><b>{selectedEntry.source}</b></span><span><i>Counterparty</i><b>{selectedEntry.counterparty || 'Not retained'}</b></span><span><i>Debit / credit</i><b>{selectedEntry.debit || '—'} / {selectedEntry.credit || '—'}</b></span><span><i>Running balance</i><b><Money v={selectedEntry.runningBalance}/></b></span><span><i>Dimensions</i><b>{selectedEntry.dimensions}</b></span><span><i>Bank evidence</i><b>{selectedEntry.bankEvidence.state}</b></span></div>
     <p className="report-drill-hint">Only the selected entity, account and through-period POSTED line is shown. Bank match, clearing and reconciliation sign-off remain independent; missing/cross-scope source evidence cannot be drilled or changed here.</p>
-    <div className="row-acts"><Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:selectedEntry.ref,registerReturn:localAccountRegisterJournalReturnContext({entityId:entity,accountCode:code,fromPeriod,throughPeriod,entryId:selectedEntry.id})})}>Open retained JE</Btn>{selectedEntry.sourceTarget?<Btn size="sm" variant="ghost" onClick={()=>goto(selectedEntry.sourceTarget.route,selectedEntry.sourceTarget.context)}>Open retained source</Btn>:<Btn size="sm" variant="ghost" disabled>No source drill</Btn>}{cashRegisterScope.master?<Btn size="sm" variant="ghost" onClick={()=>goto('bankrec',{route:'bankrec',acctCode:cashRegisterScope.master.bank_account_code,registerReturn:localAccountRegisterJournalReturnContext({entityId:entity,accountCode:code,fromPeriod,throughPeriod,entryId:selectedEntry.id})})}>Open local reconcile</Btn>:<Btn size="sm" variant="ghost" disabled>No reconcile scope</Btn>}</div>
+    <div className="row-acts"><Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:selectedEntry.ref,registerReturn:registerReturnContext(selectedEntry.id)})}>Open retained JE</Btn>{selectedEntry.sourceTarget?<Btn size="sm" variant="ghost" onClick={()=>goto(selectedEntry.sourceTarget.route,selectedEntry.sourceTarget.context)}>Open retained source</Btn>:<Btn size="sm" variant="ghost" disabled>No source drill</Btn>}{cashRegisterScope.master?<Btn size="sm" variant="ghost" onClick={()=>goto('bankrec',{route:'bankrec',acctCode:cashRegisterScope.master.bank_account_code,registerReturn:registerReturnContext(selectedEntry.id)})}>Open local reconcile</Btn>:<Btn size="sm" variant="ghost" disabled>No reconcile scope</Btn>}</div>
   </div>;
 
   return <div className="full-bleed">
@@ -71,7 +75,7 @@ export function AccountRegister({ctx}) {
       </div>
       <div className="row-acts">
         <Btn size="sm" variant="ghost" onClick={openScopedGeneralLedger}>Open General Ledger</Btn>
-        <Btn size="sm" variant="ghost" disabled={!cashRegisterScope.master} title={cashRegisterScope.master ? 'Open the mapped local cash reconciliation with this register scope' : 'This account has no single mapped local cash reconciliation scope'} onClick={()=>goto('bankrec',{route:'bankrec',acctCode:cashRegisterScope.master?.bank_account_code,registerReturn:localAccountRegisterReportReturnContext({entityId:entity,accountCode:code,fromPeriod,throughPeriod})})}>Open Reconciliation</Btn>
+        <Btn size="sm" variant="ghost" disabled={!cashRegisterScope.master} title={cashRegisterScope.master ? 'Open the mapped local cash reconciliation with this register scope' : 'This account has no single mapped local cash reconciliation scope'} onClick={()=>goto('bankrec',{route:'bankrec',acctCode:cashRegisterScope.master?.bank_account_code,registerReturn:registerReturnContext()})}>Open Reconciliation</Btn>
       </div>
     </div>
     <div style={{display:'flex',gap:12,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
@@ -90,7 +94,7 @@ export function AccountRegister({ctx}) {
       <span className="muted sm">Opening</span><Money v={openingBalance}/><span className="muted sm">Ending Balance</span><Money v={endingBalance} bold/>
       <span style={{flex:1}}/>
       <Btn size="sm" variant="ghost" onClick={openScopedGeneralLedger}>Run Report</Btn>
-      <Btn size="sm" variant="ghost" disabled={!cashRegisterScope.master} title={cashRegisterScope.master?'Open the mapped local cash reconciliation':'This balance-sheet account has no single mapped local cash reconciliation scope'} onClick={()=>goto('bankrec',{route:'bankrec',acctCode:cashRegisterScope.master?.bank_account_code,registerReturn:localAccountRegisterReportReturnContext({entityId:entity,accountCode:code,fromPeriod,throughPeriod})})}>Reconcile</Btn>
+      <Btn size="sm" variant="ghost" disabled={!cashRegisterScope.master} title={cashRegisterScope.master?'Open the mapped local cash reconciliation':'This balance-sheet account has no single mapped local cash reconciliation scope'} onClick={()=>goto('bankrec',{route:'bankrec',acctCode:cashRegisterScope.master?.bank_account_code,registerReturn:registerReturnContext()})}>Reconcile</Btn>
     </div>
     <p className="muted sm" style={{margin:'0 0 12px'}}>Scope: entity {entity || 'must select an entity'} · {scope} · through {throughPeriod || 'all retained periods'}{navContext?.reconciliationHistoryReturn?.route === 'bankrec' ? ` · signed statement cutoff ${navContext.statementDate || navContext.reconciliationHistoryReturn.statementDate || 'unavailable'}` : ''}. Running balance uses only POSTED local JEs in deterministic date/reference order. {cashRegisterScope.master ? 'Mapped bank account ' + cashRegisterScope.master.bank_account_code + '; ' : ''}a bank match is not reconciliation sign-off.</p>
     <Table rowKey="id" className="table-journal-entries" features={{exportable:false}} onRow={row=>setSelectedEntryId(row.id)} cols={[
