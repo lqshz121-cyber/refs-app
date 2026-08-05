@@ -556,7 +556,7 @@ input:focus,select:focus,.grid-search:focus{
 .trace-actions{display:flex; gap:8px; margin-top:6px;}
 @media(max-width:1280px){
   :root{--nav-w:224px}.sidebar{width:var(--nav-w)!important}.content{padding:24px}
-  .topbar{overflow:hidden}.topbar>.sw:first-child{min-width:220px}.cmdk,.top-right>.muted,.top-right>.sw{display:none}.top-right{min-width:0}.user-chip{max-width:170px}.rep-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.trace-grid{grid-template-columns:2fr 1fr 1fr;}
+  .topbar{overflow:hidden}.topbar>.sw:first-child{min-width:220px}.cmdk,.top-right>.muted,.top-right>.sw{display:none}.top-right{min-width:0}.user-chip{max-width:170px;min-width:0;overflow:hidden}.user-nm{min-width:0;overflow:hidden;text-overflow:ellipsis}.user-nm .muted{display:none}.rep-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.trace-grid{grid-template-columns:2fr 1fr 1fr;}
 }
 @media(max-width:1080px){
   .sidebar{position:fixed;z-index:32;transform:translateX(-100%);transition:transform .2s ease;box-shadow:8px 0 24px rgba(0,0,0,.18)}

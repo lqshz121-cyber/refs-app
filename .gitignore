@@ -4,6 +4,7 @@ dist/
 server/outputs/
 outputs/
 .DS_Store
+outputs/
 # local smoke-test artifacts (sandbox-locked)
 smoke.mjs
 ssrtest.*
