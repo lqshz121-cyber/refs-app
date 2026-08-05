@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Btn, Badge, Money, Table } from './ui.jsx';
 import { money } from './engine.js';
-import { localBankPostingTrace } from './bank-matching.js';
 import { BANK_TRANSACTION_PAGE_SIZE, pageBankTransactionEvidence } from './bank-transaction-pagination.js';
 import { bankTransactionFocus } from './bank-transaction-focus.js';
 import { RECEIPT_VIEWS, RECEIPT_LOCAL_CLOSE_BOUNDARY, receiptEmptyState, receiptBankBridgeHint } from './receipt-view-state.js';
@@ -31,7 +30,6 @@ export function BankTransactions({ctx}) {
   const [type, setType] = useState('All transactions');
   const [page, setPage] = useState(1);
   const [receiptView, setReceiptView] = useState('For review');
-  const [checked, setChecked] = useState({});
   const [unidentifiedReceiptView, setUnidentifiedReceiptView] = useState('All');
   const [unidentifiedDisbursementView, setUnidentifiedDisbursementView] = useState('All');
   const account = bank.accounts[acctCode];
@@ -79,14 +77,10 @@ export function BankTransactions({ctx}) {
   const counterpartyOf = t => t.reference.includes('RENT') ? 'Tenant / owner' : 'Needs review';
   const openEvidenceDetail = transaction => goto('banktx',{route:'banktx',acctCode,bankTxnId:transaction.bank_txn_id,queue,query,dateRange,type,page});
   const counts = k => transactions.filter(t=>t._state===k).length;
-  const selected = Object.keys(checked).filter(k=>checked[k]);
-  const selectedPostedTxn = queue==='Posted' && selected.length===1 ? transactions.find(t=>String(t.bank_txn_id)===selected[0]) : null;
-  const selectedPostedTrace = selectedPostedTxn ? localBankPostingTrace(selectedPostedTxn, jes) : null;
   useEffect(() => {
     if (navContext?.route !== 'banktx') return;
     if (!navContext.bankTxnId) return;
     if (requestedFocus?.found) {
-      setChecked(current => current[requestedFocus.transaction.bank_txn_id] && Object.keys(current).length === 1 ? current : { [requestedFocus.transaction.bank_txn_id]: true });
       setQueue(requestedFocus.queue);
       setQuery('');
       setDateRange('All dates');
@@ -102,7 +96,7 @@ export function BankTransactions({ctx}) {
     if (hit) {
       setAcct(hit.acctCode);
       setQueue(hit.txn._state);
-      setChecked({ [hit.txn.bank_txn_id]: true });
+      goto('banktx',{route:'banktx',acctCode:hit.acctCode,bankTxnId:hit.txn.bank_txn_id,queue:hit.txn._state,query:'',dateRange:'All dates',type:'All transactions',page:1});
     }
   }, [navContext?.route, navContext?.bankTxnId, navContext?.jeNumber, bank.accounts]);
   const paymentBankDetail = navContext?.paymentReturn && requestedFocus?.found ? requestedFocus.transaction : null;
@@ -166,18 +160,12 @@ export function BankTransactions({ctx}) {
   }
 
   const cols = [
-    {h:'',w:36,render:r=><input aria-label={`Select ${r.external_id}`} type="checkbox" checked={!!checked[r.bank_txn_id]} onChange={e=>setChecked(c=>({...c,[r.bank_txn_id]:e.target.checked}))}/>},
     {h:'Date',k:'txn_date'},
-    {h:'Bank description',render:r=><div className="bank-desc"><b>{r.reference}</b><span>{r.external_id}</span></div>},
-    {h:'Local proof',render:r=><div className="bank-source"><b>{r.local_evidence?.label || 'Pending review'}</b><span>{r.local_evidence?.cashScope || 'Cash scope unproven'}{r.local_evidence?.dateVariance ? ' · JE date differs' : ''}</span></div>},
-    {h:'Spent',num:true,render:r=>r.direction==='DEBIT'?<Money v={r.amount}/>:<span className="muted">--</span>},
-    {h:'Received',num:true,render:r=>r.direction==='CREDIT'?<Money v={r.amount}/>:<span className="muted">--</span>},
-    {h:'From / To',render:r=><div className="bank-party"><b>{counterpartyOf(r)}</b><span>{r.reference.includes('RENT')?'Receipt can link to subledger activity':'No counterparty confirmed yet'}</span></div>},
-    {h:'Proof state',render:r=><span className="row-acts"><Badge tone={r.local_evidence?.state==='VALID_LOCAL_MATCH'?'ok':r._state==='Excluded'?'warn':'bad'}>{r.local_evidence?.state || 'PENDING_REVIEW'}</Badge>{duplicateByTxn.get(String(r.bank_txn_id))?.state==='SUSPECTED_DUPLICATE_BLOCKED'&&<Badge tone="bad">DUPLICATE REVIEW</Badge>}</span>},
-    {h:'Lifecycle',render:r=><span className="row-acts"><Badge tone={r.lifecycle.matchState==='MATCHED'?'ok':'warn'}>{r.lifecycle.matchState}</Badge><Badge tone={r.lifecycle.clearingState==='CLEARED'?'ok':'muted'}>{r.lifecycle.clearingState}</Badge><Badge tone={r.lifecycle.reconciliationState==='SIGNED_OFF'?'ok':'muted'}>{r.lifecycle.reconciliationState}</Badge></span>},
-    {h:'Candidate evidence',render:r=>{ const recommendation=r.ai_match; if(!recommendation) return <span className="muted sm">No retained candidate</span>; const tone=recommendation.status==='SUSPICIOUS'?'bad':recommendation.status==='MATCHED'?'ok':'warn'; return <div className="bank-suggestion"><Badge tone={tone}>{recommendation.status}</Badge><span><i className={recommendation.confidence>=.8?'confidence-good':'confidence-low'}>{(recommendation.confidence*100).toFixed(0)}%</i> · {recommendation.reason}</span>{recommendation.bill_id&&<span className="acct-code">Source: bill:{recommendation.bill_id}</span>}</div>;}},
-    {h:'Review candidate',render:r=>queue==='Review' ? <div className="bank-suggestion"><b>{r.suggest==='FEE' ? 'Bank fee candidate' : r.suggest==='INTEREST' ? 'Interest income candidate' : r.reference.includes('RENT') ? 'Receipt candidate' : 'No retained candidate'}</b><span>Evidence decision required; no action is available here.</span></div> : (r.matched_je&&jes.some(j=>j.je_number===r.matched_je) ? <Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:r.matched_je})}>{r.matched_je}</Btn> : <span className="muted sm">{r.matched_je||'—'}</span>)},
-    {h:'Evidence action',render:r=><Btn size="sm" variant="ghost" onClick={()=>openEvidenceDetail(r)}>Open evidence detail</Btn>}
+    {h:'Bank activity',render:r=><div className="bank-row-primary"><b>{r.reference || 'Description not retained'}</b><span>{r.external_id || r.bank_txn_id}</span><small>{counterpartyOf(r)}</small></div>},
+    {h:'Amount',num:true,render:r=><div className="bank-amount"><Money v={r.amount}/><span>{r.direction==='DEBIT'?'Money out':'Money in'}</span></div>},
+    {h:'Local evidence',render:r=>{ const recommendation=r.ai_match; const candidateLabel = queue==='Review' ? (r.suggest==='FEE' ? 'Bank fee candidate' : r.suggest==='INTEREST' ? 'Interest income candidate' : r.reference.includes('RENT') ? 'Receipt candidate' : 'No retained candidate') : (r.matched_je || 'No retained JE'); return <div className="bank-evidence-stack"><b>{r.local_evidence?.label || 'Pending review'}</b><span>{r.local_evidence?.cashScope || 'Cash scope unproven'}{r.local_evidence?.dateVariance ? ' · JE date differs' : ''}</span><small>{recommendation ? `${recommendation.status} · ${(recommendation.confidence*100).toFixed(0)}% · ${recommendation.reason}` : candidateLabel}</small></div>;}},
+    {h:'Status',render:r=><div className="bank-status-stack"><Badge tone={r.local_evidence?.state==='VALID_LOCAL_MATCH'?'ok':r._state==='Excluded'?'warn':'bad'}>{r.local_evidence?.state || 'PENDING_REVIEW'}</Badge><span>{r.lifecycle.matchState} · {r.lifecycle.clearingState}</span><small>{r.lifecycle.reconciliationState}</small>{duplicateByTxn.get(String(r.bank_txn_id))?.state==='SUSPECTED_DUPLICATE_BLOCKED'&&<Badge tone="bad">DUPLICATE REVIEW</Badge>}</div>},
+    {h:'Evidence',render:r=><Btn size="sm" variant="ghost" onClick={()=>openEvidenceDetail(r)}>Open detail</Btn>}
   ];
 
   return <div className="full-bleed bank-workbench">
@@ -242,16 +230,10 @@ export function BankTransactions({ctx}) {
     </div>
     {navContext?.route==='banktx' && (navContext.bankTxnId || navContext.jeNumber) && <div className="bank-health" role="status" style={{marginTop:12}}>
       <span className="bank-health-icon">i</span><div><b>{navContext.bankTxnId && requestedFocus && !requestedFocus.found ? 'No local bank evidence found' : 'Drill context applied'}</b><p>{navContext.bankTxnId ? (requestedFocus?.found ? `Focused retained local bank transaction ${navContext.bankTxnId} in ${requestedFocus.queue}, page ${requestedFocus.page}.` : `No retained local bank transaction matches ${navContext.bankTxnId}.`) : `Located the matched bank transaction for journal entry ${navContext.jeNumber}.`}</p></div></div>}
-    {selectedPostedTxn && <section className="expense-shell-panel" aria-label="Local posted bank trace" style={{marginTop:12}}>
-      <div><b>Local posted-bank trace</b><span>{selectedPostedTxn.external_id} · {selectedPostedTrace?.isPosted ? `Posted JE ${selectedPostedTrace.journalNumber}` : 'No retained posted local JE is available for this bank item.'}</span></div>
-        <div className="expense-shell-actions"><Btn size="sm" variant="ghost" disabled={!selectedPostedTrace?.isPosted} onClick={()=>goto('je',{jeNumber:selectedPostedTrace.journalNumber})}>Open Journal Entry</Btn><Btn size="sm" variant="ghost" disabled={!selectedPostedTrace?.canDrillGL} onClick={()=>goto('gl',{route:'gl',tab:'GL Detail',drillLabel:selectedPostedTrace.journalNumber})}>Open GL Detail</Btn><Btn size="sm" variant="ghost" disabled={!selectedPostedTrace?.canDrillTB} onClick={()=>goto('gl',{route:'gl',tab:'Trial Balance',drillLabel:selectedPostedTrace.journalNumber})}>Open Trial Balance</Btn><Btn size="sm" variant="ghost" disabled={!selectedPostedTxn} onClick={()=>goto('bankrec',{route:'bankrec',acctCode,bankTxnId:selectedPostedTxn.bank_txn_id})}>Open local reconcile</Btn></div>
-      <p className="muted sm">Read-only local drill context only. QBO Post is visible above but remains unavailable because its semantics were not exercised.</p>
-    </section>}
-
     <div className="acct-cards bank-account-strip">
       {Object.entries(bank.accounts).map(([code,ac])=>{
         const cardDifference = ac.stmt_end - ac.gl_book_balance;
-        return <button key={code} className={`acct-card bank-account-card ${acctCode===code?'acct-on':''}`} onClick={()=>{setAcct(code);setChecked({})}}>
+        return <button key={code} className={`acct-card bank-account-card ${acctCode===code?'acct-on':''}`} onClick={()=>setAcct(code)}>
           <div className="acct-head"><span><b>{ac.bank_name}</b><small>{code} - retained through {ac.stmt_date}</small></span><Badge tone={Math.abs(cardDifference)>.005?'warn':'ok'}>{Math.abs(cardDifference)>.005?'Needs attention':'Local evidence'}</Badge></div>
           <div className="acct-bal"><span><i>Bank balance</i><Money v={ac.stmt_end}/></span><span><i>In REFS</i><Money v={ac.gl_book_balance}/></span></div>
           <div className="acct-review"><b>{ac.txns.filter(t=>stateOf(t)==='Review').length}</b> pending review</div>
@@ -276,7 +258,7 @@ export function BankTransactions({ctx}) {
         </div>
       </div>
       <div className="bank-queue-tabs" role="tablist">
-        {['Review','Posted','Excluded'].map(k=><button role="tab" aria-selected={queue===k} className={queue===k?'active':''} key={k} onClick={()=>{setQueue(k);setChecked({})}}>{queueLabel[k]} <span>{counts(k)}</span></button>)}
+        {['Review','Posted','Excluded'].map(k=><button role="tab" aria-selected={queue===k} className={queue===k?'active':''} key={k} onClick={()=>setQueue(k)}>{queueLabel[k]} <span>{counts(k)}</span></button>)}
       </div>
       <div className="bank-toolbar">
         <label className="bank-search"><span className="bank-search-glyph" aria-hidden="true" /><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search bank description or ID"/></label>
@@ -284,8 +266,7 @@ export function BankTransactions({ctx}) {
         <select aria-label="Transaction type" value={type} onChange={e=>setType(e.target.value)}><option>All transactions</option><option>Money in</option><option>Money out</option></select>
         <span className="bank-result-count">{pagedQueueRows.total ? `${pagedQueueRows.start}-${pagedQueueRows.end} of ${pagedQueueRows.total}` : '0-0 of 0'} local transactions in {queueLabel[queue]}</span>
       </div>
-      <div className="bank-table"><Table rowKey="bank_txn_id" className="table-journal-entries" features={{filterable:false}} cols={cols} rows={pagedQueueRows.rows} empty={bankScopeEmpty.title || `No ${queueLabel[queue].toLowerCase()} transactions`}/></div>
-      {!pagedQueueRows.rows.length && <div className="empty-state" aria-label="Local bank scope empty state"><b>{bankScopeEmpty.title}</b><span>{bankScopeEmpty.detail}</span><small>Scope: {acctCode} · {account.period} · {BANK_ACCOUNTS.find(row=>row.bank_account_code===acctCode)?.cash_scope || 'Unmapped cash scope'} · {entity || 'No active entity'}</small><div className="row-acts" style={{marginTop:10}}><Btn size="sm" variant="ghost" onClick={()=>goto('register')}>Open local bank register</Btn><Btn size="sm" variant="ghost" disabled={bankScopeEmpty.state==='NO_LOCAL_BANK_EVIDENCE'} onClick={()=>goto('gl',{route:'gl',tab:'GL Detail',fromP:account.period,toP:account.period,drillLabel:`${acctCode} local cash evidence`})}>Open local GL Detail</Btn></div></div>}
+      {pagedQueueRows.rows.length ? <div className="bank-table"><Table rowKey="bank_txn_id" features={{filterable:false}} cols={cols} rows={pagedQueueRows.rows}/></div> : <div className="empty-state bank-queue-empty" aria-label="Local bank scope empty state"><b>{bankScopeEmpty.title || `No ${queueLabel[queue].toLowerCase()} transactions`}</b><span>{bankScopeEmpty.detail || 'No retained local bank evidence matches the selected account, queue, and filters.'}</span><small>Scope: {acctCode} · {account.period} · {BANK_ACCOUNTS.find(row=>row.bank_account_code===acctCode)?.cash_scope || 'Unmapped cash scope'} · {entity || 'No active entity'}</small><div className="row-acts" style={{marginTop:10}}><Btn size="sm" variant="ghost" onClick={()=>goto('register')}>Open local bank register</Btn><Btn size="sm" variant="ghost" disabled={bankScopeEmpty.state==='NO_LOCAL_BANK_EVIDENCE'} onClick={()=>goto('gl',{route:'gl',tab:'GL Detail',fromP:account.period,toP:account.period,drillLabel:`${acctCode} local cash evidence`})}>Open local GL Detail</Btn></div></div>}
       <nav className="bank-pagination" aria-label="Local bank transaction pages"><button type="button" disabled={pagedQueueRows.currentPage===1} onClick={()=>setPage(p=>p-1)}>Previous</button><span>Page {pagedQueueRows.currentPage} of {pagedQueueRows.pageCount}</span><button type="button" disabled={pagedQueueRows.currentPage===pagedQueueRows.pageCount} onClick={()=>setPage(p=>p+1)}>Next</button></nav>
       <div className="bank-footer"><span>Retained local bank evidence is read-only; no categorize, match, exclude, restore, or posting action is available.</span><span>Drill path: report to detail ledger to source-ready bank evidence</span></div>
     </section>
