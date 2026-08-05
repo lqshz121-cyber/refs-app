@@ -35,5 +35,9 @@ const failingStore=memory(); let writes=0; const failing={load:failingStore.load
 const recoverable=createAIReviewOutcomeRepository(failing);
 assert.throws(()=>recoverable.apply({...input,outcome:{...input.outcome,idempotency_key:'recover-1'}}),/simulated/);
 assert.throws(()=>recoverable.apply({...input,outcome:{...input.outcome,idempotency_key:'recover-1',decision:'REJECT'}}),/idempotency conflict/);
-const recovered=createAIReviewOutcomeRepository(failingStore).recover(); assert.equal(recovered.length,1); assert.equal(recovered[0].status,'RECOVERED'); assert.equal(recovered[0].draft.posting_status,'DRAFT');
+const afterFailure=createAIReviewOutcomeRepository(failingStore).read();
+assert.equal(afterFailure.wals.length,1); assert.equal(afterFailure.wals[0].state,'PREPARED'); assert.equal(afterFailure.drafts.length,0); assert.equal(afterFailure.events.length,0);
+const recoveredRepo=createAIReviewOutcomeRepository(failingStore);
+const recovered=recoveredRepo.recover(); assert.equal(recovered.length,1); assert.equal(recovered[0].status,'RECOVERED'); assert.equal(recovered[0].draft.posting_status,'DRAFT');
+assert.equal(recoveredRepo.read().drafts.length,1); assert.equal(recoveredRepo.read().events.length,1); assert.equal(recoveredRepo.read().wals[0].state,'COMMITTED');
 console.log('ai-review-outcome-contract: approve/reject/edit, atomic WAL recovery, redaction and Draft-only assertions passed');
