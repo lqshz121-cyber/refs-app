@@ -358,6 +358,25 @@ export function createAIWALRepository(storage,{walKey='ai_accounting_wal',eventK
 
 const AI_REVIEW_OUTCOMES=Object.freeze(['APPROVE','REJECT','EDIT']);
 const AI_REVIEW_IMMUTABLE_FIELDS=Object.freeze(['posting_status','entity_id','period_code','accounting_period','source_doc_id','source_document_id','idempotency_key','ai_proposal_id','ai_finding_id','ai_rule_id','member_trace']);
+const canonicalizeAIReviewValue=value=>{
+  if(value===null||typeof value!=='object') return value;
+  if(Array.isArray(value)) return value.map(canonicalizeAIReviewValue);
+  return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonicalizeAIReviewValue(value[key])]));
+};
+const stableAIReviewHash=value=>{
+  const text=JSON.stringify(canonicalizeAIReviewValue(value)); let hash=2166136261;
+  for(let index=0;index<text.length;index+=1) { hash^=text.charCodeAt(index); hash=Math.imul(hash,16777619); }
+  return `AI-REVIEW-HASH:${(hash>>>0).toString(16)}:${text.length}`;
+};
+const aiReviewOutcomePayload=({draft,outcome,actor}={})=>redactSecrets({
+  proposal_id:draft?.ai_proposal_id||null,
+  draft_id:draft?.je_id||draft?.je_number||null,
+  draft_idempotency_key:draft?.idempotency_key||null,
+  decision:outcome?.decision||null,
+  patch:outcome?.patch||null,
+  actor:actor||null
+});
+const aiReviewOutcomePayloadHash=input=>stableAIReviewHash(aiReviewOutcomePayload(input));
 const aiReviewOutcomeEvent=({proposalId,outcome,actor,draft}={})=>({
   event_id:`AI-REVIEW-OUTCOME:${outcome.idempotency_key}`,
   event_type:`AI_REVIEW_${outcome.decision}`,
@@ -419,15 +438,20 @@ export function createAIReviewOutcomeRepository(storage,{key='ai_accounting_revi
     apply(input){
       validateAIReviewOutcome(input);
       const state=read(), idempotencyKey=input.outcome.idempotency_key;
+      const payloadHash=aiReviewOutcomePayloadHash(input);
       const existing=state.wals.find(row=>row.idempotency_key===idempotencyKey);
+      if(existing&&existing.payload_hash!==payloadHash) throw new Error('AI review outcome idempotency conflict');
       if(existing?.state==='COMMITTED') return {status:'IDEMPOTENT_REUSE',draft:state.drafts.find(row=>row.ai_review_outcome_id===idempotencyKey)||null,event:state.events.find(row=>row.event_id===`AI-REVIEW-OUTCOME:${idempotencyKey}`)||null,wal:existing};
-      const wal=existing||{wal_id:`AI-REVIEW-WAL:${idempotencyKey}`,idempotency_key:idempotencyKey,state:'PREPARED',input:redactSecrets(input),created_at:new Date().toISOString()};
+      const wal=existing||{wal_id:`AI-REVIEW-WAL:${idempotencyKey}`,idempotency_key:idempotencyKey,payload_hash:payloadHash,state:'PREPARED',input:redactSecrets(input),created_at:new Date().toISOString()};
       if(!existing) persist({...state,wals:[...state.wals,wal]});
       return commit(read(),wal);
     },
     recover(){
       let state=read(); const results=[];
-      for(const wal of state.wals.filter(row=>row.state==='PREPARED')) { const result=commit(state,wal); results.push({...result,status:'RECOVERED'}); state=read(); }
+      for(const wal of state.wals.filter(row=>row.state==='PREPARED')) {
+        if(!wal.payload_hash||wal.payload_hash!==aiReviewOutcomePayloadHash(wal.input)) throw new Error('AI review outcome recovery idempotency conflict');
+        const result=commit(state,wal); results.push({...result,status:'RECOVERED'}); state=read();
+      }
       return results;
     },
     read
