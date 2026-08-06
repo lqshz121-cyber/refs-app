@@ -1,3 +1,9 @@
+# Both forms on purpose. `node_modules/` alone only matches a directory, so a
+# node_modules *symlink* slipped past it and was committed as mode 120000. On a
+# Windows checkout git cannot create that symlink, so it writes the target path into
+# a small regular file that points at itself, and every esbuild gate on a fresh clone
+# dies with "Cannot find package 'esbuild'". Keep the slashless form.
+node_modules
 node_modules/
 dist/
 *.log
