@@ -266,7 +266,8 @@ export function GLTrialBalance({ctx}) {
       const sectionRows=(rows,section)=>rows.filter(row=>localIncomeStatementSection(row)===section);
       const rentalIncome=sectionRows(rev,'Rental income'), otherPropertyIncome=sectionRows(rev,'Other property income'), otherIncome=sectionRows(rev,'Other income · review');
       const cogs=sectionRows(exp,'Cost of goods sold'), propertyOps=sectionRows(exp,'Property operations'), interestExpense=sectionRows(exp,'Interest and financing'), capitalReview=sectionRows(exp,'Capital / completion review'), generalAdmin=sectionRows(exp,'General and administrative'), otherOpex=sectionRows(exp,'Other operating expense · review');
-      const revT=sum(rev,r=>-r.balance), cogsT=sum(cogs,r=>r.balance), opexT=sum(exp.filter(r=>!cogs.includes(r)),r=>r.balance);
+      const opex=exp.filter(r=>!cogs.includes(r));
+      const revT=sum(rev,r=>-r.balance), cogsT=sum(cogs,r=>r.balance), opexT=sum(opex,r=>r.balance);
       const expenseGroups=[['Property operations',propertyOps],['Interest and financing',interestExpense],['Capital / completion review',capitalReview],['General and administrative',generalAdmin],['Other operating expense · review',otherOpex]].filter(([,rows])=>rows.length);
       return <div className="stmt stmt-wide">
         <div className="stmt-h">Income Statement · {fromP} ~ {toP} <span className="muted sm">(same-entity, same-dimension POSTED accrual evidence)</span></div>

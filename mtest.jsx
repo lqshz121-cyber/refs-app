@@ -42,6 +42,25 @@ for (const Component of components) {
   try { renderToStaticMarkup(<Component ctx={ctx}/>); console.log('PASS',Component.name); }
   catch (error) { failed++; console.error('FAIL',Component.name,error.message); }
 }
+// Regression: the loop above renders every component with ctx.entity=0, which short-circuits the
+// statement bodies before they touch their totals. A free variable in one of those bodies therefore
+// stayed invisible to this suite and shipped to production ('opex is not defined' on Total Expenses).
+// Entity 4 is the only seed entity carrying both POSTED revenue and POSTED expense lines, so it is
+// the only one that reaches the expense subtotal at all. Each statement tab must render for real.
+for (const statementTab of ['Trial Balance','GL Detail','Balance Sheet','Income Statement','Cash Flow']) {
+  const populatedCtx={...ctx,entity:4,navContext:{route:'gl',tab:statementTab}};
+  try {
+    const markup=renderToStaticMarkup(<GLTrialBalance ctx={populatedCtx}/>);
+    if(!markup.length){failed++;console.error('FAIL statement tab rendered empty',statementTab);}
+    else console.log('PASS statement tab renders with a populated entity',statementTab);
+  } catch (error) { failed++; console.error('FAIL statement tab',statementTab,error.message); }
+}
+try {
+  const incomeMarkup=renderToStaticMarkup(<GLTrialBalance ctx={{...ctx,entity:4,navContext:{route:'gl',tab:'Income Statement'}}}/>);
+  if(!incomeMarkup.includes('Total Expenses')||!incomeMarkup.includes('Net Income')){
+    failed++;console.error('FAIL Income Statement reached neither the expense subtotal nor Net Income, so the regression it guards is untested');
+  } else console.log('PASS Income Statement renders Total Expenses and Net Income for a populated entity');
+} catch (error) { failed++; console.error('FAIL Income Statement expense subtotal',error.message); }
 const authoritativeBankCtx={...ctx,authoritativeMode:true,bank:{accounts:{'BA-003':{bank_name:'Pacific Bank',stmt_date:'2026-07-31',stmt_end:0,gl_book_balance:0,txns:[{bank_txn_id:1,external_id:'BANK-1',txn_date:'2026-07-31',amount:1,direction:'DEBIT',reference:'Fee',match_status:'UNMATCHED'}],outstanding_checks:[],deposits_in_transit:[]}},history:[]}};
 const authoritativeBankMarkup=renderToStaticMarkup(<BankTransactions ctx={authoritativeBankCtx}/>);
 if(!authoritativeBankMarkup.includes('BANK_API_UNAVAILABLE')||!authoritativeBankMarkup.includes('disabled')){failed++;console.error('FAIL authoritative Bank screen is not fail-closed');}else console.log('PASS authoritative Bank screen is fail-closed');
