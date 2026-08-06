@@ -15,6 +15,16 @@
    keeps a private palette. Do not append a new override layer - edit here.
    ========================================================================== */
 :root{
+  /* The user agent renders form controls, scrollbars and the <select> popup
+     from system colours. Declaring the scheme is what stops an unclassed
+     <button> falling back to the light `buttonface` while the app is dark. */
+  color-scheme:light;
+  /* The dark palette's two first-paint values live here, not only on body.dark,
+     because the `prefers-color-scheme` rule at the end of this section runs
+     before the bundle has had a chance to put a class on <body>. One source of
+     truth, so the pre-boot frame can never disagree with the booted app. */
+  --qb-dark-canvas:#0F1418;
+  --qb-dark-text:#D7DDE1;
   /* neutrals */
   --qb-canvas:#F4F5F8;
   --qb-surface:#FFFFFF;
@@ -109,15 +119,22 @@
 }
 /* Dark-mode parity: every token above is redefined, nothing falls through. */
 body.dark{
-  --qb-canvas:#0F1418;
+  color-scheme:dark;
+  --qb-canvas:var(--qb-dark-canvas);
   --qb-surface:#171D22;
   --qb-raised:#1E252B;
   --qb-inset:#1B2227;
-  --qb-text:#D7DDE1;
+  --qb-text:var(--qb-dark-text);
   --qb-text-strong:#F1F4F6;
   --qb-text-muted:#9EAAB1;
   --qb-text-faint:#8B979E;
-  --qb-border:#404C55;
+  /* WCAG 1.4.11: a control's boundary needs 3:1 against what is behind it.
+     The old #404C55 reached 1.93:1 on --qb-surface and 1.76:1 on --qb-raised,
+     so every input, select and default button lost its edge in dark mode.
+     #74818B clears 3:1 against canvas, surface, raised, inset, rail and the
+     segmented track. --qb-border-soft / -alt / --qb-divider stay quiet: they
+     rule table rows and split panels, which is decoration, not a boundary. */
+  --qb-border:#74818B;
   --qb-border-soft:#36424A;
   --qb-border-alt:#2F3A41;
   --qb-divider:#28323A;
@@ -137,7 +154,7 @@ body.dark{
   --qb-focus-ring:0 0 0 3px rgba(123,212,175,.28);
   /* round 2 structural tokens keep full dark-mode parity */
   --qb-rail-bg:#12181D;
-  --qb-chip-border:#3A464F;
+  --qb-chip-border:#6E7B85;   /* 3.57:1 on --qb-raised, 3.91:1 on --qb-surface */
   --qb-badge-ink:#0A2B22;
   --qb-badge-glyph:#6FE0B4;
   /* round 3 tokens keep full dark-mode parity; the motion tokens are
@@ -145,6 +162,27 @@ body.dark{
   --qb-skel:#232B31;
   --qb-skel-hi:#2E383F;
 }
+/* ---- Operating-system preference ------------------------------------------
+   The app used to ignore `prefers-color-scheme` entirely: a machine set to dark
+   got the light build until the user found the moon glyph.
+   The whole palette is still switched from one place - the `dark` class that
+   src/theme-preference.js puts on <body> at boot from the OS setting, and that
+   the ☾ control overrules for good once the user has pressed it. This block
+   exists only for the frame before the bundle runs, and it declares just the
+   two values that frame can show, both read from the same tokens body.dark
+   uses, so a pre-boot frame cannot drift from the booted app.
+   `body:not(.light)` is the escape hatch: a user on a dark machine who has
+   chosen light gets `class="light"` and this rule stands down. */
+@media (prefers-color-scheme: dark){
+  :root{ color-scheme:dark; }
+  html{ background:var(--qb-dark-canvas); }
+  body:not(.light){ background:var(--qb-dark-canvas); color:var(--qb-dark-text); }
+}
+/* `inert` is how the off-canvas drawer leaves the tab order and the
+   accessibility tree without losing its slide transition. Modern engines
+   already suppress pointer events on an inert subtree; this states it so the
+   closed drawer can never eat a click on the page behind it. */
+[inert]{ pointer-events:none; user-select:none; }
 
 
 /* ============================ 1. BASE ==================================== */
@@ -167,6 +205,20 @@ a:hover,.link:hover{text-decoration:underline;}
 code,.mono{font-family:var(--qb-mono); font-size:12px; background:var(--qb-inset);
   padding:1px 5px; border-radius:var(--qb-r-chip); color:var(--qb-text-strong);}
 img,svg,canvas{max-width:100%;}
+/* ---- The user-agent button, tokenised ---------------------------------------
+   An unclassed <button> is painted from system colours: `buttonface`, which is
+   #EFEFEF in a light user agent. In dark mode the app then wrote a dark-theme
+   colour onto that light chip - --qb-text on #EFEFEF measures 1.19:1, far below
+   the 4.5:1 body-text floor. `color-scheme` above fixes the user agent's own
+   idea of the scheme; these three declarations make the answer explicit and
+   theme-independent instead of leaving it to system colours.
+   Only colour, background-colour and border-colour are set, at element
+   specificity (0,0,1), so every class rule in this stylesheet still wins and
+   any button that deliberately declares `border:0` or a transparent
+   background keeps exactly the look it has today. ------------------------- */
+button,input[type="button"],input[type="submit"],input[type="reset"]{
+  color:var(--qb-text-strong); background-color:var(--qb-inset); border-color:var(--qb-border);
+}
 /* One visible focus treatment everywhere: 2px brand outline, small offset. */
 :focus{outline:none;}
 :focus-visible{outline:2px solid var(--qb-accent); outline-offset:1px; border-radius:var(--qb-r-chip);}
@@ -340,7 +392,12 @@ input,select,textarea{
 }
 .nav-item-label{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .nav-chev{flex:0 0 auto; color:var(--qb-text-faint); font-size:15px; line-height:1;}
-.nav-item.nav-on{background:var(--qb-divider); color:var(--qb-text-strong); font-weight:500; box-shadow:none;}
+/* The current page is marked by a 3px accent bar, not only by a fill. The fill
+   alone is 1.23:1 against the panel in light and 1.16:1 in dark - below the 3:1
+   that WCAG 1.4.11 asks of a state indicator - and it also read the same as a
+   hover. The bar is --qb-accent, 12.11:1 in light and 9.62:1 in dark. */
+.nav-item.nav-on{background:var(--qb-divider); color:var(--qb-text-strong); font-weight:500;
+  box-shadow:inset 3px 0 0 0 var(--qb-accent);}
 .nav-item.nav-on .nav-chev{color:var(--qb-text-muted);}
 /* one hue per navigation group - the pattern, not Intuit's hues */
 .nav-tone-0 .nav-badge{background:#D9EAE3; color:#00543F;}
@@ -480,6 +537,12 @@ input,select,textarea{
 }
 .btn:hover{background:var(--qb-canvas); border-color:var(--qb-accent);}
 .btn:focus-visible{outline:2px solid var(--qb-accent); outline-offset:1px;}
+/* `.btn-default` names the neutral variant explicitly. It used to be a phantom
+   class - written in the markup, defined nowhere - so it inherited .btn in
+   light and had no dark pairing at all, leaving --qb-text-strong on a white
+   surface at 1.10:1. It is now a real declaration in both themes. */
+.btn-default{background:var(--qb-surface); color:var(--qb-text-strong); border:1px solid var(--qb-border);}
+.btn-default:hover{background:var(--qb-canvas); border-color:var(--qb-accent);}
 .btn-primary{background:var(--qb-brand); color:var(--qb-brand-fg); border:0; padding:0 14px;}
 .btn-primary:hover{background:var(--qb-brand-hover); color:var(--qb-brand-fg); filter:none;}
 .btn-secondary{background:transparent; color:var(--qb-accent); border:2px solid var(--qb-accent); padding:0 10px;}
@@ -1481,9 +1544,19 @@ body.dark{background:var(--qb-canvas); color:var(--qb-text);}
 body.dark .topbar,body.dark .sidebar,body.dark .nav-panel{background:var(--qb-surface); border-color:var(--qb-divider);}
 body.dark .nav-rail{background:var(--qb-rail-bg); border-color:var(--qb-divider);}
 body.dark .nav-group-h:hover{background:var(--qb-raised);}
+/* Selected navigation, dark. The rail's current group is identified by the
+   filled brand square behind its glyph - #3FA982 on the #12181D rail is 6.14:1,
+   so it carries the state on its own.
+   The panel's current page could not: --qb-raised on the --qb-surface panel is
+   1.16:1, which is the same nothing the hover tint gives, so "which page am I
+   on" was unreadable and the row was indistinguishable from a hovered one.
+   It now carries the accent tint plus a 3px accent marker - --qb-accent on the
+   panel is 9.62:1 - which is the same mark the keyboard table row uses. */
 body.dark .nav-group-h.rail-on .rail-glyph{background:var(--qb-brand); color:var(--qb-brand-fg);}
+body.dark .nav-group-h.rail-on .rail-label{color:var(--qb-text-strong); font-weight:700;}
 body.dark .nav-item:hover{background:var(--qb-raised);}
-body.dark .nav-item.nav-on{background:var(--qb-raised); color:var(--qb-text-strong);}
+body.dark .nav-item.nav-on{background:var(--qb-accent-tint); color:var(--qb-text-strong);}
+body.dark .nav-item.nav-on .nav-chev{color:var(--qb-accent);}
 body.dark .nav-tone-0 .nav-badge{background:#16352C; color:#7BD4AF;}
 body.dark .nav-tone-1 .nav-badge{background:#152B3E; color:#8DBBEC;}
 body.dark .nav-tone-2 .nav-badge{background:#271F3A; color:#BFAEE4;}
@@ -1518,7 +1591,7 @@ body.dark .drawer,body.dark .pal,body.dark .newmenu{
 }
 body.dark .qbo-card{background:var(--qb-surface)!important;}
 body.dark .topbar select,body.dark .cmdk,body.dark .icon-btn,body.dark .user-chip,
-body.dark .period-chip,body.dark .btn,body.dark .grid-tool,body.dark .chip,
+body.dark .period-chip,body.dark .btn,body.dark .btn-default,body.dark .grid-tool,body.dark .chip,
 body.dark input,body.dark select,body.dark textarea,body.dark .grid-search,
 body.dark .step-chip:not(.step-on),body.dark .mo-chip:not(.mo-on),
 body.dark .qbo-quicklinks button,body.dark .qbo-report-centerbar>button,
@@ -1544,9 +1617,13 @@ body.dark .qbe-document .je-lines th,body.dark .mini-table td{
 body.dark .tabs,body.dark .seg,body.dark .je-queue-chips,body.dark .bank-queue-tabs,
 body.dark .qbo-segment{background:var(--qb-divider);}
 body.dark .qbo-report-previewbar>button{background:var(--qb-raised);border-color:var(--qb-border);color:var(--qb-text);}
+/* Selected segment. --qb-raised on the --qb-divider track is 1.30:1, so in dark
+   the chosen tab dissolved into its own track; light mode separates them with a
+   drop shadow, which dark mode had dropped. A 1px --qb-border ring restores the
+   boundary at 3.27:1 against the track. */
 body.dark .tab.tab-on,body.dark .tab-on,body.dark .je-queue-chips>button.on,
-body.dark .bank-queue-tabs>button.active{
-  background:var(--qb-raised); color:var(--qb-text-strong);
+body.dark .bank-queue-tabs>button.active,body.dark .bank-queue-seg-on{
+  background:var(--qb-raised); color:var(--qb-text-strong); box-shadow:0 0 0 1px var(--qb-border);
 }
 body.dark .badge-count,body.dark .bank-queue-tabs button span,body.dark .je-queue-chips button span{
   background:var(--qb-raised); color:var(--qb-text-muted);
@@ -1591,16 +1668,22 @@ body.dark .skel-table .skel-head,body.dark .skel-table .skel-row{border-color:va
 
 /* Bank queue segmented control, account tile pill, and non-executable action chips.
    Elevation stays tight and hover is a background tint only - no lift. */
-.bank-queue-seg-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid #e2e9ed;}
-.bank-queue-seg{display:inline-flex;gap:2px;padding:2px;background:#e2e9ed;border-radius:6px;}
-.bank-queue-seg-item{appearance:none;border:0;height:32px;padding:0 16px;border-radius:5px;background:transparent;color:#4c555b;font:400 16px/1.2 inherit;cursor:pointer;white-space:nowrap;}
-.bank-queue-seg-item:hover{background:rgba(255,255,255,.55);}
-.bank-queue-seg-on,.bank-queue-seg-on:hover{background:#fff;color:#21262a;box-shadow:0 1px 4px rgba(76,85,91,.2);}
+/* These five rules used to carry raw light hexes - #e2e9ed, #fff, #21262a -
+   after the dark section, so they won the cascade in both themes and painted a
+   white segmented control and a light grey count pill into the middle of a dark
+   page. Every value is now the token that already has a dark pairing, so the
+   next component added here inherits the correct colour instead of repeating
+   the bug. */
+.bank-queue-seg-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid var(--qb-divider);}
+.bank-queue-seg{display:inline-flex;gap:2px;padding:2px;background:var(--qb-divider);border-radius:6px;}
+.bank-queue-seg-item{appearance:none;border:0;height:32px;padding:0 16px;border-radius:5px;background:transparent;color:var(--qb-text-muted);font:400 16px/1.2 inherit;cursor:pointer;white-space:nowrap;}
+.bank-queue-seg-item:hover{background:var(--qb-surface);}
+.bank-queue-seg-on,.bank-queue-seg-on:hover{background:var(--qb-surface);color:var(--qb-text-strong);box-shadow:var(--qb-shadow-card);}
 .bank-queue-seg-item:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 .bank-queue-seg-note{color:var(--text-2);font-size:11px;flex:1 1 220px;min-width:0;}
-.bank-account-pill{display:inline-grid;place-items:center;min-width:22px;height:20px;padding:0 6px;margin-left:auto;border-radius:10px;background:#e2e9ed;color:#21262a;font-size:11px;font-weight:600;}
+.bank-account-pill{display:inline-grid;place-items:center;min-width:22px;height:20px;padding:0 6px;margin-left:auto;border-radius:10px;background:var(--qb-divider);color:var(--qb-text-strong);font-size:11px;font-weight:600;}
 .bank-pagination-range{color:var(--text-2);font-size:12px;margin-right:auto;font-variant-numeric:tabular-nums;}
-.bank-action-availability{padding:12px 14px;border-top:1px solid #e2e9ed;}
+.bank-action-availability{padding:12px 14px;border-top:1px solid var(--qb-divider);}
 .bank-action-availability>b{font-size:12px;}
 .bank-action-list{list-style:none;display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0;padding:0;}
 .bank-action-item{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:var(--qb-hair) dashed var(--qb-border);border-radius:6px;background:transparent;color:var(--text-2);cursor:default;}
@@ -1629,9 +1712,16 @@ body.preview-grey-all .app{filter:grayscale(1);}
 </style>
 </head>
 <body>
+<script>
+/* preview-only: the static file has no bundle, so it mirrors what
+   src/theme-preference.js does at boot - operating system first, and an
+   explicit class either way so the prefers-color-scheme rule in the product
+   stylesheet has something to stand down for. */
+document.body.className = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+</script>
 
 <div class="app">
-  <aside class="sidebar">
+  <aside id="primary-navigation" class="sidebar">
     <div class="nav-rail">
       <span class="rail-logo" aria-hidden="true">&#9672;</span>
         <div class="nav-group">
@@ -1762,12 +1852,13 @@ body.preview-grey-all .app{filter:grayscale(1);}
   </aside>
   <div class="main">
     <header class="topbar">
+      <button class="mobile-nav-btn" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded="false">&#9776;</button>
       <label class="sw"><select><option>All entities</option></select></label>
       <button class="cmdk">&#8984;K Search or jump</button>
       <div class="top-right">
         <span class="period-chip"><span class="period-label">Period</span><b>2026-07</b><span class="badge badge-ok">OPEN</span></span>
         <button class="icon-btn" title="Help">?</button>
-        <button class="icon-btn" title="Light / dark">&#9790;</button>
+        <button class="icon-btn" aria-pressed="false" title="Switch to dark theme">&#9790;</button>
         <div class="user-chip"><span class="user-av">R</span><span class="user-nm">Ricky<span class="muted sm"> &middot; CONTROLLER</span></span><button class="link-btn">Sign out</button></div>
       </div>
     </header>
@@ -1922,14 +2013,24 @@ body.preview-grey-all .app{filter:grayscale(1);}
   product stylesheet inlined verbatim from <code>index.html</code>. Nothing here is interactive
   except the theme toggle. Independent implementation informed by measurement; no QuickBooks
   markup, CSS, icon, image or font asset is used, and no claim of QuickBooks equivalence is made.
+  <div><b>Off-canvas drawer.</b> Narrow the window below 1024px and the sidebar slides out of the
+  viewport. In the product it also becomes <code>inert</code> at that point, so its 20 controls leave
+  the tab order and the accessibility tree instead of sitting invisibly in front of the page - press
+  Tab from the address bar and the first stop must be the &#9776; button, never something you cannot
+  see. Use &ldquo;Toggle the off-canvas drawer&rdquo; below to see the open state and the same
+  inert/aria-hidden pair the React shell writes. Escape closes it and returns focus to &#9776;.</div>
+  <div><b>Theme.</b> The theme now follows your operating system on first load, and the &#9790;
+  control overrules it for good once you press it. This static preview has no bundle, so use the
+  toggle below to compare the two palettes by eye.</div>
   <div><b>Round 3</b> adds, below the dashboard cards: the workflow mark alphabet (with a greyscale copy),
   the three numeric readings with a hover row and a keyboard row side by side, the loading skeleton at the
   geometry of the real table, and the cleared-queue state next to the neutral empty state. To judge the
   motion story, turn on your operating system's &ldquo;reduce motion&rdquo; setting and reload: the skeleton
   sweep must stop completely and every hover tint must become instant.</div>
   <div>
-    <button class="preview-toggle" onclick="document.body.classList.toggle('dark')">Toggle dark mode</button>
+    <button class="preview-toggle" onclick="var d=!document.body.classList.contains('dark');document.body.className=(d?'dark':'light')+(document.body.classList.contains('preview-grey-all')?' preview-grey-all':'')">Toggle dark mode</button>
     <button class="preview-toggle" onclick="document.body.classList.toggle('preview-grey-all')">Toggle greyscale</button>
+    <button class="preview-toggle" onclick="var a=document.getElementById('primary-navigation'),o=a.classList.toggle('mobile-open'),b=document.querySelector('.mobile-nav-btn');if(o){a.removeAttribute('inert');a.removeAttribute('aria-hidden');}else{a.setAttribute('inert','');a.setAttribute('aria-hidden','true');}b.setAttribute('aria-expanded',String(o));">Toggle the off-canvas drawer</button>
   </div>
 </div>
 </body>

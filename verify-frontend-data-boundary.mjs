@@ -213,6 +213,10 @@ const UI_PREFERENCE_WRITES = {
   "src/modules-more.jsx::'refs_local_report_scopes'":
     'Saved report scope labels (entity / period / dimension the reader last chose). ' +
     'A filter selection, not a report result and not an accounting record.',
+  "src/theme-preference.js::'refs_theme'":
+    "Light or dark theme. Written only when the reader presses the top-bar theme control, " +
+    'and read at boot so that choice outranks the operating system preference. The literal ' +
+    'string "dark" or "light"; holds no record and identifies nobody.',
 };
 
 // Delete an entry the moment its page stops writing business state.

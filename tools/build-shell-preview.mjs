@@ -92,7 +92,7 @@ const tile = ([label, remaining, total]) => {
 
 const body = `
 <div class="app">
-  <aside class="sidebar">
+  <aside id="primary-navigation" class="sidebar">
     <div class="nav-rail">
       <span class="rail-logo" aria-hidden="true">&#9672;</span>${railItems}
     </div>
@@ -107,12 +107,13 @@ const body = `
   </aside>
   <div class="main">
     <header class="topbar">
+      <button class="mobile-nav-btn" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded="false">&#9776;</button>
       <label class="sw"><select><option>All entities</option></select></label>
       <button class="cmdk">&#8984;K Search or jump</button>
       <div class="top-right">
         <span class="period-chip"><span class="period-label">Period</span><b>2026-07</b><span class="badge badge-ok">OPEN</span></span>
         <button class="icon-btn" title="Help">?</button>
-        <button class="icon-btn" title="Light / dark">&#9790;</button>
+        <button class="icon-btn" aria-pressed="false" title="Switch to dark theme">&#9790;</button>
         <div class="user-chip"><span class="user-av">R</span><span class="user-nm">Ricky<span class="muted sm"> &middot; CONTROLLER</span></span><button class="link-btn">Sign out</button></div>
       </div>
     </header>
@@ -244,20 +245,37 @@ body.preview-grey-all .app{filter:grayscale(1);}
 </style>
 </head>
 <body>
+<script>
+/* preview-only: the static file has no bundle, so it mirrors what
+   src/theme-preference.js does at boot - operating system first, and an
+   explicit class either way so the prefers-color-scheme rule in the product
+   stylesheet has something to stand down for. */
+document.body.className = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+</script>
 ${body}
 <div class="preview-note">
   <b>Static preview.</b> Hand-written markup that mirrors what the React shell renders, with the
   product stylesheet inlined verbatim from <code>index.html</code>. Nothing here is interactive
   except the theme toggle. Independent implementation informed by measurement; no QuickBooks
   markup, CSS, icon, image or font asset is used, and no claim of QuickBooks equivalence is made.
+  <div><b>Off-canvas drawer.</b> Narrow the window below 1024px and the sidebar slides out of the
+  viewport. In the product it also becomes <code>inert</code> at that point, so its 20 controls leave
+  the tab order and the accessibility tree instead of sitting invisibly in front of the page - press
+  Tab from the address bar and the first stop must be the &#9776; button, never something you cannot
+  see. Use &ldquo;Toggle the off-canvas drawer&rdquo; below to see the open state and the same
+  inert/aria-hidden pair the React shell writes. Escape closes it and returns focus to &#9776;.</div>
+  <div><b>Theme.</b> The theme now follows your operating system on first load, and the &#9790;
+  control overrules it for good once you press it. This static preview has no bundle, so use the
+  toggle below to compare the two palettes by eye.</div>
   <div><b>Round 3</b> adds, below the dashboard cards: the workflow mark alphabet (with a greyscale copy),
   the three numeric readings with a hover row and a keyboard row side by side, the loading skeleton at the
   geometry of the real table, and the cleared-queue state next to the neutral empty state. To judge the
   motion story, turn on your operating system's &ldquo;reduce motion&rdquo; setting and reload: the skeleton
   sweep must stop completely and every hover tint must become instant.</div>
   <div>
-    <button class="preview-toggle" onclick="document.body.classList.toggle('dark')">Toggle dark mode</button>
+    <button class="preview-toggle" onclick="var d=!document.body.classList.contains('dark');document.body.className=(d?'dark':'light')+(document.body.classList.contains('preview-grey-all')?' preview-grey-all':'')">Toggle dark mode</button>
     <button class="preview-toggle" onclick="document.body.classList.toggle('preview-grey-all')">Toggle greyscale</button>
+    <button class="preview-toggle" onclick="var a=document.getElementById('primary-navigation'),o=a.classList.toggle('mobile-open'),b=document.querySelector('.mobile-nav-btn');if(o){a.removeAttribute('inert');a.removeAttribute('aria-hidden');}else{a.setAttribute('inert','');a.setAttribute('aria-hidden','true');}b.setAttribute('aria-expanded',String(o));">Toggle the off-canvas drawer</button>
   </div>
 </div>
 </body>

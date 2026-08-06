@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { accountingApiConfig, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, transitionAuthoritativeJournal } from './accounting-api.js';
 import { BrowserOidcClient, oidcRuntimeConfig } from './oidc-client.js';
 import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
 import { StateBlock } from './ui.jsx';
+import { focusFirstControl, navDrawerAttributes, readOffCanvas, restoreFocus, watchOffCanvas } from './nav-drawer.js';
 import { RuntimeErrorPage, RuntimeErrorPanel } from './runtime-error-page.jsx';
 import { AuthoritativeReportsWorkspace } from './authoritative-reports-workspace.jsx';
 import {
@@ -87,6 +88,27 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [data, setData] = useState({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] });
   const [error, setError] = useState(null);
   const [workingJournalIds, setWorkingJournalIds] = useState(new Set());
+  // Same off-canvas drawer contract as the demonstration shell: below 1024px the
+  // sidebar is pushed out of the viewport by transform alone, so without `inert`
+  // its eight route buttons stay in the tab order while invisible. This surface
+  // previously had no opener at all, which made the navigation unreachable on a
+  // tablet as well as untabbable - both are fixed by the same three pieces.
+  const [navOpen, setNavOpen] = useState(false);
+  const [navOffCanvas, setNavOffCanvas] = useState(() => readOffCanvas());
+  const navDrawerRef = useRef(null);
+  const navOpenerRef = useRef(null);
+  const navWasOpen = useRef(false);
+  useEffect(() => watchOffCanvas(null, setNavOffCanvas), []);
+  useEffect(() => {
+    if (navOpen && navOffCanvas) { navWasOpen.current = true; focusFirstControl(navDrawerRef.current); return; }
+    if (navWasOpen.current) { navWasOpen.current = false; restoreFocus(navOpenerRef.current); }
+  }, [navOpen, navOffCanvas]);
+  useEffect(() => {
+    if (!navOpen) return undefined;
+    const onEscape = event => { if (event.key === 'Escape') setNavOpen(false); };
+    window.addEventListener('keydown', onEscape);
+    return () => window.removeEventListener('keydown', onEscape);
+  }, [navOpen]);
   const oidcClient = useMemo(() => configured ? new BrowserOidcClient({ environment, fetcher }) : null, [configured, environment, fetcher]);
   const config = useMemo(() => configured ? accountingApiConfig(environment) : null, [configured, environment, phase]);
 
@@ -162,15 +184,18 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
 
   const counts = { bills:data.ap.bills.length, invoices:data.ar.invoices.length, adjustments:data.ap.adjustments.length + data.ar.adjustments.length, journals:data.journals.length };
   return <div className="app authoritative-app">
-    <aside className="sidebar">
+    <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar ${navOpen ? 'mobile-open' : ''}`}
+      {...navDrawerAttributes(navOffCanvas, navOpen)}>
       <div className="brand"><span className="logo">◇</span> REFS<span className="brand-sub">Authoritative</span></div>
+      {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={() => setNavOpen(false)}>Close</button>}
       <nav aria-label="Authoritative accounting navigation">
         <div className="nav-group"><div className="nav-group-h"><span className="nav-ic">●</span>Accounting API</div>
-        {[['overview','Control overview'],['payables','Payables'],['receivables','Receivables'],['bank','Bank transactions'],['reconciliation','Reconciliation'],['reports','Financial statements'],['journals','Journal entries'],['drafts','Draft entry']].map(([item,label]) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => setRoute(item)}>{label}</button>)}</div>
+        {[['overview','Control overview'],['payables','Payables'],['receivables','Receivables'],['bank','Bank transactions'],['reconciliation','Reconciliation'],['reports','Financial statements'],['journals','Journal entries'],['drafts','Draft entry']].map(([item,label]) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => { setRoute(item); setNavOpen(false); }}>{label}</button>)}</div>
       </nav>
     </aside>
+    {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
     <div className="main">
-      <header className="topbar"><div><b>Authoritative accounting</b><span className="muted sm"> · API and OIDC secured</span></div><div className="row-acts"><button type="button" className="btn btn-sm" onClick={refresh}>Refresh</button><button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button></div></header>
+      <header className="topbar"><button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>☰</button><div><b>Authoritative accounting</b><span className="muted sm"> · API and OIDC secured</span></div><div className="row-acts"><button type="button" className="btn btn-sm" onClick={refresh}>Refresh</button><button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button></div></header>
       <main className="content">
         {error && <RuntimeErrorPanel code={error.code} detail={error.message} onRetry={refresh} onSignIn={startLogin}/>}
         {phase === 'LOADING_ACCOUNTING' && <StateBlock tone="loading">Loading authoritative accounting records…</StateBlock>}

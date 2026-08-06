@@ -172,10 +172,16 @@ assert.ok(bankRec.includes("disabled={!can('CASH.RECON.SIGNOFF')}"),
   'Existing reconciliation authorization behaviour must remain unchanged.');
 
 // -------------------------------------------------------------- Styling
+// The geometry below is the measured parity contract and does not move. The
+// colours are now tokens rather than raw light hexes: the raw hexes sat after
+// the dark-mode section and so won the cascade in both themes, painting a white
+// segmented control into a dark page. Same measured light appearance, one
+// palette. See docs/A11Y-DRAWER-DARKMODE-FIX.md.
 for (const text of [
-  '.bank-queue-seg{display:inline-flex;gap:2px;padding:2px;background:#e2e9ed;border-radius:6px;}',
-  '.bank-queue-seg-item{appearance:none;border:0;height:32px;padding:0 16px;border-radius:5px;background:transparent;color:#4c555b;font:400 16px/1.2 inherit;cursor:pointer;white-space:nowrap;}',
-  'box-shadow:0 1px 4px rgba(76,85,91,.2);',
+  '.bank-queue-seg{display:inline-flex;gap:2px;padding:2px;background:var(--qb-divider);border-radius:6px;}',
+  '.bank-queue-seg-item{appearance:none;border:0;height:32px;padding:0 16px;border-radius:5px;background:transparent;color:var(--qb-text-muted);font:400 16px/1.2 inherit;cursor:pointer;white-space:nowrap;}',
+  '.bank-queue-seg-on,.bank-queue-seg-on:hover{background:var(--qb-surface);color:var(--qb-text-strong);box-shadow:var(--qb-shadow-card);}',
+  '--qb-shadow-card:0 1px 4px rgba(76,85,91,.20);',
   // Phase 2a: .bank-action-chip was folded into the shared <Unavailable> chip
   // (.unavailable-chip). The bank action-availability list keeps its own rule.
   '.bank-action-item{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:var(--qb-hair) dashed var(--qb-border);',

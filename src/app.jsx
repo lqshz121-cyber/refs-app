@@ -1,4 +1,4 @@
-import { useState, useEffect, Component } from 'react';
+import { useState, useEffect, useRef, Component } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toast, Btn, Icon, StateBlock } from './ui.jsx';
 import { ENTITIES, USERS, PERIODS, COA, VENDORS, CUSTOMERS } from './data.js';
@@ -27,6 +27,8 @@ import { repo } from './repo.js';
 import { AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeRuntimeLock, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './authoritative-workspace.jsx';
 import { AuthoritativeApp, authoritativeRuntimeConfigured } from './authoritative-app.jsx';
 import { retainActiveNavigationGroup, toggleNavigationGroup } from './navigation-open-state.js';
+import { focusFirstControl, navDrawerAttributes, readOffCanvas, restoreFocus, watchOffCanvas } from './nav-drawer.js';
+import { resolveInitialTheme, watchOsTheme, writeStoredTheme } from './theme-preference.js';
 import { RuntimeErrorPage } from './runtime-error-page.jsx';
 import { SURFACE_DEMONSTRATION, SURFACE_ERROR, resolveRuntimeBoundary } from './runtime-mode.mjs';
 
@@ -166,6 +168,13 @@ function App() {
   const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');
   const [mobileNav, setMobileNav] = useState(false);
+  // The drawer is off-canvas paint below 1024px. Read synchronously at mount:
+  // one frame of the wrong answer is one frame in which Tab lands on a control
+  // the user cannot see, which is the defect this replaces.
+  const [navOffCanvas, setNavOffCanvas] = useState(() => readOffCanvas());
+  const navDrawerRef = useRef(null);
+  const navOpenerRef = useRef(null);
+  const navWasOpen = useRef(false);
   const [navContext, setNavContext] = useState(null);
   const [jes, setJes] = useState(()=>load('jes',[...JOURNAL_ENTRIES, ...FY2026]));
   const [exceptions, setExceptions] = useState(()=>load('exc',EXCEPTIONS));
@@ -178,7 +187,9 @@ function App() {
     {inv_id:8002, inv_no:'INV-2026-8002', customer_id:2, customer_name:'WanBridge OpCo (Owner)', inv_date:'2026-07-10', due_date:'2026-08-10', amount:12500, status:'PAID', je_number:'20260710000012', pay_je_number:'20260728000031'},
   ]}));
   const [entity, setEntity] = useState(0);
-  const [dark, setDark] = useState(false);
+  // The machine's setting picks the first theme; the ☾ control overrules it for
+  // good the moment the user touches it.
+  const [dark, setDark] = useState(() => resolveInitialTheme() === 'dark');
   const [toast, setToastS] = useState(null);
   const [palette, setPalette] = useState(false);
   const [newMenu, setNewMenu] = useState(false);
@@ -204,7 +215,13 @@ function App() {
   const can = (perm) => { if(!user) return false; const p = ROLE_PERMS[user.role_code]; return p==='*' || (p||[]).includes(perm); };
   const goto = (next, context=null) => { setNavContext(context); setRoute(next); setMobileNav(false); window.scrollTo({top:0,behavior:'smooth'}); };
 
-  useEffect(()=>{ document.body.className = dark?'dark':''; },[dark]);
+  // Always an explicit class. index.html's pre-boot `prefers-color-scheme` rule
+  // keys off `body:not(.light)`, so "the user chose light on a dark machine"
+  // has to be sayable.
+  useEffect(()=>{ document.body.className = dark?'dark':'light'; },[dark]);
+  useEffect(()=>watchOsTheme(null, next=>setDark(next==='dark')),[]);
+  const setTheme = (next) => { writeStoredTheme(next?'dark':'light'); setDark(next); };
+  useEffect(()=>watchOffCanvas(null, setNavOffCanvas),[]);
   const persist=(k,v)=>{try{localStorage.setItem('refs_'+k,JSON.stringify(v))}catch(e){}};
   useEffect(()=>{ const t=setTimeout(()=>persist('jes',jes), 400); return ()=>clearTimeout(t); },[jes]); useEffect(()=>{persist('exc',exceptions)},[exceptions]);
   useEffect(()=>{persist('close',closeTasks)},[closeTasks]); useEffect(()=>{persist('ap',ap)},[ap]);
@@ -219,6 +236,19 @@ function App() {
     const h = (e)=>{ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault(); setPalette(p=>!p);} if(e.key==='Escape') setPalette(false); };
     window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
   },[]);
+  // Opening the drawer moves focus into it; closing it - by the Close button,
+  // by the scrim, by Escape, or by navigating - hands focus back to the control
+  // that opened it, so focus is never abandoned inside an inert subtree.
+  useEffect(()=>{
+    if(mobileNav && navOffCanvas){ navWasOpen.current = true; focusFirstControl(navDrawerRef.current); return; }
+    if(navWasOpen.current){ navWasOpen.current = false; restoreFocus(navOpenerRef.current); }
+  },[mobileNav,navOffCanvas]);
+  useEffect(()=>{
+    if(!mobileNav) return undefined;
+    const onEscape = (e)=>{ if(e.key==='Escape') setMobileNav(false); };
+    window.addEventListener('keydown',onEscape);
+    return ()=>window.removeEventListener('keydown',onEscape);
+  },[mobileNav]);
 
   const audit = (action, objectType, objectRef, detail) => repo.audit(userId, action, objectType, objectRef, detail);
   const mkJE = (spec) => { const id = nextId(); return {je_id:id, je_number:'20260731'+String(id).padStart(6,'0'), period_code:CURRENT_PERIOD, posting_status:'DRAFT', je_date:'2026-07-31', created_by:userId, history:[{a:'CREATE',by:userId,at:'2026-07-31'}], ...spec}; };
@@ -331,7 +361,13 @@ function App() {
   const jeHits = q.length>=3 ? jes.filter(j=>(j.je_number||'').includes(q)||((j.payee||'').toLowerCase().includes(q.toLowerCase()))).slice(0,5) : [];
 
   return <div className="app"><SingletonNavigationDirect goto={goto}/>
-    <aside id="primary-navigation" className={`sidebar ${mobileNav?'mobile-open':''}`}>
+    {/* Off-canvas means gone. `transform` alone leaves 16 invisible tab stops
+        in front of the page, so the closed drawer is made `inert` at narrow
+        widths - it keeps its slide transition, but it is out of the tab order
+        and out of the accessibility tree until it is open. Never inert at
+        desktop widths, where the drawer is permanently visible. */}
+    <aside id="primary-navigation" ref={navDrawerRef} className={`sidebar ${mobileNav?'mobile-open':''}`}
+      {...navDrawerAttributes(navOffCanvas, mobileNav)}>
       {/* Two-part navigation: a 74px icon rail carrying the groups, and a white
           second-level panel listing the pages of every group that is open. A
           group opens and closes only from its own rail item, so several groups
@@ -371,7 +407,7 @@ function App() {
     {mobileNav && <button className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={()=>setMobileNav(false)} />}
     <div className="main">
       <header className="topbar">
-        <button className="mobile-nav-btn" aria-label="Open navigation" onClick={()=>setMobileNav(true)}>☰</button>
+        <button ref={navOpenerRef} className="mobile-nav-btn" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded={mobileNav} onClick={()=>setMobileNav(true)}>☰</button>
         <label className="sw"><select value={entity} onChange={e=>setEntity(+e.target.value)}><option value={0}>All entities</option>{ENTITIES.map(en=><option key={en.entity_id} value={en.entity_id}>{en.entity_code} {en.entity_name}</option>)}</select></label>
         <button className="cmdk" onClick={()=>setPalette(true)}>⌘K Search or jump</button>
         <div className="top-right">
@@ -380,7 +416,7 @@ function App() {
           <button className="icon-btn" title="Help" onClick={()=>showToast('Help center (prototype)')}>?</button>
           <button className="icon-btn" title="Notifications" onClick={()=>setRoute('exceptions')}>🔔</button>
           <button className="icon-btn" onClick={()=>actions.resetData()} title="Reset demo data">⟲</button>
-          <button className="icon-btn" onClick={()=>setDark(d=>!d)} title="Light / dark">{dark?'☀':'☾'}</button>
+          <button className="icon-btn" onClick={()=>setTheme(!dark)} aria-pressed={dark} title={dark?'Switch to light theme':'Switch to dark theme'}>{dark?'☀':'☾'}</button>
           <span className="badge badge-warn" title="This build serves browser demonstration data. It is not an accounting record and carries no entity, period, approval or posting authority.">Public demonstration data</span>
           <span className="muted" style={{fontSize:10.5,opacity:.7}} title="commit · build time">{typeof window!=='undefined'&&window.__BUILD?`${window.__BUILD.sha} · ${window.__BUILD.time}`:''}</span>
           <div className="user-chip" title={'Role '+user.role_code}>
