@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, FY2026 } from './src/seed.js';
-import { COA } from './src/data.js';
+import { COA, ENTITIES } from './src/data.js';
 import { loanRule, pmRule, ENGINE_RULE_CATALOG } from './src/engine.js';
 import { Dashboard, JEWorkspace, LoanWorkspace, PMPickup, ClosingWorkspace, ExceptionCenter, CloseMgmt } from './src/modules-core.jsx';
 import { GLTrialBalance, Reports, CashModule, LoanRegister, ProjectCost, Assets, Intercompany, IntegrationHub, MasterData, MappingCenter, RuleCenter, AdminModule } from './src/modules-more.jsx';
@@ -16,7 +16,7 @@ import { AccountRegister } from './src/module-register.jsx';
 import { SubsidiaryLedger } from './src/module-subledger.jsx';
 import { UnitCostLedger } from './src/module-unitcost.jsx';
 import { SourceDocs } from './src/module-sourcedocs.jsx';
-import { App, AuthoritativeApp, authoritativeRuntimeConfigured, AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './src/app.jsx';
+import { App, DEFAULT_ENTITY_ID, AuthoritativeApp, authoritativeRuntimeConfigured, AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './src/app.jsx';
 import { CompanySetting } from './src/module-setting.jsx';
 import { approveBillCommand, payBillCommand } from './src/ap-workflow.js';
 import { createInvoiceCommand, receivePaymentCommand } from './src/ar-workflow.js';
@@ -45,8 +45,8 @@ for (const Component of components) {
 // Regression: the loop above renders every component with ctx.entity=0, which short-circuits the
 // statement bodies before they touch their totals. A free variable in one of those bodies therefore
 // stayed invisible to this suite and shipped to production ('opex is not defined' on Total Expenses).
-// Entity 4 is the only seed entity carrying both POSTED revenue and POSTED expense lines, so it is
-// the only one that reaches the expense subtotal at all. Each statement tab must render for real.
+// Entity 4 carries both POSTED revenue and POSTED expense lines across JOURNAL_ENTRIES and FY2026,
+// so it actually reaches the expense subtotal. Each statement tab must render for real.
 for (const statementTab of ['Trial Balance','GL Detail','Balance Sheet','Income Statement','Cash Flow']) {
   const populatedCtx={...ctx,entity:4,navContext:{route:'gl',tab:statementTab}};
   try {
@@ -80,6 +80,18 @@ globalThis.__REFS_RUNTIME_MODE__='LOCAL_MOCK';
 const explicitMockMarkup=renderToStaticMarkup(<App/>);
 delete globalThis.__REFS_RUNTIME_MODE__;
 if(!explicitMockMarkup.includes('WanBridge Real Estate Financial System')||explicitMockMarkup.includes('Authoritative API required')){failed++;console.error('FAIL explicit LOCAL_MOCK mode is unavailable');}else console.log('PASS only explicit LOCAL_MOCK enters the demonstration');
+// The app must not open in a scope its own reporting engine refuses to compute. Entity 0 is
+// "All entities", which every statement screen answers with "Select an entity", so booting on it
+// left General Ledger and Reports blank on arrival. Assert the shipped default is a real entity.
+if(!DEFAULT_ENTITY_ID){
+  failed++;console.error('FAIL the app boots on entity 0 ("All entities"), a scope the reporting engine refuses to compute');
+}else if(!ENTITIES.some(en=>en.entity_id===DEFAULT_ENTITY_ID)){
+  failed++;console.error('FAIL the default entity is not in ENTITIES, so the selector opens on a value it cannot show');
+}else{
+  const bootMarkup=renderToStaticMarkup(<GLTrialBalance ctx={{...ctx,entity:DEFAULT_ENTITY_ID,navContext:{route:'gl',tab:'Balance Sheet'}}}/>);
+  if(bootMarkup.includes('Select an entity')){failed++;console.error('FAIL the shipped default entity still lands on the "Select an entity" block');}
+  else console.log('PASS the shipped default entity renders a Balance Sheet instead of an entity prompt');
+}
 globalThis.__REFS_RUNTIME_MODE__='REQUIRES_AUTHORITATIVE_API';globalThis.__REFS_ACCOUNTING_API__={baseUrl:'https://api.example',entityId:'11111111-1111-4111-8111-111111111111',periodId:'33333333-3333-4333-8333-333333333333',cashAccountCode:'111000',getAccessToken:async()=>null};globalThis.__REFS_OIDC__=null;
 const configuredWithoutOidcMarkup=renderToStaticMarkup(<App/>);
 delete globalThis.__REFS_RUNTIME_MODE__;delete globalThis.__REFS_ACCOUNTING_API__;delete globalThis.__REFS_OIDC__;

@@ -4,6 +4,14 @@ import { Toast, Btn, Icon, StateBlock } from './ui.jsx';
 import { ENTITIES, USERS, PERIODS, COA, VENDORS, CUSTOMERS } from './data.js';
 import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, BANK_TXNS, FY2026, nextId, bumpId } from './seed.js';
 import { jeTotals } from './engine.js';
+
+// Entity 0 means "All entities", a scope the reporting engine explicitly refuses to compute: every
+// statement screen answers it with "Select an entity". Shipping 0 as the default therefore booted
+// the app into a state it defines as invalid — General Ledger and Reports rendered nothing on
+// arrival, and the filter bar stacked above that emptiness looked broken. Open on the first real
+// entity instead. "All entities" remains selectable for the screens that can aggregate.
+// Exported so the SSR suite can assert the shipped default rather than re-deriving it.
+export const DEFAULT_ENTITY_ID = (ENTITIES[0] && ENTITIES[0].entity_id) || 0;
 import { Dashboard, JEWorkspace, LoanWorkspace, PMPickup, ClosingWorkspace, ExceptionCenter, CloseMgmt } from './modules-core.jsx';
 import { GLTrialBalance, Reports, ARModule, CashModule, LoanRegister, ProjectCost, Assets, Intercompany, IntegrationHub, MasterData, MappingCenter, RuleCenter, AdminModule } from './modules-more.jsx';
 import { APWorkspace } from './module-ap.jsx';
@@ -156,7 +164,7 @@ function App() {
     {inv_id:8001, inv_no:'INV-2026-8001', customer_id:1, customer_name:'Tenant - Unit A-203', inv_date:'2026-07-01', due_date:'2026-07-15', amount:2000, status:'OPEN', je_number:'20260701000009'},
     {inv_id:8002, inv_no:'INV-2026-8002', customer_id:2, customer_name:'WanBridge OpCo (Owner)', inv_date:'2026-07-10', due_date:'2026-08-10', amount:12500, status:'PAID', je_number:'20260710000012', pay_je_number:'20260728000031'},
   ]}));
-  const [entity, setEntity] = useState(0);
+  const [entity, setEntity] = useState(DEFAULT_ENTITY_ID);
   const [dark, setDark] = useState(false);
   const [toast, setToastS] = useState(null);
   const [palette, setPalette] = useState(false);
