@@ -1,9 +1,12 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, FY2026 } from './src/seed.js';
-import { COA } from './src/data.js';
-import { loanRule, pmRule, ENGINE_RULE_CATALOG } from './src/engine.js';
-import { Dashboard, JEWorkspace, LoanWorkspace, PMPickup, ClosingWorkspace, ExceptionCenter, CloseMgmt } from './src/modules-core.jsx';
+import { COA, PERIODS } from './src/data.js';
+import { loanRule, money, pmRule, statements, sum, trialBalance, validateJE, ENGINE_RULE_CATALOG } from './src/engine.js';
+import { localIncomeStatementSection } from './src/income-statement-classification.js';
+import { periodControlExceptions, resolvePostingPeriod, PERIOD_STATUS_NOT_CONFIGURED } from './src/period-control.js';
+import { Dashboard, JEEditor, JEWorkspace, LoanWorkspace, PMPickup, ClosingWorkspace, ExceptionCenter, CloseMgmt } from './src/modules-core.jsx';
 import { GLTrialBalance, Reports, CashModule, LoanRegister, ProjectCost, Assets, Intercompany, IntegrationHub, MasterData, MappingCenter, RuleCenter, AdminModule } from './src/modules-more.jsx';
 import { APWorkspace, apAgingDocuments } from './src/module-ap.jsx';
 import { ARWorkspace, arAgingDocuments } from './src/module-ar.jsx';
@@ -42,6 +45,123 @@ for (const Component of components) {
   try { renderToStaticMarkup(<Component ctx={ctx}/>); console.log('PASS',Component.name); }
   catch (error) { failed++; console.error('FAIL',Component.name,error.message); }
 }
+// ---------------------------------------------------------------------------
+// GL report tabs, rendered against a REAL entity that has posted activity.
+//
+// The component loop above renders GLTrialBalance with entity:0, which makes
+// hasReportEntity false and short-circuits every statement body. That is how
+// `ReferenceError: opex is not defined` (src/modules-more.jsx) survived a green
+// SSR gate. These cases select the tab through navContext and use entities that
+// actually carry POSTED journals, so each statement body is executed and its
+// totals are checked against an independent computation from the same seed.
+// ---------------------------------------------------------------------------
+const REPORT_TABS=['Trial Balance','Balance Sheet','Income Statement','GL Detail','Cash Flow'];
+const reportCtxFor=(entityId,reportTab)=>({...ctx,entity:entityId,navContext:{route:'gl',tab:reportTab,entityId}});
+const renderReportTab=(entityId,reportTab)=>renderToStaticMarkup(<GLTrialBalance ctx={reportCtxFor(entityId,reportTab)}/>);
+// Entity 4: revenue, COGS and non-COGS operating expense - the full Income
+// Statement body. Entity 114: revenue and COGS only, so the operating-expense
+// row set is empty. Entity 2: posted balance-sheet activity but no P&L at all.
+for (const entityId of [4,114,2]) {
+  for (const reportTab of REPORT_TABS) {
+    try { const markup=renderReportTab(entityId,reportTab);
+      if(!markup.length) throw new Error('empty markup');
+      console.log('PASS GL report tab',JSON.stringify(reportTab),'renders for entity',entityId); }
+    catch (error) { failed++; console.error('FAIL GL report tab',JSON.stringify(reportTab),'for entity',entityId,'->',error.message); }
+  }
+}
+const incomeStatementMarkup=renderReportTab(4,'Income Statement');
+const postedFor=entityId=>[...JOURNAL_ENTRIES,...FY2026].filter(j=>j.posting_status==='POSTED'&&j.entity_id===entityId&&j.period_code>='2026-01'&&j.period_code<='2026-07');
+const expectedIncome=(entityId)=>{ const rows=trialBalance(postedFor(entityId)).rows;
+  const rev=rows.filter(r=>r.type==='REVENUE'), exp=rows.filter(r=>r.type==='EXPENSE');
+  const cogs=exp.filter(r=>localIncomeStatementSection(r)==='Cost of goods sold');
+  const opex=exp.filter(r=>!cogs.includes(r));
+  const revT=sum(rev,r=>-r.balance), cogsT=sum(cogs,r=>r.balance), opexT=sum(opex,r=>r.balance);
+  return {revT,cogsT,opexT,net:revT-cogsT-opexT,opexRows:opex.length,cogsRows:cogs.length}; };
+const income4=expectedIncome(4);
+const expectIS=(name,ok)=>{console.log(ok?'PASS':'FAIL',name);if(!ok)failed++;};
+expectIS('Income Statement renders a total operating expense line for a real posting entity',
+  income4.cogsRows>0&&income4.opexRows>0&&incomeStatementMarkup.includes('Total Operating Expenses'));
+expectIS('Income Statement total income, gross profit, operating expense and net income all tie to the same POSTED rows',
+  [money(income4.revT),money(income4.revT-income4.cogsT),money(income4.opexT),money(income4.net)].every(value=>incomeStatementMarkup.includes(value)));
+const income114=expectedIncome(114);
+expectIS('Income Statement renders when the only expense in scope is cost of goods sold',
+  income114.cogsRows>0&&income114.opexRows===0&&renderReportTab(114,'Income Statement').includes(money(income114.net)));
+expectIS('Income Statement states an empty scope instead of a zero statement when an entity has no P&L activity',
+  expectedIncome(2).revT===0&&renderReportTab(2,'Income Statement').includes('No revenue or expense activity in this Income Statement scope'));
+const trialBalanceMarkup=renderReportTab(4,'Trial Balance');
+const tb4=trialBalance(postedFor(4));
+expectIS('Trial Balance renders balanced totals for a real posting entity',
+  Math.abs(tb4.totalDebit-tb4.totalCredit)<0.01&&trialBalanceMarkup.includes(money(tb4.totalDebit))&&trialBalanceMarkup.includes('Balanced'));
+const balanceSheetMarkup=renderReportTab(4,'Balance Sheet');
+const bs4=statements(postedFor(4));
+expectIS('Balance Sheet renders total assets and ties assets to liabilities plus equity plus earnings',
+  balanceSheetMarkup.includes(money(bs4.assets))&&Math.abs(bs4.assets-(bs4.liabilities+bs4.equity+bs4.netIncome))<0.01&&balanceSheetMarkup.includes('Balanced'));
+expectIS('Cash Flow renders posted cash evidence for a real posting entity',
+  renderReportTab(4,'Cash Flow').includes('Cash movement evidence'));
+expectIS('GL Detail renders posted journal lines for a real posting entity',
+  postedFor(4).length>0&&renderReportTab(4,'GL Detail').includes(postedFor(4)[0].je_number));
+
+// ---------------------------------------------------------------------------
+// Period control fails closed.
+// ---------------------------------------------------------------------------
+const expectPeriod=(name,ok)=>{console.log(ok?'PASS':'FAIL',name);if(!ok)failed++;};
+const periodMaster=[{entity_id:2,period_code:'2026-06',status:'CLOSED'},{entity_id:2,period_code:'2026-07',status:'OPEN'},{entity_id:4,period_code:'2026-07',status:'OPEN'}];
+const openTarget={entity_id:4,period_code:'2026-07'};
+const unseededTarget={entity_id:77,period_code:'2026-07'};
+const closedTarget={entity_id:2,period_code:'2026-06'};
+expectPeriod('period control permits a genuinely open entity period',resolvePostingPeriod(periodMaster,openTarget).ok===true&&resolvePostingPeriod(periodMaster,openTarget).period.status==='OPEN');
+const unseeded=resolvePostingPeriod(periodMaster,unseededTarget);
+expectPeriod('period control refuses an entity period with no record instead of synthesising OPEN',
+  unseeded.ok===false&&unseeded.code==='JE_PERIOD_NOT_CONFIGURED'&&unseeded.period.status===PERIOD_STATUS_NOT_CONFIGURED&&/no period control record/.test(unseeded.message));
+expectPeriod('period control refuses a closed period and names the reason',
+  resolvePostingPeriod(periodMaster,closedTarget).code==='4005'&&/CLOSED/.test(resolvePostingPeriod(periodMaster,closedTarget).message));
+expectPeriod('period control refuses an entry that names no valid entity or period',
+  resolvePostingPeriod(periodMaster,{entity_id:null,period_code:'2026-07'}).code==='JE_PERIOD_UNIDENTIFIED'&&resolvePostingPeriod(periodMaster,{entity_id:4,period_code:'2027-13'}).code==='JE_PERIOD_UNIDENTIFIED');
+const balancedLines=[{account_code:'651000',debit_amount:100,credit_amount:0},{account_code:'111000',debit_amount:0,credit_amount:100,member:'Operating Cash_BA-003'}];
+const periodProbe={je_id:9101,je_number:'JE-9101',entity_id:77,period_code:'2026-07',je_type:'AUTO',source_system:'MAN',posting_status:'DRAFT',lines:balancedLines};
+expectPeriod('validateJE blocks a journal whose owning period has no record',
+  validateJE(periodProbe,resolvePostingPeriod(periodMaster,periodProbe).period).some(e=>e.code==='JE_PERIOD_NOT_CONFIGURED'));
+expectPeriod('validateJE blocks when no period object is supplied at all',
+  validateJE(periodProbe).some(e=>e.code==='JE_PERIOD_NOT_CONFIGURED'));
+expectPeriod('validateJE raises no period error for a genuinely open period',
+  validateJE({...periodProbe,entity_id:4},resolvePostingPeriod(periodMaster,{entity_id:4,period_code:'2026-07'}).period).every(e=>!['4005','JE_PERIOD_NOT_CONFIGURED'].includes(e.code)));
+expectPeriod('JE workflow transition is blocked when the owning period has no record',
+  validateJETransition({je:{...periodProbe,je_type:'MANUAL',created_by:'maker',attachment_ids:['DOC-1'],has_attachment:true},next:'PENDING_REVIEW',user:{user_id:'maker'},period:resolvePostingPeriod(periodMaster,periodProbe).period,documents:[{document_id:'DOC-1',hash:'sha256:'+'a'.repeat(64),storage_ref:'indexeddb://refs-attachments/DOC-1',storage_state:'STORED'}],can:()=>true}).code==='JE_PERIOD_NOT_CONFIGURED');
+const seededPeriodEvidence=periodControlExceptions({journals:[...JOURNAL_ENTRIES,...FY2026],periods:PERIODS});
+expectPeriod('the two journals already posted into a CLOSED period are detected and named',
+  seededPeriodEvidence.totals.closedPeriodJournals===2&&
+  ['20260612006437','20260622006438'].every(number=>seededPeriodEvidence.closedPeriodPostings.some(row=>row.je_number===number&&row.entity_id===2&&row.period_code==='2026-06')));
+expectPeriod('detected closed-period postings are reported, never rewritten',
+  seededPeriodEvidence.closedPeriodPostings.every(row=>row.status==='OPEN'&&/reversing this entry in an open period/.test(row.required_action))&&
+  [...JOURNAL_ENTRIES,...FY2026].filter(j=>['20260612006437','20260622006438'].includes(j.je_number)).every(j=>j.posting_status==='POSTED'&&j.period_code==='2026-06'));
+expectPeriod('entity/period pairs carrying posted journals with no period record are reported as a control gap',
+  seededPeriodEvidence.totals.unconfiguredCombinations===824&&seededPeriodEvidence.state==='PERIOD_CONTROL_EXCEPTIONS_FOUND');
+const periodExceptionMarkup=renderToStaticMarkup(<ExceptionCenter ctx={{...ctx,jes:[...JOURNAL_ENTRIES,...FY2026],periods:PERIODS,periodExceptions:seededPeriodEvidence}}/>);
+expectPeriod('Exception Center surfaces the closed-period postings to a human',
+  periodExceptionMarkup.includes('POSTED_INTO_CLOSED_PERIOD')&&periodExceptionMarkup.includes('20260612006437')&&periodExceptionMarkup.includes('PERIOD_CONTROL_EXCEPTIONS_FOUND'));
+expectPeriod('Exception Center reports a clean period control state when there is nothing to report',
+  renderToStaticMarkup(<ExceptionCenter ctx={{...ctx,jes:[],periods:PERIODS,periodExceptions:periodControlExceptions({journals:[],periods:PERIODS})}}/>).includes('PERIOD_CONTROL_CLEAN'));
+const editorJE={...periodProbe,je_type:'MANUAL',created_by:'maker',has_attachment:true,description:'Period control probe',history:[{a:'CREATE',by:'maker',at:'2026-07-31'}]};
+const jeEditorCtx=periods=>({...ctx,jes:[editorJE],periods,resolvePeriodFor:target=>resolvePostingPeriod(periods,target),entity:77});
+const blockedEditorMarkup=renderToStaticMarkup(<JEEditor je={editorJE} ctx={jeEditorCtx(periodMaster)}/>);
+expectPeriod('Journal Entry editor states the specific period-control reason and blocks the workflow action',
+  blockedEditorMarkup.includes('JE_PERIOD_NOT_CONFIGURED')&&blockedEditorMarkup.includes('>BLOCKED<')&&blockedEditorMarkup.includes('NOT_CONFIGURED')&&/<button[^>]*disabled[^>]*>Submit for review<\/button>/.test(blockedEditorMarkup));
+const openEditorMarkup=renderToStaticMarkup(<JEEditor je={editorJE} ctx={jeEditorCtx([...periodMaster,{entity_id:77,period_code:'2026-07',status:'OPEN'}])}/>);
+expectPeriod('Journal Entry editor permits the workflow action once the period is genuinely open',
+  openEditorMarkup.includes('>PERMITTED<')&&!openEditorMarkup.includes('JE_PERIOD_NOT_CONFIGURED')&&/<button(?![^>]*disabled)[^>]*>Submit for review<\/button>/.test(openEditorMarkup));
+const editorWithoutResolver=renderToStaticMarkup(<JEEditor je={editorJE} ctx={{...ctx,jes:[editorJE],periods:periodMaster,entity:77}}/>);
+expectPeriod('Journal Entry editor resolves period control from the period master even without an injected resolver',
+  editorWithoutResolver.includes('JE_PERIOD_NOT_CONFIGURED')&&editorWithoutResolver.includes('>BLOCKED<'));
+// The application shell is the place the control previously failed open. Assert
+// against the source that the synthesised OPEN period cannot come back.
+const appSource=readFileSync('src/app.jsx','utf8');
+expectPeriod('the application shell never synthesises an OPEN period when no record exists',
+  !/\|\|\s*\{\s*period_code\s*:[^}]*status\s*:\s*'OPEN'/.test(appSource)&&
+  !/status\s*:\s*'OPEN'\s*,?\s*\}\s*;?\s*\/\/?\s*$/m.test(appSource)&&
+  appSource.includes('resolvePostingPeriod(PERIODS'));
+expectPeriod('read-only reporting is unaffected by period control',
+  renderReportTab(2,'Trial Balance').includes('Trial Balance')&&renderReportTab(2,'GL Detail').includes('20260612006437'));
+
 const authoritativeBankCtx={...ctx,authoritativeMode:true,bank:{accounts:{'BA-003':{bank_name:'Pacific Bank',stmt_date:'2026-07-31',stmt_end:0,gl_book_balance:0,txns:[{bank_txn_id:1,external_id:'BANK-1',txn_date:'2026-07-31',amount:1,direction:'DEBIT',reference:'Fee',match_status:'UNMATCHED'}],outstanding_checks:[],deposits_in_transit:[]}},history:[]}};
 const authoritativeBankMarkup=renderToStaticMarkup(<BankTransactions ctx={authoritativeBankCtx}/>);
 if(!authoritativeBankMarkup.includes('BANK_API_UNAVAILABLE')||!authoritativeBankMarkup.includes('disabled')){failed++;console.error('FAIL authoritative Bank screen is not fail-closed');}else console.log('PASS authoritative Bank screen is fail-closed');

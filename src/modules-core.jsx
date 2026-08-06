@@ -3,6 +3,7 @@ import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Segmented, Field, Se
 import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS, PROJECTS, VENDORS } from './data.js';
 import { PM_ROWS, CLOSINGS, UNIT_OWNERS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, isBalanced, validateJE, JE_FLOW, loanRule, pmRule, trialBalance, statements } from './engine.js';
+import { periodControlExceptions, periodStatusLabel, resolvePostingPeriod } from './period-control.js';
 import { localJournalPostingEvidence } from './journal-posting-evidence.js';
 import { localReportReturnScopeLabel } from './report-return-context.js';
 import { localApAgingReturnScopeLabel } from './ap-aging-return-context.js';
@@ -212,14 +213,23 @@ export function JEWorkspace({ctx}) {
   </div>;
 }
 
-function JEEditor({je, ctx}) {
+export function JEEditor({je, ctx}) {
   const {actions, can, period, toast} = ctx;
   const [showAudit, setShowAudit] = useState(false);
   const readOnly = ['POSTED','REVERSED'].includes(je.posting_status);
   const editable = je.posting_status==='DRAFT' && !readOnly && !je.ai_proposed;
   const totals = jeTotals(je);
   const bal = Math.abs(totals.debit-totals.credit) < 0.005 && totals.debit>0;
-  const errs = validateJE(je, period);
+  // Period control is resolved against the period THIS journal entry claims,
+  // for the entity THIS journal entry belongs to - never the period of the
+  // entity the header happens to have selected. A period master that holds no
+  // record for the pair blocks; it is not read as an open period.
+  const periodResolution = ctx.resolvePeriodFor ? ctx.resolvePeriodFor(je)
+    : ctx.periods ? resolvePostingPeriod(ctx.periods, je)
+    : {ok:Boolean(period && period.status==='OPEN'), code:null, message:'', period:period || null};
+  const jePeriod = periodResolution.period;
+  const errs = validateJE(je, jePeriod);
+  const periodBlocked = !periodResolution.ok;
   const flow = JE_FLOW[je.posting_status] || {};
   const canAct = flow.perm && can(flow.perm);
 
@@ -228,14 +238,18 @@ function JEEditor({je, ctx}) {
   const rmLine = (i) => actions.updateJE(je.je_id, d=>{ d.lines.splice(i,1); });
 
   const advance = () => {
+    if (periodBlocked) { toast(`[${periodResolution.code}] ${periodResolution.message}`, 'bad'); return; }
     if (flow.next==='POSTED' || je.posting_status==='DRAFT') {
-      const e = validateJE(je, period);
+      const e = validateJE(je, jePeriod);
       if (e.length) { toast(`Validation failed: ${e[0].msg}`, 'bad'); return; }
     }
     actions.advanceJE(je.je_id, flow.next, flow.action);
     toast(`${flow.action} completed → ${flow.next}`);
   };
-  const reverse = () => { actions.reverseJE(je.je_id); toast('Reversal journal entry created.'); };
+  const reverse = () => {
+    if (periodBlocked) { toast(`[${periodResolution.code}] ${periodResolution.message}`, 'bad'); return; }
+    actions.reverseJE(je.je_id); toast('Reversal journal entry created.');
+  };
 
   const diff = +(totals.debit-totals.credit).toFixed(2);
   const postingEvidence = localJournalPostingEvidence(je, je.source_doc_id ? SOURCE_DOCS[je.source_doc_id] || null : null);
@@ -308,7 +322,7 @@ function JEEditor({je, ctx}) {
           <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.debit_amount||''} onChange={e=>setLine(i,{debit_amount:+e.target.value||0, credit_amount:0})}/> : <Money v={l.debit_amount||0}/>}</td>
           <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.credit_amount||''} onChange={e=>setLine(i,{credit_amount:+e.target.value||0, debit_amount:0})}/> : <Money v={l.credit_amount||0}/>}</td>
           <td>{editable ? <input className="desc-line" value={l.description||''} placeholder="Line description" onChange={e=>setLine(i,{description:e.target.value})}/> : <span className="muted sm">{l.description||''}</span>}</td>
-          <td>{editable ? <input className="desc-line" list="member-list" placeholder={ (window.__subsOf&&window.__subsOf(l.account_code)) ? 'Required member*' : 'Name'} value={l.member||''} onChange={e=>setLine(i,{member:e.target.value})}/> : <span className="muted sm">{l.member||''}</span>}</td>
+          <td>{editable ? <input className="desc-line" list="member-list" placeholder={ subsidiaryOf(l.account_code) ? 'Required member*' : 'Name'} value={l.member||''} onChange={e=>setLine(i,{member:e.target.value})}/> : <span className="muted sm">{l.member||''}</span>}</td>
           <td>{editable ?
             <div className="dim-picks">
               <select value={l.property_id||''} onChange={e=>setLine(i,{property_id:e.target.value?+e.target.value:null})}><option value="">Property</option>{PROPERTIES.map(p=><option key={p.property_id} value={p.property_id}>{p.property_code}</option>)}</select>
@@ -361,14 +375,25 @@ function JEEditor({je, ctx}) {
       </div>
     </div>; })()}
     {je.ai_proposed && <div className="ai-report-note"><b>AI evidence is locked.</b><p>To amend amounts, accounts or dimensions, use Copy to create a separate manual amendment Draft linked to proposal {je.ai_proposal_id}. The original AI evidence remains unchanged for review.</p></div>}
+    <section className="report-workbench" aria-label="Period control" style={{margin:'12px 0'}}>
+      <div className="report-workbench-head"><div><b>Period control</b><div className="page-subtitle">Resolved from this entry's own entity and accounting period. A missing period record is never read as an open period.</div></div><Badge tone={periodBlocked?'bad':'ok'}>{periodStatusLabel(jePeriod)}</Badge></div>
+      <div className="qbo-toolgrid">
+        <span><i>Entity / period</i><b>E{je.entity_id} · {je.period_code || 'not set'}</b></span>
+        <span><i>Period record</i><b>{jePeriod?.configured ? 'Retained' : 'None retained'}</b></span>
+        <span><i>Posting</i><b><Badge tone={periodBlocked?'bad':'ok'}>{periodBlocked?'BLOCKED':'PERMITTED'}</Badge></b></span>
+      </div>
+      {periodBlocked && <p className="muted sm" style={{margin:'10px 0 0'}}>[{periodResolution.code}] {periodResolution.message}</p>}
+    </section>
     {errs.length>0 && <div className="err-box">{errs.map((e,i)=><div key={i}>• [{e.code}] {e.msg}</div>)}</div>}
     <div className="qbe-footbar">
       <div className="row-acts"><Unavailable reason="Copy is outside the controlled local evidence workflow">Copy</Unavailable>
         <Unavailable reason="Recurring entries are outside the controlled Journal Entry evidence workflow">Make recurring</Unavailable></div>
       <div className="row-acts">
         {flow.reject && can('GL.JE.REVIEW') && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id,flow.reject,'REJECT');toast('Returned to draft.','warn');}}>Reject</Btn>}
-        {je.posting_status==='POSTED' && can('GL.JE.REVERSE') && <Btn variant="danger" onClick={reverse}>Reverse</Btn>}
-        {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'Your role does not hold this workflow permission':errs.length>0?'Resolve the listed validation errors first':''}>{flow.action}</Btn>}
+        {je.posting_status==='POSTED' && can('GL.JE.REVERSE') && (periodBlocked
+          ? <Unavailable reason={periodResolution.message}>Reverse</Unavailable>
+          : <Btn variant="danger" onClick={reverse}>Reverse</Btn>)}
+        {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || periodBlocked || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'Your role does not hold this workflow permission':periodBlocked?periodResolution.message:errs.length>0?'Resolve the listed validation errors first':''}>{flow.action}</Btn>}
       </div>
     </div>
     {showAudit && <section className="report-workbench" aria-label="Retained journal audit history" style={{marginTop:12}}><div className="report-workbench-head"><div><b>Retained audit history</b><div className="page-subtitle">Local event metadata only; it does not claim an immutable external audit record.</div></div><Badge tone={postingEvidence.historyState==='LOCAL_HISTORY_PRESENT_UNVERIFIED'?'ok':'warn'}>{postingEvidence.historyState}</Badge></div>{je.history?.length ? <ApprovalTimeline steps={je.history.map(h=>({label:h.a,done:true,who:h.by,at:h.at}))}/> : <p className="muted sm">No retained posting-history events were found for this journal entry.</p>}</section>}
@@ -559,8 +584,31 @@ export function ExceptionCenter({ctx}) {
     actions.resolveException(sel, resolution);
     toast('Exception closed','ok'); setSel(null); setResolution('');
   };
+  // Period-control breaches are detected from the retained ledger, not seeded
+  // and not resolvable by a click. Posted evidence is immutable, so this table
+  // reports them for a human to correct by reversal or by an authorised period
+  // action; it never re-dates, rewrites or deletes an entry.
+  const periodEvidence = ctx.periodExceptions || periodControlExceptions({journals:ctx.jes || [], periods:ctx.periods || []});
+  const periodRows = [...periodEvidence.closedPeriodPostings, ...periodEvidence.unconfiguredPeriodPostings];
   return <div>
     <h2 className="page-h">Exception Center</h2>
+    <section className="report-workbench" aria-label="Period control exceptions" style={{marginBottom:12}}>
+      <div className="report-workbench-head"><div><b>Period control exceptions</b><div className="page-subtitle">POSTED journals whose owning period is closed, or whose entity and period hold no period control record at all. Read-only: correction is by reversal in an open period.</div></div><Badge tone={periodEvidence.state==='PERIOD_CONTROL_CLEAN'?'ok':'bad'}>{periodEvidence.state}</Badge></div>
+      <div className="qbo-drill-summary">
+        <span><i>Posted into a CLOSED period</i><b>{periodEvidence.totals.closedPeriodJournals}</b></span>
+        <span><i>Entity/period pairs with no period record</i><b>{periodEvidence.totals.unconfiguredCombinations}</b></span>
+        <span><i>Posted journals in those pairs</i><b>{periodEvidence.totals.unconfiguredJournals}</b></span>
+      </div>
+      <Table rowKey="exception_id" features={{exportable:false}} pageSize={10} cols={[
+        {h:'Type',render:r=><Badge tone="bad">{r.exception_type}</Badge>},
+        {h:'Entity',render:r=>'E'+r.entity_id},
+        {h:'Period',k:'period_code'},
+        {h:'Reference',k:'object_ref'},
+        {h:'Journals',num:true,render:r=>r.journal_count,sortVal:r=>r.journal_count},
+        {h:'Debits',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount},
+        {h:'Required action',k:'required_action'},
+      ]} rows={periodRows} empty="No period control exception is present in the retained ledger."/>
+    </section>
     <div className="filter-row">
       <span>Severity</span>{['ALL','HIGH','MEDIUM','LOW'].map(s=><button key={s} className={sev===s?'chip chip-on':'chip'} onClick={()=>setSev(s)}>{s}</button>)}
       <span style={{marginLeft:16}}>Status</span>{['ALL','OPEN','IN_PROGRESS','CLOSED'].map(s=><button key={s} className={st===s?'chip chip-on':'chip'} onClick={()=>setSt(s)}>{s}</button>)}

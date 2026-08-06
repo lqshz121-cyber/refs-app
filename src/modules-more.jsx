@@ -266,7 +266,12 @@ export function GLTrialBalance({ctx}) {
       const sectionRows=(rows,section)=>rows.filter(row=>localIncomeStatementSection(row)===section);
       const rentalIncome=sectionRows(rev,'Rental income'), otherPropertyIncome=sectionRows(rev,'Other property income'), otherIncome=sectionRows(rev,'Other income · review');
       const cogs=sectionRows(exp,'Cost of goods sold'), propertyOps=sectionRows(exp,'Property operations'), interestExpense=sectionRows(exp,'Interest and financing'), capitalReview=sectionRows(exp,'Capital / completion review'), generalAdmin=sectionRows(exp,'General and administrative'), otherOpex=sectionRows(exp,'Other operating expense · review');
-      const revT=sum(rev,r=>-r.balance), cogsT=sum(cogs,r=>r.balance), opexT=sum(exp.filter(r=>!cogs.includes(r)),r=>r.balance);
+      // Operating expense is every POSTED expense row in scope that is not Cost
+      // of Goods Sold. The section split above is presentation only, so the
+      // total is taken from the same row set the drill opens - one array, used
+      // for both the amount and the drill, so the two can never disagree.
+      const opex=exp.filter(r=>!cogs.includes(r));
+      const revT=sum(rev,r=>-r.balance), cogsT=sum(cogs,r=>r.balance), opexT=sum(opex,r=>r.balance);
       const expenseGroups=[['Property operations',propertyOps],['Interest and financing',interestExpense],['Capital / completion review',capitalReview],['General and administrative',generalAdmin],['Other operating expense · review',otherOpex]].filter(([,rows])=>rows.length);
       return <div className="stmt stmt-wide">
         <div className="stmt-h">Income Statement · {fromP} ~ {toP} <span className="muted sm">(same-entity, same-dimension POSTED accrual evidence)</span></div>
@@ -277,7 +282,7 @@ export function GLTrialBalance({ctx}) {
         {cogs.map(r=>drillLine(`${r.account_code} ${r.name}`,[r],r.balance,{key:r.account_code}))}
         {drillLine('Gross Profit',[...rev,...cogs],revT-cogsT,{isTotal:true})}</>}
         {expenseGroups.map(([section,rows])=><div key={section}><div className="stmt-sec">{section}</div>{rows.map(r=>drillLine(`${r.account_code} ${r.name}`,[r],r.balance,{key:r.account_code}))}</div>)}
-        {drillLine('Total Expenses',opex,opexT,{isTotal:true})}
+        {drillLine(cogs.length>0?'Total Operating Expenses':'Total Expenses',opex,opexT,{isTotal:true})}
         {drillLine('Net Income',[...rev,...exp],revT-cogsT-opexT,{isTotal:true,extraClass:'',style:{fontSize:16}})}
         <p className="muted sm" style={{margin:'10px 0 0'}}>CWIP, land/building acquisition, prepaid balances, escrow/deposit and deferred/related-party balances are balance-sheet evidence, not current operating P&L. Capitalized versus expensed interest requires retained source and completion evidence; this presentation never adjusts or posts it.</p>
         </>}
@@ -655,9 +660,12 @@ export function Assets({ctx}) {
 }
 export function Intercompany({ctx}) {
   const [ic, setIc] = useState(IC_TXNS.map(t=>({...t})));
-  const mirror = (r) => { ctx.actions.newJEFromRule({entity_id:3, je_type:'AUTO', source_system:'MAN', posting_status:'POSTED',
+  const mirror = (r) => { const jeId = ctx.actions.newJEFromRule({entity_id:3, je_type:'AUTO', source_system:'MAN', posting_status:'POSTED',
       description:`IC mirror ${r.ic_pair_id}: Due to ${r.initiator_entity}`,
       lines:[{account_code:'125000',debit_amount:r.amount,credit_amount:0},{account_code:'291000',debit_amount:0,credit_amount:r.amount}]});
+    // If period control refused the posting it has already said why. The pair
+    // must not be shown as matched when no mirror journal was written.
+    if (!jeId) return;
     setIc(xs=>xs.map(x=>x.ic_txn_id===r.ic_txn_id?{...x, match_status:'MATCHED'}:x));
     ctx.toast('Counterparty mirror entry created. Match: '+r.ic_pair_id); };
   return <div><h2 className="page-h">Intercompany</h2>

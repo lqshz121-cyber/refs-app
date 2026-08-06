@@ -2,6 +2,7 @@ import { useState, useEffect, Component } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toast, Btn, Icon, StateBlock } from './ui.jsx';
 import { ENTITIES, USERS, PERIODS, COA, VENDORS, CUSTOMERS } from './data.js';
+import { periodControlExceptions, periodStatusLabel, resolvePostingPeriod } from './period-control.js';
 import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, BANK_TXNS, FY2026, nextId, bumpId } from './seed.js';
 import { jeTotals } from './engine.js';
 import { Dashboard, JEWorkspace, LoanWorkspace, PMPickup, ClosingWorkspace, ExceptionCenter, CloseMgmt } from './modules-core.jsx';
@@ -151,6 +152,11 @@ function Login({onLogin}) {
 // implement, a mock adapter under an authoritative build stamp - renders the
 // runtime error page. No unknown condition resolves to demonstration data.
 // ---------------------------------------------------------------------------
+
+// The demonstration ledger's working period. It is named once so that period
+// control resolves the same code everywhere instead of repeating the literal.
+const CURRENT_PERIOD = '2026-07';
+
 function App() {
   const boundary = resolveRuntimeBoundary(globalThis);
   if (boundary.surface === SURFACE_ERROR) return <RuntimeErrorPage code={boundary.code}/>;
@@ -180,8 +186,21 @@ function App() {
   const [q, setQ] = useState('');
 
   const user = USERS.find(u=>u.user_id===userId);
-  const period = PERIODS.find(p=>p.entity_id===(entity||2) && p.period_code==='2026-07') || {period_code:'2026-07', status:'OPEN'};
+  // Period control fails closed. There is deliberately no `|| {status:'OPEN'}`
+  // fallback here: a missing period master row means nobody opened that period,
+  // which is the opposite of permission to post. The resolver returns a period
+  // object whose status is NOT_CONFIGURED so the screen can say exactly that.
+  const periodControl = resolvePostingPeriod(PERIODS, {entity_id:entity||2, period_code:CURRENT_PERIOD});
+  const period = periodControl.period;
   const showToast = (msg,tone='ok') => { setToastS({msg,tone}); setTimeout(()=>setToastS(null),3000); };
+  // Every posting path resolves the period that the entry itself claims, not
+  // the period of whichever entity the header happens to have selected.
+  const resolvePeriodFor = (target) => resolvePostingPeriod(PERIODS, target);
+  const guardPosting = (target, what) => {
+    const resolved = resolvePostingPeriod(PERIODS, target);
+    if (!resolved.ok) showToast(`${what} blocked [${resolved.code}]: ${resolved.message}`,'bad');
+    return resolved;
+  };
   const can = (perm) => { if(!user) return false; const p = ROLE_PERMS[user.role_code]; return p==='*' || (p||[]).includes(perm); };
   const goto = (next, context=null) => { setNavContext(context); setRoute(next); setMobileNav(false); window.scrollTo({top:0,behavior:'smooth'}); };
 
@@ -202,24 +221,41 @@ function App() {
   },[]);
 
   const audit = (action, objectType, objectRef, detail) => repo.audit(userId, action, objectType, objectRef, detail);
-  const mkJE = (spec) => { const id = nextId(); return {je_id:id, je_number:'20260731'+String(id).padStart(6,'0'), period_code:'2026-07', posting_status:'DRAFT', je_date:'2026-07-31', created_by:userId, history:[{a:'CREATE',by:userId,at:'2026-07-31'}], ...spec}; };
+  const mkJE = (spec) => { const id = nextId(); return {je_id:id, je_number:'20260731'+String(id).padStart(6,'0'), period_code:CURRENT_PERIOD, posting_status:'DRAFT', je_date:'2026-07-31', created_by:userId, history:[{a:'CREATE',by:userId,at:'2026-07-31'}], ...spec}; };
+  // Any action that puts a journal entry into POSTED, or moves it forward
+  // toward POSTED, must first prove the owning period is open. Returning null
+  // means the guard has already told the user exactly why it refused.
+  const postedJE = (spec, what) => guardPosting({entity_id:spec.entity_id, period_code:spec.period_code || CURRENT_PERIOD}, what).ok ? mkJE(spec) : null;
   const actions = {
     newJE: () => { const je = mkJE({entity_id:entity||2, je_type:'MANUAL', description:'', source_system:'MAN', has_attachment:false,
       lines:[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}]}); setJes(js=>[je,...js]); return je.je_id; },
-    newJEFromRule: (spec) => { const je = mkJE({...spec}); setJes(js=>[je,...js]); return je.je_id; },
+    // A rule may create a Draft in any period; only an entry that arrives
+    // already POSTED has to clear period control before it is written.
+    newJEFromRule: (spec) => { const je = spec.posting_status==='POSTED' ? postedJE({...spec},'Rule-generated posting') : mkJE({...spec});
+      if (!je) return null; setJes(js=>[je,...js]); return je.je_id; },
     copyJE: (id) => { const src = jes.find(j=>j.je_id===id); const je = mkJE({...structuredClone(src), posting_status:'DRAFT', description:'COPY: '+src.description}); je.history=[{a:'COPY of '+src.je_number,by:userId,at:'2026-07-31'}]; setJes(js=>[je,...js]); return je.je_id; },
     updateJE: (id, producer) => setJes(js=>js.map(j=>{ if(j.je_id!==id) return j; const d=structuredClone(j); producer(d); return d; })),
-    advanceJE: (id, next, label) => { audit(label||next,'JE','#'+id,''); return setJes(js=>js.map(j=>{
+    advanceJE: (id, next, label) => {
+      const target = jes.find(j=>j.je_id===id);
+      // A workflow move toward POSTED is a posting act. Returning to DRAFT is
+      // not, so a rejection is never blocked by period control.
+      if (target && next!=='DRAFT' && !guardPosting(target,'Journal entry workflow').ok) return;
+      audit(label||next,'JE','#'+id,''); return setJes(js=>js.map(j=>{
       if(j.je_id!==id) return j;
       if((next==='APPROVED'||next==='POSTED') && j.created_by===userId && user.role_code!=='CONTROLLER'){
         showToast('SoD blocked [4009]: the creator cannot approve or post this journal entry.','bad'); return j; }
       return {...j, posting_status:next, history:[...(j.history||[]),{a:label||next,by:userId,at:'2026-07-31'}]};
     })); },
-    reverseJE: (id) => setJes(js=>{ const src = js.find(j=>j.je_id===id); const nid=nextId();
+    // A reversal is itself a posting. It is booked in the period the source
+    // entry claims, so if that period is closed or unconfigured the reversal is
+    // refused here rather than silently re-dated into an open period.
+    reverseJE: (id) => { const source = jes.find(j=>j.je_id===id);
+      if (source && !guardPosting(source,'Reversal').ok) return;
+      return setJes(js=>{ const src = js.find(j=>j.je_id===id); const nid=nextId();
       const rev = {...structuredClone(src), je_id:nid, je_number:'JE-REV-'+nid, posting_status:'POSTED', je_type:'REVERSAL',
         description:'Reversal: '+src.description, history:[{a:'REVERSAL of '+src.je_number,by:userId,at:'2026-07-31'}],
         lines:src.lines.map(l=>({...l, debit_amount:l.credit_amount, credit_amount:l.debit_amount}))};
-      return js.map(j=>j.je_id===id?{...j, posting_status:'REVERSED'}:j).concat(rev); }),
+      return js.map(j=>j.je_id===id?{...j, posting_status:'REVERSED'}:j).concat(rev); }); },
     ensureException: (spec) => setExceptions(xs=>{ if(xs.some(e=>e.exception_type===spec.exception_type && e.object_ref===spec.object_ref && e.status!=='CLOSED')) return xs;
       return [{exception_id:nextId(), occurred_date:'2026-07-31', aging_days:0, status:'OPEN', resolution:'', ...spec}, ...xs]; }),
     resolveException: (id, resolution) => setExceptions(xs=>xs.map(e=>e.exception_id===id?{...e, status:'CLOSED', resolution, closed_by:userId}:e)),
@@ -230,25 +266,29 @@ function App() {
       const id=nextId(); const v=VENDORS.find(x=>x.vendor_id===f.vendor_id);
       setAp(s=>({...s, bills:[{bill_id:id, bill_no:'BILL-2026-'+id, vendor_name:v.vendor_name, status:'PENDING_APPROVAL', created_by:userId, ...f}, ...s.bills]})); return {ok:true}; },
     approveBill: (id) => { const b = ap.bills.find(x=>x.bill_id===id);
-      const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'PAYABLE', payee:b.vendor_name, description:`${b.bill_no} · ${b.vendor_name}`, posting_status:'POSTED',
+      const je = postedJE({entity_id:entity||4, je_type:'AUTO', source_system:'PAYABLE', payee:b.vendor_name, description:`${b.bill_no} · ${b.vendor_name}`, posting_status:'POSTED',
         lines:[{account_code:b.account_code, debit_amount:b.amount, credit_amount:0, vendor_id:b.vendor_id, property_id:b.property_id, description:b.invoice_no},
-               {account_code:'291001', debit_amount:0, credit_amount:b.amount, vendor_id:b.vendor_id, description:'Due to/from_'+b.vendor_name}]});
+               {account_code:'291001', debit_amount:0, credit_amount:b.amount, vendor_id:b.vendor_id, description:'Due to/from_'+b.vendor_name}]},'Bill approval posting');
+      if (!je) return;
       setJes(js=>[je,...js]);
       setAp(s=>({...s, bills:s.bills.map(x=>x.bill_id===id?{...x, status:'APPROVED', approved_by:userId, je_number:je.je_number}:x)})); },
     payBills: (ids) => { ids.forEach(id=>{ const b = ap.bills.find(x=>x.bill_id===id);
-        const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'EXPA', payee:b.vendor_name, description:`ACH payment ${b.bill_no} · auto-matched bank feed`, posting_status:'POSTED',
+        const je = postedJE({entity_id:entity||4, je_type:'AUTO', source_system:'EXPA', payee:b.vendor_name, description:`ACH payment ${b.bill_no} · auto-matched bank feed`, posting_status:'POSTED',
           lines:[{account_code:'291001', debit_amount:b.amount, credit_amount:0, vendor_id:b.vendor_id, description:'Due to/from_'+b.vendor_name+' (clear)'},
-                 {account_code:'111000', debit_amount:0, credit_amount:b.amount, description:'Operating Cash'}]});
+                 {account_code:'111000', debit_amount:0, credit_amount:b.amount, description:'Operating Cash'}]},'Bill payment posting');
+        if (!je) return;
         setJes(js=>[je,...js]);
         setAp(s=>({...s, bills:s.bills.map(x=>x.bill_id===id?{...x, status:'PAID', pay_je_number:je.je_number}:x)})); }); },
     addInvoice: (f) => { const id=nextId(); const c=CUSTOMERS.find(x=>x.customer_id===f.customer_id);
-      const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'AR', posting_status:'POSTED', description:`Invoice INV-2026-${id} · ${c.customer_name}`,
-        lines:[{account_code:'120200',debit_amount:f.amount,credit_amount:0},{account_code:'421803',debit_amount:0,credit_amount:f.amount}]});
+      const je = postedJE({entity_id:entity||4, je_type:'AUTO', source_system:'AR', posting_status:'POSTED', description:`Invoice INV-2026-${id} · ${c.customer_name}`,
+        lines:[{account_code:'120200',debit_amount:f.amount,credit_amount:0},{account_code:'421803',debit_amount:0,credit_amount:f.amount}]},'Invoice posting');
+      if (!je) return;
       setJes(js=>[je,...js]); audit('CREATE','INVOICE','INV-2026-'+id, '$'+f.amount);
       setAr(s=>({...s, invoices:[{inv_id:id, inv_no:'INV-2026-'+id, customer_name:c.customer_name, status:'OPEN', je_number:je.je_number, ...f}, ...s.invoices]})); },
     receivePayment: (id) => { const inv=ar.invoices.find(i=>i.inv_id===id);
-      const je = mkJE({entity_id:entity||4, je_type:'AUTO', source_system:'AR', posting_status:'POSTED', description:`Payment received ${inv.inv_no}`,
-        lines:[{account_code:'111000',debit_amount:inv.amount,credit_amount:0},{account_code:'120200',debit_amount:0,credit_amount:inv.amount}]});
+      const je = postedJE({entity_id:entity||4, je_type:'AUTO', source_system:'AR', posting_status:'POSTED', description:`Payment received ${inv.inv_no}`,
+        lines:[{account_code:'111000',debit_amount:inv.amount,credit_amount:0},{account_code:'120200',debit_amount:0,credit_amount:inv.amount}]},'Receipt posting');
+      if (!je) return;
       setJes(js=>[je,...js]); audit('PAYMENT','INVOICE',inv.inv_no,'$'+inv.amount);
       setAr(s=>({...s, invoices:s.invoices.map(i=>i.inv_id===id?{...i,status:'PAID',pay_je_number:je.je_number}:i)})); },
     bankExclude: (acctCode, txnId) => { audit('EXCLUDE','BANK_TXN','#'+txnId,''); setBank(s=>{const a=structuredClone(s); const t=a.accounts[acctCode].txns.find(x=>x.bank_txn_id===txnId); t.ui_status='Excluded'; return a;}); },
@@ -281,7 +321,11 @@ function App() {
   const isAdmin = ADMIN_ROLES.includes(user.role_code);
   const nav = [...NAV,{group:'Payables & Receivables',short:'AP / AR',glyph:'exchange',icon:'▣',items:[['ap','Accounts Payable'],['ar','Accounts Receivable']]}].filter(g=>!g.adminOnly || isAdmin).map(g=>({...g,items:g.items.filter(([k])=>!IA_HIDDEN_ROUTES.has(k))})).filter(g=>g.items.length);
   const flat = nav.flatMap(g=>g.items.map(([k,l])=>[k,'·',l]));
-  const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, user, entity, period, can, actions, toast:showToast, goto, navContext};
+  // Derived, read-only. Detected from the retained ledger every render rather
+  // than seeded, so it can never drift from what is actually posted. Nothing
+  // here modifies a Posted entry.
+  const periodExceptions = periodControlExceptions({journals:jes, periods:PERIODS});
+  const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, user, entity, period, periods:PERIODS, periodControl, periodExceptions, resolvePeriodFor, can, actions, toast:showToast, goto, navContext};
   const Comp = COMP[route] || Dashboard;
   const paletteItems = flat.filter(([k,ic,l])=>l.toLowerCase().includes(q.toLowerCase())||k.includes(q.toLowerCase()));
   const jeHits = q.length>=3 ? jes.filter(j=>(j.je_number||'').includes(q)||((j.payee||'').toLowerCase().includes(q.toLowerCase()))).slice(0,5) : [];
@@ -331,7 +375,8 @@ function App() {
         <label className="sw"><select value={entity} onChange={e=>setEntity(+e.target.value)}><option value={0}>All entities</option>{ENTITIES.map(en=><option key={en.entity_id} value={en.entity_id}>{en.entity_code} {en.entity_name}</option>)}</select></label>
         <button className="cmdk" onClick={()=>setPalette(true)}>⌘K Search or jump</button>
         <div className="top-right">
-          <span className="period-chip"><span className="period-label">Period</span><b>2026-07</b><span className={`badge badge-${period.status==='OPEN'?'ok':'muted'}`}>{period.status}</span></span>
+          <span className="period-chip" title={periodControl.ok ? `Period ${CURRENT_PERIOD} is open for posting for this entity.` : periodControl.message}><span className="period-label">Period</span><b>{CURRENT_PERIOD}</b><span className={`badge badge-${periodControl.ok?'ok':period.status==='CLOSED'?'muted':'bad'}`}>{periodStatusLabel(period)}</span></span>
+          {!periodControl.ok && <span className="badge badge-bad" role="status" title={periodControl.message}>Posting blocked</span>}
           <button className="icon-btn" title="Help" onClick={()=>showToast('Help center (prototype)')}>?</button>
           <button className="icon-btn" title="Notifications" onClick={()=>setRoute('exceptions')}>🔔</button>
           <button className="icon-btn" onClick={()=>actions.resetData()} title="Reset demo data">⟲</button>

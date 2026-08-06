@@ -4,6 +4,7 @@ const COA_MAP = Object.fromEntries(COA.map(a=>[a.account_code,a]));
 export const acct = (code) => COA_MAP[code] || (WBS_COA_MAP[code] ? {account_code:code, account_name:WBS_COA_MAP[code].name, account_type: code[0]==='1'?'ASSET':code[0]==='2'?'LIABILITY':code[0]==='3'?'EQUITY':code[0]==='4'?'REVENUE':'EXPENSE', normal_balance:WBS_COA_MAP[code].nb} : {account_code:code, account_name:'?', account_type:'ASSET', normal_balance:'DEBIT'});
 export const money = (n) => (n==null?'':(n<0?'(':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+(n<0?')':''));
 import { WBS_COA_MAP, subsidiaryOf, memberOf } from './coa-wbs.js';
+import { PERIOD_CLOSED, PERIOD_NOT_CONFIGURED, PERIOD_STATUS_NOT_CONFIGURED } from './period-control.js';
 export const sum = (arr,f)=>arr.reduce((s,x)=>s+(f?f(x):x),0);
 export const ENGINE_RULE_CATALOG=[
   {rule_code:'R-LOAN-01',trigger:'LOAN.DRAW'},
@@ -22,6 +23,23 @@ export const jeTotals = (je) => ({
 });
 export const isBalanced = (je) => { const t=jeTotals(je); return Math.abs(t.debit-t.credit) < 0.005 && t.debit>0; };
 
+// ---- Period control (fail closed) ----
+// Returns null only when the supplied period control record affirmatively says
+// OPEN. Anything else - no record, a record with no status, NOT_CONFIGURED,
+// CLOSED, LOCKED - blocks, and names which of the two it is so the user is told
+// the actual reason rather than a generic failure.
+export function postingPeriodError(period, je) {
+  const entityLabel = je?.entity_id ?? period?.entity_id ?? 'not set';
+  const periodLabel = je?.period_code || period?.period_code || 'not set';
+  if (!period || period.configured === false || !period.status || period.status === PERIOD_STATUS_NOT_CONFIGURED) {
+    return {code:PERIOD_NOT_CONFIGURED, msg:`Period control missing: entity ${entityLabel} has no period record for ${periodLabel}. A missing period record is not an open period, so posting is blocked until period administration opens it.`};
+  }
+  if (period.status !== 'OPEN') {
+    return {code:PERIOD_CLOSED, msg:`Period ${periodLabel} is ${period.status} for entity ${entityLabel}. Correct a closed period by reversal in an open period.`};
+  }
+  return null;
+}
+
 // ---- Validation catalog (subset, enforced) ----
 export function validateJE(je, period) {
   const errs = [];
@@ -37,7 +55,12 @@ export function validateJE(je, period) {
     if (both) errs.push({code:'VAL-003', msg:`Line ${i+1}: debit and credit cannot both have a value.`});
     if (!l.account_code) errs.push({code:'VAL-004', msg:`Line ${i+1}: account is required.`});
   });
-  if (period && period.status === 'CLOSED') errs.push({code:'4005', msg:`Period ${period.period_code} is closed.`});
+  // Period control fails CLOSED. A period object that is absent, or that
+  // carries no affirmative OPEN status, is not permission to post - it means
+  // no period was opened. Callers that only want the arithmetic checks (see
+  // src/bank-workflow.js) filter this catalog by code and are unaffected.
+  const periodError = postingPeriodError(period, je);
+  if (periodError) errs.push(periodError);
   if (je.je_type === 'MANUAL' && je.has_attachment === false) errs.push({code:'4010', msg:'Manual journal entries require an attachment before posting.'});
   return errs;
 }
