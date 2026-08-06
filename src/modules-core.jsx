@@ -1,5 +1,5 @@
 ﻿import { useState, useMemo, useEffect, useRef } from 'react';
-import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Segmented, Field, SectionTitle, ApprovalTimeline } from './ui.jsx';
+import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Segmented, Field, SectionTitle, ApprovalTimeline, Icon } from './ui.jsx';
 import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS, PROJECTS, VENDORS } from './data.js';
 import { PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS, UNIT_OWNERS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, isBalanced, validateJE, JE_FLOW, loanRule, pmRule, trialBalance, statements } from './engine.js';
@@ -33,15 +33,39 @@ export function Dashboard({ctx}) {
   const expTot = expCats.reduce((s,[,v])=>s+v,0);
   let acc=0; const segs = expCats.map(([n,v,c])=>{ const from=acc/expTot*360; acc+=v; return `${c} ${from}deg ${acc/expTot*360}deg`; }).join(', ');
   const plBars = [12,18,9,22,15,26,Math.max(4,Math.round(st.netIncome/4000))];
-  return <div>
+  // Home rhythm: greeting -> feature chips -> create actions -> section -> cards.
+  const hour = new Date().getHours();
+  const partOfDay = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+  const firstName = String(ctx.user?.name || 'there').split(' ')[0];
+  return <div className="qb-home">
     <div className="qbo-home-hero">
-      <div><span className="qbo-eyebrow">REFS — Finance workspace</span><h2 className="page-h">Business overview</h2><p>One place for the work that needs attention, your live financial position, and a clean path back to source records.</p></div>
+      <div className="qb-greet-spacer" aria-hidden="true"/>
+      <div className="qb-greet">
+        <h2 className="qb-greeting">Good {partOfDay}, {firstName}</h2>
+        <p className="qb-greet-sub">The work that needs attention, your live financial position, and a clean path back to source records.</p>
+      </div>
       <div className="qbo-home-actions"><Btn onClick={()=>goto('je')}>Create journal entry</Btn><Btn variant="ghost" onClick={()=>goto('reports')}>Open reports</Btn><Btn variant="ghost" onClick={()=>goto('audit')}>See all activity</Btn></div>
     </div>
     <div className="qbo-quicklinks" aria-label="Quick links">
-      {[['Accounting','gl'],['Expenses & Pay Bills','ap'],['Banking','banktx'],['Reports','reports'],['Close','close']].map(([label,route])=><button key={route} type="button" onClick={()=>goto(route)}><span>{label}</span><i aria-hidden="true">→</i></button>)}
+      {[['Accounting','gl','book'],['Expenses & Pay Bills','ap','wallet'],['Banking','banktx','bank'],['Reports','reports','bars'],['Close','close','check']].map(([label,route,glyph])=>
+        <button key={route} type="button" onClick={()=>goto(route)}><i aria-hidden="true"><Icon name={glyph} size={18}/></i><span>{label}</span></button>)}
     </div>
-    <h2 className="page-h">Business at a glance</h2>
+    {/* Only entry points whose destination actually offers the create are
+        listed. Bills, invoices and accounts are retained read-only evidence
+        workspaces, so a pill for them would be a dead affordance. */}
+    <div className="qb-actionhead">
+      <h3 className="qb-sec">Create actions</h3>
+      <span className="muted sm">Expenses, invoices and accounts stay read-only retained evidence.</span>
+    </div>
+    <div className="qb-actionrow">
+      <Btn onClick={()=>goto('je')}>Journal entry</Btn>
+    </div>
+    <h3 className="qb-sec qb-home-section">Open a queue</h3>
+    <div className="qb-actionrow">
+      {[['Action Required','approvals'],['Bank transaction matching','banktx'],['Reconciliation worksheet','bankrec'],['Mapping exceptions','exceptions'],['Month-end close','close']].map(([l,r])=>
+        <Btn key={l} onClick={()=>goto(r)}>{l}</Btn>)}
+    </div>
+    <h3 className="qb-sec qb-home-section">Business at a glance</h3>
     <div className="qbo-grid">
       <div className="qbo-card" onClick={()=>goto('gl')} style={{cursor:'pointer'}}>
         <h4>Profit & Loss — 2026-07</h4>
@@ -87,16 +111,6 @@ export function Dashboard({ctx}) {
         [closeTasks.length-doneTasks,'Close tasks remaining','close']].map(([n,l,r])=>
         <div key={l} className="todo-item" onClick={()=>goto(r)} style={{cursor:'pointer'}}>
           <span className={`todo-n ${n>0?'warn':'ok'}`}>{n}</span><span className="todo-l">{l}</span></div>)}
-    </div>
-    <SectionTitle>Create actions</SectionTitle>
-    <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:22}}>
-      {[['Create invoice','ar'],['Record expense','ap']].map(([l,r])=>
-        <Btn key={l} onClick={()=>goto(r)}>{l}</Btn>)}
-    </div>
-    <SectionTitle>Shortcuts</SectionTitle>
-    <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:22}}>
-      {[['+ Create Bill','ap'],['+ Journal Entry','je'],['Match Bank Txn','banktx'],['Start Reconciliation','bankrec'],['+ Invoice','ar'],['Process Closing','closing']].map(([l,r])=>
-        <Btn key={l} onClick={()=>goto(r)}>{l}</Btn>)}
     </div>
     <SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>goto('approvals')}>View all</Btn>}>Approvals ({pendingApprovals.length})</SectionTitle>
     <Table rowKey="je_id" onRow={r=>goto('je',{jeNumber:r.je_number})} cols={[

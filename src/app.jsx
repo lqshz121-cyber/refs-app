@@ -1,6 +1,6 @@
 import { useState, useEffect, Component } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Toast, Btn } from './ui.jsx';
+import { Toast, Btn, Icon } from './ui.jsx';
 import { ENTITIES, USERS, PERIODS, COA, VENDORS, CUSTOMERS } from './data.js';
 import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, BANK_TXNS, FY2026, nextId, bumpId } from './seed.js';
 import { jeTotals } from './engine.js';
@@ -74,17 +74,18 @@ const ROLE_PERMS = {
   REVIEWER: ['GL.JE.REVIEW','GL.JE.APPROVE','AP.INVOICE.APPROVE'],
   AUDITOR: [], READ_ONLY: [], SYS_ADMIN: [],
 };
+// `short` is the 11px rail label; `glyph` selects a self-authored stroke icon.
 const NAV = [
-  {group:'Control Center', icon:'◉', items:[['dashboard','Dashboard'],['approvals','Action Required'],['aireview','AI Audit Center'],['aijeworkbench','AI JE Workbench']]},
-  {group:'Accounting Settings', icon:'⚙', items:[['setting','Core settings'],['rules','Rule Center'],['mapping','Mapping Center']]},
-  {group:'Source & Staging', icon:'⇅', items:[['staging','Accounting Staging'],['sourcedocs','Source Documents'],['integration','Integration Hub'],['exceptions','Mapping Exceptions']]},
-  {group:'Auto Reconciliation', icon:'⟳', items:[['autobankrec','Bank Batch Pipeline'],['banktx','Bank Transaction Matching'],['bankrec','Reconciliation Worksheet'],['checks','Checks & Payments']]},
-  {group:'Journal Entry', icon:'✎', items:[['je','Journal Entries']]},
-  {group:'General Ledger', icon:'☰', items:[['gl','GL / TB / BS / IS'],['register','Account Inquiry'],['subledger','Subsidiary ledger'],['coa','Chart of Accounts']]},
-  {group:'Accounting Operations', icon:'▲', items:[['cost','Project Cost & CWIP'],['unitcost','Unit Cost Ledger'],['unittransfer','Unit Transfer'],['loan','Construction Loan'],['loanreg','Loan Register'],['pmpickup','Property Ops Pickup'],['closing','Closing Accounting'],['intercompany','Intercompany'],['assets','Fixed Assets']]},
-  {group:'Close', icon:'☑', items:[['close','Month-End Close']]},
-  {group:'Reports', icon:'▤', items:[['reports','Reports Center']]},
-  {group:'Admin', icon:'◈', adminOnly:true, items:[['masterdata','Master Data'],['ap','AP (legacy)'],['ar','AR (legacy)'],['cash','Bank Accounts'],['audit','Audit Log'],['admin','Users & Settings']]},
+  {group:'Control Center', short:'Control', glyph:'gauge', icon:'◉', items:[['dashboard','Dashboard'],['approvals','Action Required'],['aireview','AI Audit Center'],['aijeworkbench','AI JE Workbench']]},
+  {group:'Accounting Settings', short:'Settings', glyph:'gear', icon:'⚙', items:[['setting','Core settings'],['rules','Rule Center'],['mapping','Mapping Center']]},
+  {group:'Source & Staging', short:'Sources', glyph:'inbox', icon:'⇅', items:[['staging','Accounting Staging'],['sourcedocs','Source Documents'],['integration','Integration Hub'],['exceptions','Mapping Exceptions']]},
+  {group:'Auto Reconciliation', short:'Reconcile', glyph:'cycle', icon:'⟳', items:[['autobankrec','Bank Batch Pipeline'],['banktx','Bank Transaction Matching'],['bankrec','Reconciliation Worksheet'],['checks','Checks & Payments']]},
+  {group:'Journal Entry', short:'Journals', glyph:'document', icon:'✎', items:[['je','Journal Entries']]},
+  {group:'General Ledger', short:'Ledger', glyph:'lines', icon:'☰', items:[['gl','GL / TB / BS / IS'],['register','Account Inquiry'],['subledger','Subsidiary ledger'],['coa','Chart of Accounts']]},
+  {group:'Accounting Operations', short:'Operations', glyph:'layers', icon:'▲', items:[['cost','Project Cost & CWIP'],['unitcost','Unit Cost Ledger'],['unittransfer','Unit Transfer'],['loan','Construction Loan'],['loanreg','Loan Register'],['pmpickup','Property Ops Pickup'],['closing','Closing Accounting'],['intercompany','Intercompany'],['assets','Fixed Assets']]},
+  {group:'Close', short:'Close', glyph:'calendar', icon:'☑', items:[['close','Month-End Close']]},
+  {group:'Reports', short:'Reports', glyph:'bars', icon:'▤', railBreak:true, items:[['reports','Reports Center']]},
+  {group:'Admin', short:'Admin', glyph:'shield', icon:'◈', adminOnly:true, items:[['masterdata','Master Data'],['ap','AP (legacy)'],['ar','AR (legacy)'],['cash','Bank Accounts'],['audit','Audit Log'],['admin','Users & Settings']]},
 ];
 NAV.find(group => group.group === 'Accounting Operations')?.items.splice(3, 0, ['amortization', 'Amortization Center'], ['accruals', 'Accrual Center']);
 const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, setting:CompanySetting, aireview:AIAudit, aijeworkbench:AIJEWorkbench, staging:StagingCenter, unittransfer:UnitTransfer, sourcedocs:SourceDocs, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
@@ -264,7 +265,7 @@ function App() {
   if (!user) return <Login onLogin={setUserId}/>;
 
   const isAdmin = ADMIN_ROLES.includes(user.role_code);
-  const nav = [...NAV,{group:'Payables & Receivables',icon:'▣',items:[['ap','Accounts Payable'],['ar','Accounts Receivable']]}].filter(g=>!g.adminOnly || isAdmin).map(g=>({...g,items:g.items.filter(([k])=>!IA_HIDDEN_ROUTES.has(k))})).filter(g=>g.items.length);
+  const nav = [...NAV,{group:'Payables & Receivables',short:'AP / AR',glyph:'exchange',icon:'▣',items:[['ap','Accounts Payable'],['ar','Accounts Receivable']]}].filter(g=>!g.adminOnly || isAdmin).map(g=>({...g,items:g.items.filter(([k])=>!IA_HIDDEN_ROUTES.has(k))})).filter(g=>g.items.length);
   const flat = nav.flatMap(g=>g.items.map(([k,l])=>[k,'·',l]));
   const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, user, entity, period, can, actions, toast:showToast, goto, navContext};
   const Comp = COMP[route] || Dashboard;
@@ -273,15 +274,41 @@ function App() {
 
   return <div className="app"><SingletonNavigationDirect goto={goto}/>
     <aside id="primary-navigation" className={`sidebar ${mobileNav?'mobile-open':''}`}>
-      {mobileNav && <button className="mobile-nav-close" aria-label="Close navigation" onClick={()=>setMobileNav(false)}>Close</button>}
-      <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
-      <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New</button>
-      <nav>{nav.map(g=>{ const isSingleton = g.items.length === 1; const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k)); const groupPanelId=`nav-group-${g.group.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`;
-        return <div key={g.group} className="nav-group">
-        <button className="nav-group-h" aria-expanded={isSingleton?undefined:opened} aria-controls={isSingleton?undefined:groupPanelId} aria-current={isSingleton&&route===g.items[0][0]?'page':undefined} onClick={()=>isSingleton ? goto(g.items[0][0]) : setOpenGroups(o=>toggleNavigationGroup(o,g.group))}>
-          <span className="nav-ic">{g.icon}</span>{g.group}{!isSingleton && <span className="nav-caret">{opened?'▾':'▸'}</span>}</button>
-        {!isSingleton && opened && <div id={groupPanelId} className="nav-group-items">{g.items.map(([k,l])=><button key={k} aria-current={route===k?'page':undefined} className={`nav-item nav-sub ${route===k?'nav-on':''}`} onClick={()=>goto(k)}>{l}</button>)}</div>}
-      </div>;})}</nav>
+      {/* Two-part navigation: a 74px icon rail carrying the groups, and a white
+          second-level panel listing the pages of every group that is open. A
+          group opens and closes only from its own rail item, so several groups
+          stay open at once and selecting a page never collapses another. */}
+      <div className="nav-rail">
+        <span className="rail-logo" aria-hidden="true">◈</span>
+        {nav.map(g=>{ const isSingleton = g.items.length === 1; const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k)); const groupPanelId=`nav-group-${g.group.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`; const inGroup = g.items.some(([k])=>route===k);
+          return <div key={g.group} className="nav-group">
+            {g.railBreak && <span className="rail-sep" aria-hidden="true"/>}
+            <button className={`nav-group-h ${inGroup?'rail-on':''}`} title={g.group} aria-expanded={isSingleton?undefined:opened} aria-controls={isSingleton?undefined:groupPanelId} aria-current={isSingleton&&route===g.items[0][0]?'page':undefined} onClick={()=>isSingleton ? goto(g.items[0][0]) : setOpenGroups(o=>toggleNavigationGroup(o,g.group))}>
+              <span className="rail-glyph" aria-hidden="true"><Icon name={g.glyph}/></span>
+              <span className="rail-label">{g.short||g.group}</span>
+              {!isSingleton && <span className="nav-caret" aria-hidden="true">{opened?'▾':'▸'}</span>}
+            </button>
+          </div>;})}
+      </div>
+      <div className="nav-panel">
+        <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
+        {mobileNav && <button className="mobile-nav-close" aria-label="Close navigation" onClick={()=>setMobileNav(false)}>Close</button>}
+        <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New</button>
+        <nav aria-label="Workspace pages">{nav.map((g,gi)=>{ const isSingleton = g.items.length === 1; const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k)); const groupPanelId=`nav-group-${g.group.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`;
+          if(isSingleton || !opened) return null;
+          return <div key={g.group} className={`nav-panel-group nav-tone-${gi%6}`}>
+            <div className="nav-panel-title">{g.group}</div>
+            <div id={groupPanelId} className="nav-group-items">{g.items.map(([k,l])=>
+              <button key={k} aria-current={route===k?'page':undefined} className={`nav-item nav-sub ${route===k?'nav-on':''}`} onClick={()=>goto(k)}>
+                <span className="nav-badge" aria-hidden="true">{l.slice(0,1).toUpperCase()}</span>
+                <span className="nav-item-label">{l}</span>
+                <span className="nav-chev" aria-hidden="true">›</span>
+              </button>)}</div>
+          </div>;})}
+          {nav.every(g=>g.items.length===1 || !(openGroups[g.group] ?? g.items.some(([k])=>route===k))) &&
+            <p className="nav-panel-empty">Choose a section in the rail to list its pages.</p>}
+        </nav>
+      </div>
     </aside>
     {mobileNav && <button className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={()=>setMobileNav(false)} />}
     <div className="main">
@@ -354,11 +381,11 @@ function Approvals({ctx}) {
   const pb = ap.bills.filter(b=>b.status==='PENDING_APPROVAL');
   return <div><h2 className="page-h">Action Required</h2>
     <p className="page-subtitle">Review retained evidence here. Approval and posting remain in their controlled accounting workflows.</p>
-    <h3 style={{fontSize:17}}>Journal Entries ({pj.length})</h3>
+    <h3 className="qb-sec" style={{marginBottom:10}}>Journal Entries ({pj.length})</h3>
     {pj.map(j=><div key={j.je_id} className="appr-row"><span>{j.je_number} · {j.description} · {j.posting_status}</span>
       <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('je',{jeNumber:j.je_number,actionQueueReturn:{route:'approvals'}})}>Open JE evidence</button></span></div>)}
     {pj.length===0 && <div className="empty">No journal entries awaiting approval.</div>}
-    <h3 style={{fontSize:17, marginTop:22}}>Bills ({pb.length})</h3>
+    <h3 className="qb-sec" style={{margin:'26px 0 10px'}}>Bills ({pb.length})</h3>
     {pb.map(b=><div key={b.bill_id} className="appr-row"><span>{b.bill_no} · {b.vendor_name} · ${b.amount.toLocaleString()} · {b.status}</span>
       <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('ap',{route:'ap',tab:'Bills',billId:b.bill_id,actionQueueReturn:{route:'approvals'}})}>Open bill evidence</button></span></div>)}
     {pb.length===0 && <div className="empty">No bills awaiting approval.</div>}

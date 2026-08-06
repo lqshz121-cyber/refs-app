@@ -1,6 +1,37 @@
 import { useId, useMemo, useState } from 'react';
 import { money } from './engine.js';
 
+// ---------------------------------------------------------------------------
+// Icon set. Self-authored 24px stroke glyphs on a 0 0 24 24 grid, drawn to the
+// geometry recorded in docs/QB-SHELL-STRUCTURE.md. No third-party icon asset
+// is copied or referenced; every path below is written here.
+// ---------------------------------------------------------------------------
+const ICON_PATHS = {
+  gauge:      ['M12 20.5a8.5 8.5 0 1 1 8.5-8.5', 'M20.5 12a8.46 8.46 0 0 1-2.49 6.01', 'M12 12l4.2-3.1'],
+  gear:       ['M12 8.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4z', 'M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4', 'M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M18.2 5.8l-1.7 1.7M7.5 16.5l-1.7 1.7'],
+  inbox:      ['M4 14.5v4a1.5 1.5 0 0 0 1.5 1.5h13a1.5 1.5 0 0 0 1.5-1.5v-4', 'M12 3.8v10.4', 'M8.3 10.5L12 14.2l3.7-3.7'],
+  cycle:      ['M4.4 10.2a7.8 7.8 0 0 1 13.2-3.6l2 2', 'M19.6 3.6v5h-5', 'M19.6 13.8a7.8 7.8 0 0 1-13.2 3.6l-2-2', 'M4.4 20.4v-5h5'],
+  document:   ['M5.2 4.4h8.6l5 5v10.2a.5.5 0 0 1-.5.5H5.2a.5.5 0 0 1-.5-.5V4.9a.5.5 0 0 1 .5-.5z', 'M13.8 4.4V9.4h5', 'M8.4 13.6h7.2M8.4 16.6h4.6'],
+  lines:      ['M4.4 6.2h15.2M4.4 10.6h15.2M4.4 15h9.4M4.4 19.4h9.4'],
+  layers:     ['M12 3.6l8 4.2-8 4.2-8-4.2z', 'M4 12.1l8 4.2 8-4.2', 'M4 16.3l8 4.2 8-4.2'],
+  calendar:   ['M5.2 5.6h13.6a1 1 0 0 1 1 1v12.2a1 1 0 0 1-1 1H5.2a1 1 0 0 1-1-1V6.6a1 1 0 0 1 1-1z', 'M8.4 3.4v4M15.6 3.4v4M4.2 10.4h15.6', 'M9.2 14.6l2.2 2.2 3.6-3.8'],
+  bars:       ['M4 20h16', 'M7.4 20v-6.2M12 20V6.6M16.6 20v-9.4'],
+  shield:     ['M12 3.6l7 2.7v5c0 4.1-2.8 7.3-7 9.1-4.2-1.8-7-5-7-9.1v-5z', 'M9.1 12.1l2.2 2.2 3.9-4.2'],
+  exchange:   ['M4.4 8.6h13', 'M13.9 5.1l3.5 3.5-3.5 3.5', 'M19.6 15.4h-13', 'M10.1 11.9l-3.5 3.5 3.5 3.5'],
+  book:       ['M4.6 5.2A1.6 1.6 0 0 1 6.2 3.6H19v14.2H6.2a1.6 1.6 0 0 0-1.6 1.6z', 'M4.6 19.4a1.6 1.6 0 0 1 1.6-1.6H19v2.6H6.2a1.6 1.6 0 0 1-1.6-1.6z', 'M8.4 7.6h6.8'],
+  wallet:     ['M4.4 7.6a1.6 1.6 0 0 1 1.6-1.6h12a1.6 1.6 0 0 1 1.6 1.6v10a1.6 1.6 0 0 1-1.6 1.6H6a1.6 1.6 0 0 1-1.6-1.6z', 'M4.4 10.6h15.2', 'M15.4 14.6h1.8'],
+  bank:       ['M3.8 9.6L12 4.6l8.2 5', 'M5.6 9.6v8.2M10 9.6v8.2M14 9.6v8.2M18.4 9.6v8.2', 'M3.8 20.2h16.4'],
+  check:      ['M5.6 12.4l4 4 8.8-9'],
+};
+export function Icon({name, size=24, className}) {
+  const paths = ICON_PATHS[name] || ICON_PATHS.document;
+  return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true" focusable="false">
+    {paths.map((d,i)=><path key={i} d={d}/>)}
+  </svg>;
+}
+
 export function Card({children, className='', onClick, hover}) {
   const interactive = typeof onClick === 'function';
   return <div className={`card ${hover?'card-hover':''} ${className}`} onClick={onClick}
