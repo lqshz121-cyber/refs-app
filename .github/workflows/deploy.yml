@@ -53,6 +53,14 @@ jobs:
           # otherwise carry across GitHub Actions steps.
           REFS_PUBLIC_RUNTIME_MODE: LOCAL_MOCK
         run: npm run verify:runtime-deployment-assets
+      - name: Verify the published artifact is coherently a public demonstration
+        env:
+          # The uploaded artifact must state the same thing twice: a LOCAL_MOCK
+          # adapter and a PUBLIC_DEMONSTRATION build stamp. If they ever diverge
+          # the client refuses to render either surface, so catch it here rather
+          # than shipping a page that only shows an error.
+          REFS_PUBLIC_RUNTIME_MODE: LOCAL_MOCK
+        run: node verify-runtime-fail-closed.mjs
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

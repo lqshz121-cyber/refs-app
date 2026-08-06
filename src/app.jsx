@@ -26,6 +26,8 @@ import { repo } from './repo.js';
 import { AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeRuntimeLock, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './authoritative-workspace.jsx';
 import { AuthoritativeApp, authoritativeRuntimeConfigured } from './authoritative-app.jsx';
 import { retainActiveNavigationGroup, toggleNavigationGroup } from './navigation-open-state.js';
+import { RuntimeErrorPage } from './runtime-error-page.jsx';
+import { SURFACE_DEMONSTRATION, SURFACE_ERROR, resolveRuntimeBoundary } from './runtime-mode.mjs';
 
 class ErrorBoundary extends Component {
   constructor(p){ super(p); this.state={err:null}; }
@@ -138,8 +140,21 @@ function Login({onLogin}) {
   </div>;
 }
 
+// ---------------------------------------------------------------------------
+// The single data boundary of the deployed client.
+//
+// resolveRuntimeBoundary reads the published runtime assets and returns one of
+// three surfaces. Only SURFACE_DEMONSTRATION reaches the seed-backed tree in
+// this file, and it is reachable only when the deployment adapter and the build
+// stamp both state that this build is the public demonstration. Everything else
+// - a runtime configuration that did not load, a mode this build does not
+// implement, a mock adapter under an authoritative build stamp - renders the
+// runtime error page. No unknown condition resolves to demonstration data.
+// ---------------------------------------------------------------------------
 function App() {
-  if(globalThis.__REFS_RUNTIME_MODE__!=='LOCAL_MOCK') return <AuthoritativeApp environment={globalThis}/>;
+  const boundary = resolveRuntimeBoundary(globalThis);
+  if (boundary.surface === SURFACE_ERROR) return <RuntimeErrorPage code={boundary.code}/>;
+  if (boundary.surface !== SURFACE_DEMONSTRATION) return <AuthoritativeApp environment={globalThis}/>;
   const SEED_V='v9';
   const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
   const [userId, setUserId] = useState(()=>load('user',null));
@@ -321,6 +336,7 @@ function App() {
           <button className="icon-btn" title="Notifications" onClick={()=>setRoute('exceptions')}>🔔</button>
           <button className="icon-btn" onClick={()=>actions.resetData()} title="Reset demo data">⟲</button>
           <button className="icon-btn" onClick={()=>setDark(d=>!d)} title="Light / dark">{dark?'☀':'☾'}</button>
+          <span className="badge badge-warn" title="This build serves browser demonstration data. It is not an accounting record and carries no entity, period, approval or posting authority.">Public demonstration data</span>
           <span className="muted" style={{fontSize:10.5,opacity:.7}} title="commit · build time">{typeof window!=='undefined'&&window.__BUILD?`${window.__BUILD.sha} · ${window.__BUILD.time}`:''}</span>
           <div className="user-chip" title={'Role '+user.role_code}>
             <span className="user-av">{user.name[0]}</span>

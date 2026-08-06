@@ -131,6 +131,12 @@ services:
     headers:
       # The deployment-time API adapter must never be served stale: a stale
       # adapter can point a newly deployed UI at the wrong authoritative API.
+      # The runtime lock installs the mode slot before the adapter runs. A stale
+      # lock served beside a fresh adapter is a deployment that disagrees with
+      # itself, so it is never cached either.
+      - path: /refs-runtime-lock.js
+        name: Cache-Control
+        value: no-store
       - path: /refs-runtime-config.js
         name: Cache-Control
         value: no-store

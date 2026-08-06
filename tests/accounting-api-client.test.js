@@ -38,5 +38,70 @@ const config=configured;
   assert.equal(advanced.ok,true);assert.match(call.url,/\/journal-entries\/.+\/post$/);assert.equal(call.options.headers['if-match'],'"2"');assert.equal(JSON.parse(call.options.body).periodId,periodId);
   const attachmentMissing=await createAuthoritativeBusinessDocument({config,kind:'AP_BILL',idempotencyKey:'AP-BILL-attachment-missing',document:{documentNumber:'B-3'},fetcher:async()=>{throw new Error('must not call');}});assert.equal(attachmentMissing.code,'ATTACHMENT_REQUIRED');
   const missingToken=await createAuthoritativeBusinessDocument({config:{...config,getAccessToken:async()=>null},kind:'AP_BILL',idempotencyKey:'AP-BILL-token-missing',document:{documentNumber:'B-3',attachmentIds:[attachmentId]},fetcher:async()=>{throw new Error('must not call');}});assert.equal(missingToken.code,'AUTHENTICATION_REQUIRED');
+
+  // -------------------------------------------------------------------------
+  // Failure classification.
+  //
+  // These are simulated responses, not a live accounting API: there is no API
+  // reachable from this test environment. What is proven here is that the
+  // client turns each observable condition into a distinct code, so the UI can
+  // tell the reader what actually happened instead of guessing a cause.
+  // -------------------------------------------------------------------------
+  const respond=(status,body)=>({ok:status>=200&&status<300,status,json:async()=>body});
+  const transportFailure=async()=>{throw new TypeError('Failed to fetch');};
+
+  for(const [status,expected] of [[401,'AUTHENTICATION_REQUIRED'],[403,'AUTHORIZATION_DENIED'],[500,'ACCOUNTING_API_SERVER_ERROR'],[502,'ACCOUNTING_API_SERVER_ERROR'],[400,'JSON_OBJECT_REQUIRED'],[404,'SOMETHING_ELSE'],[409,'SOMETHING_ELSE']]){
+    const journals=await refreshAuthoritativeJournalEntries({config,fetcher:async()=>respond(status,{ok:false,code:status===400?'JSON_OBJECT_REQUIRED':'SOMETHING_ELSE',message:'server text'})});
+    assert.equal(journals.ok,false);
+    assert.equal(journals.code,expected,`HTTP ${status} must classify as ${expected}`);
+    assert.equal(journals.status,status);
+    const documents=await refreshAuthoritativeDocuments({config,fetcher:async()=>respond(status,{ok:false,code:status===400?'JSON_OBJECT_REQUIRED':'SOMETHING_ELSE',message:'server text'})});
+    assert.equal(documents.code,expected,`AP/AR read must classify HTTP ${status} as ${expected}`);
+  }
+
+  // A status with no domain code in the body still classifies from the status.
+  for(const [status,expected] of [[404,'ACCOUNTING_API_SCOPE_NOT_FOUND'],[429,'ACCOUNTING_API_RATE_LIMITED'],[418,'ACCOUNTING_API_REQUEST_REJECTED']]){
+    const bare=await refreshAuthoritativeJournalEntries({config,fetcher:async()=>respond(status,{ok:false})});
+    assert.equal(bare.code,expected,`HTTP ${status} without a domain code must classify as ${expected}`);
+  }
+  // A 5xx is decided by the status line: a server failure must not be relabelled
+  // by whatever the failing server put in the body.
+  assert.equal((await refreshAuthoritativeJournalEntries({config,fetcher:async()=>respond(503,{ok:false,code:'PERIOD_CLOSED'})})).code,'ACCOUNTING_API_SERVER_ERROR');
+
+  // A 401 or 403 is decided by the status line. A body code must not be able to
+  // relabel an authentication failure as an authorization failure or the reverse.
+  assert.equal((await refreshAuthoritativeJournalEntries({config,fetcher:async()=>respond(403,{ok:false,code:'AUTHENTICATION_REQUIRED',message:'wrong'})})).code,'AUTHORIZATION_DENIED');
+  assert.equal((await refreshAuthoritativeJournalEntries({config,fetcher:async()=>respond(401,{ok:false,code:'AUTHORIZATION_DENIED',message:'wrong'})})).code,'AUTHENTICATION_REQUIRED');
+  // An authorization refusal must not echo the server text: it must not describe
+  // what the caller is not allowed to see.
+  const refused=await refreshAuthoritativeJournalEntries({config,fetcher:async()=>respond(403,{ok:false,code:'X',message:'entity 42 belongs to tenant Northwind'})});
+  assert.ok(!refused.message.includes('Northwind'),'a 403 must not echo server-supplied detail');
+
+  // No HTTP response at all is a transport failure and is reported as one.
+  for(const read of [refreshAuthoritativeJournalEntries,refreshAuthoritativeDocuments]){
+    const result=await read({config,fetcher:transportFailure});
+    assert.equal(result.ok,false);assert.equal(result.code,'ACCOUNTING_API_UNREACHABLE');
+  }
+  assert.equal((await refreshAuthoritativeBankTransactions({config,bankAccountRef:'BANK-1',fetcher:transportFailure})).code,'ACCOUNTING_API_UNREACHABLE');
+  assert.equal((await refreshAuthoritativeReconciliation({config,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31',fetcher:transportFailure})).code,'ACCOUNTING_API_UNREACHABLE');
+  assert.equal((await transitionAuthoritativeJournal({config,journalEntryId:entityId,revision:1,action:'POST',fetcher:transportFailure})).code,'ACCOUNTING_API_UNREACHABLE');
+
+  // A 200 whose shape the read contract rejects is neither unreachable nor a
+  // server error: partial data is discarded rather than displayed.
+  assert.equal((await refreshAuthoritativeJournalEntries({config,fetcher:async()=>respond(200,{ok:true,data:{}})})).code,'ACCOUNTING_API_PROTOCOL');
+  assert.equal((await refreshAuthoritativeDocuments({config,fetcher:async()=>respond(200,{ok:true,data:'not-an-array'})})).code,'ACCOUNTING_API_PROTOCOL');
+
+  // A read where one of the four business-document calls is refused reports that
+  // refusal, not a generic failure.
+  const mixed=await refreshAuthoritativeDocuments({config,fetcher:async url=>url.includes('/ar/adjustments')?respond(403,{ok:false}):respond(200,{ok:true,data:[]})});
+  assert.equal(mixed.code,'AUTHORIZATION_DENIED');
+
+  // No configuration at all is a deployment problem, not an API failure.
+  assert.equal((await refreshAuthoritativeDocuments({config:null,fetcher:async()=>respond(200,{ok:true,data:[]})})).code,'CONFIGURATION_REQUIRED');
+  assert.equal((await refreshAuthoritativeJournalEntries({config:null,fetcher:async()=>respond(200,{ok:true,data:[]})})).code,'CONFIGURATION_REQUIRED');
+
+  // An expired or absent access token is reported before any request is made.
+  assert.equal((await refreshAuthoritativeJournalEntries({config:{...config,getAccessToken:async()=>{throw new Error('OIDC access token is unavailable or expired');}},fetcher:async()=>{throw new Error('must not call');}})).code,'AUTHENTICATION_REQUIRED');
+
   console.log('accounting-api-client: all assertions passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

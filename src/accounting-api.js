@@ -18,6 +18,23 @@ export const accountingApiConfig=(environment=globalThis)=>{
 
 export const authoritativeBearerHeaders=async config=>{try{const token=await config?.getAccessToken?.();return typeof token==='string'&&/^[A-Za-z0-9._~-]{16,8192}$/.test(token)?{authorization:`Bearer ${token}`} : null;}catch{return null;}};
 const authenticationRequired=()=>({ok:false,code:'AUTHENTICATION_REQUIRED',message:'An OIDC access token is required for the authoritative accounting API.'});
+
+// ---------------------------------------------------------------------------
+// Failure classification.
+//
+// A caller must be able to tell these apart, because the honest response to
+// each is different: no HTTP response at all (a transport failure), an HTTP
+// status the API chose, or a response whose shape the read contract rejects.
+// Collapsing them into a single "unavailable" code states a cause the browser
+// cannot observe. For 401 and 403 the status line is decisive and overrides any
+// code in the body, so an authentication failure is never surfaced as an
+// authorization failure or the reverse. A 403 body message is not echoed: an
+// authorization refusal must not describe what the caller cannot see.
+// ---------------------------------------------------------------------------
+const httpFailureCode=status=>status===401?'AUTHENTICATION_REQUIRED':status===403?'AUTHORIZATION_DENIED':status===404?'ACCOUNTING_API_SCOPE_NOT_FOUND':status===429?'ACCOUNTING_API_RATE_LIMITED':status>=500?'ACCOUNTING_API_SERVER_ERROR':'ACCOUNTING_API_REQUEST_REJECTED';
+const httpFailureMessage=(status,code)=>code==='AUTHENTICATION_REQUIRED'?'The accounting API did not accept the current session.':code==='AUTHORIZATION_DENIED'?'The accounting API refused this request for the configured entity and tenant.':code==='ACCOUNTING_API_SCOPE_NOT_FOUND'?'The accounting API does not hold the configured entity, period, or record.':code==='ACCOUNTING_API_RATE_LIMITED'?'The accounting API is rate limiting this client.':code==='ACCOUNTING_API_SERVER_ERROR'?`The accounting API reported a server error (HTTP ${status}).`:`The accounting API rejected the request (HTTP ${status}).`;
+const notConfigured=()=>({ok:false,code:'CONFIGURATION_REQUIRED',message:'No authoritative accounting API is configured for this deployment.'});
+const unreachable=detail=>({ok:false,code:'ACCOUNTING_API_UNREACHABLE',message:detail});
 const validDate=value=>{if(!ISO_DATE.test(String(value||'')))return false;const parsed=new Date(`${value}T00:00:00.000Z`);return !Number.isNaN(parsed.valueOf())&&parsed.toISOString().slice(0,10)===value;};
 
 const documentRow=(row,kind)=>({
@@ -27,14 +44,14 @@ const documentRow=(row,kind)=>({
 });
 
 export async function refreshAuthoritativeDocuments({config,fetcher=globalThis.fetch}={}){
-  if(!config||typeof fetcher!=='function')return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'No authoritative accounting API is configured.'};
+  if(!config||typeof fetcher!=='function')return notConfigured();
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
-  const read=async path=>{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});if(!response.ok)return null;const body=await response.json();return body?.ok===true&&Array.isArray(body.data)?body.data:null;};
-  try{const [bills,invoices,apAdjustments,arAdjustments]=await Promise.all([read('/ap/bills'),read('/ar/invoices'),read('/ap/adjustments'),read('/ar/adjustments')]);if(!bills||!invoices||!apAdjustments||!arAdjustments)return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative accounting refresh failed.'};return {ok:true,ap:{bills:bills.map(row=>documentRow(row,'AP_BILL')),adjustments:apAdjustments,dupBlocked:0},ar:{invoices:invoices.map(row=>documentRow(row,'AR_INVOICE')),adjustments:arAdjustments}};}catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative accounting refresh failed.'};}
+  const read=async path=>{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});if(!response.ok)return await failure(response);const body=await response.json();return body?.ok===true&&Array.isArray(body.data)?{ok:true,data:body.data}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid business document read envelope.'};};
+  try{const [bills,invoices,apAdjustments,arAdjustments]=await Promise.all([read('/ap/bills'),read('/ar/invoices'),read('/ap/adjustments'),read('/ar/adjustments')]);const refused=[bills,invoices,apAdjustments,arAdjustments].find(result=>!result.ok);if(refused)return refused;return {ok:true,ap:{bills:bills.data.map(row=>documentRow(row,'AP_BILL')),adjustments:apAdjustments.data,dupBlocked:0},ar:{invoices:invoices.data.map(row=>documentRow(row,'AR_INVOICE')),adjustments:arAdjustments.data}};}catch{return unreachable('The browser could not complete the authoritative accounting read; no HTTP response was produced.');}
 }
 
 export async function refreshAuthoritativeJournalEntries({config,fetcher=globalThis.fetch}={}){
-  if(!config||typeof fetcher!=='function')return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'No authoritative accounting API is configured.'};
+  if(!config||typeof fetcher!=='function')return notConfigured();
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
   try{
     const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/journal-entries`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
@@ -43,7 +60,7 @@ export async function refreshAuthoritativeJournalEntries({config,fetcher=globalT
     const journals=body.data.map(row=>({...row,revision:Number(row.revision),ledger_line_count:Number(row.ledger_line_count)}));
     if(journals.some(row=>!UUID.test(row.journal_entry_id||'')||!Number.isSafeInteger(row.revision)||row.revision<0||!Number.isSafeInteger(row.ledger_line_count)||row.ledger_line_count<0))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal Entry row.'};
     return {ok:true,journals};
-  }catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative Journal Entry refresh failed.'};}
+  }catch{return unreachable('The browser could not complete the authoritative Journal Entry read; no HTTP response was produced.');}
 }
 
 export async function refreshAuthoritativeBankTransactions({config,bankAccountRef,from=null,through=null,limit=100,fetcher=globalThis.fetch}={}){
@@ -59,7 +76,7 @@ export async function refreshAuthoritativeBankTransactions({config,bankAccountRe
     const rows=body.data.map(row=>({...row,amount:Number(row.amount),version:Number(row.version),amount_delta:row.amount_delta===null?null:Number(row.amount_delta)}));
     if(rows.some(row=>!Number.isSafeInteger(row.version)||row.version<0))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid bank transaction row.'};
     return {ok:true,rows,scope:{entityId:config.entityId,bankAccountRef:account,from,through,limit}};
-  }catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative bank transaction refresh failed.'};}
+  }catch{return unreachable('The browser could not complete the authoritative bank transaction read; no HTTP response was produced.');}
 }
 
 export async function refreshAuthoritativeReconciliation({config,bankAccountRef,statementEndingDate,fetcher=globalThis.fetch}={}){
@@ -75,7 +92,7 @@ export async function refreshAuthoritativeReconciliation({config,bankAccountRef,
     const rows=body.data.map(row=>({...row,statement_ending_balance:Number(row.statement_ending_balance),difference:Number(row.difference),version:Number(row.version),bank_transaction_count:Number(row.bank_transaction_count),active_match_count:Number(row.active_match_count),unmatched_transaction_count:Number(row.unmatched_transaction_count),statement_activity_amount:Number(row.statement_activity_amount)}));
     if(rows.some(row=>!Number.isSafeInteger(row.version)||![row.bank_transaction_count,row.active_match_count,row.unmatched_transaction_count].every(Number.isSafeInteger)))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation row.'};
     return {ok:true,row:rows[0]||null,scope:{entityId:config.entityId,bankAccountRef:account,statementEndingDate}};
-  }catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative reconciliation refresh failed.'};}
+  }catch{return unreachable('The browser could not complete the authoritative reconciliation read; no HTTP response was produced.');}
 }
 
 export async function refreshAuthoritativeFinancialStatements({config,fetcher=globalThis.fetch}={}){
@@ -94,10 +111,24 @@ export async function refreshAuthoritativeFinancialStatements({config,fetcher=gl
     if(new Set(body.data.map(row=>`${row.statement_type}:${row.account_code}`)).size!==body.data.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate financial statement rows.'};
     const rows=body.data.map(row=>({...row,...Object.fromEntries(numericFields.map(field=>[field,String(row[field])]))}));
     return {ok:true,rows,scope:{entityId:config.entityId,periodId:config.periodId}};
-  }catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative financial statement refresh failed.'};}
+  }catch{return unreachable('The browser could not complete the authoritative financial statement read; no HTTP response was produced.');}
 }
 
-const failure=async response=>{let body;try{body=await response.json();}catch{}return {ok:false,code:typeof body?.code==='string'?body.code:'ACCOUNTING_API_UNAVAILABLE',message:response.status>=500?'Authoritative accounting command failed.':typeof body?.message==='string'?body.message:'Authoritative accounting command was rejected.'};};
+const failure=async response=>{
+  const status=Number(response?.status)||0;
+  let body;try{body=await response.json();}catch{}
+  const derived=status>=100?httpFailureCode(status):null;
+  // 401, 403 and 5xx are decided by the status line: whether the caller is
+  // authenticated, whether this entity refuses the caller, and whether the
+  // service itself failed are not things a response body may relabel. Other
+  // statuses keep the domain code the API supplies, which is more specific
+  // than anything derivable from the status alone.
+  const decisive=derived==='AUTHENTICATION_REQUIRED'||derived==='AUTHORIZATION_DENIED'||derived==='ACCOUNTING_API_SERVER_ERROR';
+  const code=decisive?derived:(typeof body?.code==='string'&&body.code?body.code:(derived||'ACCOUNTING_API_REQUEST_REJECTED'));
+  const reported=typeof body?.message==='string'&&body.message?body.message:null;
+  const message=derived==='AUTHORIZATION_DENIED'||status>=500||!reported?httpFailureMessage(status,derived||'ACCOUNTING_API_REQUEST_REJECTED'):reported;
+  return {ok:false,code,status,message};
+};
 
 export async function createAuthoritativeBusinessDocument({config,kind,document,idempotencyKey,fetcher=globalThis.fetch}={}){
   if(!config||typeof fetcher!=='function'||!['AP_BILL','AR_INVOICE'].includes(kind)||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Authoritative command configuration is invalid.'};
@@ -105,14 +136,14 @@ export async function createAuthoritativeBusinessDocument({config,kind,document,
   if(!attachmentIds?.length||attachmentIds.some(attachmentId=>!UUID.test(attachmentId||'')))return {ok:false,code:'ATTACHMENT_REQUIRED',message:'An authoritative business document requires at least one verified attachment.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();const path=kind==='AP_BILL'?'/ap/bills':'/ar/invoices';
   const body={periodId:config.periodId,documentNumber:document.documentNumber,counterpartyRef:String(document.counterpartyRef),counterpartyName:document.counterpartyName,currency:document.currency,accountingDate:document.accountingDate,dueDate:document.dueDate,amount:document.amount,offsetAccountCode:document.offsetAccountCode,description:document.description||null,attachmentIds};
-  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid command envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative accounting command failed.'};}
+  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid command envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return unreachable('The browser could not complete the authoritative accounting command; no HTTP response was produced.');}
 }
 
 export async function createAuthoritativeSettlement({config,kind,businessDocumentId,accountingDate,amount,idempotencyKey,fetcher=globalThis.fetch}={}){
   if(!config||typeof fetcher!=='function'||!UUID.test(businessDocumentId||'')||!['AP_PAYMENT','AR_RECEIPT'].includes(kind)||typeof config.cashAccountCode!=='string'||!config.cashAccountCode.trim()||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Settlement requires authoritative cash-account configuration.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();const path=kind==='AP_PAYMENT'?`/ap/bills/${businessDocumentId}/payments`:`/ar/invoices/${businessDocumentId}/receipts`;
   const body=kind==='AP_PAYMENT'?{periodId:config.periodId,paymentNumber:idempotencyKey,paymentDate:accountingDate,cashAccountCode:config.cashAccountCode,bankMemberRef:null,amount,reason:'UI-authoritative AP payment'}:{periodId:config.periodId,receiptNumber:idempotencyKey,receiptDate:accountingDate,cashAccountCode:config.cashAccountCode,bankMemberRef:null,amount,reason:'UI-authoritative AR receipt'};
-  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid settlement envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative settlement command failed.'};}
+  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid settlement envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return unreachable('The browser could not complete the authoritative settlement command; no HTTP response was produced.');}
 }
 
 export async function createAuthoritativeAdjustment({config,kind,adjustment,idempotencyKey,fetcher=globalThis.fetch}={}){
@@ -122,14 +153,14 @@ export async function createAuthoritativeAdjustment({config,kind,adjustment,idem
   if(kind==='AP_VENDOR_CREDIT'){path='/ap/vendor-credits';body={...common,creditNumber:adjustment?.number,creditDate:adjustment?.date,vendorRef:String(adjustment?.counterpartyRef||''),vendorName:adjustment?.counterpartyName,lines:adjustment?.lines};}
   else if(kind==='AR_CREDIT_MEMO'){path='/ar/credit-memos';body={...common,memoNumber:adjustment?.number,memoDate:adjustment?.date,customerRef:String(adjustment?.counterpartyRef||''),customerName:adjustment?.counterpartyName,lines:adjustment?.lines};}
   else {if(typeof config.cashAccountCode!=='string'||!config.cashAccountCode)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Refund requires authoritative cash-account configuration.'};path='/ar/refunds';body={...common,sourceAdjustmentId:adjustment?.sourceAdjustmentId,refundNumber:adjustment?.number,refundDate:adjustment?.date,cashAccountCode:config.cashAccountCode};}
-  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid adjustment envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative accounting adjustment failed.'};}
+  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid adjustment envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return unreachable('The browser could not complete the authoritative adjustment command; no HTTP response was produced.');}
 }
 
 export async function applyAuthoritativeCredit({config,kind,businessAdjustmentId,businessDocumentId,amount,reason,idempotencyKey,fetcher=globalThis.fetch}={}){
   if(!config||typeof fetcher!=='function'||!UUID.test(businessAdjustmentId||'')||!UUID.test(businessDocumentId||'')||!['AP_VENDOR_CREDIT','AR_CREDIT_MEMO'].includes(kind)||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Credit allocation command configuration is invalid.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();const path=kind==='AP_VENDOR_CREDIT'?`/ap/vendor-credits/${businessAdjustmentId}/allocations`:`/ar/credit-memos/${businessAdjustmentId}/allocations`;
   const body={businessDocumentId,amount,reason};
-  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid allocation envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative credit allocation failed.'};}
+  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid allocation envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return unreachable('The browser could not complete the authoritative credit allocation; no HTTP response was produced.');}
 }
 
 export async function transitionAuthoritativeJournal({config,journalEntryId,revision,action,fetcher=globalThis.fetch}={}){
@@ -137,5 +168,5 @@ export async function transitionAuthoritativeJournal({config,journalEntryId,revi
   if(!config||typeof fetcher!=='function'||!UUID.test(journalEntryId||'')||!Number.isSafeInteger(revision)||revision<0||!['SUBMIT','REVIEW','APPROVE','POST'].includes(command))return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Journal workflow command is invalid.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();const post=command==='POST',path=post?`/journal-entries/${journalEntryId}/post`:`/journal-entries/${journalEntryId}/transitions/${command.toLowerCase()}`,body=post?{periodId:config.periodId}:{};
   const idempotencyKey=`UI-JE-${journalEntryId}-${revision}-${command}`;
-  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,'if-match':`"${revision}"`,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid workflow envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative journal workflow command failed.'};}
+  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,'if-match':`"${revision}"`,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response);const result=await response.json();if(result?.ok!==true||!result.data)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid workflow envelope.'};return {ok:true,data:result.data,idempotent:response.status===200};}catch{return unreachable('The browser could not complete the authoritative journal workflow command; no HTTP response was produced.');}
 }
