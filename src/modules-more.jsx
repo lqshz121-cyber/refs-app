@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect } from 'react';
 import { Card, KPI, Btn, Badge, Money, Table, Tabs, SectionTitle, StateBlock, Unavailable } from './ui.jsx';
 import { COA, ENTITIES, VENDORS, CUSTOMERS, LOANS, BANK_ACCOUNTS, MAPPINGS, PROPERTIES, PROJECTS } from './data.js';
-import { LOAN_TXNS, IC_TXNS, CLOSINGS, PM_ROWS, SOURCE_DOCS } from './seed.js';
+import { LOAN_TXNS, IC_TXNS, PM_ROWS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, trialBalance, statements, downloadCSV } from './engine.js';
 import { filterAccountingRuleEvidence } from './accounting-rule-listing.js';
 import { localReportCapability, localReportWorkflowTarget } from './report-workflow-targets.js';

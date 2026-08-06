@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useEffect, useRef } from 'react';
 import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Segmented, Field, SectionTitle, ApprovalTimeline, Icon, StateBlock, Unavailable } from './ui.jsx';
 import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS, PROJECTS, VENDORS } from './data.js';
-import { PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS, UNIT_OWNERS, SOURCE_DOCS } from './seed.js';
+import { PM_ROWS, CLOSINGS, UNIT_OWNERS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, isBalanced, validateJE, JE_FLOW, loanRule, pmRule, trialBalance, statements } from './engine.js';
 import { localJournalPostingEvidence } from './journal-posting-evidence.js';
 import { localReportReturnScopeLabel } from './report-return-context.js';
