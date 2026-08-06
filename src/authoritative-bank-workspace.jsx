@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
 import {refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation} from './accounting-api.js';
+import {StateBlock} from './ui.jsx';
 
 const fixed4Units=value=>{
   if(typeof value==='number'){
@@ -20,15 +21,14 @@ const money=value=>{
   return `${negative?'-':''}$${whole}.${cents}`;
 };
 
-const ReadError=({error,onRetry})=><div className="empty" role="alert">
-  <b>{error?.code||'ACCOUNTING_API_UNAVAILABLE'}</b>
+const ReadError=({error,onRetry})=><StateBlock tone="error" title={error?.code||'ACCOUNTING_API_UNAVAILABLE'}
+  actions={<button type="button" className="btn btn-sm" onClick={onRetry}>Retry read</button>}>
   <p>{error?.message||'The authoritative read could not be completed.'}</p>
-  <button type="button" className="btn btn-sm" onClick={onRetry}>Retry read</button>
-</div>;
+</StateBlock>;
 
 export const AuthoritativeBankTable=({rows=[],onOpen=()=>{}})=><section className="card" aria-label="Authoritative bank transaction evidence">
   <div className="card-head"><div><h2>Bank transactions</h2><p className="muted sm">Read-only source and retained match evidence from the accounting API.</p></div><span className="badge badge-muted">READ ONLY</span></div>
-  {!rows.length?<div className="empty">No bank transactions were returned for this account and date scope.</div>:<div className="table-wrap"><table className="tbl">
+  {!rows.length?<StateBlock tone="empty" title="No bank transactions returned">No bank transactions were returned for this account and date scope.</StateBlock>:<div className="table-wrap"><table className="tbl">
     <thead><tr><th>Date</th><th>Source</th><th>Type</th><th>Amount</th><th>Match evidence</th><th>Version</th><th>Evidence</th></tr></thead>
     <tbody>{rows.map(row=><tr key={row.bank_source_id}>
       <td>{row.transaction_date}</td><td><b>{row.external_bank_line_id}</b><div className="muted sm">{row.source_ref}</div></td>
@@ -55,7 +55,7 @@ export const AuthoritativeBankDetail=({row,scope,onBack})=><section className="c
 
 export const AuthoritativeReconciliationSummary=({row=null,onOpen=()=>{}})=><section className="card" aria-label="Authoritative reconciliation evidence">
   <div className="card-head"><div><h2>Reconciliation statement</h2><p className="muted sm">Statement-scoped evidence only. This page cannot match, clear, reopen, sign off, or post.</p></div><span className="badge badge-muted">READ ONLY</span></div>
-  {!row?<div className="empty">No reconciliation statement was returned for this account and cutoff.</div>:<>
+  {!row?<StateBlock tone="empty" title="No reconciliation statement returned">No reconciliation statement was returned for this account and cutoff.</StateBlock>:<>
     <div className="qbo-toolgrid"><span><i>Status</i><b>{row.status}</b></span><span><i>Statement ending balance</i><b>{money(row.statement_ending_balance)}</b></span><span><i>Statement activity</i><b>{money(row.statement_activity_amount)}</b></span><span><i>Difference</i><b>{money(row.difference)}</b></span></div>
     <div className="qbo-toolgrid"><span><i>Bank transactions</i><b>{row.bank_transaction_count}</b></span><span><i>Active matches</i><b>{row.active_match_count}</b></span><span><i>Unmatched</i><b>{row.unmatched_transaction_count}</b></span><span><i>Version</i><b>{row.version}</b></span></div>
     <button type="button" className="btn btn-sm" onClick={()=>onOpen(row)}>Open statement detail</button>
@@ -89,8 +89,8 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch}){
       <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Load evidence</button>
     </form>
     <p className="muted sm">Entity {config.entityId}. Account and date scope are required at the API boundary.</p>
-    {state.phase==='IDLE'&&<div className="empty">Choose one bank account and an optional date range to read authoritative evidence.</div>}
-    {state.phase==='LOADING'&&<div className="empty" role="status">Loading authoritative bank transaction evidence...</div>}
+    {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and an optional date range to read authoritative evidence.</StateBlock>}
+    {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative bank transaction evidence...</StateBlock>}
     {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
     {state.phase==='READY'&&<AuthoritativeBankTable rows={state.rows} onOpen={setSelected}/>}
   </div>;
@@ -109,8 +109,8 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
       <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Load statement</button>
     </form>
     <p className="muted sm">Entity {config.entityId}. The API rejects missing or cross-scope statement evidence.</p>
-    {state.phase==='IDLE'&&<div className="empty">Choose one bank account and statement ending date to read reconciliation evidence.</div>}
-    {state.phase==='LOADING'&&<div className="empty" role="status">Loading authoritative reconciliation evidence...</div>}
+    {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and statement ending date to read reconciliation evidence.</StateBlock>}
+    {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative reconciliation evidence...</StateBlock>}
     {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
     {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} onOpen={()=>setDetailOpen(true)}/>}
   </div>;

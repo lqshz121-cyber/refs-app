@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { KPI, Btn, Badge, Table, Tabs } from './ui.jsx';
+import { KPI, Btn, Badge, Table, Tabs, StateBlock } from './ui.jsx';
 import { money, sum } from './engine.js';
 import { repo } from './repo.js';
 import {
@@ -194,7 +194,7 @@ export function AIJEWorkbench({ ctx }) {
             {state[selected.key] && <li>{state[selected.key].status} <span className="muted">by {state[selected.key].by} at {state[selected.key].at}</span></li>}
             {state[selected.key]?.review_outcome_id && <li>Review outcome {state[selected.key].review_outcome_id} <span className="muted">revision {state[selected.key].review_revision}</span></li>}
           </ul>
-        </> : <div className="empty">Select an AI journal candidate to review.</div>}
+        </> : <StateBlock tone="empty" title="No candidate selected">Select an AI journal candidate to review.</StateBlock>}
       </div>
     </div>
   </div>;

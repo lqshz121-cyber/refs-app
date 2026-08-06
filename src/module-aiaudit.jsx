@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { KPI, Btn, Badge, Table, Tabs } from './ui.jsx';
+import { KPI, Btn, Badge, Table, Tabs, StateBlock } from './ui.jsx';
 import { money, sum } from './engine.js';
 import { subsidiaryOf, memberOf } from './coa-wbs.js';
 import { repo } from './repo.js';
@@ -379,7 +379,7 @@ export function AIAudit({ ctx }) {
               {selected.suggestedJe && /PREPAID/i.test(selected.rule) && <Btn onClick={() => { repo.audit(user.user_id, 'AMORTIZATION_REVIEW_OPENED', 'AI_FINDING', selected.key, model.amortizationSchedule.schedule_id); toast('Amortization schedule is ready for review.'); }}>Create amortization schedule</Btn>}
               {!resolved[selected.key] && <Btn variant="ghost" onClick={() => resolve(selected)}>Mark resolved</Btn>}
             </div>
-          </> : <div className="empty">Select a finding to review source data, rationale, suggested JE and audit trail.</div>}
+          </> : <StateBlock tone="empty" title="No finding selected">Select a finding to review source data, rationale, suggested JE and audit trail.</StateBlock>}
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import {refreshAuthoritativeFinancialStatements} from './accounting-api.js';
+import {StateBlock} from './ui.jsx';
 
 const REPORTS=[
   ['TRIAL_BALANCE','Trial Balance'],
@@ -54,13 +55,13 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch})
   return <div className="stack"><div><h1>Financial statements</h1><p className="page-subtitle">OIDC-authenticated, entity-and-period-scoped POSTED ledger evidence. Browser seed data and local storage are not used.</p></div>
     <div className="tabs" role="tablist" aria-label="Financial statements">{REPORTS.map(([key,label])=><button type="button" role="tab" aria-selected={report===key} className={report===key?'tab active':'tab'} key={key} onClick={()=>{setReport(key);setSelected(null);}}>{label}</button>)}</div>
     <p className="muted sm">Entity {config.entityId} | Period {config.periodId} | Read only</p>
-    {state.phase==='LOADING'&&<div className="empty" role="status">Loading authoritative financial statements...</div>}
-    {state.phase==='ERROR'&&<div className="empty" role="alert"><b>{state.error?.code}</b><p>{state.error?.message}</p><button type="button" className="btn btn-sm" onClick={load}>Retry read</button></div>}
+    {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative financial statements...</StateBlock>}
+    {state.phase==='ERROR'&&<StateBlock tone="error" title={state.error?.code} actions={<button type="button" className="btn btn-sm" onClick={load}>Retry read</button>}><p>{state.error?.message}</p></StateBlock>}
     {state.phase==='READY'&&<section className="card" aria-label={`${REPORTS.find(item=>item[0]===report)?.[1]} rows`}>
       <div className="card-head"><div><h2>{REPORTS.find(item=>item[0]===report)?.[1]}</h2><p className="muted sm">{rows.length} accounts in retained evidence.</p></div><span className="badge badge-muted">READ ONLY</span></div>
       {!!rows.length&&<FinancialStatementSummary report={report} rows={rows}/>}
       {report==='CASH_FLOW'&&<p className="muted sm">This view is direct cash-account movement evidence only. It is not a statement of cash flows and does not infer operating, investing, or financing activities.</p>}
-      {!rows.length?<div className="empty">No POSTED ledger evidence was returned for this statement and period.</div>:<div className="table-wrap"><table className="tbl"><thead><tr><th>Section</th><th>Account</th><th>Period debit</th><th>Period credit</th><th>Balance</th><th>Evidence</th></tr></thead><tbody>{rows.map(row=><tr key={`${row.statement_type}:${row.account_code}`}><td>{row.statement_section}</td><td><b>{row.account_code}</b><div className="muted sm">{row.account_name}</div></td><td className="num">{money(row.period_debit)}</td><td className="num">{money(row.period_credit)}</td><td className="num">{money(row.display_balance)}</td><td><button type="button" className="btn btn-sm" onClick={()=>setSelected(row)}>Open evidence</button></td></tr>)}</tbody></table></div>}
+      {!rows.length?<StateBlock tone="empty" title="No POSTED ledger evidence returned">No POSTED ledger evidence was returned for this statement and period.</StateBlock>:<div className="table-wrap"><table className="tbl"><thead><tr><th>Section</th><th>Account</th><th>Period debit</th><th>Period credit</th><th>Balance</th><th>Evidence</th></tr></thead><tbody>{rows.map(row=><tr key={`${row.statement_type}:${row.account_code}`}><td>{row.statement_section}</td><td><b>{row.account_code}</b><div className="muted sm">{row.account_name}</div></td><td className="num">{money(row.period_debit)}</td><td className="num">{money(row.period_credit)}</td><td className="num">{money(row.display_balance)}</td><td><button type="button" className="btn btn-sm" onClick={()=>setSelected(row)}>Open evidence</button></td></tr>)}</tbody></table></div>}
     </section>}
   </div>;
 }

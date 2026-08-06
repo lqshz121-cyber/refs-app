@@ -78,13 +78,43 @@ export function Money({v, bold}) {
   const neg = v<0;
   return <span className={`num ${neg?'num-neg':''} ${bold?'num-bold':''}`}>{money(v)}</span>;
 }
-// One empty / loading / error language for every workspace.
-export function StateBlock({tone='empty', title, children}) {
-  const cls = tone==='error' ? 'err-box' : 'empty empty-state';
-  return <div className={cls} role="status" aria-live="polite" aria-busy={tone==='loading'?'true':undefined}>
+// ---------------------------------------------------------------------------
+// One state language for every workspace. There are exactly four states and
+// each one has a single rendering: nothing else may invent its own.
+//   loading    - a read is in flight; announced politely, aria-busy set
+//   error      - a read failed; announced assertively as an alert
+//   empty      - the read succeeded and returned nothing in scope
+//   permission - the reader is not entitled to this scope, or a required
+//                scope (e.g. an entity) has not been selected
+// `title` is the headline, `children` the explanation, `actions` an optional
+// row of real navigation. A StateBlock never carries a disabled control.
+// ---------------------------------------------------------------------------
+export const STATE_CLASS = {
+  loading: 'empty empty-state state-block state-loading',
+  error: 'err-box state-block state-error',
+  empty: 'empty empty-state state-block state-empty',
+  permission: 'empty empty-state report-entity-required state-block state-permission',
+};
+export function StateBlock({tone='empty', title, children, actions, label, className=''}) {
+  const cls = `${STATE_CLASS[tone] || STATE_CLASS.empty}${className ? ' ' + className : ''}`;
+  return <div className={cls} role={tone==='error' ? 'alert' : 'status'}
+    aria-label={label} aria-live={tone==='error' ? 'assertive' : 'polite'}
+    aria-busy={tone==='loading' ? 'true' : undefined}>
     {title && <b>{title}</b>}
     {children}
+    {actions ? <div className="row-acts state-block-acts">{actions}</div> : null}
   </div>;
+}
+
+// A capability that can never execute on this page is a statement of fact, not
+// a control. It renders as a non-focusable chip that carries its own reason,
+// never as a <button>, so no reader can queue a click that will never run.
+// This is the pattern already used by the bank workspace action lists.
+export function Unavailable({children, reason}) {
+  return <span className="unavailable-chip" aria-disabled="true">
+    <span className="unavailable-name">{children}</span>
+    {reason ? <span className="unavailable-why">{reason}</span> : null}
+  </span>;
 }
 
 // ================= Enterprise Data Grid =================
@@ -128,7 +158,7 @@ export function Table({cols, rows, onRow, empty='No records to display.', rowKey
 
   if (error) return <StateBlock tone="error" title="This view could not load">{error}</StateBlock>;
   if (loading) return <StateBlock tone="loading">Loading records.</StateBlock>;
-  if (!rows || rows.length===0) return <div className="empty empty-state" role="status" aria-live="polite">{empty}</div>;
+  if (!rows || rows.length===0) return <StateBlock tone="empty">{empty}</StateBlock>;
   return <div>
     {(filterable||exportable) && <div className="grid-bar">
       {filterable && <input className="grid-search" aria-label="Search table records" placeholder="Search this view" value={q} onChange={e=>{setQ(e.target.value); setPage(0); persist({q:e.target.value});}}/>}

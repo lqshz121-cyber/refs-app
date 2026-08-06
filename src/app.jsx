@@ -1,6 +1,6 @@
 import { useState, useEffect, Component } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Toast, Btn, Icon } from './ui.jsx';
+import { Toast, Btn, Icon, StateBlock } from './ui.jsx';
 import { ENTITIES, USERS, PERIODS, COA, VENDORS, CUSTOMERS } from './data.js';
 import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, BANK_TXNS, FY2026, nextId, bumpId } from './seed.js';
 import { jeTotals } from './engine.js';
@@ -34,11 +34,10 @@ class ErrorBoundary extends Component {
   render(){
     if(this.state.err){
       return (
-        <div className="empty" style={{margin:24,textAlign:'left',padding:'28px 30px'}}>
-          <h3 style={{marginTop:0,color:'var(--bad)'}}>Page failed to load</h3>
-          <div className="muted sm" style={{marginBottom:14}}>This module could not render. The rest of the application remains available; switch pages or refresh to retry.</div>
-          <pre style={{whiteSpace:'pre-wrap',fontSize:12,color:'var(--text-2)',background:'var(--bg-canvas)',padding:'10px 12px',borderRadius:8,overflow:'auto'}}>{String(this.state.err && this.state.err.message || this.state.err)}</pre>
-        </div>
+        <StateBlock tone="error" title="Page failed to load">
+          <div className="muted sm">This module could not render. The rest of the application remains available; switch pages or refresh to retry.</div>
+          <pre style={{whiteSpace:'pre-wrap',fontSize:12,margin:'10px 0 0',overflow:'auto'}}>{String(this.state.err && this.state.err.message || this.state.err)}</pre>
+        </StateBlock>
       );
     }
     return this.props.children;
@@ -369,7 +368,7 @@ function AuditLog({ctx}) {
   const log = repo.auditLog();
   const T = ctx ? null : null;
   return <div className="full-bleed"><h2 className="page-h">Audit Log</h2>
-    {log.length===0 ? <div className="empty">No audit records yet — key approval, posting, payment, and exclusion actions appear here.</div> :
+    {log.length===0 ? <StateBlock tone="empty" title="No audit records yet">Key approval, posting, payment, and exclusion actions appear here.</StateBlock> :
     <div className="table-wrap" role="region" aria-label="Audit log table" tabIndex={0}>
     <table className="tbl"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Object</th><th>Ref</th><th>Detail</th></tr></thead>
     <tbody>{log.map((e,i)=><tr key={i}><td>{e.ts}</td><td>{e.user}</td><td><span className="badge badge-muted">{e.action}</span></td><td>{e.objectType}</td><td>{e.objectRef}</td><td>{e.detail}</td></tr>)}</tbody></table></div>}
@@ -384,11 +383,11 @@ function Approvals({ctx}) {
     <h3 className="qb-sec" style={{marginBottom:10}}>Journal Entries ({pj.length})</h3>
     {pj.map(j=><div key={j.je_id} className="appr-row"><span>{j.je_number} · {j.description} · {j.posting_status}</span>
       <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('je',{jeNumber:j.je_number,actionQueueReturn:{route:'approvals'}})}>Open JE evidence</button></span></div>)}
-    {pj.length===0 && <div className="empty">No journal entries awaiting approval.</div>}
+    {pj.length===0 && <StateBlock tone="empty" title="No journal entries awaiting approval">Entries appear here once they reach the approval step.</StateBlock>}
     <h3 className="qb-sec" style={{margin:'26px 0 10px'}}>Bills ({pb.length})</h3>
     {pb.map(b=><div key={b.bill_id} className="appr-row"><span>{b.bill_no} · {b.vendor_name} · ${b.amount.toLocaleString()} · {b.status}</span>
       <span className="row-acts"><button className="btn btn-sm" onClick={()=>goto('ap',{route:'ap',tab:'Bills',billId:b.bill_id,actionQueueReturn:{route:'approvals'}})}>Open bill evidence</button></span></div>)}
-    {pb.length===0 && <div className="empty">No bills awaiting approval.</div>}
+    {pb.length===0 && <StateBlock tone="empty" title="No bills awaiting approval">Bills appear here once they reach the approval step.</StateBlock>}
   </div>;
 }
 

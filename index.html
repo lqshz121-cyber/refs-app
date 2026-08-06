@@ -640,7 +640,7 @@ select{padding-right:28px; cursor:pointer;}
 .kv.tot{font-weight:600; border-bottom:0; border-top:1px solid var(--qb-border); margin-top:4px; padding-top:10px;}
 /* Label/value metric grids - one shared pattern for every workspace. */
 .kv-grid,.qbo-drill-summary,.gl-overview-strip,.detail-grid,
-.source-doc-kv,.source-doc-panel-grid,.bank-summary-metrics,.qbo-insight-metrics,.src-grid{
+.source-doc-kv,.source-doc-panel-grid,.bank-summary-metrics,.src-grid{
   display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:12px 0; min-width:0;
 }
 .qbo-toolgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:12px 0;min-width:0;}
@@ -649,17 +649,17 @@ select{padding-right:28px; cursor:pointer;}
   border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);}
 .kv-grid>div,.qbo-drill-summary>span,.gl-overview-strip>span,
 .detail-grid>div,.detail-grid>span,.source-doc-kv>div,.source-doc-panel-grid>div,
-.bank-summary-metrics>span,.qbo-insight-metrics>span,.src-grid span{
+.bank-summary-metrics>span,.src-grid span{
   display:flex; flex-direction:column; gap:5px; min-width:0;
   padding:14px 16px; background:var(--qb-inset);
   border:var(--qb-hair) solid var(--qb-divider); border-radius:var(--qb-r-card);
 }
 .kv-grid span,.qbo-toolgrid i,.qbo-drill-summary i,.gl-overview-strip i,.src-grid i,
-.detail-grid i,.source-doc-kv span,.bank-summary-metrics i,.qbo-insight-metrics i{
+.detail-grid i,.source-doc-kv span,.bank-summary-metrics i{
   color:var(--qb-text-muted); font:500 12px/1.3 var(--qb-sans); font-style:normal;
 }
 .kv-grid b,.qbo-toolgrid b,.qbo-drill-summary b,.gl-overview-strip b,.src-grid b,
-.detail-grid b,.source-doc-kv b,.bank-summary-metrics b,.qbo-insight-metrics b{
+.detail-grid b,.source-doc-kv b,.bank-summary-metrics b{
   color:var(--qb-text-strong); font-size:14px; font-weight:600; overflow-wrap:anywhere;
 }
 
@@ -759,6 +759,21 @@ select{padding-right:28px; cursor:pointer;}
   border-radius:var(--qb-r-card); color:var(--qb-bad); font-size:13px;
 }
 .report-entity-required{border-color:var(--qb-warn-line); background:var(--qb-warn-bg); color:var(--qb-warn);}
+/* StateBlock is the only renderer of the four states. Its optional action row
+   holds real navigation only - a state block never carries a dead control. */
+.state-block-acts{display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:10px;}
+.state-error .state-block-acts{justify-content:flex-start;}
+.state-loading{opacity:.9;}
+/* A capability that can never execute here is a statement, not a control:
+   a non-focusable chip carrying its own reason, never a <button>. */
+.unavailable-chip{
+  display:inline-flex; align-items:baseline; flex-wrap:wrap; gap:6px 8px;
+  padding:6px 10px; border:var(--qb-hair) dashed var(--qb-border);
+  border-radius:var(--qb-r-control); background:transparent;
+  color:var(--qb-text-muted); font-size:12px; cursor:default;
+}
+.unavailable-name{font-weight:600; color:var(--qb-text-strong); font-size:12px;}
+.unavailable-why{font-size:11px; color:var(--qb-text-muted);}
 .toast{
   position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:60;
   padding:11px 20px; background:var(--qb-text-strong); color:#FFF;
@@ -1416,7 +1431,7 @@ body.dark code,body.dark .mono{background:var(--qb-raised);}
 .bank-action-availability{padding:12px 14px;border-top:1px solid #e2e9ed;}
 .bank-action-availability>b{font-size:12px;}
 .bank-action-list{list-style:none;display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0;padding:0;}
-.bank-action-item,.bank-action-chip{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px dashed #c3ced5;border-radius:6px;background:transparent;color:var(--text-2);cursor:default;}
+.bank-action-item{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:var(--qb-hair) dashed var(--qb-border);border-radius:6px;background:transparent;color:var(--text-2);cursor:default;}
 .bank-action-item{flex-direction:column;align-items:flex-start;gap:2px;}
 .bank-action-name{font-weight:600;color:var(--text-1);font-size:12px;}
 .bank-action-state{font-size:11px;text-transform:uppercase;letter-spacing:.04em;}

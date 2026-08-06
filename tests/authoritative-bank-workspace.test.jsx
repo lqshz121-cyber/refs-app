@@ -29,7 +29,10 @@ const reconciliationDetail=renderToStaticMarkup(<AuthoritativeReconciliationDeta
 assert.match(reconciliationDetail,/Back to reconciliation evidence/);assert.match(reconciliationDetail,/Statement ending 2026-07-31/);assert.match(reconciliationDetail,/\$1,000\.00/);assert.match(reconciliationDetail,/11111111-1111-4111-8111-111111111111/);
 
 const source=readFileSync('src/authoritative-bank-workspace.jsx','utf8');
-assert.match(source,/phase==='LOADING'.*role="status"/s,'authoritative reads must expose a loading status');
+// Phase 2a: the four states are rendered only by the shared StateBlock, which
+// is what carries role="status" / aria-busy. Assert both halves of that contract.
+assert.match(source,/phase==='LOADING'.*<StateBlock tone="loading"/s,'authoritative reads must expose a loading state through StateBlock');
+assert.match(readFileSync('src/ui.jsx','utf8'),/role=\{tone==='error' \? 'alert' : 'status'\}[\s\S]*aria-busy=\{tone==='loading' \? 'true' : undefined\}/,'StateBlock must announce loading as a busy status region');
 assert.match(source,/phase==='ERROR'.*<ReadError/s,'authoritative reads must expose an API error with retry');
 assert.match(source,/phase==='READY'.*AuthoritativeBankTable/s,'Bank results must render only after an API success');
 assert.match(source,/phase==='READY'.*AuthoritativeReconciliationSummary/s,'Reconciliation results must render only after an API success');

@@ -176,7 +176,9 @@ for (const text of [
   '.bank-queue-seg{display:inline-flex;gap:2px;padding:2px;background:#e2e9ed;border-radius:6px;}',
   '.bank-queue-seg-item{appearance:none;border:0;height:32px;padding:0 16px;border-radius:5px;background:transparent;color:#4c555b;font:400 16px/1.2 inherit;cursor:pointer;white-space:nowrap;}',
   'box-shadow:0 1px 4px rgba(76,85,91,.2);',
-  '.bank-action-item,.bank-action-chip{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:1px dashed #c3ced5;',
+  // Phase 2a: .bank-action-chip was folded into the shared <Unavailable> chip
+  // (.unavailable-chip). The bank action-availability list keeps its own rule.
+  '.bank-action-item{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:var(--qb-hair) dashed var(--qb-border);',
   '.recon-summary-grid{display:grid;',
 ]) assert.ok(styles.includes(text), `Bank/reconciliation parity styling is missing: ${text}`);
 assert.ok(!/\.bank-queue-seg-item:hover\{[^}]*transform/u.test(styles), 'Hover must be a background tint only, with no lift.');

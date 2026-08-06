@@ -3,6 +3,7 @@ import { accountingApiConfig, refreshAuthoritativeDocuments, refreshAuthoritativ
 import { BrowserOidcClient, oidcRuntimeConfig } from './oidc-client.js';
 import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
+import { StateBlock } from './ui.jsx';
 import { AuthoritativeReportsWorkspace } from './authoritative-reports-workspace.jsx';
 import {
   AuthoritativeAdjustmentSummary,
@@ -16,11 +17,10 @@ import {
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
 
-const ErrorState = ({ code, message, onRetry }) => <section className="empty" role="alert">
-  <h2>{code || 'AUTHORITATIVE_RUNTIME_UNAVAILABLE'}</h2>
+const ErrorState = ({ code, message, onRetry }) => <StateBlock tone="error" title={code || 'AUTHORITATIVE_RUNTIME_UNAVAILABLE'}
+  actions={onRetry ? <button type="button" className="btn btn-sm" onClick={onRetry}>Retry read</button> : null}>
   <p>{message || 'The authoritative accounting service could not be loaded.'}</p>
-  {onRetry && <button type="button" className="btn btn-primary" onClick={onRetry}>Retry</button>}
-</section>;
+</StateBlock>;
 
 const JournalTable = ({ journals, workingJournalIds, onWorkflow }) => <section aria-label="Authoritative journal entries">
   <h2>Journal entries</h2>
@@ -35,7 +35,7 @@ const JournalTable = ({ journals, workingJournalIds, onWorkflow }) => <section a
       </tr>;
     })}</tbody>
   </table>
-  {!journals.length && <div className="empty">No authoritative journal entries are available for this entity.</div>}
+  {!journals.length && <StateBlock tone="empty" title="No authoritative journal entries">No authoritative journal entries are available for this entity.</StateBlock>}
 </section>;
 
 export function AuthoritativeApp({ environment = globalThis, fetcher = globalThis.fetch }) {
@@ -116,7 +116,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       <header className="topbar"><div><b>Authoritative accounting</b><span className="muted sm"> · API and OIDC secured</span></div><div className="row-acts"><button type="button" className="btn btn-sm" onClick={refresh}>Refresh</button><button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button></div></header>
       <main className="content">
         {error && <ErrorState code={error.code} message={error.message} onRetry={refresh}/>} 
-        {phase === 'LOADING_ACCOUNTING' && <div className="empty">Loading authoritative accounting records…</div>}
+        {phase === 'LOADING_ACCOUNTING' && <StateBlock tone="loading">Loading authoritative accounting records…</StateBlock>}
         {phase === 'READY' && route === 'overview' && <><h1>Accounting control overview</h1><p className="page-subtitle">Live records are loaded from the configured accounting API. Browser seeds and localStorage are not accounting authority.</p><div className="qbo-toolgrid"><span><i>AP bills</i><b>{counts.bills}</b></span><span><i>AR invoices</i><b>{counts.invoices}</b></span><span><i>Adjustments</i><b>{counts.adjustments}</b></span><span><i>Journal entries</i><b>{counts.journals}</b></span></div></>}
         {phase === 'READY' && route === 'payables' && <><AuthoritativeDocumentTable title="AP bills" documents={data.ap.bills} kind="AP"/><AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={data.ap.adjustments}/><AuthoritativeWorkflowTable title="AP journal workflow" documents={data.ap.bills} kind="AP" onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeWorkflowAdjustmentTable title="AP adjustment workflow" adjustments={data.ap.adjustments} onWorkflow={workflow} workingJournalIds={workingJournalIds}/></>}
         {phase === 'READY' && route === 'receivables' && <><AuthoritativeDocumentTable title="AR invoices" documents={data.ar.invoices} kind="AR"/><AuthoritativeAdjustmentSummary title="AR adjustments" adjustments={data.ar.adjustments}/><AuthoritativeWorkflowTable title="AR journal workflow" documents={data.ar.invoices} kind="AR" onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeWorkflowAdjustmentTable title="AR adjustment workflow" adjustments={data.ar.adjustments} onWorkflow={workflow} workingJournalIds={workingJournalIds}/></>}

@@ -1,5 +1,5 @@
 ﻿import { useState, useMemo, useEffect, useRef } from 'react';
-import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Segmented, Field, SectionTitle, ApprovalTimeline, Icon } from './ui.jsx';
+import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Segmented, Field, SectionTitle, ApprovalTimeline, Icon, StateBlock, Unavailable } from './ui.jsx';
 import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS, PROJECTS, VENDORS } from './data.js';
 import { PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS, UNIT_OWNERS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, isBalanced, validateJE, JE_FLOW, loanRule, pmRule, trialBalance, statements } from './engine.js';
@@ -175,7 +175,7 @@ export function JEWorkspace({ctx}) {
         <div className="page-subtitle">Review source, approval status and posting evidence from one controlled workspace.</div>
       </div>
       <div className="row-acts">
-        <Btn variant="primary" onClick={newJE} disabled={!can('GL.JE.CREATE')}>+ New Journal Entry</Btn>
+        <Btn variant="primary" onClick={newJE} disabled={!can('GL.JE.CREATE')} title={can('GL.JE.CREATE') ? 'Start a new Draft journal entry' : 'Your role does not hold GL.JE.CREATE'}>+ New Journal Entry</Btn>
       </div>
     </div>
     <div className="filter-bar accounting-filter-bar je-filter-bar">
@@ -279,7 +279,7 @@ function JEEditor({je, ctx}) {
         </div></div>
       <Badge>{je.posting_status}</Badge>
     </div>
-    <div className="qbe-actionbar" aria-label="Journal entry actions"><span className="qbe-action-context"><b>{je.ai_proposed?'Evidence-locked AI Draft':readOnly ? 'View journal entry' : 'Edit journal entry'}</b><span>{je.je_type || 'MANUAL'} · {je.source_system || 'MAN'}</span></span><span className="qbe-action-buttons"><Btn size="sm" variant="ghost" onClick={()=>setShowAudit(open=>!open)}>{showAudit?'Hide audit history':'Audit history'}</Btn><Btn size="sm" variant="ghost" disabled title="External print/export is outside the local evidence scope">Print</Btn></span></div>
+    <div className="qbe-actionbar" aria-label="Journal entry actions"><span className="qbe-action-context"><b>{je.ai_proposed?'Evidence-locked AI Draft':readOnly ? 'View journal entry' : 'Edit journal entry'}</b><span>{je.je_type || 'MANUAL'} · {je.source_system || 'MAN'}</span></span><span className="qbe-action-buttons"><Btn size="sm" variant="ghost" onClick={()=>setShowAudit(open=>!open)}>{showAudit?'Hide audit history':'Audit history'}</Btn><Unavailable reason="External print and export are outside the local evidence scope.">Print</Unavailable></span></div>
     <section className="report-workbench" aria-label="Local journal posting evidence" style={{margin:'12px 0'}}>
       <div className="report-workbench-head"><div><b>Local posting evidence</b><div className="page-subtitle">Read-only proof for this retained JE. It is not an immutable external audit trail.</div></div><Badge tone={postingEvidence.postingState==='LOCAL_POSTED_BALANCED'?'ok':'warn'}>{postingEvidence.postingState}</Badge></div>
       <div className="qbo-toolgrid">
@@ -363,12 +363,12 @@ function JEEditor({je, ctx}) {
     {je.ai_proposed && <div className="ai-report-note"><b>AI evidence is locked.</b><p>To amend amounts, accounts or dimensions, use Copy to create a separate manual amendment Draft linked to proposal {je.ai_proposal_id}. The original AI evidence remains unchanged for review.</p></div>}
     {errs.length>0 && <div className="err-box">{errs.map((e,i)=><div key={i}>• [{e.code}] {e.msg}</div>)}</div>}
     <div className="qbe-footbar">
-      <div><Btn variant="ghost" disabled title="Copy is outside the controlled local evidence workflow">Copy</Btn>
-        <Btn variant="ghost" disabled title="Recurring entries are outside the controlled Journal Entry evidence workflow">Make recurring</Btn></div>
+      <div className="row-acts"><Unavailable reason="Copy is outside the controlled local evidence workflow">Copy</Unavailable>
+        <Unavailable reason="Recurring entries are outside the controlled Journal Entry evidence workflow">Make recurring</Unavailable></div>
       <div className="row-acts">
         {flow.reject && can('GL.JE.REVIEW') && <Btn variant="ghost" onClick={()=>{actions.advanceJE(je.je_id,flow.reject,'REJECT');toast('Returned to draft.','warn');}}>Reject</Btn>}
         {je.posting_status==='POSTED' && can('GL.JE.REVERSE') && <Btn variant="danger" onClick={reverse}>Reverse</Btn>}
-        {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'Permission unavailable':''}>{flow.action}</Btn>}
+        {flow.action && <Btn variant="primary" onClick={advance} disabled={!canAct || (flow.next==='POSTED' && errs.length>0)} title={!canAct?'Your role does not hold this workflow permission':errs.length>0?'Resolve the listed validation errors first':''}>{flow.action}</Btn>}
       </div>
     </div>
     {showAudit && <section className="report-workbench" aria-label="Retained journal audit history" style={{marginTop:12}}><div className="report-workbench-head"><div><b>Retained audit history</b><div className="page-subtitle">Local event metadata only; it does not claim an immutable external audit record.</div></div><Badge tone={postingEvidence.historyState==='LOCAL_HISTORY_PRESENT_UNVERIFIED'?'ok':'warn'}>{postingEvidence.historyState}</Badge></div>{je.history?.length ? <ApprovalTimeline steps={je.history.map(h=>({label:h.a,done:true,who:h.by,at:h.at}))}/> : <p className="muted sm">No retained posting-history events were found for this journal entry.</p>}</section>}
@@ -436,7 +436,7 @@ export function LoanWorkspace({ctx}) {
         {h:'Amount',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount}, {h:'Source document',render:r=>r.source || <span className="muted">Missing source</span>,csv:r=>r.source},
         {h:'Controls',render:r=><span className="row-acts"><Badge tone={r.balanced?'ok':'bad'}>{r.balanced?'Balanced':'Blocked'}</Badge><Badge tone={r.source?'ok':'bad'}>{r.source?'Source retained':'Source required'}</Badge></span>,csv:r=>`${r.balanced}/${r.source}`},
         {h:'Status',render:r=><Badge tone={r.status==='DRAFT_CREATED'?'ok':r.status==='READY'?'warn':'bad'}>{r.status}</Badge>,csv:r=>r.status},
-        {h:'Action',render:r=><Btn size="sm" variant="primary" disabled={r.status==='DRAFT_CREATED'} onClick={event=>{event.stopPropagation(); createDraft(r.finding);}}>Create Draft JE</Btn>},
+        {h:'Action',render:r=><Btn size="sm" variant="primary" disabled={r.status==='DRAFT_CREATED'} title={r.status==='DRAFT_CREATED' ? 'A Draft JE already exists for this finding' : 'Create a Draft JE from this finding'} onClick={event=>{event.stopPropagation(); createDraft(r.finding);}}>Create Draft JE</Btn>},
       ]} empty="No construction loan findings are available."/></div>
       <div className="card sticky-card"><div className="card-h">Loan review detail</div>{selected ? <>
         <h3 style={{margin:'8px 0 6px'}}>{selected.rule_id}</h3>
@@ -447,8 +447,8 @@ export function LoanWorkspace({ctx}) {
           <div><span>Suggested action</span><b>{selected.suggested_action}</b></div><div><span>Draft status</span><b>{draftKeys.has(selected.finding_id)?'Created':'Not created'}</b></div>
         </div>
         {selected.suggested_je ? <table className="mini-table"><tbody>{selected.suggested_je.lines.map((line,index)=><tr key={`${line.account_code}-${index}`}><td>{line.account_code}</td><td>{money(line.debit_amount || 0)}</td><td>{money(line.credit_amount || 0)}</td></tr>)}</tbody></table> : <div className="empty">No suggested journal entry is available.</div>}
-        <div className="row-acts" style={{marginTop:14}}><Btn variant="primary" onClick={()=>createDraft(selected)} disabled={draftKeys.has(selected.finding_id)}>Create Draft JE</Btn><Btn variant="ghost" onClick={()=>setTab('Accounting events')}>View source events</Btn></div>
-      </> : <div className="empty">Select a construction loan finding to review.</div>}</div>
+        <div className="row-acts" style={{marginTop:14}}><Btn variant="primary" onClick={()=>createDraft(selected)} disabled={draftKeys.has(selected.finding_id)} title={draftKeys.has(selected.finding_id) ? 'A Draft JE already exists for this finding' : 'Create a Draft JE from this finding'}>Create Draft JE</Btn><Btn variant="ghost" onClick={()=>setTab('Accounting events')}>View source events</Btn></div>
+      </> : <StateBlock tone="empty" title="No finding selected">Select a construction loan finding to review.</StateBlock>}</div>
     </div>}
     <p className="muted sm">Business boundary: lender balance, bank draw, capitalized interest and GL loan payable are reviewed with retained WBS mock evidence. No lender connection, bank feed, automatic capitalization, posting or reconciliation sign-off is performed here.</p>
   </div>;
@@ -510,7 +510,7 @@ export function PMPickup({ctx}) {
     <div className="pickup-sum">
       <span>Revenue <Money v={rev}/></span><span>Expense <Money v={exp}/></span><span>NOI <Money v={rev-exp}/></span>
     </div>
-    <Btn variant="primary" onClick={generate} disabled={!can('GL.JE.CREATE')}>Create Owner GL Draft</Btn>
+    <Btn variant="primary" onClick={generate} disabled={!can('GL.JE.CREATE')} title={can('GL.JE.CREATE') ? 'Create the owner GL Draft journal entry' : 'Your role does not hold GL.JE.CREATE'}>Create Owner GL Draft</Btn>
     <span className="muted sm" style={{marginLeft:12}}>Security-deposit items without a mapping are retained as GL_MAPPING_MISSING exceptions.</span>
   </div>;
 }
@@ -592,7 +592,7 @@ export function CloseMgmt({ctx}) {
     <h2 className="page-h">Month-End Close</h2>
     <div className="close-prog"><span>{pct}% complete · {doneN}/{closeTasks.length} tasks</span></div>
     <Table cols={[{h:'Task',render:r=><span>{r.task_name} <span className="muted sm">({r.task_code})</span></span>},{h:'Type',render:r=><Badge tone="muted">{r.is_auto?'AUTO':'MANUAL'}</Badge>},{h:'Owner',k:'owner'},{h:'Due date',k:'due_date'},{h:'Dependencies',render:r=>depsMet(r)?'Ready':'Blocked'},{h:'Status',render:r=><Badge>{r.status}</Badge>}]} rows={closeTasks} rowKey="close_task_id" />
-    <Btn variant="primary" disabled={!allSigned || !can('PERIOD.PERIOD.CLOSE')} onClick={()=>toast('Period close is shell-only','ok')}>Close period</Btn>
+    <Btn variant="primary" disabled={!allSigned || !can('PERIOD.PERIOD.CLOSE')} title={!can('PERIOD.PERIOD.CLOSE') ? 'Your role does not hold PERIOD.PERIOD.CLOSE' : !allSigned ? 'Every close task must be signed off first' : 'Close the period'} onClick={()=>toast('Period close is shell-only','ok')}>Close period</Btn>
   </div>;
 }
 

@@ -14,9 +14,11 @@ assert.match(core, /Workflow history/, 'JE detail must show retained workflow hi
 assert.match(core, /Drafts do not affect reporting\./, 'JE workflow history must state the Draft reporting boundary.');
 assert.match(core, /!hasScopedReturn && <button className="crumb"/, 'A scoped JE drill must not offer a conflicting generic list Back button.');
 assert.doesNotMatch(core, /Run Batch Templates|Post All \(|Cancel Post/, 'JE UI must not expose batch/direct posting or post cancellation.');
-assert.match(core, /Make recurring<\/Btn>/, 'Recurring affordance must remain visibly unavailable.');
-assert.match(core, /Make recurring<\/Btn>/, 'Recurring label must be present for the disabled boundary.');
-assert.match(core, /disabled title="Recurring entries are outside the controlled Journal Entry evidence workflow"/, 'Recurring must be disabled.');
+// Phase 2a: a capability that can never execute is stated, not rendered as a
+// disabled control. The label must stay visible; it must not stay a <button>.
+assert.match(core, /Make recurring<\/Unavailable>/, 'Recurring affordance must remain a visible non-executable statement.');
+assert.doesNotMatch(core, /Make recurring<\/Btn>|Make recurring<\/button>/, 'Recurring must not render as a control.');
+assert.match(core, /reason="Recurring entries are outside the controlled Journal Entry evidence workflow"/, 'Recurring must state why it is unavailable.');
 
 assert.match(engine, /DRAFT:\s+\{next:'PENDING_REVIEW'/, 'Workflow must begin with Draft review.');
 assert.match(engine, /PENDING_REVIEW:\s+\{next:'PENDING_APPROVAL'/, 'Workflow must preserve separate review.');
