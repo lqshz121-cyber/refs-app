@@ -3,6 +3,7 @@ const ACCOUNT_CODE=/^[A-Za-z0-9._-]{1,64}$/;
 const BANK_ACCOUNT_REF=/^[^\u0000-\u001f\u007f]{1,128}$/;
 const ISO_DATE=/^\d{4}-\d{2}-\d{2}$/;
 const MONEY4=/^-?[0-9]+\.[0-9]{4}$/;
+const LINE_MONEY4=/^[0-9]+\.[0-9]{4}$/;
 const REPORT_MONEY4=/^-?(?:0|[1-9][0-9]{0,15})\.[0-9]{4}$/;
 const PERIOD_CODE=/^[0-9]{4}-(?:0[1-9]|1[0-2])$/;
 const UNSIGNED_INTEGER=/^[0-9]+$/;
@@ -44,6 +45,30 @@ export async function refreshAuthoritativeJournalEntries({config,fetcher=globalT
     if(journals.some(row=>!UUID.test(row.journal_entry_id||'')||!Number.isSafeInteger(row.revision)||row.revision<0||!Number.isSafeInteger(row.ledger_line_count)||row.ledger_line_count<0))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal Entry row.'};
     return {ok:true,journals};
   }catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative Journal Entry refresh failed.'};}
+}
+
+// Journal Entry line amounts stay canonical decimal strings end to end. They are only
+// ever compared as integer minor units, never parsed into a floating point number.
+const minorUnits=value=>BigInt(String(value).replace('.',''));
+const formatMinorUnits=value=>{const text=value.toString().padStart(5,'0');return `${text.slice(0,-4)}.${text.slice(-4)}`;};
+
+export async function refreshAuthoritativeJournalEntryLines({config,journalEntryId,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!UUID.test(journalEntryId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Journal Entry line detail requires one authoritative entity and Journal Entry.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const invalid=message=>({ok:false,code:'ACCOUNTING_API_PROTOCOL',message});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/journal-entries/${journalEntryId}/lines`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return invalid('Accounting API returned an invalid Journal Entry line envelope.');
+    if(body.data.some(row=>row?.journal_entry_id!==journalEntryId||!UUID.test(row?.journal_line_id||'')||!UUID.test(row?.period_id||'')||!UNSIGNED_INTEGER.test(String(row?.line_no??''))||Number(row.line_no)<1||!ACCOUNT_CODE.test(row.account_code||'')||typeof row.account_name!=='string'||!row.account_name.trim()||!LINE_MONEY4.test(String(row.debit_amount??''))||!LINE_MONEY4.test(String(row.credit_amount??''))||!/^[A-Z]{3}$/.test(row.currency||'')||typeof row.dimensions!=='object'||row.dimensions===null||Array.isArray(row.dimensions)||(row.ledger_line_id!=null&&!UUID.test(row.ledger_line_id))||(row.source_document_id!=null&&!UUID.test(row.source_document_id))))return invalid('Accounting API returned an invalid Journal Entry line row.');
+    if(new Set(body.data.map(row=>Number(row.line_no))).size!==body.data.length)return invalid('Accounting API returned duplicate Journal Entry line numbers.');
+    if(body.data.some(row=>(minorUnits(row.debit_amount)>0n)===(minorUnits(row.credit_amount)>0n)))return invalid('Accounting API returned a Journal Entry line that is neither a single debit nor a single credit.');
+    const totals=body.data.reduce((carry,row)=>({debit:carry.debit+minorUnits(row.debit_amount),credit:carry.credit+minorUnits(row.credit_amount)}),{debit:0n,credit:0n});
+    if(body.data.length&&totals.debit!==totals.credit)return invalid('Accounting API returned unbalanced Journal Entry lines.');
+    if(new Set(body.data.map(row=>row.currency)).size>1)return invalid('Accounting API returned Journal Entry lines in more than one currency.');
+    const lines=body.data.map(row=>({...row,line_no:Number(row.line_no),debit_amount:String(row.debit_amount),credit_amount:String(row.credit_amount)}));
+    return {ok:true,lines,totals:{debit_amount:formatMinorUnits(totals.debit),credit_amount:formatMinorUnits(totals.credit)},scope:{entityId:config.entityId,journalEntryId}};
+  }catch{return {ok:false,code:'ACCOUNTING_API_UNAVAILABLE',message:'Authoritative Journal Entry line refresh failed.'};}
 }
 
 export async function refreshAuthoritativeBankTransactions({config,bankAccountRef,from=null,through=null,limit=100,fetcher=globalThis.fetch}={}){

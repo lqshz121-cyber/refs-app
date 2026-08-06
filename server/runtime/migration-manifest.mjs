@@ -313,5 +313,10 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'063_reconciliation_command_lifecycle.sql',
     up:'28d5472cdead8257d697291479b5e1181ec4b079c331464e17f62d55e6374d2d',
     down:'714851aec6859048f78a2eb7288d2695acecd6e0b0017de443aa77f47da1e289'
+  }),
+  Object.freeze({
+    name:'064_journal_entry_line_read.sql',
+    up:'38394877025947d45b38899c85486483fa4ecbff5fac76845b10e3e3e6bd208b',
+    down:'ce4b264c3be32e91983e5e92ef84beeb67812edaaed8f7f7fe4e895fbdcb9f8f'
   })
 ]);

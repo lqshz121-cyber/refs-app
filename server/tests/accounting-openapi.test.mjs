@@ -87,6 +87,20 @@ test('Journal Entry list read is authenticated, scoped and no-store',()=>{
   assert.equal(contract.components.responses.JournalEntryReadOk.headers['Cache-Control'].schema.const,'no-store');
 });
 
+test('Journal Entry line read is a scoped no-store GET that never reuses the numeric write Money type',()=>{
+  const operation=contract.paths['/entities/{entityId}/journal-entries/{journalEntryId}/lines'].get;
+  assert.equal(operation.operationId,'getJournalEntryLines');
+  assert.equal(operation.parameters[1].$ref,'#/components/parameters/JournalEntryId');
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/JournalEntryLineReadOk');
+  assert.equal(contract.components.responses.JournalEntryLineReadOk.headers['Cache-Control'].schema.const,'no-store');
+  const row=contract.components.schemas.JournalEntryLineReadRow;
+  assert.equal(row.additionalProperties,false);
+  assert.equal(row.properties.debit_amount.type,'string');
+  assert.equal(row.properties.credit_amount.type,'string');
+  assert.equal(row.properties.dimensions.type,'object');
+  assert.equal(contract.components.schemas.JournalEntryLineReadEnvelope.properties.data.items.$ref,'#/components/schemas/JournalEntryLineReadRow');
+});
+
 test('bank transaction and reconciliation reads are scoped no-store evidence only',()=>{
   const transactions=contract.paths['/entities/{entityId}/bank/transactions'].get;
   assert.equal(transactions.operationId,'listBankTransactions');

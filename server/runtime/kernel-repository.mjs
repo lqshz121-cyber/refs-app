@@ -284,6 +284,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getJournalEntryLines({tenantId,entityId,journalEntryId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_journal_entry_lines($1,$2,$3)',[tenantId,entityId,journalEntryId]
+    )).rows);
+  }
+
   async listBankTransactions({tenantId,entityId,bankAccountRef,fromDate=null,throughDate=null,limit=100}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_bank_transactions($1,$2,$3,$4::date,$5::date,$6)',

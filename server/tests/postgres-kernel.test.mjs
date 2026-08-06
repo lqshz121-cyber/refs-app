@@ -1635,6 +1635,42 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   assert.equal((await unmatcher.unmatchBankPayment({...ids,bankSourceId:receiptBankSourceId,bankMatchId:receiptMatch.bank_match_id,expectedMatchVersion:0,reason:'Controller approved receipt unmatch',idempotencyKey:'bank-unmatch-receipt-001'})).status,'UNMATCHED');
 });
 
+pgTest('journal entry line read is permission gated, entity scoped, source linked and balanced',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'610000',accountName:'Operating Expense'}],
+    journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'111000',debit:0,credit:100,memberRef:'BANK-1'}]});
+  const trace=await attachAutoSource(ids);
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'je-line-denied',['AP.VIEW'])});
+  await assert.rejects(denied.getJournalEntryLines({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:ids.journalId}),error=>error.code==='42501');
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'je-line-reader',['GL.JE.VIEW'])});
+  const draftLines=await reader.getJournalEntryLines({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:ids.journalId});
+  assert.deepEqual(draftLines.map(row=>row.line_no),[1,2]);
+  assert.equal(draftLines[0].account_code,'610000');assert.equal(draftLines[0].account_name,'Operating Expense');
+  assert.equal(draftLines[0].debit_amount,'100.0000');assert.equal(draftLines[0].credit_amount,'0.0000');
+  assert.equal(draftLines[1].member_ref,'BANK-1');assert.deepEqual(draftLines[0].dimensions,{});
+  assert.equal(draftLines[0].currency,'USD');assert.equal(draftLines[0].period_id,ids.periodId);
+  // Not posted yet: no ledger evidence, but the entry-level source link is already visible.
+  assert.equal(draftLines[0].ledger_line_id,null);assert.equal(draftLines[0].posted_at,null);
+  assert.ok(draftLines.every(row=>row.source_document_id===trace.documentId));
+  const minor=value=>BigInt(String(value).replace('.',''));
+  const draftTotals=draftLines.reduce((carry,row)=>({debit:carry.debit+minor(row.debit_amount),credit:carry.credit+minor(row.credit_amount)}),{debit:0n,credit:0n});
+  assert.equal(draftTotals.debit,1000000n);assert.equal(draftTotals.debit,draftTotals.credit);
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'je-line-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'je-line-post-001'});
+  const postedLines=await reader.getJournalEntryLines({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:ids.journalId});
+  assert.equal(postedLines.length,2);
+  assert.ok(postedLines.every(row=>row.ledger_line_id&&row.posted_at));
+  const postedTotals=postedLines.reduce((carry,row)=>({debit:carry.debit+minor(row.debit_amount),credit:carry.credit+minor(row.credit_amount)}),{debit:0n,credit:0n});
+  assert.equal(postedTotals.debit,postedTotals.credit);
+  const other=await seed({status:'DRAFT',attachmentStatus:null,tenantId:ids.tenantId});
+  await assert.rejects(reader.getJournalEntryLines({tenantId:ids.tenantId,entityId:other.entityId,journalEntryId:other.journalId}),error=>error.code==='42501');
+  // In-scope entity, out-of-scope Journal Entry: an empty read, never another entity's lines.
+  assert.deepEqual(await reader.getJournalEntryLines({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:other.journalId}),[]);
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'je-line-reader'}),kernelFactory:async()=>reader});
+  const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries/${ids.journalId}/lines`,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.length,2);
+});
+
 pgTest('financial statements read only POSTED ledger evidence with entity, period, and source drill scope',async()=>{
   const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
     extraAccounts:[{accountCode:'610000',accountName:'Operating Expense'}],
