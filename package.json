@@ -22,6 +22,8 @@
     "test:wbs-accounting-foundation": "esbuild ./tests/wbs-accounting-foundation.test.js --bundle --platform=node --format=cjs --outfile=tests/wbs-accounting-foundation.test.cjs && node tests/wbs-accounting-foundation.test.cjs",
     "test:wbs-accounting-acceptance": "esbuild ./tests/wbs-accounting-acceptance.test.js --bundle --platform=node --format=cjs --outfile=tests/wbs-accounting-acceptance.test.cjs && node tests/wbs-accounting-acceptance.test.cjs",
     "test:wbs-mcp-lineage": "node --test server/tests/wbs-mcp-lineage.test.mjs",
+    "test:wbs-e2e": "node --test server/tests/wbs-accounting-e2e.test.mjs",
+    "wbs:e2e": "node server/tools/wbs-e2e-harness.mjs",
     "test:audit": "esbuild ./audit.js --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=audit.cjs && node audit.cjs",
     "test:autorecon": "esbuild ./tests/autorecon-fail-closed.test.jsx --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=tests/autorecon-fail-closed.test.cjs && node tests/autorecon-fail-closed.test.cjs",
     "test:visual": "npm run build && node tools/run-verifiers.mjs",
