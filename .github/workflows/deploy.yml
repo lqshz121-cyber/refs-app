@@ -47,6 +47,11 @@ jobs:
           REFS_PUBLIC_RUNTIME_MODE: LOCAL_MOCK
         run: npm run build
       - name: Verify runtime deployment assets
+        env:
+          # Verification must evaluate the same explicit public mode used by the
+          # immediately preceding build step. Step-level environments do not
+          # otherwise carry across GitHub Actions steps.
+          REFS_PUBLIC_RUNTIME_MODE: LOCAL_MOCK
         run: npm run verify:runtime-deployment-assets
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
