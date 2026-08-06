@@ -8,4 +8,4 @@ assert.match(app,/aria-expanded=\{isSingleton\?undefined:opened\}/,'multi-item g
 assert.match(app,/aria-controls=\{isSingleton\?undefined:groupPanelId\}/,'multi-item group headers must identify their controlled panel');
 assert.match(app,/aria-current=\{route===k\?'page':undefined\}/,'the active child route must be announced');
 assert.match(app,/<div id=\{groupPanelId\} className="nav-group-items">/,'expanded groups must render a stable controlled panel');
-console.log('navigation-a11y: mobile drawer and independently expanded groups expose accessible English controls');
+console.log('navigation-a11y: mobile drawer and the focused navigation group expose accessible English controls');
