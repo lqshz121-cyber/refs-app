@@ -15,6 +15,8 @@ import { localAccountRegisterReturnScopeLabel } from './account-register-return.
 import { localReconciliationPaymentReturnTarget, localReconciliationReceiptReturnTarget } from './reconciliation-receipt-return.js';
 import { localReconciliationHistoryRegisterContext } from './reconciliation-register-return.js';
 import { buildWbsBankReconciliationEvidence } from './wbs-bank-reconciliation-evidence.js';
+import { bankReconciliationSummary } from './bank-reconciliation-summary.js';
+import { BANK_QUEUE_DIMENSION_NOTE } from './bank-queue-summary.js';
 
 // Standard reconciliation model:
 // Statement Ending Balance + Deposits in Transit - Outstanding Checks = Adjusted Bank Balance
@@ -53,9 +55,11 @@ export function BankRec2({ctx}) {
   const adjBook = bookBalance + (a.recorded_adj||0);
   const diff = +(adjBank - adjBook).toFixed(2);
   const reconStatus = reconciliationStatus({...a, account_code:acctCode}, bank.history);
+  // Presentation only: book, bank and difference are the values already computed above.
   const localEvidence = localReconciliationEvidence({accountCode:acctCode, bankAccount:a, journals:jes, bankAccountMaster:BANK_ACCOUNTS});
   const localReadiness = localReconciliationReadiness(reconStatus, localEvidence);
   const worksheet = localReconciliationWorksheet({accountCode:acctCode, bankAccount:a, baseStatus:reconStatus, evidence:localEvidence, readiness:localReadiness, phase:localReconciliationPhase(reconStatus, localReadiness, localEvidence)});
+  const reconSummary = bankReconciliationSummary({bookBalance:adjBook, bankBalance:adjBank, difference:diff, transactions:txns, unverifiedMatchCount:localEvidence.invalidMatches?.length || 0});
   const wbsBankEvidence = useMemo(()=>buildWbsBankReconciliationEvidence(),[]);
   const canSign = localReadiness.canSign;
   const localPhase = worksheet.phase;
@@ -99,7 +103,7 @@ export function BankRec2({ctx}) {
       <span>QUICKBOOKS RECONCILE</span><b>Match the books to the bank records</b>
       <p>Connected accounts are easier to reconcile.</p>
       <div className="qbo-toolgrid"><span><b>Keep yourself on track</b></span><span><b>Find holes in your accounting</b></span><span><b>Get things tidy for tax time</b></span></div>
-      <div className="row-acts"><Btn size="sm" variant="ghost" disabled>Connect now</Btn><Btn size="sm" variant="ghost" disabled>Video tutorials (7:48)</Btn><Btn size="sm" variant="ghost" disabled>Get started</Btn></div>
+      <div className="row-acts">{['Connect now','Video tutorials (7:48)','Get started'].map(label=><span key={label} className="bank-action-chip" aria-disabled="true"><span className="bank-action-name">{label}</span><span className="bank-action-state">Observed in QuickBooks only</span></span>)}</div>
     </section>
     <p className="muted sm" style={{margin:'0 0 12px'}}>QBO account connection, tutorial playback, reconciliation setup, permissions, audit, empty states, and responsive behavior remain unverified. These observed actions are evidence-only in REFS. POSTED is not treated as reconciled.</p>
     {sourceBankEvidence && <div className="bank-health" role="status" style={{marginBottom:12}}><span className="bank-health-icon">i</span><div><b>{sourceBankEvidence.eligible ? 'Local matched bank evidence applied' : 'No eligible local bank evidence'}</b><p>{sourceBankEvidence.eligible ? `Opened from ${sourceBankEvidence.transaction.external_id}; this does not alter the reconciliation worksheet or sign-off eligibility.` : `The requested bank item cannot enter local reconciliation context (${sourceBankEvidence.reason}).`}</p></div></div>}
@@ -110,6 +114,29 @@ export function BankRec2({ctx}) {
       <Badge tone={localPhase==='SIGNED_OFF'||localPhase==='BALANCED'?'ok':'warn'}>{localPhase}</Badge>
       <span className="muted sm">Local GL {localEvidence.cashAccountCode || 'unmapped'} · entity {localEvidence.entityId || 'unmapped'} · through {localEvidence.throughDate || 'unavailable'}</span>
     </div>
+    <section className="report-workbench recon-summary" aria-label="Reconciliation book bank difference summary" style={{marginBottom:14}}>
+      <div className="report-workbench-head"><div><b>Book / Bank / Difference</b><div className="page-subtitle">Adjusted book balance, adjusted bank balance, and their difference for this statement, with the uncleared items that keep sign-off blocked.</div></div><Badge tone={reconSummary.balanced?'ok':'warn'}>{reconSummary.balanced?'DIFFERENCE_ZERO':'DIFFERENCE_NOT_ZERO'}</Badge></div>
+      <div className="recon-summary-grid">
+        <span className="recon-summary-cell"><i>Book</i><b>{money(reconSummary.book)}</b></span>
+        <span className="recon-summary-cell"><i>Bank</i><b>{money(reconSummary.bank)}</b></span>
+        <span className={`recon-summary-cell ${reconSummary.balanced?'':'recon-summary-off'}`}><i>Difference</i><b>{money(reconSummary.difference)}</b></span>
+        <span className="recon-summary-cell"><i>Uncleared items</i><b>{reconSummary.unclearedCount}</b></span>
+        <span className="recon-summary-cell"><i>Cleared items</i><b>{reconSummary.clearedCount}</b></span>
+        <span className="recon-summary-cell"><i>Matched without verified proof</i><b>{reconSummary.unverifiedMatchCount}</b></span>
+      </div>
+      <p className="muted sm" style={{margin:'10px 0 0'}}>Sign-off precondition: {reconSummary.signOffPrecondition}. {reconSummary.signOffBlockers.length ? `Blocked by: ${reconSummary.signOffBlockers.join('; ')}.` : 'Difference is zero and no unresolved item remains; the strict local sign-off gate below still applies.'} This panel restates the existing gate for the reader and never relaxes it.</p>
+      <p className="muted sm" style={{margin:'6px 0 0'}}>{BANK_QUEUE_DIMENSION_NOTE}</p>
+      <Table rowKey="bank_txn_id" features={{exportable:false}} pageSize={8} cols={[
+        {h:'Bank item',render:row=>row.external_id},
+        {h:'Date',k:'txn_date'},
+        {h:'Description',k:'reference'},
+        {h:'Direction',k:'direction'},
+        {h:'Amount',num:true,render:row=><Money v={row.amount}/>,sortVal:row=>row.amount},
+        {h:'Match',render:row=><Badge tone={row.match_status==='MATCHED'?'ok':'warn'}>{row.match_status}</Badge>},
+        {h:'Linked JE',render:row=>row.matched_je || 'No retained JE'},
+        {h:'Reconcile',render:row=><Badge tone="muted">{row.reconcile_state}</Badge>},
+      ]} rows={reconSummary.uncleared} empty="No uncleared bank item is retained for this statement."/>
+    </section>
     <section className="report-workbench" aria-label="Local reconciliation worksheet scope" style={{marginBottom:14}}>
       <div className="report-workbench-head"><div><b>Local reconciliation worksheet</b><div className="page-subtitle">One retained entity, bank account, cash scope, and statement cutoff. Clearing status does not alter GL/TB/BS.</div></div><Badge tone={worksheet.closeState==='READY_TO_SIGN_OFF'||worksheet.closeState==='SIGNED_OFF'?'ok':'warn'}>{worksheet.closeState}</Badge></div>
       <div className="qbo-toolgrid">
@@ -201,13 +228,15 @@ export function BankRec2({ctx}) {
       {h:'Match state',render:r=><Badge>{r.match_status}</Badge>,csv:r=>r.match_status},
        {h:'Evidence action',render:r=> r.match_status==='MATCHED'? (r.matched_je&&jes.some(j=>j.je_number===r.matched_je) ? <Btn size="sm" variant="ghost" onClick={()=>goto('je',{jeNumber:r.matched_je,reconciliationReturn:localReconciliationJournalReturnContext({acctCode,bankTxnId:r.bank_txn_id})})}>Open JE</Btn> : <span className="muted sm">{r.matched_je||'—'}</span>) :
         <span className="row-acts">
-          {r.suggest && ['FEE','INTEREST'].includes(r.suggest) ? <Btn size="sm" variant="primary" disabled title="Categorization/posting is unavailable in the retained-evidence workflow">Categorization unavailable</Btn> : <Btn size="sm" onClick={()=>match(r)}>Review exact source</Btn>}
-          <Btn size="sm" variant="ghost" disabled title="Suspense posting is unavailable in the retained-evidence workflow">Hold unavailable</Btn>
+          {r.suggest && ['FEE','INTEREST'].includes(r.suggest)
+            ? <span className="bank-action-chip" aria-disabled="true"><span className="bank-action-name">Categorize</span><span className="bank-action-state">Unavailable here</span></span>
+            : <Btn size="sm" onClick={()=>match(r)}>Open Match review</Btn>}
+          <span className="bank-action-chip" aria-disabled="true"><span className="bank-action-name">Exclude</span><span className="bank-action-state">Unavailable here</span></span>
         </span>},
     ]} rows={txns} />
     <div className="muted sm" style={{marginTop:14}}>Strict local sign-off gate: {localReadiness.reason || 'READY'}.</div>
     <div style={{marginTop:14, display:'flex', gap:14, alignItems:'center'}}>
-      <Btn variant="primary" disabled title="Reconciliation sign-off is unavailable in the retained-evidence workflow">Sign-off unavailable</Btn>
+      <span className="bank-action-chip" aria-disabled="true"><span className="bank-action-name">Reconcile</span><span className="bank-action-state">Sign-off unavailable here</span></span>
       <span className="muted sm">{signedHistory ? `Signed off by ${signedHistory.by} on ${signedHistory.at}; duplicate sign-off is blocked.` : 'Adjusted Bank must equal Adjusted Book and all retained items must be handled before sign-off.'}</span>
     </div>
     {reopen.entry && <section className="report-workbench" aria-label="Local reconciliation reopen workflow" style={{marginTop:14}}><div className="report-workbench-head"><div><b>Local reopen / correction request</b><div className="page-subtitle">Changes reconciliation workflow metadata only; JE, GL/TB, and Aging remain read-only POSTED evidence.</div></div><Badge tone={reopen.state==='SIGNED_OFF'?'ok':'warn'}>{reopen.state}</Badge></div><div className="qbo-toolgrid"><span><i>Signed snapshot difference</i><b>{money(reopen.snapshot?.diff)}</b></span><span><i>Signed bank items</i><b>{(reopen.snapshot?.source_txn_ids||[]).length}</b></span><span><i>Statement cutoff</i><b>{reopen.snapshot?.statementDate||'—'}</b></span></div><p className="muted sm">Reason: {reopen.entry.reopen_reason||'No correction request retained.'} Requester/reviewer: {reopen.entry.reopen_requested_by||'—'} / {reopen.entry.reopen_reviewed_by||'—'}.</p>{reopen.canRequest&&<div className="row-acts"><input aria-label="Reopen correction reason" value={reopenReason} onChange={event=>setReopenReason(event.target.value)} placeholder="Reason for correction"/><Btn size="sm" variant="ghost" onClick={requestReopen}>Request reopen</Btn></div>}{reopen.state==='REOPEN_REQUESTED'&&<div className="row-acts"><Btn size="sm" variant="primary" disabled={!can('CASH.RECON.SIGNOFF')} onClick={()=>reviewReopen(true)}>Approve reopen</Btn><Btn size="sm" variant="ghost" disabled={!can('CASH.RECON.SIGNOFF')} onClick={()=>reviewReopen(false)}>Reject request</Btn></div>}<p className="muted sm">Reopened periods must satisfy the current zero-difference and local-source gates again before a new sign-off. The retained signed snapshot is not overwritten.</p></section>}

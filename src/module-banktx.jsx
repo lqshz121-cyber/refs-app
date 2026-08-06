@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Btn, Badge, Money, Table } from './ui.jsx';
 import { money } from './engine.js';
 import { BANK_TRANSACTION_PAGE_SIZE, pageBankTransactionEvidence } from './bank-transaction-pagination.js';
@@ -6,7 +6,10 @@ import { bankTransactionFocus } from './bank-transaction-focus.js';
 import { RECEIPT_VIEWS, RECEIPT_LOCAL_CLOSE_BOUNDARY, receiptEmptyState, receiptBankBridgeHint } from './receipt-view-state.js';
 import { localReceiptBankEvidence, receiptEvidenceForView } from './receipt-bank-evidence.js';
 import { matchBankTransactions } from './ai-accounting.js';
-import { BANK_ACCOUNTS } from './data.js';
+import { BANK_ACCOUNTS, COA, ENTITIES } from './data.js';
+import { bankQueueSummary, BANK_QUEUE_DIMENSION_NOTE } from './bank-queue-summary.js';
+import { bankActionVisibility } from './bank-action-visibility.js';
+import { bankWorkspaceNavContext, bankWorkspaceUrlScopeLabel, bankWorkspaceUrlSearch, decodeBankWorkspaceUrlState, hasBankWorkspaceUrlState } from './bank-workspace-url-state.js';
 import { localBankTransactionEvidence, localBankTransactionEvidenceRows } from './bank-transaction-evidence.js';
 import { localUnidentifiedReceiptEvidence, localUnidentifiedReceiptView } from './unidentified-receipt-evidence.js';
 import { localUnidentifiedDisbursementEvidence, localUnidentifiedDisbursementView } from './unidentified-disbursement-evidence.js';
@@ -27,8 +30,12 @@ export function BankTransactions({ctx}) {
   const [queue, setQueue] = useState('Review');
   const [query, setQuery] = useState('');
   const [dateRange, setDateRange] = useState('All dates');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [entityFilter, setEntityFilter] = useState(entity ? String(entity) : '');
   const [type, setType] = useState('All transactions');
   const [page, setPage] = useState(1);
+  const hydratedFromUrl = useRef(false);
   const [receiptView, setReceiptView] = useState('For review');
   const [unidentifiedReceiptView, setUnidentifiedReceiptView] = useState('All');
   const [unidentifiedDisbursementView, setUnidentifiedDisbursementView] = useState('All');
@@ -60,22 +67,83 @@ export function BankTransactions({ctx}) {
     if (navContext.query!=null) setQuery(navContext.query);
     if (navContext.type) setType(navContext.type);
     if (navContext.dateRange) setDateRange(navContext.dateRange);
+    if (navContext.dateFrom != null) setDateFrom(navContext.dateFrom);
+    if (navContext.dateTo != null) setDateTo(navContext.dateTo);
+    if (navContext.entityId != null) setEntityFilter(String(navContext.entityId || ''));
     if (navContext.page) setPage(navContext.page);
-  }, [navContext?.route, navContext?.acctCode, navContext?.queue, navContext?.query, navContext?.type, navContext?.dateRange, navContext?.page, bank.accounts]);
+  }, [navContext?.route, navContext?.acctCode, navContext?.queue, navContext?.query, navContext?.type, navContext?.dateRange, navContext?.dateFrom, navContext?.dateTo, navContext?.entityId, navContext?.page, bank.accounts]);
+  const accountEntityOf = code => BANK_ACCOUNTS.find(row => row.bank_account_code === code)?.entity_id ?? '';
+  const entityOptions = useMemo(() => {
+    const ids = [...new Set(Object.keys(bank.accounts).map(code => accountEntityOf(code)).filter(id => id !== ''))];
+    return ids.map(id => ({ id:String(id), label:ENTITIES.find(row => row.entity_id === id)?.entity_code || `Entity ${id}` }));
+  }, [bank.accounts]);
+  const entityScopedAccountCodes = useMemo(() => Object.keys(bank.accounts)
+    .filter(code => !entityFilter || String(accountEntityOf(code)) === String(entityFilter)), [bank.accounts, entityFilter]);
+  const accountInEntityScope = !entityFilter || String(accountEntityOf(acctCode)) === String(entityFilter);
+  useEffect(() => {
+    if (!entityFilter || accountInEntityScope) return;
+    if (entityScopedAccountCodes.length) setAcct(entityScopedAccountCodes[0]);
+  }, [entityFilter, accountInEntityScope, entityScopedAccountCodes.join('|')]);
+  const withinDateFilter = value => {
+    const date = String(value || '');
+    if (dateRange === 'This month' && !date.startsWith('2026-07')) return false;
+    if (dateRange === 'Last 90 days' && date < '2026-05-01') return false;
+    if (dateRange === 'Custom range') {
+      if (dateFrom && date < dateFrom) return false;
+      if (dateTo && date > dateTo) return false;
+    }
+    return true;
+  };
   const queueRows = useMemo(()=>transactions.filter(t=>{
     if(t._state!==queue) return false;
-    if(dateRange==='This month' && !String(t.txn_date||'').startsWith('2026-07')) return false;
-    if(dateRange==='Last 90 days' && String(t.txn_date||'')<'2026-05-01') return false;
+    if(!accountInEntityScope) return false;
+    if(!withinDateFilter(t.txn_date)) return false;
     if(type==='Money in' && t.direction!=='CREDIT') return false;
     if(type==='Money out' && t.direction!=='DEBIT') return false;
     return !query || `${t.reference} ${t.external_id}`.toLowerCase().includes(query.toLowerCase());
-  }),[transactions,queue,dateRange,type,query]);
+  }),[transactions,queue,dateRange,dateFrom,dateTo,type,query,accountInEntityScope]);
+  const queueSummary = bankQueueSummary(accountInEntityScope ? transactions : [], queue);
+  const workspaceUrlState = {acctCode, entityId:entityFilter, queue, query, dateRange, dateFrom, dateTo, type, page, bankTxnId:navContext?.route === 'banktx' ? (navContext.bankTxnId ?? '') : ''};
+  const workspaceReturnExtras = {entityId:entityFilter, dateFrom, dateTo, scrollY:navContext?.scrollY ?? 0};
+  const actionVisibility = bankActionVisibility({can:ctx.can, roleCode:ctx.user?.role_code});
+  // Deep link: an address-bar scope is applied once, then re-validated by the
+  // existing navContext machinery. It cannot assert a match or a posting state.
+  useEffect(() => {
+    if (hydratedFromUrl.current) return;
+    hydratedFromUrl.current = true;
+    if (typeof window === 'undefined' || navContext?.route === 'banktx') return;
+    if (!hasBankWorkspaceUrlState(window.location.search)) return;
+    const decoded = decodeBankWorkspaceUrlState(window.location.search);
+    if (decoded.acctCode && !bank.accounts[decoded.acctCode]) return;
+    goto('banktx', bankWorkspaceNavContext(decoded));
+  }, []);
+  // Mirror the live workspace scope into the address bar so Back, refresh and
+  // sharing all restore the same read-only view.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.history?.replaceState) return;
+    const search = bankWorkspaceUrlSearch(workspaceUrlState);
+    const next = `${window.location.pathname}${search}${window.location.hash || ''}`;
+    if (next !== `${window.location.pathname}${window.location.search}${window.location.hash || ''}`) window.history.replaceState(null, '', next);
+    return () => {
+      if (typeof window === 'undefined' || !window.history?.replaceState) return;
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash || ''}`);
+    };
+  }, [acctCode, entityFilter, queue, query, dateRange, dateFrom, dateTo, type, page, workspaceUrlState.bankTxnId]);
+  // Exact Back restoration also returns the reader to the retained scroll offset.
+  useEffect(() => {
+    if (typeof window === 'undefined' || navContext?.route !== 'banktx') return;
+    if (navContext.bankTxnId != null || !navContext.scrollY) return;
+    const offset = Number(navContext.scrollY) || 0;
+    const timer = setTimeout(() => window.scrollTo({top:offset}), 0);
+    return () => clearTimeout(timer);
+  }, [navContext?.route, navContext?.bankTxnId, navContext?.scrollY]);
   const pagedQueueRows = pageBankTransactionEvidence(queueRows, page, BANK_TRANSACTION_PAGE_SIZE);
   const bankScopeEmpty = localBankScopeEmptyState({account,transactions,queueRows,queue,entityId:entity});
-  useEffect(()=>setPage(1),[acctCode, queue, dateRange, type, query]);
+  useEffect(()=>setPage(1),[acctCode, entityFilter, queue, dateRange, dateFrom, dateTo, type, query]);
   const sourceOf = t => t.suggest ? 'Bank import / local category suggestion' : t.reference.includes('RENT') ? 'Tenant / owner receipt candidate' : 'Needs source mapping';
   const counterpartyOf = t => t.reference.includes('RENT') ? 'Tenant / owner' : 'Needs review';
-  const openEvidenceDetail = transaction => goto('banktx',{route:'banktx',acctCode,bankTxnId:transaction.bank_txn_id,queue,query,dateRange,type,page});
+  const payeeOf = t => t?.payee || t?.local_evidence?.journal?.payee || (String(t?.reference || '').includes('RENT') ? 'Tenant / owner' : 'Payee not retained');
+  const openEvidenceDetail = transaction => goto('banktx',{route:'banktx',acctCode,bankTxnId:transaction.bank_txn_id,queue,query,dateRange,type,page,...workspaceReturnExtras,scrollY:typeof window === 'undefined' ? 0 : window.scrollY || 0});
   const counts = k => transactions.filter(t=>t._state===k).length;
   useEffect(() => {
     if (navContext?.route !== 'banktx') return;
@@ -84,6 +152,9 @@ export function BankTransactions({ctx}) {
       setQueue(navContext.queue || requestedFocus.queue);
       setQuery(navContext.query ?? '');
       setDateRange(navContext.dateRange || 'All dates');
+      setDateFrom(navContext.dateFrom || '');
+      setDateTo(navContext.dateTo || '');
+      setEntityFilter(String(navContext.entityId || ''));
       setType(navContext.type || 'All transactions');
       setPage(navContext.page || requestedFocus.page);
     }
@@ -137,8 +208,15 @@ export function BankTransactions({ctx}) {
       bankEvidenceDetail.lifecycle?.clearingState === 'CLEARED' ? 'Clearing evidence retained.' : 'Not cleared in retained statement evidence.',
       bankEvidenceDetail.lifecycle?.reconciliationState === 'SIGNED_OFF' ? 'Signed-off statement evidence retained.' : 'Not signed off in retained reconciliation evidence.',
     ].filter(Boolean);
-    const backTarget = localBankTransactionDetailBackTarget(navContext, requestedFocus);
-    const bankJournalReturn = localBankTransactionJournalReturnContext({acctCode,bankTxnId:bankEvidenceDetail.bank_txn_id,origin:navContext});
+    const backTargetBase = localBankTransactionDetailBackTarget(navContext, requestedFocus);
+    // Back restores the full workspace scope, including entity, custom dates and scroll offset.
+    const backTarget = backTargetBase.route === 'banktx'
+      ? {...backTargetBase, context:{...backTargetBase.context, entityId:navContext.entityId || '', dateFrom:navContext.dateFrom || '', dateTo:navContext.dateTo || '', scrollY:navContext.scrollY || 0}}
+      : backTargetBase;
+    const baseJournalReturn = localBankTransactionJournalReturnContext({acctCode,bankTxnId:bankEvidenceDetail.bank_txn_id,origin:navContext});
+    const bankJournalReturn = baseJournalReturn ? {...baseJournalReturn, dateFrom:navContext.dateFrom || '', dateTo:navContext.dateTo || '', scrollY:navContext.scrollY || 0} : null;
+    const linkedGlAccount = bankEvidence?.master?.gl_account_code || '';
+    const linkedGlAccountName = COA.find(row => row.account_code === linkedGlAccount)?.account_name || '';
     const signedHistoryTarget = bankEvidenceDetail.lifecycle?.signedEntry ? {
       route:'bankrec', acctCode, historyId:bankEvidenceDetail.lifecycle.signedEntry.id,
       bankTransactionReturn:bankJournalReturn,
@@ -147,6 +225,27 @@ export function BankTransactions({ctx}) {
       <div className="qbo-report-back"><button type="button" onClick={() => goto(backTarget.route, backTarget.context)}>{backTarget.label}</button><span>Retained local bank evidence</span></div>
       <div className="gl-drill-head"><div><div className="gl-drill-crumb">Bank transactions / evidence detail</div><h2 className="page-h">{bankEvidenceDetail.external_id || bankEvidenceDetail.bank_txn_id}</h2><div className="gl-drill-account">{acctCode} · {account.bank_name} · statement {account.stmt_date}</div></div><Badge tone={bankEvidence?.state === 'VALID_LOCAL_MATCH' ? 'ok' : 'warn'}>{bankEvidence?.state || 'REVIEW_REQUIRED'}</Badge></div>
       <div className="qbo-drill-summary"><span><i>Bank / book date</i><b>{bankEvidenceDetail.txn_date || 'Not retained'} / {bankEvidence?.journal?.je_date || 'No retained JE'}</b></span><span><i>Direction / amount</i><b>{bankEvidenceDetail.direction} / {money(bankEvidenceDetail.amount)}</b></span><span><i>Cash scope</i><b>{bankEvidence?.cashScope || 'Unmapped — review'}</b></span><span><i>Entity</i><b>{bankEvidence?.entityId || 'Unproven'}</b></span><span><i>Matched JE</i><b>{bankEvidenceDetail.matched_je || 'No retained match'}</b></span><span><i>Lifecycle</i><b>{bankEvidenceDetail.lifecycle?.matchState || 'UNMATCHED'} / {bankEvidenceDetail.lifecycle?.clearingState || 'NOT_CLEARED'} / {bankEvidenceDetail.lifecycle?.reconciliationState || 'NOT_SIGNED_OFF'}</b></span></div>
+      <section className="report-workbench" aria-label="Bank transaction evidence fields" style={{marginTop:12}}>
+        <div className="report-workbench-head"><div><b>Transaction evidence</b><div className="page-subtitle">Full-page detail for one retained bank item. Every field is read from retained records; none of them can be edited here.</div></div><Badge tone={bankEvidenceDetail._state === 'Excluded' ? 'warn' : bankEvidenceDetail._state === 'Posted' ? 'ok' : 'muted'}>{queueLabel[bankEvidenceDetail._state] || 'Pending'}</Badge></div>
+        <div className="qbo-toolgrid">
+          <span><i>Amount</i><b>{money(bankEvidenceDetail.amount)} · {bankEvidenceDetail.direction === 'DEBIT' ? 'Money out' : 'Money in'}</b></span>
+          <span><i>Payee</i><b>{payeeOf(bankEvidenceDetail)}</b></span>
+          <span><i>Description</i><b>{bankEvidenceDetail.reference || 'Description not retained'}</b></span>
+          <span><i>Queue status</i><b>{queueLabel[bankEvidenceDetail._state] || 'Pending'}</b></span>
+          <span><i>Match evidence</i><b>{bankEvidence?.state || 'PENDING_REVIEW'} · {bankEvidence?.label || 'Pending review'}</b></span>
+          <span><i>Linked journal entry</i><b>{bankEvidenceDetail.matched_je || 'No retained JE'}</b></span>
+          <span><i>Linked GL account</i><b>{linkedGlAccount ? `${linkedGlAccount}${linkedGlAccountName ? ` ${linkedGlAccountName}` : ''}` : 'No mapped cash account'}</b></span>
+          <span><i>Reconciliation status</i><b>{bankEvidenceDetail.lifecycle?.matchState || 'UNMATCHED'} / {bankEvidenceDetail.lifecycle?.clearingState || 'NOT_CLEARED'} / {bankEvidenceDetail.lifecycle?.reconciliationState || 'NOT_SIGNED_OFF'}</b></span>
+        </div>
+        <p className="muted sm" style={{margin:'10px 0 0'}}>{BANK_QUEUE_DIMENSION_NOTE}</p>
+      </section>
+      <section className="report-workbench bank-action-availability" aria-label="Bank workflow action availability" style={{marginTop:12}}>
+        <div className="report-workbench-head"><div><b>Workflow action availability</b><div className="page-subtitle">Shows only the bank queue verbs your role already holds. Availability is reported, never offered: nothing on this page is clickable.</div></div><Badge tone="muted">{actionVisibility.readOnly ? 'READ_ONLY_ROLE' : 'PERMITTED_NOT_EXECUTABLE_HERE'}</Badge></div>
+        {actionVisibility.visible.length
+          ? <ul className="bank-action-list">{actionVisibility.visible.map(action => <li key={action.id} className="bank-action-item" aria-disabled="true"><span className="bank-action-name">{action.label}</span><span className="bank-action-state">Unavailable here</span><span className="bank-action-why">{action.intent}</span></li>)}</ul>
+          : <p className="muted sm" style={{margin:0}}>{actionVisibility.statement}</p>}
+        {actionVisibility.visible.length ? <p className="muted sm" style={{margin:'10px 0 0'}}>{actionVisibility.statement}</p> : null}
+      </section>
       <section className="report-workbench" aria-label="Bank transaction evidence decision" style={{marginTop:12}}><div className="report-workbench-head"><div><b>Evidence decision</b><div className="page-subtitle">Decision labels are read-only: they do not categorize, match, clear, exclude, restore, or post this transaction.</div></div><Badge tone={bankEvidence?.state === 'VALID_LOCAL_MATCH' ? 'ok' : 'warn'}>{bankEvidence?.state || 'REVIEW_REQUIRED'}</Badge></div><div className="qbo-toolgrid"><span><i>Bank ID / description</i><b>{bankEvidenceDetail.external_id || bankEvidenceDetail.bank_txn_id} / {bankEvidenceDetail.reference || 'Not retained'}</b></span><span><i>Entity / account</i><b>{bankEvidence?.entityId || 'Unproven'} / {acctCode}</b></span><span><i>Property / project / loan</i><b>{dimensions('property_id').join(', ') || 'Unassigned'} / {dimensions('project_id').join(', ') || 'Unassigned'} / {dimensions('loan_id').join(', ') || 'Unassigned'}</b></span><span><i>Source completeness</i><b>{sourceJournal ? 'POSTED JE retained' : 'No eligible retained source'}</b></span><span><i>Candidate / linked source</i><b>{bankEvidenceDetail.matched_je || (bankEvidenceDetail.ai_match?.bill_id ? `Bill ${bankEvidenceDetail.ai_match.bill_id}` : 'No exact candidate')}</b></span><span><i>Reason code</i><b>{duplicateEvidence?.state || bankEvidence?.state || 'REVIEW_REQUIRED'}</b></span></div><p className="muted sm" style={{margin:'10px 0 0'}}>{decisionReasons.join(' ')}</p></section>
       <p className="report-drill-hint">This detail is read-only local evidence. An amount match alone never links a JE: entity, cash account, direction, amount, POSTED state and duplicate boundary must all agree. It cannot import, auto-match, categorize, post, clear, sign off, connect, pay or alter a statement.</p>
       <div className="row-acts" style={{marginTop:12}}>
@@ -231,16 +330,17 @@ export function BankTransactions({ctx}) {
     {navContext?.route==='banktx' && (navContext.bankTxnId || navContext.jeNumber) && <div className="bank-health" role="status" style={{marginTop:12}}>
       <span className="bank-health-icon">i</span><div><b>{navContext.bankTxnId && requestedFocus && !requestedFocus.found ? 'No local bank evidence found' : 'Drill context applied'}</b><p>{navContext.bankTxnId ? (requestedFocus?.found ? `Focused retained local bank transaction ${navContext.bankTxnId} in ${requestedFocus.queue}, page ${requestedFocus.page}.` : `No retained local bank transaction matches ${navContext.bankTxnId}.`) : `Located the matched bank transaction for journal entry ${navContext.jeNumber}.`}</p></div></div>}
     <div className="acct-cards bank-account-strip">
-      {Object.entries(bank.accounts).map(([code,ac])=>{
+      {Object.entries(bank.accounts).filter(([code])=>entityScopedAccountCodes.includes(code) || code===acctCode).map(([code,ac])=>{
         const cardDifference = ac.stmt_end - ac.gl_book_balance;
         return <button key={code} className={`acct-card bank-account-card ${acctCode===code?'acct-on':''}`} onClick={()=>setAcct(code)}>
-          <div className="acct-head"><span><b>{ac.bank_name}</b><small>{code} - retained through {ac.stmt_date}</small></span><Badge tone={Math.abs(cardDifference)>.005?'warn':'ok'}>{Math.abs(cardDifference)>.005?'Needs attention':'Local evidence'}</Badge></div>
+          <div className="acct-head"><span><b>{ac.bank_name}</b><small>{code} - retained through {ac.stmt_date}</small></span><span className="bank-account-pill">{ac.txns.filter(t=>stateOf(t)==='Review').length}</span><Badge tone={Math.abs(cardDifference)>.005?'warn':'ok'}>{Math.abs(cardDifference)>.005?'Needs attention':'Local evidence'}</Badge></div>
           <div className="acct-bal"><span><i>Bank balance</i><Money v={ac.stmt_end}/></span><span><i>In REFS</i><Money v={ac.gl_book_balance}/></span></div>
           <div className="acct-review"><b>{ac.txns.filter(t=>stateOf(t)==='Review').length}</b> pending review</div>
         </button>;
       })}
     </div>
 
+    {!accountInEntityScope && <div className="bank-health" role="status" style={{marginBottom:12}}><span className="bank-health-icon">i</span><div><b>Entity filter excludes this bank account</b><p>Bank account {acctCode} does not belong to the selected entity, so no rows are listed. Clear the entity filter or choose an in-scope account; REFS never lists cross-entity bank evidence together.</p></div></div>}
     <section className="bank-queue-card">
       <div className="bank-account-summary">
         <div className="bank-summary-title">
@@ -257,18 +357,33 @@ export function BankTransactions({ctx}) {
           <span><i>Updated</i><b>{account.stmt_date}</b></span>
         </div>
       </div>
-      <div className="bank-queue-tabs" role="tablist">
-        {['Review','Posted','Excluded'].map(k=><button role="tab" aria-selected={queue===k} className={queue===k?'active':''} key={k} onClick={()=>setQueue(k)}>{queueLabel[k]} <span>{counts(k)}</span></button>)}
+      <div className="bank-queue-seg-row">
+        <div className="bank-queue-seg" role="tablist" aria-label="Bank transaction queue status">
+          {queueSummary.segments.map(segment=><button type="button" role="tab" key={segment.key} aria-selected={segment.selected} className={`bank-queue-seg-item ${segment.selected?'bank-queue-seg-on':''}`} onClick={()=>setQueue(segment.key)}>{segment.inlineLabel}</button>)}
+        </div>
+        <span className="bank-queue-seg-note">{BANK_QUEUE_DIMENSION_NOTE}</span>
       </div>
       <div className="bank-toolbar">
-        <label className="bank-search"><span className="bank-search-glyph" aria-hidden="true" /><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search bank description or ID"/></label>
-        <select aria-label="Date" value={dateRange} onChange={e=>setDateRange(e.target.value)}><option>All dates</option><option>This month</option><option>Last 90 days</option></select>
+        <label className="bank-search"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search bank description or ID"/><span className="bank-search-glyph" aria-hidden="true" /></label>
+        <select aria-label="Bank account" value={acctCode} onChange={e=>setAcct(e.target.value)}>{Object.entries(bank.accounts).map(([code,ac])=><option key={code} value={code}>{code} {ac.bank_name}</option>)}</select>
+        <select aria-label="Entity" value={entityFilter} onChange={e=>setEntityFilter(e.target.value)}><option value="">All entities</option>{entityOptions.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select>
+        <select aria-label="Date" value={dateRange} onChange={e=>setDateRange(e.target.value)}><option>All dates</option><option>This month</option><option>Last 90 days</option><option>Custom range</option></select>
+        {dateRange==='Custom range' && <input type="date" aria-label="Date from" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>}
+        {dateRange==='Custom range' && <input type="date" aria-label="Date to" value={dateTo} onChange={e=>setDateTo(e.target.value)}/>}
         <select aria-label="Transaction type" value={type} onChange={e=>setType(e.target.value)}><option>All transactions</option><option>Money in</option><option>Money out</option></select>
         <span className="bank-result-count">{pagedQueueRows.total ? `${pagedQueueRows.start}-${pagedQueueRows.end} of ${pagedQueueRows.total}` : '0-0 of 0'} local transactions in {queueLabel[queue]}</span>
       </div>
       {pagedQueueRows.rows.length ? <div className="bank-table"><Table rowKey="bank_txn_id" features={{filterable:false}} cols={cols} rows={pagedQueueRows.rows}/></div> : <div className="empty-state bank-queue-empty" aria-label="Local bank scope empty state"><b>{bankScopeEmpty.title || `No ${queueLabel[queue].toLowerCase()} transactions`}</b><span>{bankScopeEmpty.detail || 'No retained local bank evidence matches the selected account, queue, and filters.'}</span><small>Scope: {acctCode} · {account.period} · {BANK_ACCOUNTS.find(row=>row.bank_account_code===acctCode)?.cash_scope || 'Unmapped cash scope'} · {entity || 'No active entity'}</small><div className="row-acts" style={{marginTop:10}}><Btn size="sm" variant="ghost" onClick={()=>goto('register')}>Open local bank register</Btn><Btn size="sm" variant="ghost" disabled={bankScopeEmpty.state==='NO_LOCAL_BANK_EVIDENCE'} onClick={()=>goto('gl',{route:'gl',tab:'GL Detail',fromP:account.period,toP:account.period,drillLabel:`${acctCode} local cash evidence`})}>Open local GL Detail</Btn></div></div>}
-      <nav className="bank-pagination" aria-label="Local bank transaction pages"><button type="button" disabled={pagedQueueRows.currentPage===1} onClick={()=>setPage(p=>p-1)}>Previous</button><span>Page {pagedQueueRows.currentPage} of {pagedQueueRows.pageCount}</span><button type="button" disabled={pagedQueueRows.currentPage===pagedQueueRows.pageCount} onClick={()=>setPage(p=>p+1)}>Next</button></nav>
+      <nav className="bank-pagination" aria-label="Local bank transaction pages"><span className="bank-pagination-range">{pagedQueueRows.total ? `${pagedQueueRows.start}-${pagedQueueRows.end} of ${pagedQueueRows.total}` : '0-0 of 0'}</span><button type="button" disabled={pagedQueueRows.currentPage===1} onClick={()=>setPage(p=>p-1)}>Previous</button><span>Page {pagedQueueRows.currentPage} of {pagedQueueRows.pageCount}</span><button type="button" disabled={pagedQueueRows.currentPage===pagedQueueRows.pageCount} onClick={()=>setPage(p=>p+1)}>Next</button></nav>
+      <section className="bank-action-availability" aria-label="Bank queue action availability">
+        <b>Workflow action availability</b>
+        {actionVisibility.visible.length
+          ? <ul className="bank-action-list">{actionVisibility.visible.map(action => <li key={action.id} className="bank-action-item" aria-disabled="true"><span className="bank-action-name">{action.label}</span><span className="bank-action-state">Unavailable here</span><span className="bank-action-why">{action.intent}</span></li>)}</ul>
+          : null}
+        <p className="muted sm" style={{margin:'8px 0 0'}}>{actionVisibility.statement}</p>
+      </section>
       <div className="bank-footer"><span>Retained local bank evidence is read-only; no categorize, match, exclude, restore, or posting action is available.</span><span>Drill path: report to detail ledger to source-ready bank evidence</span></div>
+      <p className="muted sm bank-url-scope" style={{margin:'0 14px 12px'}}>Shareable scope: {bankWorkspaceUrlScopeLabel(workspaceUrlState)}. The address bar retains filters and selection only; it can never assert a match, clearing, sign-off, posting state, or permission.</p>
     </section>
   </div>;
 }
