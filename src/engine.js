@@ -137,6 +137,50 @@ export function trialBalance(jes, entityId, fromP, toP) {
 }
 
 // ---- Financial statement roll-ups ----
+// ---- Retained earnings roll-forward ----------------------------------------
+// Lines that close a fiscal year's result out of Current Year Surplus and into
+// Prior Years Retained Earnings. A surplus debits 370300 and credits 371000; a
+// deficit does the reverse. A zero result returns no lines, so the routine is
+// safe to run twice and never posts an empty journal.
+export function yearEndCloseLines(amount, options = {}) {
+  const current = options.currentSurplusAccount || '370300';
+  const prior = options.priorRetainedAccount || '371000';
+  const cents = Math.round(Number(amount || 0) * 100);
+  if (cents === 0) return [];
+  const value = Math.abs(cents) / 100;
+  return cents > 0
+    ? [{account_code:current, debit_amount:value, credit_amount:0}, {account_code:prior, debit_amount:0, credit_amount:value}]
+    : [{account_code:prior, debit_amount:value, credit_amount:0}, {account_code:current, debit_amount:0, credit_amount:value}];
+}
+
+// Retained-earnings roll-forward for one entity as of a period. Earnings from a
+// prior fiscal year belong in equity; only the current fiscal year's result is
+// reported as current earnings. Accumulated in integer cents so the answer does
+// not depend on binary floating-point addition order.
+export function retainedEarningsRollForward(jes, options = {}) {
+  const {entityId = null, throughPeriod = '', fiscalYear = ''} = options;
+  const year = String(fiscalYear || String(throughPeriod).slice(0,4) || '');
+  let equityCents = 0, priorYearCents = 0, currentYearCents = 0;
+  jes.filter(j => j.posting_status === 'POSTED'
+      && (entityId == null || Number(j.entity_id) === Number(entityId))
+      && (!throughPeriod || String(j.period_code || '') <= throughPeriod))
+    .forEach(j => {
+      const inYear = String(j.period_code || '').slice(0,4) === year;
+      j.lines.forEach(l => {
+        const net = Math.round((l.credit_amount || 0) * 100) - Math.round((l.debit_amount || 0) * 100);
+        const type = acct(l.account_code).account_type;
+        if (type === 'EQUITY') equityCents += net;
+        else if (type === 'REVENUE' || type === 'EXPENSE') { if (inYear) currentYearCents += net; else priorYearCents += net; }
+      });
+    });
+  return {
+    equity: equityCents / 100,
+    prior_year_earnings: priorYearCents / 100,
+    current_year_earnings: currentYearCents / 100,
+    retained_earnings_carried_forward: (equityCents + priorYearCents) / 100,
+  };
+}
+
 export function statements(jes, entityId, fromP, toP) {
   const tb = trialBalance(jes, entityId).rows;
   const by = (types)=>tb.filter(r=>types.includes(r.type));

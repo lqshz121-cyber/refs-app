@@ -161,7 +161,7 @@ function App() {
   const boundary = resolveRuntimeBoundary(globalThis);
   if (boundary.surface === SURFACE_ERROR) return <RuntimeErrorPage code={boundary.code}/>;
   if (boundary.surface !== SURFACE_DEMONSTRATION) return <AuthoritativeApp environment={globalThis}/>;
-  const SEED_V='v9';
+  const SEED_V='v10';
   const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
   const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');
