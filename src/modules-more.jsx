@@ -200,8 +200,14 @@ export function GLTrialBalance({ctx}) {
       <span><i>Posted JEs</i><b>{posted.length}</b></span>
       <span><i>Dimension scope</i><b>{dimensionLabel}</b></span>
       <span><i>Scope evidence</i><b><Badge tone={dimensionEvidence.state==='LOCAL_SCOPE_COMPLETE'?'ok':'warn'}>{dimensionEvidence.state}</Badge></b></span>
-      <span><i>Assets</i><b>{money(st.assets)}</b></span>
-      <span><i>Net income</i><b>{money(st.netIncome)}</b></span>
+      {/* Assets is a balance, not a movement. It is read from the same
+          cumulative as-of set the Balance Sheet and Trial Balance tabs use, so
+          the strip cannot contradict the statement rendered underneath it.
+          Reading it from the fromP~toP window understated assets by the whole
+          opening balance sheet once the seed grew one. Net income stays the
+          window figure; both bases are stated in the label. */}
+      <span><i>Assets as of {toP}</i><b>{money(bsSt.assets)}</b></span>
+      <span><i>Net income {fromP} ~ {toP}</i><b>{money(st.netIncome)}</b></span>
     </div>
     <section className="report-workbench" aria-label="Local report control evidence" style={{marginBottom:12}}>
       <div className="report-workbench-head"><div><b>Local report control evidence</b><div className="page-subtitle">Same entity, cutoff, dimension scope, and POSTED JE set only.</div></div></div>

@@ -86,20 +86,70 @@ expectIS('Income Statement total income, gross profit, operating expense and net
 const income114=expectedIncome(114);
 expectIS('Income Statement renders when the only expense in scope is cost of goods sold',
   income114.cogsRows>0&&income114.opexRows===0&&renderReportTab(114,'Income Statement').includes(money(income114.net)));
+// The "no P&L activity" entity is resolved from the seed, never named by a
+// literal. Entity 2 used to be that fixture; it stopped being one when the
+// service hub started booking its own side of every intercompany service pair
+// (490600 Outsourcing Service Income). The property under test is unchanged -
+// an entity with posted balance-sheet activity and no revenue or expense row
+// must state an empty scope, not present a statement of zeroes.
+const postedEntityIds=[...new Set([...JOURNAL_ENTRIES,...FY2026].filter(j=>j.posting_status==='POSTED').map(j=>j.entity_id))].sort((a,b)=>a-b);
+const noProfitAndLossEntity=postedEntityIds.find(entityId=>{ const rows=trialBalance(postedFor(entityId)).rows;
+  return rows.length>0 && !rows.some(row=>row.type==='REVENUE'||row.type==='EXPENSE'); });
+const noProfitAndLossMarkup=noProfitAndLossEntity==null?'':renderReportTab(noProfitAndLossEntity,'Income Statement');
 expectIS('Income Statement states an empty scope instead of a zero statement when an entity has no P&L activity',
-  expectedIncome(2).revT===0&&renderReportTab(2,'Income Statement').includes('No revenue or expense activity in this Income Statement scope'));
+  noProfitAndLossEntity!=null&&expectedIncome(noProfitAndLossEntity).revT===0&&expectedIncome(noProfitAndLossEntity).cogsRows===0&&expectedIncome(noProfitAndLossEntity).opexRows===0&&
+  noProfitAndLossMarkup.includes('No revenue or expense activity in this Income Statement scope')&&
+  !noProfitAndLossMarkup.includes('Total Income')&&!noProfitAndLossMarkup.includes('Net Income'));
+// An entity that earns revenue and carries no expense at all takes the third
+// Income Statement branch: no Cost of Goods Sold section, so the total line is
+// Total Expenses rather than Total Operating Expenses.
+const revenueOnlyEntity=postedEntityIds.find(entityId=>{ const income=expectedIncome(entityId);
+  return income.revT>0 && income.cogsRows===0 && income.opexRows===0; });
+const revenueOnlyIncome=revenueOnlyEntity==null?null:expectedIncome(revenueOnlyEntity);
+const revenueOnlyMarkup=revenueOnlyEntity==null?'':renderReportTab(revenueOnlyEntity,'Income Statement');
+expectIS('Income Statement labels the total Total Expenses and ties net income when the scope carries revenue and no cost of goods sold',
+  revenueOnlyEntity!=null&&revenueOnlyMarkup.includes('Total Expenses')&&!revenueOnlyMarkup.includes('Total Operating Expenses')&&
+  [money(revenueOnlyIncome.revT),money(revenueOnlyIncome.net)].every(value=>revenueOnlyMarkup.includes(value)));
+// The Trial Balance tab is cumulative - "As of {toP}", built from
+// postedJournalEntriesAsOf - while the Income Statement is the 2026-01~2026-07
+// movement window. The two sets were identical until the seed grew a 2025-12
+// opening trial balance, which is why a movement-window total used to match a
+// cumulative statement. The expected figure is recomputed here straight off the
+// seed in integer cents, without trialBalance() and without the component's own
+// as-of helper, and the cumulative total is asserted to be strictly larger than
+// the movement window so that dropping the opening balances fails this case.
 const trialBalanceMarkup=renderReportTab(4,'Trial Balance');
-const tb4=trialBalance(postedFor(4));
-expectIS('Trial Balance renders balanced totals for a real posting entity',
-  Math.abs(tb4.totalDebit-tb4.totalCredit)<0.01&&trialBalanceMarkup.includes(money(tb4.totalDebit))&&trialBalanceMarkup.includes('Balanced'));
+const asOfPostedFor=entityId=>[...JOURNAL_ENTRIES,...FY2026].filter(j=>j.posting_status==='POSTED'&&j.entity_id===entityId&&j.period_code<='2026-07');
+const grossCents=journals=>journals.reduce((totals,j)=>(j.lines||[]).reduce((carry,l)=>({debit:carry.debit+Math.round((l.debit_amount||0)*100),credit:carry.credit+Math.round((l.credit_amount||0)*100)}),totals),{debit:0,credit:0});
+const trialBalance4AsOf=grossCents(asOfPostedFor(4)), trialBalance4Window=grossCents(postedFor(4));
+expectIS('Trial Balance renders balanced cumulative totals, opening balances included, for a real posting entity',
+  trialBalance4AsOf.debit===trialBalance4AsOf.credit&&trialBalance4AsOf.debit>trialBalance4Window.debit&&
+  trialBalanceMarkup.includes(money(trialBalance4AsOf.debit/100))&&trialBalanceMarkup.includes('Balanced'));
+// The Balance Sheet is cumulative for the same reason the Trial Balance is, and
+// the assertion names the Total Assets line rather than looking the figure up
+// anywhere on the page: the movement-window total used to satisfy a bare
+// includes() because the General Ledger overview strip was printing it.
 const balanceSheetMarkup=renderReportTab(4,'Balance Sheet');
-const bs4=statements(postedFor(4));
-expectIS('Balance Sheet renders total assets and ties assets to liabilities plus equity plus earnings',
-  balanceSheetMarkup.includes(money(bs4.assets))&&Math.abs(bs4.assets-(bs4.liabilities+bs4.equity+bs4.netIncome))<0.01&&balanceSheetMarkup.includes('Balanced'));
+const bs4AsOf=statements(asOfPostedFor(4));
+const bs4Window=statements(postedFor(4));
+expectIS('Balance Sheet renders cumulative total assets and ties assets to liabilities plus equity plus earnings',
+  bs4AsOf.assets!==bs4Window.assets&&
+  balanceSheetMarkup.includes(`Total Assets`)&&balanceSheetMarkup.includes(money(bs4AsOf.assets))&&
+  !new RegExp(`Total Assets[^]{0,400}?${money(bs4Window.assets).replace(/[$,.]/g,'\\$&')}`).test(balanceSheetMarkup)&&
+  Math.abs(bs4AsOf.assets-(bs4AsOf.liabilities+bs4AsOf.equity+bs4AsOf.netIncome))<0.01&&balanceSheetMarkup.includes('Balanced'));
+// One screen, one meaning for the word Assets. The General Ledger overview strip
+// sits directly above the statement body; before the opening balance sheet
+// existed it happened to agree with it, because there was nothing to be
+// cumulative about. It must agree by construction, not by coincidence.
+expectIS('the General Ledger overview strip states assets on the same cumulative basis as the Balance Sheet',
+  balanceSheetMarkup.includes(`<i>Assets as of 2026-07</i><b>${money(bs4AsOf.assets)}</b>`)&&
+  trialBalanceMarkup.includes(`<i>Assets as of 2026-07</i><b>${money(bs4AsOf.assets)}</b>`)&&
+  !balanceSheetMarkup.includes(`<i>Assets</i><b>${money(bs4Window.assets)}</b>`));
 expectIS('Cash Flow renders posted cash evidence for a real posting entity',
   renderReportTab(4,'Cash Flow').includes('Cash movement evidence'));
+const glDetailMarkup4=renderReportTab(4,'GL Detail');
 expectIS('GL Detail renders posted journal lines for a real posting entity',
-  postedFor(4).length>0&&renderReportTab(4,'GL Detail').includes(postedFor(4)[0].je_number));
+  postedFor(4).length>0&&postedFor(4).some(j=>glDetailMarkup4.includes(j.je_number)));
 
 // ---------------------------------------------------------------------------
 // Period control fails closed.
@@ -127,18 +177,57 @@ expectPeriod('validateJE raises no period error for a genuinely open period',
   validateJE({...periodProbe,entity_id:4},resolvePostingPeriod(periodMaster,{entity_id:4,period_code:'2026-07'}).period).every(e=>!['4005','JE_PERIOD_NOT_CONFIGURED'].includes(e.code)));
 expectPeriod('JE workflow transition is blocked when the owning period has no record',
   validateJETransition({je:{...periodProbe,je_type:'MANUAL',created_by:'maker',attachment_ids:['DOC-1'],has_attachment:true},next:'PENDING_REVIEW',user:{user_id:'maker'},period:resolvePostingPeriod(periodMaster,periodProbe).period,documents:[{document_id:'DOC-1',hash:'sha256:'+'a'.repeat(64),storage_ref:'indexeddb://refs-attachments/DOC-1',storage_state:'STORED'}],can:()=>true}).code==='JE_PERIOD_NOT_CONFIGURED');
+// ---------------------------------------------------------------------------
+// The seeded population of period-control breaches is recomputed here from the
+// seed and the period master on every run. It is deliberately NOT pinned to a
+// count or to a journal number: regenerating src/seed.js renumbers every
+// generated journal and changes which entity/period pairs carry activity, and a
+// control test that has to be edited after each seed change stops being a
+// control test. What must hold is the property - every POSTED journal whose own
+// entity and own period the master marks anything other than OPEN is detected,
+// named individually, attributed to its entity and period, and left untouched.
+// ---------------------------------------------------------------------------
 const seededPeriodEvidence=periodControlExceptions({journals:[...JOURNAL_ENTRIES,...FY2026],periods:PERIODS});
-expectPeriod('the two journals already posted into a CLOSED period are detected and named',
-  seededPeriodEvidence.totals.closedPeriodJournals===2&&
-  ['20260612006437','20260622006438'].every(number=>seededPeriodEvidence.closedPeriodPostings.some(row=>row.je_number===number&&row.entity_id===2&&row.period_code==='2026-06')));
+const seededPostedJournals=[...JOURNAL_ENTRIES,...FY2026].filter(j=>j.posting_status==='POSTED');
+const seededPeriodStatus=(entityId,periodCode)=>{ const record=PERIODS.find(p=>Number(p.entity_id)===Number(entityId)&&String(p.period_code)===String(periodCode)); return record?String(record.status):null; };
+const seededClosedJournals=seededPostedJournals.filter(j=>{ const status=seededPeriodStatus(j.entity_id,j.period_code); return status!==null&&status!=='OPEN'; });
+const reportedClosedPostings=seededPeriodEvidence.closedPeriodPostings;
+expectPeriod('every journal already posted into a CLOSED period is detected and named individually',
+  seededClosedJournals.length>0&&
+  seededPeriodEvidence.totals.closedPeriodJournals===seededClosedJournals.length&&
+  reportedClosedPostings.length===seededClosedJournals.length&&
+  seededClosedJournals.every(j=>reportedClosedPostings.some(row=>row.je_number===j.je_number&&row.entity_id===Number(j.entity_id)&&row.period_code===j.period_code&&row.period_status==='CLOSED'&&row.exception_type==='POSTED_INTO_CLOSED_PERIOD'))&&
+  reportedClosedPostings.every(row=>row.root_cause.includes(row.je_number)&&row.root_cause.includes(row.period_code)));
+// Immutability, asserted against the ledger rather than against two remembered
+// journal numbers: nothing detected here may have been re-dated out of the
+// closed period, so each reported entry is still POSTED, still carries the
+// period it breached, and still carries a document date inside that period.
 expectPeriod('detected closed-period postings are reported, never rewritten',
-  seededPeriodEvidence.closedPeriodPostings.every(row=>row.status==='OPEN'&&/reversing this entry in an open period/.test(row.required_action))&&
-  [...JOURNAL_ENTRIES,...FY2026].filter(j=>['20260612006437','20260622006438'].includes(j.je_number)).every(j=>j.posting_status==='POSTED'&&j.period_code==='2026-06'));
+  reportedClosedPostings.length>0&&
+  reportedClosedPostings.every(row=>row.status==='OPEN'&&/reversing this entry in an open period/.test(row.required_action))&&
+  reportedClosedPostings.every(row=>{ const je=seededPostedJournals.find(j=>j.je_number===row.je_number);
+    return !!je&&je.posting_status==='POSTED'&&je.period_code===row.period_code&&String(je.je_date||'').slice(0,7)===je.period_code; }));
+const seededConfiguredPairs=new Set(PERIODS.map(p=>`${Number(p.entity_id)}|${p.period_code}`));
+const seededUnconfiguredPairs=new Set(seededPostedJournals.map(j=>`${Number(j.entity_id)}|${j.period_code}`).filter(key=>!seededConfiguredPairs.has(key)));
+const seededUnconfiguredJournalCount=seededPostedJournals.filter(j=>!seededConfiguredPairs.has(`${Number(j.entity_id)}|${j.period_code}`)).length;
 expectPeriod('entity/period pairs carrying posted journals with no period record are reported as a control gap',
-  seededPeriodEvidence.totals.unconfiguredCombinations===824&&seededPeriodEvidence.state==='PERIOD_CONTROL_EXCEPTIONS_FOUND');
+  seededUnconfiguredPairs.size>0&&
+  seededPeriodEvidence.totals.unconfiguredCombinations===seededUnconfiguredPairs.size&&
+  seededPeriodEvidence.totals.unconfiguredJournals===seededUnconfiguredJournalCount&&
+  seededPeriodEvidence.unconfiguredPeriodPostings.length===seededUnconfiguredPairs.size&&
+  seededPeriodEvidence.unconfiguredPeriodPostings.every(row=>seededUnconfiguredPairs.has(`${row.entity_id}|${row.period_code}`)&&row.journal_count>0&&row.period_status===PERIOD_STATUS_NOT_CONFIGURED)&&
+  seededPeriodEvidence.state==='PERIOD_CONTROL_EXCEPTIONS_FOUND');
 const periodExceptionMarkup=renderToStaticMarkup(<ExceptionCenter ctx={{...ctx,jes:[...JOURNAL_ENTRIES,...FY2026],periods:PERIODS,periodExceptions:seededPeriodEvidence}}/>);
+// The exception table paginates, so the count a human reads has to come from
+// the totals strip rather than from how many rows happen to fit on page one.
 expectPeriod('Exception Center surfaces the closed-period postings to a human',
-  periodExceptionMarkup.includes('POSTED_INTO_CLOSED_PERIOD')&&periodExceptionMarkup.includes('20260612006437')&&periodExceptionMarkup.includes('PERIOD_CONTROL_EXCEPTIONS_FOUND'));
+  periodExceptionMarkup.includes('POSTED_INTO_CLOSED_PERIOD')&&
+  periodExceptionMarkup.includes('PERIOD_CONTROL_EXCEPTIONS_FOUND')&&
+  periodExceptionMarkup.includes(`<i>Posted into a CLOSED period</i><b>${reportedClosedPostings.length}</b>`)&&
+  periodExceptionMarkup.includes(`<i>Entity/period pairs with no period record</i><b>${seededUnconfiguredPairs.size}</b>`)&&
+  periodExceptionMarkup.includes(`<i>Posted journals in those pairs</i><b>${seededUnconfiguredJournalCount}</b>`)&&
+  periodExceptionMarkup.includes(reportedClosedPostings[0].je_number)&&
+  periodExceptionMarkup.includes(reportedClosedPostings[0].object_ref));
 expectPeriod('Exception Center reports a clean period control state when there is nothing to report',
   renderToStaticMarkup(<ExceptionCenter ctx={{...ctx,jes:[],periods:PERIODS,periodExceptions:periodControlExceptions({journals:[],periods:PERIODS})}}/>).includes('PERIOD_CONTROL_CLEAN'));
 const editorJE={...periodProbe,je_type:'MANUAL',created_by:'maker',has_attachment:true,description:'Period control probe',history:[{a:'CREATE',by:'maker',at:'2026-07-31'}]};
@@ -159,8 +248,25 @@ expectPeriod('the application shell never synthesises an OPEN period when no rec
   !/\|\|\s*\{\s*period_code\s*:[^}]*status\s*:\s*'OPEN'/.test(appSource)&&
   !/status\s*:\s*'OPEN'\s*,?\s*\}\s*;?\s*\/\/?\s*$/m.test(appSource)&&
   appSource.includes('resolvePostingPeriod(PERIODS'));
+// Read-only reporting must show the closed-period money, not hide it. The proof
+// is arithmetic rather than a journal number on page one of a paginated table:
+// the rendered cumulative Trial Balance total for the entity that owns the
+// closed period equals the total INCLUDING its closed-period postings and is
+// strictly larger than the total without them, and no posting-control block
+// code appears anywhere on a report surface.
+const closedPeriodEntity=reportedClosedPostings[0].entity_id;
+const closedPeriodNumbers=new Set(reportedClosedPostings.filter(row=>row.entity_id===closedPeriodEntity).map(row=>row.je_number));
+const closedEntityAsOf=grossCents(asOfPostedFor(closedPeriodEntity));
+const closedEntityAsOfWithoutBreaches=grossCents(asOfPostedFor(closedPeriodEntity).filter(j=>!closedPeriodNumbers.has(j.je_number)));
+const closedEntityTrialBalanceMarkup=renderReportTab(closedPeriodEntity,'Trial Balance');
+const closedEntityGLDetailMarkup=renderReportTab(closedPeriodEntity,'GL Detail');
+const postingBlockCodes=['JE_PERIOD_NOT_CONFIGURED','JE_PERIOD_UNIDENTIFIED','Posting is blocked'];
 expectPeriod('read-only reporting is unaffected by period control',
-  renderReportTab(2,'Trial Balance').includes('Trial Balance')&&renderReportTab(2,'GL Detail').includes('20260612006437'));
+  closedPeriodNumbers.size>0&&closedEntityAsOf.debit>closedEntityAsOfWithoutBreaches.debit&&
+  closedEntityTrialBalanceMarkup.includes('Trial Balance')&&
+  closedEntityTrialBalanceMarkup.includes(money(closedEntityAsOf.debit/100))&&
+  postedFor(closedPeriodEntity).some(j=>closedEntityGLDetailMarkup.includes(j.je_number))&&
+  postingBlockCodes.every(code=>!closedEntityTrialBalanceMarkup.includes(code)&&!closedEntityGLDetailMarkup.includes(code)));
 
 const authoritativeBankCtx={...ctx,authoritativeMode:true,bank:{accounts:{'BA-003':{bank_name:'Pacific Bank',stmt_date:'2026-07-31',stmt_end:0,gl_book_balance:0,txns:[{bank_txn_id:1,external_id:'BANK-1',txn_date:'2026-07-31',amount:1,direction:'DEBIT',reference:'Fee',match_status:'UNMATCHED'}],outstanding_checks:[],deposits_in_transit:[]}},history:[]}};
 const authoritativeBankMarkup=renderToStaticMarkup(<BankTransactions ctx={authoritativeBankCtx}/>);
