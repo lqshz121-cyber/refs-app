@@ -15,7 +15,22 @@ export function KPI({label, value, sub, tone}) {
   </div>;
 }
 export function Btn({children, onClick, variant='default', size, disabled, title, ariaLabel}) {
-  return <button type="button" className={`btn btn-${variant} ${size?'btn-'+size:''}`} onClick={onClick} disabled={disabled} title={title} aria-label={ariaLabel}>{children}</button>;
+  // A disabled action also reports aria-disabled so an unavailable reference
+  // action is announced as unavailable, not merely painted as unavailable.
+  return <button type="button" className={`btn btn-${variant} ${size?'btn-'+size:''}`} onClick={onClick}
+    disabled={disabled} aria-disabled={disabled?'true':undefined} title={title} aria-label={ariaLabel}>{children}</button>;
+}
+// Segmented control for queue / view switching: a white item on a gray track.
+// Counts render inside the label, e.g. "Pending (12)".
+export function Segmented({options, value, onChange, label}) {
+  return <div className="seg" role="tablist" aria-label={label}>{options.map(option => {
+    const key = typeof option === 'string' ? option : option.value;
+    const text = typeof option === 'string' ? option : option.label;
+    const count = typeof option === 'string' ? null : option.count;
+    const on = value === key;
+    return <button type="button" key={key} role="tab" aria-selected={on} className={on?'on':''}
+      onClick={()=>onChange(key)}>{count==null ? text : `${text} (${count})`}</button>;
+  })}</div>;
 }
 const STATUS_TONE = {
   POSTED:'ok', APPROVED:'ok', MATCHED:'ok', DONE:'ok', BALANCED:'ok', SIGNED_OFF:'ok', PAID:'ok', RESOLVED:'ok',
@@ -28,15 +43,24 @@ export function Badge({children, tone}) {
   return <span className={`badge badge-${t}`}>{children}</span>;
 }
 export function Money({v, bold}) {
+  // Money is the shared sans face with tabular numerals, not a monospace font.
   const neg = v<0;
   return <span className={`num ${neg?'num-neg':''} ${bold?'num-bold':''}`}>{money(v)}</span>;
+}
+// One empty / loading / error language for every workspace.
+export function StateBlock({tone='empty', title, children}) {
+  const cls = tone==='error' ? 'err-box' : 'empty empty-state';
+  return <div className={cls} role="status" aria-live="polite" aria-busy={tone==='loading'?'true':undefined}>
+    {title && <b>{title}</b>}
+    {children}
+  </div>;
 }
 
 // ================= Enterprise Data Grid =================
 // sort / text filter / CSV export / pagination / density / row click
 const _loadView = (k)=>{ try{ return JSON.parse(localStorage.getItem('refs_view_'+k))||{}; }catch(e){ return {}; } };
 const _saveView = (k,v)=>{ try{ localStorage.setItem('refs_view_'+k, JSON.stringify(v)); }catch(e){} };
-export function Table({cols, rows, onRow, empty='No records to display.', rowKey, features={}, pageSize=25, exportName}) {
+export function Table({cols, rows, onRow, empty='No records to display.', rowKey, features={}, pageSize=25, exportName, loading, error}) {
   const V = exportName ? _loadView(exportName) : {};
   const {sortable=true, filterable=rows&&rows.length>8, exportable=!!exportName, paginate=rows&&rows.length>pageSize} = features;
   const [sortK, setSortK] = useState(V.sortK??null);
@@ -71,6 +95,8 @@ export function Table({cols, rows, onRow, empty='No records to display.', rowKey
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=(exportName||'export')+'.csv'; a.click(); URL.revokeObjectURL(a.href);
   };
 
+  if (error) return <StateBlock tone="error" title="This view could not load">{error}</StateBlock>;
+  if (loading) return <StateBlock tone="loading">Loading records.</StateBlock>;
   if (!rows || rows.length===0) return <div className="empty empty-state" role="status" aria-live="polite">{empty}</div>;
   return <div>
     {(filterable||exportable) && <div className="grid-bar">
@@ -93,7 +119,11 @@ export function Table({cols, rows, onRow, empty='No records to display.', rowKey
         </th>)}</tr></thead>
       <tbody>{view.map((r,ri)=>
         <tr key={rowKey?r[rowKey]:ri} className={`${onRow?'tr-click':''} ${hi===ri?'tr-hi':''}`} onClick={onRow?()=>onRow(r):null} onMouseEnter={()=>setHi(ri)}>
-          {cols.map((c,ci)=><td key={ci} className={c.num?'ta-r':''}>{c.render?c.render(r):r[c.k]}</td>)}
+          {cols.map((c,ci)=>{ const v = c.render?c.render(r):r[c.k];
+            // Truncated columns keep their full text reachable via a tooltip;
+            // the untruncated string always stays in the accessibility tree.
+            const t = (typeof v==='string'||typeof v==='number') ? String(v) : undefined;
+            return <td key={ci} className={c.num?'ta-r':''} title={t}>{v}</td>; })}
         </tr>)}
       </tbody>
     </table></div>

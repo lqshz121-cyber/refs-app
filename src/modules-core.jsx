@@ -1,5 +1,5 @@
 ﻿import { useState, useMemo, useEffect, useRef } from 'react';
-import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Field, SectionTitle, ApprovalTimeline } from './ui.jsx';
+import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Segmented, Field, SectionTitle, ApprovalTimeline } from './ui.jsx';
 import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS, PROJECTS, VENDORS } from './data.js';
 import { PM_ROWS, CLOSINGS, LOAN_TXNS, IC_TXNS, UNIT_OWNERS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, isBalanced, validateJE, JE_FLOW, loanRule, pmRule, trialBalance, statements } from './engine.js';
@@ -128,6 +128,21 @@ export function JEWorkspace({ctx}) {
     (!query || `${j.je_number} ${j.description||''} ${j.payee||''} ${j.source_system}`.toLowerCase().includes(query.toLowerCase())) &&
     (month==='ALL'||j.period_code==='2026-'+month));
   const je = jes.find(j=>j.je_id===sel);
+  // Queue counts are presentation only: they read the same retained journal
+  // entries and change no filter, status, or workflow behaviour.
+  const inQueueScope = j => (!ctx.entity||j.entity_id===ctx.entity) &&
+    (srcF==='ALL'||j.source_system===srcF) &&
+    (!query || `${j.je_number} ${j.description||''} ${j.payee||''} ${j.source_system}`.toLowerCase().includes(query.toLowerCase())) &&
+    (month==='ALL'||j.period_code==='2026-'+month);
+  const scoped = jes.filter(inQueueScope);
+  const queueCounts = {
+    ALL: scoped.length,
+    REVIEW: scoped.filter(j=>['PENDING_REVIEW','PENDING_APPROVAL'].includes(j.posting_status)).length,
+    POSTED: scoped.filter(j=>j.posting_status==='POSTED').length,
+    DRAFT: scoped.filter(j=>j.posting_status==='DRAFT').length,
+  };
+  const queueValue = status==='PENDING_APPROVAL' ? 'PENDING_REVIEW'
+    : ['ALL','PENDING_REVIEW','POSTED','DRAFT'].includes(status) ? status : null;
   const newJE = () => { const id = actions.newJE(); setSel(id); };
   const hasScopedReturn = Boolean(ctx.navContext?.reportReturn || ctx.navContext?.expenseReturn || ctx.navContext?.paymentBankReturn || ctx.navContext?.paymentReturn || ctx.navContext?.receiptReturn || ctx.navContext?.arReturn || ctx.navContext?.sourceDocumentReturn || ctx.navContext?.bankTransactionReturn || ctx.navContext?.reconciliationReturn || ctx.navContext?.registerReturn);
 
@@ -161,7 +176,14 @@ export function JEWorkspace({ctx}) {
       <label>Source <select value={srcF} onChange={e=>setSrcF(e.target.value)}>
         {['ALL','MAN','WBS_CL','PM','AP','AR','BANK','CLOSING','PAYABLE','EXPA','AUTOC','DIVIDEND','REIMB','AUTO_BANK_REIMB','INTERNAL_TRANSFER','INTERNAL','INDIVIDUAL','NOT_MATCH'].map(x=><option key={x}>{x}</option>)}
       </select></label>
-      <span className="result-count"><b>{list.length}</b> entries</span><div className="je-queue-chips"><button type="button" className={status==='ALL'?'on':''} onClick={()=>setStatus('ALL')}>All</button><button type="button" className={status==='PENDING_REVIEW'||status==='PENDING_APPROVAL'?'on':''} onClick={()=>setStatus('PENDING_REVIEW')}>Needs review</button><button type="button" className={status==='POSTED'?'on':''} onClick={()=>setStatus('POSTED')}>Posted</button><button type="button" className={status==='DRAFT'?'on':''} onClick={()=>setStatus('DRAFT')}>Draft</button></div><button type="button" className="btn btn-ghost btn-sm" onClick={()=>{setQuery('');setStatus('ALL');setSrcF('ALL');setMonth('ALL');}}>Clear filters</button>
+      <span className="result-count"><b>{list.length}</b> entries</span>
+      <Segmented label="Journal entry queue" value={queueValue} onChange={setStatus} options={[
+        {value:'ALL', label:'All', count:queueCounts.ALL},
+        {value:'PENDING_REVIEW', label:'Needs review', count:queueCounts.REVIEW},
+        {value:'POSTED', label:'Posted', count:queueCounts.POSTED},
+        {value:'DRAFT', label:'Draft', count:queueCounts.DRAFT},
+      ]}/>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={()=>{setQuery('');setStatus('ALL');setSrcF('ALL');setMonth('ALL');}}>Clear filters</button>
     </div>
     <Table exportName="journal-entries" features={{exportable:false}} className="table-journal-entries" rowKey="je_id" onRow={r=>setSel(r.je_id)} pageSize={20} cols={[
       {h:'Journal No.',k:'je_number',w:'180px'},
@@ -256,6 +278,7 @@ function JEEditor({je, ctx}) {
       {sourceTarget ? <div className="src-actions" style={{marginTop:10}}><Btn size="sm" variant="ghost" onClick={()=>ctx.goto(sourceTarget.route,{...sourceTarget.context,journalReturn:{route:'je',jeNumber:je.je_number},expenseReturn:returnToApAging || returnToVendorCredit || returnToBill ? ctx.navContext.expenseReturn : null,reportReturn:returnToReport || null,arReturn:returnToInvoice || null})}>Open retained source</Btn></div> : <p className="muted sm" style={{margin:'10px 0 0'}}>No retained local source target is available. This JE remains review-only; a source destination is not inferred.</p>}
     </section>
     <datalist id="member-list">{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_name}/>)}{ENTITIES.slice(0,20).map(en=><option key={en.entity_id} value={en.entity_name}/>)}</datalist>
+    <div className="je-lines-scroll" role="region" aria-label="Journal entry lines" tabIndex={0}>
     <table className="tbl je-lines qbe-grid">
       <thead><tr><th style={{width:34}}>#</th><th style={{width:'22%'}}>ACCOUNT</th><th className="ta-r" style={{width:110}}>DEBITS</th><th className="ta-r" style={{width:110}}>CREDITS</th><th>DESCRIPTION</th><th style={{width:120}}>NAME</th><th style={{width:170}}>PROPERTY / PROJECT</th>{editable&&<th style={{width:30}}></th>}</tr></thead>
       <tbody>
@@ -282,6 +305,7 @@ function JEEditor({je, ctx}) {
         </tr>)}
       </tbody>
     </table>
+    </div>
     <div className="qbe-below">
       <div>{editable && <><Btn size="sm" onClick={addLine}>Add lines</Btn> <Btn size="sm" variant="ghost" onClick={()=>actions.updateJE(je.je_id,d=>{d.lines=[{account_code:'',debit_amount:0,credit_amount:0},{account_code:'',debit_amount:0,credit_amount:0}];})}>Clear all lines</Btn></>}</div>
       <div className="qbe-totals">

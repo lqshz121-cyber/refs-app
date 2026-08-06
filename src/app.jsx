@@ -343,8 +343,9 @@ function AuditLog({ctx}) {
   const T = ctx ? null : null;
   return <div className="full-bleed"><h2 className="page-h">Audit Log</h2>
     {log.length===0 ? <div className="empty">No audit records yet — key approval, posting, payment, and exclusion actions appear here.</div> :
+    <div className="table-wrap" role="region" aria-label="Audit log table" tabIndex={0}>
     <table className="tbl"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Object</th><th>Ref</th><th>Detail</th></tr></thead>
-    <tbody>{log.map((e,i)=><tr key={i}><td>{e.ts}</td><td>{e.user}</td><td><span className="badge badge-muted">{e.action}</span></td><td>{e.objectType}</td><td>{e.objectRef}</td><td>{e.detail}</td></tr>)}</tbody></table>}
+    <tbody>{log.map((e,i)=><tr key={i}><td>{e.ts}</td><td>{e.user}</td><td><span className="badge badge-muted">{e.action}</span></td><td>{e.objectType}</td><td>{e.objectRef}</td><td>{e.detail}</td></tr>)}</tbody></table></div>}
   </div>;
 }
 function Approvals({ctx}) {
