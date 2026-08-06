@@ -1,5 +1,5 @@
 ﻿import { useState, useMemo, useEffect, useRef } from 'react';
-import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Segmented, Field, SectionTitle, ApprovalTimeline, Icon, StateBlock, Unavailable } from './ui.jsx';
+import { Card, KPI, Btn, Badge, Money, Table, Drawer, Tabs, Segmented, Field, SectionTitle, ApprovalTimeline, Icon, StateBlock, Unavailable, QueueTile } from './ui.jsx';
 import { COA, PROPERTIES, LOANS, ENTITIES, PERIODS, PROJECTS, VENDORS } from './data.js';
 import { PM_ROWS, CLOSINGS, UNIT_OWNERS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, isBalanced, validateJE, JE_FLOW, loanRule, pmRule, trialBalance, statements } from './engine.js';
@@ -30,6 +30,24 @@ export function Dashboard({ctx}) {
   const openBills = ap.bills.filter(b=>!['PAID','VOID'].includes(b.status));
   const paidBills = ap.bills.filter(b=>b.status==='PAID');
   const bankUnmatched = Object.values(bank.accounts).reduce((n,a)=>n+a.txns.filter(t=>t.match_status==='UNMATCHED').length,0);
+  // Queue tiles state both halves of the same fact: what is left and what is
+  // already done. Every denominator below is counted from the same records the
+  // numerator comes from - nothing is estimated, and no tile is listed unless
+  // its total is derivable, so none of them can overstate progress. The tiles
+  // are presentation of retained records only: they read counts and change no
+  // status, filter or workflow.
+  const excScoped = exceptions.filter(e=>!entity||e.entity_id===entity);
+  const mappingScoped = excScoped.filter(e=>e.exception_type==='GL_MAPPING_MISSING');
+  const billsPending = ap.bills.filter(b=>b.status==='PENDING_APPROVAL');
+  const bankTxTotal = Object.values(bank.accounts).reduce((n,a)=>n+a.txns.length,0);
+  const queueTiles = [
+    {label:'Bank transactions for review', route:'banktx',   remaining:bankUnmatched,        total:bankTxTotal},
+    {label:'Bills pending approval',       route:'ap',       remaining:billsPending.length,  total:ap.bills.length},
+    {label:'JEs pending review/approval',  route:'approvals',remaining:pendingApprovals.length, total:jeE.length},
+    {label:'Missing mappings',             route:'mapping',  remaining:mappingScoped.filter(e=>['OPEN','IN_PROGRESS'].includes(e.status)).length, total:mappingScoped.length},
+    {label:'Open exceptions',              route:'exceptions',remaining:openExc.length,      total:excScoped.length},
+    {label:'Close tasks remaining',        route:'close',    remaining:closeTasks.length-doneTasks, total:closeTasks.length},
+  ];
   const expCats = [['Opex', Math.max(1,st.expense*0.42), '#2CA01C'], ['Interest', Math.max(1,st.expense*0.31), '#0077C5'], ['Management', Math.max(1,st.expense*0.17), '#FF8000'], ['Other', Math.max(1,st.expense*0.10), '#8A5BE0']];
   const expTot = expCats.reduce((s,[,v])=>s+v,0);
   let acc=0; const segs = expCats.map(([n,v,c])=>{ const from=acc/expTot*360; acc+=v; return `${c} ${from}deg ${acc/expTot*360}deg`; }).join(', ');
@@ -104,14 +122,9 @@ export function Dashboard({ctx}) {
     </div>
     <SectionTitle>Needs attention · REFS local queue</SectionTitle>
     <div className="todo-grid" style={{marginBottom:20}}>
-      {[[bankUnmatched,'Bank transactions for review','banktx'],
-        [ctx.ap.bills.filter(b=>b.status==='PENDING_APPROVAL').length,'Bills pending approval','ap'],
-        [pendingApprovals.length,'JEs pending review/approval','approvals'],
-        [openExc.filter(e=>e.exception_type==='GL_MAPPING_MISSING').length,'Missing mappings','mapping'],
-        [openExc.length,'Open exceptions','exceptions'],
-        [closeTasks.length-doneTasks,'Close tasks remaining','close']].map(([n,l,r])=>
-        <div key={l} className="todo-item" onClick={()=>goto(r)} style={{cursor:'pointer'}}>
-          <span className={`todo-n ${n>0?'warn':'ok'}`}>{n}</span><span className="todo-l">{l}</span></div>)}
+      {queueTiles.map(t=>
+        <QueueTile key={t.label} label={t.label} remaining={t.remaining}
+          done={t.total-t.remaining} total={t.total} onOpen={()=>goto(t.route)}/>)}
     </div>
     <SectionTitle right={<Btn size="sm" variant="ghost" onClick={()=>goto('approvals')}>View all</Btn>}>Approvals ({pendingApprovals.length})</SectionTitle>
     <Table rowKey="je_id" onRow={r=>goto('je',{jeNumber:r.je_number})} cols={[
@@ -119,7 +132,8 @@ export function Dashboard({ctx}) {
       {h:'Source',render:r=><Badge tone="muted">{r.source_system}</Badge>},
       {h:'Amount',num:true,render:r=><Money v={jeTotals(r).dr}/>},
         {h:'Status',render:r=><Badge>{r.posting_status}</Badge>},
-    ]} rows={pendingApprovals} empty="No journal entries are pending approval."/>
+    ]} rows={pendingApprovals} emptyTone="cleared"
+      empty="Nothing is waiting on you. Every journal entry in scope has cleared review and approval. Posted evidence stays reachable from the Journal Entry workspace."/>
   </div>;
 }
 
@@ -319,8 +333,15 @@ export function JEEditor({je, ctx}) {
             </select>
             : <span>{l.account_code} {acct(l.account_code).account_name}</span>}
           </td>
-          <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.debit_amount||''} onChange={e=>setLine(i,{debit_amount:+e.target.value||0, credit_amount:0})}/> : <Money v={l.debit_amount||0}/>}</td>
-          <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.credit_amount||''} onChange={e=>setLine(i,{credit_amount:+e.target.value||0, debit_amount:0})}/> : <Money v={l.credit_amount||0}/>}</td>
+          {/* A credit line has no debit. Printing "$0.00" on the side that does
+              not apply put two identical-looking figures on every row and made
+              the debit and credit columns impossible to compare at a glance.
+              The inapplicable side now renders the "no amount" dash, while a
+              line that genuinely carries zero on both sides still prints
+              $0.00 twice - a recorded zero and an absent figure stay
+              distinguishable. Stored amounts are untouched. */}
+          <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.debit_amount||''} onChange={e=>setLine(i,{debit_amount:+e.target.value||0, credit_amount:0})}/> : <Money v={l.debit_amount||0} nil={!l.debit_amount && !!l.credit_amount}/>}</td>
+          <td className="ta-r">{editable ? <input className="num-in" type="number" value={l.credit_amount||''} onChange={e=>setLine(i,{credit_amount:+e.target.value||0, debit_amount:0})}/> : <Money v={l.credit_amount||0} nil={!l.credit_amount && !!l.debit_amount}/>}</td>
           <td>{editable ? <input className="desc-line" value={l.description||''} placeholder="Line description" onChange={e=>setLine(i,{description:e.target.value})}/> : <span className="muted sm">{l.description||''}</span>}</td>
           <td>{editable ? <input className="desc-line" list="member-list" placeholder={ subsidiaryOf(l.account_code) ? 'Required member*' : 'Name'} value={l.member||''} onChange={e=>setLine(i,{member:e.target.value})}/> : <span className="muted sm">{l.member||''}</span>}</td>
           <td>{editable ?

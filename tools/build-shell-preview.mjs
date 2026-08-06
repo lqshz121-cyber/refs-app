@@ -65,6 +65,31 @@ const CHIPS = [
 const QUEUE_PILLS = ['Action Required', 'Bank transaction matching', 'Reconciliation worksheet',
   'Mapping exceptions', 'Month-end close'];
 
+// [label, remaining, total] - mirrors the QueueTile component in src/ui.jsx.
+// Both numbers are always counted from the same records; a tile with no
+// derivable total would render without a meter rather than invent one.
+const TILES = [
+  ['Bank transactions for review', 3, 41],
+  ['Bills pending approval', 1, 18],
+  ['JEs pending review/approval', 0, 26],
+  ['Missing mappings', 2, 9],
+  ['Open exceptions', 4, 21],
+  ['Close tasks remaining', 5, 14],
+];
+const tile = ([label, remaining, total]) => {
+  const done = total - remaining;
+  const clear = remaining === 0;
+  const pct = Math.round((done / total) * 100);
+  const spoken = `${label}: ${remaining} remaining, ${done} of ${total} done`;
+  return `
+          <div class="todo-item${clear ? ' is-clear' : ''}" role="button" tabindex="0" aria-label="${spoken}">
+            <span class="todo-n ${clear ? 'ok' : 'warn'}" aria-hidden="true">${clear ? '&#10003;' : remaining}</span>
+            <span class="todo-l" aria-hidden="true">${label}</span>
+            <span class="todo-meter" aria-hidden="true"><span style="width:${pct}%"></span></span>
+            <span class="todo-done" aria-hidden="true">${clear ? `All ${total} done` : `${done} of ${total} done`}</span>
+          </div>`;
+};
+
 const body = `
 <div class="app">
   <aside class="sidebar">
@@ -136,15 +161,63 @@ const body = `
           </div>
         </div>
         <div class="sec-title"><h3>Needs attention &middot; REFS local queue</h3></div>
-        <div class="todo-grid" style="margin-bottom:26px">
-          <div class="todo-item"><span class="todo-n warn">3</span><span class="todo-l">Bank transactions for review</span></div>
-          <div class="todo-item"><span class="todo-n warn">1</span><span class="todo-l">Bills pending approval</span></div>
-          <div class="todo-item"><span class="todo-n ok">0</span><span class="todo-l">JEs pending review/approval</span></div>
-          <div class="todo-item"><span class="todo-n warn">2</span><span class="todo-l">Open exceptions</span></div>
-          <div class="todo-item"><span class="todo-n warn">5</span><span class="todo-l">Close tasks remaining</span></div>
+        <div class="todo-grid" style="margin-bottom:26px">${TILES.map(tile).join('')}
         </div>
+
+        <div class="sec-title"><h3>Round 3 &middot; workflow marks, readable in greyscale</h3></div>
+        <div class="card" style="margin-bottom:26px">
+          <div class="card-h">Every stage differs by mark geometry, not only by hue</div>
+          <div class="row-acts" style="margin:10px 0 14px">
+            <span class="badge badge-muted badge-s-draft">DRAFT</span>
+            <span class="badge badge-warn badge-s-progress">PENDING_REVIEW</span>
+            <span class="badge badge-warn badge-s-progress">PENDING_APPROVAL</span>
+            <span class="badge badge-ok badge-s-approved">APPROVED</span>
+            <span class="badge badge-ok badge-s-posted">POSTED</span>
+            <span class="badge badge-bad badge-s-reversed">REVERSED</span>
+          </div>
+          <div class="row-acts preview-grey" style="margin-bottom:6px">
+            <span class="badge badge-muted badge-s-draft">DRAFT</span>
+            <span class="badge badge-warn badge-s-progress">PENDING_REVIEW</span>
+            <span class="badge badge-warn badge-s-progress">PENDING_APPROVAL</span>
+            <span class="badge badge-ok badge-s-approved">APPROVED</span>
+            <span class="badge badge-ok badge-s-posted">POSTED</span>
+            <span class="badge badge-bad badge-s-reversed">REVERSED</span>
+          </div>
+          <p class="muted sm" style="margin:0">The second row is the same markup with the colour removed
+            (<code>filter:grayscale(1)</code>, preview-only). Ring / half ring / filled circle / square / bar
+            still separate the five stages. A badge is a statement of state and is never a control.</p>
+        </div>
+
+        <div class="sec-title"><h3>Round 3 &middot; three numeric readings</h3></div>
+        <div class="table-wrap" style="margin-bottom:26px">
+          <table class="tbl">
+            <thead><tr><th>Line</th><th>Account</th><th class="ta-r">Debits</th><th class="ta-r">Credits</th><th>Reading</th></tr></thead>
+            <tbody>
+              <tr><td class="muted">1</td><td>1010 Operating Cash</td><td class="ta-r"><span class="num">$412,880.00</span></td><td class="ta-r"><span class="num num-nil">&ndash;</span></td><td class="muted sm">Debit line: the credit side does not apply</td></tr>
+              <tr class="tr-hi"><td class="muted">2</td><td>4010 Rental Revenue</td><td class="ta-r"><span class="num num-nil">&ndash;</span></td><td class="ta-r"><span class="num">$412,880.00</span></td><td class="muted sm">Pointer hover &mdash; quiet canvas tint</td></tr>
+              <tr class="tr-kb"><td class="muted">3</td><td>1310 Prepaid Insurance</td><td class="ta-r"><span class="num num-zero">$0.00</span></td><td class="ta-r"><span class="num num-zero">$0.00</span></td><td class="muted sm">Keyboard row &mdash; accent tint + inset marker; a recorded zero, not an absence</td></tr>
+              <tr><td class="muted">4</td><td>2010 Accounts Payable</td><td class="ta-r"><span class="num num-nil">&ndash;</span></td><td class="ta-r"><span class="num num-neg">($8,420.00)</span></td><td class="muted sm">Negative in parentheses, same tabular width</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="sec-title"><h3>Round 3 &middot; loading skeleton at the geometry of the real table</h3></div>
+        <div style="margin-bottom:26px">
+          <div class="table-wrap" role="status" aria-live="polite" aria-busy="true" aria-label="Loading records">
+            <div class="skel-table" aria-hidden="true">
+              <div class="skel-head"><span class="skel-cell skel-wide"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span></div>
+              ${Array.from({length:5},()=>`<div class="skel-row"><span class="skel-cell skel-wide"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span></div>`).join('')}
+            </div>
+          </div>
+          <p class="muted sm" style="margin:8px 0 0">40px header, 44px rows, same wrapper hairline and radius as the
+            loaded table, so nothing shifts when the read resolves. The sweep disappears entirely under
+            <code>prefers-reduced-motion: reduce</code> &mdash; set that in your OS and reload to check.</p>
+        </div>
+
         <div class="sec-title"><h3>Approvals (0)</h3><button class="btn btn-ghost btn-sm">View all</button></div>
-        <div class="empty empty-state"><b>No journal entries are pending approval.</b>Approved and posted evidence stays reachable from the Journal Entry workspace.</div>
+        <div class="empty empty-state state-block state-empty state-cleared"><b>Nothing is waiting on you.</b>Every journal entry in scope has cleared review and approval. Posted evidence stays reachable from the Journal Entry workspace.</div>
+        <p class="muted sm" style="margin:8px 0 0">Compare the neutral empty state, which means &ldquo;no records in scope&rdquo;:</p>
+        <div class="empty empty-state state-block state-empty" style="margin-top:8px"><b>No records to display.</b>Adjust the filters above to widen the scope.</div>
       </div>
     </main>
   </div>
@@ -162,9 +235,12 @@ const out = `<!DOCTYPE html>
   border:0.8px solid #E2E9ED;border-radius:8px;color:#4C555B;font:400 13px/1.6
   "Avenir Next","Segoe UI",-apple-system,sans-serif;}
 .preview-note b{color:#21262A;}
-.preview-toggle{display:inline-flex;align-items:center;gap:8px;margin-top:8px;
+.preview-toggle{display:inline-flex;align-items:center;gap:8px;margin-top:8px;margin-right:8px;
   min-height:32px;padding:0 12px;border:1px solid #C3CED5;border-radius:6px;
   background:#FFF;color:#21262A;font:500 13px/1 inherit;cursor:pointer;}
+/* preview-only: proves the status marks survive with the colour removed */
+.preview-grey{filter:grayscale(1);}
+body.preview-grey-all .app{filter:grayscale(1);}
 </style>
 </head>
 <body>
@@ -174,7 +250,15 @@ ${body}
   product stylesheet inlined verbatim from <code>index.html</code>. Nothing here is interactive
   except the theme toggle. Independent implementation informed by measurement; no QuickBooks
   markup, CSS, icon, image or font asset is used, and no claim of QuickBooks equivalence is made.
-  <div><button class="preview-toggle" onclick="document.body.classList.toggle('dark')">Toggle dark mode</button></div>
+  <div><b>Round 3</b> adds, below the dashboard cards: the workflow mark alphabet (with a greyscale copy),
+  the three numeric readings with a hover row and a keyboard row side by side, the loading skeleton at the
+  geometry of the real table, and the cleared-queue state next to the neutral empty state. To judge the
+  motion story, turn on your operating system's &ldquo;reduce motion&rdquo; setting and reload: the skeleton
+  sweep must stop completely and every hover tint must become instant.</div>
+  <div>
+    <button class="preview-toggle" onclick="document.body.classList.toggle('dark')">Toggle dark mode</button>
+    <button class="preview-toggle" onclick="document.body.classList.toggle('preview-grey-all')">Toggle greyscale</button>
+  </div>
 </div>
 </body>
 </html>

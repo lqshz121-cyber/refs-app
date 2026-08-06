@@ -4,6 +4,9 @@
 **Branch:** `claude/final-ui-system-pass-122f475`
 **Round 1:** `d2c4c86` — tokens (color / radius / shadow / type). 2026-08-05.
 **Round 2:** structural pass — shell and home composition. 2026-08-06. See section 8.
+**Round 3:** refinement and feel — motion, numeric legibility, scannability,
+status marks, queue progress. 2026-08-06. Documented separately in
+`docs/UI-ROUND-3-POLISH.md`; this file is unchanged apart from this line.
 **Specification:** `docs/QB-DESIGN-TOKENS.md` (round 1) and
 `docs/QB-SHELL-STRUCTURE.md` (round 2), both measured from live QuickBooks Online
 sessions via a `getComputedStyle` census.

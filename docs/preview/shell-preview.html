@@ -72,6 +72,16 @@
   --qb-badge-ink:#04263A;     /* dark circular icon badge behind a light glyph */
   --qb-badge-glyph:#5FE3B0;
   --qb-greet-side:264px;      /* greeting row side columns keep the title centered */
+  /* ---- round 3: motion. QB has no lift, no spring and no parallax; the only
+     honest motion is a short ease-out on paint properties. Two durations,
+     one easing curve, and transform is deliberately absent from the list. ---- */
+  --qb-dur-1:120ms;           /* controls, rows, nav - must never outlast a click */
+  --qb-dur-2:180ms;           /* meters and progress fills */
+  --qb-ease-out:cubic-bezier(.22,.61,.36,1);
+  /* ---- round 3: skeletons. A skeleton is the same geometry as the real row,
+     so nothing jumps when the data arrives. ---- */
+  --qb-skel:#E7ECEF;
+  --qb-skel-hi:#F3F6F8;
   --nav-w:calc(var(--qb-rail-w) + var(--qb-navpanel-w));
   --content-max:1560px;
   --gap:16px;
@@ -130,6 +140,10 @@ body.dark{
   --qb-chip-border:#3A464F;
   --qb-badge-ink:#0A2B22;
   --qb-badge-glyph:#6FE0B4;
+  /* round 3 tokens keep full dark-mode parity; the motion tokens are
+     colour-free so they are inherited unchanged. */
+  --qb-skel:#232B31;
+  --qb-skel-hi:#2E383F;
 }
 
 
@@ -160,7 +174,38 @@ img,svg,canvas{max-width:100%;}
 *{scrollbar-width:thin; scrollbar-color:var(--qb-border) transparent;}
 ::-webkit-scrollbar{width:10px; height:10px;}
 ::-webkit-scrollbar-thumb{background:var(--qb-border); border-radius:5px; border:2px solid transparent; background-clip:content-box;}
-@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important; transition-duration:.001ms!important;}}
+/* ---- One motion contract (round 3) ------------------------------------------
+   QuickBooks moves almost nothing. What it does move, it moves briefly and only
+   in paint: background, border, colour, opacity, box-shadow. `transform` is
+   deliberately absent from every transition list below, so no row can slide out
+   from under a cursor that is already committed to a click, and nothing springs,
+   bounces or parallaxes. 120ms is shorter than the ~150ms a deliberate click
+   takes, so the feedback lands before the press does. -------------------------- */
+.btn,.grid-tool,.crumb,.icon-btn,.new-btn,.link-btn,.chip,.tab,.seg>button,
+.nav-item,.nav-group-h,.rail-glyph,.qbo-quicklinks button,.qb-actionrow .btn,
+.card-hover,.todo-item,.qbo-card,.acct-card,.rep-card,.je-item,.stmt-row,
+.bank-queue-seg-item,.th-sort,.report-drill,.qbo-report-back>button,
+.expense-shell-actions>button,.tbl tbody tr,
+input,select,textarea{
+  transition:
+    background-color var(--qb-dur-1) var(--qb-ease-out),
+    border-color var(--qb-dur-1) var(--qb-ease-out),
+    color var(--qb-dur-1) var(--qb-ease-out),
+    box-shadow var(--qb-dur-1) var(--qb-ease-out),
+    opacity var(--qb-dur-1) var(--qb-ease-out);
+}
+/* The guard from round 2, restated as a hard rule: motion never uses layout or
+   transform properties, so a transition can never move a hit target. */
+*{transition-property:background-color,border-color,color,box-shadow,opacity,fill,stroke,outline-color,width;}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms!important; animation-iteration-count:1!important;
+    transition-duration:.001ms!important; scroll-behavior:auto!important;
+  }
+  /* A shimmering skeleton is the one animation that must also lose its
+     gradient, not just its duration - otherwise it freezes mid-sweep. */
+  .skel,.skel-cell{background-image:none!important; background-color:var(--qb-skel)!important;}
+}
 .muted{color:var(--qb-text-muted);}
 .sm{font-size:12px;}
 .warn-txt{color:var(--qb-warn); font-weight:600;}
@@ -170,6 +215,14 @@ img,svg,canvas{max-width:100%;}
 .cell-main{font-weight:500; color:var(--qb-text-strong); line-height:1.4;}
 .num{font-family:var(--qb-sans); font-variant-numeric:tabular-nums lining-nums; white-space:nowrap;}
 .num-neg{color:var(--qb-bad);} .num-bold{font-weight:600; color:var(--qb-text-strong);}
+/* Three distinct numeric readings, so a reader never has to guess (round 3):
+   a value ($1,204.00), a real zero ($0.00, quieter but still a figure), and
+   the absence of a figure (an en dash that is never mistaken for a balance). */
+.num-zero{color:var(--qb-text-muted);}
+/* An emphasised figure stays emphasised even when it is zero - a total of
+   exactly $0.00 is a result, not a quiet cell. */
+.num-bold.num-zero{color:var(--qb-text-strong);}
+.num-nil{color:var(--qb-text-faint); font-weight:400; letter-spacing:.04em;}
 .bal{font-weight:600; font-size:13px;} .bal-ok{color:var(--qb-ok);} .bal-bad{color:var(--qb-bad);}
 .acct-code{font-variant-numeric:tabular-nums; color:var(--qb-text-muted); font-size:12px; margin-right:4px;}
 .row-acts{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
@@ -225,7 +278,7 @@ img,svg,canvas{max-width:100%;}
   width:var(--qb-rail-item-w); height:var(--qb-rail-item-h); margin:0 auto; padding:2px 2px 0;
   border:0; border-radius:var(--qb-r-card); background:transparent;
   color:var(--qb-text-strong); cursor:pointer; overflow:hidden;
-  transition:background .12s ease;
+  transition:background-color var(--qb-dur-1) var(--qb-ease-out);
 }
 .nav-group-h:hover{background:var(--qb-divider);}
 .nav-group-h:focus-visible{outline:2px solid var(--qb-accent); outline-offset:-2px;}
@@ -233,7 +286,7 @@ img,svg,canvas{max-width:100%;}
   display:grid; place-items:center; flex:0 0 auto;
   width:var(--qb-rail-glyph); height:var(--qb-rail-glyph);
   border-radius:var(--qb-r-panel); background:transparent; color:var(--qb-text-strong);
-  transition:background .12s ease,color .12s ease;
+  transition:background-color var(--qb-dur-1) var(--qb-ease-out),color var(--qb-dur-1) var(--qb-ease-out);
 }
 .rail-glyph svg{display:block; width:24px; height:24px;}
 .rail-label{
@@ -276,7 +329,7 @@ img,svg,canvas{max-width:100%;}
   display:flex; align-items:center; gap:12px; width:100%; margin:0; padding:0 14px;
   min-height:var(--qb-navrow-h); border:0; border-radius:0;
   background:transparent; color:var(--qb-text); font:400 14px/1.35 var(--qb-sans);
-  text-align:left; cursor:pointer; transition:background .12s ease;
+  text-align:left; cursor:pointer; transition:background-color var(--qb-dur-1) var(--qb-ease-out);
 }
 .nav-item:hover{background:var(--qb-canvas);}
 .nav-item:focus-visible{outline:2px solid var(--qb-accent); outline-offset:-2px;}
@@ -423,7 +476,7 @@ img,svg,canvas{max-width:100%;}
   border:1px solid var(--qb-border); border-radius:var(--qb-r-control);
   background:var(--qb-surface); color:var(--qb-text-strong);
   font:500 16px/1 var(--qb-sans); cursor:pointer; box-shadow:none;
-  transition:background .12s ease,border-color .12s ease,color .12s ease;
+  transition:background-color var(--qb-dur-1) var(--qb-ease-out),border-color var(--qb-dur-1) var(--qb-ease-out),color var(--qb-dur-1) var(--qb-ease-out);
 }
 .btn:hover{background:var(--qb-canvas); border-color:var(--qb-accent);}
 .btn:focus-visible{outline:2px solid var(--qb-accent); outline-offset:1px;}
@@ -476,7 +529,7 @@ input:disabled,select:disabled,textarea:disabled,input[readonly],textarea[readon
   flex:0 0 auto; min-height:32px; padding:0 16px; border:0;
   background:transparent; color:var(--qb-text-muted);
   font:400 16px/1 var(--qb-sans); border-radius:5px; cursor:pointer; white-space:nowrap;
-  transition:background .12s ease,color .12s ease;
+  transition:background-color var(--qb-dur-1) var(--qb-ease-out),color var(--qb-dur-1) var(--qb-ease-out);
 }
 .tab:hover,.seg>button:hover,.je-queue-chips>button:hover,.bank-queue-tabs>button:hover,
 .qbo-report-tabs>button:hover{color:var(--qb-text-strong);}
@@ -640,7 +693,7 @@ select{padding-right:28px; cursor:pointer;}
 .kv.tot{font-weight:600; border-bottom:0; border-top:1px solid var(--qb-border); margin-top:4px; padding-top:10px;}
 /* Label/value metric grids - one shared pattern for every workspace. */
 .kv-grid,.qbo-drill-summary,.gl-overview-strip,.detail-grid,
-.source-doc-kv,.source-doc-panel-grid,.bank-summary-metrics,.qbo-insight-metrics,.src-grid{
+.source-doc-kv,.source-doc-panel-grid,.bank-summary-metrics,.src-grid{
   display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:12px 0; min-width:0;
 }
 .qbo-toolgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:12px 0;min-width:0;}
@@ -649,17 +702,17 @@ select{padding-right:28px; cursor:pointer;}
   border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);}
 .kv-grid>div,.qbo-drill-summary>span,.gl-overview-strip>span,
 .detail-grid>div,.detail-grid>span,.source-doc-kv>div,.source-doc-panel-grid>div,
-.bank-summary-metrics>span,.qbo-insight-metrics>span,.src-grid span{
+.bank-summary-metrics>span,.src-grid span{
   display:flex; flex-direction:column; gap:5px; min-width:0;
   padding:14px 16px; background:var(--qb-inset);
   border:var(--qb-hair) solid var(--qb-divider); border-radius:var(--qb-r-card);
 }
 .kv-grid span,.qbo-toolgrid i,.qbo-drill-summary i,.gl-overview-strip i,.src-grid i,
-.detail-grid i,.source-doc-kv span,.bank-summary-metrics i,.qbo-insight-metrics i{
+.detail-grid i,.source-doc-kv span,.bank-summary-metrics i{
   color:var(--qb-text-muted); font:500 12px/1.3 var(--qb-sans); font-style:normal;
 }
 .kv-grid b,.qbo-toolgrid b,.qbo-drill-summary b,.gl-overview-strip b,.src-grid b,
-.detail-grid b,.source-doc-kv b,.bank-summary-metrics b,.qbo-insight-metrics b{
+.detail-grid b,.source-doc-kv b,.bank-summary-metrics b{
   color:var(--qb-text-strong); font-size:14px; font-weight:600; overflow-wrap:anywhere;
 }
 
@@ -675,6 +728,30 @@ select{padding-right:28px; cursor:pointer;}
 .badge-ok{background:var(--qb-ok-bg); color:var(--qb-ok);}
 .badge-warn{background:var(--qb-warn-bg); color:var(--qb-warn);}
 .badge-bad{background:var(--qb-bad-bg); color:var(--qb-bad);}
+/* ---- Workflow shape alphabet (round 3) --------------------------------------
+   Colour alone cannot carry Draft / Pending review / Approved / Posted /
+   Reversed for a reader with a colour vision deficiency, and tone is only a
+   three-way split (muted / warn / ok+bad) while the workflow has five states.
+   Each stage therefore also has its own MARK GEOMETRY, readable in greyscale:
+
+     Draft            hollow ring        nothing committed yet
+     Pending review   half-filled ring   committed, awaiting a second pair of eyes
+     Approved         filled circle      complete
+     Posted           filled square      immutable - a different shape entirely
+     Reversed / void  horizontal bar     struck through
+
+   The mark is decorative (`::before` on an aria-hidden pseudo-element); the
+   status word itself remains the accessible name, so nothing depends on shape
+   alone either. A badge is a statement of state, never a control. ------------- */
+.badge-s-draft::before{background:transparent; box-shadow:inset 0 0 0 1.5px currentColor;}
+.badge-s-progress::before{
+  background:linear-gradient(90deg,currentColor 0 50%,transparent 50% 100%);
+  box-shadow:inset 0 0 0 1.5px currentColor;
+}
+.badge-s-approved::before{background:currentColor;}
+.badge-s-posted::before{width:7px; height:7px; border-radius:1px; background:currentColor;}
+.badge-s-posted{font-weight:600;}
+.badge-s-reversed::before{width:8px; height:2px; border-radius:1px; background:currentColor;}
 
 /* ============================ 8. TABLES ================================== */
 /* Headers 14/600 sticky; numerics right-aligned; the wrapper scrolls, never the page. */
@@ -694,6 +771,10 @@ select{padding-right:28px; cursor:pointer;}
   border-bottom:1px solid var(--qb-border-alt);
   font:600 14px/1.3 var(--qb-sans); text-align:left; text-transform:none; letter-spacing:0;
   white-space:nowrap; word-break:keep-all; user-select:none; backdrop-filter:none;
+  /* A sticky cell paints its border under the scrolled row in some engines;
+     the 1px shadow guarantees the header edge survives the scroll. It is the
+     measured 1px offset, not a soft drop shadow. */
+  box-shadow:0 1px 0 0 var(--qb-border-alt);
 }
 .tbl td{
   height:44px; padding:9px 12px; border-top:1px solid var(--qb-border-alt);
@@ -711,9 +792,19 @@ select{padding-right:28px; cursor:pointer;}
 .th-sort:hover{color:var(--qb-link);}
 .th-sort:focus-visible{outline:2px solid var(--qb-accent); outline-offset:3px;}
 .sort-ind{color:var(--qb-accent);}
-.tbl tbody tr{transition:background .1s ease;}
+.tbl tbody tr{transition:background-color var(--qb-dur-1) var(--qb-ease-out),box-shadow var(--qb-dur-1) var(--qb-ease-out);}
 .tr-click{cursor:pointer;}
-.tbl tbody tr:hover,.tr-click:hover,.tr-hi{background:var(--qb-canvas); box-shadow:none;}
+/* Pointer hover and keyboard position are two different facts and must not look
+   the same (round 3). Hover is the quiet canvas tint QuickBooks uses. The
+   keyboard row is the one the Enter key will open, so it carries the accent
+   tint plus a 3px inset marker - visible without colour, and it cannot be
+   confused with the row the mouse happens to be resting over. */
+.tbl tbody tr:hover,.tr-click:hover{background:var(--qb-canvas); box-shadow:none;}
+.tbl tbody tr.tr-kb,.tbl tbody tr.tr-kb:hover{
+  background:var(--qb-accent-tint);
+  box-shadow:inset 3px 0 0 0 var(--qb-accent);
+}
+.tr-hi{background:var(--qb-canvas); box-shadow:none;}
 .sec-row td{background:var(--qb-inset)!important; color:var(--qb-text-strong);
   font:600 12px/1.4 var(--qb-sans); letter-spacing:.06em; text-transform:uppercase;}
 .sub-row td{border-top:1px solid var(--qb-border); background:var(--qb-inset); font-weight:600;}
@@ -759,6 +850,56 @@ select{padding-right:28px; cursor:pointer;}
   border-radius:var(--qb-r-card); color:var(--qb-bad); font-size:13px;
 }
 .report-entity-required{border-color:var(--qb-warn-line); background:var(--qb-warn-bg); color:var(--qb-warn);}
+/* StateBlock is the only renderer of the four states. Its optional action row
+   holds real navigation only - a state block never carries a dead control. */
+.state-block-acts{display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:10px;}
+.state-error .state-block-acts{justify-content:flex-start;}
+.state-loading{opacity:.9;}
+/* ---- Cleared: an empty work queue is an outcome, not a blank page (round 3).
+   Used only where the queue genuinely holds finite work that has been finished.
+   It is a statement about the queue, never a claim that any period is closed,
+   reconciled, approved or posted, and it carries no control. -------------- */
+.state-cleared{border-color:var(--qb-ok-line); background:var(--qb-ok-bg); color:var(--qb-text);}
+.state-cleared b{color:var(--qb-text-strong);}
+.state-cleared::before{
+  border-color:var(--qb-ok-line); background-color:var(--qb-surface);
+  background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230F6B45' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.6l4.2 4.2L19 7'/%3E%3C/svg%3E");
+}
+/* ---- Skeletons (round 3). A skeleton block occupies exactly the geometry of
+   the content it stands in for - same row height, same column widths, same
+   header - so the layout does not jump when the read resolves. The sweep is
+   opacity/position only and is removed entirely under prefers-reduced-motion. */
+.skel,.skel-cell{
+  border-radius:var(--qb-r-chip); background-color:var(--qb-skel);
+  background-image:linear-gradient(90deg,var(--qb-skel) 0%,var(--qb-skel-hi) 50%,var(--qb-skel) 100%);
+  background-size:220% 100%; background-repeat:no-repeat;
+  animation:skelSweep 1.4s var(--qb-ease-out) infinite;
+}
+@keyframes skelSweep{from{background-position:120% 0;} to{background-position:-120% 0;}}
+.skel-table{width:100%;}
+.skel-table .skel-head{
+  display:flex; gap:12px; align-items:center; height:40px; padding:8px 16px;
+  border-bottom:1px solid var(--qb-border-alt);
+}
+.skel-table .skel-row{
+  display:flex; gap:12px; align-items:center; height:44px; padding:9px 16px;
+  border-top:1px solid var(--qb-border-alt);
+}
+.skel-table .skel-row:first-of-type{border-top:0;}
+.skel-cell{flex:1 1 0; min-width:0; height:11px;}
+.skel-head .skel-cell{height:9px; opacity:.85;}
+.skel-cell.skel-num{flex:0 0 84px;}
+.skel-cell.skel-wide{flex:2 1 0;}
+/* A capability that can never execute here is a statement, not a control:
+   a non-focusable chip carrying its own reason, never a <button>. */
+.unavailable-chip{
+  display:inline-flex; align-items:baseline; flex-wrap:wrap; gap:6px 8px;
+  padding:6px 10px; border:var(--qb-hair) dashed var(--qb-border);
+  border-radius:var(--qb-r-control); background:transparent;
+  color:var(--qb-text-muted); font-size:12px; cursor:default;
+}
+.unavailable-name{font-weight:600; color:var(--qb-text-strong); font-size:12px;}
+.unavailable-why{font-size:11px; color:var(--qb-text-muted);}
 .toast{
   position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:60;
   padding:11px 20px; background:var(--qb-text-strong); color:#FFF;
@@ -795,6 +936,30 @@ select{padding-right:28px; cursor:pointer;}
 .todo-n{display:grid; place-items:center; width:48px; height:48px; border-radius:var(--qb-r-pill);
   font:600 24px/1 var(--qb-sans); font-variant-numeric:tabular-nums;}
 .todo-label,.todo-l{color:var(--qb-text-muted); font-size:13px; line-height:1.45; text-align:center;}
+/* ---- Queue tiles: what is left, and what is already done (round 3) ----------
+   `.todo-n` previously had no tone rules at all, so a queue with work left and
+   a queue that was clear rendered as the same plain numeral. Now the count
+   carries a tint AND the tile carries a meter of the work already completed,
+   because "3 remaining" is discouraging where "3 remaining of 41" is progress.
+   Every figure below is derived from records already on screen - no tile
+   renders a meter it cannot compute. ----------------------------------------- */
+.todo-n{background:var(--qb-inset); color:var(--qb-text-strong); border:1px solid var(--qb-border-soft);}
+.todo-n.warn{background:var(--qb-warn-bg); color:var(--qb-warn); border-color:var(--qb-warn-line);}
+.todo-n.ok{background:var(--qb-ok-bg); color:var(--qb-ok); border-color:var(--qb-ok-line);}
+.todo-item.is-clear .todo-n{font-size:22px;}
+.todo-meter{
+  width:100%; height:6px; margin-top:2px; border-radius:var(--qb-r-pill);
+  background:var(--qb-divider); overflow:hidden;
+}
+.todo-meter>span{
+  display:block; height:100%; border-radius:inherit; background:var(--qb-ok);
+  transition:width var(--qb-dur-2) var(--qb-ease-out);
+}
+.todo-done{
+  color:var(--qb-text-muted); font-size:12px; line-height:1.4; text-align:center;
+  font-variant-numeric:tabular-nums;
+}
+.todo-item.is-clear .todo-done{color:var(--qb-ok); font-weight:600;}
 .appr-row{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
   padding:11px 16px; margin-bottom:8px; font-size:14px; min-width:0;}
 .appr-row>span:first-child{min-width:0; overflow-wrap:anywhere;}
@@ -822,7 +987,7 @@ select{padding-right:28px; cursor:pointer;}
 .drawer{
   display:flex; flex-direction:column; height:100%; max-width:100vw;
   background:var(--qb-surface); border-left:var(--qb-hair) solid var(--qb-divider);
-  border-radius:0; box-shadow:var(--qb-shadow-strong); animation:slideIn .18s ease;
+  border-radius:0; box-shadow:var(--qb-shadow-strong); animation:slideIn var(--qb-dur-2) var(--qb-ease-out);
 }
 @keyframes slideIn{from{transform:translateX(24px); opacity:.6;} to{transform:none; opacity:1;}}
 .drawer-head{display:flex; align-items:center; justify-content:space-between; gap:12px;
@@ -1120,7 +1285,7 @@ select{padding-right:28px; cursor:pointer;}
   border:var(--qb-hair) solid var(--qb-chip-border);
   border-radius:var(--qb-r-pill);background:var(--qb-surface);color:var(--qb-text-strong);
   font:600 14px/1.2 var(--qb-sans);cursor:pointer;white-space:nowrap;
-  transition:border-color .12s ease,background .12s ease;}
+  transition:border-color var(--qb-dur-1) var(--qb-ease-out),background-color var(--qb-dur-1) var(--qb-ease-out);}
 .qbo-quicklinks button:hover{border-color:var(--qb-chip-border);background:var(--qb-canvas);}
 .qbo-quicklinks button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 .qbo-quicklinks i{display:grid;place-items:center;flex:0 0 auto;width:32px;height:32px;
@@ -1197,7 +1362,7 @@ select{padding-right:28px; cursor:pointer;}
 @media(max-width:1024px){
   /* Tablet: the rail goes off-canvas and gains a reachable open/close pair. */
   .sidebar{position:fixed; top:0; left:0; z-index:32; transform:translateX(-100%);
-    transition:transform .18s ease; box-shadow:var(--qb-shadow-strong);}
+    transition:transform var(--qb-dur-2) var(--qb-ease-out); box-shadow:var(--qb-shadow-strong);}
   .sidebar.mobile-open{transform:translateX(0);}
   .main{margin:6px;}
   .mobile-nav-close{
@@ -1401,16 +1566,66 @@ body.dark button:disabled,body.dark [aria-disabled="true"],body.dark .btn:disabl
   background:var(--qb-raised); color:var(--qb-text-faint); border-color:var(--qb-border-soft);
 }
 body.dark code,body.dark .mono{background:var(--qb-raised);}
+/* ---- round 3 dark parity ---------------------------------------------------
+   Motion tokens are colour-free and inherit unchanged. Everything that paints
+   is repeated here so nothing falls through to a light value. */
+body.dark .tbl th{box-shadow:0 1px 0 0 var(--qb-border-alt);}
+body.dark .tbl tbody tr.tr-kb,body.dark .tbl tbody tr.tr-kb:hover{
+  background:var(--qb-accent-tint); box-shadow:inset 3px 0 0 0 var(--qb-accent);
+}
+body.dark .todo-n{background:var(--qb-inset); color:var(--qb-text-strong); border-color:var(--qb-border-soft);}
+body.dark .todo-n.warn{background:var(--qb-warn-bg); color:var(--qb-warn); border-color:var(--qb-warn-line);}
+body.dark .todo-n.ok{background:var(--qb-ok-bg); color:var(--qb-ok); border-color:var(--qb-ok-line);}
+body.dark .todo-meter{background:var(--qb-divider);}
+body.dark .todo-meter>span{background:var(--qb-ok);}
+body.dark .state-cleared{background:var(--qb-ok-bg); border-color:var(--qb-ok-line); color:var(--qb-text);}
+body.dark .state-cleared::before{
+  background-color:var(--qb-raised); border-color:var(--qb-ok-line);
+  background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2379D3A6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.6l4.2 4.2L19 7'/%3E%3C/svg%3E");
+}
+body.dark .skel,body.dark .skel-cell{
+  background-color:var(--qb-skel);
+  background-image:linear-gradient(90deg,var(--qb-skel) 0%,var(--qb-skel-hi) 50%,var(--qb-skel) 100%);
+}
+body.dark .skel-table .skel-head,body.dark .skel-table .skel-row{border-color:var(--qb-border-alt);}
 
+/* Bank queue segmented control, account tile pill, and non-executable action chips.
+   Elevation stays tight and hover is a background tint only - no lift. */
+.bank-queue-seg-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid #e2e9ed;}
+.bank-queue-seg{display:inline-flex;gap:2px;padding:2px;background:#e2e9ed;border-radius:6px;}
+.bank-queue-seg-item{appearance:none;border:0;height:32px;padding:0 16px;border-radius:5px;background:transparent;color:#4c555b;font:400 16px/1.2 inherit;cursor:pointer;white-space:nowrap;}
+.bank-queue-seg-item:hover{background:rgba(255,255,255,.55);}
+.bank-queue-seg-on,.bank-queue-seg-on:hover{background:#fff;color:#21262a;box-shadow:0 1px 4px rgba(76,85,91,.2);}
+.bank-queue-seg-item:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.bank-queue-seg-note{color:var(--text-2);font-size:11px;flex:1 1 220px;min-width:0;}
+.bank-account-pill{display:inline-grid;place-items:center;min-width:22px;height:20px;padding:0 6px;margin-left:auto;border-radius:10px;background:#e2e9ed;color:#21262a;font-size:11px;font-weight:600;}
+.bank-pagination-range{color:var(--text-2);font-size:12px;margin-right:auto;font-variant-numeric:tabular-nums;}
+.bank-action-availability{padding:12px 14px;border-top:1px solid #e2e9ed;}
+.bank-action-availability>b{font-size:12px;}
+.bank-action-list{list-style:none;display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0;padding:0;}
+.bank-action-item{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border:var(--qb-hair) dashed var(--qb-border);border-radius:6px;background:transparent;color:var(--text-2);cursor:default;}
+.bank-action-item{flex-direction:column;align-items:flex-start;gap:2px;}
+.bank-action-name{font-weight:600;color:var(--text-1);font-size:12px;}
+.bank-action-state{font-size:11px;text-transform:uppercase;letter-spacing:.04em;}
+.bank-action-why{font-size:11px;}
+.recon-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:12px 0;}
+.recon-summary-cell{display:flex;flex-direction:column;gap:4px;padding:10px 12px;background:var(--bg-canvas);border:1px solid var(--divider);border-radius:8px;min-width:0;}
+.recon-summary-cell i{font-style:normal;font-size:11px;color:var(--text-2);}
+.recon-summary-cell b{font:600 20px/1.2 inherit;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
+.recon-summary-off b{color:var(--bad);}
+@media(max-width:720px){.bank-queue-seg{width:100%;}.bank-queue-seg-item{flex:1 1 auto;padding:0 10px;font-size:14px;}}
 
 /* preview-only chrome, not part of the product stylesheet */
 .preview-note{max-width:900px;margin:12px auto 0;padding:12px 16px;background:#FFF;
   border:0.8px solid #E2E9ED;border-radius:8px;color:#4C555B;font:400 13px/1.6
   "Avenir Next","Segoe UI",-apple-system,sans-serif;}
 .preview-note b{color:#21262A;}
-.preview-toggle{display:inline-flex;align-items:center;gap:8px;margin-top:8px;
+.preview-toggle{display:inline-flex;align-items:center;gap:8px;margin-top:8px;margin-right:8px;
   min-height:32px;padding:0 12px;border:1px solid #C3CED5;border-radius:6px;
   background:#FFF;color:#21262A;font:500 13px/1 inherit;cursor:pointer;}
+/* preview-only: proves the status marks survive with the colour removed */
+.preview-grey{filter:grayscale(1);}
+body.preview-grey-all .app{filter:grayscale(1);}
 </style>
 </head>
 <body>
@@ -1606,14 +1821,98 @@ body.dark code,body.dark .mono{background:var(--qb-raised);}
         </div>
         <div class="sec-title"><h3>Needs attention &middot; REFS local queue</h3></div>
         <div class="todo-grid" style="margin-bottom:26px">
-          <div class="todo-item"><span class="todo-n warn">3</span><span class="todo-l">Bank transactions for review</span></div>
-          <div class="todo-item"><span class="todo-n warn">1</span><span class="todo-l">Bills pending approval</span></div>
-          <div class="todo-item"><span class="todo-n ok">0</span><span class="todo-l">JEs pending review/approval</span></div>
-          <div class="todo-item"><span class="todo-n warn">2</span><span class="todo-l">Open exceptions</span></div>
-          <div class="todo-item"><span class="todo-n warn">5</span><span class="todo-l">Close tasks remaining</span></div>
+          <div class="todo-item" role="button" tabindex="0" aria-label="Bank transactions for review: 3 remaining, 38 of 41 done">
+            <span class="todo-n warn" aria-hidden="true">3</span>
+            <span class="todo-l" aria-hidden="true">Bank transactions for review</span>
+            <span class="todo-meter" aria-hidden="true"><span style="width:93%"></span></span>
+            <span class="todo-done" aria-hidden="true">38 of 41 done</span>
+          </div>
+          <div class="todo-item" role="button" tabindex="0" aria-label="Bills pending approval: 1 remaining, 17 of 18 done">
+            <span class="todo-n warn" aria-hidden="true">1</span>
+            <span class="todo-l" aria-hidden="true">Bills pending approval</span>
+            <span class="todo-meter" aria-hidden="true"><span style="width:94%"></span></span>
+            <span class="todo-done" aria-hidden="true">17 of 18 done</span>
+          </div>
+          <div class="todo-item is-clear" role="button" tabindex="0" aria-label="JEs pending review/approval: 0 remaining, 26 of 26 done">
+            <span class="todo-n ok" aria-hidden="true">&#10003;</span>
+            <span class="todo-l" aria-hidden="true">JEs pending review/approval</span>
+            <span class="todo-meter" aria-hidden="true"><span style="width:100%"></span></span>
+            <span class="todo-done" aria-hidden="true">All 26 done</span>
+          </div>
+          <div class="todo-item" role="button" tabindex="0" aria-label="Missing mappings: 2 remaining, 7 of 9 done">
+            <span class="todo-n warn" aria-hidden="true">2</span>
+            <span class="todo-l" aria-hidden="true">Missing mappings</span>
+            <span class="todo-meter" aria-hidden="true"><span style="width:78%"></span></span>
+            <span class="todo-done" aria-hidden="true">7 of 9 done</span>
+          </div>
+          <div class="todo-item" role="button" tabindex="0" aria-label="Open exceptions: 4 remaining, 17 of 21 done">
+            <span class="todo-n warn" aria-hidden="true">4</span>
+            <span class="todo-l" aria-hidden="true">Open exceptions</span>
+            <span class="todo-meter" aria-hidden="true"><span style="width:81%"></span></span>
+            <span class="todo-done" aria-hidden="true">17 of 21 done</span>
+          </div>
+          <div class="todo-item" role="button" tabindex="0" aria-label="Close tasks remaining: 5 remaining, 9 of 14 done">
+            <span class="todo-n warn" aria-hidden="true">5</span>
+            <span class="todo-l" aria-hidden="true">Close tasks remaining</span>
+            <span class="todo-meter" aria-hidden="true"><span style="width:64%"></span></span>
+            <span class="todo-done" aria-hidden="true">9 of 14 done</span>
+          </div>
         </div>
+
+        <div class="sec-title"><h3>Round 3 &middot; workflow marks, readable in greyscale</h3></div>
+        <div class="card" style="margin-bottom:26px">
+          <div class="card-h">Every stage differs by mark geometry, not only by hue</div>
+          <div class="row-acts" style="margin:10px 0 14px">
+            <span class="badge badge-muted badge-s-draft">DRAFT</span>
+            <span class="badge badge-warn badge-s-progress">PENDING_REVIEW</span>
+            <span class="badge badge-warn badge-s-progress">PENDING_APPROVAL</span>
+            <span class="badge badge-ok badge-s-approved">APPROVED</span>
+            <span class="badge badge-ok badge-s-posted">POSTED</span>
+            <span class="badge badge-bad badge-s-reversed">REVERSED</span>
+          </div>
+          <div class="row-acts preview-grey" style="margin-bottom:6px">
+            <span class="badge badge-muted badge-s-draft">DRAFT</span>
+            <span class="badge badge-warn badge-s-progress">PENDING_REVIEW</span>
+            <span class="badge badge-warn badge-s-progress">PENDING_APPROVAL</span>
+            <span class="badge badge-ok badge-s-approved">APPROVED</span>
+            <span class="badge badge-ok badge-s-posted">POSTED</span>
+            <span class="badge badge-bad badge-s-reversed">REVERSED</span>
+          </div>
+          <p class="muted sm" style="margin:0">The second row is the same markup with the colour removed
+            (<code>filter:grayscale(1)</code>, preview-only). Ring / half ring / filled circle / square / bar
+            still separate the five stages. A badge is a statement of state and is never a control.</p>
+        </div>
+
+        <div class="sec-title"><h3>Round 3 &middot; three numeric readings</h3></div>
+        <div class="table-wrap" style="margin-bottom:26px">
+          <table class="tbl">
+            <thead><tr><th>Line</th><th>Account</th><th class="ta-r">Debits</th><th class="ta-r">Credits</th><th>Reading</th></tr></thead>
+            <tbody>
+              <tr><td class="muted">1</td><td>1010 Operating Cash</td><td class="ta-r"><span class="num">$412,880.00</span></td><td class="ta-r"><span class="num num-nil">&ndash;</span></td><td class="muted sm">Debit line: the credit side does not apply</td></tr>
+              <tr class="tr-hi"><td class="muted">2</td><td>4010 Rental Revenue</td><td class="ta-r"><span class="num num-nil">&ndash;</span></td><td class="ta-r"><span class="num">$412,880.00</span></td><td class="muted sm">Pointer hover &mdash; quiet canvas tint</td></tr>
+              <tr class="tr-kb"><td class="muted">3</td><td>1310 Prepaid Insurance</td><td class="ta-r"><span class="num num-zero">$0.00</span></td><td class="ta-r"><span class="num num-zero">$0.00</span></td><td class="muted sm">Keyboard row &mdash; accent tint + inset marker; a recorded zero, not an absence</td></tr>
+              <tr><td class="muted">4</td><td>2010 Accounts Payable</td><td class="ta-r"><span class="num num-nil">&ndash;</span></td><td class="ta-r"><span class="num num-neg">($8,420.00)</span></td><td class="muted sm">Negative in parentheses, same tabular width</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="sec-title"><h3>Round 3 &middot; loading skeleton at the geometry of the real table</h3></div>
+        <div style="margin-bottom:26px">
+          <div class="table-wrap" role="status" aria-live="polite" aria-busy="true" aria-label="Loading records">
+            <div class="skel-table" aria-hidden="true">
+              <div class="skel-head"><span class="skel-cell skel-wide"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span></div>
+              <div class="skel-row"><span class="skel-cell skel-wide"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span></div><div class="skel-row"><span class="skel-cell skel-wide"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span></div><div class="skel-row"><span class="skel-cell skel-wide"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span></div><div class="skel-row"><span class="skel-cell skel-wide"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span></div><div class="skel-row"><span class="skel-cell skel-wide"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span><span class="skel-cell"></span><span class="skel-cell skel-num"></span></div>
+            </div>
+          </div>
+          <p class="muted sm" style="margin:8px 0 0">40px header, 44px rows, same wrapper hairline and radius as the
+            loaded table, so nothing shifts when the read resolves. The sweep disappears entirely under
+            <code>prefers-reduced-motion: reduce</code> &mdash; set that in your OS and reload to check.</p>
+        </div>
+
         <div class="sec-title"><h3>Approvals (0)</h3><button class="btn btn-ghost btn-sm">View all</button></div>
-        <div class="empty empty-state"><b>No journal entries are pending approval.</b>Approved and posted evidence stays reachable from the Journal Entry workspace.</div>
+        <div class="empty empty-state state-block state-empty state-cleared"><b>Nothing is waiting on you.</b>Every journal entry in scope has cleared review and approval. Posted evidence stays reachable from the Journal Entry workspace.</div>
+        <p class="muted sm" style="margin:8px 0 0">Compare the neutral empty state, which means &ldquo;no records in scope&rdquo;:</p>
+        <div class="empty empty-state state-block state-empty" style="margin-top:8px"><b>No records to display.</b>Adjust the filters above to widen the scope.</div>
       </div>
     </main>
   </div>
@@ -1623,7 +1922,15 @@ body.dark code,body.dark .mono{background:var(--qb-raised);}
   product stylesheet inlined verbatim from <code>index.html</code>. Nothing here is interactive
   except the theme toggle. Independent implementation informed by measurement; no QuickBooks
   markup, CSS, icon, image or font asset is used, and no claim of QuickBooks equivalence is made.
-  <div><button class="preview-toggle" onclick="document.body.classList.toggle('dark')">Toggle dark mode</button></div>
+  <div><b>Round 3</b> adds, below the dashboard cards: the workflow mark alphabet (with a greyscale copy),
+  the three numeric readings with a hover row and a keyboard row side by side, the loading skeleton at the
+  geometry of the real table, and the cleared-queue state next to the neutral empty state. To judge the
+  motion story, turn on your operating system's &ldquo;reduce motion&rdquo; setting and reload: the skeleton
+  sweep must stop completely and every hover tint must become instant.</div>
+  <div>
+    <button class="preview-toggle" onclick="document.body.classList.toggle('dark')">Toggle dark mode</button>
+    <button class="preview-toggle" onclick="document.body.classList.toggle('preview-grey-all')">Toggle greyscale</button>
+  </div>
 </div>
 </body>
 </html>

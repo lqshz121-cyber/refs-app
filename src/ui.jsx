@@ -63,6 +63,24 @@ export function Segmented({options, value, onChange, label}) {
       onClick={()=>onChange(key)}>{count==null ? text : `${text} (${count})`}</button>;
   })}</div>;
 }
+// ---------------------------------------------------------------------------
+// Workflow marks. Tone is a three-way colour split; the workflow has five
+// stages, and a reader with a colour vision deficiency cannot separate
+// "Approved" from "Posted" by hue at all. Each recognised stage therefore also
+// gets a mark GEOMETRY (see index.html section 7): ring / half ring / filled
+// circle / square / bar. Unrecognised badge content - source system codes,
+// severities, "READ ONLY" - keeps the plain dot and is unaffected.
+// ---------------------------------------------------------------------------
+const STATUS_SHAPE = {
+  DRAFT:'draft',
+  PENDING:'progress', PENDING_REVIEW:'progress', PENDING_APPROVAL:'progress',
+  IN_PROGRESS:'progress', OPEN:'progress', PARTIAL:'progress', UNMATCHED:'progress',
+  APPROVED:'approved', MATCHED:'approved', DONE:'approved', BALANCED:'approved',
+  SIGNED_OFF:'approved', PAID:'approved', RESOLVED:'approved', CLOSED:'approved',
+  POSTED:'posted',
+  REVERSED:'reversed', VOID:'reversed', REJECTED:'reversed', FAILED:'reversed',
+  OUT_OF_BALANCE:'reversed',
+};
 const STATUS_TONE = {
   POSTED:'ok', APPROVED:'ok', MATCHED:'ok', DONE:'ok', BALANCED:'ok', SIGNED_OFF:'ok', PAID:'ok', RESOLVED:'ok',
   CLOSED:'muted', WAIVED:'muted', DRAFT:'muted',
@@ -71,12 +89,24 @@ const STATUS_TONE = {
 };
 export function Badge({children, tone}) {
   const t = tone || STATUS_TONE[children] || 'muted';
-  return <span className={`badge badge-${t}`}>{children}</span>;
+  const shape = typeof children === 'string' ? STATUS_SHAPE[children] : null;
+  return <span className={`badge badge-${t}${shape ? ' badge-s-' + shape : ''}`}>{children}</span>;
 }
-export function Money({v, bold}) {
+export function Money({v, bold, nil}) {
   // Money is the shared sans face with tabular numerals, not a monospace font.
-  const neg = v<0;
-  return <span className={`num ${neg?'num-neg':''} ${bold?'num-bold':''}`}>{money(v)}</span>;
+  // Three readings, never collapsed into one (round 3):
+  //   a figure        $1,204.00 / ($1,204.00)
+  //   a real zero     $0.00, quieter, but unmistakably a figure
+  //   no figure       an en dash, announced as "no amount", which can never be
+  //                   read as a balance of zero.
+  // `nil` marks a column that does not apply to this row (the credit side of a
+  // debit line), which is a different fact from a recorded zero.
+  if (nil || v == null) {
+    return <span className="num num-nil" title="No amount" aria-label="No amount">{'–'}</span>;
+  }
+  const neg = v < 0;
+  const zero = v === 0;
+  return <span className={`num ${neg?'num-neg':''} ${zero?'num-zero':''} ${bold?'num-bold':''}`}>{money(v)}</span>;
 }
 // ---------------------------------------------------------------------------
 // One state language for every workspace. There are exactly four states and
@@ -86,6 +116,11 @@ export function Money({v, bold}) {
 //   empty      - the read succeeded and returned nothing in scope
 //   permission - the reader is not entitled to this scope, or a required
 //                scope (e.g. an entity) has not been selected
+//   cleared    - the read succeeded and a FINITE WORK QUEUE returned nothing,
+//                which is an outcome rather than an absence. It is only valid
+//                where the queue really is work that gets finished; it says
+//                nothing about whether a period is closed, reconciled or
+//                posted, and like every other state it carries no control.
 // `title` is the headline, `children` the explanation, `actions` an optional
 // row of real navigation. A StateBlock never carries a disabled control.
 // ---------------------------------------------------------------------------
@@ -94,6 +129,7 @@ export const STATE_CLASS = {
   error: 'err-box state-block state-error',
   empty: 'empty empty-state state-block state-empty',
   permission: 'empty empty-state report-entity-required state-block state-permission',
+  cleared: 'empty empty-state state-block state-empty state-cleared',
 };
 export function StateBlock({tone='empty', title, children, actions, label, className=''}) {
   const cls = `${STATE_CLASS[tone] || STATE_CLASS.empty}${className ? ' ' + className : ''}`;
@@ -117,11 +153,56 @@ export function Unavailable({children, reason}) {
   </span>;
 }
 
+// ---------------------------------------------------------------------------
+// A queue tile states two facts, not one: how much work is LEFT, and how much
+// is already DONE. "3 remaining" reads as a chore; "3 remaining of 41" reads as
+// progress. Both figures must be derivable from records already in scope - the
+// tile refuses to draw a meter when `total` is not a positive number, rather
+// than inventing a denominator. When the queue is empty the tile reads as an
+// accomplishment (check mark, positive tone) instead of a bare zero.
+// It states a count. It claims nothing about approval, posting or closing.
+// ---------------------------------------------------------------------------
+export function QueueTile({label, remaining, done, total, onOpen}) {
+  const hasMeter = Number.isFinite(total) && total > 0 && Number.isFinite(done);
+  const clear = remaining === 0;
+  const pct = hasMeter ? Math.max(0, Math.min(100, Math.round((done / total) * 100))) : 0;
+  const spoken = hasMeter
+    ? `${label}: ${remaining} remaining, ${done} of ${total} done`
+    : `${label}: ${remaining} remaining`;
+  const open = typeof onOpen === 'function' ? onOpen : undefined;
+  return <div className={`todo-item${clear ? ' is-clear' : ''}`} onClick={open}
+    role={open ? 'button' : undefined} tabIndex={open ? 0 : undefined} aria-label={spoken}
+    onKeyDown={open ? e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); open(e); } } : undefined}>
+    <span className={`todo-n ${clear ? 'ok' : 'warn'}`} aria-hidden="true">{clear ? '✓' : remaining}</span>
+    <span className="todo-l" aria-hidden="true">{label}</span>
+    {hasMeter && <span className="todo-meter" aria-hidden="true"><span style={{width:pct+'%'}}/></span>}
+    {hasMeter && <span className="todo-done" aria-hidden="true">
+      {clear ? `All ${total} done` : `${done} of ${total} done`}
+    </span>}
+  </div>;
+}
+
+// A loading table is drawn at the geometry of the table it will become - same
+// 40px header, same 44px rows, same wrapper border - so the page does not jump
+// when the read resolves. The sweep is a background-position animation and is
+// switched off entirely by prefers-reduced-motion (index.html section 9).
+export function TableSkeleton({cols = 5, rows = 6, label = 'Loading records'}) {
+  const spec = Array.isArray(cols) ? cols : Array.from({length:cols}, ()=>({}));
+  const cell = (c, i) => <span key={i}
+    className={`skel-cell${c && c.num ? ' skel-num' : ''}${i === 0 ? ' skel-wide' : ''}`}/>;
+  return <div className="table-wrap" role="status" aria-live="polite" aria-busy="true" aria-label={label}>
+    <div className="skel-table" aria-hidden="true">
+      <div className="skel-head">{spec.map(cell)}</div>
+      {Array.from({length:rows}, (_, r)=><div className="skel-row" key={r}>{spec.map(cell)}</div>)}
+    </div>
+  </div>;
+}
+
 // ================= Enterprise Data Grid =================
 // sort / text filter / CSV export / pagination / density / row click
 const _loadView = (k)=>{ try{ return JSON.parse(localStorage.getItem('refs_view_'+k))||{}; }catch(e){ return {}; } };
 const _saveView = (k,v)=>{ try{ localStorage.setItem('refs_view_'+k, JSON.stringify(v)); }catch(e){} };
-export function Table({cols, rows, onRow, empty='No records to display.', rowKey, features={}, pageSize=25, exportName, loading, error}) {
+export function Table({cols, rows, onRow, empty='No records to display.', emptyTone='empty', rowKey, features={}, pageSize=25, exportName, loading, error}) {
   const V = exportName ? _loadView(exportName) : {};
   const {sortable=true, filterable=rows&&rows.length>8, exportable=!!exportName, paginate=rows&&rows.length>pageSize} = features;
   const [sortK, setSortK] = useState(V.sortK??null);
@@ -130,6 +211,10 @@ export function Table({cols, rows, onRow, empty='No records to display.', rowKey
   const [page, setPage] = useState(0);
   const [dense, setDense] = useState(!!V.dense);
   const [hi, setHi] = useState(-1);
+  // Pointer position and keyboard position are different facts. `kb` records
+  // which one last moved, so the accent keyboard row is only painted when the
+  // keyboard actually put it there and never follows the mouse pointer.
+  const [kb, setKb] = useState(false);
   const persist = (patch)=>{ if(exportName) _saveView(exportName, {sortK,sortDir,q,dense,...patch}); };
 
   const cellVal = (r,c) => { if (c.sortVal) return c.sortVal(r); if (c.k!=null) return r[c.k]; if (c.render){ const v=c.render(r); return typeof v==='string'||typeof v==='number'? v : ''; } return ''; };
@@ -157,8 +242,9 @@ export function Table({cols, rows, onRow, empty='No records to display.', rowKey
   };
 
   if (error) return <StateBlock tone="error" title="This view could not load">{error}</StateBlock>;
-  if (loading) return <StateBlock tone="loading">Loading records.</StateBlock>;
-  if (!rows || rows.length===0) return <StateBlock tone="empty">{empty}</StateBlock>;
+  if (loading) return <TableSkeleton cols={cols} rows={Math.min(pageSize, 6)}
+    label={exportName ? `Loading ${exportName} records` : 'Loading records'}/>;
+  if (!rows || rows.length===0) return <StateBlock tone={emptyTone}>{empty}</StateBlock>;
   return <div>
     {(filterable||exportable) && <div className="grid-bar">
       {filterable && <input className="grid-search" aria-label="Search table records" placeholder="Search this view" value={q} onChange={e=>{setQ(e.target.value); setPage(0); persist({q:e.target.value});}}/>}
@@ -171,7 +257,8 @@ export function Table({cols, rows, onRow, empty='No records to display.', rowKey
       if(e.key==='ArrowDown'){ e.preventDefault(); setHi(h=>Math.min(view.length-1,h+1)); }
       if(e.key==='ArrowUp'){ e.preventDefault(); setHi(h=>Math.max(0,h-1)); }
       if(e.key==='Enter' && hi>=0 && onRow){ e.preventDefault(); onRow(view[hi]); }
-    }}><table className={`tbl ${dense?'tbl-dense':''}`}>
+    }} onKeyDownCapture={e=>{ if(e.key==='ArrowDown'||e.key==='ArrowUp') setKb(true); }}
+      onMouseMove={()=>{ if(kb) setKb(false); }}><table className={`tbl ${dense?'tbl-dense':''}`}>
       <thead><tr>{cols.map((c,i)=>
         <th key={i} className={c.num?'ta-r':''} style={c.w?{width:c.w}:null} aria-sort={sortK===i ? (sortDir>0?'ascending':'descending') : 'none'}>
           {sortable ? <button type="button" className="th-sort" onClick={()=>{ if(sortK===i){ setSortDir(d=>{persist({sortK:i,sortDir:-d}); return -d;}); } else {setSortK(i); setSortDir(1); persist({sortK:i,sortDir:1});} }} aria-label={`Sort by ${c.h}${sortK===i ? sortDir>0?', ascending':', descending' : ''}`}>
@@ -179,7 +266,8 @@ export function Table({cols, rows, onRow, empty='No records to display.', rowKey
           </button> : c.h}
         </th>)}</tr></thead>
       <tbody>{view.map((r,ri)=>
-        <tr key={rowKey?r[rowKey]:ri} className={`${onRow?'tr-click':''} ${hi===ri?'tr-hi':''}`} onClick={onRow?()=>onRow(r):null} onMouseEnter={()=>setHi(ri)}>
+        <tr key={rowKey?r[rowKey]:ri} className={`${onRow?'tr-click':''} ${hi===ri?(kb?'tr-kb':'tr-hi'):''}`}
+          onClick={onRow?()=>onRow(r):null} onMouseEnter={()=>setHi(ri)}>
           {cols.map((c,ci)=>{ const v = c.render?c.render(r):r[c.k];
             // Truncated columns keep their full text reachable via a tooltip;
             // the untruncated string always stays in the accessibility tree.
