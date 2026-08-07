@@ -1,0 +1,275 @@
+#!/usr/bin/env node
+//
+// Pull real rows from the WBS read-only MCP and run them through the REFS
+// accounting lineage. Read-only end to end: this posts nothing, writes nothing
+// to WBS, and creates no journal entry.
+//
+// CREDENTIALS
+// -----------
+// Supplied by the operator's shell, never by this file, never by the repo.
+// The three headers are read from the environment and injected through the
+// client's `getAuthHeaders` seam, which is why no secret needs to be stored
+// anywhere:
+//
+//   WBS_CF_ACCESS_CLIENT_ID       -> CF-Access-Client-Id
+//   WBS_CF_ACCESS_CLIENT_SECRET   -> CF-Access-Client-Secret
+//   WBS_REFS_AUTH                 -> X-REFS-Auth
+//
+// Nothing here prints a credential. The preflight reports only whether each
+// variable is present and its length, so a typo is diagnosable without the
+// value ever reaching a terminal, a log or a screenshot.
+//
+// USAGE
+// -----
+//   node server/tools/wbs-pull.mjs                 # step 1+2: meta, then a pilot sample
+//   node server/tools/wbs-pull.mjs --tool list_payables --limit 10
+//   node server/tools/wbs-pull.mjs --all           # a pilot page from every list tool
+//   node server/tools/wbs-pull.mjs --json out.json # also write the mapped result
+//
+// The provider's own contract (§6) sequences first contact as: tools/list +
+// get_meta + a pilot sample, then field-by-field confirmation, and only then
+// bulk reads. `--all` still takes one pilot page per tool — the endpoint is
+// rate limited to 10 req/s with concurrency 2 against the live BGDATA
+// instance, which has no read replica. Deliberately no bulk mode here.
+
+import { writeFileSync } from 'node:fs';
+import {
+  WBS_MCP_PILOT_LIMIT,
+  WBS_READONLY_TOOLS,
+  WbsMcpError,
+  createReadOnlyWbsMcpClient,
+} from '../runtime/wbs-readonly-mcp.mjs';
+import {
+  WBS_SOURCE_CATALOG,
+  mapWbsSourceEnvelope,
+} from '../runtime/wbs-mcp-lineage.mjs';
+
+const CREDENTIAL_ENV = Object.freeze({
+  'CF-Access-Client-Id': 'WBS_CF_ACCESS_CLIENT_ID',
+  'CF-Access-Client-Secret': 'WBS_CF_ACCESS_CLIENT_SECRET',
+  'X-REFS-Auth': 'WBS_REFS_AUTH',
+});
+
+const LIST_TOOLS = WBS_READONLY_TOOLS.filter(name => name.startsWith('list_'));
+
+function parseArgs(argv) {
+  const args = { tool: null, limit: WBS_MCP_PILOT_LIMIT, all: false, json: null, company: null };
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === '--all') args.all = true;
+    else if (a === '--tool') args.tool = argv[++i];
+    else if (a === '--limit') args.limit = Number(argv[++i]);
+    else if (a === '--json') args.json = argv[++i];
+    else if (a === '--company') args.company = argv[++i];
+    else if (a === '--help' || a === '-h') args.help = true;
+    else throw new Error(`unrecognised argument "${a}"`);
+  }
+  return args;
+}
+
+// Presence and length only. Never the value.
+function preflight() {
+  const missing = [];
+  for (const [header, envName] of Object.entries(CREDENTIAL_ENV)) {
+    const value = process.env[envName];
+    const ok = typeof value === 'string' && value.length >= 8;
+    console.log(
+      `  ${header.padEnd(26)} <- ${envName.padEnd(30)} ${ok ? `present (${value.length} chars)` : 'MISSING or too short'}`
+    );
+    if (!ok) missing.push(envName);
+  }
+  if (missing.length) {
+    console.error(
+      `\nRefusing to start: ${missing.join(', ')} not set.\n\n` +
+      `Set them in your shell for this session only — do not put them in a file in this repo,\n` +
+      `and do not commit them. PowerShell:\n\n` +
+      `  $env:WBS_CF_ACCESS_CLIENT_ID='...'\n` +
+      `  $env:WBS_CF_ACCESS_CLIENT_SECRET='...'\n` +
+      `  $env:WBS_REFS_AUTH='...'\n`
+    );
+    process.exit(2);
+  }
+}
+
+const getAuthHeaders = () => ({
+  'CF-Access-Client-Id': process.env.WBS_CF_ACCESS_CLIENT_ID,
+  'CF-Access-Client-Secret': process.env.WBS_CF_ACCESS_CLIENT_SECRET,
+  'X-REFS-Auth': process.env.WBS_REFS_AUTH,
+});
+
+const money = n =>
+  typeof n === 'number' && Number.isFinite(n)
+    ? n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+    : String(n ?? '');
+
+function describeException(e) {
+  const scope = e.scope || {};
+  const at = [scope.tool, scope.row_index != null ? `row ${scope.row_index}` : null, scope.stable_key]
+    .filter(Boolean)
+    .join(' · ');
+  const detail = e.detail && e.detail.upstream_code ? ` (upstream ${e.detail.upstream_code})` : '';
+  return `    ${e.code}${detail}\n      ${e.message}${at ? `\n      at ${at}` : ''}`;
+}
+
+async function pullOne(client, tool, { limit, company }) {
+  const catalog = WBS_SOURCE_CATALOG[tool];
+  console.log(`\n── ${tool} ${'─'.repeat(Math.max(0, 58 - tool.length))}`);
+  if (catalog) console.log(`   role ${catalog.role} · terminus ${catalog.terminus}`);
+
+  const args = { limit };
+  if (company) args.company = company;
+
+  // `readView` runs the frozen contract validator itself and returns the frozen,
+  // validated envelope — so there is exactly one validation point, not two that
+  // could drift apart.
+  let envelope;
+  try {
+    envelope = await client.readView({ toolName: tool, args });
+  } catch (error) {
+    if (error instanceof WbsMcpError) {
+      console.log(`   REFUSED  ${error.code}\n            ${error.message}`);
+      return { tool, ok: false, code: error.code };
+    }
+    throw error;
+  }
+
+  const rows = envelope.rows || [];
+  console.log(`   rows ${rows.length} · captured_at ${envelope.captured_at} · cursor_next ${envelope.cursor_next ?? 'null'}`);
+
+  if (!catalog) {
+    console.log('   no lineage catalog entry — envelope shown only, nothing mapped');
+    return { tool, ok: true, rows: rows.length, mapped: 0, exceptions: [] };
+  }
+
+  const scope = { company_key: envelope.scope?.company ?? company ?? null };
+  const result = mapWbsSourceEnvelope({
+    toolName: tool,
+    envelope,
+    scope,
+    mappingCandidatesByKey: {},
+    memberByKey: {},
+  });
+
+  const exceptions = result.exceptions || [];
+  console.log(`   normalized ${result.normalized.length} · exceptions ${exceptions.length}`);
+  const seams =
+    (result.je_request_seams?.length || 0) +
+    (result.autorec_review?.length || 0) +
+    (result.evidence?.length || 0);
+  console.log(`   reached terminus: ${seams} item(s)`);
+
+  for (const e of exceptions.slice(0, 5)) console.log(describeException(e));
+  if (exceptions.length > 5) console.log(`    … ${exceptions.length - 5} more`);
+
+  for (const n of result.normalized.slice(0, 3)) {
+    console.log(
+      `    ${String(n.account_code ?? '—').padEnd(8)} ${String(n.direction ?? '').padEnd(6)} ` +
+      `${money(n.amount).padStart(16)}  ${n.business_date ?? ''}  ${n.source_id ?? ''}`
+    );
+  }
+
+  return {
+    tool,
+    ok: true,
+    rows: rows.length,
+    mapped: result.normalized.length,
+    exceptions: exceptions.map(e => e.code),
+    result,
+  };
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    console.log(new URL(import.meta.url).pathname);
+    console.log('  --tool <name> --limit <1..10> --company <key> --all --json <path>');
+    return;
+  }
+  if (!Number.isSafeInteger(args.limit) || args.limit < 1 || args.limit > WBS_MCP_PILOT_LIMIT) {
+    console.error(`--limit must be between 1 and ${WBS_MCP_PILOT_LIMIT} (pilot cap).`);
+    process.exit(2);
+  }
+  if (args.tool && !WBS_READONLY_TOOLS.includes(args.tool)) {
+    console.error(`--tool must be one of: ${WBS_READONLY_TOOLS.join(', ')}`);
+    process.exit(2);
+  }
+
+  console.log('WBS read-only pull — credentials from environment, nothing written to WBS\n');
+  console.log('Credential preflight:');
+  preflight();
+
+  const client = createReadOnlyWbsMcpClient({
+    endpoint: process.env.WBS_MCP_ENDPOINT || undefined,
+    getAuthHeaders,
+    allowedReadTools: WBS_READONLY_TOOLS,
+  });
+
+  console.log('\nStep 0 · initialize');
+  const session = await client.initialize();
+  console.log(`  protocol ${session.protocolVersion} · server ${session.serverName ?? '(unnamed)'}`);
+
+  console.log('\nStep 1 · tools/list');
+  // listTools itself refuses unless the advertised catalogue is exactly the eight
+  // approved tools and every one is declared readOnly, non-destructive and
+  // idempotent. A provider that quietly adds a ninth tool fails here, closed.
+  const advertised = await client.listTools();
+  const names = (advertised || []).map(t => (typeof t === 'string' ? t : t.name)).filter(Boolean);
+  console.log(`  advertised: ${names.join(', ') || '(none)'}`);
+  const unexpected = names.filter(n => !WBS_READONLY_TOOLS.includes(n));
+  if (unexpected.length) console.log(`  NOT IN THE APPROVED SET, will not be called: ${unexpected.join(', ')}`);
+  const absent = WBS_READONLY_TOOLS.filter(n => !names.includes(n));
+  if (absent.length) console.log(`  approved but not advertised: ${absent.join(', ')}`);
+
+  console.log('\nStep 2 · get_meta');
+  const outcomes = [];
+  outcomes.push(await pullOne(client, 'get_meta', { limit: args.limit, company: args.company }));
+
+  const tools = args.tool ? [args.tool] : args.all ? LIST_TOOLS : [];
+  for (const tool of tools) {
+    if (tool === 'get_meta') continue;
+    outcomes.push(await pullOne(client, tool, { limit: args.limit, company: args.company }));
+  }
+
+  console.log('\n── summary ' + '─'.repeat(52));
+  let rows = 0, mapped = 0, refused = 0;
+  const codes = new Map();
+  for (const o of outcomes) {
+    if (!o.ok) { refused += 1; continue; }
+    rows += o.rows || 0;
+    mapped += o.mapped || 0;
+    for (const c of o.exceptions || []) codes.set(c, (codes.get(c) || 0) + 1);
+  }
+  console.log(`  tools called ${outcomes.length} · refused ${refused}`);
+  console.log(`  rows received ${rows} · normalized ${mapped}`);
+  console.log(`  exception codes: ${codes.size ? [...codes].map(([c, n]) => `${c}×${n}`).join(', ') : 'none'}`);
+  console.log('\n  Nothing was written to WBS. No journal entry was created, approved or posted.');
+  console.log('  This is a read and a mapping. Posting stays behind Draft -> Review -> Approve -> Post.');
+
+  if (args.json) {
+    const payload = outcomes.map(o => ({
+      tool: o.tool, ok: o.ok, code: o.code ?? null,
+      rows: o.rows ?? 0, mapped: o.mapped ?? 0,
+      exceptions: o.exceptions ?? [],
+      normalized: o.result ? o.result.normalized : [],
+    }));
+    writeFileSync(args.json, JSON.stringify(payload, null, 2));
+    console.log(`\n  wrote ${args.json} (mapped rows only — no credentials, no raw headers)`);
+  }
+
+  if (refused > 0) process.exitCode = 1;
+}
+
+main().catch(error => {
+  if (error instanceof WbsMcpError) {
+    console.error(`\nWBS refused the request: ${error.code}\n  ${error.message}`);
+    if (error.code === 'WBS_MCP_AUTHENTICATION_REQUIRED') {
+      console.error(
+        '\n  Both layers must be present: Cloudflare Access (missing -> 403) and the\n' +
+        '  application shared secret (missing or wrong -> 401). Check all three variables.'
+      );
+    }
+    process.exit(1);
+  }
+  console.error('\nUnexpected failure:', error && error.message ? error.message : error);
+  process.exit(1);
+});
