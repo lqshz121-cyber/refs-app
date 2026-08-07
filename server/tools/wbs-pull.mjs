@@ -33,6 +33,7 @@
 // instance, which has no read replica. Deliberately no bulk mode here.
 
 import { writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import {
   WBS_MCP_PILOT_LIMIT,
   WBS_READONLY_TOOLS,
@@ -59,7 +60,7 @@ const LIST_TOOLS = WBS_READONLY_TOOLS.filter(name => name.startsWith('list_'));
 // The parameters genuinely differ between tools — `company_code` on the ledger reads,
 // `company` on the accounting reads — and `list_control_totals` takes no `limit` at all
 // because it returns totals, not a page of rows.
-const TOOL_ARGS = Object.freeze({
+export const WBS_PULL_TOOL_ARGS = Object.freeze({
   get_meta:                { company: null,        paged: false },  // §4.1 takes `section`
   list_payables:           { company: 'company_code', paged: true },  // §4.2
   list_bank_transactions:  { company: 'company_code', paged: true },  // §4.3
@@ -70,8 +71,8 @@ const TOOL_ARGS = Object.freeze({
   trace_by_key:            { company: null,        paged: false }, // §4.8 key_type/key_value
 });
 
-function argsFor(tool, { limit, company }) {
-  const spec = TOOL_ARGS[tool] || { company: null, paged: true };
+export function argsForWbsPullTool(tool, { limit, company }) {
+  const spec = WBS_PULL_TOOL_ARGS[tool] || { company: null, paged: true };
   const args = {};
   if (spec.paged) args.limit = limit;
   if (company && spec.company) args[spec.company] = company;
@@ -160,7 +161,7 @@ async function pullOne(client, tool, { limit, company }) {
   console.log(`\n── ${tool} ${'─'.repeat(Math.max(0, 58 - tool.length))}`);
   if (catalog) console.log(`   role ${catalog.role} · terminus ${catalog.terminus}`);
 
-  const args = argsFor(tool, { limit, company });
+  const args = argsForWbsPullTool(tool, { limit, company });
   console.log(`   args ${JSON.stringify(args)}`);
 
   // `readView` runs the frozen contract validator itself and returns the frozen,
@@ -337,17 +338,19 @@ async function main() {
   if (refused > 0) process.exitCode = 1;
 }
 
-main().catch(error => {
-  if (error instanceof WbsMcpError) {
-    console.error(`\nWBS refused the request: ${error.code}\n  ${error.message}`);
-    if (error.code === 'WBS_MCP_AUTHENTICATION_REQUIRED') {
-      console.error(
-        '\n  Both layers must be present: Cloudflare Access (missing -> 403) and the\n' +
-        '  application shared secret (missing or wrong -> 401). Check all three variables.'
-      );
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(error => {
+    if (error instanceof WbsMcpError) {
+      console.error(`\nWBS refused the request: ${error.code}\n  ${error.message}`);
+      if (error.code === 'WBS_MCP_AUTHENTICATION_REQUIRED') {
+        console.error(
+          '\n  Both layers must be present: Cloudflare Access (missing -> 403) and the\n' +
+          '  application shared secret (missing or wrong -> 401). Check all three variables.'
+        );
+      }
+      process.exit(1);
     }
+    console.error('\nUnexpected failure:', error && error.message ? error.message : error);
     process.exit(1);
-  }
-  console.error('\nUnexpected failure:', error && error.message ? error.message : error);
-  process.exit(1);
-});
+  });
+}
