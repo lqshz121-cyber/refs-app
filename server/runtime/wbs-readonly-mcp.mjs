@@ -2,6 +2,10 @@ import {createHash,timingSafeEqual} from 'node:crypto';
 import {canonicalRequestBody} from './request-hash.mjs';
 
 const WBS_MCP_ORIGIN='https://refs-mcp.wbm3.com';
+// The one endpoint `endpointUrl` will accept. Exported so callers can default to it
+// instead of re-typing the host, which is the only way a second, drifting copy of the
+// origin could appear in the tree. `endpointUrl` still validates whatever it is given.
+export const WBS_MCP_APPROVED_ENDPOINT=`${WBS_MCP_ORIGIN}/mcp`;
 export const WBS_MCP_PROTOCOL_VERSION='2025-06-18';
 export const WBS_READONLY_TOOLS=Object.freeze(['get_meta','list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
 export const WBS_MCP_PILOT_LIMIT=10;

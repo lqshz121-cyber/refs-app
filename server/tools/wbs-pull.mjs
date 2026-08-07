@@ -36,6 +36,7 @@ import { writeFileSync } from 'node:fs';
 import {
   WBS_MCP_PILOT_LIMIT,
   WBS_READONLY_TOOLS,
+  WBS_MCP_APPROVED_ENDPOINT,
   WbsMcpError,
   createReadOnlyWbsMcpClient,
 } from '../runtime/wbs-readonly-mcp.mjs';
@@ -70,13 +71,31 @@ function parseArgs(argv) {
 // Presence and length only. Never the value.
 function preflight() {
   const missing = [];
+  const placeholders = [];
+  // A pasted instruction placeholder is a real failure mode: it is "present" and long
+  // enough, so length alone reports it as fine and the run dies later with a confusing
+  // error. Angle brackets, CJK, or whitespace cannot occur in either real credential.
+  const looksLikePlaceholder = v => /[<>]/.test(v) || /[一-鿿]/.test(v) || /\s/.test(v);
   for (const [header, envName] of Object.entries(CREDENTIAL_ENV)) {
     const value = process.env[envName];
-    const ok = typeof value === 'string' && value.length >= 8;
-    console.log(
-      `  ${header.padEnd(26)} <- ${envName.padEnd(30)} ${ok ? `present (${value.length} chars)` : 'MISSING or too short'}`
+    const present = typeof value === 'string' && value.length >= 8;
+    const placeholder = present && looksLikePlaceholder(value);
+    const state = !present
+      ? 'MISSING or too short'
+      : placeholder
+        ? `PLACEHOLDER, not a credential (${value.length} chars)`
+        : `present (${value.length} chars)`;
+    console.log(`  ${header.padEnd(26)} <- ${envName.padEnd(30)} ${state}`);
+    if (!present) missing.push(envName);
+    else if (placeholder) placeholders.push(envName);
+  }
+  if (placeholders.length) {
+    console.error(
+      `\nRefusing to start: ${placeholders.join(', ')} still contain instruction text\n` +
+      `rather than a credential. Copy the real values from section 2.1 and 2.2 of the\n` +
+      `WBS delivery document. Neither value contains angle brackets, spaces or CJK.\n`
     );
-    if (!ok) missing.push(envName);
+    process.exit(2);
   }
   if (missing.length) {
     console.error(
@@ -198,8 +217,14 @@ async function main() {
   console.log('Credential preflight:');
   preflight();
 
+  // Default to the approved endpoint. Passing `undefined` reaches `new URL(undefined)`,
+  // which throws WBS_MCP_CONFIG_INVALID "endpoint is invalid" before any request is made —
+  // a confusing way to say "you did not set an optional variable".
+  const endpoint = process.env.WBS_MCP_ENDPOINT || WBS_MCP_APPROVED_ENDPOINT;
+  console.log(`\nEndpoint: ${endpoint}${process.env.WBS_MCP_ENDPOINT ? ' (from WBS_MCP_ENDPOINT)' : ' (approved default)'}`);
+
   const client = createReadOnlyWbsMcpClient({
-    endpoint: process.env.WBS_MCP_ENDPOINT || undefined,
+    endpoint,
     getAuthHeaders,
     allowedReadTools: WBS_READONLY_TOOLS,
   });
