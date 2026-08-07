@@ -114,6 +114,46 @@ export async function refreshAuthoritativeFinancialStatements({config,fetcher=gl
   }catch{return unreachable('The browser could not complete the authoritative financial statement read; no HTTP response was produced.');}
 }
 
+const CURRENCY3=/^[A-Z]{3}$/;
+const money4=v=>{if(typeof v==='number'&&Number.isFinite(v))return v.toFixed(4);if(typeof v==='string'&&MONEY4.test(v))return v;return null;};
+export async function refreshAuthoritativeAging({config,side,asOfDate,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!['ap','ar'].includes(side)||!validDate(asOfDate))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Aging requires one authoritative entity, an ap or ar side, and a valid as-of date.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({asOf:asOfDate});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/${side}/aging?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid aging envelope.'};
+    const fields=['current_amount','days_1_30','days_31_60','days_61_90','days_91_plus','total_open_balance'];
+    const rows=[];
+    for(const row of body.data){
+      if(!row||!CURRENCY3.test(row.currency||''))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid aging row.'};
+      const norm={currency:row.currency};
+      for(const f of fields){const m=money4(row[f]);if(m===null)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid aging amount.'};norm[f]=m;}
+      rows.push(norm);
+    }
+    if(new Set(rows.map(r=>r.currency)).size!==rows.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate aging currencies.'};
+    return {ok:true,side,rows,scope:{entityId:config.entityId,asOfDate}};
+  }catch{return unreachable('The browser could not complete the authoritative aging read; no HTTP response was produced.');}
+}
+export async function refreshAuthoritativeControlTotals({config,side,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!['ap','ar'].includes(side))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Control totals require one authoritative entity and an ap or ar side.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/${side}/control-totals`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid control-total envelope.'};
+    const rows=[];
+    for(const row of body.data){
+      const open=money4(row?.open_balance),control=money4(row?.control_balance);
+      if(!row||!CURRENCY3.test(row.currency||'')||open===null||control===null||typeof row.in_balance!=='boolean')return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid control-total row.'};
+      rows.push({currency:row.currency,open_balance:open,control_balance:control,in_balance:row.in_balance});
+    }
+    if(new Set(rows.map(r=>r.currency)).size!==rows.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate control-total currencies.'};
+    return {ok:true,side,rows,scope:{entityId:config.entityId}};
+  }catch{return unreachable('The browser could not complete the authoritative control-total read; no HTTP response was produced.');}
+}
+
 const failure=async response=>{
   const status=Number(response?.status)||0;
   let body;try{body=await response.json();}catch{}

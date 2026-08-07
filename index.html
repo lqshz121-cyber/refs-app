@@ -289,7 +289,7 @@ input,select,textarea{
   margin:6px 6px 6px 0; background:var(--qb-surface);
   border:var(--qb-hair) solid var(--qb-divider); border-radius:var(--qb-r-panel);
 }
-.content{width:100%; max-width:var(--content-max); margin:0 auto; padding:28px 32px 64px; min-width:0; background:transparent;}
+.content{width:100%; max-width:var(--content-max); margin:0 auto; padding:20px 32px 64px; min-width:0; background:transparent;}
 .full-bleed{max-width:none; min-width:0;}
 .focused{max-width:1280px; margin:0 auto; min-width:0;}
 
@@ -385,11 +385,18 @@ input,select,textarea{
 }
 .nav-item:hover{background:var(--qb-canvas);}
 .nav-item:focus-visible{outline:2px solid var(--qb-accent); outline-offset:-2px;}
+/* Rounded square, not a filled circle. A circular letter chip reads as a
+   dated avatar; a squircle with a lighter weight reads as a product mark and
+   sits better beside the rail's stroke icons. Tone colours are unchanged -
+   they are contrast-checked by verify-a11y-offcanvas-and-dark-contrast.mjs. */
 .nav-badge{
-  display:grid; place-items:center; flex:0 0 auto; width:24px; height:24px;
-  border-radius:var(--qb-r-pill); font:700 11px/1 var(--qb-sans);
+  display:grid; place-items:center; flex:0 0 auto; width:22px; height:22px;
+  border-radius:7px; font:600 10.5px/1 var(--qb-sans); letter-spacing:.02em;
   background:var(--qb-divider); color:var(--qb-text-muted);
+  transition:transform .16s ease, background-color .16s ease;
 }
+.nav-item:hover .nav-badge{transform:translateY(-1px);}
+@media(prefers-reduced-motion:reduce){.nav-badge{transition:none;} .nav-item:hover .nav-badge{transform:none;}}
 .nav-item-label{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .nav-chev{flex:0 0 auto; color:var(--qb-text-faint); font-size:15px; line-height:1;}
 /* The current page is marked by a 3px accent bar, not only by a fill. The fill
@@ -466,9 +473,14 @@ input,select,textarea{
 .user-nm,.brand,.new-btn,.nav-item,.nav-group-h,.btn,.grid-tool,.badge{white-space:nowrap; word-break:keep-all;}
 
 /* ============================ 3. PAGE HIERARCHY ========================== */
+/* Measured against QuickBooks Online's report surface (P&L, 1568px): QBO
+   spends no vertical budget on a page-level title - a small back link, one
+   filter row, then the report. REFS keeps its title for orientation and
+   accessibility but at a weight that does not push the figures below the
+   fold. 28px/16 -> 22px/10 recovers ~24px on every page. */
 .page-h{
-  margin:0 0 16px; color:var(--qb-text-strong); background:none; -webkit-text-fill-color:currentColor;
-  font-size:28px; line-height:1.2; font-weight:400; letter-spacing:-.015em;
+  margin:0 0 10px; color:var(--qb-text-strong); background:none; -webkit-text-fill-color:currentColor;
+  font-size:22px; line-height:1.25; font-weight:500; letter-spacing:-.012em;
 }
 .page-eyebrow,.eyebrow,.qbo-eyebrow,.trace-eyebrow{
   margin:0 0 5px; color:var(--qb-text-muted);
@@ -747,7 +759,7 @@ select{padding-right:28px; cursor:pointer;}
 .card-hover:hover,.todo-item:hover,.acct-card:hover,.qbo-card:hover{background:var(--qb-inset); border-color:var(--qb-divider);}
 .card-hover:focus-visible{outline:2px solid var(--qb-accent); outline-offset:2px;}
 .sticky-card{padding:20px; position:sticky; top:74px;}
-.kpi-row{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px;}
+.kpi-row{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:16px;}
 .kpi{padding:20px 22px; min-width:0;}
 .kpi-label{color:var(--qb-text-muted); font:600 12px/1.4 var(--qb-sans); letter-spacing:.04em; text-transform:uppercase;}
 .kpi-value,.qbo-big{
@@ -996,12 +1008,17 @@ select{padding-right:28px; cursor:pointer;}
 .qbo-bar.neg{background:var(--qb-bad);}
 .donut{width:96px; height:96px; border-radius:50%; flex:none; box-shadow:inset 0 0 0 1px rgba(0,0,0,.04);}
 .donut-wrap{display:flex; gap:16px; align-items:center; flex-wrap:wrap;}
+.exp-compose{display:flex; flex-direction:column; gap:2px; min-width:0;}
+.exp-bar{height:14px; margin:8px 0 12px;}
+.pl-spark{width:100%;}
+.acct-cell{display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-width:120px;}
+.acct-cell-name{line-height:1.35; overflow-wrap:anywhere; white-space:normal;}
 .legend{display:flex; flex-direction:column; gap:5px; font-size:12px; min-width:0;}
 .legend i{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px;}
 .bank-row,.balance-row{display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:var(--qb-hair) solid var(--qb-divider); font-size:14px;}
 .bank-row:last-child,.balance-row:last-child{border-bottom:0;}
 .split-bar{display:flex; height:10px; border-radius:var(--qb-r-pill); overflow:hidden; margin:10px 0 6px;}
-.todo-grid{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:16px;}
+.todo-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:16px;}
 .todo-card,.todo-item{display:flex; flex-direction:column; align-items:center; gap:10px; padding:24px 16px;
   background:var(--qb-surface); border:var(--qb-hair) solid var(--qb-divider); border-radius:var(--qb-r-card);}
 .todo-n{display:grid; place-items:center; width:48px; height:48px; border-radius:var(--qb-r-pill);
@@ -1312,7 +1329,15 @@ select{padding-right:28px; cursor:pointer;}
 .qbo-report-promo>button{align-self:flex-start;}
 .qbo-report-promo .qbo-toolgrid{margin:0;}
 .qbo-report-builder{display:flex; flex-direction:column; gap:12px; margin-bottom:14px; min-width:0;}
-.qbo-report-controls{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; padding:14px; align-items:end;}
+.qbo-report-controls{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; padding:12px 14px; align-items:end;}
+/* The read-only capability note is one long sentence. Left in a 160px grid
+   cell it wrapped to ~200px tall, inflated its whole row, and every sibling
+   - pinned by align-items:end - sank to the bottom of that row, leaving a
+   large empty band above the controls and pushing the report two screens
+   down. It now takes its own full-width row on a single line. */
+.qbo-report-controls>.unavailable-chip{grid-column:1/-1; align-self:start; width:100%;
+  padding:5px 10px; align-items:center; gap:4px 8px;}
+.qbo-report-controls>.unavailable-chip .unavailable-why{flex:1 1 auto; min-width:0;}
 .qbo-report-controls>label{display:flex; flex-direction:column; gap:5px; min-width:0;
   color:var(--qb-text-muted); font:500 12px/1.3 var(--qb-sans);}
 .qbo-report-controls select,.qbo-report-controls>button,.qbo-report-controls .qbo-segment{width:100%; min-width:0; min-height:var(--qb-control-h);}
@@ -1333,14 +1358,14 @@ select{padding-right:28px; cursor:pointer;}
    greeting is centered against the page, not against the remaining space. */
 .qbo-home-hero{
   display:grid; align-items:start; gap:16px; margin:2px 0 26px; padding:0;
-  grid-template-columns:var(--qb-greet-side) minmax(0,1fr) var(--qb-greet-side);
+  grid-template-columns:minmax(0,1fr) auto;
   background:transparent; border:0; border-radius:0;
 }
-.qb-greet-spacer{min-width:0;}
-.qb-greet{min-width:0; display:flex; flex-direction:column; align-items:center; gap:6px;}
+.qb-greet-spacer{display:none;}
+.qb-greet{min-width:0; display:flex; flex-direction:column; align-items:flex-start; gap:6px;}
 .qbo-home-hero p,.qb-greet-sub{
   margin:0; max-width:70ch; color:var(--qb-text-muted);
-  font-size:14px; line-height:1.5; text-align:center;
+  font-size:14px; line-height:1.5; text-align:left;
 }
 /* Secondary workspace links: quiet by design so the greeting stays dominant. */
 .qbo-home-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;align-content:start;min-width:0;justify-self:end;}

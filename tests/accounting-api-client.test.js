@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {accountingApiConfig,applyAuthoritativeCredit,createAuthoritativeAdjustment,createAuthoritativeBusinessDocument,createAuthoritativeSettlement,refreshAuthoritativeBankTransactions,refreshAuthoritativeDocuments,refreshAuthoritativeJournalEntries,refreshAuthoritativeReconciliation,transitionAuthoritativeJournal} from '../src/accounting-api.js';
+import {accountingApiConfig,applyAuthoritativeCredit,createAuthoritativeAdjustment,createAuthoritativeBusinessDocument,createAuthoritativeSettlement,refreshAuthoritativeBankTransactions,refreshAuthoritativeDocuments,refreshAuthoritativeJournalEntries,refreshAuthoritativeReconciliation,transitionAuthoritativeJournal,refreshAuthoritativeAging,refreshAuthoritativeControlTotals} from '../src/accounting-api.js';
 const entityId='11111111-1111-4111-8111-111111111111';
 const periodId='33333333-3333-4333-8333-333333333333';
 assert.equal(accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'http://unsafe.example',entityId,periodId}}),null);
@@ -38,6 +38,15 @@ const config=configured;
   assert.equal(advanced.ok,true);assert.match(call.url,/\/journal-entries\/.+\/post$/);assert.equal(call.options.headers['if-match'],'"2"');assert.equal(JSON.parse(call.options.body).periodId,periodId);
   const attachmentMissing=await createAuthoritativeBusinessDocument({config,kind:'AP_BILL',idempotencyKey:'AP-BILL-attachment-missing',document:{documentNumber:'B-3'},fetcher:async()=>{throw new Error('must not call');}});assert.equal(attachmentMissing.code,'ATTACHMENT_REQUIRED');
   const missingToken=await createAuthoritativeBusinessDocument({config:{...config,getAccessToken:async()=>null},kind:'AP_BILL',idempotencyKey:'AP-BILL-token-missing',document:{documentNumber:'B-3',attachmentIds:[attachmentId]},fetcher:async()=>{throw new Error('must not call');}});assert.equal(missingToken.code,'AUTHENTICATION_REQUIRED');
+  let agingCall;const apAging=await refreshAuthoritativeAging({config,side:'ap',asOfDate:'2026-07-31',fetcher:async(url,options)=>{agingCall={url,options};return {ok:true,json:async()=>({ok:true,data:[{currency:'USD',current_amount:'100.0000',days_1_30:'0.0000',days_31_60:'0.0000',days_61_90:'0.0000',days_91_plus:'25.5000',total_open_balance:'125.5000'}]})};}});
+  assert.equal(apAging.ok,true);assert.equal(apAging.rows[0].total_open_balance,'125.5000');assert.match(agingCall.url,/\/ap\/aging\?asOf=2026-07-31$/);assert.equal(agingCall.options.method,'GET');assert.equal(agingCall.options.cache,'no-store');assert.equal(agingCall.options.headers.authorization,`Bearer ${accessToken}`);assert.equal('body' in agingCall.options,false);
+  const arAgingNum=await refreshAuthoritativeAging({config,side:'ar',asOfDate:'2026-07-31',fetcher:async()=>({ok:true,json:async()=>({ok:true,data:[{currency:'USD',current_amount:5,days_1_30:0,days_31_60:0,days_61_90:0,days_91_plus:0,total_open_balance:5}]})})});
+  assert.equal(arAgingNum.ok,true);assert.equal(arAgingNum.rows[0].total_open_balance,'5.0000');
+  assert.equal((await refreshAuthoritativeAging({config,side:'ap',asOfDate:'2026-02-30',fetcher:async()=>{throw new Error('must not call');}})).code,'ACCOUNTING_API_SCOPE_INVALID');
+  assert.equal((await refreshAuthoritativeAging({config,side:'xx',asOfDate:'2026-07-31',fetcher:async()=>{throw new Error('must not call');}})).code,'ACCOUNTING_API_SCOPE_INVALID');
+  let ctCall;const apControl=await refreshAuthoritativeControlTotals({config,side:'ap',fetcher:async(url,options)=>{ctCall={url,options};return {ok:true,json:async()=>({ok:true,data:[{currency:'USD',open_balance:'125.5000',control_balance:'125.5000',in_balance:true}]})};}});
+  assert.equal(apControl.ok,true);assert.equal(apControl.rows[0].in_balance,true);assert.equal(apControl.rows[0].open_balance,'125.5000');assert.match(ctCall.url,/\/ap\/control-totals$/);assert.equal(ctCall.options.method,'GET');assert.equal('body' in ctCall.options,false);
+  assert.equal((await refreshAuthoritativeControlTotals({config,side:'zz',fetcher:async()=>{throw new Error('must not call');}})).code,'ACCOUNTING_API_SCOPE_INVALID');
 
   // -------------------------------------------------------------------------
   // Failure classification.

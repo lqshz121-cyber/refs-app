@@ -688,8 +688,19 @@ function useChart(build, sig){
 }
 function PLChart({jes, entity}){
   const posted = jes.filter(j=>j.posting_status==='POSTED' && (!entity || j.entity_id===entity));
-  return <div className="muted sm" style={{height:150,marginTop:6}}>Net income chart shell: {posted.length} posted entries in scope.</div>;
+  const monthOf=j=>{const s=String(j.je_number||''); return s.length>=6?`${s.slice(0,4)}-${s.slice(4,6)}`:String(j.period_code||j.je_date||'').slice(0,7);};
+  const by={}; posted.forEach(j=>{const m=monthOf(j); if(/^\d{4}-\d{2}$/.test(m)) by[m]=(by[m]||0)+1;});
+  const months=Object.keys(by).sort();
+  if(!months.length) return <div className="muted sm" style={{height:130,marginTop:6}}>No posted entries in scope.</div>;
+  const counts=months.map(m=>by[m]); const max=Math.max(1,...counts); const W=280,H=120,bw=W/months.length;
+  return <svg className="pl-spark" viewBox={`0 0 ${W} ${H}`} width="100%" height="130" preserveAspectRatio="none" role="img" aria-label={`Posted entries by month, ${posted.length} in scope`} style={{marginTop:8,display:'block'}}>
+    {counts.map((c,i)=>{const h=Math.round((c/max)*(H-26)); return <g key={months[i]}><rect x={i*bw+bw*0.18} y={H-18-h} width={bw*0.64} height={Math.max(2,h)} rx="3" fill="#2CA01C"/><text x={i*bw+bw/2} y={H-5} textAnchor="middle" fontSize="9" fill="#6b7280">{months[i].slice(5)}</text></g>;})}
+  </svg>;
 }
 function ExpDonut({cats}){
-  return <div className="donut-wrap"><div className="legend">{cats.map(([name,value,color])=><span key={name}><i style={{background:color}} />{name}: {money(value)}</span>)}</div></div>;
+  const total=cats.reduce((a,c)=>a+(+c[1]||0),0)||1;
+  return <div className="exp-compose">
+    <div className="split-bar exp-bar">{cats.map(([name,value,color])=><span key={name} title={`${name}: ${money(value)}`} style={{flex:Math.max(0.0001,(+value||0)/total),background:color}}/>)}</div>
+    <div className="legend">{cats.map(([name,value,color])=><span key={name}><i style={{background:color}} />{name}: {money(value)}</span>)}</div>
+  </div>;
 }
