@@ -19,6 +19,7 @@ import { AccountRegister } from './src/module-register.jsx';
 import { SubsidiaryLedger } from './src/module-subledger.jsx';
 import { UnitCostLedger } from './src/module-unitcost.jsx';
 import { SourceDocs } from './src/module-sourcedocs.jsx';
+import { Consolidation } from './src/module-consolidation.jsx';
 import { PeriodManagement } from './src/module-periods.jsx';
 import { PERIOD_EVENT_CLOSED, PERIOD_EVENT_OPENED, PERIOD_EVENT_REOPENED, PERIOD_PERMISSION_DENIED, PERIOD_REASON_REQUIRED, PERIOD_UNRESOLVED_WORK, PERM_PERIOD_CLOSE, PERM_PERIOD_OPEN, PERM_PERIOD_REOPEN, closePeriodCommand, openPeriodCommand, reopenPeriodCommand } from './src/period-lifecycle.js';
 import { App, AuthoritativeApp, authoritativeRuntimeConfigured, AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './src/app.jsx';
@@ -41,7 +42,7 @@ const ctx={
 const components=[Dashboard,JEWorkspace,LoanWorkspace,PMPickup,ClosingWorkspace,ExceptionCenter,CloseMgmt,
   GLTrialBalance,Reports,CompanySetting,LoanRegister,ProjectCost,Assets,Intercompany,IntegrationHub,MasterData,
   MappingCenter,RuleCenter,AdminModule,APWorkspace,ARWorkspace,BankTransactions,COAWorkspace,AccountRegister,
-  SubsidiaryLedger,UnitCostLedger,SourceDocs,PeriodManagement];
+  SubsidiaryLedger,UnitCostLedger,SourceDocs,PeriodManagement,Consolidation];
 
 let failed=0;
 for (const Component of components) {

@@ -24,6 +24,7 @@ import { AIJEWorkbench } from './module-ai-je-workbench.jsx';
 import { AccrualCenter, AmortizationCenter } from './module-amortization-accrual.jsx';
 import { StagingCenter } from './module-staging.jsx';
 import { UnitTransfer } from './module-unittransfer.jsx';
+import { Consolidation } from './module-consolidation.jsx';
 import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
 import { AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeRuntimeLock, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './authoritative-workspace.jsx';
@@ -87,7 +88,7 @@ const NAV = [
   {group:'Source & Staging', short:'Sources', glyph:'inbox', icon:'⇅', items:[['staging','Accounting Staging'],['sourcedocs','Source Documents'],['integration','Integration Hub'],['exceptions','Mapping Exceptions']]},
   {group:'Auto Reconciliation', short:'Reconcile', glyph:'cycle', icon:'⟳', items:[['autobankrec','Bank Batch Pipeline'],['banktx','Bank Transaction Matching'],['bankrec','Reconciliation Worksheet'],['checks','Checks & Payments']]},
   {group:'Journal Entry', short:'Journals', glyph:'document', icon:'✎', items:[['je','Journal Entries']]},
-  {group:'General Ledger', short:'Ledger', glyph:'lines', icon:'☰', items:[['gl','GL / TB / BS / IS'],['register','Account Inquiry'],['subledger','Subsidiary ledger'],['coa','Chart of Accounts']]},
+  {group:'General Ledger', short:'Ledger', glyph:'lines', icon:'☰', items:[['gl','GL / TB / BS / IS'],['consolidation','Consolidation'],['register','Account Inquiry'],['subledger','Subsidiary ledger'],['coa','Chart of Accounts']]},
   {group:'Accounting Operations', short:'Operations', glyph:'layers', icon:'▲', items:[['cost','Project Cost & CWIP'],['unitcost','Unit Cost Ledger'],['unittransfer','Unit Transfer'],['loan','Construction Loan'],['loanreg','Loan Register'],['pmpickup','Property Ops Pickup'],['closing','Closing Accounting'],['intercompany','Intercompany'],['assets','Fixed Assets']]},
   {group:'Close', short:'Close', glyph:'calendar', icon:'☑', items:[['close','Month-End Close'],['periods','Period Management']]},
   {group:'Reports', short:'Reports', glyph:'bars', icon:'▤', railBreak:true, items:[['reports','Reports Center']]},
@@ -100,6 +101,13 @@ const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, reg
   mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, periods:PeriodManagement, reports:Reports, admin:AdminModule };
 COMP.amortization = AmortizationCenter;
 COMP.accruals = AccrualCenter;
+// Consolidation is a READ. It builds an elimination ledger on a consolidation
+// only entity and reports entity totals, eliminations and the consolidated
+// column; it posts nothing, to any entity, ever. There is therefore no command
+// to authorise and no new permission: like GL / TB / BS / IS it is visible to
+// every role that can reach the ledger, including AUDITOR and READ_ONLY, whose
+// permission lists are empty and who need consolidated statements most.
+COMP.consolidation = Consolidation;
 const IA_HIDDEN_ROUTES = new Set(['cost','unitcost','unittransfer','loan','loanreg','pmpickup']);
 const ADMIN_ROLES = ['CONTROLLER','SYS_ADMIN','AUDITOR'];
 
@@ -165,7 +173,7 @@ function App() {
   const boundary = resolveRuntimeBoundary(globalThis);
   if (boundary.surface === SURFACE_ERROR) return <RuntimeErrorPage code={boundary.code}/>;
   if (boundary.surface !== SURFACE_DEMONSTRATION) return <AuthoritativeApp environment={globalThis}/>;
-  const SEED_V='v13';
+  const SEED_V='v14';
   const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar','periods','periodevents'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
   const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');

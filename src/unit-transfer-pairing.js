@@ -7,12 +7,22 @@
 // entity - and each line names the other entity as its subsidiary member, so a
 // consolidation nets 125000 + 291000 to zero.
 //
-// The receiving entity records the unit at the group's carrying cost, not at the
-// transfer price. The difference is the transferring entity's gain, and it is
-// pushed down as the equal and opposite entry on the same account, so no
-// intercompany profit stays capitalised in inventory once the group is
-// consolidated. On separate-company books this is the eliminating entry, and it
-// is visible as such: both lines carry the pair id.
+// Each company records what it actually did, on its own books. The transferring
+// entity releases the unit at its carrying cost and records its gain or loss;
+// the receiving entity capitalises the unit at the price it paid, because that
+// is what the unit cost it. Neither side carries an entry that only makes sense
+// at group level.
+//
+// This is a change from the earlier behaviour, which had the receiver book the
+// unit at the group's carrying cost and take the transferor's gain to profit and
+// loss as an offset. That pushed the CONSOLIDATION ENTRY down into a separate
+// company's ledger: the buyer's balance sheet understated an asset it had paid
+// for and its income statement carried a loss it had not incurred, and no
+// separate-company report of that entity could ever be right. The elimination
+// belongs to the consolidation and now lives there - src/consolidation.js
+// E-IC-PROFIT removes the margin from group inventory and the gain from the
+// group result, without touching either entity's ledger. Both journals carry
+// the pair id so the consolidation can find them.
 export const IC_DUE_FROM_ACCOUNT = '125000';
 export const IC_DUE_TO_ACCOUNT = '291000';
 export const UNIT_COST_ACCOUNT = '164400';
@@ -40,14 +50,12 @@ export function buildUnitTransferPair({ from, to, unit, carrying, price, pairId 
     { account_code:UNIT_COST_ACCOUNT, debit_amount:0, credit_amount:cost, unit_code:unit, description:`Carrying cost released on transfer [${pair}]` },
   ];
   const inLines = [
-    { account_code:UNIT_COST_ACCOUNT, debit_amount:cost, credit_amount:0, unit_code:unit, description:`Unit recorded at group carrying cost [${pair}]` },
+    { account_code:UNIT_COST_ACCOUNT, debit_amount:consideration, credit_amount:0, unit_code:unit, description:`Unit acquired from affiliate at the transfer price [${pair}]` },
   ];
   if (gain > 0.005) {
     outLines.push({ account_code:IC_TRANSFER_GAIN_ACCOUNT, debit_amount:0, credit_amount:gain, unit_code:unit, description:`Gain on intercompany transfer [${pair}]` });
-    inLines.push({ account_code:IC_TRANSFER_GAIN_ACCOUNT, debit_amount:gain, credit_amount:0, unit_code:unit, description:`Intercompany profit eliminated against group cost [${pair}]` });
   } else if (gain < -0.005) {
     outLines.push({ account_code:IC_TRANSFER_GAIN_ACCOUNT, debit_amount:-gain, credit_amount:0, unit_code:unit, description:`Loss on intercompany transfer [${pair}]` });
-    inLines.push({ account_code:IC_TRANSFER_GAIN_ACCOUNT, debit_amount:0, credit_amount:-gain, unit_code:unit, description:`Intercompany loss eliminated against group cost [${pair}]` });
   }
   inLines.push({ account_code:IC_DUE_TO_ACCOUNT, debit_amount:0, credit_amount:consideration, member:from.entity_name, description:'Due to/from_' + from.entity_name, unit_code:unit });
 
@@ -81,7 +89,7 @@ export function buildUnitTransferPair({ from, to, unit, carrying, price, pairId 
     in: {
       entity_id: to.entity_id, source_system:'INTERNAL', payee: from.entity_name, je_type:'AUTO',
       rule_code:'R-UT-IN-01', ic_pair_id: pair,
-      description: `Unit Transfer IN ${unit} from ${from.entity_code} at group carrying cost [${pair}]`, lines: inLines,
+      description: `Unit Transfer IN ${unit} from ${from.entity_code} at the transfer price [${pair}]`, lines: inLines,
     },
   };
 }

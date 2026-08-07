@@ -14,8 +14,20 @@ const g=t=>Object.keys(tb).filter(k=>ty(k)===t).reduce((s,k)=>s+tb[k].d-tb[k].c,
 const A=g('ASSET'),L=-g('LIABILITY'),E=-g('EQUITY'),R=-g('REVENUE'),X=g('EXPENSE');
 P(`\nAssets ${fmt(A)} = Liabilities ${fmt(L)} + Equity ${fmt(E)} + Earnings ${fmt(R-X)}  -> ${fmt(L+E+R-X)}  ties=${Math.abs(A-(L+E+R-X))<0.005}`);
 P(`Revenue ${fmt(R)}  Expense ${fmt(X)}  Net income ${fmt(R-X)}  net margin ${(100*(R-X)/R).toFixed(1)}%`);
-P(`\nIf intercompany were eliminated (125000+291000+291001 net ${fmt(g('ASSET')&&0||0)}), it does NOT net to zero:`);
+// This block used to claim the intercompany accounts "do NOT net to zero". They
+// do - and always did - because the group's due-froms equal its due-tos. Netting
+// to zero was never the point. The defect this file was reporting is that the
+// GROSS balances are still on the balance sheet: $10.5m of intercompany
+// receivable and $10.5m of intercompany payable, both counted, on a statement
+// that "balances". This is a SUM OF ENTITY LEDGERS, not a consolidation.
 const ic=['125000','291000','291001'].reduce((s,c)=>s+(tb[c]?tb[c].d-tb[c].c:0),0)/100;
-P(`  125000 + 291000 + 291001 consolidated net = ${fmt(ic)}  (must be 0.00 in a true consolidation)`);
-P(`  => consolidated assets are overstated/understated by up to ${fmt(Math.abs(ic))} and the equal-and-opposite liability is missing.`);
+const gross=['125000','291000','291001'].reduce((s,c)=>s+Math.abs(tb[c]?tb[c].d-tb[c].c:0),0)/100;
+P('');
+P('NOT A CONSOLIDATION. Nothing above is eliminated.');
+P(`  125000 + 291000 + 291001 net = ${fmt(ic)} - they always net, because every due from has a mirror due to.`);
+P(`  What is wrong is the GROSS: ${fmt(gross)} of intercompany balance is still carried on this balance sheet,`);
+P('  and the intercompany revenue and expense above are still in the result twice over.');
+P('  For the consolidated position, with the elimination ledger and the drill-back:');
+P('    tools/analysis/consolidation.js   (measurement, exits 1 on any failure)');
+P('    src/consolidation.js              (engine)   docs/CONSOLIDATION.md');
 console.log(out.join('\n'));

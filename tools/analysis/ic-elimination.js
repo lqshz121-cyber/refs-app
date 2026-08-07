@@ -10,6 +10,8 @@
 // Exit code is 1 if any assertion fails.
 import { POSTED, ENTITIES, ENT, memberOf, drOf, crOf, fmt } from './_ledger.js';
 import { buildUnitTransferPair } from '../../src/unit-transfer-pairing.js';
+import { buildConsolidation } from '../../src/consolidation.js';
+import { TOP_GROUP_CODE } from '../../src/consolidation-groups.js';
 
 const DUE_FROM = ['125000'];
 const DUE_TO = ['291000','291001','291002','291003','291004','291005','291006','291007','291031'];
@@ -95,27 +97,58 @@ P(`  [6] due-from account family: ${DUE_FROM.join(', ')} (asset) · due-to famil
 P(`      net due from ${fmt(DUE_FROM.reduce((s,k)=>s+(byAccount[k]||0),0)/100)} + net due to ${fmt(DUE_TO.reduce((s,k)=>s+(byAccount[k]||0),0)/100)} = ${fmt(residual/100)}`);
 
 // The unit-transfer path is a UI action, not seed data, so exercise the pairing
-// routine directly: profit must not stay capitalised in the receiver's
-// inventory, and both sides must mirror.
+// routine directly.
+//
+// This test used to assert that the RECEIVER's own ledger carried the unit at
+// the group's carrying cost - that is, that the consolidation entry had been
+// pushed down into a separate company's books. It was checking the wrong ledger.
+// A company that pays 400,000 for a lot carries a 400,000 asset; the group's
+// margin is removed on CONSOLIDATION, not on the buyer's balance sheet. So the
+// separate-company facts are checked here, and the group fact is checked where
+// it belongs - by running the pair through the real consolidation engine and
+// measuring the consolidated inventory and the consolidated gain. That is a
+// stricter test than the one it replaces: it exercises the elimination code.
 P('');
-P('  [7] unit transfer pairing (src/unit-transfer-pairing.js):');
-const A = {entity_id:5, entity_code:'WBCR', entity_name:'WB Conroe LLC'};
-const B = {entity_id:9, entity_code:'WBHS', entity_name:'WB Home Sub LLC'};
-[['gain', 400000], ['loss', 250000], ['at cost', 300000]].forEach(([label, price]) => {
-  const built = buildUnitTransferPair({from:A, to:B, unit:'Lot 101 Block A', carrying:300000, price, pairId:'UT-TEST'});
+P('  [7] unit transfer pairing (src/unit-transfer-pairing.js) and its consolidation:');
+const A = ENTITIES.find(e => e.entity_id === 5);
+const B = ENTITIES.find(e => e.entity_id === 9);
+const CARRYING = 300000;
+[['gain', 400000], ['loss', 250000], ['at cost', 300000]].forEach(([label, price], idx) => {
+  const pairId = `UT-TEST-${idx}`;
+  const built = buildUnitTransferPair({from:A, to:B, unit:'Lot 101 Block A', carrying:CARRYING, price, pairId});
   if (!built.ok) { P(`        ${label}: BUILD FAILED ${built.code}`); failures.push(`unit transfer pair (${label}) could not be built: ${built.code}`); return; }
   const sum = (lines, code, f) => lines.filter(l => l.account_code === code).reduce((s,l) => s + c(f(l)), 0);
   const dueFrom = sum(built.out.lines, '125000', l => l.debit_amount||0);
   const dueTo = sum(built.in.lines, '291000', l => l.credit_amount||0);
   const receiverInventory = sum(built.in.lines, '164400', l => l.debit_amount||0) - sum(built.in.lines, '164400', l => l.credit_amount||0);
-  const groupGain = (sum(built.out.lines, '787001', l => l.credit_amount||0) - sum(built.out.lines, '787001', l => l.debit_amount||0))
-                  + (sum(built.in.lines, '787001', l => l.credit_amount||0) - sum(built.in.lines, '787001', l => l.debit_amount||0));
+  const sellerGain = sum(built.out.lines, '787001', l => l.credit_amount||0) - sum(built.out.lines, '787001', l => l.debit_amount||0);
   const bal = lines => lines.reduce((s,l) => s + c(l.debit_amount||0) - c(l.credit_amount||0), 0);
-  P(`        ${label.padEnd(8)} due from ${fmt(dueFrom/100)} | due to ${fmt(dueTo/100)} | receiver inventory ${fmt(receiverInventory/100)} | net group gain ${fmt(groupGain/100)} | both sides balanced=${bal(built.out.lines)===0 && bal(built.in.lines)===0}`);
+  // Post the pair into a ledger of its own and consolidate it.
+  const asPosted = (side, id) => ({...side, je_id:id, je_number:`${pairId}-${id}`, period_code:'2026-07',
+    je_date:'2026-07-31', posting_status:'POSTED', ic_pair_id:pairId});
+  const ledger = [asPosted(built.out, 9001), asPosted(built.in, 9002)];
+  const consolidated = buildConsolidation({journals:ledger, groupCode:TOP_GROUP_CODE, throughPeriod:'2026-07'});
+  const at = code => consolidated.trialBalance.rows.find(r => r.account_code === code);
+  const consInventory = at('164400') ? at('164400').consolidated_balance_cents : 0;
+  const consGain = at('787001') ? -at('787001').consolidated_balance_cents : 0;
+  const consIc = ['125000','291000'].reduce((s,code) => s + (at(code) ? Math.abs(at(code).consolidated_balance_cents) : 0), 0);
+  P(`        ${label.padEnd(8)} due from ${fmt(dueFrom/100)} | due to ${fmt(dueTo/100)} | receiver inventory ${fmt(receiverInventory/100)} | seller gain ${fmt(sellerGain/100)} | balanced=${bal(built.out.lines)===0 && bal(built.in.lines)===0}`);
+  const impairmentWarnings = consolidated.elimination.warnings.filter(w => /BELOW group carrying cost/.test(w));
+  P(`                 consolidated: inventory movement ${fmt(consInventory/100)} | transfer gain ${fmt(consGain/100)} | intercompany left ${fmt(consIc/100)} | impairment notices ${impairmentWarnings.length}`);
   if (dueFrom !== dueTo) failures.push(`unit transfer pair (${label}) does not mirror`);
-  if (receiverInventory !== 30000000) failures.push(`unit transfer pair (${label}) records the receiver's inventory at ${fmt(receiverInventory/100)}, not the group carrying cost`);
-  if (groupGain !== 0) failures.push(`unit transfer pair (${label}) leaves ${fmt(groupGain/100)} of intercompany profit in the group`);
+  if (receiverInventory !== c(price)) failures.push(`unit transfer pair (${label}) records the receiver's inventory at ${fmt(receiverInventory/100)}, not the ${fmt(price)} it paid`);
+  if (sellerGain !== c(price) - c(CARRYING)) failures.push(`unit transfer pair (${label}) records a seller gain of ${fmt(sellerGain/100)} against a price of ${fmt(price)} on a carrying cost of ${fmt(CARRYING)}`);
   if (bal(built.out.lines) !== 0 || bal(built.in.lines) !== 0) failures.push(`unit transfer pair (${label}) does not balance`);
+  // A transfer inside the group moves nothing in or out of the group, so after
+  // consolidation it may not ADD to group inventory or to the group result.
+  // Moving an asset at below its group carrying cost is left in and reported as
+  // an impairment indicator (src/consolidation.js), so the test is one-sided.
+  if (consInventory > 0) failures.push(`consolidating unit transfer pair (${label}) leaves ${fmt(consInventory/100)} of intercompany margin in group inventory`);
+  if (consGain > 0) failures.push(`consolidating unit transfer pair (${label}) leaves ${fmt(consGain/100)} of unrealised intercompany profit in the group result`);
+  if (consInventory !== consGain) failures.push(`consolidating unit transfer pair (${label}) changes group inventory by ${fmt(consInventory/100)} and the group result by ${fmt(consGain/100)}; an internal transfer must move both by the same amount or neither`);
+  if (consIc !== 0) failures.push(`consolidating unit transfer pair (${label}) leaves ${fmt(consIc/100)} of intercompany balance on the group balance sheet`);
+  if (price < CARRYING && !impairmentWarnings.length) failures.push(`a unit transferred below group carrying cost raised no impairment notice`);
+  if (price >= CARRYING && impairmentWarnings.length) failures.push(`a unit transferred at or above group carrying cost raised an impairment notice`);
 });
 const sameEntity = buildUnitTransferPair({from:A, to:A, unit:'Lot 101 Block A', carrying:300000, price:400000});
 P(`        atomicity: a same-entity transfer is refused before either side is created -> ${sameEntity.ok ? 'NOT REFUSED' : sameEntity.code}`);

@@ -586,6 +586,60 @@ for (let m=1;m<=7;m++){
     }
   });
 }
+// ===== Intercompany lot transfers: land company -> home building company =====
+//
+// The land company develops a parcel and sells finished lots to the group's
+// home building company at a transfer price above its development cost. Each
+// company records what it actually did, on its own books, and nothing here is
+// eliminated at source:
+//
+//   seller   Dr 125000 Due from Related Party   transfer price
+//            Cr 164100 CWIP - Land              development cost released
+//            Cr 787001 Gain on sale/transfer    intercompany margin
+//   buyer    Dr 164400 CWIP - Land improvements transfer price (what it paid)
+//            Cr 291000 Due to/from              transfer price
+//
+// The lot has not left the group, so at 2026-07 the group's inventory carries
+// the seller's margin and the group's result carries a profit it has not
+// earned from anyone outside it. That is UNREALISED INTERCOMPANY PROFIT, and
+// removing it is a consolidation entry (src/consolidation.js, E-IC-PROFIT) -
+// not a correction to either company's ledger. Both sides carry the same
+// ic_pair_id so the elimination pairs them without guessing.
+const IC_LOT_TRANSFERS = [
+  // Entity 2 is deliberately NOT a seller here. It is the one entity in the
+  // seed that carries revenue and no expense at all, and the SSR gate uses that
+  // property as a fixture for the third Income Statement branch. Putting a
+  // transfer gain on it would have quietly removed the only entity that branch
+  // can be tested with.
+  {seller:117, buyer:  8, lot:'IC Lot 301 Block P', cost:58000, price:66700},
+  {seller: 11, buyer: 12, lot:'IC Lot 302 Block P', cost:62000, price:71300},
+  {seller: 18, buyer: 27, lot:'IC Lot 303 Block P', cost:54000, price:62100},
+  {seller: 47, buyer: 13, lot:'IC Lot 304 Block P', cost:66000, price:75900},
+  {seller: 54, buyer: 26, lot:'IC Lot 305 Block P', cost:60000, price:69000},
+  {seller: 84, buyer: 14, lot:'IC Lot 306 Block P', cost:70000, price:80500},
+];
+export const IC_LOT_TRANSFER_ACCOUNTS = Object.freeze({
+  due_from:'125000', due_to:'291000', seller_asset:'164100', buyer_asset:'164400', gain:'787001',
+});
+IC_LOT_TRANSFERS.forEach((t, i) => {
+  const pair = `ICLOT-${String(i + 1).padStart(4, '0')}`;
+  const gain = t.price - t.cost;
+  const sellerName = NAMEOF[t.seller], buyerName = NAMEOF[t.buyer];
+  const sellerProject = DEVELOPMENT_PROJECT_OF[t.seller], buyerProject = DEVELOPMENT_PROJECT_OF[t.buyer];
+  const sd = doc({type:'INTERCOMPANY_LOT_TRANSFER', doc_no:`ICLT-${pair}`, vendor:sellerName, buyer:buyerName,
+    unit:t.lot, date:'2026-07-24', amount:t.price, carrying_cost:t.cost, intercompany_margin:gain,
+    project_id:buyerProject, cost_code:LAND_COST_CODE, cost_code_name:'Land Development - Site Work',
+    source_system:'REFS intercompany lot transfer'});
+  push(t.seller,'07','24','INTERNAL',buyerName,`07/2026 Intercompany lot transfer OUT · ${t.lot} to ${buyerName} [${pair}]`,[
+    {account_code:'125000',debit_amount:t.price,credit_amount:0,member:buyerName,description:'Due from_'+buyerName},
+    {account_code:'164100',debit_amount:0,credit_amount:t.cost,project_id:sellerProject,cost_code:LAND_COST_CODE,description:`Development cost released on transfer [${pair}]`},
+    {account_code:'787001',debit_amount:0,credit_amount:gain,description:`Gain on intercompany lot transfer [${pair}]`}]);
+  Object.assign(FY[FY.length-1], {rule_code:'R-IC-LOT-01', source_doc_id:sd, ic_pair_id:pair});
+  push(t.buyer,'07','24','INTERNAL',sellerName,`07/2026 Intercompany lot transfer IN · ${t.lot} from ${sellerName} [${pair}]`,[
+    {account_code:'164400',debit_amount:t.price,credit_amount:0,unit_code:t.lot,project_id:buyerProject,cost_code:LAND_COST_CODE,vendor:sellerName,description:`Lot acquired from affiliate at transfer price [${pair}]`},
+    {account_code:'291000',debit_amount:0,credit_amount:t.price,member:sellerName,description:'Due to/from_'+sellerName}]);
+  Object.assign(FY[FY.length-1], {rule_code:'R-IC-LOT-02', source_doc_id:sd, ic_pair_id:pair});
+});
 // ===== Real AIWB INC entries (scraped from WBS companyAccount 2026-07) =====
 const AIWB = [];
 let _a = 9500;
