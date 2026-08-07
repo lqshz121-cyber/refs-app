@@ -53,6 +53,31 @@ const CREDENTIAL_ENV = Object.freeze({
 
 const LIST_TOOLS = WBS_READONLY_TOOLS.filter(name => name.startsWith('list_'));
 
+// Per-tool argument surface, transcribed from provider contract v0.1 §4.
+// The client validates every key against the tool's *published* input schema and refuses
+// the whole call on one undeclared key, so a single wrong parameter name costs a page.
+// The parameters genuinely differ between tools — `company_code` on the ledger reads,
+// `company` on the accounting reads — and `list_control_totals` takes no `limit` at all
+// because it returns totals, not a page of rows.
+const TOOL_ARGS = Object.freeze({
+  get_meta:                { company: null,        paged: false },  // §4.1 takes `section`
+  list_payables:           { company: 'company_code', paged: true },  // §4.2
+  list_bank_transactions:  { company: 'company_code', paged: true },  // §4.3
+  list_autorec_details:    { company: null,        paged: true },  // §4.4 filters by pb_guid
+  list_autorec_banks:      { company: 'company_code', paged: true },  // §4.5
+  list_journal_entries:    { company: 'company',   paged: true },  // §4.6
+  list_control_totals:     { company: 'company',   paged: false }, // §4.7 company/period/kind
+  trace_by_key:            { company: null,        paged: false }, // §4.8 key_type/key_value
+});
+
+function argsFor(tool, { limit, company }) {
+  const spec = TOOL_ARGS[tool] || { company: null, paged: true };
+  const args = {};
+  if (spec.paged) args.limit = limit;
+  if (company && spec.company) args[spec.company] = company;
+  return args;
+}
+
 function parseArgs(argv) {
   const args = { tool: null, limit: WBS_MCP_PILOT_LIMIT, all: false, json: null, company: null };
   for (let i = 0; i < argv.length; i += 1) {
@@ -135,12 +160,8 @@ async function pullOne(client, tool, { limit, company }) {
   console.log(`\n── ${tool} ${'─'.repeat(Math.max(0, 58 - tool.length))}`);
   if (catalog) console.log(`   role ${catalog.role} · terminus ${catalog.terminus}`);
 
-  // The client validates every argument key against the tool's published input schema and
-  // refuses on any key the schema does not declare (WBS_MCP_ARGUMENTS_INVALID). Contract
-  // §4.1: get_meta takes `section`, not `limit`/`company` — sending the list-tool arguments
-  // to it is a guaranteed refusal.
-  const args = tool === 'get_meta' ? {} : { limit };
-  if (company && tool !== 'get_meta') args.company = company;
+  const args = argsFor(tool, { limit, company });
+  console.log(`   args ${JSON.stringify(args)}`);
 
   // `readView` runs the frozen contract validator itself and returns the frozen,
   // validated envelope — so there is exactly one validation point, not two that
