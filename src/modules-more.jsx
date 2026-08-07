@@ -10,6 +10,7 @@ import { localGLDrillState, localGLDrillAccountCodes, localGLRunningBalanceRows 
 import { dimensionScopeLabel, scopedPostedJournalEntries } from './gl-dimension-scope.js';
 import { postedJournalEntriesAsOf } from './balance-sheet-asof.js';
 import { buildLocalCashFlow } from './cash-flow-evidence.js';
+import { loanRollForward, loanReconcilingItems } from './loan-rollforward.js';
 import { isOperatingCashAccount, localBankEvidenceForCashGroup, localCashAccountRows, localCashAccountGroup } from './cash-account-scope.js';
 import { localReportControlEvidence } from './report-control-evidence.js';
 import { createLocalReportScope, localReportScopeForEntity, normalizeLocalReportScopes, saveLocalReportScope } from './report-scope-presets.js';
@@ -428,9 +429,42 @@ export function Reports({ctx}) {
         ]} rows={controlRows}/>
       </section>;
     },
-    'Construction Loan Rollforward': () => { const rows = LOANS.map(l=>{ const draws=sum(LOAN_TXNS.filter(t=>t.loan_id===l.loan_id&&t.txn_type==='DRAW'),t=>t.amount); const rep=sum(LOAN_TXNS.filter(t=>t.loan_id===l.loan_id&&t.txn_type==='REPAYMENT'),t=>t.amount);
-        return {loan:l.loan_code, lender:l.lender_name, begin:l.current_principal-draws+rep, draws, repayments:rep, end:l.current_principal, avail:l.commitment_amount-l.current_principal}; });
-      return <Table exportName="loan-rollforward" cols={[{h:'Loan',k:'loan'},{h:'Lender',k:'lender'},{h:'Beginning principal',num:true,render:r=><Money v={r.begin}/>,csv:r=>r.begin},{h:'+ Draws',num:true,render:r=><Money v={r.draws}/>,csv:r=>r.draws},{h:'- Repayments',num:true,render:r=><Money v={r.repayments}/>,csv:r=>r.repayments},{h:'Ending principal',num:true,render:r=><Money v={r.end}/>,csv:r=>r.end},{h:'Available commitment',num:true,render:r=><Money v={r.avail}/>,csv:r=>r.avail}]} rows={rows}/>; },
+    // Every column here except "Loan master principal" is read off posted
+    // journals. The report this replaced derived beginning principal as
+    // `current_principal - draws + repayments` from the loan master and the
+    // staging table, so ending principal was current_principal by construction:
+    // it tied to itself and could never show a break against the books. A
+    // $7,070,000 difference between the ledger and the master sat behind it,
+    // unreported, while the Exception Center showed a $12,500 one.
+    'Construction Loan Rollforward': () => {
+      const rows = loanRollForward({journals: jes.filter(j=>j.posting_status==='POSTED'), loans: LOANS, fromPeriod: '2026-01', toPeriod: '2026-07'});
+      const items = loanReconcilingItems(rows);
+      const unattributed = rows.unattributed;
+      return <section className="report-workbench" aria-label="Construction loan rollforward built from the general ledger">
+        <div className="report-workbench-head">
+          <div><b>Built from posted journals</b><div className="page-subtitle">Beginning principal, draws and repayments are read off the general ledger. The loan master contributes one column, and any difference between the two is reported as a reconciling item rather than absorbed into a beginning balance.</div></div>
+          <Badge tone={items.length ? 'bad' : 'ok'}>{items.length ? `${items.length} UNRECONCILED` : 'LEDGER TIES TO LOAN MASTER'}</Badge>
+        </div>
+        <Table exportName="loan-rollforward" rowKey="loan_code" cols={[
+          {h:'Loan',k:'loan_code'},
+          {h:'Lender',k:'lender_name'},
+          {h:'GL beginning principal',num:true,render:r=><Money v={r.gl_beginning}/>,csv:r=>r.gl_beginning},
+          {h:'+ GL draws',num:true,render:r=><Money v={r.gl_draws}/>,csv:r=>r.gl_draws},
+          {h:'- GL repayments',num:true,render:r=><Money v={r.gl_repayments}/>,csv:r=>r.gl_repayments},
+          {h:'= GL ending principal',num:true,render:r=><Money v={r.gl_ending}/>,csv:r=>r.gl_ending},
+          {h:'Loan master principal',num:true,render:r=><Money v={r.master_principal}/>,csv:r=>r.master_principal},
+          {h:'Difference',num:true,render:r=><span className={r.difference_cents?'bad':''}><Money v={r.difference}/></span>,csv:r=>r.difference},
+          {h:'Status',render:r=><Badge tone={r.difference_cents?'bad':'ok'}>{r.difference_cents?'UNRECONCILED':'TIES'}</Badge>,csv:r=>r.difference_cents?'UNRECONCILED':'TIES'},
+          {h:'Available commitment',num:true,render:r=><Money v={r.available_commitment}/>,csv:r=>r.available_commitment},
+        ]} rows={rows}/>
+        {Math.round(unattributed.gl_ending*100)!==0 && <p className="report-drill-hint">{money(unattributed.gl_ending)} of loan principal in the ledger names no loan in the master and can be reconciled to no lender statement. Journals: {unattributed.je_refs.join(', ') || 'none'}.</p>}
+        {items.length ? <Table exportName="loan-reconciling-items" rowKey="loan_code" cols={[
+          {h:'Loan',k:'loan_code'},
+          {h:'Amount',num:true,render:r=><Money v={r.amount}/>,csv:r=>r.amount},
+          {h:'Reconciling item',k:'message'},
+        ]} rows={items}/> : <p className="report-drill-hint">Every facility's ledger balance agrees with the loan master. A difference here would be an exception for a person to identify and post, never a plug.</p>}
+      </section>;
+    },
     'Manual JE Report': () => <Table exportName="manual-je" cols={[{h:'JE',k:'je_number'},{h:'Date',k:'je_date'},{h:'Description',k:'description'},{h:'Amount',num:true,render:r=><Money v={jeTotals(r).dr}/>,csv:r=>jeTotals(r).dr},{h:'Created by',k:'created_by'},{h:'Attachment',render:r=>r.has_attachment?'Attached':'Missing',csv:r=>r.has_attachment?'Y':'N'},{h:'Status',render:r=><Badge>{r.posting_status}</Badge>,csv:r=>r.posting_status}]} rows={jes.filter(j=>j.je_type==='MANUAL')}/>,
     'Exception Aging': () => <Table exportName="exception-aging" cols={[{h:'Type',k:'exception_type'},{h:'Severity',render:r=><Badge>{r.severity}</Badge>,csv:r=>r.severity},{h:'Object',k:'object_ref'},{h:'Aging (days)',num:true,k:'aging_days'},{h:'Owner',k:'owner'},{h:'Status',render:r=><Badge>{r.status}</Badge>,csv:r=>r.status}]} rows={[...exceptions].sort((a,b)=>b.aging_days-a.aging_days)}/>,
     'Data Sync Report': () => <Table cols={[{h:'Source',k:'s'},{h:'Batch',k:'b'},{h:'Records',k:'n'},{h:'Success rate',k:'r'},{h:'Status',render:r=><Badge tone={r.r==='100%'?'ok':'warn'}>{r.r==='100%'?'COMPLETED':'PARTIAL'}</Badge>}]} rows={[{s:'WBS_CL',b:'CL-20260731-007',n:4,r:'100%'},{s:'PM',b:'PM-202607-P0020',n:5,r:'80%'},{s:'BANK',b:'BANK-20260731',n:4,r:'100%'}]}/>,

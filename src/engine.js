@@ -1,4 +1,4 @@
-import { COA, MAPPINGS, PROJECTS, PROPERTIES } from './data.js';
+import { COA, MAPPINGS, PROJECTS, PROPERTIES, LOANS, BANK_ACCOUNTS, ENTITIES } from './data.js';
 
 const COA_MAP = Object.fromEntries(COA.map(a=>[a.account_code,a]));
 export const acct = (code) => COA_MAP[code] || (WBS_COA_MAP[code] ? {account_code:code, account_name:WBS_COA_MAP[code].name, account_type: code[0]==='1'?'ASSET':code[0]==='2'?'LIABILITY':code[0]==='3'?'EQUITY':code[0]==='4'?'REVENUE':'EXPENSE', normal_balance:WBS_COA_MAP[code].nb} : {account_code:code, account_name:'?', account_type:'ASSET', normal_balance:'DEBIT'});
@@ -75,28 +75,90 @@ export const JE_FLOW = {
   REVERSED:         {next:null,               action:null},
 };
 
+// ---- Subsidiary member resolution ------------------------------------------
+// A subsidiary-ledger account is a control account: its balance is the sum of a
+// subledger, and every line posted to it has to say which subledger member it
+// belongs to. `validateJE` raises 4020 when one does not. The rule engine used
+// to set loan_id / property_id and no member at all, so every draft it produced
+// was rejected by the engine's own validator the moment it was submitted - the
+// user saw "270100 requires a Loan member" on a journal they never wrote and had
+// no field to fix. These resolvers read the member off the master record that
+// the source transaction already points at.
+//
+// Each returns null when the master carries no such record. Null is not a
+// failure mode that gets papered over: the line stays memberless and 4020 still
+// fires, which is the correct outcome for a draw on a loan that is not in the
+// loan master.
+
+// Bank subledger: the entity's operating bank account.
+export function bankMemberFor(entityId) {
+  const id = Number(entityId);
+  if (!Number.isFinite(id)) return null;
+  const accounts = BANK_ACCOUNTS.filter(b => Number(b.entity_id) === id && b.gl_account_code === '111000');
+  const operating = accounts.find(b => b.account_type === 'OPERATING') || accounts[0];
+  if (operating) return `${operating.bank_account_code} · ${operating.bank_name}`;
+  const entity = ENTITIES.find(e => Number(e.entity_id) === id);
+  return entity ? `Operating Cash · ${entity.entity_code}` : null;
+}
+
+// Loan subledger: the facility, named the way the lender names it.
+export function loanMemberFor(loanId) {
+  const loan = LOANS.find(l => l.loan_id === loanId);
+  return loan ? `${loan.loan_code} · ${loan.lender_name}` : null;
+}
+
+// Resident subledger. The property-management feed identifies a resident by the
+// property and unit they occupy, not by name, so that is the member. It is the
+// key the feed actually carries; inventing a personal name here would put a
+// value in the subledger that no source system could ever be reconciled to.
+export function residentMemberFor(row, property) {
+  if (row && row.resident) return String(row.resident);
+  const code = (property && property.property_code) || (row && row.property_code) || '';
+  const unit = (row && row.unit) || '';
+  if (!code && !unit) return null;
+  return [code, unit].filter(Boolean).join(' · ');
+}
+
+// Vendor subledger on a pass-through property charge.
+export function pmVendorMemberFor(row, property) {
+  if (row && row.vendor) return String(row.vendor);
+  const code = (property && property.property_code) || (row && row.property_code) || '';
+  return code ? `Unidentified payee · ${code}` : null;
+}
+
 // ---- Rule engine: generate draft JE from a source transaction ----
 // Capitalization decision driven by construction_status (spec R-LOAN-03/04)
 export function loanRule(txn) {
   const cap = txn.construction_status === 'UNDER_CONSTRUCTION';
+  const loan = LOANS.find(l => l.loan_id === txn.loan_id) || null;
+  const entityId = txn.entity_id != null ? txn.entity_id : (loan && loan.entity_id);
+  const bank = bankMemberFor(entityId);
+  const loanMember = loanMemberFor(txn.loan_id);
+  // Principal is carried on the facility's own account family: a construction
+  // facility on 270100, a mortgage on 270200. Reading it off the loan master
+  // stops a mortgage draw from landing in construction loan payable.
+  const principalAccount = txn.loan_payable_account
+    || (loan && loan.loan_type === 'MORTGAGE' ? '270200' : '270100');
+  const projectId = txn.project_id != null ? txn.project_id : (loan ? loan.project_id : null);
+  const dim = {loan_id: txn.loan_id, ...(projectId != null ? {project_id: projectId} : {})};
   switch (txn.txn_type) {
     case 'DRAW':
       // Blueprint 7.3: Draw = loan cash-in, NOT cost. Dr Cash / Cr Loan Payable
       return {rule_code:'R-LOAN-01', lines:[
-        {account_code:'111000', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
-        {account_code:'270100', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
+        {account_code:'111000', debit_amount:txn.amount, credit_amount:0, ...dim, member:bank},
+        {account_code:principalAccount, debit_amount:0, credit_amount:txn.amount, ...dim, member:loanMember}]};
     case 'INTEREST_ACCRUAL':
       return {rule_code: cap?'R-LOAN-03':'R-LOAN-04', capitalize:cap, lines:[
-        {account_code: cap?'164500':'795000', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
-        {account_code:'220410', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
+        {account_code: cap?'164500':'795000', debit_amount:txn.amount, credit_amount:0, ...dim},
+        {account_code:'220410', debit_amount:0, credit_amount:txn.amount, ...dim}]};
     case 'INTEREST_PAYMENT':
       return {rule_code:'R-LOAN-05', lines:[
-        {account_code:'220410', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
-        {account_code:'111000', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
+        {account_code:'220410', debit_amount:txn.amount, credit_amount:0, ...dim},
+        {account_code:'111000', debit_amount:0, credit_amount:txn.amount, ...dim, member:bank}]};
     case 'REPAYMENT':
       return {rule_code:'R-LOAN-08', lines:[
-        {account_code:'270100', debit_amount:txn.amount, credit_amount:0, loan_id:txn.loan_id},
-        {account_code:'111000', debit_amount:0, credit_amount:txn.amount, loan_id:txn.loan_id}]};
+        {account_code:principalAccount, debit_amount:txn.amount, credit_amount:0, ...dim, member:loanMember},
+        {account_code:'111000', debit_amount:0, credit_amount:txn.amount, ...dim, member:bank}]};
     default: return null;
   }
 }
@@ -108,16 +170,23 @@ export function pmRule(row) {
   const prop = PROPERTIES.find(p=>p.property_code===row.property_code);
   const isRev = m.rev_exp_flag==='REVENUE';
   const isLia = m.rev_exp_flag==='LIABILITY'; // security deposit -> liability, not income
+  const dim = {property_id: prop && prop.property_id};
+  const bank = bankMemberFor(prop && prop.entity_id);
+  const resident = residentMemberFor(row, prop);
   let lines;
-  if (isRev) lines = [
-    {account_code: row.cash_accrual==='CASH'?'111000':'120200', debit_amount:row.amount, credit_amount:0, property_id:prop&&prop.property_id},
-    {account_code: m.owner_gl_account_code, debit_amount:0, credit_amount:row.amount, property_id:prop&&prop.property_id}];
+  if (isRev) lines = row.cash_accrual==='CASH'
+    ? [{account_code:'111000', debit_amount:row.amount, credit_amount:0, ...dim, member:bank},
+       {account_code: m.owner_gl_account_code, debit_amount:0, credit_amount:row.amount, ...dim}]
+    : [{account_code:'120200', debit_amount:row.amount, credit_amount:0, ...dim, member:resident},
+       {account_code: m.owner_gl_account_code, debit_amount:0, credit_amount:row.amount, ...dim}];
   else if (isLia) lines = [
-    {account_code:'111000', debit_amount:row.amount, credit_amount:0, property_id:prop&&prop.property_id},
-    {account_code: m.owner_gl_account_code, debit_amount:0, credit_amount:row.amount, property_id:prop&&prop.property_id}];
+    // A tenant deposit is money held for the resident. Both sides name the
+    // resident: the restricted cash it sits in and the liability it creates.
+    {account_code:'111000', debit_amount:row.amount, credit_amount:0, ...dim, member:bank},
+    {account_code: m.owner_gl_account_code, debit_amount:0, credit_amount:row.amount, ...dim, member:resident}];
   else lines = [ // expense
-    {account_code: m.owner_gl_account_code, debit_amount:row.amount, credit_amount:0, property_id:prop&&prop.property_id},
-    {account_code:'220200', debit_amount:0, credit_amount:row.amount, property_id:prop&&prop.property_id}];
+    {account_code: m.owner_gl_account_code, debit_amount:row.amount, credit_amount:0, ...dim},
+    {account_code:'220200', debit_amount:0, credit_amount:row.amount, ...dim, member:pmVendorMemberFor(row, prop)}];
   return {rule_code:'R-PM-'+(isRev?'11':isLia?'16':'18'), mapped:true, gl:m.owner_gl_account_code, lines};
 }
 

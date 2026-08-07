@@ -86,9 +86,32 @@ expectIS('Income Statement renders a total operating expense line for a real pos
   income4.cogsRows>0&&income4.opexRows>0&&incomeStatementMarkup.includes('Total Operating Expenses'));
 expectIS('Income Statement total income, gross profit, operating expense and net income all tie to the same POSTED rows',
   [money(income4.revT),money(income4.revT-income4.cogsT),money(income4.opexT),money(income4.net)].every(value=>incomeStatementMarkup.includes(value)));
-const income114=expectedIncome(114);
+// Entity 114 used to be the "revenue and cost of sales, no operating expense"
+// fixture. It stopped being one when a home closing started carrying the legs a
+// settlement statement actually has: sales commission (510100, cost of sales),
+// third-party brokerage (682500) and closing/title fees (778002), the last two
+// of which are operating expense. Every entity that sells a home now carries
+// operating expense, so no seeded entity reaches that Income Statement branch.
+// The branch still exists in the component, so it is rendered against a
+// purpose-built scope rather than dropped - the property under test is
+// unchanged: an Income Statement whose only expense section is cost of sales
+// must still render and must still tie.
+const cogsOnlyLedger=[{je_id:990114, je_number:'SSR-COGS-ONLY-114', entity_id:114, period_code:'2026-07', je_date:'2026-07-28',
+  je_type:'CLOSING', source_system:'CLS', posting_status:'POSTED', created_by:'ssr-fixture', rule_code:'R-CLS-SALE-01',
+  lines:[{account_code:'111000',debit_amount:300000,credit_amount:0},{account_code:'491800',debit_amount:0,credit_amount:300000},
+    {account_code:'510000',debit_amount:240000,credit_amount:0},{account_code:'165100',debit_amount:0,credit_amount:240000}]}];
+const cogsOnlyRows=trialBalance(cogsOnlyLedger).rows;
+const cogsOnlyExpense=cogsOnlyRows.filter(r=>r.type==='EXPENSE');
+const cogsOnlyMarkup=renderToStaticMarkup(<GLTrialBalance ctx={{...reportCtxFor(114,'Income Statement'), jes:cogsOnlyLedger}}/>);
 expectIS('Income Statement renders when the only expense in scope is cost of goods sold',
-  income114.cogsRows>0&&income114.opexRows===0&&renderReportTab(114,'Income Statement').includes(money(income114.net)));
+  cogsOnlyExpense.length>0&&cogsOnlyExpense.every(r=>localIncomeStatementSection(r)==='Cost of goods sold')&&
+  [money(300000),money(240000),money(60000)].every(value=>cogsOnlyMarkup.includes(value)));
+// A seeded entity that sells a home must now carry BOTH cost of sales and the
+// selling costs the closing incurred. This is the assertion entity 114 used to
+// fail in the other direction.
+const income114=expectedIncome(114);
+expectIS('A closing entity carries cost of sales and the selling costs the settlement statement deducted',
+  income114.cogsRows>0&&income114.opexRows>0&&renderReportTab(114,'Income Statement').includes(money(income114.net)));
 // The "no P&L activity" entity is resolved from the seed, never named by a
 // literal. Entity 2 used to be that fixture; it stopped being one when the
 // service hub started booking its own side of every intercompany service pair

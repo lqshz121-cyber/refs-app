@@ -246,6 +246,43 @@ export const INJECTIONS = {
     apply: add(() => je({description: 'Injected: undimensioned construction cost',
       lines: [L('164400', 80000, 0), L('220300', 0, 80000, {member: VENDOR})]})),
   },
+  'construction-unit-but-no-project': {
+    rule: 'AUD-CON-001',
+    describe: 'Construction cost that names a unit and nothing else - the exact shape 462 seeded lines carried while the gate stayed green.',
+    apply: add(() => je({description: 'Injected: construction cost with a unit but no project',
+      lines: [L('164400', 80000, 0, {unit_code: 'MUT Lot 4 Block Z'}), L('220300', 0, 80000, {member: VENDOR})]})),
+  },
+  'land-cost-no-project': {
+    rule: 'AUD-CON-001',
+    describe: 'Land development cost capitalised to 164100 with no project, so it can never be allocated to a lot.',
+    apply: add(() => je({description: 'Injected: land development cost with no project',
+      lines: [L('164100', 45000, 0), L('220300', 0, 45000, {member: VENDOR})]})),
+  },
+  'construction-line-dimensions-only-on-document': {
+    rule: 'AUD-CON-003',
+    describe: 'Construction invoice whose source document is complete but whose journal line carries no Cost Code and no Vendor, so no job cost report can be built from the ledger.',
+    apply: (jes) => {
+      SOURCE_DOCS['MUT-DOC-CONSTR-LINE'] = {id: 'MUT-DOC-CONSTR-LINE', type: 'CONSTRUCTION_INVOICE', doc_no: 'INV-MUT-002',
+        unit: 'MUT Lot 5 Block Z', project_id: 1, cost_code: '2HD220', vendor: VENDOR, po_no: 'PO-MUT-002',
+        date: '2026-07-15', amount: 40000, source_system: 'WBS · Faster PO'};
+      return [...jes, je({je_type: 'AUTO', source_system: 'PAYABLE', rule_code: 'R-WBS-INV-01', source_doc_id: 'MUT-DOC-CONSTR-LINE',
+        description: 'Injected: construction invoice whose dimensions never reach the journal line',
+        lines: [L('164400', 40000, 0, {unit_code: 'MUT Lot 5 Block Z', project_id: 1}), L('220300', 0, 40000, {member: VENDOR})]})];
+    },
+  },
+  'construction-line-unknown-cost-code': {
+    rule: 'AUD-CON-003',
+    describe: 'Construction cost line carrying a cost code that is not in the cost code master, so it maps to no budget line.',
+    apply: (jes) => {
+      SOURCE_DOCS['MUT-DOC-CONSTR-CC'] = {id: 'MUT-DOC-CONSTR-CC', type: 'CONSTRUCTION_INVOICE', doc_no: 'INV-MUT-003',
+        unit: 'MUT Lot 6 Block Z', project_id: 1, cost_code: '2HD220', vendor: VENDOR, po_no: 'PO-MUT-003',
+        date: '2026-07-15', amount: 40000, source_system: 'WBS · Faster PO'};
+      return [...jes, je({je_type: 'AUTO', source_system: 'PAYABLE', rule_code: 'R-WBS-INV-01', source_doc_id: 'MUT-DOC-CONSTR-CC',
+        description: 'Injected: construction cost line with an unknown cost code',
+        lines: [L('164400', 40000, 0, {unit_code: 'MUT Lot 6 Block Z', project_id: 1, cost_code: 'ZZZ999', vendor: VENDOR}),
+          L('220300', 0, 40000, {member: VENDOR})]})];
+    },
+  },
   'construction-invoice-missing-costcode': {
     rule: 'AUD-CON-002',
     describe: 'Construction invoice whose source document carries no Cost Code and no Vendor.',

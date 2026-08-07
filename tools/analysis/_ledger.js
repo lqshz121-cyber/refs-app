@@ -1,10 +1,10 @@
 // Shared loader for close-review analysis. Re-exports the real posted ledger.
-import { COA, ENTITIES, PERIODS, PROJECTS, PROPERTIES, LOANS, BANK_ACCOUNTS, MAPPINGS } from '../../src/data.js';
+import { COA, ENTITIES, PERIODS, PROJECTS, PROPERTIES, LOANS, BANK_ACCOUNTS, MAPPINGS, COST_CODES, COST_CODE_MAP, DEVELOPMENT_PROJECT_OF } from '../../src/data.js';
 import { WBS_COA_FULL, WBS_COA_MAP, SUBSIDIARY, subsidiaryOf, memberOf } from '../../src/coa-wbs.js';
 import { JOURNAL_ENTRIES, FY2026, SOURCE_DOCS, LOAN_TXNS, PM_ROWS, BANK_TXNS, CLOSINGS, IC_TXNS, CLOSE_TASKS, EXCEPTIONS } from '../../src/seed.js';
 export const ALL = [...JOURNAL_ENTRIES, ...FY2026];
 export const POSTED = ALL.filter(j=>j.posting_status==='POSTED');
-export { COA, ENTITIES, PERIODS, PROJECTS, PROPERTIES, LOANS, BANK_ACCOUNTS, MAPPINGS,
+export { COA, ENTITIES, PERIODS, PROJECTS, PROPERTIES, LOANS, BANK_ACCOUNTS, MAPPINGS, COST_CODES, COST_CODE_MAP, DEVELOPMENT_PROJECT_OF,
   WBS_COA_FULL, WBS_COA_MAP, SUBSIDIARY, subsidiaryOf, memberOf,
   JOURNAL_ENTRIES, FY2026, SOURCE_DOCS, LOAN_TXNS, PM_ROWS, BANK_TXNS, CLOSINGS, IC_TXNS, CLOSE_TASKS, EXCEPTIONS };
 export const ENT = Object.fromEntries(ENTITIES.map(e=>[e.entity_id,e]));

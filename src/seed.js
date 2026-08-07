@@ -1,5 +1,5 @@
-import { ENTITIES } from './data.js';
-import { yearEndCloseLines } from './engine.js';
+import { ENTITIES, LOANS, PROJECTS, DEVELOPMENT_PROJECT_OF } from './data.js';
+import { yearEndCloseLines, loanRule } from './engine.js';
 // Transactional seed: journal entries, staging rows, exceptions, close tasks.
 let _id = 5000;
 export const nextId = () => ++_id;
@@ -45,7 +45,7 @@ export const JOURNAL_ENTRIES = [
    rule_code:'R-LOAN-01', lines:[L('111000',500000,0,{project_id:1,loan_id:1}), L('270100',0,500000,{loan_id:1})]},
   {je_id:1002, je_number:'JE-2026-07-1002', entity_id:2, period_code:'2026-07', je_type:'AUTO', je_date:'2026-07-31',
    description:'Capitalized interest accrual (Under Construction)', source_system:'WBS_CL', posting_status:'POSTED',
-   rule_code:'R-LOAN-03', lines:[L('164500',29200,0,{loan_id:1,project_id:1}), L('220410',0,29200,{loan_id:1})]},
+   rule_code:'R-LOAN-03', lines:[L('164500',29200,0,{loan_id:1,project_id:1,cost_code:'3INT00'}), L('220410',0,29200,{loan_id:1})]},
   {je_id:1003, je_number:'JE-2026-07-1003', entity_id:4, period_code:'2026-07', je_type:'AUTO', je_date:'2026-07-01',
    description:'Rent income accrual - Maple Court', source_system:'PM', posting_status:'POSTED',
    rule_code:'R-PM-11', lines:[L('120200',48000,0,{property_id:2}), L('421803',0,48000,{property_id:2})]},
@@ -81,9 +81,16 @@ export const EXCEPTIONS = [
   {exception_id:2, exception_type:'BANK_UNMATCHED', severity:'MEDIUM', object_type:'BANK_TXN', object_ref:'BANKTXN-Z-4471',
    entity_id:4, occurred_date:'2026-07-30', aging_days:1, owner:'TREASURY', status:'IN_PROGRESS',
    root_cause:'ACH credit not matched to any receipt', resolution:''},
+  // This exception used to claim a $12,500 loan break while the real difference
+  // between the ledger and the loan master was $7,070,000 - the ledger carried
+  // no opening principal for either facility and one funded draw had never been
+  // posted. Both are now posted and the roll-forward reads the general ledger
+  // (src/loan-rollforward.js), so the difference is nil and any future one is
+  // raised by that report rather than by a hand-written row.
   {exception_id:3, exception_type:'LOAN_BALANCE_MISMATCH', severity:'HIGH', object_type:'LOAN', object_ref:'L-2025-014',
-   entity_id:2, occurred_date:'2026-07-31', aging_days:0, owner:'PROJECT_ACCT', status:'OPEN',
-   root_cause:'GL loan payable differs from lender statement by 12,500', resolution:''},
+   entity_id:2, occurred_date:'2026-07-31', aging_days:0, owner:'PROJECT_ACCT', status:'CLOSED',
+   root_cause:'GL loan payable was 7,070,000 below the loan master: no opening principal was ever posted for either facility, and funded draw WBS-CLTXN-88255 (275,000) had no journal.',
+   resolution:'Opening principal posted at 2025-12-31 for both facilities, funded draw posted through the rule engine. Construction Loan Rollforward now reads the GL and reports any divergence as a reconciling item.'},
   {exception_id:4, exception_type:'IC_OUT_OF_BALANCE', severity:'HIGH', object_type:'IC', object_ref:'ICP-0007',
    entity_id:2, occurred_date:'2026-07-29', aging_days:2, owner:'CONTROLLER', status:'OPEN',
    root_cause:'Due from (E1001) 100,000 vs Due to (E1003) 90,000', resolution:''},
@@ -119,11 +126,16 @@ export const LOAN_TXNS = [
   {loan_txn_id:4, loan_id:2, wbs_txn_id:'WBS-CLTXN-77010', txn_type:'INTEREST_PAYMENT', transaction_date:'2026-07-01', amount:29315, construction_status:'IN_SERVICE', generated_je:null, recon_status:'PENDING'},
 ];
 
+// Property-management pickup feed. `vendor` is the payee the feed reports on a
+// pass-through expense charge; without it the vendor subledger on the AP credit
+// has no member and the pickup cannot be posted (validateJE 4020). Resident
+// charges carry no personal name in this feed - the resident is identified by
+// property and unit, which is the key the subledger is reconciled on.
 export const PM_ROWS = [
   {external_id:'YARDI-5581', property_code:'P0020', unit:'A-203', charge_code:'RENT', posting_month:'2026-07', amount:48000, cash_accrual:'ACCRUAL'},
   {external_id:'YARDI-5582', property_code:'P0020', unit:'A-203', charge_code:'LATE_FEE', posting_month:'2026-07', amount:350, cash_accrual:'CASH'},
   {external_id:'YARDI-5583', property_code:'P0020', unit:'B-110', charge_code:'SEC_DEPOSIT', posting_month:'2026-07', amount:1500, cash_accrual:'CASH'},
-  {external_id:'YARDI-5584', property_code:'P0020', unit:'B-110', charge_code:'UTILITIES', posting_month:'2026-07', amount:3200, cash_accrual:'ACCRUAL'},
+  {external_id:'YARDI-5584', property_code:'P0020', unit:'B-110', charge_code:'UTILITIES', posting_month:'2026-07', amount:3200, cash_accrual:'ACCRUAL', vendor:'Lone Star Utility Services'},
   {external_id:'YARDI-5585', property_code:'P0020', unit:'C-050', charge_code:'PET_FEE', posting_month:'2026-07', amount:120, cash_accrual:'CASH'},
 ];
 
@@ -163,6 +175,10 @@ let _g = 5000;
 // total is ever the result of binary floating-point addition.
 const CYCLE_MONTHS = 3;
 const cycleOf = (m)=>Math.ceil(m/CYCLE_MONTHS);
+// Cost codes carried on the journal line, from the COST_CODES master in
+// src/data.js. WBS convention: 0LD land development, 2HD vertical hard cost.
+const VERTICAL_COST_CODE = '2HD220';
+const LAND_COST_CODE = '0LD100';
 // Contract sale price of the unit built in cycle `cyc` by entity `e`.
 const SALE_PRICE = (e,cyc)=>300000 + e*800 + cyc*12000 + ((e*37+cyc*11)%97)*220;
 // Cost basis of that unit, 76.00%-86.99% of the contract price. A for-sale
@@ -173,6 +189,34 @@ const UNIT_TOTAL_COST = (e,cyc)=>Math.round(SALE_PRICE(e,cyc)*COST_RATIO_BP(e,cy
 // Cost incurred in month i (0-based) of the cycle. Even thirds, remainder last,
 // so the three monthly accruals add back to the total exactly.
 const UNIT_MONTH_COST = (e,cyc,i)=>{ const tot=UNIT_TOTAL_COST(e,cyc), base=Math.floor(tot/3); return i===CYCLE_MONTHS-1 ? tot-base*(CYCLE_MONTHS-1) : base; };
+// ---- Settlement statement ---------------------------------------------------
+// A home closing splits into the legs a HUD/ALTA settlement statement carries.
+// The deduction rates below are MODELLING ASSUMPTIONS, not facts read out of a
+// source system - REFS holds no settlement statement detail for these demo
+// closings, only a contract price. They are stated here so that a reader knows
+// exactly which figures are modelled: 3.00% in-house sales commission, 3.00%
+// buyer's broker commission, 1.00% title and closing fee, and 5.00% of the
+// price funded by the title company after the closing date rather than wired
+// on the day. Everything is whole basis points of a whole-dollar price, so no
+// journal total is the result of binary floating-point arithmetic.
+const TITLE_CO = 'Apex Title LLC';
+const BP_SALES_COMMISSION = 300;      // 3.00%  -> 510100 Sales Commission
+const BP_BROKER_COMMISSION = 300;     // 3.00%  -> 682500 Third party Brokerage Commission
+const BP_TITLE_FEE = 100;             // 1.00%  -> 778002 Closing/Title Fees, payable on 220205
+const BP_PROCEEDS_RECEIVABLE = 500;   // 5.00%  -> 121011 Accounts Receivable, funded next month
+const bp = (amount, points)=>Math.round(amount*points/10000);
+const settlementOf = (price)=>{
+  const commissionInHouse = bp(price, BP_SALES_COMMISSION);
+  const commissionBroker = bp(price, BP_BROKER_COMMISSION);
+  const titleFee = bp(price, BP_TITLE_FEE);
+  const proceedsReceivable = bp(price, BP_PROCEEDS_RECEIVABLE);
+  // The title fee is withheld as a payable, not out of the wire, so it does not
+  // reduce cash at closing. Cash is the plug that makes the statement tie, and
+  // it is derived, never rounded independently.
+  const cashAtClosing = price - commissionInHouse - commissionBroker - proceedsReceivable;
+  return {commissionInHouse, commissionBroker, titleFee, proceedsReceivable, cashAtClosing};
+};
+const _settlePending = {};  // entity -> settlement balances left open by a closing
 const _unitCwip = {};   // (entity|unit) -> construction cost still in CWIP
 const _unitInv  = {};   // (entity|unit) -> finished-inventory carrying value
 const unitKey = (e,u)=>`${e}|${u}`;
@@ -230,20 +274,199 @@ const icRepay=(mm,dd,e,amount,memo)=>{
   FY[FY.length-1].rule_code='R-IC-RPY-02';
   return amount;
 };
+// ===== Loan ledger: opening principal, staged transactions, interest ========
+// Before this block the general ledger carried $2,900,000 of loan payable and
+// the loan master said $9,970,000 - a $7,070,000 break that nothing in REFS
+// could see, because the roll-forward derived every one of its columns from the
+// master and never read the books.
+//
+// WHICH RECORD IS AUTHORITATIVE. For the FY2026 OPENING position, the loan
+// master is: the ledger carried no debt at all at 2025-12-31, which cannot be
+// true of a group holding a 2024 mortgage and a 2025 construction facility, and
+// the master's principal outstanding is the lender-derived figure. So the
+// opening balance is derived - master principal outstanding, less every
+// FY2026 principal movement the ledger records - and posted, rather than the
+// master being edited down to the books. From FY2026 onward the LEDGER is
+// authoritative: src/loan-rollforward.js builds the roll-forward from posted
+// journals and reports any divergence from the master as a reconciling item.
+const LOAN_PRINCIPAL_ACCOUNTS = new Set(['260100','260200','260300','260700','270100','270200','270700','289500','227303']);
+const LOAN_BY_ID = Object.fromEntries(LOANS.map(l=>[l.loan_id,l]));
+const PROJECT_BY_ID_SEED = Object.fromEntries(PROJECTS.map(p=>[p.project_id,p]));
+const LAST_DAY = {'01':'31','02':'28','03':'31','04':'30','05':'31','06':'30','07':'31'};
+const cents = (n)=>Math.round((Number(n)||0)*100);
+// FY2026 principal movement the static fixtures already carry, by loan and period.
+const _loanMovement = {};   // `${loan_id}|${period}` -> net credit in cents
+const addMovement = (loanId, period, amountCents)=>{
+  const k = `${loanId}|${period}`;
+  _loanMovement[k] = (_loanMovement[k]||0) + amountCents;
+};
+JOURNAL_ENTRIES.filter(j=>j.posting_status==='POSTED').forEach(j=>j.lines.forEach(l=>{
+  if (!LOAN_PRINCIPAL_ACCOUNTS.has(l.account_code) || l.loan_id==null) return;
+  addMovement(l.loan_id, j.period_code, cents(l.credit_amount)-cents(l.debit_amount));
+}));
+// Staged loan transactions that were never posted. A funded draw with no
+// journal is money in the bank that the books do not show; it is posted here
+// through the same rule engine the application uses.
+const _stagedToPost = LOAN_TXNS.filter(t=>!t.generated_je && ['DRAW','REPAYMENT','INTEREST_PAYMENT'].includes(t.txn_type));
+_stagedToPost.forEach(t=>{
+  if (t.txn_type==='DRAW') addMovement(t.loan_id, String(t.transaction_date).slice(0,7), cents(t.amount));
+  if (t.txn_type==='REPAYMENT') addMovement(t.loan_id, String(t.transaction_date).slice(0,7), -cents(t.amount));
+});
+const _loanPrincipal = {};  // running principal in cents during FY2026
+LOANS.forEach(l=>{
+  const fyMovement = Object.keys(_loanMovement)
+    .filter(k=>k.startsWith(`${l.loan_id}|`))
+    .reduce((s,k)=>s+_loanMovement[k], 0);
+  _loanPrincipal[l.loan_id] = cents(l.current_principal) - fyMovement;   // opening at 2025-12-31
+});
+const OPENING_LOAN_PRINCIPAL = {..._loanPrincipal};   // cents, at 2025-12-31
+// Interest is accrued monthly on the principal outstanding at the START of the
+// month, at the loan master's stated annual rate divided by twelve. That
+// convention is stated rather than assumed: REFS holds no day-count basis, no
+// rate reset schedule and no payment schedule for these facilities, so a daily
+// or average-balance accrual would require inventing a basis the data does not
+// carry. ASC 835-20 decides where the debit goes: capitalised to the asset
+// while the financed project is UNDER_CONSTRUCTION, expensed once it is in use.
+const monthlyInterest = (principalCents, rate)=>Math.round(principalCents*rate/12)/100;
+// Interest a static fixture has already accrued for a loan in a period, so the
+// schedule tops up or reverses to the scheduled figure rather than double
+// accruing. JE-2026-07-1002 carries a hand-entered $29,200 for loan 1 in
+// 2026-07; posted entries are immutable, so the difference between it and the
+// schedule is corrected by a reversal in the same open period, never by
+// rewriting it.
+const _fixtureInterest = {};
+JOURNAL_ENTRIES.filter(j=>j.posting_status==='POSTED').forEach(j=>j.lines.forEach(l=>{
+  if (l.account_code!=='220410' || l.loan_id==null) return;
+  const k = `${l.loan_id}|${j.period_code}`;
+  _fixtureInterest[k] = (_fixtureInterest[k]||0) + cents(l.credit_amount) - cents(l.debit_amount);
+}));
+// Depreciation on property the mortgage financed. Residential rental property,
+// straight line over 27.5 years (330 months), no salvage. REFS carries no
+// in-service date and no land/building allocation for this property, so there
+// is no opening accumulated depreciation and the whole carrying amount is
+// depreciated - the treatment that understates the asset rather than the one
+// that flatters it. Both limitations are stated in
+// docs/FIX-HIGH-SEVERITY-ACCOUNTING.md.
+const DEPRECIABLE_LIFE_MONTHS = 330;
+const _depreciableBasis = {};   // entity -> cents of depreciable property placed in service before FY2026
+LOANS.forEach(l=>{
+  const project = PROJECT_BY_ID_SEED[l.project_id];
+  if (!project || project.construction_status === 'UNDER_CONSTRUCTION') return;
+  const opening = OPENING_LOAN_PRINCIPAL[l.loan_id] || 0;
+  if (opening <= 0) return;
+  _depreciableBasis[l.entity_id] = (_depreciableBasis[l.entity_id]||0) + opening;
+});
+
 for (let m=1;m<=7;m++){
   const mm=String(m).padStart(2,'0');
+  const period=`2026-${mm}`, monthEnd=`2026-${mm}-${LAST_DAY[mm]}`;
   const cyc=cycleOf(m), monthInCycle=(m-1)%CYCLE_MONTHS, cycleEnds=(monthInCycle===CYCLE_MONTHS-1);
+  // ---- staged loan transactions that fall in this month --------------------
+  _stagedToPost.filter(t=>String(t.transaction_date).slice(0,7)===period).forEach(t=>{
+    const loan = LOAN_BY_ID[t.loan_id];
+    if (!loan) return;
+    const draft = loanRule({...t, entity_id:loan.entity_id});
+    if (!draft) return;
+    const dd = String(t.transaction_date).slice(8,10);
+    push(loan.entity_id, mm, dd, 'WBS_CL', loan.lender_name,
+      `${mm}/2026 ${t.txn_type==='DRAW'?'Construction loan draw':t.txn_type==='REPAYMENT'?'Loan principal repayment':'Loan interest payment'} · ${loan.loan_code} (${t.wbs_txn_id})`,
+      // The rule engine names the bank subledger member from BANK_ACCOUNTS; the
+      // generated ledger names it with its own convention. One entity has one
+      // operating bank member either way, so the rule's label is mapped onto
+      // the ledger's rather than splitting the bank subledger in two.
+      draft.lines.map(l=>({...l, ...(l.account_code==='111000' ? {member:BANKOF(loan.entity_id)} : {})})));
+    const posted = FY[FY.length-1];
+    posted.rule_code = draft.rule_code;
+    posted.source_doc_id = doc({type:'LOAN_TRANSACTION', doc_no:t.wbs_txn_id, vendor:loan.lender_name, loan_code:loan.loan_code,
+      date:t.transaction_date, amount:t.amount, source_system:'WBS · Construction Loan'});
+    t.generated_je = posted.je_number;
+    t.recon_status = 'MATCHED';
+  });
+  // ---- interest accrual, one journal per loan per month --------------------
+  LOANS.forEach(loan=>{
+    const opening = _loanPrincipal[loan.loan_id];
+    if (opening <= 0) return;
+    const project = PROJECT_BY_ID_SEED[loan.project_id];
+    const capitalise = !!project && project.construction_status === 'UNDER_CONSTRUCTION';
+    const scheduled = monthlyInterest(opening, loan.interest_rate);
+    const already = (_fixtureInterest[`${loan.loan_id}|${period}`]||0)/100;
+    const delta = Math.round((scheduled - already)*100)/100;
+    const dim = {loan_id:loan.loan_id, project_id:loan.project_id};
+    const interestAsset = capitalise ? '164500' : '795000';
+    // Provenance: the schedule itself is the source document. It states the
+    // principal the accrual was struck on, the rate and the convention, so the
+    // figure can be re-derived from the entry alone.
+    const schedDoc = ()=>doc({type:'INTEREST_SCHEDULE', doc_no:`INT-${loan.loan_code}-${period}`, vendor:loan.lender_name,
+      loan_code:loan.loan_code, date:monthEnd, amount:Math.abs(delta), opening_principal:opening/100,
+      annual_rate:loan.interest_rate, convention:'opening principal x annual rate / 12',
+      treatment: capitalise ? 'CAPITALISED (ASC 835-20, project under construction)' : 'EXPENSED (project complete and in service)',
+      source_system:'REFS interest schedule'});
+    if (delta > 0){
+      push(loan.entity_id, mm, LAST_DAY[mm], 'WBS_CL', loan.lender_name,
+        `${mm}/2026 Loan interest accrual · ${loan.loan_code} · ${capitalise?'capitalised (project under construction)':'expensed (project in service)'}`,[
+        {account_code:interestAsset, debit_amount:delta, credit_amount:0, ...dim, ...(capitalise?{cost_code:'3INT00'}:{})},
+        {account_code:'220410', debit_amount:0, credit_amount:delta, ...dim}]);
+      FY[FY.length-1].rule_code = capitalise ? 'R-LOAN-03' : 'R-LOAN-04';
+      FY[FY.length-1].source_doc_id = schedDoc();
+    } else if (delta < 0){
+      // The fixture accrued more than the schedule. A posted entry is not
+      // rewritten; the excess is reversed in the same open period.
+      push(loan.entity_id, mm, LAST_DAY[mm], 'WBS_CL', loan.lender_name,
+        `${mm}/2026 Reversal of over-accrued loan interest · ${loan.loan_code} · accrual restated to the schedule on the principal outstanding`,[
+        {account_code:'220410', debit_amount:-delta, credit_amount:0, ...dim},
+        {account_code:interestAsset, debit_amount:0, credit_amount:-delta, ...dim, ...(capitalise?{cost_code:'3INT00'}:{})}]);
+      FY[FY.length-1].rule_code = capitalise ? 'R-LOAN-03R' : 'R-LOAN-04R';
+      FY[FY.length-1].source_doc_id = schedDoc();
+    }
+    // Principal moves after the month's interest is struck on its opening balance.
+    _loanPrincipal[loan.loan_id] = opening + (_loanMovement[`${loan.loan_id}|${period}`]||0);
+  });
+  // ---- depreciation on property placed in service before FY2026 -----------
+  Object.keys(_depreciableBasis).forEach(entityId=>{
+    const basis = _depreciableBasis[entityId];
+    if (basis <= 0) return;
+    const charge = Math.round(basis/DEPRECIABLE_LIFE_MONTHS)/100;
+    push(Number(entityId), mm, LAST_DAY[mm], 'FA', null,
+      `${mm}/2026 Depreciation - residential rental property, straight line over ${DEPRECIABLE_LIFE_MONTHS/12} years`,[
+      {account_code:'785000', debit_amount:charge, credit_amount:0},
+      {account_code:'168002', debit_amount:0, credit_amount:charge}]);
+    FY[FY.length-1].rule_code = 'R-FA-DEP-01';
+    FY[FY.length-1].source_doc_id = doc({type:'DEPRECIATION_SCHEDULE', doc_no:`DEP-E${entityId}-${period}`, vendor:'—',
+      date:monthEnd, amount:charge, depreciable_basis:basis/100, life_months:DEPRECIABLE_LIFE_MONTHS,
+      method:'Straight line, no salvage, no opening accumulated depreciation (no in-service date is carried)',
+      source_system:'REFS depreciation schedule'});
+  });
   ENTITIES.forEach(en=>{
     const e=en.entity_id, t=en.entity_type;
     const seed=(e*37+m*11)%97;
     if (e===15) return; // AIWB uses real scraped entries only
     if (t==='Vertical'||t==='ProjectCo'){
+      // Settlement balances left open by last month's closing: the title
+      // company funds the retained proceeds and bills its closing fee.
+      const pending = _settlePending[e];
+      if (pending && pending.closedIn === m-1){
+        push(e,mm,'05','CLOSING',TITLE_CO,`${mm}/2026 Closing proceeds funded by title company · ${pending.unit}`,[
+          {account_code:'111000',debit_amount:pending.receivable,credit_amount:0,unit_code:pending.unit},
+          {account_code:'121011',debit_amount:0,credit_amount:pending.receivable,unit_code:pending.unit,member:TITLE_CO,description:'Proceeds receivable_'+TITLE_CO}]);
+        FY[FY.length-1].rule_code='R-CLS-FUND-01'; FY[FY.length-1].source_doc_id=pending.doc;
+        push(e,mm,'06','CLOSING',TITLE_CO,`${mm}/2026 Title closing fee settled · ${pending.unit}`,[
+          {account_code:'220205',debit_amount:pending.titleFee,credit_amount:0,description:'Title closing fee payable_'+TITLE_CO},
+          {account_code:'111000',debit_amount:0,credit_amount:pending.titleFee}]);
+        FY[FY.length-1].rule_code='R-CLS-FEE-01'; FY[FY.length-1].source_doc_id=pending.doc;
+        delete _settlePending[e];
+      }
       // Cost is capitalised to the unit under construction in this build cycle.
       const unit = UNIT_OF(e,cyc);
       const cwip = UNIT_MONTH_COST(e,cyc,monthInCycle);
-      const sdid = doc({type:'CONSTRUCTION_INVOICE', doc_no:`INV-${en.entity_code}-26${mm}`, po_no:`PO-${en.entity_code}-${String(m).padStart(3,'0')}`, contract:`GC-2026-${en.entity_code}`, vendor:'Summit General Contractors', unit, cost_code:'03-300 Vertical Construction', date:`2026-${mm}-15`, amount:cwip, source_system:'WBS · Faster PO'});
+      const project = DEVELOPMENT_PROJECT_OF[e];
+      // Project, Unit/WBS, Cost Code and Vendor are carried on the JOURNAL
+      // LINE, not only on the source document. A dimension that lives only on
+      // the document cannot be grouped, filtered or summed by a report built on
+      // the ledger, and every job cost report is built on the ledger.
+      const sdid = doc({type:'CONSTRUCTION_INVOICE', doc_no:`INV-${en.entity_code}-26${mm}`, po_no:`PO-${en.entity_code}-${String(m).padStart(3,'0')}`, contract:`GC-2026-${en.entity_code}`, vendor:'Summit General Contractors', unit, project_id:project, cost_code:VERTICAL_COST_CODE, cost_code_name:'Vertical Construction - Hard Cost', date:`2026-${mm}-15`, amount:cwip, source_system:'WBS · Faster PO'});
       push(e,mm,'15','PAYABLE','Summit General Contractors',`${mm}/2026 Construction cost accrual · ${unit}`,[
-        {account_code:'164400',debit_amount:cwip,credit_amount:0,unit_code:unit},{account_code:'220300',debit_amount:0,credit_amount:cwip}]);
+        {account_code:'164400',debit_amount:cwip,credit_amount:0,unit_code:unit,project_id:project,cost_code:VERTICAL_COST_CODE,vendor:'Summit General Contractors'},
+        {account_code:'220300',debit_amount:0,credit_amount:cwip}]);
       FY[FY.length-1].source_doc_id=sdid; FY[FY.length-1].rule_code='R-WBS-INV-01';
       addUnitCwip(e,unit,cwip);
       // The funder settles the general contractor on the project company's
@@ -268,22 +491,54 @@ for (let m=1;m<=7;m++){
           {account_code:'164400',debit_amount:0,credit_amount:carried,unit_code:unit}]);
         FY[FY.length-1].rule_code='R-INV-XFER-01';
         const price = SALE_PRICE(e,cyc);
-        const csd = doc({type:'CLOSING_STATEMENT', doc_no:`HUD-${en.entity_code}-26${mm}`, unit, buyer:'Retail Buyer', title_co:'Apex Title LLC', date:`2026-${mm}-28`, amount:price, source_system:'WBS · Closing'});
-        push(e,mm,'28','CLOSING',null,`${mm}/2026 Home closing · ${unit}`,[
-          {account_code:'111000',debit_amount:price,credit_amount:0,unit_code:unit},{account_code:'491800',debit_amount:0,credit_amount:price,unit_code:unit}]);
+        // ---- Settlement statement -----------------------------------------
+        // A closing is not "cash in, revenue out". The title company disburses
+        // the seller's proceeds net of the commissions and fees the settlement
+        // statement deducts, withholds its own closing fee until it is billed,
+        // and funds the balance after recording. Booking the whole contract
+        // price to cash says the seller received every dollar the buyer paid,
+        // owed no commission and paid no title company - which is how a book
+        // reports a margin no homebuilder earns.
+        const s = settlementOf(price);
+        const csd = doc({type:'CLOSING_STATEMENT', doc_no:`HUD-${en.entity_code}-26${mm}`, unit, buyer:'Retail Buyer', title_co:TITLE_CO,
+          date:`2026-${mm}-28`, amount:price, source_system:'WBS · Closing',
+          contract_price:price, sales_commission:s.commissionInHouse, brokerage_commission:s.commissionBroker,
+          title_closing_fee:s.titleFee, proceeds_funded_after_closing:s.proceedsReceivable, cash_at_closing:s.cashAtClosing});
+        push(e,mm,'28','CLOSING',TITLE_CO,`${mm}/2026 Home closing · ${unit}`,[
+          {account_code:'111000',debit_amount:s.cashAtClosing,credit_amount:0,unit_code:unit,description:'Net proceeds wired at closing'},
+          {account_code:'121011',debit_amount:s.proceedsReceivable,credit_amount:0,unit_code:unit,member:TITLE_CO,description:'Proceeds receivable_'+TITLE_CO},
+          {account_code:'510100',debit_amount:s.commissionInHouse,credit_amount:0,unit_code:unit,description:'Sales commission withheld at settlement'},
+          {account_code:'682500',debit_amount:s.commissionBroker,credit_amount:0,unit_code:unit,description:"Buyer's broker commission withheld at settlement"},
+          {account_code:'778002',debit_amount:s.titleFee,credit_amount:0,unit_code:unit,description:'Closing and title fees'},
+          {account_code:'491800',debit_amount:0,credit_amount:price,unit_code:unit,description:'Contract sale price'},
+          {account_code:'220205',debit_amount:0,credit_amount:s.titleFee,description:'Title closing fee payable_'+TITLE_CO}]);
         FY[FY.length-1].source_doc_id=csd; FY[FY.length-1].rule_code='R-CLS-SALE-01';
+        // The two settlement balances the closing leaves open are cleared in
+        // the following month: the title company funds the retained proceeds
+        // and bills its closing fee.
+        _settlePending[e] = {unit, receivable:s.proceedsReceivable, titleFee:s.titleFee, closedIn:m, doc:csd};
         // Cost of sales is the carrying value of the unit sold. Never a share
         // of the price, never a pooled entity balance.
         const cogs = relieveUnitInventory(e,unit,carried);
         push(e,mm,'28','CLOSING',null,`${mm}/2026 COGS relief from finished inventory · ${unit}`,[
           {account_code:'510000',debit_amount:cogs,credit_amount:0,unit_code:unit},{account_code:'165100',debit_amount:0,credit_amount:cogs,unit_code:unit}]);
         FY[FY.length-1].source_doc_id=csd; FY[FY.length-1].rule_code='R-CLS-COGS-01';
-        if (e!==FUNDER_ID) icRepay(mm,'29',e,Math.min(_dueToFunder[e]||0,price),`closing proceeds ${unit}`);
+        // The affiliate advance is repaid out of the cash the closing actually
+        // produced, never out of the contract price.
+        if (e!==FUNDER_ID) icRepay(mm,'29',e,Math.min(_dueToFunder[e]||0,s.cashAtClosing),`closing proceeds ${unit}`);
       }
     } else if (t==='LandCo'){
       const land=9000+e*90+m*310+seed*9;
+      const landProject = DEVELOPMENT_PROJECT_OF[e];
+      // Land development cost is a parcel cost: it carries the project and the
+      // land cost code, and no unit, because it has not yet been allocated to a
+      // lot. Before this it carried no dimension at all, so $1.7m of CWIP-Land
+      // could not be attributed to any project or lot.
+      const landDoc = doc({type:'LAND_DEVELOPMENT_INVOICE', doc_no:`INV-LD-${en.entity_code}-26${mm}`, po_no:`PO-LD-${en.entity_code}-${String(m).padStart(3,'0')}`, contract:`GC-LD-2026-${en.entity_code}`, vendor:'Summit General Contractors', project_id:landProject, cost_code:LAND_COST_CODE, cost_code_name:'Land Development - Site Work', date:`2026-${mm}-12`, amount:land, source_system:'WBS · Faster PO'});
       push(e,mm,'12','PAYABLE','Summit General Contractors',`${mm}/2026 Land development cost`,[
-        {account_code:'164100',debit_amount:land,credit_amount:0},{account_code:'220300',debit_amount:0,credit_amount:land}]);
+        {account_code:'164100',debit_amount:land,credit_amount:0,project_id:landProject,cost_code:LAND_COST_CODE,vendor:'Summit General Contractors'},
+        {account_code:'220300',debit_amount:0,credit_amount:land}]);
+      FY[FY.length-1].source_doc_id=landDoc; FY[FY.length-1].rule_code='R-WBS-INV-02';
       push(e,mm,'22','AUTOC',NAMEOF[FUNDER_ID],`${mm}/2026 Contractor paid by affiliate (land development)`,[
         {account_code:'220300',debit_amount:land,credit_amount:0,member:'Summit General Contractors'},
         {account_code:IC_DUE_TO_FUNDING,debit_amount:0,credit_amount:land,member:NAMEOF[FUNDER_ID],description:'Due to/from_'+NAMEOF[FUNDER_ID]}]);
@@ -437,8 +692,47 @@ ENTITIES.forEach(en=>{
   const prior = openPriorEarnings(e);
   const capital = cash + wip - ap - prior;   // whole dollars; the entry ties by construction
   const lines=[{account_code:'111000',debit_amount:cash,credit_amount:0,member:BANKOF(e),description:'Opening cash_'+BANKOF(e)}];
-  if (wipAccount) lines.push({account_code:wipAccount,debit_amount:wip,credit_amount:0,unit_code:UNIT_OF(e,0),description:'Opening work in progress'});
+  // Opening work in progress carries the same dimensions a current cost line
+  // carries. An opening balance that names no project is a balance no job cost
+  // report can pick up, and the first thing a controller asks of a WIP balance
+  // is which job it is on.
+  if (wipAccount) lines.push({account_code:wipAccount, debit_amount:wip, credit_amount:0,
+    unit_code: UNIT_OF(e,0),
+    project_id: DEVELOPMENT_PROJECT_OF[e],
+    cost_code: wipAccount==='164100' ? LAND_COST_CODE : VERTICAL_COST_CODE,
+    vendor:'Summit General Contractors',
+    description:'Opening work in progress'});
   lines.push({account_code:'220300',debit_amount:0,credit_amount:ap,member:'Summit General Contractors',description:'Opening trade payable_Summit General Contractors'});
+  // ---- Opening debt, and the asset each facility financed ------------------
+  // The group opened FY2026 with no debt at all: 119 balance sheets, two loans
+  // in the master, and nothing on any loan payable account. Each facility's
+  // opening principal is derived - master principal outstanding less every
+  // FY2026 principal movement the ledger records - and posted here against the
+  // asset it financed, so the entry ties without touching capital.
+  LOANS.filter(l=>Number(l.entity_id)===e).forEach(l=>{
+    const openingCents = OPENING_LOAN_PRINCIPAL[l.loan_id] || 0;
+    if (openingCents <= 0) return;
+    const amount = openingCents/100;
+    const project = PROJECT_BY_ID_SEED[l.project_id];
+    const underConstruction = !!project && project.construction_status === 'UNDER_CONSTRUCTION';
+    const loanMember = `${l.loan_code} · ${l.lender_name}`;
+    if (underConstruction){
+      // A construction facility funds work in progress on its own project.
+      lines.push({account_code:'164200', debit_amount:amount, credit_amount:0,
+        project_id:l.project_id, loan_id:l.loan_id, cost_code:VERTICAL_COST_CODE,
+        vendor:'Summit General Contractors', description:`Opening work in progress funded by ${l.loan_code}`});
+    } else {
+      // A mortgage on a completed, in-service property funds the property. REFS
+      // carries no land/building allocation and no in-service date for it, so
+      // the whole carrying amount is depreciable and there is no opening
+      // accumulated depreciation - stated, not assumed.
+      lines.push({account_code:'165901', debit_amount:amount, credit_amount:0,
+        project_id:l.project_id, loan_id:l.loan_id,
+        description:`Opening investment property financed by ${l.loan_code}`});
+    }
+    lines.push({account_code: l.loan_type==='MORTGAGE' ? '270200' : '270100', debit_amount:0, credit_amount:amount,
+      loan_id:l.loan_id, member:loanMember, description:`Opening loan principal_${loanMember}`});
+  });
   // Direction is expressed by the side of the entry, never by the sign. An
   // entity whose opening payables and prior-year result exceed its opening cash
   // and work in progress opens with a capital deficit; that is a DEBIT to
@@ -471,7 +765,7 @@ ENTITIES.forEach(en=>{
 });
 FY.unshift(...OPENING);
 // ===== Normalization pass (AI Audit remediation): member + source doc completeness =====
-const SUBS_ALL={'111000':'Bank','112000':'Bank','220300':'Vendor','220200':'Vendor','225000':'Vendor','291000':'Affiliate','291001':'Affiliate','125000':'Affiliate','120200':'Customer','123700':'Customer','270100':'Loan','260100':'Loan'};
+const SUBS_ALL={'111000':'Bank','112000':'Bank','220300':'Vendor','220200':'Vendor','225000':'Tenant','291000':'Affiliate','291001':'Affiliate','125000':'Affiliate','120200':'Customer','121011':'Customer','123700':'Customer','270100':'Loan','270200':'Loan','260100':'Loan','260200':'Loan'};
 const _ALL = FY.concat(AIWB_JES);
 const _norm = j=>{
   j.lines.forEach(l=>{

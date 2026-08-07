@@ -6,7 +6,12 @@ export const WBS_COA_MAP = Object.fromEntries(WBS_COA_FULL.map(a=>[a.code,a]));
 // Subsidiary tracking types (WBS Subsidiary Account convention).
 export const SUBSIDIARY = {
   '111000':'Bank','114000':'Bank','116000':'Bank','117010':'Bank','118000':'Bank','112000':'Bank',
-  '117001':'Vendor','220200':'Vendor','220300':'Vendor','220465':'Vendor','225000':'Vendor',
+  '117001':'Vendor','220200':'Vendor','220300':'Vendor','220465':'Vendor',
+  // A tenant deposit is money held for the resident who paid it, and it is
+  // refunded to that resident. Tracking it in the Vendor subledger - which is
+  // what this map said before - files a resident obligation under accounts
+  // payable, where no deposit tie-out or refund aging can ever find it.
+  '225000':'Tenant','225001':'Tenant','225100':'Tenant','225200':'Tenant',
   '120200':'Customer','121011':'Customer','123700':'Customer','123830':'Employee',
   '125000':'Affiliate','291000':'Affiliate','291001':'Affiliate','291002':'Affiliate','291003':'Affiliate','291004':'Affiliate','291005':'Affiliate','291006':'Affiliate','291007':'Affiliate','291031':'Affiliate',
   '260100':'Loan','260200':'Loan','270100':'Loan','270200':'Loan','270700':'Loan','289500':'Loan',

@@ -337,10 +337,48 @@ for (const entity of ENTITIES) {
 export const PERIODS = _periods;
 export const PERIOD_EVENTS = _periodEvents;
 
-export const PROJECTS = [
+// Cost code master (WBS convention, the same prefixes src/ai.js maps on):
+//   0LD  land development      2HD  vertical hard cost
+//   1SD  soft cost             9AM  asset management
+// A construction cost line carries one of these. Before this master existed the
+// cost code lived only on the source document, so no report built on the ledger
+// - which is every job cost report - could group cost by code at all.
+export const COST_CODES = [
+  {cost_code:'0LD100', cost_code_name:'Land Development - Site Work', cost_class:'LAND', capitalize_to:'164100'},
+  {cost_code:'0LD200', cost_code_name:'Land Development - Utilities', cost_class:'LAND', capitalize_to:'164100'},
+  {cost_code:'1SD100', cost_code_name:'Soft Cost - Design and Engineering', cost_class:'SOFT_COST', capitalize_to:'164400'},
+  {cost_code:'2HD220', cost_code_name:'Vertical Construction - Hard Cost', cost_class:'HARD_COST', capitalize_to:'164400'},
+  {cost_code:'2HD850', cost_code_name:'Vertical Construction - Punch Out', cost_class:'HARD_COST', capitalize_to:'164400'},
+  {cost_code:'3INT00', cost_code_name:'Capitalized Interest', cost_class:'INTEREST', capitalize_to:'164500'},
+];
+export const COST_CODE_MAP = Object.fromEntries(COST_CODES.map(c=>[c.cost_code,c]));
+
+// Project master. Two projects are named fixtures used by the loan, property
+// and closing demos. Every other entity that carries construction or land
+// development cost in the ledger also needs a project, because a construction
+// cost line that names no project cannot be attributed to a job, a budget or a
+// draw request. Generating one project per developing entity is what makes
+// `project_id` a required dimension on those lines rather than an aspiration.
+const _NAMED_PROJECTS = [
   {project_id:1, project_code:'PRJ-001', project_name:'Cedar Ridge Phase I', entity_id:2, project_status:'ACTIVE', construction_status:'UNDER_CONSTRUCTION'},
   {project_id:2, project_code:'PRJ-002', project_name:'Maple Court', entity_id:4, project_status:'ACTIVE', construction_status:'IN_SERVICE'},
 ];
+// Entity types that build. Every one of them runs a build or land development
+// cycle in the FY2026 generator that is still open at 2026-07, so the status is
+// read off that cycle rather than assumed: none of these projects has reached
+// substantial completion by the end of the ledger.
+const _DEVELOPING_TYPES = ['Vertical', 'ProjectCo', 'LandCo'];
+const _GENERATED_PROJECTS = ENTITIES.filter(e=>_DEVELOPING_TYPES.includes(e.entity_type)).map(e=>({
+  project_id: 1000 + e.entity_id,
+  project_code: `PRJ-${e.entity_code}`,
+  project_name: `${e.entity_name} development program`,
+  entity_id: e.entity_id,
+  project_status: 'ACTIVE',
+  construction_status: 'UNDER_CONSTRUCTION',
+}));
+export const PROJECTS = [..._NAMED_PROJECTS, ..._GENERATED_PROJECTS];
+// The project a developing entity's own construction cost belongs to.
+export const DEVELOPMENT_PROJECT_OF = Object.fromEntries(_GENERATED_PROJECTS.map(p=>[p.entity_id, p.project_id]));
 
 export const PROPERTIES = [
   {property_id:1, property_code:'P0012', property_name:'Cedar Ridge Bldg A', entity_id:2, project_id:1, property_status:'UNDER_DEVELOPMENT', operation_status:null},

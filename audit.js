@@ -28,7 +28,7 @@
 // Every rule here is mutation-tested. See tools/analysis/audit-mutations.js and
 // tools/analysis/audit-mutation-harness.mjs, and docs/AUDIT-GATE-HARDENING.md.
 // ---------------------------------------------------------------------------
-import { COA, ENTITIES, PERIODS, PROJECTS, LOANS, MAPPINGS } from './src/data.js';
+import { COA, ENTITIES, PERIODS, PROJECTS, LOANS, MAPPINGS, COST_CODE_MAP } from './src/data.js';
 import { WBS_COA_MAP, subsidiaryOf, memberOf } from './src/coa-wbs.js';
 import { JOURNAL_ENTRIES, FY2026, SOURCE_DOCS } from './src/seed.js';
 import { jeTotals, validateJE } from './src/engine.js';
@@ -68,6 +68,11 @@ const INTEREST_EXPENSE = new Set(['795000', '661000', '772450']);
 // Vertical construction work in progress. 164100 CWIP - Land is deliberately
 // excluded: land development at a LandCo is a parcel cost and carries no unit.
 const VERTICAL_CWIP = new Set(['164200', '164300', '164400', '164500', '164600', '164700', '164900']);
+// Work in progress that must name the job it is on. 164100 CWIP - Land is
+// included here even though it carries no unit: a parcel cost still belongs to
+// a project, and $1.7m of land development that names nothing at all cannot be
+// allocated to any lot when the parcel is subdivided.
+const CWIP_REQUIRING_PROJECT = new Set([...VERTICAL_CWIP, '164100']);
 const UNIT_COST_ACCOUNTS = new Set(['161000', '162000', '163000', '164000', '164100', '164200', '164300', '164400', '164500', '164600']);
 const FINISHED_INVENTORY = new Set(['165100', '165101', '165102']);
 const COGS_ACCOUNTS = new Set(['510000', '510001']);
@@ -308,27 +313,62 @@ for (const je of jes) {
     }
   }
 
-  // ---- AUD-CON-001: construction cost carries its dimensions --------------
+  // ---- AUD-CON-001: construction cost names the job it is on --------------
+  // Strengthened. The rule previously accepted a line that carried EITHER a
+  // unit OR a project, which is why 462 construction cost lines carrying a unit
+  // and nothing else passed a gate that has a rule for them. Cost is capitalised
+  // to a job; a line that names no project cannot be tied to a budget, a draw
+  // request or a cost-to-complete, whatever else it carries. 164100 CWIP - Land
+  // is included: land development is a parcel cost and still belongs to a
+  // project, even before it is allocated to a lot.
   for (const l of lines) {
-    if (VERTICAL_CWIP.has(l.account_code) && U(l.debit_amount) > 0 && !l.unit_code && !l.project_id) {
+    if (!CWIP_REQUIRING_PROJECT.has(l.account_code) || U(l.debit_amount) <= 0) continue;
+    if (l.project_id == null) {
       fail('AUD-CON-001', je, l.account_code,
-        `construction cost of ${fmtU(U(l.debit_amount))} capitalised with no Unit/WBS and no Project. Cost that names no unit can never be relieved to cost of sales against the unit that was sold.`);
+        `construction cost of ${fmtU(U(l.debit_amount))} capitalised with no Project${l.unit_code ? ` (it names unit '${l.unit_code}' and nothing else)` : ' and no Unit/WBS'}. Cost that names no job cannot be tied to a budget line, a draw request or a cost-to-complete.`);
+    } else if (!PROJECT_BY_ID.has(l.project_id)) {
+      fail('AUD-CON-001', je, l.account_code,
+        `construction cost names project_id ${l.project_id}, which is not in the project master.`);
     }
   }
-  // ---- AUD-CON-002: the construction invoice behind it is complete --------
+  // ---- AUD-CON-002: the invoice behind it is complete ---------------------
   const isConstructionInvoice = je.rule_code === 'R-WBS-INV-01' || (doc && doc.type === 'CONSTRUCTION_INVOICE');
-  if (isConstructionInvoice) {
+  const isLandInvoice = je.rule_code === 'R-WBS-INV-02' || (doc && doc.type === 'LAND_DEVELOPMENT_INVOICE');
+  if (isConstructionInvoice || isLandInvoice) {
     if (!doc) {
       fail('AUD-CON-002', je, null, 'construction invoice posting resolves to no source document, so Project, Unit/WBS, Cost Code and Vendor cannot be evidenced.');
     } else {
       const missing = [];
       if (!doc.vendor) missing.push('Vendor');
       if (!doc.cost_code) missing.push('Cost Code');
-      if (!doc.unit) missing.push('Unit/WBS');
+      if (!doc.project_id) missing.push('Project');
+      // A land development invoice is a parcel cost and carries no unit; a
+      // vertical construction invoice always does.
+      if (isConstructionInvoice && !doc.unit) missing.push('Unit/WBS');
       if (!doc.po_no && !doc.contract) missing.push('PO or Contract');
       if (missing.length) {
         fail('AUD-CON-002', je, null,
           `construction invoice ${doc.doc_no || je.source_doc_id} carries no ${missing.join(', no ')}. A construction invoice without these cannot be tied to a budget line or a subcontract.`);
+      }
+    }
+  }
+  // ---- AUD-CON-003: the invoice's dimensions reach the journal LINE -------
+  // A dimension recorded only on the source document cannot be grouped,
+  // filtered or summed by anything built on the ledger, and every job cost
+  // report is built on the ledger. This rule asks the line itself.
+  if (isConstructionInvoice || isLandInvoice) {
+    for (const l of lines) {
+      if (U(l.debit_amount) <= 0 || !CWIP_REQUIRING_PROJECT.has(l.account_code)) continue;
+      const missing = [];
+      if (l.project_id == null) missing.push('Project');
+      if (isConstructionInvoice && !l.unit_code) missing.push('Unit/WBS');
+      if (!l.cost_code) missing.push('Cost Code');
+      else if (!COST_CODE_MAP[l.cost_code]) missing.push(`a Cost Code in the master (carries '${l.cost_code}')`);
+      if (!l.vendor && !memberOf(l) && !je.payee) missing.push('Vendor');
+      if (missing.length) {
+        fail('AUD-CON-003', je, l.account_code,
+          `construction cost line of ${fmtU(U(l.debit_amount))} carries no ${missing.join(', no ')} on the journal line itself. `
+          + `A construction invoice must carry Project, Unit/WBS, Cost Code and Vendor where the ledger can read them; a dimension that lives only on the source document produces no job cost report at all.`);
       }
     }
   }
