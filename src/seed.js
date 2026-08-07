@@ -27,13 +27,22 @@ export const JOURNAL_ENTRIES = [
     je_type:'AUTO', source_system:'AP', payee:'Wan Bridge Group LLC', description:'07/26 Research and Development service fee recharged to Wan Bridge Group LLC', posting_status:'POSTED', created_by:'system', rule_code:'R-IC-SVC-01',
     history:[{a:'WBS IMPORT · PAYABLE',by:'system',at:'2026-07-01'},{a:'POST',by:'ricky',at:'2026-07-02'}],
     lines:[{account_code:'125000',debit_amount:9600,credit_amount:0,member:'Wan Bridge Group LLC',description:'Due from_Wan Bridge Group LLC'},{account_code:'490600',debit_amount:0,credit_amount:9600}] },
-  { je_id: 1000, je_number:'20260701000001', entity_id:2, period_code:'2026-07', je_date:'2026-07-01',
+  // Renumbered from 20260701000001, which collided with the scraped WBLD
+  // dividend run below (je_id 9701) inside the same entity and period. One
+  // document number identifies one journal (AUD-DUP-001).
+  { je_id: 1000, je_number:'20260701000501', entity_id:2, period_code:'2026-07', je_date:'2026-07-01',
     je_type:'AUTO', source_system:'BANK', description:'Capital contribution - Fund II equity funding', posting_status:'POSTED', created_by:'system',
     history:[{a:'AUTO POST',by:'system',at:'2026-07-01'}],
     lines:[{account_code:'111000',debit_amount:800000,credit_amount:0},{account_code:'380104',debit_amount:0,credit_amount:800000}] },
+  // Blueprint 7.3 / engine.js loanRule('DRAW'): a draw is loan cash-in, never
+  // cost. This fixture used to read Dr 164200 CWIP / Cr 270100, which booked
+  // borrowed money as construction cost, recorded no cash for a bank credit it
+  // is matched to (BANKTXN-A-1002), and overstated CWIP by the whole draw. The
+  // audit gate now fails that shape (AUD-LOAN-001), so the fixture is corrected
+  // rather than carried as a known bad entry.
   {je_id:1001, je_number:'JE-2026-07-1001', entity_id:2, period_code:'2026-07', je_type:'AUTO', je_date:'2026-07-05',
    description:'Construction Loan Draw #7 - Cedar Ridge', source_system:'WBS_CL', posting_status:'POSTED',
-   rule_code:'R-LOAN-01', lines:[L('164200',500000,0,{project_id:1,loan_id:1}), L('270100',0,500000,{loan_id:1})]},
+   rule_code:'R-LOAN-01', lines:[L('111000',500000,0,{project_id:1,loan_id:1}), L('270100',0,500000,{loan_id:1})]},
   {je_id:1002, je_number:'JE-2026-07-1002', entity_id:2, period_code:'2026-07', je_type:'AUTO', je_date:'2026-07-31',
    description:'Capitalized interest accrual (Under Construction)', source_system:'WBS_CL', posting_status:'POSTED',
    rule_code:'R-LOAN-03', lines:[L('164500',29200,0,{loan_id:1,project_id:1}), L('220410',0,29200,{loan_id:1})]},
@@ -430,7 +439,15 @@ ENTITIES.forEach(en=>{
   const lines=[{account_code:'111000',debit_amount:cash,credit_amount:0,member:BANKOF(e),description:'Opening cash_'+BANKOF(e)}];
   if (wipAccount) lines.push({account_code:wipAccount,debit_amount:wip,credit_amount:0,unit_code:UNIT_OF(e,0),description:'Opening work in progress'});
   lines.push({account_code:'220300',debit_amount:0,credit_amount:ap,member:'Summit General Contractors',description:'Opening trade payable_Summit General Contractors'});
-  lines.push({account_code:'380101',debit_amount:0,credit_amount:capital,description:'Opening paid in capital'});
+  // Direction is expressed by the side of the entry, never by the sign. An
+  // entity whose opening payables and prior-year result exceed its opening cash
+  // and work in progress opens with a capital deficit; that is a DEBIT to
+  // 380101, not a negative credit. A negative credit balances arithmetically but
+  // makes the trial balance columns stop being additive and is rejected by the
+  // audit gate (AUD-SIGN-001).
+  lines.push(capital >= 0
+    ? {account_code:'380101',debit_amount:0,credit_amount:capital,description:'Opening paid in capital'}
+    : {account_code:'380101',debit_amount:-capital,credit_amount:0,description:'Opening capital deficit'});
   lines.push({account_code:'370300',debit_amount:0,credit_amount:prior,description:'FY2025 result, before close'});
   _g++;
   OPENING.push({je_id:_g, je_number:`20251231${String(_g).padStart(6,'0')}`, entity_id:e, period_code:OPENING_PERIOD, je_date:OPENING_DATE,
