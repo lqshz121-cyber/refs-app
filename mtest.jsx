@@ -2,7 +2,7 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, FY2026 } from './src/seed.js';
-import { COA, PERIODS } from './src/data.js';
+import { COA, PERIODS, PERIOD_EVENTS, ENTITIES } from './src/data.js';
 import { loanRule, money, pmRule, statements, sum, trialBalance, validateJE, ENGINE_RULE_CATALOG } from './src/engine.js';
 import { localIncomeStatementSection } from './src/income-statement-classification.js';
 import { periodControlExceptions, resolvePostingPeriod, PERIOD_STATUS_NOT_CONFIGURED } from './src/period-control.js';
@@ -19,6 +19,8 @@ import { AccountRegister } from './src/module-register.jsx';
 import { SubsidiaryLedger } from './src/module-subledger.jsx';
 import { UnitCostLedger } from './src/module-unitcost.jsx';
 import { SourceDocs } from './src/module-sourcedocs.jsx';
+import { PeriodManagement } from './src/module-periods.jsx';
+import { PERIOD_EVENT_CLOSED, PERIOD_EVENT_OPENED, PERIOD_EVENT_REOPENED, PERIOD_PERMISSION_DENIED, PERIOD_REASON_REQUIRED, PERIOD_UNRESOLVED_WORK, PERM_PERIOD_CLOSE, PERM_PERIOD_OPEN, PERM_PERIOD_REOPEN, closePeriodCommand, openPeriodCommand, reopenPeriodCommand } from './src/period-lifecycle.js';
 import { App, AuthoritativeApp, authoritativeRuntimeConfigured, AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './src/app.jsx';
 import { CompanySetting } from './src/module-setting.jsx';
 import { approveBillCommand, payBillCommand } from './src/ap-workflow.js';
@@ -33,12 +35,13 @@ const ctx={
     bank_name:'Pacific Bank',stmt_date:'2026-07-31',stmt_end:0,gl_book_balance:0,txns:[],
   }},history:[]}, coa:COA,
   user:{user_id:'ricky',name:'Ricky',role_code:'CONTROLLER'}, entity:0,
-  period:{period_code:'2026-07',status:'OPEN'}, can:()=>true, actions, toast:noop, goto:noop,
+  period:{period_code:'2026-07',status:'OPEN'}, periods:PERIODS, periodEvents:PERIOD_EVENTS, currentPeriod:'2026-07',
+  can:()=>true, actions, toast:noop, goto:noop,
 };
 const components=[Dashboard,JEWorkspace,LoanWorkspace,PMPickup,ClosingWorkspace,ExceptionCenter,CloseMgmt,
   GLTrialBalance,Reports,CompanySetting,LoanRegister,ProjectCost,Assets,Intercompany,IntegrationHub,MasterData,
   MappingCenter,RuleCenter,AdminModule,APWorkspace,ARWorkspace,BankTransactions,COAWorkspace,AccountRegister,
-  SubsidiaryLedger,UnitCostLedger,SourceDocs];
+  SubsidiaryLedger,UnitCostLedger,SourceDocs,PeriodManagement];
 
 let failed=0;
 for (const Component of components) {
@@ -244,10 +247,18 @@ expectPeriod('Journal Entry editor resolves period control from the period maste
 // The application shell is the place the control previously failed open. Assert
 // against the source that the synthesised OPEN period cannot come back.
 const appSource=readFileSync('src/app.jsx','utf8');
+// The period master is now application state, because the product can open and
+// close periods. That makes the "never synthesise OPEN" property MORE important,
+// not less: the state has to be seeded from the authored master in src/data.js
+// and every posting path has to resolve against that live state, never against
+// a fabricated record.
 expectPeriod('the application shell never synthesises an OPEN period when no record exists',
   !/\|\|\s*\{\s*period_code\s*:[^}]*status\s*:\s*'OPEN'/.test(appSource)&&
   !/status\s*:\s*'OPEN'\s*,?\s*\}\s*;?\s*\/\/?\s*$/m.test(appSource)&&
-  appSource.includes('resolvePostingPeriod(PERIODS'));
+  appSource.includes("useState(()=>load('periods',PERIODS))")&&
+  appSource.includes('resolvePostingPeriod(periods, ')&&
+  appSource.includes('resolvePostingPeriod(periods, target)')&&
+  !/resolvePostingPeriod\(\s*\[/.test(appSource));
 // Read-only reporting must show the closed-period money, not hide it. The proof
 // is arithmetic rather than a journal number on page one of a paginated table:
 // the rendered cumulative Trial Balance total for the entity that owns the
@@ -267,6 +278,100 @@ expectPeriod('read-only reporting is unaffected by period control',
   closedEntityTrialBalanceMarkup.includes(money(closedEntityAsOf.debit/100))&&
   postedFor(closedPeriodEntity).some(j=>closedEntityGLDetailMarkup.includes(j.je_number))&&
   postingBlockCodes.every(code=>!closedEntityTrialBalanceMarkup.includes(code)&&!closedEntityGLDetailMarkup.includes(code)));
+
+// ---------------------------------------------------------------------------
+// Period LIFECYCLE. period-control.js decides whether a period permits posting;
+// period-lifecycle.js is the only thing that can create or change the record it
+// reads. These cases assert the commands, not the resolver.
+// ---------------------------------------------------------------------------
+const lifeMaster=[{period_id:1,entity_id:2,period_code:'2026-06',status:'CLOSED'},{period_id:2,entity_id:2,period_code:'2026-07',status:'OPEN'}];
+const lifeAt='2026-08-07 10:00:00';
+const allow=()=>true, deny=()=>false;
+const openArgs={periods:lifeMaster,events:[],entityId:9,periodCode:'2026-07',actor:'ricky',at:lifeAt,reason:'Opening July for entity 9 to record the July pickup.',can:allow};
+const opened=openPeriodCommand(openArgs);
+expectPeriod('opening a period creates the record and one attributed PERIOD_OPENED event',
+  opened.ok&&opened.periods.length===lifeMaster.length+1&&opened.events.length===1&&
+  opened.event.event_type===PERIOD_EVENT_OPENED&&opened.event.actor==='ricky'&&opened.event.at===lifeAt&&
+  opened.event.entity_id===9&&opened.event.period_code==='2026-07'&&opened.event.reason===openArgs.reason&&
+  opened.record.status==='OPEN'&&lifeMaster.length===2);
+expectPeriod('opening a period is refused without PERIOD.PERIOD.OPEN and changes nothing',
+  (()=>{const r=openPeriodCommand({...openArgs,can:deny});
+    return !r.ok&&r.code===PERIOD_PERMISSION_DENIED&&r.message.includes(PERM_PERIOD_OPEN)&&r.periods===lifeMaster&&r.events.length===0;})());
+expectPeriod('opening a period is refused without a reason',
+  (()=>{const r=openPeriodCommand({...openArgs,reason:'ok'});return !r.ok&&r.code===PERIOD_REASON_REQUIRED&&r.periods===lifeMaster;})());
+expectPeriod('opening a period that already has a record is refused rather than silently re-opened',
+  (()=>{const r=openPeriodCommand({...openArgs,entityId:2,periodCode:'2026-06'});
+    return !r.ok&&r.code==='PERIOD_ALREADY_CONFIGURED'&&/reopen command/.test(r.message);})());
+const closeArgs={periods:lifeMaster,events:[],entityId:2,periodCode:'2026-07',actor:'ricky',at:lifeAt,reason:'July close signed off.',can:allow};
+expectPeriod('closing a period is refused while a journal in that entity and period is still in workflow',
+  (()=>{const r=closePeriodCommand({...closeArgs,journals:[{je_id:1,je_number:'JE-D',entity_id:2,period_code:'2026-07',posting_status:'DRAFT'}]});
+    return !r.ok&&r.code===PERIOD_UNRESOLVED_WORK&&/still in the Draft to Post workflow/.test(r.message)&&r.periods===lifeMaster;})());
+expectPeriod('closing a period is refused while an exception raised in that period is still open',
+  (()=>{const r=closePeriodCommand({...closeArgs,exceptions:[{exception_id:1,entity_id:2,occurred_date:'2026-07-30',status:'OPEN',object_ref:'X'}]});
+    return !r.ok&&r.code===PERIOD_UNRESOLVED_WORK&&/still open/.test(r.message);})());
+expectPeriod('closing a period is refused while a bank item dated in that period is unmatched',
+  (()=>{const r=closePeriodCommand({...closeArgs,bankItems:[{entity_id:2,txn_date:'2026-07-31',match_status:'UNMATCHED',reference:'ACH'}]});
+    return !r.ok&&r.code===PERIOD_UNRESOLVED_WORK&&/not matched/.test(r.message);})());
+const closed=closePeriodCommand({...closeArgs,journals:[{je_id:2,je_number:'JE-P',entity_id:2,period_code:'2026-07',posting_status:'POSTED'}]});
+expectPeriod('closing a clean period amends the record in place, keeps it, and writes a PERIOD_CLOSED event',
+  closed.ok&&closed.periods.length===lifeMaster.length&&
+  closed.record.status==='CLOSED'&&closed.record.closed_by==='ricky'&&closed.record.closed_at===lifeAt&&
+  closed.event.event_type===PERIOD_EVENT_CLOSED&&closed.event.prior_status==='OPEN'&&
+  closed.periods.some(p=>p.entity_id===2&&p.period_code==='2026-07'));
+expectPeriod('closing a period never touches posted evidence',
+  (()=>{const posted={je_id:2,je_number:'JE-P',entity_id:2,period_code:'2026-07',posting_status:'POSTED',je_date:'2026-07-31'};
+    const before=JSON.stringify(posted);
+    closePeriodCommand({...closeArgs,journals:[posted]});
+    return JSON.stringify(posted)===before;})());
+const reopenArgs={periods:lifeMaster,events:[],entityId:2,periodCode:'2026-06',actor:'ricky',at:lifeAt,can:allow};
+expectPeriod('reopening is refused without PERIOD.PERIOD.REOPEN even when the actor may close',
+  (()=>{const r=reopenPeriodCommand({...reopenArgs,reason:'Audit adjustment agreed with the reviewer.',can:perm=>perm===PERM_PERIOD_CLOSE});
+    return !r.ok&&r.code===PERIOD_PERMISSION_DENIED&&r.message.includes(PERM_PERIOD_REOPEN);})());
+expectPeriod('reopening is refused without a substantive reason and writes no event',
+  (()=>{const r=reopenPeriodCommand({...reopenArgs,reason:'fix it'});
+    return !r.ok&&r.code===PERIOD_REASON_REQUIRED&&r.events.length===0&&r.event===null&&r.periods===lifeMaster;})());
+const reopened=reopenPeriodCommand({...reopenArgs,reason:'Reopened to book the audit-agreed accrual reversal for June.'});
+expectPeriod('reopening a closed period writes an auditable PERIOD_REOPENED event carrying the reason',
+  reopened.ok&&reopened.record.status==='OPEN'&&reopened.record.reopened_count===1&&
+  reopened.event.event_type===PERIOD_EVENT_REOPENED&&reopened.event.prior_status==='CLOSED'&&
+  reopened.event.reason==='Reopened to book the audit-agreed accrual reversal for June.'&&
+  reopened.event.actor==='ricky'&&reopened.event.at===lifeAt&&reopened.event.entity_id===2&&reopened.event.period_code==='2026-06');
+expectPeriod('reopening a period that is not closed is refused',
+  (()=>{const r=reopenPeriodCommand({...reopenArgs,periodCode:'2026-07',reason:'Reopening the July period for a late adjustment.'});
+    return !r.ok&&r.code==='PERIOD_NOT_CLOSED';})());
+expectPeriod('no command can produce "no record", so absence never becomes an outcome',
+  opened.periods.every(p=>p.status==='OPEN'||p.status==='CLOSED')&&
+  closed.periods.length===lifeMaster.length&&reopened.periods.length===lifeMaster.length);
+
+// The seeded master, and what the surface says about it.
+const seededOpen=PERIODS.filter(p=>p.status==='OPEN');
+expectPeriod('the seeded period master opens the current period for every entity and nothing else',
+  seededOpen.length===ENTITIES.length&&seededOpen.every(p=>p.period_code==='2026-07')&&
+  new Set(seededOpen.map(p=>p.entity_id)).size===ENTITIES.length&&
+  PERIODS.filter(p=>p.status==='CLOSED').length===1&&
+  PERIODS.every(p=>p.opened_by&&p.opened_at&&p.open_reason)&&
+  PERIOD_EVENTS.filter(e=>e.event_type===PERIOD_EVENT_OPENED).length===ENTITIES.length+1&&
+  PERIOD_EVENTS.filter(e=>e.event_type===PERIOD_EVENT_CLOSED).length===1&&
+  PERIOD_EVENTS.every(e=>e.actor&&e.at&&e.reason));
+const periodsCtx={...ctx,jes:[...JOURNAL_ENTRIES,...FY2026],periods:PERIODS,periodEvents:PERIOD_EVENTS,exceptions:EXCEPTIONS,closeTasks:CLOSE_TASKS,entity:0};
+const periodsMarkup=renderToStaticMarkup(<PeriodManagement ctx={periodsCtx}/>);
+expectPeriod('Period Management states the fail-closed rule and counts the open periods it can prove',
+  periodsMarkup.includes('Period Management')&&
+  periodsMarkup.includes('a missing record is never read as permission')&&
+  periodsMarkup.includes(`<i>Open - posting permitted</i><b>${ENTITIES.length}</b>`)&&
+  periodsMarkup.includes('<i>No period record</i><b>0</b>'));
+const controllerCommands=['Open period','Close period','Reopen period'];
+expectPeriod('a role holding no period permission is shown statements of fact, never executable period controls',
+  (()=>{const denied=renderToStaticMarkup(<PeriodManagement ctx={{...periodsCtx,can:deny}}/>);
+    return controllerCommands.every(label=>denied.includes(label))&&
+      denied.includes(`Your role does not hold ${PERM_PERIOD_OPEN}`)&&
+      denied.includes(`Your role does not hold ${PERM_PERIOD_CLOSE}`)&&
+      denied.includes(`Your role does not hold ${PERM_PERIOD_REOPEN}`)&&
+      !/<button[^>]*>(?:Open|Close|Reopen) \d+ selected<\/button>/.test(denied);})());
+expectPeriod('a role holding the permissions gets real controls that are disabled until a selection and a reason exist',
+  /<button[^>]*disabled[^>]*>Close 0 selected<\/button>/.test(periodsMarkup)&&
+  /Select one or more entity periods first/.test(periodsMarkup)&&
+  !periodsMarkup.includes(`Your role does not hold ${PERM_PERIOD_CLOSE}`));
 
 const authoritativeBankCtx={...ctx,authoritativeMode:true,bank:{accounts:{'BA-003':{bank_name:'Pacific Bank',stmt_date:'2026-07-31',stmt_end:0,gl_book_balance:0,txns:[{bank_txn_id:1,external_id:'BANK-1',txn_date:'2026-07-31',amount:1,direction:'DEBIT',reference:'Fee',match_status:'UNMATCHED'}],outstanding_checks:[],deposits_in_transit:[]}},history:[]}};
 const authoritativeBankMarkup=renderToStaticMarkup(<BankTransactions ctx={authoritativeBankCtx}/>);

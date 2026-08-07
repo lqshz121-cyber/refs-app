@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, Component } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toast, Btn, Icon, StateBlock } from './ui.jsx';
-import { ENTITIES, USERS, PERIODS, COA, VENDORS, CUSTOMERS } from './data.js';
+import { ENTITIES, USERS, PERIODS, PERIOD_EVENTS, BANK_ACCOUNTS, COA, VENDORS, CUSTOMERS } from './data.js';
 import { periodControlExceptions, periodStatusLabel, resolvePostingPeriod } from './period-control.js';
+import { bankItemsByEntity, runPeriodCommand } from './period-lifecycle.js';
+import { PeriodManagement } from './module-periods.jsx';
 import { JOURNAL_ENTRIES, EXCEPTIONS, CLOSE_TASKS, BANK_TXNS, FY2026, nextId, bumpId } from './seed.js';
 import { jeTotals } from './engine.js';
 import { Dashboard, JEWorkspace, LoanWorkspace, PMPickup, ClosingWorkspace, ExceptionCenter, CloseMgmt } from './modules-core.jsx';
@@ -87,7 +89,7 @@ const NAV = [
   {group:'Journal Entry', short:'Journals', glyph:'document', icon:'✎', items:[['je','Journal Entries']]},
   {group:'General Ledger', short:'Ledger', glyph:'lines', icon:'☰', items:[['gl','GL / TB / BS / IS'],['register','Account Inquiry'],['subledger','Subsidiary ledger'],['coa','Chart of Accounts']]},
   {group:'Accounting Operations', short:'Operations', glyph:'layers', icon:'▲', items:[['cost','Project Cost & CWIP'],['unitcost','Unit Cost Ledger'],['unittransfer','Unit Transfer'],['loan','Construction Loan'],['loanreg','Loan Register'],['pmpickup','Property Ops Pickup'],['closing','Closing Accounting'],['intercompany','Intercompany'],['assets','Fixed Assets']]},
-  {group:'Close', short:'Close', glyph:'calendar', icon:'☑', items:[['close','Month-End Close']]},
+  {group:'Close', short:'Close', glyph:'calendar', icon:'☑', items:[['close','Month-End Close'],['periods','Period Management']]},
   {group:'Reports', short:'Reports', glyph:'bars', icon:'▤', railBreak:true, items:[['reports','Reports Center']]},
   {group:'Admin', short:'Admin', glyph:'shield', icon:'◈', adminOnly:true, items:[['masterdata','Master Data'],['ap','AP (legacy)'],['ar','AR (legacy)'],['cash','Bank Accounts'],['audit','Audit Log'],['admin','Users & Settings']]},
 ];
@@ -95,7 +97,7 @@ NAV.find(group => group.group === 'Accounting Operations')?.items.splice(3, 0, [
 const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, setting:CompanySetting, aireview:AIAudit, aijeworkbench:AIJEWorkbench, staging:StagingCenter, unittransfer:UnitTransfer, sourcedocs:SourceDocs, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
   pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARWorkspace,
   cash:CashModule, bankrec:BankRec2, autobankrec:AutoBankRec, checks:CheckMgmt, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
-  mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, reports:Reports, admin:AdminModule };
+  mapping:MappingCenter, rules:RuleCenter, exceptions:ExceptionCenter, close:CloseMgmt, periods:PeriodManagement, reports:Reports, admin:AdminModule };
 COMP.amortization = AmortizationCenter;
 COMP.accruals = AccrualCenter;
 const IA_HIDDEN_ROUTES = new Set(['cost','unitcost','unittransfer','loan','loanreg','pmpickup']);
@@ -163,8 +165,8 @@ function App() {
   const boundary = resolveRuntimeBoundary(globalThis);
   if (boundary.surface === SURFACE_ERROR) return <RuntimeErrorPage code={boundary.code}/>;
   if (boundary.surface !== SURFACE_DEMONSTRATION) return <AuthoritativeApp environment={globalThis}/>;
-  const SEED_V='v11';
-  const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
+  const SEED_V='v12';
+  const load=(k,d)=>{try{ if(localStorage.getItem('refs_seedv')!==SEED_V){['jes','exc','close','ap','bank','coa','ar','periods','periodevents'].forEach(x=>localStorage.removeItem('refs_'+x)); localStorage.setItem('refs_seedv',SEED_V);} const v=localStorage.getItem('refs_'+k);return v?JSON.parse(v):d;}catch(e){return d;}};
   const [userId, setUserId] = useState(()=>load('user',null));
   const [route, setRoute] = useState('dashboard');
   const [mobileNav, setMobileNav] = useState(false);
@@ -176,6 +178,12 @@ function App() {
   const navOpenerRef = useRef(null);
   const navWasOpen = useRef(false);
   const [navContext, setNavContext] = useState(null);
+  // The period master is state, not a constant, because the product can now
+  // open, close and reopen periods. It is SEEDED from src/data.js and it is
+  // never synthesised: `load` falls back to the seeded master, and the seeded
+  // master itself contains only the periods somebody explicitly opened.
+  const [periods, setPeriods] = useState(()=>load('periods',PERIODS));
+  const [periodEvents, setPeriodEvents] = useState(()=>load('periodevents',PERIOD_EVENTS));
   const [jes, setJes] = useState(()=>load('jes',[...JOURNAL_ENTRIES, ...FY2026]));
   const [exceptions, setExceptions] = useState(()=>load('exc',EXCEPTIONS));
   const [closeTasks, setCloseTasks] = useState(()=>load('close',CLOSE_TASKS));
@@ -201,14 +209,14 @@ function App() {
   // fallback here: a missing period master row means nobody opened that period,
   // which is the opposite of permission to post. The resolver returns a period
   // object whose status is NOT_CONFIGURED so the screen can say exactly that.
-  const periodControl = resolvePostingPeriod(PERIODS, {entity_id:entity||2, period_code:CURRENT_PERIOD});
+  const periodControl = resolvePostingPeriod(periods, {entity_id:entity||2, period_code:CURRENT_PERIOD});
   const period = periodControl.period;
   const showToast = (msg,tone='ok') => { setToastS({msg,tone}); setTimeout(()=>setToastS(null),3000); };
   // Every posting path resolves the period that the entry itself claims, not
   // the period of whichever entity the header happens to have selected.
-  const resolvePeriodFor = (target) => resolvePostingPeriod(PERIODS, target);
+  const resolvePeriodFor = (target) => resolvePostingPeriod(periods, target);
   const guardPosting = (target, what) => {
-    const resolved = resolvePostingPeriod(PERIODS, target);
+    const resolved = resolvePostingPeriod(periods, target);
     if (!resolved.ok) showToast(`${what} blocked [${resolved.code}]: ${resolved.message}`,'bad');
     return resolved;
   };
@@ -226,6 +234,7 @@ function App() {
   useEffect(()=>{ const t=setTimeout(()=>persist('jes',jes), 400); return ()=>clearTimeout(t); },[jes]); useEffect(()=>{persist('exc',exceptions)},[exceptions]);
   useEffect(()=>{persist('close',closeTasks)},[closeTasks]); useEffect(()=>{persist('ap',ap)},[ap]);
   useEffect(()=>{persist('bank',bank)},[bank]); useEffect(()=>{persist('coa',coa)},[coa]); useEffect(()=>{persist('ar',ar)},[ar]);
+  useEffect(()=>{persist('periods',periods)},[periods]); useEffect(()=>{persist('periodevents',periodEvents)},[periodEvents]);
   useEffect(()=>{ if(userId) persist('user',userId); },[userId]);
   useEffect(()=>{ bumpId(Math.max(9000,...jes.map(j=>+j.je_id||0),...ap.bills.map(b=>+b.bill_id||0))); },[]);
   useEffect(()=>{
@@ -290,6 +299,29 @@ function App() {
       return [{exception_id:nextId(), occurred_date:'2026-07-31', aging_days:0, status:'OPEN', resolution:'', ...spec}, ...xs]; }),
     resolveException: (id, resolution) => setExceptions(xs=>xs.map(e=>e.exception_id===id?{...e, status:'CLOSED', resolution, closed_by:userId}:e)),
     signoffTask: (id) => setCloseTasks(ts=>ts.map(t=>t.close_task_id===id?{...t, status:'SIGNED_OFF', signed_off_by:userId}:t)),
+    // ---- Period lifecycle ----
+    // The single entry point for open / close / reopen. Everything that decides
+    // whether a transition is allowed lives in src/period-lifecycle.js: the
+    // permission, the reason, the current state and the unresolved work. This
+    // supplies only the actor, the timestamp and the records the checks read,
+    // commits exactly what the command accepted, and mirrors every accepted
+    // event into the audit log. It touches no journal: closing a period never
+    // re-dates, rewrites or deletes posted evidence.
+    periodCommand: (kind, targets, reason) => {
+      const at = new Date().toISOString().slice(0,19).replace('T',' ');
+      const result = runPeriodCommand(kind, {
+        targets, periods, events:periodEvents, actor:userId, at, reason, can,
+        entityIds:new Set(ENTITIES.map(e=>e.entity_id)),
+        journals:jes, exceptions, bankItems:bankItemsByEntity(bank, BANK_ACCOUNTS),
+      });
+      if (result.applied.length){
+        setPeriods(result.periods);
+        setPeriodEvents(result.events);
+        result.applied.forEach(entry=>audit(entry.event.event_type,'PERIOD',`E${entry.entity_id} · ${entry.period_code}`,entry.event.reason));
+      }
+      showToast(result.message, result.refused.length ? (result.applied.length ? 'warn' : 'bad') : 'ok');
+      return result;
+    },
     // ---- AP ----
     addBill: (f) => { const dup = ap.bills.find(b=>b.vendor_id===f.vendor_id && b.invoice_no.trim().toLowerCase()===f.invoice_no.trim().toLowerCase());
       if (dup){ setAp(s=>({...s, dupBlocked:(s.dupBlocked||0)+1})); return {dup:dup.bill_no}; }
@@ -342,7 +374,7 @@ function App() {
     addAccount: (f) => { if (coa.some(a=>a.account_code===f.account_code)) return {dup:true};
       setCoa(cs=>[...cs, f].sort((a,b)=>a.account_code.localeCompare(b.account_code))); return {ok:true}; },
     toggleAccount: (code) => setCoa(cs=>cs.map(a=>a.account_code===code?{...a, inactive:!a.inactive}:a)),
-    resetData: () => { try{['jes','exc','close','ap','bank','coa','user'].forEach(k=>localStorage.removeItem('refs_'+k))}catch(e){} location.reload(); },
+    resetData: () => { try{['jes','exc','close','ap','bank','coa','user','periods','periodevents'].forEach(k=>localStorage.removeItem('refs_'+k))}catch(e){} location.reload(); },
     logout: () => { try{localStorage.removeItem('refs_user')}catch(e){} setUserId(null); },
   };
 
@@ -354,8 +386,8 @@ function App() {
   // Derived, read-only. Detected from the retained ledger every render rather
   // than seeded, so it can never drift from what is actually posted. Nothing
   // here modifies a Posted entry.
-  const periodExceptions = periodControlExceptions({journals:jes, periods:PERIODS});
-  const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, user, entity, period, periods:PERIODS, periodControl, periodExceptions, resolvePeriodFor, can, actions, toast:showToast, goto, navContext};
+  const periodExceptions = periodControlExceptions({journals:jes, periods});
+  const ctx = {jes, exceptions, closeTasks, ap, ar, bank, coa, user, entity, period, periods, periodEvents, currentPeriod:CURRENT_PERIOD, periodControl, periodExceptions, resolvePeriodFor, can, actions, toast:showToast, goto, navContext};
   const Comp = COMP[route] || Dashboard;
   const paletteItems = flat.filter(([k,ic,l])=>l.toLowerCase().includes(q.toLowerCase())||k.includes(q.toLowerCase()));
   const jeHits = q.length>=3 ? jes.filter(j=>(j.je_number||'').includes(q)||((j.payee||'').toLowerCase().includes(q.toLowerCase()))).slice(0,5) : [];

@@ -237,11 +237,105 @@ export const ENTITIES = [
   {entity_id:119, entity_code:'WBON', entity_name:'WB Opportunity II Holding LLC', entity_type:'ProjectCo'},
 ];
 
-export const PERIODS = [
-  {period_id:1, entity_id:2, period_code:'2026-06', status:'CLOSED'},
-  {period_id:2, entity_id:2, period_code:'2026-07', status:'OPEN'},
-  {period_id:3, entity_id:4, period_code:'2026-07', status:'OPEN'},
+// ---------------------------------------------------------------------------
+// Period master and the events that produced it.
+//
+// A period master row is an AUTHORIZATION record. Its absence is not neutral -
+// it means nobody opened that period, so nothing may post into it
+// (src/period-control.js). That makes seeding this table an accounting
+// decision, not a convenience, and the decision taken here is deliberately
+// narrow. It is written up in full in docs/PERIOD-MANAGEMENT.md.
+//
+// What is seeded:
+//
+//   1. The CURRENT period, 2026-07, OPEN for every entity in the master, each
+//      row carrying the actor, timestamp and reason of a single explicit
+//      opening act. This is the period the demo ledger is actually operating
+//      in; a books system in which nobody can post anything is not a system.
+//      119 rows, all attributable to one recorded authorization.
+//
+//   2. 2026-06 CLOSED for entity 2, which is the pre-existing state and which
+//      26 already-POSTED journals breach. Those journals are NOT re-dated,
+//      rewritten or deleted. They stay POSTED, in that period, and stay visible
+//      as POSTED_INTO_CLOSED_PERIOD exceptions.
+//
+// What is deliberately NOT seeded:
+//
+//   * The other 824 entity/period pairs that carry posted journals. They are
+//     left with no record, which reads as "nobody opened this period" - which
+//     is exactly true. Generating OPEN rows for all 946 pairs would be the
+//     fail-open defect moved from the resolver into the seed: the system
+//     granting itself authority nobody exercised. Generating CLOSED rows for
+//     them instead would mark all 3,228 prior-period postings as closed-period
+//     breaches and bury the 26 real ones in noise.
+//
+// The result is honest in both directions: the demo is usable in the current
+// period, and every historical control gap stays on the Exception Center where
+// a human can see it.
+// ---------------------------------------------------------------------------
+export const CURRENT_PERIOD_CODE = '2026-07';
+
+// The one recorded act behind every OPEN row below.
+const CURRENT_PERIOD_OPENING = {
+  actor: 'ricky',
+  at: '2026-07-01 09:05:00',
+  reason: 'FY2026-07 opened for the group by the Controller once the June reporting pack was issued. Posting authority for July only.',
+};
+
+// Entity 2's June, opened then closed. Recorded as two events so the closed
+// state has a provenance instead of appearing from nowhere.
+const JUNE_ENTITY = 2;
+const JUNE_PERIOD = '2026-06';
+const JUNE_OPENING = {
+  actor: 'ricky',
+  at: '2026-06-01 09:00:00',
+  reason: 'FY2026-06 opened for Wan Bridge Land LLC at the start of the June cycle.',
+};
+const JUNE_CLOSING = {
+  actor: 'ricky',
+  at: '2026-07-03 17:40:00',
+  reason: 'June 2026 month-end close signed off for Wan Bridge Land LLC after the June reporting pack was issued.',
+};
+
+const _periods = [{
+  period_id: 1, entity_id: JUNE_ENTITY, period_code: JUNE_PERIOD, status: 'CLOSED',
+  opened_by: JUNE_OPENING.actor, opened_at: JUNE_OPENING.at, open_reason: JUNE_OPENING.reason,
+  closed_by: JUNE_CLOSING.actor, closed_at: JUNE_CLOSING.at, close_reason: JUNE_CLOSING.reason,
+  reopened_count: 0, reopened_by: null, reopened_at: null, reopen_reason: null,
+}];
+const _periodEvents = [
+  {event_id:1, event_type:'PERIOD_OPENED', entity_id:JUNE_ENTITY, period_code:JUNE_PERIOD,
+   prior_status:null, next_status:'OPEN', actor:JUNE_OPENING.actor, at:JUNE_OPENING.at, reason:JUNE_OPENING.reason},
+  {event_id:2, event_type:'PERIOD_CLOSED', entity_id:JUNE_ENTITY, period_code:JUNE_PERIOD,
+   prior_status:'OPEN', next_status:'CLOSED', actor:JUNE_CLOSING.actor, at:JUNE_CLOSING.at, reason:JUNE_CLOSING.reason},
 ];
+for (const entity of ENTITIES) {
+  _periods.push({
+    period_id: _periods.length + 1,
+    entity_id: entity.entity_id,
+    period_code: CURRENT_PERIOD_CODE,
+    status: 'OPEN',
+    opened_by: CURRENT_PERIOD_OPENING.actor,
+    opened_at: CURRENT_PERIOD_OPENING.at,
+    open_reason: CURRENT_PERIOD_OPENING.reason,
+    closed_by: null, closed_at: null, close_reason: null,
+    reopened_count: 0, reopened_by: null, reopened_at: null, reopen_reason: null,
+  });
+  _periodEvents.push({
+    event_id: _periodEvents.length + 1,
+    event_type: 'PERIOD_OPENED',
+    entity_id: entity.entity_id,
+    period_code: CURRENT_PERIOD_CODE,
+    prior_status: null,
+    next_status: 'OPEN',
+    actor: CURRENT_PERIOD_OPENING.actor,
+    at: CURRENT_PERIOD_OPENING.at,
+    reason: CURRENT_PERIOD_OPENING.reason,
+  });
+}
+
+export const PERIODS = _periods;
+export const PERIOD_EVENTS = _periodEvents;
 
 export const PROJECTS = [
   {project_id:1, project_code:'PRJ-001', project_name:'Cedar Ridge Phase I', entity_id:2, project_status:'ACTIVE', construction_status:'UNDER_CONSTRUCTION'},

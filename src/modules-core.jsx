@@ -652,7 +652,7 @@ export function ExceptionCenter({ctx}) {
 
 // ---------------- Month-End Close ----------------
 export function CloseMgmt({ctx}) {
-  const {closeTasks, actions, toast, can} = ctx;
+  const {closeTasks, goto} = ctx;
   const doneN = closeTasks.filter(t=>['DONE','SIGNED_OFF'].includes(t.status)).length;
   const pct = Math.round(doneN/closeTasks.length*100);
   const depsMet = (t) => t.depends_on.every(id=>{const d=closeTasks.find(x=>x.close_task_id===id); return d && ['DONE','SIGNED_OFF'].includes(d.status);});
@@ -661,7 +661,17 @@ export function CloseMgmt({ctx}) {
     <h2 className="page-h">Month-End Close</h2>
     <div className="close-prog"><span>{pct}% complete · {doneN}/{closeTasks.length} tasks</span></div>
     <Table cols={[{h:'Task',render:r=><span>{r.task_name} <span className="muted sm">({r.task_code})</span></span>},{h:'Type',render:r=><Badge tone="muted">{r.is_auto?'AUTO':'MANUAL'}</Badge>},{h:'Owner',k:'owner'},{h:'Due date',k:'due_date'},{h:'Dependencies',render:r=>depsMet(r)?'Ready':'Blocked'},{h:'Status',render:r=><Badge>{r.status}</Badge>}]} rows={closeTasks} rowKey="close_task_id" />
-    <Btn variant="primary" disabled={!allSigned || !can('PERIOD.PERIOD.CLOSE')} title={!can('PERIOD.PERIOD.CLOSE') ? 'Your role does not hold PERIOD.PERIOD.CLOSE' : !allSigned ? 'Every close task must be signed off first' : 'Close the period'} onClick={()=>toast('Period close is shell-only','ok')}>Close period</Btn>
+    {/* Closing a period used to be a button here that raised a toast and did
+        nothing. It is now a real command, and it lives where its scope is
+        explicit: one entity, one accounting period, with that pair's state,
+        unresolved work and recorded reason on screen. This checklist carries no
+        entity_id and no period_code, so it is reported as close readiness and
+        is deliberately NOT treated as a per-entity close condition. */}
+    <div className="row-acts" style={{marginTop:12}}>
+      <Btn variant="primary" onClick={()=>goto('periods')}
+        title="Open Period Management to open, close or reopen a specific entity and accounting period">Go to Period Management</Btn>
+    </div>
+    <p className="muted sm">{allSigned ? 'Every close task is signed off.' : `${closeTasks.length - doneN} close task(s) are still outstanding.`} Periods are closed per entity and per accounting period in Period Management, where REFS refuses a close while it can still see unresolved work in that entity and period.</p>
   </div>;
 }
 
