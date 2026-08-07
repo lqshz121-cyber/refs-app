@@ -340,7 +340,20 @@ input,select,textarea{
   border-radius:var(--qb-r-panel); background:transparent; color:var(--qb-text-strong);
   transition:background-color var(--qb-dur-1) var(--qb-ease-out),color var(--qb-dur-1) var(--qb-ease-out);
 }
-.rail-glyph svg{display:block; width:24px; height:24px;}
+.rail-glyph svg{display:block; width:24px; height:24px;
+  transition:transform var(--qb-dur-1) var(--qb-ease-out);}
+/* The rail changed colour on interaction but never moved, which is what read
+   as flat. A 1px lift on hover and a slight settle on the selected glyph give
+   the rail a sense of response without animating layout - transform only, so
+   nothing reflows, and it is disabled under reduced-motion. */
+.nav-group-h:hover .rail-glyph svg{transform:translateY(-1px);}
+.nav-group-h:active .rail-glyph svg{transform:translateY(0) scale(.96);}
+.nav-group-h.rail-on .rail-glyph svg{transform:scale(1.04);}
+@media(prefers-reduced-motion:reduce){
+  .rail-glyph svg{transition:none;}
+  .nav-group-h:hover .rail-glyph svg,.nav-group-h:active .rail-glyph svg,
+  .nav-group-h.rail-on .rail-glyph svg{transform:none;}
+}
 .rail-label{
   max-width:calc(var(--qb-rail-item-w) - 2px);
   font:600 11px/1.1 var(--qb-sans); color:var(--qb-text-strong); text-align:center;

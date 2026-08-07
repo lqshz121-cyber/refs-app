@@ -26,7 +26,7 @@ const ICON_PATHS = {
 export function Icon({name, size=24, className}) {
   const paths = ICON_PATHS[name] || ICON_PATHS.document;
   return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+    stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
     aria-hidden="true" focusable="false">
     {paths.map((d,i)=><path key={i} d={d}/>)}
   </svg>;
