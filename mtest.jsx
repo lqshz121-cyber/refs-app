@@ -20,6 +20,9 @@ import { SubsidiaryLedger } from './src/module-subledger.jsx';
 import { UnitCostLedger } from './src/module-unitcost.jsx';
 import { SourceDocs } from './src/module-sourcedocs.jsx';
 import { Consolidation } from './src/module-consolidation.jsx';
+import { buildCashFlowStatement, buildConsolidatedCashFlowStatement } from './src/cash-flow-statement.js';
+import { buildEliminations } from './src/consolidation.js';
+import { fullyConsolidatedEntityIds, TOP_GROUP_CODE } from './src/consolidation-groups.js';
 import { PeriodManagement } from './src/module-periods.jsx';
 import { PERIOD_EVENT_CLOSED, PERIOD_EVENT_OPENED, PERIOD_EVENT_REOPENED, PERIOD_PERMISSION_DENIED, PERIOD_REASON_REQUIRED, PERIOD_UNRESOLVED_WORK, PERM_PERIOD_CLOSE, PERM_PERIOD_OPEN, PERM_PERIOD_REOPEN, closePeriodCommand, openPeriodCommand, reopenPeriodCommand } from './src/period-lifecycle.js';
 import { App, AuthoritativeApp, authoritativeRuntimeConfigured, AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './src/app.jsx';
@@ -172,8 +175,34 @@ expectIS('the General Ledger overview strip states assets on the same cumulative
   balanceSheetMarkup.includes(`<i>Assets as of 2026-07</i><b>${money(bs4AsOf.assets)}</b>`)&&
   trialBalanceMarkup.includes(`<i>Assets as of 2026-07</i><b>${money(bs4AsOf.assets)}</b>`)&&
   !balanceSheetMarkup.includes(`<i>Assets</i><b>${money(bs4Window.assets)}</b>`));
+const cashFlowMarkup=renderReportTab(4,'Cash Flow');
 expectIS('Cash Flow renders posted cash evidence for a real posting entity',
-  renderReportTab(4,'Cash Flow').includes('Cash movement evidence'));
+  cashFlowMarkup.includes('Cash movement evidence'));
+// The Cash Flow tab is a STATEMENT now, not an evidence list. It has to carry
+// all three sections, state its own tie, and say so on screen - a green SSR
+// gate that only proved the words "Cash movement evidence" survived is what let
+// the old journal-level classifier misclassify a land purchase for months.
+const cashFlow4=buildCashFlowStatement({journals:[...JOURNAL_ENTRIES,...FY2026].filter(j=>j.posting_status==='POSTED'&&j.entity_id===4),entityId:4,fromPeriod:'2026-01',throughPeriod:'2026-07'});
+expectIS('Cash Flow presents a statement with all three sections and states its own tie',
+  cashFlowMarkup.includes('Statement of Cash Flows')&&
+  cashFlowMarkup.includes('Operating activities')&&cashFlowMarkup.includes('Investing activities')&&cashFlowMarkup.includes('Financing activities')&&
+  cashFlowMarkup.includes('Opening cash + net change = closing cash')&&
+  cashFlowMarkup.includes('Direct and indirect methods agree'));
+expectIS('Cash Flow ties opening cash plus net change to closing cash in integer minor units',
+  cashFlow4.cash.opening_cents+cashFlow4.cash.net_change_cents===cashFlow4.cash.closing_cents&&
+  cashFlow4.direct.total_cents===cashFlow4.cash.net_change_cents&&
+  cashFlow4.cash.closing_cents===cashFlow4.cash.balance_sheet_cents&&
+  cashFlow4.ties.direct_equals_indirect&&cashFlow4.ready&&
+  cashFlowMarkup.includes(money(cashFlow4.cash.closing_cents/100)));
+expectIS('the consolidated Cash Flows view renders and eliminates intercompany cash',
+  (()=>{ const ids=fullyConsolidatedEntityIds(TOP_GROUP_CODE);
+    const names=ids.map(id=>(ENTITIES.find(e=>Number(e.entity_id)===Number(id))||{}).entity_name).filter(Boolean);
+    const el=buildEliminations({journals:[...JOURNAL_ENTRIES,...FY2026].filter(j=>j.posting_status==='POSTED'),groupCode:TOP_GROUP_CODE,throughPeriod:'2026-07'});
+    const group=buildConsolidatedCashFlowStatement({journals:[...JOURNAL_ENTRIES,...FY2026].filter(j=>j.posting_status==='POSTED'),eliminations:el.eliminations,entityIds:ids,entityNames:names,fromPeriod:'2026-01',throughPeriod:'2026-07'});
+    const markup=renderToStaticMarkup(<Consolidation ctx={{...ctx,navContext:{route:'consolidation',view:'Cash Flows'}}}/>);
+    return group.ready&&group.intercompany.internal_cash_net_cents===0&&group.intercompany.internal_cash_inflow_cents>0&&
+      markup.includes('Consolidated statement of cash flows')&&markup.includes('Intercompany cash eliminated');
+  })());
 const glDetailMarkup4=renderReportTab(4,'GL Detail');
 expectIS('GL Detail renders posted journal lines for a real posting entity',
   postedFor(4).length>0&&postedFor(4).some(j=>glDetailMarkup4.includes(j.je_number)));

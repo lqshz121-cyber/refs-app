@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from 'react';
-import { Card, KPI, Btn, Badge, Money, Table, Tabs, SectionTitle, StateBlock, Unavailable } from './ui.jsx';
+import { Card, KPI, Btn, Badge, Money, Table, Tabs, Segmented, SectionTitle, StateBlock, Unavailable } from './ui.jsx';
 import { COA, ENTITIES, VENDORS, CUSTOMERS, LOANS, BANK_ACCOUNTS, MAPPINGS, PROPERTIES, PROJECTS } from './data.js';
 import { LOAN_TXNS, IC_TXNS, PM_ROWS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, trialBalance, statements, downloadCSV } from './engine.js';
@@ -10,6 +10,7 @@ import { localGLDrillState, localGLDrillAccountCodes, localGLRunningBalanceRows 
 import { dimensionScopeLabel, scopedPostedJournalEntries } from './gl-dimension-scope.js';
 import { postedJournalEntriesAsOf } from './balance-sheet-asof.js';
 import { buildLocalCashFlow } from './cash-flow-evidence.js';
+import { buildCashFlowStatement, CASH_FLOW_SECTIONS } from './cash-flow-statement.js';
 import { loanRollForward, loanReconcilingItems } from './loan-rollforward.js';
 import { isOperatingCashAccount, localBankEvidenceForCashGroup, localCashAccountRows, localCashAccountGroup } from './cash-account-scope.js';
 import { localReportControlEvidence } from './report-control-evidence.js';
@@ -53,6 +54,7 @@ export function GLTrialBalance({ctx}) {
   };
   const initCodes = toCodeList(preset.drillAccounts || preset.drill || null);
   const [tab, setTab] = useState(presetTab || 'Trial Balance');
+  const [cashFlowView, setCashFlowView] = useState('Statement');
   const [fromP, setFromP] = useState('2026-01');
   const [toP, setToP] = useState('2026-07');
   const [propertyId, setPropertyId] = useState(String(preset.propertyId || 'ALL'));
@@ -77,6 +79,9 @@ export function GLTrialBalance({ctx}) {
   const openingBase = hasReportEntity ? jes.filter(j=>j.posting_status==='POSTED' && j.entity_id===Number(reportEntity) && j.period_code<fromP) : [];
   const openingPosted = scopedPostedJournalEntries(openingBase, { propertyId, projectId, loanId, properties:PROPERTIES });
   const cashFlow = buildLocalCashFlow({ openingJournals:openingPosted, periodJournals:posted });
+  // The real statement of cash flows. buildLocalCashFlow above stays because the
+  // report-control strip and the WBS impact report read it; this is the statement.
+  const cashFlowStatement = buildCashFlowStatement({ journals:[...openingPosted, ...posted], entityId:reportEntity, fromPeriod:fromP, throughPeriod:toP });
   const reportControls = localReportControlEvidence({ periodJournals:posted, asOfJournals:bsPosted, entityId:reportEntity, toPeriod:toP, cashFlow });
   const dimensionLabel = dimensionScopeLabel({ propertyId, projectId, loanId }, { properties:PROPERTIES, projects:PROJECTS, loans:LOANS });
   const dimensionEvidence = localDimensionScopeEvidence([...postedBase,...asOfBase], {entityId:reportEntity,propertyId,projectId,loanId}, PROPERTIES);
@@ -314,26 +319,86 @@ export function GLTrialBalance({ctx}) {
         {h:'Credit',num:true,render:r=>r.cr?<Money v={r.cr}/>:'',csv:r=>r.cr||''},
         {h:'Running balance',num:true,render:r=><Money v={r.runningBalance}/>,csv:r=>r.runningBalance},
       ]} rows={detailRows}/>; })()}
-    {tab==='Cash Flow' && (()=>{ const openCategory=(category)=>{ const matches=cashFlow.entries.filter(entry=>entry.category===category); setDrill({accounts:cashFlow.cashAccounts,label:`Cash movement evidence - ${category}`,journalNumbers:matches.map(entry=>entry.je)}); };
-      const openCashScope = (scope) => { const group=reportControls.cashGroups.find(row=>row.group===scope); if (!group?.accounts.length) return; setDrill({accounts:group.accounts,label:`Cash scope · ${scope}`,asOf:true}); };
+    {tab==='Cash Flow' && (()=>{
+      const cf = cashFlowStatement;
+      const d = c => c/100;
+      const cashCodes = cf.cash.accounts.map(row=>row.account_code);
+      const openLine = (section, line) => setDrill({accounts:cashCodes, label:`${section} \u00b7 ${line.label}`, journalNumbers:line.journal_numbers});
+      const openSection = (section) => { const row=cf.direct.sections.find(x=>x.section===section); setDrill({accounts:cashCodes, label:`Cash movement evidence - ${section}`, journalNumbers:[...new Set((row?row.lines:[]).flatMap(l=>l.journal_numbers))]}); };
+      const openCashScope = (scope) => { const group=reportControls.cashGroups.find(row=>row.group===scope); if (!group?.accounts.length) return; setDrill({accounts:group.accounts,label:`Cash scope \u00b7 ${scope}`,asOf:true}); };
       const cashFlowRegisterTarget = scope => { const group=reportControls.cashGroups.find(row=>row.group===scope); return localCashFlowRegisterTarget({entityId:reportEntity,accountCodes:group?.accounts || [],scope,fromP,toP,propertyId,projectId,loanId,dimensionState:dimensionEvidence.state,reportCenterReturn}); };
       const bsCash=sum(bsTb.rows.filter(row=>isOperatingCashAccount(row.account_code)),row=>row.balance);
       const totalBsCash=reportControls.totalCash;
-      const ready=Math.abs(cashFlow.reconciliationDifference)<0.01 && !cashFlow.unclassified.length && Math.abs(cashFlow.closingCash-bsCash)<0.01;
-      const totalScopeReady=Math.abs(cashFlow.totalClosingCash-totalBsCash)<0.01;
+      const scopeTied=Math.abs(d(cf.cash.closing_cents)-totalBsCash)<0.005;
+      const scoped = dimensionLabel !== 'All local dimensions';
+      const stmtRow = (label, cents, opts={}) => <div key={opts.key||label} className={'stmt-row'+(opts.total?' tot':'')}><span>{label}</span><Money v={d(cents)} bold={opts.total}/></div>;
       return <div className="stmt stmt-wide">
-        <div className="stmt-h">Cash movement evidence · {fromP} ~ {toP} <span className="muted sm">(posted local cash evidence · {dimensionLabel})</span></div>
-        <p className="muted sm">This evidence view is not a complete statement of cash flows. Operating, investing, and financing labels remain retained classifications and unclassified activity stays in Review.</p>
-        {!cashFlow.entries.length ? <StateBlock tone="empty" title="No posted local cash activity">No posted local cash activity for {fromP} ~ {toP} in {dimensionLabel}.</StateBlock> : <>
-        <div className="stmt-row"><span>Opening operating cash before {fromP}</span><Money v={cashFlow.openingCash}/></div>
-        {['Operating','Investing','Financing'].map(category=><div key={category} className="stmt-row drill-target" role="button" tabIndex={0} onClick={()=>openCategory(category)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openCategory(category);}}}><span>Retained {category.toLowerCase()} classification</span><button type="button" className="report-drill" onClick={e=>{e.stopPropagation();openCategory(category);}}><Money v={cashFlow[category.toLowerCase()]}/><span aria-hidden="true" className="drill-caret" /></button></div>)}
-        {cashFlow.unclassified.length>0 && <div className="stmt-row"><span>Unclassified cash evidence — review required</span><Badge tone="bad">{cashFlow.unclassified.length} JE{cashFlow.unclassified.length===1?'':'s'}</Badge></div>}
-        <div className="stmt-row tot"><span>Closing operating cash through {toP}</span><Money v={cashFlow.closingCash} bold/></div>
-        <div className="stmt-sec">Cash scope reconciliation</div>
-        {cashFlow.scopes.map(scope=>{ const canDrill=reportControls.cashGroups.some(row=>row.group===scope.scope && row.accounts.length); const registerTarget=cashFlowRegisterTarget(scope.scope); const open=()=>openCashScope(scope.scope); return <div key={scope.scope} className={'stmt-row'+(canDrill?' drill-target':'')} role={canDrill?'button':undefined} tabIndex={canDrill?0:undefined} onClick={canDrill?open:undefined} onKeyDown={canDrill?(e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}}):undefined}><span>{scope.scope} cash · opening / movement / closing{registerTarget&&<button type="button" className="source-drill" onClick={e=>{e.stopPropagation();ctx.goto('register',registerTarget);}} title="Open retained local account register">Open local register</button>}</span>{canDrill?<button type="button" className="report-drill" onClick={e=>{e.stopPropagation();open();}}><Money v={scope.openingCash}/> / <Money v={scope.movement}/> / <Money v={scope.closingCash}/><span aria-hidden="true" className="drill-caret" /></button>:<span><Money v={scope.openingCash}/> / <Money v={scope.movement}/> / <Money v={scope.closingCash}/></span>}</div>;})}
-        <div className="stmt-row tot"><span>Total cash through {toP} · all retained scopes</span><Money v={cashFlow.totalClosingCash} bold/></div>
-        <div className="stmt-row"><span>Cross-check: same-scope Balance Sheet operating cash</span><span><Money v={bsCash}/><Badge tone={ready?'ok':'bad'}>{ready?'Ready':'Review classification/scope'}</Badge></span></div>
-        <div className="stmt-row"><span>Cross-check: same-scope Balance Sheet total cash</span><span><Money v={totalBsCash}/><Badge tone={totalScopeReady?'ok':'bad'}>{totalScopeReady?'TIED':'Review cash scope'}</Badge></span></div>
+        <div className="stmt-h">Statement of Cash Flows \u00b7 {fromP} ~ {toP} <span className="muted sm">(posted local ledger \u00b7 {dimensionLabel})</span></div>
+        <Segmented options={['Statement','Indirect reconciliation','Cash movement evidence']} value={cashFlowView} onChange={setCashFlowView} label="Statement of cash flows view"/>
+        {!cf.entries.length && !cf.unclassified.length
+          ? <StateBlock tone="empty" title="No posted local cash activity">No posted local cash activity for {fromP} ~ {toP} in {dimensionLabel}.</StateBlock>
+          : <>
+        {!cf.ready && <StateBlock tone="error" title="This statement does not tie and must not be relied on">
+          <ul style={{margin:'6px 0 0 16px'}}>{cf.findings.slice(0,5).map((f,i)=><li key={i} className="sm">{f}</li>)}</ul>
+          {scoped && <p className="sm" style={{margin:'6px 0 0'}}>A property, project or loan filter selects lines, not whole journals, so a filtered view is not a reporting entity and its cash flow statement is not expected to tie. Clear the dimension filter to read the statement.</p>}
+        </StateBlock>}
+
+        {cashFlowView==='Statement' && <>
+        {stmtRow(`Cash, cash equivalents and restricted cash at the beginning of ${fromP}`, cf.cash.opening_cents)}
+        {cf.direct.sections.map(section=><div key={section.section}>
+          <div className="stmt-sec">{section.section} activities</div>
+          {section.lines.length===0
+            ? <div className="stmt-row"><span className="muted sm">No posted {section.section.toLowerCase()} cash activity in this period</span><Money v={0}/></div>
+            : section.lines.map(line=>{ const open=()=>openLine(section.section,line); return <div key={line.rule_id} className="stmt-row drill-target" role="button" tabIndex={0} onClick={open} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}}}><span>{line.label} <span className="muted sm">{line.rule_id}</span></span><button type="button" className="report-drill" onClick={e=>{e.stopPropagation();open();}} aria-label={`Open the ${line.journal_numbers.length} journal entries behind ${line.label}`}><Money v={d(line.cents)}/><span aria-hidden="true" className="drill-caret" /></button></div>; })}
+          <div className="stmt-row tot drill-target" role="button" tabIndex={0} onClick={()=>openSection(section.section)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openSection(section.section);}}}><span>Net cash provided by (used in) {section.section.toLowerCase()} activities</span><button type="button" className="report-drill total" onClick={e=>{e.stopPropagation();openSection(section.section);}}><Money v={d(section.total_cents)} bold/><span aria-hidden="true" className="drill-caret" /></button></div>
+        </div>)}
+        <div className="stmt-sec">Net change in cash</div>
+        {stmtRow('Net increase (decrease) in cash, cash equivalents and restricted cash', cf.direct.total_cents, {total:true})}
+        {stmtRow(`Cash, cash equivalents and restricted cash at the end of ${toP}`, cf.cash.closing_cents, {total:true})}
+        <div className="stmt-sec">Controls</div>
+        <div className="stmt-row"><span>Opening cash + net change = closing cash</span><Badge tone={cf.ties.opening_plus_change_equals_closing && cf.ties.sections_equal_cash_movement?'ok':'bad'}>{cf.ties.opening_plus_change_equals_closing && cf.ties.sections_equal_cash_movement?'TIED':'DIFFERENCE'}</Badge></div>
+        <div className="stmt-row"><span>Direct and indirect methods agree</span><Badge tone={cf.ties.direct_equals_indirect?'ok':'bad'}>{cf.ties.direct_equals_indirect?'AGREE':'DIFFERENCE'}</Badge></div>
+        <div className="stmt-row"><span>Closing cash = same-scope Balance Sheet cash accounts</span><span><Money v={totalBsCash}/><Badge tone={scopeTied?'ok':'bad'}>{scopeTied?'TIED':'DIFFERENCE'}</Badge></span></div>
+        <div className="stmt-row"><span>Posted cash lines carrying no classification</span><Badge tone={cf.unclassified.length?'bad':'ok'}>{cf.unclassified.length}</Badge></div>
+        <p className="muted sm" style={{margin:'10px 0 0'}}>Cash is cash, cash equivalents and restricted cash on the ASU 2016-18 basis: operating, escrow, reserve, security-deposit and payroll-restricted accounts together. Land, construction work in progress and completed homes are inventory held for sale and their cash is operating; property held for use is investing. Loan draws and principal repayments are financing. Interest paid is operating. Every figure opens to the posted journals behind it.</p>
+        </>}
+
+        {cashFlowView==='Indirect reconciliation' && <>
+        <div className="stmt-sec">Reconciliation of net income to net cash from operating activities</div>
+        {stmtRow('Net income', cf.indirect.net_income_cents)}
+        {cf.indirect.reclassifications.length>0 && <><div className="stmt-sec">Items reported in investing or financing activities</div>
+          {cf.indirect.reclassifications.map(r=>stmtRow(`${r.account_code} ${r.account_name}`, r.presented_cents, {key:'rc'+r.account_code}))}</>}
+        <div className="stmt-sec">Non-cash transactions (journals that moved no cash)</div>
+        {cf.indirect.non_cash_adjustments.length===0
+          ? <div className="stmt-row"><span className="muted sm">No non-cash transactions affected operating accounts in this period</span><Money v={0}/></div>
+          : cf.indirect.non_cash_adjustments.map(r=>stmtRow(`${r.account_code} ${r.account_name}`, r.presented_cents, {key:'nc'+r.account_code}))}
+        <div className="stmt-sec">Changes in operating assets and liabilities</div>
+        {cf.indirect.working_capital.length===0
+          ? <div className="stmt-row"><span className="muted sm">No operating working-capital movement in this period</span><Money v={0}/></div>
+          : cf.indirect.working_capital.map(r=>stmtRow(`${r.account_code} ${r.account_name}`, r.presented_cents, {key:'wc'+r.account_code}))}
+        {stmtRow('Net cash provided by (used in) operating activities \u00b7 indirect', cf.indirect.operating_cents, {total:true})}
+        {stmtRow('Net cash provided by (used in) operating activities \u00b7 direct', cf.direct.sections[0].total_cents, {total:true})}
+        <div className="stmt-row"><span>Difference between the two methods</span><span><Money v={d(cf.direct.sections[0].total_cents - cf.indirect.operating_cents)}/><Badge tone={cf.ties.direct_equals_indirect?'ok':'bad'}>{cf.ties.direct_equals_indirect?'AGREE':'DIFFERENCE'}</Badge></span></div>
+        <div className="stmt-sec">Investing and financing, on the same account-movement basis</div>
+        {CASH_FLOW_SECTIONS.slice(1).map(section=>{ const direct=cf.direct.sections.find(x=>x.section===section); const indirect=section==='Investing'?cf.indirect.investing_cents:cf.indirect.financing_cents; return <div key={section} className="stmt-row"><span>{section} \u00b7 direct / account movement</span><span><Money v={d(direct.total_cents)}/> / <Money v={d(indirect)}/><Badge tone={direct.total_cents===indirect?'ok':'bad'}>{direct.total_cents===indirect?'AGREE':'DIFFERENCE'}</Badge></span></div>; })}
+        <p className="muted sm" style={{margin:'10px 0 0'}}>The two methods are different aggregations of one per-line classification: the direct method walks the journals that moved cash, the indirect method walks the account movements and adds back the journals that moved none. They agree only when every posted line is classified exactly once, so a difference here is a misclassification, not a rounding artefact.</p>
+        </>}
+
+        {cashFlowView==='Cash movement evidence' && <>
+        <p className="muted sm">The direct evidence behind the statement: every posted journal that moved a cash account, and the cash scopes those accounts belong to. Nothing here is an estimate.</p>
+        <div className="stmt-sec">Cash scope reconciliation \u00b7 opening / movement / closing</div>
+        {cf.cash.scopes.map(scope=>{ const canDrill=reportControls.cashGroups.some(row=>row.group===scope.scope && row.accounts.length); const registerTarget=cashFlowRegisterTarget(scope.scope); const open=()=>openCashScope(scope.scope); return <div key={scope.scope} className={'stmt-row'+(canDrill?' drill-target':'')} role={canDrill?'button':undefined} tabIndex={canDrill?0:undefined} onClick={canDrill?open:undefined} onKeyDown={canDrill?(e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}}):undefined}><span>{scope.scope} cash \u00b7 {scope.accounts.join(', ')}{registerTarget&&<button type="button" className="source-drill" onClick={e=>{e.stopPropagation();ctx.goto('register',registerTarget);}} title="Open retained local account register">Open local register</button>}</span>{canDrill?<button type="button" className="report-drill" onClick={e=>{e.stopPropagation();open();}}><Money v={d(scope.opening_cents)}/> / <Money v={d(scope.movement_cents)}/> / <Money v={d(scope.closing_cents)}/><span aria-hidden="true" className="drill-caret" /></button>:<span><Money v={d(scope.opening_cents)}/> / <Money v={d(scope.movement_cents)}/> / <Money v={d(scope.closing_cents)}/></span>}</div>;})}
+        <div className="stmt-row tot"><span>Total cash through {toP} \u00b7 all retained scopes</span><Money v={d(cf.cash.closing_cents)} bold/></div>
+        <div className="stmt-row"><span>Cross-check: same-scope Balance Sheet operating cash</span><span><Money v={bsCash}/><Badge tone={Math.abs(bsCash-d(cf.cash.closing_cents))<0.005?'ok':'bad'}>{Math.abs(bsCash-d(cf.cash.closing_cents))<0.005?'TIED':'Review cash scope'}</Badge></span></div>
+        <div className="stmt-sec">Posted cash journals \u00b7 {cf.entries.length}</div>
+        <Table exportName={'cash-movement-evidence-'+fromP+'_'+toP} features={{exportable:false}} pageSize={25} onRow={r=>openJournalFromReport(r.je,{drillAccounts:cashCodes,drillLabel:'Cash movement evidence'})} empty="No posted local cash activity in this scope." cols={[
+          {h:'Journal No.',k:'je'},{h:'Date',k:'date'},
+          {h:'Source',render:r=><Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},
+          {h:'Description',k:'desc'},
+          {h:'Sections',render:r=>r.sections.length?r.sections.join(', '):<span className="muted sm">internal transfer</span>,csv:r=>r.sections.join(' ')},
+          {h:'Cash effect',num:true,render:r=><Money v={r.cash}/>,sortVal:r=>r.cash,csv:r=>r.cash},
+        ]} rows={cf.entries.map(entry=>({je:entry.je_number,date:entry.je_date,src:entry.source,desc:entry.description,sections:entry.sections,cash:d(entry.cash_cents)}))}/>
+        </>}
         </>}
       </div>; })()}
     </>}

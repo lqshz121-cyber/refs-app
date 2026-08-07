@@ -9,8 +9,9 @@ import {
   consolidationGroup, validateConsolidationModel,
 } from './consolidation-groups.js';
 import { ENTITIES } from './data.js';
+import { buildConsolidatedCashFlowStatement } from './cash-flow-statement.js';
 
-const VIEWS = ['Trial Balance', 'Balance Sheet', 'Income Statement', 'Eliminations', 'Group'];
+const VIEWS = ['Trial Balance', 'Balance Sheet', 'Income Statement', 'Cash Flows', 'Eliminations', 'Group'];
 const d = c => (c == null ? null : c / 100);
 
 // Three money columns, always in the same order and always the same reading:
@@ -32,10 +33,15 @@ function TotalRow({label, entity, elimination, consolidated}) {
 
 export function Consolidation({ctx}) {
   const jes = (ctx && ctx.jes) || [];
-  const [view, setView] = useState('Trial Balance');
+  // A route preset may open a named view directly, the same way the General
+  // Ledger workspace accepts one. It is also what lets a server-side render
+  // exercise every view rather than only the default one.
+  const preset = (ctx && ctx.navContext && ctx.navContext.route === 'consolidation') ? ctx.navContext : {};
+  const [view, setView] = useState(VIEWS.includes(preset.view) ? preset.view : 'Trial Balance');
   const [groupCode, setGroupCode] = useState(TOP_GROUP_CODE);
   const [throughPeriod, setThroughPeriod] = useState((ctx && ctx.currentPeriod) || '2026-07');
   const [drillAccount, setDrillAccount] = useState(null);
+  const [cashFlowFrom, setCashFlowFrom] = useState('2026-01');
   const [drillElimination, setDrillElimination] = useState(null);
 
   const periods = useMemo(() => {
@@ -46,6 +52,25 @@ export function Consolidation({ctx}) {
   const result = useMemo(
     () => buildConsolidation({journals: jes, groupCode, throughPeriod}),
     [jes, groupCode, throughPeriod]);
+
+  // The consolidated statement of cash flows runs over the entity ledgers PLUS
+  // the elimination ledger, with intercompany balances inside the boundary
+  // treated as internal cash so that a payment one member made on another
+  // member's behalf reports where the money actually went. The period range is
+  // the group's first reporting period through the selected period, which is
+  // the range the elimination batch was built for.
+  const cashFlow = useMemo(() => {
+    const ids = result.elimination.entity_ids || [];
+    const byId = Object.fromEntries(ENTITIES.map(e => [Number(e.entity_id), e.entity_name]));
+    return buildConsolidatedCashFlowStatement({
+      journals: jes.filter(j => j.posting_status === 'POSTED'),
+      eliminations: result.elimination.eliminations,
+      entityIds: ids,
+      entityNames: ids.map(id => byId[Number(id)]).filter(Boolean),
+      fromPeriod: cashFlowFrom,
+      throughPeriod,
+    });
+  }, [jes, result, cashFlowFrom, throughPeriod]);
 
   const model = useMemo(() => validateConsolidationModel(ENTITIES, CONSOLIDATION_MEMBERS), []);
   const group = consolidationGroup(groupCode) || {group_code: groupCode, group_name: groupCode};
@@ -166,6 +191,66 @@ export function Consolidation({ctx}) {
         elimination={is.totals.elimination.gross_profit} consolidated={is.totals.consolidated.gross_profit}/>
       <TotalRow label="Net income" entity={is.totals.entity.net_income}
         elimination={is.totals.elimination.net_income} consolidated={is.totals.consolidated.net_income}/>
+    </section>}
+
+    {view === 'Cash Flows' && <section style={{marginTop:14}}>
+      <SectionTitle right={<span className="muted sm">{cashFlow.scope.boundary_size} entities in the boundary</span>}>
+        Consolidated statement of cash flows · {group.group_name} · {cashFlowFrom} ~ {throughPeriod}
+      </SectionTitle>
+      <div className="filter-bar">
+        <label className="sw">
+          <span className="muted sm" style={{marginRight:6}}>From period</span>
+          <select value={cashFlowFrom} onChange={e => setCashFlowFrom(e.target.value)} aria-label="Cash flow statement from period">
+            {periods.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </label>
+        <Badge tone={cashFlow.ties.opening_plus_change_equals_closing && cashFlow.ties.sections_equal_cash_movement ? 'ok' : 'bad'}>
+          {cashFlow.ties.opening_plus_change_equals_closing && cashFlow.ties.sections_equal_cash_movement ? 'Opening + net change = closing' : 'Statement does not tie'}
+        </Badge>
+        <Badge tone={cashFlow.ties.direct_equals_indirect ? 'ok' : 'bad'}>
+          {cashFlow.ties.direct_equals_indirect ? 'Direct and indirect agree' : 'Methods disagree'}
+        </Badge>
+        <Badge tone={cashFlow.ties.intercompany_eliminated ? 'ok' : 'bad'}>
+          {cashFlow.ties.intercompany_eliminated ? 'Intercompany cash eliminated' : 'Intercompany cash not eliminated'}
+        </Badge>
+      </div>
+
+      {!cashFlow.ready && <StateBlock tone="error" title="The consolidated statement of cash flows does not tie">
+        <ul style={{margin:'6px 0 0 16px'}}>{cashFlow.findings.slice(0, 5).map((f, i) => <li key={i} className="sm">{f}</li>)}</ul>
+      </StateBlock>}
+
+      <div className="stmt stmt-wide">
+        <div className="stmt-row"><span>Cash, cash equivalents and restricted cash at the beginning of {cashFlowFrom}</span><Money v={d(cashFlow.cash.opening_cents)}/></div>
+        {cashFlow.direct.sections.map(section => <div key={section.section}>
+          <div className="stmt-sec">{section.section} activities</div>
+          {section.lines.length === 0
+            ? <div className="stmt-row"><span className="muted sm">No consolidated {section.section.toLowerCase()} cash activity in this period</span><Money v={0}/></div>
+            : section.lines.map(line => <div key={line.rule_id} className="stmt-row"><span>{line.label} <span className="muted sm">{line.rule_id}</span></span><Money v={d(line.cents)}/></div>)}
+          <div className="stmt-row tot"><span>Net cash provided by (used in) {section.section.toLowerCase()} activities</span><Money v={d(section.total_cents)} bold/></div>
+        </div>)}
+        <div className="stmt-sec">Net change in cash</div>
+        <div className="stmt-row tot"><span>Net increase (decrease) in cash, cash equivalents and restricted cash</span><Money v={d(cashFlow.direct.total_cents)} bold/></div>
+        <div className="stmt-row tot"><span>Cash, cash equivalents and restricted cash at the end of {throughPeriod}</span><Money v={d(cashFlow.cash.closing_cents)} bold/></div>
+
+        <div className="stmt-sec">Reconciliation of consolidated net income to operating cash</div>
+        <div className="stmt-row"><span>Consolidated net income, after eliminations</span><Money v={d(cashFlow.indirect.net_income_cents)}/></div>
+        {cashFlow.indirect.reclassifications.map(r => <div key={'rc' + r.account_code} className="stmt-row"><span>Reported in investing or financing · {r.account_code} {r.account_name}</span><Money v={d(r.presented_cents)}/></div>)}
+        {cashFlow.indirect.non_cash_adjustments.map(r => <div key={'nc' + r.account_code} className="stmt-row"><span>Non-cash · {r.account_code} {r.account_name}</span><Money v={d(r.presented_cents)}/></div>)}
+        {cashFlow.indirect.working_capital.map(r => <div key={'wc' + r.account_code} className="stmt-row"><span>Working capital · {r.account_code} {r.account_name}</span><Money v={d(r.presented_cents)}/></div>)}
+        <div className="stmt-row tot"><span>Net cash from operating activities · indirect</span><Money v={d(cashFlow.indirect.operating_cents)} bold/></div>
+        <div className="stmt-row tot"><span>Net cash from operating activities · direct</span><Money v={d(cashFlow.direct.sections[0].total_cents)} bold/></div>
+
+        <div className="stmt-sec">Intercompany</div>
+        <div className="stmt-row"><span>Intercompany cash moved between members (in / out)</span><span><Money v={d(cashFlow.intercompany.internal_cash_inflow_cents)}/> / <Money v={d(cashFlow.intercompany.internal_cash_outflow_cents)}/></span></div>
+        <div className="stmt-row"><span>Net intercompany cash left in the consolidated statement</span><span><Money v={d(cashFlow.intercompany.internal_cash_net_cents)}/><Badge tone={cashFlow.intercompany.internal_cash_net_cents === 0 ? 'ok' : 'bad'}>{cashFlow.intercompany.internal_cash_net_cents === 0 ? 'ELIMINATED' : 'RESIDUAL'}</Badge></span></div>
+        <div className="stmt-row"><span>Purely internal transaction chains kept out of the sections</span><span className="muted sm">{cashFlow.intercompany.internal_transaction_groups} chain(s) · {cashFlow.intercompany.internal_transaction_journals} journal(s)</span></div>
+      </div>
+      <p className="muted sm">
+        For the group an intercompany receivable or payable that eliminates inside the boundary is internal cash, so a
+        payment one member made on another member's behalf reports as the group's operating payment rather than as a
+        financing advance. A chain of intercompany journals that moved no bank balance at all is reported here and kept
+        out of every section, so an internal transfer cannot gross up operating activities.
+      </p>
     </section>}
 
     {view === 'Eliminations' && <section style={{marginTop:14}}>
