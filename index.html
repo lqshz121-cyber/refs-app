@@ -430,7 +430,13 @@ input,select,textarea{
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 .cmdk:hover{border-color:var(--qb-accent); color:var(--qb-text);}
-.top-right{margin-left:auto; flex:0 0 auto; display:flex; align-items:center; gap:10px; min-width:0; white-space:nowrap;}
+/* `flex:0 1 auto`, not `0 0 auto`. The left cluster is `flex:1 1 auto`, so a
+   non-shrinking right cluster cannot give ground and simply overflows the bar.
+   Measured on the deployed build at a 1142px viewport: the cluster demanded
+   630.9px, document scrollWidth exceeded clientWidth by 7px. Allowing it to
+   shrink brings it to 501.9px and the overflow to 0. The chip ellipsises rather
+   than clipping, so nothing becomes unreadable. */
+.top-right{margin-left:auto; flex:0 1 auto; display:flex; align-items:center; gap:10px; min-width:0; white-space:nowrap;}
 .top-right>.sw{display:inline-flex; flex:0 0 auto; align-items:center; white-space:nowrap; word-break:keep-all;}
 .icon-btn{
   display:inline-grid; place-items:center; flex:0 0 auto;
@@ -447,7 +453,9 @@ input,select,textarea{
 .period-chip b{color:var(--qb-text-strong); font-size:12px; white-space:nowrap;}
 .period-chip .badge{padding:2px 7px;}
 .user-chip{
-  display:flex; align-items:center; flex:0 0 auto; gap:8px;
+  /* Shrinkable with the cluster above; `.user-nm` ellipsises so the name
+     degrades gracefully instead of pushing the bar past the viewport. */
+  display:flex; align-items:center; flex:0 1 auto; min-width:0; gap:8px;
   height:var(--qb-control-h); padding:0 10px 0 3px; border-radius:var(--qb-r-pill); white-space:nowrap;
 }
 .user-av{
