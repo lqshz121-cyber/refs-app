@@ -1303,6 +1303,23 @@ select{padding-right:28px; cursor:pointer;}
 .rep-card:hover{background:var(--qb-canvas); border-color:var(--qb-border);}
 .rep-card.rep-on{background:var(--qb-accent-tint); border:2px solid var(--qb-accent);}
 .report-workbench{margin:14px 0; padding:16px;}
+/* QuickBooks Online shows the report figures first and keeps supporting
+   material out of the reading path. On GL these three control-evidence panels
+   sat between the tabs and the statement and pushed the first data row to
+   y=1774 in a 679px viewport - about 2.6 screens of scrolling before a single
+   number. They are collapsed by default: nothing is removed, and one click
+   still opens the full retained evidence. */
+.gl-evidence-fold{margin:10px 0 14px; border:var(--qb-hair) solid var(--qb-divider);
+  border-radius:var(--qb-r-card); background:var(--qb-surface);}
+.gl-evidence-fold>summary{cursor:pointer; list-style:none; padding:10px 14px;
+  font:500 13px/1.4 var(--qb-sans); color:var(--qb-text-strong);
+  display:flex; align-items:center; gap:8px;}
+.gl-evidence-fold>summary::-webkit-details-marker{display:none;}
+.gl-evidence-fold>summary::before{content:"\25B8"; color:var(--qb-text-muted); transition:transform .16s ease;}
+.gl-evidence-fold[open]>summary::before{transform:rotate(90deg);}
+.gl-evidence-fold>summary:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+.gl-evidence-fold>.report-workbench{margin:0 12px 12px; border:0;}
+@media(prefers-reduced-motion:reduce){.gl-evidence-fold>summary::before{transition:none;}}
 .report-workbench-head{display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; margin-bottom:12px; min-width:0;}
 .report-preview-meta{display:flex; align-items:stretch; gap:8px; flex-wrap:wrap; justify-content:flex-end; min-width:0;}
 .report-preview-meta span{display:flex; align-items:baseline; gap:5px; padding:6px 10px;
