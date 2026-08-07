@@ -9,7 +9,7 @@
 // the ledger is the accounting record. A difference between them is a
 // reconciling item that has to be named, not absorbed.
 import { POSTED, LOANS, ENT, drOf, crOf, fmt } from './_ledger.js';
-import { loanRollForward, LOAN_PAYABLE_ACCOUNTS } from '../../src/loan-rollforward.js';
+import { loanRollForward, loanReconcilingItems, LOAN_PAYABLE_ACCOUNTS } from '../../src/loan-rollforward.js';
 
 const c = (n) => Math.round((Number(n) || 0) * 100);
 const out = []; const P = (s) => out.push(s);
@@ -54,7 +54,43 @@ P(`  GL loan payable attributed to a master loan: ${fmt(attributedCents / 100)}`
 P(`  GL loan payable NOT attributable:            ${fmt(c(rows.unattributed.gl_ending) / 100)}`);
 if (c(rows.unattributed.gl_ending) !== 0) failures.push(`unattributed GL loan payable ${fmt(rows.unattributed.gl_ending)}`);
 
+// --- 3. Prove the report can still SEE a break --------------------------------
+// A roll-forward that reports zero on a clean ledger has proved nothing. These
+// two mutations break a copy of the ledger and require the difference to be
+// raised as a named reconciling item. This is the check the old report - which
+// derived beginning principal from the master - could never have passed.
 P('');
-P(`loan-gl-vs-master: gl=${(glCents / 100).toFixed(2)} master=${(masterCents / 100).toFixed(2)} difference=${((masterCents - glCents) / 100).toFixed(2)} failures=${failures.length}`);
+P('== MUTATION: does the roll-forward SEE a divergence when one exists? ==');
+const mutations = [
+  {
+    name: 'a principal repayment is posted that the loan master does not know about',
+    apply: () => [...POSTED, {je_id: 990001, je_number: 'MUT-ROLLFWD-1', entity_id: 2, period_code: '2026-07',
+      je_date: '2026-07-31', posting_status: 'POSTED', lines: [
+        {account_code: '270100', debit_amount: 250000, credit_amount: 0, loan_id: 1},
+        {account_code: '111000', debit_amount: 0, credit_amount: 250000}]}],
+    expect: 250000,
+  },
+  {
+    name: 'loan principal is posted on an entity that holds no facility in the master',
+    apply: () => [...POSTED, {je_id: 990002, je_number: 'MUT-ROLLFWD-2', entity_id: 33, period_code: '2026-07',
+      je_date: '2026-07-31', posting_status: 'POSTED', lines: [
+        {account_code: '111000', debit_amount: 400000, credit_amount: 0},
+        {account_code: '270700', debit_amount: 0, credit_amount: 400000}]}],
+    expect: 400000,
+  },
+];
+mutations.forEach((mutation) => {
+  const mutated = loanRollForward({journals: mutation.apply(), loans: LOANS, fromPeriod: '2026-01', toPeriod: '2026-07'});
+  const items = loanReconcilingItems(mutated);
+  const total = items.reduce((s, i) => s + Math.abs(c(i.amount)), 0);
+  const seen = total === c(mutation.expect);
+  P(`  ${seen ? 'DETECTED' : 'NOT DETECTED'}  ${mutation.name}`);
+  items.forEach((i) => P(`      ${i.loan_code}: ${fmt(i.amount)} · ${i.message.slice(0, 150)}`));
+  if (!seen) failures.push(`roll-forward did not raise a reconciling item for: ${mutation.name}`);
+});
+
+P('');
+P(`loan-gl-vs-master: gl=${(glCents / 100).toFixed(2)} master=${(masterCents / 100).toFixed(2)} difference=${((masterCents - glCents) / 100).toFixed(2)} `
+  + `mutations_detected=${mutations.length - failures.filter((f) => f.startsWith('roll-forward')).length}/${mutations.length} failures=${failures.length}`);
 console.log(out.join('\n'));
 if (failures.length) { failures.forEach((f) => console.error('FAIL', f)); process.exitCode = 1; }

@@ -205,7 +205,19 @@ AFTER
   M-2024-003  GL beginning 5,720,000.00 + draws 0.00 = ending 5,720,000.00
               master 5,720,000.00   UNRECONCILED DIFFERENCE 0.00   tie
   GL loan payable NOT attributable:   0.00
-loan-gl-vs-master: gl=9970000.00 master=9970000.00 difference=0.00 failures=0          (exit 0)
+loan-gl-vs-master: gl=9970000.00 ... difference=0.00 mutations_detected=2/2 failures=0  (exit 0)
+```
+
+A roll-forward that reports zero on a clean ledger has proved nothing, so the script also
+breaks a copy of the ledger two ways and requires the difference to be raised. This is the
+check the old report could never have passed:
+
+```
+== MUTATION: does the roll-forward SEE a divergence when one exists? ==
+  DETECTED  a principal repayment is posted that the loan master does not know about
+      L-2025-014: 250,000.00 · the general ledger carries 4000000.00 of principal and the loan master says 4250000.00 ...
+  DETECTED  loan principal is posted on an entity that holds no facility in the master
+      (unattributed): 400,000.00 · names no loan in the master, so it cannot be reconciled to any lender statement.
 ```
 
 ### Residual risk
@@ -513,10 +525,17 @@ Stated plainly, because a green gate is not the same as close-ready books.
   `src/engine.js` still carries the 0.005 tolerance in `isBalanced` and `validateJE`.
 - **`je_number` uniqueness across the group** (review H-11) — `AUD-DUP-001` enforces it per
   entity, which is what a document number identifies; cross-entity collisions remain.
+- **The rewritten `Construction Loan Rollforward` JSX is not render-tested.** The report name
+  is excluded from `RETAINED_REPORT_NAMES` (`src/modules-more.jsx:351`), so its body is
+  unreachable from the Reports Center and no SSR case executes it. What *is* measured is the
+  logic behind it: `tools/analysis/loan-gl-vs-master.js` calls `loanRollForward` and
+  `loanReconcilingItems` directly, on the real ledger and on two deliberately broken copies.
+  The JSX itself is verified only to the extent that `npm run build` parses and bundles it.
+  That is a real gap and it is a consequence of review finding M-7 (19 of 29 reports filtered
+  out of the catalogue), which is not fixed here.
 - **No browser here and `file://` is blocked**, so nothing in this document is a screenshot
-  claim. The `Construction Loan Rollforward` change is verified by `npm run test:ssr`
-  rendering `Reports` and by `npm run build`; the *rendered appearance* of that report is
-  reasoning, not measurement.
+  claim. Every figure above comes from a script; the appearance of any screen is reasoning,
+  not measurement.
 
 ## Gates
 
