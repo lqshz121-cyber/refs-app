@@ -135,8 +135,12 @@ async function pullOne(client, tool, { limit, company }) {
   console.log(`\n── ${tool} ${'─'.repeat(Math.max(0, 58 - tool.length))}`);
   if (catalog) console.log(`   role ${catalog.role} · terminus ${catalog.terminus}`);
 
-  const args = { limit };
-  if (company) args.company = company;
+  // The client validates every argument key against the tool's published input schema and
+  // refuses on any key the schema does not declare (WBS_MCP_ARGUMENTS_INVALID). Contract
+  // §4.1: get_meta takes `section`, not `limit`/`company` — sending the list-tool arguments
+  // to it is a guaranteed refusal.
+  const args = tool === 'get_meta' ? {} : { limit };
+  if (company && tool !== 'get_meta') args.company = company;
 
   // `readView` runs the frozen contract validator itself and returns the frozen,
   // validated envelope — so there is exactly one validation point, not two that
@@ -147,6 +151,23 @@ async function pullOne(client, tool, { limit, company }) {
   } catch (error) {
     if (error instanceof WbsMcpError) {
       console.log(`   REFUSED  ${error.code}\n            ${error.message}`);
+      // The frozen validator accepts `environment: production` only (contract §2 allows
+      // "sandbox | production"). Refusing a sandbox envelope is correct — REFS must not
+      // map non-production rows into an accounting lineage — but the bare code does not
+      // say so, and this is the likeliest first-run surprise.
+      if (error.code === 'WBS_MCP_ENVELOPE_INVALID') {
+        console.log('            If the provider is serving sandbox data, this is the expected refusal:');
+        console.log('            the read contract accepts environment="production" only.');
+      }
+      if (error.code === 'WBS_MCP_CONTENT_HASH_MISMATCH') {
+        console.log('            Contract §2 computes content_sha256 over the canonical JSON of the page\'s');
+        console.log('            rows. A mismatch means our canonicalisation and theirs differ — a contract');
+        console.log('            question to settle with WBS, not corrupted data.');
+      }
+      if (error.code === 'WBS_MCP_ARGUMENTS_INVALID') {
+        console.log('            An argument key is not in this tool\'s published input schema. Compare');
+        console.log('            against get_meta section=dictionary before changing anything here.');
+      }
       return { tool, ok: false, code: error.code };
     }
     throw error;
@@ -160,7 +181,18 @@ async function pullOne(client, tool, { limit, company }) {
     return { tool, ok: true, rows: rows.length, mapped: 0, exceptions: [] };
   }
 
-  const scope = { company_key: envelope.scope?.company ?? company ?? null };
+  // Contract §2: the envelope carries `scope.company_codes` (an array), not `company`.
+  // Reading the singular yields null, which the lineage mapper reports as CROSS_COMPANY on
+  // every row — a scope-plumbing bug that would look like a data defect. A page scoped to
+  // exactly one company gives a company_key; a multi-company page deliberately does not,
+  // because the mapper's key identifies one company and guessing which would be worse than
+  // failing closed.
+  const codes = envelope.scope?.company_codes;
+  const singleCode = Array.isArray(codes) && codes.length === 1 ? codes[0] : null;
+  const scope = { company_key: singleCode ?? envelope.scope?.company ?? company ?? null };
+  if (Array.isArray(codes) && codes.length > 1) {
+    console.log(`   scope covers ${codes.length} companies — rows will be scoped per row, not per page`);
+  }
   const result = mapWbsSourceEnvelope({
     toolName: tool,
     envelope,
