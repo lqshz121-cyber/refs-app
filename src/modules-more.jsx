@@ -168,17 +168,23 @@ export function GLTrialBalance({ctx}) {
       <label><span>Project</span><select value={projectId} onChange={e=>setProjectId(e.target.value)}><option value="ALL">All projects</option>{PROJECTS.filter(p=>!reportEntity||p.entity_id===Number(reportEntity)).map(p=><option key={p.project_id} value={p.project_id}>{p.project_code} · {p.project_name}</option>)}</select></label>
       <label><span>Loan</span><select value={loanId} onChange={e=>setLoanId(e.target.value)}><option value="ALL">All loans</option>{LOANS.filter(l=>!reportEntity||l.entity_id===Number(reportEntity)).map(l=><option key={l.loan_id} value={l.loan_id}>{l.loan_code} · {l.lender_name}</option>)}</select></label>
       <label><span>Saved local scope</span><select aria-label="Saved local report scope" value="" onChange={e=>loadScope(e.target.value)}><option value="">Load a saved entity scope</option>{entityScopes.map(scope=><option key={scope.label} value={scope.label}>{scope.label}</option>)}</select></label>
+      <div className="qbo-report-actions">
       {tab !== 'Cash Flow' && <div className="qbo-segment" role="group" aria-label="Accounting method"><button type="button" className="on">Accrual</button><button type="button" onClick={()=>notify('Cash basis preview is not enabled for this dataset yet')}>Cash</button></div>}
       <button type="button" onClick={()=>notify('Report refreshed')}>Refresh</button>
       <button type="button" onClick={saveScope} disabled={!currentScope} title={currentScope?'Save only this entity/period/dimension scope locally':'An explicit entity and valid period are required'}>Save local scope</button>
       <button type="button" onClick={()=>notify('Compact density retained at 100%')}>Compact | 100%</button>
       <Unavailable reason="This report reads retained local POSTED evidence and offers no delivery or authoring path.">Customization, period comparison, automated insights, email, print and export</Unavailable>
+      </div>
     </div>
   </div>;
-  const periodBar = <div className="filter-bar accounting-filter-bar">
-    <label><span className="filter-label">From</span><select aria-label="From period" value={fromP} onChange={e=>setFromP(e.target.value)}>{MONTHS.map(m=><option key={m}>{m}</option>)}</select></label>
-    <label><span className="filter-label">To</span><select aria-label="To period" value={toP} onChange={e=>setToP(e.target.value)}>{MONTHS.filter(m=>m>=fromP).map(m=><option key={m}>{m}</option>)}</select></label>
-    <span className="muted sm">Accrual basis · as of {toP} · {tbAsOf.rows.length} accounts with activity · {dimensionLabel}</span>
+  // QuickBooks Online states the report identity inside the report surface -
+  // report name, then the period, then the basis - and asks for the date range
+  // once, in the scope row above. GL previously repeated From/To here, so the
+  // same single piece of state was offered by two controls on one screen.
+  const periodBar = <div className="qbo-report-title">
+    <div className="qbo-report-title-main">{tab}</div>
+    <div className="qbo-report-title-period">{fromP} ~ {toP}</div>
+    <div className="qbo-report-title-basis">Accrual basis · as of {toP} · {tbAsOf.rows.length} accounts with activity · {dimensionLabel}</div>
   </div>;
   if (!hasReportEntity && !drill) return <div className="full-bleed">
     <h2 className="page-h">General Ledger</h2>
