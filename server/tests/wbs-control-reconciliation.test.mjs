@@ -51,23 +51,25 @@ test('control metrics cannot be substituted after a receipt has been captured',(
 });
 
 test('control reconciliation reads only exact persisted WBS/REFS evidence and approved mappings',async()=>{
-  const source={tenant_id:'tenant-a',entity_id:'entity-a',source_type:'COST_GENERAL_LEDGER',scope:costScope,receipt:costArgs.sourceReceipt,metrics:costMetrics};
-  const target={tenant_id:'tenant-a',entity_id:'entity-a',scope:costScope,receipt:costArgs.targetReceipt,metrics:costMetrics};
+  const source={snapshot_id:'wbs-control-cost-1',tenant_id:'tenant-a',entity_id:'entity-a',source_type:'COST_GENERAL_LEDGER',scope:costScope,receipt:costArgs.sourceReceipt,metrics:costMetrics};
+  const target={snapshot_id:'refs-metric-cost-1',tenant_id:'tenant-a',entity_id:'entity-a',scope:costScope,receipt:costArgs.targetReceipt,metrics:costMetrics};
   const mapping={...costMapping,tenant_id:'tenant-a',entity_id:'entity-a'};
   const repository={readPersistedWbsControlSnapshot:async()=>source,readPersistedRefsControlMetricSnapshot:async()=>target,readApprovedWbsControlReconciliationMapping:async()=>mapping};
   const reader=createWbsControlReconciliationReadComposition({repository});
   const input={sourceType:'COST_GENERAL_LEDGER',tenantId:'tenant-a',entityId:'entity-a',scope:costScope,replayKey:'control-read-1'};
-  const accepted=await reader.read(input);assert.equal(accepted.status,'READ_ONLY_CONTROL_RECONCILED');assert.equal(accepted.reconciliation.status,'RECONCILED');assert.equal(accepted.can_post,false);
+  const accepted=await reader.read(input);assert.equal(accepted.status,'READ_ONLY_CONTROL_RECONCILED');assert.equal(accepted.reconciliation.status,'RECONCILED');assert.equal(accepted.trace.forward_trace.wbs_control_snapshot.snapshot_id,'wbs-control-cost-1');assert.equal(accepted.trace.reverse_trace.refs_metric_snapshot.snapshot_id,'refs-metric-cost-1');assert.equal(accepted.can_post,false);
   assert.equal((await reader.read(input)).replayed,true);
   assert.equal((await reader.read({...input,scope:{...costScope,period:'2026-07'}})).code,'WBS_CONTROL_READ_REPLAY_CONFLICT');
   assert.equal((await createWbsControlReconciliationReadComposition({}).read(input)).code,'WBS_CONTROL_READ_CAPABILITY_UNAVAILABLE');
   const leaked=createWbsControlReconciliationReadComposition({repository:{...repository,readPersistedWbsControlSnapshot:async()=>({...source,scope:{...costScope,company_key:'OTHER'}})}});
   const blocked=await leaked.read({...input,replayKey:'control-read-2'});assert.equal(blocked.code,'WBS_CONTROL_READ_SCOPE_INVALID');assert.equal(blocked.can_create_draft,false);
+  const traceMissing=createWbsControlReconciliationReadComposition({repository:{...repository,readPersistedRefsControlMetricSnapshot:async()=>({...target,snapshot_id:''})}});
+  assert.equal((await traceMissing.read({...input,replayKey:'control-read-3'})).code,'WBS_CONTROL_READ_TRACE_REQUIRED');
 });
 
 test('Postgres control reader exposes only the three read-only kernel capabilities',async()=>{
-  const source={tenant_id:'tenant-a',entity_id:'entity-a',source_type:'COST_GENERAL_LEDGER',scope:costScope,receipt:costArgs.sourceReceipt,metrics:costMetrics};
-  const target={tenant_id:'tenant-a',entity_id:'entity-a',scope:costScope,receipt:costArgs.targetReceipt,metrics:costMetrics};
+  const source={snapshot_id:'wbs-control-cost-1',tenant_id:'tenant-a',entity_id:'entity-a',source_type:'COST_GENERAL_LEDGER',scope:costScope,receipt:costArgs.sourceReceipt,metrics:costMetrics};
+  const target={snapshot_id:'refs-metric-cost-1',tenant_id:'tenant-a',entity_id:'entity-a',scope:costScope,receipt:costArgs.targetReceipt,metrics:costMetrics};
   const mapping={...costMapping,tenant_id:'tenant-a',entity_id:'entity-a'};
   const calls=[];const kernel={readPersistedWbsControlSnapshot:async input=>(calls.push(input),source),readPersistedRefsControlMetricSnapshot:async input=>(calls.push(input),target),readApprovedWbsControlReconciliationMapping:async input=>(calls.push(input),mapping)};
   const input={sourceType:'COST_GENERAL_LEDGER',tenantId:'tenant-a',entityId:'entity-a',scope:costScope,replayKey:'pg-control-1'};
