@@ -117,5 +117,9 @@ It emits and requires a persisted WBS control snapshot ID and REFS metric
 snapshot ID in both directions of the trace; a receipt or mapping alone is
 not enough to prove the control lineage. A nonzero control difference is
 returned as `READ_ONLY_CONTROL_DIFFERENCE`, never as a reconciled result.
+The WBS-side snapshot must also retain a verified Ed25519 receipt manifest
+hash, key ID, and algorithm; a hash-only WBS control receipt is blocked. REFS
+target metric snapshots are internal evidence and do not inherit this WBS
+provider-signature requirement.
 The database adapter accepts only those three authenticated read capabilities;
 it cannot execute WBS calls, SQL text, or any accounting command.

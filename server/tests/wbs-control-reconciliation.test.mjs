@@ -5,7 +5,7 @@ import {createPostgresWbsControlReconciliationReader} from '../runtime/wbs-contr
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 
 const metricHash=rows=>canonicalRequestHash([...rows].map(row=>({metric_key:row.metric_key,amount:Number(Number(row.amount).toFixed(4))})).sort((left,right)=>left.metric_key.localeCompare(right.metric_key)));
-const receipt=(id,scope,metrics)=>({hash:'sha256:'+id.repeat(64).slice(0,64),metrics_hash:metricHash(metrics),ref:`object://receipt/${id}`,version:'v1',scope});
+const receipt=(id,scope,metrics)=>({hash:'sha256:'+id.repeat(64).slice(0,64),metrics_hash:metricHash(metrics),ref:`object://receipt/${id}`,version:'v1',scope,signature_verified:true,manifest_hash:'sha256:'+`${id}f`.repeat(64).slice(0,64),key_id:'wbs-control-test',algorithm:'Ed25519'});
 const costScope={tenant_id:'tenant-a',entity_id:'entity-a',company_key:'COMPANY-A',period:'2026-08',currency:'USD'};
 const costMetricKeys=Array.from({length:14},(_,index)=>`COST_METRIC_${String(index+1).padStart(2,'0')}`);
 const costMapping={status:'APPROVED',mapping_type:'WBS_COST_GL_CONTROL_RECONCILIATION',mapping_id:'map-cost',version:'4',scope:costScope,metric_keys:costMetricKeys};
@@ -58,6 +58,7 @@ test('control reconciliation reads only exact persisted WBS/REFS evidence and ap
   const reader=createWbsControlReconciliationReadComposition({repository});
   const input={sourceType:'COST_GENERAL_LEDGER',tenantId:'tenant-a',entityId:'entity-a',scope:costScope,replayKey:'control-read-1'};
   const accepted=await reader.read(input);assert.equal(accepted.status,'READ_ONLY_CONTROL_RECONCILED');assert.equal(accepted.reconciliation.status,'RECONCILED');assert.equal(accepted.trace.forward_trace.wbs_control_snapshot.snapshot_id,'wbs-control-cost-1');assert.equal(accepted.trace.reverse_trace.refs_metric_snapshot.snapshot_id,'refs-metric-cost-1');assert.equal(accepted.can_post,false);
+  assert.equal(accepted.trace.forward_trace.wbs_control_snapshot.receipt_algorithm,'Ed25519');
   assert.equal((await reader.read(input)).replayed,true);
   assert.equal((await reader.read({...input,scope:{...costScope,period:'2026-07'}})).code,'WBS_CONTROL_READ_REPLAY_CONFLICT');
   assert.equal((await createWbsControlReconciliationReadComposition({}).read(input)).code,'WBS_CONTROL_READ_CAPABILITY_UNAVAILABLE');
@@ -65,6 +66,8 @@ test('control reconciliation reads only exact persisted WBS/REFS evidence and ap
   const blocked=await leaked.read({...input,replayKey:'control-read-2'});assert.equal(blocked.code,'WBS_CONTROL_READ_SCOPE_INVALID');assert.equal(blocked.can_create_draft,false);
   const traceMissing=createWbsControlReconciliationReadComposition({repository:{...repository,readPersistedRefsControlMetricSnapshot:async()=>({...target,snapshot_id:''})}});
   assert.equal((await traceMissing.read({...input,replayKey:'control-read-3'})).code,'WBS_CONTROL_READ_TRACE_REQUIRED');
+  const unsigned=createWbsControlReconciliationReadComposition({repository:{...repository,readPersistedWbsControlSnapshot:async()=>({...source,receipt:{...source.receipt,signature_verified:false}})}});
+  assert.equal((await unsigned.read({...input,replayKey:'control-read-unsigned'})).code,'WBS_CONTROL_SOURCE_SIGNATURE_REQUIRED');
   const changedMetrics=costMetrics.map(row=>row.metric_key==='COST_METRIC_01'?{...row,amount:26}:row);
   const differenceReader=createWbsControlReconciliationReadComposition({repository:{...repository,readPersistedRefsControlMetricSnapshot:async()=>({...target,receipt:receipt('b',costScope,changedMetrics),metrics:changedMetrics})}});
   const difference=await differenceReader.read({...input,replayKey:'control-read-4'});assert.equal(difference.status,'READ_ONLY_CONTROL_DIFFERENCE');assert.equal(difference.reconciliation.status,'DIFFERENCE');assert.equal(difference.can_create_draft,false);

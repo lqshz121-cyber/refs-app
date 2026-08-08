@@ -69,6 +69,11 @@ const snapshotTrace=(snapshot,label)=>{
   const snapshotId=text(snapshot?.snapshot_id);if(!snapshotId)fail('WBS_CONTROL_READ_TRACE_REQUIRED',`${label} requires its persisted immutable snapshot id.`);
   return freeze({snapshot_id:snapshotId,receipt_hash:text(snapshot.receipt?.hash),receipt_ref:text(snapshot.receipt?.ref),receipt_version:text(snapshot.receipt?.version)});
 };
+const signedWbsSourceTrace=snapshot=>{
+  const trace=snapshotTrace(snapshot,'WBS control snapshot'),receipt=snapshot?.receipt;
+  if(receipt?.signature_verified!==true||!/^sha256:[0-9a-f]{64}$/.test(text(receipt?.manifest_hash))||!text(receipt?.key_id)||text(receipt?.algorithm)!=='Ed25519')fail('WBS_CONTROL_SOURCE_SIGNATURE_REQUIRED','WBS control snapshot requires a persisted verified Ed25519 receipt manifest.');
+  return freeze({...trace,receipt_manifest_hash:text(receipt.manifest_hash),receipt_key_id:text(receipt.key_id),receipt_algorithm:text(receipt.algorithm)});
+};
 
 // Read composition only. It requires the kernel to supply already-persisted,
 // immutable receipt-backed source and REFS target metric snapshots. The WBS
@@ -86,7 +91,7 @@ export function createWbsControlReconciliationReadComposition({repository}={}){
       try{[source,target,mapping]=await Promise.all(methods.map(name=>repository[name]({source_type:selection.sourceType,tenant_id:selection.tenantId,entity_id:selection.entityId,scope:selection.scope,read_only:true})));}catch{return blocked('WBS_CONTROL_READ_FAILED');}
       if(!snapshotScoped(source,selection,{source:true})||!snapshotScoped(target,selection)||!plain(mapping)||text(mapping.tenant_id)!==selection.tenantId||text(mapping.entity_id)!==selection.entityId||!exactScope(mapping.scope,selection.scope,scopeKeysFor(selection.sourceType)))return blocked('WBS_CONTROL_READ_SCOPE_INVALID');
       let reconciliation,sourceTrace,targetTrace;
-      try{reconciliation=reconcileWbsControlEvidence({sourceType:selection.sourceType,scope:selection.scope,sourceReceipt:source.receipt,targetReceipt:target.receipt,approvedMapping:mapping,sourceMetrics:source.metrics,targetMetrics:target.metrics});sourceTrace=snapshotTrace(source,'WBS control snapshot');targetTrace=snapshotTrace(target,'REFS metric snapshot');}catch(error){return blocked(error?.code||'WBS_CONTROL_EVIDENCE_INVALID');}
+      try{reconciliation=reconcileWbsControlEvidence({sourceType:selection.sourceType,scope:selection.scope,sourceReceipt:source.receipt,targetReceipt:target.receipt,approvedMapping:mapping,sourceMetrics:source.metrics,targetMetrics:target.metrics});sourceTrace=signedWbsSourceTrace(source);targetTrace=snapshotTrace(target,'REFS metric snapshot');}catch(error){return blocked(error?.code||'WBS_CONTROL_EVIDENCE_INVALID');}
       const trace=freeze({forward_trace:freeze({wbs_control_snapshot:sourceTrace,mapping_id:reconciliation.mapping_trace.mapping_id,mapping_version:reconciliation.mapping_trace.version,refs_metric_snapshot:targetTrace}),reverse_trace:freeze({refs_metric_snapshot:targetTrace,mapping_id:reconciliation.mapping_trace.mapping_id,mapping_version:reconciliation.mapping_trace.version,wbs_control_snapshot:sourceTrace})});
       const result=freeze({status:reconciliation.status==='RECONCILED'?'READ_ONLY_CONTROL_RECONCILED':'READ_ONLY_CONTROL_DIFFERENCE',request_hash:requestHash,replayed:false,reconciliation,trace,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
       replays.set(selection.replayKey,freeze({request_hash:requestHash,result}));return result;
