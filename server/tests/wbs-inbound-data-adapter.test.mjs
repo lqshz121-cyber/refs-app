@@ -5,9 +5,9 @@ import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,buildWbsI
 
 const guid='11111111-1111-4111-8111-111111111111';
 const snapshot=()=>{const value={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-05T10:00:00.000Z',environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-2026-08-05',views:[
-  {name:'BGDATA.payable',company_key:'COMPANY-A',rows:[{apGuId:guid,currency:'USD',amount:'100.0000',invoice_date:'2026-08-01',direction:'DEBIT',bank_account_ref:'BANK-OP'}]},
-  {name:'BGDATA.bank_transaction',company_key:'COMPANY-A',rows:[{cashOrBankBookId:'BANK-1',bank_account_ref:'BANK-OP',currency:'USD',amount:'-100.0000',transaction_date:'2026-08-02',direction:'CREDIT',source:'AUTOC',come_from:'Auto Payment'}]},
-  {name:'BGDATA.autoc_detail',company_key:'COMPANY-A',rows:[{pdGuId:'33333333-3333-4333-8333-333333333333',pbGuId:'44444444-4444-4444-8444-444444444444',currency:'USD',amount:'100.0000',payment_date:'2026-08-02',vendor_ref:'VEN-1',project_ref:'PROJ-1',cost_code_ref:'COST-1',description:'masked'}]}
+  {name:'BGDATA.payable',company_key:'COMPANY-A',rows:[{apGuId:guid,currency:'USD',amount:'100.0000',invoice_date:'2026-08-01',posting_date:'2026-08-01',direction:'DEBIT',bank_account_ref:'BANK-OP'}]},
+  {name:'BGDATA.bank_transaction',company_key:'COMPANY-A',rows:[{cashOrBankBookId:'BANK-1',bank_account_ref:'BANK-OP',currency:'USD',amount:'-100.0000',transaction_date:'2026-08-02',posting_date:'2026-08-02',direction:'CREDIT',source:'AUTOC',come_from:'Auto Payment'}]},
+  {name:'BGDATA.autoc_detail',company_key:'COMPANY-A',rows:[{pdGuId:'33333333-3333-4333-8333-333333333333',pbGuId:'44444444-4444-4444-8444-444444444444',currency:'USD',amount:'100.0000',payment_date:'2026-08-02',posting_date:'2026-08-02',vendor_ref:'VEN-1',project_ref:'PROJ-1',cost_code_ref:'COST-1',description:'masked'}]}
 ]};value.views=value.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));return {...value,package_hash:canonicalRequestHash(value)};};
 const reader=value=>({readOnly:true,readSnapshot:async()=>structuredClone(value)});
 
@@ -29,6 +29,16 @@ test('an impossible WBS posting date is quarantined before staging or an account
   assert.equal(result.staging.some(item=>item.raw_trace.source_type==='PAYABLE'),false);
   assert.equal(result.exceptions.find(item=>item.raw_trace.source_type==='PAYABLE').exception.code,'WBS_RECEIPT_FIELD_MISSING');
   assert.equal(result.admission.can_create_draft,false);assert.equal(result.admission.can_post,false);
+});
+
+test('a missing WBS posting date remains missing and cannot be derived from the business date',async()=>{
+  const value=snapshot();delete value.views[1].rows[0].posting_date;value.views[1].content_hash=canonicalRequestHash(value.views[1].rows);delete value.package_hash;value.package_hash=canonicalRequestHash(value);
+  const result=await createWbsInboundDataAdapter({snapshotReader:reader(value)}).pull();
+  const bank=result.exceptions.find(item=>item.raw_trace.source_type==='BANK_TRANSACTION');
+  assert.equal(bank.exception.code,'WBS_RECEIPT_FIELD_MISSING');
+  assert.equal(bank.raw_trace.business_date,'2026-08-02');
+  assert.equal(bank.raw_trace.accounting_date,null);
+  assert.equal(result.staging.some(item=>item.raw_trace.source_type==='BANK_TRANSACTION'),false);
 });
 
 test('Draft and AutoRec requests are review-only seams with immutable source trace',async()=>{

@@ -50,19 +50,22 @@ function receiptFor(validated,view,row){
 }
 function requiredFields(type,row){
   const base=['currency','amount'];
-  if(type==='PAYABLE')return [...base,'invoice_date'];
-  if(type==='BANK_TRANSACTION')return [...base,'transaction_date','bank_account_ref'];
-  return [...base,'payment_date','pbGuId','vendor_ref','project_ref','cost_code_ref','description'];
+  if(type==='PAYABLE')return [...base,'invoice_date','posting_date'];
+  if(type==='BANK_TRANSACTION')return [...base,'transaction_date','posting_date','bank_account_ref'];
+  return [...base,'payment_date','posting_date','pbGuId','vendor_ref','project_ref','cost_code_ref','description'];
 }
 function normalize(type,companyKey,row,receipt){
   const businessDate=date(row.invoice_date??row.transaction_date??row.payment_date??row.business_date);
-  const accountingDate=date(row.posting_date??row.accounting_date)??businessDate;
+  // A source transaction date is not accounting-date evidence. Keeping the
+  // absent value null makes the existing staging gate emit an Exception
+  // rather than silently deriving a posting date from the business date.
+  const accountingDate=date(row.posting_date??row.accounting_date);
   const normalized={
     source_system:'WBS',source_type:type,company_key:companyKey,
     source_record_id:receipt.source_record_id,source_version:receipt.source_version,
     receipt_ref:receipt.payload_ref,receipt_hash:receipt.payload_hash,
     currency:text(row.currency).toUpperCase(),amount:amount(row.amount),
-    business_date:businessDate,accounting_date:accountingDate,
+    business_date:businessDate,accounting_date:accountingDate,posting_date:accountingDate,
     direction:text(row.direction).toUpperCase()||null,source_label:text(row.source??row.source_name)||null,come_from:text(row.come_from??row.comeFrom)||null,
     bank_account_ref:text(row.bank_account_ref)||null,
     vendor_ref:text(row.vendor_ref)||null,project_ref:text(row.project_ref)||null,cost_code_ref:text(row.cost_code_ref)||null,
@@ -75,7 +78,7 @@ function normalize(type,companyKey,row,receipt){
 }
 function stageFor(normalized,row){
   const missing=requiredFields(normalized.source_type,row).filter(field=>{
-    const value=field==='amount'?normalized.amount:field==='currency'?normalized.currency:field==='invoice_date'||field==='transaction_date'||field==='payment_date'?normalized.business_date:field==='pbGuId'?normalized.pb_guid:normalized[field];
+    const value=field==='amount'?normalized.amount:field==='currency'?normalized.currency:field==='invoice_date'||field==='transaction_date'||field==='payment_date'?normalized.business_date:field==='posting_date'?normalized.accounting_date:field==='pbGuId'?normalized.pb_guid:normalized[field];
     return value===null||value===undefined||text(value)==='';
   });
   if(normalized.amount===0)missing.push('nonzero_amount');
