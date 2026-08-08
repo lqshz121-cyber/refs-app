@@ -20,7 +20,7 @@ const payableTrace=row=>freeze(Object.fromEntries([
   ['bank_relation_ref',row.cb_id],['cost_ledger_ref',row.cost_ledger_id],['vendor_name',row.vendor_name],['project_code',row.pj_code]
 ].filter(([,value])=>text(value)!=='').map(([key,value])=>[key,text(value)])));
 const bankTrace=row=>freeze(Object.fromEntries([
-  ['transaction_date',row.set_date],['account_code',row.account_code],['payee',row.payee],['payee_no',row.payee_no],['memo',row.description],
+  ['transaction_date',row.set_date],['posting_date',row.posting_date],['account_code',row.account_code],['payee',row.payee],['payee_no',row.payee_no],['memo',row.description],
   ['come_from',row.come_from],['child_come_from',row.child_come_from],['review_status',row.review],['statistical_business',row.statistical_business],['turn_flag',row.turn_flag]
 ].filter(([,value])=>text(value)!=='').map(([key,value])=>[key,text(value)])));
 const autoRecDetailTrace=row=>freeze(Object.fromEntries([
@@ -178,7 +178,11 @@ export function mapWbsMcpEnvelopeToInbound({envelope,bankDirectionConventions=nu
     }
     else if(tool==='list_bank_transactions'){
       const directionRule=bankRules.get(text(row.account_code)),movement=directionRule?signedMovement(row,'lender','debtor',directionRule.lender_direction,directionRule.debtor_direction):null;
-      const currency=scopedCurrency(accepted,row),bankCommon={...common,bank_account_ref:row.account_code||null},admission=transactionAdmission({common:bankCommon,amountValue:movement?.amount,currency,dateValue:row.set_date,bankAccountRequired:true,movementRequired:true,movement});
+      const currency=scopedCurrency(accepted,row),bankCommon={...common,bank_account_ref:row.account_code||null},baseAdmission=transactionAdmission({common:bankCommon,amountValue:movement?.amount,currency,dateValue:row.set_date,bankAccountRequired:true,movementRequired:true,movement});
+      // WBS displays Transaction Date and Posting Date separately. The latter
+      // is required accounting-date evidence; a transaction date cannot be
+      // silently reused when the provider omitted it.
+      const admission=!isoDate(row.posting_date)?freeze({admission:'EXCEPTION_REVIEW_REQUIRED',exception_code:'WBS_MCP_BANK_POSTING_DATE_REQUIRED',missing:freeze([...new Set([...baseAdmission.missing,'posting_date'])])}):baseAdmission;
       rows.push(freeze({...bankCommon,...admission,exception_code:!directionRule?'WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED':admission.exception_code,amount:movement?.amount??null,direction:movement?.direction??null,currency,bank_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,bank_trace_ref:row.cb_id,raw_memo:row.description||null,autoc_relation:row.come_from||null,bank_trace:bankTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false}));
     } else if(tool==='list_autorec_details'){
       const directionRule=detailRules.get(text(row.biz_type)),movement=directionRule?signedMovement(row,'deposit','payment',directionRule.deposit_direction,directionRule.payment_direction):null;
@@ -213,7 +217,7 @@ function snapshotRow(accepted,row,bankRules,payableRules,detailRules){
   }
   if(accepted.tool_name==='list_bank_transactions'){
     const directionRule=bankRules?.get(text(row.account_code)),movement=directionRule?signedMovement(row,'lender','debtor',directionRule.lender_direction,directionRule.debtor_direction):null;
-    return freeze({...provenance,cashOrBankBookId:text(row.cb_id),bank_account_ref:row.account_code||null,currency:scopedCurrency(accepted,row),amount:movement?.amount??null,transaction_date:row.set_date||null,direction:movement?.direction??null,bank_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,description:row.description||null,come_from:row.come_from||null,external_trace:bankTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false});
+    return freeze({...provenance,cashOrBankBookId:text(row.cb_id),bank_account_ref:row.account_code||null,currency:scopedCurrency(accepted,row),amount:movement?.amount??null,transaction_date:row.set_date||null,posting_date:row.posting_date||null,direction:movement?.direction??null,bank_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,description:row.description||null,come_from:row.come_from||null,external_trace:bankTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false});
   }
   const directionRule=detailRules?.get(text(row.biz_type)),movement=directionRule?signedMovement(row,'deposit','payment',directionRule.deposit_direction,directionRule.payment_direction):null;
   // pd_pv_guid is observed as a relation navigation value, not a verified
