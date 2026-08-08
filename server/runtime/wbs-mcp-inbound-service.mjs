@@ -1,4 +1,5 @@
 import {buildWbsAutoRecBankControlEvidence,buildWbsMcpReadonlySnapshot,buildWbsTraceRelationEvidence,mapWbsMcpEnvelopeToInbound,WbsMcpLineageError} from './wbs-mcp-inbound-lineage.mjs';
+import {validateWbsReadEnvelope} from './wbs-readonly-mcp.mjs';
 import {canonicalRequestHash} from './request-hash.mjs';
 import {createWbsManifestSignatureVerifier} from './wbs-snapshot-signature.mjs';
 
@@ -10,8 +11,34 @@ const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const immutableReceiptHash=value=>/^sha256:[0-9a-f]{64}$/.test(text(value));
 const isoInstant=value=>/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(text(value))&&!Number.isNaN(Date.parse(text(value)));
 const completeEnvelope=(envelope,toolName)=>{
-  if(envelope?.cursor_next!==null)fail('WBS_MCP_PAGINATION_INCOMPLETE',`WBS ${toolName} has another cursor page; an incomplete page cannot become a snapshot, control total, or trace receipt.`);
+  if(envelope?.cursor_next!==null)fail('WBS_MCP_PAGINATION_INCOMPLETE',`WBS ${toolName} has another cursor page; an incomplete page cannot become a control total or trace receipt.`);
 };
+const checkedProviderEnvelope=(envelope,toolName)=>{
+  const normalized=providerEnvelope(envelope);
+  try{return validateWbsReadEnvelope({toolName,envelope:normalized});}catch{fail('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} page is not a valid immutable read envelope.`);}
+};
+async function readCompleteTransactionEnvelope({client,toolName,args,companyKey}){
+  let raw;try{raw=await client.readView({toolName,args:structuredClone(args)});}catch(cause){
+    if(cause instanceof WbsMcpLineageError)throw cause;
+    fail('WBS_MCP_READ_FAILED',`WBS ${toolName} read failed before any REFS persistence.`);
+  }
+  if(!raw||raw.tool_name!==toolName||text(raw.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS MCP response is outside the selected company scope.');
+  const first=checkedProviderEnvelope(raw,toolName);
+  if(first.cursor_next===null)return providerEnvelope(raw);
+  const snapshotToken=text(first.scope?.snapshot_token);
+  if(!snapshotToken)fail('WBS_MCP_PAGINATION_SNAPSHOT_TOKEN_REQUIRED',`WBS ${toolName} pagination needs one immutable snapshot_token echoed by every page.`);
+  const rows=[...first.rows],seenCursors=new Set();let cursor=first.cursor_next;
+  while(cursor!==null){
+    if(!text(cursor)||seenCursors.has(cursor)||seenCursors.size>=10000)fail('WBS_MCP_PAGINATION_INVALID',`WBS ${toolName} pagination cursor is empty, repeated, or exceeds the safe page limit.`);
+    seenCursors.add(cursor);
+    let pageRaw;try{pageRaw=await client.readView({toolName,args:{...structuredClone(args),cursor,snapshot_token:snapshotToken}});}catch{fail('WBS_MCP_READ_FAILED',`WBS ${toolName} cursor read failed before any REFS persistence.`);}
+    if(!pageRaw||pageRaw.tool_name!==toolName||text(pageRaw.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS MCP cursor response is outside the selected company scope.');
+    const page=checkedProviderEnvelope(pageRaw,toolName);
+    if(text(page.scope?.snapshot_token)!==snapshotToken||page.captured_at!==first.captured_at||page.contract_version!==first.contract_version||page.environment!==first.environment||canonicalRequestHash(page.source)!==canonicalRequestHash(first.source))fail('WBS_MCP_PAGINATION_SNAPSHOT_MISMATCH',`WBS ${toolName} cursor pages must retain the same snapshot token, capture instant, provider contract, environment, and source.`);
+    rows.push(...page.rows);cursor=page.cursor_next;
+  }
+  return {tool:toolName,contract_version:first.contract_version,environment:first.environment,captured_at:first.captured_at,source:structuredClone(first.source),scope:structuredClone(first.scope),record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:first.etl_notice,rows};
+}
 
 export class WbsMcpInboundServiceError extends Error {
   constructor(code,message){super(message);this.name='WbsMcpInboundServiceError';this.code=code;}
@@ -40,15 +67,10 @@ export function createWbsMcpInboundService({client,persistedSourceReader=null,tr
       if(Object.keys(argsByTool).some(key=>!transactionTools.includes(key))||transactionTools.some(tool=>!plain(argsByTool[tool])))fail('WBS_MCP_SELECTION_REQUIRED','Each transaction producer needs structured arguments and no other MCP tool may be called.');
       const envelopes=[];
       for(const toolName of transactionTools){
-        let envelope;try{envelope=await client.readView({toolName,args:structuredClone(argsByTool[toolName])});}catch(cause){
-          if(cause instanceof WbsMcpLineageError)throw cause;
-          throw new WbsMcpInboundServiceError('WBS_MCP_READ_FAILED',`WBS ${toolName} read failed before any REFS persistence.`);
-        }
-        if(!envelope||envelope.tool_name!==toolName||text(envelope.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS MCP response is outside the selected company scope.');
-        completeEnvelope(envelope,toolName);
-        // Reconstruct the validated provider envelope without adding caller
-        // controlled values; the snapshot builder validates it again.
-        envelopes.push(providerEnvelope(envelope));
+        const envelope=await readCompleteTransactionEnvelope({client,toolName,args:argsByTool[toolName],companyKey});
+        // The helper returns a validated provider-shaped envelope; snapshot
+        // construction validates it again before producing any ingress data.
+        envelopes.push(envelope);
       }
       try{
         const snapshot=buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVersion,environment,delivery,detachedSignature,bankDirectionConventions,payableDirectionConventions,autoRecDetailDirectionConventions});
