@@ -1,5 +1,6 @@
 import {buildWbsAutoRecBankControlEvidence,buildWbsMcpReadonlySnapshot,mapWbsMcpEnvelopeToInbound,WbsMcpLineageError} from './wbs-mcp-inbound-lineage.mjs';
 import {canonicalRequestHash} from './request-hash.mjs';
+import {createWbsManifestSignatureVerifier} from './wbs-snapshot-signature.mjs';
 
 const transactionTools=Object.freeze(['list_payables','list_bank_transactions','list_autorec_details']);
 const controlTraceTools=Object.freeze(['list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
@@ -92,6 +93,12 @@ export function createWbsMcpInboundService({client,persistedSourceReader=null,tr
       return Object.freeze({status:'WBS_MCP_REVERSE_TRACE_EVIDENCE_READY',lookup:freezeLookup({tenantId,entityId,companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,keyType}),trace_receipt:Object.freeze({ref:text(traceReceipt.ref),version:text(traceReceipt.version),issued_at:text(traceReceipt.issued_at),manifest_hash:manifestHash,key_id:text(traceReceipt.detached_signature.key_id),algorithm:text(traceReceipt.detached_signature.algorithm)}),evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['bind returned relation evidence to the exact persisted receipt/source version','read authoritative REFS trace','human review where a relationship affects accounting'])});
     }
   });
+}
+
+// Trusted application composition can reuse the pinned WBS keyring without
+// handing a caller an ad-hoc verifier choice for reverse trace evidence.
+export function createWbsMcpInboundServiceWithKeyring({client,persistedSourceReader=null,wbsPublicKeys}={}){
+  return createWbsMcpInboundService({client,persistedSourceReader,traceReceiptVerifier:createWbsManifestSignatureVerifier({publicKeys:wbsPublicKeys})});
 }
 
 function freezeLookup({tenantId,entityId,companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,keyType}){

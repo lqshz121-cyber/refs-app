@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {generateKeyPairSync,sign} from 'node:crypto';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {buildWbsTraceReceiptManifest,createWbsMcpInboundService,WbsMcpInboundServiceError} from '../runtime/wbs-mcp-inbound-service.mjs';
+import {buildWbsTraceReceiptManifest,createWbsMcpInboundService,createWbsMcpInboundServiceWithKeyring,WbsMcpInboundServiceError} from '../runtime/wbs-mcp-inbound-service.mjs';
 
 const raw=(tool,rows,capturedAt='2026-08-09T12:00:00.000Z')=>({tool_name:tool,contract_version:'WBS-REFS-MCP-V1',environment:'production',captured_at:capturedAt,source:{system:'WBS'},scope:{company:'COMPANY-A'},record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:'snapshot required',rows});
 const bankDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/bank/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-BANK-DR-1',version:'1',debtor_direction:'DEBIT',lender_direction:'CREDIT'}];
@@ -70,4 +71,8 @@ test('reverse trace lookup permits only a persisted immutable producer key and s
   const noVerifier=createWbsMcpInboundService({client:{readView:async()=>structuredClone(trace)},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})}});
   await assert.rejects(()=>noVerifier.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt}),error=>error.code==='WBS_MCP_TRACE_VERIFIER_REQUIRED');
   await assert.rejects(()=>service.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt:{...traceReceipt,manifest_hash:'sha256:'+'0'.repeat(64)}}),error=>error.code==='WBS_MCP_TRACE_RECEIPT_REQUIRED');
+  const pair=generateKeyPairSync('ed25519'),trustedReceipt={...traceReceipt,detached_signature:{key_id:'wbs-trace-prod',algorithm:'Ed25519',value:''}};
+  trustedReceipt.manifest_hash=buildWbsTraceReceiptManifest({envelope:trace,traceReceipt:trustedReceipt});trustedReceipt.detached_signature.value=sign(null,Buffer.from(trustedReceipt.manifest_hash),pair.privateKey).toString('base64');
+  const keyringService=createWbsMcpInboundServiceWithKeyring({client:{readView:async()=>structuredClone(trace)},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})},wbsPublicKeys:{'wbs-trace-prod':pair.publicKey.export({type:'spki',format:'pem'})}});
+  assert.equal((await keyringService.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt:trustedReceipt})).status,'WBS_MCP_REVERSE_TRACE_EVIDENCE_READY');
 });
