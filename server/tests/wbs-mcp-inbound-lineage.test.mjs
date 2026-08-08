@@ -30,6 +30,12 @@ test('transaction candidates require exact company scope and all monetary admiss
   assert.throws(()=>mapWbsMcpEnvelopeToInbound({envelope:envelope('list_payables',[{ap_guid:'A-1',company_code:'COMPANY-B',currency:'USD',amount:'100',posting_date:'2026-08-01'}])}),error=>error.code==='WBS_MCP_ENVELOPE_SCOPE_MISMATCH');
 });
 
+test('a validated scoped currency can supply a missing row currency but never override a mismatch',()=>{
+  const bank=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-01'}],{company:'COMPANY-A',currency:'USD'})});
+  assert.deepEqual({admission:bank.rows[0].admission,currency:bank.rows[0].currency},{admission:'TRANSACTION_CANDIDATE',currency:'USD'});
+  assert.throws(()=>mapWbsMcpEnvelopeToInbound({envelope:envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',currency:'CAD',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-01'}],{company:'COMPANY-A',currency:'USD'})}),error=>error.code==='WBS_MCP_ENVELOPE_SCOPE_MISMATCH');
+});
+
 test('AutoRec Bank summary remains receipt-bound observed control evidence',()=>{
   const summary=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_autorec_banks',[{pb_guid:'PB-1',company_code:'COMPANY-A',ah_id:'BANK-1',ah_name:'Operating',quantity:'10',released_quantity:'8',pay_amount:'100',released:'80',incurred:'60',debit_amount:'40',reconciliation_start_date:'2026-08-01',status:'OPEN'}])});
   const row=summary.rows[0];

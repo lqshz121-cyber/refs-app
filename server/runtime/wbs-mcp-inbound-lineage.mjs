@@ -12,6 +12,7 @@ const freeze=value=>Object.freeze(value);
 const hash=row=>canonicalRequestHash(row);
 const isoDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const parsed=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(parsed.getTime())&&parsed.toISOString().slice(0,10)===candidate;};
 const validCurrency=value=>/^[A-Z]{3}$/.test(text(value).toUpperCase());
+const scopedCurrency=(accepted,row)=>text(row.currency??accepted.scope.currency).toUpperCase()||null;
 
 export class WbsMcpLineageError extends Error {
   constructor(code,message){super(message);this.name='WbsMcpLineageError';this.code=code;}
@@ -79,17 +80,17 @@ export function mapWbsMcpEnvelopeToInbound({envelope}={}){
   for(const row of accepted.rows){
     const common=commonRow({tool,accepted,row});
     if(tool==='list_payables'){
-      const businessDate=row.incurred_date||row.posting_date||null,admission=transactionAdmission({common,amountValue:row.amount,currency:row.currency,dateValue:businessDate});
-      rows.push(freeze({...common,...admission,business_date:businessDate,posting_date:row.posting_date||null,amount:money(row.amount),currency:row.currency||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_ref:row.cost_id||null,payable_link:row.ap_long_id||null,journal_trace:row.journal_no||null}));
+      const currency=scopedCurrency(accepted,row),businessDate=row.incurred_date||row.posting_date||null,admission=transactionAdmission({common,amountValue:row.amount,currency,dateValue:businessDate});
+      rows.push(freeze({...common,...admission,business_date:businessDate,posting_date:row.posting_date||null,amount:money(row.amount),currency,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_ref:row.cost_id||null,payable_link:row.ap_long_id||null,journal_trace:row.journal_no||null}));
     }
     else if(tool==='list_bank_transactions'){
       const movement=signedMovement(row,'lender','debtor');
-      const bankCommon={...common,bank_account_ref:row.account_code||null},admission=transactionAdmission({common:bankCommon,amountValue:movement?.amount,currency:row.currency,dateValue:row.set_date,bankAccountRequired:true,movementRequired:true,movement});
-      rows.push(freeze({...bankCommon,...admission,amount:movement?.amount??null,direction:movement?.direction??null,currency:row.currency||null,bank_trace_ref:row.cb_id,raw_memo:row.description||null,autoc_relation:row.come_from||null}));
+      const currency=scopedCurrency(accepted,row),bankCommon={...common,bank_account_ref:row.account_code||null},admission=transactionAdmission({common:bankCommon,amountValue:movement?.amount,currency,dateValue:row.set_date,bankAccountRequired:true,movementRequired:true,movement});
+      rows.push(freeze({...bankCommon,...admission,amount:movement?.amount??null,direction:movement?.direction??null,currency,bank_trace_ref:row.cb_id,raw_memo:row.description||null,autoc_relation:row.come_from||null}));
     } else if(tool==='list_autorec_details'){
       const movement=signedMovement(row,'deposit','payment');
-      const businessDate=row.incurred_date||row.clear_date||null,admission=transactionAdmission({common,amountValue:movement?.amount,currency:row.currency,dateValue:businessDate,movementRequired:true,movement});
-      rows.push(freeze({...common,...admission,admission:admission.admission==='TRANSACTION_CANDIDATE'?'AUTOREC_REVIEW_EVIDENCE':admission.admission,amount:movement?.amount??null,direction:movement?.direction??null,currency:row.currency||null,business_date:businessDate,bank_trace_ref:row.cb_id||null,autoc_bank_ref:row.pd_pv_guid||null,match_ref:row.match_guid||null,project_ref:row.project_guid||null,cost_ref:row.cost_code||null,vendor_ref:row.vendor_no||null}));
+      const currency=scopedCurrency(accepted,row),businessDate=row.incurred_date||row.clear_date||null,admission=transactionAdmission({common,amountValue:movement?.amount,currency,dateValue:businessDate,movementRequired:true,movement});
+      rows.push(freeze({...common,...admission,admission:admission.admission==='TRANSACTION_CANDIDATE'?'AUTOREC_REVIEW_EVIDENCE':admission.admission,amount:movement?.amount??null,direction:movement?.direction??null,currency,business_date:businessDate,bank_trace_ref:row.cb_id||null,autoc_bank_ref:row.pd_pv_guid||null,match_ref:row.match_guid||null,project_ref:row.project_guid||null,cost_ref:row.cost_code||null,vendor_ref:row.vendor_no||null}));
     } else if(tool==='list_autorec_banks'){
       // These are observed WBS controls, not a transaction feed. The provider
       // contract does not yet prove period/currency/field semantics, so retain
@@ -113,15 +114,15 @@ const iso=value=>typeof value==='string'&&!Number.isNaN(Date.parse(value));
 function mcpProvenance(accepted,row){return freeze({mcp_tool:accepted.tool_name,mcp_content_sha256:`sha256:${accepted.content_sha256}`,mcp_row_hash:hash(row),mcp_captured_at:accepted.captured_at});}
 function snapshotRow(accepted,row){
   const provenance=mcpProvenance(accepted,row);
-  if(accepted.tool_name==='list_payables')return freeze({...provenance,apGuId:text(row.ap_guid),currency:text(row.currency).toUpperCase()||null,amount:money(row.amount),invoice_date:row.incurred_date||row.posting_date||null,posting_date:row.posting_date||null,description:row.description||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_id||null});
+  if(accepted.tool_name==='list_payables')return freeze({...provenance,apGuId:text(row.ap_guid),currency:scopedCurrency(accepted,row),amount:money(row.amount),invoice_date:row.incurred_date||row.posting_date||null,posting_date:row.posting_date||null,description:row.description||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_id||null});
   if(accepted.tool_name==='list_bank_transactions'){
     const movement=signedMovement(row,'lender','debtor');
-    return freeze({...provenance,cashOrBankBookId:text(row.cb_id),bank_account_ref:row.account_code||null,currency:text(row.currency).toUpperCase()||null,amount:movement?.amount??null,transaction_date:row.set_date||null,direction:movement?.direction??null,description:row.description||null,come_from:row.come_from||null});
+    return freeze({...provenance,cashOrBankBookId:text(row.cb_id),bank_account_ref:row.account_code||null,currency:scopedCurrency(accepted,row),amount:movement?.amount??null,transaction_date:row.set_date||null,direction:movement?.direction??null,description:row.description||null,come_from:row.come_from||null});
   }
   const movement=signedMovement(row,'deposit','payment');
   // pd_pv_guid is observed as a relation navigation value, not a verified
   // pb_guid. Leave pbGuId absent so the existing staging gate quarantines it.
-  return freeze({...provenance,pdGuId:text(row.pd_guid),currency:text(row.currency).toUpperCase()||null,amount:movement?.amount??null,payment_date:row.incurred_date||row.clear_date||null,direction:movement?.direction??null,autoc_relation_ref:row.pd_pv_guid||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_code||null});
+  return freeze({...provenance,pdGuId:text(row.pd_guid),currency:scopedCurrency(accepted,row),amount:movement?.amount??null,payment_date:row.incurred_date||row.clear_date||null,direction:movement?.direction??null,autoc_relation_ref:row.pd_pv_guid||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_code||null});
 }
 
 // Creates a receipt-bearing snapshot package that the existing REFS inbound
