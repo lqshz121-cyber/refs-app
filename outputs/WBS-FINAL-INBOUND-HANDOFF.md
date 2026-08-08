@@ -7,8 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate: `dc23ee8fe5c7b23e0403b3d3bbbb950afd71cdf6`
-  (parent `fdbfc4ccc48e4541c22c700af9a99c787b5f631b`; clean worktree verified).
+- Frozen code candidate: `bdbbdc5570c95fae1a0ab156a9124277dad63e1a`
+  (parent `dc23ee8fe5c7b23e0403b3d3bbbb950afd71cdf6`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -41,8 +41,8 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At frozen code candidate `dc23ee8`, the focused projection/golden suite exited
-`0`: `16/16` passing; `npm.cmd test` exited `0`: `246/246` passing, `0`
+At frozen code candidate `bdbbdc5`, the focused control/golden suite exited
+`0`: `7/7` passing; `npm.cmd test` exited `0`: `246/246` passing, `0`
 skipped. `git diff --check` exited `0`. Rerun all commands above after
 integration. `git diff --check` must exit `0` on
 the target branch. These are local tests with injected provider/kernel seams,
@@ -250,9 +250,12 @@ constraints and the corrected handoff state:
 14. `dc23ee8` retains receipt-supplied WBS Detail/Match status codes as bounded
     `UNVERIFIED_SOURCE_CODE` evidence. It rejects malformed codes and never
     translates them into a REFS transition.
+15. `bdbbdc5` requires tenant/entity scope for Cost GL controls and
+    tenant/entity/property scope for Property Comparison controls, preventing
+    cross-entity or cross-property evidence from reconciling.
 
 The directly consumable integration range is therefore exactly
-`6843dce^..dc23ee8`, applied in Git order. It includes no WBS business UI,
+`6843dce^..bdbbdc5`, applied in Git order. It includes no WBS business UI,
 WBS write operation, Draft-JE dispatch, approval or posting implementation.
 
 ## Current conflict and ownership check
