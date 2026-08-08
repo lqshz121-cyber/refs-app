@@ -22,6 +22,11 @@ const bankTrace=row=>freeze(Object.fromEntries([
   ['transaction_date',row.set_date],['account_code',row.account_code],['payee',row.payee],['payee_no',row.payee_no],['memo',row.description],
   ['come_from',row.come_from],['child_come_from',row.child_come_from],['review_status',row.review],['statistical_business',row.statistical_business],['turn_flag',row.turn_flag]
 ].filter(([,value])=>text(value)!=='').map(([key,value])=>[key,text(value)])));
+const autoRecDetailTrace=row=>freeze(Object.fromEntries([
+  ['batch_guid',row.batch_guid],['biz_type',row.biz_type],['clear_date',row.clear_date],['incurred_date',row.incurred_date],['released_date',row.released_date],['released_by',row.released_by],
+  ['data_source',row.data_source],['status',row.status],['match_status',row.match_status],['match_ref',row.match_guid],['bank_relation_ref',row.cb_id],['autoc_relation_ref',row.pd_pv_guid],
+  ['vendor_ref',row.vendor_no],['project_ref',row.project_guid],['cost_code_ref',row.cost_code]
+].filter(([,value])=>text(value)!=='').map(([key,value])=>[key,text(value)])));
 
 export class WbsMcpLineageError extends Error {
   constructor(code,message){super(message);this.name='WbsMcpLineageError';this.code=code;}
@@ -101,7 +106,7 @@ export function mapWbsMcpEnvelopeToInbound({envelope}={}){
     } else if(tool==='list_autorec_details'){
       const movement=signedMovement(row,'deposit','payment');
       const currency=scopedCurrency(accepted,row),businessDate=row.incurred_date||row.clear_date||null,admission=transactionAdmission({common,amountValue:movement?.amount,currency,dateValue:businessDate,movementRequired:true,movement});
-      rows.push(freeze({...common,...admission,admission:admission.admission==='TRANSACTION_CANDIDATE'?'AUTOREC_REVIEW_EVIDENCE':admission.admission,amount:movement?.amount??null,direction:movement?.direction??null,currency,business_date:businessDate,bank_trace_ref:row.cb_id||null,autoc_bank_ref:row.pd_pv_guid||null,match_ref:row.match_guid||null,project_ref:row.project_guid||null,cost_ref:row.cost_code||null,vendor_ref:row.vendor_no||null}));
+      rows.push(freeze({...common,...admission,admission:admission.admission==='TRANSACTION_CANDIDATE'?'AUTOREC_REVIEW_EVIDENCE':admission.admission,amount:movement?.amount??null,direction:movement?.direction??null,currency,business_date:businessDate,bank_trace_ref:row.cb_id||null,autoc_bank_ref:row.pd_pv_guid||null,match_ref:row.match_guid||null,project_ref:row.project_guid||null,cost_ref:row.cost_code||null,vendor_ref:row.vendor_no||null,autorc_detail_trace:autoRecDetailTrace(row),can_use_trace_as_key:false,can_use_trace_as_state_authority:false,can_use_trace_as_posting_authority:false}));
     } else if(tool==='list_autorec_banks'){
       // These are observed WBS controls, not a transaction feed. The provider
       // contract does not yet prove period/currency/field semantics, so retain
@@ -133,7 +138,7 @@ function snapshotRow(accepted,row){
   const movement=signedMovement(row,'deposit','payment');
   // pd_pv_guid is observed as a relation navigation value, not a verified
   // pb_guid. Leave pbGuId absent so the existing staging gate quarantines it.
-  return freeze({...provenance,pdGuId:text(row.pd_guid),currency:scopedCurrency(accepted,row),amount:movement?.amount??null,payment_date:row.incurred_date||row.clear_date||null,direction:movement?.direction??null,autoc_relation_ref:row.pd_pv_guid||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_code||null});
+  return freeze({...provenance,pdGuId:text(row.pd_guid),currency:scopedCurrency(accepted,row),amount:movement?.amount??null,payment_date:row.incurred_date||row.clear_date||null,direction:movement?.direction??null,autoc_relation_ref:row.pd_pv_guid||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_code||null,external_trace:autoRecDetailTrace(row),can_use_trace_as_key:false,can_use_trace_as_state_authority:false,can_use_trace_as_posting_authority:false});
 }
 
 // Creates a receipt-bearing snapshot package that the existing REFS inbound
