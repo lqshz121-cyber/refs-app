@@ -2,8 +2,10 @@ import {buildWbsMcpReadonlySnapshot,mapWbsMcpEnvelopeToInbound,WbsMcpLineageErro
 
 const transactionTools=Object.freeze(['list_payables','list_bank_transactions','list_autorec_details']);
 const controlTraceTools=Object.freeze(['list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
+const traceKeyTypeBySourceType=Object.freeze({PAYABLE:'ap_guid',BANK_TRANSACTION:'cb_id',AUTOREC_PAYMENT_DETAIL:'pd_guid',AUTOREC_BANK_CONTROL:'pb_guid',WBS_JOURNAL_EVIDENCE:'id'});
 const text=value=>value==null?'':String(value).trim();
 const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+const immutableReceiptHash=value=>/^sha256:[0-9a-f]{64}$/.test(text(value));
 
 export class WbsMcpInboundServiceError extends Error {
   constructor(code,message){super(message);this.name='WbsMcpInboundServiceError';this.code=code;}
@@ -48,6 +50,21 @@ export function createWbsMcpInboundService({client}={}){
       if(!envelope||envelope.tool_name!==toolName||text(envelope.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS control/trace response is outside the selected company scope.');
       let evidence;try{evidence=mapWbsMcpEnvelopeToInbound({envelope:providerEnvelope(envelope)});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_CONTROL_MAPPING_FAILED','WBS control/trace response could not be mapped as read-only evidence.');}
       return Object.freeze({status:'WBS_MCP_CONTROL_EVIDENCE_READY',tool_name:toolName,evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['persist immutable receipt-backed control evidence','approved scoped control mapping where reconciliation is required','authoritative REFS trace read'])});
+    },
+    // A reverse trace lookup is intentionally keyed only by a persisted WBS
+    // immutable source identifier. Display values such as Ref No., memo, cb_id
+    // relation fields, and pd_pv_guid must never be promoted into lookup keys.
+    async pullTraceByPersistedSource({companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash}={}){
+      const keyType=traceKeyTypeBySourceType[text(sourceType)];
+      if(!text(companyKey)||!keyType||!text(sourceRecordId)||!text(sourceVersion)||!immutableReceiptHash(receiptHash))fail('WBS_MCP_TRACE_SELECTION_REQUIRED','Reverse trace requires company scope, supported source type, immutable source key/version, and receipt hash.');
+      let envelope;try{envelope=await client.readView({toolName:'trace_by_key',args:{key_type:keyType,key_value:text(sourceRecordId)}});}catch(cause){throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_READ_FAILED','WBS reverse trace read failed before any REFS persistence.');}
+      if(!envelope||envelope.tool_name!=='trace_by_key'||text(envelope.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS trace response is outside the persisted source company scope.');
+      let evidence;try{evidence=mapWbsMcpEnvelopeToInbound({envelope:providerEnvelope(envelope)});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_MAPPING_FAILED','WBS reverse trace response could not be mapped as read-only relation evidence.');}
+      return Object.freeze({status:'WBS_MCP_REVERSE_TRACE_EVIDENCE_READY',lookup:freezeLookup({companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,keyType}),evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['bind returned relation evidence to the exact persisted receipt/source version','read authoritative REFS trace','human review where a relationship affects accounting'])});
     }
   });
+}
+
+function freezeLookup({companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,keyType}){
+  return Object.freeze({company_key:text(companyKey),source_type:text(sourceType),source_record_id:text(sourceRecordId),source_version:text(sourceVersion),receipt_hash:text(receiptHash),wbs_key_type:keyType,can_use_relation_as_key:false,can_use_relation_as_posting_authority:false});
 }

@@ -33,3 +33,13 @@ test('control and trace views are read separately and cannot enter a transaction
   assert.deepEqual({status:result.status,admission:result.evidence.rows[0].admission,transaction:result.can_create_transaction,draft:result.can_create_draft,post:result.can_post},{status:'WBS_MCP_CONTROL_EVIDENCE_READY',admission:'CONTROL_EVIDENCE_ONLY',transaction:false,draft:false,post:false});
   await assert.rejects(()=>service.pullControlOrTraceEvidence({companyKey:'COMPANY-A',toolName:'list_payables',args:{company:'COMPANY-A'}}),error=>error.code==='WBS_MCP_CONTROL_SELECTION_REQUIRED');
 });
+
+test('reverse trace lookup permits only a persisted immutable producer key and stays relation evidence',async()=>{
+  const trace=raw('trace_by_key',[{relation_type:'AUTOC',relation_value:'masked'}]);
+  const calls=[],service=createWbsMcpInboundService({client:{readView:async request=>(calls.push(request),structuredClone(trace))}});
+  const result=await service.pullTraceByPersistedSource({companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:'11111111-1111-4111-8111-111111111111',sourceVersion:'observed:'+'a'.repeat(64),receiptHash:'sha256:'+'b'.repeat(64)});
+  assert.deepEqual(calls,[{toolName:'trace_by_key',args:{key_type:'ap_guid',key_value:'11111111-1111-4111-8111-111111111111'}}]);
+  assert.deepEqual({status:result.status,source:result.lookup.source_record_id,key:result.lookup.wbs_key_type,relationKey:result.lookup.can_use_relation_as_key,post:result.can_post},{status:'WBS_MCP_REVERSE_TRACE_EVIDENCE_READY',source:'11111111-1111-4111-8111-111111111111',key:'ap_guid',relationKey:false,post:false});
+  await assert.rejects(()=>service.pullTraceByPersistedSource({companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:'REF-NO-ONLY',sourceVersion:'',receiptHash:'sha256:'+'b'.repeat(64)}),error=>error.code==='WBS_MCP_TRACE_SELECTION_REQUIRED');
+  await assert.rejects(()=>service.pullTraceByPersistedSource({companyKey:'COMPANY-B',sourceType:'PAYABLE',sourceRecordId:'A-1',sourceVersion:'v1',receiptHash:'sha256:'+'b'.repeat(64)}),error=>error.code==='WBS_MCP_RESPONSE_SCOPE_INVALID');
+});
