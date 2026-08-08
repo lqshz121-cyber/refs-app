@@ -80,6 +80,8 @@ test('G11 accepts only both posted AutoRec legs with exact source trace and per-
   const autoc=journal('AUTOC',[{ledger_line_id:'auto-ap',account_code:'291001',member_ref:'VENDOR-1',debit_amount:100,credit_amount:0},{ledger_line_id:'auto-bank',account_code:'111000',member_ref:'BANK-1',debit_amount:0,credit_amount:100}]);
   const accepted=validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,autoc]});
   assert.deepEqual({status:accepted.status,net:accepted.control_totals.ap_291001_member_nets['VENDOR-1'],transition:accepted.can_transition_case,post:accepted.can_post},{status:'POSTED_TRACE_VERIFIED',net:0,transition:false,post:false});
+  assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,{...autoc,journal_entry_id:payable.journal_entry_id}]}),error=>error.code==='WBS_AUTOREC_G11_JOURNAL_DUPLICATE');
+  assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,{...autoc,audit_event_id:payable.audit_event_id}]}),error=>error.code==='WBS_AUTOREC_G11_JOURNAL_DUPLICATE');
   assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,{...autoc,status:'DRAFT'}]}),error=>error.code==='WBS_AUTOREC_G11_POSTED_EVIDENCE_REQUIRED');
   assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,{...autoc,source_trace:{...review.trace,business_source_version:'v2'}}]}),error=>error.code==='WBS_AUTOREC_G11_SOURCE_TRACE_MISMATCH');
   assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,{...autoc,currency:'CAD'}]}),error=>error.code==='WBS_AUTOREC_G11_POSTED_EVIDENCE_REQUIRED');
