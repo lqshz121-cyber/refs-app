@@ -27,7 +27,15 @@ export const WBS_AUTOREC_OBSERVED_CONTRACT=Object.freeze({
   forbidden_wbs_operations:Object.freeze(['Create','Copy','Delete','Release','Incur','Revocation','Post','Post All','Cancel Post','Upload','Refresh'])
 });
 const text=value=>value==null?'':String(value).trim();
-const amount=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
+// Monetary evidence must be canonical decimal data. Number('') and
+// Number('0x64') are both valid JavaScript conversions, but neither is a
+// trustworthy accounting amount from an external read receipt.
+const amount=value=>{
+  const candidate=typeof value==='number'?(Number.isFinite(value)?String(value):''):typeof value==='string'?value.trim():'';
+  if(!/^-?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(candidate))return null;
+  const parsed=Number(candidate),scaled=parsed*10000;
+  return Number.isFinite(parsed)&&Number.isSafeInteger(Math.round(scaled))?Number(parsed.toFixed(4)):null;
+};
 // A formatting-only check would admit impossible posting dates such as
 // 2026-02-30 into staging. WBS dates are evidence, so an invalid calendar day
 // must become an Exception before any review or accounting request.
@@ -143,7 +151,9 @@ export function buildStandardDraftRequest({stagingItem,mapping,journal}={}){
   if(!/^[A-Z]{3}$/.test(text(stagingItem.currency))||!validIsoDate(stagingItem.accounting_date))fail('WBS_STAGING_TRACE_REQUIRED','Staging currency and accounting date must be canonical before a Draft request');
   if(text(mapping?.status)!=='APPROVED'||!text(mapping?.mapping_id)||!text(mapping?.version)||text(mapping?.company_key)!==text(stagingItem.company_key)||text(mapping?.currency)!==text(stagingItem.currency))fail('WBS_MAPPING_APPROVED_REQUIRED','An approved mapping with the exact source company and currency scope is required');
   if(!journal||!Array.isArray(journal.lines)||journal.lines.length<2||!text(journal.period_id)||!text(journal.journal_number)||text(journal.company_key)!==text(stagingItem.company_key)||text(journal.currency)!==text(stagingItem.currency)||text(journal.accounting_date)!==text(stagingItem.accounting_date))fail('WBS_DRAFT_REQUEST_SCOPE_INVALID','A standard Draft journal request must retain the exact source company, currency, and accounting date');
-  const debit=journal.lines.reduce((sum,line)=>sum+(amount(line.debit_amount)||0),0),credit=journal.lines.reduce((sum,line)=>sum+(amount(line.credit_amount)||0),0);
+  const journalAmounts=journal.lines.map(line=>({debit:amount(line?.debit_amount),credit:amount(line?.credit_amount)}));
+  if(journalAmounts.some(line=>line.debit===null||line.credit===null||line.debit<0||line.credit<0))fail('WBS_DRAFT_REQUEST_UNBALANCED','Draft request journal line amounts must be canonical nonnegative decimals');
+  const debit=journalAmounts.reduce((sum,line)=>sum+line.debit,0),credit=journalAmounts.reduce((sum,line)=>sum+line.credit,0);
   if(Math.abs(debit-credit)>0.0001||debit<=0)fail('WBS_DRAFT_REQUEST_UNBALANCED','Draft request journal lines must be positive and balanced');
   return Object.freeze({
     request_type:'STANDARD_AUTO_JOURNAL_REQUEST',status:'READY_FOR_STANDARD_JE_COMMAND',

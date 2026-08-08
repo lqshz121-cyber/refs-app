@@ -30,6 +30,15 @@ test('incomplete receipt rows reach Exception rather than staging or a Draft req
   assert.equal(result.exceptions.length,1);assert.equal(result.exceptions[0].exception.code,'WBS_RECEIPT_FIELD_MISSING');assert.equal(result.staging.length,2);
 });
 
+test('WBS receipt amounts reject JavaScript coercions and noncanonical decimal precision before staging',async()=>{
+  for(const invalidAmount of ['',true,'0x64','1e2','100.00001']){
+    const value=snapshot();value.views[0].rows[0].amount=invalidAmount;value.views[0].content_hash=canonicalRequestHash(value.views[0].rows);delete value.package_hash;value.package_hash=canonicalRequestHash(value);
+    const result=await createWbsInboundDataAdapter({snapshotReader:reader(value)}).pull();
+    const payable=result.exceptions.find(item=>item.raw_trace.source_type==='PAYABLE');
+    assert.equal(payable.exception.code,'WBS_RECEIPT_FIELD_MISSING');assert.equal(payable.raw_trace.amount,null);assert.equal(result.staging.some(item=>item.raw_trace.source_type==='PAYABLE'),false);
+  }
+});
+
 test('production WBS snapshots require pinned detached-signature verification before any Raw or Staging preparation',async()=>{
   const {value,publicKeys}=productionSnapshot();
   const keyed=createWbsInboundDataAdapterWithKeyring({snapshotReader:reader(value),wbsPublicKeys:publicKeys}),verified=await keyed.pull();
