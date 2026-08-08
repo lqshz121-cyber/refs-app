@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,buildWbsInboundPersistencePlan,createWbsInboundDataAdapter,createWbsInboundOrchestrator,evaluateWbsAutoReconciliationEligibility,validatePostedJournalTrace,WBS_AUTOREC_OBSERVED_CONTRACT,WbsInboundDataError} from '../runtime/wbs-inbound-data-adapter.mjs';
+import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,buildWbsInboundPersistencePlan,createWbsInboundDataAdapter,createWbsInboundOrchestrator,evaluateWbsAutoReconciliationEligibility,validatePostedJournalTrace,validateWbsAutoRecG11PostedTrace,WBS_AUTOREC_OBSERVED_CONTRACT,WbsInboundDataError} from '../runtime/wbs-inbound-data-adapter.mjs';
 
 const guid='11111111-1111-4111-8111-111111111111';
 const snapshot=()=>{const value={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-05T10:00:00.000Z',environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-2026-08-05',views:[
@@ -42,6 +42,18 @@ test('Draft and AutoRec requests are review-only seams with immutable source tra
   assert.equal(draft.kernel_method,'createAutoJournal');assert.equal(draft.can_dispatch,false);assert.equal(draft.can_post,false);
   const trace=validatePostedJournalTrace({draftRequest:draft,postedEvidence:{source_system:'REFS_STANDARD_JE',status:'POSTED',journal_entry_id:'je-1',ledger_line_ids:['ll-1','ll-2'],review_audit_id:'audit-r',approval_audit_id:'audit-a',post_audit_id:'audit-p'}});
   assert.equal(trace.ok,true);assert.equal(trace.trace.raw_event_id,'raw-pay');
+});
+
+test('G11 accepts only both posted AutoRec legs with exact source trace and per-member 291001 net zero',()=>{
+  const review={request_type:'AUTOREC_REVIEW_REQUEST',status:'REVIEW_REQUIRED',trace:{bank_receipt_id:'receipt-bank',business_receipt_id:'receipt-pay',bank_raw_event_id:'raw-bank',business_raw_event_id:'raw-pay',bank_source_record_id:'bank-1',bank_source_version:'v1',business_source_record_id:'pay-1',business_source_version:'v1',bank_staging_item_id:'stg-bank',business_staging_item_id:'stg-pay'}};
+  const journal=(accounting_type,lines)=>({accounting_type,source_system:'REFS_STANDARD_JE',status:'POSTED',journal_entry_id:`je-${accounting_type}`,audit_event_id:`audit-${accounting_type}`,audit_event_type:'AUTO_JOURNAL_CREATED',source_trace:{...review.trace},ledger_lines:lines});
+  const payable=journal('PAYABLE_INCUR',[{ledger_line_id:'pay-ap',account_code:'291001',member_ref:'VENDOR-1',debit_amount:0,credit_amount:100},{ledger_line_id:'pay-expense',account_code:'610000',member_ref:null,debit_amount:100,credit_amount:0}]);
+  const autoc=journal('AUTOC',[{ledger_line_id:'auto-ap',account_code:'291001',member_ref:'VENDOR-1',debit_amount:100,credit_amount:0},{ledger_line_id:'auto-bank',account_code:'111000',member_ref:'BANK-1',debit_amount:0,credit_amount:100}]);
+  const accepted=validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,autoc]});
+  assert.deepEqual({status:accepted.status,net:accepted.control_totals.ap_291001_member_nets['VENDOR-1'],transition:accepted.can_transition_case,post:accepted.can_post},{status:'POSTED_TRACE_VERIFIED',net:0,transition:false,post:false});
+  assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,{...autoc,status:'DRAFT'}]}),error=>error.code==='WBS_AUTOREC_G11_POSTED_EVIDENCE_REQUIRED');
+  assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,{...autoc,source_trace:{...review.trace,business_source_version:'v2'}}]}),error=>error.code==='WBS_AUTOREC_G11_SOURCE_TRACE_MISMATCH');
+  assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,{...autoc,ledger_lines:[{ledger_line_id:'auto-ap',account_code:'291001',member_ref:'VENDOR-1',debit_amount:99,credit_amount:0},{ledger_line_id:'auto-bank',account_code:'111000',member_ref:'BANK-1',debit_amount:0,credit_amount:100}]}]}),error=>error.code==='WBS_AUTOREC_G11_291001_UNCLEARED');
 });
 
 test('observed WBS source, Come From, detail, relation, audit and forbidden-operation contract is exact and read-only',()=>{

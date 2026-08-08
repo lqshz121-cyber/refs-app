@@ -298,3 +298,31 @@ export function validatePostedJournalTrace({draftRequest,postedEvidence}={}){
   if(!Array.isArray(postedEvidence.ledger_line_ids)||postedEvidence.ledger_line_ids.length<2)fail('WBS_POSTED_EVIDENCE_REQUIRED','Posted evidence ledger_line_ids are required');
   return Object.freeze({ok:true,can_post:false,trace:{...draftRequest.trace,journal_entry_id:postedEvidence.journal_entry_id,ledger_line_ids:[...postedEvidence.ledger_line_ids],audit_ids:[postedEvidence.review_audit_id,postedEvidence.approval_audit_id,postedEvidence.post_audit_id]}});
 }
+
+// This is an evidence verifier, not an AutoRec transition. A WBS observed
+// match cannot make a REFS case INCURRED: the authoritative kernel must first
+// post both standard JE legs and supply their immutable ledger/audit trace.
+export function validateWbsAutoRecG11PostedTrace({reviewRequest,postedJournals}={}){
+  if(text(reviewRequest?.request_type)!=='AUTOREC_REVIEW_REQUEST'||text(reviewRequest?.status)!=='REVIEW_REQUIRED')fail('WBS_AUTOREC_G11_REVIEW_REQUIRED','A read-only reviewed AutoRec request is required.');
+  const expected=reviewRequest.trace;
+  const traceFields=['bank_receipt_id','business_receipt_id','bank_raw_event_id','business_raw_event_id','bank_source_record_id','bank_source_version','business_source_record_id','business_source_version','bank_staging_item_id','business_staging_item_id'];
+  if(!expected||traceFields.some(field=>!text(expected[field])))fail('WBS_AUTOREC_G11_TRACE_REQUIRED','AutoRec review trace is incomplete.');
+  if(!Array.isArray(postedJournals)||postedJournals.length!==2)fail('WBS_AUTOREC_G11_JOURNAL_COUNT_INVALID','Exactly one PAYABLE_INCUR and one AUTOC posted journal are required.');
+  const types=new Set(['PAYABLE_INCUR','AUTOC']),byType=new Map();
+  for(const journal of postedJournals){
+    const type=text(journal?.accounting_type);
+    if(!types.has(type)||byType.has(type))fail('WBS_AUTOREC_G11_JOURNAL_TYPE_INVALID','Posted journals must contain one PAYABLE_INCUR and one AUTOC leg.');
+    if(text(journal?.source_system)!=='REFS_STANDARD_JE'||text(journal?.status)!=='POSTED'||!text(journal?.journal_entry_id)||!text(journal?.audit_event_id)||text(journal?.audit_event_type)!=='AUTO_JOURNAL_CREATED'||!Array.isArray(journal?.ledger_lines)||journal.ledger_lines.length<2)fail('WBS_AUTOREC_G11_POSTED_EVIDENCE_REQUIRED','Each AutoRec journal leg requires posted REFS, audit, and ledger evidence.');
+    if(!journal.source_trace||traceFields.some(field=>text(journal.source_trace[field])!==text(expected[field])))fail('WBS_AUTOREC_G11_SOURCE_TRACE_MISMATCH','Posted journal source trace must exactly match the reviewed AutoRec pair.');
+    byType.set(type,journal);
+  }
+  const apByMember=new Map();
+  for(const journal of byType.values())for(const line of journal.ledger_lines){
+    if(text(line?.account_code)!=='291001')continue;
+    const member=text(line?.member_ref),debit=amount(line?.debit_amount),credit=amount(line?.credit_amount);
+    if(!member||debit===null||credit===null||debit<0||credit<0||(debit!==0&&credit!==0))fail('WBS_AUTOREC_G11_291001_INVALID','291001 ledger evidence requires one-sided nonnegative amounts and a member.');
+    apByMember.set(member,Number(((apByMember.get(member)??0)+debit-credit).toFixed(4)));
+  }
+  if(apByMember.size===0||[...apByMember.values()].some(net=>Math.abs(net)>0.0001))fail('WBS_AUTOREC_G11_291001_UNCLEARED','Every 291001 member must net to zero across PAYABLE_INCUR and AUTOC.');
+  return Object.freeze({ok:true,status:'POSTED_TRACE_VERIFIED',journals:Object.freeze([...byType.entries()].sort(([left],[right])=>left.localeCompare(right)).map(([accounting_type,journal])=>Object.freeze({accounting_type,journal_entry_id:text(journal.journal_entry_id),audit_event_id:text(journal.audit_event_id),ledger_line_ids:Object.freeze(journal.ledger_lines.map(line=>text(line.ledger_line_id)).filter(Boolean))}))),control_totals:Object.freeze({ap_291001_member_nets:Object.freeze(Object.fromEntries([...apByMember.entries()].sort(([left],[right])=>left.localeCompare(right))))}),trace:Object.freeze(structuredClone(expected)),can_transition_case:false,can_create_draft:false,can_post:false});
+}
