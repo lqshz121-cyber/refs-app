@@ -176,6 +176,25 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
   bankRows.forEach(row=>inspect('BANK_SIDE',row,['BANK_TRANSACTION']));
   businessRows.forEach(row=>inspect('BUSINESS_SIDE',row,['PAYABLE','AUTOREC_PAYMENT_DETAIL']));
   if(exceptions.length)return freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze(exceptions),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
+  // A review proposal must never inflate a source capacity by receiving the
+  // same current source twice, nor pick two versions of one source. The
+  // authoritative reservation command repeats this check under locks; doing
+  // it here keeps an import/UI projection from presenting a misleading plan.
+  for(const [side,rows] of [['BANK_SIDE',bankRows],['BUSINESS_SIDE',businessRows]]){
+    const versionsBySource=new Map();
+    for(const row of rows){
+      const source=`${text(row.source_type)}:${text(row.source_record_id)}`;
+      const version=text(row.source_version);
+      const versions=versionsBySource.get(source)??new Set();
+      versions.add(version);versionsBySource.set(source,versions);
+    }
+    for(const [source,versions] of versionsBySource){
+      const occurrences=rows.filter(row=>`${text(row.source_type)}:${text(row.source_record_id)}`===source);
+      if(occurrences.length>1)exceptions.push(eligibilityException(side,occurrences[0],'WBS_AUTOREC_PLAN_SOURCE_DUPLICATE','A source record may appear only once in a review plan.',[source]));
+      if(versions.size>1)exceptions.push(eligibilityException(side,occurrences[0],'WBS_AUTOREC_PLAN_SOURCE_VERSION_AMBIGUOUS','A review plan may not combine multiple versions of one source record.',[source]));
+    }
+  }
+  if(exceptions.length)return freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze(exceptions),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
   const all=[...bankRows,...businessRows],anchor=bankRows[0],bankDirection=text(anchor.direction).toUpperCase();
   for(const row of all){
     if(text(row.company_key)!==text(anchor.company_key)||text(row.currency)!==text(anchor.currency)||text(row.bank_account_ref)!==text(anchor.bank_account_ref))exceptions.push(eligibilityException('PAIR',row,'WBS_AUTOREC_PLAN_SCOPE_MISMATCH','All proposed rows require one exact company, currency, and bank account.'));

@@ -26,3 +26,15 @@ test('twelve sanitized golden scenarios express WBS→AutoRec controls without g
   assert.equal(cases.length,12);
   for(const [name,plan,assertion] of cases){assert.ok(assertion(plan),name);assert.equal(plan.controls.can_allocate,false,name);assert.equal(plan.controls.can_post,false,name);}
 });
+
+test('a review proposal never counts one WBS source twice or mixes its versions',()=>{
+  const duplicate=run([bank('b1',100),bank('b1',100)],[payable('p1',200)]);
+  assert.equal(duplicate.status,'BLOCKED');
+  assert.equal(duplicate.allocation_plan.length,0);
+  assert.equal(duplicate.exceptions[0].code,'WBS_AUTOREC_PLAN_SOURCE_DUPLICATE');
+
+  const mixedVersion=run([bank('b1',100),{...bank('b1',100),source_version:'v2'}],[payable('p1',200)]);
+  assert.equal(mixedVersion.status,'BLOCKED');
+  assert.equal(mixedVersion.allocation_plan.length,0);
+  assert.ok(mixedVersion.exceptions.some(exception=>exception.code==='WBS_AUTOREC_PLAN_SOURCE_VERSION_AMBIGUOUS'));
+});
