@@ -39,8 +39,8 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At frozen code candidate `4931d1c`, focused adapter/read-composition
-tests exited `0`: `14/14` passing; `npm.cmd test` exited `0`: `240/240` passing, `0`
+At frozen code candidate `4931d1c`, the current focused inbound/read-composition
+suite exited `0`: `20/20` passing; `npm.cmd test` exited `0`: `240/240` passing, `0`
 skipped. `git diff --check` exited `0`. Rerun all commands above after
 integration. `git diff --check` must exit `0` on
 the target branch. These are local tests with injected provider/kernel seams,
