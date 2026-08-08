@@ -162,6 +162,9 @@ and debit amount. No universal PB balance formula is inferred. A missing or
 mismatched formula, scope, receipt, or total is rejected; the result remains
 `can_allocate=false`, `can_release=false`, `can_incur=false`,
 `can_create_draft=false`, and `can_post=false`.
+The read-only service exposes this only through
+`pullAutoRecBankControlEvidence`; it has no persistence, allocation, release,
+incur, journal or posting dependency.
 
 ## Sanitized golden scenarios
 

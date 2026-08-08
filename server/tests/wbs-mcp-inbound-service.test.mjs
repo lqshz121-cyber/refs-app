@@ -34,6 +34,15 @@ test('control and trace views are read separately and cannot enter a transaction
   await assert.rejects(()=>service.pullControlOrTraceEvidence({companyKey:'COMPANY-A',toolName:'list_payables',args:{company:'COMPANY-A'}}),error=>error.code==='WBS_MCP_CONTROL_SELECTION_REQUIRED');
 });
 
+test('AutoRec Bank control pull requires an exact provider formula and stays evidence-only',async()=>{
+  const control=raw('list_autorec_banks',[{pb_guid:'PB-1',company_code:'COMPANY-A',ah_id:'BANK-1',quantity:10,released_quantity:8,pay_amount:100,released:80,incurred:60,debit_amount:40}]);
+  const service=createWbsMcpInboundService({client:{readView:async()=>structuredClone(control)}});
+  const attestation={scope:{company_key:'COMPANY-A',currency:'USD',period:'2026-08',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${control.content_sha256}`,ref:'object://wbs/pb/1',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},formula:{formula_id:'WBS-PB-ROW-SUM',version:'1',aggregation:'ROW_SUM'},totals:{quantity:10,released_quantity:8,pay_amount:100,released_amount:80,incurred_amount:60,debit_amount:40}};
+  const result=await service.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:attestation});
+  assert.deepEqual({status:result.status,amount:result.evidence.control_totals.pay_amount,release:result.can_release,post:result.can_post},{status:'WBS_MCP_AUTOREC_BANK_CONTROL_READY',amount:100,release:false,post:false});
+  await assert.rejects(()=>service.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:{...attestation,scope:{...attestation.scope,period:'2026-13'}}}),error=>error.code==='WBS_MCP_CONTROL_SCOPE_INVALID');
+});
+
 test('reverse trace lookup permits only a persisted immutable producer key and stays relation evidence',async()=>{
   const trace=raw('trace_by_key',[{relation_type:'AUTOC',relation_value:'masked'}]);
   const calls=[],identity={tenant_id:'tenant-1',entity_id:'entity-1',company_key:'COMPANY-A',source_type:'PAYABLE',source_record_id:'11111111-1111-4111-8111-111111111111',source_version:'observed:'+'a'.repeat(64),receipt_hash:'sha256:'+'b'.repeat(64)};

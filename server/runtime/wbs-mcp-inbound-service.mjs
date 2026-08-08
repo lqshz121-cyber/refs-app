@@ -1,4 +1,4 @@
-import {buildWbsMcpReadonlySnapshot,mapWbsMcpEnvelopeToInbound,WbsMcpLineageError} from './wbs-mcp-inbound-lineage.mjs';
+import {buildWbsAutoRecBankControlEvidence,buildWbsMcpReadonlySnapshot,mapWbsMcpEnvelopeToInbound,WbsMcpLineageError} from './wbs-mcp-inbound-lineage.mjs';
 
 const transactionTools=Object.freeze(['list_payables','list_bank_transactions','list_autorec_details']);
 const controlTraceTools=Object.freeze(['list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
@@ -50,6 +50,13 @@ export function createWbsMcpInboundService({client,persistedSourceReader=null}={
       if(!envelope||envelope.tool_name!==toolName||text(envelope.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS control/trace response is outside the selected company scope.');
       let evidence;try{evidence=mapWbsMcpEnvelopeToInbound({envelope:providerEnvelope(envelope)});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_CONTROL_MAPPING_FAILED','WBS control/trace response could not be mapped as read-only evidence.');}
       return Object.freeze({status:'WBS_MCP_CONTROL_EVIDENCE_READY',tool_name:toolName,evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['persist immutable receipt-backed control evidence','approved scoped control mapping where reconciliation is required','authoritative REFS trace read'])});
+    },
+    async pullAutoRecBankControlEvidence({companyKey,args,control}={}){
+      if(!text(companyKey)||!plain(args)||!plain(control))fail('WBS_MCP_CONTROL_SELECTION_REQUIRED','AutoRec Bank controls require company scope, structured read arguments, and provider control attestation.');
+      let envelope;try{envelope=await client.readView({toolName:'list_autorec_banks',args:structuredClone(args)});}catch{throw new WbsMcpInboundServiceError('WBS_MCP_CONTROL_READ_FAILED','WBS AutoRec Bank control read failed before any REFS persistence.');}
+      if(!envelope||envelope.tool_name!=='list_autorec_banks'||text(envelope.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS AutoRec Bank response is outside the selected company scope.');
+      let evidence;try{evidence=buildWbsAutoRecBankControlEvidence({envelope:providerEnvelope(envelope),control:structuredClone(control)});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_CONTROL_MAPPING_FAILED','WBS AutoRec Bank response could not form receipt-bound control evidence.');}
+      return Object.freeze({status:'WBS_MCP_AUTOREC_BANK_CONTROL_READY',tool_name:'list_autorec_banks',evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_release:false,can_incur:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['persist immutable receipt-backed control evidence','approved scoped control mapping where reconciliation is required','authoritative REFS trace read'])});
     },
     // A reverse trace lookup is intentionally keyed only by a persisted WBS
     // immutable source identifier. Display values such as Ref No., memo, cb_id
