@@ -96,6 +96,10 @@ export function mapWbsMcpEnvelopeToInbound({envelope}={}){
       // the values and receipt lineage without permitting reconciliation or a
       // journal path.
       rows.push(freeze({...common,admission:'CONTROL_EVIDENCE_ONLY',control_type:'WBS_AUTOREC_BANK_SUMMARY',control_semantics:'OBSERVED_UNVERIFIED',bank_summary_id:text(row.pb_guid),bank_account_name:row.ah_name||null,bank_account_ref:row.ah_id||null,reconciliation_start_date:row.reconciliation_start_date||null,status:row.status||null,quantity:money(row.quantity),released_quantity:money(row.released_quantity),pay_amount:money(row.pay_amount),released_amount:money(row.released),incurred_amount:money(row.incurred),debit_amount:money(row.debit_amount),can_reconcile:false,can_create_draft:false,can_allocate:false,can_post:false}));
+    } else if(tool==='list_journal_entries'){
+      const movement=signedMovement(row,'lender','debtor');
+      const traceComplete=Boolean(text(row.journal_no)&&text(row.account)&&isoDate(row.posting_date)&&movement);
+      rows.push(freeze({...common,admission:'TRACE_EVIDENCE_ONLY',trace_type:'WBS_JOURNAL_LEDGER_EVIDENCE',trace_completeness:traceComplete?'TRACE_COMPLETE':'TRACE_INCOMPLETE',journal_entry_id:row.id,journal_no:row.journal_no||null,posting_date:row.posting_date||null,account_ref:row.account||null,amount:movement?.amount??null,direction:movement?.direction??null,bank_source_ref:row.cb_id||null,payable_ref:row.bill_no||null,project_ref:row.pj_code||row.project||null,cost_ref:row.cost_code||null,source_relation:row.come_from||null,review_status:row.review||null,reviewer:row.reviewer||null,can_create_transaction:false,can_reconcile:false,can_create_draft:false,can_allocate:false,can_post:false}));
     } else rows.push(freeze({...common,admission:'CONTROL_OR_TRACE_ONLY',fields:freeze(structuredClone(row))}));
   }
   return freeze({tool_name:tool,required_fields:WBS_READONLY_ROW_FIELDS[tool]??freeze([]),rows:freeze(rows),receipt_required_for_persistence:true,can_create_draft:false,can_allocate:false,can_post:false});

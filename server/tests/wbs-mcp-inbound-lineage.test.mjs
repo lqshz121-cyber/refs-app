@@ -37,6 +37,13 @@ test('AutoRec Bank summary remains receipt-bound observed control evidence',()=>
   assert.match(row.receipt_hash,/^sha256:/);
 });
 
+test('WBS journal entries supply trace evidence but cannot create accounting transactions',()=>{
+  const journals=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_journal_entries',[{id:91,company:'COMPANY-A',journal_no:'JE-100',posting_date:'2026-08-01',account:'291001',lender:'0',debtor:'100',cb_id:'BANK-1',bill_no:'AP-1',pj_code:'PROJECT-1',cost_code:'COST-1',come_from:'AUTOC',review:'REVIEWED',reviewer:'USER-MASKED'}])});
+  const row=journals.rows[0];
+  assert.deepEqual({admission:row.admission,type:row.trace_type,complete:row.trace_completeness,direction:row.direction,amount:row.amount,bank:row.bank_source_ref,payable:row.payable_ref,draft:row.can_create_draft,post:row.can_post},{admission:'TRACE_EVIDENCE_ONLY',type:'WBS_JOURNAL_LEDGER_EVIDENCE',complete:'TRACE_COMPLETE',direction:'DEBIT',amount:-100,bank:'BANK-1',payable:'AP-1',draft:false,post:false});
+  assert.match(row.receipt_hash,/^sha256:/);
+});
+
 test('snapshot diff is scope-bound and never treats a missing row as a deletion without a provider tombstone',()=>{
   const previous=envelope('list_payables',[{ap_guid:'A-1',currency:'USD'},{ap_guid:'A-2',currency:'USD'}]);
   const current=envelope('list_payables',[{ap_guid:'A-1',currency:'USD'}]);
