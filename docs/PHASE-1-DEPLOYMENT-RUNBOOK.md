@@ -223,6 +223,29 @@ restricted to the configured origin, and an unauthenticated API call returns
 `AUTHENTICATION_REQUIRED`. Supply the two origins as environment values at run
 time; do not commit them.
 
+The authenticated browser capture is accepted only through the Stage 1
+evidence manifest gate. Store the manifest, screenshots, visible-text files and
+network logs together under one release-evidence directory. The manifest must
+bind the full frozen SHA, a clean worktree, the authoritative build stamp,
+subject-preserving PKCE renewal, authenticated `200`, anonymous `401`, denied
+cross-entity and cross-tenant reads, and a refresh that retains both subject and
+route. Each of Dashboard, AP, AR, JE, Bank and Reports must contain a successful
+authenticated API `GET` for its required endpoint; screenshots without network
+records do not pass.
+
+```powershell
+$env:REFS_RELEASE_SHA = '<40-character frozen SHA>'
+$env:REFS_AUTHORITATIVE_E2E_MANIFEST = '<absolute path to manifest.json>'
+npm.cmd run verify:authoritative-runtime-evidence
+```
+
+Expected result is exit `0` and
+`authoritative-runtime-e2e: 6/6 pages ... verified`. The verifier rejects demo
+labels, CJK/mojibake, artifacts outside the manifest directory, same-token
+"renewal", missing scope denials and hand-authored page claims without matching
+network logs. The verifier validates captured evidence; it does not create a
+provider session or contact staging on its own.
+
 ---
 
 ## 6. Repository and CI configuration
@@ -242,19 +265,22 @@ time; do not commit them.
 
 These are real limitations, stated rather than papered over.
 
-1. **No silent token renewal.** `src/oidc-client.js` implements the
-   authorization code flow with PKCE and stores one access token per tab
-   session. It holds no refresh token and performs no `prompt=none` renewal, so
-   an expired token produces a visible re-authentication rather than a silent
-   one. Adding silent renewal is a change to the OIDC client and was out of
-   scope for Phase 1.
+1. **Silent renewal depends on the provider/browser pairing.**
+   `src/oidc-client.js` now attempts a subject-bound `prompt=none` authorization
+   code flow with a fresh PKCE verifier before expiry. It intentionally stores
+   no refresh token. Providers that refuse framing, browsers that block the
+   provider session cookie in a hidden frame, and providers that return a
+   different subject all fail closed and show an explicit re-authentication
+   warning. A real provider run must prove successful renewal; unit tests prove
+   only the client decision paths.
 2. **Route retention is per tab.** The current workspace is kept in the URL
    fragment and in tab session storage. Opening the site in a new tab starts at
    the overview page. Identity is likewise per tab, because the access token is
    held in session storage.
-3. **No visual verification exists yet.** Every claim in this repository about
-   the error screens is either an executed assertion over server-rendered markup
-   or a static assertion over source. No screenshot, no browser, no live API.
+3. **No provider-backed visual verification exists in the repository.** The
+   Stage 1 manifest verifier now rejects incomplete browser evidence, but the
+   repository contains no real OIDC session, screenshot or live API response.
+   Those artifacts must be captured from the deployed frozen SHA.
 4. **The demonstration build still contains the seed data set.** Phase 1 makes
    it unreachable on an authoritative build; it does not delete it. Removing
    `src/seed.js` from the bundle is Phase 2b work and is tracked by
