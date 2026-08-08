@@ -136,8 +136,10 @@ substitutes. Returned relations remain read-only evidence.
    date window and amount tolerance before an AutoRec **review** candidate.
    A provider-backed proposal obtains the date window and tolerance only from
    one exact scoped, APPROVED, receipt-bound REFS matching policy
-   (`policy/mapping/rule` IDs and versions). UI/import parameters cannot widen
-   the policy. A missing, stale, ambiguous, or cross-scope policy is blocked;
+   (`policy/matching-rule` IDs and versions plus the exact bank-side and
+   business-side mapping IDs and versions). UI/import parameters cannot widen
+   the policy. A missing, stale, ambiguous, cross-scope, or source-mapping
+   mismatch is blocked;
    this remains a review plan rather than a reservation.
 3. Review candidates have `can_allocate=false`, `can_create_draft=false`, and
    `can_post=false`; allocation/release/incur/posting remain authoritative REFS
