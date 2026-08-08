@@ -14,7 +14,8 @@ fixtures. `OBSERVED` means read-only WBS schema or page evidence exists.
 | WBS four-step workflow | Company Screening, Data Processing & Release, Incur, Incurred List retained in `WBS_AUTOREC_OBSERVED_WORKFLOW_V1`; raw codes retained as `UNVERIFIED_SOURCE_CODE` | LOCAL_TESTED + OBSERVED page labels/codes | Signed canonical WBS state transition graph, actor/SoD/cancel/reopen semantics; until then WBS cannot transition REFS |
 | Matching and review logic | Exact scope, opposite direction, rule-owned date window/amount tolerance, source-version de-duplication, bank/business mapping-version binding; one-to-one/one-to-many/many-to-one/partial proposals | LOCAL_TESTED | Production approved matching-rule/mapping repository and kernel reservation recheck under locks |
 | Release, cancel, incur, reverse | Explicitly outside inbound authority; all WBS actions remain forbidden | LOCAL_TESTED boundary | Authoritative REFS kernel execution with source reservation, SoD, period, audit and compensation/saga proof |
-| Standard JE and G11 accounting result | Read verifier requires posted `PAYABLE_INCUR` + `AUTOC`, audit/source/ledger links and per-member 291001 net zero | LOCAL_TESTED | Integrated kernel PG evidence with actual posted rows, standard approval and ledger immutability; no WBS JE inference |
+| Standard Draft request scope | Reviewed Staging, approved mapping, and non-dispatchable Draft request must retain one exact company, ISO currency, and WBS posting/accounting date; Raw/document/source/version/type trace is carried forward | LOCAL_TESTED | Integrated kernel Draft command must preserve the same scope and return an immutable request/receipt readback |
+| Standard JE and G11 accounting result | Read verifier requires exactly one posted `PAYABLE_INCUR` + one posted `AUTOC`; both legs must echo the exact reviewed company/currency/bank, two receipt refs/SHA-256 hashes, two Source Document IDs, both business/accounting dates, audit/source/ledger links, and per-member `291001` net zero | LOCAL_TESTED | Integrated kernel PG evidence with actual posted rows, standard approval and ledger immutability; no WBS JE inference |
 | Cost General Ledger control reconciliation | Exactly fourteen receipt-bound metrics with tenant/entity/company/period/currency and approved mapping; exact four-decimal differences/trace | LOCAL_TESTED + OBSERVED configuration candidates | Provider-defined metric names/formulas and signed nonempty Cost GL receipt |
 | Property Comparison control reconciliation | Receipt-bound tenant/entity/company/property/date/currency/bank scope with approved mapping; forward/reverse trace | LOCAL_TESTED + OBSERVED configuration candidates | Provider report join/calculation and signed nonempty Property receipt |
 | 12 golden scenarios | [`contracts/wbs-autorec-golden-scenarios-v1.json`](contracts/wbs-autorec-golden-scenarios-v1.json) fixes exact, partial, one-to-many, many-to-one, cross-company, tolerance, duplicate, reopen boundary, NUL isolation, invalid date, 291001 trace and the Cost GL/Property report-as-source block. The latter permits only `RECONCILED`/`DIFFERENCE` control evidence through WBS snapshot → approved mapping → REFS metric snapshot trace. | LOCAL_TESTED | De-identified provider sample set and source-vs-target control-total comparison |
@@ -30,7 +31,9 @@ fixtures. `OBSERVED` means read-only WBS schema or page evidence exists.
    Exception rows in PostgreSQL.
 4. Reconcile the twelve de-identified golden scenarios and their control totals.
 5. Let only the authoritative REFS kernel reserve/release/incur/create/review/
-   approve/post, then validate G11 and ledger trace.
+   approve/post, then validate G11 and ledger trace. The two posted legs must
+   echo the exact two-source receipt/document/scope trace; a zero `291001`
+   balance by itself is insufficient.
 6. Independently audit the exact integration SHA, PG/browser evidence and
    configured production controls.
 
