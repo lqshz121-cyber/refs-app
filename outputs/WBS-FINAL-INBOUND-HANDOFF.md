@@ -7,8 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate HEAD: `3cb6ef6ed03a1f25000a9e7bdf4383cc7919790c`
-  (parent `97391260b03bc458d9cdc8e798aa9f00bc8d87b4`; clean worktree verified).
+- Frozen code candidate HEAD: `6b4b6dcc1434aaf1c25ad89d1337757b200cac09`
+  (parent `1e88c5c0e351cf18d27137e7f2911f23ae654a73`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -41,7 +41,7 @@ git -C .. diff --check
 ```
 
 At frozen code candidate `3cb6ef6`, the current focused lineage/projection
-suite exited `0`: `23/23` passing; `npm.cmd test` exited `0`: `242/242` passing, `0`
+suite exited `0`: `24/24` passing; `npm.cmd test` exited `0`: `243/243` passing, `0`
 skipped. `git diff --check` exited `0`. Rerun all commands above after
 integration. `git diff --check` must exit `0` on
 the target branch. These are local tests with injected provider/kernel seams,
@@ -221,9 +221,13 @@ constraints and the corrected handoff state:
    non-zero Deposit or Payment is required; both-nonzero and zero/zero rows
    are exceptions. It also preserves the provider-formula requirement for PB
    control amounts.
+6. The next WBS-owned change requires a receipt-bound, scoped provider
+   `ROW_SUM` formula before AutoRec Bank PB summaries can be accepted as
+   control totals. It is still evidence-only and has no release/incur/Draft/
+   post capability.
 
 The directly consumable integration range is therefore exactly
-`6843dce^..3cb6ef6`, applied in Git order. It includes no WBS business UI,
+`6843dce^..6b4b6dc`, applied in Git order. It includes no WBS business UI,
 WBS write operation, Draft-JE dispatch, approval or posting implementation.
 
 ## Current conflict and ownership check
