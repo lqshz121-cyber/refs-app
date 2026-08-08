@@ -1,5 +1,6 @@
 import {canonicalRequestHash} from './request-hash.mjs';
 import {projectPersistedWbsInboundAutoRec} from './wbs-inbound-autorec-projection.mjs';
+import {validateWbsAutoRecG11PostedTrace} from './wbs-inbound-data-adapter.mjs';
 
 const text=value=>value==null?'':String(value).trim();
 const freeze=value=>Object.freeze(value);
@@ -28,6 +29,33 @@ export function createWbsInboundAutoRecReadComposition({repository}={}){
       if(!scoped(inbound,selection)||!control||!scoped(control.companyRows,selection)||!scoped(control.detailRows,selection)||!scoped(control.persistedRows,selection)||!Array.isArray(mappings)||!mappings.every(row=>row&&text(row.entity_id)===selection.entityId&&text(row.company_key)===selection.companyKey))return empty('WBS_AUTOREC_READ_SCOPE_INVALID');
       const projection=projectPersistedWbsInboundAutoRec({rows:inbound,mappings,companyControlRows:control.companyRows,detailControlRows:control.detailRows,persistedControlRows:control.persistedRows,scope:{tenant_id:selection.tenantId,entity_id:selection.entityId,company_key:selection.companyKey}});
       const result=freeze({status:'READ_ONLY_PROJECTED',request_hash:requestHash,replayed:false,...projection,can_dispatch:false,can_create_draft:false,can_post:false});
+      replays.set(selection.replayKey,freeze({request_hash:requestHash,result}));return result;
+    }
+  });
+}
+
+const g11SelectionFor=input=>{
+  const tenantId=text(input?.tenantId),entityId=text(input?.entityId),companyKey=text(input?.companyKey),reviewCandidateId=text(input?.reviewCandidateId),replayKey=text(input?.replayKey);
+  return tenantId&&entityId&&companyKey&&reviewCandidateId&&replayKey?freeze({tenantId,entityId,companyKey,reviewCandidateId,replayKey}):null;
+};
+const g11Scoped=(row,selection)=>row&&text(row.tenant_id)===selection.tenantId&&text(row.entity_id)===selection.entityId&&text(row.company_key)===selection.companyKey;
+
+// This composition layer reads authoritative kernel evidence and passes it to
+// the G11 verifier. It cannot create, approve, post, or transition a case.
+export function createWbsAutoRecG11ReadVerifier({repository}={}){
+  const replays=new Map();
+  return freeze({
+    async verify(input={}){
+      const selection=g11SelectionFor(input);if(!selection)return empty('WBS_AUTOREC_G11_SELECTION_INVALID');
+      const requestHash=canonicalRequestHash({tenantId:selection.tenantId,entityId:selection.entityId,companyKey:selection.companyKey,reviewCandidateId:selection.reviewCandidateId});
+      const prior=replays.get(selection.replayKey);if(prior){if(prior.request_hash!==requestHash)return empty('WBS_AUTOREC_G11_REPLAY_CONFLICT',true);return freeze({...prior.result,replayed:true});}
+      const methods=['readReviewedWbsAutoRecRequest','readPostedWbsAutoRecJournalEvidence'];
+      if(!repository||methods.some(name=>typeof repository[name]!=='function'))return empty('WBS_AUTOREC_G11_READ_CAPABILITY_UNAVAILABLE');
+      let reviewRequest,postedJournals;
+      try{[reviewRequest,postedJournals]=await Promise.all([repository.readReviewedWbsAutoRecRequest({...selection,read_only:true}),repository.readPostedWbsAutoRecJournalEvidence({...selection,read_only:true})]);}catch{return empty('WBS_AUTOREC_G11_READ_FAILED');}
+      if(!g11Scoped(reviewRequest,selection)||text(reviewRequest.review_candidate_id)!==selection.reviewCandidateId||!Array.isArray(postedJournals)||!postedJournals.every(row=>g11Scoped(row,selection)))return empty('WBS_AUTOREC_G11_READ_SCOPE_INVALID');
+      let verification;try{verification=validateWbsAutoRecG11PostedTrace({reviewRequest,postedJournals});}catch(error){return empty(error?.code||'WBS_AUTOREC_G11_EVIDENCE_INVALID');}
+      const result=freeze({status:'G11_POSTED_TRACE_VERIFIED',request_hash:requestHash,replayed:false,review_candidate_id:selection.reviewCandidateId,verification,can_dispatch:false,can_create_draft:false,can_post:false});
       replays.set(selection.replayKey,freeze({request_hash:requestHash,result}));return result;
     }
   });
