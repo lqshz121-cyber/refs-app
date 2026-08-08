@@ -9,6 +9,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
 - Frozen code candidate: `bdbbdc5570c95fae1a0ab156a9124277dad63e1a`
   (parent `dc23ee8fe5c7b23e0403b3d3bbbb950afd71cdf6`; clean worktree verified).
+- Latest documentation wrapper: `62023195502aa629c39d9d8beedea603082ace09`
+  (parent `a390e520c3855517b84ae3c911ba1d4b0b78d089`; no runtime code change).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
