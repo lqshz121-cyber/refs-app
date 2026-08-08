@@ -12,10 +12,10 @@ or permission.
 - Observation date: 2026-08-09.
 - Business values, credentials, cookies, and tokenized URLs were neither
   retained nor exported.
-- Field-level metadata retrieval is currently **UNKNOWN**: the follow-up
-  `list_columns(wbsdata.autopaymentbank)` request failed at connector transport
-  level before a response was received. It must be retried through the approved
-  read-only provider path; do not infer columns from table names.
+- Field metadata was retrieved through the approved read-only provider path
+  after an initial connector transport failure. The table/field findings below
+  are **OBSERVED schema evidence**, not a license to bypass the signed provider
+  receipt, mapping, Staging/Exception, or human-review gates.
 
 ## Observed source inventory
 
@@ -33,6 +33,39 @@ or permission.
 | `accounting` | `accounting_monthly_setting` | Monthly settings candidate | OBSERVED table only | whether setting is approved/effective and admissible as a mapping |
 | `accounting` | `accounting_cost_relation` | Cost GL control relation candidate | OBSERVED table only | fourteen metric definitions and REFS mapping semantics |
 | `accounting` | `fastautopaymentbank1` | AutoRec accounting/control candidate source | OBSERVED table only | whether it duplicates or projects `wbsdata.autopaymentbank` |
+
+## Observed AutoRec and Payable schema facts
+
+| Source | Observed keys and accounting fields | Evidence classification | REFS consequence |
+| --- | --- | --- | --- |
+| `autopaymentbank` | `PB_GuId` is the non-null primary key; `PB_CompanyCode` is indexed; it stores Pay/Debit/Released/Incurred amounts, Quantity, bank-account ID/name, Status, M/R/C months, start transaction date, and check status/date. | VERIFIED schema | It is a company-scoped control source. It may contribute receipt-bound M/R/C and quantity/amount controls, never an allocation, release, incur, Draft, or post command. |
+| `fast_auto_payment_detail` | `pd_guid` is the non-null primary key; indexed relation-like fields include `pd_cbid`, project keys, clear/incurred/check dates and business type. It stores Deposit/Payment, vendor, project, cost, memo, status, release/incur actors/dates, source data, and `pd_pvguid`/`pd_batchguid`. | VERIFIED schema | `pd_guid` is the only observed candidate immutable detail key. Deposit/Payment needs signed-direction validation. `pd_cbid` and `pd_pvguid` are retained relation evidence, not REFS keys or state authority. |
+| `match_business_info` | `MB_Id` is the primary key. `MB_BusinessType`, `MB_BusinessId`, and `MB_BatchGuId` are indexed; it also has create time and source. | VERIFIED schema | A match relation exists, but cardinality/history meaning is UNKNOWN. It cannot by itself create an AutoRec allocation or change a REFS state. |
+| `account_book_payable_info` | `uuid` is the primary key; indexed `type`/`long_id`; it stores company, amount, invoice/incurred/posting/clear dates, vendor/project/cost dimensions, payment/review status, account/journal data, and `cb_id`. | VERIFIED schema | It is the observed Payable candidate. Do not equate `uuid` with formal `ap_guid` without provider contract proof. `cb_id`, journal, and posting fields are trace only until receipt-backed mapping verifies them. |
+| `accountbook` | `ID` is the primary key and `ComCode` is indexed; it stores account code/name, company, book type, balances, bank balance/date, and operational configuration. | VERIFIED schema | Bank-account master/control evidence, not an observed bank-transaction feed. It cannot enter AutoRec as a bank source row. |
+| `accountbookpaymentset` | `APS_GuId` is the primary key and company is indexed; it holds project/entity/account settings and status. | VERIFIED schema | A partial value-level join from `APS_AccountId` to `accountbook.ID` exists, but unmatched settings remain. Treat as configuration evidence only until effective-date, approval, and company/cardinality semantics are proven. |
+
+## Tested relationship findings
+
+The following aggregate-only read checks were executed without selecting a
+business row:
+
+1. `fast_auto_payment_detail.pd_batchguid` has populated values, but no value
+   matched `autopaymentbank.PB_GuId` in the tested source. It is therefore
+   **not a verified AutoRec batch foreign key** and must never fill `pb_guid`.
+2. `match_business_info.MB_BatchGuId` likewise produced no match to
+   `autopaymentbank.PB_GuId`. It is not a verified PB relation.
+3. `account_book_payable_info.cb_id` and
+   `fast_auto_payment_detail.pd_cbid` are both frequently populated, but their
+   relationship/cardinality has not yet been proven. They remain retained
+   bank-relation evidence only.
+4. `accountbookpaymentset.APS_AccountId` partially matches `accountbook.ID`.
+   The unmatched population prevents treating the join as an authoritative
+   mapping or account admission rule.
+
+These negative findings are material: the REFS adapter must reject any future
+provider mapping that silently derives a PB key from `pd_batchguid`,
+`MB_BatchGuId`, `pd_pvguid`, a memo, a reference number, or a display sequence.
 
 ## Required read-only field evidence before provider mapping
 
