@@ -97,6 +97,12 @@ ledger link, second journal leg, or `291001` imbalance remains blocked.
    and source receipts; show a difference or blocked evidence rather than
    assuming success.
 
+A WBS-originated standard Draft request must preserve the reviewed staging
+source's company, ISO currency, and accounting/posting date verbatim. Its
+approved mapping and Draft header must carry the same scope. A missing or
+cross-scoped value blocks the request; it cannot be corrected by a later JE
+workflow or by a WBS report field.
+
 For `trace_by_key`, REFS calls WBS only with an immutable persisted producer
 key (`ap_guid`, `cb_id`, `pd_guid`, `pb_guid`, or journal `id`). The returned
 receipt scope must echo that exact pair as `trace_key_type` and

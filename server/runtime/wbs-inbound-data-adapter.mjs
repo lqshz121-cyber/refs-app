@@ -118,17 +118,18 @@ export function createWbsInboundDataAdapter({snapshotReader,validateSnapshot=val
 
 export function buildStandardDraftRequest({stagingItem,mapping,journal}={}){
   if(text(stagingItem?.stage)!=='STAGING_REVIEWED')fail('WBS_STAGING_REVIEW_REQUIRED','A reviewed persistent REFS staging item is required');
-  for(const field of ['staging_item_id','source_document_id','raw_event_id','source_record_id','source_version'])if(!text(stagingItem[field]))fail('WBS_STAGING_TRACE_REQUIRED',`Staging trace ${field} is required`);
-  if(text(mapping?.status)!=='APPROVED'||!text(mapping?.mapping_id)||!text(mapping?.version))fail('WBS_MAPPING_APPROVED_REQUIRED','An approved versioned mapping is required');
-  if(!journal||!Array.isArray(journal.lines)||journal.lines.length<2||!text(journal.period_id)||!text(journal.journal_number))fail('WBS_DRAFT_REQUEST_INVALID','A complete standard Draft journal request is required');
+  for(const field of ['staging_item_id','source_document_id','raw_event_id','source_record_id','source_version','company_key','currency','accounting_date','source_type'])if(!text(stagingItem[field]))fail('WBS_STAGING_TRACE_REQUIRED',`Staging trace ${field} is required`);
+  if(!/^[A-Z]{3}$/.test(text(stagingItem.currency))||!validIsoDate(stagingItem.accounting_date))fail('WBS_STAGING_TRACE_REQUIRED','Staging currency and accounting date must be canonical before a Draft request');
+  if(text(mapping?.status)!=='APPROVED'||!text(mapping?.mapping_id)||!text(mapping?.version)||text(mapping?.company_key)!==text(stagingItem.company_key)||text(mapping?.currency)!==text(stagingItem.currency))fail('WBS_MAPPING_APPROVED_REQUIRED','An approved mapping with the exact source company and currency scope is required');
+  if(!journal||!Array.isArray(journal.lines)||journal.lines.length<2||!text(journal.period_id)||!text(journal.journal_number)||text(journal.company_key)!==text(stagingItem.company_key)||text(journal.currency)!==text(stagingItem.currency)||text(journal.accounting_date)!==text(stagingItem.accounting_date))fail('WBS_DRAFT_REQUEST_SCOPE_INVALID','A standard Draft journal request must retain the exact source company, currency, and accounting date');
   const debit=journal.lines.reduce((sum,line)=>sum+(amount(line.debit_amount)||0),0),credit=journal.lines.reduce((sum,line)=>sum+(amount(line.credit_amount)||0),0);
   if(Math.abs(debit-credit)>0.0001||debit<=0)fail('WBS_DRAFT_REQUEST_UNBALANCED','Draft request journal lines must be positive and balanced');
   return Object.freeze({
     request_type:'STANDARD_AUTO_JOURNAL_REQUEST',status:'READY_FOR_STANDARD_JE_COMMAND',
     can_dispatch:false,can_post:false,kernel_method:'createAutoJournal',
-    staging_item_id:stagingItem.staging_item_id,period_id:journal.period_id,journal_number:journal.journal_number,description:journal.description??null,lines:structuredClone(journal.lines),
-    mapping:{mapping_id:mapping.mapping_id,version:mapping.version},
-    trace:{raw_event_id:stagingItem.raw_event_id,source_document_id:stagingItem.source_document_id,source_record_id:stagingItem.source_record_id,source_version:stagingItem.source_version}
+    staging_item_id:stagingItem.staging_item_id,company_key:stagingItem.company_key,currency:stagingItem.currency,accounting_date:stagingItem.accounting_date,period_id:journal.period_id,journal_number:journal.journal_number,description:journal.description??null,lines:structuredClone(journal.lines),
+    mapping:{mapping_id:mapping.mapping_id,version:mapping.version,company_key:mapping.company_key,currency:mapping.currency},
+    trace:{raw_event_id:stagingItem.raw_event_id,source_document_id:stagingItem.source_document_id,source_record_id:stagingItem.source_record_id,source_version:stagingItem.source_version,source_type:stagingItem.source_type,company_key:stagingItem.company_key,currency:stagingItem.currency,accounting_date:stagingItem.accounting_date}
   });
 }
 
