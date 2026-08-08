@@ -103,6 +103,7 @@ tenant, entity, and the complete control scope; the composition is read-only
 and exposes no transaction, allocation, Draft, or posting capability.
 It emits and requires a persisted WBS control snapshot ID and REFS metric
 snapshot ID in both directions of the trace; a receipt or mapping alone is
-not enough to prove the control lineage.
+not enough to prove the control lineage. A nonzero control difference is
+returned as `READ_ONLY_CONTROL_DIFFERENCE`, never as a reconciled result.
 The database adapter accepts only those three authenticated read capabilities;
 it cannot execute WBS calls, SQL text, or any accounting command.

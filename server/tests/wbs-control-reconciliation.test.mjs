@@ -65,6 +65,9 @@ test('control reconciliation reads only exact persisted WBS/REFS evidence and ap
   const blocked=await leaked.read({...input,replayKey:'control-read-2'});assert.equal(blocked.code,'WBS_CONTROL_READ_SCOPE_INVALID');assert.equal(blocked.can_create_draft,false);
   const traceMissing=createWbsControlReconciliationReadComposition({repository:{...repository,readPersistedRefsControlMetricSnapshot:async()=>({...target,snapshot_id:''})}});
   assert.equal((await traceMissing.read({...input,replayKey:'control-read-3'})).code,'WBS_CONTROL_READ_TRACE_REQUIRED');
+  const changedMetrics=costMetrics.map(row=>row.metric_key==='COST_METRIC_01'?{...row,amount:26}:row);
+  const differenceReader=createWbsControlReconciliationReadComposition({repository:{...repository,readPersistedRefsControlMetricSnapshot:async()=>({...target,receipt:receipt('b',costScope,changedMetrics),metrics:changedMetrics})}});
+  const difference=await differenceReader.read({...input,replayKey:'control-read-4'});assert.equal(difference.status,'READ_ONLY_CONTROL_DIFFERENCE');assert.equal(difference.reconciliation.status,'DIFFERENCE');assert.equal(difference.can_create_draft,false);
 });
 
 test('Postgres control reader exposes only the three read-only kernel capabilities',async()=>{

@@ -88,7 +88,7 @@ export function createWbsControlReconciliationReadComposition({repository}={}){
       let reconciliation,sourceTrace,targetTrace;
       try{reconciliation=reconcileWbsControlEvidence({sourceType:selection.sourceType,scope:selection.scope,sourceReceipt:source.receipt,targetReceipt:target.receipt,approvedMapping:mapping,sourceMetrics:source.metrics,targetMetrics:target.metrics});sourceTrace=snapshotTrace(source,'WBS control snapshot');targetTrace=snapshotTrace(target,'REFS metric snapshot');}catch(error){return blocked(error?.code||'WBS_CONTROL_EVIDENCE_INVALID');}
       const trace=freeze({forward_trace:freeze({wbs_control_snapshot:sourceTrace,mapping_id:reconciliation.mapping_trace.mapping_id,mapping_version:reconciliation.mapping_trace.version,refs_metric_snapshot:targetTrace}),reverse_trace:freeze({refs_metric_snapshot:targetTrace,mapping_id:reconciliation.mapping_trace.mapping_id,mapping_version:reconciliation.mapping_trace.version,wbs_control_snapshot:sourceTrace})});
-      const result=freeze({status:'READ_ONLY_CONTROL_RECONCILED',request_hash:requestHash,replayed:false,reconciliation,trace,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
+      const result=freeze({status:reconciliation.status==='RECONCILED'?'READ_ONLY_CONTROL_RECONCILED':'READ_ONLY_CONTROL_DIFFERENCE',request_hash:requestHash,replayed:false,reconciliation,trace,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
       replays.set(selection.replayKey,freeze({request_hash:requestHash,result}));return result;
     }
   });
