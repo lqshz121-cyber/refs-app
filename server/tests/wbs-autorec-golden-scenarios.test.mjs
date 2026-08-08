@@ -97,5 +97,10 @@ test('golden acceptance artifact has twelve sanitized source-to-target controls 
     assert.ok(scenario.reverse_trace.includes('receipt_hash')||scenario.reverse_trace.includes('control_receipt')||scenario.reverse_trace.includes('policy_receipt'),`${scenario.id} reverse receipt trace`);
     assert.equal(JSON.stringify(scenario),JSON.stringify(scenario).replace(/(?:token|cookie|password|secret)/gi,'redacted'),`${scenario.id} may not contain sensitive locator keys`);
   }
+  const reports=goldenArtifact.scenarios.find(scenario=>scenario.id==='report_as_source_blocked');
+  assert.deepEqual(reports.input.source_types,['COST_GENERAL_LEDGER','PROPERTY_COMPARISON']);
+  assert.deepEqual(reports.expected.allowed_control_statuses,['RECONCILED','DIFFERENCE']);
+  for(const trace of ['wbs_control_snapshot','approved_mapping','refs_metric_snapshot'])assert.ok(reports.forward_trace.includes(trace),`report forward ${trace}`);
+  for(const trace of ['refs_metric_snapshot','wbs_control_snapshot'])assert.ok(reports.reverse_trace.includes(trace),`report reverse ${trace}`);
   assert.equal(required.size,0);
 });

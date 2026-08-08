@@ -82,10 +82,10 @@
     },
     {
       "id": "report_as_source_blocked",
-      "input": {"source_type": "AUTOREC_BANK_CONTROL"},
-      "expected": {"review_status": "BLOCKED", "candidate_count": 0, "draft_request": false, "posting": false},
-      "forward_trace": ["control_receipt", "control_total", "control_comparison"],
-      "reverse_trace": ["control_comparison", "mapping_version", "control_receipt"]
+      "input": {"source_types": ["COST_GENERAL_LEDGER", "PROPERTY_COMPARISON"], "control_only": true},
+      "expected": {"review_status": "BLOCKED", "candidate_count": 0, "draft_request": false, "posting": false, "allowed_control_statuses": ["RECONCILED", "DIFFERENCE"]},
+      "forward_trace": ["control_receipt", "wbs_control_snapshot", "approved_mapping", "refs_metric_snapshot", "control_comparison"],
+      "reverse_trace": ["control_comparison", "refs_metric_snapshot", "mapping_version", "wbs_control_snapshot", "control_receipt"]
     }
   ]
 }
