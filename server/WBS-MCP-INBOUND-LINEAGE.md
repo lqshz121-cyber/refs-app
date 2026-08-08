@@ -107,7 +107,9 @@ substitutes. Returned relations remain read-only evidence.
    exactly one POSTED `PAYABLE_INCUR` and one POSTED `AUTOC` REFS journal, an
    `AUTO_JOURNAL_CREATED` audit for each, exact reviewed-pair source trace, and
    a per-member `291001` net of zero. This verifier creates no journal and
-   cannot transition the AutoRec case.
+   cannot transition the AutoRec case. Its composition seam reads the reviewed
+   candidate and both journal receipts from a scoped, read-only REFS kernel
+   repository; it does not accept caller-supplied journal evidence.
 5. Cost GL and Property Comparison reconcile controls only. They cannot create
    source documents, AutoRec allocations, Draft JEs, or ledger postings.
 

@@ -7,8 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate HEAD: `d2519d331e951e4b989546032a67d775bd889ac6`
-  (parent `3295355a0aaaedeec791af9bd620e33da3a9dd87`; clean worktree verified).
+- Frozen code candidate HEAD: `4931d1ca96f94ea42e332bb3e4a7bfbe1fe304df`
+  (parent `cc0df54641402afe7460c5c9278813dca73e811d`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -25,7 +25,7 @@ production acceptance, a live WBS import, or authority to post a journal.
 | Control and trace reads | Separately pulls only AutoRec Bank, WBS Journal Entry, Cost GL total, or trace relation evidence; none may enter transaction persistence. | `server/runtime/wbs-mcp-inbound-service.mjs` |
 | Signed pipeline | Pull -> independent detached-signature verification -> admission -> existing receipt-backed persistence. Signature/admission failure occurs before persistence. | `server/runtime/wbs-mcp-inbound-pipeline.mjs` |
 | AutoRec proposal | Produces read-only, review-required match proposals and totals; does not reserve, allocate, release, incur, create Draft JEs, or post. | `server/runtime/wbs-inbound-data-adapter.mjs` |
-| Posted AutoRec evidence | Verifies, without state mutation, one posted `PAYABLE_INCUR` and one posted `AUTOC` leg, their audit/ledger/source trace, and per-member `291001` net zero. | `server/runtime/wbs-inbound-data-adapter.mjs` |
+| Posted AutoRec evidence | Reads the scoped reviewed candidate and posted evidence from an injected read-only kernel repository, then verifies one posted `PAYABLE_INCUR` and one posted `AUTOC` leg, their audit/ledger/source trace, and per-member `291001` net zero. | `server/runtime/wbs-inbound-data-adapter.mjs`, `server/runtime/wbs-inbound-autorec-read-composition.mjs` |
 | Report controls | Cost GL requires exactly 14 immutable receipt-backed metrics and an exact approved mapping; Property Comparison uses an exact approved scoped mapping. They cannot become source documents or journals. | `server/runtime/wbs-control-reconciliation.mjs` |
 | Golden coverage | Provides 12 sanitized/local matching scenarios and control/trace assertions. | `server/tests/wbs-autorec-golden-scenarios.test.mjs` |
 
@@ -39,8 +39,8 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At frozen code candidate `d2519d3`, focused adapter/golden
-tests exited `0`: `14/14` passing; `npm.cmd test` exited `0`: `239/239` passing, `0`
+At frozen code candidate `4931d1c`, focused adapter/read-composition
+tests exited `0`: `14/14` passing; `npm.cmd test` exited `0`: `240/240` passing, `0`
 skipped. `git diff --check` exited `0`. Rerun all commands above after
 integration. `git diff --check` must exit `0` on
 the target branch. These are local tests with injected provider/kernel seams,
@@ -132,6 +132,8 @@ Apply or cherry-pick onto the target integration branch in this order:
     exact read-only persisted-source lookup before it can query WBS.
 26. `d2519d331e951e4b989546032a67d775bd889ac6` -- G11 validates both posted
     AutoRec JE legs, their audit/source/ledger trace, and per-member 291001.
+27. `4931d1ca96f94ea42e332bb3e4a7bfbe1fe304df` -- G11 reads the candidate and
+    posted journal evidence from a scoped, read-only kernel repository.
 
 Before integration, compare each changed file against current main and rerun
 the commands above plus target-branch PG and browser gates. Do not cherry-pick
