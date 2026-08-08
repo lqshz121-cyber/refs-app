@@ -7,8 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen candidate HEAD: `420264a1c040cd6ec26f47d1b4ed3af3d20fa3de`
-  (parent `305675a875bde971e4b9defc72182f9e3f13990c`; clean worktree verified).
+- Frozen code candidate HEAD: `8d934dfa628129ff8db1edd89c7a47cbc8f06069`
+  (parent `dcdb97bf10224f73b2d18a86d1b3473af7fa50a8`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -36,7 +36,7 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At frozen HEAD `420264a`, `npm.cmd test` exited `0`: `234/234` passing,
+At frozen code candidate `8d934df`, `npm.cmd test` exited `0`: `235/235` passing,
 `0` skipped. Earlier focused evidence is retained in commit history; rerun the
 focused command above after integration. `git diff --check` must exit `0` on
 the target branch. These are local tests with injected provider/kernel seams,
@@ -106,6 +106,9 @@ Apply or cherry-pick onto the target integration branch in this order:
 15. `305675a875bde971e4b9defc72182f9e3f13990c` -- handoff sequence update.
 16. `420264a1c040cd6ec26f47d1b4ed3af3d20fa3de` -- source versions are a
     canonical row hash, not the changing batch-envelope hash.
+
+17. `8d934dfa628129ff8db1edd89c7a47cbc8f06069` -- receipt-to-control binding
+    now rejects cross-tenant and cross-entity source/version collisions.
 
 Before integration, compare each changed file against current main and rerun
 the commands above plus target-branch PG and browser gates. Do not cherry-pick
