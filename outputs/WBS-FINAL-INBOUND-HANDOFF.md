@@ -7,10 +7,10 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate: `bdbbdc5570c95fae1a0ab156a9124277dad63e1a`
-  (parent `dc23ee8fe5c7b23e0403b3d3bbbb950afd71cdf6`; clean worktree verified).
-- Latest documentation wrapper: `62023195502aa629c39d9d8beedea603082ace09`
-  (parent `a390e520c3855517b84ae3c911ba1d4b0b78d089`; no runtime code change).
+- Current WBS inbound candidate: `2949c4627f2a660cd21688b3df355c65000013bd`
+  (parent `9925cce9bcc3da661494ae2f3396bbcf85dc9881`; clean worktree verified).
+- This candidate includes the earlier inbound series through `bdbbdc5`, plus
+  production-signature and strict-decimal hardening listed below.
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -29,6 +29,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 | Inbound orchestration | Pulls only Payable, Bank Transaction, and AutoRec Detail through an injected read-only client; validates company and snapshot consistency. | `server/runtime/wbs-mcp-inbound-service.mjs` |
 | Control and trace reads | Separately pulls only AutoRec Bank, WBS Journal Entry, Cost GL total, or trace relation evidence; none may enter transaction persistence. | `server/runtime/wbs-mcp-inbound-service.mjs` |
 | Signed pipeline | Pull -> independent detached-signature verification -> admission -> existing receipt-backed persistence. Signature/admission failure occurs before persistence. | `server/runtime/wbs-mcp-inbound-pipeline.mjs` |
+| Production admission hardening | Production snapshots are prepared only through the adapter's asynchronous pinned-key verification path; the MCP pipeline cannot call the legacy synchronous preparation seam. | `server/runtime/wbs-inbound-data-adapter.mjs`, `server/runtime/wbs-mcp-inbound-pipeline.mjs` |
+| Strict monetary controls | Empty, null, boolean, and display-style numeric inputs are rejected instead of being coerced to zero in AutoRec controls, MCP source/control rows, Cost GL, and Property Comparison reconciliation. | `server/runtime/wbs-inbound-autorec-projection.mjs`, `server/runtime/wbs-mcp-inbound-lineage.mjs`, `server/runtime/wbs-control-reconciliation.mjs` |
 | AutoRec proposal | Produces read-only, review-required match proposals and totals; does not reserve, allocate, release, incur, create Draft JEs, or post. | `server/runtime/wbs-inbound-data-adapter.mjs` |
 | Posted AutoRec evidence | Reads the scoped reviewed candidate and posted evidence from an injected read-only kernel repository, then verifies one posted `PAYABLE_INCUR` and one posted `AUTOC` leg, their audit/ledger/source trace, and per-member `291001` net zero. | `server/runtime/wbs-inbound-data-adapter.mjs`, `server/runtime/wbs-inbound-autorec-read-composition.mjs` |
 | Report controls | Cost GL requires exactly 14 immutable receipt-backed metrics and an exact approved mapping; Property Comparison uses an exact approved scoped mapping. They cannot become source documents or journals. | `server/runtime/wbs-control-reconciliation.mjs` |
@@ -44,12 +46,12 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At frozen code candidate `bdbbdc5`, the focused control/golden suite exited
-`0`: `7/7` passing; `npm.cmd test` exited `0`: `246/246` passing, `0`
-skipped. `git diff --check` exited `0`. Rerun all commands above after
-integration. `git diff --check` must exit `0` on
-the target branch. These are local tests with injected provider/kernel seams,
-not a production gate.
+At current candidate `2949c46`, the following focused commands exited
+`0`: AutoRec projection `13/13`, MCP lineage `14/14`, Cost/Property
+control reconciliation `8/8`, and MCP pipeline plus inbound adapter
+`15/15`. Root `npm.cmd test` and `git diff --check` also exited `0`.
+Rerun all commands after integration. These are local tests with injected
+provider/kernel seams, not a production gate.
 
 ## Non-negotiable boundaries
 
@@ -260,6 +262,27 @@ constraints and the corrected handoff state:
 The directly consumable integration range is therefore exactly
 `6843dce^..bdbbdc5`, applied in Git order. It includes no WBS business UI,
 WBS write operation, Draft-JE dispatch, approval or posting implementation.
+
+## Current hardening commits after the original range
+
+Apply these only after the preceding WBS inbound series has been reconciled
+onto the target main branch:
+
+1. `a9c96fa` — production snapshots require detached-signature verification
+   before inbound preparation.
+2. `f342bd7` — direct synchronous production preparation is rejected; the
+   verified async path is the only production ingress route.
+3. `deb6234` — Company Screening / M-R-C control fields reject missing
+   monetary values rather than coercing them to zero.
+4. `f018c17` — the formal MCP Payable/Bank/AutoRec/control mapper applies
+   the same strict decimal rule.
+5. `9925cce` — Cost General Ledger and Property Comparison metrics apply
+   the same strict decimal rule.
+6. `2949c46` — MCP pipeline requires `prepareVerified`; no composition
+   may fall back to the synchronous preparation seam.
+
+These commits remain WBS inbound-only. They do not create a WBS business UI,
+call a WBS write operation, dispatch a Draft JE, approve, or post.
 
 ## Current conflict and ownership check
 
