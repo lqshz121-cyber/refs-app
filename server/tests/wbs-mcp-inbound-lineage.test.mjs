@@ -107,6 +107,14 @@ test('MCP blank, null, boolean, and display-style amounts never become zero cont
   }
 });
 
+test('MCP monetary rows reject implicit JavaScript and over-precision amounts before they become transaction candidates',()=>{
+  for(const invalidAmount of ['',true,'0x64','1e2','100.00001']){
+    const payable=envelope('list_payables',[{ap_guid:'A-1',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:invalidAmount,posting_date:'2026-08-09'}]);
+    const result=mapWbsMcpEnvelopeToInbound({envelope:payable,payableDirectionConventions:payableDirectionConventions(payable)});
+    assert.deepEqual({admission:result.rows[0].admission,amount:result.rows[0].amount},{admission:'EXCEPTION_REVIEW_REQUIRED',amount:null});
+  }
+});
+
 test('WBS journal entries supply trace evidence but cannot create accounting transactions',()=>{
   const journals=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_journal_entries',[{id:91,company:'COMPANY-A',journal_no:'JE-100',posting_date:'2026-08-01',account:'291001',lender:'0',debtor:'100',cb_id:'BANK-1',bill_no:'AP-1',pj_code:'PROJECT-1',cost_code:'COST-1',come_from:'AUTOC',review:'REVIEWED',reviewer:'USER-MASKED'}])});
   const row=journals.rows[0];
