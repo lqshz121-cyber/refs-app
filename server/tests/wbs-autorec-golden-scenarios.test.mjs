@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {buildWbsAutoReconciliationReviewPlan,buildReceiptBoundWbsAutoReconciliationReviewPlan} from '../runtime/wbs-inbound-data-adapter.mjs';
 import {projectObservedWbsAutoRecControlEvidence} from '../runtime/wbs-inbound-autorec-projection.mjs';
 
@@ -9,6 +10,7 @@ const bank=(id,amount,date)=>staged({id,amount,direction:'CREDIT',date,type:'BAN
 const payable=(id,amount,date,options={})=>staged({id,amount,direction:'DEBIT',date,type:'PAYABLE',...options});
 const run=(banks,businesses,options)=>buildWbsAutoReconciliationReviewPlan({bankRows:banks,businessRows:businesses,...options});
 const policy={policy_id:'policy-bank-1',version:'1',mapping_id:'matching-policy-map',mapping_version:'4',rule_id:'amount-date-rule',rule_version:'2',bank_mapping_id:'bank-map',bank_mapping_version:'3',business_mapping_id:'payable-map',business_mapping_version:'5',status:'APPROVED',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',amount_tolerance:'0.0100',date_window_days:2,receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash};
+const goldenArtifact=JSON.parse(readFileSync(new URL('../contracts/wbs-autorec-golden-scenarios-v1.json',import.meta.url),'utf8'));
 
 test('provider-backed review plan uses one approved receipt-bound matching policy, never caller matching parameters',()=>{
   const matchedBank={...bank('b-rule',100,'2026-08-09'),mapping_id:'bank-map',mapping_version:'3'};
@@ -80,4 +82,20 @@ test('required WBS golden matrix retains the twelve accounting-boundary scenario
   ];
   assert.equal(cases.length,12);
   for(const [name,assertion] of cases)assert.ok(assertion(),name);
+});
+
+test('golden acceptance artifact has twelve sanitized source-to-target controls and bidirectional trace requirements',()=>{
+  assert.equal(goldenArtifact.contract,'WBS_AUTOREC_GOLDEN_SCENARIOS_V1');
+  assert.equal(goldenArtifact.classification,'SANITIZED_LOCAL_ACCEPTANCE_EVIDENCE');
+  const required=new Set(['exact_one_to_one','partial_match','one_to_many','many_to_one','amount_and_date_tolerance','cross_company_block','duplicate_replay_block','reopen_boundary','nul_company_isolation','invalid_2064_date_quarantined','posted_291001_trace','report_as_source_blocked']);
+  assert.equal(goldenArtifact.scenarios.length,required.size);
+  for(const scenario of goldenArtifact.scenarios){
+    assert.ok(required.delete(scenario.id),scenario.id);
+    assert.ok(Object.keys(scenario.input).length>0,`${scenario.id} input`);
+    assert.ok(Object.keys(scenario.expected).length>0,`${scenario.id} expected controls`);
+    assert.ok(scenario.forward_trace.includes('receipt')||scenario.forward_trace.includes('control_receipt')||scenario.forward_trace.includes('policy_receipt'),`${scenario.id} forward receipt trace`);
+    assert.ok(scenario.reverse_trace.includes('receipt_hash')||scenario.reverse_trace.includes('control_receipt')||scenario.reverse_trace.includes('policy_receipt'),`${scenario.id} reverse receipt trace`);
+    assert.equal(JSON.stringify(scenario),JSON.stringify(scenario).replace(/(?:token|cookie|password|secret)/gi,'redacted'),`${scenario.id} may not contain sensitive locator keys`);
+  }
+  assert.equal(required.size,0);
 });
