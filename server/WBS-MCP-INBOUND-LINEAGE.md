@@ -56,6 +56,11 @@ timestamp before a snapshot can be presented for signature verification. A
 read, scope, or timing failure produces no persistence request and no
 accounting command.
 
+The pipeline invokes the existing receipt-backed atomic REFS ingress only after
+an independent detached-signature verifier returns true. It performs no
+AutoRec allocation, release, incur, Draft-JE creation, approval, or posting;
+the persisted result must explicitly keep all such dispatch flags false.
+
 ## Accounting and AutoRec rules enforced at the boundary
 
 1. Payable, Bank Transaction, and AutoRec Detail can be transaction candidates
