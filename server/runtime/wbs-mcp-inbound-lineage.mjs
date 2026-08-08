@@ -12,6 +12,7 @@ const freeze=value=>Object.freeze(value);
 const hash=row=>canonicalRequestHash(row);
 const isoDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const parsed=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(parsed.getTime())&&parsed.toISOString().slice(0,10)===candidate;};
 const validCurrency=value=>/^[A-Z]{3}$/.test(text(value).toUpperCase());
+const validPeriod=value=>/^\d{4}-(0[1-9]|1[0-2])$/.test(text(value));
 const scopedCurrency=(accepted,row)=>text(row.currency??accepted.scope.currency).toUpperCase()||null;
 const payableTrace=row=>freeze(Object.fromEntries([
   ['ap_long_id',row.ap_long_id],['ap_type',row.ap_type],['business_status',row.business_status],['pay_status',row.pay_status],['pay_type',row.pay_type],
@@ -30,6 +31,36 @@ const autoRecDetailTrace=row=>freeze(Object.fromEntries([
 
 export class WbsMcpLineageError extends Error {
   constructor(code,message){super(message);this.name='WbsMcpLineageError';this.code=code;}
+}
+
+function controlReceipt(value,contentSha){
+  if(!value||typeof value!=='object'||text(value.hash)!==`sha256:${contentSha}`||!text(value.ref)||!text(value.version)||!text(value.verification_id)||!text(value.key_id)||!text(value.algorithm)||!isoDate(text(value.verified_on).slice(0,10)))throw new WbsMcpLineageError('WBS_MCP_CONTROL_RECEIPT_REQUIRED','AutoRec Bank controls require a verified receipt bound to this envelope hash, reference, version, key, algorithm, verification id, and date.');
+  return freeze({hash:text(value.hash),ref:text(value.ref),version:text(value.version),verification_id:text(value.verification_id),key_id:text(value.key_id),algorithm:text(value.algorithm),verified_on:text(value.verified_on)});
+}
+
+// WBS PB fields are observed but their global business formula is not proven.
+// This accepts a control total only when the provider explicitly attests that
+// the supplied PB page is a ROW_SUM population for one company/currency/period
+// and bank account. It remains control evidence, never a match or posting path.
+export function buildWbsAutoRecBankControlEvidence({envelope,control}={}){
+  const accepted=validateWbsReadEnvelope({toolName:envelope?.tool,envelope});
+  if(accepted.tool_name!=='list_autorec_banks')throw new WbsMcpLineageError('WBS_MCP_CONTROL_TOOL_INVALID','AutoRec Bank control evidence requires the list_autorec_banks envelope.');
+  if(!control||typeof control!=='object'||!control.scope||!control.formula||!control.totals)throw new WbsMcpLineageError('WBS_MCP_CONTROL_INPUT_REQUIRED','AutoRec Bank control scope, formula, totals, and verified receipt are required.');
+  const receipt=controlReceipt(control.receipt,accepted.content_sha256);
+  const scope={company_key:text(control.scope.company_key),currency:text(control.scope.currency).toUpperCase(),period:text(control.scope.period),bank_account_ref:text(control.scope.bank_account_ref)};
+  if(!scope.company_key||!validCurrency(scope.currency)||!validPeriod(scope.period)||!scope.bank_account_ref||scope.company_key!==text(accepted.scope.company)||text(accepted.scope.currency).toUpperCase()!==scope.currency)throw new WbsMcpLineageError('WBS_MCP_CONTROL_SCOPE_INVALID','AutoRec Bank control scope must exactly bind company, currency, period, and bank account to the envelope scope.');
+  const formula={formula_id:text(control.formula.formula_id),version:text(control.formula.version),aggregation:text(control.formula.aggregation)};
+  if(!formula.formula_id||!formula.version||formula.aggregation!=='ROW_SUM')throw new WbsMcpLineageError('WBS_MCP_CONTROL_FORMULA_REQUIRED','AutoRec Bank controls require an explicit provider ROW_SUM formula id and version.');
+  if(!accepted.rows.length||accepted.rows.some(row=>text(row.company_code)!==scope.company_key||text(row.ah_id)!==scope.bank_account_ref))throw new WbsMcpLineageError('WBS_MCP_CONTROL_SCOPE_INVALID','Every AutoRec Bank row must belong to the attested company and bank account scope.');
+  const fields=Object.freeze({quantity:'quantity',released_quantity:'released_quantity',pay_amount:'pay_amount',released_amount:'released',incurred_amount:'incurred',debit_amount:'debit_amount'});
+  const calculated={};
+  for(const [target,field] of Object.entries(fields)){
+    const values=accepted.rows.map(row=>money(row[field]));
+    if(values.some(value=>value===null))throw new WbsMcpLineageError('WBS_MCP_CONTROL_TOTALS_INVALID',`AutoRec Bank ${field} must be a finite decimal for ROW_SUM controls.`);
+    calculated[target]=Number(values.reduce((sum,value)=>sum+value,0).toFixed(4));
+    if(money(control.totals[target])===null||money(control.totals[target])!==calculated[target])throw new WbsMcpLineageError('WBS_MCP_CONTROL_TOTALS_INVALID',`Provider AutoRec Bank ${target} does not equal the attested ROW_SUM population.`);
+  }
+  return freeze({source_type:'AUTOREC_BANK_CONTROL',status:'CONTROL_EVIDENCE_READY',scope:freeze(scope),formula:freeze(formula),receipt,control_totals:freeze(calculated),row_count:accepted.rows.length,forward_trace:freeze({mcp_tool:accepted.tool_name,receipt_hash:receipt.hash,receipt_ref:receipt.ref,receipt_version:receipt.version,formula_id:formula.formula_id,formula_version:formula.version}),reverse_trace:freeze({company_key:scope.company_key,currency:scope.currency,period:scope.period,bank_account_ref:scope.bank_account_ref,source_row_keys:freeze(accepted.rows.map(row=>text(row.pb_guid)))}),can_create_transaction:false,can_allocate:false,can_release:false,can_incur:false,can_create_draft:false,can_post:false});
 }
 
 function sorted(rows,key){return rows.every((row,index)=>index===0||text(rows[index-1][key])<text(row[key]));}

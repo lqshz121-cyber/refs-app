@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {buildWbsMcpReadonlySnapshot,mapWbsMcpEnvelopeToInbound,planWbsMcpSnapshotDiff,WbsMcpLineageError} from '../runtime/wbs-mcp-inbound-lineage.mjs';
+import {buildWbsMcpReadonlySnapshot,buildWbsAutoRecBankControlEvidence,mapWbsMcpEnvelopeToInbound,planWbsMcpSnapshotDiff,WbsMcpLineageError} from '../runtime/wbs-mcp-inbound-lineage.mjs';
 import {createWbsInboundDataAdapter} from '../runtime/wbs-inbound-data-adapter.mjs';
 import {validateWbsSnapshotPackage} from '../runtime/wbs-snapshot-package.mjs';
 
@@ -55,6 +55,20 @@ test('AutoRec Bank summary remains receipt-bound observed control evidence',()=>
   const row=summary.rows[0];
   assert.deepEqual({admission:row.admission,controlType:row.control_type,semantics:row.control_semantics,quantity:row.quantity,released:row.released_amount,incurred:row.incurred_amount,reconcile:row.can_reconcile,post:row.can_post},{admission:'CONTROL_EVIDENCE_ONLY',controlType:'WBS_AUTOREC_BANK_SUMMARY',semantics:'OBSERVED_UNVERIFIED',quantity:10,released:80,incurred:60,reconcile:false,post:false});
   assert.match(row.receipt_hash,/^sha256:/);
+});
+
+test('AutoRec Bank control totals require a receipt-bound provider ROW_SUM formula and exact scope',()=>{
+  const bankEnvelope=envelope('list_autorec_banks',[
+    {pb_guid:'PB-1',company_code:'COMPANY-A',ah_id:'BANK-1',quantity:'1',released_quantity:'1',pay_amount:'100',released:'100',incurred:'80',debit_amount:'20'},
+    {pb_guid:'PB-2',company_code:'COMPANY-A',ah_id:'BANK-1',quantity:'2',released_quantity:'1',pay_amount:'50',released:'50',incurred:'30',debit_amount:'10'}
+  ],{company:'COMPANY-A',currency:'USD'});
+  const control={scope:{company_key:'COMPANY-A',currency:'USD',period:'2026-08',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${bankEnvelope.content_sha256}`,ref:'object://wbs/autorec/PB',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},formula:{formula_id:'WBS-PB-ROW-SUM',version:'1',aggregation:'ROW_SUM'},totals:{quantity:'3',released_quantity:'2',pay_amount:'150',released_amount:'150',incurred_amount:'110',debit_amount:'30'}};
+  const result=buildWbsAutoRecBankControlEvidence({envelope:bankEnvelope,control});
+  assert.deepEqual({status:result.status,pay:result.control_totals.pay_amount,post:result.can_post},{status:'CONTROL_EVIDENCE_READY',pay:150,post:false});
+  assert.equal(result.reverse_trace.source_row_keys.length,2);
+  assert.throws(()=>buildWbsAutoRecBankControlEvidence({envelope:bankEnvelope,control:{...control,formula:{...control.formula,aggregation:'UNSPECIFIED'}}}),error=>error.code==='WBS_MCP_CONTROL_FORMULA_REQUIRED');
+  assert.throws(()=>buildWbsAutoRecBankControlEvidence({envelope:bankEnvelope,control:{...control,totals:{...control.totals,incurred_amount:'111'}}}),error=>error.code==='WBS_MCP_CONTROL_TOTALS_INVALID');
+  assert.throws(()=>buildWbsAutoRecBankControlEvidence({envelope:bankEnvelope,control:{...control,receipt:{...control.receipt,hash:'sha256:'+'0'.repeat(64)}}}),error=>error.code==='WBS_MCP_CONTROL_RECEIPT_REQUIRED');
 });
 
 test('WBS journal entries supply trace evidence but cannot create accounting transactions',()=>{

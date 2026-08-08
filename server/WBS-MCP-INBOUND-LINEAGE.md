@@ -151,6 +151,18 @@ company, inclusive date range, currency, and bank account. Both produce only
 and Raw/receipt/mapping/target reverse trace. Incomplete metric sets, receipts,
 or mappings are blocked rather than treated as zero.
 
+AutoRec Bank company summaries remain observed control evidence until the
+provider supplies an explicit signed control receipt. The executable control
+contract accepts a summary total only when the receipt hash binds the exact
+MCP envelope, its verification key/algorithm/verification identifier are
+present, and the provider attests a `ROW_SUM` formula version for one exact
+company, currency, period, and bank-account scope. The six admitted totals
+are quantity, released quantity, pay amount, released amount, incurred amount
+and debit amount. No universal PB balance formula is inferred. A missing or
+mismatched formula, scope, receipt, or total is rejected; the result remains
+`can_allocate=false`, `can_release=false`, `can_incur=false`,
+`can_create_draft=false`, and `can_post=false`.
+
 ## Sanitized golden scenarios
 
 The executable golden set covers exact matching, one-to-many, many-to-one,
