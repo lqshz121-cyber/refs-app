@@ -112,6 +112,8 @@ Each retained relation must also contain an immutable `relation_id`, both
 source and related source key types/values, and a relation type. Missing
 fields leave the entire reverse-trace request blocked; relation evidence never
 becomes a match instruction, state transition, or posting authority.
+Duplicate relation IDs or edges, and self-relations, are equally blocked so a
+provider page cannot multiply or circularly assert an accounting lineage.
 
 Cost GL and Property control reads are composed only from persisted WBS and
 REFS metric snapshots plus an approved mapping. All three reads must agree on

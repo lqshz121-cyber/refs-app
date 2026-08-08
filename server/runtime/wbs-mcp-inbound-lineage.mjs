@@ -213,9 +213,13 @@ export function buildWbsTraceRelationEvidence({envelope,lookup}={}){
   const accepted=validateWbsReadEnvelope({toolName:envelope?.tool,envelope});
   const keyType=text(lookup?.key_type),keyValue=text(lookup?.key_value);
   if(accepted.tool_name!=='trace_by_key'||!traceKeyTypes.has(keyType)||!keyValue||text(accepted.scope?.trace_key_type)!==keyType||text(accepted.scope?.trace_key_value)!==keyValue)throw new WbsMcpLineageError('WBS_MCP_TRACE_RELATION_SCOPE_INVALID','Trace relation evidence requires the exact immutable lookup pair in the response scope.');
+  const relationIds=new Set(),relationPairs=new Set();
   const relations=accepted.rows.map(row=>{
     const relationId=text(row?.relation_id),relationType=text(row?.relation_type),sourceKeyType=text(row?.source_key_type),sourceKeyValue=text(row?.source_key_value),relatedKeyType=text(row?.related_key_type),relatedKeyValue=text(row?.related_key_value);
     if(!/^[A-Za-z][A-Za-z0-9._:-]{0,127}$/.test(relationId)||!/^[A-Za-z][A-Za-z0-9._:-]{0,127}$/.test(relationType)||sourceKeyType!==keyType||sourceKeyValue!==keyValue||!traceKeyTypes.has(relatedKeyType)||!relatedKeyValue)throw new WbsMcpLineageError('WBS_MCP_TRACE_RELATION_FIELDS_REQUIRED','Every retained WBS relation requires immutable relation, source, and related-source keys.');
+    const pair=`${relationType}\u0000${sourceKeyType}\u0000${sourceKeyValue}\u0000${relatedKeyType}\u0000${relatedKeyValue}`;
+    if(relationIds.has(relationId)||relationPairs.has(pair)||(sourceKeyType===relatedKeyType&&sourceKeyValue===relatedKeyValue))throw new WbsMcpLineageError('WBS_MCP_TRACE_RELATION_AMBIGUOUS','Trace relation evidence cannot contain duplicate relation identities, duplicate edges, or self-relations.');
+    relationIds.add(relationId);relationPairs.add(pair);
     return freeze({relation_id:relationId,relation_type:relationType,source:freeze({key_type:sourceKeyType,key_value:sourceKeyValue}),related:freeze({key_type:relatedKeyType,key_value:relatedKeyValue}),observed_version:`observed:${hash(row).slice(7)}`,can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});
   });
   return freeze({status:relations.length?'RELATION_EVIDENCE_READY':'NO_RELATION_OBSERVED',lookup:freeze({key_type:keyType,key_value:keyValue}),receipt_hash:`sha256:${accepted.content_sha256}`,relations:freeze(relations),can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
