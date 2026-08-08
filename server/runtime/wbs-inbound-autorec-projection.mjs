@@ -11,7 +11,17 @@ const OBSERVED_WORKFLOW_STEPS=Object.freeze([
 ]);
 const OBSERVED_WORKFLOW_STEP_BY_DETAIL_KIND=Object.freeze({NOT_MATCH_PAYMENT:'DATA_PROCESSING_RELEASE',RELEASED_PAYMENT:'DATA_PROCESSING_RELEASE',INCURRED_PAYMENT:'INCURRED_LIST'});
 const text=value=>value==null?'':String(value).trim();
-const decimal=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
+// Do not use Number(value) directly here: JavaScript maps empty strings and
+// null to zero, which would turn an absent WBS control into apparently valid
+// zero-value evidence. The inbound normalized form is a decimal, not a
+// display value, so accept only a finite number or an explicit decimal token.
+const decimal=value=>{
+  if(typeof value==='number')return Number.isFinite(value)?Number(value.toFixed(4)):null;
+  const candidate=typeof value==='string'?value.trim():'';
+  if(!/^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(candidate))return null;
+  const parsed=Number(candidate);
+  return Number.isFinite(parsed)?Number(parsed.toFixed(4)):null;
+};
 const decimalText=value=>{const parsed=decimal(value);return parsed===null?null:parsed.toFixed(4);};
 const validDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const date=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(date.getTime())&&date.toISOString().slice(0,10)===candidate;};
 const freeze=value=>Object.freeze(value);

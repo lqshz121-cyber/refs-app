@@ -69,6 +69,17 @@ test('signed WBS amounts preserve direction and absolute capacity, while a bad c
   assert.equal(scoped.candidates.length,1);assert.equal(scoped.candidates[0].company_key,'COMPANY-C');assert(scoped.exceptions.some(item=>item.code==='WBS_AUTOREC_CONTROL_SCOPE_BLOCKED'&&item.company_key==='COMPANY-A'));
 });
 
+test('blank or null WBS controls never coerce to zero-valued evidence',()=>{
+  for(const invalidValue of ['', '   ', null, true, '0x10']){
+    const result=projectObservedWbsAutoRecControlEvidence({companyRows:[{...companyControl,released_amount:invalidValue}]});
+    assert.equal(result.controls.length,0);
+    assert.equal(result.exceptions[0].code,'WBS_AUTOREC_CONTROL_INVALID');
+  }
+  const zero=projectObservedWbsAutoRecControlEvidence({companyRows:[{...companyControl,released_amount:'0.0000',released_quantity:0}]});
+  assert.equal(zero.exceptions.length,0);
+  assert.equal(zero.controls[0].released_amount,'0.0000');
+});
+
 test('unmatched ACH payment remains review-only until immutable bank trace and all assignments exist',()=>{
   const base={detail_kind:'NOT_MATCH_PAYMENT',company_key:'COMPANY-A',receipt_id:'receipt-1',receipt_ref:'object://wbs/receipt/1',receipt_hash:common.receipt_hash,source_record_id:'detail-1',source_version:'v1',bank_source_record_id:'bank-1',bank_source_version:'v1',transaction_date:'2026-08-04',posting_date:'2026-08-05',account_code:'100100',ref_no:'ACH-1',direction:'CREDIT',amount:'298741.5900',vendor:'Vendor A',project_department:'Project A',cost_code:'C-100',user_ref:'USER-MASKED',workflow_status:'READY_FOR_REVIEW',memo:'Read-only source memo',invoice_receipt_evidence:'source-evidence-1',reviewer:'Reviewer A',comments_log:'external trace'};
   const ready=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[base]});assert.equal(ready.exceptions.length,0);assert.equal(ready.details[0].observed_fields.bank_source_record_id,'bank-1');assert.equal(ready.details[0].can_post,false);assert(ready.forbidden_wbs_operations.includes('Split Record'));
