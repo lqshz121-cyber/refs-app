@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {reconcileWbsControlEvidence,WbsControlReconciliationError} from '../runtime/wbs-control-reconciliation.mjs';
+import {createWbsControlReconciliationReadComposition,reconcileWbsControlEvidence,WbsControlReconciliationError} from '../runtime/wbs-control-reconciliation.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 
 const metricHash=rows=>canonicalRequestHash([...rows].map(row=>({metric_key:row.metric_key,amount:Number(Number(row.amount).toFixed(4))})).sort((left,right)=>left.metric_key.localeCompare(right.metric_key)));
@@ -47,4 +47,19 @@ test('control receipts cannot be replayed across company, period, or currency sc
 test('control metrics cannot be substituted after a receipt has been captured',()=>{
   const altered=costMetrics.map(row=>row.metric_key==='COST_METRIC_02'?{...row,amount:51}:row);
   assert.throws(()=>reconcileWbsControlEvidence({...costArgs,sourceMetrics:altered}),error=>error.code==='WBS_CONTROL_RECEIPT_METRICS_MISMATCH');
+});
+
+test('control reconciliation reads only exact persisted WBS/REFS evidence and approved mappings',async()=>{
+  const source={tenant_id:'tenant-a',entity_id:'entity-a',source_type:'COST_GENERAL_LEDGER',scope:costScope,receipt:costArgs.sourceReceipt,metrics:costMetrics};
+  const target={tenant_id:'tenant-a',entity_id:'entity-a',scope:costScope,receipt:costArgs.targetReceipt,metrics:costMetrics};
+  const mapping={...costMapping,tenant_id:'tenant-a',entity_id:'entity-a'};
+  const repository={readPersistedWbsControlSnapshot:async()=>source,readPersistedRefsControlMetricSnapshot:async()=>target,readApprovedWbsControlReconciliationMapping:async()=>mapping};
+  const reader=createWbsControlReconciliationReadComposition({repository});
+  const input={sourceType:'COST_GENERAL_LEDGER',tenantId:'tenant-a',entityId:'entity-a',scope:costScope,replayKey:'control-read-1'};
+  const accepted=await reader.read(input);assert.equal(accepted.status,'READ_ONLY_CONTROL_RECONCILED');assert.equal(accepted.reconciliation.status,'RECONCILED');assert.equal(accepted.can_post,false);
+  assert.equal((await reader.read(input)).replayed,true);
+  assert.equal((await reader.read({...input,scope:{...costScope,period:'2026-07'}})).code,'WBS_CONTROL_READ_REPLAY_CONFLICT');
+  assert.equal((await createWbsControlReconciliationReadComposition({}).read(input)).code,'WBS_CONTROL_READ_CAPABILITY_UNAVAILABLE');
+  const leaked=createWbsControlReconciliationReadComposition({repository:{...repository,readPersistedWbsControlSnapshot:async()=>({...source,scope:{...costScope,company_key:'OTHER'}})}});
+  const blocked=await leaked.read({...input,replayKey:'control-read-2'});assert.equal(blocked.code,'WBS_CONTROL_READ_SCOPE_INVALID');assert.equal(blocked.can_create_draft,false);
 });

@@ -96,3 +96,8 @@ ledger link, second journal leg, or `291001` imbalance remains blocked.
 6. Read the resulting REFS audit/ledger chain back against WBS control totals
    and source receipts; show a difference or blocked evidence rather than
    assuming success.
+
+Cost GL and Property control reads are composed only from persisted WBS and
+REFS metric snapshots plus an approved mapping. All three reads must agree on
+tenant, entity, and the complete control scope; the composition is read-only
+and exposes no transaction, allocation, Draft, or posting capability.

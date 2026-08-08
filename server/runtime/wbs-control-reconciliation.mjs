@@ -17,6 +17,8 @@ const fail=(code,message)=>{throw new WbsControlReconciliationError(code,message
 const exactScope=(left,right,keys)=>keys.every(key=>text(left?.[key])===text(right?.[key]));
 const sourceFor=type=>type==='COST_GENERAL_LEDGER'?'WBS_COST_GL_CONTROL_RECONCILIATION':'WBS_PROPERTY_CONTROL_RECONCILIATION';
 const COST_GENERAL_LEDGER_METRIC_COUNT=14;
+const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+const scopeKeysFor=sourceType=>sourceType==='COST_GENERAL_LEDGER'?['tenant_id','entity_id','company_key','period','currency']:['tenant_id','entity_id','company_key','property_ref','period_start','period_end','currency','bank_account_ref'];
 
 function validateReceipt(receipt,label,scope,scopeKeys){
   if(!receipt||typeof receipt!=='object'||!/^sha256:[0-9a-f]{64}$/.test(text(receipt.hash))||!/^sha256:[0-9a-f]{64}$/.test(text(receipt.metrics_hash))||!text(receipt.ref)||!text(receipt.version))fail('WBS_CONTROL_RECEIPT_REQUIRED',`${label} requires immutable receipt hash, metrics hash, reference, and version.`);
@@ -34,7 +36,7 @@ function metricsFingerprint(metrics){return canonicalRequestHash([...metrics.ent
 
 export function reconcileWbsControlEvidence({sourceType,scope,sourceReceipt,targetReceipt,approvedMapping,sourceMetrics,targetMetrics}={}){
   if(!['COST_GENERAL_LEDGER','PROPERTY_COMPARISON'].includes(sourceType))fail('WBS_CONTROL_SOURCE_TYPE_INVALID','Only Cost General Ledger and Property Comparison control sources are supported.');
-  const scopeKeys=sourceType==='COST_GENERAL_LEDGER'?['tenant_id','entity_id','company_key','period','currency']:['tenant_id','entity_id','company_key','property_ref','period_start','period_end','currency','bank_account_ref'];
+  const scopeKeys=scopeKeysFor(sourceType);
   if(!scope||!scopeKeys.every(key=>text(scope[key])))fail('WBS_CONTROL_SCOPE_REQUIRED','Control reconciliation requires the complete source scope.');
   const canonicalScope=freeze(Object.fromEntries(scopeKeys.map(key=>[key,text(scope[key])])));
   if(!validCurrency(canonicalScope.currency))fail('WBS_CONTROL_CURRENCY_INVALID','Control reconciliation requires an ISO uppercase currency code.');
@@ -52,4 +54,37 @@ export function reconcileWbsControlEvidence({sourceType,scope,sourceReceipt,targ
   });
   const differenceCount=comparisons.filter(row=>!row.matched).length;
   return freeze({source_type:sourceType,status:differenceCount===0?'RECONCILED':'DIFFERENCE',scope:canonicalScope,comparisons:freeze(comparisons),control_totals:freeze({metric_count:comparisons.length,difference_count:differenceCount,source_total:Number(comparisons.reduce((sum,row)=>sum+row.source_amount,0).toFixed(4)),target_total:Number(comparisons.reduce((sum,row)=>sum+row.target_amount,0).toFixed(4)),difference_total:Number(comparisons.reduce((sum,row)=>sum+row.difference,0).toFixed(4))}),receipt_trace:freeze({source,target}),mapping_trace:freeze({mapping_id:text(approvedMapping.mapping_id),version:text(approvedMapping.version),mapping_type:text(approvedMapping.mapping_type)}),can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
+}
+
+const blocked=(code,replayed=false)=>freeze({status:'BLOCKED',code,replayed,comparisons:freeze([]),can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
+const controlSelection=input=>{
+  const sourceType=text(input?.sourceType),tenantId=text(input?.tenantId),entityId=text(input?.entityId),replayKey=text(input?.replayKey),scope=input?.scope,keys=scopeKeysFor(sourceType);
+  if(!['COST_GENERAL_LEDGER','PROPERTY_COMPARISON'].includes(sourceType)||!tenantId||!entityId||!replayKey||!plain(scope)||!keys.every(key=>text(scope[key])))return null;
+  const canonicalScope=freeze(Object.fromEntries(keys.map(key=>[key,text(scope[key])])));
+  if(canonicalScope.tenant_id!==tenantId||canonicalScope.entity_id!==entityId)return null;
+  return freeze({sourceType,tenantId,entityId,replayKey,scope:canonicalScope});
+};
+const snapshotScoped=(snapshot,selection,{source=false}={})=>plain(snapshot)&&text(snapshot.tenant_id)===selection.tenantId&&text(snapshot.entity_id)===selection.entityId&&(!source||text(snapshot.source_type)===selection.sourceType)&&exactScope(snapshot.scope,selection.scope,scopeKeysFor(selection.sourceType));
+
+// Read composition only. It requires the kernel to supply already-persisted,
+// immutable receipt-backed source and REFS target metric snapshots. The WBS
+// boundary never calls a provider or mutates accounting state from this path.
+export function createWbsControlReconciliationReadComposition({repository}={}){
+  const replays=new Map();
+  return freeze({
+    async read(input={}){
+      const selection=controlSelection(input);if(!selection)return blocked('WBS_CONTROL_READ_SELECTION_INVALID');
+      const requestHash=canonicalRequestHash({source_type:selection.sourceType,tenant_id:selection.tenantId,entity_id:selection.entityId,scope:selection.scope});
+      const prior=replays.get(selection.replayKey);if(prior){if(prior.request_hash!==requestHash)return blocked('WBS_CONTROL_READ_REPLAY_CONFLICT',true);return freeze({...prior.result,replayed:true});}
+      const methods=['readPersistedWbsControlSnapshot','readPersistedRefsControlMetricSnapshot','readApprovedWbsControlReconciliationMapping'];
+      if(!repository||methods.some(name=>typeof repository[name]!=='function'))return blocked('WBS_CONTROL_READ_CAPABILITY_UNAVAILABLE');
+      let source,target,mapping;
+      try{[source,target,mapping]=await Promise.all(methods.map(name=>repository[name]({source_type:selection.sourceType,tenant_id:selection.tenantId,entity_id:selection.entityId,scope:selection.scope,read_only:true})));}catch{return blocked('WBS_CONTROL_READ_FAILED');}
+      if(!snapshotScoped(source,selection,{source:true})||!snapshotScoped(target,selection)||!plain(mapping)||text(mapping.tenant_id)!==selection.tenantId||text(mapping.entity_id)!==selection.entityId||!exactScope(mapping.scope,selection.scope,scopeKeysFor(selection.sourceType)))return blocked('WBS_CONTROL_READ_SCOPE_INVALID');
+      let reconciliation;
+      try{reconciliation=reconcileWbsControlEvidence({sourceType:selection.sourceType,scope:selection.scope,sourceReceipt:source.receipt,targetReceipt:target.receipt,approvedMapping:mapping,sourceMetrics:source.metrics,targetMetrics:target.metrics});}catch(error){return blocked(error?.code||'WBS_CONTROL_EVIDENCE_INVALID');}
+      const result=freeze({status:'READ_ONLY_CONTROL_RECONCILED',request_hash:requestHash,replayed:false,reconciliation,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
+      replays.set(selection.replayKey,freeze({request_hash:requestHash,result}));return result;
+    }
+  });
 }
