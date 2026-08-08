@@ -1,5 +1,6 @@
 import {validateWbsSnapshotPackage,WbsSnapshotError} from './wbs-snapshot-package.mjs';
 import {canonicalRequestHash} from './request-hash.mjs';
+import {createWbsSnapshotSignatureVerifier} from './wbs-snapshot-signature.mjs';
 
 // This adapter is the REFS-side seam for a future read-only WBS MCP provider.
 // It neither exposes WBS business operations nor writes WBS. Persistence,
@@ -88,32 +89,48 @@ function stageFor(normalized,row){
   return Object.freeze({stage:'STAGING_REVIEW_REQUIRED',can_allocate:false,can_create_draft:false,can_post:false,raw_trace:normalized});
 }
 
-export function createWbsInboundDataAdapter({snapshotReader,validateSnapshot=validateWbsSnapshotPackage}={}){
+export function createWbsInboundDataAdapter({snapshotReader,validateSnapshot=validateWbsSnapshotPackage,verifyProductionSnapshot=null}={}){
   if(!snapshotReader||snapshotReader.readOnly!==true||typeof snapshotReader.readSnapshot!=='function')throw new WbsInboundDataError('WBS_INBOUND_READER_INVALID','A read-only WBS snapshot reader is required');
+  const prepare=snapshot=>{
+    let validated;try{validated=validateSnapshot(snapshot);}catch(cause){if(cause instanceof WbsSnapshotError)throw new WbsInboundDataError(cause.code,cause.message);throw cause;}
+    const raw=[],normalized=[],staging=[],exceptions=[],controls=[];
+    for(const view of snapshot.views){
+      const sourceType=VIEW_TYPES[view.name];
+      for(const row of view.rows){
+        const receipt=receiptFor(validated,view,row);if(!receipt)fail('WBS_RECEIPT_MISSING','Validated snapshot row has no immutable receipt plan');
+        const rawRecord=Object.freeze({receipt,row:structuredClone(row),source_type:sourceType});raw.push(rawRecord);
+        if(!TRANSACTION_TYPES.has(sourceType)){controls.push(Object.freeze({source_type:sourceType,receipt,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false}));continue;}
+        const canonical=normalize(sourceType,validated.company_key,row,receipt);normalized.push(canonical);
+        const candidate=stageFor(canonical,row);if(candidate.stage==='EXCEPTION')exceptions.push(candidate);else staging.push(candidate);
+      }
+    }
+    return Object.freeze({
+      snapshot_id:validated.snapshot_id,company_key:validated.company_key,package_hash:validated.package_hash,
+      mode:'WBS_READONLY_INBOUND_ADAPTER_V1',read_only:true,raw:Object.freeze(raw),normalized:Object.freeze(normalized),
+      staging:Object.freeze(staging),exceptions:Object.freeze(exceptions),controls:Object.freeze(controls),
+      admission:Object.freeze({can_write_wbs:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:['verify detached signature','persist_raw_normalized_staging','approved_mapping','staging_review','standard_refs_je_workflow']})
+    });
+  };
+  const prepareVerified=async snapshot=>{
+    if(text(snapshot?.environment)==='PRODUCTION'){
+      if(typeof verifyProductionSnapshot!=='function')fail('WBS_SNAPSHOT_SIGNATURE_VERIFIER_REQUIRED','Production WBS snapshots require a configured pinned-key signature verifier before Raw, Normalized, or Staging preparation.');
+      let verified=false;try{verified=await verifyProductionSnapshot(snapshot);}catch{verified=false;}
+      if(verified!==true)fail('WBS_SNAPSHOT_SIGNATURE_INVALID','Production WBS snapshot detached-signature verification failed before any REFS inbound rows were prepared.');
+    }
+    return prepare(snapshot);
+  };
   return Object.freeze({
     mode:'WBS_READONLY_INBOUND_ADAPTER_V1',read_only:true,
-    async pull({selection}={}){return this.prepare(await snapshotReader.readSnapshot(selection));},
-    prepare(snapshot){
-      let validated;try{validated=validateSnapshot(snapshot);}catch(cause){if(cause instanceof WbsSnapshotError)throw new WbsInboundDataError(cause.code,cause.message);throw cause;}
-      const raw=[],normalized=[],staging=[],exceptions=[],controls=[];
-      for(const view of snapshot.views){
-        const sourceType=VIEW_TYPES[view.name];
-        for(const row of view.rows){
-          const receipt=receiptFor(validated,view,row);if(!receipt)fail('WBS_RECEIPT_MISSING','Validated snapshot row has no immutable receipt plan');
-          const rawRecord=Object.freeze({receipt,row:structuredClone(row),source_type:sourceType});raw.push(rawRecord);
-          if(!TRANSACTION_TYPES.has(sourceType)){controls.push(Object.freeze({source_type:sourceType,receipt,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false}));continue;}
-          const canonical=normalize(sourceType,validated.company_key,row,receipt);normalized.push(canonical);
-          const candidate=stageFor(canonical,row);if(candidate.stage==='EXCEPTION')exceptions.push(candidate);else staging.push(candidate);
-        }
-      }
-      return Object.freeze({
-        snapshot_id:validated.snapshot_id,company_key:validated.company_key,package_hash:validated.package_hash,
-        mode:'WBS_READONLY_INBOUND_ADAPTER_V1',read_only:true,raw:Object.freeze(raw),normalized:Object.freeze(normalized),
-        staging:Object.freeze(staging),exceptions:Object.freeze(exceptions),controls:Object.freeze(controls),
-        admission:Object.freeze({can_write_wbs:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:['persist_raw_normalized_staging','approved_mapping','staging_review','standard_refs_je_workflow']})
-      });
-    }
+    async pull({selection}={}){return prepareVerified(await snapshotReader.readSnapshot(selection));},
+    prepare,
+    prepareVerified
   });
+}
+
+// Production composition receives only a pinned WBS keyring, never a caller-
+// selected verifier. Sandbox fixtures remain usable through the base adapter.
+export function createWbsInboundDataAdapterWithKeyring({snapshotReader,wbsPublicKeys,validateSnapshot=validateWbsSnapshotPackage}={}){
+  return createWbsInboundDataAdapter({snapshotReader,validateSnapshot,verifyProductionSnapshot:createWbsSnapshotSignatureVerifier({publicKeys:wbsPublicKeys})});
 }
 
 export function buildStandardDraftRequest({stagingItem,mapping,journal}={}){
@@ -290,13 +307,15 @@ const succeeded=value=>value!==null&&value!==undefined&&value.ok!==false&&value.
 // immutable snapshot receipt command succeeds.  Results are memoized by the
 // caller's stable idempotency key and the server-independent plan fingerprint.
 export function createWbsInboundOrchestrator({adapter,kernel}={}){
-  if(!adapter||typeof adapter.prepare!=='function')throw new WbsInboundDataError('WBS_INBOUND_ADAPTER_INVALID','A WBS inbound adapter with prepare is required');
+  if(!adapter||typeof adapter.prepareVerified!=='function')throw new WbsInboundDataError('WBS_INBOUND_ADAPTER_INVALID','A WBS inbound adapter with verified preparation is required');
   const replay=new Map();
   return Object.freeze({
     mode:'WBS_INBOUND_ORCHESTRATOR_V1',read_only:true,
     async persist({snapshot,prepared=null,tenantId,entityId,importBatchId,idempotencyKey}={}){
       if(!kernel||typeof kernel.recordWbsSnapshot!=='function'||typeof kernel.persistWbsInboundRows!=='function')fail('WBS_INBOUND_KERNEL_PERSISTENCE_UNAVAILABLE','Kernel must provide recordWbsSnapshot and persistWbsInboundRows before WBS inbound persistence can start');
-      const canonicalPrepared=prepared??adapter.prepare(snapshot);
+      const verifiedPrepared=await adapter.prepareVerified(snapshot);
+      if(prepared&&canonicalRequestHash(prepared)!==canonicalRequestHash(verifiedPrepared))fail('WBS_INBOUND_PREPARED_TRACE_INVALID','Caller-provided WBS preparation differs from the receipt/signature-verified preparation.');
+      const canonicalPrepared=verifiedPrepared;
       const plan=buildWbsInboundPersistencePlan({snapshot,prepared:canonicalPrepared,tenantId,entityId,importBatchId,idempotencyKey});
       const existing=replay.get(idempotencyKey);
       if(existing){

@@ -112,6 +112,12 @@ The review pair keeps both receipt reference/hash and Source Document ID; an
 ID-only receipt or a journal without the exact two source-document links is
 not an auditable WBS-to-REFS result.
 
+For a `PRODUCTION` WBS snapshot, a syntactically present detached signature is
+not enough. The adapter verifies it against a pinned Ed25519 keyring before it
+prepares any Raw, Normalized, Staging, Exception, or persistence plan. Caller-
+supplied prepared rows are compared with this verified preparation and cannot
+substitute a different result.
+
 For `trace_by_key`, REFS calls WBS only with an immutable persisted producer
 key (`ap_guid`, `cb_id`, `pd_guid`, `pb_guid`, or journal `id`). The returned
 receipt scope must echo that exact pair as `trace_key_type` and
