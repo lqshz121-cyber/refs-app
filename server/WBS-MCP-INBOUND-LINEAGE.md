@@ -67,6 +67,14 @@ detail is quarantined by the existing `pbGuId` staging gate.
 5. Cost GL and Property Comparison reconcile controls only. They cannot create
    source documents, AutoRec allocations, Draft JEs, or ledger postings.
 
+Cost GL requires an exact scoped, approved
+`WBS_COST_GL_CONTROL_RECONCILIATION` mapping. Property Comparison requires an
+exact scoped, approved `WBS_PROPERTY_CONTROL_RECONCILIATION` mapping including
+company, inclusive date range, currency, and bank account. Both produce only
+`RECONCILED` or `DIFFERENCE`, exact four-decimal comparisons, control totals,
+and Raw/receipt/mapping/target reverse trace. Incomplete metric sets, receipts,
+or mappings are blocked rather than treated as zero.
+
 ## Sanitized golden scenarios
 
 The executable golden set covers exact matching, one-to-many, many-to-one,
