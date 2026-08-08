@@ -7,8 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate HEAD: `4931d1ca96f94ea42e332bb3e4a7bfbe1fe304df`
-  (parent `cc0df54641402afe7460c5c9278813dca73e811d`; clean worktree verified).
+- Frozen code candidate HEAD: `3cb6ef6ed03a1f25000a9e7bdf4383cc7919790c`
+  (parent `97391260b03bc458d9cdc8e798aa9f00bc8d87b4`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -40,8 +40,8 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At frozen code candidate `4931d1c`, the current focused inbound/read-composition
-suite exited `0`: `20/20` passing; `npm.cmd test` exited `0`: `240/240` passing, `0`
+At frozen code candidate `3cb6ef6`, the current focused lineage/projection
+suite exited `0`: `23/23` passing; `npm.cmd test` exited `0`: `242/242` passing, `0`
 skipped. `git diff --check` exited `0`. Rerun all commands above after
 integration. `git diff --check` must exit `0` on
 the target branch. These are local tests with injected provider/kernel seams,
@@ -203,3 +203,34 @@ materials and independent end-to-end evidence are supplied.
    persisted result.
 5. Separately exercise the authoritative REFS AutoRec and JE workflow; only
    that workflow may produce Draft/Review/Approve/Post/ledger outcomes.
+
+## Addendum: source-backed final changes through `3cb6ef6`
+
+The original series list above ends at the initial G11 reader. The following
+contiguous commits are also required; they carry the final source-evidence
+constraints and the corrected handoff state:
+
+1. `06ef8d0` documents kernel-backed G11 reads.
+2. `8e3f6af` refreshes the handoff, followed by `7201ab0`, `27e760e`, and
+   `0224f88`, which freeze source-schema, AutoRec and accounting-trace facts.
+3. `d48f720`, `6f4214b`, and `f8d9cc1` separate Property/Cost control evidence,
+   Bank record evidence, and Payable trace from transaction/posting authority.
+4. `6749f4a` makes missing CDC/tombstone semantics an explicit snapshot-control
+   limitation; `9739126` makes matching relations trace-only.
+5. `3cb6ef6` enforces AutoRec Detail direction evidence: exactly one signed
+   non-zero Deposit or Payment is required; both-nonzero and zero/zero rows
+   are exceptions. It also preserves the provider-formula requirement for PB
+   control amounts.
+
+The directly consumable integration range is therefore exactly
+`6843dce^..3cb6ef6`, applied in Git order. It includes no WBS business UI,
+WBS write operation, Draft-JE dispatch, approval or posting implementation.
+
+## Current conflict and ownership check
+
+`origin/main` still resolves to `9c2b5a3fcb9cb94655909ed288e041361e9c998c` in
+this worktree. The candidate was produced from that exact base. Its changed
+files are restricted to WBS runtime contracts, WBS tests, WBS documentation
+and the server test registration. Any integration conflict in the WBS runtime
+files must preserve the receipt/hash/scope fail-closed checks; AP/AR, Banking,
+JE, QB and AI owner files are outside this handoff.
