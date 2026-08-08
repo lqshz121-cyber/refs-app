@@ -50,8 +50,10 @@ test('Draft and AutoRec requests are review-only seams with immutable source tra
   const autoRec=buildAutoReconciliationReviewRequest({bankStaging:reviewedBank,businessStaging:reviewedPayable});assert.equal(autoRec.status,'REVIEW_REQUIRED');assert.equal(autoRec.can_release,false);
   const draft=buildStandardDraftRequest({stagingItem:reviewedPayable,mapping:{mapping_id:'map-1',version:'4',status:'APPROVED',company_key:'COMPANY-A',currency:'USD'},journal:{period_id:'period-1',journal_number:'AUTO-1',company_key:'COMPANY-A',currency:'USD',accounting_date:'2026-08-01',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:100}]}});
   assert.equal(draft.kernel_method,'createAutoJournal');assert.equal(draft.can_dispatch,false);assert.equal(draft.can_post,false);
-  const trace=validatePostedJournalTrace({draftRequest:draft,postedEvidence:{source_system:'REFS_STANDARD_JE',status:'POSTED',journal_entry_id:'je-1',ledger_line_ids:['ll-1','ll-2'],review_audit_id:'audit-r',approval_audit_id:'audit-a',post_audit_id:'audit-p'}});
+  const postedEvidence={source_system:'REFS_STANDARD_JE',status:'POSTED',journal_entry_id:'je-1',ledger_line_ids:['ll-1','ll-2'],review_audit_id:'audit-r',approval_audit_id:'audit-a',post_audit_id:'audit-p',source_trace:{...draft.trace}};
+  const trace=validatePostedJournalTrace({draftRequest:draft,postedEvidence});
   assert.equal(trace.ok,true);assert.equal(trace.trace.raw_event_id,'raw-pay');assert.deepEqual({company:trace.trace.company_key,currency:trace.trace.currency,accountingDate:trace.trace.accounting_date},{company:'COMPANY-A',currency:'USD',accountingDate:'2026-08-01'});
+  assert.throws(()=>validatePostedJournalTrace({draftRequest:draft,postedEvidence:{...postedEvidence,source_trace:{...draft.trace,currency:'CAD'}}}),error=>error.code==='WBS_POSTED_SOURCE_TRACE_MISMATCH');
 });
 
 test('G11 accepts only both posted AutoRec legs with exact source trace and per-member 291001 net zero',()=>{
