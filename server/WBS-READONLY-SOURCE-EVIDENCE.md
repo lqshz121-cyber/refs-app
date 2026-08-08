@@ -209,6 +209,38 @@ status, authority, audit and reopening rules; it may record a mismatch or
 block a review according to approved policy, but cannot translate a WBS `Y/N`
 flag into a REFS state transition.
 
+### 2026-08-09 read-only metadata refresh
+
+Metadata-only inspection (no business rows) confirms the following schema
+facts. They refine scope and trace retention; none is transaction-admission or
+posting evidence.
+
+* `pjcat_property_relation` has immutable `PPR_Guid`, property/unit keys,
+  `PPR_Version`, status and create/modify timestamps. It also holds optional
+  HOA-company fields. It has no observed currency, period, bank account,
+  receipt, or accounting-event key; therefore it can scope a Property control
+  mapping only after a provider receipt supplies the missing attributes.
+* `pjcat_unit_report` has immutable `UR_GuId`, property/project/unit
+  identifiers and multiple commercial, cost, released and incurred amount
+  columns. Those values are report/control evidence, not payable, bank, or
+  JE source rows. A report row must never be inferred to join a Property
+  relation merely from display codes.
+* `costcode_account_relation` maps a cost code to account/Yardi account with
+  type, business type and an enabled/disabled flag. It contains no observed
+  company, effective period, approval/versioned mapping receipt or source-row
+  identity. REFS therefore requires its own approved, scoped mapping version
+  before it can be used as coding evidence; it cannot authorize matching or
+  a Draft request.
+* Accounting balance/income cells and monthly/report-setting tables expose
+  account, company, fiscal/period, balance/debit/credit and review/approval
+  related fields. Their keys/cardinality and effective-dating semantics have
+  not been proven as a provider mapping contract. They remain Cost GL /
+  financial-statement control evidence only.
+
+These observations are **VERIFIED_SCHEMA** only. Values, join cardinalities,
+currency semantics, approval semantics, and change/tombstone behavior remain
+**UNKNOWN** until delivered in a signed nonempty provider receipt.
+
 ## Required read-only field evidence before provider mapping
 
 The provider must supply a versioned metadata receipt showing the column name,
