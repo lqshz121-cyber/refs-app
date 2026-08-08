@@ -21,6 +21,7 @@ export class WbsMcpError extends Error {
 
 const plainObject=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype;
 const safeToolName=value=>typeof value==='string'&&/^[A-Za-z][A-Za-z0-9._-]{0,127}$/.test(value);
+const scopedText=value=>typeof value==='string'?value.trim():'';
 const MAX_EVENT_STREAM_BYTES=1024*1024;
 
 async function boundedText(response){
@@ -72,6 +73,8 @@ function safeArguments(args){
 const stableKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
 export function validateWbsReadEnvelope({toolName,envelope}={}){
   if(!WBS_READONLY_TOOLS.includes(toolName)||!plainObject(envelope)||!Array.isArray(envelope.rows)||!/^[0-9a-f]{64}$/.test(envelope.content_sha256)||typeof envelope.contract_version!=='string'||!envelope.contract_version.trim()||envelope.tool!==toolName||typeof envelope.environment!=='string'||envelope.environment.toLowerCase()!=='production'||typeof envelope.captured_at!=='string'||Number.isNaN(Date.parse(envelope.captured_at))||!plainObject(envelope.source)||!plainObject(envelope.scope)||!Number.isSafeInteger(envelope.record_count)||envelope.record_count!==envelope.rows.length||(envelope.cursor_next!==null&&typeof envelope.cursor_next!=='string')||(envelope.etl_notice!==null&&typeof envelope.etl_notice!=='string'))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS production read envelope, scope, count, hash, or cursor is invalid.');
+  const scopeCompany=scopedText(envelope.scope.company);
+  if(scopeCompany&&envelope.rows.some(row=>plainObject(row)&&row.company_code!=null&&scopedText(row.company_code)!==scopeCompany||plainObject(row)&&row.company!=null&&scopedText(row.company)!==scopeCompany))throw new WbsMcpError('WBS_MCP_ENVELOPE_SCOPE_MISMATCH','WBS row company does not match the requested company scope.');
   const stableKey=stableKeyByTool[toolName];
   if(stableKey&&envelope.rows.some(row=>!plainObject(row)||(stableKey==='id'?!Number.isSafeInteger(row[stableKey]):typeof row[stableKey]!=='string'||!row[stableKey].trim())))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} rows require stable ${stableKey}.`);
   if(envelope.rows.some(row=>plainObject(row)&&row.currency!=null&&row.currency!=='USD'))throw new WbsMcpError('WBS_MCP_CURRENCY_UNSUPPORTED','WBS pilot accepts USD rows only.');
