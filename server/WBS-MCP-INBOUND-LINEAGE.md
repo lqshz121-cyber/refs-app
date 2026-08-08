@@ -49,6 +49,13 @@ envelope hash and row hash in normalized provenance. `pd_pv_guid` is not
 treated as `pb_guid`; until that relationship is provider-verified, AutoRec
 detail is quarantined by the existing `pbGuId` staging gate.
 
+The read-only pull service calls only `list_payables`,
+`list_bank_transactions`, and `list_autorec_details` with structured MCP tool
+arguments. Each response must use the selected company and the same capture
+timestamp before a snapshot can be presented for signature verification. A
+read, scope, or timing failure produces no persistence request and no
+accounting command.
+
 ## Accounting and AutoRec rules enforced at the boundary
 
 1. Payable, Bank Transaction, and AutoRec Detail can be transaction candidates
