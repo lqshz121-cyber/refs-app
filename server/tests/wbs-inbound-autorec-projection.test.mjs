@@ -1,12 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {projectPersistedWbsInboundAutoRec,projectObservedWbsAutoRecControlEvidence,bindReceiptBackedWbsAutoRecControlEvidence,WbsInboundProjectionError} from '../runtime/wbs-inbound-autorec-projection.mjs';
+import {projectPersistedWbsInboundAutoRec,projectObservedWbsAutoRecControlEvidence,bindReceiptBackedWbsAutoRecControlEvidence,wbsAutoRecObservedWorkflowContract,WbsInboundProjectionError} from '../runtime/wbs-inbound-autorec-projection.mjs';
 
 const common={receipt_id:'receipt-1',receipt_ref:'object://wbs/receipt/1',receipt_hash:'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',entity_id:'entity-1',company_key:'COMPANY-A',currency:'USD',business_date:'2026-08-04',accounting_date:'2026-08-05',stage:'STAGING_REVIEWED'};
 const bank={...common,source_type:'BANK_TRANSACTION',source_record_id:'bank-1',source_version:'v1',raw_event_id:'raw-bank',source_document_id:'doc-bank',staging_item_id:'stg-bank',bank_account_ref:'BANK-OP',amount:-100};
 const payable={...common,source_type:'PAYABLE',source_record_id:'pay-1',source_version:'v1',raw_event_id:'raw-pay',source_document_id:'doc-pay',staging_item_id:'stg-pay',amount:100};
 const mapping=row=>({mapping_id:`map-${row.source_record_id}`,version:'2',status:'APPROVED',source_type:row.source_type,entity_id:row.entity_id,company_key:row.company_key,currency:row.currency,...(row.source_type==='BANK_TRANSACTION'?{bank_account_ref:row.bank_account_ref}:{})});
 const companyControl={company_key:'COMPANY-A',user_ref:'USER-MASKED',completed_match_period:'M:06/2026',completed_release_period:'R:06/2026',completed_incur_period:'C:03/2025',quantity:10,amount:'100.0000',released_quantity:8,released_amount:'80.0000',incurred_quantity:6,incurred_amount:'60.0000',reconciliation_balance:'20.0000',new_balance:'40.0000',balance_date:'2026-08-05'};
+
+test('observed WBS workflow is explicitly evidence-only and does not invent a canonical transition graph',()=>{
+  const workflow=wbsAutoRecObservedWorkflowContract();
+  assert.deepEqual(workflow.steps.map(item=>item.step),['COMPANY_SCREENING','DATA_PROCESSING_RELEASE','INCUR','INCURRED_LIST']);
+  assert.equal(workflow.detail_kind_to_step.RELEASED_PAYMENT,'DATA_PROCESSING_RELEASE');
+  assert.equal(workflow.detail_kind_to_step.INCURRED_PAYMENT,'INCURRED_LIST');
+  assert.equal(workflow.canonical_wbs_transition_graph,'UNKNOWN');
+  assert.deepEqual({transition:workflow.can_transition_refs,release:workflow.can_release,incur:workflow.can_incur,draft:workflow.can_create_draft,post:workflow.can_post},{transition:false,release:false,incur:false,draft:false,post:false});
+});
 
 test('projects reviewed persisted bank and business rows into read-only AutoRec candidates with complete trace',()=>{
   const result=projectPersistedWbsInboundAutoRec({rows:[bank,payable],mappings:[mapping(bank),mapping(payable)]});
@@ -43,7 +52,9 @@ test('a released WBS detail is retained as observed state, never a REFS transiti
   const released={detail_kind:'RELEASED_PAYMENT',receipt_id:'receipt-release',receipt_ref:'object://wbs/receipt/release',receipt_hash:common.receipt_hash,source_record_id:'released-detail-1',source_version:'v1',posting_date:'2026-08-05',payment:'100.0000',reviewer:'Reviewer A'};
   const evidence=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[released]});
   assert.equal(evidence.exceptions.length,0);
+  assert.equal(evidence.observed_workflow.contract,'WBS_AUTOREC_OBSERVED_WORKFLOW_V1');
   assert.deepEqual({state:evidence.details[0].observed_state,authority:evidence.details[0].state_authority,transition:evidence.details[0].can_transition_state,post:evidence.details[0].can_post},{state:'RELEASED',authority:'WBS_OBSERVED_EVIDENCE_ONLY',transition:false,post:false});
+  assert.equal(evidence.details[0].observed_workflow_step,'DATA_PROCESSING_RELEASE');
 });
 
 test('signed WBS amounts preserve direction and absolute capacity, while a bad company control blocks only that company',()=>{
@@ -66,6 +77,7 @@ test('incurred payment retains bank-to-AUTOC relation and review evidence withou
   const incurred={detail_kind:'INCURRED_PAYMENT',company_key:'COMPANY-A',receipt_id:'receipt-1',receipt_ref:'object://wbs/receipt/1',receipt_hash:common.receipt_hash,source_record_id:'incurred-detail-1',source_version:'v1',bank_source_record_id:'bank-1',bank_source_version:'v2',bank_source_receipt_id:'receipt-bank-1',bank_source_receipt_ref:'object://wbs/receipt/bank-1',bank_source_receipt_hash:'sha256:'+'e'.repeat(64),autoc_payable_long_id:'autoc-payable-1',match_status:'MATCHED',transaction_date:'2026-08-04',posting_date:'2026-08-05',clear_date:'2026-08-06',bank_account_code:'100100',vendor:'Vendor A',memo:'Read-only original memo',ref_no:'REF-1',direction:'CREDIT',amount:'100.0000',project_department:'Project A',cost_code:'C-100',brief_description:'Read-only source description',invoice_receipt_evidence:'view-count-1',user_ref:'USER-MASKED',reviewer:'Reviewer A',comments_log:'External review trace'};
   const evidence=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[incurred]});assert.equal(evidence.exceptions.length,0);assert.equal(evidence.details[0].retained_relation.autoc_payable.long_id,'autoc-payable-1');assert.equal(evidence.details[0].retained_relation.can_post,false);assert.equal(evidence.details[0].can_dispatch,false);
   assert.equal(evidence.details[0].observed_state,'INCURRED');assert.equal(evidence.details[0].can_transition_state,false);
+  assert.equal(evidence.details[0].observed_workflow_step,'INCURRED_LIST');
   const incompleteRow={...incurred,company_key:'',autoc_payable_long_id:'',reviewer:''};
   const incomplete=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[incompleteRow]});assert.equal(incomplete.exceptions[0].code,'WBS_AUTOREC_INCURRED_RELATION_REQUIRED');
   const scoped=projectPersistedWbsInboundAutoRec({rows:[bank,payable],mappings:[mapping(bank),mapping(payable)],companyControlRows:[companyControl],detailControlRows:[incompleteRow]});assert.equal(scoped.candidates.length,1);assert.equal(scoped.candidates[0].source_record_id,'pay-1');

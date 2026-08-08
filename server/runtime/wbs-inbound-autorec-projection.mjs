@@ -3,6 +3,13 @@ import {canonicalRequestHash} from './request-hash.mjs';
 const TRANSACTION_TYPES=new Set(['BANK_TRANSACTION','PAYABLE','AUTOREC_PAYMENT_DETAIL']);
 const OBSERVED_DETAIL_KINDS=new Set(['NOT_MATCH_PAYMENT','RELEASED_PAYMENT','INCURRED_PAYMENT','COMPANY_ACCOUNT','JE_TRACE','BS_CONTROL','IS_CONTROL']);
 const OBSERVED_AUTOREC_STATE=Object.freeze({NOT_MATCH_PAYMENT:'NOT_MATCHED',RELEASED_PAYMENT:'RELEASED',INCURRED_PAYMENT:'INCURRED'});
+const OBSERVED_WORKFLOW_STEPS=Object.freeze([
+  Object.freeze({step:'COMPANY_SCREENING',wbs_label:'Company Screening',admission:'COMPANY_CONTROL_EVIDENCE_ONLY'}),
+  Object.freeze({step:'DATA_PROCESSING_RELEASE',wbs_label:'Data Processing & Release',admission:'DETAIL_EVIDENCE_ONLY'}),
+  Object.freeze({step:'INCUR',wbs_label:'Incur',admission:'ACTION_NOT_OBSERVED_AS_ROW'}),
+  Object.freeze({step:'INCURRED_LIST',wbs_label:'Incurred List',admission:'MATCH_RELATION_EVIDENCE_ONLY'})
+]);
+const OBSERVED_WORKFLOW_STEP_BY_DETAIL_KIND=Object.freeze({NOT_MATCH_PAYMENT:'DATA_PROCESSING_RELEASE',RELEASED_PAYMENT:'DATA_PROCESSING_RELEASE',INCURRED_PAYMENT:'INCURRED_LIST'});
 const text=value=>value==null?'':String(value).trim();
 const decimal=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
 const decimalText=value=>{const parsed=decimal(value);return parsed===null?null:parsed.toFixed(4);};
@@ -21,6 +28,24 @@ const sensitiveInput=value=>{
 export class WbsInboundProjectionError extends Error { constructor(code,message){super(message);this.name='WbsInboundProjectionError';this.code=code;} }
 const exception=(row,code,message)=>freeze({stage:'EXCEPTION',code,message,company_key:text(row?.company_key)||null,source_record_id:text(row?.source_record_id)||null,bank_source_record_id:text(row?.bank_source_record_id)||null,raw_event_id:text(row?.raw_event_id)||null,staging_item_id:text(row?.staging_item_id)||null,can_dispatch:false,can_post:false});
 const scopedException=(item,block_scope)=>freeze({...item,block_scope});
+
+// WBS supplies page/action observations, not an authoritative REFS transition
+// graph. In particular, an Incur action is not inferred from a later detail
+// row and a WBS status can never release, incur, reverse, or post in REFS.
+export function wbsAutoRecObservedWorkflowContract(){
+  return freeze({
+    contract:'WBS_AUTOREC_OBSERVED_WORKFLOW_V1',
+    steps:OBSERVED_WORKFLOW_STEPS,
+    detail_kind_to_step:OBSERVED_WORKFLOW_STEP_BY_DETAIL_KIND,
+    canonical_wbs_transition_graph:'UNKNOWN',
+    refs_transition_authority:'REFS_AUTHORITATIVE_WORKFLOW_ONLY',
+    can_transition_refs:false,
+    can_release:false,
+    can_incur:false,
+    can_create_draft:false,
+    can_post:false
+  });
+}
 
 function missingFields(row){
   const required=['receipt_id','receipt_ref','receipt_hash','raw_event_id','source_document_id','staging_item_id','source_record_id','source_version','entity_id','company_key','currency','amount','business_date','accounting_date','source_type'];
@@ -73,7 +98,8 @@ function detailControl(row){
   if(('transaction_date' in observed_fields&&!validDate(observed_fields.transaction_date))||('posting_date' in observed_fields&&!validDate(observed_fields.posting_date))||('create_date' in observed_fields&&!validDate(observed_fields.create_date))||['amount','deposit','payment','debit','credit'].some(key=>key in observed_fields&&decimal(observed_fields[key])===null))return {error:exception(row,'WBS_AUTOREC_CONTROL_TRACE_INVALID','Observed WBS detail has an invalid transaction, posting, creation, or monetary value')};
   const retained_relation=text(row.detail_kind)==='INCURRED_PAYMENT'?freeze({bank_record:freeze({source_record_id:text(row.bank_source_record_id),source_version:text(row.bank_source_version),bank_account_code:text(row.bank_account_code)}),autoc_payable:freeze({long_id:text(row.autoc_payable_long_id)}),match_status:text(row.match_status),dimensions:freeze({project_department:text(row.project_department),cost_code:text(row.cost_code)}),attachment_invoice_evidence:text(row.invoice_receipt_evidence),human_review_trace:freeze({user_ref:text(row.user_ref),reviewer:text(row.reviewer),comments_log:text(row.comments_log)}),can_create_transaction:false,can_approve:false,can_post:false}):null;
   const observedState=OBSERVED_AUTOREC_STATE[text(row.detail_kind)]??null;
-  return {detail:freeze({detail_kind:text(row.detail_kind),observed_state:observedState,state_authority:observedState?'WBS_OBSERVED_EVIDENCE_ONLY':null,can_transition_state:false,receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),observed_fields:freeze(observed_fields),retained_relation,can_dispatch:false,can_post:false})};
+  const observedStep=OBSERVED_WORKFLOW_STEP_BY_DETAIL_KIND[text(row.detail_kind)]??null;
+  return {detail:freeze({detail_kind:text(row.detail_kind),observed_state:observedState,state_authority:observedState?'WBS_OBSERVED_EVIDENCE_ONLY':null,observed_workflow_step:observedStep,workflow_authority:observedStep?'WBS_OBSERVED_EVIDENCE_ONLY':null,can_transition_state:false,receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),observed_fields:freeze(observed_fields),retained_relation,can_dispatch:false,can_post:false})};
 }
 
 // A read-only copy of the observed WBS Auto Bank Reconciliation controls. It
@@ -84,7 +110,7 @@ export function projectObservedWbsAutoRecControlEvidence({companyRows,detailRows
   const controls=[],details=[],exceptions=[];
   for(const row of companyRows){const result=companyControl(row);result.error?exceptions.push(result.error):controls.push(result.control);}
   for(const row of detailRows){const result=detailControl(row);result.error?exceptions.push(result.error):details.push(result.detail);}
-  return freeze({evidence_type:'WBS_AUTOREC_OBSERVED_CONTROL_EVIDENCE_V1',observed_steps:freeze(['Company Screening','Data Processing & Release','Incur','Incurred List']),controls:freeze(controls),details:freeze(details),exceptions:freeze(exceptions),forbidden_wbs_operations:FORBIDDEN_WBS_OPERATIONS,can_dispatch:false,can_create_draft:false,can_post:false});
+  return freeze({evidence_type:'WBS_AUTOREC_OBSERVED_CONTROL_EVIDENCE_V1',observed_workflow:wbsAutoRecObservedWorkflowContract(),controls:freeze(controls),details:freeze(details),exceptions:freeze(exceptions),forbidden_wbs_operations:FORBIDDEN_WBS_OPERATIONS,can_dispatch:false,can_create_draft:false,can_post:false});
 }
 
 const receiptTrace=row=>freeze({tenant_id:text(row.tenant_id)||null,entity_id:text(row.entity_id)||null,receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),company_key:text(row.company_key)});
@@ -111,7 +137,7 @@ export function bindReceiptBackedWbsAutoRecControlEvidence({companyRows,detailRo
   const controls=[],details=[],exceptions=[];
   for(const row of companyRows){const projected=companyControl(row);if(projected.error){exceptions.push(scopedException(projected.error,'COMPANY'));continue;}const bound=receiptBinding(row,persistedRows,scope);if(bound.error){exceptions.push(scopedException(bound.error,'COMPANY'));continue;}controls.push(freeze({...projected.control,receipt_trace:bound.trace}));}
   for(const row of detailRows){const projected=detailControl(row);if(projected.error){exceptions.push(scopedException(projected.error,'SOURCE'));continue;}const bound=receiptBinding(row,persistedRows,scope);if(bound.error){exceptions.push(scopedException(bound.error,'SOURCE'));continue;}let bank_relation_trace=null;if(text(row.detail_kind)==='INCURRED_PAYMENT'){const bank=receiptBinding({...row,source_record_id:row.bank_source_record_id,source_version:row.bank_source_version,receipt_id:row.bank_source_receipt_id,receipt_ref:row.bank_source_receipt_ref,receipt_hash:row.bank_source_receipt_hash},persistedRows,scope);if(bank.error){exceptions.push(scopedException(bank.error,'SOURCE'));continue;}bank_relation_trace=bank.trace;}details.push(freeze({...projected.detail,receipt_trace:bound.trace,bank_relation_trace}));}
-  return freeze({evidence_type:'WBS_AUTOREC_RECEIPT_BACKED_CONTROL_EVIDENCE_V1',observed_steps:freeze(['Company Screening','Data Processing & Release','Incur','Incurred List']),controls:freeze(controls),details:freeze(details),exceptions:freeze(exceptions),forbidden_wbs_operations:FORBIDDEN_WBS_OPERATIONS,can_dispatch:false,can_create_draft:false,can_post:false});
+  return freeze({evidence_type:'WBS_AUTOREC_RECEIPT_BACKED_CONTROL_EVIDENCE_V1',observed_workflow:wbsAutoRecObservedWorkflowContract(),controls:freeze(controls),details:freeze(details),exceptions:freeze(exceptions),forbidden_wbs_operations:FORBIDDEN_WBS_OPERATIONS,can_dispatch:false,can_create_draft:false,can_post:false});
 }
 
 // Read-only projection from a persisted staging/exception read model. It does

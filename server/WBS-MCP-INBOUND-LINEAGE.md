@@ -99,6 +99,15 @@ posting instructions.
 WBS `Released` and `Incurred` values are observed control evidence. They do
 not authorize a REFS state transition, JE action, or ledger mutation.
 
+The WBS screens presently evidence four workflow labels — Company Screening,
+Data Processing & Release, Incur, and Incurred List. REFS retains those as
+`WBS_AUTOREC_OBSERVED_WORKFLOW_V1`: a not-matched or released detail belongs
+to the observed Data Processing & Release step, while an incurred detail
+belongs to the observed Incurred List step. The action-level Incur event is
+not inferred from a later row. The canonical WBS transition graph is
+**UNKNOWN** until the provider supplies signed state/transition evidence;
+every observed step remains non-dispatchable and cannot alter REFS state.
+
 Observed WBS relation rows can identify a Detail only when the signed relation
 receipt binds `MB_BusinessId` to `pd_guid` under the compatible `AUTOC`,
 `AUTOP`, or `AUTOR` source type. That edge is relation evidence only; no
