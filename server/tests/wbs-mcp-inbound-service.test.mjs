@@ -24,3 +24,12 @@ test('scope mismatch, malformed selections, failed reads, or unequal capture tim
   const failing=createWbsMcpInboundService({client:{readView:async()=>{throw new Error('network');}}});await assert.rejects(()=>failing.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_READ_FAILED');
   const unequal=createWbsMcpInboundService({client:{readView:async({toolName})=>toolName==='list_autorec_details'?raw(toolName,values[toolName].rows,'2026-08-09T12:01:00.000Z'):structuredClone(values[toolName])}});await assert.rejects(()=>unequal.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_SNAPSHOT_SCOPE_INVALID');
 });
+
+test('control and trace views are read separately and cannot enter a transaction path',async()=>{
+  const control=raw('list_autorec_banks',[{pb_guid:'PB-1',company_code:'COMPANY-A',quantity:10,released_quantity:8,pay_amount:100,released:80,incurred:60}]);
+  const calls=[],service=createWbsMcpInboundService({client:{readView:async request=>(calls.push(request),structuredClone(control))}});
+  const result=await service.pullControlOrTraceEvidence({companyKey:'COMPANY-A',toolName:'list_autorec_banks',args:{company:'COMPANY-A'}});
+  assert.deepEqual(calls.map(call=>call.toolName),['list_autorec_banks']);
+  assert.deepEqual({status:result.status,admission:result.evidence.rows[0].admission,transaction:result.can_create_transaction,draft:result.can_create_draft,post:result.can_post},{status:'WBS_MCP_CONTROL_EVIDENCE_READY',admission:'CONTROL_EVIDENCE_ONLY',transaction:false,draft:false,post:false});
+  await assert.rejects(()=>service.pullControlOrTraceEvidence({companyKey:'COMPANY-A',toolName:'list_payables',args:{company:'COMPANY-A'}}),error=>error.code==='WBS_MCP_CONTROL_SELECTION_REQUIRED');
+});
