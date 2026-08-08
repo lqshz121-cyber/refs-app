@@ -7,8 +7,10 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate HEAD: `300644b369c155d1c7b2f293b10fb10e40d435f5`
+- Frozen code candidate: `300644b369c155d1c7b2f293b10fb10e40d435f5`
   (parent `e9aeb7afa287a1514c577ff545667051406c5e00`; clean worktree verified).
+- Frozen handoff wrapper HEAD: `50ec457c3bf5022c262b141a71b828fb5205510c`
+  (parent `300644b369c155d1c7b2f293b10fb10e40d435f5`; documentation only; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -40,8 +42,8 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At frozen code candidate `3cb6ef6`, the current focused lineage/projection
-suite exited `0`: `18/18` passing; `npm.cmd test` exited `0`: `244/244` passing, `0`
+At frozen code candidate `300644b`, the current focused lineage/projection
+suite exited `0`: `31/31` passing; `npm.cmd test` exited `0`: `244/244` passing, `0`
 skipped. `git diff --check` exited `0`. Rerun all commands above after
 integration. `git diff --check` must exit `0` on
 the target branch. These are local tests with injected provider/kernel seams,
