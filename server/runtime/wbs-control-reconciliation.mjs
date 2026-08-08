@@ -4,7 +4,16 @@
 import {canonicalRequestHash} from './request-hash.mjs';
 
 const text=value=>value==null?'':String(value).trim();
-const decimal=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
+// Metric inputs are canonical decimals. Treat a missing field as missing,
+// rather than allowing JavaScript's Number('')/Number(null) coercion to turn
+// it into a false zero control total.
+const decimal=value=>{
+  if(typeof value==='number')return Number.isFinite(value)?Number(value.toFixed(4)):null;
+  const candidate=typeof value==='string'?value.trim():'';
+  if(!/^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(candidate))return null;
+  const parsed=Number(candidate);
+  return Number.isFinite(parsed)?Number(parsed.toFixed(4)):null;
+};
 const freeze=value=>Object.freeze(value);
 const validDate=value=>{const normalized=text(value);return /^\d{4}-\d{2}-\d{2}$/.test(normalized)&&new Date(`${normalized}T00:00:00.000Z`).toISOString().slice(0,10)===normalized;};
 const validPeriod=value=>/^\d{4}-(0[1-9]|1[0-2])$/.test(text(value));

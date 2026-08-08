@@ -37,6 +37,15 @@ test('missing receipt, incomplete metric mapping, and invalid Property periods f
   assert.throws(()=>reconcileWbsControlEvidence({sourceType:'PROPERTY_COMPARISON',scope:{tenant_id:'tenant-c',entity_id:'entity-c',company_key:'C',property_ref:'PROPERTY-C',period_start:'2026-08-31',period_end:'2026-08-01',currency:'USD',bank_account_ref:'B'}}),error=>error.code==='WBS_PROPERTY_PERIOD_INVALID');
 });
 
+test('blank report metric values never coerce to zero for Cost GL or Property controls',()=>{
+  const propertyScope={tenant_id:'tenant-a',entity_id:'entity-a',company_key:'COMPANY-A',property_ref:'PROPERTY-A',period_start:'2026-08-01',period_end:'2026-08-31',currency:'USD',bank_account_ref:'BANK-1'};
+  const propertyMetrics=[{metric_key:'PROPERTY_VALUE',amount:10}];
+  const propertyArgs={sourceType:'PROPERTY_COMPARISON',scope:propertyScope,sourceReceipt:receipt('c',propertyScope,propertyMetrics),targetReceipt:receipt('d',propertyScope,propertyMetrics),approvedMapping:{status:'APPROVED',mapping_type:'WBS_PROPERTY_CONTROL_RECONCILIATION',mapping_id:'map-property',version:'1',scope:propertyScope,metric_keys:['PROPERTY_VALUE']},sourceMetrics:propertyMetrics,targetMetrics:propertyMetrics};
+  for(const args of [costArgs,propertyArgs])for(const invalidAmount of ['', '  ', null, true, '0x10']){
+    assert.throws(()=>reconcileWbsControlEvidence({...args,sourceMetrics:[{...args.sourceMetrics[0],amount:invalidAmount},...args.sourceMetrics.slice(1)]}),error=>error.code==='WBS_CONTROL_METRICS_INVALID');
+  }
+});
+
 test('control receipts cannot be replayed across company, period, or currency scope',()=>{
   assert.throws(()=>reconcileWbsControlEvidence({...costArgs,sourceReceipt:receipt('a',{...costScope,period:'2026-07'},costMetrics)}),error=>error.code==='WBS_CONTROL_RECEIPT_SCOPE_MISMATCH');
   assert.throws(()=>reconcileWbsControlEvidence({...costArgs,targetReceipt:receipt('b',{...costScope,company_key:'COMPANY-B'},costMetrics)}),error=>error.code==='WBS_CONTROL_RECEIPT_SCOPE_MISMATCH');
