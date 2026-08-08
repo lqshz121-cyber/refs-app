@@ -17,6 +17,7 @@ production acceptance, a live WBS import, or authority to post a journal.
 | Area | Delivered behavior | Key files |
 | --- | --- | --- |
 | Formal MCP lineage | Classifies Payable, Bank Transaction, and AutoRec Detail as possible transaction input; classifies AutoRec Bank, Journal Entry, Cost GL, Property Comparison, and trace as control/trace evidence. | `server/runtime/wbs-mcp-inbound-lineage.mjs`, `server/WBS-MCP-INBOUND-LINEAGE.md` |
+| Direct-source evidence register | Separates observed WBS table inventory from unverified field, foreign-key, and state semantics; defines aggregate-only follow-up evidence before any direct provider mapping. | `server/WBS-READONLY-SOURCE-EVIDENCE.md` |
 | External accounting trace | Retains Payable posting/journal/check context, Bank transaction/payee/memo context, and AutoRec detail release/incur/AUTOC relations for reviewer trace only. No retained trace field is a REFS key, state transition, or posting authority. | `server/runtime/wbs-mcp-inbound-lineage.mjs`, `server/runtime/wbs-inbound-data-adapter.mjs` |
 | Reverse trace lookup | Requires a read-only REFS persisted-source read that exactly matches tenant/entity/company/key/version/receipt, then queries `trace_by_key`. It rejects display/relation fields as lookup substitutes and returns relation evidence only. | `server/runtime/wbs-mcp-inbound-service.mjs` |
 | Snapshot safety | Requires one company, one capture timestamp, stable ascending keys, canonical hashes, and no duplicate producer views. Missing keys in a later snapshot are `ABSENT_UNCONFIRMED`, never deletions. | `server/runtime/wbs-mcp-inbound-lineage.mjs` |
@@ -72,6 +73,11 @@ not a production gate.
 - Provider meaning for lender/debtor and deposit/payment directions, revision/
   CDC/tombstone behavior, the AutoRec `pd_guid` to payment/bank relationship,
   and the names/semantics of the fourteen Cost GL metrics remain unverified.
+- The authenticated read-only source inventory observed candidate tables in
+  `wbsdata` and `accounting`, but a connector transport failure prevented
+  field-level metadata retrieval. The table names are documented as OBSERVED
+  inventory only in `server/WBS-READONLY-SOURCE-EVIDENCE.md`; no direct table
+  mapping is authorized from this evidence.
 - Therefore no live WBS response may enter persistence, AutoRec, or a journal
   workflow until the signature verifier and receipt store are configured and
   independently tested with the provider material.

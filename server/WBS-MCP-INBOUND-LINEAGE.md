@@ -5,6 +5,12 @@ WBS operations and it never writes to WBS. A successful read is evidence only;
 it cannot allocate, create a Draft journal, approve, post, release, incur, or
 cancel anything.
 
+Source-table discovery and the evidence still needed to establish direct
+provider field mappings are recorded in
+[WBS-READONLY-SOURCE-EVIDENCE.md](WBS-READONLY-SOURCE-EVIDENCE.md). That
+register deliberately distinguishes observed table inventory from unverified
+column, relationship, and state semantics.
+
 ## Producer classification
 
 | WBS Finance source | Formal MCP view | REFS role | Required identity / evidence | Result before human review |
