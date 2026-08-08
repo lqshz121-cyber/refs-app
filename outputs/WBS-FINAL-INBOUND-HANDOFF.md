@@ -7,8 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate: `db15d8894a0e97fb067be79498471a929a5ee82e`
-  (parent `30f8436728d0f372d61cdea02a22e3cdade7a6c8`; clean worktree verified).
+- Frozen code candidate: `5dd20a26a63f04ca192da4d5f4d16c558e1593d2`
+  (parent `db15d8894a0e97fb067be79498471a929a5ee82e`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -40,8 +40,8 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At frozen code candidate `db15d88`, the focused workflow/matching suite exited
-`0`: `27/27` passing; `npm.cmd test` exited `0`: `246/246` passing, `0`
+At frozen code candidate `5dd20a2`, the focused matching/adapter suite exited
+`0`: `15/15` passing; `npm.cmd test` exited `0`: `246/246` passing, `0`
 skipped. `git diff --check` exited `0`. Rerun all commands above after
 integration. `git diff --check` must exit `0` on
 the target branch. These are local tests with injected provider/kernel seams,
@@ -243,9 +243,12 @@ constraints and the corrected handoff state:
 12. `db15d88` makes provider-backed AutoRec review plans take their date window
     and amount tolerance from one approved, receipt-bound REFS matching policy;
     importer/UI parameters cannot widen a policy.
+13. `5dd20a2` binds every bank-side and business-side source to the exact
+    approved mapping versions named by that matching policy; correct amounts
+    with incorrect accounting mappings are blocked.
 
 The directly consumable integration range is therefore exactly
-`6843dce^..db15d88`, applied in Git order. It includes no WBS business UI,
+`6843dce^..5dd20a2`, applied in Git order. It includes no WBS business UI,
 WBS write operation, Draft-JE dispatch, approval or posting implementation.
 
 ## Current conflict and ownership check
