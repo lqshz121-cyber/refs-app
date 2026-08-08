@@ -16,7 +16,7 @@ const providerEnvelope=envelope=>({tool:envelope.tool_name,contract_version:enve
 // This service has exactly one outward capability: read through the injected
 // read-only MCP client. It has no repository, Draft, allocation, or posting
 // dependency, so a pull cannot mutate WBS or the REFS accounting ledger.
-export function createWbsMcpInboundService({client}={}){
+export function createWbsMcpInboundService({client,persistedSourceReader=null}={}){
   if(!client||typeof client.readView!=='function')throw new WbsMcpInboundServiceError('WBS_MCP_CLIENT_REQUIRED','A configured read-only WBS MCP client is required.');
   return Object.freeze({
     read_only:true,
@@ -54,17 +54,21 @@ export function createWbsMcpInboundService({client}={}){
     // A reverse trace lookup is intentionally keyed only by a persisted WBS
     // immutable source identifier. Display values such as Ref No., memo, cb_id
     // relation fields, and pd_pv_guid must never be promoted into lookup keys.
-    async pullTraceByPersistedSource({companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash}={}){
+    async pullTraceByPersistedSource({tenantId,entityId,companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash}={}){
       const keyType=traceKeyTypeBySourceType[text(sourceType)];
-      if(!text(companyKey)||!keyType||!text(sourceRecordId)||!text(sourceVersion)||!immutableReceiptHash(receiptHash))fail('WBS_MCP_TRACE_SELECTION_REQUIRED','Reverse trace requires company scope, supported source type, immutable source key/version, and receipt hash.');
+      if(!text(tenantId)||!text(entityId)||!text(companyKey)||!keyType||!text(sourceRecordId)||!text(sourceVersion)||!immutableReceiptHash(receiptHash))fail('WBS_MCP_TRACE_SELECTION_REQUIRED','Reverse trace requires tenant, entity, company scope, supported source type, immutable source key/version, and receipt hash.');
+      if(!persistedSourceReader||persistedSourceReader.readOnly!==true||typeof persistedSourceReader.getPersistedSource!=='function')fail('WBS_MCP_PERSISTED_SOURCE_READER_REQUIRED','Reverse trace requires a read-only REFS persisted-source reader.');
+      let persisted;try{persisted=await persistedSourceReader.getPersistedSource({tenant_id:text(tenantId),entity_id:text(entityId),company_key:text(companyKey),source_type:text(sourceType),source_record_id:text(sourceRecordId),source_version:text(sourceVersion),receipt_hash:text(receiptHash)});}catch{fail('WBS_MCP_PERSISTED_SOURCE_READ_FAILED','Persisted REFS source could not be read before WBS reverse trace lookup.');}
+      const exact=persisted&&text(persisted.tenant_id)===text(tenantId)&&text(persisted.entity_id)===text(entityId)&&text(persisted.company_key)===text(companyKey)&&text(persisted.source_type)===text(sourceType)&&text(persisted.source_record_id)===text(sourceRecordId)&&text(persisted.source_version)===text(sourceVersion)&&text(persisted.receipt_hash)===text(receiptHash);
+      if(!exact)fail('WBS_MCP_PERSISTED_SOURCE_MISMATCH','Reverse trace source identity must exactly match a persisted REFS receipt-backed source.');
       let envelope;try{envelope=await client.readView({toolName:'trace_by_key',args:{key_type:keyType,key_value:text(sourceRecordId)}});}catch(cause){throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_READ_FAILED','WBS reverse trace read failed before any REFS persistence.');}
       if(!envelope||envelope.tool_name!=='trace_by_key'||text(envelope.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS trace response is outside the persisted source company scope.');
       let evidence;try{evidence=mapWbsMcpEnvelopeToInbound({envelope:providerEnvelope(envelope)});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_MAPPING_FAILED','WBS reverse trace response could not be mapped as read-only relation evidence.');}
-      return Object.freeze({status:'WBS_MCP_REVERSE_TRACE_EVIDENCE_READY',lookup:freezeLookup({companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,keyType}),evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['bind returned relation evidence to the exact persisted receipt/source version','read authoritative REFS trace','human review where a relationship affects accounting'])});
+      return Object.freeze({status:'WBS_MCP_REVERSE_TRACE_EVIDENCE_READY',lookup:freezeLookup({tenantId,entityId,companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,keyType}),evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['bind returned relation evidence to the exact persisted receipt/source version','read authoritative REFS trace','human review where a relationship affects accounting'])});
     }
   });
 }
 
-function freezeLookup({companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,keyType}){
-  return Object.freeze({company_key:text(companyKey),source_type:text(sourceType),source_record_id:text(sourceRecordId),source_version:text(sourceVersion),receipt_hash:text(receiptHash),wbs_key_type:keyType,can_use_relation_as_key:false,can_use_relation_as_posting_authority:false});
+function freezeLookup({tenantId,entityId,companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,keyType}){
+  return Object.freeze({tenant_id:text(tenantId),entity_id:text(entityId),company_key:text(companyKey),source_type:text(sourceType),source_record_id:text(sourceRecordId),source_version:text(sourceVersion),receipt_hash:text(receiptHash),wbs_key_type:keyType,can_use_relation_as_key:false,can_use_relation_as_posting_authority:false});
 }
