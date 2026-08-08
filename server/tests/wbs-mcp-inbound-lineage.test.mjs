@@ -56,6 +56,9 @@ test('transaction candidates require exact company scope and all monetary admiss
   const incomplete=mapWbsMcpEnvelopeToInbound({envelope:incompleteEnvelope,bankDirectionConventions:bankDirectionConventions(incompleteEnvelope)});
   assert.equal(incomplete.rows[0].admission,'EXCEPTION_REVIEW_REQUIRED');
   assert.deepEqual(incomplete.rows[0].missing,['currency','business_date']);
+  const payableWithoutPosting=envelope('list_payables',[{ap_guid:'A-POSTING',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:'100',incurred_date:'2026-08-01'}]);
+  const payableAdmission=mapWbsMcpEnvelopeToInbound({envelope:payableWithoutPosting,payableDirectionConventions:payableDirectionConventions(payableWithoutPosting)}).rows[0];
+  assert.deepEqual({admission:payableAdmission.admission,code:payableAdmission.exception_code,missing:payableAdmission.missing},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_PAYABLE_POSTING_DATE_REQUIRED',missing:['posting_date']});
   assert.throws(()=>mapWbsMcpEnvelopeToInbound({envelope:envelope('list_payables',[{ap_guid:'A-1',company_code:'COMPANY-B',currency:'USD',amount:'100',posting_date:'2026-08-01'}])}),error=>error.code==='WBS_MCP_ENVELOPE_SCOPE_MISMATCH');
 });
 
