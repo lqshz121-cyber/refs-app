@@ -7,8 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate HEAD: `e9aeb7afa287a1514c577ff545667051406c5e00`
-  (parent `a67bddd862a8bc2048b5676d2a23842128bcf622`; clean worktree verified).
+- Frozen code candidate HEAD: `300644b369c155d1c7b2f293b10fb10e40d435f5`
+  (parent `e9aeb7afa287a1514c577ff545667051406c5e00`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -233,9 +233,12 @@ constraints and the corrected handoff state:
 9. `e9aeb7a` applies the same rule to Payable Report amounts: every `ap_type`
    needs a receipt-bound direction convention before a report amount can be a
    business-side AutoRec source.
+10. `300644b` applies it to AutoRec Detail: every `biz_type` needs a
+    receipt-bound Deposit/Payment direction convention as well as the
+    existing exactly-one-non-zero movement check.
 
 The directly consumable integration range is therefore exactly
-`6843dce^..e9aeb7a`, applied in Git order. It includes no WBS business UI,
+`6843dce^..300644b`, applied in Git order. It includes no WBS business UI,
 WBS write operation, Draft-JE dispatch, approval or posting implementation.
 
 ## Current conflict and ownership check
