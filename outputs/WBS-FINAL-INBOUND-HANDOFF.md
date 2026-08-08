@@ -7,8 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Current WBS inbound candidate: `2949c4627f2a660cd21688b3df355c65000013bd`
-  (parent `9925cce9bcc3da661494ae2f3396bbcf85dc9881`; clean worktree verified).
+- Current WBS inbound candidate: `515be9e07c427ab2690fac3ef1c8a7aec609d231`
+  (parent `2c5d0a266f594c0e14a109e2c320788210c57398`; clean worktree verified).
 - This candidate includes the earlier inbound series through `bdbbdc5`, plus
   production-signature and strict-decimal hardening listed below.
 - Candidate commits: recorded in the integration order below.
@@ -46,7 +46,7 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At current candidate `2949c46`, the following focused commands exited
+At candidate `515be9e`, the following focused commands exited
 `0`: AutoRec projection `13/13`, MCP lineage `14/14`, Cost/Property
 control reconciliation `8/8`, and MCP pipeline plus inbound adapter
 `15/15`. Root `npm.cmd test` and `git diff --check` also exited `0`.
@@ -280,6 +280,9 @@ onto the target main branch:
    the same strict decimal rule.
 6. `2949c46` — MCP pipeline requires `prepareVerified`; no composition
    may fall back to the synchronous preparation seam.
+7. `515be9e` — executable production-shaped Ed25519 test: both the MCP
+   pipeline verifier and adapter keyring verifier must pass before persistence;
+   a modified signature yields zero persistence.
 
 These commits remain WBS inbound-only. They do not create a WBS business UI,
 call a WBS write operation, dispatch a Draft JE, approve, or post.
