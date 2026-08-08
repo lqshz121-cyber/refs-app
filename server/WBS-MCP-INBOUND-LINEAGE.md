@@ -41,6 +41,10 @@ deletion. Any mixed company scope, non-ascending stable keys, invalid content
 hash, ambiguous debit/credit movement, missing currency/date/account/amount, or
 missing immutable receipt remains blocked.
 
+Calendar validation is strict at the snapshot adapter boundary: an impossible
+source or posting date (for example `2026-02-30`) is quarantined before
+Staging, AutoRec review, Draft request, or any accounting action.
+
 The three transaction producer envelopes can be packaged into the existing
 receipt-backed snapshot ingress only when they have one company, one captured
 timestamp, ascending stable keys, and — in production — complete delivery
