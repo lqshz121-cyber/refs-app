@@ -267,6 +267,11 @@ export function buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVers
   if(new Set(accepted.map(item=>item.tool_name)).size!==accepted.length)throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_VIEW_DUPLICATE','A snapshot may contain one envelope per transaction producer view.');
   const company=text(accepted[0].scope.company),capturedAt=accepted[0].captured_at;
   if(!company||accepted.some(item=>text(item.scope.company)!==company||item.captured_at!==capturedAt))throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_SCOPE_INVALID','Formal MCP transaction envelopes require one company scope and captured-at timestamp.');
+  // A production cursor/snapshot response must bind its provider snapshot
+  // token into the signed REFS manifest. Otherwise a signature could prove
+  // the rows but not that the page set was read from one WBS snapshot.
+  const providerSnapshotToken=text(accepted[0].scope?.snapshot_token);
+  if(environment==='PRODUCTION'&&(!providerSnapshotToken||accepted.some(item=>text(item.scope?.snapshot_token)!==providerSnapshotToken)||text(delivery?.snapshot_token)!==providerSnapshotToken))throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_TOKEN_REQUIRED','Production MCP snapshots require one provider snapshot token echoed by every view and bound into delivery evidence.');
   const bankEnvelope=accepted.find(item=>item.tool_name==='list_bank_transactions');
   const bankRules=bankEnvelope?bankDirectionRules(bankEnvelope,bankDirectionConventions):new Map();
   if(bankEnvelope&&bankEnvelope.rows.some(row=>!bankRules.has(text(row.account_code))))throw new WbsMcpLineageError('WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED','Every selected Bank Transaction account requires a receipt-bound direction convention before snapshot admission.');
