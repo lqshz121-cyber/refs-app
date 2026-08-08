@@ -160,9 +160,10 @@ substitutes. Returned relations remain read-only evidence.
    source documents, AutoRec allocations, Draft JEs, or ledger postings.
 
 Cost GL requires exactly fourteen metrics and an exact scoped, approved
-`WBS_COST_GL_CONTROL_RECONCILIATION` mapping. Property Comparison requires an
-exact scoped, approved `WBS_PROPERTY_CONTROL_RECONCILIATION` mapping including
-company, inclusive date range, currency, and bank account. Both produce only
+`WBS_COST_GL_CONTROL_RECONCILIATION` mapping including tenant, entity, company,
+period, and currency. Property Comparison requires an exact scoped, approved
+`WBS_PROPERTY_CONTROL_RECONCILIATION` mapping including tenant, entity, company,
+property, inclusive date range, currency, and bank account. Both produce only
 `RECONCILED` or `DIFFERENCE`, exact four-decimal comparisons, control totals,
 and Raw/receipt/mapping/target reverse trace. Incomplete metric sets, receipts,
 or mappings are blocked rather than treated as zero.

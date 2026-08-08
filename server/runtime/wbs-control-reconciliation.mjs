@@ -27,7 +27,7 @@ function metricMap(rows,label){
 
 export function reconcileWbsControlEvidence({sourceType,scope,sourceReceipt,targetReceipt,approvedMapping,sourceMetrics,targetMetrics}={}){
   if(!['COST_GENERAL_LEDGER','PROPERTY_COMPARISON'].includes(sourceType))fail('WBS_CONTROL_SOURCE_TYPE_INVALID','Only Cost General Ledger and Property Comparison control sources are supported.');
-  const scopeKeys=sourceType==='COST_GENERAL_LEDGER'?['company_key','period','currency']:['company_key','period_start','period_end','currency','bank_account_ref'];
+  const scopeKeys=sourceType==='COST_GENERAL_LEDGER'?['tenant_id','entity_id','company_key','period','currency']:['tenant_id','entity_id','company_key','property_ref','period_start','period_end','currency','bank_account_ref'];
   if(!scope||!scopeKeys.every(key=>text(scope[key])))fail('WBS_CONTROL_SCOPE_REQUIRED','Control reconciliation requires the complete source scope.');
   if(sourceType==='PROPERTY_COMPARISON'&&(!validDate(scope.period_start)||!validDate(scope.period_end)||scope.period_start>scope.period_end))fail('WBS_PROPERTY_PERIOD_INVALID','Property Comparison requires a valid inclusive date range.');
   const source=validateReceipt(sourceReceipt,'WBS source'),target=validateReceipt(targetReceipt,'REFS target');
