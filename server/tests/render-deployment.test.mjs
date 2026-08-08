@@ -5,18 +5,34 @@ import {fileURLToPath} from 'node:url';
 import {dirname,resolve} from 'node:path';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..','..');
+const serviceSection=(manifest,name)=>{
+  const match=manifest.match(new RegExp(`^  - type: ([^\\r\\n]+)\\r?\\n    name: ${name}\\r?\\n([\\s\\S]*?)(?=^  - type:|(?![\\s\\S]))`,'m'));
+  assert.ok(match,`Render manifest is missing ${name}`);
+  return {type:match[1],body:match[2]};
+};
+const hasSecret=(section,key)=>new RegExp(`- key: ${key}\\r?\\n\\s+sync: false`).test(section);
+const hasFixed=(section,key,value)=>new RegExp(`- key: ${key}\\r?\\n\\s+value: ${value}`).test(section);
 
 test('Render staging manifest declares every production startup secret and uses locked frontend installs',async()=>{
   const manifest=await readFile(resolve(root,'render.yaml'),'utf8');
-  for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','OIDC_ISSUER','OIDC_AUDIENCE','OIDC_JWKS_URI','REFS_HTTP_ALLOWED_ORIGINS','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_CA_FILE','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID','WBS_SNAPSHOT_ED25519_PUBLIC_KEYS'])assert.match(manifest,new RegExp(`- key: ${key}\\r?\\n\\s+sync: false`));
-  for(const key of ['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE','REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT','REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE'])assert.match(manifest,new RegExp(`- key: ${key}\\r?\\n\\s+sync: false`));
-  assert.match(manifest,/buildCommand: npm ci && npm run build/);
-  assert.doesNotMatch(manifest,/buildCommand: npm install && npm run build/);
+  const api=serviceSection(manifest,'refs-accounting-api-staging'),worker=serviceSection(manifest,'refs-attachment-cleanup-staging'),web=serviceSection(manifest,'refs-app');
+  assert.equal(api.type,'web');assert.equal(worker.type,'worker');assert.equal(web.type,'web');
+  for(const section of [api.body,worker.body,web.body])assert.doesNotMatch(section,/buildCommand: npm install/);
+  assert.match(api.body,/rootDir: server/);assert.match(api.body,/buildCommand: npm ci/);assert.match(api.body,/preDeployCommand: npm run db:up/);assert.match(api.body,/startCommand: npm start/);assert.match(api.body,/healthCheckPath: \/health\/ready/);assert.ok(hasFixed(api.body,'REFS_PG_REQUIRED','"1"'));
+  assert.match(worker.body,/rootDir: server/);assert.match(worker.body,/buildCommand: npm ci/);assert.match(worker.body,/startCommand: npm run start:attachment-cleanup/);assert.ok(hasFixed(worker.body,'REFS_PG_REQUIRED','"1"'));
+  assert.match(web.body,/runtime: static/);assert.match(web.body,/buildCommand: npm ci && npm run build/);assert.match(web.body,/staticPublishPath: \.\/dist/);assert.match(web.body,/source: \/\*/);assert.match(web.body,/destination: \/index\.html/);
+  for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','OIDC_ISSUER','OIDC_AUDIENCE','OIDC_JWKS_URI','REFS_HTTP_ALLOWED_ORIGINS','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_CA_FILE','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID','WBS_SNAPSHOT_ED25519_PUBLIC_KEYS'])assert.ok(hasSecret(api.body,key),`API is missing ${key}`);
+  for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','ATTACHMENT_CLEANUP_ACTOR_ID','ATTACHMENT_CLEANUP_SCOPES','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY'])assert.ok(hasSecret(worker.body,key),`cleanup worker is missing ${key}`);
+  const publicKeys=['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE','REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT','REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE'];
+  for(const key of publicKeys)assert.ok(hasSecret(web.body,key),`static service is missing ${key}`);
+  assert.doesNotMatch(api.body,/REFS_PUBLIC_/);assert.doesNotMatch(worker.body,/REFS_PUBLIC_/);assert.doesNotMatch(web.body,/REFS_PUBLIC_RUNTIME_MODE/,'authoritative static builds must not opt into LOCAL_MOCK');
   assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,3,'API, worker, and static client require one explicit coordinated release');
   const pages=await readFile(resolve(root,'.github','workflows','deploy.yml'),'utf8');
   assert.match(pages,/run: npm ci/);assert.doesNotMatch(pages,/run: npm install/);
   assert.match(pages,/name: Run frontend gate\r?\n\s+run: npm test/);
   assert.match(pages,/name: Run kernel static and unit gate\r?\n\s+working-directory: server\r?\n\s+run: npm test/);
-  assert.match(manifest,/name: Content-Security-Policy\r?\n\s+value: "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' https:\/\/cdnjs\.cloudflare\.com;/);
-  assert.doesNotMatch(manifest,/script-src 'self' 'unsafe-inline'/);
+  assert.match(web.body,/name: Content-Security-Policy\r?\n\s+value: "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' https:\/\/cdnjs\.cloudflare\.com;/);
+  assert.doesNotMatch(web.body,/script-src 'self' 'unsafe-inline'/);
+  for(const asset of ['\/refs-runtime-lock\.js','\/refs-runtime-config\.js','\/refs-build\.js','\/index\.html'])assert.match(web.body,new RegExp(`path: ${asset}\\r?\\n\\s+name: Cache-Control\\r?\\n\\s+value: no-store`));
+  assert.match(pages,/REFS_PUBLIC_RUNTIME_MODE: LOCAL_MOCK/);assert.doesNotMatch(pages,/REFS_PUBLIC_ACCOUNTING_API_BASE_URL/);
 });
