@@ -1,0 +1,74 @@
+# WBS Finance → REFS Accounting Inbound Lineage
+
+This document defines REFS-side admission for WBS data. It does not reproduce
+WBS operations and it never writes to WBS. A successful read is evidence only;
+it cannot allocate, create a Draft journal, approve, post, release, incur, or
+cancel anything.
+
+## Producer classification
+
+| WBS Finance source | Formal MCP view | REFS role | Required identity / evidence | Result before human review |
+| --- | --- | --- | --- | --- |
+| Payable Report | `list_payables` | Transaction producer | `ap_guid`, company, currency, amount, posting/incurred date, envelope hash | Raw → Normalized → Staging review or Exception |
+| Bank Transaction Journal Entries | `list_bank_transactions` | Bank-side transaction producer | `cb_id`, company, bank account, lender/debtor direction, envelope hash | Raw → Normalized → Staging review or Exception |
+| Auto Bank Reconciliation detail | `list_autorec_details` | Business-side matching evidence | `pd_guid`, `cb_id` relation, deposit/payment direction, dimensions, envelope hash | Raw → Normalized → Staging review or Exception |
+| Auto Bank Reconciliation company/bank summary | `list_autorec_banks` | Control evidence | `pb_guid`, company, quantity/amount/released/incurred fields, envelope hash | Control evidence only |
+| WBS Journal Entries | `list_journal_entries` | Journal/ledger trace evidence | stable numeric `id`, company, posting date, journal reference, debit/credit evidence | Trace evidence only |
+| Cost General Ledger | `list_control_totals` plus future scoped metric receipt | Control evidence | company, period, metric definition, immutable receipt | Never a source document or journal command |
+| Property Comparison Report | no current transaction MCP producer | **UNKNOWN / control-only** | signed scoped report receipt and approved REFS control mapping | Blocked; cannot form a candidate |
+
+`trace_by_key` is relation evidence only. It cannot make any row a transaction
+producer. A WBS report therefore never becomes a posting instruction.
+
+## State and matching boundary
+
+```text
+WBS immutable read envelope
+  → verified hash + scoped receipt
+  → Raw observation
+  → Normalized WBS source record
+  → Staging review | Exception
+  → approved mapping + human review
+  → read-only AutoRec review candidate
+  → standard REFS Draft-JE request
+  → standard REFS review / approval / posting / immutable ledger
+```
+
+The mapper accepts only the eight formal read-only MCP tools. It preserves the
+provider's lack of revision, CDC, and tombstone guarantees: a source key absent
+from the next snapshot is `ABSENT_UNCONFIRMED` and requires recheck; it is not a
+deletion. Any mixed company scope, non-ascending stable keys, invalid content
+hash, ambiguous debit/credit movement, missing currency/date/account/amount, or
+missing immutable receipt remains blocked.
+
+## Accounting and AutoRec rules enforced at the boundary
+
+1. Payable, Bank Transaction, and AutoRec Detail can be transaction candidates
+   only after a signed immutable provider receipt is persisted.
+2. Bank and business sides must be separately reviewed REFS staging rows with
+   the same company, currency, and bank account, opposite directions, approved
+   date window and amount tolerance before an AutoRec **review** candidate.
+3. Review candidates have `can_allocate=false`, `can_create_draft=false`, and
+   `can_post=false`; allocation/release/incur/posting remain authoritative REFS
+   workflows with their own permissions, SoD, versioning, audit, and ledger
+   rules.
+4. A standard Draft JE request needs reviewed staging, an approved versioned
+   mapping, balanced lines, and complete Raw/Normalized/Staging trace. A POSTED
+   trace needs separate review, approval, post audit evidence, and ledger-line
+   identifiers.
+5. Cost GL and Property Comparison reconcile controls only. They cannot create
+   source documents, AutoRec allocations, Draft JEs, or ledger postings.
+
+## Verification status
+
+- **VERIFIED locally:** formal-envelope validation, canonical hash validation,
+  stable-key mapping, scope-bound snapshot diff, ambiguous-movement exception,
+  and control-only report admission are covered by
+  `tests/wbs-mcp-inbound-lineage.test.mjs`.
+- **OBSERVED:** WBS Payable and AutoRec screens expose the business concepts
+  above; WBS AutoRec uses company/data-processing/release/incur/incurred-list
+  stages. Their operational buttons are intentionally excluded.
+- **UNKNOWN / release gate:** live signed nonempty WBS receipts, provider
+  revision semantics, full field semantics for lender/debtor and
+  deposit/payment, Property Comparison receipt endpoint, and live control-total
+  reconciliation. None may be represented as production-complete until verified.
