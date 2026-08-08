@@ -85,6 +85,10 @@ not a production gate.
   approved revision/CDC/tombstone chain. Their history, `Y/N` close and
   Balance/Income check fields remain external control evidence; REFS snapshot
   hashing and its own period-close state machine remain mandatory.
+- `match_business_info` is multi-business. Only observed `AUTOC`, `AUTOP` and
+  `AUTOR` rows can bind `MB_BusinessId` to an AutoRec Detail `pd_guid`; batch
+  values do not bind to PB or Detail batches. This relation needs its own
+  signed receipt and remains trace-only, not allocation/state authority.
 - Read-only metadata now proves the primary-key and field inventory for the
   WBS Payable, AutoRec Detail, AutoRec Bank, matching, bank-account and
   payment-setting tables, plus the WBS accounting journal/audit/monthly and

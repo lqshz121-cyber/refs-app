@@ -70,10 +70,23 @@ business row:
    relation in the tested candidates. `long_id -> business_guid` and
    `journal_no -> journal_no` produced zero matches and must remain external
    display trace, not join keys.
+6. `match_business_info.MB_BusinessId` matches
+   `fast_auto_payment_detail.pd_guid` only for the observed business types
+   `AUTOC`, `AUTOP`, and (except for a small unmatched remainder) `AUTOR`.
+   It has no observed match to Payable `uuid`; `MB_BatchGuId` has no observed
+   match to either PB key or Detail batch key.
 
 These negative findings are material: the REFS adapter must reject any future
 provider mapping that silently derives a PB key from `pd_batchguid`,
 `MB_BatchGuId`, `pd_pvguid`, a memo, a reference number, or a display sequence.
+
+`match_business_info` is a multi-business routing/relation table, not an
+AutoRec-only allocation table. A direct Detail relation is admissible only if
+a signed provider receipt identifies its immutable `MB_Id`, has one of the
+observed Detail-compatible business types, and binds `MB_BusinessId` exactly
+to the receipt's `pd_guid`. Even then it is retained as relation evidence;
+it cannot reserve, split, release, incur, reverse, or post anything. All other
+business types and any unmatched row remain outside the AutoRec Detail path.
 
 ## Observed Property Comparison and Cost mapping facts
 
@@ -150,6 +163,17 @@ The tested alternatives, Payable `long_id` to accounting `business_guid` and
 Payable `journal_no` to accounting `journal_no`, had zero matching key values.
 REFS must retain them as masked external references only; it must not use them
 for joins, replay identity, allocation, matching, or posting.
+
+### AutoRec match-relation boundary
+
+`MB_Id` is the observed match-relation primary key, while `MB_BusinessId` is
+not globally a Detail key. The exact Detail-compatible subset is currently
+limited to `AUTOC`, `AUTOP`, and `AUTOR`; it is a scope guard, not a state
+machine. The provider must supply a signed receipt containing the relation ID,
+business type, business ID, capture time, company scope and source version
+before REFS can retain this edge. No observed table join proves whether these
+rows are append-only history, current state, or allocation history, so REFS
+continues to use its own match-group/allocation history and control totals.
 
 ### Incremental and close-control boundary
 

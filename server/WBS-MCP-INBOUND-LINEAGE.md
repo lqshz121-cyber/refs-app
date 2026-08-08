@@ -93,6 +93,12 @@ posting instructions.
 WBS `Released` and `Incurred` values are observed control evidence. They do
 not authorize a REFS state transition, JE action, or ledger mutation.
 
+Observed WBS relation rows can identify a Detail only when the signed relation
+receipt binds `MB_BusinessId` to `pd_guid` under the compatible `AUTOC`,
+`AUTOP`, or `AUTOR` source type. That edge is relation evidence only; no
+`MB_BatchGuId` or generic business type may become a PB key, allocation or
+REFS state transition.
+
 The source-table evidence identifies a Payable-to-accounting trace through
 shared `cb_id`, but no tested direct relation through Payable long ID or
 journal number. The `cb_id` trace is one-to-many on the accounting side; the
