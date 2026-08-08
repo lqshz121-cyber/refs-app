@@ -7,10 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate: `5dd20a26a63f04ca192da4d5f4d16c558e1593d2`
-  (parent `db15d8894a0e97fb067be79498471a929a5ee82e`; clean worktree verified).
-- Latest documentation wrapper: `617b0d7d41c57b056d807975e127347058195c79`
-  (parent `961e75b51c003c0bee6275113a5eae38e7c289b2`; no runtime code change).
+- Frozen code candidate: `dc23ee8fe5c7b23e0403b3d3bbbb950afd71cdf6`
+  (parent `fdbfc4ccc48e4541c22c700af9a99c787b5f631b`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -43,8 +41,8 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At frozen code candidate `5dd20a2`, the focused matching/adapter suite exited
-`0`: `15/15` passing; `npm.cmd test` exited `0`: `246/246` passing, `0`
+At frozen code candidate `dc23ee8`, the focused projection/golden suite exited
+`0`: `16/16` passing; `npm.cmd test` exited `0`: `246/246` passing, `0`
 skipped. `git diff --check` exited `0`. Rerun all commands above after
 integration. `git diff --check` must exit `0` on
 the target branch. These are local tests with injected provider/kernel seams,
@@ -249,9 +247,12 @@ constraints and the corrected handoff state:
 13. `5dd20a2` binds every bank-side and business-side source to the exact
     approved mapping versions named by that matching policy; correct amounts
     with incorrect accounting mappings are blocked.
+14. `dc23ee8` retains receipt-supplied WBS Detail/Match status codes as bounded
+    `UNVERIFIED_SOURCE_CODE` evidence. It rejects malformed codes and never
+    translates them into a REFS transition.
 
 The directly consumable integration range is therefore exactly
-`6843dce^..5dd20a2`, applied in Git order. It includes no WBS business UI,
+`6843dce^..dc23ee8`, applied in Git order. It includes no WBS business UI,
 WBS write operation, Draft-JE dispatch, approval or posting implementation.
 
 ## Current conflict and ownership check
