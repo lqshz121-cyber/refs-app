@@ -64,8 +64,8 @@ test('a review proposal never counts one WBS source twice or mixes its versions'
 test('required WBS golden matrix retains the twelve accounting-boundary scenarios',()=>{
   const control={company_key:'COMPANY-A',user_ref:'MASKED',completed_match_period:'M:08/2026',completed_release_period:'R:08/2026',completed_incur_period:'C:08/2026',quantity:1,released_quantity:0,incurred_quantity:0,amount:'100.0000',released_amount:'0.0000',incurred_amount:'0.0000',reconciliation_balance:'100.0000',new_balance:'100.0000',balance_date:'2026-08-09'};
   const receipt={receipt_id:'receipt-control',receipt_ref:'object://receipt/control',receipt_hash:hash,source_record_id:'control-1',source_version:'v1'};
-  const released={detail_kind:'RELEASED_PAYMENT',...receipt,posting_date:'2026-08-09',payment:'100.0000',reviewer:'Reviewer'};
-  const journal={detail_kind:'JE_TRACE',...receipt,source_record_id:'journal-291001',posting_date:'2026-08-09',journal_no:'AUTOC-1',account_code:'291001',debit:'100.0000',credit:'100.0000',review_status:'REVIEWED',approval_status:'APPROVED',posting_status:'POSTED'};
+  const released={detail_kind:'RELEASED_PAYMENT',company_key:'COMPANY-A',...receipt,posting_date:'2026-08-09',payment:'100.0000',reviewer:'Reviewer'};
+  const journal={detail_kind:'JE_TRACE',company_key:'COMPANY-A',...receipt,source_record_id:'journal-291001',posting_date:'2026-08-09',journal_no:'AUTOC-1',account_code:'291001',debit:'100.0000',credit:'100.0000',review_status:'REVIEWED',approval_status:'APPROVED',posting_status:'POSTED'};
   const cases=[
     ['exact_match',()=>run([bank('b-exact',100)],[payable('p-exact',100)]).status==='REVIEW_REQUIRED'],
     ['partial_match',()=>run([bank('b-partial',150)],[payable('p-partial',100)]).control_totals.bank_unallocated===50],

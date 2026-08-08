@@ -87,7 +87,10 @@ function companyControl(row){
 
 function detailControl(row){
   if(!row||typeof row!=='object'||sensitiveInput(row))return {error:exception(row,'WBS_AUTOREC_CONTROL_INPUT_INVALID','Observed WBS detail evidence contains an unsafe or invalid locator')};
-  const required=['detail_kind','receipt_id','receipt_ref','receipt_hash','source_record_id','source_version'];
+  // Every row-level state, relation, or JE trace needs an explicit company
+  // scope before it can be retained as AutoRec evidence. Page-level context
+  // cannot safely be inferred after the row leaves the WBS response.
+  const required=['detail_kind','company_key','receipt_id','receipt_ref','receipt_hash','source_record_id','source_version'];
   const missing=required.filter(key=>text(row[key])==='');
   if(!OBSERVED_DETAIL_KINDS.has(text(row.detail_kind))||missing.length)return {error:exception(row,'WBS_AUTOREC_CONTROL_TRACE_REQUIRED',`Observed WBS detail requires ${missing.join(', ')||'a supported detail kind'}`)};
   const rawStatus=row.wbs_status_code??row.pd_status??'';
@@ -124,7 +127,10 @@ export function projectObservedWbsAutoRecControlEvidence({companyRows,detailRows
   if(!Array.isArray(companyRows)||!Array.isArray(detailRows))throw new WbsInboundProjectionError('WBS_AUTOREC_CONTROL_ROWS_REQUIRED','Observed WBS company and detail control rows must be arrays');
   const controls=[],details=[],exceptions=[];
   for(const row of companyRows){const result=companyControl(row);result.error?exceptions.push(result.error):controls.push(result.control);}
-  for(const row of detailRows){const result=detailControl(row);result.error?exceptions.push(result.error):details.push(result.detail);}
+  // A malformed row-level Release/Incur/JE observation must quarantine only
+  // its referenced source. It is not a Company Screening failure and cannot
+  // suppress otherwise valid candidates for the same company.
+  for(const row of detailRows){const result=detailControl(row);result.error?exceptions.push(scopedException(result.error,'SOURCE')):details.push(result.detail);}
   return freeze({evidence_type:'WBS_AUTOREC_OBSERVED_CONTROL_EVIDENCE_V1',observed_workflow:wbsAutoRecObservedWorkflowContract(),controls:freeze(controls),details:freeze(details),exceptions:freeze(exceptions),forbidden_wbs_operations:FORBIDDEN_WBS_OPERATIONS,can_dispatch:false,can_create_draft:false,can_post:false});
 }
 

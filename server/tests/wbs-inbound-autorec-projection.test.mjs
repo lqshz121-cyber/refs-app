@@ -36,7 +36,7 @@ test('ambiguous mappings and non-reviewed or non-transaction rows cannot produce
 });
 
 test('copies observed WBS M/R/C controls and JE detail only as fail-closed read-only evidence',()=>{
-  const evidence=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[{detail_kind:'JE_TRACE',receipt_id:'receipt-1',receipt_ref:'object://wbs/receipt/1',receipt_hash:common.receipt_hash,source_record_id:'journal-1',source_version:'v1',posting_date:'2026-08-05',journal_no:'J-1',account_code:'291001',debit:'100.0000',credit:'100.0000',review_status:'REVIEWED',approval_status:'APPROVED',posting_status:'POSTED'}]});
+  const evidence=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[{detail_kind:'JE_TRACE',company_key:'COMPANY-A',receipt_id:'receipt-1',receipt_ref:'object://wbs/receipt/1',receipt_hash:common.receipt_hash,source_record_id:'journal-1',source_version:'v1',posting_date:'2026-08-05',journal_no:'J-1',account_code:'291001',debit:'100.0000',credit:'100.0000',review_status:'REVIEWED',approval_status:'APPROVED',posting_status:'POSTED'}]});
   assert.equal(evidence.exceptions.length,0);assert.deepEqual(evidence.controls[0].completed_periods,{match:'2026-06',release:'2026-06',incur:'2025-03'});assert.equal(evidence.controls[0].released_amount,'80.0000');assert(evidence.forbidden_wbs_operations.includes('Delete'));assert.equal(evidence.details[0].observed_fields.account_code,'291001');assert.equal(evidence.can_post,false);
   const projected=projectPersistedWbsInboundAutoRec({rows:[bank,payable],mappings:[mapping(bank),mapping(payable)],companyControlRows:[companyControl]});assert.equal(projected.candidates.length,2);assert.equal(projected.control_evidence.controls.length,1);
 });
@@ -45,11 +45,12 @@ test('invalid conservation, missing detail trace, or sensitive locators block al
   const invalid={...companyControl,released_amount:'101.0000'};
   const result=projectPersistedWbsInboundAutoRec({rows:[bank,payable],mappings:[mapping(bank),mapping(payable)],companyControlRows:[invalid]});assert.equal(result.candidates.length,0);assert.equal(result.exceptions[0].code,'WBS_AUTOREC_CONTROL_INVALID');
   const detail=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[{detail_kind:'JE_TRACE',receipt_id:'receipt-1',receipt_ref:'object://wbs/receipt/1',receipt_hash:common.receipt_hash,source_record_id:'journal-1'}]});assert.equal(detail.exceptions[0].code,'WBS_AUTOREC_CONTROL_TRACE_REQUIRED');
+  const unscoped=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[{detail_kind:'RELEASED_PAYMENT',receipt_id:'receipt-1',receipt_ref:'object://wbs/receipt/1',receipt_hash:common.receipt_hash,source_record_id:'release-1',source_version:'v1'}]});assert.equal(unscoped.exceptions[0].code,'WBS_AUTOREC_CONTROL_TRACE_REQUIRED');
   const unsafe=projectObservedWbsAutoRecControlEvidence({companyRows:[{...companyControl,token:'redacted'}]});assert.equal(unsafe.exceptions[0].code,'WBS_AUTOREC_CONTROL_INPUT_INVALID');
 });
 
 test('a released WBS detail is retained as observed state, never a REFS transition authority',()=>{
-  const released={detail_kind:'RELEASED_PAYMENT',receipt_id:'receipt-release',receipt_ref:'object://wbs/receipt/release',receipt_hash:common.receipt_hash,source_record_id:'released-detail-1',source_version:'v1',posting_date:'2026-08-05',payment:'100.0000',reviewer:'Reviewer A',pd_status:'R',pd_match_status:'Match'};
+  const released={detail_kind:'RELEASED_PAYMENT',company_key:'COMPANY-A',receipt_id:'receipt-release',receipt_ref:'object://wbs/receipt/release',receipt_hash:common.receipt_hash,source_record_id:'released-detail-1',source_version:'v1',posting_date:'2026-08-05',payment:'100.0000',reviewer:'Reviewer A',pd_status:'R',pd_match_status:'Match'};
   const evidence=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[released]});
   assert.equal(evidence.exceptions.length,0);
   assert.equal(evidence.observed_workflow.contract,'WBS_AUTOREC_OBSERVED_WORKFLOW_V1');
@@ -92,7 +93,7 @@ test('incurred payment retains bank-to-AUTOC relation and review evidence withou
   const evidence=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[incurred]});assert.equal(evidence.exceptions.length,0);assert.equal(evidence.details[0].retained_relation.autoc_payable.long_id,'autoc-payable-1');assert.equal(evidence.details[0].retained_relation.can_post,false);assert.equal(evidence.details[0].can_dispatch,false);
   assert.equal(evidence.details[0].observed_state,'INCURRED');assert.equal(evidence.details[0].can_transition_state,false);
   assert.equal(evidence.details[0].observed_workflow_step,'INCURRED_LIST');
-  const incompleteRow={...incurred,company_key:'',autoc_payable_long_id:'',reviewer:''};
+  const incompleteRow={...incurred,autoc_payable_long_id:'',reviewer:''};
   const incomplete=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[incompleteRow]});assert.equal(incomplete.exceptions[0].code,'WBS_AUTOREC_INCURRED_RELATION_REQUIRED');
   const scoped=projectPersistedWbsInboundAutoRec({rows:[bank,payable],mappings:[mapping(bank),mapping(payable)],companyControlRows:[companyControl],detailControlRows:[incompleteRow]});assert.equal(scoped.candidates.length,1);assert.equal(scoped.candidates[0].source_record_id,'pay-1');
 });
