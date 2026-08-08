@@ -24,7 +24,7 @@ const bankTrace=row=>freeze(Object.fromEntries([
   ['come_from',row.come_from],['child_come_from',row.child_come_from],['review_status',row.review],['statistical_business',row.statistical_business],['turn_flag',row.turn_flag]
 ].filter(([,value])=>text(value)!=='').map(([key,value])=>[key,text(value)])));
 const autoRecDetailTrace=row=>freeze(Object.fromEntries([
-  ['batch_guid',row.batch_guid],['biz_type',row.biz_type],['clear_date',row.clear_date],['incurred_date',row.incurred_date],['released_date',row.released_date],['released_by',row.released_by],
+  ['batch_guid',row.batch_guid],['biz_type',row.biz_type],['clear_date',row.clear_date],['incurred_date',row.incurred_date],['posting_date',row.posting_date],['released_date',row.released_date],['released_by',row.released_by],
   ['data_source',row.data_source],['status',row.status],['match_status',row.match_status],['match_ref',row.match_guid],['bank_relation_ref',row.cb_id],['autoc_relation_ref',row.pd_pv_guid],
   ['vendor_ref',row.vendor_no],['project_ref',row.project_guid],['cost_code_ref',row.cost_code]
 ].filter(([,value])=>text(value)!=='').map(([key,value])=>[key,text(value)])));
@@ -186,7 +186,10 @@ export function mapWbsMcpEnvelopeToInbound({envelope,bankDirectionConventions=nu
       rows.push(freeze({...bankCommon,...admission,exception_code:!directionRule?'WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED':admission.exception_code,amount:movement?.amount??null,direction:movement?.direction??null,currency,bank_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,bank_trace_ref:row.cb_id,raw_memo:row.description||null,autoc_relation:row.come_from||null,bank_trace:bankTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false}));
     } else if(tool==='list_autorec_details'){
       const directionRule=detailRules.get(text(row.biz_type)),movement=directionRule?signedMovement(row,'deposit','payment',directionRule.deposit_direction,directionRule.payment_direction):null;
-      const currency=scopedCurrency(accepted,row),businessDate=row.incurred_date||row.clear_date||null,admission=transactionAdmission({common,amountValue:movement?.amount,currency,dateValue:businessDate,movementRequired:true,movement});
+      const currency=scopedCurrency(accepted,row),businessDate=row.incurred_date||row.clear_date||null,baseAdmission=transactionAdmission({common,amountValue:movement?.amount,currency,dateValue:businessDate,movementRequired:true,movement});
+      // Detail posting date is retained as independent accounting evidence.
+      // Incurred/clear dates establish business timing only.
+      const admission=!isoDate(row.posting_date)?freeze({admission:'EXCEPTION_REVIEW_REQUIRED',exception_code:'WBS_MCP_AUTOREC_POSTING_DATE_REQUIRED',missing:freeze([...new Set([...baseAdmission.missing,'posting_date'])])}):baseAdmission;
       rows.push(freeze({...common,...admission,admission:admission.admission==='TRANSACTION_CANDIDATE'?'AUTOREC_REVIEW_EVIDENCE':admission.admission,exception_code:!directionRule?'WBS_MCP_AUTOREC_DIRECTION_CONVENTION_REQUIRED':admission.exception_code,amount:movement?.amount??null,direction:movement?.direction??null,currency,autorc_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,business_date:businessDate,bank_trace_ref:row.cb_id||null,autoc_bank_ref:row.pd_pv_guid||null,match_ref:row.match_guid||null,project_ref:row.project_guid||null,cost_ref:row.cost_code||null,vendor_ref:row.vendor_no||null,autorc_detail_trace:autoRecDetailTrace(row),can_use_trace_as_key:false,can_use_trace_as_state_authority:false,can_use_trace_as_posting_authority:false}));
     } else if(tool==='list_autorec_banks'){
       // These are observed WBS controls, not a transaction feed. The provider
@@ -222,7 +225,7 @@ function snapshotRow(accepted,row,bankRules,payableRules,detailRules){
   const directionRule=detailRules?.get(text(row.biz_type)),movement=directionRule?signedMovement(row,'deposit','payment',directionRule.deposit_direction,directionRule.payment_direction):null;
   // pd_pv_guid is observed as a relation navigation value, not a verified
   // pb_guid. Leave pbGuId absent so the existing staging gate quarantines it.
-  return freeze({...provenance,pdGuId:text(row.pd_guid),currency:scopedCurrency(accepted,row),amount:movement?.amount??null,payment_date:row.incurred_date||row.clear_date||null,direction:movement?.direction??null,autorc_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,autoc_relation_ref:row.pd_pv_guid||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_code||null,external_trace:autoRecDetailTrace(row),can_use_trace_as_key:false,can_use_trace_as_state_authority:false,can_use_trace_as_posting_authority:false});
+  return freeze({...provenance,pdGuId:text(row.pd_guid),currency:scopedCurrency(accepted,row),amount:movement?.amount??null,payment_date:row.incurred_date||row.clear_date||null,posting_date:row.posting_date||null,direction:movement?.direction??null,autorc_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,autoc_relation_ref:row.pd_pv_guid||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_code||null,external_trace:autoRecDetailTrace(row),can_use_trace_as_key:false,can_use_trace_as_state_authority:false,can_use_trace_as_posting_authority:false});
 }
 
 // Creates a receipt-bearing snapshot package that the existing REFS inbound

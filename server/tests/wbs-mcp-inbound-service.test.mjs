@@ -10,7 +10,7 @@ const detailDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A
 const values={
   list_payables:raw('list_payables',[{ap_guid:'11111111-1111-4111-8111-111111111111',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:100,posting_date:'2026-08-09'}]),
   list_bank_transactions:raw('list_bank_transactions',[{cb_id:'BANK-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:100,lender:0,set_date:'2026-08-09',posting_date:'2026-08-09'}]),
-  list_autorec_details:raw('list_autorec_details',[{pd_guid:'22222222-2222-4222-8222-222222222222',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:0,payment:100,incurred_date:'2026-08-09'}])
+  list_autorec_details:raw('list_autorec_details',[{pd_guid:'22222222-2222-4222-8222-222222222222',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:0,payment:100,incurred_date:'2026-08-09',posting_date:'2026-08-09'}])
 };
 const args={list_payables:{company:'COMPANY-A'},list_bank_transactions:{company:'COMPANY-A'},list_autorec_details:{company:'COMPANY-A'}};
 
