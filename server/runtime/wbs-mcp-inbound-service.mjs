@@ -1,4 +1,4 @@
-import {buildWbsAutoRecBankControlEvidence,buildWbsMcpReadonlySnapshot,mapWbsMcpEnvelopeToInbound,WbsMcpLineageError} from './wbs-mcp-inbound-lineage.mjs';
+import {buildWbsAutoRecBankControlEvidence,buildWbsMcpReadonlySnapshot,buildWbsTraceRelationEvidence,mapWbsMcpEnvelopeToInbound,WbsMcpLineageError} from './wbs-mcp-inbound-lineage.mjs';
 import {canonicalRequestHash} from './request-hash.mjs';
 import {createWbsManifestSignatureVerifier} from './wbs-snapshot-signature.mjs';
 
@@ -89,7 +89,7 @@ export function createWbsMcpInboundService({client,persistedSourceReader=null,tr
       if(typeof traceReceiptVerifier!=='function')fail('WBS_MCP_TRACE_VERIFIER_REQUIRED','WBS trace evidence requires a configured detached-signature verifier.');
       let verified=false;try{verified=await traceReceiptVerifier({manifest_hash:manifestHash,detached_signature:structuredClone(traceReceipt.detached_signature)});}catch{verified=false;}
       if(verified!==true)fail('WBS_MCP_TRACE_SIGNATURE_INVALID','WBS trace receipt signature verification failed before relation evidence could be retained.');
-      let evidence;try{evidence=mapWbsMcpEnvelopeToInbound({envelope:providerEnvelope(envelope)});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_MAPPING_FAILED','WBS reverse trace response could not be mapped as read-only relation evidence.');}
+      let evidence;try{evidence=buildWbsTraceRelationEvidence({envelope:providerEnvelope(envelope),lookup:{key_type:keyType,key_value:text(sourceRecordId)}});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_MAPPING_FAILED','WBS reverse trace response could not be mapped as read-only relation evidence.');}
       return Object.freeze({status:'WBS_MCP_REVERSE_TRACE_EVIDENCE_READY',lookup:freezeLookup({tenantId,entityId,companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,keyType}),trace_receipt:Object.freeze({ref:text(traceReceipt.ref),version:text(traceReceipt.version),issued_at:text(traceReceipt.issued_at),manifest_hash:manifestHash,key_id:text(traceReceipt.detached_signature.key_id),algorithm:text(traceReceipt.detached_signature.algorithm)}),evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['bind returned relation evidence to the exact persisted receipt/source version','read authoritative REFS trace','human review where a relationship affects accounting'])});
     }
   });

@@ -108,6 +108,10 @@ The trace page additionally requires its own immutable receipt (`ref`,
 canonical manifest binds the tool, complete response scope, capture time,
 content hash, receipt reference, receipt version, and issuance time. A signed
 page cannot consequently be replayed for a different company or source key.
+Each retained relation must also contain an immutable `relation_id`, both
+source and related source key types/values, and a relation type. Missing
+fields leave the entire reverse-trace request blocked; relation evidence never
+becomes a match instruction, state transition, or posting authority.
 
 Cost GL and Property control reads are composed only from persisted WBS and
 REFS metric snapshots plus an approved mapping. All three reads must agree on

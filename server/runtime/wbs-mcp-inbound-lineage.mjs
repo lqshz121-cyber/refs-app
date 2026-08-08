@@ -6,6 +6,7 @@ import {validateWbsReadEnvelope,WBS_READONLY_ROW_FIELDS} from './wbs-readonly-mc
 // receipt-backed REFS ingress workflow and is never a Draft or posting command.
 const stableKey=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
 const sourceType=Object.freeze({list_payables:'PAYABLE',list_bank_transactions:'BANK_TRANSACTION',list_autorec_details:'AUTOREC_PAYMENT_DETAIL',list_autorec_banks:'AUTOREC_BANK_CONTROL',list_journal_entries:'WBS_JOURNAL_EVIDENCE',list_control_totals:'WBS_CONTROL_TOTAL',trace_by_key:'WBS_TRACE_RELATION'});
+const traceKeyTypes=new Set(['ap_guid','cb_id','pd_guid','pb_guid','id']);
 const text=value=>value==null?'':String(value).trim();
 const money=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
 const freeze=value=>Object.freeze(value);
@@ -204,6 +205,20 @@ export function mapWbsMcpEnvelopeToInbound({envelope,bankDirectionConventions=nu
     } else rows.push(freeze({...common,admission:'CONTROL_OR_TRACE_ONLY',fields:freeze(structuredClone(row))}));
   }
   return freeze({tool_name:tool,required_fields:WBS_READONLY_ROW_FIELDS[tool]??freeze([]),rows:freeze(rows),receipt_required_for_persistence:true,can_create_draft:false,can_allocate:false,can_post:false});
+}
+
+// Trace rows are retained only as keyed relationship evidence. They cannot
+// become a source key, matching instruction, workflow transition, or posting.
+export function buildWbsTraceRelationEvidence({envelope,lookup}={}){
+  const accepted=validateWbsReadEnvelope({toolName:envelope?.tool,envelope});
+  const keyType=text(lookup?.key_type),keyValue=text(lookup?.key_value);
+  if(accepted.tool_name!=='trace_by_key'||!traceKeyTypes.has(keyType)||!keyValue||text(accepted.scope?.trace_key_type)!==keyType||text(accepted.scope?.trace_key_value)!==keyValue)throw new WbsMcpLineageError('WBS_MCP_TRACE_RELATION_SCOPE_INVALID','Trace relation evidence requires the exact immutable lookup pair in the response scope.');
+  const relations=accepted.rows.map(row=>{
+    const relationId=text(row?.relation_id),relationType=text(row?.relation_type),sourceKeyType=text(row?.source_key_type),sourceKeyValue=text(row?.source_key_value),relatedKeyType=text(row?.related_key_type),relatedKeyValue=text(row?.related_key_value);
+    if(!/^[A-Za-z][A-Za-z0-9._:-]{0,127}$/.test(relationId)||!/^[A-Za-z][A-Za-z0-9._:-]{0,127}$/.test(relationType)||sourceKeyType!==keyType||sourceKeyValue!==keyValue||!traceKeyTypes.has(relatedKeyType)||!relatedKeyValue)throw new WbsMcpLineageError('WBS_MCP_TRACE_RELATION_FIELDS_REQUIRED','Every retained WBS relation requires immutable relation, source, and related-source keys.');
+    return freeze({relation_id:relationId,relation_type:relationType,source:freeze({key_type:sourceKeyType,key_value:sourceKeyValue}),related:freeze({key_type:relatedKeyType,key_value:relatedKeyValue}),observed_version:`observed:${hash(row).slice(7)}`,can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});
+  });
+  return freeze({status:relations.length?'RELATION_EVIDENCE_READY':'NO_RELATION_OBSERVED',lookup:freeze({key_type:keyType,key_value:keyValue}),receipt_hash:`sha256:${accepted.content_sha256}`,relations:freeze(relations),can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
 }
 
 const snapshotView=Object.freeze({list_payables:'BGDATA.payable',list_bank_transactions:'BGDATA.bank_transaction',list_autorec_details:'BGDATA.autoc_detail'});
