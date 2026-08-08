@@ -116,6 +116,10 @@ test('AutoRec eligibility fails line-scoped with zero candidates for missing tra
   const bank={...trace,source_type:'BANK_TRANSACTION',source_record_id:'bank',direction:'CREDIT',journal_no:'JE-1',payee_no:'PAYEE-1'};
   const business={...trace,source_type:'PAYABLE',source_record_id:'payable',direction:'DEBIT',bill_no:'BILL-1',project_ref:'PROJECT-1',project_code:'PJ-1'};
   const accepted=evaluateWbsAutoReconciliationEligibility({bankStaging:bank,businessStaging:business});assert.equal(accepted.candidates.length,1);assert.equal(accepted.candidates[0].can_dispatch,false);assert.equal(accepted.candidates[0].trace.business_source_version,'v1');
+  const mcpPair=evaluateWbsAutoReconciliationEligibility({bankStaging:{...bank,upstream_mcp_tool:'list_bank_transactions',upstream_mcp_snapshot_token:'snapshot-1'},businessStaging:{...business,upstream_mcp_tool:'list_payables',upstream_mcp_snapshot_token:'snapshot-1'}});
+  assert.equal(mcpPair.candidates[0].trace.bank_provider_snapshot_token,'snapshot-1');assert.equal(mcpPair.candidates[0].trace.business_provider_snapshot_token,'snapshot-1');
+  const missingToken=evaluateWbsAutoReconciliationEligibility({bankStaging:{...bank,upstream_mcp_tool:'list_bank_transactions'},businessStaging:{...business,upstream_mcp_tool:'list_payables',upstream_mcp_snapshot_token:'snapshot-1'}});
+  assert.equal(missingToken.status,'BLOCKED');assert(missingToken.exceptions.some(item=>item.missing.includes('upstream_mcp_snapshot_token')));
   const cases=[
     [{...bank,receipt_id:''},business,'WBS_AUTOREC_ELIGIBILITY_TRACE_REQUIRED'],
     [bank,{...business,direction:'CREDIT'},'WBS_AUTOREC_DIRECTION_MISMATCH'],
