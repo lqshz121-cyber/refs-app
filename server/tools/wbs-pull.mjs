@@ -24,7 +24,7 @@
 //   node server/tools/wbs-pull.mjs                 # step 1+2: meta, then a pilot sample
 //   node server/tools/wbs-pull.mjs --tool list_payables --limit 10
 //   node server/tools/wbs-pull.mjs --all           # a pilot page from every list tool
-//   node server/tools/wbs-pull.mjs --json out.json # also write the mapped result
+//   node server/tools/wbs-pull.mjs --json pilot.json # write aggregate pilot metadata
 //
 // The provider's own contract (§6) sequences first contact as: tools/list +
 // get_meta + a pilot sample, then field-by-field confirmation, and only then
@@ -32,7 +32,8 @@
 // rate limited to 10 req/s with concurrency 2 against the live BGDATA
 // instance, which has no read replica. Deliberately no bulk mode here.
 
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { basename, dirname, extname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   WBS_MCP_PILOT_LIMIT,
@@ -77,6 +78,48 @@ export function argsForWbsPullTool(tool, { limit, company }) {
   if (spec.paged) args.limit = limit;
   if (company && spec.company) args[spec.company] = company;
   return args;
+}
+
+const PILOT_OUTPUT_DIRECTORY = resolve(dirname(new URL(import.meta.url).pathname), '../outputs/wbs-pilot');
+
+// Pilot evidence can contain sensitive business metadata. Keep it confined to an
+// ignored directory, make capture files immutable, and never serialize rows.
+export function resolvePilotEvidencePath(requestedName, outputDirectory = PILOT_OUTPUT_DIRECTORY) {
+  if (typeof requestedName !== 'string' || !requestedName.trim()) {
+    throw new Error('--json requires a simple evidence file name such as pilot.json');
+  }
+  const name = requestedName.trim();
+  if (basename(name) !== name || name === '.' || name === '..' || extname(name) !== '.json') {
+    throw new Error('--json accepts only a simple .json file name; evidence is confined to server/outputs/wbs-pilot');
+  }
+  const root = resolve(outputDirectory);
+  const target = resolve(root, name);
+  if (!target.startsWith(`${root}\\`) && target !== root) {
+    throw new Error('evidence path escapes the controlled pilot-output directory');
+  }
+  return target;
+}
+
+export function buildPilotEvidence(outcomes) {
+  return outcomes.map(o => ({
+    tool: o.tool,
+    ok: o.ok,
+    code: o.code ?? null,
+    rows: o.rows ?? 0,
+    mapped: o.mapped ?? 0,
+    exception_codes: [...new Set(o.exceptions ?? [])].sort(),
+  }));
+}
+
+export function writePilotEvidence({ outcomes, requestedName, outputDirectory } = {}) {
+  const path = resolvePilotEvidencePath(requestedName, outputDirectory);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  writeFileSync(path, `${JSON.stringify(buildPilotEvidence(outcomes), null, 2)}\n`, {
+    encoding: 'utf8',
+    flag: 'wx',
+    mode: 0o600,
+  });
+  return path;
 }
 
 function parseArgs(argv) {
@@ -142,27 +185,13 @@ const getAuthHeaders = () => ({
   'X-REFS-Auth': process.env.WBS_REFS_AUTH,
 });
 
-const money = n =>
-  typeof n === 'number' && Number.isFinite(n)
-    ? n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
-    : String(n ?? '');
-
-function describeException(e) {
-  const scope = e.scope || {};
-  const at = [scope.tool, scope.row_index != null ? `row ${scope.row_index}` : null, scope.stable_key]
-    .filter(Boolean)
-    .join(' · ');
-  const detail = e.detail && e.detail.upstream_code ? ` (upstream ${e.detail.upstream_code})` : '';
-  return `    ${e.code}${detail}\n      ${e.message}${at ? `\n      at ${at}` : ''}`;
-}
-
 async function pullOne(client, tool, { limit, company }) {
   const catalog = WBS_SOURCE_CATALOG[tool];
   console.log(`\n── ${tool} ${'─'.repeat(Math.max(0, 58 - tool.length))}`);
   if (catalog) console.log(`   role ${catalog.role} · terminus ${catalog.terminus}`);
 
   const args = argsForWbsPullTool(tool, { limit, company });
-  console.log(`   args ${JSON.stringify(args)}`);
+  console.log(`   requested ${Object.keys(args).length ? Object.keys(args).join(', ') : 'no arguments'}`);
 
   // `readView` runs the frozen contract validator itself and returns the frozen,
   // validated envelope — so there is exactly one validation point, not two that
@@ -172,7 +201,7 @@ async function pullOne(client, tool, { limit, company }) {
     envelope = await client.readView({ toolName: tool, args });
   } catch (error) {
     if (error instanceof WbsMcpError) {
-      console.log(`   REFUSED  ${error.code}\n            ${error.message}`);
+      console.log(`   REFUSED  ${error.code}`);
       // The frozen validator accepts `environment: production` only (contract §2 allows
       // "sandbox | production"). Refusing a sandbox envelope is correct — REFS must not
       // map non-production rows into an accounting lineage — but the bare code does not
@@ -196,7 +225,7 @@ async function pullOne(client, tool, { limit, company }) {
   }
 
   const rows = envelope.rows || [];
-  console.log(`   rows ${rows.length} · captured_at ${envelope.captured_at} · cursor_next ${envelope.cursor_next ?? 'null'}`);
+  console.log(`   rows ${rows.length}`);
 
   if (!catalog) {
     console.log('   no lineage catalog entry — envelope shown only, nothing mapped');
@@ -231,15 +260,10 @@ async function pullOne(client, tool, { limit, company }) {
     (result.evidence?.length || 0);
   console.log(`   reached terminus: ${seams} item(s)`);
 
-  for (const e of exceptions.slice(0, 5)) console.log(describeException(e));
-  if (exceptions.length > 5) console.log(`    … ${exceptions.length - 5} more`);
-
-  for (const n of result.normalized.slice(0, 3)) {
-    console.log(
-      `    ${String(n.account_code ?? '—').padEnd(8)} ${String(n.direction ?? '').padEnd(6)} ` +
-      `${money(n.amount).padStart(16)}  ${n.business_date ?? ''}  ${n.source_id ?? ''}`
-    );
-  }
+  const exceptionCodes = [...new Set(exceptions.map(e => e.code))];
+  if (exceptionCodes.length) console.log(`   exception codes: ${exceptionCodes.join(', ')}`);
+  // Default output is safe pilot metadata only. Source keys, amounts, dates,
+  // account codes, row payloads, and upstream error detail stay out of logs.
 
   return {
     tool,
@@ -255,7 +279,8 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     console.log(new URL(import.meta.url).pathname);
-    console.log('  --tool <name> --limit <1..10> --company <key> --all --json <path>');
+    console.log('  --tool <name> --limit <1..10> --company <key> --all --json <file.json>');
+    console.log('  --json records aggregate metadata only under server/outputs/wbs-pilot and never overwrites.');
     return;
   }
   if (!Number.isSafeInteger(args.limit) || args.limit < 1 || args.limit > WBS_MCP_PILOT_LIMIT) {
@@ -275,7 +300,7 @@ async function main() {
   // which throws WBS_MCP_CONFIG_INVALID "endpoint is invalid" before any request is made —
   // a confusing way to say "you did not set an optional variable".
   const endpoint = process.env.WBS_MCP_ENDPOINT || WBS_MCP_APPROVED_ENDPOINT;
-  console.log(`\nEndpoint: ${endpoint}${process.env.WBS_MCP_ENDPOINT ? ' (from WBS_MCP_ENDPOINT)' : ' (approved default)'}`);
+  console.log(`\nEndpoint configuration: ${process.env.WBS_MCP_ENDPOINT ? 'operator supplied' : 'approved default'}`);
 
   const client = createReadOnlyWbsMcpClient({
     endpoint,
@@ -325,14 +350,8 @@ async function main() {
   console.log('  This is a read and a mapping. Posting stays behind Draft -> Review -> Approve -> Post.');
 
   if (args.json) {
-    const payload = outcomes.map(o => ({
-      tool: o.tool, ok: o.ok, code: o.code ?? null,
-      rows: o.rows ?? 0, mapped: o.mapped ?? 0,
-      exceptions: o.exceptions ?? [],
-      normalized: o.result ? o.result.normalized : [],
-    }));
-    writeFileSync(args.json, JSON.stringify(payload, null, 2));
-    console.log(`\n  wrote ${args.json} (mapped rows only — no credentials, no raw headers)`);
+    const evidencePath = writePilotEvidence({ outcomes, requestedName: args.json });
+    console.log(`\n  wrote ${evidencePath} (aggregate metadata only; no rows, credentials, or raw headers)`);
   }
 
   if (refused > 0) process.exitCode = 1;
@@ -350,7 +369,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       }
       process.exit(1);
     }
-    console.error('\nUnexpected failure:', error && error.message ? error.message : error);
+    // Do not echo an upstream response or transport error: providers sometimes
+    // include row context in those messages. The structured error code path above
+    // is safe; all other diagnostics belong in operator-controlled infrastructure.
+    console.error('\nUnexpected WBS pull failure. No response detail was written to this terminal.');
     process.exit(1);
   });
 }
