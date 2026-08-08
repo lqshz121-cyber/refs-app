@@ -13,6 +13,11 @@ const hash=row=>canonicalRequestHash(row);
 const isoDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const parsed=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(parsed.getTime())&&parsed.toISOString().slice(0,10)===candidate;};
 const validCurrency=value=>/^[A-Z]{3}$/.test(text(value).toUpperCase());
 const scopedCurrency=(accepted,row)=>text(row.currency??accepted.scope.currency).toUpperCase()||null;
+const payableTrace=row=>freeze(Object.fromEntries([
+  ['ap_long_id',row.ap_long_id],['ap_type',row.ap_type],['business_status',row.business_status],['pay_status',row.pay_status],['pay_type',row.pay_type],
+  ['posting_date',row.posting_date],['journal_no',row.journal_no],['check_no',row.check_no],['check_date',row.check_date],['clear_date',row.clear_date],
+  ['bank_relation_ref',row.cb_id],['cost_ledger_ref',row.cost_ledger_id],['vendor_name',row.vendor_name],['project_code',row.pj_code]
+].filter(([,value])=>text(value)!=='').map(([key,value])=>[key,text(value)])));
 
 export class WbsMcpLineageError extends Error {
   constructor(code,message){super(message);this.name='WbsMcpLineageError';this.code=code;}
@@ -83,7 +88,7 @@ export function mapWbsMcpEnvelopeToInbound({envelope}={}){
     const common=commonRow({tool,accepted,row});
     if(tool==='list_payables'){
       const currency=scopedCurrency(accepted,row),businessDate=row.incurred_date||row.posting_date||null,admission=transactionAdmission({common,amountValue:row.amount,currency,dateValue:businessDate});
-      rows.push(freeze({...common,...admission,business_date:businessDate,posting_date:row.posting_date||null,amount:money(row.amount),currency,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_ref:row.cost_id||null,payable_link:row.ap_long_id||null,journal_trace:row.journal_no||null}));
+      rows.push(freeze({...common,...admission,business_date:businessDate,posting_date:row.posting_date||null,amount:money(row.amount),currency,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_ref:row.cost_id||null,payable_link:row.ap_long_id||null,journal_trace:row.journal_no||null,payable_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false}));
     }
     else if(tool==='list_bank_transactions'){
       const movement=signedMovement(row,'lender','debtor');
@@ -116,7 +121,7 @@ const iso=value=>typeof value==='string'&&!Number.isNaN(Date.parse(value));
 function mcpProvenance(accepted,row){return freeze({mcp_tool:accepted.tool_name,mcp_content_sha256:`sha256:${accepted.content_sha256}`,mcp_row_hash:hash(row),mcp_captured_at:accepted.captured_at});}
 function snapshotRow(accepted,row){
   const provenance=mcpProvenance(accepted,row);
-  if(accepted.tool_name==='list_payables')return freeze({...provenance,apGuId:text(row.ap_guid),currency:scopedCurrency(accepted,row),amount:money(row.amount),invoice_date:row.incurred_date||row.posting_date||null,posting_date:row.posting_date||null,description:row.description||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_id||null});
+  if(accepted.tool_name==='list_payables')return freeze({...provenance,apGuId:text(row.ap_guid),currency:scopedCurrency(accepted,row),amount:money(row.amount),invoice_date:row.incurred_date||row.posting_date||null,posting_date:row.posting_date||null,description:row.description||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_id||null,external_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false});
   if(accepted.tool_name==='list_bank_transactions'){
     const movement=signedMovement(row,'lender','debtor');
     return freeze({...provenance,cashOrBankBookId:text(row.cb_id),bank_account_ref:row.account_code||null,currency:scopedCurrency(accepted,row),amount:movement?.amount??null,transaction_date:row.set_date||null,direction:movement?.direction??null,description:row.description||null,come_from:row.come_from||null});

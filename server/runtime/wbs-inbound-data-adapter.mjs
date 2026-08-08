@@ -59,6 +59,8 @@ function normalize(type,companyKey,row,receipt){
     bank_account_ref:text(row.bank_account_ref)||null,
     vendor_ref:text(row.vendor_ref)||null,project_ref:text(row.project_ref)||null,cost_code_ref:text(row.cost_code_ref)||null,
     description:text(row.description)||null,pb_guid:text(row.pbGuId)||null,
+    external_trace:row.external_trace&&typeof row.external_trace==='object'?Object.freeze(structuredClone(row.external_trace)):null,
+    can_use_trace_as_key:false,can_use_trace_as_posting_authority:false,
     upstream_mcp_tool:text(row.mcp_tool)||null,upstream_mcp_content_hash:text(row.mcp_content_sha256)||null,upstream_mcp_row_hash:text(row.mcp_row_hash)||null,upstream_mcp_captured_at:text(row.mcp_captured_at)||null
   };
   return Object.freeze(normalized);
