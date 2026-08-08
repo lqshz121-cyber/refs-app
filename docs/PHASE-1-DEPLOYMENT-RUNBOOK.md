@@ -272,7 +272,10 @@ These are real limitations, stated rather than papered over.
    provider session cookie in a hidden frame, and providers that return a
    different subject all fail closed and show an explicit re-authentication
    warning. A real provider run must prove successful renewal; unit tests prove
-   only the client decision paths.
+   only the client decision paths. The authoritative static CSP permits HTTPS
+   frames for this flow; the client still constructs the frame only from the
+   validated deployment authorization endpoint and validates origin, frame,
+   state, issuer, audience, subject and expiry before replacing a token.
 2. **Route retention is per tab.** The current workspace is kept in the URL
    fragment and in tab session storage. Opening the site in a new tab starts at
    the overview page. Identity is likewise per tab, because the access token is
