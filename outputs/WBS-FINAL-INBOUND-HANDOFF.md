@@ -7,6 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
+- Frozen candidate HEAD: `420264a1c040cd6ec26f47d1b4ed3af3d20fa3de`
+  (parent `305675a875bde971e4b9defc72182f9e3f13990c`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -29,16 +31,16 @@ production acceptance, a live WBS import, or authority to post a journal.
 Run from `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound\server`:
 
 ```powershell
-node --test tests/wbs-mcp-inbound-pipeline.test.mjs tests/wbs-mcp-inbound-service.test.mjs tests/wbs-inbound-data-adapter.test.mjs
+node --test tests/wbs-mcp-inbound-pipeline.test.mjs tests/wbs-mcp-inbound-service.test.mjs tests/wbs-inbound-data-adapter.test.mjs tests/wbs-mcp-inbound-lineage.test.mjs
 npm.cmd test
 git -C .. diff --check
 ```
 
-Before this handoff document was added, the first command exited `0` with
-`13/13` tests passing and the second exited `0` with `226/226` tests passing.
-The final candidate SHA and clean-worktree evidence must be recorded after the
-handoff commit is made; do not substitute these local results for a production
-gate.
+At frozen HEAD `420264a`, `npm.cmd test` exited `0`: `234/234` passing,
+`0` skipped. Earlier focused evidence is retained in commit history; rerun the
+focused command above after integration. `git diff --check` must exit `0` on
+the target branch. These are local tests with injected provider/kernel seams,
+not a production gate.
 
 ## Non-negotiable boundaries
 
@@ -101,6 +103,10 @@ Apply or cherry-pick onto the target integration branch in this order:
 13. `6948b801b24537ed81c811e59d47a7ac1ecd760c` — validated scope currency.
 14. `cf353cbc76f951a22016b92be8bbeb495893de03` — separate control/trace reads.
 
+15. `305675a875bde971e4b9defc72182f9e3f13990c` -- handoff sequence update.
+16. `420264a1c040cd6ec26f47d1b4ed3af3d20fa3de` -- source versions are a
+    canonical row hash, not the changing batch-envelope hash.
+
 Before integration, compare each changed file against current main and rerun
 the commands above plus target-branch PG and browser gates. Do not cherry-pick
 an incomplete subset: the pipeline depends on the mapper, bridge, service,
@@ -117,6 +123,15 @@ adapter, and existing kernel ingress seams.
   the pipeline.
 - All other added files are WBS inbound-specific and should have no AP/AR,
   JE, Banking, AI, or WBS-business-UI overlap.
+
+## Explicit handoff decision
+
+The complete chain is **integrable only as a fail-closed WBS inbound boundary**:
+signed provider receipt -> Raw -> Normalized -> Staging/Exception ->
+read-only AutoRec review evidence and control/trace evidence. It intentionally
+does not integrate an importer with Draft JE, approval, posting, or WBS write
+authority. Keep it excluded from a production release until the P0 provider
+materials and independent end-to-end evidence are supplied.
 
 ## Acceptance after provider material arrives
 
