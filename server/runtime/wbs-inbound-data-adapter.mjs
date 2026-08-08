@@ -81,7 +81,7 @@ function normalize(type,companyKey,row,receipt){
     description:text(row.description)||null,pb_guid:text(row.pbGuId)||null,
     external_trace:row.external_trace&&typeof row.external_trace==='object'?Object.freeze(structuredClone(row.external_trace)):null,
     can_use_trace_as_key:false,can_use_trace_as_state_authority:false,can_use_trace_as_posting_authority:false,
-    upstream_mcp_tool:text(row.mcp_tool)||null,upstream_mcp_content_hash:text(row.mcp_content_sha256)||null,upstream_mcp_row_hash:text(row.mcp_row_hash)||null,upstream_mcp_captured_at:text(row.mcp_captured_at)||null
+    upstream_mcp_tool:text(row.mcp_tool)||null,upstream_mcp_content_hash:text(row.mcp_content_sha256)||null,upstream_mcp_row_hash:text(row.mcp_row_hash)||null,upstream_mcp_captured_at:text(row.mcp_captured_at)||null,upstream_mcp_snapshot_token:text(row.mcp_snapshot_token)||null
   };
   return Object.freeze(normalized);
 }

@@ -24,7 +24,8 @@ function deliveryMetadata(snapshot){
   const delivery=snapshot.delivery;
   const started=Date.parse(delivery?.extract_started_at),completed=Date.parse(delivery?.extract_completed_at),captured=Date.parse(snapshot.captured_at);
   if(!object(delivery)||!['READONLY_VIEW_EXPORT','SIGNED_SNAPSHOT_PACKAGE'].includes(delivery.mode)||!iso(delivery.extract_started_at)||!iso(delivery.extract_completed_at)||delivery.consistency!=='COMPLETE'||!['SNAPSHOT_ISOLATION','REPEATABLE_READ_TRANSACTION'].includes(delivery.read_consistency)||delivery.pagination!=='PRIMARY_KEY_SEEK'||completed<started||captured<started||captured>completed)fail('WBS_SNAPSHOT_DELIVERY_INVALID','Production WBS snapshots require a complete consistent primary-key-paged delivery receipt.');
-  return Object.freeze({mode:delivery.mode,extract_started_at:delivery.extract_started_at,extract_completed_at:delivery.extract_completed_at,consistency:delivery.consistency,read_consistency:delivery.read_consistency,pagination:delivery.pagination});
+  if(delivery.snapshot_token!==undefined&&!text(delivery.snapshot_token,256))fail('WBS_SNAPSHOT_DELIVERY_INVALID','A supplied provider snapshot token must be a nonempty bounded delivery identifier.');
+  return Object.freeze({mode:delivery.mode,snapshot_token:delivery.snapshot_token===undefined?null:delivery.snapshot_token,extract_started_at:delivery.extract_started_at,extract_completed_at:delivery.extract_completed_at,consistency:delivery.consistency,read_consistency:delivery.read_consistency,pagination:delivery.pagination});
 }
 
 function fail(code,message){throw new WbsSnapshotError(code,message);}
@@ -52,7 +53,7 @@ export function validateWbsSnapshotPackage(snapshot){
       if(policy.scoped&&(!text(row.bank_account_ref||row.account_book_ref||row.ledger_ref,128)))fail('WBS_SNAPSHOT_ROW_INVALID','WBS bank or ledger evidence lacks its required account scope.');
       seen.add(row[policy.id]);
       const rowHash=canonicalRequestHash(row);
-      receipts.push(Object.freeze({snapshot_id:snapshot.snapshot_id,captured_at:snapshot.captured_at,environment:snapshot.environment,source_system:'WBS',source_module:view.name,source_entity_id:view.company_key,source_record_id:row[policy.id],source_version:`snapshot:${snapshot.snapshot_id}:${rowHash.slice(7,23)}`,payload_hash:rowHash,payload_ref:`object://wbs-snapshot/${snapshot.snapshot_id}/${encodeURIComponent(view.name)}/${encodeURIComponent(row[policy.id])}`,ingestion_kind:policy.kind}));
+      receipts.push(Object.freeze({snapshot_id:snapshot.snapshot_id,provider_snapshot_token:delivery?.snapshot_token??null,captured_at:snapshot.captured_at,environment:snapshot.environment,source_system:'WBS',source_module:view.name,source_entity_id:view.company_key,source_record_id:row[policy.id],source_version:`snapshot:${snapshot.snapshot_id}:${rowHash.slice(7,23)}`,payload_hash:rowHash,payload_ref:`object://wbs-snapshot/${snapshot.snapshot_id}/${encodeURIComponent(view.name)}/${encodeURIComponent(row[policy.id])}`,ingestion_kind:policy.kind}));
     }
   }
   const deliveryAttestation=strictDelivery?Object.freeze({schema_version:snapshot.schema_version,delivery,views:Object.freeze(viewAttestations)}):null;

@@ -238,7 +238,7 @@ const snapshotPrimaryKey=Object.freeze({list_payables:'apGuId',list_bank_transac
 const uuid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text(value));
 const iso=value=>typeof value==='string'&&!Number.isNaN(Date.parse(value));
 
-function mcpProvenance(accepted,row){return freeze({mcp_tool:accepted.tool_name,mcp_content_sha256:`sha256:${accepted.content_sha256}`,mcp_row_hash:hash(row),mcp_captured_at:accepted.captured_at});}
+function mcpProvenance(accepted,row){return freeze({mcp_tool:accepted.tool_name,mcp_content_sha256:`sha256:${accepted.content_sha256}`,mcp_row_hash:hash(row),mcp_captured_at:accepted.captured_at,mcp_snapshot_token:text(accepted.scope?.snapshot_token)||null});}
 function snapshotRow(accepted,row,bankRules,payableRules,detailRules){
   const provenance=mcpProvenance(accepted,row);
   if(accepted.tool_name==='list_payables'){
