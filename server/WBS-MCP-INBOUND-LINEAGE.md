@@ -67,6 +67,17 @@ detail is quarantined by the existing `pbGuId` staging gate.
 5. Cost GL and Property Comparison reconcile controls only. They cannot create
    source documents, AutoRec allocations, Draft JEs, or ledger postings.
 
+## Sanitized golden scenarios
+
+The executable golden set covers exact matching, one-to-many, many-to-one,
+partial/remainder handling, amount and date tolerances, cross-company/currency
+and bank-account blocks, out-of-window dates, missing receipt evidence, and
+same-direction blocks. The plan exposes source-level and aggregate control
+totals (`bank_total`, `business_total`, `allocated_total`, remainders and
+four-decimal difference), plus forward and reverse source versions/hashes.
+It intentionally remains a reviewer proposal (`can_allocate=false`): actual
+reservation, release and posting must be made by the authoritative kernel.
+
 ## Verification status
 
 - **VERIFIED locally:** formal-envelope validation, canonical hash validation,
