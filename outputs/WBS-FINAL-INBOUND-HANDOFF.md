@@ -18,6 +18,7 @@ production acceptance, a live WBS import, or authority to post a journal.
 | Snapshot safety | Requires one company, one capture timestamp, stable ascending keys, canonical hashes, and no duplicate producer views. Missing keys in a later snapshot are `ABSENT_UNCONFIRMED`, never deletions. | `server/runtime/wbs-mcp-inbound-lineage.mjs` |
 | Receipt-to-staging bridge | Converts eligible formal MCP envelopes to the existing receipt-backed WBS Raw -> Normalized -> Staging ingress shape; preserves per-envelope and per-row hash provenance. | `server/runtime/wbs-mcp-inbound-lineage.mjs`, `server/runtime/wbs-inbound-data-adapter.mjs` |
 | Inbound orchestration | Pulls only Payable, Bank Transaction, and AutoRec Detail through an injected read-only client; validates company and snapshot consistency. | `server/runtime/wbs-mcp-inbound-service.mjs` |
+| Control and trace reads | Separately pulls only AutoRec Bank, WBS Journal Entry, Cost GL total, or trace relation evidence; none may enter transaction persistence. | `server/runtime/wbs-mcp-inbound-service.mjs` |
 | Signed pipeline | Pull -> independent detached-signature verification -> admission -> existing receipt-backed persistence. Signature/admission failure occurs before persistence. | `server/runtime/wbs-mcp-inbound-pipeline.mjs` |
 | AutoRec proposal | Produces read-only, review-required match proposals and totals; does not reserve, allocate, release, incur, create Draft JEs, or post. | `server/runtime/wbs-inbound-data-adapter.mjs` |
 | Report controls | Cost GL and Property Comparison reconcile only with immutable receipts and exact approved mappings. They cannot become source documents or journals. | `server/runtime/wbs-control-reconciliation.mjs` |
@@ -90,9 +91,15 @@ Apply or cherry-pick onto the target integration branch in this order:
 3. `8dfce30add0484c884c7a9195b7196232e142edf` — read-only golden proposals.
 4. `191e8d4d840e6e17f45ee96e759bd9a73419f8ae` — report control gate.
 5. `af890daafd34c2d255fa35832a9c1665daccc432` — read-only pull service.
-6. **Final pipeline/handoff commit:** record its SHA after committing this
-   worktree. It adds the signature-to-staging pipeline, tests, package test
-   registration, and this handoff.
+6. `ae5cb9773e4f20477e6c1c7795b08041ae6e6537` — signature-to-staging pipeline.
+7. `664f259986d8be426e8aad9187442bb181d9e2c6` — initial handoff document.
+8. `d94a2282546ad3a703af5b29d46872575940a149` — duplicate/version source block.
+9. `ccceba2cc93328149c31a6b104f7163df3b8dd2e` — observed WBS state evidence.
+10. `d465b51cdadb41f53cb68a7baa27af83401dddd5` — transaction field/scope gate.
+11. `99ceefa524055f97dd764b9dfa956926eea8bed0` — AutoRec Bank control evidence.
+12. `83ac92b95d7929d51a1cbd5591b3ab57a862f81d` — WBS Journal Entry trace evidence.
+13. `6948b801b24537ed81c811e59d47a7ac1ecd760c` — validated scope currency.
+14. `cf353cbc76f951a22016b92be8bbeb495893de03` — separate control/trace reads.
 
 Before integration, compare each changed file against current main and rerun
 the commands above plus target-branch PG and browser gates. Do not cherry-pick
