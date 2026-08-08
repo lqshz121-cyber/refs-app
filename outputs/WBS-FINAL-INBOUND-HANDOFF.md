@@ -7,8 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate HEAD: `c4b6037bbc1c5ba77d218ae7ba84ad80cff7e67f`
-  (parent `78392da79a4cea611455f1d0b0436ab54dc61e0a`; clean worktree verified).
+- Frozen code candidate HEAD: `07abaf186447914f7009ef1b26c82a429dd5928b`
+  (parent `29b40d7999f8a9f7a90f1c086e7f55f3e4f9c64d`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -18,6 +18,7 @@ production acceptance, a live WBS import, or authority to post a journal.
 | --- | --- | --- |
 | Formal MCP lineage | Classifies Payable, Bank Transaction, and AutoRec Detail as possible transaction input; classifies AutoRec Bank, Journal Entry, Cost GL, Property Comparison, and trace as control/trace evidence. | `server/runtime/wbs-mcp-inbound-lineage.mjs`, `server/WBS-MCP-INBOUND-LINEAGE.md` |
 | External accounting trace | Retains Payable posting/journal/check context, Bank transaction/payee/memo context, and AutoRec detail release/incur/AUTOC relations for reviewer trace only. No retained trace field is a REFS key, state transition, or posting authority. | `server/runtime/wbs-mcp-inbound-lineage.mjs`, `server/runtime/wbs-inbound-data-adapter.mjs` |
+| Reverse trace lookup | Queries `trace_by_key` only from a persisted immutable producer key, company, observed source version, and receipt hash. It rejects display/relation fields as lookup substitutes and returns relation evidence only. | `server/runtime/wbs-mcp-inbound-service.mjs` |
 | Snapshot safety | Requires one company, one capture timestamp, stable ascending keys, canonical hashes, and no duplicate producer views. Missing keys in a later snapshot are `ABSENT_UNCONFIRMED`, never deletions. | `server/runtime/wbs-mcp-inbound-lineage.mjs` |
 | Receipt-to-staging bridge | Converts eligible formal MCP envelopes to the existing receipt-backed WBS Raw -> Normalized -> Staging ingress shape; preserves per-envelope and per-row hash provenance. | `server/runtime/wbs-mcp-inbound-lineage.mjs`, `server/runtime/wbs-inbound-data-adapter.mjs` |
 | Inbound orchestration | Pulls only Payable, Bank Transaction, and AutoRec Detail through an injected read-only client; validates company and snapshot consistency. | `server/runtime/wbs-mcp-inbound-service.mjs` |
@@ -37,8 +38,8 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At frozen code candidate `c4b6037`, the focused lineage/adapter command exited
-`0`: `19/19` passing; `npm.cmd test` exited `0`: `236/236` passing, `0`
+At frozen code candidate `07abaf1`, focused lineage/service tests exited
+`0`: `14/14` passing; `npm.cmd test` exited `0`: `237/237` passing, `0`
 skipped. `git diff --check` exited `0`. Rerun all commands above after
 integration. `git diff --check` must exit `0` on
 the target branch. These are local tests with injected provider/kernel seams,
@@ -121,6 +122,9 @@ Apply or cherry-pick onto the target integration branch in this order:
     trace retained with explicit no-key/no-release authority flags.
 22. `c4b6037bbc1c5ba77d218ae7ba84ad80cff7e67f` -- AutoRec Detail external
     trace retained; WBS release/incur status cannot advance REFS state.
+23. `07abaf186447914f7009ef1b26c82a429dd5928b` -- reverse `trace_by_key`
+    lookup requires a persisted immutable source key/version/receipt and
+    remains relation evidence only.
 
 Before integration, compare each changed file against current main and rerun
 the commands above plus target-branch PG and browser gates. Do not cherry-pick

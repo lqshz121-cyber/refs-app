@@ -77,6 +77,12 @@ posting instructions.
 WBS `Released` and `Incurred` values are observed control evidence. They do
 not authorize a REFS state transition, JE action, or ledger mutation.
 
+Reverse lookup through `trace_by_key` accepts only the persisted immutable
+source key (`ap_guid`, `cb_id`, `pd_guid`, `pb_guid`, or journal `id`) plus its
+company, observed version, and receipt hash. It rejects display references
+such as Ref No., memo, `cb_id` relation fields, and `pd_pv_guid` as lookup
+substitutes. Returned relations remain read-only evidence.
+
 ## Accounting and AutoRec rules enforced at the boundary
 
 1. Payable, Bank Transaction, and AutoRec Detail can be transaction candidates
