@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {buildWbsAutoReconciliationReviewPlan} from '../runtime/wbs-inbound-data-adapter.mjs';
+import {projectObservedWbsAutoRecControlEvidence} from '../runtime/wbs-inbound-autorec-projection.mjs';
 
 const hash='sha256:'+'a'.repeat(64);
 const staged=({id,amount=100,direction,company='COMPANY-A',currency='USD',account='BANK-1',date='2026-08-09',type})=>({receipt_id:`receipt-${id}`,receipt_ref:`object://receipt/${id}`,receipt_hash:hash,raw_event_id:`raw-${id}`,source_document_id:`doc-${id}`,staging_item_id:`staging-${id}`,source_record_id:id,source_version:'v1',company_key:company,currency,amount,business_date:date,accounting_date:date,bank_account_ref:account,direction,review_event_id:`review-${id}`,stage:'STAGING_REVIEWED',source_type:type});
@@ -37,4 +38,27 @@ test('a review proposal never counts one WBS source twice or mixes its versions'
   assert.equal(mixedVersion.status,'BLOCKED');
   assert.equal(mixedVersion.allocation_plan.length,0);
   assert.ok(mixedVersion.exceptions.some(exception=>exception.code==='WBS_AUTOREC_PLAN_SOURCE_VERSION_AMBIGUOUS'));
+});
+
+test('required WBS golden matrix retains the twelve accounting-boundary scenarios',()=>{
+  const control={company_key:'COMPANY-A',user_ref:'MASKED',completed_match_period:'M:08/2026',completed_release_period:'R:08/2026',completed_incur_period:'C:08/2026',quantity:1,released_quantity:0,incurred_quantity:0,amount:'100.0000',released_amount:'0.0000',incurred_amount:'0.0000',reconciliation_balance:'100.0000',new_balance:'100.0000',balance_date:'2026-08-09'};
+  const receipt={receipt_id:'receipt-control',receipt_ref:'object://receipt/control',receipt_hash:hash,source_record_id:'control-1',source_version:'v1'};
+  const released={detail_kind:'RELEASED_PAYMENT',...receipt,posting_date:'2026-08-09',payment:'100.0000',reviewer:'Reviewer'};
+  const journal={detail_kind:'JE_TRACE',...receipt,source_record_id:'journal-291001',posting_date:'2026-08-09',journal_no:'AUTOC-1',account_code:'291001',debit:'100.0000',credit:'100.0000',review_status:'REVIEWED',approval_status:'APPROVED',posting_status:'POSTED'};
+  const cases=[
+    ['exact_match',()=>run([bank('b-exact',100)],[payable('p-exact',100)]).status==='REVIEW_REQUIRED'],
+    ['partial_match',()=>run([bank('b-partial',150)],[payable('p-partial',100)]).control_totals.bank_unallocated===50],
+    ['one_to_many',()=>run([bank('b-one-many',100)],[payable('p-many-1',40),payable('p-many-2',60)]).allocation_plan.length===2],
+    ['many_to_one',()=>run([bank('b-many-1',40),bank('b-many-2',60)],[payable('p-one',100)]).allocation_plan.length===2],
+    ['cross_company_block',()=>run([bank('b-company',100)],[payable('p-company',100,undefined,{company:'COMPANY-B'})]).status==='BLOCKED'],
+    ['amount_and_date_tolerance',()=>run([bank('b-tol',100,'2026-08-09')],[payable('p-tol',100.005,'2026-08-11')],{tolerance:0.01,dateWindowDays:2}).status==='REVIEW_REQUIRED'],
+    ['duplicate_replay_block',()=>run([bank('b-replay',100),bank('b-replay',100)],[payable('p-replay',200)]).status==='BLOCKED'],
+    ['cancel_or_reopen_never_follows_wbs_released_state',()=>{const detail=projectObservedWbsAutoRecControlEvidence({companyRows:[control],detailRows:[released]}).details[0];return detail.observed_state==='RELEASED'&&detail.can_transition_state===false&&detail.can_post===false;}],
+    ['nul_company_isolation',()=>{const plan=run([bank('b-nul',100)],[payable('p-nul',100,undefined,{company:'NUL'})]);return plan.status==='BLOCKED'&&plan.exceptions.some(item=>item.code==='WBS_AUTOREC_PLAN_SCOPE_MISMATCH');}],
+    ['invalid_2064_date_quarantined',()=>run([bank('b-date','100','2064-02-30')],[payable('p-date',100,'2064-02-30')]).status==='BLOCKED'],
+    ['291001_trace_is_evidence_not_posting',()=>{const detail=projectObservedWbsAutoRecControlEvidence({companyRows:[control],detailRows:[journal]}).details[0];return detail.observed_fields.account_code==='291001'&&detail.can_post===false&&detail.can_transition_state===false;}],
+    ['report_as_source_blocked',()=>run([{...bank('control-only',100),source_type:'AUTOREC_BANK_CONTROL'}],[payable('p-report',100)]).status==='BLOCKED']
+  ];
+  assert.equal(cases.length,12);
+  for(const [name,assertion] of cases)assert.ok(assertion(),name);
 });
