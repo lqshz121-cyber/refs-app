@@ -97,6 +97,13 @@ ledger link, second journal leg, or `291001` imbalance remains blocked.
    and source receipts; show a difference or blocked evidence rather than
    assuming success.
 
+For `trace_by_key`, REFS calls WBS only with an immutable persisted producer
+key (`ap_guid`, `cb_id`, `pd_guid`, `pb_guid`, or journal `id`). The returned
+receipt scope must echo that exact pair as `trace_key_type` and
+`trace_key_value`, in addition to company scope. A same-company trace page
+without this echo is blocked and cannot be retained as a bank-to-AUTOC,
+Payable, or journal relation.
+
 Cost GL and Property control reads are composed only from persisted WBS and
 REFS metric snapshots plus an approved mapping. All three reads must agree on
 tenant, entity, and the complete control scope; the composition is read-only

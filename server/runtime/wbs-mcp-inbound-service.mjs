@@ -70,6 +70,10 @@ export function createWbsMcpInboundService({client,persistedSourceReader=null}={
       if(!exact)fail('WBS_MCP_PERSISTED_SOURCE_MISMATCH','Reverse trace source identity must exactly match a persisted REFS receipt-backed source.');
       let envelope;try{envelope=await client.readView({toolName:'trace_by_key',args:{key_type:keyType,key_value:text(sourceRecordId)}});}catch(cause){throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_READ_FAILED','WBS reverse trace read failed before any REFS persistence.');}
       if(!envelope||envelope.tool_name!=='trace_by_key'||text(envelope.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS trace response is outside the persisted source company scope.');
+      // A company-scoped trace page alone is not proof that its relations
+      // belong to this exact persisted source.  The provider must echo the
+      // immutable lookup pair in its signed/read-only envelope scope.
+      if(text(envelope.scope?.trace_key_type)!==keyType||text(envelope.scope?.trace_key_value)!==text(sourceRecordId))fail('WBS_MCP_TRACE_RESPONSE_KEY_MISMATCH','WBS trace response must echo the exact immutable lookup key before relation evidence can be retained.');
       let evidence;try{evidence=mapWbsMcpEnvelopeToInbound({envelope:providerEnvelope(envelope)});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_MAPPING_FAILED','WBS reverse trace response could not be mapped as read-only relation evidence.');}
       return Object.freeze({status:'WBS_MCP_REVERSE_TRACE_EVIDENCE_READY',lookup:freezeLookup({tenantId,entityId,companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,keyType}),evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['bind returned relation evidence to the exact persisted receipt/source version','read authoritative REFS trace','human review where a relationship affects accounting'])});
     }

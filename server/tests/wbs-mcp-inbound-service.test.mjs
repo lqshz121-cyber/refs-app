@@ -47,7 +47,7 @@ test('AutoRec Bank control pull requires an exact provider formula and stays evi
 });
 
 test('reverse trace lookup permits only a persisted immutable producer key and stays relation evidence',async()=>{
-  const trace=raw('trace_by_key',[{relation_type:'AUTOC',relation_value:'masked'}]);
+  const trace={...raw('trace_by_key',[{relation_type:'AUTOC',relation_value:'masked'}]),scope:{company:'COMPANY-A',trace_key_type:'ap_guid',trace_key_value:'11111111-1111-4111-8111-111111111111'}};
   const calls=[],identity={tenant_id:'tenant-1',entity_id:'entity-1',company_key:'COMPANY-A',source_type:'PAYABLE',source_record_id:'11111111-1111-4111-8111-111111111111',source_version:'observed:'+'a'.repeat(64),receipt_hash:'sha256:'+'b'.repeat(64)};
   const service=createWbsMcpInboundService({client:{readView:async request=>(calls.push(request),structuredClone(trace))},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})}});
   const result=await service.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:'11111111-1111-4111-8111-111111111111',sourceVersion:'observed:'+'a'.repeat(64),receiptHash:'sha256:'+'b'.repeat(64)});
@@ -60,4 +60,7 @@ test('reverse trace lookup permits only a persisted immutable producer key and s
   await assert.rejects(()=>mismatch.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash}),error=>error.code==='WBS_MCP_PERSISTED_SOURCE_MISMATCH');
   const crossScope=createWbsMcpInboundService({client:{readView:async()=>structuredClone(trace)},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})}});
   await assert.rejects(()=>crossScope.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-B',sourceType:'PAYABLE',sourceRecordId:'A-1',sourceVersion:'v1',receiptHash:'sha256:'+'b'.repeat(64)}),error=>error.code==='WBS_MCP_RESPONSE_SCOPE_INVALID');
+  const wrongKey={...trace,scope:{...trace.scope,trace_key_value:'another-source'}};
+  const wrongKeyService=createWbsMcpInboundService({client:{readView:async()=>structuredClone(wrongKey)},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})}});
+  await assert.rejects(()=>wrongKeyService.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash}),error=>error.code==='WBS_MCP_TRACE_RESPONSE_KEY_MISMATCH');
 });
