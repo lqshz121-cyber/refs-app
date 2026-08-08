@@ -27,7 +27,15 @@ export const WBS_AUTOREC_OBSERVED_CONTRACT=Object.freeze({
 });
 const text=value=>value==null?'':String(value).trim();
 const amount=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
-const date=value=>/^\d{4}-\d{2}-\d{2}$/.test(text(value))?text(value):null;
+// A formatting-only check would admit impossible posting dates such as
+// 2026-02-30 into staging. WBS dates are evidence, so an invalid calendar day
+// must become an Exception before any review or accounting request.
+const date=value=>{
+  const candidate=text(value);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return null;
+  const parsed=new Date(`${candidate}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime())&&parsed.toISOString().slice(0,10)===candidate?candidate:null;
+};
 const error=(code,message)=>Object.freeze({code,message});
 const freeze=value=>Object.freeze(value);
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

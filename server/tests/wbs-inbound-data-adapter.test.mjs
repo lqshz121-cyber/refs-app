@@ -23,6 +23,14 @@ test('incomplete receipt rows reach Exception rather than staging or a Draft req
   assert.equal(result.exceptions.length,1);assert.equal(result.exceptions[0].exception.code,'WBS_RECEIPT_FIELD_MISSING');assert.equal(result.staging.length,2);
 });
 
+test('an impossible WBS posting date is quarantined before staging or an accounting request',async()=>{
+  const value=snapshot();value.views[0].rows[0].invoice_date='2026-02-30';value.views[0].rows[0].posting_date='2026-02-30';value.views[0].content_hash=canonicalRequestHash(value.views[0].rows);delete value.package_hash;value.package_hash=canonicalRequestHash(value);
+  const result=await createWbsInboundDataAdapter({snapshotReader:reader(value)}).pull();
+  assert.equal(result.staging.some(item=>item.raw_trace.source_type==='PAYABLE'),false);
+  assert.equal(result.exceptions.find(item=>item.raw_trace.source_type==='PAYABLE').exception.code,'WBS_RECEIPT_FIELD_MISSING');
+  assert.equal(result.admission.can_create_draft,false);assert.equal(result.admission.can_post,false);
+});
+
 test('Draft and AutoRec requests are review-only seams with immutable source trace',async()=>{
   const result=await createWbsInboundDataAdapter({snapshotReader:reader(snapshot())}).pull();
   const payable=result.staging.find(item=>item.raw_trace.source_type==='PAYABLE').raw_trace;
