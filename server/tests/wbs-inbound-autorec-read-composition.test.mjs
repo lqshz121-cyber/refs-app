@@ -24,9 +24,9 @@ test('missing capability, read failure, and tenant/entity/company/source leakage
 
 test('G11 read verifier accepts only scoped kernel-read posted evidence and keeps all accounting actions disabled',async()=>{
   const selection={tenantId:'t1',entityId:'e1',companyKey:'COMPANY-A',reviewCandidateId:'candidate-1',replayKey:'g11-1'};
-  const sourceTrace={bank_receipt_id:'r-bank',business_receipt_id:'r-pay',bank_raw_event_id:'raw-b',business_raw_event_id:'raw-p',bank_source_record_id:'bank-1',bank_source_version:'v1',business_source_record_id:'pay-1',business_source_version:'v1',bank_staging_item_id:'stg-b',business_staging_item_id:'stg-p'};
-  const review={tenant_id:'t1',entity_id:'e1',company_key:'COMPANY-A',review_candidate_id:'candidate-1',request_type:'AUTOREC_REVIEW_REQUEST',status:'REVIEW_REQUIRED',trace:sourceTrace};
-  const journal=(type,lines)=>({tenant_id:'t1',entity_id:'e1',company_key:'COMPANY-A',accounting_type:type,source_system:'REFS_STANDARD_JE',status:'POSTED',journal_entry_id:`je-${type}`,audit_event_id:`audit-${type}`,audit_event_type:'AUTO_JOURNAL_CREATED',source_trace:sourceTrace,ledger_lines:lines});
+  const g11Scope={company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1'},sourceTrace={...g11Scope,bank_business_date:'2026-08-01',bank_accounting_date:'2026-08-01',business_business_date:'2026-08-01',business_accounting_date:'2026-08-01',bank_receipt_id:'r-bank',business_receipt_id:'r-pay',bank_raw_event_id:'raw-b',business_raw_event_id:'raw-p',bank_source_record_id:'bank-1',bank_source_version:'v1',business_source_record_id:'pay-1',business_source_version:'v1',bank_staging_item_id:'stg-b',business_staging_item_id:'stg-p'};
+  const review={tenant_id:'t1',entity_id:'e1',...g11Scope,review_candidate_id:'candidate-1',request_type:'AUTOREC_REVIEW_REQUEST',status:'REVIEW_REQUIRED',trace:sourceTrace};
+  const journal=(type,lines)=>({tenant_id:'t1',entity_id:'e1',...g11Scope,accounting_type:type,source_system:'REFS_STANDARD_JE',status:'POSTED',journal_entry_id:`je-${type}`,audit_event_id:`audit-${type}`,audit_event_type:'AUTO_JOURNAL_CREATED',source_trace:sourceTrace,ledger_lines:lines});
   const posted=[journal('PAYABLE_INCUR',[{ledger_line_id:'l1',account_code:'291001',member_ref:'V-1',debit_amount:0,credit_amount:10},{ledger_line_id:'l2',account_code:'610000',member_ref:null,debit_amount:10,credit_amount:0}]),journal('AUTOC',[{ledger_line_id:'l3',account_code:'291001',member_ref:'V-1',debit_amount:10,credit_amount:0},{ledger_line_id:'l4',account_code:'111000',member_ref:'B-1',debit_amount:0,credit_amount:10}])];
   const verifier=createWbsAutoRecG11ReadVerifier({repository:{readReviewedWbsAutoRecRequest:async()=>review,readPostedWbsAutoRecJournalEvidence:async()=>posted}});
   const accepted=await verifier.verify(selection);assert.deepEqual({status:accepted.status,net:accepted.verification.control_totals.ap_291001_member_nets['V-1'],dispatch:accepted.can_dispatch,post:accepted.can_post},{status:'G11_POSTED_TRACE_VERIFIED',net:0,dispatch:false,post:false});
@@ -36,4 +36,6 @@ test('G11 read verifier accepts only scoped kernel-read posted evidence and keep
   assert.equal((await badScope.verify(selection)).code,'WBS_AUTOREC_G11_READ_SCOPE_INVALID');
   const draft=createWbsAutoRecG11ReadVerifier({repository:{readReviewedWbsAutoRecRequest:async()=>review,readPostedWbsAutoRecJournalEvidence:async()=>[{...posted[0],status:'DRAFT'},posted[1]]}});
   assert.equal((await draft.verify(selection)).code,'WBS_AUTOREC_G11_POSTED_EVIDENCE_REQUIRED');
+  const crossCurrency=createWbsAutoRecG11ReadVerifier({repository:{readReviewedWbsAutoRecRequest:async()=>review,readPostedWbsAutoRecJournalEvidence:async()=>[posted[0],{...posted[1],currency:'CAD'}]}});
+  assert.equal((await crossCurrency.verify(selection)).code,'WBS_AUTOREC_G11_POSTED_EVIDENCE_REQUIRED');
 });
