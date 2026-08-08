@@ -96,6 +96,17 @@ test('AutoRec Bank control totals require a receipt-bound provider ROW_SUM formu
   assert.throws(()=>buildWbsAutoRecBankControlEvidence({envelope:bankEnvelope,control:{...control,receipt:{...control.receipt,hash:'sha256:'+'0'.repeat(64)}}}),error=>error.code==='WBS_MCP_CONTROL_RECEIPT_REQUIRED');
 });
 
+test('MCP blank, null, boolean, and display-style amounts never become zero control totals',()=>{
+  const malformedValues=['', '  ', null, true, '0x10'];
+  for(const invalidValue of malformedValues){
+    const bankEnvelope=envelope('list_autorec_banks',[
+      {pb_guid:'PB-1',company_code:'COMPANY-A',ah_id:'BANK-1',quantity:'1',released_quantity:'0',pay_amount:invalidValue,released:'0',incurred:'0',debit_amount:'0'}
+    ],{company:'COMPANY-A',currency:'USD'});
+    const control={scope:{company_key:'COMPANY-A',currency:'USD',period:'2026-08',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${bankEnvelope.content_sha256}`,ref:'object://wbs/autorec/PB',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},formula:{formula_id:'WBS-PB-ROW-SUM',version:'1',aggregation:'ROW_SUM'},totals:{quantity:'1',released_quantity:'0',pay_amount:'0',released_amount:'0',incurred_amount:'0',debit_amount:'0'}};
+    assert.throws(()=>buildWbsAutoRecBankControlEvidence({envelope:bankEnvelope,control}),error=>error.code==='WBS_MCP_CONTROL_TOTALS_INVALID');
+  }
+});
+
 test('WBS journal entries supply trace evidence but cannot create accounting transactions',()=>{
   const journals=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_journal_entries',[{id:91,company:'COMPANY-A',journal_no:'JE-100',posting_date:'2026-08-01',account:'291001',lender:'0',debtor:'100',cb_id:'BANK-1',bill_no:'AP-1',pj_code:'PROJECT-1',cost_code:'COST-1',come_from:'AUTOC',review:'REVIEWED',reviewer:'USER-MASKED'}])});
   const row=journals.rows[0];

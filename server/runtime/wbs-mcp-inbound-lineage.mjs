@@ -8,7 +8,16 @@ const stableKey=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'c
 const sourceType=Object.freeze({list_payables:'PAYABLE',list_bank_transactions:'BANK_TRANSACTION',list_autorec_details:'AUTOREC_PAYMENT_DETAIL',list_autorec_banks:'AUTOREC_BANK_CONTROL',list_journal_entries:'WBS_JOURNAL_EVIDENCE',list_control_totals:'WBS_CONTROL_TOTAL',trace_by_key:'WBS_TRACE_RELATION'});
 const traceKeyTypes=new Set(['ap_guid','cb_id','pd_guid','pb_guid','id']);
 const text=value=>value==null?'':String(value).trim();
-const money=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
+// WBS MCP row values are canonical decimal payloads, never display strings.
+// Reject missing values explicitly: Number('') and Number(null) are zero in
+// JavaScript and would otherwise create false control-total evidence.
+const money=value=>{
+  if(typeof value==='number')return Number.isFinite(value)?Number(value.toFixed(4)):null;
+  const candidate=typeof value==='string'?value.trim():'';
+  if(!/^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(candidate))return null;
+  const parsed=Number(candidate);
+  return Number.isFinite(parsed)?Number(parsed.toFixed(4)):null;
+};
 const freeze=value=>Object.freeze(value);
 const hash=row=>canonicalRequestHash(row);
 const isoDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const parsed=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(parsed.getTime())&&parsed.toISOString().slice(0,10)===candidate;};
