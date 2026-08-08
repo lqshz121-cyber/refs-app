@@ -12,6 +12,7 @@ export class WbsControlReconciliationError extends Error {
 const fail=(code,message)=>{throw new WbsControlReconciliationError(code,message);};
 const exactScope=(left,right,keys)=>keys.every(key=>text(left?.[key])===text(right?.[key]));
 const sourceFor=type=>type==='COST_GENERAL_LEDGER'?'WBS_COST_GL_CONTROL_RECONCILIATION':'WBS_PROPERTY_CONTROL_RECONCILIATION';
+const COST_GENERAL_LEDGER_METRIC_COUNT=14;
 
 function validateReceipt(receipt,label){
   if(!receipt||typeof receipt!=='object'||!/^sha256:[0-9a-f]{64}$/.test(text(receipt.hash))||!text(receipt.ref)||!text(receipt.version))fail('WBS_CONTROL_RECEIPT_REQUIRED',`${label} requires immutable receipt hash, reference, and version.`);
@@ -33,7 +34,7 @@ export function reconcileWbsControlEvidence({sourceType,scope,sourceReceipt,targ
   if(!approvedMapping||text(approvedMapping.status)!=='APPROVED'||text(approvedMapping.mapping_type)!==sourceFor(sourceType)||!text(approvedMapping.mapping_id)||!text(approvedMapping.version)||!exactScope(approvedMapping.scope,scope,scopeKeys))fail('WBS_CONTROL_MAPPING_REQUIRED','A single approved control-reconciliation mapping with exact scope is required.');
   const sourceByKey=metricMap(sourceMetrics,'WBS source'),targetByKey=metricMap(targetMetrics,'REFS target');
   const expected=Array.isArray(approvedMapping.metric_keys)?approvedMapping.metric_keys.map(text):[];
-  if(!expected.length||new Set(expected).size!==expected.length||expected.some(key=>!sourceByKey.has(key)||!targetByKey.has(key))||sourceByKey.size!==expected.length||targetByKey.size!==expected.length)fail('WBS_CONTROL_MAPPING_INCOMPLETE','Approved mapping must name every and only source and target control metric.');
+  if((sourceType==='COST_GENERAL_LEDGER'&&expected.length!==COST_GENERAL_LEDGER_METRIC_COUNT)||!expected.length||new Set(expected).size!==expected.length||expected.some(key=>!sourceByKey.has(key)||!targetByKey.has(key))||sourceByKey.size!==expected.length||targetByKey.size!==expected.length)fail('WBS_CONTROL_MAPPING_INCOMPLETE','Approved mapping must name every and only source and target control metric. Cost General Ledger requires exactly fourteen approved metrics.');
   const comparisons=expected.sort().map(metricKey=>{
     const sourceAmount=sourceByKey.get(metricKey),targetAmount=targetByKey.get(metricKey),difference=Number((targetAmount-sourceAmount).toFixed(4));
     return freeze({metric_key:metricKey,source_amount:sourceAmount,target_amount:targetAmount,difference,matched:difference===0,forward_trace:freeze({source_receipt_hash:source.hash,source_receipt_version:source.version,mapping_id:text(approvedMapping.mapping_id),mapping_version:text(approvedMapping.version)}),reverse_trace:freeze({target_receipt_hash:target.hash,target_receipt_version:target.version,mapping_id:text(approvedMapping.mapping_id),mapping_version:text(approvedMapping.version)})});
