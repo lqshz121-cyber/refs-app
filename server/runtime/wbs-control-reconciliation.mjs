@@ -1,6 +1,8 @@
 // WBS reports are control evidence, never transaction producers. This pure
 // REFS-side verifier compares only receipt-bound, approved, scoped metrics and
 // deliberately exposes no Draft, AutoRec allocation, or posting capability.
+import {canonicalRequestHash} from './request-hash.mjs';
+
 const text=value=>value==null?'':String(value).trim();
 const decimal=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
 const freeze=value=>Object.freeze(value);
@@ -17,10 +19,10 @@ const sourceFor=type=>type==='COST_GENERAL_LEDGER'?'WBS_COST_GL_CONTROL_RECONCIL
 const COST_GENERAL_LEDGER_METRIC_COUNT=14;
 
 function validateReceipt(receipt,label,scope,scopeKeys){
-  if(!receipt||typeof receipt!=='object'||!/^sha256:[0-9a-f]{64}$/.test(text(receipt.hash))||!text(receipt.ref)||!text(receipt.version))fail('WBS_CONTROL_RECEIPT_REQUIRED',`${label} requires immutable receipt hash, reference, and version.`);
+  if(!receipt||typeof receipt!=='object'||!/^sha256:[0-9a-f]{64}$/.test(text(receipt.hash))||!/^sha256:[0-9a-f]{64}$/.test(text(receipt.metrics_hash))||!text(receipt.ref)||!text(receipt.version))fail('WBS_CONTROL_RECEIPT_REQUIRED',`${label} requires immutable receipt hash, metrics hash, reference, and version.`);
   if(!receipt.scope||typeof receipt.scope!=='object'||!scopeKeys.every(key=>text(receipt.scope[key])))fail('WBS_CONTROL_RECEIPT_SCOPE_REQUIRED',`${label} receipt requires the complete reconciliation scope.`);
   if(!exactScope(receipt.scope,scope,scopeKeys))fail('WBS_CONTROL_RECEIPT_SCOPE_MISMATCH',`${label} receipt scope must exactly match the reconciliation scope.`);
-  return freeze({hash:text(receipt.hash),ref:text(receipt.ref),version:text(receipt.version),scope:freeze(Object.fromEntries(scopeKeys.map(key=>[key,text(receipt.scope[key])])))});
+  return freeze({hash:text(receipt.hash),metrics_hash:text(receipt.metrics_hash),ref:text(receipt.ref),version:text(receipt.version),scope:freeze(Object.fromEntries(scopeKeys.map(key=>[key,text(receipt.scope[key])])))});
 }
 function metricMap(rows,label){
   if(!Array.isArray(rows)||rows.length===0)fail('WBS_CONTROL_METRICS_REQUIRED',`${label} control metrics are required.`);
@@ -28,6 +30,7 @@ function metricMap(rows,label){
   for(const row of rows){const key=text(row?.metric_key),value=decimal(row?.amount);if(!/^[A-Z][A-Z0-9_]{1,95}$/.test(key)||value===null||result.has(key))fail('WBS_CONTROL_METRICS_INVALID',`${label} control metrics need unique keys and four-decimal amounts.`);result.set(key,value);}
   return result;
 }
+function metricsFingerprint(metrics){return canonicalRequestHash([...metrics.entries()].sort(([left],[right])=>left.localeCompare(right)).map(([metric_key,amount])=>({metric_key,amount})));}
 
 export function reconcileWbsControlEvidence({sourceType,scope,sourceReceipt,targetReceipt,approvedMapping,sourceMetrics,targetMetrics}={}){
   if(!['COST_GENERAL_LEDGER','PROPERTY_COMPARISON'].includes(sourceType))fail('WBS_CONTROL_SOURCE_TYPE_INVALID','Only Cost General Ledger and Property Comparison control sources are supported.');
@@ -40,6 +43,7 @@ export function reconcileWbsControlEvidence({sourceType,scope,sourceReceipt,targ
   const source=validateReceipt(sourceReceipt,'WBS source',canonicalScope,scopeKeys),target=validateReceipt(targetReceipt,'REFS target',canonicalScope,scopeKeys);
   if(!approvedMapping||text(approvedMapping.status)!=='APPROVED'||text(approvedMapping.mapping_type)!==sourceFor(sourceType)||!text(approvedMapping.mapping_id)||!text(approvedMapping.version)||!exactScope(approvedMapping.scope,canonicalScope,scopeKeys))fail('WBS_CONTROL_MAPPING_REQUIRED','A single approved control-reconciliation mapping with exact scope is required.');
   const sourceByKey=metricMap(sourceMetrics,'WBS source'),targetByKey=metricMap(targetMetrics,'REFS target');
+  if(source.metrics_hash!==metricsFingerprint(sourceByKey)||target.metrics_hash!==metricsFingerprint(targetByKey))fail('WBS_CONTROL_RECEIPT_METRICS_MISMATCH','Control metrics must exactly match the immutable receipt metric fingerprint.');
   const expected=Array.isArray(approvedMapping.metric_keys)?approvedMapping.metric_keys.map(text):[];
   if((sourceType==='COST_GENERAL_LEDGER'&&expected.length!==COST_GENERAL_LEDGER_METRIC_COUNT)||!expected.length||new Set(expected).size!==expected.length||expected.some(key=>!sourceByKey.has(key)||!targetByKey.has(key))||sourceByKey.size!==expected.length||targetByKey.size!==expected.length)fail('WBS_CONTROL_MAPPING_INCOMPLETE','Approved mapping must name every and only source and target control metric. Cost General Ledger requires exactly fourteen approved metrics.');
   const comparisons=expected.sort().map(metricKey=>{
