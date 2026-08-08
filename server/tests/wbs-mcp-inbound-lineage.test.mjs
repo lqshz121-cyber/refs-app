@@ -11,8 +11,9 @@ test('formal WBS Payable, Bank Journal, and AutoRec detail envelopes map to read
   const payable=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_payables',[{ap_guid:'A-1',company_code:'COMPANY-A',currency:'USD',amount:'100',posting_date:'2026-08-01',vendor_no:'V-1',ap_long_id:'AP-LONG-1',business_status:'PAID',pay_status:'CLEARED',pay_type:'ACH',journal_no:'J-1',check_no:'CHK-1',check_date:'2026-08-02',clear_date:'2026-08-03',cb_id:'CB-1'}])});
   assert.equal(payable.rows[0].admission,'TRANSACTION_CANDIDATE');assert.equal(payable.rows[0].receipt_required_for_persistence,undefined);assert.equal(payable.rows[0].can_post,false);assert.equal(payable.receipt_required_for_persistence,true);
   assert.deepEqual(payable.rows[0].payable_trace,{ap_long_id:'AP-LONG-1',business_status:'PAID',pay_status:'CLEARED',pay_type:'ACH',posting_date:'2026-08-01',journal_no:'J-1',check_no:'CHK-1',check_date:'2026-08-02',clear_date:'2026-08-03',bank_relation_ref:'CB-1'});assert.equal(payable.rows[0].can_use_trace_as_key,false);assert.equal(payable.rows[0].can_use_trace_as_posting_authority,false);
-  const bank=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:'100',lender:'0'}])});
+  const bank=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-01',payee:'Vendor A',payee_no:'V-1',description:'Bank memo',come_from:'AUTOC',child_come_from:'PAYABLE',review:'REVIEWED'}])});
   assert.deepEqual({direction:bank.rows[0].direction,amount:bank.rows[0].amount,post:bank.rows[0].can_post},{direction:'DEBIT',amount:-100,post:false});
+  assert.deepEqual(bank.rows[0].bank_trace,{transaction_date:'2026-08-01',account_code:'BANK-1',payee:'Vendor A',payee_no:'V-1',memo:'Bank memo',come_from:'AUTOC',child_come_from:'PAYABLE',review_status:'REVIEWED'});assert.equal(bank.rows[0].can_use_trace_as_key,false);
   const detail=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_autorec_details',[{pd_guid:'D-1',company_code:'COMPANY-A',currency:'USD',deposit:'0',payment:'100',cb_id:'B-1',pd_pv_guid:'PB-1',incurred_date:'2026-08-01'}])});
   assert.equal(detail.rows[0].admission,'AUTOREC_REVIEW_EVIDENCE');assert.equal(detail.rows[0].direction,'DEBIT');assert.equal(detail.rows[0].can_create_draft,false);
 });
@@ -72,7 +73,7 @@ test('unchanged WBS source rows keep their observed version when another row cha
 
 test('formal MCP transaction views enter the existing Raw/Normalized/Staging adapter with upstream receipt provenance',async()=>{
   const payable=envelope('list_payables',[{ap_guid:'11111111-1111-4111-8111-111111111111',company_code:'COMPANY-A',currency:'USD',amount:'100',posting_date:'2026-08-09',journal_no:'J-1',check_no:'CHK-1',clear_date:'2026-08-10'}]);
-  const bank=envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-09'}]);
+  const bank=envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-09',payee:'Vendor A',description:'Bank memo',come_from:'AUTOC'}]);
   const detail=envelope('list_autorec_details',[{pd_guid:'22222222-2222-4222-8222-222222222222',company_code:'COMPANY-A',currency:'USD',deposit:'0',payment:'100',pd_pv_guid:'RELATION-ONLY',incurred_date:'2026-08-09'}]);
   const snapshot=buildWbsMcpReadonlySnapshot({envelopes:[payable,bank,detail],snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'});
   const result=await createWbsInboundDataAdapter({snapshotReader:{readOnly:true,readSnapshot:async()=>snapshot}}).pull();
@@ -80,6 +81,8 @@ test('formal MCP transaction views enter the existing Raw/Normalized/Staging ada
   const raw=result.staging.find(item=>item.raw_trace.source_type==='PAYABLE').raw_trace;
   assert.equal(raw.upstream_mcp_tool,'list_payables');assert.match(raw.upstream_mcp_content_hash,/^sha256:/);
   assert.deepEqual(raw.external_trace,{posting_date:'2026-08-09',journal_no:'J-1',check_no:'CHK-1',clear_date:'2026-08-10'});assert.equal(raw.can_use_trace_as_key,false);assert.equal(raw.can_use_trace_as_posting_authority,false);
+  const bankRaw=result.staging.find(item=>item.raw_trace.source_type==='BANK_TRANSACTION').raw_trace;
+  assert.deepEqual(bankRaw.external_trace,{transaction_date:'2026-08-09',account_code:'BANK-1',payee:'Vendor A',memo:'Bank memo',come_from:'AUTOC'});assert.equal(bankRaw.can_use_trace_as_key,false);assert.equal(bankRaw.can_use_trace_as_posting_authority,false);
   assert.equal(result.exceptions[0].raw_trace.source_type,'AUTOREC_PAYMENT_DETAIL');assert.match(result.exceptions[0].exception.message,/pbGuId/);
   assert.throws(()=>buildWbsMcpReadonlySnapshot({envelopes:[payable],snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',environment:'PRODUCTION'}),error=>error.code==='WBS_MCP_SNAPSHOT_SIGNATURE_REQUIRED');
 });
