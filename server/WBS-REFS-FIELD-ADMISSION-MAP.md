@@ -108,6 +108,9 @@ posted journal with a different trace is not a valid WBS accounting result.
 For AutoRec G11 readback, both posted legs must additionally carry the exact
 reviewed company, currency, bank account, and each source's business and
 accounting dates before the per-member `291001` zero-net control can pass.
+The review pair keeps both receipt reference/hash and Source Document ID; an
+ID-only receipt or a journal without the exact two source-document links is
+not an auditable WBS-to-REFS result.
 
 For `trace_by_key`, REFS calls WBS only with an immutable persisted producer
 key (`ap_guid`, `cb_id`, `pd_guid`, `pb_guid`, or journal `id`). The returned
