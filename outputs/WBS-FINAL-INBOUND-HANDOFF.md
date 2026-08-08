@@ -7,8 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate HEAD: `99a6b4fc64b05d0feaa93c3f9ad49b8836fec2b4`
-  (parent `6b4b6dcc1434aaf1c25ad89d1337757b200cac09`; clean worktree verified).
+- Frozen code candidate HEAD: `a67bddd862a8bc2048b5676d2a23842128bcf622`
+  (parent `99a6b4fc64b05d0feaa93c3f9ad49b8836fec2b4`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -227,9 +227,12 @@ constraints and the corrected handoff state:
    post capability.
 7. `99a6b4f` exposes that contract only through the read-only WBS service;
    it adds no persistence, allocation, release, incur or journal path.
+8. `a67bddd` blocks all Bank Transaction snapshot admission without a
+   receipt-bound per-account debtor/lender direction convention. REFS no
+   longer assumes WBS column names determine accounting direction.
 
 The directly consumable integration range is therefore exactly
-`6843dce^..99a6b4f`, applied in Git order. It includes no WBS business UI,
+`6843dce^..a67bddd`, applied in Git order. It includes no WBS business UI,
 WBS write operation, Draft-JE dispatch, approval or posting implementation.
 
 ## Current conflict and ownership check
