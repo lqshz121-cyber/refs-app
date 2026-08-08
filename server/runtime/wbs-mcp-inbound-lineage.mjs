@@ -75,3 +75,49 @@ export function mapWbsMcpEnvelopeToInbound({envelope}={}){
   }
   return freeze({tool_name:tool,required_fields:WBS_READONLY_ROW_FIELDS[tool]??freeze([]),rows:freeze(rows),receipt_required_for_persistence:true,can_create_draft:false,can_allocate:false,can_post:false});
 }
+
+const snapshotView=Object.freeze({list_payables:'BGDATA.payable',list_bank_transactions:'BGDATA.bank_transaction',list_autorec_details:'BGDATA.autoc_detail'});
+const snapshotPrimaryKey=Object.freeze({list_payables:'apGuId',list_bank_transactions:'cashOrBankBookId',list_autorec_details:'pdGuId'});
+const uuid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text(value));
+const iso=value=>typeof value==='string'&&!Number.isNaN(Date.parse(value));
+
+function mcpProvenance(accepted,row){return freeze({mcp_tool:accepted.tool_name,mcp_content_sha256:`sha256:${accepted.content_sha256}`,mcp_row_hash:hash(row),mcp_captured_at:accepted.captured_at});}
+function snapshotRow(accepted,row){
+  const provenance=mcpProvenance(accepted,row);
+  if(accepted.tool_name==='list_payables')return freeze({...provenance,apGuId:text(row.ap_guid),currency:text(row.currency).toUpperCase()||null,amount:money(row.amount),invoice_date:row.incurred_date||row.posting_date||null,posting_date:row.posting_date||null,description:row.description||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_id||null});
+  if(accepted.tool_name==='list_bank_transactions'){
+    const movement=signedMovement(row,'lender','debtor');
+    return freeze({...provenance,cashOrBankBookId:text(row.cb_id),bank_account_ref:row.account_code||null,currency:text(row.currency).toUpperCase()||null,amount:movement?.amount??null,transaction_date:row.set_date||null,direction:movement?.direction??null,description:row.description||null,come_from:row.come_from||null});
+  }
+  const movement=signedMovement(row,'deposit','payment');
+  // pd_pv_guid is observed as a relation navigation value, not a verified
+  // pb_guid. Leave pbGuId absent so the existing staging gate quarantines it.
+  return freeze({...provenance,pdGuId:text(row.pd_guid),currency:text(row.currency).toUpperCase()||null,amount:movement?.amount??null,payment_date:row.incurred_date||row.clear_date||null,direction:movement?.direction??null,autoc_relation_ref:row.pd_pv_guid||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_code||null});
+}
+
+// Creates a receipt-bearing snapshot package that the existing REFS inbound
+// adapter can consume. It accepts only transaction-producer views; report and
+// control views must flow through their control-reconciliation path instead.
+// It deliberately does not manufacture a pb_guid from pd_pv_guid.
+export function buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVersion,environment='SANDBOX',delivery=null,detachedSignature=null}={}){
+  if(!uuid(snapshotId)||typeof dictionaryVersion!=='string'||!dictionaryVersion.trim()||!Array.isArray(envelopes)||envelopes.length===0)throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_INPUT_INVALID','Snapshot id, dictionary version, and formal MCP envelopes are required.');
+  if(!['SANDBOX','PRODUCTION'].includes(environment))throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_INPUT_INVALID','Snapshot environment is invalid.');
+  const accepted=envelopes.map(envelope=>validateWbsReadEnvelope({toolName:envelope?.tool,envelope}));
+  if(accepted.some(item=>!snapshotView[item.tool_name]))throw new WbsMcpLineageError('WBS_MCP_CONTROL_VIEW_NOT_TRANSACTIONAL','Control, journal, and trace MCP views cannot form a transaction snapshot.');
+  if(new Set(accepted.map(item=>item.tool_name)).size!==accepted.length)throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_VIEW_DUPLICATE','A snapshot may contain one envelope per transaction producer view.');
+  const company=text(accepted[0].scope.company),capturedAt=accepted[0].captured_at;
+  if(!company||accepted.some(item=>text(item.scope.company)!==company||item.captured_at!==capturedAt))throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_SCOPE_INVALID','Formal MCP transaction envelopes require one company scope and captured-at timestamp.');
+  for(const item of accepted){const key=stableKey[item.tool_name];if(!sorted(item.rows,key))throw new WbsMcpLineageError('WBS_MCP_ROWS_NOT_SORTED','WBS rows must be ascending by their stable source key.');}
+  if(environment==='PRODUCTION'&&(!delivery||!detachedSignature))throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_SIGNATURE_REQUIRED','Production MCP snapshots require complete delivery evidence and a detached signature.');
+  const views=accepted.map(item=>{
+    const rows=item.rows.map(row=>snapshotRow(item,row));
+    const key=snapshotPrimaryKey[item.tool_name];
+    const view={name:snapshotView[item.tool_name],company_key:company,rows:freeze(rows),content_hash:canonicalRequestHash(rows)};
+    if(environment==='PRODUCTION')Object.assign(view,{row_count:rows.length,first_primary_key:rows.length?rows[0][key]:null,last_primary_key:rows.length?rows.at(-1)[key]:null});
+    return freeze(view);
+  });
+  const manifest={schema_version:environment==='PRODUCTION'?'WBS_READONLY_SNAPSHOT_V2':'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:capturedAt,environment,source_system:'WBS',dictionary_version:dictionaryVersion,views};
+  if(environment==='PRODUCTION')Object.assign(manifest,{delivery,detached_signature:detachedSignature});
+  const hashInput=environment==='PRODUCTION'?Object.fromEntries(Object.entries(manifest).filter(([key])=>key!=='detached_signature')):manifest;
+  return freeze({...manifest,package_hash:canonicalRequestHash(hashInput)});
+}

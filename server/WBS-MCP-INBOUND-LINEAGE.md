@@ -41,6 +41,14 @@ deletion. Any mixed company scope, non-ascending stable keys, invalid content
 hash, ambiguous debit/credit movement, missing currency/date/account/amount, or
 missing immutable receipt remains blocked.
 
+The three transaction producer envelopes can be packaged into the existing
+receipt-backed snapshot ingress only when they have one company, one captured
+timestamp, ascending stable keys, and — in production — complete delivery
+evidence plus an external detached signature. The package retains each MCP
+envelope hash and row hash in normalized provenance. `pd_pv_guid` is not
+treated as `pb_guid`; until that relationship is provider-verified, AutoRec
+detail is quarantined by the existing `pbGuId` staging gate.
+
 ## Accounting and AutoRec rules enforced at the boundary
 
 1. Payable, Bank Transaction, and AutoRec Detail can be transaction candidates
