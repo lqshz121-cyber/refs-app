@@ -33,6 +33,9 @@ or permission.
 | `accounting` | `accounting_monthly_setting` | Monthly settings candidate | OBSERVED table only | whether setting is approved/effective and admissible as a mapping |
 | `accounting` | `accounting_cost_relation` | Cost GL control relation candidate | OBSERVED table only | fourteen metric definitions and REFS mapping semantics |
 | `accounting` | `fastautopaymentbank1` | AutoRec accounting/control candidate source | OBSERVED table only | whether it duplicates or projects `wbsdata.autopaymentbank` |
+| `wbsdata` | `pjcat_property_relation` | Property Comparison relation candidate | OBSERVED table only | authoritative report join, company/currency/period scope, and report semantics |
+| `wbsdata` | `pjcat_unit_report` | Property Comparison control candidate | OBSERVED table only | report grain, property relation, company/currency/period scope, and source-of-truth calculation |
+| `wbsdata` | `costcode_account_relation` | Cost/account mapping candidate | OBSERVED table only | company/effective-date/approval scope and whether it is the Cost GL metric source |
 
 ## Observed AutoRec and Payable schema facts
 
@@ -66,6 +69,22 @@ business row:
 These negative findings are material: the REFS adapter must reject any future
 provider mapping that silently derives a PB key from `pd_batchguid`,
 `MB_BatchGuId`, `pd_pvguid`, a memo, a reference number, or a display sequence.
+
+## Observed Property Comparison and Cost mapping facts
+
+| Source | Verified schema facts | REFS role and boundary |
+| --- | --- | --- |
+| `pjcat_property_relation` | `PPR_Guid` is the primary key; property code and property-unit code/guid are indexed. It carries vertical/property/HOA/Yardi identifiers, version, status, lock, and create/modify fields. | Property association/control evidence only. It has no observed company, currency, period, monetary comparison, or AutoRec transaction key. |
+| `pjcat_unit_report` | `UR_GuId` is the primary key; it contains unit/project/owner fields and budget, released, incurred, total, balance, loan/draw/repayment and many date/status fields. | Potential Property Comparison control input only. It has no observed company/currency/receipt version or verified relation to `pjcat_property_relation`, so it cannot create a source document, bank row, allocation, Draft, or posting. |
+| `wbsdata.costcode_account_relation` | `id` is the primary key; cost code/name, WBS and Yardi account/name, type, business type, and status exist. The documented status domain is `0` normal and `1` disabled. | Candidate mapping evidence only. It lacks observed company, effective date, approval actor and receipt version; REFS still requires its own approved scoped mapping. |
+| `accounting.costcode_account_relation` + `setting_cost_relation` + `setting_project_relation` + `accounting_setting` | Accounting-side configuration has cost/project-to-setting relations, company, account/journal, date range, business type and source fields. Aggregate joins to `accounting_setting` are partial. | Configuration/audit evidence only; partial joins preclude an automatic mapping. No configuration row can authorize Draft/post or replace REFS mapping approval. |
+| `accounting_report_approval` | Schema provides company, Balance/Income report month/type, review/approval/rejection actor/time fields. The observed aggregate was empty. | Defines a possible report-approval evidence shape only; it does not prove any approval, Cost GL result, Property Comparison result, or REFS posting authority. |
+
+The attempted direct join `pjcat_property_relation.PPR_PropertyUnitGuid` to
+`pjcat_unit_report.UR_GuId` produced zero matches. This is explicit negative
+evidence: neither value may be used as a Property Comparison relation key until
+the provider supplies the report's actual immutable join contract. Likewise,
+the partial Cost/Project-setting joins may not be filled in by fallback rules.
 
 ## Observed accounting, report, and state evidence
 
