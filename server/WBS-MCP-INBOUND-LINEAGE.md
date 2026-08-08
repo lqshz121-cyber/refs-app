@@ -103,6 +103,11 @@ substitutes. Returned relations remain read-only evidence.
    mapping, balanced lines, and complete Raw/Normalized/Staging trace. A POSTED
    trace needs separate review, approval, post audit evidence, and ledger-line
    identifiers.
+   For AutoRec Incurrence evidence, the G11 verifier additionally requires
+   exactly one POSTED `PAYABLE_INCUR` and one POSTED `AUTOC` REFS journal, an
+   `AUTO_JOURNAL_CREATED` audit for each, exact reviewed-pair source trace, and
+   a per-member `291001` net of zero. This verifier creates no journal and
+   cannot transition the AutoRec case.
 5. Cost GL and Property Comparison reconcile controls only. They cannot create
    source documents, AutoRec allocations, Draft JEs, or ledger postings.
 
