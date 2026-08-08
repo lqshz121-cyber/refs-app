@@ -59,6 +59,7 @@ test('pilot evidence path is confined, non-overwriting, and metadata-only', () =
   const directory = mkdtempSync(join(tmpdir(), 'refs-wbs-pilot-'));
   try {
     assert.throws(() => resolvePilotEvidencePath('../escape.json', directory), /simple .json file name/);
+    assert.throws(() => resolvePilotEvidencePath('..\\escape.json', directory), /simple .json file name/);
     assert.throws(() => resolvePilotEvidencePath('C:\\escape.json', directory), /simple .json file name/);
     const path = writePilotEvidence({
       outcomes: [{ tool: 'get_meta', ok: true, rows: 1, mapped: 0, exceptions: [] }],
