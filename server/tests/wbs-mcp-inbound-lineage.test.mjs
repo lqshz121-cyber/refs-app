@@ -8,6 +8,7 @@ import {validateWbsSnapshotPackage} from '../runtime/wbs-snapshot-package.mjs';
 const envelope=(tool,rows,scope={company:'COMPANY-A'})=>({contract_version:'WBS-REFS-MCP-V1',tool,environment:'production',captured_at:'2026-08-09T12:00:00.000Z',source:{system:'WBS'},scope,record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:'Snapshot comparison required',rows});
 const bankDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/bank/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-BANK-DR-1',version:'1',debtor_direction:'DEBIT',lender_direction:'CREDIT'}];
 const payableDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/payable/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-PAYABLE-DR-1',version:'1',ap_type:'AUTOC',direction:'DEBIT'}];
+const detailDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/autorec/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-AUTOREC-DR-1',version:'1',biz_type:'WB',deposit_direction:'CREDIT',payment_direction:'DEBIT'}];
 
 test('formal WBS Payable, Bank Journal, and AutoRec detail envelopes map to read-only typed lineage',()=>{
   const payableEnvelope=envelope('list_payables',[{ap_guid:'A-1',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:'100',posting_date:'2026-08-01',vendor_no:'V-1',ap_long_id:'AP-LONG-1',business_status:'PAID',pay_status:'CLEARED',pay_type:'ACH',journal_no:'J-1',check_no:'CHK-1',check_date:'2026-08-02',clear_date:'2026-08-03',cb_id:'CB-1'}]);
@@ -22,8 +23,11 @@ test('formal WBS Payable, Bank Journal, and AutoRec detail envelopes map to read
   const blockedBank=mapWbsMcpEnvelopeToInbound({envelope:bankEnvelope});
   assert.deepEqual({admission:blockedBank.rows[0].admission,code:blockedBank.rows[0].exception_code,direction:blockedBank.rows[0].direction},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED',direction:null});
   assert.deepEqual(bank.rows[0].bank_trace,{transaction_date:'2026-08-01',account_code:'BANK-1',payee:'Vendor A',payee_no:'V-1',memo:'Bank memo',come_from:'AUTOC',child_come_from:'PAYABLE',review_status:'REVIEWED'});assert.equal(bank.rows[0].can_use_trace_as_key,false);
-  const detail=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_autorec_details',[{pd_guid:'D-1',company_code:'COMPANY-A',currency:'USD',deposit:'0',payment:'100',cb_id:'B-1',pd_pv_guid:'PB-1',batch_guid:'BATCH-1',biz_type:'WB',clear_date:'2026-08-02',incurred_date:'2026-08-01',released_date:'2026-08-01',released_by:'USER-MASKED',status:'INCURRED',match_status:'MATCHED',match_guid:'MATCH-1',project_guid:'PROJECT-1',cost_code:'COST-1',vendor_no:'V-1'}])});
+  const detailEnvelope=envelope('list_autorec_details',[{pd_guid:'D-1',company_code:'COMPANY-A',currency:'USD',deposit:'0',payment:'100',cb_id:'B-1',pd_pv_guid:'PB-1',batch_guid:'BATCH-1',biz_type:'WB',clear_date:'2026-08-02',incurred_date:'2026-08-01',released_date:'2026-08-01',released_by:'USER-MASKED',status:'INCURRED',match_status:'MATCHED',match_guid:'MATCH-1',project_guid:'PROJECT-1',cost_code:'COST-1',vendor_no:'V-1'}]);
+  const detail=mapWbsMcpEnvelopeToInbound({envelope:detailEnvelope,autoRecDetailDirectionConventions:detailDirectionConventions(detailEnvelope)});
   assert.equal(detail.rows[0].admission,'AUTOREC_REVIEW_EVIDENCE');assert.equal(detail.rows[0].direction,'DEBIT');assert.equal(detail.rows[0].can_create_draft,false);
+  const blockedDetail=mapWbsMcpEnvelopeToInbound({envelope:detailEnvelope});
+  assert.deepEqual({admission:blockedDetail.rows[0].admission,code:blockedDetail.rows[0].exception_code,direction:blockedDetail.rows[0].direction},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_AUTOREC_DIRECTION_CONVENTION_REQUIRED',direction:null});
   assert.deepEqual(detail.rows[0].autorc_detail_trace,{batch_guid:'BATCH-1',biz_type:'WB',clear_date:'2026-08-02',incurred_date:'2026-08-01',released_date:'2026-08-01',released_by:'USER-MASKED',status:'INCURRED',match_status:'MATCHED',match_ref:'MATCH-1',bank_relation_ref:'B-1',autoc_relation_ref:'PB-1',vendor_ref:'V-1',project_ref:'PROJECT-1',cost_code_ref:'COST-1'});assert.equal(detail.rows[0].can_use_trace_as_state_authority,false);assert.equal(detail.rows[0].can_use_trace_as_posting_authority,false);
 });
 
@@ -36,10 +40,11 @@ test('MCP direction ambiguity becomes an exception and report/control views cann
 });
 
 test('AutoRec Detail requires exactly one nonzero Deposit or Payment before it can be review evidence',()=>{
-  const mapped=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_autorec_details',[
-    {pd_guid:'D-1',company_code:'COMPANY-A',currency:'USD',deposit:'25',payment:'25',clear_date:'2026-08-01'},
-    {pd_guid:'D-2',company_code:'COMPANY-A',currency:'USD',deposit:'0',payment:'0',clear_date:'2026-08-01'}
-  ])});
+  const detailEnvelope=envelope('list_autorec_details',[
+    {pd_guid:'D-1',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:'25',payment:'25',clear_date:'2026-08-01'},
+    {pd_guid:'D-2',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:'0',payment:'0',clear_date:'2026-08-01'}
+  ]);
+  const mapped=mapWbsMcpEnvelopeToInbound({envelope:detailEnvelope,autoRecDetailDirectionConventions:detailDirectionConventions(detailEnvelope)});
   assert.deepEqual(mapped.rows.map(row=>({admission:row.admission,code:row.exception_code,draft:row.can_create_draft,post:row.can_post})),[
     {admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_AMOUNT_DIRECTION_REQUIRED',draft:false,post:false},
     {admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_AMOUNT_DIRECTION_REQUIRED',draft:false,post:false}
@@ -122,8 +127,8 @@ test('unchanged WBS source rows keep their observed version when another row cha
 test('formal MCP transaction views enter the existing Raw/Normalized/Staging adapter with upstream receipt provenance',async()=>{
   const payable=envelope('list_payables',[{ap_guid:'11111111-1111-4111-8111-111111111111',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:'100',posting_date:'2026-08-09',journal_no:'J-1',check_no:'CHK-1',clear_date:'2026-08-10'}]);
   const bank=envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-09',payee:'Vendor A',description:'Bank memo',come_from:'AUTOC'}]);
-  const detail=envelope('list_autorec_details',[{pd_guid:'22222222-2222-4222-8222-222222222222',company_code:'COMPANY-A',currency:'USD',deposit:'0',payment:'100',pd_pv_guid:'RELATION-ONLY',batch_guid:'UNVERIFIED-BATCH-RELATION',incurred_date:'2026-08-09',clear_date:'2026-08-10',status:'INCURRED',match_status:'MATCHED'}]);
-  const snapshot=buildWbsMcpReadonlySnapshot({envelopes:[payable,bank,detail],snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',bankDirectionConventions:bankDirectionConventions(bank),payableDirectionConventions:payableDirectionConventions(payable)});
+  const detail=envelope('list_autorec_details',[{pd_guid:'22222222-2222-4222-8222-222222222222',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:'0',payment:'100',pd_pv_guid:'RELATION-ONLY',batch_guid:'UNVERIFIED-BATCH-RELATION',incurred_date:'2026-08-09',clear_date:'2026-08-10',status:'INCURRED',match_status:'MATCHED'}]);
+  const snapshot=buildWbsMcpReadonlySnapshot({envelopes:[payable,bank,detail],snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',bankDirectionConventions:bankDirectionConventions(bank),payableDirectionConventions:payableDirectionConventions(payable),autoRecDetailDirectionConventions:detailDirectionConventions(detail)});
   const result=await createWbsInboundDataAdapter({snapshotReader:{readOnly:true,readSnapshot:async()=>snapshot}}).pull();
   assert.equal(result.raw.length,3);assert.equal(result.staging.length,2);assert.equal(result.exceptions.length,1);
   const raw=result.staging.find(item=>item.raw_trace.source_type==='PAYABLE').raw_trace;
@@ -132,10 +137,10 @@ test('formal MCP transaction views enter the existing Raw/Normalized/Staging ada
   const bankRaw=result.staging.find(item=>item.raw_trace.source_type==='BANK_TRANSACTION').raw_trace;
   assert.deepEqual(bankRaw.external_trace,{transaction_date:'2026-08-09',account_code:'BANK-1',payee:'Vendor A',memo:'Bank memo',come_from:'AUTOC'});assert.equal(bankRaw.can_use_trace_as_key,false);assert.equal(bankRaw.can_use_trace_as_posting_authority,false);
   const detailRaw=result.exceptions.find(item=>item.raw_trace.source_type==='AUTOREC_PAYMENT_DETAIL').raw_trace;
-  assert.deepEqual(detailRaw.external_trace,{batch_guid:'UNVERIFIED-BATCH-RELATION',clear_date:'2026-08-10',incurred_date:'2026-08-09',status:'INCURRED',match_status:'MATCHED',autoc_relation_ref:'RELATION-ONLY'});assert.equal(detailRaw.can_use_trace_as_state_authority,false);assert.equal(detailRaw.can_use_trace_as_posting_authority,false);
+  assert.deepEqual(detailRaw.external_trace,{batch_guid:'UNVERIFIED-BATCH-RELATION',biz_type:'WB',clear_date:'2026-08-10',incurred_date:'2026-08-09',status:'INCURRED',match_status:'MATCHED',autoc_relation_ref:'RELATION-ONLY'});assert.equal(detailRaw.can_use_trace_as_state_authority,false);assert.equal(detailRaw.can_use_trace_as_posting_authority,false);
   assert.equal(Object.hasOwn(detailRaw,'pbGuId'),false);
   assert.equal(result.exceptions[0].raw_trace.source_type,'AUTOREC_PAYMENT_DETAIL');assert.match(result.exceptions[0].exception.message,/pbGuId/);
-  assert.throws(()=>buildWbsMcpReadonlySnapshot({envelopes:[payable,bank,detail],snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',payableDirectionConventions:payableDirectionConventions(payable)}),error=>error.code==='WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED');
+  assert.throws(()=>buildWbsMcpReadonlySnapshot({envelopes:[payable,bank,detail],snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',payableDirectionConventions:payableDirectionConventions(payable),autoRecDetailDirectionConventions:detailDirectionConventions(detail)}),error=>error.code==='WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED');
   assert.throws(()=>buildWbsMcpReadonlySnapshot({envelopes:[payable],snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',environment:'PRODUCTION',payableDirectionConventions:payableDirectionConventions(payable)}),error=>error.code==='WBS_MCP_SNAPSHOT_SIGNATURE_REQUIRED');
 });
 

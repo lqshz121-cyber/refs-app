@@ -6,16 +6,17 @@ import {createWbsMcpInboundService,WbsMcpInboundServiceError} from '../runtime/w
 const raw=(tool,rows,capturedAt='2026-08-09T12:00:00.000Z')=>({tool_name:tool,contract_version:'WBS-REFS-MCP-V1',environment:'production',captured_at:capturedAt,source:{system:'WBS'},scope:{company:'COMPANY-A'},record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:'snapshot required',rows});
 const bankDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/bank/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-BANK-DR-1',version:'1',debtor_direction:'DEBIT',lender_direction:'CREDIT'}];
 const payableDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/payable/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-PAYABLE-DR-1',version:'1',ap_type:'AUTOC',direction:'DEBIT'}];
+const detailDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/autorec/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-AUTOREC-DR-1',version:'1',biz_type:'WB',deposit_direction:'CREDIT',payment_direction:'DEBIT'}];
 const values={
   list_payables:raw('list_payables',[{ap_guid:'11111111-1111-4111-8111-111111111111',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:100,posting_date:'2026-08-09'}]),
   list_bank_transactions:raw('list_bank_transactions',[{cb_id:'BANK-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:100,lender:0,set_date:'2026-08-09'}]),
-  list_autorec_details:raw('list_autorec_details',[{pd_guid:'22222222-2222-4222-8222-222222222222',company_code:'COMPANY-A',currency:'USD',deposit:0,payment:100,incurred_date:'2026-08-09'}])
+  list_autorec_details:raw('list_autorec_details',[{pd_guid:'22222222-2222-4222-8222-222222222222',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:0,payment:100,incurred_date:'2026-08-09'}])
 };
 const args={list_payables:{company:'COMPANY-A'},list_bank_transactions:{company:'COMPANY-A'},list_autorec_details:{company:'COMPANY-A'}};
 
 test('service reads only the three producer views and prepares a receipt-gated snapshot without accounting dispatch',async()=>{
   const calls=[],service=createWbsMcpInboundService({client:{readView:async request=>(calls.push(request),structuredClone(values[request.toolName]))}});
-  const result=await service.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',bankDirectionConventions:bankDirectionConventions(values.list_bank_transactions),payableDirectionConventions:payableDirectionConventions(values.list_payables)});
+  const result=await service.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',bankDirectionConventions:bankDirectionConventions(values.list_bank_transactions),payableDirectionConventions:payableDirectionConventions(values.list_payables),autoRecDetailDirectionConventions:detailDirectionConventions(values.list_autorec_details)});
   assert.deepEqual(calls.map(item=>item.toolName),['list_payables','list_bank_transactions','list_autorec_details']);assert.equal(result.snapshot.views.length,3);assert.deepEqual({persist:result.can_persist,draft:result.can_create_draft,post:result.can_post},{persist:false,draft:false,post:false});
 });
 

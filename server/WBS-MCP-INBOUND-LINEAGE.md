@@ -184,6 +184,14 @@ become an AutoRec candidate. This preserves Posting Date and payable/journal
 fields as trace without treating the report amount as an implied accounting
 sign.
 
+AutoRec Detail Deposit/Payment requires the same provider evidence by
+`biz_type`: one receipt-bound rule with exact company/currency scope,
+rule id/version, and opposite Deposit/Payment directions. Missing rules yield
+`WBS_MCP_AUTOREC_DIRECTION_CONVENTION_REQUIRED`; the detail cannot form a
+review candidate. This is separate from the existing exactly-one-non-zero
+Deposit/Payment rule, which still rejects both-non-zero and zero/zero detail
+rows.
+
 ## Sanitized golden scenarios
 
 The executable golden set covers exact matching, one-to-many, many-to-one,
