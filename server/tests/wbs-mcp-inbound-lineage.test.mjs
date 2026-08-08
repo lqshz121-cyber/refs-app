@@ -30,6 +30,13 @@ test('transaction candidates require exact company scope and all monetary admiss
   assert.throws(()=>mapWbsMcpEnvelopeToInbound({envelope:envelope('list_payables',[{ap_guid:'A-1',company_code:'COMPANY-B',currency:'USD',amount:'100',posting_date:'2026-08-01'}])}),error=>error.code==='WBS_MCP_ENVELOPE_SCOPE_MISMATCH');
 });
 
+test('AutoRec Bank summary remains receipt-bound observed control evidence',()=>{
+  const summary=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_autorec_banks',[{pb_guid:'PB-1',company_code:'COMPANY-A',ah_id:'BANK-1',ah_name:'Operating',quantity:'10',released_quantity:'8',pay_amount:'100',released:'80',incurred:'60',debit_amount:'40',reconciliation_start_date:'2026-08-01',status:'OPEN'}])});
+  const row=summary.rows[0];
+  assert.deepEqual({admission:row.admission,controlType:row.control_type,semantics:row.control_semantics,quantity:row.quantity,released:row.released_amount,incurred:row.incurred_amount,reconcile:row.can_reconcile,post:row.can_post},{admission:'CONTROL_EVIDENCE_ONLY',controlType:'WBS_AUTOREC_BANK_SUMMARY',semantics:'OBSERVED_UNVERIFIED',quantity:10,released:80,incurred:60,reconcile:false,post:false});
+  assert.match(row.receipt_hash,/^sha256:/);
+});
+
 test('snapshot diff is scope-bound and never treats a missing row as a deletion without a provider tombstone',()=>{
   const previous=envelope('list_payables',[{ap_guid:'A-1',currency:'USD'},{ap_guid:'A-2',currency:'USD'}]);
   const current=envelope('list_payables',[{ap_guid:'A-1',currency:'USD'}]);

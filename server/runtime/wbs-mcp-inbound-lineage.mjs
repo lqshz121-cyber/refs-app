@@ -90,6 +90,12 @@ export function mapWbsMcpEnvelopeToInbound({envelope}={}){
       const movement=signedMovement(row,'deposit','payment');
       const businessDate=row.incurred_date||row.clear_date||null,admission=transactionAdmission({common,amountValue:movement?.amount,currency:row.currency,dateValue:businessDate,movementRequired:true,movement});
       rows.push(freeze({...common,...admission,admission:admission.admission==='TRANSACTION_CANDIDATE'?'AUTOREC_REVIEW_EVIDENCE':admission.admission,amount:movement?.amount??null,direction:movement?.direction??null,currency:row.currency||null,business_date:businessDate,bank_trace_ref:row.cb_id||null,autoc_bank_ref:row.pd_pv_guid||null,match_ref:row.match_guid||null,project_ref:row.project_guid||null,cost_ref:row.cost_code||null,vendor_ref:row.vendor_no||null}));
+    } else if(tool==='list_autorec_banks'){
+      // These are observed WBS controls, not a transaction feed. The provider
+      // contract does not yet prove period/currency/field semantics, so retain
+      // the values and receipt lineage without permitting reconciliation or a
+      // journal path.
+      rows.push(freeze({...common,admission:'CONTROL_EVIDENCE_ONLY',control_type:'WBS_AUTOREC_BANK_SUMMARY',control_semantics:'OBSERVED_UNVERIFIED',bank_summary_id:text(row.pb_guid),bank_account_name:row.ah_name||null,bank_account_ref:row.ah_id||null,reconciliation_start_date:row.reconciliation_start_date||null,status:row.status||null,quantity:money(row.quantity),released_quantity:money(row.released_quantity),pay_amount:money(row.pay_amount),released_amount:money(row.released),incurred_amount:money(row.incurred),debit_amount:money(row.debit_amount),can_reconcile:false,can_create_draft:false,can_allocate:false,can_post:false}));
     } else rows.push(freeze({...common,admission:'CONTROL_OR_TRACE_ONLY',fields:freeze(structuredClone(row))}));
   }
   return freeze({tool_name:tool,required_fields:WBS_READONLY_ROW_FIELDS[tool]??freeze([]),rows:freeze(rows),receipt_required_for_persistence:true,can_create_draft:false,can_allocate:false,can_post:false});
