@@ -369,6 +369,13 @@ export function validateWbsAutoRecG11PostedTrace({reviewRequest,postedJournals}=
     if(journalIds.has(text(journal.journal_entry_id))||auditIds.has(text(journal.audit_event_id)))fail('WBS_AUTOREC_G11_JOURNAL_DUPLICATE','PAYABLE_INCUR and AUTOC require distinct posted journals and distinct audit evidence.');
     const lineIds=journal.ledger_lines.map(line=>text(line?.ledger_line_id));
     if(lineIds.some(id=>!id)||new Set(lineIds).size!==lineIds.length||lineIds.some(id=>ledgerLineIds.has(id)))fail('WBS_AUTOREC_G11_LEDGER_DUPLICATE','Posted AutoRec journal legs require distinct immutable ledger line evidence.');
+    let totalDebit=0,totalCredit=0;
+    for(const line of journal.ledger_lines){
+      const debit=amount(line?.debit_amount),credit=amount(line?.credit_amount);
+      if(!text(line?.account_code)||debit===null||credit===null||debit<0||credit<0||(debit===0&&credit===0)||(debit!==0&&credit!==0))fail('WBS_AUTOREC_G11_LEDGER_INVALID','Each posted ledger line needs an account and one-sided nonzero debit or credit amount.');
+      totalDebit+=debit;totalCredit+=credit;
+    }
+    if(Math.abs(totalDebit-totalCredit)>0.0001)fail('WBS_AUTOREC_G11_JOURNAL_UNBALANCED','Each posted AutoRec journal leg must balance before it can satisfy G11 trace evidence.');
     if(!journal.source_trace||traceFields.some(field=>text(journal.source_trace[field])!==text(expected[field])))fail('WBS_AUTOREC_G11_SOURCE_TRACE_MISMATCH','Posted journal source trace must exactly match the reviewed AutoRec pair.');
     journalIds.add(text(journal.journal_entry_id));auditIds.add(text(journal.audit_event_id));lineIds.forEach(id=>ledgerLineIds.add(id));byType.set(type,journal);
   }
