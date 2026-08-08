@@ -134,6 +134,11 @@ substitutes. Returned relations remain read-only evidence.
 2. Bank and business sides must be separately reviewed REFS staging rows with
    the same company, currency, and bank account, opposite directions, approved
    date window and amount tolerance before an AutoRec **review** candidate.
+   A provider-backed proposal obtains the date window and tolerance only from
+   one exact scoped, APPROVED, receipt-bound REFS matching policy
+   (`policy/mapping/rule` IDs and versions). UI/import parameters cannot widen
+   the policy. A missing, stale, ambiguous, or cross-scope policy is blocked;
+   this remains a review plan rather than a reservation.
 3. Review candidates have `can_allocate=false`, `can_create_draft=false`, and
    `can_post=false`; allocation/release/incur/posting remain authoritative REFS
    workflows with their own permissions, SoD, versioning, audit, and ledger

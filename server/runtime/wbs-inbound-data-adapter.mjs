@@ -229,6 +229,27 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
   return freeze({review_plan_id:canonicalRequestHash({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,tolerance:Number(tolerance),date_window_days:Number(dateWindowDays),trace}),status:balanced?'REVIEW_REQUIRED':'PARTIAL_REVIEW_REQUIRED',allocation_plan:freeze(allocation),exceptions:freeze([]),control_totals:freeze({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,bank_total:bankTotal,business_total:businessTotal,allocated_total:allocatedTotal,bank_unallocated:bankRemaining,business_unallocated:businessRemaining,difference,tolerance:Number(tolerance),balanced}),trace:freeze(trace),controls:freeze({can_allocate:false,can_release:false,can_post:false,required_next_controls:freeze(['authoritative source reservation','human Auto Reconciliation review','standard REFS release/incur workflow'])})});
 }
 
+// The generic builder above is intentionally useful for local golden fixtures.
+// A provider-backed plan must instead get tolerance and date window from one
+// approved, receipt-bound REFS matching rule; callers cannot widen a rule by
+// passing UI parameters.
+export function buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows,businessRows,matchingPolicy}={}){
+  const anchor=Array.isArray(bankRows)&&bankRows.length?bankRows[0]:null;
+  const invalid=()=>freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze([eligibilityException('PAIR',anchor,'WBS_AUTOREC_MATCHING_POLICY_REQUIRED','A single approved, receipt-bound matching policy is required before a provider-backed Auto Reconciliation review plan.')]),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
+  if(!anchor||!matchingPolicy||typeof matchingPolicy!=='object')return invalid();
+  const tolerance=amount(matchingPolicy.amount_tolerance);
+  const window=Number(matchingPolicy.date_window_days);
+  const receiptHash=text(matchingPolicy.receipt_hash);
+  const required=['policy_id','version','mapping_id','mapping_version','rule_id','rule_version','company_key','currency','bank_account_ref','receipt_id','receipt_ref','receipt_hash'];
+  const missing=required.filter(field=>text(matchingPolicy[field])==='');
+  const mismatched=text(matchingPolicy.status)!=='APPROVED'||text(matchingPolicy.company_key)!==text(anchor.company_key)||text(matchingPolicy.currency)!==text(anchor.currency)||text(matchingPolicy.bank_account_ref)!==text(anchor.bank_account_ref)||!/^sha256:[0-9a-f]{64}$/.test(receiptHash)||tolerance===null||tolerance<0||!Number.isSafeInteger(window)||window<0;
+  if(missing.length||mismatched)return invalid();
+  const plan=buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tolerance,dateWindowDays:window});
+  if(plan.status==='BLOCKED')return plan;
+  const policyTrace=freeze({policy_id:text(matchingPolicy.policy_id),version:text(matchingPolicy.version),mapping_id:text(matchingPolicy.mapping_id),mapping_version:text(matchingPolicy.mapping_version),rule_id:text(matchingPolicy.rule_id),rule_version:text(matchingPolicy.rule_version),receipt_id:text(matchingPolicy.receipt_id),receipt_ref:text(matchingPolicy.receipt_ref),receipt_hash:receiptHash});
+  return freeze({...plan,review_plan_id:canonicalRequestHash({review_plan_id:plan.review_plan_id,matching_policy:policyTrace}),matching_policy:policyTrace,control_totals:freeze({...plan.control_totals,tolerance}),controls:freeze({...plan.controls,matching_policy_required:true})});
+}
+
 // The integrated kernel currently persists immutable snapshot receipts through
 // recordWbsSnapshot, but has no Raw→Normalized→Staging writer. Build both
 // sides explicitly: the supported receipt command and the intentionally

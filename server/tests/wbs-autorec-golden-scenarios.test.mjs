@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildWbsAutoReconciliationReviewPlan} from '../runtime/wbs-inbound-data-adapter.mjs';
+import {buildWbsAutoReconciliationReviewPlan,buildReceiptBoundWbsAutoReconciliationReviewPlan} from '../runtime/wbs-inbound-data-adapter.mjs';
 import {projectObservedWbsAutoRecControlEvidence} from '../runtime/wbs-inbound-autorec-projection.mjs';
 
 const hash='sha256:'+'a'.repeat(64);
@@ -8,6 +8,21 @@ const staged=({id,amount=100,direction,company='COMPANY-A',currency='USD',accoun
 const bank=(id,amount,date)=>staged({id,amount,direction:'CREDIT',date,type:'BANK_TRANSACTION'});
 const payable=(id,amount,date,options={})=>staged({id,amount,direction:'DEBIT',date,type:'PAYABLE',...options});
 const run=(banks,businesses,options)=>buildWbsAutoReconciliationReviewPlan({bankRows:banks,businessRows:businesses,...options});
+const policy={policy_id:'policy-bank-1',version:'1',mapping_id:'mapping-bank-1',mapping_version:'4',rule_id:'amount-date-rule',rule_version:'2',status:'APPROVED',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',amount_tolerance:'0.0100',date_window_days:2,receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash};
+
+test('provider-backed review plan uses one approved receipt-bound matching policy, never caller matching parameters',()=>{
+  const plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bank('b-rule',100,'2026-08-09')],businessRows:[payable('p-rule',100.005,'2026-08-11')],matchingPolicy:policy,tolerance:999,dateWindowDays:999});
+  assert.equal(plan.status,'REVIEW_REQUIRED');
+  assert.equal(plan.control_totals.tolerance,0.01);
+  assert.equal(plan.trace.length,1);
+  assert.deepEqual(plan.matching_policy,{policy_id:'policy-bank-1',version:'1',mapping_id:'mapping-bank-1',mapping_version:'4',rule_id:'amount-date-rule',rule_version:'2',receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash});
+  assert.equal(plan.controls.matching_policy_required,true);
+  const missing=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bank('b-missing',100)],businessRows:[payable('p-missing',100)]});
+  const crossScope=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bank('b-cross',100)],businessRows:[payable('p-cross',100)],matchingPolicy:{...policy,currency:'CAD'}});
+  assert.equal(missing.status,'BLOCKED');assert.equal(crossScope.status,'BLOCKED');
+  assert.equal(missing.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_REQUIRED');
+  assert.equal(crossScope.allocation_plan.length,0);
+});
 
 test('twelve sanitized golden scenarios express WBS→AutoRec controls without granting allocation or posting authority',()=>{
   const cases=[
