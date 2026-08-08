@@ -91,7 +91,7 @@ function stageFor(normalized,row){
 
 export function createWbsInboundDataAdapter({snapshotReader,validateSnapshot=validateWbsSnapshotPackage,verifyProductionSnapshot=null}={}){
   if(!snapshotReader||snapshotReader.readOnly!==true||typeof snapshotReader.readSnapshot!=='function')throw new WbsInboundDataError('WBS_INBOUND_READER_INVALID','A read-only WBS snapshot reader is required');
-  const prepare=snapshot=>{
+  const prepareUnchecked=snapshot=>{
     let validated;try{validated=validateSnapshot(snapshot);}catch(cause){if(cause instanceof WbsSnapshotError)throw new WbsInboundDataError(cause.code,cause.message);throw cause;}
     const raw=[],normalized=[],staging=[],exceptions=[],controls=[];
     for(const view of snapshot.views){
@@ -111,13 +111,17 @@ export function createWbsInboundDataAdapter({snapshotReader,validateSnapshot=val
       admission:Object.freeze({can_write_wbs:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:['verify detached signature','persist_raw_normalized_staging','approved_mapping','staging_review','standard_refs_je_workflow']})
     });
   };
+  const prepare=snapshot=>{
+    if(text(snapshot?.environment)==='PRODUCTION')fail('WBS_SNAPSHOT_VERIFIED_PREPARATION_REQUIRED','Production WBS snapshots may be prepared only through the verified asynchronous preparation path.');
+    return prepareUnchecked(snapshot);
+  };
   const prepareVerified=async snapshot=>{
     if(text(snapshot?.environment)==='PRODUCTION'){
       if(typeof verifyProductionSnapshot!=='function')fail('WBS_SNAPSHOT_SIGNATURE_VERIFIER_REQUIRED','Production WBS snapshots require a configured pinned-key signature verifier before Raw, Normalized, or Staging preparation.');
       let verified=false;try{verified=await verifyProductionSnapshot(snapshot);}catch{verified=false;}
       if(verified!==true)fail('WBS_SNAPSHOT_SIGNATURE_INVALID','Production WBS snapshot detached-signature verification failed before any REFS inbound rows were prepared.');
     }
-    return prepare(snapshot);
+    return prepareUnchecked(snapshot);
   };
   return Object.freeze({
     mode:'WBS_READONLY_INBOUND_ADAPTER_V1',read_only:true,

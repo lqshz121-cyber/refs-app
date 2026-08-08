@@ -117,6 +117,8 @@ not enough. The adapter verifies it against a pinned Ed25519 keyring before it
 prepares any Raw, Normalized, Staging, Exception, or persistence plan. Caller-
 supplied prepared rows are compared with this verified preparation and cannot
 substitute a different result.
+The synchronous preparation method refuses all production snapshots, so a
+caller cannot bypass verification by calling an internal-looking helper.
 
 For `trace_by_key`, REFS calls WBS only with an immutable persisted producer
 key (`ap_guid`, `cb_id`, `pd_guid`, `pb_guid`, or journal `id`). The returned

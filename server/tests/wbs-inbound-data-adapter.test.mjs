@@ -32,8 +32,9 @@ test('incomplete receipt rows reach Exception rather than staging or a Draft req
 
 test('production WBS snapshots require pinned detached-signature verification before any Raw or Staging preparation',async()=>{
   const {value,publicKeys}=productionSnapshot();
-  const verified=await createWbsInboundDataAdapterWithKeyring({snapshotReader:reader(value),wbsPublicKeys:publicKeys}).pull();
+  const keyed=createWbsInboundDataAdapterWithKeyring({snapshotReader:reader(value),wbsPublicKeys:publicKeys}),verified=await keyed.pull();
   assert.equal(verified.raw.length,3);
+  assert.throws(()=>keyed.prepare(value),error=>error.code==='WBS_SNAPSHOT_VERIFIED_PREPARATION_REQUIRED');
   await assert.rejects(()=>createWbsInboundDataAdapter({snapshotReader:reader(value)}).pull(),error=>error.code==='WBS_SNAPSHOT_SIGNATURE_VERIFIER_REQUIRED');
   const forged=structuredClone(value);forged.detached_signature.value='forged';
   await assert.rejects(()=>createWbsInboundDataAdapterWithKeyring({snapshotReader:reader(forged),wbsPublicKeys:publicKeys}).pull(),error=>error.code==='WBS_SNAPSHOT_SIGNATURE_INVALID');
