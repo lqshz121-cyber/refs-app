@@ -72,6 +72,12 @@ timestamp before a snapshot can be presented for signature verification. A
 read, scope, or timing failure produces no persistence request and no
 accounting command.
 
+For AutoRec Detail, exactly one signed Deposit or Payment value must be
+non-zero to derive direction. A zero/zero or both-nonzero row is an Exception.
+Observed PB controls do not support a universal simple Released/Incurred versus
+Pay Amount capacity formula and do not always contain M/R/C periods; they stay
+control evidence until the provider supplies scoped signed control semantics.
+
 The pipeline invokes the existing receipt-backed atomic REFS ingress only after
 an independent detached-signature verifier returns true. It performs no
 AutoRec allocation, release, incur, Draft-JE creation, approval, or posting;

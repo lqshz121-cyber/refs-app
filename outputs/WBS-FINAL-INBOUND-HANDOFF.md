@@ -89,6 +89,10 @@ not a production gate.
   `AUTOR` rows can bind `MB_BusinessId` to an AutoRec Detail `pd_guid`; batch
   values do not bind to PB or Detail batches. This relation needs its own
   signed receipt and remains trace-only, not allocation/state authority.
+- AutoRec Detail direction requires exactly one non-zero Deposit/Payment;
+  zero/zero remains an Exception. PB amounts disprove a universal simple
+  per-row Released/Incurred capacity formula and lack M/R/C periods on some
+  rows, so provider-scoped signed control formulas remain mandatory.
 - Read-only metadata now proves the primary-key and field inventory for the
   WBS Payable, AutoRec Detail, AutoRec Bank, matching, bank-account and
   payment-setting tables, plus the WBS accounting journal/audit/monthly and

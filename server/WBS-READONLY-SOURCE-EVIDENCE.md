@@ -88,6 +88,24 @@ to the receipt's `pd_guid`. Even then it is retained as relation evidence;
 it cannot reserve, split, release, incur, reverse, or post anything. All other
 business types and any unmatched row remain outside the AutoRec Detail path.
 
+### Amount direction and control-total boundary
+
+Aggregate-only Detail evidence shows that an observed row normally has exactly
+one non-zero `pd_deposit` or `pd_payment`; no observed row had both values
+non-zero, but a non-empty set had both values zero. REFS therefore derives a
+Detail direction only when exactly one field is non-zero and quarantines a
+zero/zero or both-nonzero row. `pd_owner_company_code` is not populated on all
+Detail rows and cannot replace a signed company scope; there is also no
+observed currency column in the table.
+
+PB control rows have non-null Pay Amount, but some observed Released/Incurred
+absolute values exceed absolute Pay Amount. That disproves a simple per-row
+`abs(released|incurred) <= abs(pay_amount)` conservation rule. M/R/C months
+are not populated for every PB row. The adapter must therefore require the
+provider's signed control-total formula, currency/period scope, and explicit
+missing-control handling; it must not infer zero, capacity, release completion
+or a REFS transition from the current table columns alone.
+
 ## Observed Property Comparison and Cost mapping facts
 
 | Source | Verified schema facts | REFS role and boundary |

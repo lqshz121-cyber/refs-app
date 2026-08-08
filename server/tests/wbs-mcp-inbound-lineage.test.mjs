@@ -26,6 +26,17 @@ test('MCP direction ambiguity becomes an exception and report/control views cann
   assert.equal(control.rows[0].admission,'CONTROL_OR_TRACE_ONLY');assert.equal(control.rows[0].source_record_id,null);assert.equal(control.can_post,false);
 });
 
+test('AutoRec Detail requires exactly one nonzero Deposit or Payment before it can be review evidence',()=>{
+  const mapped=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_autorec_details',[
+    {pd_guid:'D-1',company_code:'COMPANY-A',currency:'USD',deposit:'25',payment:'25',clear_date:'2026-08-01'},
+    {pd_guid:'D-2',company_code:'COMPANY-A',currency:'USD',deposit:'0',payment:'0',clear_date:'2026-08-01'}
+  ])});
+  assert.deepEqual(mapped.rows.map(row=>({admission:row.admission,code:row.exception_code,draft:row.can_create_draft,post:row.can_post})),[
+    {admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_AMOUNT_DIRECTION_REQUIRED',draft:false,post:false},
+    {admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_AMOUNT_DIRECTION_REQUIRED',draft:false,post:false}
+  ]);
+});
+
 test('transaction candidates require exact company scope and all monetary admission facts',()=>{
   const incomplete=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',account_code:'BANK-1',debtor:'100',lender:'0'}])});
   assert.equal(incomplete.rows[0].admission,'EXCEPTION_REVIEW_REQUIRED');
