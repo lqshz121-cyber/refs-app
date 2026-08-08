@@ -97,6 +97,9 @@ the partial Cost/Project-setting joins may not be filled in by fallback rules.
 | --- | --- | --- |
 | `accounting.accounting_info` | `id` is the primary key; `cb_id`, company, account, source, set date and journal number are indexed. It contains DR/CR, amount, posting/clear/check dates, `come_from`, `bill_no`, `journal_no`, review/approval/closed fields, project/cost/unit dimensions, and attachment relation references. A `data_source='WBS'` population is observed. | Journal/ledger trace evidence only. In the WBS population, `cb_id` is intentionally non-unique (multiple accounting rows per bank-record relation); its own `id` and state fields do not prove a bank transaction, posted REFS journal, immutable REFS ledger line, or authority to transition a REFS AutoRec case. |
 | `accounting.accounting_log` | `id` is the primary key; company, `cb_id`, system/source, bill, operation type, user, time, and relation-content fields exist. | External audit/relation trace only. Append-only and row-to-journal cardinality are UNKNOWN. |
+| `accounting.accounting_info_history` | Mirrors accounting-line fields and adds `history_create_date`, but exposes no observed immutable pointer to a current `accounting_info` row, no source revision number, and no tombstone operation. | Historical observation only. It cannot supply CDC, a REFS source version, or deletion semantics. |
+| `accounting.accounting_closed` | Has company, period, `closed`, create/update actor and time. The observed close-flag domain is `Y`/`N`. | WBS period-close control evidence only. It cannot close or reopen a REFS period. |
+| `accounting.accounting_report_check_red` | Has company, report month, account/subaccount, Balance/Income parameter type, report/source amounts, and check time. | Balance/Income variance-control evidence only. It is not Cost GL's fourteen-metric receipt or a transaction producer. |
 | `accounting.accounting_monthly_relation` + `accounting_monthly_setting` | Relation has company, bank transaction (`cb_id`), month and setting ID. Setting has company, project, debit/credit account/journal fields, start/end date and reverse flag. An aggregate-only check found a partial setting-ID match; not every relation joined. | Potential monthly control/mapping evidence only. It is not an approved REFS mapping and cannot produce a Draft/post request. |
 | `accounting.accounting_balance_cell` + `accounting_income_cell` | Both expose company, account/subaccount, fiscal period, balance/net/debit/credit and review flag. The observed balance review-flag domain is `N`, `R`, `C`; amount-type codes are documented as balance/debit/credit/net/opening. | Financial-statement control evidence, not a Cost GL producer or AutoRec source. Cost GL's required fourteen metrics still need a signed, scoped provider definition. |
 | `accounting.fastautopaymentbank1` | It has the same observed PB primary/company/control field family as `wbsdata.autopaymentbank` (with a shorter column set). | A parallel accounting-side control projection is plausible but UNVERIFIED. Do not deduplicate, join, or substitute it for the WBS table without a signed relation contract. |
@@ -147,6 +150,22 @@ The tested alternatives, Payable `long_id` to accounting `business_guid` and
 Payable `journal_no` to accounting `journal_no`, had zero matching key values.
 REFS must retain them as masked external references only; it must not use them
 for joins, replay identity, allocation, matching, or posting.
+
+### Incremental and close-control boundary
+
+The observed `accounting_info_history` schema has a distinct history primary
+key and capture time but no version number, immutable parent accounting-line
+key, or tombstone field. Its current observed population is too small and too
+weakly linked to establish change data capture. No source table examined so far
+provides a provider-approved revision/CDC/tombstone contract for Payable, Bank
+Transaction, AutoRec Detail, Property, or Cost controls.
+
+`accounting_closed` exposes WBS company-period close flags and
+`accounting_report_check_red` exposes Balance/Income report-vs-source checks.
+Both are receipt-bound external controls. REFS must preserve its own period
+status, authority, audit and reopening rules; it may record a mismatch or
+block a review according to approved policy, but cannot translate a WBS `Y/N`
+flag into a REFS state transition.
 
 ## Required read-only field evidence before provider mapping
 

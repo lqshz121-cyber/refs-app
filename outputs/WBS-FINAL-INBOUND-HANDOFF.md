@@ -81,6 +81,10 @@ not a production gate.
 - The observed Payable-to-accounting relation is receipt-bound `cb_id` trace;
   tested Payable long-ID and journal-number joins had zero matches. Neither
   display/reference field may be promoted to a REFS source or match key.
+- WBS accounting history and period-close/report-check tables provide no
+  approved revision/CDC/tombstone chain. Their history, `Y/N` close and
+  Balance/Income check fields remain external control evidence; REFS snapshot
+  hashing and its own period-close state machine remain mandatory.
 - Read-only metadata now proves the primary-key and field inventory for the
   WBS Payable, AutoRec Detail, AutoRec Bank, matching, bank-account and
   payment-setting tables, plus the WBS accounting journal/audit/monthly and
