@@ -103,6 +103,11 @@ receipt scope must echo that exact pair as `trace_key_type` and
 `trace_key_value`, in addition to company scope. A same-company trace page
 without this echo is blocked and cannot be retained as a bank-to-AUTOC,
 Payable, or journal relation.
+The trace page additionally requires its own immutable receipt (`ref`,
+`version`, and `issued_at`) and detached-signature verification. Its signed
+canonical manifest binds the tool, complete response scope, capture time,
+content hash, receipt reference, receipt version, and issuance time. A signed
+page cannot consequently be replayed for a different company or source key.
 
 Cost GL and Property control reads are composed only from persisted WBS and
 REFS metric snapshots plus an approved mapping. All three reads must agree on
