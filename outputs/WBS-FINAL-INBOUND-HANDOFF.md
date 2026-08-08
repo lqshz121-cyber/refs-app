@@ -73,6 +73,11 @@ not a production gate.
 - Provider meaning for lender/debtor and deposit/payment directions, revision/
   CDC/tombstone behavior, the AutoRec `pd_guid` to payment/bank relationship,
   and the names/semantics of the fourteen Cost GL metrics remain unverified.
+- The observed WBS accounting journal table has a non-unique `cb_id` (multiple
+  journal lines per shared bank-record relation) and cannot substitute for the
+  immutable Bank Transaction producer. The provider must expose the actual
+  bank-record receipt/key separately; REFS may use accounting rows only as
+  journal/ledger trace evidence.
 - Read-only metadata now proves the primary-key and field inventory for the
   WBS Payable, AutoRec Detail, AutoRec Bank, matching, bank-account and
   payment-setting tables, plus the WBS accounting journal/audit/monthly and

@@ -53,6 +53,17 @@ test('WBS journal entries supply trace evidence but cannot create accounting tra
   assert.match(row.receipt_hash,/^sha256:/);
 });
 
+test('multiple journal lines sharing a cb_id remain separate trace evidence, never a bank transaction',()=>{
+  const journals=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_journal_entries',[
+    {id:91,company:'COMPANY-A',journal_no:'JE-100',posting_date:'2026-08-01',account:'291001',lender:'0',debtor:'100',cb_id:'BANK-1'},
+    {id:92,company:'COMPANY-A',journal_no:'JE-100',posting_date:'2026-08-01',account:'600100',lender:'100',debtor:'0',cb_id:'BANK-1'}
+  ])});
+  assert.deepEqual(journals.rows.map(row=>({id:row.source_record_id,source:row.source_type,bank:row.bank_source_ref,admission:row.admission,draft:row.can_create_draft})),[
+    {id:'91',source:'WBS_JOURNAL_EVIDENCE',bank:'BANK-1',admission:'TRACE_EVIDENCE_ONLY',draft:false},
+    {id:'92',source:'WBS_JOURNAL_EVIDENCE',bank:'BANK-1',admission:'TRACE_EVIDENCE_ONLY',draft:false}
+  ]);
+});
+
 test('snapshot diff is scope-bound and never treats a missing row as a deletion without a provider tombstone',()=>{
   const previous=envelope('list_payables',[{ap_guid:'A-1',currency:'USD'},{ap_guid:'A-2',currency:'USD'}]);
   const current=envelope('list_payables',[{ap_guid:'A-1',currency:'USD'}]);

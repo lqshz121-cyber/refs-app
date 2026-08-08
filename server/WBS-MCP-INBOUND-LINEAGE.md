@@ -26,6 +26,12 @@ column, relationship, and state semantics.
 `trace_by_key` is relation evidence only. It cannot make any row a transaction
 producer. A WBS report therefore never becomes a posting instruction.
 
+The observed WBS `accounting_info` data set is not a substitute for
+`list_bank_transactions`: it has multiple accounting rows for a shared
+`cb_id`, and therefore enters REFS only as Journal/ledger trace evidence. The
+provider must expose the immutable bank record separately before a bank-side
+transaction candidate can be admitted.
+
 ## State and matching boundary
 
 ```text

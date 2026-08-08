@@ -90,7 +90,7 @@ the partial Cost/Project-setting joins may not be filled in by fallback rules.
 
 | Source | Verified schema facts | REFS role and boundary |
 | --- | --- | --- |
-| `accounting.accounting_info` | `id` is the primary key; `cb_id`, company, account, source, set date and journal number are indexed. It contains DR/CR, amount, posting/clear/check dates, `come_from`, `bill_no`, `journal_no`, review/approval/closed fields, project/cost/unit dimensions, and attachment relation references. | Journal/ledger trace evidence only. Its own primary key and state fields do not prove a posted REFS journal, immutable REFS ledger line, or authority to transition a REFS AutoRec case. |
+| `accounting.accounting_info` | `id` is the primary key; `cb_id`, company, account, source, set date and journal number are indexed. It contains DR/CR, amount, posting/clear/check dates, `come_from`, `bill_no`, `journal_no`, review/approval/closed fields, project/cost/unit dimensions, and attachment relation references. A `data_source='WBS'` population is observed. | Journal/ledger trace evidence only. In the WBS population, `cb_id` is intentionally non-unique (multiple accounting rows per bank-record relation); its own `id` and state fields do not prove a bank transaction, posted REFS journal, immutable REFS ledger line, or authority to transition a REFS AutoRec case. |
 | `accounting.accounting_log` | `id` is the primary key; company, `cb_id`, system/source, bill, operation type, user, time, and relation-content fields exist. | External audit/relation trace only. Append-only and row-to-journal cardinality are UNKNOWN. |
 | `accounting.accounting_monthly_relation` + `accounting_monthly_setting` | Relation has company, bank transaction (`cb_id`), month and setting ID. Setting has company, project, debit/credit account/journal fields, start/end date and reverse flag. An aggregate-only check found a partial setting-ID match; not every relation joined. | Potential monthly control/mapping evidence only. It is not an approved REFS mapping and cannot produce a Draft/post request. |
 | `accounting.accounting_balance_cell` + `accounting_income_cell` | Both expose company, account/subaccount, fiscal period, balance/net/debit/credit and review flag. The observed balance review-flag domain is `N`, `R`, `C`; amount-type codes are documented as balance/debit/credit/net/opening. | Financial-statement control evidence, not a Cost GL producer or AutoRec source. Cost GL's required fourteen metrics still need a signed, scoped provider definition. |
@@ -111,6 +111,23 @@ semantics, SoD, period-close semantics, or equivalence to REFS states. The
 REFS authoritative lifecycle remains its own review/approval/posting workflow;
 WBS codes are retained only as receipt-bound display/audit evidence until an
 official state/transition contract is received.
+
+### Bank-record to journal relation boundary
+
+An aggregate-only cross-database existence check confirms that some WBS-source
+`accounting_info.cb_id` values occur in
+`fast_auto_payment_detail.pd_cbid`. The WBS accounting population also has
+many more journal rows than distinct `cb_id` values. This proves a shared
+relation domain, not a one-to-one relationship or a transaction source key.
+
+The observed `wbsdata.accountbook` table is an account master, while
+`accounting_info` is a multi-line accounting trace. No directly admissible
+immutable bank-record table was identified from the observed `wbsdata` and
+`accounting` metadata inventory. Therefore the future provider must still
+deliver the formal `list_bank_transactions` record with its own immutable
+`cb_id`, company, bank account, date, currency, direction, amount and receipt
+version. REFS must never synthesize that bank record from `accounting_info.id`,
+`cb_id`, journal number, memo, or a relation row.
 
 ## Required read-only field evidence before provider mapping
 
