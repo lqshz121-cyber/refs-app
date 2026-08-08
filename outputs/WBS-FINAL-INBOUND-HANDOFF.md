@@ -7,10 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate: `300644b369c155d1c7b2f293b10fb10e40d435f5`
-  (parent `e9aeb7afa287a1514c577ff545667051406c5e00`; clean worktree verified).
-- Frozen handoff wrapper HEAD: `50ec457c3bf5022c262b141a71b828fb5205510c`
-  (parent `300644b369c155d1c7b2f293b10fb10e40d435f5`; documentation only; clean worktree verified).
+- Frozen code candidate: `30f8436728d0f372d61cdea02a22e3cdade7a6c8`
+  (parent `cf7464de087697b8c8cf13430a629b93b52b1e4a`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -42,8 +40,8 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At frozen code candidate `300644b`, the current focused lineage/projection
-suite exited `0`: `31/31` passing; `npm.cmd test` exited `0`: `244/244` passing, `0`
+At frozen code candidate `30f8436`, the focused workflow/lineage suite exited
+`0`: `25/25` passing; `npm.cmd test` exited `0`: `245/245` passing, `0`
 skipped. `git diff --check` exited `0`. Rerun all commands above after
 integration. `git diff --check` must exit `0` on
 the target branch. These are local tests with injected provider/kernel seams,
@@ -238,9 +236,13 @@ constraints and the corrected handoff state:
 10. `300644b` applies it to AutoRec Detail: every `biz_type` needs a
     receipt-bound Deposit/Payment direction convention as well as the
     existing exactly-one-non-zero movement check.
+11. `30f8436` adds an explicit observed WBS workflow contract. Its four page
+    steps remain read-only evidence; the canonical WBS transition graph is
+    UNKNOWN and no WBS status can transition, release, incur, draft, or post
+    in REFS.
 
 The directly consumable integration range is therefore exactly
-`6843dce^..300644b`, applied in Git order. It includes no WBS business UI,
+`6843dce^..30f8436`, applied in Git order. It includes no WBS business UI,
 WBS write operation, Draft-JE dispatch, approval or posting implementation.
 
 ## Current conflict and ownership check
