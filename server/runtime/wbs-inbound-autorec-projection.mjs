@@ -15,6 +15,7 @@ const decimal=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed
 const decimalText=value=>{const parsed=decimal(value);return parsed===null?null:parsed.toFixed(4);};
 const validDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const date=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(date.getTime())&&date.toISOString().slice(0,10)===candidate;};
 const freeze=value=>Object.freeze(value);
+const statusCode=value=>{const candidate=text(value);return candidate===''||candidate.length>64||/[\u0000-\u001f\u007f]/.test(candidate)?null:candidate;};
 const FORBIDDEN_WBS_OPERATIONS=freeze(['Add','Refresh','Delete','Create','Post','Post All','Cancel Post','Review','Download','Upload','Release','Batch Settings','Set Vendor','Set Project','Set Cost Code','Set User','Split Record']);
 const period=value=>{const candidate=text(value);const match=/^(?:[MRC]\s*:\s*)?(0[1-9]|1[0-2])\/(\d{4})$/.exec(candidate);return match?`${match[2]}-${match[1]}`:null;};
 const sensitiveInput=value=>{
@@ -79,6 +80,9 @@ function detailControl(row){
   const required=['detail_kind','receipt_id','receipt_ref','receipt_hash','source_record_id','source_version'];
   const missing=required.filter(key=>text(row[key])==='');
   if(!OBSERVED_DETAIL_KINDS.has(text(row.detail_kind))||missing.length)return {error:exception(row,'WBS_AUTOREC_CONTROL_TRACE_REQUIRED',`Observed WBS detail requires ${missing.join(', ')||'a supported detail kind'}`)};
+  const rawStatus=row.wbs_status_code??row.pd_status??'';
+  const rawMatchStatus=row.wbs_match_status_code??row.pd_match_status??row.match_status??'';
+  if((text(rawStatus)!==''&&statusCode(rawStatus)===null)||(text(rawMatchStatus)!==''&&statusCode(rawMatchStatus)===null))return {error:exception(row,'WBS_AUTOREC_STATUS_CODE_INVALID','Observed WBS status evidence is malformed and cannot be retained safely')};
   if(text(row.detail_kind)==='NOT_MATCH_PAYMENT'){
     const unmatchedRequired=['bank_source_record_id','bank_source_version','transaction_date','posting_date','account_code','ref_no','direction','amount'];
     const unmatchedMissing=unmatchedRequired.filter(key=>key==='amount'?decimal(row[key])===null:text(row[key])==='');
@@ -99,7 +103,8 @@ function detailControl(row){
   const retained_relation=text(row.detail_kind)==='INCURRED_PAYMENT'?freeze({bank_record:freeze({source_record_id:text(row.bank_source_record_id),source_version:text(row.bank_source_version),bank_account_code:text(row.bank_account_code)}),autoc_payable:freeze({long_id:text(row.autoc_payable_long_id)}),match_status:text(row.match_status),dimensions:freeze({project_department:text(row.project_department),cost_code:text(row.cost_code)}),attachment_invoice_evidence:text(row.invoice_receipt_evidence),human_review_trace:freeze({user_ref:text(row.user_ref),reviewer:text(row.reviewer),comments_log:text(row.comments_log)}),can_create_transaction:false,can_approve:false,can_post:false}):null;
   const observedState=OBSERVED_AUTOREC_STATE[text(row.detail_kind)]??null;
   const observedStep=OBSERVED_WORKFLOW_STEP_BY_DETAIL_KIND[text(row.detail_kind)]??null;
-  return {detail:freeze({detail_kind:text(row.detail_kind),observed_state:observedState,state_authority:observedState?'WBS_OBSERVED_EVIDENCE_ONLY':null,observed_workflow_step:observedStep,workflow_authority:observedStep?'WBS_OBSERVED_EVIDENCE_ONLY':null,can_transition_state:false,receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),observed_fields:freeze(observed_fields),retained_relation,can_dispatch:false,can_post:false})};
+  const observed_status_codes=freeze({detail_status:statusCode(rawStatus),match_status:statusCode(rawMatchStatus),semantics:'UNVERIFIED_SOURCE_CODE'});
+  return {detail:freeze({detail_kind:text(row.detail_kind),observed_state:observedState,state_authority:observedState?'WBS_OBSERVED_EVIDENCE_ONLY':null,observed_workflow_step:observedStep,workflow_authority:observedStep?'WBS_OBSERVED_EVIDENCE_ONLY':null,observed_status_codes,can_transition_state:false,receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),observed_fields:freeze(observed_fields),retained_relation,can_dispatch:false,can_post:false})};
 }
 
 // A read-only copy of the observed WBS Auto Bank Reconciliation controls. It

@@ -68,6 +68,11 @@ of Incurred List. The action-level Incur event and the WBS canonical transition
 graph are **UNKNOWN**. No observed WBS status can reopen, release, incur,
 reverse, create a journal, approve, post, or close a REFS case.
 
+When supplied in a receipt, raw Detail and Match status codes are retained as
+bounded `UNVERIFIED_SOURCE_CODE` evidence. They are displayed/audited exactly
+as source observations and are rejected if malformed; they are never
+translated into a REFS state without a signed provider transition contract.
+
 ## Read-only trace to accounting evidence
 
 After the REFS kernel independently completes its standard workflow, G11

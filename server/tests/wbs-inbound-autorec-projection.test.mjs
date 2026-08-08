@@ -49,12 +49,15 @@ test('invalid conservation, missing detail trace, or sensitive locators block al
 });
 
 test('a released WBS detail is retained as observed state, never a REFS transition authority',()=>{
-  const released={detail_kind:'RELEASED_PAYMENT',receipt_id:'receipt-release',receipt_ref:'object://wbs/receipt/release',receipt_hash:common.receipt_hash,source_record_id:'released-detail-1',source_version:'v1',posting_date:'2026-08-05',payment:'100.0000',reviewer:'Reviewer A'};
+  const released={detail_kind:'RELEASED_PAYMENT',receipt_id:'receipt-release',receipt_ref:'object://wbs/receipt/release',receipt_hash:common.receipt_hash,source_record_id:'released-detail-1',source_version:'v1',posting_date:'2026-08-05',payment:'100.0000',reviewer:'Reviewer A',pd_status:'R',pd_match_status:'Match'};
   const evidence=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[released]});
   assert.equal(evidence.exceptions.length,0);
   assert.equal(evidence.observed_workflow.contract,'WBS_AUTOREC_OBSERVED_WORKFLOW_V1');
   assert.deepEqual({state:evidence.details[0].observed_state,authority:evidence.details[0].state_authority,transition:evidence.details[0].can_transition_state,post:evidence.details[0].can_post},{state:'RELEASED',authority:'WBS_OBSERVED_EVIDENCE_ONLY',transition:false,post:false});
   assert.equal(evidence.details[0].observed_workflow_step,'DATA_PROCESSING_RELEASE');
+  assert.deepEqual(evidence.details[0].observed_status_codes,{detail_status:'R',match_status:'Match',semantics:'UNVERIFIED_SOURCE_CODE'});
+  const unsafeStatus=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[{...released,pd_status:'R\u0001'}]});
+  assert.equal(unsafeStatus.exceptions[0].code,'WBS_AUTOREC_STATUS_CODE_INVALID');
 });
 
 test('signed WBS amounts preserve direction and absolute capacity, while a bad company control blocks only that company',()=>{
