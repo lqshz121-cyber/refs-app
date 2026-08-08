@@ -229,6 +229,62 @@ const STATES = {
       'provider do not agree and the deployment must be corrected.',
     offer: SIGN_IN,
   },
+  OIDC_SESSION_EXPIRING: {
+    title: 'This sign-in is about to expire',
+    happened:
+      'The access token this tab holds expires shortly and REFS could not renew it in the background. You are still signed in; this is not an access refusal.',
+    next: 'Finish or copy anything unsaved, then sign in again before the current token expires.',
+    offer: SIGN_IN,
+  },
+  OIDC_SESSION_EXPIRED: {
+    title: 'This sign-in has expired',
+    happened:
+      'The access token this tab held has expired. REFS will not send an expired token, so no further authoritative read or write can succeed from this page.',
+    next: 'Copy anything unsaved, then sign in again. Your retained route returns after authentication.',
+    offer: SIGN_IN,
+  },
+  OIDC_RENEWAL_UNAVAILABLE: {
+    title: 'Background renewal was not attempted',
+    happened: 'The current verified session or browser runtime could not support a subject-bound PKCE renewal.',
+    next: 'Sign in again before the current token expires.',
+    offer: SIGN_IN,
+  },
+  OIDC_RENEWAL_REFUSED: {
+    title: 'The identity provider refused background renewal',
+    happened: 'The provider answered the prompt-free renewal with an error. This is a session-lifetime condition, not an access decision.',
+    next: 'Sign in again.',
+    offer: SIGN_IN,
+  },
+  OIDC_RENEWAL_BLOCKED: {
+    title: 'Background renewal did not answer',
+    happened: 'The hidden renewal request produced no answer before REFS stopped waiting.',
+    next: 'Sign in again; silent renewal is unavailable in this browser and provider pairing.',
+    offer: SIGN_IN,
+  },
+  OIDC_RENEWAL_UNREACHABLE: {
+    title: 'Could not reach the identity provider to renew',
+    happened: 'The renewal token request produced no usable HTTP response.',
+    next: 'Sign in again. The existing session remains unchanged until it expires.',
+    offer: SIGN_IN,
+  },
+  OIDC_RENEWAL_INVALID: {
+    title: 'The renewed token was not usable',
+    happened: 'The renewal response failed the same issuer, audience, subject, token-type or expiry checks as interactive sign-in and was discarded.',
+    next: 'Sign in again. If this repeats, correct the OIDC deployment configuration.',
+    offer: SIGN_IN,
+  },
+  OIDC_RENEWAL_SUBJECT_MISMATCH: {
+    title: 'The renewed token named a different person',
+    happened: 'The provider returned a token for a different subject. REFS discarded it and preserved the existing session.',
+    next: 'Sign in again and investigate the provider configuration if this recurs.',
+    offer: SIGN_IN,
+  },
+  OIDC_FRAMED_CONTEXT: {
+    title: 'REFS will not run inside a frame',
+    happened: 'This document is embedded in another page. REFS refuses to complete sign-in or read accounting data from that framed context.',
+    next: 'Open REFS in its own tab.',
+    offer: null,
+  },
 };
 
 const FALLBACK = {
