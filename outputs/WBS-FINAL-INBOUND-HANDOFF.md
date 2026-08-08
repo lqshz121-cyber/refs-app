@@ -78,6 +78,9 @@ not a production gate.
   immutable Bank Transaction producer. The provider must expose the actual
   bank-record receipt/key separately; REFS may use accounting rows only as
   journal/ledger trace evidence.
+- The observed Payable-to-accounting relation is receipt-bound `cb_id` trace;
+  tested Payable long-ID and journal-number joins had zero matches. Neither
+  display/reference field may be promoted to a REFS source or match key.
 - Read-only metadata now proves the primary-key and field inventory for the
   WBS Payable, AutoRec Detail, AutoRec Bank, matching, bank-account and
   payment-setting tables, plus the WBS accounting journal/audit/monthly and

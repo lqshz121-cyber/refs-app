@@ -65,6 +65,11 @@ business row:
 4. `accountbookpaymentset.APS_AccountId` partially matches `accountbook.ID`.
    The unmatched population prevents treating the join as an authoritative
    mapping or account admission rule.
+5. Some Payable primary-key rows have a shared `cb_id` with WBS-source
+   `accounting_info` lines. This is the only observed Payable-to-accounting
+   relation in the tested candidates. `long_id -> business_guid` and
+   `journal_no -> journal_no` produced zero matches and must remain external
+   display trace, not join keys.
 
 These negative findings are material: the REFS adapter must reject any future
 provider mapping that silently derives a PB key from `pd_batchguid`,
@@ -128,6 +133,20 @@ deliver the formal `list_bank_transactions` record with its own immutable
 `cb_id`, company, bank account, date, currency, direction, amount and receipt
 version. REFS must never synthesize that bank record from `accounting_info.id`,
 `cb_id`, journal number, memo, or a relation row.
+
+### Payable to accounting-trace boundary
+
+The observed Payable table has its own immutable `uuid`; its `cb_id` can
+participate in a receipt-bound forward/reverse trace to WBS accounting lines.
+This relation is not unique on the accounting side and therefore must retain
+both the payable source identity and each accounting-line identity. It cannot
+replace the provider's formal Payable immutable key or turn an accounting line
+into a source payable.
+
+The tested alternatives, Payable `long_id` to accounting `business_guid` and
+Payable `journal_no` to accounting `journal_no`, had zero matching key values.
+REFS must retain them as masked external references only; it must not use them
+for joins, replay identity, allocation, matching, or posting.
 
 ## Required read-only field evidence before provider mapping
 

@@ -93,6 +93,12 @@ posting instructions.
 WBS `Released` and `Incurred` values are observed control evidence. They do
 not authorize a REFS state transition, JE action, or ledger mutation.
 
+The source-table evidence identifies a Payable-to-accounting trace through
+shared `cb_id`, but no tested direct relation through Payable long ID or
+journal number. The `cb_id` trace is one-to-many on the accounting side; the
+Payable immutable source key remains separate and none of these values is an
+AutoRec match key or posting authority.
+
 Reverse lookup through `trace_by_key` first reads and exactly verifies the
 persisted REFS source under tenant, entity, company, source type/key/version,
 and receipt hash. It then accepts only that immutable source key (`ap_guid`,
