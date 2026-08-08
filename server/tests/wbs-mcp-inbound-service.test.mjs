@@ -4,6 +4,7 @@ import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {createWbsMcpInboundService,WbsMcpInboundServiceError} from '../runtime/wbs-mcp-inbound-service.mjs';
 
 const raw=(tool,rows,capturedAt='2026-08-09T12:00:00.000Z')=>({tool_name:tool,contract_version:'WBS-REFS-MCP-V1',environment:'production',captured_at:capturedAt,source:{system:'WBS'},scope:{company:'COMPANY-A'},record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:'snapshot required',rows});
+const bankDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/bank/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-BANK-DR-1',version:'1',debtor_direction:'DEBIT',lender_direction:'CREDIT'}];
 const values={
   list_payables:raw('list_payables',[{ap_guid:'11111111-1111-4111-8111-111111111111',company_code:'COMPANY-A',currency:'USD',amount:100,posting_date:'2026-08-09'}]),
   list_bank_transactions:raw('list_bank_transactions',[{cb_id:'BANK-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:100,lender:0,set_date:'2026-08-09'}]),
@@ -13,7 +14,7 @@ const args={list_payables:{company:'COMPANY-A'},list_bank_transactions:{company:
 
 test('service reads only the three producer views and prepares a receipt-gated snapshot without accounting dispatch',async()=>{
   const calls=[],service=createWbsMcpInboundService({client:{readView:async request=>(calls.push(request),structuredClone(values[request.toolName]))}});
-  const result=await service.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'});
+  const result=await service.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',bankDirectionConventions:bankDirectionConventions(values.list_bank_transactions)});
   assert.deepEqual(calls.map(item=>item.toolName),['list_payables','list_bank_transactions','list_autorec_details']);assert.equal(result.snapshot.views.length,3);assert.deepEqual({persist:result.can_persist,draft:result.can_create_draft,post:result.can_post},{persist:false,draft:false,post:false});
 });
 

@@ -22,7 +22,7 @@ export function createWbsMcpInboundService({client,persistedSourceReader=null}={
     read_only:true,
     tools:transactionTools,
     control_trace_tools:controlTraceTools,
-    async pullTransactionSnapshot({companyKey,argsByTool,snapshotId,dictionaryVersion,environment='SANDBOX',delivery=null,detachedSignature=null}={}){
+    async pullTransactionSnapshot({companyKey,argsByTool,snapshotId,dictionaryVersion,environment='SANDBOX',delivery=null,detachedSignature=null,bankDirectionConventions=null}={}){
       if(!text(companyKey)||!plain(argsByTool))fail('WBS_MCP_SELECTION_REQUIRED','Company scope and structured MCP arguments are required.');
       if(Object.keys(argsByTool).some(key=>!transactionTools.includes(key))||transactionTools.some(tool=>!plain(argsByTool[tool])))fail('WBS_MCP_SELECTION_REQUIRED','Each transaction producer needs structured arguments and no other MCP tool may be called.');
       const envelopes=[];
@@ -37,7 +37,7 @@ export function createWbsMcpInboundService({client,persistedSourceReader=null}={
         envelopes.push(providerEnvelope(envelope));
       }
       try{
-        const snapshot=buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVersion,environment,delivery,detachedSignature});
+        const snapshot=buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVersion,environment,delivery,detachedSignature,bankDirectionConventions});
         return Object.freeze({status:'WBS_MCP_SNAPSHOT_READY_FOR_RECEIPT_VERIFICATION',snapshot,can_persist:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['verify detached signature','persist immutable snapshot receipt','persist Raw/Normalized/Staging through REFS kernel','human staging review'])});
       }catch(cause){
         if(cause instanceof WbsMcpLineageError)throw cause;

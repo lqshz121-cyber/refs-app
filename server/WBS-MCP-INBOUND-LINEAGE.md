@@ -166,6 +166,15 @@ The read-only service exposes this only through
 `pullAutoRecBankControlEvidence`; it has no persistence, allocation, release,
 incur, journal or posting dependency.
 
+Bank Transaction `debtor` and `lender` are likewise not self-proving
+directions. A transaction snapshot now requires a receipt-bound direction
+convention for every bank account: exact company/currency/account scope, rule
+id/version, a receipt hash that equals the Bank Transaction envelope hash, and
+opposite declared directions for the two fields. Without it, the bank row is
+an `WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED` Exception and no snapshot can
+enter the Raw/Normalized/Staging path. This convention is provider evidence,
+not a REFS-side assumption about WBS debit/credit terminology.
+
 ## Sanitized golden scenarios
 
 The executable golden set covers exact matching, one-to-many, many-to-one,
