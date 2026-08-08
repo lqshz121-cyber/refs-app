@@ -101,3 +101,5 @@ Cost GL and Property control reads are composed only from persisted WBS and
 REFS metric snapshots plus an approved mapping. All three reads must agree on
 tenant, entity, and the complete control scope; the composition is read-only
 and exposes no transaction, allocation, Draft, or posting capability.
+The database adapter accepts only those three authenticated read capabilities;
+it cannot execute WBS calls, SQL text, or any accounting command.

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createWbsControlReconciliationReadComposition,reconcileWbsControlEvidence,WbsControlReconciliationError} from '../runtime/wbs-control-reconciliation.mjs';
+import {createPostgresWbsControlReconciliationReader} from '../runtime/wbs-control-reconciliation-postgres-reader.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 
 const metricHash=rows=>canonicalRequestHash([...rows].map(row=>({metric_key:row.metric_key,amount:Number(Number(row.amount).toFixed(4))})).sort((left,right)=>left.metric_key.localeCompare(right.metric_key)));
@@ -62,4 +63,14 @@ test('control reconciliation reads only exact persisted WBS/REFS evidence and ap
   assert.equal((await createWbsControlReconciliationReadComposition({}).read(input)).code,'WBS_CONTROL_READ_CAPABILITY_UNAVAILABLE');
   const leaked=createWbsControlReconciliationReadComposition({repository:{...repository,readPersistedWbsControlSnapshot:async()=>({...source,scope:{...costScope,company_key:'OTHER'}})}});
   const blocked=await leaked.read({...input,replayKey:'control-read-2'});assert.equal(blocked.code,'WBS_CONTROL_READ_SCOPE_INVALID');assert.equal(blocked.can_create_draft,false);
+});
+
+test('Postgres control reader exposes only the three read-only kernel capabilities',async()=>{
+  const source={tenant_id:'tenant-a',entity_id:'entity-a',source_type:'COST_GENERAL_LEDGER',scope:costScope,receipt:costArgs.sourceReceipt,metrics:costMetrics};
+  const target={tenant_id:'tenant-a',entity_id:'entity-a',scope:costScope,receipt:costArgs.targetReceipt,metrics:costMetrics};
+  const mapping={...costMapping,tenant_id:'tenant-a',entity_id:'entity-a'};
+  const calls=[];const kernel={readPersistedWbsControlSnapshot:async input=>(calls.push(input),source),readPersistedRefsControlMetricSnapshot:async input=>(calls.push(input),target),readApprovedWbsControlReconciliationMapping:async input=>(calls.push(input),mapping)};
+  const input={sourceType:'COST_GENERAL_LEDGER',tenantId:'tenant-a',entityId:'entity-a',scope:costScope,replayKey:'pg-control-1'};
+  const accepted=await createPostgresWbsControlReconciliationReader({kernel}).read(input);assert.equal(accepted.status,'READ_ONLY_CONTROL_RECONCILED');assert.equal(calls.length,3);assert.ok(calls.every(call=>call.read_only===true));
+  assert.equal((await createPostgresWbsControlReconciliationReader({kernel:{}}).read(input)).code,'WBS_CONTROL_READ_CAPABILITY_UNAVAILABLE');
 });
