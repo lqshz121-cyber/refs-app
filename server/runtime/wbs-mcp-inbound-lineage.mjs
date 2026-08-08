@@ -53,9 +53,11 @@ function commonRow({tool,accepted,row}){
   const key=stableKey[tool];
   return {
     source_system:'WBS_MCP',source_type:sourceType[tool],source_record_id:key?text(row[key]):null,
-    // The row has no provider revision. This version deliberately identifies
-    // the immutable observed envelope, not a fabricated source revision.
-    source_version:`snapshot:${accepted.content_sha256}:${hash(row).slice(7,23)}`,
+    // WBS provides no revision. Use the canonical row hash as the observed
+    // immutable version: a change elsewhere in the paged envelope must not
+    // create a false new version for an unchanged source row. The envelope
+    // hash remains separately bound as the receipt provenance.
+    source_version:`observed:${hash(row).slice(7)}`,
     company_key:text(row.company_code||row.company||accepted.scope.company),
     receipt_hash:`sha256:${accepted.content_sha256}`,receipt_captured_at:accepted.captured_at,
     receipt_ref:null,raw_row_hash:hash(row),can_create_draft:false,can_allocate:false,can_post:false

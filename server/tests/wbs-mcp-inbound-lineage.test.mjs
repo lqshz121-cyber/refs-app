@@ -59,6 +59,16 @@ test('snapshot diff is scope-bound and never treats a missing row as a deletion 
   assert.throws(()=>planWbsMcpSnapshotDiff({current:envelope('list_payables',[{ap_guid:'B-2',currency:'USD'},{ap_guid:'A-1',currency:'USD'}])}),error=>error instanceof WbsMcpLineageError&&error.code==='WBS_MCP_ROWS_NOT_SORTED');
 });
 
+test('unchanged WBS source rows keep their observed version when another row changes the envelope receipt',()=>{
+  const first=envelope('list_payables',[{ap_guid:'A-1',company_code:'COMPANY-A',currency:'USD',amount:'100',posting_date:'2026-08-01'}]);
+  const second=envelope('list_payables',[{ap_guid:'A-1',company_code:'COMPANY-A',currency:'USD',amount:'100',posting_date:'2026-08-01'},{ap_guid:'A-2',company_code:'COMPANY-A',currency:'USD',amount:'200',posting_date:'2026-08-01'}]);
+  const firstRow=mapWbsMcpEnvelopeToInbound({envelope:first}).rows[0];
+  const unchanged=mapWbsMcpEnvelopeToInbound({envelope:second}).rows.find(row=>row.source_record_id==='A-1');
+  assert.equal(firstRow.source_version,unchanged.source_version);
+  assert.notEqual(firstRow.receipt_hash,unchanged.receipt_hash);
+  assert.match(firstRow.source_version,/^observed:[0-9a-f]{64}$/);
+});
+
 test('formal MCP transaction views enter the existing Raw/Normalized/Staging adapter with upstream receipt provenance',async()=>{
   const payable=envelope('list_payables',[{ap_guid:'11111111-1111-4111-8111-111111111111',company_code:'COMPANY-A',currency:'USD',amount:'100',posting_date:'2026-08-09'}]);
   const bank=envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-09'}]);
