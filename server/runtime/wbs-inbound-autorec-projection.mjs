@@ -87,15 +87,17 @@ export function projectObservedWbsAutoRecControlEvidence({companyRows,detailRows
   return freeze({evidence_type:'WBS_AUTOREC_OBSERVED_CONTROL_EVIDENCE_V1',observed_steps:freeze(['Company Screening','Data Processing & Release','Incur','Incurred List']),controls:freeze(controls),details:freeze(details),exceptions:freeze(exceptions),forbidden_wbs_operations:FORBIDDEN_WBS_OPERATIONS,can_dispatch:false,can_create_draft:false,can_post:false});
 }
 
-const receiptTrace=row=>freeze({receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),company_key:text(row.company_key)});
-function receiptBinding(row,persistedRows){
+const receiptTrace=row=>freeze({tenant_id:text(row.tenant_id)||null,entity_id:text(row.entity_id)||null,receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),company_key:text(row.company_key)});
+function receiptBinding(row,persistedRows,scope=null){
   const required=['receipt_id','receipt_ref','receipt_hash','source_record_id','source_version','company_key'];
   if(required.some(key=>text(row?.[key])===''))return {error:exception(row,'WBS_AUTOREC_RECEIPT_TRACE_REQUIRED','Observed WBS evidence requires an immutable receipt, source version, and company scope')};
+  const scoped=scope&&typeof scope==='object';
+  if(scoped&&(!text(scope.tenant_id)||!text(scope.entity_id)||!text(scope.company_key)))return {error:exception(row,'WBS_AUTOREC_RECEIPT_SCOPE_REQUIRED','Receipt-backed WBS evidence requires tenant, entity, and company scope')};
   const sourceRows=persistedRows.filter(item=>text(item?.source_record_id)===text(row.source_record_id));
   if(sourceRows.length===0)return {error:exception(row,'WBS_AUTOREC_RECEIPT_MISSING','Observed WBS evidence source is absent from the persisted receipt-backed read model')};
   const versionRows=sourceRows.filter(item=>text(item.source_version)===text(row.source_version));
   if(versionRows.length===0)return {error:exception(row,'WBS_AUTOREC_RECEIPT_STALE','Observed WBS evidence source version is stale against the persisted read model')};
-  const scopedRows=versionRows.filter(item=>text(item.company_key)===text(row.company_key));
+  const scopedRows=versionRows.filter(item=>text(item.company_key)===text(row.company_key)&&(!scoped||(text(item.tenant_id)===text(scope.tenant_id)&&text(item.entity_id)===text(scope.entity_id)&&text(item.company_key)===text(scope.company_key))));
   if(scopedRows.length===0)return {error:exception(row,'WBS_AUTOREC_RECEIPT_SCOPE_MISMATCH','Observed WBS evidence company does not match the persisted source scope')};
   const exact=scopedRows.filter(item=>text(item.receipt_id)===text(row.receipt_id)&&text(item.receipt_ref)===text(row.receipt_ref)&&text(item.receipt_hash)===text(row.receipt_hash));
   if(exact.length!==1)return {error:exception(row,'WBS_AUTOREC_RECEIPT_CHANGED','Observed WBS evidence receipt differs from the persisted immutable receipt')};
@@ -104,11 +106,11 @@ function receiptBinding(row,persistedRows){
 
 // Binds observed Company Screening/Release/Incur/Incurred List evidence to
 // persisted REFS receipt rows. This is a read model verification step only.
-export function bindReceiptBackedWbsAutoRecControlEvidence({companyRows,detailRows=[],persistedRows}={}){
+export function bindReceiptBackedWbsAutoRecControlEvidence({companyRows,detailRows=[],persistedRows,scope=null}={}){
   if(!Array.isArray(companyRows)||!Array.isArray(detailRows)||!Array.isArray(persistedRows))throw new WbsInboundProjectionError('WBS_AUTOREC_PERSISTED_CONTROL_ROWS_REQUIRED','Observed WBS controls and persisted receipt-backed rows must be arrays');
   const controls=[],details=[],exceptions=[];
-  for(const row of companyRows){const projected=companyControl(row);if(projected.error){exceptions.push(scopedException(projected.error,'COMPANY'));continue;}const bound=receiptBinding(row,persistedRows);if(bound.error){exceptions.push(scopedException(bound.error,'COMPANY'));continue;}controls.push(freeze({...projected.control,receipt_trace:bound.trace}));}
-  for(const row of detailRows){const projected=detailControl(row);if(projected.error){exceptions.push(scopedException(projected.error,'SOURCE'));continue;}const bound=receiptBinding(row,persistedRows);if(bound.error){exceptions.push(scopedException(bound.error,'SOURCE'));continue;}let bank_relation_trace=null;if(text(row.detail_kind)==='INCURRED_PAYMENT'){const bank=receiptBinding({...row,source_record_id:row.bank_source_record_id,source_version:row.bank_source_version,receipt_id:row.bank_source_receipt_id,receipt_ref:row.bank_source_receipt_ref,receipt_hash:row.bank_source_receipt_hash},persistedRows);if(bank.error){exceptions.push(scopedException(bank.error,'SOURCE'));continue;}bank_relation_trace=bank.trace;}details.push(freeze({...projected.detail,receipt_trace:bound.trace,bank_relation_trace}));}
+  for(const row of companyRows){const projected=companyControl(row);if(projected.error){exceptions.push(scopedException(projected.error,'COMPANY'));continue;}const bound=receiptBinding(row,persistedRows,scope);if(bound.error){exceptions.push(scopedException(bound.error,'COMPANY'));continue;}controls.push(freeze({...projected.control,receipt_trace:bound.trace}));}
+  for(const row of detailRows){const projected=detailControl(row);if(projected.error){exceptions.push(scopedException(projected.error,'SOURCE'));continue;}const bound=receiptBinding(row,persistedRows,scope);if(bound.error){exceptions.push(scopedException(bound.error,'SOURCE'));continue;}let bank_relation_trace=null;if(text(row.detail_kind)==='INCURRED_PAYMENT'){const bank=receiptBinding({...row,source_record_id:row.bank_source_record_id,source_version:row.bank_source_version,receipt_id:row.bank_source_receipt_id,receipt_ref:row.bank_source_receipt_ref,receipt_hash:row.bank_source_receipt_hash},persistedRows,scope);if(bank.error){exceptions.push(scopedException(bank.error,'SOURCE'));continue;}bank_relation_trace=bank.trace;}details.push(freeze({...projected.detail,receipt_trace:bound.trace,bank_relation_trace}));}
   return freeze({evidence_type:'WBS_AUTOREC_RECEIPT_BACKED_CONTROL_EVIDENCE_V1',observed_steps:freeze(['Company Screening','Data Processing & Release','Incur','Incurred List']),controls:freeze(controls),details:freeze(details),exceptions:freeze(exceptions),forbidden_wbs_operations:FORBIDDEN_WBS_OPERATIONS,can_dispatch:false,can_create_draft:false,can_post:false});
 }
 
@@ -116,11 +118,11 @@ export function bindReceiptBackedWbsAutoRecControlEvidence({companyRows,detailRo
 // not allocate, release, dispatch a Draft command, or post. The source rows
 // must already carry the immutable receipt and Raw→Staging identifiers created
 // by the atomic intake command.
-export function projectPersistedWbsInboundAutoRec({rows,mappings=[],companyControlRows=null,detailControlRows=[],persistedControlRows=null}={}){
+export function projectPersistedWbsInboundAutoRec({rows,mappings=[],companyControlRows=null,detailControlRows=[],persistedControlRows=null,scope=null}={}){
   if(!Array.isArray(rows))throw new WbsInboundProjectionError('WBS_AUTOREC_PROJECTION_ROWS_REQUIRED','Persisted WBS inbound rows are required');
   if(!Array.isArray(mappings))throw new WbsInboundProjectionError('WBS_AUTOREC_PROJECTION_MAPPINGS_INVALID','Approved mapping read rows must be an array');
   const candidates=[],exceptions=[];
-  const control_evidence=companyControlRows===null?null:(persistedControlRows===null?projectObservedWbsAutoRecControlEvidence({companyRows:companyControlRows,detailRows:detailControlRows}):bindReceiptBackedWbsAutoRecControlEvidence({companyRows:companyControlRows,detailRows:detailControlRows,persistedRows:persistedControlRows}));
+  const control_evidence=companyControlRows===null?null:(persistedControlRows===null?projectObservedWbsAutoRecControlEvidence({companyRows:companyControlRows,detailRows:detailControlRows}):bindReceiptBackedWbsAutoRecControlEvidence({companyRows:companyControlRows,detailRows:detailControlRows,persistedRows:persistedControlRows,scope}));
   if(control_evidence?.exceptions.length)exceptions.push(...control_evidence.exceptions);
   const evidenceExceptions=control_evidence?.exceptions||[];
   const blockedCompanies=new Set(evidenceExceptions.filter(item=>item.block_scope==='COMPANY'||(!item.block_scope&&item.company_key)).map(item=>item.company_key).filter(Boolean));

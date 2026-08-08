@@ -84,3 +84,16 @@ test('receipt-backed control evidence accepts only exact persisted receipt, sour
   const crossSourceResult=projectPersistedWbsInboundAutoRec({rows:[bank,payable],mappings:[mapping(bank),mapping(payable)],companyControlRows:[control],detailControlRows:[crossSource],persistedControlRows:persisted});assert.equal(crossSourceResult.candidates.length,1);assert.equal(crossSourceResult.candidates[0].source_record_id,'bank-1');
   const projection=projectPersistedWbsInboundAutoRec({rows:[bank,payable],mappings:[mapping(bank),mapping(payable)],companyControlRows:[control],persistedControlRows:persisted});assert.equal(projection.candidates.length,2);assert.equal(projection.control_evidence.evidence_type,'WBS_AUTOREC_RECEIPT_BACKED_CONTROL_EVIDENCE_V1');
 });
+
+test('receipt binding rejects the same source/version when its persisted tenant or entity differs from the selected scope',()=>{
+  const scope={tenant_id:'tenant-a',entity_id:'entity-a',company_key:'COMPANY-A'};
+  const control={...companyControl,...scope,receipt_id:'scope-receipt',receipt_ref:'object://wbs/receipt/scope',receipt_hash:'sha256:'+'f'.repeat(64),source_record_id:'shared-control',source_version:'v1'};
+  const wrongTenant={...control,tenant_id:'tenant-b'};
+  const wrongEntity={...control,entity_id:'entity-b'};
+  const accepted=bindReceiptBackedWbsAutoRecControlEvidence({companyRows:[control],detailRows:[],persistedRows:[control],scope});
+  assert.equal(accepted.exceptions.length,0);assert.equal(accepted.controls[0].receipt_trace.tenant_id,'tenant-a');
+  const tenantMismatch=bindReceiptBackedWbsAutoRecControlEvidence({companyRows:[control],detailRows:[],persistedRows:[wrongTenant],scope});
+  const entityMismatch=bindReceiptBackedWbsAutoRecControlEvidence({companyRows:[control],detailRows:[],persistedRows:[wrongEntity],scope});
+  assert.equal(tenantMismatch.exceptions[0].code,'WBS_AUTOREC_RECEIPT_SCOPE_MISMATCH');
+  assert.equal(entityMismatch.exceptions[0].code,'WBS_AUTOREC_RECEIPT_SCOPE_MISMATCH');
+});
