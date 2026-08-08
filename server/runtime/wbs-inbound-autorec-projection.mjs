@@ -2,6 +2,7 @@ import {canonicalRequestHash} from './request-hash.mjs';
 
 const TRANSACTION_TYPES=new Set(['BANK_TRANSACTION','PAYABLE','AUTOREC_PAYMENT_DETAIL']);
 const OBSERVED_DETAIL_KINDS=new Set(['NOT_MATCH_PAYMENT','RELEASED_PAYMENT','INCURRED_PAYMENT','COMPANY_ACCOUNT','JE_TRACE','BS_CONTROL','IS_CONTROL']);
+const OBSERVED_AUTOREC_STATE=Object.freeze({NOT_MATCH_PAYMENT:'NOT_MATCHED',RELEASED_PAYMENT:'RELEASED',INCURRED_PAYMENT:'INCURRED'});
 const text=value=>value==null?'':String(value).trim();
 const decimal=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
 const decimalText=value=>{const parsed=decimal(value);return parsed===null?null:parsed.toFixed(4);};
@@ -71,7 +72,8 @@ function detailControl(row){
   const observed_fields=Object.fromEntries(fields.filter(key=>row[key]!=null&&text(row[key])!=='').map(key=>[key,(key==='debit'||key==='credit')?decimalText(row[key]):text(row[key])]));
   if(('transaction_date' in observed_fields&&!validDate(observed_fields.transaction_date))||('posting_date' in observed_fields&&!validDate(observed_fields.posting_date))||('create_date' in observed_fields&&!validDate(observed_fields.create_date))||['amount','deposit','payment','debit','credit'].some(key=>key in observed_fields&&decimal(observed_fields[key])===null))return {error:exception(row,'WBS_AUTOREC_CONTROL_TRACE_INVALID','Observed WBS detail has an invalid transaction, posting, creation, or monetary value')};
   const retained_relation=text(row.detail_kind)==='INCURRED_PAYMENT'?freeze({bank_record:freeze({source_record_id:text(row.bank_source_record_id),source_version:text(row.bank_source_version),bank_account_code:text(row.bank_account_code)}),autoc_payable:freeze({long_id:text(row.autoc_payable_long_id)}),match_status:text(row.match_status),dimensions:freeze({project_department:text(row.project_department),cost_code:text(row.cost_code)}),attachment_invoice_evidence:text(row.invoice_receipt_evidence),human_review_trace:freeze({user_ref:text(row.user_ref),reviewer:text(row.reviewer),comments_log:text(row.comments_log)}),can_create_transaction:false,can_approve:false,can_post:false}):null;
-  return {detail:freeze({detail_kind:text(row.detail_kind),receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),observed_fields:freeze(observed_fields),retained_relation,can_dispatch:false,can_post:false})};
+  const observedState=OBSERVED_AUTOREC_STATE[text(row.detail_kind)]??null;
+  return {detail:freeze({detail_kind:text(row.detail_kind),observed_state:observedState,state_authority:observedState?'WBS_OBSERVED_EVIDENCE_ONLY':null,can_transition_state:false,receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),observed_fields:freeze(observed_fields),retained_relation,can_dispatch:false,can_post:false})};
 }
 
 // A read-only copy of the observed WBS Auto Bank Reconciliation controls. It
