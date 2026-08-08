@@ -175,6 +175,15 @@ an `WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED` Exception and no snapshot can
 enter the Raw/Normalized/Staging path. This convention is provider evidence,
 not a REFS-side assumption about WBS debit/credit terminology.
 
+Payable Report amounts also require a receipt-bound `ap_type` direction
+convention. Each selected payable type must have an exact company/currency
+scope, rule id/version and declared DEBIT or CREDIT direction tied to the
+Payable envelope hash. A missing convention yields
+`WBS_MCP_PAYABLE_DIRECTION_CONVENTION_REQUIRED`; it cannot form a snapshot or
+become an AutoRec candidate. This preserves Posting Date and payable/journal
+fields as trace without treating the report amount as an implied accounting
+sign.
+
 ## Sanitized golden scenarios
 
 The executable golden set covers exact matching, one-to-many, many-to-one,

@@ -87,6 +87,19 @@ function bankDirectionRules(accepted,conventions){
   return rules;
 }
 
+function payableDirectionRules(accepted,conventions){
+  if(conventions==null)return new Map();
+  if(!Array.isArray(conventions)||!conventions.length)throw new WbsMcpLineageError('WBS_MCP_PAYABLE_DIRECTION_CONVENTION_REQUIRED','Payable admission requires one receipt-bound direction convention for every selected payable type.');
+  const rules=new Map();
+  for(const convention of conventions){
+    const scope=convention?.scope||{},companyKey=text(scope.company_key),currency=text(scope.currency).toUpperCase(),payableType=text(convention?.ap_type),direction=text(convention?.direction).toUpperCase();
+    const receipt=controlReceipt(convention?.receipt,accepted.content_sha256),ruleId=text(convention?.rule_id),version=text(convention?.version);
+    if(!companyKey||!validCurrency(currency)||!payableType||!ruleId||!version||!['DEBIT','CREDIT'].includes(direction)||companyKey!==text(accepted.scope.company)||(text(accepted.scope.currency)&&currency!==text(accepted.scope.currency).toUpperCase())||rules.has(payableType))throw new WbsMcpLineageError('WBS_MCP_PAYABLE_DIRECTION_CONVENTION_INVALID','Every Payable direction convention must have one exact company/currency/type scope, receipt-bound rule id/version, and a declared direction.');
+    rules.set(payableType,freeze({rule_id:ruleId,version,direction,receipt}));
+  }
+  return rules;
+}
+
 // The provider has no revision, CDC, or tombstone guarantee.  A record absent
 // from a later page is therefore evidence needing recheck, never a deletion.
 export function planWbsMcpSnapshotDiff({previous=null,current}={}){
@@ -136,14 +149,15 @@ function transactionAdmission({common,amountValue,currency,dateValue,bankAccount
   return missing.length?freeze({admission:'EXCEPTION_REVIEW_REQUIRED',exception_code:missing.includes('unambiguous_direction')?'WBS_MCP_AMOUNT_DIRECTION_REQUIRED':'WBS_MCP_TRANSACTION_FIELDS_REQUIRED',missing:freeze(missing)}):freeze({admission:'TRANSACTION_CANDIDATE',exception_code:null,missing:freeze([])});
 }
 
-export function mapWbsMcpEnvelopeToInbound({envelope,bankDirectionConventions=null}={}){
+export function mapWbsMcpEnvelopeToInbound({envelope,bankDirectionConventions=null,payableDirectionConventions=null}={}){
   const accepted=validateWbsReadEnvelope({toolName:envelope?.tool,envelope});
-  const tool=accepted.tool_name,rows=[],bankRules=tool==='list_bank_transactions'?bankDirectionRules(accepted,bankDirectionConventions):new Map();
+  const tool=accepted.tool_name,rows=[],bankRules=tool==='list_bank_transactions'?bankDirectionRules(accepted,bankDirectionConventions):new Map(),payableRules=tool==='list_payables'?payableDirectionRules(accepted,payableDirectionConventions):new Map();
   for(const row of accepted.rows){
     const common=commonRow({tool,accepted,row});
     if(tool==='list_payables'){
-      const currency=scopedCurrency(accepted,row),businessDate=row.incurred_date||row.posting_date||null,admission=transactionAdmission({common,amountValue:row.amount,currency,dateValue:businessDate});
-      rows.push(freeze({...common,...admission,business_date:businessDate,posting_date:row.posting_date||null,amount:money(row.amount),currency,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_ref:row.cost_id||null,payable_link:row.ap_long_id||null,journal_trace:row.journal_no||null,payable_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false}));
+      const directionRule=payableRules.get(text(row.ap_type)),rawAmount=money(row.amount),movement=directionRule&&rawAmount!==null?freeze({amount:directionRule.direction==='CREDIT'?Math.abs(rawAmount):-Math.abs(rawAmount),direction:directionRule.direction}):null;
+      const currency=scopedCurrency(accepted,row),businessDate=row.incurred_date||row.posting_date||null,admission=transactionAdmission({common,amountValue:movement?.amount,currency,dateValue:businessDate,movementRequired:true,movement});
+      rows.push(freeze({...common,...admission,exception_code:!directionRule?'WBS_MCP_PAYABLE_DIRECTION_CONVENTION_REQUIRED':admission.exception_code,business_date:businessDate,posting_date:row.posting_date||null,amount:movement?.amount??null,direction:movement?.direction??null,currency,payable_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_ref:row.cost_id||null,payable_link:row.ap_long_id||null,journal_trace:row.journal_no||null,payable_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false}));
     }
     else if(tool==='list_bank_transactions'){
       const directionRule=bankRules.get(text(row.account_code)),movement=directionRule?signedMovement(row,'lender','debtor',directionRule.lender_direction,directionRule.debtor_direction):null;
@@ -174,9 +188,12 @@ const uuid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 const iso=value=>typeof value==='string'&&!Number.isNaN(Date.parse(value));
 
 function mcpProvenance(accepted,row){return freeze({mcp_tool:accepted.tool_name,mcp_content_sha256:`sha256:${accepted.content_sha256}`,mcp_row_hash:hash(row),mcp_captured_at:accepted.captured_at});}
-function snapshotRow(accepted,row,bankRules){
+function snapshotRow(accepted,row,bankRules,payableRules){
   const provenance=mcpProvenance(accepted,row);
-  if(accepted.tool_name==='list_payables')return freeze({...provenance,apGuId:text(row.ap_guid),currency:scopedCurrency(accepted,row),amount:money(row.amount),invoice_date:row.incurred_date||row.posting_date||null,posting_date:row.posting_date||null,description:row.description||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_id||null,external_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false});
+  if(accepted.tool_name==='list_payables'){
+    const directionRule=payableRules?.get(text(row.ap_type)),rawAmount=money(row.amount),movement=directionRule&&rawAmount!==null?freeze({amount:directionRule.direction==='CREDIT'?Math.abs(rawAmount):-Math.abs(rawAmount),direction:directionRule.direction}):null;
+    return freeze({...provenance,apGuId:text(row.ap_guid),currency:scopedCurrency(accepted,row),amount:movement?.amount??null,direction:movement?.direction??null,payable_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,invoice_date:row.incurred_date||row.posting_date||null,posting_date:row.posting_date||null,description:row.description||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_id||null,external_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false});
+  }
   if(accepted.tool_name==='list_bank_transactions'){
     const directionRule=bankRules?.get(text(row.account_code)),movement=directionRule?signedMovement(row,'lender','debtor',directionRule.lender_direction,directionRule.debtor_direction):null;
     return freeze({...provenance,cashOrBankBookId:text(row.cb_id),bank_account_ref:row.account_code||null,currency:scopedCurrency(accepted,row),amount:movement?.amount??null,transaction_date:row.set_date||null,direction:movement?.direction??null,bank_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,description:row.description||null,come_from:row.come_from||null,external_trace:bankTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false});
@@ -191,7 +208,7 @@ function snapshotRow(accepted,row,bankRules){
 // adapter can consume. It accepts only transaction-producer views; report and
 // control views must flow through their control-reconciliation path instead.
 // It deliberately does not manufacture a pb_guid from pd_pv_guid.
-export function buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVersion,environment='SANDBOX',delivery=null,detachedSignature=null,bankDirectionConventions=null}={}){
+export function buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVersion,environment='SANDBOX',delivery=null,detachedSignature=null,bankDirectionConventions=null,payableDirectionConventions=null}={}){
   if(!uuid(snapshotId)||typeof dictionaryVersion!=='string'||!dictionaryVersion.trim()||!Array.isArray(envelopes)||envelopes.length===0)throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_INPUT_INVALID','Snapshot id, dictionary version, and formal MCP envelopes are required.');
   if(!['SANDBOX','PRODUCTION'].includes(environment))throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_INPUT_INVALID','Snapshot environment is invalid.');
   const accepted=envelopes.map(envelope=>validateWbsReadEnvelope({toolName:envelope?.tool,envelope}));
@@ -202,10 +219,13 @@ export function buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVers
   const bankEnvelope=accepted.find(item=>item.tool_name==='list_bank_transactions');
   const bankRules=bankEnvelope?bankDirectionRules(bankEnvelope,bankDirectionConventions):new Map();
   if(bankEnvelope&&bankEnvelope.rows.some(row=>!bankRules.has(text(row.account_code))))throw new WbsMcpLineageError('WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED','Every selected Bank Transaction account requires a receipt-bound direction convention before snapshot admission.');
+  const payableEnvelope=accepted.find(item=>item.tool_name==='list_payables');
+  const payableRules=payableEnvelope?payableDirectionRules(payableEnvelope,payableDirectionConventions):new Map();
+  if(payableEnvelope&&payableEnvelope.rows.some(row=>!payableRules.has(text(row.ap_type))))throw new WbsMcpLineageError('WBS_MCP_PAYABLE_DIRECTION_CONVENTION_REQUIRED','Every selected Payable type requires a receipt-bound direction convention before snapshot admission.');
   for(const item of accepted){const key=stableKey[item.tool_name];if(!sorted(item.rows,key))throw new WbsMcpLineageError('WBS_MCP_ROWS_NOT_SORTED','WBS rows must be ascending by their stable source key.');}
   if(environment==='PRODUCTION'&&(!delivery||!detachedSignature))throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_SIGNATURE_REQUIRED','Production MCP snapshots require complete delivery evidence and a detached signature.');
   const views=accepted.map(item=>{
-    const rows=item.rows.map(row=>snapshotRow(item,row,item.tool_name==='list_bank_transactions'?bankRules:null));
+    const rows=item.rows.map(row=>snapshotRow(item,row,item.tool_name==='list_bank_transactions'?bankRules:null,item.tool_name==='list_payables'?payableRules:null));
     const key=snapshotPrimaryKey[item.tool_name];
     const view={name:snapshotView[item.tool_name],company_key:company,rows:freeze(rows),content_hash:canonicalRequestHash(rows)};
     if(environment==='PRODUCTION')Object.assign(view,{row_count:rows.length,first_primary_key:rows.length?rows[0][key]:null,last_primary_key:rows.length?rows.at(-1)[key]:null});
