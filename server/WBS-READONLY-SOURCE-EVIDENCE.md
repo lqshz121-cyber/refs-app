@@ -67,6 +67,32 @@ These negative findings are material: the REFS adapter must reject any future
 provider mapping that silently derives a PB key from `pd_batchguid`,
 `MB_BatchGuId`, `pd_pvguid`, a memo, a reference number, or a display sequence.
 
+## Observed accounting, report, and state evidence
+
+| Source | Verified schema facts | REFS role and boundary |
+| --- | --- | --- |
+| `accounting.accounting_info` | `id` is the primary key; `cb_id`, company, account, source, set date and journal number are indexed. It contains DR/CR, amount, posting/clear/check dates, `come_from`, `bill_no`, `journal_no`, review/approval/closed fields, project/cost/unit dimensions, and attachment relation references. | Journal/ledger trace evidence only. Its own primary key and state fields do not prove a posted REFS journal, immutable REFS ledger line, or authority to transition a REFS AutoRec case. |
+| `accounting.accounting_log` | `id` is the primary key; company, `cb_id`, system/source, bill, operation type, user, time, and relation-content fields exist. | External audit/relation trace only. Append-only and row-to-journal cardinality are UNKNOWN. |
+| `accounting.accounting_monthly_relation` + `accounting_monthly_setting` | Relation has company, bank transaction (`cb_id`), month and setting ID. Setting has company, project, debit/credit account/journal fields, start/end date and reverse flag. An aggregate-only check found a partial setting-ID match; not every relation joined. | Potential monthly control/mapping evidence only. It is not an approved REFS mapping and cannot produce a Draft/post request. |
+| `accounting.accounting_balance_cell` + `accounting_income_cell` | Both expose company, account/subaccount, fiscal period, balance/net/debit/credit and review flag. The observed balance review-flag domain is `N`, `R`, `C`; amount-type codes are documented as balance/debit/credit/net/opening. | Financial-statement control evidence, not a Cost GL producer or AutoRec source. Cost GL's required fourteen metrics still need a signed, scoped provider definition. |
+| `accounting.fastautopaymentbank1` | It has the same observed PB primary/company/control field family as `wbsdata.autopaymentbank` (with a shorter column set). | A parallel accounting-side control projection is plausible but UNVERIFIED. Do not deduplicate, join, or substitute it for the WBS table without a signed relation contract. |
+
+### Observed state values, not a translatable state machine
+
+Aggregate-only source reads observed AutoRec Detail `pd_match_status` values
+`Match` and `NotMatch`, together with `pd_status` values including empty,
+`I`, `R`, `IR`, `RR`, `P`, `AUTOC`, and other source-specific values. AutoRec
+Bank currently has status `N` in the observed aggregate. `accounting_info`
+has observed `review` values null, `0`, and `1`; its current aggregate showed
+only `approve_status=0`. Balance cells expose review flags `N`, `R`, and `C`.
+
+These are **OBSERVED codes only**. The database comments and aggregate values
+do not establish legal transitions, actor/permission rules, cancellation
+semantics, SoD, period-close semantics, or equivalence to REFS states. The
+REFS authoritative lifecycle remains its own review/approval/posting workflow;
+WBS codes are retained only as receipt-bound display/audit evidence until an
+official state/transition contract is received.
+
 ## Required read-only field evidence before provider mapping
 
 The provider must supply a versioned metadata receipt showing the column name,

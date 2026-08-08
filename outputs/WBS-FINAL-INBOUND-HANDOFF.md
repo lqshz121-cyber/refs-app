@@ -75,7 +75,8 @@ not a production gate.
   and the names/semantics of the fourteen Cost GL metrics remain unverified.
 - Read-only metadata now proves the primary-key and field inventory for the
   WBS Payable, AutoRec Detail, AutoRec Bank, matching, bank-account and
-  payment-setting tables. Aggregate checks disprove the proposed
+  payment-setting tables, plus the WBS accounting journal/audit/monthly and
+  balance/income control tables. Aggregate checks disprove the proposed
   `pd_batchguid -> PB_GuId` and `MB_BatchGuId -> PB_GuId` joins. The register
   documents these as negative evidence; no direct table mapping is authorized
   until provider receipt/version, relationship/cardinality and semantic proof
