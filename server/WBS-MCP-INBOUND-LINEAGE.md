@@ -61,6 +61,22 @@ an independent detached-signature verifier returns true. It performs no
 AutoRec allocation, release, incur, Draft-JE creation, approval, or posting;
 the persisted result must explicitly keep all such dispatch flags false.
 
+## Retained accounting trace (not command authority)
+
+The inbound record retains provider-visible accounting context only to make a
+reviewer traceable. These values are never stable REFS keys, permissions, or
+posting instructions.
+
+| Producer | Retained external trace | Explicitly not authoritative for |
+| --- | --- | --- |
+| Payable | `ap_long_id`, type/status, posting date, journal/check/clear references, bank and cost-ledger relations, vendor/project | Draft, Post, or match-key selection |
+| Bank Transaction | transaction date, bank account, payee, memo, source/review fields, direction indicators | source key, account assignment, or release |
+| AutoRec Detail | batch/type, clear/incurred/released evidence, matching/status evidence, bank/AUTOC relations, vendor/project/cost dimensions | REFS release/incur state, payment key, or posting |
+
+`pd_pv_guid` and `cb_id` are retained relations, not a `pb_guid` substitute.
+WBS `Released` and `Incurred` values are observed control evidence. They do
+not authorize a REFS state transition, JE action, or ledger mutation.
+
 ## Accounting and AutoRec rules enforced at the boundary
 
 1. Payable, Bank Transaction, and AutoRec Detail can be transaction candidates
@@ -79,7 +95,7 @@ the persisted result must explicitly keep all such dispatch flags false.
 5. Cost GL and Property Comparison reconcile controls only. They cannot create
    source documents, AutoRec allocations, Draft JEs, or ledger postings.
 
-Cost GL requires an exact scoped, approved
+Cost GL requires exactly fourteen metrics and an exact scoped, approved
 `WBS_COST_GL_CONTROL_RECONCILIATION` mapping. Property Comparison requires an
 exact scoped, approved `WBS_PROPERTY_CONTROL_RECONCILIATION` mapping including
 company, inclusive date range, currency, and bank account. Both produce only

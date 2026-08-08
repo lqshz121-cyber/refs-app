@@ -7,8 +7,8 @@ production acceptance, a live WBS import, or authority to post a journal.
 
 - Worktree: `C:\Users\lqshz\Documents\Codex\2026-08-01\re\work\refs-wbs-final-inbound`
 - Integration base: `9c2b5a3` (`origin/main` at worktree creation)
-- Frozen code candidate HEAD: `8d934dfa628129ff8db1edd89c7a47cbc8f06069`
-  (parent `dcdb97bf10224f73b2d18a86d1b3473af7fa50a8`; clean worktree verified).
+- Frozen code candidate HEAD: `c4b6037bbc1c5ba77d218ae7ba84ad80cff7e67f`
+  (parent `78392da79a4cea611455f1d0b0436ab54dc61e0a`; clean worktree verified).
 - Candidate commits: recorded in the integration order below.
 - Live WBS signed, nonempty receipt: **UNKNOWN**.
 
@@ -17,13 +17,14 @@ production acceptance, a live WBS import, or authority to post a journal.
 | Area | Delivered behavior | Key files |
 | --- | --- | --- |
 | Formal MCP lineage | Classifies Payable, Bank Transaction, and AutoRec Detail as possible transaction input; classifies AutoRec Bank, Journal Entry, Cost GL, Property Comparison, and trace as control/trace evidence. | `server/runtime/wbs-mcp-inbound-lineage.mjs`, `server/WBS-MCP-INBOUND-LINEAGE.md` |
+| External accounting trace | Retains Payable posting/journal/check context, Bank transaction/payee/memo context, and AutoRec detail release/incur/AUTOC relations for reviewer trace only. No retained trace field is a REFS key, state transition, or posting authority. | `server/runtime/wbs-mcp-inbound-lineage.mjs`, `server/runtime/wbs-inbound-data-adapter.mjs` |
 | Snapshot safety | Requires one company, one capture timestamp, stable ascending keys, canonical hashes, and no duplicate producer views. Missing keys in a later snapshot are `ABSENT_UNCONFIRMED`, never deletions. | `server/runtime/wbs-mcp-inbound-lineage.mjs` |
 | Receipt-to-staging bridge | Converts eligible formal MCP envelopes to the existing receipt-backed WBS Raw -> Normalized -> Staging ingress shape; preserves per-envelope and per-row hash provenance. | `server/runtime/wbs-mcp-inbound-lineage.mjs`, `server/runtime/wbs-inbound-data-adapter.mjs` |
 | Inbound orchestration | Pulls only Payable, Bank Transaction, and AutoRec Detail through an injected read-only client; validates company and snapshot consistency. | `server/runtime/wbs-mcp-inbound-service.mjs` |
 | Control and trace reads | Separately pulls only AutoRec Bank, WBS Journal Entry, Cost GL total, or trace relation evidence; none may enter transaction persistence. | `server/runtime/wbs-mcp-inbound-service.mjs` |
 | Signed pipeline | Pull -> independent detached-signature verification -> admission -> existing receipt-backed persistence. Signature/admission failure occurs before persistence. | `server/runtime/wbs-mcp-inbound-pipeline.mjs` |
 | AutoRec proposal | Produces read-only, review-required match proposals and totals; does not reserve, allocate, release, incur, create Draft JEs, or post. | `server/runtime/wbs-inbound-data-adapter.mjs` |
-| Report controls | Cost GL and Property Comparison reconcile only with immutable receipts and exact approved mappings. They cannot become source documents or journals. | `server/runtime/wbs-control-reconciliation.mjs` |
+| Report controls | Cost GL requires exactly 14 immutable receipt-backed metrics and an exact approved mapping; Property Comparison uses an exact approved scoped mapping. They cannot become source documents or journals. | `server/runtime/wbs-control-reconciliation.mjs` |
 | Golden coverage | Provides 12 sanitized/local matching scenarios and control/trace assertions. | `server/tests/wbs-autorec-golden-scenarios.test.mjs` |
 
 ## Verified test evidence
@@ -36,9 +37,10 @@ npm.cmd test
 git -C .. diff --check
 ```
 
-At frozen code candidate `8d934df`, `npm.cmd test` exited `0`: `235/235` passing,
-`0` skipped. Earlier focused evidence is retained in commit history; rerun the
-focused command above after integration. `git diff --check` must exit `0` on
+At frozen code candidate `c4b6037`, the focused lineage/adapter command exited
+`0`: `19/19` passing; `npm.cmd test` exited `0`: `236/236` passing, `0`
+skipped. `git diff --check` exited `0`. Rerun all commands above after
+integration. `git diff --check` must exit `0` on
 the target branch. These are local tests with injected provider/kernel seams,
 not a production gate.
 
@@ -67,7 +69,7 @@ not a production gate.
   replay rules has not been verified.
 - Provider meaning for lender/debtor and deposit/payment directions, revision/
   CDC/tombstone behavior, the AutoRec `pd_guid` to payment/bank relationship,
-  and exact Cost GL/Property metric definitions remain unverified.
+  and the names/semantics of the fourteen Cost GL metrics remain unverified.
 - Therefore no live WBS response may enter persistence, AutoRec, or a journal
   workflow until the signature verifier and receipt store are configured and
   independently tested with the provider material.
@@ -109,6 +111,16 @@ Apply or cherry-pick onto the target integration branch in this order:
 
 17. `8d934dfa628129ff8db1edd89c7a47cbc8f06069` -- receipt-to-control binding
     now rejects cross-tenant and cross-entity source/version collisions.
+18. `533f05cc9eddd4920239f2dbca36a24886214df1` -- twelve explicit accounting
+    boundary golden scenarios, including report-as-source and WBS-state blocks.
+19. `6c4da2bd397ae6e1c57e234258dd4845482f0c7d` -- Cost GL accepts exactly
+    fourteen metrics, never a partial metric set.
+20. `7d874414c033e7f072f7bed3f1a44987d5f28e21` -- Payable external accounting
+    trace retained with explicit no-key/no-posting authority flags.
+21. `78392da79a4cea611455f1d0b0436ab54dc61e0a` -- Bank Transaction external
+    trace retained with explicit no-key/no-release authority flags.
+22. `c4b6037bbc1c5ba77d218ae7ba84ad80cff7e67f` -- AutoRec Detail external
+    trace retained; WBS release/incur status cannot advance REFS state.
 
 Before integration, compare each changed file against current main and rerun
 the commands above plus target-branch PG and browser gates. Do not cherry-pick
