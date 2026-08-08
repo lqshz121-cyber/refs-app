@@ -33,7 +33,7 @@
 // instance, which has no read replica. Deliberately no bulk mode here.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { basename, dirname, extname, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   WBS_MCP_PILOT_LIMIT,
@@ -89,12 +89,16 @@ export function resolvePilotEvidencePath(requestedName, outputDirectory = PILOT_
     throw new Error('--json requires a simple evidence file name such as pilot.json');
   }
   const name = requestedName.trim();
-  if (basename(name) !== name || name === '.' || name === '..' || extname(name) !== '.json') {
+  // Reject both separator spellings before resolving. A WBS pilot artifact is
+  // a file name, never a path; accepting Windows backslashes on POSIX would
+  // make the policy depend on the runner OS.
+  if (/[\\/]/.test(name) || basename(name) !== name || name === '.' || name === '..' || extname(name) !== '.json') {
     throw new Error('--json accepts only a simple .json file name; evidence is confined to server/outputs/wbs-pilot');
   }
   const root = resolve(outputDirectory);
   const target = resolve(root, name);
-  if (!target.startsWith(`${root}\\`) && target !== root) {
+  const child = relative(root, target);
+  if (!child || child === '..' || child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(child)) {
     throw new Error('evidence path escapes the controlled pilot-output directory');
   }
   return target;
