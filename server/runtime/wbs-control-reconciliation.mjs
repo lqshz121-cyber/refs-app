@@ -4,7 +4,9 @@
 const text=value=>value==null?'':String(value).trim();
 const decimal=value=>Number.isFinite(Number(value))?Number(Number(value).toFixed(4)):null;
 const freeze=value=>Object.freeze(value);
-const validDate=value=>/^\d{4}-\d{2}-\d{2}$/.test(text(value))&&new Date(`${value}T00:00:00.000Z`).toISOString().slice(0,10)===value;
+const validDate=value=>{const normalized=text(value);return /^\d{4}-\d{2}-\d{2}$/.test(normalized)&&new Date(`${normalized}T00:00:00.000Z`).toISOString().slice(0,10)===normalized;};
+const validPeriod=value=>/^\d{4}-(0[1-9]|1[0-2])$/.test(text(value));
+const validCurrency=value=>/^[A-Z]{3}$/.test(text(value));
 
 export class WbsControlReconciliationError extends Error {
   constructor(code,message){super(message);this.name='WbsControlReconciliationError';this.code=code;}
@@ -14,9 +16,11 @@ const exactScope=(left,right,keys)=>keys.every(key=>text(left?.[key])===text(rig
 const sourceFor=type=>type==='COST_GENERAL_LEDGER'?'WBS_COST_GL_CONTROL_RECONCILIATION':'WBS_PROPERTY_CONTROL_RECONCILIATION';
 const COST_GENERAL_LEDGER_METRIC_COUNT=14;
 
-function validateReceipt(receipt,label){
+function validateReceipt(receipt,label,scope,scopeKeys){
   if(!receipt||typeof receipt!=='object'||!/^sha256:[0-9a-f]{64}$/.test(text(receipt.hash))||!text(receipt.ref)||!text(receipt.version))fail('WBS_CONTROL_RECEIPT_REQUIRED',`${label} requires immutable receipt hash, reference, and version.`);
-  return freeze({hash:text(receipt.hash),ref:text(receipt.ref),version:text(receipt.version)});
+  if(!receipt.scope||typeof receipt.scope!=='object'||!scopeKeys.every(key=>text(receipt.scope[key])))fail('WBS_CONTROL_RECEIPT_SCOPE_REQUIRED',`${label} receipt requires the complete reconciliation scope.`);
+  if(!exactScope(receipt.scope,scope,scopeKeys))fail('WBS_CONTROL_RECEIPT_SCOPE_MISMATCH',`${label} receipt scope must exactly match the reconciliation scope.`);
+  return freeze({hash:text(receipt.hash),ref:text(receipt.ref),version:text(receipt.version),scope:freeze(Object.fromEntries(scopeKeys.map(key=>[key,text(receipt.scope[key])])))});
 }
 function metricMap(rows,label){
   if(!Array.isArray(rows)||rows.length===0)fail('WBS_CONTROL_METRICS_REQUIRED',`${label} control metrics are required.`);
@@ -29,9 +33,12 @@ export function reconcileWbsControlEvidence({sourceType,scope,sourceReceipt,targ
   if(!['COST_GENERAL_LEDGER','PROPERTY_COMPARISON'].includes(sourceType))fail('WBS_CONTROL_SOURCE_TYPE_INVALID','Only Cost General Ledger and Property Comparison control sources are supported.');
   const scopeKeys=sourceType==='COST_GENERAL_LEDGER'?['tenant_id','entity_id','company_key','period','currency']:['tenant_id','entity_id','company_key','property_ref','period_start','period_end','currency','bank_account_ref'];
   if(!scope||!scopeKeys.every(key=>text(scope[key])))fail('WBS_CONTROL_SCOPE_REQUIRED','Control reconciliation requires the complete source scope.');
-  if(sourceType==='PROPERTY_COMPARISON'&&(!validDate(scope.period_start)||!validDate(scope.period_end)||scope.period_start>scope.period_end))fail('WBS_PROPERTY_PERIOD_INVALID','Property Comparison requires a valid inclusive date range.');
-  const source=validateReceipt(sourceReceipt,'WBS source'),target=validateReceipt(targetReceipt,'REFS target');
-  if(!approvedMapping||text(approvedMapping.status)!=='APPROVED'||text(approvedMapping.mapping_type)!==sourceFor(sourceType)||!text(approvedMapping.mapping_id)||!text(approvedMapping.version)||!exactScope(approvedMapping.scope,scope,scopeKeys))fail('WBS_CONTROL_MAPPING_REQUIRED','A single approved control-reconciliation mapping with exact scope is required.');
+  const canonicalScope=freeze(Object.fromEntries(scopeKeys.map(key=>[key,text(scope[key])])));
+  if(!validCurrency(canonicalScope.currency))fail('WBS_CONTROL_CURRENCY_INVALID','Control reconciliation requires an ISO uppercase currency code.');
+  if(sourceType==='COST_GENERAL_LEDGER'&&!validPeriod(canonicalScope.period))fail('WBS_COST_GL_PERIOD_INVALID','Cost General Ledger requires an accounting period in YYYY-MM format.');
+  if(sourceType==='PROPERTY_COMPARISON'&&(!validDate(canonicalScope.period_start)||!validDate(canonicalScope.period_end)||canonicalScope.period_start>canonicalScope.period_end))fail('WBS_PROPERTY_PERIOD_INVALID','Property Comparison requires a valid inclusive date range.');
+  const source=validateReceipt(sourceReceipt,'WBS source',canonicalScope,scopeKeys),target=validateReceipt(targetReceipt,'REFS target',canonicalScope,scopeKeys);
+  if(!approvedMapping||text(approvedMapping.status)!=='APPROVED'||text(approvedMapping.mapping_type)!==sourceFor(sourceType)||!text(approvedMapping.mapping_id)||!text(approvedMapping.version)||!exactScope(approvedMapping.scope,canonicalScope,scopeKeys))fail('WBS_CONTROL_MAPPING_REQUIRED','A single approved control-reconciliation mapping with exact scope is required.');
   const sourceByKey=metricMap(sourceMetrics,'WBS source'),targetByKey=metricMap(targetMetrics,'REFS target');
   const expected=Array.isArray(approvedMapping.metric_keys)?approvedMapping.metric_keys.map(text):[];
   if((sourceType==='COST_GENERAL_LEDGER'&&expected.length!==COST_GENERAL_LEDGER_METRIC_COUNT)||!expected.length||new Set(expected).size!==expected.length||expected.some(key=>!sourceByKey.has(key)||!targetByKey.has(key))||sourceByKey.size!==expected.length||targetByKey.size!==expected.length)fail('WBS_CONTROL_MAPPING_INCOMPLETE','Approved mapping must name every and only source and target control metric. Cost General Ledger requires exactly fourteen approved metrics.');
@@ -40,5 +47,5 @@ export function reconcileWbsControlEvidence({sourceType,scope,sourceReceipt,targ
     return freeze({metric_key:metricKey,source_amount:sourceAmount,target_amount:targetAmount,difference,matched:difference===0,forward_trace:freeze({source_receipt_hash:source.hash,source_receipt_version:source.version,mapping_id:text(approvedMapping.mapping_id),mapping_version:text(approvedMapping.version)}),reverse_trace:freeze({target_receipt_hash:target.hash,target_receipt_version:target.version,mapping_id:text(approvedMapping.mapping_id),mapping_version:text(approvedMapping.version)})});
   });
   const differenceCount=comparisons.filter(row=>!row.matched).length;
-  return freeze({source_type:sourceType,status:differenceCount===0?'RECONCILED':'DIFFERENCE',scope:freeze(Object.fromEntries(scopeKeys.map(key=>[key,text(scope[key])]))),comparisons:freeze(comparisons),control_totals:freeze({metric_count:comparisons.length,difference_count:differenceCount,source_total:Number(comparisons.reduce((sum,row)=>sum+row.source_amount,0).toFixed(4)),target_total:Number(comparisons.reduce((sum,row)=>sum+row.target_amount,0).toFixed(4)),difference_total:Number(comparisons.reduce((sum,row)=>sum+row.difference,0).toFixed(4))}),receipt_trace:freeze({source,target}),mapping_trace:freeze({mapping_id:text(approvedMapping.mapping_id),version:text(approvedMapping.version),mapping_type:text(approvedMapping.mapping_type)}),can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
+  return freeze({source_type:sourceType,status:differenceCount===0?'RECONCILED':'DIFFERENCE',scope:canonicalScope,comparisons:freeze(comparisons),control_totals:freeze({metric_count:comparisons.length,difference_count:differenceCount,source_total:Number(comparisons.reduce((sum,row)=>sum+row.source_amount,0).toFixed(4)),target_total:Number(comparisons.reduce((sum,row)=>sum+row.target_amount,0).toFixed(4)),difference_total:Number(comparisons.reduce((sum,row)=>sum+row.difference,0).toFixed(4))}),receipt_trace:freeze({source,target}),mapping_trace:freeze({mapping_id:text(approvedMapping.mapping_id),version:text(approvedMapping.version),mapping_type:text(approvedMapping.mapping_type)}),can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
 }
