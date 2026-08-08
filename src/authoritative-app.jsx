@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { accountingApiConfig, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, transitionAuthoritativeJournal } from './accounting-api.js';
-import { BrowserOidcClient, oidcRuntimeConfig } from './oidc-client.js';
+import { BrowserOidcClient, RENEWAL_MIN_INTERVAL_MS, oidcRuntimeConfig, silentRenewalSchedule } from './oidc-client.js';
 import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
 import { StateBlock } from './ui.jsx';
@@ -66,6 +66,9 @@ const phaseForFailure = failure =>
     : failure?.code === 'AUTHORIZATION_DENIED' ? 'ACCESS_DENIED'
       : 'LOAD_FAILED';
 
+const RENEWAL_WATCH_PHASES = new Set(['AUTHENTICATED', 'LOADING_ACCOUNTING', 'READY', 'LOAD_FAILED']);
+const RENEWAL_MAX_SLEEP_MS = 300000;
+
 const JournalTable = ({ journals, workingJournalIds, onWorkflow }) => <section aria-label="Authoritative journal entries">
   <h2>Journal entries</h2>
   <table className="tbl">
@@ -89,6 +92,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [data, setData] = useState({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] });
   const [error, setError] = useState(null);
   const [workingJournalIds, setWorkingJournalIds] = useState(new Set());
+  const [renewalFailure, setRenewalFailure] = useState(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   // Same off-canvas drawer contract as the demonstration shell: below 1024px the
   // sidebar is pushed out of the viewport by transform alone, so without `inert`
   // its eight route buttons stay in the tab order while invisible. This surface
@@ -149,12 +154,41 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
 
   useEffect(() => { if (phase === 'AUTHENTICATED') refresh(); }, [phase, refresh]);
 
+  useEffect(() => {
+    if (!oidcClient || typeof environment?.document === 'undefined' || typeof environment?.setTimeout !== 'function') return;
+    if (!RENEWAL_WATCH_PHASES.has(phase)) return;
+    let active = true;
+    let timer = null;
+    const sleep = (ms, next) => { timer = environment.setTimeout(() => { if (active) next(); }, Math.max(0, ms)); };
+    const tick = async () => {
+      if (!active) return;
+      const expiresAt = oidcClient.sessionExpiresAt();
+      if (expiresAt === null) return;
+      const schedule = silentRenewalSchedule(expiresAt, Date.now());
+      if (!schedule) return;
+      if (schedule.expired) { setSessionExpired(true); return; }
+      if (!schedule.due) { sleep(Math.min(schedule.delay, RENEWAL_MAX_SLEEP_MS), tick); return; }
+      const result = await oidcClient.renewSilently();
+      if (!active) return;
+      if (result.ok) {
+        setRenewalFailure(null); setSessionExpired(false);
+        const next = silentRenewalSchedule(result.expiresAt, Date.now());
+        sleep(Math.max(next ? Math.min(next.delay, RENEWAL_MAX_SLEEP_MS) : RENEWAL_MIN_INTERVAL_MS, RENEWAL_MIN_INTERVAL_MS), tick);
+        return;
+      }
+      setRenewalFailure({ code: result.code, message: result.message });
+      sleep(expiresAt - Date.now(), () => setSessionExpired(true));
+    };
+    tick();
+    return () => { active = false; if (timer !== null) { try { environment.clearTimeout(timer); } catch { /* non-fatal */ } } };
+  }, [oidcClient, phase, environment]);
+
   const startLogin = async () => {
     setError(null);
     try { await oidcClient.startLogin(); }
     catch { setError({ code:'OIDC_CONFIGURATION_REQUIRED', message:'The configured OIDC provider could not start a secure PKCE login.' }); setPhase('IDENTITY_FAILED'); }
   };
-  const logout = () => { oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setError(null); setPhase('LOGIN_REQUIRED'); };
+  const logout = () => { oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED'); };
   const workflow = async (row, action) => {
     const journalEntryId = row.journal_entry_id;
     if (!journalEntryId || workingJournalIds.has(journalEntryId)) return;
@@ -198,6 +232,10 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     <div className="main">
       <header className="topbar"><button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>☰</button><div><b>Authoritative accounting</b><span className="muted sm"> · API and OIDC secured</span></div><div className="row-acts"><button type="button" className="btn btn-sm" onClick={refresh}>Refresh</button><button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button></div></header>
       <main className="content">
+        {(sessionExpired || renewalFailure) && <RuntimeErrorPanel
+          code={sessionExpired ? 'OIDC_SESSION_EXPIRED' : 'OIDC_SESSION_EXPIRING'}
+          detail={renewalFailure ? `${renewalFailure.code}: ${renewalFailure.message}` : undefined}
+          onSignIn={startLogin}/>}
         {error && <RuntimeErrorPanel code={error.code} detail={error.message} onRetry={refresh} onSignIn={startLogin}/>}
         {phase === 'LOADING_ACCOUNTING' && <StateBlock tone="loading">Loading authoritative accounting records…</StateBlock>}
         {phase === 'READY' && route === 'overview' && <><h1>Accounting control overview</h1><p className="page-subtitle">Live records are loaded from the configured accounting API. Browser seeds and localStorage are not accounting authority.</p><div className="qbo-toolgrid"><span><i>AP bills</i><b>{counts.bills}</b></span><span><i>AR invoices</i><b>{counts.invoices}</b></span><span><i>Adjustments</i><b>{counts.adjustments}</b></span><span><i>Journal entries</i><b>{counts.journals}</b></span></div></>}

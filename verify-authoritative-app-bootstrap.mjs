@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const app = readFileSync(new URL('./src/app.jsx', import.meta.url), 'utf8');
 const authoritative = readFileSync(new URL('./src/authoritative-app.jsx', import.meta.url), 'utf8');
+const oidc = readFileSync(new URL('./src/oidc-client.js', import.meta.url), 'utf8');
 
 assert.match(app, /<AuthoritativeApp environment=\{globalThis\}\s*\/>/, 'production runtime must enter AuthoritativeApp');
 assert.doesNotMatch(app, /__REFS_RUNTIME_MODE__==='REQUIRES_AUTHORITATIVE_API'\) return <AuthoritativeRuntimeLock/, 'configured production must not unconditionally lock');
@@ -15,5 +16,17 @@ assert.match(authoritative, /No demo identity or browser accounting state is ava
 assert.doesNotMatch(authoritative, /localStorage\s*[.(]|JOURNAL_ENTRIES|SEED_BILLS|SEED_BANK|FY2026/, 'authoritative runtime must not use browser seed accounting state');
 assert.match(authoritative, /SUBMIT|nextAuthoritativeWorkflowAction/, 'workflow must begin with the server-derived next action');
 assert.match(authoritative, /revision:Number\(row\.journal_revision \?\? row\.revision\)/, 'workflow must send the authoritative revision for If-Match');
+assert.doesNotMatch(oidc, /refresh_token|refreshToken|offline_access/, 'public browser OIDC must not persist a long-lived refresh credential');
+assert.doesNotMatch(oidc, /localStorage/, 'OIDC identity state must remain tab-scoped');
+assert.match(oidc, /prompt:'none'/, 'silent renewal must use prompt=none');
+assert.match(oidc, /code_challenge_method:'S256',prompt:'none'/, 'silent renewal must use a fresh PKCE exchange');
+assert.match(authoritative, /renewSilently/, 'authoritative runtime must attempt token renewal before expiry');
+assert.match(authoritative, /silentRenewalSchedule/, 'authoritative runtime must schedule renewal from the verified expiry');
+const watchStart = authoritative.indexOf('RENEWAL_WATCH_PHASES.has(phase)');
+const watchEnd = authoritative.indexOf('}, [oidcClient, phase, environment]);');
+assert.ok(watchStart > 0 && watchEnd > watchStart, 'the renewal watch must remain auditable');
+const watch = authoritative.slice(watchStart, watchEnd);
+assert.doesNotMatch(watch, /AUTHORIZATION_DENIED|ACCESS_DENIED|setPhase/, 'renewal failure must not become an authorization decision');
 
 console.log('PASS authoritative runtime: configured API and OIDC reach server-backed AP/AR/JE without demo state');
+console.log('PASS authoritative identity: prompt=none PKCE renewal is subject-bound, fail-closed and stores no refresh token');
