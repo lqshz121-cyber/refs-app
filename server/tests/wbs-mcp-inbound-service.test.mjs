@@ -27,6 +27,7 @@ test('scope mismatch, malformed selections, failed reads, or unequal capture tim
   await assert.rejects(()=>service.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:{list_payables:{}},snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_SELECTION_REQUIRED');
   const failing=createWbsMcpInboundService({client:{readView:async()=>{throw new Error('network');}}});await assert.rejects(()=>failing.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_READ_FAILED');
   const unequal=createWbsMcpInboundService({client:{readView:async({toolName})=>toolName==='list_autorec_details'?raw(toolName,values[toolName].rows,'2026-08-09T12:01:00.000Z'):structuredClone(values[toolName])}});await assert.rejects(()=>unequal.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_SNAPSHOT_SCOPE_INVALID');
+  const paged=createWbsMcpInboundService({client:{readView:async({toolName})=>toolName==='list_payables'?{...values[toolName],cursor_next:'opaque-next-page'}:structuredClone(values[toolName])}});await assert.rejects(()=>paged.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-433333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_PAGINATION_INCOMPLETE');
 });
 
 test('control and trace views are read separately and cannot enter a transaction path',async()=>{
@@ -36,6 +37,8 @@ test('control and trace views are read separately and cannot enter a transaction
   assert.deepEqual(calls.map(call=>call.toolName),['list_autorec_banks']);
   assert.deepEqual({status:result.status,admission:result.evidence.rows[0].admission,transaction:result.can_create_transaction,draft:result.can_create_draft,post:result.can_post},{status:'WBS_MCP_CONTROL_EVIDENCE_READY',admission:'CONTROL_EVIDENCE_ONLY',transaction:false,draft:false,post:false});
   await assert.rejects(()=>service.pullControlOrTraceEvidence({companyKey:'COMPANY-A',toolName:'list_payables',args:{company:'COMPANY-A'}}),error=>error.code==='WBS_MCP_CONTROL_SELECTION_REQUIRED');
+  const paged=createWbsMcpInboundService({client:{readView:async()=>({...control,cursor_next:'opaque-next-page'})}});
+  await assert.rejects(()=>paged.pullControlOrTraceEvidence({companyKey:'COMPANY-A',toolName:'list_autorec_banks',args:{company:'COMPANY-A'}}),error=>error.code==='WBS_MCP_PAGINATION_INCOMPLETE');
 });
 
 test('AutoRec Bank control pull requires an exact provider formula and stays evidence-only',async()=>{
@@ -45,6 +48,8 @@ test('AutoRec Bank control pull requires an exact provider formula and stays evi
   const result=await service.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:attestation});
   assert.deepEqual({status:result.status,amount:result.evidence.control_totals.pay_amount,release:result.can_release,post:result.can_post},{status:'WBS_MCP_AUTOREC_BANK_CONTROL_READY',amount:100,release:false,post:false});
   await assert.rejects(()=>service.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:{...attestation,scope:{...attestation.scope,period:'2026-13'}}}),error=>error.code==='WBS_MCP_CONTROL_SCOPE_INVALID');
+  const paged=createWbsMcpInboundService({client:{readView:async()=>({...control,cursor_next:'opaque-next-page'})}});
+  await assert.rejects(()=>paged.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:attestation}),error=>error.code==='WBS_MCP_PAGINATION_INCOMPLETE');
 });
 
 test('reverse trace lookup permits only a persisted immutable producer key and stays relation evidence',async()=>{
@@ -59,6 +64,8 @@ test('reverse trace lookup permits only a persisted immutable producer key and s
   assert.deepEqual({status:result.status,tenant:result.lookup.tenant_id,source:result.lookup.source_record_id,key:result.lookup.wbs_key_type,relationKey:result.lookup.can_use_relation_as_key,post:result.can_post},{status:'WBS_MCP_REVERSE_TRACE_EVIDENCE_READY',tenant:'tenant-1',source:'11111111-1111-4111-8111-111111111111',key:'ap_guid',relationKey:false,post:false});
   assert.deepEqual({status:result.evidence.status,related:result.evidence.relations[0].related.key_value,match:result.evidence.relations[0].can_match,post:result.evidence.can_post},{status:'RELATION_EVIDENCE_READY',related:'BANK-1',match:false,post:false});
   assert.deepEqual(verified,[{manifest_hash:traceReceipt.manifest_hash,detached_signature:traceReceipt.detached_signature}]);assert.equal(result.trace_receipt.manifest_hash,traceReceipt.manifest_hash);
+  const paged=createWbsMcpInboundService({client:{readView:async()=>({...trace,cursor_next:'opaque-next-page'})},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})},traceReceiptVerifier:verifier});
+  await assert.rejects(()=>paged.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt}),error=>error.code==='WBS_MCP_PAGINATION_INCOMPLETE');
   await assert.rejects(()=>service.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:'REF-NO-ONLY',sourceVersion:'',receiptHash:'sha256:'+'b'.repeat(64),traceReceipt}),error=>error.code==='WBS_MCP_TRACE_SELECTION_REQUIRED');
   const missingReader=createWbsMcpInboundService({client:{readView:async()=>structuredClone(trace)}});
   await assert.rejects(()=>missingReader.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:'A-1',sourceVersion:'v1',receiptHash:'sha256:'+'b'.repeat(64)}),error=>error.code==='WBS_MCP_PERSISTED_SOURCE_READER_REQUIRED');

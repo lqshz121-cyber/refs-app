@@ -9,6 +9,9 @@ const text=value=>value==null?'':String(value).trim();
 const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const immutableReceiptHash=value=>/^sha256:[0-9a-f]{64}$/.test(text(value));
 const isoInstant=value=>/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(text(value))&&!Number.isNaN(Date.parse(text(value)));
+const completeEnvelope=(envelope,toolName)=>{
+  if(envelope?.cursor_next!==null)fail('WBS_MCP_PAGINATION_INCOMPLETE',`WBS ${toolName} has another cursor page; an incomplete page cannot become a snapshot, control total, or trace receipt.`);
+};
 
 export class WbsMcpInboundServiceError extends Error {
   constructor(code,message){super(message);this.name='WbsMcpInboundServiceError';this.code=code;}
@@ -42,6 +45,7 @@ export function createWbsMcpInboundService({client,persistedSourceReader=null,tr
           throw new WbsMcpInboundServiceError('WBS_MCP_READ_FAILED',`WBS ${toolName} read failed before any REFS persistence.`);
         }
         if(!envelope||envelope.tool_name!==toolName||text(envelope.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS MCP response is outside the selected company scope.');
+        completeEnvelope(envelope,toolName);
         // Reconstruct the validated provider envelope without adding caller
         // controlled values; the snapshot builder validates it again.
         envelopes.push(providerEnvelope(envelope));
@@ -58,6 +62,7 @@ export function createWbsMcpInboundService({client,persistedSourceReader=null,tr
       if(!text(companyKey)||!controlTraceTools.includes(toolName)||!plain(args))fail('WBS_MCP_CONTROL_SELECTION_REQUIRED','Company scope, one allowed control/trace tool, and structured arguments are required.');
       let envelope;try{envelope=await client.readView({toolName,args:structuredClone(args)});}catch(cause){throw new WbsMcpInboundServiceError('WBS_MCP_CONTROL_READ_FAILED',`WBS ${toolName} control/trace read failed before any REFS persistence.`);}
       if(!envelope||envelope.tool_name!==toolName||text(envelope.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS control/trace response is outside the selected company scope.');
+      completeEnvelope(envelope,toolName);
       let evidence;try{evidence=mapWbsMcpEnvelopeToInbound({envelope:providerEnvelope(envelope)});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_CONTROL_MAPPING_FAILED','WBS control/trace response could not be mapped as read-only evidence.');}
       return Object.freeze({status:'WBS_MCP_CONTROL_EVIDENCE_READY',tool_name:toolName,evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['persist immutable receipt-backed control evidence','approved scoped control mapping where reconciliation is required','authoritative REFS trace read'])});
     },
@@ -65,6 +70,7 @@ export function createWbsMcpInboundService({client,persistedSourceReader=null,tr
       if(!text(companyKey)||!plain(args)||!plain(control))fail('WBS_MCP_CONTROL_SELECTION_REQUIRED','AutoRec Bank controls require company scope, structured read arguments, and provider control attestation.');
       let envelope;try{envelope=await client.readView({toolName:'list_autorec_banks',args:structuredClone(args)});}catch{throw new WbsMcpInboundServiceError('WBS_MCP_CONTROL_READ_FAILED','WBS AutoRec Bank control read failed before any REFS persistence.');}
       if(!envelope||envelope.tool_name!=='list_autorec_banks'||text(envelope.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS AutoRec Bank response is outside the selected company scope.');
+      completeEnvelope(envelope,'list_autorec_banks');
       let evidence;try{evidence=buildWbsAutoRecBankControlEvidence({envelope:providerEnvelope(envelope),control:structuredClone(control)});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_CONTROL_MAPPING_FAILED','WBS AutoRec Bank response could not form receipt-bound control evidence.');}
       return Object.freeze({status:'WBS_MCP_AUTOREC_BANK_CONTROL_READY',tool_name:'list_autorec_banks',evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_release:false,can_incur:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['persist immutable receipt-backed control evidence','approved scoped control mapping where reconciliation is required','authoritative REFS trace read'])});
     },
@@ -80,6 +86,7 @@ export function createWbsMcpInboundService({client,persistedSourceReader=null,tr
       if(!exact)fail('WBS_MCP_PERSISTED_SOURCE_MISMATCH','Reverse trace source identity must exactly match a persisted REFS receipt-backed source.');
       let envelope;try{envelope=await client.readView({toolName:'trace_by_key',args:{key_type:keyType,key_value:text(sourceRecordId)}});}catch(cause){throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_READ_FAILED','WBS reverse trace read failed before any REFS persistence.');}
       if(!envelope||envelope.tool_name!=='trace_by_key'||text(envelope.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS trace response is outside the persisted source company scope.');
+      completeEnvelope(envelope,'trace_by_key');
       // A company-scoped trace page alone is not proof that its relations
       // belong to this exact persisted source.  The provider must echo the
       // immutable lookup pair in its signed/read-only envelope scope.
