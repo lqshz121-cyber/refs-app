@@ -29,7 +29,7 @@ import { SourceDocs } from './module-sourcedocs.jsx';
 import { repo } from './repo.js';
 import { AuthoritativeAdjustmentSummary, AuthoritativeCreditApplicationForm, AuthoritativeDocumentTable, AuthoritativeDraftForm, AuthoritativeRefundForm, AuthoritativeRuntimeLock, AuthoritativeWorkflowAdjustmentTable, AuthoritativeWorkflowTable, validateAuthoritativeDocumentDraft } from './authoritative-workspace.jsx';
 import { AuthoritativeApp, authoritativeRuntimeConfigured } from './authoritative-app.jsx';
-import { retainActiveNavigationGroup, toggleNavigationGroup } from './navigation-open-state.js';
+import { firstNavigationRoute, isDirectNavigationGroup, railNavigationContext, retainActiveNavigationGroup } from './navigation-open-state.js';
 import { focusFirstControl, navDrawerAttributes, readOffCanvas, restoreFocus, watchOffCanvas } from './nav-drawer.js';
 import { resolveInitialTheme, watchOsTheme, writeStoredTheme } from './theme-preference.js';
 import { RuntimeErrorPage } from './runtime-error-page.jsx';
@@ -108,7 +108,9 @@ COMP.accruals = AccrualCenter;
 // every role that can reach the ledger, including AUDITOR and READ_ONLY, whose
 // permission lists are empty and who need consolidated statements most.
 COMP.consolidation = Consolidation;
-const IA_HIDDEN_ROUTES = new Set(['cost','unitcost','unittransfer','loan','loanreg','pmpickup']);
+// Project Cost, property operations, loan, amortization and accrual routes are
+// upstream/WBS workflows, not native REFS accounting-shell destinations.
+const IA_HIDDEN_ROUTES = new Set(['cost','unitcost','unittransfer','loan','loanreg','pmpickup','amortization','accruals']);
 const ADMIN_ROLES = ['CONTROLLER','SYS_ADMIN','AUDITOR'];
 
 // ---- seed AP bills & bank rec model ----
@@ -185,6 +187,7 @@ function App() {
   const navDrawerRef = useRef(null);
   const navOpenerRef = useRef(null);
   const navWasOpen = useRef(false);
+  const railEntryRevision = useRef(0);
   const [navContext, setNavContext] = useState(null);
   // The period master is state, not a constant, because the product can now
   // open, close and reopen periods. It is SEEDED from src/data.js and it is
@@ -408,16 +411,14 @@ function App() {
         desktop widths, where the drawer is permanently visible. */}
     <aside id="primary-navigation" ref={navDrawerRef} className={`sidebar ${mobileNav?'mobile-open':''}`}
       {...navDrawerAttributes(navOffCanvas, mobileNav)}>
-      {/* Two-part navigation: a 74px icon rail carrying the groups, and a white
-          second-level panel listing the pages of every group that is open. A
-          group opens and closes only from its own rail item, so several groups
-          stay open at once and selecting a page never collapses another. */}
+      {/* A rail selection is a fresh workspace entry. The panel shows that
+          group only and the first visible child replaces any old subpage. */}
       <div className="nav-rail">
         <span className="rail-logo" aria-hidden="true">◈</span>
-        {nav.map(g=>{ const isSingleton = g.items.length === 1; const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k)); const groupPanelId=`nav-group-${g.group.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`; const inGroup = g.items.some(([k])=>route===k);
+        {nav.map(g=>{ const isSingleton = isDirectNavigationGroup(g); const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k)); const groupPanelId=`nav-group-${g.group.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`; const inGroup = g.items.some(([k])=>route===k);
           return <div key={g.group} className="nav-group">
             {g.railBreak && <span className="rail-sep" aria-hidden="true"/>}
-            <button className={`nav-group-h ${inGroup?'rail-on':''}`} title={g.group} aria-expanded={isSingleton?undefined:opened} aria-controls={isSingleton?undefined:groupPanelId} aria-current={isSingleton&&route===g.items[0][0]?'page':undefined} onClick={()=>isSingleton ? goto(g.items[0][0]) : setOpenGroups(o=>toggleNavigationGroup(o,g.group))}>
+            <button className={`nav-group-h ${inGroup?'rail-on':''}`} title={g.group} aria-expanded={isSingleton?undefined:opened} aria-controls={isSingleton?undefined:groupPanelId} aria-current={isSingleton&&route===g.items[0][0]?'page':undefined} onClick={()=>{ const next=firstNavigationRoute(g); if(!next) return; const entry={...railNavigationContext(g,next), railEntryRevision:++railEntryRevision.current}; setOpenGroups(isSingleton?{}:{[g.group]:true}); goto(next,entry); }}>
               <span className="rail-glyph" aria-hidden="true"><Icon name={g.glyph}/></span>
               <span className="rail-label">{g.short||g.group}</span>
               {!isSingleton && <span className="nav-caret" aria-hidden="true">{opened?'▾':'▸'}</span>}
@@ -428,7 +429,7 @@ function App() {
         <div className="brand"><span className="logo">◈</span> REFS<span className="brand-sub">WanBridge</span></div>
         {mobileNav && <button className="mobile-nav-close" aria-label="Close navigation" onClick={()=>setMobileNav(false)}>Close</button>}
         <button className="new-btn" onClick={()=>setNewMenu(true)}>＋ New</button>
-        <nav aria-label="Workspace pages">{nav.map((g,gi)=>{ const isSingleton = g.items.length === 1; const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k)); const groupPanelId=`nav-group-${g.group.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`;
+        <nav aria-label="Workspace pages">{nav.map((g,gi)=>{ const isSingleton = isDirectNavigationGroup(g); const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k)); const groupPanelId=`nav-group-${g.group.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`;
           if(isSingleton || !opened) return null;
           return <div key={g.group} className={`nav-panel-group nav-tone-${gi%6}`}>
             <div className="nav-panel-title">{g.group}</div>
@@ -466,7 +467,7 @@ function App() {
           </div>
         </div>
       </header>
-      <main className="content"><ErrorBoundary routeKey={route}><Comp ctx={ctx} /></ErrorBoundary></main>
+      <main className="content"><ErrorBoundary routeKey={`${route}:${navContext?.navigationEntry==='rail' ? navContext.railEntryRevision : ''}`}><Comp key={navContext?.navigationEntry==='rail' ? `${route}:${navContext.railEntryRevision}` : route} ctx={ctx} /></ErrorBoundary></main>
     </div>
     {newMenu && <div className="newmenu-scrim" onClick={()=>setNewMenu(false)}>
       <div className="newmenu" onClick={e=>e.stopPropagation()}>

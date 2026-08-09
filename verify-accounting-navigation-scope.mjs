@@ -7,7 +7,7 @@ const fail = message => {
   process.exit(1);
 };
 
-if (!source.includes("const IA_HIDDEN_ROUTES = new Set(['cost','unitcost','unittransfer','loan','loanreg','pmpickup'])")) {
+if (!source.includes("const IA_HIDDEN_ROUTES = new Set(['cost','unitcost','unittransfer','loan','loanreg','pmpickup','amortization','accruals'])")) {
   fail('WBS operational routes must be hidden from the REFS accounting navigation.');
 }
 if (!source.includes("group:'Payables & Receivables'")) {

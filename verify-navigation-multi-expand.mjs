@@ -14,7 +14,8 @@
 // What changed: selecting a second group now focuses it instead of stacking.
 
 import assert from 'node:assert/strict';
-import { retainActiveNavigationGroup, toggleNavigationGroup } from './src/navigation-open-state.js';
+import fs from 'node:fs';
+import { firstNavigationRoute, isDirectNavigationGroup, railNavigationContext, retainActiveNavigationGroup } from './src/navigation-open-state.js';
 
 const groups = [
   { group: 'Control Center', items: [['dashboard', 'Dashboard'], ['aiAudit', 'AI Audit Center']] },
@@ -44,40 +45,28 @@ assert.equal(unchanged, state, 'a singleton route must not alter panel state');
 const stable = retainActiveNavigationGroup(state, groups, 'settings');
 assert.equal(stable, state, 'navigating inside the focused group must not produce a new object');
 
-// An explicit header toggle on the focused group closes the panel.
-const beforeCollapse = state;
-state = toggleNavigationGroup(state, 'Accounting Settings');
-assert.deepEqual(state, {}, 're-selecting the focused group must close the panel');
+const operationsVisible = {
+  group: 'Accounting Operations',
+  items: [['closing', 'Closing Accounting'], ['intercompany', 'Intercompany'], ['assets', 'Fixed Assets']],
+};
+assert.equal(firstNavigationRoute(operationsVisible), 'closing', 'Operations starts at its first visible child.');
+assert.equal(isDirectNavigationGroup({group:'Reports',items:[['reports','Reports Center']]}), true, 'singleton items stay direct entries.');
 assert.deepEqual(
-  beforeCollapse,
-  { 'Accounting Settings': true },
-  'group state updates must be immutable',
+  railNavigationContext(operationsVisible, 'closing'),
+  {route:'closing', navigationEntry:'rail', navigationGroup:'Accounting Operations', navigationDestination:'closing'},
+  'the rail must mark a new Operations entry rather than restoring Intercompany',
 );
 
-// The same header reopens it.
-state = toggleNavigationGroup(state, 'Accounting Settings');
-assert.deepEqual(state, { 'Accounting Settings': true }, 'the same header must reopen the group');
+const operationsState = retainActiveNavigationGroup({'Auto Reconciliation':true}, [operationsVisible], 'closing');
+assert.deepEqual(operationsState, {'Accounting Operations':true}, 'Operations replaces the prior panel.');
 
-// Toggling a different header moves focus rather than adding a second list.
-state = toggleNavigationGroup(state, 'Control Center');
-assert.deepEqual(
-  state,
-  { 'Control Center': true },
-  'toggling another header must move focus, leaving exactly one group listed',
-);
-
-// A direct route into an explicitly closed panel reopens the owning group.
-state = toggleNavigationGroup(state, 'Control Center');
-assert.deepEqual(state, {});
-state = retainActiveNavigationGroup(state, groups, 'dashboard');
-assert.deepEqual(
-  state,
-  { 'Control Center': true },
-  'a direct route into a closed panel must reopen its owning group',
-);
+const app = fs.readFileSync(new URL('./src/app.jsx', import.meta.url), 'utf8');
+assert.match(app, /const next=firstNavigationRoute\(g\); if\(!next\) return;[\s\S]*?setOpenGroups\(isSingleton\?\{\}:\{\[g\.group\]:true\}\); goto\(next,entry\);/, 'rail groups must enter their first visible route and replace the open panel.');
+assert.match(app, /railEntryRevision:\+\+railEntryRevision\.current/, 'a repeated rail click must remount the workspace rather than retaining child state.');
+assert.match(app, /\['cost','unitcost','unittransfer','loan','loanreg','pmpickup','amortization','accruals'\]/, 'WBS-only Operations routes must not become the initial REFS accounting destination.');
 
 // Whatever the sequence, never more than one group is listed.
 const openCount = Object.values(state).filter(Boolean).length;
 assert.equal(openCount, 1, 'the panel must never list more than one group');
 
-console.log('navigation-panel-focus: one group listed at a time, singleton-safe, immutable, reference-stable');
+console.log('navigation-panel-focus: rail selections reset to the first visible workspace; Operations starts at Closing Accounting');
