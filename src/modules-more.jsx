@@ -14,7 +14,6 @@ import { buildCashFlowStatement, CASH_FLOW_SECTIONS } from './cash-flow-statemen
 import { loanRollForward, loanReconcilingItems } from './loan-rollforward.js';
 import { isOperatingCashAccount, localBankEvidenceForCashGroup, localCashAccountRows, localCashAccountGroup } from './cash-account-scope.js';
 import { localReportControlEvidence } from './report-control-evidence.js';
-import { createLocalReportScope, localReportScopeForEntity, normalizeLocalReportScopes, saveLocalReportScope } from './report-scope-presets.js';
 import { localAssetSubledger, localAssetSubledgerControl } from './asset-subledger-evidence.js';
 import { localDimensionScopeEvidence } from './dimension-scope-evidence.js';
 import { localApAgingEvidenceRows, localArAgingEvidenceRows, localAgingGlTbBridgeEvidence } from './aging-local-evidence.js';
@@ -33,7 +32,7 @@ import { localCashFlowRegisterTarget } from './cash-flow-register-return.js';
 import { localBankTransactionJournalReturnScopeLabel } from './bank-transaction-return.js';
 
 export function GLTrialBalance({ctx}) {
-  const {jes, entity, navContext, ap, ar, bank, toast} = ctx;
+  const {jes, entity, navContext, ap, ar, bank} = ctx;
   const preset = navContext && navContext.route === 'gl' ? navContext : {};
   const paymentReturn = preset.paymentReturn?.route === 'ap' ? preset.paymentReturn : null;
   const bankTransactionReturn = preset.bankTransactionReturn?.route === 'banktx' ? preset.bankTransactionReturn : null;
@@ -61,10 +60,6 @@ export function GLTrialBalance({ctx}) {
   const [projectId, setProjectId] = useState(String(preset.projectId || 'ALL'));
   const [loanId, setLoanId] = useState(String(preset.loanId || 'ALL'));
   const [drill, setDrill] = useState(initCodes.length ? { accounts:initCodes, label:preset.drillLabel || 'Selected accounts', asOf:preset.asOf === true } : null);
-  const [savedScopes, setSavedScopes] = useState(() => {
-    try { return normalizeLocalReportScopes(JSON.parse(localStorage.getItem('refs_local_report_scopes') || '[]')); }
-    catch { return []; }
-  });
   const postedBase = hasReportEntity ? jes.filter(j=>j.posting_status==='POSTED' && j.entity_id===Number(reportEntity) && j.period_code>=fromP && j.period_code<=toP) : [];
   const posted = scopedPostedJournalEntries(postedBase, { propertyId, projectId, loanId, properties:PROPERTIES });
   const asOfBase = hasReportEntity ? postedJournalEntriesAsOf(jes, { entityId:reportEntity, toPeriod:toP }) : [];
@@ -85,23 +80,7 @@ export function GLTrialBalance({ctx}) {
   const reportControls = localReportControlEvidence({ periodJournals:posted, asOfJournals:bsPosted, entityId:reportEntity, toPeriod:toP, cashFlow });
   const dimensionLabel = dimensionScopeLabel({ propertyId, projectId, loanId }, { properties:PROPERTIES, projects:PROJECTS, loans:LOANS });
   const dimensionEvidence = localDimensionScopeEvidence([...postedBase,...asOfBase], {entityId:reportEntity,propertyId,projectId,loanId}, PROPERTIES);
-  const entityScopes = localReportScopeForEntity(savedScopes, reportEntity);
-  const currentScope = createLocalReportScope({entityId:reportEntity, tab, fromP, toP, propertyId, projectId, loanId});
   const incomeScopeState = localReportScopeState({journals:jes,entityId:reportEntity,fromPeriod:fromP,toPeriod:toP});
-  const saveScope = () => {
-    if (!currentScope) { toast('Select one local entity and a valid period before saving a report scope.','bad'); return; }
-    const next = saveLocalReportScope(savedScopes, currentScope);
-    setSavedScopes(next);
-    try { localStorage.setItem('refs_local_report_scopes', JSON.stringify(next)); } catch {}
-    toast('Local report scope saved for the current entity only.');
-  };
-  const loadScope = key => {
-    const scope = entityScopes.find(item => item.label === key);
-    if (!scope) return;
-    setTab(scope.tab); setFromP(scope.fromP); setToP(scope.toP);
-    setPropertyId(scope.propertyId); setProjectId(scope.projectId); setLoanId(scope.loanId); setDrill(null);
-    toast('Local entity-bound report scope loaded.');
-  };
 
   useEffect(() => {
     if (!preset.route || preset.route !== 'gl') return;
@@ -162,7 +141,6 @@ export function GLTrialBalance({ctx}) {
   groups.forEach(g=>{ secRows.push({_sec:g.t});
     g.rows.forEach(r=>secRows.push(r));
     secRows.push({_sub:g.t, debit:sum(g.rows,r=>r.debit), credit:sum(g.rows,r=>r.credit), balance:sum(g.rows,r=>r.balance)}); });
-  const notify = msg => toast ? toast(msg) : undefined;
   const reportShell = <div className="qbo-report-builder">
     {(paymentReturn || bankTransactionReturn || reconciliationReturn || registerReturn || coaReturn || reportCenterReturn) && <div className="qbo-report-back"><button type="button" onClick={()=>paymentReturn ? ctx.goto('ap', paymentReturn) : bankTransactionReturn ? ctx.goto('banktx', bankTransactionReturn) : reconciliationReturn ? ctx.goto('bankrec', reconciliationReturn) : registerReturn ? ctx.goto('register', registerReturn) : coaReturn ? ctx.goto('coa', coaReturn) : ctx.goto('reports', reportCenterReturn)}>{paymentReturn ? 'Back to Bill payments' : bankTransactionReturn ? 'Back to bank evidence' : reconciliationReturn ? 'Back to reconciliation' : registerReturn ? 'Back to Account Register' : coaReturn ? 'Back to Chart of Accounts' : 'Back to Reports Center'}</button><span>{paymentReturn ? localPaymentReturnScopeLabel(paymentReturn) : bankTransactionReturn ? localBankTransactionJournalReturnScopeLabel(bankTransactionReturn) : reconciliationReturn ? localReconciliationJournalReturnScopeLabel(reconciliationReturn) : registerReturn ? localAccountRegisterReturnScopeLabel(registerReturn) : coaReturn ? `Retained COA scope · ${coaReturn.qboQuery || 'all accounts'}` : reportCenterReturn?.reportName || tab}</span></div>}
     <div className="qbo-report-controls" aria-label="Report controls">
@@ -172,13 +150,9 @@ export function GLTrialBalance({ctx}) {
       <label><span>Property</span><select value={propertyId} onChange={e=>setPropertyId(e.target.value)}><option value="ALL">All properties</option>{PROPERTIES.filter(p=>!reportEntity||p.entity_id===Number(reportEntity)).map(p=><option key={p.property_id} value={p.property_id}>{p.property_code} · {p.property_name}</option>)}</select></label>
       <label><span>Project</span><select value={projectId} onChange={e=>setProjectId(e.target.value)}><option value="ALL">All projects</option>{PROJECTS.filter(p=>!reportEntity||p.entity_id===Number(reportEntity)).map(p=><option key={p.project_id} value={p.project_id}>{p.project_code} · {p.project_name}</option>)}</select></label>
       <label><span>Loan</span><select value={loanId} onChange={e=>setLoanId(e.target.value)}><option value="ALL">All loans</option>{LOANS.filter(l=>!reportEntity||l.entity_id===Number(reportEntity)).map(l=><option key={l.loan_id} value={l.loan_id}>{l.loan_code} · {l.lender_name}</option>)}</select></label>
-      <label><span>Saved local scope</span><select aria-label="Saved local report scope" value="" onChange={e=>loadScope(e.target.value)}><option value="">Load a saved entity scope</option>{entityScopes.map(scope=><option key={scope.label} value={scope.label}>{scope.label}</option>)}</select></label>
       <div className="qbo-report-actions">
-      {tab !== 'Cash Flow' && <div className="qbo-segment" role="group" aria-label="Accounting method"><button type="button" className="on">Accrual</button><button type="button" onClick={()=>notify('Cash basis preview is not enabled for this dataset yet')}>Cash</button></div>}
-      <button type="button" onClick={()=>notify('Report refreshed')}>Refresh</button>
-      <button type="button" onClick={saveScope} disabled={!currentScope} title={currentScope?'Save only this entity/period/dimension scope locally':'An explicit entity and valid period are required'}>Save local scope</button>
-      <button type="button" onClick={()=>notify('Compact density retained at 100%')}>Compact | 100%</button>
-      <Unavailable reason="This report reads retained local POSTED evidence and offers no delivery or authoring path.">Customization, period comparison, automated insights, email, print and export</Unavailable>
+      <span className="muted sm">Accrual basis · read-only evidence</span>
+      <Unavailable reason="This report reads retained local POSTED evidence and has no authoring, delivery, or provider-refresh path.">Refresh, save view, density, customization, comparison, automated insights, email, print and export</Unavailable>
       </div>
     </div>
   </div>;
@@ -406,7 +380,7 @@ export function GLTrialBalance({ctx}) {
       const drillDebit=sum(lines,r=>r.dr||0), drillCredit=sum(lines,r=>r.cr||0);
       const drillState=localGLDrillState(lines,label,drill.asOf?'Opening':fromP,toP); const canCrossDrill=!drillState.isEmpty;
       return <div className="report-drill-panel qbo-transaction-report"><div className="qbo-report-back"><button type="button" onClick={()=>setDrill(null)}>Back to {tab}</button><span>Transaction detail</span></div><div className="gl-drill-head"><div><div className="gl-drill-crumb">General Ledger · Drilldown</div><h3>Transaction detail</h3><div className="gl-drill-account" title={label}>{label}</div></div><div className="gl-drill-actions"><span className="gl-drill-count"><b>{lines.length}</b> transactions</span>{registerTarget&&canCrossDrill?<Btn size="sm" variant="ghost" onClick={()=>ctx.goto('register',registerTarget)}>Open local register</Btn>:<Unavailable reason={canCrossDrill?(scopeComplete?'Only a single local cash or AR/AP control account can open Account Register':'Dimension scope requires review before any cross-workspace drill'):'No posted local activity exists in this scoped drill'}>No register scope</Unavailable>}{agingTarget&&canCrossDrill&&<Btn size="sm" variant="ghost" onClick={()=>ctx.goto(agingTarget.route,agingTarget)}>{agingTarget.route==='ar'?'Open AR Aging':'Open AP Aging'}</Btn>}<Btn size="sm" variant="ghost" onClick={()=>setDrill(null)}>Close</Btn></div></div>
-      <div className="qbo-report-previewbar"><button type="button" onClick={()=>notify('Drill report refreshed')}>Refresh</button><button type="button" onClick={()=>notify('Source trace controls opened')}>More actions</button><Unavailable reason="Drill detail is retained local evidence only.">Customization, print and export</Unavailable></div>
+      <div className="qbo-report-previewbar"><Unavailable reason="Drill detail is retained local evidence only and cannot invoke a provider or change a saved view.">Refresh, more actions, save view, customization, print and export</Unavailable></div>
       <div className="qbo-drill-summary"><span><i>Report period</i><b>{drill.asOf?`Opening ~ ${toP}`:`${fromP} ~ ${toP}`}</b></span><span><i>Dimension scope</i><b>{dimensionLabel}</b></span><span><i>Accounting method</i><b>Accrual</b></span><span><i>Total debit</i><b>{money(drillDebit)}</b></span><span><i>Total credit</i><b>{money(drillCredit)}</b></span></div>
       <div className="report-drill-hint">Select a journal entry to review its posting; open a source badge to continue into the originating workflow.</div>
       <Table exportName={'gl-drill-detail'} features={{exportable:false}} className="table-journal-entries" onRow={r=>openJournalFromReport(r.je,{drillAccounts:[r.account],drillLabel:label,asOf:drill.asOf === true})} empty={drillState.emptyLabel} cols={[{h:'JE',k:'je'},{h:'Date',k:'date'},{h:'Account',k:'account'},{h:'Description',k:'desc'},{h:'Source',render:r=>r.sourceTarget?<button type="button" className="source-drill" onClick={e=>{e.stopPropagation();ctx.goto(r.sourceTarget.route, r.sourceTarget.context);}} title={'Open '+r.src+' source workflow'}><Badge tone="muted">{r.src}</Badge></button>:<Badge tone="muted">{r.src}</Badge>,csv:r=>r.src},{h:'Debit',num:true,render:r=><Money v={r.dr}/>,csv:r=>r.dr},{h:'Credit',num:true,render:r=><Money v={r.cr}/>,csv:r=>r.cr}]} rows={lines}/></div>; })()}
@@ -632,7 +606,7 @@ export function Reports({ctx}) {
   if (open) return <div className="reports-library report-replacement-view">
     <div className="qbo-report-back"><button type="button" onClick={()=>{setOpen(null);setPreviewTool(null)}}>Back to Reports Center</button><span>{['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)?'Local report detail':'Reference-only report'}</span></div>
     <div className="report-preview-head"><div className="report-preview-titlewrap"><div className="report-preview-crumb">Reports Center · {['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)?'Local evidence':'Observed reference'}</div><SectionTitle>{open}</SectionTitle><p className="page-subtitle">{['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)?'This replaces the report list. It uses retained local evidence only; use Back to return to the same Reports Center.':'This replaces the report list with an explicit unavailable state. It does not expose source data, a connector, or a local workflow.'}</p></div>{previewMeta && <div className="report-preview-meta"><span><i>Category</i><b>{previewMeta.category}</b></span><span><i>Capability</i><b>{previewMeta.capability.label}</b></span><span><i>Evidence</i><b><Badge tone={previewMeta.evidenceState==='AVAILABLE_LOCAL_EVIDENCE'?'ok':previewMeta.evidenceState==='REVIEW_REQUIRED'?'warn':'muted'}>{previewMeta.evidenceState}</Badge></b></span></div>}</div>
-    <div className="qbo-report-previewbar"><button type="button" disabled={!['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state)} title={['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state) ? 'Refresh this local report view' : 'This report has no local evidence to refresh'} onClick={()=>ctx.toast('Local report view refreshed')}>Refresh</button><button type="button" className={previewTool==='Scope'?'on':''} onClick={()=>setPreviewTool(t=>t==='Scope'?null:'Scope')}>Evidence scope</button><Unavailable reason="Report authoring, printing and export are outside the local evidence scope.">Save As, print and export</Unavailable></div>
+    <div className="qbo-report-previewbar"><button type="button" className={previewTool==='Scope'?'on':''} onClick={()=>setPreviewTool(t=>t==='Scope'?null:'Scope')}>Evidence scope</button><Unavailable reason="Report authoring, provider refresh, saved views, printing and export are outside the local evidence scope.">Refresh, Save As, print and export</Unavailable></div>
     {previewTool==='Scope' && <div className="qbo-report-toolpanel qbo-preview-toolpanel"><div><b>Local evidence scope</b><span>Entity, period, dimension, account/control account and retained local source evidence are passed only by the destination workflow.</span></div><div className="qbo-toolgrid"><span><i>Authority</i><b>Local POSTED evidence</b></span><span><i>External delivery</i><b>Unavailable</b></span><span><i>QBO equivalence</i><b>Not claimed</b></span></div></div>}
     {['LOCAL_PREVIEW','LOCAL_CONTROL'].includes(previewMeta?.capability.state) && REPORTS[open]
       ? REPORTS[open]()

@@ -2205,3 +2205,10 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 - **REFS implementation:** the native COA evidence table retains name-or-number and Account type filters, and restores both through the existing Register/GL drillback context. Its balance is explicitly labelled `Posted ledger balance` rather than copying QBO's external Bank balance. The WBS reference chart is not exposed as a QBO-like COA tab; WBS remains source/staging evidence only. CSV export configuration has been removed, so this screen cannot imply a download workflow.
 - **Status:** **PARTIAL** — direct QBO list/filter/column evidence plus REFS static/UI verification. QBO account permissions, action menus, register details, audit history, empty state, and responsive behavior remain unobserved. Account creation, editing, merge/delete, external balance feeds, download/print, connector actions, WBS administration, and any cash reconciliation mutation remain unavailable.
 - **Verification:** `npm.cmd run test:coa-readonly-shell`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## Reports: remove saved-view and refresh-like controls (2026-08-09)
+
+- **Observed QBO evidence:** unavailable this round because the signed-in QBO session returned to its sign-in page before Reports Center could be read. No authentication or business action was attempted.
+- **REFS implementation:** retained reports continue to use entity/period/property/project/loan filters, full-page report or transaction detail, and explicit Back. Removed saved report scope persistence, refresh-like buttons, density controls, Cash-basis placeholder, and “more actions” affordances. Read-only Evidence scope remains available as an explanatory panel only.
+- **Status:** **PARTIAL** — local source/UI verification only; QBO Reports category/search/launch/empty-state/permission/responsive evidence remains unobserved in this round. No customize, save, provider refresh, share, print, export, adjustment, mapping, payment, or posting path is exposed.
+- **Verification:** `node verify-reports-readonly-catalog.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.

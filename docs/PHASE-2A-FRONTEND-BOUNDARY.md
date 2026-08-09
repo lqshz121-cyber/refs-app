@@ -208,13 +208,12 @@ The working definition: a UI preference stores **how the reader is looking at a 
 journal, bill, invoice, bank transaction, account, approval, period or identity — those
 are accounting records and belong to the API.
 
-Declared UI-preference writes (3, permitted indefinitely):
+Declared UI-preference writes (2, permitted indefinitely):
 
 | Site | What it holds |
 | --- | --- |
 | `src/ui.jsx :: 'refs_view_'+k` | Data-grid sort column, sort direction, text filter, row density for one table. |
 | `src/module-ap.jsx :: 'refs_expense_columns'` | Expense table column visibility. |
-| `src/modules-more.jsx :: 'refs_local_report_scopes'` | Saved report scope labels — the entity/period/dimension the reader last chose. A filter selection, not a report result. |
 
 Legacy business-state writes (3, shrink-only) — see the allowlist table below.
 
