@@ -94,6 +94,12 @@ services:
       - path: /index.html
         name: Cache-Control
         value: no-store
+      # Render evaluates response headers against the requested path before
+      # applying the SPA rewrite, so /index.html alone does not protect the
+      # authoritative entry document requested at the site root.
+      - path: /
+        name: Cache-Control
+        value: no-store
       - path: /*
         name: X-Frame-Options
         value: SAMEORIGIN

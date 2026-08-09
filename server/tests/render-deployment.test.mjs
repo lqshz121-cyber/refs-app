@@ -38,6 +38,9 @@ test('Render staging manifest declares every production startup secret and uses 
   assert.match(web.body,/name: Content-Security-Policy\r?\n\s+value: "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; frame-src 'self' https:; script-src 'self' https:\/\/cdnjs\.cloudflare\.com;/);
   assert.match(web.body,/frame-src 'self' https:/,'authoritative CSP must permit the validated HTTPS OIDC authorization endpoint to answer prompt=none renewal in a hidden frame');
   assert.doesNotMatch(web.body,/script-src 'self' 'unsafe-inline'/);
-  for(const asset of ['\/refs-runtime-lock\.js','\/refs-runtime-config\.js','\/refs-build\.js','\/index\.html'])assert.match(web.body,new RegExp(`path: ${asset}\\r?\\n\\s+name: Cache-Control\\r?\\n\\s+value: no-store`));
+  for(const asset of ['/refs-runtime-lock.js','/refs-runtime-config.js','/refs-build.js','/index.html','/']){
+    const escaped=asset.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    assert.match(web.body,new RegExp(`path: ${escaped}\\r?\\n\\s+name: Cache-Control\\r?\\n\\s+value: no-store`));
+  }
   assert.match(pages,/REFS_PUBLIC_RUNTIME_MODE: LOCAL_MOCK/);assert.doesNotMatch(pages,/REFS_PUBLIC_ACCOUNTING_API_BASE_URL/);
 });
