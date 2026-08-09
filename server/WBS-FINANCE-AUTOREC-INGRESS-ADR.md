@@ -92,6 +92,12 @@ authority in the system of record.
   dispatch, or post authority.
 - A later missing source row is not a deletion unless WBS provides signed CDC
   or tombstone semantics.
+- A retired matching policy may be read only as closed-period evidence. REFS
+  selects it by the source accounting date; disjoint policy windows produce
+  separate review proposals, while overlapping windows block the proposal.
+- A Company Screening M/R/C snapshot is period-scoped control evidence. It is
+  retained on a candidate only when its balance date matches the candidate's
+  accounting month; a current balance cannot attest a historical source.
 - Cost GL requires exactly fourteen canonical metric values at the PostgreSQL
   persistence boundary; Property metric cardinality remains mapping-defined.
 - Signed nonempty production receipts, provider state/cancel/reopen semantics,
