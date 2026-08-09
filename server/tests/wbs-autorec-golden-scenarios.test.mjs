@@ -47,6 +47,17 @@ test('provider-backed matching policy declares the WBS date basis instead of ass
   assert.equal(omitted.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_REQUIRED');
 });
 
+test('review allocation edges are replay-stable when business source types share a record-shaped ID',()=>{
+  const payableRow=payable('shared-id',40);
+  const detailRow={...payable('shared-id',60),source_type:'AUTOREC_PAYMENT_DETAIL',receipt_id:'receipt-detail-shared',receipt_ref:'object://receipt/detail-shared',raw_event_id:'raw-detail-shared',source_document_id:'doc-detail-shared',staging_item_id:'staging-detail-shared',review_event_id:'review-detail-shared'};
+  const first=run([bank('bank-stable',100)],[payableRow,detailRow]);
+  const replay=run([bank('bank-stable',100)],[detailRow,payableRow]);
+  assert.equal(first.status,'REVIEW_REQUIRED');
+  assert.deepEqual(replay.allocation_plan,first.allocation_plan);
+  assert.deepEqual(replay.trace,first.trace);
+  assert.equal(new Set(first.allocation_plan.map(edge=>edge.allocation_edge_id)).size,2);
+});
+
 test('twelve sanitized golden scenarios express WBS→AutoRec controls without granting allocation or posting authority',()=>{
   const cases=[
     ['exact_one_to_one',run([bank('b1',100)],[payable('p1',100)]),plan=>plan.status==='REVIEW_REQUIRED'&&plan.allocation_plan.length===1&&plan.control_totals.allocated_total===100],

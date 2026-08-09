@@ -259,7 +259,16 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
   };
   for(const bank of bankRows)for(const business of businessRows)if(!dateMatches(bank,business))exceptions.push(eligibilityException('PAIR',business,'WBS_AUTOREC_PLAN_DATE_WINDOW_MISMATCH','Proposed bank and business rows exceed the approved date window for the selected date-match basis.'));
   if(exceptions.length)return freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze(exceptions),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
-  const remaining=rows=>rows.map(row=>({row,remaining:Math.abs(amount(row.amount))})).sort((left,right)=>text(left.row.source_record_id).localeCompare(text(right.row.source_record_id)));
+  // Source record IDs are provider-scoped rather than globally unique.  In
+  // particular, a PAYABLE and an AUTOREC_PAYMENT_DETAIL may legitimately use
+  // the same display-shaped ID.  Sorting by the complete immutable source
+  // identity makes a review proposal stable across page and replay ordering.
+  const compareSourceIdentity=(left,right)=>{
+    const leftKey=[text(left.row.source_type),text(left.row.source_record_id),text(left.row.source_version)].join('\u0000');
+    const rightKey=[text(right.row.source_type),text(right.row.source_record_id),text(right.row.source_version)].join('\u0000');
+    return leftKey.localeCompare(rightKey);
+  };
+  const remaining=rows=>rows.map(row=>({row,remaining:Math.abs(amount(row.amount))})).sort(compareSourceIdentity);
   const banks=remaining(bankRows),businesses=remaining(businessRows),allocation=[];
   for(const bank of banks)for(const business of businesses){
     if(bank.remaining<=toleranceValue||business.remaining<=toleranceValue)continue;
