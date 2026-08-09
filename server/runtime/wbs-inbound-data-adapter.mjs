@@ -316,17 +316,44 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
     const rightKey=[text(right.row.source_type),text(right.row.source_record_id),text(right.row.source_version)].join('\u0000');
     return leftKey.localeCompare(rightKey);
   };
-  const remaining=rows=>rows.map(row=>({row,remaining:Math.abs(amount(row.amount))})).sort(compareSourceIdentity);
+  const remaining=rows=>rows.map(row=>({row,capacity:Math.round(Math.abs(amount(row.amount))*10000),remaining:0})).sort(compareSourceIdentity);
   const banks=remaining(bankRows),businesses=remaining(businessRows),allocation=[];
-  for(const bank of banks)for(const business of businesses){
-    if(bank.remaining<=toleranceValue||business.remaining<=toleranceValue)continue;
+  // Allocate over the date-compatible bipartite graph, rather than greedily
+  // consuming the first compatible business row. A greedy ordering can strand
+  // a later bank row that has only one valid counterparty even though a full
+  // allocation exists. Capacities are canonical accounting decimals scaled to
+  // four places, so all residual calculations are exact integers.
+  const source=0,bankOffset=1,businessOffset=bankOffset+banks.length,sink=businessOffset+businesses.length,graph=Array.from({length:sink+1},()=>[]),arcs=[];
+  const addEdge=(from,to,capacity)=>{const forward={to,reverse:graph[to].length,capacity,initial:capacity},reverse={to:from,reverse:graph[from].length,capacity:0,initial:0};graph[from].push(forward);graph[to].push(reverse);return forward;};
+  banks.forEach((bank,index)=>addEdge(source,bankOffset+index,bank.capacity));
+  businesses.forEach((business,index)=>addEdge(businessOffset+index,sink,business.capacity));
+  banks.forEach((bank,bankIndex)=>businesses.forEach((business,businessIndex)=>{
     // Date compatibility is an allocation-edge constraint, not a requirement
     // that every bank row match every business row in a split proposal.
-    // Otherwise one unrelated cross-pair would block a valid one-to-many or
-    // many-to-one partial review plan.
-    if(!dateMatches(bank.row,business.row))continue;
-    const allocated=Number(Math.min(bank.remaining,business.remaining).toFixed(4));
-    bank.remaining=Number((bank.remaining-allocated).toFixed(4));business.remaining=Number((business.remaining-allocated).toFixed(4));
+    if(!dateMatches(bank.row,business.row))return;
+    arcs.push({bank,business,edge:addEdge(bankOffset+bankIndex,businessOffset+businessIndex,Math.min(bank.capacity,business.capacity))});
+  }));
+  while(true){
+    const previous=Array(sink+1).fill(null),queue=[source];previous[source]={node:source};
+    for(let cursor=0;cursor<queue.length&&previous[sink]===null;cursor++){
+      const node=queue[cursor];
+      for(let edgeIndex=0;edgeIndex<graph[node].length;edgeIndex++){
+        const edge=graph[node][edgeIndex];
+        if(edge.capacity<=0||previous[edge.to]!==null)continue;
+        previous[edge.to]={node,edgeIndex};queue.push(edge.to);
+        if(edge.to===sink)break;
+      }
+    }
+    if(previous[sink]===null)break;
+    let pushed=Number.MAX_SAFE_INTEGER;
+    for(let node=sink;node!==source;node=previous[node].node)pushed=Math.min(pushed,graph[previous[node].node][previous[node].edgeIndex].capacity);
+    for(let node=sink;node!==source;node=previous[node].node){const step=previous[node],edge=graph[step.node][step.edgeIndex];edge.capacity-=pushed;graph[edge.to][edge.reverse].capacity+=pushed;}
+  }
+  for(const arc of arcs){
+    const allocatedUnits=arc.edge.initial-arc.edge.capacity;
+    if(allocatedUnits<=0)continue;
+    const bank=arc.bank,business=arc.business,allocated=Number((allocatedUnits/10000).toFixed(4));
+    bank.remaining+=allocatedUnits;business.remaining+=allocatedUnits;
     // This is a proposal identity, never an allocation command identity.  It
     // lets a later reservation service prove precisely which immutable source
     // versions, receipts, amount and matching basis a reviewer inspected.
@@ -341,7 +368,7 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
   const bankTotal=Number(banks.reduce((sum,item)=>sum+Math.abs(amount(item.row.amount)),0).toFixed(4));
   const businessTotal=Number(businesses.reduce((sum,item)=>sum+Math.abs(amount(item.row.amount)),0).toFixed(4));
   const allocatedTotal=Number(allocation.reduce((sum,item)=>sum+item.amount,0).toFixed(4));
-  const bankRemaining=Number(banks.reduce((sum,item)=>sum+item.remaining,0).toFixed(4)),businessRemaining=Number(businesses.reduce((sum,item)=>sum+item.remaining,0).toFixed(4));
+  const bankRemaining=Number(banks.reduce((sum,item)=>sum+(item.capacity-item.remaining)/10000,0).toFixed(4)),businessRemaining=Number(businesses.reduce((sum,item)=>sum+(item.capacity-item.remaining)/10000,0).toFixed(4));
   const difference=Number(Math.abs(bankTotal-businessTotal).toFixed(4)),amountsBalanced=difference<=toleranceValue,fullyAllocated=bankRemaining<=toleranceValue&&businessRemaining<=toleranceValue;
   if(allocation.length===0)return freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze([eligibilityException('PAIR',anchor,'WBS_AUTOREC_PLAN_DATE_WINDOW_MISMATCH','No proposed bank/business allocation edge is within the approved date window for the selected date-match basis.')]),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
   const balanced=amountsBalanced&&fullyAllocated;
@@ -371,6 +398,13 @@ export function buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows,busin
   if(mappingMismatch)return freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze([eligibilityException('PAIR',anchor,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_MISMATCH','Each provider-backed Auto Reconciliation source must carry the exact approved mapping version named by the matching policy.')]),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
   const mappingNotEffective=[...bankRows,...businessRows].some(row=>!mappingEffectiveOn(mappingFor(row),row?.accounting_date));
   if(mappingNotEffective)return freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze([eligibilityException('PAIR',anchor,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_NOT_EFFECTIVE','Each provider-backed Auto Reconciliation source must carry an approved mapping effective on its exact WBS accounting date.')]),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
+  // A policy trace emits one effective window per side.  Do not silently pick
+  // the first row's window when a caller has supplied inconsistent mapping
+  // metadata under an otherwise identical mapping id/version/snapshot.
+  const mappingWindow=mapping=>`${text(mapping.effective_from)}\u0000${text(mapping.effective_to)||''}`;
+  const bankMappingWindows=new Set(bankRows.map(row=>mappingWindow(mappingFor(row))));
+  const businessMappingWindows=new Set(businessRows.map(row=>mappingWindow(mappingFor(row))));
+  if(bankMappingWindows.size!==1||businessMappingWindows.size!==1)return freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze([eligibilityException('PAIR',anchor,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_WINDOW_MISMATCH','Every source on each side of a provider-backed Auto Reconciliation plan must retain the same immutable mapping effective window.')]),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
   const plan=buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tolerance,dateWindowDays:window,dateMatchBasis});
   if(plan.status==='BLOCKED')return plan;
   const bankMapping=mappingFor(bankRows[0]),businessMapping=mappingFor(businessRows[0]);

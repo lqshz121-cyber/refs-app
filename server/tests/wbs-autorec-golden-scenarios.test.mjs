@@ -39,6 +39,9 @@ test('provider-backed review plan uses one approved receipt-bound matching polic
   assert.equal(snapshotMismatch.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_MISMATCH');
   const expired=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[{...matchedBank,effective_to:'2026-08-01T00:00:00.000Z'}],businessRows:[matchedPayable],matchingPolicy:policy});
   assert.equal(expired.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_NOT_EFFECTIVE');
+  const inconsistentWindow=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[matchedBank,{...matchedBank,source_record_id:'b-window-2',source_document_id:'doc-b-window-2',staging_item_id:'staging-b-window-2',raw_event_id:'raw-b-window-2',receipt_id:'receipt-b-window-2',receipt_ref:'object://receipt/b-window-2',review_event_id:'review-b-window-2',effective_to:'2026-12-31T00:00:00.000Z'}],businessRows:[matchedPayable],matchingPolicy:policy});
+  assert.equal(inconsistentWindow.status,'BLOCKED');
+  assert.equal(inconsistentWindow.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_WINDOW_MISMATCH');
   const revisedRule=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[matchedBank],businessRows:[matchedPayable],matchingPolicy:{...policy,rule_version:'3'}});
   assert.notEqual(revisedRule.allocation_plan[0].allocation_edge_id,plan.allocation_plan[0].allocation_edge_id);
   assert.equal(revisedRule.allocation_plan[0].proposal_allocation_edge_id,plan.allocation_plan[0].proposal_allocation_edge_id);
@@ -66,6 +69,21 @@ test('date windows constrain each allocation edge and leave unmatched same-total
   const plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bankEarly,bankLate],businessRows:[payableEarly,payableOutside],matchingPolicy:{...policy,date_window_days:1}});
   assert.equal(plan.status,'PARTIAL_REVIEW_REQUIRED');
   assert.deepEqual({edges:plan.allocation_plan.length,allocated:plan.control_totals.allocated_total,bankUnallocated:plan.control_totals.bank_unallocated,businessUnallocated:plan.control_totals.business_unallocated,amountsBalanced:plan.control_totals.amounts_balanced,fullyAllocated:plan.control_totals.fully_allocated},{edges:1,allocated:50,bankUnallocated:50,businessUnallocated:50,amountsBalanced:true,fullyAllocated:false});
+});
+
+test('date-compatible allocation maximizes matched capacity instead of taking the first compatible edge',()=>{
+  // b-flex can match p-required or p-flex; b-required can only match
+  // p-required. A greedy b-flex→p-required choice would strand b-required.
+  const plan=run([
+    bank('b-flex',50,'2026-08-02'),
+    bank('b-required',50,'2026-08-01')
+  ],[
+    payable('p-required',50,'2026-08-01'),
+    payable('p-flex',50,'2026-08-03')
+  ],{dateWindowDays:1});
+  assert.equal(plan.status,'REVIEW_REQUIRED');
+  assert.deepEqual({allocated:plan.control_totals.allocated_total,bankUnallocated:plan.control_totals.bank_unallocated,businessUnallocated:plan.control_totals.business_unallocated,fullyAllocated:plan.control_totals.fully_allocated},{allocated:100,bankUnallocated:0,businessUnallocated:0,fullyAllocated:true});
+  assert.deepEqual(plan.allocation_plan.map(edge=>[edge.bank_source_record_id,edge.business_source_record_id]).sort(),[['b-flex','p-flex'],['b-required','p-required']]);
 });
 
 test('receipt-backed Company Screening controls remain in a review plan and reject a mixed snapshot',()=>{
