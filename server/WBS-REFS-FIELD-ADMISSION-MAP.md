@@ -147,9 +147,10 @@ ledger link, second journal leg, or `291001` imbalance remains blocked.
 
 A WBS-originated standard Draft request must preserve the reviewed staging
 source's company, ISO currency, and accounting/posting date verbatim. Its
-approved mapping and Draft header must carry the same scope. A missing or
-cross-scoped value blocks the request; it cannot be corrected by a later JE
-workflow or by a WBS report field.
+approved mapping and Draft header must carry the same scope, and the mapping
+must be effective at the WBS accounting/posting date. A missing, expired,
+future, or cross-scoped value blocks the request; it cannot be corrected by a
+later JE workflow or by a WBS report field.
 The posted REFS evidence must echo the complete reviewed source trace
 (`Raw`/document/source/version/type/company/currency/accounting date); a
 posted journal with a different trace is not a valid WBS accounting result.
