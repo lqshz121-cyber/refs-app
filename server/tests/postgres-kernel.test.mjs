@@ -797,6 +797,26 @@ pgTest('production HTTP listener verifies an RS256 access token before DB contex
   }finally{await new Promise(resolve=>server.close(resolve));}
 });
 
+pgTest('authenticated HTTP lists entity-scoped Journal Entries through the exact text read contract',async()=>{
+  const ids=await seed({status:'DRAFT'}),other=await seed({status:'DRAFT',tenantId:ids.tenantId});
+  const api=createAccountingApi({
+    authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'http-journal-reader'}),
+    kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'http-journal-reader',['GL.JE.VIEW'])})
+  });
+  const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries`,headers:{},body:null});
+  assert.equal(response.status,200);
+  assert.equal(response.body.data.length,1);
+  const [journal]=response.body.data;
+  assert.deepEqual({journal_entry_id:journal.journal_entry_id,journal_number:journal.journal_number,journal_type:journal.journal_type,status:journal.status,currency:journal.currency,revision:journal.revision,posted_at:journal.posted_at,ledger_line_count:journal.ledger_line_count},{
+    journal_entry_id:ids.journalId,journal_number:`JE-${ids.journalId.slice(0,8)}`,journal_type:'MANUAL',status:'DRAFT',currency:'USD',revision:'0',posted_at:null,ledger_line_count:'0'
+  });
+  assert.equal(journal.journal_date instanceof Date,true);
+  assert.equal(journal.journal_date.getFullYear(),2026);
+  assert.equal(journal.journal_date.getMonth(),6);
+  assert.equal(journal.journal_date.getDate(),15);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/journal-entries`,headers:{},body:null})).status,403);
+});
+
 pgTest('authenticated HTTP AR aging reads only the entity authorized by its DB context',async()=>{
   const ids=await seed({status:'APPROVED'}),invoiceId=randomUUID(),other=await seed({status:'APPROVED',tenantId:ids.tenantId});
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
