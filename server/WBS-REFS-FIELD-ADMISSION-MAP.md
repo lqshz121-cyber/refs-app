@@ -87,7 +87,9 @@ and an exact matching policy. The policy is a REFS-approved, receipt-bound
 record containing:
 
 - policy, matching-rule and policy-mapping IDs/versions;
-- exact bank-side and business-side mapping IDs/versions;
+- exact bank-side and business-side mapping IDs/versions, snapshot hashes and
+  effective-from/effective-to windows; each window must cover its source's
+  accounting date;
 - exact company, currency and bank account scope;
 - date-window and amount-tolerance values; and
 - immutable receipt identity/hash for the approved policy evidence.

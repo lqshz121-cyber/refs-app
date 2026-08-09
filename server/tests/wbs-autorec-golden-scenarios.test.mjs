@@ -14,8 +14,8 @@ const goldenArtifact=JSON.parse(readFileSync(new URL('../contracts/wbs-autorec-g
 const acceptanceMatrix=readFileSync(new URL('../WBS-AUTOREC-EQUIVALENCE-ACCEPTANCE-MATRIX.md',import.meta.url),'utf8');
 
 test('provider-backed review plan uses one approved receipt-bound matching policy, never caller matching parameters',()=>{
-  const matchedBank={...bank('b-rule',100,'2026-08-09'),mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash};
-  const matchedPayable={...payable('p-rule',100.005,'2026-08-11'),mapping:{mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash}};
+  const matchedBank={...bank('b-rule',100,'2026-08-09'),mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const matchedPayable={...payable('p-rule',100.005,'2026-08-11'),mapping:{mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null}};
   const plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[matchedBank],businessRows:[matchedPayable],matchingPolicy:policy,tolerance:999,dateWindowDays:999});
   assert.equal(plan.status,'REVIEW_REQUIRED');
   assert.equal(plan.control_totals.tolerance,0.01);
@@ -26,7 +26,7 @@ test('provider-backed review plan uses one approved receipt-bound matching polic
   assert.notEqual(plan.allocation_plan[0].allocation_edge_id,plan.allocation_plan[0].proposal_allocation_edge_id);
   assert.equal(plan.allocation_plan[0].matching_policy.rule_version,'2');
   assert.deepEqual({dateMatchBasis:plan.trace[0].date_match_basis,bankType:plan.trace[0].bank_source_type,businessType:plan.trace[0].business_source_type},{dateMatchBasis:'BUSINESS_AND_ACCOUNTING',bankType:'BANK_TRANSACTION',businessType:'PAYABLE'});
-  assert.deepEqual(plan.matching_policy,{policy_id:'policy-bank-1',version:'1',status:'APPROVED',mapping_id:'matching-policy-map',mapping_version:'4',policy_snapshot_hash:policy.policy_snapshot_hash,rule_id:'amount-date-rule',rule_version:'2',bank_mapping_id:'bank-map',bank_mapping_version:'3',bank_mapping_snapshot_hash:policy.bank_mapping_snapshot_hash,business_mapping_id:'payable-map',business_mapping_version:'5',business_mapping_snapshot_hash:policy.business_mapping_snapshot_hash,date_match_basis:'BUSINESS_AND_ACCOUNTING',receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash});
+  assert.deepEqual(plan.matching_policy,{policy_id:'policy-bank-1',version:'1',status:'APPROVED',mapping_id:'matching-policy-map',mapping_version:'4',policy_snapshot_hash:policy.policy_snapshot_hash,rule_id:'amount-date-rule',rule_version:'2',bank_mapping_id:'bank-map',bank_mapping_version:'3',bank_mapping_snapshot_hash:policy.bank_mapping_snapshot_hash,bank_mapping_effective_from:'2026-01-01T00:00:00.000Z',bank_mapping_effective_to:null,business_mapping_id:'payable-map',business_mapping_version:'5',business_mapping_snapshot_hash:policy.business_mapping_snapshot_hash,business_mapping_effective_from:'2026-01-01T00:00:00.000Z',business_mapping_effective_to:null,date_match_basis:'BUSINESS_AND_ACCOUNTING',receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash});
   assert.equal(plan.controls.matching_policy_required,true);
   const missing=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bank('b-missing',100)],businessRows:[payable('p-missing',100)]});
   const crossScope=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[{...bank('b-cross',100),mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash}],businessRows:[{...payable('p-cross',100),mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash}],matchingPolicy:{...policy,currency:'CAD'}});
@@ -37,14 +37,16 @@ test('provider-backed review plan uses one approved receipt-bound matching polic
   assert.equal(mappingMismatch.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_MISMATCH');
   const snapshotMismatch=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[{...matchedBank,snapshot_hash:'sha256:'+'e'.repeat(64)}],businessRows:[matchedPayable],matchingPolicy:policy});
   assert.equal(snapshotMismatch.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_MISMATCH');
+  const expired=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[{...matchedBank,effective_to:'2026-08-01T00:00:00.000Z'}],businessRows:[matchedPayable],matchingPolicy:policy});
+  assert.equal(expired.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_NOT_EFFECTIVE');
   const revisedRule=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[matchedBank],businessRows:[matchedPayable],matchingPolicy:{...policy,rule_version:'3'}});
   assert.notEqual(revisedRule.allocation_plan[0].allocation_edge_id,plan.allocation_plan[0].allocation_edge_id);
   assert.equal(revisedRule.allocation_plan[0].proposal_allocation_edge_id,plan.allocation_plan[0].proposal_allocation_edge_id);
 });
 
 test('provider-backed matching policy declares the WBS date basis instead of assuming Posting Date matches a bank date',()=>{
-  const bankRow={...bank('b-date-basis',100,'2026-08-09'),accounting_date:'2026-08-01',mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash};
-  const payableRow={...payable('p-date-basis',100,'2026-08-10'),accounting_date:'2026-08-20',mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash};
+  const bankRow={...bank('b-date-basis',100,'2026-08-09'),accounting_date:'2026-08-01',mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const payableRow={...payable('p-date-basis',100,'2026-08-10'),accounting_date:'2026-08-20',mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
   const businessOnly=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bankRow],businessRows:[payableRow],matchingPolicy:{...policy,date_match_basis:'BUSINESS_ONLY'}});
   const accountingOnly=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bankRow],businessRows:[payableRow],matchingPolicy:{...policy,date_match_basis:'ACCOUNTING_ONLY'}});
   const omitted=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bankRow],businessRows:[payableRow],matchingPolicy:{...policy,date_match_basis:''}});
