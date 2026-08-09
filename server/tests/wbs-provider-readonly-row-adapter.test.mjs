@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mapWbsReadonlyProviderRow,mergeWbsReadonlyResultEvidence,WbsProviderReadonlyRowAdapterError} from '../runtime/wbs-provider-readonly-row-adapter.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {buildWbsAutoRecBankControlEvidence,buildWbsMcpReadonlySnapshot,mapWbsMcpEnvelopeToInbound,WbsMcpLineageError} from '../runtime/wbs-mcp-inbound-lineage.mjs';
+import {buildWbsAutoRecBankControlEvidence,buildWbsAutoRecDetailCaseBinding,buildWbsMcpReadonlySnapshot,mapWbsMcpEnvelopeToInbound,WbsMcpLineageError} from '../runtime/wbs-mcp-inbound-lineage.mjs';
 import {createWbsInboundDataAdapter} from '../runtime/wbs-inbound-data-adapter.mjs';
 
 const scope={company_code:'COMPANY-A',currency:'USD'};
@@ -83,4 +83,20 @@ test('only a same-key canonical result field can supply AutoRec Bank released qu
   const row=mergeWbsReadonlyResultEvidence({sourceTable:'wbsdata.autopaymentbank',scope,row:physical,resultRow:{pb_guid:'PB-RESULT-001',company_code:'COMPANY-A',currency:'USD',released_quantity:'1'}});
   assert.deepEqual({key:row.pb_guid,quantity:row.released_quantity,source:row.released_quantity_source},{key:'PB-RESULT-001',quantity:'1',source:'SIGNED_RESULT_ROW'});
   assert.throws(()=>mergeWbsReadonlyResultEvidence({sourceTable:'wbsdata.autopaymentbank',scope,row:physical,resultRow:{pb_guid:'PB-RESULT-001',released_quantity:'NaN'}}),error=>error instanceof WbsProviderReadonlyRowAdapterError&&error.code==='WBS_PROVIDER_RESULT_FIELD_REQUIRED');
+});
+
+test('physical AutoRec Detail reaches a case-scoped review row only through a signed pd_guid-to-pb_guid relation',async()=>{
+  const snapshotToken='physical-case-snapshot-1',captured='2026-08-10T00:00:00.000Z',pdGuid='44444444-4444-4444-8444-444444444444',pbGuid='55555555-5555-4555-8555-555555555555';
+  const detailRow=mergeWbsReadonlyResultEvidence({sourceTable:'wbsdata.fast_auto_payment_detail',scope,row:{pd_guid:pdGuid,pd_pvguid:'NAVIGATION-ONLY',pd_cbid:'CB-NAVIGATION',pd_biz_type:'WB',pd_payment:'100.0000',pd_deposit:'0',pd_incurred_date:'2026-08-01',pd_status:'INCURRED',pd_vendor_no:'V-1',pd_pjguid:'P-1',pd_cost_code:'C-1',pd_memo:'Masked memo'},resultRow:{pd_guid:pdGuid,company_code:'COMPANY-A',currency:'USD',posting_date:'2026-08-02'}});
+  const bankRow=mergeWbsReadonlyResultEvidence({sourceTable:'wbsdata.autopaymentbank',scope,row:{PB_GuId:pbGuid,PB_CompanyCode:'COMPANY-A',PB_AhId:'BANK-OP',PB_Quantity:'1',PB_PayAmount:'100.0000',PB_DebitAmount:'0',PB_Released:'0',PB_Incurred:'0'},resultRow:{pb_guid:pbGuid,company_code:'COMPANY-A',currency:'USD',released_quantity:'0'}});
+  const buildEnvelope=(tool,rows,extraScope={})=>({contract_version:'WBS-REFS-MCP-V1',tool,environment:'production',captured_at:captured,source:{system:'WBS'},scope:{company:'COMPANY-A',currency:'USD',snapshot_token:snapshotToken,...extraScope},record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:'Snapshot comparison required',rows});
+  const detail=buildEnvelope('list_autorec_details',[detailRow]),bank=buildEnvelope('list_autorec_banks',[bankRow]);
+  const trace=buildEnvelope('trace_by_key',[{relation_id:'detail-case-1',relation_type:'DETAIL_TO_CASE',source_key_type:'pd_guid',source_key_value:pdGuid,related_key_type:'pb_guid',related_key_value:pbGuid}],{trace_key_type:'pd_guid',trace_key_value:pdGuid});
+  const detailConventions=[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${detail.content_sha256}`,ref:'object://wbs/test/detail-case',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:captured},rule_id:'WBS-AUTOREC-DR-1',version:'1',biz_type:'WB',deposit_direction:'CREDIT',payment_direction:'DEBIT',business_date_field:'incurred_date'}];
+  const policy={status:'APPROVED',mapping_type:'WBS_AUTOREC_DETAIL_CASE_RELATION',policy_id:'detail-case-policy-1',version:'1',snapshot_hash:'sha256:'+'a'.repeat(64),relation_type:'DETAIL_TO_CASE',scope:{company_key:'COMPANY-A',currency:'USD'}};
+  const binding=buildWbsAutoRecDetailCaseBinding({detailEnvelope:detail,bankEnvelope:bank,traceEnvelope:trace,lookup:{key_type:'pd_guid',key_value:pdGuid},relationPolicy:policy});
+  const snapshot=buildWbsMcpReadonlySnapshot({envelopes:[detail],snapshotId:'66666666-6666-4666-8666-666666666666',dictionaryVersion:'WBS-MCP-V1',autoRecDetailDirectionConventions:detailConventions,autoRecDetailCaseBindings:[binding]});
+  const prepared=await createWbsInboundDataAdapter({snapshotReader:{readOnly:true,readSnapshot:async()=>snapshot}}).pull();
+  assert.deepEqual({staging:prepared.staging.length,exceptions:prepared.exceptions.length,pb:prepared.staging[0].raw_trace.pb_guid,bank:prepared.staging[0].raw_trace.bank_account_ref},{staging:1,exceptions:0,pb:pbGuid,bank:'BANK-OP'});
+  assert.equal(prepared.staging[0].raw_trace.external_trace.autoc_relation_ref,'NAVIGATION-ONLY');
 });
