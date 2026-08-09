@@ -7,6 +7,12 @@ import {S3AttachmentStorage,HttpVirusScanner} from './attachment-storage.mjs';
 import {createWbsSnapshotSignatureVerifier} from './wbs-snapshot-signature.mjs';
 
 const integer=(value,name,{min,max})=>{const parsed=Number(value);if(!Number.isSafeInteger(parsed)||parsed<min||parsed>max)throw new Error(`${name} must be an integer between ${min} and ${max}`);return parsed;};
+const integrationMode=(value,name,production)=>{
+  const mode=String(value||(production?'REQUIRED':'DISABLED')).trim().toUpperCase();
+  if(!['REQUIRED','DISABLED'].includes(mode))throw new Error(`${name} must be REQUIRED or DISABLED`);
+  return mode;
+};
+const requireAll=(env,keys)=>{for(const key of keys)if(!env[key])throw new Error(`${key} is required`);};
 const allowedOrigins=(raw,production)=>{
   if(!raw)return [];
   const origins=[...new Set(raw.split(',').map(value=>value.trim()).filter(Boolean))];
@@ -14,13 +20,21 @@ const allowedOrigins=(raw,production)=>{
   return origins;
 };
 export function accountingServerConfig(env=process.env){
+  const production=env.NODE_ENV==='production';
   const database=runtimeConfig(env);const issuer=env.OIDC_ISSUER,audience=env.OIDC_AUDIENCE,jwksUri=env.OIDC_JWKS_URI;
   if(!issuer||!audience||!jwksUri)throw new Error('OIDC_ISSUER, OIDC_AUDIENCE and OIDC_JWKS_URI are required');
-  const required=['S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_CA_FILE','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID','WBS_SNAPSHOT_ED25519_PUBLIC_KEYS'];for(const key of required)if(!env[key])throw new Error(`${key} is required`);
-  let wbsSnapshotPublicKeys;try{wbsSnapshotPublicKeys=JSON.parse(env.WBS_SNAPSHOT_ED25519_PUBLIC_KEYS);}catch{throw new Error('WBS_SNAPSHOT_ED25519_PUBLIC_KEYS must be JSON');}
-  const origins=allowedOrigins(env.REFS_HTTP_ALLOWED_ORIGINS||'',env.NODE_ENV==='production');if(env.NODE_ENV==='production'&&!origins.length)throw new Error('REFS_HTTP_ALLOWED_ORIGINS is required in production');
+  const attachmentMode=integrationMode(env.REFS_ATTACHMENT_MODE,'REFS_ATTACHMENT_MODE',production);
+  const wbsIngestMode=integrationMode(env.REFS_WBS_INGEST_MODE,'REFS_WBS_INGEST_MODE',production);
+  const attachmentKeys=['S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_CA_FILE','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID'];
+  if(attachmentMode==='REQUIRED')requireAll(env,attachmentKeys);
+  let wbsSnapshotPublicKeys=null;
+  if(wbsIngestMode==='REQUIRED'){
+    requireAll(env,['WBS_SNAPSHOT_ED25519_PUBLIC_KEYS']);
+    try{wbsSnapshotPublicKeys=JSON.parse(env.WBS_SNAPSHOT_ED25519_PUBLIC_KEYS);}catch{throw new Error('WBS_SNAPSHOT_ED25519_PUBLIC_KEYS must be JSON');}
+  }
+  const origins=allowedOrigins(env.REFS_HTTP_ALLOWED_ORIGINS||'',production);if(production&&!origins.length)throw new Error('REFS_HTTP_ALLOWED_ORIGINS is required in production');
   return {database,issuer,audience,jwksUri,host:env.REFS_HTTP_HOST||'127.0.0.1',port:integer(env.PORT||8080,'PORT',{min:1,max:65535}),maxBodyBytes:integer(env.REFS_HTTP_MAX_BODY_BYTES||1048576,'REFS_HTTP_MAX_BODY_BYTES',{min:1024,max:10*1024*1024}),allowedOrigins:origins,
-    wbsSnapshotPublicKeys,s3:{endpoint:env.S3_ENDPOINT,bucket:env.S3_BUCKET,region:env.S3_REGION,accessKeyId:env.S3_ACCESS_KEY_ID,secretAccessKey:env.S3_SECRET_ACCESS_KEY,sessionToken:env.S3_SESSION_TOKEN||null},scanner:{endpoint:env.VIRUS_SCANNER_ENDPOINT,bearerToken:env.VIRUS_SCANNER_TOKEN,caFile:env.VIRUS_SCANNER_CA_FILE,serverName:env.VIRUS_SCANNER_SERVER_NAME,actorId:env.ATTACHMENT_SCANNER_ACTOR_ID,timeoutMs:integer(env.VIRUS_SCANNER_TIMEOUT_MS||30000,'VIRUS_SCANNER_TIMEOUT_MS',{min:100,max:120000}),maxAttempts:integer(env.VIRUS_SCANNER_MAX_ATTEMPTS||3,'VIRUS_SCANNER_MAX_ATTEMPTS',{min:1,max:5}),retryBaseMs:integer(env.VIRUS_SCANNER_RETRY_BASE_MS||100,'VIRUS_SCANNER_RETRY_BASE_MS',{min:1,max:10000})}};
+    attachmentMode,wbsIngestMode,wbsSnapshotPublicKeys,s3:attachmentMode==='REQUIRED'?{endpoint:env.S3_ENDPOINT,bucket:env.S3_BUCKET,region:env.S3_REGION,accessKeyId:env.S3_ACCESS_KEY_ID,secretAccessKey:env.S3_SECRET_ACCESS_KEY,sessionToken:env.S3_SESSION_TOKEN||null}:null,scanner:attachmentMode==='REQUIRED'?{endpoint:env.VIRUS_SCANNER_ENDPOINT,bearerToken:env.VIRUS_SCANNER_TOKEN,caFile:env.VIRUS_SCANNER_CA_FILE,serverName:env.VIRUS_SCANNER_SERVER_NAME,actorId:env.ATTACHMENT_SCANNER_ACTOR_ID,timeoutMs:integer(env.VIRUS_SCANNER_TIMEOUT_MS||30000,'VIRUS_SCANNER_TIMEOUT_MS',{min:100,max:120000}),maxAttempts:integer(env.VIRUS_SCANNER_MAX_ATTEMPTS||3,'VIRUS_SCANNER_MAX_ATTEMPTS',{min:1,max:5}),retryBaseMs:integer(env.VIRUS_SCANNER_RETRY_BASE_MS||100,'VIRUS_SCANNER_RETRY_BASE_MS',{min:1,max:10000})}:null};
 }
 
 export async function startAccountingServer({env=process.env,fetcher=globalThis.fetch,logger=console}={}){
@@ -29,9 +43,10 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
   const issuerPool=await createPool({databaseUrl:config.database.contextIssuerDatabaseUrl,applicationName:'refs-accounting-http-issuer'});
   const resolver=new RemoteJwksResolver({jwksUri:config.jwksUri,fetcher});
   const authenticator=new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:resolver});
-  const wbsSnapshotVerifier=createWbsSnapshotSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys});
-  const attachmentStorage=new S3AttachmentStorage({...config.s3,fetcher});const virusScanner=new HttpVirusScanner({...config.scanner,ca:await readFile(config.scanner.caFile)});
-  const server=createProductionAccountingServer({runtimePool,issuerPool,authenticator,attachmentStorage,virusScanner,scannerServiceActorId:config.scanner.actorId,wbsSnapshotVerifier,maxBodyBytes:config.maxBodyBytes,allowedOrigins:config.allowedOrigins});
+  const wbsSnapshotVerifier=config.wbsIngestMode==='REQUIRED'?createWbsSnapshotSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
+  const attachmentStorage=config.attachmentMode==='REQUIRED'?new S3AttachmentStorage({...config.s3,fetcher}):null;
+  const virusScanner=config.attachmentMode==='REQUIRED'?new HttpVirusScanner({...config.scanner,ca:await readFile(config.scanner.caFile)}):null;
+  const server=createProductionAccountingServer({runtimePool,issuerPool,authenticator,attachmentStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,maxBodyBytes:config.maxBodyBytes,allowedOrigins:config.allowedOrigins});
   try{await Promise.all([runtimePool.query('SELECT 1'),issuerPool.query('SELECT 1')]);await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(config.port,config.host,resolve);});}
   catch(error){await Promise.allSettled([runtimePool.end(),issuerPool.end()]);throw error;}
   let stopping=false;const stop=async signal=>{if(stopping)return;stopping=true;logger.info?.(JSON.stringify({event:'accounting_server_stopping',signal}));await new Promise(resolve=>server.close(resolve));await Promise.allSettled([runtimePool.end(),issuerPool.end()]);};

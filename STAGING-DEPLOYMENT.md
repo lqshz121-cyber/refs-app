@@ -14,7 +14,11 @@ This blueprint is a deployment contract, not evidence of a live deployment.
    Render serves that file and `/index.html` with `Cache-Control: no-store` so
    the adapter is replaced atomically with the UI deployment rather than read
    from a browser cache.
-3. Provision versioned object storage, a TLS scanner bridge, its CA file, and a
+3. Stage 1 sets `REFS_ATTACHMENT_MODE=DISABLED` and
+   `REFS_WBS_INGEST_MODE=DISABLED`; these integrations are not permitted to
+   delay the authoritative PostgreSQL/OIDC read deployment. Their endpoints
+   remain fail-closed. In the later integration release, provision versioned
+   object storage, a TLS scanner bridge, its CA file, and a
    least-privileged cleanup worker identity plus DB-authorized entity scopes.
    The API storage identity must also have `s3:GetBucketLocation` on the configured
    bucket; `/health/ready` probes that permission and the scanner bridge's TLS
@@ -46,9 +50,10 @@ a persisted tenant row, then destroys its own Docker project and volumes. It
 does not prove provider retention, PITR, or a production restore; those require
 a separately recorded staging drill with the platform owner.
 
-The two staging services intentionally use `autoDeployTrigger: off`; promote a
-tested commit manually.  The API's `preDeployCommand` needs a Render plan that
-supports pre-deploy commands.
+The Stage 1 API and static service intentionally use `autoDeployTrigger: off`;
+promote a tested commit manually. The cleanup worker lives in
+`render.integrations.yaml` and is not created in Stage 1. The API's
+`preDeployCommand` needs a Render plan that supports pre-deploy commands.
 
 The static-site response policy is deliberately conservative: `X-Frame-Options`
 is `SAMEORIGIN`, MIME sniffing is disabled, and cross-origin requests receive

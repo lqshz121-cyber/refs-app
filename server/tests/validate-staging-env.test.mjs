@@ -8,7 +8,7 @@ const base={
   CONTEXT_ISSUER_DATABASE_URL:'postgresql://issuer:password@db.example/refs',
   GRANT_SYNC_DATABASE_URL:'postgresql://grants:password@db.example/refs',
   OIDC_ISSUER:'https://issuer.example',OIDC_AUDIENCE:'refs-accounting',OIDC_JWKS_URI:'https://issuer.example/jwks',
-  REFS_HTTP_ALLOWED_ORIGINS:'https://app.staging.example',S3_ENDPOINT:'https://s3.example',S3_BUCKET:'refs',S3_REGION:'us-east-1',S3_ACCESS_KEY_ID:'access',S3_SECRET_ACCESS_KEY:'secret',
+  REFS_HTTP_ALLOWED_ORIGINS:'https://app.staging.example',REFS_ATTACHMENT_MODE:'REQUIRED',REFS_WBS_INGEST_MODE:'REQUIRED',S3_ENDPOINT:'https://s3.example',S3_BUCKET:'refs',S3_REGION:'us-east-1',S3_ACCESS_KEY_ID:'access',S3_SECRET_ACCESS_KEY:'secret',
   VIRUS_SCANNER_ENDPOINT:'https://scanner.example/v1/scan',VIRUS_SCANNER_TOKEN:'scanner-token',VIRUS_SCANNER_CA_FILE:'/run/secrets/scanner-ca.pem',VIRUS_SCANNER_SERVER_NAME:'scanner.example',
   ATTACHMENT_SCANNER_ACTOR_ID:'scanner-service',ATTACHMENT_CLEANUP_ACTOR_ID:'cleanup-service',ATTACHMENT_CLEANUP_SCOPES:'ATTACHMENT.CLEANUP',
   WBS_SNAPSHOT_ED25519_PUBLIC_KEYS:JSON.stringify({'wbs-2026-08':'-----BEGIN PUBLIC KEY-----\nABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\n-----END PUBLIC KEY-----'}),
@@ -24,6 +24,13 @@ test('staging validation accepts API/worker configuration without browser deploy
   assert.equal(result.apiBaseUrl,'https://api.staging.example');assert.equal(result.webOrigin,'https://app.staging.example');assert.equal(result.publicRuntimeConfigured,false);
 });
 
+test('staging validation accepts an explicit Stage 1 core-only deployment',()=>{
+  const stage1={...base,REFS_ATTACHMENT_MODE:'DISABLED',REFS_WBS_INGEST_MODE:'DISABLED'};
+  for(const key of ['S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_CA_FILE','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID','ATTACHMENT_CLEANUP_ACTOR_ID','ATTACHMENT_CLEANUP_SCOPES','WBS_SNAPSHOT_ED25519_PUBLIC_KEYS'])delete stage1[key];
+  const result=validateStagingEnvironment({...stage1,...publicRuntime});
+  assert.equal(result.attachmentMode,'DISABLED');assert.equal(result.wbsIngestMode,'DISABLED');assert.equal(result.publicRuntimeConfigured,true);
+});
+
 test('staging validation accepts a complete aligned public runtime',()=>{
   const result=validateStagingEnvironment({...base,...publicRuntime});
   assert.equal(result.publicRuntimeConfigured,true);
@@ -36,4 +43,6 @@ test('staging validation rejects malformed scope, keyring, incomplete or cross-o
   assert.throws(()=>validateStagingEnvironment({...base,REFS_PUBLIC_ACCOUNTING_API_BASE_URL:'https://api.staging.example'}),/incomplete/);
   assert.throws(()=>validateStagingEnvironment({...base,...publicRuntime,REFS_PUBLIC_ACCOUNTING_API_BASE_URL:'https://other.example'}),/must equal/);
   assert.throws(()=>validateStagingEnvironment({...base,...publicRuntime,REFS_PUBLIC_OIDC_REDIRECT_URI:'https://other.example/callback'}),/must use/);
+  assert.throws(()=>validateStagingEnvironment({...base,REFS_ATTACHMENT_MODE:'DISABLED',REFS_WBS_INGEST_MODE:'AUTO'}),/must be REQUIRED or DISABLED/);
+  assert.throws(()=>validateStagingEnvironment({...base,REFS_ATTACHMENT_MODE:'REQUIRED',S3_ENDPOINT:''}),/attachment integration missing/);
 });

@@ -119,22 +119,25 @@ provider configuration; the provider itself is proved in step 5.
 
 ## 3. Deploy `server/`
 
-Deploy the API service and the attachment cleanup worker from `render.yaml`.
-Both are already declared with `autoDeployTrigger: off`, so the release is
-deliberate.
+Deploy the API service and static client from `render.yaml`. Stage 1 explicitly
+sets `REFS_ATTACHMENT_MODE=DISABLED` and `REFS_WBS_INGEST_MODE=DISABLED`.
+Attachment commands return `503 ATTACHMENT_SERVICE_UNAVAILABLE`; WBS snapshot
+intake rejects every import because no signature verifier is configured. Core
+PostgreSQL/OIDC reads remain available and readiness depends only on the two
+database connections used by the API.
 
-Additional configuration the API needs, all by name only:
+Additional Stage 1 configuration the API needs, all by name only:
 
 - `REFS_HTTP_ALLOWED_ORIGINS` - the exact origin the static client is served
   from. Anything else is refused with a CORS failure.
-- `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`,
-  `S3_SECRET_ACCESS_KEY` - attachment object storage.
-- `VIRUS_SCANNER_ENDPOINT`, `VIRUS_SCANNER_TOKEN`, `VIRUS_SCANNER_CA_FILE`,
-  `VIRUS_SCANNER_SERVER_NAME`, `ATTACHMENT_SCANNER_ACTOR_ID` - attachment
-  scanning.
-- `ATTACHMENT_CLEANUP_ACTOR_ID`, `ATTACHMENT_CLEANUP_SCOPES` - cleanup worker.
-- `WBS_SNAPSHOT_ED25519_PUBLIC_KEYS` - signature keyring for inbound WBS
-  snapshots.
+- `REFS_ATTACHMENT_MODE=DISABLED` - explicit Stage 1 feature boundary.
+- `REFS_WBS_INGEST_MODE=DISABLED` - explicit Stage 1 feature boundary.
+
+Do not create the paid attachment cleanup worker as part of Stage 1. It is
+declared separately in `render.integrations.yaml` and is deployed only after
+provider-backed S3/scanner evidence is accepted. At that later release, change
+the API modes to `REQUIRED` and provide the corresponding storage/scanner/WBS
+keyring variables; startup then fails closed if any required value is absent.
 
 **Verification**
 
