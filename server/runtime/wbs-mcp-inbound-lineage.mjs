@@ -201,10 +201,10 @@ export function mapWbsMcpEnvelopeToInbound({envelope,bankDirectionConventions=nu
     const common=commonRow({tool,accepted,row});
     if(tool==='list_payables'){
       const directionRule=payableRules.get(text(row.ap_type)),rawAmount=money(row.amount),movement=directionRule&&rawAmount!==null?freeze({amount:directionRule.direction==='CREDIT'?Math.abs(rawAmount):-Math.abs(rawAmount),direction:directionRule.direction}):null;
-      const currency=scopedCurrency(accepted,row),businessDate=row.incurred_date||row.posting_date||null,baseAdmission=transactionAdmission({common,amountValue:movement?.amount,currency,dateValue:businessDate,movementRequired:true,movement});
+      const currency=scopedCurrency(accepted,row),businessDate=row.incurred_date||null,baseAdmission=transactionAdmission({common,amountValue:movement?.amount,currency,dateValue:businessDate,movementRequired:true,movement});
       // A Payable Report's posting date is the observed accounting-date
-      // evidence. Incurred date may establish the business date, but must not
-      // silently substitute for a missing/invalid posting date at admission.
+      // evidence. Incurred date independently establishes the business date;
+      // neither date may silently substitute for the other at admission.
       const admission=!isoDate(row.posting_date)?freeze({admission:'EXCEPTION_REVIEW_REQUIRED',exception_code:'WBS_MCP_PAYABLE_POSTING_DATE_REQUIRED',missing:freeze([...new Set([...baseAdmission.missing,'posting_date'])])}):baseAdmission;
       rows.push(freeze({...common,...admission,exception_code:!directionRule?'WBS_MCP_PAYABLE_DIRECTION_CONVENTION_REQUIRED':admission.exception_code,business_date:businessDate,posting_date:row.posting_date||null,amount:movement?.amount??null,direction:movement?.direction??null,currency,payable_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_ref:row.cost_id||null,payable_link:row.ap_long_id||null,payable_source_detail:payableSourceDetailRelation(row),journal_trace:row.journal_no||null,payable_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false}));
     }

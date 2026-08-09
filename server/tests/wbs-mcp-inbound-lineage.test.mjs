@@ -73,6 +73,9 @@ test('transaction candidates require exact company scope and all monetary admiss
   const payableWithoutPosting=envelope('list_payables',[{ap_guid:'A-POSTING',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:'100',incurred_date:'2026-08-01'}]);
   const payableAdmission=mapWbsMcpEnvelopeToInbound({envelope:payableWithoutPosting,payableDirectionConventions:payableDirectionConventions(payableWithoutPosting)}).rows[0];
   assert.deepEqual({admission:payableAdmission.admission,code:payableAdmission.exception_code,missing:payableAdmission.missing},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_PAYABLE_POSTING_DATE_REQUIRED',missing:['posting_date']});
+  const payableWithoutBusinessDate=envelope('list_payables',[{ap_guid:'A-BUSINESS',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:'100',posting_date:'2026-08-01'}]);
+  const payableBusinessAdmission=mapWbsMcpEnvelopeToInbound({envelope:payableWithoutBusinessDate,payableDirectionConventions:payableDirectionConventions(payableWithoutBusinessDate)}).rows[0];
+  assert.deepEqual({admission:payableBusinessAdmission.admission,code:payableBusinessAdmission.exception_code,missing:payableBusinessAdmission.missing,businessDate:payableBusinessAdmission.business_date},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_TRANSACTION_FIELDS_REQUIRED',missing:['business_date'],businessDate:null});
   const bankWithoutPosting=envelope('list_bank_transactions',[{cb_id:'B-POSTING',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-01'}]);
   const bankAdmission=mapWbsMcpEnvelopeToInbound({envelope:bankWithoutPosting,bankDirectionConventions:bankDirectionConventions(bankWithoutPosting)}).rows[0];
   assert.deepEqual({admission:bankAdmission.admission,code:bankAdmission.exception_code,missing:bankAdmission.missing},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_BANK_POSTING_DATE_REQUIRED',missing:['posting_date']});
