@@ -1,5 +1,5 @@
 import {canonicalRequestHash} from './request-hash.mjs';
-import {validateWbsReadEnvelope,WBS_READONLY_ROW_FIELDS} from './wbs-readonly-mcp.mjs';
+import {validateWbsReadEnvelope,WBS_READONLY_ROW_FIELDS,WBS_READONLY_OPTIONAL_TRACE_FIELDS} from './wbs-readonly-mcp.mjs';
 
 // This module is deliberately an admission and lineage layer, not a WBS
 // business-operation adapter.  Its output can be persisted only by the
@@ -235,7 +235,7 @@ export function mapWbsMcpEnvelopeToInbound({envelope,bankDirectionConventions=nu
       rows.push(freeze({...common,admission:'TRACE_EVIDENCE_ONLY',trace_type:'WBS_JOURNAL_LEDGER_EVIDENCE',trace_completeness:traceComplete?'TRACE_COMPLETE':'TRACE_INCOMPLETE',journal_entry_id:row.id,journal_no:row.journal_no||null,posting_date:row.posting_date||null,account_ref:row.account||null,amount:movement?.amount??null,direction:movement?.direction??null,bank_source_ref:row.cb_id||null,payable_ref:row.bill_no||null,project_ref:row.pj_code||row.project||null,cost_ref:row.cost_code||null,source_relation:row.come_from||null,review_status:row.review||null,reviewer:row.reviewer||null,can_create_transaction:false,can_reconcile:false,can_create_draft:false,can_allocate:false,can_post:false}));
     } else rows.push(freeze({...common,admission:'CONTROL_OR_TRACE_ONLY',fields:freeze(structuredClone(row))}));
   }
-  return freeze({tool_name:tool,required_fields:WBS_READONLY_ROW_FIELDS[tool]??freeze([]),rows:freeze(rows),receipt_required_for_persistence:true,can_create_draft:false,can_allocate:false,can_post:false});
+  return freeze({tool_name:tool,required_fields:WBS_READONLY_ROW_FIELDS[tool]??freeze([]),optional_trace_fields:WBS_READONLY_OPTIONAL_TRACE_FIELDS[tool]??freeze([]),rows:freeze(rows),receipt_required_for_persistence:true,can_create_draft:false,can_allocate:false,can_post:false});
 }
 
 // Trace rows are retained only as keyed relationship evidence. They cannot

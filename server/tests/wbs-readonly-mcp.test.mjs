@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {createReadOnlyWbsMcpClient,validateWbsReadEnvelope,WbsMcpError,WBS_MCP_PILOT_LIMIT,WBS_MCP_PROTOCOL_VERSION,WBS_READONLY_ROW_FIELDS,WBS_READONLY_TOOLS} from '../runtime/wbs-readonly-mcp.mjs';
+import {createReadOnlyWbsMcpClient,validateWbsReadEnvelope,WbsMcpError,WBS_MCP_PILOT_LIMIT,WBS_MCP_PROTOCOL_VERSION,WBS_READONLY_ROW_FIELDS,WBS_READONLY_OPTIONAL_TRACE_FIELDS,WBS_READONLY_TOOLS} from '../runtime/wbs-readonly-mcp.mjs';
 
 const endpoint='https://refs-mcp.wbm3.com/mcp';
 const auth=async()=>({'CF-Access-Client-Id':'test-client-id','CF-Access-Client-Secret':'test-client-secret','X-REFS-Auth':'test-refs-auth'});
@@ -108,7 +108,7 @@ test('data reads enforce the local allowlist and published argument schema, then
 
 test('formal provider envelope validates stable string keys, integer journal ids, nullable ETL notice and canonical hash',()=>{
   assert.deepEqual(WBS_READONLY_TOOLS,['get_meta','list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
-  assert(WBS_READONLY_ROW_FIELDS.list_payables.includes('ap_guid'));assert(WBS_READONLY_ROW_FIELDS.list_journal_entries.includes('id'));assert(WBS_READONLY_ROW_FIELDS.list_control_totals.includes('total_balance'));
+  assert(WBS_READONLY_ROW_FIELDS.list_payables.includes('ap_guid'));assert(WBS_READONLY_ROW_FIELDS.list_journal_entries.includes('id'));assert(WBS_READONLY_ROW_FIELDS.list_control_totals.includes('total_balance'));assert.deepEqual(WBS_READONLY_OPTIONAL_TRACE_FIELDS.list_payables,['source_detail_source','source_detail_type','source_detail_come_from']);
   const envelope=readEnvelope();
   const accepted=validateWbsReadEnvelope({toolName:'list_payables',envelope});assert.equal(accepted.requires_snapshot_diff,true);assert.equal(accepted.has_revision_contract,false);assert.equal(accepted.etl_notice,null);
   const journal=readEnvelope({tool:'list_journal_entries',rows:[{id:7,currency:'USD'}],etl_notice:'Snapshot comparison required'});

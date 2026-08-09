@@ -15,6 +15,13 @@ export const WBS_READONLY_ROW_FIELDS=Object.freeze({
   list_journal_entries:Object.freeze(['account','bill_no','cb_id','closed','come_from','company','cost_code','debtor','id','journal_no','lender','pj_code','posting_date','project','reverse','review','reviewer','set_date','sys_id']),
   list_control_totals:Object.freeze(['cell_count','company','formula','period','quality','total_balance','total_credit','total_debit'])
 });
+// These fields preserve a page-level WBS drill-down only after a provider
+// includes them in the signed row. They are intentionally not admission
+// fields: losing a display route must not force an importer to invent it, and
+// having one must not make it a transaction, matching, or posting key.
+export const WBS_READONLY_OPTIONAL_TRACE_FIELDS=Object.freeze({
+  list_payables:Object.freeze(['source_detail_source','source_detail_type','source_detail_come_from'])
+});
 
 export class WbsMcpError extends Error {
   constructor(code,message){super(message);this.name='WbsMcpError';this.code=code;}
