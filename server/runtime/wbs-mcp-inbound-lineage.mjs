@@ -280,8 +280,8 @@ export function buildWbsAutoRecDetailCaseBinding({detailEnvelope,bankEnvelope,tr
   if(matches.length!==1)throw new WbsMcpLineageError('WBS_MCP_AUTOREC_CASE_RELATION_REQUIRED','Exactly one approved immutable pd_guid to pb_guid relation is required for an AutoRec Detail case binding.');
   const relation=matches[0],bankRow=bank.rows.find(row=>text(row.pb_guid)===relation.related.key_value),bankAccountRef=text(bankRow?.ah_id);
   if(!bankRow||!bankAccountRef)throw new WbsMcpLineageError('WBS_MCP_AUTOREC_CASE_BANK_REQUIRED','The related immutable AutoRec case must have one receipt-bound bank account reference.');
-  const relationTrace=freeze({relation_id:relation.relation_id,relation_type:relation.relation_type,pd_guid:pdGuid,pb_guid:relation.related.key_value,relation_receipt_hash:evidence.receipt_hash,detail_content_hash:`sha256:${detail.content_sha256}`,case_control_content_hash:`sha256:${bank.content_sha256}`,policy_id:text(policy.policy_id),policy_version:text(policy.version),policy_snapshot_hash:text(policy.snapshot_hash),provider_snapshot_token:snapshotToken});
-  return freeze({pd_guid:pdGuid,pb_guid:relation.related.key_value,bank_account_ref:bankAccountRef,relation_trace:relationTrace,relation_trace_hash:hash(relationTrace),can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});
+  const relationTrace=freeze({relation_id:relation.relation_id,relation_type:relation.relation_type,pd_guid:pdGuid,pb_guid:relation.related.key_value,bank_account_ref:bankAccountRef,relation_receipt_hash:evidence.receipt_hash,detail_content_hash:`sha256:${detail.content_sha256}`,case_control_content_hash:`sha256:${bank.content_sha256}`,policy_id:text(policy.policy_id),policy_version:text(policy.version),policy_snapshot_hash:text(policy.snapshot_hash),provider_snapshot_token_hash:hash({snapshot_token:snapshotToken})});
+  return freeze({pd_guid:pdGuid,pb_guid:relation.related.key_value,bank_account_ref:bankAccountRef,provider_snapshot_token:snapshotToken,relation_trace:relationTrace,relation_trace_hash:hash(relationTrace),can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});
 }
 
 const snapshotView=Object.freeze({list_payables:'BGDATA.payable',list_bank_transactions:'BGDATA.bank_transaction',list_autorec_details:'BGDATA.autoc_detail'});
@@ -347,7 +347,7 @@ export function buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVers
     if(!Array.isArray(autoRecDetailCaseBindings))throw new WbsMcpLineageError('WBS_MCP_AUTOREC_CASE_BINDING_INVALID','AutoRec Detail case bindings must be an array.');
     for(const binding of autoRecDetailCaseBindings){
       const pdGuid=text(binding?.pd_guid),pbGuid=text(binding?.pb_guid),bankAccountRef=text(binding?.bank_account_ref),trace=binding?.relation_trace;
-      if(!pdGuid||!pbGuid||!bankAccountRef||!trace||text(trace.pd_guid)!==pdGuid||text(trace.pb_guid)!==pbGuid||text(trace.provider_snapshot_token)!==providerSnapshotToken||!/^sha256:[0-9a-f]{64}$/.test(text(binding?.relation_trace_hash))||text(binding.relation_trace_hash)!==hash(trace)||bindings.has(pdGuid))throw new WbsMcpLineageError('WBS_MCP_AUTOREC_CASE_BINDING_INVALID','Every AutoRec Detail case binding requires one immutable detail, case, bank, snapshot-token, and relation hash trace.');
+      if(!pdGuid||!pbGuid||!bankAccountRef||!trace||text(trace.pd_guid)!==pdGuid||text(trace.pb_guid)!==pbGuid||text(binding?.provider_snapshot_token)!==providerSnapshotToken||text(trace.provider_snapshot_token_hash)!==hash({snapshot_token:providerSnapshotToken})||!/^sha256:[0-9a-f]{64}$/.test(text(binding?.relation_trace_hash))||text(binding.relation_trace_hash)!==hash(trace)||bindings.has(pdGuid))throw new WbsMcpLineageError('WBS_MCP_AUTOREC_CASE_BINDING_INVALID','Every AutoRec Detail case binding requires one immutable detail, case, bank, snapshot-token, and relation hash trace.');
       bindings.set(pdGuid,binding);
     }
   }

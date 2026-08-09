@@ -55,6 +55,17 @@ test('projects reviewed persisted bank and business rows into read-only AutoRec 
   const candidate=result.candidates.find(row=>row.side==='BANK_SIDE'),payableCandidate=result.candidates.find(row=>row.side==='BUSINESS_SIDE');assert.equal(candidate.trace.receipt_hash,bank.receipt_hash);assert.equal(candidate.trace.raw_event_id,'raw-bank');assert.equal(candidate.trace.mapping_snapshot_hash,mapping(bank).snapshot_hash);assert.equal(candidate.mapping.mapping_id,'map-bank-1');assert.equal(candidate.can_allocate,false);assert.deepEqual({bank:payableCandidate.bank_account_ref,mapping:payableCandidate.mapping.bank_account_ref,trace:payableCandidate.trace.mapping_bank_account_ref,effective:payableCandidate.trace.mapping_effective_from},{bank:'BANK-OP',mapping:'BANK-OP',trace:'BANK-OP',effective:'2026-01-01T00:00:00.000Z'});
 });
 
+test('AutoRec Detail projection requires the exact receipt-bound case relation and its mapped bank account',()=>{
+  const detail={...payable,source_type:'AUTOREC_PAYMENT_DETAIL',source_record_id:'pd-1',source_version:'v2',raw_event_id:'raw-pd',source_document_id:'doc-pd',staging_item_id:'stg-pd'};
+  const binding={relation_id:'relation-1',relation_type:'DETAIL_TO_CASE',pd_guid:'pd-1',pb_guid:'pb-1',bank_account_ref:'BANK-OP',relation_receipt_hash:'sha256:'+'b'.repeat(64),detail_content_hash:'sha256:'+'c'.repeat(64),case_control_content_hash:'sha256:'+'d'.repeat(64),policy_id:'detail-case-policy',policy_version:'1',policy_snapshot_hash:'sha256:'+'e'.repeat(64),provider_snapshot_token_hash:'sha256:'+'f'.repeat(64)};
+  const external_trace={auto_rec_case_binding:binding},accepted=projectPersistedWbsInboundAutoRec({rows:[{...detail,external_trace,external_trace_hash:canonicalRequestHash(external_trace)}],mappings:[mapping(detail)]});
+  assert.equal(accepted.candidates.length,1);assert.equal(accepted.candidates[0].auto_rec_case_binding.pb_guid,'pb-1');assert.equal(accepted.candidates[0].trace.auto_rec_case_binding.bank_account_ref,'BANK-OP');assert.equal(accepted.candidates[0].can_post,false);
+  const missing=projectPersistedWbsInboundAutoRec({rows:[detail],mappings:[mapping(detail)]});
+  assert.equal(missing.candidates.length,0);assert.equal(missing.exceptions[0].code,'WBS_AUTOREC_DETAIL_CASE_BINDING_REQUIRED');
+  const mismatchTrace={auto_rec_case_binding:{...binding,bank_account_ref:'BANK-OTHER'}},mismatch=projectPersistedWbsInboundAutoRec({rows:[{...detail,external_trace:mismatchTrace,external_trace_hash:canonicalRequestHash(mismatchTrace)}],mappings:[mapping(detail)]});
+  assert.equal(mismatch.candidates.length,0);assert.equal(mismatch.exceptions[0].code,'WBS_AUTOREC_DETAIL_CASE_BINDING_REQUIRED');
+});
+
 test('persisted exceptions and incomplete source, receipt, mapping, or scope facts stay blocked',()=>{
   const missingReceipt={...bank,receipt_ref:''},missingDate={...payable,business_date:''},persisted={...payable,stage:'EXCEPTION',exception_code:'WBS_RECEIPT_FIELD_MISSING'};
   const result=projectPersistedWbsInboundAutoRec({rows:[missingReceipt,missingDate,persisted,{...bank,company_key:'COMPANY-B'}],mappings:[mapping(bank),mapping(payable)]});
