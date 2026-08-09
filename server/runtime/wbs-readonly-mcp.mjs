@@ -6,6 +6,7 @@ export const WBS_MCP_PROTOCOL_VERSION='2025-06-18';
 export const WBS_READONLY_TOOLS=Object.freeze(['get_meta','list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
 export const WBS_MCP_PILOT_LIMIT=10;
 export const WBS_MCP_MAX_CONCURRENCY=2;
+const WBS_CURSOR_READ_TOOLS=new Set(['list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
 export const WBS_READONLY_ROW_FIELDS=Object.freeze({
   list_payables:Object.freeze(['amount','ap_guid','ap_long_id','ap_type','business_status','cb_id','check_date','check_no','clear_date','company_code','company_name','cost_id','cost_ledger_id','description','incurred_date','journal_no','pay_status','pay_type','pj_code','pj_name','posting_date','project_guid','review_status','vendor_name','vendor_no']),
   list_bank_transactions:Object.freeze(['account_code','cb_id','child_come_from','child_count','come_from','company_code','debtor','description','lender','payee','payee_no','posting_date','review','set_date','statistical_business','sys_id','turn_flag']),
@@ -141,6 +142,15 @@ export function createReadOnlyWbsMcpClient({endpoint,getAuthHeaders,allowedReadT
       tools=result.tools.map(toolMetadata);
       const names=tools.map(tool=>tool.name).sort();
       if(JSON.stringify(names)!==JSON.stringify([...WBS_READONLY_TOOLS].sort())||tools.some(tool=>!tool.readOnly||tool.destructive||!tool.idempotent))throw new WbsMcpError('WBS_MCP_TOOL_CATALOG_INVALID','WBS MCP tool catalog is not the exact read-only idempotent contract.');
+      // REFS never accepts a first page as a final control/trace population.
+      // Every data view must therefore advertise the opaque token that REFS
+      // echoes on cursor reads; otherwise a provider could return page one but
+      // reject the safe completion request after a partial view was accepted.
+      if(tools.some(tool=>{
+        if(!WBS_CURSOR_READ_TOOLS.has(tool.name))return false;
+        const properties=plainObject(tool.inputSchema?.properties)?tool.inputSchema.properties:{};
+        return !plainObject(properties.cursor)||properties.cursor.type!=='string'||!plainObject(properties.snapshot_token)||properties.snapshot_token.type!=='string';
+      }))throw new WbsMcpError('WBS_MCP_TOOL_CATALOG_INVALID','Every WBS cursor-readable tool must publish string cursor and snapshot_token arguments.');
       return tools.map(tool=>({...tool}));
     },
     async readView({toolName,args}={}){

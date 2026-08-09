@@ -9,13 +9,13 @@ const json=(body,{status=200,headers={}}={})=>new Response(JSON.stringify(body),
 const eventStream=(events,{status=200,headers={}}={})=>new Response(events.map(event=>`event: message\ndata: ${JSON.stringify(event)}\n\n`).join(''),{status,headers:{'content-type':'text/event-stream',...headers}});
 const schemas=Object.freeze({
   get_meta:{type:'object',properties:{},additionalProperties:false},
-  list_payables:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'}},additionalProperties:false},
-  list_bank_transactions:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'}},additionalProperties:false},
-  list_autorec_details:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'}},additionalProperties:false},
-  list_autorec_banks:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'}},additionalProperties:false},
-  list_journal_entries:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'}},additionalProperties:false},
-  list_control_totals:{type:'object',properties:{company_code:{type:'string'},period:{type:'string'},limit:{type:'integer'},cursor:{type:'string'}},additionalProperties:false},
-  trace_by_key:{type:'object',properties:{key_type:{type:'string'},key_value:{type:'string'}},additionalProperties:false}
+  list_payables:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false},
+  list_bank_transactions:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false},
+  list_autorec_details:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false},
+  list_autorec_banks:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false},
+  list_journal_entries:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false},
+  list_control_totals:{type:'object',properties:{company_code:{type:'string'},period:{type:'string'},limit:{type:'integer'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false},
+  trace_by_key:{type:'object',properties:{key_type:{type:'string'},key_value:{type:'string'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false}
 });
 const descriptor=(name,overrides={})=>({name,description:`Read-only ${name}`,annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true},inputSchema:schemas[name],...overrides});
 const toolCatalog=(replace={})=>WBS_READONLY_TOOLS.map(name=>replace[name]??descriptor(name));
@@ -79,7 +79,8 @@ test('tool catalog fails closed when a tool is missing, extra, destructive, non-
     [...toolCatalog(),descriptor('unexpected_tool')],
     toolCatalog({list_payables:descriptor('list_payables',{annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true}})}),
     toolCatalog({list_payables:descriptor('list_payables',{annotations:{readOnlyHint:true,destructiveHint:true,idempotentHint:true}})}),
-    toolCatalog({list_payables:descriptor('list_payables',{annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:false}})})
+    toolCatalog({list_payables:descriptor('list_payables',{annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:false}})}),
+    toolCatalog({list_payables:descriptor('list_payables',{inputSchema:{type:'object',properties:{company_code:{type:'string'},cursor:{type:'string'}},additionalProperties:false}})})
   ];
   for(const catalog of invalidCatalogs){
     const client=createReadOnlyWbsMcpClient({endpoint,getAuthHeaders:auth,fetcher:rpcFetcher({catalog})});
