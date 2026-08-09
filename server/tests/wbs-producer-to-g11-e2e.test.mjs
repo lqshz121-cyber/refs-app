@@ -1,28 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
+import {createHash,generateKeyPairSync,sign} from 'node:crypto';
 import {canonicalRequestBody} from '../runtime/request-hash.mjs';
 import {buildWbsMcpReadonlySnapshot} from '../runtime/wbs-mcp-inbound-lineage.mjs';
-import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,createWbsInboundDataAdapter,validateWbsAutoRecG11PostedTrace} from '../runtime/wbs-inbound-data-adapter.mjs';
+import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,createWbsInboundDataAdapterWithKeyring,validateWbsAutoRecG11PostedTrace} from '../runtime/wbs-inbound-data-adapter.mjs';
 
 const hash=rows=>createHash('sha256').update(canonicalRequestBody(rows),'utf8').digest('hex');
 const envelope=(tool,rows)=>({tool,contract_version:'1',environment:'production',captured_at:'2026-08-10T00:00:00.000Z',source:{provider:'WBS'},scope:{company:'COMPANY-A',currency:'USD',snapshot_token:'wbs-snapshot-1'},rows,record_count:rows.length,content_sha256:hash(rows),cursor_next:null,etl_notice:null});
 const ruleReceipt=body=>({hash:`sha256:${body.content_sha256}`,ref:'object://wbs/rule',version:'1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'Ed25519',verified_on:'2026-08-10T00:00:00.000Z'});
 const reader=value=>({readOnly:true,readSnapshot:async()=>structuredClone(value)});
 
-test('receipt-backed Payable and Bank inputs reach one review/Draft/G11 proof while an unlinked AutoRec detail stays quarantined',async()=>{
+test('signed producer snapshot reaches review/Draft/G11 proof while an unlinked AutoRec detail stays quarantined',async()=>{
   const payableEnvelope=envelope('list_payables',[{ap_guid:'11111111-1111-4111-8111-111111111111',ap_type:'AUTOC',bank_account_ref:'BANK-1',company_code:'COMPANY-A',currency:'USD',amount:'100.0000',incurred_date:'2026-08-09',posting_date:'2026-08-09',vendor_no:'VENDOR-1',project_guid:'PROJECT-1',cost_id:'COST-1'}]);
   const bankEnvelope=envelope('list_bank_transactions',[{bank_transaction_id:'22222222-2222-4222-8222-222222222222',cb_id:'RELATION-ONLY',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:'0.0000',lender:'100.0000',set_date:'2026-08-09',posting_date:'2026-08-09',payee_no:'VENDOR-1'}]);
   const detailEnvelope=envelope('list_autorec_details',[{pd_guid:'33333333-3333-4333-8333-333333333333',pd_pv_guid:'RELATION-ONLY',cb_id:'RELATION-ONLY',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:'0.0000',payment:'100.0000',incurred_date:'2026-08-09',posting_date:'2026-08-09',vendor_no:'VENDOR-1',project_guid:'PROJECT-1',cost_code:'COST-1'}]);
   const payableRules=[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:ruleReceipt(payableEnvelope),rule_id:'payable-dr',version:'1',ap_type:'AUTOC',direction:'DEBIT'}];
   const bankRules=[{scope:{company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1'},receipt:ruleReceipt(bankEnvelope),rule_id:'bank-cr',version:'1',lender_direction:'CREDIT',debtor_direction:'DEBIT'}];
   const detailRules=[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:ruleReceipt(detailEnvelope),rule_id:'detail-dr',version:'1',biz_type:'WB',deposit_direction:'CREDIT',payment_direction:'DEBIT',business_date_field:'incurred_date'}];
-  const snapshot=buildWbsMcpReadonlySnapshot({
+  const pair=generateKeyPairSync('ed25519'),keyId='wbs-e2e-k1',delivery={mode:'SIGNED_SNAPSHOT_PACKAGE',snapshot_token:'wbs-snapshot-1',extract_started_at:'2026-08-10T00:00:00.000Z',extract_completed_at:'2026-08-10T00:00:00.000Z',consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'};
+  const unsigned=buildWbsMcpReadonlySnapshot({
     snapshotId:'11111111-1111-4111-8111-111111111111',dictionaryVersion:'WBS-2026-08',
     envelopes:[payableEnvelope,bankEnvelope,detailEnvelope],
-    bankDirectionConventions:bankRules,payableDirectionConventions:payableRules,autoRecDetailDirectionConventions:detailRules
+    environment:'PRODUCTION',delivery,detachedSignature:{key_id:keyId,algorithm:'Ed25519',value:'placeholder'},bankDirectionConventions:bankRules,payableDirectionConventions:payableRules,autoRecDetailDirectionConventions:detailRules
   });
-  const prepared=await createWbsInboundDataAdapter({snapshotReader:reader(snapshot)}).pull();
+  const snapshot={...unsigned,detached_signature:{...unsigned.detached_signature,value:sign(null,Buffer.from(unsigned.package_hash),pair.privateKey).toString('base64')}};
+  const prepared=await createWbsInboundDataAdapterWithKeyring({snapshotReader:reader(snapshot),wbsPublicKeys:{[keyId]:pair.publicKey.export({type:'spki',format:'pem'})}}).pull();
   assert.equal(prepared.staging.length,2);assert.equal(prepared.exceptions.length,1);
   assert.equal(prepared.exceptions[0].raw_trace.source_type,'AUTOREC_PAYMENT_DETAIL');
   assert.equal(prepared.exceptions[0].exception.code,'WBS_RECEIPT_FIELD_MISSING');
