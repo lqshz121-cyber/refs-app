@@ -1,5 +1,5 @@
 import {createServer} from 'node:http';
-import {WbsReadContractError,assertWbsReadOnlyResult,parseWbsAutoRecReviewSelection} from './wbs-read-contract.mjs';
+import {WbsReadContractError,assertWbsControlReadOnlyResult,assertWbsReadOnlyResult,parseWbsAutoRecReviewSelection,parseWbsControlReconciliationSelection} from './wbs-read-contract.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const FORBIDDEN_BODY_KEYS=new Set(['actor','actorId','actor_id','tenantId','tenant_id','entityId','entity_id','requestHash','request_hash']);
@@ -91,6 +91,16 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const service=await wbsReadServiceFactory(principal);
         if(!service||typeof service.readAutoRecReview!=='function')throw new AccountingApiError(503,'WBS_READ_SERVICE_UNAVAILABLE','WBS read service is unavailable');
         result=assertWbsReadOnlyResult(await service.readAutoRecReview({tenantId:principal.tenantId,entityId,companyKey:selection.companyKey,sourceRecordIds:selection.sourceRecordIds}));
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='control-reconciliation'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        if(typeof wbsReadServiceFactory!=='function')throw new AccountingApiError(503,'WBS_READ_SERVICE_UNAVAILABLE','WBS read service is unavailable');
+        const selection=parseWbsControlReconciliationSelection(parsedUrl.searchParams);
+        const service=await wbsReadServiceFactory(principal);
+        if(!service||typeof service.readControlReconciliation!=='function')throw new AccountingApiError(503,'WBS_READ_SERVICE_UNAVAILABLE','WBS read service is unavailable');
+        result=assertWbsControlReadOnlyResult(await service.readControlReconciliation({tenantId:principal.tenantId,entityId,sourceType:selection.sourceType,scope:selection.scope}));
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&['ap','ar'].includes(parts[4])&&parts[5]==='adjustments'){

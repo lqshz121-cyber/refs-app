@@ -80,6 +80,17 @@ test('WBS AutoRec review refuses unavailable services and any result that could 
   const rejected=await unsafe({method:'GET',url:path,body:null,headers:{}});assert.equal(rejected.status,503);assert.equal(rejected.body.code,'WBS_READ_RESULT_INVALID');
 });
 
+test('WBS Cost GL and Property controls are authenticated evidence-only reads with exact scopes',async()=>{
+  const calls=[];const controlApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-reader'}),kernelFactory:async()=>kernel,wbsReadServiceFactory:async()=>({readControlReconciliation:async input=>{calls.push(input);return {status:'READ_ONLY_CONTROL_RECONCILED',reconciliation:{status:'RECONCILED'},can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false};}})});
+  const cost=`/api/v1/entities/${entityId}/wbs/control-reconciliation?sourceType=COST_GENERAL_LEDGER&companyKey=COMPANY-A&period=2026-08&currency=USD`;
+  const property=`/api/v1/entities/${entityId}/wbs/control-reconciliation?sourceType=PROPERTY_COMPARISON&companyKey=COMPANY-A&propertyRef=PROPERTY-A&periodStart=2026-08-01&periodEnd=2026-08-31&currency=USD&bankAccountRef=BANK-1`;
+  assert.equal((await controlApi({method:'GET',url:cost,body:null,headers:{}})).status,200);assert.deepEqual(calls[0],{tenantId,entityId,sourceType:'COST_GENERAL_LEDGER',scope:{company_key:'COMPANY-A',period:'2026-08',currency:'USD'}});
+  assert.equal((await controlApi({method:'GET',url:property,body:null,headers:{}})).status,200);assert.equal(calls[1].scope.property_ref,'PROPERTY-A');
+  assert.equal((await controlApi({method:'GET',url:cost+'&bankAccountRef=BANK-1',body:null,headers:{}})).status,400);
+  assert.equal((await controlApi({method:'GET',url:cost.replace('currency=USD','currency=usd'),body:null,headers:{}})).status,400);
+  assert.equal((await controlApi({method:'GET',url:property.replace('2026-08-31','2026-02-30'),body:null,headers:{}})).status,400);
+});
+
 test('AP Payment route creates only Draft occurrence and pending allocation from trusted scope',async()=>{
   calls.length=0;const billId=randomUUID();const body={periodId,paymentNumber:'APPAY-1',paymentDate:'2026-08-02',cashAccountCode:'100100',bankMemberRef:'BANK-1',amount:40,reason:'Pay vendor bill'};
   const response=await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/payments`,body);

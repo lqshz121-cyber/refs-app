@@ -1,5 +1,6 @@
 import {canonicalRequestHash} from './request-hash.mjs';
 import {createPostgresWbsInboundAutoRecReader} from './wbs-inbound-autorec-postgres-reader.mjs';
+import {createPostgresWbsControlReconciliationReader} from './wbs-control-reconciliation-postgres-reader.mjs';
 
 const freeze=value=>Object.freeze(value);
 
@@ -9,10 +10,15 @@ const freeze=value=>Object.freeze(value);
 // command is reachable from this service.
 export function createWbsInboundAutoRecHttpReadService({kernel}={}){
   const reader=createPostgresWbsInboundAutoRecReader({kernel});
+  const controlReader=createPostgresWbsControlReconciliationReader({kernel});
   return freeze({
     async readAutoRecReview({tenantId,entityId,companyKey,sourceRecordIds}={}){
       const replayKey=canonicalRequestHash({tenantId,entityId,companyKey,sourceRecordIds});
       return reader.read({tenantId,entityId,companyKey,sourceRecordIds,replayKey});
+    },
+    async readControlReconciliation({tenantId,entityId,sourceType,scope}={}){
+      const replayKey=canonicalRequestHash({tenantId,entityId,sourceType,scope});
+      return controlReader.read({tenantId,entityId,sourceType,scope:{...scope,tenant_id:tenantId,entity_id:entityId},replayKey});
     }
   });
 }

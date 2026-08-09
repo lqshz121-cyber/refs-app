@@ -55,6 +55,15 @@ test('WBS AutoRec review is a bounded authenticated read with no accounting acti
   assert.equal(operation.responses['200'].$ref,'#/components/responses/ReadOk');assert.match(operation.description,/never writes WBS, matches transactions, creates a Draft, approves, posts/i);
 });
 
+test('WBS Cost GL and Property controls are authenticated evidence-only reads',()=>{
+  const operation=contract.paths['/entities/{entityId}/wbs/control-reconciliation'].get;
+  assert.equal(operation.operationId,'getWbsControlReconciliation');
+  assert.deepEqual(operation.parameters.slice(1).map(parameter=>parameter.name),['sourceType','companyKey','period','propertyRef','periodStart','periodEnd','currency','bankAccountRef']);
+  assert.deepEqual(operation.parameters[1].schema.enum,['COST_GENERAL_LEDGER','PROPERTY_COMPARISON']);
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/ReadOk');
+  assert.match(operation.description,/never writes WBS, creates a transaction or allocation, creates a Draft, approves, or posts/i);
+});
+
 test('AP and AR aging are no-store authenticated GETs with a required as-of date',()=>{
   for(const [path,operationId] of [['/entities/{entityId}/ap/aging','getApAging'],['/entities/{entityId}/ar/aging','getArAging']]){
     const operation=contract.paths[path].get;
