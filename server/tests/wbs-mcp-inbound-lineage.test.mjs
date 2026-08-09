@@ -82,6 +82,12 @@ test('AutoRec Detail requires exactly one nonzero Deposit or Payment before it c
   ]);
 });
 
+test('AutoRec Detail control-character status codes are quarantined before a review candidate is formed',()=>{
+  const detailEnvelope=envelope('list_autorec_details',[{pd_guid:'D-STATUS',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:'0',payment:'100',clear_date:'2026-08-01',posting_date:'2026-08-01',status:'\u0000'}]);
+  const mapped=mapWbsMcpEnvelopeToInbound({envelope:detailEnvelope,autoRecDetailDirectionConventions:detailDirectionConventions(detailEnvelope)}).rows[0];
+  assert.deepEqual({admission:mapped.admission,code:mapped.exception_code,post:mapped.can_post},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_AUTOREC_STATUS_CODE_INVALID',post:false});
+});
+
 test('AutoRec Detail business date is receipt-bound and never falls back between Incurred and Clear Date',()=>{
   const detailEnvelope=envelope('list_autorec_details',[{pd_guid:'D-DATE',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:'0',payment:'100',clear_date:'2026-08-02',posting_date:'2026-08-03'}]);
   const convention=detailDirectionConventions(detailEnvelope);

@@ -189,6 +189,21 @@ zero/zero or both-nonzero row. `pd_owner_company_code` is not populated on all
 Detail rows and cannot replace a signed company scope; there is also no
 observed currency column in the table.
 
+The 2026-08-10 recheck measured 230,154 payment-only, 33,132 deposit-only,
+zero both-nonzero, and 73 zero/zero Detail rows. This supports the existing
+direction gate but is not a provider debit/credit convention: REFS still
+requires a signed direction rule and quarantines the 73 ambiguous rows.
+
+The same recheck found that 219 of 220 PB control rows have all three M/R/C
+month fields, while all 220 carry Pay/Released/Incurred amount fields. The
+missing M/R/C row remains a scoped control exception; it must not become a
+zero period or a global block for another company. For joined Detail/PB rows,
+the currently observed `PB_Status` value was `N`, while Detail status values
+included `I`, `R`, `RR`, `IR`, `P`, blank, and a control-character value. This
+is an observed code distribution only. The values have no VERIFIED transition
+meaning, and control-character status values must be quarantined rather than
+normalized into a REFS state.
+
 PB control rows have non-null Pay Amount, but some observed Released/Incurred
 absolute values exceed absolute Pay Amount. That disproves a simple per-row
 `abs(released|incurred) <= abs(pay_amount)` conservation rule. M/R/C months
