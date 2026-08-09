@@ -69,6 +69,9 @@ test('AutoRec Bank control pull requires an exact provider formula and stays evi
   const pagedResult=await paged.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:pagedAttestation});
   assert.equal(pagedResult.evidence.control_totals.pay_amount,120);
   assert.deepEqual(calls,[{toolName:'list_autorec_banks',args:{company:'COMPANY-A'}},{toolName:'list_autorec_banks',args:{company:'COMPANY-A',cursor:'cursor-2',snapshot_token:'control-snapshot-1'}}]);
+  const mismatchedPage={...second,scope:{...second.scope,snapshot_token:'control-snapshot-other'}};
+  const mismatched=createWbsMcpInboundService({client:{readView:async request=>structuredClone(request.args.cursor?mismatchedPage:first)}});
+  await assert.rejects(()=>mismatched.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:pagedAttestation}),error=>error.code==='WBS_MCP_PAGINATION_SNAPSHOT_MISMATCH');
 });
 
 test('reverse trace lookup permits only a persisted immutable producer key and stays relation evidence',async()=>{
