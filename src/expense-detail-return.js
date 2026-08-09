@@ -12,5 +12,14 @@ export function localExpenseDetailReturnScope(scope = {}) {
     vendorId:scope.vendorId || 'ALL',
     categoryCode:scope.categoryCode || 'ALL',
     billQueueView:scope.billQueueView || 'For review',
+    expensePage:Math.max(0, Number(scope.expensePage) || 0),
   });
+}
+
+export function localExpenseDetailReturnScopeLabel(scope = {}) {
+  const retained = localExpenseDetailReturnScope(scope);
+  const date = retained.dateRange === 'CUSTOM'
+    ? `${retained.fromDate || 'Any start'} to ${retained.toDate || 'Any end'}`
+    : retained.dateRange.replaceAll('_', ' ').toLowerCase();
+  return `Return scope: ${retained.billQueueView} / ${retained.statusFilter === 'ALL' ? 'All statuses' : retained.statusFilter} / ${date} / Page ${retained.expensePage + 1}`;
 }

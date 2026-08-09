@@ -17,7 +17,7 @@ export const apAgingDocuments=bills=>bills.filter(b=>['APPROVED','PAYMENT_PENDIN
 import { localVendorCreditEvidence } from './vendor-credit-evidence.js';
 import { LOCAL_AGING_BUCKETS, localApAgingEvidenceRows, localAgingControl, localAgingGlReconciliation, localAgingControlDifferenceEvidence } from './aging-local-evidence.js';
 import { localExpenseReviewExceptions } from './expense-review-exceptions.js';
-import { localExpenseDetailReturnScope } from './expense-detail-return.js';
+import { localExpenseDetailReturnScope, localExpenseDetailReturnScopeLabel } from './expense-detail-return.js';
 import { localReportReturnScopeLabel } from './report-return-context.js';
 import { localPaymentReportDrillContext } from './payment-return-context.js';
 import { localApAgingReturnContext, localApAgingReturnScopeLabel } from './ap-aging-return-context.js';
@@ -47,6 +47,7 @@ export function APWorkspace({ctx}) {
   const [vendorId, setVendorId] = useState('ALL');
   const [categoryCode, setCategoryCode] = useState('ALL');
   const [billQueueView, setBillQueueView] = useState('For review');
+  const [expensePage, setExpensePage] = useState(0);
   const [shellPanel, setShellPanel] = useState(null);
   const bankTransactions = Object.entries(bank?.accounts || {}).flatMap(([bank_account_code, account]) => (account.txns || []).map(transaction => ({...transaction, bank_account_code})));
   const bills = ap.bills.map(bill => ({...bill,paymentEvidence:localBillPaymentEvidence(bill,jes || [],bankTransactions),voidEvidence:localBillVoidEvidence(bill,jes || [],bankTransactions)}));
@@ -75,10 +76,10 @@ export function APWorkspace({ctx}) {
   ].filter(column=>DEFAULT_EXPENSE_COLUMNS[column.key]);
   const open = bills.filter(b=>!['PAID','VOID'].includes(b.status));
   const bill = bills.find(b=>b.bill_id===sel);
-  const captureDetailScope = () => setDetailReturnScope(current => current || localExpenseDetailReturnScope({tab,query,statusFilter,transactionType,dateRange,fromDate,toDate,vendorId,categoryCode,billQueueView}));
+  const captureDetailScope = () => setDetailReturnScope(current => current || localExpenseDetailReturnScope({tab,query,statusFilter,transactionType,dateRange,fromDate,toDate,vendorId,categoryCode,billQueueView,expensePage}));
   const restoreDetailScope = () => {
     if (!detailReturnScope) return;
-    setTab(detailReturnScope.tab); setQuery(detailReturnScope.query); setStatusFilter(detailReturnScope.statusFilter); setTransactionType(detailReturnScope.transactionType); setDateRange(detailReturnScope.dateRange); setFromDate(detailReturnScope.fromDate); setToDate(detailReturnScope.toDate); setVendorId(detailReturnScope.vendorId); setCategoryCode(detailReturnScope.categoryCode); setBillQueueView(detailReturnScope.billQueueView); setDetailReturnScope(null);
+    setTab(detailReturnScope.tab); setQuery(detailReturnScope.query); setStatusFilter(detailReturnScope.statusFilter); setTransactionType(detailReturnScope.transactionType); setDateRange(detailReturnScope.dateRange); setFromDate(detailReturnScope.fromDate); setToDate(detailReturnScope.toDate); setVendorId(detailReturnScope.vendorId); setCategoryCode(detailReturnScope.categoryCode); setBillQueueView(detailReturnScope.billQueueView); setExpensePage(detailReturnScope.expensePage); setDetailReturnScope(null);
   };
   const openBillDetail = (billId, agingScope = null) => {
     captureDetailScope();
@@ -99,6 +100,7 @@ export function APWorkspace({ctx}) {
     setToDate('');
     setCategoryCode('ALL');
     setBillQueueView('For review');
+    setExpensePage(0);
     setSel(billId);
   };
   const openCreditDetail = creditKey => { captureDetailScope(); setSelectedCreditKey(creditKey); };
@@ -113,11 +115,11 @@ export function APWorkspace({ctx}) {
         tab:'Bills', query:navContext.query, statusFilter:navContext.statusFilter,
         transactionType:navContext.transactionType, dateRange:navContext.dateRange,
         fromDate:navContext.fromDate, toDate:navContext.toDate, vendorId:navContext.vendorId,
-        categoryCode:navContext.categoryCode, billQueueView:navContext.billQueueView,
+        categoryCode:navContext.categoryCode, billQueueView:navContext.billQueueView, expensePage:navContext.expensePage,
       });
       setQuery(returnedScope.query); setStatusFilter(returnedScope.statusFilter); setTransactionType(returnedScope.transactionType);
       setDateRange(returnedScope.dateRange); setFromDate(returnedScope.fromDate); setToDate(returnedScope.toDate);
-      setVendorId(returnedScope.vendorId); setCategoryCode(returnedScope.categoryCode); setBillQueueView(returnedScope.billQueueView);
+      setVendorId(returnedScope.vendorId); setCategoryCode(returnedScope.categoryCode); setBillQueueView(returnedScope.billQueueView); setExpensePage(returnedScope.expensePage);
       setDetailReturnScope(returnedScope);
     }
     if (navContext.vendorId != null && !navContext.billQueueView) {
@@ -130,6 +132,7 @@ export function APWorkspace({ctx}) {
       setToDate('');
       setCategoryCode('ALL');
       setBillQueueView('For review');
+      setExpensePage(0);
     }
     if (navContext.creditKey) {
       setSelectedCreditKey(String(navContext.creditKey));
@@ -173,8 +176,8 @@ export function APWorkspace({ctx}) {
     if (tab !== 'AP Aging') setAgingDetailScope(null);
   }, [tab]);
   const selectedBillPayment = bills.find(candidate => candidate.bill_id === selectedBillPaymentId) || null;
-  if (selectedBillPayment) return <PaymentEvidenceDetail bill={selectedBillPayment} paymentReturn={{route:'ap',tab:'Bills',billId:selectedBillPayment.bill_id,billDetail:true,entityId:selectedBillPayment.entity_id || '',vendorId:selectedBillPayment.vendor_id || '',vendorName:selectedBillPayment.vendor_name || '',paymentDate:selectedBillPayment.paid_date || 'Not retained'}} onClose={()=>setSelectedBillPaymentId(null)} backLabel="Back to Bill" ctx={ctx} />;
-  if (bill) return <BillDetail bill={bill} onClose={navContext?.actionQueueReturn?.route === 'approvals' ? ()=>ctx.goto('approvals') : closeBillDetail} onOpenPayment={()=>setSelectedBillPaymentId(bill.bill_id)} agingReturn={agingDetailScope} billReturnScope={detailReturnScope || localExpenseDetailReturnScope({tab,query,statusFilter,transactionType,dateRange,fromDate,toDate,vendorId,categoryCode,billQueueView})} vendorReturnId={vendorEvidenceReturnId} vendorReturnSearch={vendorEvidenceReturnSearch} actionQueueReturn={navContext?.actionQueueReturn} ctx={ctx} />;
+  if (selectedBillPayment) return <PaymentEvidenceDetail bill={selectedBillPayment} paymentReturn={{route:'ap',tab:'Bills',billId:selectedBillPayment.bill_id,billDetail:true,entityId:selectedBillPayment.entity_id || '',vendorId:selectedBillPayment.vendor_id || '',vendorName:selectedBillPayment.vendor_name || '',paymentDate:selectedBillPayment.paid_date || 'Not retained',expenseReturnScope:detailReturnScope || localExpenseDetailReturnScope({tab,query,statusFilter,transactionType,dateRange,fromDate,toDate,vendorId,categoryCode,billQueueView,expensePage})}} onClose={()=>setSelectedBillPaymentId(null)} backLabel="Back to Bill" ctx={ctx} />;
+  if (bill) return <BillDetail bill={bill} onClose={navContext?.actionQueueReturn?.route === 'approvals' ? ()=>ctx.goto('approvals') : closeBillDetail} onOpenPayment={()=>setSelectedBillPaymentId(bill.bill_id)} agingReturn={agingDetailScope} billReturnScope={detailReturnScope || localExpenseDetailReturnScope({tab,query,statusFilter,transactionType,dateRange,fromDate,toDate,vendorId,categoryCode,billQueueView,expensePage})} vendorReturnId={vendorEvidenceReturnId} vendorReturnSearch={vendorEvidenceReturnSearch} actionQueueReturn={navContext?.actionQueueReturn} ctx={ctx} />;
   if (selectedCredit) return <VendorCreditDetail credit={selectedCredit} agingReturn={agingDetailScope} onClose={closeDetail} onOpenBill={billId=>{setBillReturnCreditKey(localVendorCreditLinkedBillReturn(selectedCreditKey));setSelectedCreditKey(null);openBillDetail(billId);}} ctx={ctx} />;
   if (selectedException) return <ExpenseReviewExceptionDetail exception={selectedException} onClose={closeDetail} onOpenSource={()=>{
     setSelectedExceptionId(null);
@@ -189,7 +192,7 @@ export function APWorkspace({ctx}) {
     <KPI label="Duplicate blocks" value={ap.dupBlocked||0} tone={ap.dupBlocked?'bad':'ok'} />
   </div>;
 
-  const clearBillFilters = () => { setQuery(''); setStatusFilter('ALL'); setTransactionType('ALL'); setDateRange('LAST_12_MONTHS'); setFromDate(''); setToDate(''); setVendorId('ALL'); setCategoryCode('ALL'); setBillQueueView('For review'); };
+  const clearBillFilters = () => { setQuery(''); setStatusFilter('ALL'); setTransactionType('ALL'); setDateRange('LAST_12_MONTHS'); setFromDate(''); setToDate(''); setVendorId('ALL'); setCategoryCode('ALL'); setBillQueueView('For review'); setExpensePage(0); };
   return <div>
     {navContext?.reportCenterReturn?.route==='reports' && <div className="qbo-report-back"><button type="button" onClick={()=>ctx.goto('reports')}>Back to reports</button><span>{navContext.reportCenterReturn.reportName || 'A/P Aging'}</span></div>}
     {navContext?.reportReturn?.route==='gl' && <div className="qbo-report-back"><button type="button" onClick={()=>ctx.goto('gl',navContext.reportReturn)}>Back to {navContext.reportReturn.tab || 'report'}</button><span>{localReportReturnScopeLabel(navContext.reportReturn)}</span></div>}
@@ -199,16 +202,26 @@ export function APWorkspace({ctx}) {
     <Tabs tabs={['Bills','Payments','AP Aging','Vendors']} active={tab} onChange={setTab} />
     {tab==='Bills' && <>
       <div role="tablist" aria-label="Bill review queues" style={{display:'flex',gap:8,flexWrap:'wrap',margin:'0 0 12px'}}>
-        {LOCAL_BILL_QUEUE_VIEWS.map(view=><button key={view} type="button" role="tab" aria-selected={billQueueView===view} className={billQueueView===view?'btn btn-sm':'btn btn-ghost btn-sm'} onClick={()=>{setBillQueueView(view);setStatusFilter('ALL');}}>{view}</button>)}
+        {LOCAL_BILL_QUEUE_VIEWS.map(view=><button key={view} type="button" role="tab" aria-selected={billQueueView===view} className={billQueueView===view?'btn btn-sm':'btn btn-ghost btn-sm'} onClick={()=>{setBillQueueView(view);setStatusFilter('ALL');setExpensePage(0);}}>{view}</button>)}
         <Unavailable reason="Recurring schedules are not modeled in REFS.">Recurring unavailable</Unavailable>
       </div>
       <p className="muted sm" style={{margin:'-4px 0 10px'}}>For review contains retained pending-review evidence. Unpaid requires a posted AP source with no retained paid state. Paid requires retained posted payment evidence. Recurring is reference-only and unavailable.</p>
-      <div className="expense-toolbar" style={{marginBottom:12}}><label className="expense-search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search bills, vendors or invoice #" /></label><label><span>Transaction type</span><select aria-label="Transaction Type" value={transactionType} onChange={e=>setTransactionType(e.target.value)}><option value="ALL">All transactions</option><option value="BILLS">Bills</option><option value="BILL_PAYMENTS">Bill payments</option></select></label><label><span>Dates</span><select value={dateRange} onChange={e=>setDateRange(e.target.value)}><option value="LAST_12_MONTHS">Last 12 months</option><option value="THIS_MONTH">This month</option><option value="ALL">All dates</option></select></label><span className="result-count"><b>{expenseTransactionRows.length}</b> evidence rows</span><Btn variant="ghost" onClick={()=>setShellPanel(shellPanel==='Filter'?null:'Filter')}>Filter</Btn><Btn variant="ghost" onClick={clearBillFilters}>Clear</Btn></div>
+      <div className="expense-toolbar" style={{marginBottom:12}}><label className="expense-search"><span>⌕</span><input value={query} onChange={e=>{setQuery(e.target.value);setExpensePage(0);}} placeholder="Search bills, vendors or invoice #" /></label><label><span>Transaction type</span><select aria-label="Transaction Type" value={transactionType} onChange={e=>{setTransactionType(e.target.value);setExpensePage(0);}}><option value="ALL">All transactions</option><option value="BILLS">Bills</option><option value="BILL_PAYMENTS">Bill payments</option></select></label><label><span>Dates</span><select value={dateRange} onChange={e=>{setDateRange(e.target.value);setExpensePage(0);}}><option value="LAST_12_MONTHS">Last 12 months</option><option value="THIS_MONTH">This month</option><option value="ALL">All dates</option></select></label><span className="result-count"><b>{expenseTransactionRows.length}</b> evidence rows</span><Btn variant="ghost" onClick={()=>setShellPanel(shellPanel==='Filter'?null:'Filter')}>Filter</Btn><Btn variant="ghost" onClick={clearBillFilters}>Clear</Btn></div>
       {shellPanel && <div className="expense-shell-panel" role="region" aria-label={`${shellPanel} options`}>
         <div><b>{shellPanel==='Filter'?'Filters':'Visible columns'}</b><span>{shellPanel==='Filter'?'Refine retained AP evidence by status, date, payee, and account category. Delivery method is unavailable because this workspace has no external payment delivery integration.':'Choose the evidence-backed columns shown in the bill queue.'}</span></div>
-        {shellPanel==='Filter'&&<><div className="expense-filter-evidence"><label>Status <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}><option value="ALL">All statuses</option>{['DRAFT','PENDING_APPROVAL','APPROVED','PAID','VOID'].map(s=><option key={s}>{s}</option>)}</select></label><div className="expense-filter-unavailable"><b>Delivery method</b><Unavailable reason="REFS does not connect payment providers or delivery rails.">Unavailable</Unavailable></div><label>From <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} /></label><label>To <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} /></label><label>Payee <select value={vendorId} onChange={e=>setVendorId(e.target.value)}><option value="ALL">All payees</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}</select></label><label>Category <select value={categoryCode} onChange={e=>setCategoryCode(e.target.value)}><option value="ALL">All categories</option>{COA.filter(a=>['EXPENSE','ASSET'].includes(a.account_type)).map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} {a.account_name}</option>)}</select></label></div><div className="expense-shell-actions"><button type="button" onClick={()=>setShellPanel(null)}>Apply filters</button><button type="button" onClick={clearBillFilters}>Reset</button><button type="button" onClick={()=>setShellPanel(null)}>Close</button></div></>}
+        {shellPanel==='Filter' && <>
+          <div className="expense-filter-evidence">
+            <label>Status <select value={statusFilter} onChange={e=>{setStatusFilter(e.target.value);setExpensePage(0);}}><option value="ALL">All statuses</option>{['DRAFT','PENDING_APPROVAL','APPROVED','PAID','VOID'].map(s=><option key={s}>{s}</option>)}</select></label>
+            <div className="expense-filter-unavailable"><b>Delivery method</b><Unavailable reason="REFS does not connect payment providers or delivery rails.">Unavailable</Unavailable></div>
+            <label>From <input type="date" value={fromDate} onChange={e=>{setFromDate(e.target.value);setExpensePage(0);}} /></label>
+            <label>To <input type="date" value={toDate} onChange={e=>{setToDate(e.target.value);setExpensePage(0);}} /></label>
+            <label>Payee <select value={vendorId} onChange={e=>{setVendorId(e.target.value);setExpensePage(0);}}><option value="ALL">All payees</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}</select></label>
+            <label>Category <select value={categoryCode} onChange={e=>{setCategoryCode(e.target.value);setExpensePage(0);}}><option value="ALL">All categories</option>{COA.filter(a=>['EXPENSE','ASSET'].includes(a.account_type)).map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} {a.account_name}</option>)}</select></label>
+          </div>
+          <div className="expense-shell-actions"><button type="button" onClick={()=>setShellPanel(null)}>Apply filters</button><button type="button" onClick={clearBillFilters}>Reset</button><button type="button" onClick={()=>setShellPanel(null)}>Close</button></div>
+        </>}
       </div>}
-      <Table rowKey="key" features={{exportable:false}} onRow={row=>row.kind==='BILL' ? openBillDetail(row.record.bill_id) : openCreditDetail(row.record.journal.je_number)} cols={[
+      <Table rowKey="key" features={{exportable:false,filterable:false}} page={expensePage} onPageChange={setExpensePage} onRow={row=>row.kind==='BILL' ? openBillDetail(row.record.bill_id) : openCreditDetail(row.record.journal.je_number)} cols={[
         {h:'Date',k:'date'}, {h:'Type',k:'type'}, {h:'No.',k:'number'}, {h:'Payee',k:'payee'}, {h:'Category',k:'category'},
         {h:'Property / Project',render:row=>`${row.property_id || '—'} / ${row.project_id || '—'}`}, {h:'Total',num:true,render:row=><Money v={row.amount}/>,sortVal:row=>row.amount},
         {h:'Balance',num:true,render:row=><Money v={row.balance}/>,sortVal:row=>row.balance}, {h:'State',render:row=><Badge tone={String(row.state).includes('REVIEW') || row.state==='PENDING_APPROVAL'?'warn':'ok'}>{row.state}</Badge>},
@@ -296,7 +309,7 @@ function BillDetail({bill, onClose, onOpenPayment, agingReturn, billReturnScope,
   const vendorReturnContext = vendorReturnId ? {vendorEvidenceId:vendorReturnId,vendorSearch:vendorReturnSearch || ''} : {};
   const evidenceReturnContext = {...(billReturnScope || {}), ...vendorReturnContext};
   return <div className="full-bleed qbo-transaction-report" aria-label="Local bill evidence detail">
-    <div className="qbo-report-back"><button type="button" onClick={onClose}>{actionQueueReturn?.route === 'approvals' ? 'Back to Action Required' : agingReturn?.tab === 'AP Aging' ? 'Back to AP Aging' : vendorReturnId ? 'Back to Vendor evidence' : 'Back to Expenses'}</button><span>{actionQueueReturn?.route === 'approvals' ? 'Controller evidence review queue' : agingReturn?.tab === 'AP Aging' ? localApAgingReturnScopeLabel(agingReturn) : vendorReturnId ? 'Vendor → Bill · retained same-vendor local evidence' : 'Bill · retained local evidence'}</span></div>
+    <div className="qbo-report-back"><button type="button" onClick={onClose}>{actionQueueReturn?.route === 'approvals' ? 'Back to Action Required' : agingReturn?.tab === 'AP Aging' ? 'Back to AP Aging' : vendorReturnId ? 'Back to Vendor evidence' : 'Back to Expenses'}</button><span>{actionQueueReturn?.route === 'approvals' ? 'Controller evidence review queue' : agingReturn?.tab === 'AP Aging' ? localApAgingReturnScopeLabel(agingReturn) : vendorReturnId ? 'Vendor → Bill · retained same-vendor local evidence' : localExpenseDetailReturnScopeLabel(billReturnScope)}</span></div>
     <div className="gl-drill-head"><div><div className="gl-drill-crumb">Expenses / Bill detail</div><h2 className="page-h">{bill.bill_no} · {bill.vendor_name}</h2><div className="gl-drill-account">{bill.bill_date} · due {bill.due_date} · local entity evidence only</div></div><Badge tone="muted">{bill.status}</Badge></div>
     <div className="kv"><span>Invoice #</span><b>{bill.invoice_no}</b></div>
     <div className="kv"><span>Original bill amount</span><Money v={bill.amount} bold/></div>
