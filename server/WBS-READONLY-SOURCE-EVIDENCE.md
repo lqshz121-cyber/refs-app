@@ -48,6 +48,26 @@ or permission.
 | `accountbook` | `ID` is the primary key and `ComCode` is indexed; it stores account code/name, company, book type, balances, bank balance/date, and operational configuration. | VERIFIED schema | Bank-account master/control evidence, not an observed bank-transaction feed. It cannot enter AutoRec as a bank source row. |
 | `accountbookpaymentset` | `APS_GuId` is the primary key and company is indexed; it holds project/entity/account settings and status. | VERIFIED schema | A partial value-level join from `APS_AccountId` to `accountbook.ID` exists, but unmatched settings remain. Treat as configuration evidence only until effective-date, approval, and company/cardinality semantics are proven. |
 
+## Payable Report page observation
+
+On 2026-08-09, the authenticated **Payable Report** page was inspected
+read-only. Its visible selector schema includes Company, Owner/Project,
+Vendor, Account, Unit Code, Payable/Check/Journal/Invoice number, Business
+Status, Pay Type, Pay Status, Match Status, Cost Code, Cost Ledger, Cost State,
+Review Status, Posting Status, Amount/Check Amount, and date windows for
+Check, Incurred, Pay Due, Posting and Clear Date. It also exposes empty-company,
+empty-account, no-check, abnormal-data and show-all selectors.
+
+This confirms that the report separates operational, payment, matching,
+review, posting and accounting-date facts. It does **not** prove that a filter
+value, display identifier, visible row, or Posting Date drill-down is an
+immutable transaction key, a change-data feed, a match rule, or an accounting
+command. REFS therefore accepts the page only through the signed provider
+receipt -> Raw -> Normalized -> Staging route, retaining these fields as
+scope/trace facts and quarantining a row that lacks the required immutable
+key, version, company, currency, direction, amount, accounting date or
+approved mapping.
+
 ## Tested relationship findings
 
 The following aggregate-only read checks were executed without selecting a
