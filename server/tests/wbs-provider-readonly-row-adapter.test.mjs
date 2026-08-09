@@ -43,3 +43,16 @@ test('a mapped physical Payable row reaches receipt-bound Raw/Normalized/Staging
   assert.equal(prepared.can_dispatch_draft,undefined);assert.equal(prepared.can_post,undefined);
   assert.deepEqual({source:prepared.staging[0].raw_trace.source_type,key:prepared.staging[0].raw_trace.source_record_id,posting:prepared.staging[0].raw_trace.posting_date,amount:prepared.staging[0].raw_trace.amount},{source:'PAYABLE',key:'11111111-1111-4111-8111-111111111111',posting:'2026-08-02',amount:-100});
 });
+
+test('a receipt-supplied immutable Bank Transaction key reaches staging, while journal relation keys remain trace only',async()=>{
+  const row=mapWbsReadonlyProviderRow({sourceTable:'accounting.bank_transaction_result',scope,row:{bank_transaction_id:'BANK-TX-001',company_code:'COMPANY-A',account_code:'BANK-OP',debtor:'0',lender:'100.0000',set_date:'2026-08-01',posting_date:'2026-08-02',cb_id:'RELATION-ONLY',journal_no:'J-1',ref_no:'DISPLAY-ONLY'}});
+  const rows=[row],content_sha256=canonicalRequestHash(rows).slice(7);
+  const envelope={contract_version:'WBS-REFS-MCP-V1',tool:'list_bank_transactions',environment:'production',captured_at:'2026-08-10T00:00:00.000Z',source:{system:'WBS'},scope:{company:'COMPANY-A',currency:'USD'},record_count:1,content_sha256,cursor_next:null,etl_notice:'Snapshot comparison required',rows};
+  const conventions=[{scope:{company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-OP'},receipt:{hash:`sha256:${content_sha256}`,ref:'object://wbs/test/bank-receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-10T00:00:00.000Z'},rule_id:'WBS-BANK-DR-1',version:'1',debtor_direction:'DEBIT',lender_direction:'CREDIT'}];
+  const snapshot=buildWbsMcpReadonlySnapshot({envelopes:[envelope],snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',bankDirectionConventions:conventions});
+  const prepared=await createWbsInboundDataAdapter({snapshotReader:{readOnly:true,readSnapshot:async()=>snapshot}}).pull();
+  assert.deepEqual({raw:prepared.raw.length,normalized:prepared.normalized.length,staging:prepared.staging.length,exceptions:prepared.exceptions.length},{raw:1,normalized:1,staging:1,exceptions:0});
+  assert.deepEqual({source:prepared.staging[0].raw_trace.source_type,key:prepared.staging[0].raw_trace.source_record_id,bank:prepared.staging[0].raw_trace.bank_account_ref,amount:prepared.staging[0].raw_trace.amount,direction:prepared.staging[0].raw_trace.direction},{source:'BANK_TRANSACTION',key:'BANK-TX-001',bank:'BANK-OP',amount:100,direction:'CREDIT'});
+  assert.deepEqual(prepared.staging[0].raw_trace.external_trace,{transaction_date:'2026-08-01',posting_date:'2026-08-02',account_code:'BANK-OP',ref_no:'DISPLAY-ONLY'});
+  assert.equal(prepared.staging[0].raw_trace.source_record_id,'BANK-TX-001');
+});
