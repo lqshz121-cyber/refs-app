@@ -104,6 +104,8 @@ test('Draft and AutoRec requests are review-only seams with immutable source tra
   assert.throws(()=>buildStandardDraftRequest({stagingItem:reviewedBank,mapping:{...bankDraft.mapping,bank_account_ref:'BANK-OTHER',status:'APPROVED'},journal:bankJournal}),error=>error.code==='WBS_MAPPING_APPROVED_REQUIRED');
   assert.throws(()=>buildStandardDraftRequest({stagingItem:{...reviewedPayable,receipt_hash:''},mapping:draftMapping,journal:{period_id:'period-1',journal_number:'AUTO-MISSING-RECEIPT',company_key:'COMPANY-A',currency:'USD',accounting_date:'2026-08-01',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:100}]}}),error=>error.code==='WBS_STAGING_TRACE_REQUIRED');
   assert.throws(()=>buildStandardDraftRequest({stagingItem:{...reviewedPayable,direction:'UNKNOWN'},mapping:draftMapping,journal:{period_id:'period-1',journal_number:'AUTO-BAD-DIRECTION',company_key:'COMPANY-A',currency:'USD',accounting_date:'2026-08-01',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:100}]}}),error=>error.code==='WBS_STAGING_TRACE_REQUIRED');
+  const controlJournal={period_id:'period-1',journal_number:'CONTROL-IS-NOT-JE',company_key:'COMPANY-A',currency:'USD',accounting_date:'2026-08-01',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:100}]};
+  for(const sourceType of ['COST_GENERAL_LEDGER','PROPERTY_COMPARISON','CONTROL_EVIDENCE'])assert.throws(()=>buildStandardDraftRequest({stagingItem:{...reviewedPayable,source_type:sourceType},mapping:{...draftMapping,source_type:sourceType},journal:controlJournal}),error=>error.code==='WBS_DRAFT_SOURCE_TYPE_INVALID');
 });
 
 test('G11 accepts only both posted AutoRec legs with exact source trace and per-member 291001 net zero',()=>{
