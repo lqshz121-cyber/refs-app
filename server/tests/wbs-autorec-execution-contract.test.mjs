@@ -7,6 +7,7 @@ const trace={company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',al
 const review={request_type:'AUTOREC_REVIEW_REQUEST',status:'REVIEW_REQUIRED',review_candidate_id:'candidate-1',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',allocated_amount:'100.0000',trace};
 const journal=(type,lines)=>({accounting_type:type,source_system:'REFS_STANDARD_JE',status:'POSTED',journal_entry_id:`je-${type}`,audit_event_id:`audit-${type}`,audit_event_type:'AUTO_JOURNAL_CREATED',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',source_trace:trace,ledger_lines:lines});
 const posted=[journal('PAYABLE_INCUR',[{ledger_line_id:'l1',account_code:'291001',member_ref:'V-1',debit_amount:0,credit_amount:100},{ledger_line_id:'l2',account_code:'610000',debit_amount:100,credit_amount:0}]),journal('AUTOC',[{ledger_line_id:'l3',account_code:'291001',member_ref:'V-1',debit_amount:100,credit_amount:0},{ledger_line_id:'l4',account_code:'111000',member_ref:'B-1',debit_amount:0,credit_amount:100}])];
+const reservationReceipt={reservation_id:'reservation-1',request_hash:hash('c'),control_hash:hash('d'),version:'1',review_candidate_id:'candidate-1',bank_source_record_id:'bank-1',bank_source_version:'v1',business_source_record_id:'pay-1',business_source_version:'v1',allocated_amount:'100.0000'};
 
 test('REFS execution intent separates WBS observation from reservation, release, and incur authority',()=>{
   assert.throws(()=>buildWbsAutoRecExecutionIntent({command:'RESERVE',currentState:'REVIEW_REQUIRED',reviewCandidate:{...review,trace:{...trace,business_source_version:''}}}),error=>error.code==='WBS_AUTOREC_EXECUTION_REVIEW_REQUIRED');
@@ -14,7 +15,8 @@ test('REFS execution intent separates WBS observation from reservation, release,
   const reserved=buildWbsAutoRecExecutionIntent({command:'RESERVE',currentState:'REVIEW_REQUIRED',reviewCandidate:review});
   assert.deepEqual({state:reserved.next_state,dispatch:reserved.can_dispatch,post:reserved.can_post},{state:'RESERVED',dispatch:false,post:false});
   assert.throws(()=>buildWbsAutoRecExecutionIntent({command:'RELEASE',currentState:'RESERVED',reviewCandidate:review}),error=>error instanceof WbsAutoRecExecutionContractError&&error.code==='WBS_AUTOREC_EXECUTION_RESERVATION_REQUIRED');
-  const released=buildWbsAutoRecExecutionIntent({command:'RELEASE',currentState:'RESERVED',reviewCandidate:review,reservationReceipt:{reservation_id:'reservation-1',request_hash:hash('c'),control_hash:hash('d'),version:'1'}});
+  assert.throws(()=>buildWbsAutoRecExecutionIntent({command:'RELEASE',currentState:'RESERVED',reviewCandidate:review,reservationReceipt:{...reservationReceipt,review_candidate_id:'candidate-other'}}),error=>error.code==='WBS_AUTOREC_EXECUTION_RESERVATION_REQUIRED');
+  const released=buildWbsAutoRecExecutionIntent({command:'RELEASE',currentState:'RESERVED',reviewCandidate:review,reservationReceipt});
   assert.equal(released.next_state,'RELEASED');
   assert.throws(()=>buildWbsAutoRecExecutionIntent({command:'INCUR',currentState:'RELEASED',reviewCandidate:review,postedJournals:[{...posted[0],status:'DRAFT'},posted[1]]}),error=>error.code==='WBS_AUTOREC_G11_POSTED_EVIDENCE_REQUIRED');
   const incurred=buildWbsAutoRecExecutionIntent({command:'INCUR',currentState:'RELEASED',reviewCandidate:review,postedJournals:posted});
@@ -27,5 +29,5 @@ test('reverse is a two-leg standard Draft/Post workflow and cannot be inferred f
   const reversed=buildWbsAutoRecExecutionIntent({command:'COMPLETE_REVERSE',currentState:'REVERSE_DRAFT_REQUIRED',reviewCandidate:review,postedJournals:posted,postedReversalJournals:[{journal_entry_id:'reversal-pay',reverses_journal_entry_id:'je-PAYABLE_INCUR',status:'POSTED'},{journal_entry_id:'reversal-autoc',reverses_journal_entry_id:'je-AUTOC',status:'POSTED'}]});
   assert.equal(reversed.next_state,'REVERSED');assert.equal(reversed.posted_reversals.length,2);
   assert.throws(()=>buildWbsAutoRecExecutionIntent({command:'COMPLETE_REVERSE',currentState:'REVERSE_DRAFT_REQUIRED',reviewCandidate:review,postedJournals:posted,postedReversalJournals:[{journal_entry_id:'reversal-pay',reverses_journal_entry_id:'je-PAYABLE_INCUR',status:'POSTED'},{journal_entry_id:'reversal-two',reverses_journal_entry_id:'je-PAYABLE_INCUR',status:'POSTED'}]}),error=>error.code==='WBS_AUTOREC_EXECUTION_REVERSE_EVIDENCE_REQUIRED');
-  assert.throws(()=>buildWbsAutoRecExecutionIntent({command:'RELEASE',currentState:'INCURRED',reviewCandidate:review,reservationReceipt:{reservation_id:'reservation-1',request_hash:hash('c'),control_hash:hash('d'),version:'1'}}),error=>error.code==='WBS_AUTOREC_EXECUTION_TRANSITION_INVALID');
+  assert.throws(()=>buildWbsAutoRecExecutionIntent({command:'RELEASE',currentState:'INCURRED',reviewCandidate:review,reservationReceipt}),error=>error.code==='WBS_AUTOREC_EXECUTION_TRANSITION_INVALID');
 });

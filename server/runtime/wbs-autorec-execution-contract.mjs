@@ -25,9 +25,9 @@ const reviewScope=review=>{
   return freeze({review_candidate_id:text(review.review_candidate_id),company_key:text(review.company_key),currency:text(review.currency),bank_account_ref:text(review.bank_account_ref),allocated_amount:amount(review.allocated_amount),trace:freeze({bank_source_record_id:text(trace.bank_source_record_id),bank_source_version:text(trace.bank_source_version),business_source_record_id:text(trace.business_source_record_id),business_source_version:text(trace.business_source_version),bank_receipt_id:text(trace.bank_receipt_id),bank_receipt_ref:text(trace.bank_receipt_ref),bank_receipt_hash:text(trace.bank_receipt_hash),business_receipt_id:text(trace.business_receipt_id),business_receipt_ref:text(trace.business_receipt_ref),business_receipt_hash:text(trace.business_receipt_hash),bank_business_date:text(trace.bank_business_date),bank_accounting_date:text(trace.bank_accounting_date),business_business_date:text(trace.business_business_date),business_accounting_date:text(trace.business_accounting_date),review_plan_id:text(trace.review_plan_id)||null,allocation_edge_id:text(trace.allocation_edge_id)||null})});
 };
 
-const reservation=receipt=>{
-  if(!receipt||!text(receipt.reservation_id)||!hash(receipt.request_hash)||!hash(receipt.control_hash)||!text(receipt.version))fail('WBS_AUTOREC_EXECUTION_RESERVATION_REQUIRED','Release requires an immutable authoritative source-reservation receipt.');
-  return freeze({reservation_id:text(receipt.reservation_id),request_hash:text(receipt.request_hash),control_hash:text(receipt.control_hash),version:text(receipt.version)});
+const reservation=(receipt,review)=>{
+  if(!receipt||!text(receipt.reservation_id)||!hash(receipt.request_hash)||!hash(receipt.control_hash)||!text(receipt.version)||text(receipt.review_candidate_id)!==review.review_candidate_id||text(receipt.bank_source_record_id)!==review.trace.bank_source_record_id||text(receipt.bank_source_version)!==review.trace.bank_source_version||text(receipt.business_source_record_id)!==review.trace.business_source_record_id||text(receipt.business_source_version)!==review.trace.business_source_version||amount(receipt.allocated_amount)!==review.allocated_amount)fail('WBS_AUTOREC_EXECUTION_RESERVATION_REQUIRED','Release requires an immutable authoritative source-reservation receipt bound to this exact review candidate.');
+  return freeze({reservation_id:text(receipt.reservation_id),request_hash:text(receipt.request_hash),control_hash:text(receipt.control_hash),version:text(receipt.version),review_candidate_id:review.review_candidate_id,bank_source_record_id:review.trace.bank_source_record_id,bank_source_version:review.trace.bank_source_version,business_source_record_id:review.trace.business_source_record_id,business_source_version:review.trace.business_source_version,allocated_amount:review.allocated_amount});
 };
 const reverseEvidence=(original,reversals)=>{
   if(!Array.isArray(original)||original.length!==2||!Array.isArray(reversals)||reversals.length!==2)fail('WBS_AUTOREC_EXECUTION_REVERSE_EVIDENCE_REQUIRED','Reverse completion requires two original and two posted reversal journal legs.');
@@ -50,7 +50,7 @@ export function buildWbsAutoRecExecutionIntent({command,currentState,reviewCandi
   }
   if(requested==='RELEASE'){
     if(state!=='RESERVED')fail('WBS_AUTOREC_EXECUTION_TRANSITION_INVALID','Only RESERVED may release an AutoRec allocation.');
-    return freeze({...base,next_state:'RELEASED',reservation_receipt:reservation(reservationReceipt),required_kernel_controls:freeze(['revalidate source reservation','freeze dependent allocations','audit receipt'])});
+    return freeze({...base,next_state:'RELEASED',reservation_receipt:reservation(reservationReceipt,review),required_kernel_controls:freeze(['revalidate source reservation','freeze dependent allocations','audit receipt'])});
   }
   if(requested==='INCUR'){
     if(state!=='RELEASED')fail('WBS_AUTOREC_EXECUTION_TRANSITION_INVALID','Only RELEASED may enter the REFS incur workflow.');
