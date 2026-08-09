@@ -392,13 +392,17 @@ export function validateWbsAutoRecG11PostedTrace({reviewRequest,postedJournals}=
     if(!journal.source_trace||traceFields.some(field=>text(journal.source_trace[field])!==text(expected[field]))||(snapshotTokensPresent&&(text(journal.source_trace.bank_provider_snapshot_token)!==text(expected.bank_provider_snapshot_token)||text(journal.source_trace.business_provider_snapshot_token)!==text(expected.business_provider_snapshot_token))))fail('WBS_AUTOREC_G11_SOURCE_TRACE_MISMATCH','Posted journal source trace must exactly match the reviewed AutoRec pair.');
     journalIds.add(text(journal.journal_entry_id));auditIds.add(text(journal.audit_event_id));lineIds.forEach(id=>ledgerLineIds.add(id));byType.set(type,journal);
   }
-  const apByMember=new Map();
-  for(const journal of byType.values())for(const line of journal.ledger_lines){
+  const apByMember=new Map(),apByJournal=new Map([...byType.keys()].map(type=>[type,new Map()]));
+  for(const [accountingType,journal] of byType.entries())for(const line of journal.ledger_lines){
     if(text(line?.account_code)!=='291001')continue;
     const member=text(line?.member_ref),debit=amount(line?.debit_amount),credit=amount(line?.credit_amount);
     if(!member||debit===null||credit===null||debit<0||credit<0||(debit!==0&&credit!==0))fail('WBS_AUTOREC_G11_291001_INVALID','291001 ledger evidence requires one-sided nonnegative amounts and a member.');
+    const leg=apByJournal.get(accountingType);
+    leg.set(member,Number(((leg.get(member)??0)+debit-credit).toFixed(4)));
     apByMember.set(member,Number(((apByMember.get(member)??0)+debit-credit).toFixed(4)));
   }
+  const payableAp=apByJournal.get('PAYABLE_INCUR'),autocAp=apByJournal.get('AUTOC');
+  if(payableAp.size===0||autocAp.size===0||[...payableAp.entries()].some(([member,net])=>Math.abs(net)<=0.0001||!autocAp.has(member)||Math.abs((autocAp.get(member)??0))<=0.0001)||[...autocAp.keys()].some(member=>!payableAp.has(member)))fail('WBS_AUTOREC_G11_291001_LEG_REQUIRED','PAYABLE_INCUR and AUTOC must each carry matching nonzero 291001 member clearing evidence.');
   if(apByMember.size===0||[...apByMember.values()].some(net=>Math.abs(net)>0.0001))fail('WBS_AUTOREC_G11_291001_UNCLEARED','Every 291001 member must net to zero across PAYABLE_INCUR and AUTOC.');
   return Object.freeze({ok:true,status:'POSTED_TRACE_VERIFIED',journals:Object.freeze([...byType.entries()].sort(([left],[right])=>left.localeCompare(right)).map(([accounting_type,journal])=>Object.freeze({accounting_type,journal_entry_id:text(journal.journal_entry_id),audit_event_id:text(journal.audit_event_id),ledger_line_ids:Object.freeze(journal.ledger_lines.map(line=>text(line.ledger_line_id)).filter(Boolean))}))),control_totals:Object.freeze({ap_291001_member_nets:Object.freeze(Object.fromEntries([...apByMember.entries()].sort(([left],[right])=>left.localeCompare(right))))}),trace:Object.freeze(structuredClone(expected)),can_transition_case:false,can_create_draft:false,can_post:false});
 }

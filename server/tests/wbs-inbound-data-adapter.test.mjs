@@ -99,6 +99,9 @@ test('G11 accepts only both posted AutoRec legs with exact source trace and per-
   assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,{...autoc,source_trace:{...review.trace,business_source_version:'v2'}}]}),error=>error.code==='WBS_AUTOREC_G11_SOURCE_TRACE_MISMATCH');
   assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,{...autoc,currency:'CAD'}]}),error=>error.code==='WBS_AUTOREC_G11_POSTED_EVIDENCE_REQUIRED');
   assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:{...review,trace:{...review.trace,bank_receipt_hash:''}},postedJournals:[payable,autoc]}),error=>error.code==='WBS_AUTOREC_G11_TRACE_REQUIRED');
+  const selfClearedPayable={...payable,ledger_lines:[{...payable.ledger_lines[0]},{ledger_line_id:'pay-ap-self-clear',account_code:'291001',member_ref:'VENDOR-1',debit_amount:100,credit_amount:0}]};
+  const selfClearedAutoc={...autoc,ledger_lines:[{...autoc.ledger_lines[0]},{ledger_line_id:'auto-ap-self-clear',account_code:'291001',member_ref:'VENDOR-1',debit_amount:0,credit_amount:100}]};
+  assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[selfClearedPayable,selfClearedAutoc]}),error=>error.code==='WBS_AUTOREC_G11_291001_LEG_REQUIRED');
   assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[{...payable,ledger_lines:[{...payable.ledger_lines[0],credit_amount:99},{...payable.ledger_lines[1],debit_amount:99}]},autoc]}),error=>error.code==='WBS_AUTOREC_G11_291001_UNCLEARED');
 });
 
