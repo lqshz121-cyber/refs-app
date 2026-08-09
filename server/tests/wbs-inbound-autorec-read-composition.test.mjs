@@ -38,7 +38,7 @@ test('a retired policy is usable only for the accounting-date window it governed
   const historicalMap=row=>({...map(row),status:'RETIRED',effective_from:'2025-01-01T00:00:00.000Z',effective_to:'2026-01-01T00:00:00.000Z'});
   const historicalRepository={...repository(),readPersistedWbsInboundRows:async()=>[historicalBank,historicalPayable],readApprovedWbsAutoRecMappings:async()=>[historicalMap(historicalBank),historicalMap(historicalPayable)],readApprovedWbsAutoRecMatchingPolicies:async()=>[retired]};
   const accepted=await createWbsInboundAutoRecReadComposition({repository:historicalRepository}).read({...scope,replayKey:'retired-policy-historical'});
-  assert.equal(accepted.review_plans.length,1,JSON.stringify({candidates:accepted.candidates,exceptions:accepted.exceptions,policy_exceptions:accepted.matching_policy_exceptions}));assert.equal(accepted.review_plans[0].matching_policy.status,'RETIRED');
+  assert.equal(accepted.review_plans.length,1,JSON.stringify({candidates:accepted.candidates,exceptions:accepted.exceptions,policy_exceptions:accepted.matching_policy_exceptions}));assert.equal(accepted.review_plans[0].matching_policy.status,'RETIRED');assert.equal(accepted.review_plans[0].company_control_trace,null);
   const expired=await createWbsInboundAutoRecReadComposition({repository:{...repository(),readApprovedWbsAutoRecMatchingPolicies:async()=>[retired]}}).read({...scope,replayKey:'retired-policy-expired'});
   assert.equal(expired.review_plans.length,0);assert.equal(expired.matching_policy_exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_NOT_EFFECTIVE');
 });
