@@ -2202,6 +2202,6 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 ## Accounting: Chart of Accounts evidence without export (2026-08-09)
 
 - **Observed QBO pattern:** QBO exposes a Chart of Accounts workspace. This change does not claim that populated QBO account rows, permissions, register semantics, or responsive behavior were observed in this audit round.
-- **REFS implementation:** the two COA evidence tables retain name-or-number filtering and the existing Register/GL drillback with an exact COA return context. CSV export configuration has been removed, so this screen cannot imply a download workflow.
-- **Status:** **PARTIAL** — REFS-only static/UI verification. Account creation, editing, merge/delete, external balance feeds, download/print, connector actions, and any cash reconciliation mutation remain unavailable.
+- **REFS implementation:** the native COA evidence table retains name-or-number filtering and the existing Register/GL drillback with an exact COA return context. The WBS reference chart is no longer exposed as a QBO-like COA tab; WBS remains source/staging evidence only. CSV export configuration has been removed, so this screen cannot imply a download workflow.
+- **Status:** **PARTIAL** — REFS-only static/UI verification. The direct QBO COA navigation attempt timed out before a usable DOM snapshot, so QBO table fields, permissions, register semantics, or responsive behavior remain unobserved. Account creation, editing, merge/delete, external balance feeds, download/print, connector actions, WBS administration, and any cash reconciliation mutation remain unavailable.
 - **Verification:** `npm.cmd run test:coa-readonly-shell`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
