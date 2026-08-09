@@ -13,7 +13,9 @@
 // Reconcile still showed Source & Staging above it.
 //
 // The panel now lists exactly one group: the active one. The rail keeps the overview.
-// Selecting a rail group focuses it; selecting the same group again closes the panel.
+// Selecting a rail group starts its first visible workspace page.  A rail entry
+// is a fresh entry, not a request to reopen whatever child happened to be
+// selected last.
 //
 // Both functions return the *same object reference* when nothing needs to change,
 // because retainActiveNavigationGroup runs inside a route-change effect and a fresh
@@ -34,7 +36,22 @@ export function retainActiveNavigationGroup(openGroups, groups, route) {
   return { [activeGroup.group]: true };
 }
 
-export function toggleNavigationGroup(openGroups, groupName) {
-  // Re-selecting the focused group closes the panel; otherwise focus this group alone.
-  return openGroups[groupName] ? {} : { [groupName]: true };
+export function firstNavigationRoute(group) {
+  const items = Array.isArray(group?.items) ? group.items : [];
+  const firstRoute = items[0]?.[0];
+  return typeof firstRoute === 'string' && firstRoute ? firstRoute : null;
+}
+
+export function isDirectNavigationGroup(group) {
+  return Array.isArray(group?.items) && group.items.length === 1;
+}
+
+export function railNavigationContext(group, route) {
+  if (typeof route !== 'string' || !route) return null;
+  return {
+    route,
+    navigationEntry: 'rail',
+    navigationGroup: group?.group || '',
+    navigationDestination: route,
+  };
 }
