@@ -16,8 +16,14 @@ This checklist contains names and operational requirements only. Supply values t
 | `OIDC_AUDIENCE` | Required access-token audience | Dedicated REFS API audience. |
 | `OIDC_JWKS_URI` | Signing-key discovery | HTTPS, issuer-controlled endpoint. |
 | `REFS_HTTP_ALLOWED_ORIGINS` | Browser CORS allowlist | Exact staging web origin only. |
+| `REFS_ATTACHMENT_MODE` | Attachment integration boundary | `DISABLED` in Stage 1; `REQUIRED` only with accepted provider evidence. |
+| `REFS_WBS_INGEST_MODE` | WBS receipt integration boundary | `DISABLED` in Stage 1; `REQUIRED` only with an accepted keyring and signed receipt. |
 
 ## Attachments and WBS receipts
+
+These values are not Stage 1 prerequisites. They belong to the separate
+`render.integrations.yaml` release and become mandatory only when the matching
+API mode is changed to `REQUIRED`.
 
 | Variable | Purpose | Minimum privilege |
 | --- | --- | --- |

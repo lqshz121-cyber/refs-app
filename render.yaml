@@ -17,6 +17,12 @@ services:
         value: 0.0.0.0
       - key: REFS_PG_REQUIRED
         value: "1"
+      # Stage 1 publishes PostgreSQL/OIDC read authority first. Integrations are
+      # explicit fail-closed 503 surfaces until their separate provider release.
+      - key: REFS_ATTACHMENT_MODE
+        value: DISABLED
+      - key: REFS_WBS_INGEST_MODE
+        value: DISABLED
       - key: DATABASE_URL
         sync: false
       - key: MIGRATION_DATABASE_URL
@@ -33,71 +39,13 @@ services:
         sync: false
       - key: REFS_HTTP_ALLOWED_ORIGINS
         sync: false
-      - key: S3_ENDPOINT
-        sync: false
-      - key: S3_BUCKET
-        sync: false
-      - key: S3_REGION
-        sync: false
-      - key: S3_ACCESS_KEY_ID
-        sync: false
-      - key: S3_SECRET_ACCESS_KEY
-        sync: false
-      - key: VIRUS_SCANNER_ENDPOINT
-        sync: false
-      - key: VIRUS_SCANNER_TOKEN
-        sync: false
-      - key: VIRUS_SCANNER_CA_FILE
-        sync: false
-      - key: VIRUS_SCANNER_SERVER_NAME
-        sync: false
-      - key: ATTACHMENT_SCANNER_ACTOR_ID
-        sync: false
-      # JSON keyring: {"key_id":"-----BEGIN PUBLIC KEY-----\\n..."}.
-      # Required by production startup before any signed WBS snapshot is accepted.
-      - key: WBS_SNAPSHOT_ED25519_PUBLIC_KEYS
-        sync: false
-  - type: worker
-    name: refs-attachment-cleanup-staging
-    runtime: node
-    rootDir: server
-    buildCommand: npm ci
-    startCommand: npm run start:attachment-cleanup
-    autoDeployTrigger: off
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: REFS_PG_REQUIRED
-        value: "1"
-      - key: DATABASE_URL
-        sync: false
-      - key: MIGRATION_DATABASE_URL
-        sync: false
-      - key: CONTEXT_ISSUER_DATABASE_URL
-        sync: false
-      - key: GRANT_SYNC_DATABASE_URL
-        sync: false
-      - key: ATTACHMENT_CLEANUP_ACTOR_ID
-        sync: false
-      - key: ATTACHMENT_CLEANUP_SCOPES
-        sync: false
-      - key: S3_ENDPOINT
-        sync: false
-      - key: S3_BUCKET
-        sync: false
-      - key: S3_REGION
-        sync: false
-      - key: S3_ACCESS_KEY_ID
-        sync: false
-      - key: S3_SECRET_ACCESS_KEY
-        sync: false
   - type: web
     name: refs-app
     runtime: static
     buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
     pullRequestPreviewsEnabled: true
-    # Publish the static client only with the API/worker release after staging smoke.
+    # Publish the static client only with the API release after staging smoke.
     autoDeployTrigger: off
     envVars:
       # Public deployment coordinates only. OIDC tokens and database credentials

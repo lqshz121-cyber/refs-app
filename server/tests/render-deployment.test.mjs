@@ -15,18 +15,22 @@ const hasFixed=(section,key,value)=>new RegExp(`- key: ${key}\\r?\\n\\s+value: $
 
 test('Render staging manifest declares every production startup secret and uses locked frontend installs',async()=>{
   const manifest=await readFile(resolve(root,'render.yaml'),'utf8');
-  const api=serviceSection(manifest,'refs-accounting-api-staging'),worker=serviceSection(manifest,'refs-attachment-cleanup-staging'),web=serviceSection(manifest,'refs-app');
+  const integrations=await readFile(resolve(root,'render.integrations.yaml'),'utf8');
+  const api=serviceSection(manifest,'refs-accounting-api-staging'),worker=serviceSection(integrations,'refs-attachment-cleanup-staging'),web=serviceSection(manifest,'refs-app');
   assert.equal(api.type,'web');assert.equal(worker.type,'worker');assert.equal(web.type,'web');
   for(const section of [api.body,worker.body,web.body])assert.doesNotMatch(section,/buildCommand: npm install/);
   assert.match(api.body,/rootDir: server/);assert.match(api.body,/buildCommand: npm ci/);assert.match(api.body,/preDeployCommand: npm run db:up/);assert.match(api.body,/startCommand: npm start/);assert.match(api.body,/healthCheckPath: \/health\/ready/);assert.ok(hasFixed(api.body,'REFS_PG_REQUIRED','"1"'));
   assert.match(worker.body,/rootDir: server/);assert.match(worker.body,/buildCommand: npm ci/);assert.match(worker.body,/startCommand: npm run start:attachment-cleanup/);assert.ok(hasFixed(worker.body,'REFS_PG_REQUIRED','"1"'));
   assert.match(web.body,/runtime: static/);assert.match(web.body,/buildCommand: npm ci && npm run build/);assert.match(web.body,/staticPublishPath: \.\/dist/);assert.match(web.body,/source: \/\*/);assert.match(web.body,/destination: \/index\.html/);
-  for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','OIDC_ISSUER','OIDC_AUDIENCE','OIDC_JWKS_URI','REFS_HTTP_ALLOWED_ORIGINS','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_CA_FILE','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID','WBS_SNAPSHOT_ED25519_PUBLIC_KEYS'])assert.ok(hasSecret(api.body,key),`API is missing ${key}`);
+  for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','OIDC_ISSUER','OIDC_AUDIENCE','OIDC_JWKS_URI','REFS_HTTP_ALLOWED_ORIGINS'])assert.ok(hasSecret(api.body,key),`API is missing ${key}`);
+  assert.ok(hasFixed(api.body,'REFS_ATTACHMENT_MODE','DISABLED'));assert.ok(hasFixed(api.body,'REFS_WBS_INGEST_MODE','DISABLED'));
+  for(const key of ['S3_ENDPOINT','VIRUS_SCANNER_ENDPOINT','WBS_SNAPSHOT_ED25519_PUBLIC_KEYS'])assert.doesNotMatch(api.body,new RegExp(`- key: ${key}`),`Stage 1 API must not require ${key}`);
   for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','ATTACHMENT_CLEANUP_ACTOR_ID','ATTACHMENT_CLEANUP_SCOPES','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY'])assert.ok(hasSecret(worker.body,key),`cleanup worker is missing ${key}`);
   const publicKeys=['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE','REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT','REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE'];
   for(const key of publicKeys)assert.ok(hasSecret(web.body,key),`static service is missing ${key}`);
   assert.doesNotMatch(api.body,/REFS_PUBLIC_/);assert.doesNotMatch(worker.body,/REFS_PUBLIC_/);assert.doesNotMatch(web.body,/REFS_PUBLIC_RUNTIME_MODE/,'authoritative static builds must not opt into LOCAL_MOCK');
-  assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,3,'API, worker, and static client require one explicit coordinated release');
+  assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,2,'Stage 1 coordinates only API and static client');
+  assert.equal((integrations.match(/autoDeployTrigger: off/g)||[]).length,1,'attachment cleanup has a separate explicit provider release');
   const pages=await readFile(resolve(root,'.github','workflows','deploy.yml'),'utf8');
   assert.match(pages,/run: npm ci/);assert.doesNotMatch(pages,/run: npm install/);
   assert.match(pages,/name: Run frontend gate\r?\n\s+run: npm test/);
