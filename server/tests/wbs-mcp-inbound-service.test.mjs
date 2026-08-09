@@ -39,6 +39,9 @@ test('transaction snapshot safely combines all cursor pages only inside one immu
   assert.equal(result.snapshot.views.find(view=>view.name==='BGDATA.payable').rows.length,2);assert.deepEqual(calls[1],{toolName:'list_payables',args:{company:'COMPANY-A',cursor:'cursor-2',snapshot_token:'snapshot-1'}});
   const mismatched=createWbsMcpInboundService({client:{readView:async request=>request.toolName==='list_payables'?(request.args.cursor?{...second,scope:{...second.scope,snapshot_token:'other'}}:first):structuredClone(values[request.toolName])}});
   await assert.rejects(()=>mismatched.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_PAGINATION_SNAPSHOT_MISMATCH');
+  const duplicatePage={...second,rows:[structuredClone(first.rows[0])],content_sha256:canonicalRequestHash(first.rows).slice(7)};
+  const duplicate=createWbsMcpInboundService({client:{readView:async request=>request.toolName==='list_payables'?(request.args.cursor?duplicatePage:first):structuredClone(values[request.toolName])}});
+  await assert.rejects(()=>duplicate.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_PAGINATION_ROWS_INVALID');
 });
 
 test('control and trace views are read separately and cannot enter a transaction path',async()=>{

@@ -6,6 +6,7 @@ import {createWbsManifestSignatureVerifier} from './wbs-snapshot-signature.mjs';
 const transactionTools=Object.freeze(['list_payables','list_bank_transactions','list_autorec_details']);
 const controlTraceTools=Object.freeze(['list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
 const traceKeyTypeBySourceType=Object.freeze({PAYABLE:'ap_guid',BANK_TRANSACTION:'cb_id',AUTOREC_PAYMENT_DETAIL:'pd_guid',AUTOREC_BANK_CONTROL:'pb_guid',WBS_JOURNAL_EVIDENCE:'id'});
+const stableSourceKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
 const text=value=>value==null?'':String(value).trim();
 const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const immutableReceiptHash=value=>/^sha256:[0-9a-f]{64}$/.test(text(value));
@@ -41,6 +42,8 @@ async function readCompleteEnvelope({client,toolName,args,companyKey}){
     if(text(page.scope?.snapshot_token)!==snapshotToken||page.captured_at!==first.captured_at||page.contract_version!==first.contract_version||page.environment!==first.environment||canonicalRequestHash(page.source)!==canonicalRequestHash(first.source))fail('WBS_MCP_PAGINATION_SNAPSHOT_MISMATCH',`WBS ${toolName} cursor pages must retain the same snapshot token, capture instant, provider contract, environment, and source.`);
     rows.push(...page.rows);cursor=page.cursor_next;
   }
+  const stableKey=stableSourceKeyByTool[toolName];
+  if(stableKey&&!rows.every((row,index)=>index===0||rows[index-1][stableKey]<row[stableKey]))fail('WBS_MCP_PAGINATION_ROWS_INVALID',`WBS ${toolName} cursor pages must form one strictly ascending, non-duplicated stable-key population.`);
   return {tool:toolName,contract_version:first.contract_version,environment:first.environment,captured_at:first.captured_at,source:structuredClone(first.source),scope:structuredClone(first.scope),record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:first.etl_notice,rows};
 }
 

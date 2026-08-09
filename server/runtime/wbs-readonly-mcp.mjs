@@ -83,6 +83,10 @@ export function validateWbsReadEnvelope({toolName,envelope}={}){
   if(scopeCurrency&&envelope.rows.some(row=>plainObject(row)&&row.currency!=null&&scopedText(row.currency).toUpperCase()!==scopeCurrency))throw new WbsMcpError('WBS_MCP_ENVELOPE_SCOPE_MISMATCH','WBS row currency does not match the requested currency scope.');
   const stableKey=stableKeyByTool[toolName];
   if(stableKey&&envelope.rows.some(row=>!plainObject(row)||(stableKey==='id'?!Number.isSafeInteger(row[stableKey]):typeof row[stableKey]!=='string'||!row[stableKey].trim())))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} rows require stable ${stableKey}.`);
+  // The content hash preserves array order.  Require the provider's stable
+  // source key to be strictly ascending so a repeated row cannot silently
+  // inflate a later control total or appear as two source facts.
+  if(stableKey&&!envelope.rows.every((row,index)=>index===0||envelope.rows[index-1][stableKey]<row[stableKey]))throw new WbsMcpError('WBS_MCP_ROWS_NOT_SORTED','WBS rows must be strictly ascending and unique by their stable source key.');
   if(envelope.rows.some(row=>plainObject(row)&&row.currency!=null&&row.currency!=='USD'))throw new WbsMcpError('WBS_MCP_CURRENCY_UNSUPPORTED','WBS pilot accepts USD rows only.');
   const expectedHash=createHash('sha256').update(canonicalRequestBody(envelope.rows),'utf8').digest('hex');
   if(!timingSafeEqual(Buffer.from(envelope.content_sha256,'hex'),Buffer.from(expectedHash,'hex')))throw new WbsMcpError('WBS_MCP_CONTENT_HASH_MISMATCH','WBS content_sha256 does not match canonical sorted compact rows.');
