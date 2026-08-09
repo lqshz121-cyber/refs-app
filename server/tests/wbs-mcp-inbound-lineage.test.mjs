@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {buildWbsMcpReadonlySnapshot,buildWbsAutoRecBankControlEvidence,buildWbsAutoRecDetailCaseBinding,mapWbsMcpEnvelopeToInbound,planWbsMcpSnapshotDiff,WbsMcpLineageError} from '../runtime/wbs-mcp-inbound-lineage.mjs';
+import {buildWbsMcpReadonlySnapshot,buildWbsAutoRecBankControlEvidence,buildWbsAutoRecDetailCaseBinding,buildWbsTraceRelationEvidence,mapWbsMcpEnvelopeToInbound,planWbsMcpSnapshotDiff,WbsMcpLineageError} from '../runtime/wbs-mcp-inbound-lineage.mjs';
 import {createWbsInboundDataAdapter} from '../runtime/wbs-inbound-data-adapter.mjs';
 import {validateWbsSnapshotPackage} from '../runtime/wbs-snapshot-package.mjs';
 
@@ -49,6 +49,14 @@ test('a receipt-bound pd_guid to pb_guid relation is the only way an AutoRec Det
   assert.deepEqual({source:staged.staging[0].raw_trace.source_type,pb:staged.staging[0].raw_trace.pb_guid,bank:staged.staging[0].raw_trace.bank_account_ref},{source:'AUTOREC_PAYMENT_DETAIL',pb:pbGuid,bank:'BANK-1'});
   assert.throws(()=>buildWbsAutoRecDetailCaseBinding({detailEnvelope:detail,bankEnvelope:bank,traceEnvelope:trace,lookup:{key_type:'pd_guid',key_value:pdGuid},relationPolicy:{...policy,relation_type:'OTHER'}}),error=>error instanceof WbsMcpLineageError&&error.code==='WBS_MCP_AUTOREC_CASE_RELATION_REQUIRED');
   assert.throws(()=>buildWbsMcpReadonlySnapshot({envelopes:[detail],snapshotId:'11111111-1111-4111-8111-111111111111',dictionaryVersion:'WBS-MCP-V1',autoRecDetailDirectionConventions:detailDirectionConventions(detail),autoRecDetailCaseBindings:[{...binding,relation_trace_hash:'sha256:'+'0'.repeat(64)}]}),error=>error instanceof WbsMcpLineageError&&error.code==='WBS_MCP_AUTOREC_CASE_BINDING_INVALID');
+});
+
+test('WBS match-business relation is receipt-bound reverse trace only and cannot become an AutoRec case binding',()=>{
+  const pdGuid='22222222-2222-4222-8222-222222222222';
+  const trace=envelope('trace_by_key',[{relation_id:'mb-1',relation_type:'MATCH_BUSINESS_DETAIL_TO_PAYABLE',source_key_type:'pd_guid',source_key_value:pdGuid,related_key_type:'ap_guid',related_key_value:'PAYABLE-1'}],{company:'COMPANY-A',currency:'USD',snapshot_token:'snapshot-match-1',trace_key_type:'pd_guid',trace_key_value:pdGuid});
+  const evidence=buildWbsTraceRelationEvidence({envelope:trace,lookup:{key_type:'pd_guid',key_value:pdGuid}});
+  assert.deepEqual({status:evidence.status,relations:evidence.relations.length,match:evidence.can_allocate,draft:evidence.can_create_draft,post:evidence.can_post},{status:'RELATION_EVIDENCE_READY',relations:1,match:false,draft:false,post:false});
+  assert.deepEqual(evidence.relations[0],{relation_id:'mb-1',relation_type:'MATCH_BUSINESS_DETAIL_TO_PAYABLE',source:{key_type:'pd_guid',key_value:pdGuid},related:{key_type:'ap_guid',key_value:'PAYABLE-1'},observed_version:evidence.relations[0].observed_version,can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});
 });
 
 test('observed Payable source-detail routes remain unbound trace when the provider did not supply all relation labels',()=>{
