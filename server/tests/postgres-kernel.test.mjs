@@ -186,6 +186,25 @@ pgTest('WBS multi-receipt inbound snapshot persists atomically and replays witho
   const counts=await adminPool.query('SELECT (SELECT count(*)::int FROM wbs_inbound_receipt WHERE tenant_id=$1 AND entity_id=$2) AS receipts,(SELECT count(*)::int FROM wbs_inbound_row WHERE tenant_id=$1 AND entity_id=$2) AS rows',[ids.tenantId,ids.entityId]);assert.deepEqual(counts.rows[0],{receipts:2,rows:2});
 });
 
+pgTest('WBS single-receipt inbound persistence retains request-correlated audit evidence and never creates a journal',async()=>{
+  const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),rowId=randomUUID(),capturedAt=new Date().toISOString();
+  const journalsBefore=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:capturedAt,environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-TEST',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:rowId,ap_type:'AUTOC'}]}]};
+  snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));snapshot.package_hash=canonicalRequestHash(snapshot);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'single-inbound-importer',['WBS.SNAPSHOT.IMPORT'])});
+  const observed=await kernel.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'snapshot-single-inbound-0001'});
+  const receipt={payload_hash:hash('single-receipt'),payload_ref:`object://wbs-snapshot/${snapshotId}/inbound/PAY-SINGLE`};
+  const rows=[{source_record_id:'PAY-SINGLE',source_version:`snapshot:${snapshotId}:PAY-SINGLE`,raw:{record_id:'PAY-SINGLE'},normalized:{source_type:'PAYABLE',source_record_id:'PAY-SINGLE',source_version:`snapshot:${snapshotId}:PAY-SINGLE`,receipt_hash:receipt.payload_hash,receipt_ref:receipt.payload_ref},outcome:{stage:'STAGING_REVIEW_REQUIRED'},outcome_kind:'STAGING'}];
+  const idempotencyKey='wbs-single-receipt-0001',requestHash=canonicalRequestHash({tenant_id:ids.tenantId,entity_id:ids.entityId,import_batch_id:observed.import_batch_id,receipt,rows,idempotency_key:idempotencyKey});
+  const created=await kernel.persistWbsInboundRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,receipt,rows,idempotencyKey,requestHash});
+  assert.deepEqual({rows:created.row_count,draft:created.can_create_draft,approve:created.can_approve,post:created.can_post},{rows:1,draft:false,approve:false,post:false});assert(created.receipt_id);
+  const audit=(await adminPool.query("SELECT request_id,correlation_id,idempotency_key,after_hash FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='WBS_INBOUND_PERSISTED' AND object_id=$3",[ids.tenantId,ids.entityId,created.receipt_id])).rows[0];
+  assert.deepEqual(audit,{request_id:idempotencyKey,correlation_id:idempotencyKey,idempotency_key:idempotencyKey,after_hash:requestHash});
+  const replay=await kernel.persistWbsInboundRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,receipt,rows,idempotencyKey,requestHash});assert.equal(replay.idempotent,true);
+  await assert.rejects(kernel.persistWbsInboundRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,receipt,rows,idempotencyKey,requestHash:hash('changed-single-request')}),error=>error.code==='23505');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
+});
+
 pgTest('authenticated HTTP records only sandbox WBS snapshot observations in its authorized entity',async()=>{
   const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),rowId=randomUUID();
   const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:new Date().toISOString(),environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-HTTP',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:rowId,ap_type:'AUTOC'}]}]};snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));snapshot.package_hash=canonicalRequestHash(snapshot);

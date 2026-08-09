@@ -13,3 +13,12 @@ test('WBS multi-receipt inbound persistence is one scoped, append-only transacti
   assert.match(down,/DROP FUNCTION IF EXISTS refs_persist_wbs_inbound_snapshot_rows/);
   assert.match(repository,/async persistWbsInboundSnapshotRows\(/);
 });
+
+test('WBS single-receipt persistence records request and correlation evidence',async()=>{
+  const sql=await readFile(new URL('../db/migrations/062_wbs_inbound_single_receipt_audit_fix.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/062_wbs_inbound_single_receipt_audit_fix.sql',import.meta.url),'utf8');
+  for(const token of ['refs_persist_wbs_inbound_rows','WBS_INBOUND_PERSISTED','request_id','correlation_id','p_idempotency','receipt_hash','receipt_ref','can_create_draft','can_post'])assert.match(sql,new RegExp(token));
+  assert.match(sql,/RETURNING wbs_inbound_receipt\.receipt_id INTO rid/);
+  assert.doesNotMatch(sql,/journal_entry|refs_create_auto_journal|refs_post_journal/i);
+  assert.match(down,/CREATE OR REPLACE FUNCTION refs_persist_wbs_inbound_rows/);
+});
