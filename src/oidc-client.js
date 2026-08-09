@@ -105,6 +105,7 @@ export const respondFromRenewalFrame=(environment=globalThis)=>{
 
 export class BrowserOidcClient {
   constructor({environment=globalThis,fetcher=globalThis.fetch,now=()=>Date.now()}={}){this.environment=environment;this.fetcher=fetcher;this.now=now;this.config=oidcRuntimeConfig(environment);this.renewing=false;}
+  fetch(url,options){return Reflect.apply(this.fetcher,this.environment,[url,options]);}
   configured(){return !!this.config&&typeof this.fetcher==='function'&&!!this.environment.crypto?.subtle&&!!this.environment.sessionStorage;}
   session(){const value=load(this.environment);return value?.kind==='token'&&typeof value.accessToken==='string'?value:null;}
   sessionExpiresAt(){const session=this.session();return session&&Number.isSafeInteger(session.expiresAt)?session.expiresAt:null;}
@@ -124,7 +125,7 @@ export class BrowserOidcClient {
     if(error){clear(this.environment);return {ok:false,code:'OIDC_LOGIN_REJECTED'};}
     if(!code)return this.session()?{ok:true}: {ok:false,code:'OIDC_LOGIN_REQUIRED'};
     const pending=load(this.environment);if(!pending||pending.kind!=='pending'||pending.state!==state||!Number.isSafeInteger(pending.createdAt)||pending.createdAt+600000<this.now()){clear(this.environment);return {ok:false,code:'OIDC_STATE_INVALID'};}
-    let response,body;try{response=await this.fetcher(this.config.tokenEndpoint,{method:'POST',headers:{accept:'application/json','content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:this.config.redirectUri,client_id:this.config.clientId,code_verifier:pending.verifier}).toString(),cache:'no-store',redirect:'error'});body=await response.json();}catch{clear(this.environment);return {ok:false,code:'OIDC_TOKEN_UNAVAILABLE'};}
+    let response,body;try{response=await this.fetch(this.config.tokenEndpoint,{method:'POST',headers:{accept:'application/json','content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:this.config.redirectUri,client_id:this.config.clientId,code_verifier:pending.verifier}).toString(),cache:'no-store',redirect:'error'});body=await response.json();}catch{clear(this.environment);return {ok:false,code:'OIDC_TOKEN_UNAVAILABLE'};}
     const accepted=response?.ok?acceptToken(body,this.config,this.now()):null;
     if(!accepted){clear(this.environment);return {ok:false,code:'OIDC_TOKEN_INVALID'};}
     save(this.environment,accepted);this.environment.history?.replaceState?.({},'',this.config.redirectUri);return {ok:true};
@@ -199,7 +200,7 @@ export class BrowserOidcClient {
     const code=text(params.get('code'));
     if(!code)return renewalFail('OIDC_RENEWAL_INVALID','The renewal answer carried neither an authorization code nor an error.');
     let response,body;
-    try{response=await this.fetcher(this.config.tokenEndpoint,{method:'POST',headers:{accept:'application/json','content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:this.config.redirectUri,client_id:this.config.clientId,code_verifier:verifier}).toString(),cache:'no-store',redirect:'error'});body=await response.json();}
+    try{response=await this.fetch(this.config.tokenEndpoint,{method:'POST',headers:{accept:'application/json','content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:this.config.redirectUri,client_id:this.config.clientId,code_verifier:verifier}).toString(),cache:'no-store',redirect:'error'});body=await response.json();}
     catch{return renewalFail('OIDC_RENEWAL_UNREACHABLE','The renewal token request produced no usable response at all.');}
     const accepted=response?.ok?acceptToken(body,this.config,this.now()):null;
     if(!accepted)return renewalFail('OIDC_RENEWAL_INVALID','The renewed token failed the same issuer, audience, token-type and expiry checks the interactive sign-in applies. It was discarded.');

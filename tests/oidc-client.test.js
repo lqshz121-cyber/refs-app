@@ -10,6 +10,12 @@ const base={__REFS_OIDC__:{issuer:'https://issuer.example',authorizationEndpoint
 assert.equal(oidcRuntimeConfig({__REFS_OIDC__:{...base.__REFS_OIDC__,issuer:'http://issuer.example'}}),null);
 assert.equal(oidcRuntimeConfig({__REFS_OIDC__:{...base.__REFS_OIDC__,scope:'profile'}}),null);
 (async()=>{
+  const boundEnvironment={...base,sessionStorage:storage(),location:{search:'',assign(){}},history:{replaceState(){}}};
+  let observedReceiver=null;
+  const receiverCheckingFetcher=async function(){observedReceiver=this;return {ok:true,json:async()=>({access_token:token({iss:'https://issuer.example',aud:'refs-accounting',exp:2000}),token_type:'Bearer',expires_in:600})};};
+  const boundClient=new BrowserOidcClient({environment:boundEnvironment,now:()=>1_000_000,fetcher:receiverCheckingFetcher});
+  await boundClient.startLogin();const boundPending=JSON.parse(boundEnvironment.sessionStorage.getItem('refs_oidc_pkce_v1'));boundEnvironment.location.search=`?code=bound-code&state=${boundPending.state}`;
+  assert.deepEqual(await boundClient.completeRedirect(),{ok:true});assert.equal(observedReceiver,boundEnvironment,'browser fetch must be invoked with its owning environment as receiver');
   const client=new BrowserOidcClient({environment:base,now:()=>1_000_000,fetcher:async()=>({ok:true,json:async()=>({access_token:token({iss:'https://issuer.example',aud:'refs-accounting',exp:2000}),token_type:'Bearer',expires_in:600})})});
   await client.startLogin();assert.match(base.location.assigned,/code_challenge_method=S256/);const pending=JSON.parse(base.sessionStorage.getItem('refs_oidc_pkce_v1'));base.location.search=`?code=code-123&state=${pending.state}`;
   assert.deepEqual(await client.completeRedirect(),{ok:true});assert.equal(await client.getAccessToken(),token({iss:'https://issuer.example',aud:'refs-accounting',exp:2000}));assert.equal(base.location.replaced,'https://app.example/callback');
