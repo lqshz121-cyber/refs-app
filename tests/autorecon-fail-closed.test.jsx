@@ -15,6 +15,7 @@ expect('does not render fabricated posted journal numbers',!html.includes('20260
 expect('does not claim an Incur created a journal entry',!html.includes('已 Incur:生成银行流水 JE'));
 expect('does not claim a sample check was voided and posted',!checkHtml.includes('已作废,冲销分录已过账'));
 expect('authoritative AutoRec renders no hard-coded company evidence',authoritativeAutoRec.includes('AUTOREC_API_UNAVAILABLE')&&!authoritativeAutoRec.includes('AIWB INC')&&!authoritativeAutoRec.includes('Wan Bridge Group LLC'));
+expect('authoritative AutoRec exposes its read-only ingress boundary without demo data',authoritativeAutoRec.includes('RECEIPT_EVIDENCE_PENDING')&&authoritativeAutoRec.includes('Payable Report')&&authoritativeAutoRec.includes('Control evidence only')&&!authoritativeAutoRec.includes('DEMO_DATA_ONLY'));
 expect('authoritative checks render no hard-coded payments or check numbers',authoritativeChecks.includes('CHECK_API_UNAVAILABLE')&&!authoritativeChecks.includes('CHK-1086')&&!authoritativeChecks.includes('BILL-2026-9002'));
 
 if(failed)process.exitCode=1;
