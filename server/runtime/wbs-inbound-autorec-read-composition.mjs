@@ -13,12 +13,20 @@ const selectionFor=input=>{
 };
 const scoped=(rows,selection)=>Array.isArray(rows)&&rows.every(row=>row&&text(row.tenant_id)===selection.tenantId&&text(row.entity_id)===selection.entityId&&text(row.company_key)===selection.companyKey&&selection.sourceRecordIds.includes(text(row.source_record_id)));
 const matchingPolicy=row=>freeze({...row,receipt_id:text(row.policy_id),receipt_ref:`refs-config:mapping-snapshot/${text(row.policy_id)}`,receipt_hash:text(row.policy_snapshot_hash),evidence_type:'REFS_APPROVED_MATCHING_POLICY_SNAPSHOT'});
-const plansFor=(candidates,policies)=>freeze(policies.flatMap(row=>{
+const policyScope=row=>[text(row?.company_key),text(row?.currency),text(row?.bank_account_ref)].join('\u0000');
+const plansFor=(candidates,policies)=>{
+  const grouped=new Map();for(const row of policies){const key=policyScope(row);const items=grouped.get(key)??[];items.push(row);grouped.set(key,items);}
+  const plans=[],exceptions=[];
+  for(const [scopeKey,items] of grouped){
+    if(items.length!==1){exceptions.push(freeze({stage:'EXCEPTION',code:'WBS_AUTOREC_MATCHING_POLICY_AMBIGUOUS',policy_scope:scopeKey,can_allocate:false,can_dispatch:false,can_post:false}));continue;}
+    const row=items[0];
   const policy=matchingPolicy(row),toPlanRow=item=>freeze({...item,...item.trace,mapping:item.mapping}),bank=candidates.filter(item=>item.side==='BANK_SIDE'&&item.bank_account_ref===policy.bank_account_ref&&item.currency===policy.currency).map(toPlanRow),business=candidates.filter(item=>item.side==='BUSINESS_SIDE'&&item.bank_account_ref===policy.bank_account_ref&&item.currency===policy.currency).map(toPlanRow);
-  if(!bank.length||!business.length)return [];
+  if(!bank.length||!business.length)continue;
   const plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:bank,businessRows:business,matchingPolicy:policy});
-  return plan.status==='BLOCKED'?[]:[freeze({...plan,policy_evidence_type:policy.evidence_type,can_allocate:false,can_release:false,can_post:false})];
-}));
+  if(plan.status==='BLOCKED')exceptions.push(...plan.exceptions);else plans.push(freeze({...plan,policy_evidence_type:policy.evidence_type,can_allocate:false,can_release:false,can_post:false}));
+  }
+  return freeze({plans:freeze(plans),exceptions:freeze(exceptions)});
+};
 
 // Composition-only seam. The injected repository is read-only and must return
 // persisted rows; this module never opens a transaction or dispatches a JE.
@@ -35,7 +43,8 @@ export function createWbsInboundAutoRecReadComposition({repository}={}){
       try{[inbound,control,mappings,matchingPolicies,observedStateEvidence]=await Promise.all([repository.readPersistedWbsInboundRows({...selection,read_only:true}),repository.readPersistedWbsControlRows({...selection,read_only:true}),repository.readApprovedWbsAutoRecMappings({...selection,read_only:true}),repository.readApprovedWbsAutoRecMatchingPolicies({...selection,read_only:true}),repository.readWbsAutoRecObservedStateEvidence({...selection,read_only:true})]);}catch{return empty('WBS_AUTOREC_READ_FAILED');}
       if(!scoped(inbound,selection)||!control||!scoped(control.companyRows,selection)||!scoped(control.detailRows,selection)||!scoped(control.persistedRows,selection)||!scoped(observedStateEvidence,selection)||!Array.isArray(mappings)||!mappings.every(row=>row&&text(row.entity_id)===selection.entityId&&text(row.company_key)===selection.companyKey)||!Array.isArray(matchingPolicies)||!matchingPolicies.every(row=>row&&text(row.entity_id)===selection.entityId&&text(row.company_key)===selection.companyKey))return empty('WBS_AUTOREC_READ_SCOPE_INVALID');
       const projection=projectPersistedWbsInboundAutoRec({rows:inbound,mappings,companyControlRows:control.companyRows,detailControlRows:control.detailRows,persistedControlRows:control.persistedRows,scope:{tenant_id:selection.tenantId,entity_id:selection.entityId,company_key:selection.companyKey}});
-      const result=freeze({status:'READ_ONLY_PROJECTED',request_hash:requestHash,replayed:false,...projection,matching_policy_evidence:freeze(matchingPolicies.map(matchingPolicy)),review_plans:plansFor(projection.candidates,matchingPolicies),observed_state_evidence:freeze(observedStateEvidence.map(row=>freeze({...row,can_transition_refs:false,can_release:false,can_incur:false,can_create_draft:false,can_post:false}))),can_dispatch:false,can_create_draft:false,can_post:false});
+      const policyPlans=plansFor(projection.candidates,matchingPolicies);
+      const result=freeze({status:'READ_ONLY_PROJECTED',request_hash:requestHash,replayed:false,...projection,matching_policy_evidence:freeze(matchingPolicies.map(matchingPolicy)),matching_policy_exceptions:policyPlans.exceptions,review_plans:policyPlans.plans,observed_state_evidence:freeze(observedStateEvidence.map(row=>freeze({...row,can_transition_refs:false,can_release:false,can_incur:false,can_create_draft:false,can_post:false}))),can_dispatch:false,can_create_draft:false,can_post:false});
       replays.set(selection.replayKey,freeze({request_hash:requestHash,result}));return result;
     }
   });

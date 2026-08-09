@@ -25,6 +25,12 @@ test('an approved matching-policy snapshot alone can create a read-only proposal
   assert.deepEqual({allocated:result.review_plans[0].control_totals.allocated_total,allocate:result.review_plans[0].can_allocate,post:result.review_plans[0].can_post},{allocated:100,allocate:false,post:false});
 });
 
+test('duplicate matching policies for one company/currency/bank scope are fail-closed',async()=>{
+  const reader=createWbsInboundAutoRecReadComposition({repository:{...repository(),readApprovedWbsAutoRecMatchingPolicies:async()=>[policy,{...policy,policy_id:'policy-2',mapping_id:'policy-2'}]}});
+  const result=await reader.read({...scope,replayKey:'policy-ambiguous'});
+  assert.equal(result.review_plans.length,0);assert.equal(result.matching_policy_exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_AMBIGUOUS');
+});
+
 test('missing capability, read failure, and tenant/entity/company/source leakage fail closed with zero candidates',async()=>{
   assert.equal((await createWbsInboundAutoRecReadComposition({}).read(scope)).code,'WBS_AUTOREC_READ_CAPABILITY_UNAVAILABLE');
   assert.equal((await createWbsInboundAutoRecReadComposition({repository:repository({fail:true})}).read(scope)).code,'WBS_AUTOREC_READ_FAILED');
