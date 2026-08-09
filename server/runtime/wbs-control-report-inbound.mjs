@@ -17,7 +17,7 @@ const decimal=value=>{
 const isHash=value=>/^sha256:[0-9a-f]{64}$/.test(text(value));
 const isCurrency=value=>/^[A-Z]{3}$/.test(text(value));
 const isPeriod=value=>/^\d{4}-(0[1-9]|1[0-2])$/.test(text(value));
-const isDate=value=>{const candidate=text(value);return /^\d{4}-\d{2}-\d{2}$/.test(candidate)&&new Date(`${candidate}T00:00:00.000Z`).toISOString().slice(0,10)===candidate;};
+const isDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const parsed=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(parsed.getTime())&&parsed.toISOString().slice(0,10)===candidate;};
 const freeze=value=>Object.freeze(value);
 const reportKind=sourceType=>sourceType==='COST_GENERAL_LEDGER'?'COST_GENERAL_LEDGER':sourceType==='PROPERTY_COMPARISON'?'PROPERTY_COMPARISON':null;
 const requiredScope=sourceType=>sourceType==='COST_GENERAL_LEDGER'?['tenant_id','entity_id','company_key','period','currency']:['tenant_id','entity_id','company_key','property_ref','period_start','period_end','currency','bank_account_ref'];

@@ -14,7 +14,7 @@ const decimal=value=>{
   return Number.isFinite(parsed)&&Number.isSafeInteger(Math.round(scaled))?Number(parsed.toFixed(4)):null;
 };
 const freeze=value=>Object.freeze(value);
-const validDate=value=>{const normalized=text(value);return /^\d{4}-\d{2}-\d{2}$/.test(normalized)&&new Date(`${normalized}T00:00:00.000Z`).toISOString().slice(0,10)===normalized;};
+const validDate=value=>{const normalized=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(normalized))return false;const parsed=new Date(`${normalized}T00:00:00.000Z`);return !Number.isNaN(parsed.getTime())&&parsed.toISOString().slice(0,10)===normalized;};
 const validPeriod=value=>/^\d{4}-(0[1-9]|1[0-2])$/.test(text(value));
 const validCurrency=value=>/^[A-Z]{3}$/.test(text(value));
 
