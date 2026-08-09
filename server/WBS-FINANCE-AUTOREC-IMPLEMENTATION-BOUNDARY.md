@@ -7,6 +7,9 @@ without reproducing WBS write operations. It is the implementation boundary for
 the WBS Payable Report, Bank Transaction Journal Entries, Auto Bank
 Reconciliation detail, Cost General Ledger, and Property Comparison Report.
 
+The decision and non-negotiable authority split are frozen in
+[`WBS-FINANCE-AUTOREC-INGRESS-ADR.md`](WBS-FINANCE-AUTOREC-INGRESS-ADR.md).
+
 REFS is the accounting system of record for its own workflow. WBS is a
 read-only source of evidence. A WBS receipt never approves, posts, releases,
 incurs, reverses, or creates a REFS journal.
