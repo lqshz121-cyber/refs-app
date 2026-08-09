@@ -15,7 +15,7 @@ import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {createWbsSnapshotSignatureVerifier} from '../runtime/wbs-snapshot-signature.mjs';
 import {createProductionAccountingServer} from '../runtime/accounting-server.mjs';
-import {OidcJwtAuthenticator} from '../api/oidc-authenticator.mjs';
+import {OidcJwtAuthenticator,REFS_TENANT_CLAIM} from '../api/oidc-authenticator.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -784,7 +784,7 @@ pgTest('production HTTP listener verifies an RS256 access token before DB contex
   const permissions={maker:['GL.JE.CREATE','GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']};
   for(const [actor,grants] of Object.entries(permissions))for(const permission of grants)await adminPool.query('INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,$4)',[ids.tenantId,actor,ids.entityId,permission]);
   const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048}),issuer='https://issuer.refs.test',audience='refs-accounting',authenticator=new OidcJwtAuthenticator({issuer,audience,keyResolver:{resolve:async()=>publicKey}});
-  const token=actor=>{const now=Math.floor(Date.now()/1000),header=Buffer.from(JSON.stringify({alg:'RS256',kid:'test-key',typ:'JWT'})).toString('base64url'),payload=Buffer.from(JSON.stringify({iss:issuer,aud:audience,iat:now,exp:now+300,tenant_id:ids.tenantId,sub:actor})).toString('base64url'),signature=sign('RSA-SHA256',Buffer.from(`${header}.${payload}`),privateKey).toString('base64url');return `${header}.${payload}.${signature}`;};
+  const token=actor=>{const now=Math.floor(Date.now()/1000),header=Buffer.from(JSON.stringify({alg:'RS256',kid:'test-key',typ:'JWT'})).toString('base64url'),payload=Buffer.from(JSON.stringify({iss:issuer,aud:audience,iat:now,exp:now+300,[REFS_TENANT_CLAIM]:ids.tenantId,sub:actor})).toString('base64url'),signature=sign('RSA-SHA256',Buffer.from(`${header}.${payload}`),privateKey).toString('base64url');return `${header}.${payload}.${signature}`;};
   const server=createProductionAccountingServer({runtimePool,issuerPool,authenticator,attachmentStorage:{probe:async()=>true},virusScanner:{probe:async()=>true},scannerServiceActorId:'scanner-service',wbsSnapshotVerifier:()=>true,allowedOrigins:['https://app.example']});
   await new Promise((resolve,reject)=>server.listen(0,'127.0.0.1',error=>error?reject(error):resolve()));
   try{

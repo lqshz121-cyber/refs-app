@@ -1,10 +1,10 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {generateKeyPairSync,randomUUID,sign} from 'node:crypto';
-import {OidcJwtAuthenticator,RemoteJwksResolver} from '../api/oidc-authenticator.mjs';
+import {OidcJwtAuthenticator,REFS_TENANT_CLAIM,RemoteJwksResolver} from '../api/oidc-authenticator.mjs';
 import {createProductionAccountingServer} from '../runtime/accounting-server.mjs';
 
 const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});const jwk=publicKey.export({format:'jwk'});Object.assign(jwk,{kid:'key-1',use:'sig',alg:'RS256'});
 const now=2_000_000_000,tenantId=randomUUID();
-const token=(claims={},header={})=>{const h=Buffer.from(JSON.stringify({alg:'RS256',kid:'key-1',typ:'at+jwt',...header})).toString('base64url');const p=Buffer.from(JSON.stringify({iss:'https://iam.example.com',aud:'refs-accounting',sub:'user-1',tenant_id:tenantId,iat:now-10,exp:now+300,...claims})).toString('base64url');return `${h}.${p}.${sign('RSA-SHA256',Buffer.from(`${h}.${p}`),privateKey).toString('base64url')}`;};
+const token=(claims={},header={})=>{const h=Buffer.from(JSON.stringify({alg:'RS256',kid:'key-1',typ:'at+jwt',...header})).toString('base64url');const p=Buffer.from(JSON.stringify({iss:'https://iam.example.com',aud:'refs-accounting',sub:'user-1',[REFS_TENANT_CLAIM]:tenantId,iat:now-10,exp:now+300,...claims})).toString('base64url');return `${h}.${p}.${sign('RSA-SHA256',Buffer.from(`${h}.${p}`),privateKey).toString('base64url')}`;};
 const resolver={resolve:async kid=>{if(kid!=='key-1')throw new Error('unknown');return publicKey;}};
 const authenticator=new OidcJwtAuthenticator({issuer:'https://iam.example.com',audience:'refs-accounting',keyResolver:resolver,clock:()=>now*1000});
 const authenticate=value=>authenticator.authenticate({headers:{authorization:`Bearer ${value}`}});
@@ -18,7 +18,7 @@ test('OIDC authenticator rejects issuer, audience, lifetime, algorithm, key and 
 });
 
 test('OIDC authenticator rejects missing or invalid identity claims and malformed bearer syntax',async()=>{
-  await assert.rejects(authenticate(token({tenant_id:'not-uuid'})),error=>error.code==='INVALID_ACCESS_TOKEN'&&error.message==='Tenant identity claim is invalid');
+  await assert.rejects(authenticate(token({[REFS_TENANT_CLAIM]:'not-uuid'})),error=>error.code==='INVALID_ACCESS_TOKEN'&&error.message==='Tenant identity claim is invalid');
   await assert.rejects(authenticate(token({sub:''})),error=>error.code==='INVALID_ACCESS_TOKEN'&&error.message==='Subject identity claim is invalid');
   await assert.rejects(authenticator.authenticate({headers:{authorization:'Basic abc'}}),error=>error.code==='AUTHENTICATION_REQUIRED');
 });
