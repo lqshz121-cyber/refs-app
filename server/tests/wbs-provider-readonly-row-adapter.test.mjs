@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mapWbsReadonlyProviderRow,WbsProviderReadonlyRowAdapterError} from '../runtime/wbs-provider-readonly-row-adapter.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {buildWbsMcpReadonlySnapshot,mapWbsMcpEnvelopeToInbound} from '../runtime/wbs-mcp-inbound-lineage.mjs';
+import {buildWbsAutoRecBankControlEvidence,buildWbsMcpReadonlySnapshot,mapWbsMcpEnvelopeToInbound,WbsMcpLineageError} from '../runtime/wbs-mcp-inbound-lineage.mjs';
 import {createWbsInboundDataAdapter} from '../runtime/wbs-inbound-data-adapter.mjs';
 
 const scope={company_code:'COMPANY-A',currency:'USD'};
@@ -55,4 +55,14 @@ test('a receipt-supplied immutable Bank Transaction key reaches staging, while j
   assert.deepEqual({source:prepared.staging[0].raw_trace.source_type,key:prepared.staging[0].raw_trace.source_record_id,bank:prepared.staging[0].raw_trace.bank_account_ref,amount:prepared.staging[0].raw_trace.amount,direction:prepared.staging[0].raw_trace.direction},{source:'BANK_TRANSACTION',key:'BANK-TX-001',bank:'BANK-OP',amount:100,direction:'CREDIT'});
   assert.deepEqual(prepared.staging[0].raw_trace.external_trace,{transaction_date:'2026-08-01',posting_date:'2026-08-02',account_code:'BANK-OP',ref_no:'DISPLAY-ONLY'});
   assert.equal(prepared.staging[0].raw_trace.source_record_id,'BANK-TX-001');
+});
+
+test('physical AutoRec Bank totals remain control-only and reject an inferred released-quantity formula',()=>{
+  const row=mapWbsReadonlyProviderRow({sourceTable:'wbsdata.autopaymentbank',scope,row:{PB_GuId:'PB-CONTROL-001',PB_CompanyCode:'COMPANY-A',PB_AhId:'BANK-OP',PB_Quantity:'2',PB_PayAmount:'100.0000',PB_DebitAmount:'0',PB_Released:'50.0000',PB_Incurred:'25.0000',PB_Status:'INCURRED'}});
+  const rows=[row],content_sha256=canonicalRequestHash(rows).slice(7);
+  const envelope={contract_version:'WBS-REFS-MCP-V1',tool:'list_autorec_banks',environment:'production',captured_at:'2026-08-10T00:00:00.000Z',source:{system:'WBS'},scope:{company:'COMPANY-A',currency:'USD'},record_count:1,content_sha256,cursor_next:null,etl_notice:'Snapshot comparison required',rows};
+  const mapped=mapWbsMcpEnvelopeToInbound({envelope}).rows[0];
+  assert.deepEqual({admission:mapped.admission,reconcile:mapped.can_reconcile,draft:mapped.can_create_draft,post:mapped.can_post},{admission:'CONTROL_EVIDENCE_ONLY',reconcile:false,draft:false,post:false});
+  const control={scope:{company_key:'COMPANY-A',currency:'USD',period:'2026-08',bank_account_ref:'BANK-OP'},formula:{formula_id:'WBS-PB-ROW-SUM',version:'1',aggregation:'ROW_SUM'},totals:{quantity:'2',released_quantity:'0',pay_amount:'100',released_amount:'50',incurred_amount:'25',debit_amount:'0'},receipt:{hash:`sha256:${content_sha256}`,ref:'object://wbs/test/pb-control',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-10T00:00:00.000Z'}};
+  assert.throws(()=>buildWbsAutoRecBankControlEvidence({envelope,control}),error=>error instanceof WbsMcpLineageError&&error.code==='WBS_MCP_CONTROL_TOTALS_INVALID');
 });
