@@ -106,6 +106,8 @@ test('receipt-backed Company Screening controls remain in a review plan and reje
   assert.equal(plan.status,'REVIEW_REQUIRED');assert.equal(plan.company_control_trace.control_snapshot_hash,control.control_snapshot_hash);assert.equal(plan.trace[0].company_control_snapshot_hash,control.control_snapshot_hash);
   const changed=run([{...bank('bank-control',100),company_control_trace:control}],[{...payable('payable-control',100),company_control_trace:{...control,control_snapshot_hash:'sha256:'+'0'.repeat(64)}}]);
   assert.equal(changed.status,'BLOCKED');assert.equal(changed.exceptions[0].code,'WBS_AUTOREC_CONTROL_TRACE_MISMATCH');
+  const wrongMonth=run([{...bank('bank-control-month',100),company_control_trace:control}],[{...payable('payable-control-month',100,'2026-09-01'),company_control_trace:control}]);
+  assert.equal(wrongMonth.status,'BLOCKED');assert.equal(wrongMonth.exceptions[0].code,'WBS_AUTOREC_CONTROL_TRACE_MISMATCH');
 });
 
 test('review allocation edges are replay-stable when business source types share a record-shaped ID',()=>{

@@ -321,9 +321,10 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
   let companyControlTrace=null;
   if(suppliedControlTraces.length){
     const requiredControlTrace=['control_snapshot_hash','receipt_id','receipt_ref','receipt_hash','source_record_id','source_version','company_key','completed_periods','quantity','released_quantity','incurred_quantity','amount','released_amount','incurred_amount','reconciliation_balance','new_balance','balance_date'];
+    const sourceAccountingMonths=new Set(all.map(row=>validIsoDate(row?.accounting_date)?text(row.accounting_date).slice(0,7):''));
     const invalidControlTrace=all.some(row=>{
       const control=row?.company_control_trace;
-      return !control||typeof control!=='object'||requiredControlTrace.some(field=>control[field]===null||control[field]===undefined||text(control[field])==='')||!/^sha256:[0-9a-f]{64}$/.test(text(control.control_snapshot_hash))||!/^sha256:[0-9a-f]{64}$/.test(text(control.receipt_hash))||text(control.company_key)!==text(anchor.company_key)||control.can_match!==false||control.can_allocate!==false||control.can_release!==false||control.can_create_draft!==false||control.can_post!==false;
+      return !control||typeof control!=='object'||requiredControlTrace.some(field=>control[field]===null||control[field]===undefined||text(control[field])==='')||!/^sha256:[0-9a-f]{64}$/.test(text(control.control_snapshot_hash))||!/^sha256:[0-9a-f]{64}$/.test(text(control.receipt_hash))||text(control.company_key)!==text(anchor.company_key)||!validIsoDate(control.balance_date)||sourceAccountingMonths.size!==1||!sourceAccountingMonths.has(text(control.balance_date).slice(0,7))||control.can_match!==false||control.can_allocate!==false||control.can_release!==false||control.can_create_draft!==false||control.can_post!==false;
     });
     const controlHashes=new Set(suppliedControlTraces.map(control=>text(control.control_snapshot_hash)));
     if(invalidControlTrace||controlHashes.size!==1)exceptions.push(eligibilityException('PAIR',anchor,'WBS_AUTOREC_CONTROL_TRACE_MISMATCH','All proposed rows must retain one exact immutable Company Screening M/R/C control snapshot.'));
