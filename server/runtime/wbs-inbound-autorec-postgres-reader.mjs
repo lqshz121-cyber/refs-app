@@ -1,6 +1,6 @@
 import {createWbsInboundAutoRecReadComposition} from './wbs-inbound-autorec-read-composition.mjs';
 
-const REQUIRED=Object.freeze(['readPersistedWbsInboundRows','readPersistedWbsControlRows','readApprovedWbsAutoRecMappings','readWbsAutoRecObservedStateEvidence']);
+const REQUIRED=Object.freeze(['readPersistedWbsInboundRows','readPersistedWbsControlRows','readApprovedWbsAutoRecMappings','readApprovedWbsAutoRecMatchingPolicies','readWbsAutoRecObservedStateEvidence']);
 const freeze=value=>Object.freeze(value);
 
 // Binds the authenticated Postgres kernel read capabilities to the pure

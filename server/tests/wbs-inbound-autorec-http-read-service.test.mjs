@@ -14,13 +14,14 @@ test('HTTP WBS read service injects only the receipt-backed kernel reader and cr
     readPersistedWbsInboundRows:async input=>(calls.push(['inbound',input]),[bank]),
     readPersistedWbsControlRows:async input=>(calls.push(['control',input]),{companyRows:[control],detailRows:[],persistedRows:[control]}),
     readApprovedWbsAutoRecMappings:async input=>(calls.push(['mapping',input]),[mapping]),
+    readApprovedWbsAutoRecMatchingPolicies:async input=>(calls.push(['policy',input]),[]),
     readWbsAutoRecObservedStateEvidence:async input=>(calls.push(['state',input]),[])
   };
   const service=createWbsInboundAutoRecHttpReadService({kernel});
   const input={tenantId:'t1',entityId:'e1',companyKey:'COMPANY-A',sourceRecordIds:['control-1','bank-1']};
   const first=await service.readAutoRecReview(input),replay=await service.readAutoRecReview(input);
   assert.equal(first.status,'READ_ONLY_PROJECTED');assert.equal(first.can_dispatch,false);assert.equal(first.can_create_draft,false);assert.equal(first.can_post,false);assert.equal(replay.replayed,true);
-  assert.equal(calls.length,4);assert.ok(calls.every(([,request])=>request.read_only===true));
+  assert.equal(calls.length,5);assert.ok(calls.every(([,request])=>request.read_only===true));
   assert.equal(typeof service.createAutoJournal,'undefined');assert.equal(typeof service.postJournal,'undefined');
 });
 

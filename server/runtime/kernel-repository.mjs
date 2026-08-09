@@ -222,6 +222,13 @@ export class PostgresAccountingKernel{
     ),'WBS_AUTOREC_READ_FAILED','WBS approved mapping read did not return a result').rows);
   }
 
+  async readApprovedWbsAutoRecMatchingPolicies({tenantId,entityId,companyKey,read_only}){
+    if(read_only!==true||typeof companyKey!=='string'||companyKey.trim()==='')throw new KernelError('WBS_AUTOREC_READ_SCOPE_INVALID','An explicit scoped read-only WBS matching-policy selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_autorec_matching_policies($1,$2,$3) AS rows',[tenantId,entityId,companyKey]
+    ),'WBS_AUTOREC_READ_FAILED','WBS approved matching-policy read did not return a result').rows);
+  }
+
   async createAutoJournal(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
