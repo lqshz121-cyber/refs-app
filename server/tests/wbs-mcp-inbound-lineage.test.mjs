@@ -76,6 +76,13 @@ test('AutoRec Detail business date is receipt-bound and never falls back between
   assert.throws(()=>mapWbsMcpEnvelopeToInbound({envelope:detailEnvelope,autoRecDetailDirectionConventions:convention.map(item=>({...item,business_date_field:'posting_date'}))}),error=>error.code==='WBS_MCP_AUTOREC_DIRECTION_CONVENTION_INVALID');
 });
 
+test('a Payable snapshot preserves a missing Incurred Date as an exception instead of borrowing Posting Date',async()=>{
+  const payableEnvelope=envelope('list_payables',[{ap_guid:'44444444-4444-4444-8444-444444444445',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:'100',posting_date:'2026-08-03'}]);
+  const snapshot=buildWbsMcpReadonlySnapshot({envelopes:[payableEnvelope],snapshotId:'44444444-4444-4444-8444-444444444444',dictionaryVersion:'WBS-MCP-V1',payableDirectionConventions:payableDirectionConventions(payableEnvelope)});
+  const result=await createWbsInboundDataAdapter({snapshotReader:{readOnly:true,readSnapshot:async()=>snapshot}}).pull();
+  assert.deepEqual({staging:result.staging.length,exceptions:result.exceptions.length,code:result.exceptions[0].exception.code,hasInvoiceDate:Object.hasOwn(result.exceptions[0].raw_trace,'invoice_date')},{staging:0,exceptions:1,code:'WBS_RECEIPT_FIELD_MISSING',hasInvoiceDate:false});
+});
+
 test('transaction candidates require exact company scope and all monetary admission facts',()=>{
   const incompleteEnvelope=envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',account_code:'BANK-1',debtor:'100',lender:'0',posting_date:'2026-08-01'}]);
   const incomplete=mapWbsMcpEnvelopeToInbound({envelope:incompleteEnvelope,bankDirectionConventions:bankDirectionConventions(incompleteEnvelope)});
@@ -182,7 +189,7 @@ test('unchanged WBS source rows keep their observed version when another row cha
 
 test('formal MCP transaction views enter the existing Raw/Normalized/Staging adapter with upstream receipt provenance',async()=>{
   const scope={company:'COMPANY-A',snapshot_token:'snapshot-trace-1'};
-  const payable=envelope('list_payables',[{ap_guid:'11111111-1111-4111-8111-111111111111',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:'100',posting_date:'2026-08-09',journal_no:'J-1',check_no:'CHK-1',clear_date:'2026-08-10'}],scope);
+  const payable=envelope('list_payables',[{ap_guid:'11111111-1111-4111-8111-111111111111',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:'100',incurred_date:'2026-08-09',posting_date:'2026-08-09',journal_no:'J-1',check_no:'CHK-1',clear_date:'2026-08-10'}],scope);
   const bank=envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-09',posting_date:'2026-08-09',payee:'Vendor A',description:'Bank memo',come_from:'AUTOC'}],scope);
   const detail=envelope('list_autorec_details',[{pd_guid:'22222222-2222-4222-8222-222222222222',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:'0',payment:'100',pd_pv_guid:'RELATION-ONLY',batch_guid:'UNVERIFIED-BATCH-RELATION',incurred_date:'2026-08-09',posting_date:'2026-08-09',clear_date:'2026-08-10',status:'INCURRED',match_status:'MATCHED'}],scope);
   const snapshot=buildWbsMcpReadonlySnapshot({envelopes:[payable,bank,detail],snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',bankDirectionConventions:bankDirectionConventions(bank),payableDirectionConventions:payableDirectionConventions(payable),autoRecDetailDirectionConventions:detailDirectionConventions(detail)});
@@ -190,7 +197,7 @@ test('formal MCP transaction views enter the existing Raw/Normalized/Staging ada
   assert.equal(result.raw.length,3);assert.equal(result.staging.length,2);assert.equal(result.exceptions.length,1);
   const raw=result.staging.find(item=>item.raw_trace.source_type==='PAYABLE').raw_trace;
   assert.equal(raw.upstream_mcp_tool,'list_payables');assert.equal(raw.upstream_mcp_snapshot_token,'snapshot-trace-1');assert.match(raw.upstream_mcp_content_hash,/^sha256:/);
-  assert.deepEqual(raw.external_trace,{ap_type:'AUTOC',posting_date:'2026-08-09',journal_no:'J-1',check_no:'CHK-1',clear_date:'2026-08-10',company_code:'COMPANY-A'});assert.equal(raw.can_use_trace_as_key,false);assert.equal(raw.can_use_trace_as_posting_authority,false);
+  assert.deepEqual(raw.external_trace,{ap_type:'AUTOC',posting_date:'2026-08-09',incurred_date:'2026-08-09',journal_no:'J-1',check_no:'CHK-1',clear_date:'2026-08-10',company_code:'COMPANY-A'});assert.equal(raw.can_use_trace_as_key,false);assert.equal(raw.can_use_trace_as_posting_authority,false);
   const bankRaw=result.staging.find(item=>item.raw_trace.source_type==='BANK_TRANSACTION').raw_trace;
   assert.deepEqual(bankRaw.external_trace,{transaction_date:'2026-08-09',posting_date:'2026-08-09',account_code:'BANK-1',payee:'Vendor A',memo:'Bank memo',come_from:'AUTOC'});assert.equal(bankRaw.can_use_trace_as_key,false);assert.equal(bankRaw.can_use_trace_as_posting_authority,false);
   const detailRaw=result.exceptions.find(item=>item.raw_trace.source_type==='AUTOREC_PAYMENT_DETAIL').raw_trace;

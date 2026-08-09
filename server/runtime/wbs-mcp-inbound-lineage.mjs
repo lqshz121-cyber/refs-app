@@ -268,7 +268,10 @@ function snapshotRow(accepted,row,bankRules,payableRules,detailRules){
   const provenance=mcpProvenance(accepted,row);
   if(accepted.tool_name==='list_payables'){
     const directionRule=payableRules?.get(text(row.ap_type)),rawAmount=money(row.amount),movement=directionRule&&rawAmount!==null?freeze({amount:directionRule.direction==='CREDIT'?Math.abs(rawAmount):-Math.abs(rawAmount),direction:directionRule.direction}):null;
-    return freeze({...provenance,apGuId:text(row.ap_guid),currency:scopedCurrency(accepted,row),amount:movement?.amount??null,direction:movement?.direction??null,payable_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,invoice_date:row.incurred_date||row.posting_date||null,posting_date:row.posting_date||null,description:row.description||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_id||null,external_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false});
+    // The canonical snapshot must preserve the same independent business and
+    // accounting-date evidence as admission.  Posting Date is never a
+    // substitute for a missing Payable Incurred Date.
+    return freeze({...provenance,apGuId:text(row.ap_guid),currency:scopedCurrency(accepted,row),amount:movement?.amount??null,direction:movement?.direction??null,payable_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,invoice_date:row.incurred_date||null,posting_date:row.posting_date||null,description:row.description||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_id||null,external_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false});
   }
   if(accepted.tool_name==='list_bank_transactions'){
     const directionRule=bankRules?.get(text(row.account_code)),movement=directionRule?signedMovement(row,'lender','debtor',directionRule.lender_direction,directionRule.debtor_direction):null;

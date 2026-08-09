@@ -229,6 +229,11 @@ review candidate. This is separate from the existing exactly-one-non-zero
 Deposit/Payment rule, which still rejects both-non-zero and zero/zero detail
 rows.
 
+Payable snapshots apply the same separation: `incurred_date` is the business
+date and `posting_date` is accounting-date evidence. A snapshot retains a
+missing Incurred Date as missing so it reaches Exception; it never copies the
+Posting Date into the business-date field.
+
 ## Sanitized golden scenarios
 
 The executable golden set covers exact matching, one-to-many, many-to-one,
