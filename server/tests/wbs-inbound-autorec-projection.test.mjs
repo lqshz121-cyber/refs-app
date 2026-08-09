@@ -36,6 +36,17 @@ test('receipt-backed WBS state observations retain history without authorizing a
   assert.equal(missingReceipt.histories.length,0);assert.equal(missingReceipt.exceptions[0].code,'WBS_AUTOREC_RECEIPT_MISSING');
 });
 
+test('WBS state history never merges a reused source record id across company or entity scope',()=>{
+  const base={detail_kind:'RELEASED_PAYMENT',receipt_id:'receipt-a',receipt_ref:'object://wbs/a',receipt_hash:'sha256:'+'a'.repeat(64),source_record_id:'reused-detail',source_version:'v1',observed_at:'2026-08-09T09:00:00Z'};
+  const companyA={...base,tenant_id:'tenant-1',entity_id:'entity-1',company_key:'COMPANY-A'};
+  const companyB={...base,tenant_id:'tenant-1',entity_id:'entity-1',company_key:'COMPANY-B',receipt_id:'receipt-b',receipt_ref:'object://wbs/b',receipt_hash:'sha256:'+'b'.repeat(64),observed_at:'2026-08-09T10:00:00Z'};
+  const otherEntity={...base,tenant_id:'tenant-1',entity_id:'entity-2',company_key:'COMPANY-A',receipt_id:'receipt-c',receipt_ref:'object://wbs/c',receipt_hash:'sha256:'+'c'.repeat(64),observed_at:'2026-08-09T11:00:00Z'};
+  const history=buildWbsObservedAutoRecStateHistory({observations:[companyA,companyB,otherEntity],persistedRows:[companyA,companyB,otherEntity]});
+  assert.equal(history.exceptions.length,0);assert.equal(history.histories.length,3);
+  assert.deepEqual(history.histories.map(item=>[item.tenant_id,item.entity_id,item.company_key,item.source_record_id]).sort(),[['tenant-1','entity-1','COMPANY-A','reused-detail'],['tenant-1','entity-1','COMPANY-B','reused-detail'],['tenant-1','entity-2','COMPANY-A','reused-detail']]);
+  assert(history.histories.every(item=>item.observations.length===1&&item.forward_trace.company_key===item.company_key));
+});
+
 test('projects reviewed persisted bank and business rows into read-only AutoRec candidates with complete trace',()=>{
   const result=projectPersistedWbsInboundAutoRec({rows:[bank,payable],mappings:[mapping(bank),mapping(payable)]});
   assert.deepEqual({candidates:result.candidates.length,exceptions:result.exceptions.length,dispatch:result.controls.can_dispatch,post:result.controls.can_post},{candidates:2,exceptions:0,dispatch:false,post:false});
