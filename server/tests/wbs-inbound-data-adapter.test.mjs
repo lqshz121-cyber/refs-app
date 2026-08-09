@@ -121,6 +121,10 @@ test('AutoRec eligibility fails line-scoped with zero candidates for missing tra
   const accepted=evaluateWbsAutoReconciliationEligibility({bankStaging:bank,businessStaging:business});assert.equal(accepted.candidates.length,1);assert.equal(accepted.candidates[0].can_dispatch,false);assert.equal(accepted.candidates[0].trace.business_source_version,'v1');
   const mcpPair=evaluateWbsAutoReconciliationEligibility({bankStaging:{...bank,upstream_mcp_tool:'list_bank_transactions',upstream_mcp_snapshot_token:'snapshot-1'},businessStaging:{...business,upstream_mcp_tool:'list_payables',upstream_mcp_snapshot_token:'snapshot-1'}});
   assert.equal(mcpPair.candidates[0].trace.bank_provider_snapshot_token,'snapshot-1');assert.equal(mcpPair.candidates[0].trace.business_provider_snapshot_token,'snapshot-1');
+  const businessOnly=evaluateWbsAutoReconciliationEligibility({bankStaging:{...bank,accounting_date:'2026-07-01'},businessStaging:{...business,business_date:'2026-08-02',accounting_date:'2026-08-20'},dateMatchBasis:'BUSINESS_ONLY'});
+  assert.equal(businessOnly.status,'REVIEW_REQUIRED');assert.equal(businessOnly.candidates[0].trace.date_match_basis,'BUSINESS_ONLY');
+  const unknownDateBasis=evaluateWbsAutoReconciliationEligibility({bankStaging:bank,businessStaging:business,dateMatchBasis:'POSTING_DATE_ONLY'});
+  assert.equal(unknownDateBasis.status,'BLOCKED');assert.equal(unknownDateBasis.exceptions[0].code,'WBS_AUTOREC_DATE_WINDOW_MISMATCH');
   const missingToken=evaluateWbsAutoReconciliationEligibility({bankStaging:{...bank,upstream_mcp_tool:'list_bank_transactions'},businessStaging:{...business,upstream_mcp_tool:'list_payables',upstream_mcp_snapshot_token:'snapshot-1'}});
   assert.equal(missingToken.status,'BLOCKED');assert(missingToken.exceptions.some(item=>item.missing.includes('upstream_mcp_snapshot_token')));
   const cases=[
