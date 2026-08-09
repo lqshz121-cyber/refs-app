@@ -94,7 +94,7 @@ export function createWbsTraceRelationOrchestrator({kernel}={}){
       if(!kernel||typeof kernel.persistWbsTraceRelationEvidence!=='function')fail('WBS_MCP_TRACE_PERSISTENCE_CAPABILITY_UNAVAILABLE','Kernel must provide persistWbsTraceRelationEvidence before WBS relation evidence can be persisted.');
       const prior=replay.get(fingerprint);if(prior)return prior;
       const promise=(async()=>{
-        let receipt;try{receipt=await kernel.persistWbsTraceRelationEvidence(Object.freeze({idempotencyKey:fingerprint,bindingHash:fingerprint,source:plan.source,traceReceipt:plan.trace_receipt,relations:plan.relations}));}catch{fail('WBS_MCP_TRACE_PERSISTENCE_FAILED','WBS trace relation evidence persistence failed.');}
+        let receipt;try{receipt=await kernel.persistWbsTraceRelationEvidence(Object.freeze({tenantId:plan.source.tenant_id,entityId:plan.source.entity_id,idempotencyKey:fingerprint,bindingHash:fingerprint,source:plan.source,traceReceipt:plan.trace_receipt,relations:plan.relations}));}catch{fail('WBS_MCP_TRACE_PERSISTENCE_FAILED','WBS trace relation evidence persistence failed.');}
         if(!persistenceSucceeded(receipt))fail('WBS_MCP_TRACE_PERSISTENCE_FAILED','WBS trace relation evidence persistence did not succeed.');
         return Object.freeze({status:'WBS_MCP_TRACE_RELATION_PERSISTED',binding_hash:fingerprint,persistence_receipt:receipt,can_write_wbs:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_post:false});
       })();
