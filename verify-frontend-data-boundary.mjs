@@ -208,8 +208,6 @@ const UI_PREFERENCE_WRITES = {
   "src/ui.jsx::'refs_view_'+k":
     'Data-grid view preference: sort column, sort direction, text filter and row density ' +
     'for one table. Presentation only; holds no record.',
-  "src/module-ap.jsx::'refs_expense_columns'":
-    'Expense table column visibility. Presentation only; holds no record.',
   "src/modules-more.jsx::'refs_local_report_scopes'":
     'Saved report scope labels (entity / period / dimension the reader last chose). ' +
     'A filter selection, not a report result and not an accounting record.',

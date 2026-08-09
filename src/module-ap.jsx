@@ -2,7 +2,7 @@
 import { KPI, Btn, Badge, Money, Table, SectionTitle, Tabs, ApprovalTimeline, StateBlock, Unavailable } from './ui.jsx';
 import { VENDORS, PROPERTIES, PROJECTS, COA } from './data.js';
 import { acct, money, sum } from './engine.js';
-import { DEFAULT_EXPENSE_COLUMNS, filterExpenseEvidence, normalizeExpenseColumnVisibility } from './expense-listing.js';
+import { DEFAULT_EXPENSE_COLUMNS, filterExpenseEvidence } from './expense-listing.js';
 import { localExpenseTransactionRows } from './expense-transaction-listing.js';
 import { filterLocalPaymentHistory, isLocalPaymentHistoryEmpty } from './payment-history-listing.js';
 import { findBillForApDrill } from './ap-drill.js';
@@ -47,10 +47,6 @@ export function APWorkspace({ctx}) {
   const [vendorId, setVendorId] = useState('ALL');
   const [categoryCode, setCategoryCode] = useState('ALL');
   const [billQueueView, setBillQueueView] = useState('For review');
-  const [columnVisibility, setColumnVisibility] = useState(()=>{
-    try { return normalizeExpenseColumnVisibility(JSON.parse(localStorage.getItem('refs_expense_columns') || '{}')); }
-    catch { return {...DEFAULT_EXPENSE_COLUMNS}; }
-  });
   const [shellPanel, setShellPanel] = useState(null);
   const bankTransactions = Object.entries(bank?.accounts || {}).flatMap(([bank_account_code, account]) => (account.txns || []).map(transaction => ({...transaction, bank_account_code})));
   const bills = ap.bills.map(bill => ({...bill,paymentEvidence:localBillPaymentEvidence(bill,jes || [],bankTransactions),voidEvidence:localBillVoidEvidence(bill,jes || [],bankTransactions)}));
@@ -66,8 +62,6 @@ export function APWorkspace({ctx}) {
     if (navContext?.route !== 'ap') return;
     if (['Bills','Payments','Vendors','AP Aging'].includes(navContext.tab)) setTab(localTabFor(navContext.tab));
   }, [navContext?.route, navContext?.tab]);
-  useEffect(()=>{ try { localStorage.setItem('refs_expense_columns', JSON.stringify(columnVisibility)); } catch {} }, [columnVisibility]);
-  const toggleColumn = key => setColumnVisibility(current=>({...current, [key]:!current[key]}));
   const billColumns = [
     {key:'DATE',h:'Date',k:'bill_date'},
     {key:'TYPE',h:'Type',render:r=>r.status==='PAID'&&r.pay_je_number?'Bill payment':'Bill'},
@@ -78,7 +72,7 @@ export function APWorkspace({ctx}) {
     {key:'TOTAL',h:'Total',num:true,render:r=><Money v={r.amount}/>,sortVal:r=>r.amount,csv:r=>r.amount},
     {key:'BILL_APPROVAL',h:'Bill Approval',render:r=><Badge>{r.status}</Badge>,csv:r=>r.status},
     {key:'LOCAL_PROOF',h:'Local proof',render:r=><Badge tone={r.paymentEvidence.billState==='VALID_POSTED_AP'?'ok':r.paymentEvidence.billState==='NOT_POSTED_TO_AP'?'muted':'warn'}>{r.paymentEvidence.billState}</Badge>,csv:r=>r.paymentEvidence.billState},
-  ].filter(column=>columnVisibility[column.key]);
+  ].filter(column=>DEFAULT_EXPENSE_COLUMNS[column.key]);
   const open = bills.filter(b=>!['PAID','VOID'].includes(b.status));
   const bill = bills.find(b=>b.bill_id===sel);
   const captureDetailScope = () => setDetailReturnScope(current => current || localExpenseDetailReturnScope({tab,query,statusFilter,transactionType,dateRange,fromDate,toDate,vendorId,categoryCode,billQueueView}));
@@ -209,11 +203,10 @@ export function APWorkspace({ctx}) {
         <Unavailable reason="Recurring schedules are not modeled in REFS.">Recurring unavailable</Unavailable>
       </div>
       <p className="muted sm" style={{margin:'-4px 0 10px'}}>For review contains retained pending-review evidence. Unpaid requires a posted AP source with no retained paid state. Paid requires retained posted payment evidence. Recurring is reference-only and unavailable.</p>
-      <div className="expense-toolbar" style={{marginBottom:12}}><label className="expense-search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search bills, vendors or invoice #" /></label><label><span>Transaction type</span><select aria-label="Transaction Type" value={transactionType} onChange={e=>setTransactionType(e.target.value)}><option value="ALL">All transactions</option><option value="BILLS">Bills</option><option value="BILL_PAYMENTS">Bill payments</option></select></label><label><span>Dates</span><select value={dateRange} onChange={e=>setDateRange(e.target.value)}><option value="LAST_12_MONTHS">Last 12 months</option><option value="THIS_MONTH">This month</option><option value="ALL">All dates</option></select></label><label><span>Status</span><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}><option value="ALL">All statuses</option>{['DRAFT','PENDING_APPROVAL','APPROVED','PAID','VOID'].map(s=><option key={s}>{s}</option>)}</select></label><span className="result-count"><b>{expenseTransactionRows.length}</b> evidence rows</span><Btn variant="ghost" onClick={()=>setShellPanel(shellPanel==='Filter'?null:'Filter')}>More filters</Btn><Btn variant="ghost" onClick={()=>setShellPanel(shellPanel==='Settings'?null:'Settings')}>Columns</Btn><Btn variant="ghost" onClick={clearBillFilters}>Clear</Btn></div>
+      <div className="expense-toolbar" style={{marginBottom:12}}><label className="expense-search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search bills, vendors or invoice #" /></label><label><span>Transaction type</span><select aria-label="Transaction Type" value={transactionType} onChange={e=>setTransactionType(e.target.value)}><option value="ALL">All transactions</option><option value="BILLS">Bills</option><option value="BILL_PAYMENTS">Bill payments</option></select></label><label><span>Dates</span><select value={dateRange} onChange={e=>setDateRange(e.target.value)}><option value="LAST_12_MONTHS">Last 12 months</option><option value="THIS_MONTH">This month</option><option value="ALL">All dates</option></select></label><label><span>Status</span><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}><option value="ALL">All statuses</option>{['DRAFT','PENDING_APPROVAL','APPROVED','PAID','VOID'].map(s=><option key={s}>{s}</option>)}</select></label><span className="result-count"><b>{expenseTransactionRows.length}</b> evidence rows</span><Btn variant="ghost" onClick={()=>setShellPanel(shellPanel==='Filter'?null:'Filter')}>More filters</Btn><Btn variant="ghost" onClick={clearBillFilters}>Clear</Btn></div>
       {shellPanel && <div className="expense-shell-panel" role="region" aria-label={`${shellPanel} options`}>
         <div><b>{shellPanel==='Filter'?'More filters':'Visible columns'}</b><span>{shellPanel==='Filter'?'Refine retained AP evidence by date, payee, and account category.':'Choose the evidence-backed columns shown in the bill queue.'}</span></div>
         {shellPanel==='Filter'&&<><div className="expense-filter-evidence"><label>From <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} /></label><label>To <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} /></label><label>Payee <select value={vendorId} onChange={e=>setVendorId(e.target.value)}><option value="ALL">All payees</option>{VENDORS.map(v=><option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>)}</select></label><label>Category <select value={categoryCode} onChange={e=>setCategoryCode(e.target.value)}><option value="ALL">All categories</option>{COA.filter(a=>['EXPENSE','ASSET'].includes(a.account_type)).map(a=><option key={a.account_code} value={a.account_code}>{a.account_code} {a.account_name}</option>)}</select></label></div><div className="expense-shell-actions"><button type="button" onClick={()=>setShellPanel(null)}>Apply filters</button><button type="button" onClick={clearBillFilters}>Reset</button><button type="button" onClick={()=>setShellPanel(null)}>Close</button></div></>}
-        {shellPanel==='Settings'&&<><div className="expense-filter-evidence">{[['Date','DATE'],['Type','TYPE'],['No.','NUMBER'],['Payee','PAYEE'],['Category','CATEGORY'],['Due date','DUE_DATE'],['Total','TOTAL'],['Bill approval','BILL_APPROVAL']].map(([label,key])=><label key={label}><input type="checkbox" checked={columnVisibility[key]} onChange={()=>toggleColumn(key)}/> {label}</label>)}</div><div className="expense-shell-actions"><button type="button" onClick={()=>setColumnVisibility({...DEFAULT_EXPENSE_COLUMNS})}>Restore defaults</button><button type="button" onClick={()=>setShellPanel(null)}>Close</button></div></>}
       </div>}
       <Table rowKey="key" features={{exportable:false}} onRow={row=>row.kind==='BILL' ? openBillDetail(row.record.bill_id) : openCreditDetail(row.record.journal.je_number)} cols={[
         {h:'Date',k:'date'}, {h:'Type',k:'type'}, {h:'No.',k:'number'}, {h:'Payee',k:'payee'}, {h:'Category',k:'category'},
