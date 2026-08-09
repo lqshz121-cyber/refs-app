@@ -80,7 +80,7 @@ export function createWbsAutoRecG11ReadVerifier({repository}={}){
       if(!repository||methods.some(name=>typeof repository[name]!=='function'))return empty('WBS_AUTOREC_G11_READ_CAPABILITY_UNAVAILABLE');
       let reviewRequest,postedJournals;
       try{[reviewRequest,postedJournals]=await Promise.all([repository.readReviewedWbsAutoRecRequest({...selection,read_only:true}),repository.readPostedWbsAutoRecJournalEvidence({...selection,read_only:true})]);}catch{return empty('WBS_AUTOREC_G11_READ_FAILED');}
-      if(!g11Scoped(reviewRequest,selection)||text(reviewRequest.review_candidate_id)!==selection.reviewCandidateId||!Array.isArray(postedJournals)||!postedJournals.every(row=>g11Scoped(row,selection)))return empty('WBS_AUTOREC_G11_READ_SCOPE_INVALID');
+      if(!g11Scoped(reviewRequest,selection)||text(reviewRequest.review_candidate_id)!==selection.reviewCandidateId||!Array.isArray(postedJournals)||!postedJournals.every(row=>g11Scoped(row,selection)&&text(row.review_candidate_id)===selection.reviewCandidateId))return empty('WBS_AUTOREC_G11_READ_SCOPE_INVALID');
       let verification;try{verification=validateWbsAutoRecG11PostedTrace({reviewRequest,postedJournals});}catch(error){return empty(error?.code||'WBS_AUTOREC_G11_EVIDENCE_INVALID');}
       const result=freeze({status:'G11_POSTED_TRACE_VERIFIED',request_hash:requestHash,replayed:false,review_candidate_id:selection.reviewCandidateId,verification,can_dispatch:false,can_create_draft:false,can_post:false});
       replays.set(selection.replayKey,freeze({request_hash:requestHash,result}));return result;
