@@ -6,10 +6,12 @@ const source = await readFile(new URL('./src/module-coa.jsx', import.meta.url), 
 for (const required of [
   'Chart of Accounts',
   'Filter by name or number',
+  'Account type',
+  'Posted ledger balance',
   'Register/GL drillback',
   'Account creation, editing, activation, deactivation, and WBS account administration are unavailable.',
   'chartAccountDrill(r)',
-  "coaReturn:{route:'coa',tab:LOCAL_TAB,qboQuery,entityId:entity || ''}",
+  "coaReturn:{route:'coa',tab:LOCAL_TAB,qboQuery,accountType,entityId:entity || ''}",
 ]) assert.ok(source.includes(required), `COA readonly shell must retain ${required}`);
 
 for (const forbidden of [
