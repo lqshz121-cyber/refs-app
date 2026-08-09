@@ -45,7 +45,7 @@ export function COAWorkspace({ctx}) {
     <p className="muted sm" style={{margin:'0 0 12px'}}>The local name-or-number filter and retained Register/GL drills are functional. This evidence workspace is read-only: it does not manage account setup, external balances, downloads, print workflows, or connector actions.</p>
     <Tabs tabs={[WBS_TAB, LOCAL_TAB]} active={tab} onChange={setTab}/>
     {tab===WBS_TAB && <>
-      <Table exportName="wbs-coa-full" rowKey="code" pageSize={40} cols={[
+      <Table rowKey="code" pageSize={40} cols={[
         {h:'Account',k:'code'},
         {h:'Account Name',render:r=><span style={{paddingLeft:(Math.max(0,r.lvl-1))*18, fontWeight:r.kind!=='R'?700:400, color:r.kind==='T'?'var(--brand-ink)':undefined}}>{r.name}</span>,csv:r=>r.name},
         {h:'Normal Balance',k:'nb'},
@@ -55,7 +55,7 @@ export function COAWorkspace({ctx}) {
       <p className="muted sm">WBS Chart of Accounts - ALL is retained as a reference template. Header, Posting, and Total rows are distinct; only Posting rows can be included in local accounting evidence.</p>
     </>}
     {tab!==WBS_TAB && <>
-    <Table exportName="chart-of-accounts" rowKey="account_code" cols={localAccountColumns} rows={filteredCoa} />
+    <Table rowKey="account_code" cols={localAccountColumns} rows={filteredCoa} />
     <p className="muted sm">Control boundary: account code remains unique; accounts with non-zero balance cannot be inactivated; historical journal evidence is retained. Account creation, editing, activation, and deactivation are unavailable.</p>
     </>}
   </div>;

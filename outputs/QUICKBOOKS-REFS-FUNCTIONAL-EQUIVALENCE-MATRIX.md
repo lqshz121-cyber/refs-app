@@ -2199,3 +2199,9 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 | Business-fit control boundary | QBO made `Record expense` visible, but the user requested a system-integrated accounting workflow rather than payment, payroll, sales, or external-connector replication. No QBO mutation was performed. | Removed the saved Columns/Customize-style preference from Expenses, including browser persistence. No create, pay, print, export, OCR, feed, provider connection, match, clear, post, or reconciliation action is exposed by this change. | PARTIAL — confirms a local read-only boundary; not QBO functional equivalence. |
 
 - Verification: `npm.cmd run test:expenses-readonly-shell`, `npm.cmd run test:ap-ar`, `npm.cmd run build`, `npm.cmd run test:visual` (50/50 verifiers), and `git diff --check` all exit 0. The offline visual gate explicitly does not execute authenticated browser/API/OIDC E2E.
+## Accounting: Chart of Accounts evidence without export (2026-08-09)
+
+- **Observed QBO pattern:** QBO exposes a Chart of Accounts workspace. This change does not claim that populated QBO account rows, permissions, register semantics, or responsive behavior were observed in this audit round.
+- **REFS implementation:** the two COA evidence tables retain name-or-number filtering and the existing Register/GL drillback with an exact COA return context. CSV export configuration has been removed, so this screen cannot imply a download workflow.
+- **Status:** **PARTIAL** — REFS-only static/UI verification. Account creation, editing, merge/delete, external balance feeds, download/print, connector actions, and any cash reconciliation mutation remain unavailable.
+- **Verification:** `npm.cmd run test:coa-readonly-shell`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
