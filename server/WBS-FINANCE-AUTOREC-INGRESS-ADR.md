@@ -61,6 +61,12 @@ stateDiagram-v2
   end note
 ```
 
+Each receipt-backed source history also exposes an aggregated observed-edge
+index (`from_state`, `to_state`, source count, receipt hashes). Its semantics
+remain `OBSERVED_UNVERIFIED`: it supports comparison with a future signed WBS
+transition contract, but cannot authorize a REFS transition or infer cancel/
+reopen behavior.
+
 The REFS authoritative chain is independent and cannot start without admitted
 evidence: `Staging -> review proposal -> controlled allocation/reservation ->
 Draft -> Review -> Approve -> Posted -> immutable ledger/audit`. A G11 result

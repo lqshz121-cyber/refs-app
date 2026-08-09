@@ -31,6 +31,7 @@ test('receipt-backed WBS state observations retain history without authorizing a
   assert.deepEqual(item.observations.map(event=>event.observed_state),['RELEASED','INCURRED']);
   assert.equal(item.observations[1].previous_observed_state,'RELEASED');assert.equal(item.observations[1].observed_change,true);
   assert.equal(item.canonical_wbs_transition_graph,'UNKNOWN');assert.equal(item.can_transition_state,false);assert.equal(item.can_post,false);
+  assert.deepEqual(history.observed_transitions,[{from_state:'RELEASED',to_state:'INCURRED',observed_transition_count:1,observed_source_count:1,receipt_hashes:['sha256:'+'b'.repeat(64)],semantics:'OBSERVED_UNVERIFIED',canonical_wbs_transition_graph:'UNKNOWN',can_transition_state:false,can_release:false,can_incur:false,can_reverse:false,can_post:false}]);
   const ambiguous=buildWbsObservedAutoRecStateHistory({observations:[released,{...incurred,observed_at:'2026-08-09T09:00:00Z'}],persistedRows});
   assert.equal(ambiguous.histories.length,0);assert.equal(ambiguous.exceptions[0].code,'WBS_AUTOREC_STATE_OBSERVATION_ORDER_AMBIGUOUS');
   const missingReceipt=buildWbsObservedAutoRecStateHistory({observations:[released],persistedRows:[]});
