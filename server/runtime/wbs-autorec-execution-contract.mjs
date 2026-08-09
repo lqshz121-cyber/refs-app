@@ -3,6 +3,7 @@
 // post journals. An authoritative kernel must perform those effects after
 // accepting the returned transition intent.
 import {validateWbsAutoRecG11PostedTrace} from './wbs-inbound-data-adapter.mjs';
+import {canonicalRequestHash} from './request-hash.mjs';
 
 const text=value=>value==null?'':String(value).trim();
 const freeze=value=>Object.freeze(value);
@@ -39,11 +40,13 @@ const reverseEvidence=(original,reversals)=>{
 
 // Returns a non-dispatchable intent. The kernel owns CAS, source locks,
 // reservation totals, SoD, accounting periods, journal creation and posting.
-export function buildWbsAutoRecExecutionIntent({command,currentState,reviewCandidate,reservationReceipt,postedJournals,reason,postedReversalJournals}={}){
+export function buildWbsAutoRecExecutionIntent({command,currentState,reviewCandidate,reservationReceipt,postedJournals,reason,postedReversalJournals,idempotencyKey}={}){
   const requested=text(command).toUpperCase(),state=text(currentState).toUpperCase();
   if(!WBS_AUTOREC_REFS_EXECUTION_STATES.includes(state))fail('WBS_AUTOREC_EXECUTION_STATE_INVALID','The current REFS AutoRec state is invalid.');
+  if(!/^[A-Za-z0-9._:-]{8,200}$/.test(text(idempotencyKey)))fail('WBS_AUTOREC_EXECUTION_IDEMPOTENCY_REQUIRED','Every REFS AutoRec execution intent requires a canonical idempotency key.');
   const review=reviewScope(reviewCandidate);
-  const base={request_type:'WBS_AUTOREC_EXECUTION_INTENT',command:requested,current_state:state,review_candidate:review,can_dispatch:false,can_create_draft:false,can_post:false};
+  const request_hash=canonicalRequestHash({command:requested,current_state:state,review_candidate:review,reservation_receipt:reservationReceipt??null,reason:text(reason)||null,posted_journal_ids:Array.isArray(postedJournals)?postedJournals.map(row=>text(row?.journal_entry_id)).sort():[],posted_reversal_journal_ids:Array.isArray(postedReversalJournals)?postedReversalJournals.map(row=>text(row?.journal_entry_id)).sort():[]});
+  const base={request_type:'WBS_AUTOREC_EXECUTION_INTENT',command:requested,current_state:state,idempotency_key:text(idempotencyKey),request_hash,review_candidate:review,can_dispatch:false,can_create_draft:false,can_post:false};
   if(requested==='RESERVE'){
     if(state!=='REVIEW_REQUIRED')fail('WBS_AUTOREC_EXECUTION_TRANSITION_INVALID','Only REVIEW_REQUIRED may reserve source capacity.');
     return freeze({...base,next_state:'RESERVED',required_kernel_controls:freeze(['global source reservation under locks','idempotency/CAS','allocation conservation','audit receipt'])});
