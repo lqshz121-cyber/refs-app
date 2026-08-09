@@ -77,6 +77,15 @@ test('a persisted AutoRec candidate requires the immutable snapshot of its appro
   assert.equal(notEffective.candidates.length,0);assert.equal(notEffective.exceptions[0].code,'WBS_AUTOREC_MAPPING_NOT_EFFECTIVE');
 });
 
+test('a closed-period source retains its one effective retired mapping for forward and reverse trace',()=>{
+  const historical={...payable,accounting_date:'2025-12-15',business_date:'2025-12-15'};
+  const retired={...mapping(historical),status:'RETIRED',effective_from:'2025-01-01T00:00:00.000Z',effective_to:'2026-01-01T00:00:00.000Z'};
+  const result=projectPersistedWbsInboundAutoRec({rows:[historical],mappings:[retired]});
+  assert.equal(result.exceptions.length,0);assert.equal(result.candidates.length,1);
+  assert.equal(result.candidates[0].mapping.mapping_id,retired.mapping_id);
+  assert.equal(result.candidates[0].trace.mapping_effective_to,'2026-01-01T00:00:00.000Z');
+});
+
 test('Payable source-detail and bank/AUTOC relations remain receipt-bound trace evidence, never candidate authority',()=>{
   const external_trace={payable_source_detail:{source:'PAYABLE',long_id:'relation-only',can_use_as_source_key:false},posting_date:'2026-08-05',bank_relation_ref:'bank-relation',autoc_relation_ref:'autoc-relation'};
   const external_trace_hash=canonicalRequestHash(external_trace),result=projectPersistedWbsInboundAutoRec({rows:[{...payable,external_trace,external_trace_hash}],mappings:[mapping(payable)]});

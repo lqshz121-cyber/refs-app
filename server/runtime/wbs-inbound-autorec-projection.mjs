@@ -77,7 +77,12 @@ function mappingFor(row,mappings){
   // Payable and AutoRec Detail rows do not get a bank-account identity from a
   // display relation such as cb_id.  The approved REFS mapping supplies that
   // scope; a bank row must additionally agree with its receipt field.
-  const scoped=(mappings||[]).filter(mapping=>text(mapping?.status)==='APPROVED'&&text(mapping?.mapping_id)&&text(mapping?.version)&&text(mapping?.bank_account_ref)&&/^sha256:[0-9a-f]{64}$/.test(text(mapping?.snapshot_hash))&&text(mapping?.source_type)===text(row.source_type)&&text(mapping?.entity_id)===text(row.entity_id)&&text(mapping?.company_key)===text(row.company_key)&&text(mapping?.currency)===text(row.currency)&&(row.source_type!=='BANK_TRANSACTION'||text(mapping?.bank_account_ref)===text(row.bank_account_ref)));
+  // A mapping that was retired after the source accounting date remains the
+  // immutable historical mapping for that source.  The reader returns both
+  // APPROVED and RETIRED snapshots; the effective window below selects one
+  // exact version for the source date.  A current-only lookup would make a
+  // closed-period WBS receipt impossible to trace or reconcile.
+  const scoped=(mappings||[]).filter(mapping=>['APPROVED','RETIRED'].includes(text(mapping?.status))&&text(mapping?.mapping_id)&&text(mapping?.version)&&text(mapping?.bank_account_ref)&&/^sha256:[0-9a-f]{64}$/.test(text(mapping?.snapshot_hash))&&text(mapping?.source_type)===text(row.source_type)&&text(mapping?.entity_id)===text(row.entity_id)&&text(mapping?.company_key)===text(row.company_key)&&text(mapping?.currency)===text(row.currency)&&(row.source_type!=='BANK_TRANSACTION'||text(mapping?.bank_account_ref)===text(row.bank_account_ref)));
   const accountingAt=Date.parse(`${text(row?.accounting_date)}T00:00:00.000Z`);
   const effective=mapping=>{
     const from=text(mapping?.effective_from),to=text(mapping?.effective_to);

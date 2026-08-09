@@ -59,3 +59,11 @@ test('AutoRec mapping reader includes the immutable mapping snapshot and effecti
   assert.doesNotMatch(down,/'snapshot_hash',snapshot_hash/);
   assert.match(down,/SET search_path=pg_catalog,public,pg_temp/);
 });
+
+test('AutoRec mapping reader retains retired snapshots for closed-period receipt trace',async()=>{
+  const up=await readFile(new URL('../db/migrations/070_wbs_autorec_historical_mapping_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/070_wbs_autorec_historical_mapping_read.sql',import.meta.url),'utf8');
+  for(const token of ["status IN \\('APPROVED','RETIRED'\\)","'effective_from',effective_from","'effective_to',effective_to",'refs_assert_scope','REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token));
+  assert.doesNotMatch(up,/effective_from<=clock_timestamp\(\)/);
+  assert.match(down,/status='APPROVED'/);
+});
