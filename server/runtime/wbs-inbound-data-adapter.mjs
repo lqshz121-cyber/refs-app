@@ -205,10 +205,11 @@ export function buildAutoReconciliationReviewRequest(args={}){
 // an allocation command: the authoritative kernel must still enforce source
 // reservations, versioning, SoD, release, and posting. Keeping proposal and
 // command separate prevents a UI or import job from silently consuming value.
-export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tolerance=0,dateWindowDays=3}={}){
+export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tolerance=0,dateWindowDays=3,dateMatchBasis='BUSINESS_AND_ACCOUNTING'}={}){
   if(!Array.isArray(bankRows)||!Array.isArray(businessRows)||bankRows.length===0||businessRows.length===0)fail('WBS_AUTOREC_PLAN_ROWS_REQUIRED','At least one bank row and one business row are required.');
   const toleranceValue=amount(tolerance),dateWindow=Number(dateWindowDays);
-  if(toleranceValue===null||toleranceValue<0||!Number.isSafeInteger(dateWindow)||dateWindow<0)fail('WBS_AUTOREC_PLAN_OPTIONS_INVALID','Auto Reconciliation tolerance and date window are invalid.');
+  const dateBasis=text(dateMatchBasis).toUpperCase();
+  if(toleranceValue===null||toleranceValue<0||!Number.isSafeInteger(dateWindow)||dateWindow<0||!['BUSINESS_ONLY','ACCOUNTING_ONLY','BUSINESS_AND_ACCOUNTING'].includes(dateBasis))fail('WBS_AUTOREC_PLAN_OPTIONS_INVALID','Auto Reconciliation tolerance, date window, or date-match basis is invalid.');
   const exceptions=[],required=['receipt_id','receipt_ref','receipt_hash','raw_event_id','source_document_id','staging_item_id','source_record_id','source_version','company_key','currency','amount','business_date','accounting_date','bank_account_ref','direction','review_event_id'];
   const inspect=(side,row,allowed)=>{
     const missing=required.filter(field=>field==='amount'?amount(row?.amount)===null||amount(row?.amount)===0:text(row?.[field])==='');
@@ -247,7 +248,12 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
     if(text(row.company_key)!==text(anchor.company_key)||text(row.currency)!==text(anchor.currency)||text(row.bank_account_ref)!==text(anchor.bank_account_ref))exceptions.push(eligibilityException('PAIR',row,'WBS_AUTOREC_PLAN_SCOPE_MISMATCH','All proposed rows require one exact company, currency, and bank account.'));
   }
   if(bankRows.some(row=>text(row.direction).toUpperCase()!==bankDirection)||businessRows.some(row=>text(row.direction).toUpperCase()===bankDirection))exceptions.push(eligibilityException('PAIR',null,'WBS_AUTOREC_PLAN_DIRECTION_MISMATCH','Bank rows must have one direction and business rows must have the opposite direction.'));
-  for(const bank of bankRows)for(const business of businessRows)if(dayDistance(bank.business_date,business.business_date)>dateWindow||dayDistance(bank.accounting_date,business.accounting_date)>dateWindow)exceptions.push(eligibilityException('PAIR',business,'WBS_AUTOREC_PLAN_DATE_WINDOW_MISMATCH','Proposed bank and business rows exceed the approved date window.'));
+  const dateMatches=(bank,business)=>{
+    const businessMatches=dayDistance(bank.business_date,business.business_date)<=dateWindow;
+    const accountingMatches=dayDistance(bank.accounting_date,business.accounting_date)<=dateWindow;
+    return dateBasis==='BUSINESS_ONLY'?businessMatches:dateBasis==='ACCOUNTING_ONLY'?accountingMatches:businessMatches&&accountingMatches;
+  };
+  for(const bank of bankRows)for(const business of businessRows)if(!dateMatches(bank,business))exceptions.push(eligibilityException('PAIR',business,'WBS_AUTOREC_PLAN_DATE_WINDOW_MISMATCH','Proposed bank and business rows exceed the approved date window for the selected date-match basis.'));
   if(exceptions.length)return freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze(exceptions),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
   const remaining=rows=>rows.map(row=>({row,remaining:Math.abs(amount(row.amount))})).sort((left,right)=>text(left.row.source_record_id).localeCompare(text(right.row.source_record_id)));
   const banks=remaining(bankRows),businesses=remaining(businessRows),allocation=[];
@@ -263,7 +269,7 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
   const bankRemaining=Number(banks.reduce((sum,item)=>sum+item.remaining,0).toFixed(4)),businessRemaining=Number(businesses.reduce((sum,item)=>sum+item.remaining,0).toFixed(4));
   const difference=Number(Math.abs(bankTotal-businessTotal).toFixed(4)),balanced=difference<=toleranceValue;
   const trace=allocation.map(item=>({bank_source_record_id:item.bank_source_record_id,bank_source_version:item.bank_source_version,business_source_record_id:item.business_source_record_id,business_source_version:item.business_source_version,bank_receipt_hash:item.bank_receipt_hash,business_receipt_hash:item.business_receipt_hash}));
-  return freeze({review_plan_id:canonicalRequestHash({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,tolerance:toleranceValue,date_window_days:dateWindow,trace}),status:balanced?'REVIEW_REQUIRED':'PARTIAL_REVIEW_REQUIRED',allocation_plan:freeze(allocation),exceptions:freeze([]),control_totals:freeze({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,bank_total:bankTotal,business_total:businessTotal,allocated_total:allocatedTotal,bank_unallocated:bankRemaining,business_unallocated:businessRemaining,difference,tolerance:toleranceValue,balanced}),trace:freeze(trace),controls:freeze({can_allocate:false,can_release:false,can_post:false,required_next_controls:freeze(['authoritative source reservation','human Auto Reconciliation review','standard REFS release/incur workflow'])})});
+  return freeze({review_plan_id:canonicalRequestHash({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,tolerance:toleranceValue,date_window_days:dateWindow,date_match_basis:dateBasis,trace}),status:balanced?'REVIEW_REQUIRED':'PARTIAL_REVIEW_REQUIRED',allocation_plan:freeze(allocation),exceptions:freeze([]),control_totals:freeze({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,bank_total:bankTotal,business_total:businessTotal,allocated_total:allocatedTotal,bank_unallocated:bankRemaining,business_unallocated:businessRemaining,difference,tolerance:toleranceValue,date_match_basis:dateBasis,balanced}),trace:freeze(trace),controls:freeze({can_allocate:false,can_release:false,can_post:false,required_next_controls:freeze(['authoritative source reservation','human Auto Reconciliation review','standard REFS release/incur workflow'])})});
 }
 
 // The generic builder above is intentionally useful for local golden fixtures.
@@ -277,16 +283,17 @@ export function buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows,busin
   const tolerance=amount(matchingPolicy.amount_tolerance);
   const window=Number(matchingPolicy.date_window_days);
   const receiptHash=text(matchingPolicy.receipt_hash);
-  const required=['policy_id','version','mapping_id','mapping_version','rule_id','rule_version','bank_mapping_id','bank_mapping_version','business_mapping_id','business_mapping_version','company_key','currency','bank_account_ref','receipt_id','receipt_ref','receipt_hash'];
+  const dateMatchBasis=text(matchingPolicy.date_match_basis).toUpperCase();
+  const required=['policy_id','version','mapping_id','mapping_version','rule_id','rule_version','bank_mapping_id','bank_mapping_version','business_mapping_id','business_mapping_version','company_key','currency','bank_account_ref','receipt_id','receipt_ref','receipt_hash','date_match_basis'];
   const missing=required.filter(field=>text(matchingPolicy[field])==='');
-  const mismatched=text(matchingPolicy.status)!=='APPROVED'||text(matchingPolicy.company_key)!==text(anchor.company_key)||text(matchingPolicy.currency)!==text(anchor.currency)||text(matchingPolicy.bank_account_ref)!==text(anchor.bank_account_ref)||!/^sha256:[0-9a-f]{64}$/.test(receiptHash)||tolerance===null||tolerance<0||!Number.isSafeInteger(window)||window<0;
+  const mismatched=text(matchingPolicy.status)!=='APPROVED'||text(matchingPolicy.company_key)!==text(anchor.company_key)||text(matchingPolicy.currency)!==text(anchor.currency)||text(matchingPolicy.bank_account_ref)!==text(anchor.bank_account_ref)||!/^sha256:[0-9a-f]{64}$/.test(receiptHash)||tolerance===null||tolerance<0||!Number.isSafeInteger(window)||window<0||!['BUSINESS_ONLY','ACCOUNTING_ONLY','BUSINESS_AND_ACCOUNTING'].includes(dateMatchBasis);
   if(missing.length||mismatched)return invalid();
   const mappingFor=row=>row?.mapping&&typeof row.mapping==='object'?row.mapping:row;
   const mappingMismatch=[...bankRows].some(row=>text(mappingFor(row).mapping_id)!==text(matchingPolicy.bank_mapping_id)||text(mappingFor(row).mapping_version)!==text(matchingPolicy.bank_mapping_version))||[...businessRows].some(row=>text(mappingFor(row).mapping_id)!==text(matchingPolicy.business_mapping_id)||text(mappingFor(row).mapping_version)!==text(matchingPolicy.business_mapping_version));
   if(mappingMismatch)return freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze([eligibilityException('PAIR',anchor,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_MISMATCH','Each provider-backed Auto Reconciliation source must carry the exact approved mapping version named by the matching policy.')]),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
-  const plan=buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tolerance,dateWindowDays:window});
+  const plan=buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tolerance,dateWindowDays:window,dateMatchBasis});
   if(plan.status==='BLOCKED')return plan;
-  const policyTrace=freeze({policy_id:text(matchingPolicy.policy_id),version:text(matchingPolicy.version),mapping_id:text(matchingPolicy.mapping_id),mapping_version:text(matchingPolicy.mapping_version),rule_id:text(matchingPolicy.rule_id),rule_version:text(matchingPolicy.rule_version),bank_mapping_id:text(matchingPolicy.bank_mapping_id),bank_mapping_version:text(matchingPolicy.bank_mapping_version),business_mapping_id:text(matchingPolicy.business_mapping_id),business_mapping_version:text(matchingPolicy.business_mapping_version),receipt_id:text(matchingPolicy.receipt_id),receipt_ref:text(matchingPolicy.receipt_ref),receipt_hash:receiptHash});
+  const policyTrace=freeze({policy_id:text(matchingPolicy.policy_id),version:text(matchingPolicy.version),mapping_id:text(matchingPolicy.mapping_id),mapping_version:text(matchingPolicy.mapping_version),rule_id:text(matchingPolicy.rule_id),rule_version:text(matchingPolicy.rule_version),bank_mapping_id:text(matchingPolicy.bank_mapping_id),bank_mapping_version:text(matchingPolicy.bank_mapping_version),business_mapping_id:text(matchingPolicy.business_mapping_id),business_mapping_version:text(matchingPolicy.business_mapping_version),date_match_basis:dateMatchBasis,receipt_id:text(matchingPolicy.receipt_id),receipt_ref:text(matchingPolicy.receipt_ref),receipt_hash:receiptHash});
   return freeze({...plan,review_plan_id:canonicalRequestHash({review_plan_id:plan.review_plan_id,matching_policy:policyTrace}),matching_policy:policyTrace,control_totals:freeze({...plan.control_totals,tolerance}),controls:freeze({...plan.controls,matching_policy_required:true})});
 }
 

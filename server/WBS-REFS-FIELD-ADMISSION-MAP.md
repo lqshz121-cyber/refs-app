@@ -38,6 +38,17 @@ row is `ABSENT_UNCONFIRMED`, not a deletion.
 | Cost General Ledger / accounting controls | Exact provider-defined fourteen metrics, tenant/entity/company/period (`YYYY-MM`)/uppercase ISO currency, immutable receipt whose embedded scope **and canonical metric fingerprint** exactly match reconciliation input, approved scoped control mapping, four-decimal totals | `WBS_COST_GL_CONTROL_RECONCILIATION` control comparison with forward/reverse trace | Source document, bank row, allocation, Draft JE, ledger posting; reuse of a receipt from another company/period/currency; substitute metric set |
 | Property Comparison / property-unit reports | Observed relation key `PPR_Guid` plus property/unit/version/status trace; provider immutable report/snapshot key, tenant/entity/company/property, inclusive period, uppercase ISO currency, bank account, signed receipt whose embedded scope **and canonical metric fingerprint** exactly match reconciliation input, approved scoped control mapping | `WBS_PROPERTY_CONTROL_RECONCILIATION` control comparison with forward/reverse trace | Inferring the property-unit join from codes; treating `PPR_Version` as receipt/source revision; a cross-company/property/period receipt or substituted metric set; transaction ingestion, allocation, Draft/Post |
 
+### Date matching rule is provider evidence, not an inferred Posting Date rule
+
+Payable and Bank Transaction Journal both expose a Posting Date, while their
+business, transaction, incurred, clear, and check dates can differ. A
+receipt-backed AutoRec matching policy must therefore state one approved
+`date_match_basis`: `BUSINESS_ONLY`, `ACCOUNTING_ONLY`, or
+`BUSINESS_AND_ACCOUNTING`, together with its bounded day window. REFS records
+that basis in the review-plan control totals and policy trace. Missing or
+unknown WBS date semantics blocks the provider-backed review plan; REFS does
+not silently assume that Posting Date equals the bank transaction date.
+
 The live Payable Report is paginated and supports a broad filter set, including
 company, vendor, project, account, posting date, incurred date, pay/check/clear
 dates, status, match status and journal/check references. REFS must never use a

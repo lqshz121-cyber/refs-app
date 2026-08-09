@@ -9,7 +9,7 @@ const staged=({id,amount=100,direction,company='COMPANY-A',currency='USD',accoun
 const bank=(id,amount,date)=>staged({id,amount,direction:'CREDIT',date,type:'BANK_TRANSACTION'});
 const payable=(id,amount,date,options={})=>staged({id,amount,direction:'DEBIT',date,type:'PAYABLE',...options});
 const run=(banks,businesses,options)=>buildWbsAutoReconciliationReviewPlan({bankRows:banks,businessRows:businesses,...options});
-const policy={policy_id:'policy-bank-1',version:'1',mapping_id:'matching-policy-map',mapping_version:'4',rule_id:'amount-date-rule',rule_version:'2',bank_mapping_id:'bank-map',bank_mapping_version:'3',business_mapping_id:'payable-map',business_mapping_version:'5',status:'APPROVED',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',amount_tolerance:'0.0100',date_window_days:2,receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash};
+const policy={policy_id:'policy-bank-1',version:'1',mapping_id:'matching-policy-map',mapping_version:'4',rule_id:'amount-date-rule',rule_version:'2',bank_mapping_id:'bank-map',bank_mapping_version:'3',business_mapping_id:'payable-map',business_mapping_version:'5',status:'APPROVED',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',amount_tolerance:'0.0100',date_window_days:2,date_match_basis:'BUSINESS_AND_ACCOUNTING',receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash};
 const goldenArtifact=JSON.parse(readFileSync(new URL('../contracts/wbs-autorec-golden-scenarios-v1.json',import.meta.url),'utf8'));
 
 test('provider-backed review plan uses one approved receipt-bound matching policy, never caller matching parameters',()=>{
@@ -19,7 +19,7 @@ test('provider-backed review plan uses one approved receipt-bound matching polic
   assert.equal(plan.status,'REVIEW_REQUIRED');
   assert.equal(plan.control_totals.tolerance,0.01);
   assert.equal(plan.trace.length,1);
-  assert.deepEqual(plan.matching_policy,{policy_id:'policy-bank-1',version:'1',mapping_id:'matching-policy-map',mapping_version:'4',rule_id:'amount-date-rule',rule_version:'2',bank_mapping_id:'bank-map',bank_mapping_version:'3',business_mapping_id:'payable-map',business_mapping_version:'5',receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash});
+  assert.deepEqual(plan.matching_policy,{policy_id:'policy-bank-1',version:'1',mapping_id:'matching-policy-map',mapping_version:'4',rule_id:'amount-date-rule',rule_version:'2',bank_mapping_id:'bank-map',bank_mapping_version:'3',business_mapping_id:'payable-map',business_mapping_version:'5',date_match_basis:'BUSINESS_AND_ACCOUNTING',receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash});
   assert.equal(plan.controls.matching_policy_required,true);
   const missing=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bank('b-missing',100)],businessRows:[payable('p-missing',100)]});
   const crossScope=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[{...bank('b-cross',100),mapping_id:'bank-map',mapping_version:'3'}],businessRows:[{...payable('p-cross',100),mapping_id:'payable-map',mapping_version:'5'}],matchingPolicy:{...policy,currency:'CAD'}});
@@ -28,6 +28,20 @@ test('provider-backed review plan uses one approved receipt-bound matching polic
   assert.equal(missing.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_REQUIRED');
   assert.equal(crossScope.allocation_plan.length,0);
   assert.equal(mappingMismatch.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_MISMATCH');
+});
+
+test('provider-backed matching policy declares the WBS date basis instead of assuming Posting Date matches a bank date',()=>{
+  const bankRow={...bank('b-date-basis',100,'2026-08-09'),accounting_date:'2026-08-01',mapping_id:'bank-map',mapping_version:'3'};
+  const payableRow={...payable('p-date-basis',100,'2026-08-10'),accounting_date:'2026-08-20',mapping_id:'payable-map',mapping_version:'5'};
+  const businessOnly=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bankRow],businessRows:[payableRow],matchingPolicy:{...policy,date_match_basis:'BUSINESS_ONLY'}});
+  const accountingOnly=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bankRow],businessRows:[payableRow],matchingPolicy:{...policy,date_match_basis:'ACCOUNTING_ONLY'}});
+  const omitted=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bankRow],businessRows:[payableRow],matchingPolicy:{...policy,date_match_basis:''}});
+  assert.equal(businessOnly.status,'REVIEW_REQUIRED');
+  assert.equal(businessOnly.control_totals.date_match_basis,'BUSINESS_ONLY');
+  assert.equal(accountingOnly.status,'BLOCKED');
+  assert.equal(accountingOnly.exceptions[0].code,'WBS_AUTOREC_PLAN_DATE_WINDOW_MISMATCH');
+  assert.equal(omitted.status,'BLOCKED');
+  assert.equal(omitted.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_REQUIRED');
 });
 
 test('twelve sanitized golden scenarios express WBS→AutoRec controls without granting allocation or posting authority',()=>{
