@@ -203,6 +203,15 @@ Bank currently has status `N` in the observed aggregate. `accounting_info`
 has observed `review` values null, `0`, and `1`; its current aggregate showed
 only `approve_status=0`. Balance cells expose review flags `N`, `R`, and `C`.
 
+A second read-only aggregate recheck on 2026-08-10 found `pd_status='I'` in
+both `Match` and `NotMatch` populations. Release, incurred, clear, and check
+date presence also overlaps across those populations rather than forming an
+observed one-way chain. The AutoRec Bank aggregate still exposed only raw
+`PB_Status='N'`; its check flag is a multi-character validation indicator,
+not an observed workflow state. These facts rule out deriving a state-machine
+transition, cancellation, or reopening rule from status letters, date
+presence, or the check-flag text.
+
 These are **OBSERVED codes only**. The database comments and aggregate values
 do not establish legal transitions, actor/permission rules, cancellation
 semantics, SoD, period-close semantics, or equivalence to REFS states. The
