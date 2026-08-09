@@ -18,8 +18,8 @@ test('OIDC authenticator rejects issuer, audience, lifetime, algorithm, key and 
 });
 
 test('OIDC authenticator rejects missing or invalid identity claims and malformed bearer syntax',async()=>{
-  await assert.rejects(authenticate(token({tenant_id:'not-uuid'})),error=>error.code==='INVALID_ACCESS_TOKEN');
-  await assert.rejects(authenticate(token({sub:''})),error=>error.code==='INVALID_ACCESS_TOKEN');
+  await assert.rejects(authenticate(token({tenant_id:'not-uuid'})),error=>error.code==='INVALID_ACCESS_TOKEN'&&error.message==='Tenant identity claim is invalid');
+  await assert.rejects(authenticate(token({sub:''})),error=>error.code==='INVALID_ACCESS_TOKEN'&&error.message==='Subject identity claim is invalid');
   await assert.rejects(authenticator.authenticate({headers:{authorization:'Basic abc'}}),error=>error.code==='AUTHENTICATION_REQUIRED');
 });
 

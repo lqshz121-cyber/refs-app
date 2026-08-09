@@ -47,7 +47,9 @@ export class OidcJwtAuthenticator{
     const audiences=Array.isArray(claims.aud)?claims.aud:[claims.aud];if(!audiences.includes(this.audience))deny('Access token audience is invalid');
     if(!Number.isInteger(claims.iat)||!Number.isInteger(claims.exp)||claims.iat>now+skew||claims.exp<=now-skew||claims.exp<=claims.iat||claims.exp-claims.iat>this.maxTokenLifetimeSeconds)deny('Access token lifetime is invalid');
     if(claims.nbf!==undefined&&(!Number.isInteger(claims.nbf)||claims.nbf>now+skew))deny('Access token is not active');
-    const tenantId=claims[this.tenantClaim],actorId=claims[this.subjectClaim];if(!UUID.test(tenantId||'')||typeof actorId!=='string'||actorId.length<1||actorId.length>200)deny('Required identity claims are invalid');
+    const tenantId=claims[this.tenantClaim],actorId=claims[this.subjectClaim];
+    if(!UUID.test(tenantId||''))deny('Tenant identity claim is invalid');
+    if(typeof actorId!=='string'||actorId.length<1||actorId.length>200)deny('Subject identity claim is invalid');
     return {trusted:true,tenantId,actorId,tokenId:typeof claims.jti==='string'?claims.jti:null};
   }
 }
