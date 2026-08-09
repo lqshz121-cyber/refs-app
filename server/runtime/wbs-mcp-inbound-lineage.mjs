@@ -34,9 +34,21 @@ const payableTrace=row=>freeze(Object.fromEntries([
   ['project_code',row.pj_code],['activity_no',row.activity_no],['description',row.description],['faster_yardi_code',row.faster_yardi_code],['unit_code',row.unit_code],['cost_code',row.cost_code],['cost_name',row.cost_name],['cost_account_name',row.cost_account_name],['cost_state',row.cost_state],['create_mode',row.create_mode],['remarks',row.remarks],['bj_team_remarks',row.bj_team_remarks],['aging',row.aging]
 ].filter(([,value])=>text(value)!=='').map(([key,value])=>[key,text(value)])));
 // The observed Payable Report opens a PAYABLE source-detail drill-down by a
-// longId-style locator. It is relation evidence only: ap_guid remains the
-// producer key, and URLs/session tokens are deliberately never retained.
-const payableSourceDetailRelation=row=>freeze({source:'PAYABLE',source_type:'payable',long_id:text(row.ap_long_id)||null,can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});
+// longId-style locator. A provider may explicitly retain the page's relation
+// labels, but those labels remain evidence only: ap_guid remains the producer
+// key, and URLs/session tokens are deliberately never retained.  Keeping the
+// unbound page observation separate prevents a future connector from quietly
+// promoting a browser route into an immutable source or match key.
+const payableSourceDetailRelation=row=>{
+  const source=text(row.source_detail_source),sourceType=text(row.source_detail_type),comeFrom=text(row.source_detail_come_from),longId=text(row.ap_long_id);
+  const receiptBound=Boolean(source&&sourceType&&comeFrom&&longId);
+  return freeze({
+    observation:receiptBound?'RECEIPT_BOUND_DISPLAY_TRACE':'PAGE_OBSERVED_UNBOUND_TRACE',
+    source:source||null,source_type:sourceType||null,come_from:comeFrom||null,long_id:longId||null,
+    missing:freeze(['source','source_type','come_from','long_id'].filter(field=>({source,source_type:sourceType,come_from:comeFrom,long_id:longId}[field]===''))),
+    can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false
+  });
+};
 const bankTrace=row=>freeze(Object.fromEntries([
   ['transaction_date',row.set_date],['posting_date',row.posting_date],['account_code',row.account_code],['account_name',row.account_name],['payee',row.payee],['payee_no',row.payee_no],['memo',row.description],['ref_no',row.ref_no],
   ['deposit',row.deposit],['payment',row.payment],['project_code',row.pj_code],['department',row.department],['cost_code',row.cost_code],['brief_description',row.brief_description],

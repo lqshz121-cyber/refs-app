@@ -68,6 +68,20 @@ scope/trace facts and quarantining a row that lacks the required immutable
 key, version, company, currency, direction, amount, accounting date or
 approved mapping.
 
+### 2026-08-10 read-only drill-down recheck
+
+The current page also exposes separate read-only drill-downs for the WBS
+business form, transaction date, check information, accounting Source Detail
+and comments log. The observed Accounting Source Detail route labels the
+relation as `PAYABLE` / `payable` with an `EXPA` origin and a long-ID-style
+locator. These labels are now modelled as `payable_source_detail` trace
+evidence only. REFS retains them as `RECEIPT_BOUND_DISPLAY_TRACE` only when a
+future signed provider payload supplies all four relation labels and the
+payable long ID; otherwise it records
+`PAGE_OBSERVED_UNBOUND_TRACE`. Neither form, transaction, check, Source Detail
+nor log drill-down may supply the immutable payable key, a bank key, a match
+instruction, workflow transition, Draft request or posting authority.
+
 ## Tested relationship findings
 
 The following aggregate-only read checks were executed without selecting a
