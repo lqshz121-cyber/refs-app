@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mapWbsReadonlyProviderRow,WbsProviderReadonlyRowAdapterError} from '../runtime/wbs-provider-readonly-row-adapter.mjs';
+import {mapWbsReadonlyProviderRow,mergeWbsReadonlyResultEvidence,WbsProviderReadonlyRowAdapterError} from '../runtime/wbs-provider-readonly-row-adapter.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {buildWbsAutoRecBankControlEvidence,buildWbsMcpReadonlySnapshot,mapWbsMcpEnvelopeToInbound,WbsMcpLineageError} from '../runtime/wbs-mcp-inbound-lineage.mjs';
 import {createWbsInboundDataAdapter} from '../runtime/wbs-inbound-data-adapter.mjs';
@@ -65,4 +65,22 @@ test('physical AutoRec Bank totals remain control-only and reject an inferred re
   assert.deepEqual({admission:mapped.admission,reconcile:mapped.can_reconcile,draft:mapped.can_create_draft,post:mapped.can_post},{admission:'CONTROL_EVIDENCE_ONLY',reconcile:false,draft:false,post:false});
   const control={scope:{company_key:'COMPANY-A',currency:'USD',period:'2026-08',bank_account_ref:'BANK-OP'},formula:{formula_id:'WBS-PB-ROW-SUM',version:'1',aggregation:'ROW_SUM'},totals:{quantity:'2',released_quantity:'0',pay_amount:'100',released_amount:'50',incurred_amount:'25',debit_amount:'0'},receipt:{hash:`sha256:${content_sha256}`,ref:'object://wbs/test/pb-control',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-10T00:00:00.000Z'}};
   assert.throws(()=>buildWbsAutoRecBankControlEvidence({envelope,control}),error=>error instanceof WbsMcpLineageError&&error.code==='WBS_MCP_CONTROL_TOTALS_INVALID');
+});
+
+test('only a same-key result row can supply AutoRec Detail posting-date evidence',()=>{
+  const physical={pd_guid:'DETAIL-RESULT-001',pd_biz_type:'WB',pd_payment:'100.0000',pd_deposit:'0',pd_incurred_date:'2026-08-01',pd_status:'INCURRED'};
+  const row=mergeWbsReadonlyResultEvidence({sourceTable:'wbsdata.fast_auto_payment_detail',scope,row:physical,resultRow:{pd_guid:'DETAIL-RESULT-001',company_code:'COMPANY-A',currency:'USD',posting_date:'2026-08-02'}});
+  assert.deepEqual({key:row.pd_guid,posting:row.posting_date,source:row.posting_date_source},{key:'DETAIL-RESULT-001',posting:'2026-08-02',source:'SIGNED_RESULT_ROW'});
+  const rows=[row],content_sha256=canonicalRequestHash(rows).slice(7);
+  const envelope={contract_version:'WBS-REFS-MCP-V1',tool:'list_autorec_details',environment:'production',captured_at:'2026-08-10T00:00:00.000Z',source:{system:'WBS'},scope:{company:'COMPANY-A',currency:'USD'},record_count:1,content_sha256,cursor_next:null,etl_notice:'Snapshot comparison required',rows};
+  const conventions=[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${content_sha256}`,ref:'object://wbs/test/detail-receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-10T00:00:00.000Z'},rule_id:'WBS-AUTOREC-DR-1',version:'1',biz_type:'WB',deposit_direction:'CREDIT',payment_direction:'DEBIT',business_date_field:'incurred_date'}];
+  assert.equal(mapWbsMcpEnvelopeToInbound({envelope,autoRecDetailDirectionConventions:conventions}).rows[0].admission,'AUTOREC_REVIEW_EVIDENCE');
+  assert.throws(()=>mergeWbsReadonlyResultEvidence({sourceTable:'wbsdata.fast_auto_payment_detail',scope,row:physical,resultRow:{pd_guid:'OTHER-DETAIL',posting_date:'2026-08-02'}}),error=>error instanceof WbsProviderReadonlyRowAdapterError&&error.code==='WBS_PROVIDER_RESULT_KEY_MISMATCH');
+});
+
+test('only a same-key canonical result field can supply AutoRec Bank released quantity',()=>{
+  const physical={PB_GuId:'PB-RESULT-001',PB_CompanyCode:'COMPANY-A',PB_AhId:'BANK-OP',PB_Quantity:'2',PB_PayAmount:'100.0000',PB_DebitAmount:'0',PB_Released:'50.0000',PB_Incurred:'25.0000'};
+  const row=mergeWbsReadonlyResultEvidence({sourceTable:'wbsdata.autopaymentbank',scope,row:physical,resultRow:{pb_guid:'PB-RESULT-001',company_code:'COMPANY-A',currency:'USD',released_quantity:'1'}});
+  assert.deepEqual({key:row.pb_guid,quantity:row.released_quantity,source:row.released_quantity_source},{key:'PB-RESULT-001',quantity:'1',source:'SIGNED_RESULT_ROW'});
+  assert.throws(()=>mergeWbsReadonlyResultEvidence({sourceTable:'wbsdata.autopaymentbank',scope,row:physical,resultRow:{pb_guid:'PB-RESULT-001',released_quantity:'NaN'}}),error=>error instanceof WbsProviderReadonlyRowAdapterError&&error.code==='WBS_PROVIDER_RESULT_FIELD_REQUIRED');
 });

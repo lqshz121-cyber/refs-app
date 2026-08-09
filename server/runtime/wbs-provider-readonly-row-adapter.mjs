@@ -58,3 +58,29 @@ export function mapWbsReadonlyProviderRow({sourceTable,row,scope}={}){
     default: fail('WBS_PROVIDER_SOURCE_UNSUPPORTED','The WBS source table is not admitted by the read-only accounting adapter.');
   }
 }
+
+// Some accounting evidence is visible only in a WBS read result, rather than
+// its underlying base table.  This seam deliberately accepts only a small,
+// immutable-key-bound supplement.  The caller still has to place the merged
+// row in a signed WBS envelope before REFS can persist it.
+export function mergeWbsReadonlyResultEvidence({sourceTable,row,resultRow,scope}={}){
+  const mapped=mapWbsReadonlyProviderRow({sourceTable,row,scope});
+  if(!resultRow||typeof resultRow!=='object'||Array.isArray(resultRow))fail('WBS_PROVIDER_RESULT_ROW_INVALID','A WBS result evidence row must be an object.');
+  const selected=scopeOf(scope),resultCompany=code(resultRow.company_code??resultRow.company);
+  if(resultCompany&&resultCompany!==selected.company_code)fail('WBS_PROVIDER_COMPANY_SCOPE_MISMATCH','WBS result evidence company must equal the signed extraction scope.');
+  const resultCurrency=currency(resultRow.currency);
+  if(resultCurrency&&resultCurrency!==selected.currency)fail('WBS_PROVIDER_CURRENCY_SCOPE_MISMATCH','WBS result evidence currency must equal the signed extraction scope.');
+  if(text(sourceTable)==='wbsdata.fast_auto_payment_detail'){
+    if(required(resultRow,'pd_guid','AutoRec Detail')!==mapped.pd_guid)fail('WBS_PROVIDER_RESULT_KEY_MISMATCH','AutoRec Detail result evidence must bind the same immutable pd_guid.');
+    const posting=date(resultRow.posting_date);
+    if(!posting)fail('WBS_PROVIDER_RESULT_FIELD_REQUIRED','AutoRec Detail result evidence requires an exact Posting Date.');
+    return Object.freeze({...mapped,posting_date:posting,posting_date_source:'SIGNED_RESULT_ROW'});
+  }
+  if(text(sourceTable)==='wbsdata.autopaymentbank'){
+    if(required(resultRow,'pb_guid','AutoRec Bank')!==mapped.pb_guid)fail('WBS_PROVIDER_RESULT_KEY_MISMATCH','AutoRec Bank result evidence must bind the same immutable pb_guid.');
+    const releasedQuantity=amount(resultRow.released_quantity);
+    if(releasedQuantity===null||!/^-?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(releasedQuantity))fail('WBS_PROVIDER_RESULT_FIELD_REQUIRED','AutoRec Bank result evidence requires an exact released_quantity.');
+    return Object.freeze({...mapped,released_quantity:releasedQuantity,released_quantity_source:'SIGNED_RESULT_ROW'});
+  }
+  fail('WBS_PROVIDER_RESULT_SOURCE_UNSUPPORTED','Only AutoRec Detail and AutoRec Bank result evidence may supplement observed WBS base rows.');
+}
