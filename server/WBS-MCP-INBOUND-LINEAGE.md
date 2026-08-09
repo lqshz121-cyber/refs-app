@@ -220,7 +220,10 @@ sign.
 
 AutoRec Detail Deposit/Payment requires the same provider evidence by
 `biz_type`: one receipt-bound rule with exact company/currency scope,
-rule id/version, and opposite Deposit/Payment directions. Missing rules yield
+rule id/version, opposite Deposit/Payment directions, and exactly one declared
+business-date field: `incurred_date` or `clear_date`. The rule selects that
+field without fallback; the other date remains external trace only. Missing or
+invalid rules yield
 `WBS_MCP_AUTOREC_DIRECTION_CONVENTION_REQUIRED`; the detail cannot form a
 review candidate. This is separate from the existing exactly-one-non-zero
 Deposit/Payment rule, which still rejects both-non-zero and zero/zero detail

@@ -11,7 +11,7 @@ const envelope=(tool,rows,scope={company:'COMPANY-A'})=>{
 };
 const bankDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/bank/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-BANK-DR-1',version:'1',debtor_direction:'DEBIT',lender_direction:'CREDIT'}];
 const payableDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/payable/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-PAYABLE-DR-1',version:'1',ap_type:'AUTOC',direction:'DEBIT'}];
-const detailDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/autorec/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-AUTOREC-DR-1',version:'1',biz_type:'WB',deposit_direction:'CREDIT',payment_direction:'DEBIT'}];
+const detailDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/autorec/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-AUTOREC-DR-1',version:'1',biz_type:'WB',deposit_direction:'CREDIT',payment_direction:'DEBIT',business_date_field:'incurred_date'}];
 
 test('formal WBS Payable, Bank Journal, and AutoRec detail envelopes map to read-only typed lineage',()=>{
   const payableEnvelope=envelope('list_payables',[{ap_guid:'A-1',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:'100',posting_date:'2026-08-01',vendor_no:'V-1',ap_long_id:'AP-LONG-1',source_detail_source:'PAYABLE',source_detail_type:'payable',source_detail_come_from:'EXPA',match_status:'MATCHED',payable_no:'P-1',business_status:'PAID',pay_status:'CLEARED',pay_type:'ACH',status:'POSTED',account_code:'6000',account_code_name:'Expense',invoice_no:'I-1',invoice_description:'Invoice',invoice_date:'2026-07-31',incurred_date:'2026-07-30',pay_due_date:'2026-08-15',rolling_date:'2026-08-04',journal_code:'AP',journal_no:'J-1',check_system:'CHECKS',check_no:'CHK-1',check_date:'2026-08-02',check_amount:'100',clear_date:'2026-08-03',cb_id:'CB-1',owner_code:'OWNER',owner_company:'OWNER CO',company_name:'Company A',division:'DIV',pj_code:'PROJECT',activity_no:'ACT',description:'Description',faster_yardi_code:'FAST',unit_code:'UNIT',cost_code:'COST',cost_name:'Cost Name',cost_account_name:'Cost Account',cost_state:'ACTIVE',create_mode:'AUTO',remarks:'Remark',bj_team_remarks:'Bank remark',aging:'CURRENT'}]);
@@ -63,6 +63,17 @@ test('AutoRec Detail requires exactly one nonzero Deposit or Payment before it c
     {admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_AMOUNT_DIRECTION_REQUIRED',draft:false,post:false},
     {admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_AMOUNT_DIRECTION_REQUIRED',draft:false,post:false}
   ]);
+});
+
+test('AutoRec Detail business date is receipt-bound and never falls back between Incurred and Clear Date',()=>{
+  const detailEnvelope=envelope('list_autorec_details',[{pd_guid:'D-DATE',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:'0',payment:'100',clear_date:'2026-08-02',posting_date:'2026-08-03'}]);
+  const convention=detailDirectionConventions(detailEnvelope);
+  const row=mapWbsMcpEnvelopeToInbound({envelope:detailEnvelope,autoRecDetailDirectionConventions:convention}).rows[0];
+  assert.deepEqual({admission:row.admission,code:row.exception_code,missing:row.missing,businessDate:row.business_date},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_TRANSACTION_FIELDS_REQUIRED',missing:['business_date'],businessDate:null});
+  const clearConvention=convention.map(item=>({...item,business_date_field:'clear_date'}));
+  const clearRow=mapWbsMcpEnvelopeToInbound({envelope:detailEnvelope,autoRecDetailDirectionConventions:clearConvention}).rows[0];
+  assert.deepEqual({admission:clearRow.admission,businessDate:clearRow.business_date,dateField:clearRow.autorc_direction_rule.business_date_field},{admission:'AUTOREC_REVIEW_EVIDENCE',businessDate:'2026-08-02',dateField:'clear_date'});
+  assert.throws(()=>mapWbsMcpEnvelopeToInbound({envelope:detailEnvelope,autoRecDetailDirectionConventions:convention.map(item=>({...item,business_date_field:'posting_date'}))}),error=>error.code==='WBS_MCP_AUTOREC_DIRECTION_CONVENTION_INVALID');
 });
 
 test('transaction candidates require exact company scope and all monetary admission facts',()=>{
