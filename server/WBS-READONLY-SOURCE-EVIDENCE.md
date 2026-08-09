@@ -255,6 +255,22 @@ treated as a Cost GL metric, a Property Comparison metric, a transaction
 producer, or an AutoRec allocation source. A signed report-specific metric
 receipt and approved REFS control mapping remain mandatory.
 
+The same recheck used aggregate-only reads (no business rows exported):
+`accounting_cost_relation` contains 323,465 relation rows and 323,411 distinct
+`business_id` values, while still exposing no monetary or reporting-period
+columns. This establishes it as a high-cardinality reference relation, not a
+Cost General Ledger metric fact. A direct join from
+`pjcat_property_relation.PPR_PropertyUnitGuid` to
+`pjcat_unit_report.UR_GuId` returned zero matches. Consequently, neither a
+synthetic property join nor a relation-row count may be used as a Property
+Comparison total or as a substitute for a signed report snapshot.
+
+An aggregate over the full `accounting_info` journal table timed out at the
+read-only provider boundary on 2026-08-10. Its proposed population-level
+cardinality/status evidence is therefore **UNKNOWN**; REFS must retain the
+previous schema-only rule that an accounting line is trace evidence only until
+the provider supplies a bounded, signed result set.
+
 The attempted direct join `pjcat_property_relation.PPR_PropertyUnitGuid` to
 `pjcat_unit_report.UR_GuId` produced zero matches. This is explicit negative
 evidence: neither value may be used as a Property Comparison relation key until
