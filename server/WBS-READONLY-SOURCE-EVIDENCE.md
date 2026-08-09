@@ -219,6 +219,18 @@ REFS authoritative lifecycle remains its own review/approval/posting workflow;
 WBS codes are retained only as receipt-bound display/audit evidence until an
 official state/transition contract is received.
 
+### Accounting-log operation boundary
+
+A bounded, read-only 2026 aggregate over `accounting_log.type` observed the
+operation labels `Create`, `Review`, `Modify`, `Individual`, and `Delete`.
+No row content, identifiers, or user names were collected. This confirms that
+the log can retain an external event label and event timestamp when they are
+receipt-bound. It does **not** establish that `Delete` is a cancellation,
+that `Modify` is a reopening, that any event is specific to AutoRec, or that
+an event has a one-to-one relationship with an accounting line or ledger
+effect. REFS must therefore not translate these labels into cancel, reopen,
+release, incur, reverse, approval, or posting commands.
+
 ### Bank-record to journal relation boundary
 
 An aggregate-only cross-database existence check confirms that some WBS-source
