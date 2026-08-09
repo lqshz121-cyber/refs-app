@@ -1,4 +1,5 @@
 import {createServer} from 'node:http';
+import {WbsReadContractError,assertWbsReadOnlyResult,parseWbsAutoRecReviewSelection} from './wbs-read-contract.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const FORBIDDEN_BODY_KEYS=new Set(['actor','actorId','actor_id','tenantId','tenant_id','entityId','entity_id','requestHash','request_hash']);
@@ -25,6 +26,7 @@ const allowOnly=(body,allowed)=>{const unexpected=Object.keys(body).filter(key=>
 
 const isRevisionPrecondition=error=>error?.code==='40001'&&/(revision conflict|version conflict|period changed during transition|staging source changed during journal creation|lease is absent, stale, or owned)/i.test(String(error.message||''));
 function statusFor(error){
+  if(error instanceof WbsReadContractError)return error.status;
   if(error instanceof AccountingApiError)return error.status;
   if(error?.code==='42501')return 403;if(error?.code==='P0002')return 404;
   if(error?.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED')return 503;
@@ -33,9 +35,9 @@ function statusFor(error){
   if(error?.code==='23505')return 409;if(error?.code==='55000')return 423;
   if(['22023','23503','23514'].includes(error?.code))return 422;return 500;
 }
-const problemFor=error=>{const status=statusFor(error);const code=isRevisionPrecondition(error)?'PRECONDITION_FAILED':error?.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED'?'WBS_SNAPSHOT_SIGNATURE_REQUIRED':status===503?'SERIALIZATION_RETRY_EXHAUSTED':error.code||'INTERNAL_ERROR';const message=status>=500?'Internal server error':error.message;const headers={'content-type':'application/problem+json','cache-control':'no-store'};if(status===503)headers['retry-after']='1';return {status,headers,body:{ok:false,code,message}};};
+const problemFor=error=>{const status=statusFor(error);const code=isRevisionPrecondition(error)?'PRECONDITION_FAILED':error?.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED'?'WBS_SNAPSHOT_SIGNATURE_REQUIRED':error?.code==='WBS_READ_SERVICE_UNAVAILABLE'?'WBS_READ_SERVICE_UNAVAILABLE':error instanceof WbsReadContractError?error.code:status===503?'SERIALIZATION_RETRY_EXHAUSTED':error.code||'INTERNAL_ERROR';const message=status>=500?'Internal server error':error.message;const headers={'content-type':'application/problem+json','cache-control':'no-store'};if(status===503)headers['retry-after']='1';return {status,headers,body:{ok:false,code,message}};};
 
-export function createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory}={}){
+export function createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory}={}){
   if(typeof authenticate!=='function'||typeof kernelFactory!=='function')throw new Error('Accounting API requires authenticate and kernelFactory');
   return async function dispatch({method,url,headers={},body=null}){
     try{
@@ -79,6 +81,16 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const statementEndingDate=requireIsoDate(parsedUrl.searchParams.get('statementEndingDate'),'statementEndingDate');
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.getReconciliationSummary({tenantId:principal.tenantId,entityId,bankAccountRef,statementEndingDate});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='review-candidates'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        if(typeof wbsReadServiceFactory!=='function')throw new AccountingApiError(503,'WBS_READ_SERVICE_UNAVAILABLE','WBS read service is unavailable');
+        const selection=parseWbsAutoRecReviewSelection(parsedUrl.searchParams);
+        const service=await wbsReadServiceFactory(principal);
+        if(!service||typeof service.readAutoRecReview!=='function')throw new AccountingApiError(503,'WBS_READ_SERVICE_UNAVAILABLE','WBS read service is unavailable');
+        result=assertWbsReadOnlyResult(await service.readAutoRecReview({tenantId:principal.tenantId,entityId,companyKey:selection.companyKey,sourceRecordIds:selection.sourceRecordIds}));
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&['ap','ar'].includes(parts[4])&&parts[5]==='adjustments'){
@@ -185,9 +197,9 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
 
 const corsHeaders=(origin,allowedOrigins)=>origin&&allowedOrigins.has(origin)?{'access-control-allow-origin':origin,'access-control-allow-credentials':'true','access-control-allow-methods':'GET, POST, OPTIONS','access-control-allow-headers':'content-type, idempotency-key, if-match','access-control-max-age':'600','vary':'Origin'}:{};
 
-export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,maxBodyBytes=1024*1024,healthCheck,allowedOrigins=[]}={}){
+export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,maxBodyBytes=1024*1024,healthCheck,allowedOrigins=[]}={}){
   const allowed=new Set(allowedOrigins);
-  const dispatch=createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory});
+  const dispatch=createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory});
   return createServer(async(req,res)=>{
     const chunks=[];let size=0;
     try{

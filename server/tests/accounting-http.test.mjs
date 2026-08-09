@@ -59,6 +59,27 @@ test('WBS production snapshot signature failures are fail-closed and do not leak
   assert.equal(rejected.status,422);assert.equal(rejected.body.code,'WBS_SNAPSHOT_SIGNATURE_INVALID');
 });
 
+test('WBS AutoRec review candidates are a narrow authenticated read with no accounting command authority',async()=>{
+  const seen=[];
+  const reviewApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-reader'}),kernelFactory:async()=>kernel,wbsReadServiceFactory:async principal=>({readAutoRecReview:async input=>{
+    seen.push([principal,input]);return {status:'READ_ONLY_PROJECTED',candidates:[],exceptions:[],controls:{candidate_count:0},can_dispatch:false,can_create_draft:false,can_post:false};
+  }})});
+  const path=`/api/v1/entities/${entityId}/wbs/auto-reconciliation/review-candidates?companyKey=COMPANY-A&sourceRecordId=bank-2&sourceRecordId=bank-1`;
+  const response=await reviewApi({method:'GET',url:path,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
+  assert.deepEqual(seen[0][1],{tenantId,entityId,companyKey:'COMPANY-A',sourceRecordIds:['bank-1','bank-2']});
+  assert.equal((await reviewApi({method:'GET',url:path+'&sourceRecordId=bank-1',body:null,headers:{}})).status,400);
+  assert.equal((await reviewApi({method:'GET',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/review-candidates?companyKey=COMPANY-A`,body:null,headers:{}})).body.code,'WBS_SOURCE_RECORD_ID_REQUIRED');
+  assert.equal((await reviewApi({method:'GET',url:path,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
+});
+
+test('WBS AutoRec review refuses unavailable services and any result that could dispatch, draft, or post',async()=>{
+  const path=`/api/v1/entities/${entityId}/wbs/auto-reconciliation/review-candidates?companyKey=COMPANY-A&sourceRecordId=bank-1`;
+  assert.equal((await api({method:'GET',url:path,body:null,headers:{}})).body.code,'WBS_READ_SERVICE_UNAVAILABLE');
+  const unsafe=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-reader'}),kernelFactory:async()=>kernel,wbsReadServiceFactory:async()=>({readAutoRecReview:async()=>({can_dispatch:true,can_create_draft:false,can_post:false})})});
+  const rejected=await unsafe({method:'GET',url:path,body:null,headers:{}});assert.equal(rejected.status,503);assert.equal(rejected.body.code,'WBS_READ_RESULT_INVALID');
+});
+
 test('AP Payment route creates only Draft occurrence and pending allocation from trusted scope',async()=>{
   calls.length=0;const billId=randomUUID();const body={periodId,paymentNumber:'APPAY-1',paymentDate:'2026-08-02',cashAccountCode:'100100',bankMemberRef:'BANK-1',amount:40,reason:'Pay vendor bill'};
   const response=await command(`/api/v1/entities/${entityId}/ap/bills/${billId}/payments`,body);
