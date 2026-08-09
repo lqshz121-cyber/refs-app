@@ -46,8 +46,8 @@ const documentRow=(row,kind)=>({
 export async function refreshAuthoritativeDocuments({config,fetcher=globalThis.fetch}={}){
   if(!config||typeof fetcher!=='function')return notConfigured();
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
-  const read=async path=>{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});if(!response.ok)return await failure(response);const body=await response.json();return body?.ok===true&&Array.isArray(body.data)?{ok:true,data:body.data}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid business document read envelope.'};};
-  try{const [bills,invoices,apAdjustments,arAdjustments]=await Promise.all([read('/ap/bills'),read('/ar/invoices'),read('/ap/adjustments'),read('/ar/adjustments')]);const refused=[bills,invoices,apAdjustments,arAdjustments].find(result=>!result.ok);if(refused)return refused;return {ok:true,ap:{bills:bills.data.map(row=>documentRow(row,'AP_BILL')),adjustments:apAdjustments.data,dupBlocked:0},ar:{invoices:invoices.data.map(row=>documentRow(row,'AR_INVOICE')),adjustments:arAdjustments.data}};}catch{return unreachable('The browser could not complete the authoritative accounting read; no HTTP response was produced.');}
+  const read=async(path,operation)=>{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});if(!response.ok)return await failure(response,operation);const body=await response.json();return body?.ok===true&&Array.isArray(body.data)?{ok:true,data:body.data}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:`Accounting API returned an invalid ${operation} read envelope.`};};
+  try{const [bills,invoices,apAdjustments,arAdjustments]=await Promise.all([read('/ap/bills','AP_BILLS'),read('/ar/invoices','AR_INVOICES'),read('/ap/adjustments','AP_ADJUSTMENTS'),read('/ar/adjustments','AR_ADJUSTMENTS')]);const refused=[bills,invoices,apAdjustments,arAdjustments].find(result=>!result.ok);if(refused)return refused;return {ok:true,ap:{bills:bills.data.map(row=>documentRow(row,'AP_BILL')),adjustments:apAdjustments.data,dupBlocked:0},ar:{invoices:invoices.data.map(row=>documentRow(row,'AR_INVOICE')),adjustments:arAdjustments.data}};}catch{return unreachable('The browser could not complete the authoritative accounting read; no HTTP response was produced.');}
 }
 
 export async function refreshAuthoritativeJournalEntries({config,fetcher=globalThis.fetch}={}){
@@ -55,7 +55,7 @@ export async function refreshAuthoritativeJournalEntries({config,fetcher=globalT
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
   try{
     const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/journal-entries`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
-    if(!response.ok)return await failure(response);
+    if(!response.ok)return await failure(response,'JOURNAL_ENTRIES');
     const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal Entry read envelope.'};
     const journals=body.data.map(row=>({...row,revision:Number(row.revision),ledger_line_count:Number(row.ledger_line_count)}));
     if(journals.some(row=>!UUID.test(row.journal_entry_id||'')||!Number.isSafeInteger(row.revision)||row.revision<0||!Number.isSafeInteger(row.ledger_line_count)||row.ledger_line_count<0))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal Entry row.'};
@@ -154,7 +154,7 @@ export async function refreshAuthoritativeControlTotals({config,side,fetcher=glo
   }catch{return unreachable('The browser could not complete the authoritative control-total read; no HTTP response was produced.');}
 }
 
-const failure=async response=>{
+const failure=async(response,operation=null)=>{
   const status=Number(response?.status)||0;
   let body;try{body=await response.json();}catch{}
   const derived=status>=100?httpFailureCode(status):null;
@@ -166,7 +166,8 @@ const failure=async response=>{
   const decisive=derived==='AUTHENTICATION_REQUIRED'||derived==='AUTHORIZATION_DENIED'||derived==='ACCOUNTING_API_SERVER_ERROR';
   const code=decisive?derived:(typeof body?.code==='string'&&body.code?body.code:(derived||'ACCOUNTING_API_REQUEST_REJECTED'));
   const reported=typeof body?.message==='string'&&body.message?body.message:null;
-  const message=derived==='AUTHORIZATION_DENIED'||status>=500||!reported?httpFailureMessage(status,derived||'ACCOUNTING_API_REQUEST_REJECTED'):reported;
+  const baseMessage=derived==='AUTHORIZATION_DENIED'||status>=500||!reported?httpFailureMessage(status,derived||'ACCOUNTING_API_REQUEST_REJECTED'):reported;
+  const message=operation?`${baseMessage} Read: ${operation}.`:baseMessage;
   return {ok:false,code,status,message};
 };
 
