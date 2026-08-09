@@ -207,7 +207,8 @@ export function buildAutoReconciliationReviewRequest(args={}){
 // command separate prevents a UI or import job from silently consuming value.
 export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tolerance=0,dateWindowDays=3}={}){
   if(!Array.isArray(bankRows)||!Array.isArray(businessRows)||bankRows.length===0||businessRows.length===0)fail('WBS_AUTOREC_PLAN_ROWS_REQUIRED','At least one bank row and one business row are required.');
-  if(!Number.isFinite(Number(tolerance))||Number(tolerance)<0||!Number.isSafeInteger(Number(dateWindowDays))||Number(dateWindowDays)<0)fail('WBS_AUTOREC_PLAN_OPTIONS_INVALID','Auto Reconciliation tolerance and date window are invalid.');
+  const toleranceValue=amount(tolerance),dateWindow=Number(dateWindowDays);
+  if(toleranceValue===null||toleranceValue<0||!Number.isSafeInteger(dateWindow)||dateWindow<0)fail('WBS_AUTOREC_PLAN_OPTIONS_INVALID','Auto Reconciliation tolerance and date window are invalid.');
   const exceptions=[],required=['receipt_id','receipt_ref','receipt_hash','raw_event_id','source_document_id','staging_item_id','source_record_id','source_version','company_key','currency','amount','business_date','accounting_date','bank_account_ref','direction','review_event_id'];
   const inspect=(side,row,allowed)=>{
     const missing=required.filter(field=>field==='amount'?amount(row?.amount)===null||amount(row?.amount)===0:text(row?.[field])==='');
@@ -246,12 +247,12 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
     if(text(row.company_key)!==text(anchor.company_key)||text(row.currency)!==text(anchor.currency)||text(row.bank_account_ref)!==text(anchor.bank_account_ref))exceptions.push(eligibilityException('PAIR',row,'WBS_AUTOREC_PLAN_SCOPE_MISMATCH','All proposed rows require one exact company, currency, and bank account.'));
   }
   if(bankRows.some(row=>text(row.direction).toUpperCase()!==bankDirection)||businessRows.some(row=>text(row.direction).toUpperCase()===bankDirection))exceptions.push(eligibilityException('PAIR',null,'WBS_AUTOREC_PLAN_DIRECTION_MISMATCH','Bank rows must have one direction and business rows must have the opposite direction.'));
-  for(const bank of bankRows)for(const business of businessRows)if(dayDistance(bank.business_date,business.business_date)>Number(dateWindowDays)||dayDistance(bank.accounting_date,business.accounting_date)>Number(dateWindowDays))exceptions.push(eligibilityException('PAIR',business,'WBS_AUTOREC_PLAN_DATE_WINDOW_MISMATCH','Proposed bank and business rows exceed the approved date window.'));
+  for(const bank of bankRows)for(const business of businessRows)if(dayDistance(bank.business_date,business.business_date)>dateWindow||dayDistance(bank.accounting_date,business.accounting_date)>dateWindow)exceptions.push(eligibilityException('PAIR',business,'WBS_AUTOREC_PLAN_DATE_WINDOW_MISMATCH','Proposed bank and business rows exceed the approved date window.'));
   if(exceptions.length)return freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze(exceptions),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
   const remaining=rows=>rows.map(row=>({row,remaining:Math.abs(amount(row.amount))})).sort((left,right)=>text(left.row.source_record_id).localeCompare(text(right.row.source_record_id)));
   const banks=remaining(bankRows),businesses=remaining(businessRows),allocation=[];
   for(const bank of banks)for(const business of businesses){
-    if(bank.remaining<=Number(tolerance)||business.remaining<=Number(tolerance))continue;
+    if(bank.remaining<=toleranceValue||business.remaining<=toleranceValue)continue;
     const allocated=Number(Math.min(bank.remaining,business.remaining).toFixed(4));
     bank.remaining=Number((bank.remaining-allocated).toFixed(4));business.remaining=Number((business.remaining-allocated).toFixed(4));
     allocation.push(freeze({bank_source_record_id:bank.row.source_record_id,bank_source_version:bank.row.source_version,business_source_record_id:business.row.source_record_id,business_source_version:business.row.source_version,amount:allocated,currency:anchor.currency,bank_receipt_hash:bank.row.receipt_hash,business_receipt_hash:business.row.receipt_hash,can_allocate:false,can_release:false,can_post:false}));
@@ -260,9 +261,9 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
   const businessTotal=Number(businesses.reduce((sum,item)=>sum+Math.abs(amount(item.row.amount)),0).toFixed(4));
   const allocatedTotal=Number(allocation.reduce((sum,item)=>sum+item.amount,0).toFixed(4));
   const bankRemaining=Number(banks.reduce((sum,item)=>sum+item.remaining,0).toFixed(4)),businessRemaining=Number(businesses.reduce((sum,item)=>sum+item.remaining,0).toFixed(4));
-  const difference=Number(Math.abs(bankTotal-businessTotal).toFixed(4)),balanced=difference<=Number(tolerance);
+  const difference=Number(Math.abs(bankTotal-businessTotal).toFixed(4)),balanced=difference<=toleranceValue;
   const trace=allocation.map(item=>({bank_source_record_id:item.bank_source_record_id,bank_source_version:item.bank_source_version,business_source_record_id:item.business_source_record_id,business_source_version:item.business_source_version,bank_receipt_hash:item.bank_receipt_hash,business_receipt_hash:item.business_receipt_hash}));
-  return freeze({review_plan_id:canonicalRequestHash({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,tolerance:Number(tolerance),date_window_days:Number(dateWindowDays),trace}),status:balanced?'REVIEW_REQUIRED':'PARTIAL_REVIEW_REQUIRED',allocation_plan:freeze(allocation),exceptions:freeze([]),control_totals:freeze({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,bank_total:bankTotal,business_total:businessTotal,allocated_total:allocatedTotal,bank_unallocated:bankRemaining,business_unallocated:businessRemaining,difference,tolerance:Number(tolerance),balanced}),trace:freeze(trace),controls:freeze({can_allocate:false,can_release:false,can_post:false,required_next_controls:freeze(['authoritative source reservation','human Auto Reconciliation review','standard REFS release/incur workflow'])})});
+  return freeze({review_plan_id:canonicalRequestHash({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,tolerance:toleranceValue,date_window_days:dateWindow,trace}),status:balanced?'REVIEW_REQUIRED':'PARTIAL_REVIEW_REQUIRED',allocation_plan:freeze(allocation),exceptions:freeze([]),control_totals:freeze({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,bank_total:bankTotal,business_total:businessTotal,allocated_total:allocatedTotal,bank_unallocated:bankRemaining,business_unallocated:businessRemaining,difference,tolerance:toleranceValue,balanced}),trace:freeze(trace),controls:freeze({can_allocate:false,can_release:false,can_post:false,required_next_controls:freeze(['authoritative source reservation','human Auto Reconciliation review','standard REFS release/incur workflow'])})});
 }
 
 // The generic builder above is intentionally useful for local golden fixtures.

@@ -61,6 +61,12 @@ test('a review proposal never counts one WBS source twice or mixes its versions'
   assert.ok(mixedVersion.exceptions.some(exception=>exception.code==='WBS_AUTOREC_PLAN_SOURCE_VERSION_AMBIGUOUS'));
 });
 
+test('review tolerance is a canonical accounting decimal, never an implicit JavaScript number',()=>{
+  for(const tolerance of ['1e2','0x10','0.00001','.5',true]){
+    assert.throws(()=>run([bank('b-options',100)],[payable('p-options',100)],{tolerance}),error=>error.code==='WBS_AUTOREC_PLAN_OPTIONS_INVALID');
+  }
+});
+
 test('required WBS golden matrix retains the twelve accounting-boundary scenarios',()=>{
   const control={company_key:'COMPANY-A',user_ref:'MASKED',completed_match_period:'M:08/2026',completed_release_period:'R:08/2026',completed_incur_period:'C:08/2026',quantity:1,released_quantity:0,incurred_quantity:0,amount:'100.0000',released_amount:'0.0000',incurred_amount:'0.0000',reconciliation_balance:'100.0000',new_balance:'100.0000',balance_date:'2026-08-09'};
   const receipt={receipt_id:'receipt-control',receipt_ref:'object://receipt/control',receipt_hash:hash,source_record_id:'control-1',source_version:'v1'};
