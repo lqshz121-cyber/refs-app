@@ -11,6 +11,7 @@ const payable=(id,amount,date,options={})=>staged({id,amount,direction:'DEBIT',d
 const run=(banks,businesses,options)=>buildWbsAutoReconciliationReviewPlan({bankRows:banks,businessRows:businesses,...options});
 const policy={policy_id:'policy-bank-1',version:'1',mapping_id:'matching-policy-map',mapping_version:'4',rule_id:'amount-date-rule',rule_version:'2',bank_mapping_id:'bank-map',bank_mapping_version:'3',business_mapping_id:'payable-map',business_mapping_version:'5',status:'APPROVED',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',amount_tolerance:'0.0100',date_window_days:2,date_match_basis:'BUSINESS_AND_ACCOUNTING',receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash};
 const goldenArtifact=JSON.parse(readFileSync(new URL('../contracts/wbs-autorec-golden-scenarios-v1.json',import.meta.url),'utf8'));
+const acceptanceMatrix=readFileSync(new URL('../WBS-AUTOREC-EQUIVALENCE-ACCEPTANCE-MATRIX.md',import.meta.url),'utf8');
 
 test('provider-backed review plan uses one approved receipt-bound matching policy, never caller matching parameters',()=>{
   const matchedBank={...bank('b-rule',100,'2026-08-09'),mapping_id:'bank-map',mapping_version:'3'};
@@ -150,4 +151,9 @@ test('golden acceptance artifact has twelve sanitized source-to-target controls 
   assert.deepEqual(reopen.expected,{latest_observed_state:'INCURRED',canonical_wbs_transition_graph:'UNKNOWN',can_transition_state:false,can_post:false});
   assert.ok(reopen.forward_trace.includes('state_history'));assert.ok(reopen.reverse_trace.includes('state_history'));
   assert.equal(required.size,0);
+});
+
+test('G11 acceptance rejects a substituted top-level policy or allocation edge',()=>{
+  assert.match(acceptanceMatrix,/persisted review request must also equal that policy trace/i);
+  assert.match(acceptanceMatrix,/substituted top-level policy or allocation edge is rejected/i);
 });
