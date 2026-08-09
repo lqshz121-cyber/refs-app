@@ -74,3 +74,10 @@ test('AutoRec matching-policy reader is scoped configuration evidence and cannot
   for(const token of ['WBS_AUTOREC_MATCH',"'amount_tolerance'","'date_match_basis'",'refs_assert_scope','REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token));
   assert.doesNotMatch(up,/\b(?:INSERT|UPDATE|DELETE)\b/i);assert.match(down,/DROP FUNCTION IF EXISTS refs_read_wbs_autorec_matching_policies/);
 });
+
+test('AutoRec matching-policy reader retains historical policy evidence without treating today as the source accounting date',async()=>{
+  const up=await readFile(new URL('../db/migrations/072_wbs_autorec_historical_matching_policy_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/072_wbs_autorec_historical_matching_policy_read.sql',import.meta.url),'utf8');
+  assert.match(up,/status IN \('APPROVED','RETIRED'\)/);assert.doesNotMatch(up,/clock_timestamp\(\)/);assert.doesNotMatch(up,/\b(?:INSERT|UPDATE|DELETE)\b/i);
+  assert.match(down,/status='APPROVED'/);assert.match(down,/clock_timestamp\(\)/);assert.match(down,/SET search_path=pg_catalog,public,pg_temp/);
+});

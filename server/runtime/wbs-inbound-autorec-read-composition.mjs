@@ -12,17 +12,26 @@ const selectionFor=input=>{
   return freeze({tenantId,entityId,companyKey,sourceRecordIds:freeze(sourceRecordIds),replayKey});
 };
 const scoped=(rows,selection)=>Array.isArray(rows)&&rows.every(row=>row&&text(row.tenant_id)===selection.tenantId&&text(row.entity_id)===selection.entityId&&text(row.company_key)===selection.companyKey&&selection.sourceRecordIds.includes(text(row.source_record_id)));
-const matchingPolicy=row=>freeze({...row,receipt_id:text(row.policy_id),receipt_ref:`refs-config:mapping-snapshot/${text(row.policy_id)}`,receipt_hash:text(row.policy_snapshot_hash),evidence_type:'REFS_APPROVED_MATCHING_POLICY_SNAPSHOT'});
+const matchingPolicy=row=>freeze({...row,receipt_id:text(row.policy_id),receipt_ref:`refs-config:mapping-snapshot/${text(row.policy_id)}`,receipt_hash:text(row.policy_snapshot_hash),evidence_type:'REFS_MATCHING_POLICY_SNAPSHOT'});
 const policyScope=row=>[text(row?.company_key),text(row?.currency),text(row?.bank_account_ref)].join('\u0000');
+const dateValue=value=>{const raw=text(value);if(!/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(raw))return null;const parsed=Date.parse(raw);return Number.isNaN(parsed)?null:parsed;};
+const policyEffectiveForRows=(policy,rows)=>{
+  const from=dateValue(policy.effective_from),to=policy.effective_to==null||text(policy.effective_to)===''?null:dateValue(policy.effective_to);
+  if(from==null||(policy.effective_to!=null&&text(policy.effective_to)!==''&&to==null))return false;
+  return rows.every(row=>{const accountingDate=dateValue(row.accounting_date);return accountingDate!=null&&accountingDate>=from&&(to==null||accountingDate<to);});
+};
 const plansFor=(candidates,policies)=>{
   const grouped=new Map();for(const row of policies){const key=policyScope(row);const items=grouped.get(key)??[];items.push(row);grouped.set(key,items);}
   const plans=[],exceptions=[];
   for(const [scopeKey,items] of grouped){
-    if(items.length!==1){exceptions.push(freeze({stage:'EXCEPTION',code:'WBS_AUTOREC_MATCHING_POLICY_AMBIGUOUS',policy_scope:scopeKey,can_allocate:false,can_dispatch:false,can_post:false}));continue;}
-    const row=items[0];
-  const policy=matchingPolicy(row),toPlanRow=item=>freeze({...item,...item.trace,mapping:item.mapping}),bank=candidates.filter(item=>item.side==='BANK_SIDE'&&item.bank_account_ref===policy.bank_account_ref&&item.currency===policy.currency).map(toPlanRow),business=candidates.filter(item=>item.side==='BUSINESS_SIDE'&&item.bank_account_ref===policy.bank_account_ref&&item.currency===policy.currency).map(toPlanRow);
-  if(!bank.length||!business.length)continue;
-  const plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:bank,businessRows:business,matchingPolicy:policy});
+    const scopePolicy=items[0],toPlanRow=item=>freeze({...item,...item.trace,mapping:item.mapping}),bank=candidates.filter(item=>item.side==='BANK_SIDE'&&item.bank_account_ref===scopePolicy.bank_account_ref&&item.currency===scopePolicy.currency),business=candidates.filter(item=>item.side==='BUSINESS_SIDE'&&item.bank_account_ref===scopePolicy.bank_account_ref&&item.currency===scopePolicy.currency);
+    if(!bank.length||!business.length)continue;
+    const effective=items.filter(item=>policyEffectiveForRows(item,[...bank,...business]));
+    if(!effective.length){exceptions.push(freeze({stage:'EXCEPTION',code:'WBS_AUTOREC_MATCHING_POLICY_NOT_EFFECTIVE',policy_scope:scopeKey,can_allocate:false,can_dispatch:false,can_post:false}));continue;}
+    if(effective.length!==1){exceptions.push(freeze({stage:'EXCEPTION',code:'WBS_AUTOREC_MATCHING_POLICY_AMBIGUOUS',policy_scope:scopeKey,can_allocate:false,can_dispatch:false,can_post:false}));continue;}
+    const policy=matchingPolicy(effective[0]);
+    const planBank=bank.map(toPlanRow),planBusiness=business.map(toPlanRow);
+  const plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:planBank,businessRows:planBusiness,matchingPolicy:policy});
   if(plan.status==='BLOCKED')exceptions.push(...plan.exceptions);else plans.push(freeze({...plan,policy_evidence_type:policy.evidence_type,can_allocate:false,can_release:false,can_post:false}));
   }
   return freeze({plans:freeze(plans),exceptions:freeze(exceptions)});

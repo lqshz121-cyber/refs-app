@@ -320,6 +320,18 @@ pgTest('WBS AutoRec matching-policy reader returns only approved immutable scope
   assert.deepEqual({rule:policy?.rule_id,tolerance:policy?.amount_tolerance,window:policy?.date_window_days,basis:policy?.date_match_basis,hash:policy?.policy_snapshot_hash},{rule:'WBS-MATCH-1',tolerance:'0.0100',window:'3',basis:'BUSINESS_AND_ACCOUNTING',hash:hashes.snapshot_hash});
 });
 
+pgTest('WBS AutoRec matching-policy reader retains a retired rule only for closed-period evidence',async()=>{
+  const ids=await seed({status:'DRAFT'}),policyId=randomUUID();
+  const inputKeys={company_key:ids.sourceEntityId,currency:'USD',bank_account_ref:'BANK-1'};
+  const outputRules={rule_id:'WBS-MATCH-HISTORICAL',rule_version:'7',bank_mapping_id:'bank-map',bank_mapping_version:'2',bank_mapping_snapshot_hash:hash('bank-map'),business_mapping_id:'pay-map',business_mapping_version:'4',business_mapping_snapshot_hash:hash('pay-map'),amount_tolerance:'0.0000',date_window_days:'3',date_match_basis:'ACCOUNTING_ONLY'};
+  const hashes=(await adminPool.query("SELECT refs_jsonb_hash($1::jsonb) AS input_key_hash,refs_jsonb_hash(jsonb_build_object('input_keys',$1::jsonb,'output_rules',$2::jsonb)) AS snapshot_hash",[JSON.stringify(inputKeys),JSON.stringify(outputRules)])).rows[0];
+  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,effective_to,status,input_keys,output_rules,snapshot_hash,created_by,retired_by,retired_at,retire_reason,lifecycle_revision)
+    VALUES($1,$2,$3::uuid,'WBS_AUTOREC_MATCH','ENTITY',($3::uuid)::text,$4,7,0,'2025-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z','RETIRED',$5::jsonb,$6::jsonb,$7,'policy-maker','policy-retirer',now(),'Closed-period trace only',1)`,[policyId,ids.tenantId,ids.entityId,hashes.input_key_hash,JSON.stringify(inputKeys),JSON.stringify(outputRules),hashes.snapshot_hash]);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'policy-history-reader',['WBS.SNAPSHOT.IMPORT'])});
+  const policy=(await kernel.readApprovedWbsAutoRecMatchingPolicies({tenantId:ids.tenantId,entityId:ids.entityId,companyKey:ids.sourceEntityId,read_only:true})).find(row=>row.policy_id===policyId);
+  assert.deepEqual({status:policy?.status,from:policy?.effective_from,to:policy?.effective_to,rule:policy?.rule_id},{status:'RETIRED',from:'2025-01-01T00:00:00+00:00',to:'2026-01-01T00:00:00+00:00',rule:'WBS-MATCH-HISTORICAL'});
+});
+
 pgTest('WBS AutoRec observed state evidence is receipt-bound history, not a REFS workflow command',async()=>{
   const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),capturedAt=new Date().toISOString();
   const journalsBefore=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;

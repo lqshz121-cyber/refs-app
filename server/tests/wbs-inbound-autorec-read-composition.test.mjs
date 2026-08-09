@@ -8,7 +8,7 @@ const bank={...receipt,tenant_id:'t1',entity_id:'e1',company_key:'COMPANY-A',sou
 const payable={...receipt,tenant_id:'t1',entity_id:'e1',company_key:'COMPANY-A',source_record_id:'pay-1',source_version:'v1',source_type:'PAYABLE',stage:'STAGING_REVIEWED',raw_event_id:'raw-p',source_document_id:'doc-p',staging_item_id:'stg-p',currency:'USD',amount:100,business_date:'2026-08-01',accounting_date:'2026-08-01',direction:'DEBIT',review_event_id:'review-pay'};
 const control={...receipt,tenant_id:'t1',entity_id:'e1',company_key:'COMPANY-A',source_record_id:'control-1',source_version:'v1',user_ref:'MASKED',completed_match_period:'M:08/2026',completed_release_period:'R:08/2026',completed_incur_period:'C:08/2026',quantity:1,released_quantity:0,incurred_quantity:0,amount:'100.0000',released_amount:'0.0000',incurred_amount:'0.0000',reconciliation_balance:'100.0000',new_balance:'100.0000',balance_date:'2026-08-01'};
 const map=row=>({mapping_id:`map-${row.source_record_id}`,version:'1',snapshot_hash:'sha256:'+(row.source_type==='BANK_TRANSACTION'?'b':'a').repeat(64),status:'APPROVED',source_type:row.source_type,entity_id:'e1',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',effective_from:'2026-01-01T00:00:00.000Z',effective_to:null});
-const policy={policy_id:'policy-1',version:'1',mapping_id:'policy-1',mapping_version:'1',policy_snapshot_hash:'sha256:'+'c'.repeat(64),status:'APPROVED',entity_id:'e1',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',rule_id:'rule-1',rule_version:'1',bank_mapping_id:'map-bank-1',bank_mapping_version:'1',bank_mapping_snapshot_hash:'sha256:'+'b'.repeat(64),business_mapping_id:'map-pay-1',business_mapping_version:'1',business_mapping_snapshot_hash:'sha256:'+'a'.repeat(64),amount_tolerance:'0.0000',date_window_days:'3',date_match_basis:'BUSINESS_AND_ACCOUNTING'};
+const policy={policy_id:'policy-1',version:'1',mapping_id:'policy-1',mapping_version:'1',policy_snapshot_hash:'sha256:'+'c'.repeat(64),status:'APPROVED',entity_id:'e1',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',effective_from:'2026-01-01T00:00:00.000Z',effective_to:null,rule_id:'rule-1',rule_version:'1',bank_mapping_id:'map-bank-1',bank_mapping_version:'1',bank_mapping_snapshot_hash:'sha256:'+'b'.repeat(64),business_mapping_id:'map-pay-1',business_mapping_version:'1',business_mapping_snapshot_hash:'sha256:'+'a'.repeat(64),amount_tolerance:'0.0000',date_window_days:'3',date_match_basis:'BUSINESS_AND_ACCOUNTING'};
 const observedState={tenant_id:'t1',entity_id:'e1',company_key:'COMPANY-A',source_record_id:'pay-1',source_version:'v1',receipt_id:'r1',receipt_hash:'sha256:'+'a'.repeat(64),observed_at:'2026-08-01T00:00:00Z',observed_state:'RELEASED',observed_workflow_step:'DATA_PROCESSING_RELEASE'};
 function repository({badScope=false,fail=false}={}){return {readPersistedWbsInboundRows:async()=>{if(fail)throw Error('unavailable');return badScope?[{...bank,company_key:'COMPANY-B'}]:[bank,payable]},readPersistedWbsControlRows:async()=>({companyRows:[control],detailRows:[],persistedRows:[control]}),readApprovedWbsAutoRecMappings:async()=>[map(bank),map(payable)],readApprovedWbsAutoRecMatchingPolicies:async()=>[],readWbsAutoRecObservedStateEvidence:async()=>[observedState]};}
 
@@ -29,6 +29,18 @@ test('duplicate matching policies for one company/currency/bank scope are fail-c
   const reader=createWbsInboundAutoRecReadComposition({repository:{...repository(),readApprovedWbsAutoRecMatchingPolicies:async()=>[policy,{...policy,policy_id:'policy-2',mapping_id:'policy-2'}]}});
   const result=await reader.read({...scope,replayKey:'policy-ambiguous'});
   assert.equal(result.review_plans.length,0);assert.equal(result.matching_policy_exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_AMBIGUOUS');
+});
+
+test('a retired policy is usable only for the accounting-date window it governed',async()=>{
+  const historicalBank={...bank,accounting_date:'2025-12-15',business_date:'2025-12-15'};
+  const historicalPayable={...payable,accounting_date:'2025-12-15',business_date:'2025-12-15'};
+  const retired={...policy,status:'RETIRED',effective_from:'2025-01-01T00:00:00.000Z',effective_to:'2026-01-01T00:00:00.000Z'};
+  const historicalMap=row=>({...map(row),status:'RETIRED',effective_from:'2025-01-01T00:00:00.000Z',effective_to:'2026-01-01T00:00:00.000Z'});
+  const historicalRepository={...repository(),readPersistedWbsInboundRows:async()=>[historicalBank,historicalPayable],readApprovedWbsAutoRecMappings:async()=>[historicalMap(historicalBank),historicalMap(historicalPayable)],readApprovedWbsAutoRecMatchingPolicies:async()=>[retired]};
+  const accepted=await createWbsInboundAutoRecReadComposition({repository:historicalRepository}).read({...scope,replayKey:'retired-policy-historical'});
+  assert.equal(accepted.review_plans.length,1,JSON.stringify({candidates:accepted.candidates,exceptions:accepted.exceptions,policy_exceptions:accepted.matching_policy_exceptions}));assert.equal(accepted.review_plans[0].matching_policy.status,'RETIRED');
+  const expired=await createWbsInboundAutoRecReadComposition({repository:{...repository(),readApprovedWbsAutoRecMatchingPolicies:async()=>[retired]}}).read({...scope,replayKey:'retired-policy-expired'});
+  assert.equal(expired.review_plans.length,0);assert.equal(expired.matching_policy_exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_NOT_EFFECTIVE');
 });
 
 test('missing capability, read failure, and tenant/entity/company/source leakage fail closed with zero candidates',async()=>{
