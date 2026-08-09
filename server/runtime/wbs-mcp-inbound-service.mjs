@@ -78,6 +78,28 @@ export function buildWbsTraceRelationPersistencePlan({lookup,traceReceipt,eviden
   return Object.freeze({request_type:'WBS_TRACE_RELATION_PERSISTENCE_PLAN_V1',status:'BLOCKED_ON_RELATION_EVIDENCE_PERSISTENCE',idempotency_key:bindingHash,binding_hash:bindingHash,source,trace_receipt:receipt,relations,relation_count:relations.length,can_write_wbs:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_post:false,required_kernel_capability:'persistWbsTraceRelationEvidence'});
 }
 
+const persistenceSucceeded=value=>value!==null&&value!==undefined&&value.ok!==false&&value.status!=='FAILED';
+export function createWbsTraceRelationOrchestrator({kernel}={}){
+  const replay=new Map();
+  return Object.freeze({
+    mode:'WBS_TRACE_RELATION_ORCHESTRATOR_V1',read_only_wbs:true,
+    async persist({relationPersistencePlan}={}){
+      const plan=relationPersistencePlan;
+      if(!plan||text(plan.request_type)!=='WBS_TRACE_RELATION_PERSISTENCE_PLAN_V1'||text(plan.status)!=='BLOCKED_ON_RELATION_EVIDENCE_PERSISTENCE')fail('WBS_MCP_TRACE_PERSISTENCE_PLAN_REQUIRED','One immutable WBS trace relation persistence plan is required.');
+      const fingerprint=canonicalRequestHash({source:plan.source,receipt:plan.trace_receipt,relations:plan.relations});
+      if(text(plan.binding_hash)!==fingerprint||text(plan.idempotency_key)!==fingerprint||text(plan.required_kernel_capability)!=='persistWbsTraceRelationEvidence')fail('WBS_MCP_TRACE_PERSISTENCE_PLAN_INVALID','Trace relation persistence plan has an invalid immutable binding.');
+      if(!kernel||typeof kernel.persistWbsTraceRelationEvidence!=='function')fail('WBS_MCP_TRACE_PERSISTENCE_CAPABILITY_UNAVAILABLE','Kernel must provide persistWbsTraceRelationEvidence before WBS relation evidence can be persisted.');
+      const prior=replay.get(fingerprint);if(prior)return prior;
+      const promise=(async()=>{
+        let receipt;try{receipt=await kernel.persistWbsTraceRelationEvidence(Object.freeze({idempotencyKey:fingerprint,bindingHash:fingerprint,source:plan.source,traceReceipt:plan.trace_receipt,relations:plan.relations}));}catch{fail('WBS_MCP_TRACE_PERSISTENCE_FAILED','WBS trace relation evidence persistence failed.');}
+        if(!persistenceSucceeded(receipt))fail('WBS_MCP_TRACE_PERSISTENCE_FAILED','WBS trace relation evidence persistence did not succeed.');
+        return Object.freeze({status:'WBS_MCP_TRACE_RELATION_PERSISTED',binding_hash:fingerprint,persistence_receipt:receipt,can_write_wbs:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_post:false});
+      })();
+      replay.set(fingerprint,promise);return promise;
+    }
+  });
+}
+
 // This service has exactly one outward capability: read through the injected
 // read-only MCP client. It has no repository, Draft, allocation, or posting
 // dependency, so a pull cannot mutate WBS or the REFS accounting ledger.
