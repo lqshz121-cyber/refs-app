@@ -32,8 +32,10 @@ const payableTrace=row=>freeze(Object.fromEntries([
   ['project_code',row.pj_code],['activity_no',row.activity_no],['description',row.description],['faster_yardi_code',row.faster_yardi_code],['unit_code',row.unit_code],['cost_code',row.cost_code],['cost_name',row.cost_name],['cost_account_name',row.cost_account_name],['cost_state',row.cost_state],['create_mode',row.create_mode],['remarks',row.remarks],['bj_team_remarks',row.bj_team_remarks],['aging',row.aging]
 ].filter(([,value])=>text(value)!=='').map(([key,value])=>[key,text(value)])));
 const bankTrace=row=>freeze(Object.fromEntries([
-  ['transaction_date',row.set_date],['posting_date',row.posting_date],['account_code',row.account_code],['payee',row.payee],['payee_no',row.payee_no],['memo',row.description],
-  ['come_from',row.come_from],['child_come_from',row.child_come_from],['review_status',row.review],['statistical_business',row.statistical_business],['turn_flag',row.turn_flag]
+  ['transaction_date',row.set_date],['posting_date',row.posting_date],['account_code',row.account_code],['account_name',row.account_name],['payee',row.payee],['payee_no',row.payee_no],['memo',row.description],['ref_no',row.ref_no],
+  ['deposit',row.deposit],['payment',row.payment],['project_code',row.pj_code],['department',row.department],['cost_code',row.cost_code],['brief_description',row.brief_description],
+  ['invoice_receipt_evidence',row.invoice_receipt_evidence],['user_ref',row.user_ref],['review_status',row.review],['reviewer_ref',row.reviewer],['comments_log_ref',row.comments_log_ref],
+  ['come_from',row.come_from],['child_come_from',row.child_come_from],['statistical_business',row.statistical_business],['turn_flag',row.turn_flag]
 ].filter(([,value])=>text(value)!=='').map(([key,value])=>[key,text(value)])));
 const autoRecDetailTrace=row=>freeze(Object.fromEntries([
   ['batch_guid',row.batch_guid],['biz_type',row.biz_type],['clear_date',row.clear_date],['incurred_date',row.incurred_date],['posting_date',row.posting_date],['released_date',row.released_date],['released_by',row.released_by],
