@@ -16,8 +16,8 @@ BEGIN
    'rule_id',output_rules->>'rule_id','rule_version',output_rules->>'rule_version','bank_mapping_id',output_rules->>'bank_mapping_id',
    'bank_mapping_version',output_rules->>'bank_mapping_version','bank_mapping_snapshot_hash',output_rules->>'bank_mapping_snapshot_hash',
    'business_mapping_id',output_rules->>'business_mapping_id','business_mapping_version',output_rules->>'business_mapping_version',
-   'business_mapping_snapshot_hash',output_rules->>'business_mapping_snapshot_hash,'amount_tolerance',output_rules->>'amount_tolerance',
-   'date_window_days',output_rules->>'date_window_days','date_match_basis',output_rules->>'date_match_basis
+   'business_mapping_snapshot_hash',output_rules->>'business_mapping_snapshot_hash','amount_tolerance',output_rules->>'amount_tolerance',
+   'date_window_days',output_rules->>'date_window_days','date_match_basis',output_rules->>'date_match_basis'
  ) ORDER BY priority DESC,mapping_snapshot_id),'[]'::jsonb) INTO result
  FROM mapping_snapshot WHERE tenant_id=p_tenant AND entity_id=p_entity AND family='WBS_AUTOREC_MATCH' AND status='APPROVED'
   AND effective_from<=clock_timestamp() AND (effective_to IS NULL OR effective_to>clock_timestamp())
