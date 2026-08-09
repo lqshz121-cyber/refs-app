@@ -115,6 +115,7 @@ test('formal provider envelope validates stable string keys, integer journal ids
   assert.equal(validateWbsReadEnvelope({toolName:'list_journal_entries',envelope:journal}).rows[0].id,7);
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_journal_entries',envelope:readEnvelope({tool:'list_journal_entries',rows:[{id:'7',currency:'USD'}]})}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,rows:[{currency:'USD'}]}}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:readEnvelope({rows:[{ap_guid:'AP-\u0001',currency:'USD'}]})}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,content_sha256:'caller-value'}}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,rows:[{ap_guid:'AP-1',currency:'USD',amount:'1.00'}]}}),error=>error.code==='WBS_MCP_CONTENT_HASH_MISMATCH');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,rows:[{ap_guid:'AP-1',currency:'CAD'}]}}),error=>error.code==='WBS_MCP_CURRENCY_UNSUPPORTED');

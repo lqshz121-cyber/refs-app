@@ -103,6 +103,14 @@ test('transaction candidates require exact company scope and all monetary admiss
   assert.throws(()=>mapWbsMcpEnvelopeToInbound({envelope:envelope('list_payables',[{ap_guid:'A-1',company_code:'COMPANY-B',currency:'USD',amount:'100',posting_date:'2026-08-01'}])}),error=>error.code==='WBS_MCP_ENVELOPE_SCOPE_MISMATCH');
 });
 
+test('a control-character Payable type is an Exception even before a direction convention can be applied',()=>{
+  const payableEnvelope=envelope('list_payables',[{ap_guid:'A-TYPE-INVALID',ap_type:'\u0000',company_code:'COMPANY-A',currency:'USD',amount:'100',incurred_date:'2026-08-01',posting_date:'2026-08-01'}]);
+  const mapped=mapWbsMcpEnvelopeToInbound({envelope:payableEnvelope});
+  assert.deepEqual({admission:mapped.rows[0].admission,code:mapped.rows[0].exception_code,missing:mapped.rows[0].missing,draft:mapped.rows[0].can_create_draft,post:mapped.rows[0].can_post},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_PAYABLE_TYPE_INVALID',missing:['nonzero_amount','unambiguous_direction','ap_type'],draft:false,post:false});
+  const forgedConvention=[{...payableDirectionConventions(payableEnvelope)[0],ap_type:'\u0000'}];
+  assert.throws(()=>mapWbsMcpEnvelopeToInbound({envelope:payableEnvelope,payableDirectionConventions:forgedConvention}),error=>error.code==='WBS_MCP_PAYABLE_DIRECTION_CONVENTION_INVALID');
+});
+
 test('a validated scoped currency can supply a missing row currency but never override a mismatch',()=>{
   const bankEnvelope=envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-01',posting_date:'2026-08-01'}],{company:'COMPANY-A',currency:'USD'});
   const bank=mapWbsMcpEnvelopeToInbound({envelope:bankEnvelope,bankDirectionConventions:bankDirectionConventions(bankEnvelope)});

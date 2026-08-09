@@ -30,6 +30,7 @@ export class WbsMcpError extends Error {
 const plainObject=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype;
 const safeToolName=value=>typeof value==='string'&&/^[A-Za-z][A-Za-z0-9._-]{0,127}$/.test(value);
 const scopedText=value=>typeof value==='string'?value.trim():'';
+const safeProviderKey=value=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=512&&!/[\u0000-\u001f\u007f]/.test(value);
 const MAX_EVENT_STREAM_BYTES=1024*1024;
 
 async function boundedText(response){
@@ -93,7 +94,7 @@ export function validateWbsReadEnvelope({toolName,envelope}={}){
   if(scopeCompany&&envelope.rows.some(row=>plainObject(row)&&row.company_code!=null&&scopedText(row.company_code)!==scopeCompany||plainObject(row)&&row.company!=null&&scopedText(row.company)!==scopeCompany))throw new WbsMcpError('WBS_MCP_ENVELOPE_SCOPE_MISMATCH','WBS row company does not match the requested company scope.');
   if(scopeCurrency&&envelope.rows.some(row=>plainObject(row)&&row.currency!=null&&scopedText(row.currency).toUpperCase()!==scopeCurrency))throw new WbsMcpError('WBS_MCP_ENVELOPE_SCOPE_MISMATCH','WBS row currency does not match the requested currency scope.');
   const stableKey=stableKeyByTool[toolName];
-  if(stableKey&&envelope.rows.some(row=>!plainObject(row)||(stableKey==='id'?!Number.isSafeInteger(row[stableKey]):typeof row[stableKey]!=='string'||!row[stableKey].trim())))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} rows require stable ${stableKey}.`);
+  if(stableKey&&envelope.rows.some(row=>!plainObject(row)||(stableKey==='id'?!Number.isSafeInteger(row[stableKey]):!safeProviderKey(row[stableKey]))))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} rows require a bounded, control-character-free stable ${stableKey}.`);
   // The content hash preserves array order.  Require the provider's stable
   // source key to be strictly ascending so a repeated row cannot silently
   // inflate a later control total or appear as two source facts.

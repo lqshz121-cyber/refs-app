@@ -10,6 +10,7 @@ const sourceType=Object.freeze({list_payables:'PAYABLE',list_bank_transactions:'
 // only `bank_transaction_id` may identify a bank-side transaction producer.
 const traceKeyTypes=new Set(['ap_guid','bank_transaction_id','cb_id','pd_guid','pb_guid','id']);
 const text=value=>value==null?'':String(value).trim();
+const providerCode=value=>{const candidate=text(value);return candidate.length>0&&candidate.length<=128&&!/[\u0000-\u001f\u007f]/.test(candidate);};
 // WBS MCP row values are canonical decimal payloads, never display strings.
 // Reject missing values explicitly: Number('') and Number(null) are zero in
 // JavaScript and would otherwise create false control-total evidence.
@@ -126,7 +127,7 @@ function payableDirectionRules(accepted,conventions){
   for(const convention of conventions){
     const scope=convention?.scope||{},companyKey=text(scope.company_key),currency=text(scope.currency).toUpperCase(),payableType=text(convention?.ap_type),direction=text(convention?.direction).toUpperCase();
     const receipt=controlReceipt(convention?.receipt,accepted.content_sha256),ruleId=text(convention?.rule_id),version=text(convention?.version);
-    if(!companyKey||!validCurrency(currency)||!payableType||!ruleId||!version||!['DEBIT','CREDIT'].includes(direction)||companyKey!==text(accepted.scope.company)||(text(accepted.scope.currency)&&currency!==text(accepted.scope.currency).toUpperCase())||rules.has(payableType))throw new WbsMcpLineageError('WBS_MCP_PAYABLE_DIRECTION_CONVENTION_INVALID','Every Payable direction convention must have one exact company/currency/type scope, receipt-bound rule id/version, and a declared direction.');
+    if(!companyKey||!validCurrency(currency)||!providerCode(payableType)||!ruleId||!version||!['DEBIT','CREDIT'].includes(direction)||companyKey!==text(accepted.scope.company)||(text(accepted.scope.currency)&&currency!==text(accepted.scope.currency).toUpperCase())||rules.has(payableType))throw new WbsMcpLineageError('WBS_MCP_PAYABLE_DIRECTION_CONVENTION_INVALID','Every Payable direction convention must have one exact company/currency/type scope, receipt-bound rule id/version, and a declared direction.');
     rules.set(payableType,freeze({rule_id:ruleId,version,direction,receipt}));
   }
   return rules;
@@ -200,13 +201,13 @@ export function mapWbsMcpEnvelopeToInbound({envelope,bankDirectionConventions=nu
   for(const row of accepted.rows){
     const common=commonRow({tool,accepted,row});
     if(tool==='list_payables'){
-      const directionRule=payableRules.get(text(row.ap_type)),rawAmount=money(row.amount),movement=directionRule&&rawAmount!==null?freeze({amount:directionRule.direction==='CREDIT'?Math.abs(rawAmount):-Math.abs(rawAmount),direction:directionRule.direction}):null;
+      const invalidPayableType=!providerCode(row.ap_type),directionRule=invalidPayableType?null:payableRules.get(text(row.ap_type)),rawAmount=money(row.amount),movement=directionRule&&rawAmount!==null?freeze({amount:directionRule.direction==='CREDIT'?Math.abs(rawAmount):-Math.abs(rawAmount),direction:directionRule.direction}):null;
       const currency=scopedCurrency(accepted,row),businessDate=row.incurred_date||null,baseAdmission=transactionAdmission({common,amountValue:movement?.amount,currency,dateValue:businessDate,movementRequired:true,movement});
       // A Payable Report's posting date is the observed accounting-date
       // evidence. Incurred date independently establishes the business date;
       // neither date may silently substitute for the other at admission.
-      const admission=!isoDate(row.posting_date)?freeze({admission:'EXCEPTION_REVIEW_REQUIRED',exception_code:'WBS_MCP_PAYABLE_POSTING_DATE_REQUIRED',missing:freeze([...new Set([...baseAdmission.missing,'posting_date'])])}):baseAdmission;
-      rows.push(freeze({...common,...admission,exception_code:!directionRule?'WBS_MCP_PAYABLE_DIRECTION_CONVENTION_REQUIRED':admission.exception_code,business_date:businessDate,posting_date:row.posting_date||null,amount:movement?.amount??null,direction:movement?.direction??null,currency,payable_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_ref:row.cost_id||null,payable_link:row.ap_long_id||null,payable_source_detail:payableSourceDetailRelation(row),journal_trace:row.journal_no||null,payable_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false}));
+      const admission=invalidPayableType?freeze({admission:'EXCEPTION_REVIEW_REQUIRED',exception_code:'WBS_MCP_PAYABLE_TYPE_INVALID',missing:freeze([...new Set([...baseAdmission.missing,'ap_type'])])}):!isoDate(row.posting_date)?freeze({admission:'EXCEPTION_REVIEW_REQUIRED',exception_code:'WBS_MCP_PAYABLE_POSTING_DATE_REQUIRED',missing:freeze([...new Set([...baseAdmission.missing,'posting_date'])])}):baseAdmission;
+      rows.push(freeze({...common,...admission,exception_code:invalidPayableType?'WBS_MCP_PAYABLE_TYPE_INVALID':!directionRule?'WBS_MCP_PAYABLE_DIRECTION_CONVENTION_REQUIRED':admission.exception_code,business_date:businessDate,posting_date:row.posting_date||null,amount:movement?.amount??null,direction:movement?.direction??null,currency,payable_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_ref:row.cost_id||null,payable_link:row.ap_long_id||null,payable_source_detail:payableSourceDetailRelation(row),journal_trace:row.journal_no||null,payable_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false}));
     }
     else if(tool==='list_bank_transactions'){
       const directionRule=bankRules.get(text(row.account_code)),movement=directionRule?signedMovement(row,'lender','debtor',directionRule.lender_direction,directionRule.debtor_direction):null;
@@ -305,6 +306,7 @@ export function buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVers
   if(bankEnvelope&&bankEnvelope.rows.some(row=>!bankRules.has(text(row.account_code))))throw new WbsMcpLineageError('WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED','Every selected Bank Transaction account requires a receipt-bound direction convention before snapshot admission.');
   const payableEnvelope=accepted.find(item=>item.tool_name==='list_payables');
   const payableRules=payableEnvelope?payableDirectionRules(payableEnvelope,payableDirectionConventions):new Map();
+  if(payableEnvelope&&payableEnvelope.rows.some(row=>!providerCode(row.ap_type)))throw new WbsMcpLineageError('WBS_MCP_PAYABLE_TYPE_INVALID','Every selected Payable row must have a bounded, control-character-free payable type before snapshot admission.');
   if(payableEnvelope&&payableEnvelope.rows.some(row=>!payableRules.has(text(row.ap_type))))throw new WbsMcpLineageError('WBS_MCP_PAYABLE_DIRECTION_CONVENTION_REQUIRED','Every selected Payable type requires a receipt-bound direction convention before snapshot admission.');
   const detailEnvelope=accepted.find(item=>item.tool_name==='list_autorec_details');
   const detailRules=detailEnvelope?autoRecDetailDirectionRules(detailEnvelope,autoRecDetailDirectionConventions):new Map();

@@ -68,6 +68,16 @@ scope/trace facts and quarantining a row that lacks the required immutable
 key, version, company, currency, direction, amount, accounting date or
 approved mapping.
 
+An indexed, aggregate-only recheck grouped the underlying Payable candidates
+by their source `type`. Every material type family had some rows without a
+Posting Date, including the observed `AUTOC` family, while the same aggregate
+also exposed one control-character type token. This is direct evidence that
+neither a non-null `uuid`, a nonzero amount, nor a familiar Payable type makes
+a row accounting-admissible. The provider adapter must validate the exact
+per-row type token, immutable key, nonzero amount, signed direction convention
+and valid Posting Date before Staging; a missing/invalid field is an Exception
+and can never be filled from Incurred, Check, or Clear Date.
+
 ### 2026-08-10 read-only drill-down recheck
 
 The current page also exposes separate read-only drill-downs for the WBS
