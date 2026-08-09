@@ -10,6 +10,10 @@ assert.match(workspace, /<Tabs tabs=\{\['Bills','Payments','AP Aging','Vendors'\
 assert.match(workspace, />Filter<\//, 'The Bill list must retain the QBO-observed, read-only Filter entry point.');
 assert.match(workspace, /Transaction Type/, 'The Bill list must retain the QBO-observed transaction-type scope.');
 assert.match(workspace, /Last 12 months/, 'The Bill list must retain the QBO-observed default date window.');
+assert.match(workspace, /'Filters'/, 'The Filter popover must use the observed concise QBO information label.');
+assert.match(workspace, /Status <select value=\{statusFilter\}/, 'The Filter popover must retain the QBO-observed status scope.');
+assert.match(workspace, /Delivery method<\/b><Unavailable reason="REFS does not connect payment providers or delivery rails/, 'Unsupported payment delivery must be explicitly unavailable rather than copied as an integration.');
+assert.match(workspace, /Apply filters/, 'The Filter popover must retain an explicit local Apply action.');
 assert.match(workspace, /No expenses found\. Try to change some filters to see more results\./, 'The Bill list must retain the QBO-observed English empty state.');
 assert.match(workspace, /Back returns to this queue with its filters intact/, 'Full-page Bill detail must explain scope-restoring Back behavior.');
 assert.doesNotMatch(workspace, /refs_expense_columns|localStorage\.setItem\('refs_expense_columns'/, 'Expenses must not persist QBO-style column customization.');
