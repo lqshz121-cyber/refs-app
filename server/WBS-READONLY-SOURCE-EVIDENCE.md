@@ -250,6 +250,11 @@ formal MCP mapping with direct provider mappings:
 
 1. **Payable:** prove immutable key, company, currency, non-zero amount,
    posting date, payable status, and source-to-journal relation.
+   The current live report proves only a display-level Source Detail relation:
+   Posting Date opens an accounting view labelled `source=PAYABLE` (or
+   `Direct`), `comeFrom=EXPA`, `sourceType=payable`, and a payable long-ID.
+   Retain it as trace; do not use the parameters as a provider key, receipt,
+   mapping, or posting authority.
 2. **Bank transaction:** prove immutable bank record key, company, bank account,
    transaction/posting date, amount plus unambiguous DR/CR direction, and
    retained memo/reference relation.
