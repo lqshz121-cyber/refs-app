@@ -39,7 +39,7 @@ const externalRelationEvidence=row=>{
   const value=row?.external_trace;
   if(value==null)return {trace:null};
   if(typeof value!=='object'||Array.isArray(value)||sensitiveInput(value))return {error:exception(row,'WBS_AUTOREC_EXTERNAL_TRACE_INVALID','Persisted external relation evidence is malformed or contains a sensitive locator')};
-  try{return {trace:freeze(structuredClone(value))};}catch{return {error:exception(row,'WBS_AUTOREC_EXTERNAL_TRACE_INVALID','Persisted external relation evidence cannot be retained safely')};}
+  try{const trace=freeze(structuredClone(value)),traceHash=canonicalRequestHash(trace);if(text(row?.external_trace_hash)!==traceHash)return {error:exception(row,'WBS_AUTOREC_EXTERNAL_TRACE_MISMATCH','Persisted external relation evidence does not match its immutable inbound trace hash')};return {trace,trace_hash:traceHash};}catch{return {error:exception(row,'WBS_AUTOREC_EXTERNAL_TRACE_INVALID','Persisted external relation evidence cannot be retained safely')};}
 };
 
 export class WbsInboundProjectionError extends Error { constructor(code,message){super(message);this.name='WbsInboundProjectionError';this.code=code;} }
@@ -234,7 +234,7 @@ export function projectPersistedWbsInboundAutoRec({rows,mappings=[],companyContr
     const relation=externalRelationEvidence(row);if(relation.error){exceptions.push(relation.error);continue;}
     const resolution=mappingFor(row,mappings);if(resolution.error){exceptions.push(resolution.error);continue;}
     const side=row.source_type==='BANK_TRANSACTION'?'BANK_SIDE':'BUSINESS_SIDE';
-    const relationTrace=relation.trace===null?null:freeze({fields:relation.trace,can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});
+    const relationTrace=relation.trace===null?null:freeze({fields:relation.trace,trace_hash:relation.trace_hash,can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});
     const trace=freeze({receipt_id:row.receipt_id,receipt_ref:row.receipt_ref,receipt_hash:row.receipt_hash,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,source_record_id:row.source_record_id,source_version:row.source_version,mapping_id:resolution.mapping.mapping_id,mapping_version:resolution.mapping.version,mapping_snapshot_hash:resolution.mapping.snapshot_hash,external_relation_evidence:relationTrace});
     candidates.push(freeze({review_candidate_id:canonicalRequestHash({side,trace}),stage:'STAGING_REVIEWED',side,source_type:row.source_type,entity_id:row.entity_id,company_key:row.company_key,currency:row.currency,amount:decimal(row.amount),business_date:row.business_date,accounting_date:row.accounting_date,bank_account_ref:row.bank_account_ref??null,source_record_id:row.source_record_id,source_version:row.source_version,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,mapping:freeze({mapping_id:resolution.mapping.mapping_id,version:resolution.mapping.version,snapshot_hash:resolution.mapping.snapshot_hash}),external_relation_evidence:relationTrace,trace,can_dispatch:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false}));
   }

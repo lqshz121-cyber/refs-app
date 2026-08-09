@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {projectPersistedWbsInboundAutoRec,projectObservedWbsAutoRecControlEvidence,bindReceiptBackedWbsAutoRecControlEvidence,buildWbsObservedAutoRecStateHistory,wbsAutoRecObservedWorkflowContract,WbsInboundProjectionError} from '../runtime/wbs-inbound-autorec-projection.mjs';
+import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 
 const common={receipt_id:'receipt-1',receipt_ref:'object://wbs/receipt/1',receipt_hash:'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',entity_id:'entity-1',company_key:'COMPANY-A',currency:'USD',business_date:'2026-08-04',accounting_date:'2026-08-05',stage:'STAGING_REVIEWED'};
 const bank={...common,source_type:'BANK_TRANSACTION',source_record_id:'bank-1',source_version:'v1',raw_event_id:'raw-bank',source_document_id:'doc-bank',staging_item_id:'stg-bank',bank_account_ref:'BANK-OP',amount:-100};
@@ -74,9 +75,11 @@ test('a persisted AutoRec candidate requires the immutable snapshot of its appro
 
 test('Payable source-detail and bank/AUTOC relations remain receipt-bound trace evidence, never candidate authority',()=>{
   const external_trace={payable_source_detail:{source:'PAYABLE',long_id:'relation-only',can_use_as_source_key:false},posting_date:'2026-08-05',bank_relation_ref:'bank-relation',autoc_relation_ref:'autoc-relation'};
-  const result=projectPersistedWbsInboundAutoRec({rows:[{...payable,external_trace}],mappings:[mapping(payable)]});
-  const candidate=result.candidates[0];assert.deepEqual(candidate.external_relation_evidence,{fields:external_trace,can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});assert.equal(candidate.trace.external_relation_evidence.can_post,false);
-  const unsafe=projectPersistedWbsInboundAutoRec({rows:[{...payable,external_trace:{...external_trace,token:'redacted'}}],mappings:[mapping(payable)]});
+  const external_trace_hash=canonicalRequestHash(external_trace),result=projectPersistedWbsInboundAutoRec({rows:[{...payable,external_trace,external_trace_hash}],mappings:[mapping(payable)]});
+  const candidate=result.candidates[0];assert.deepEqual(candidate.external_relation_evidence,{fields:external_trace,trace_hash:external_trace_hash,can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});assert.equal(candidate.trace.external_relation_evidence.can_post,false);
+  const substituted=projectPersistedWbsInboundAutoRec({rows:[{...payable,external_trace:{...external_trace,posting_date:'2026-08-06'},external_trace_hash}],mappings:[mapping(payable)]});
+  assert.equal(substituted.candidates.length,0);assert.equal(substituted.exceptions[0].code,'WBS_AUTOREC_EXTERNAL_TRACE_MISMATCH');
+  const unsafe=projectPersistedWbsInboundAutoRec({rows:[{...payable,external_trace:{...external_trace,token:'redacted'},external_trace_hash}],mappings:[mapping(payable)]});
   assert.equal(unsafe.candidates.length,0);assert.equal(unsafe.exceptions[0].code,'WBS_AUTOREC_EXTERNAL_TRACE_INVALID');
 });
 
