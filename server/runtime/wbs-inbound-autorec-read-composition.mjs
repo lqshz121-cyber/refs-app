@@ -26,8 +26,9 @@ const plansFor=(candidates,policies)=>{
   for(const [scopeKey,items] of grouped){
     const scopePolicy=items[0],toPlanRow=item=>freeze({...item,...item.trace,mapping:item.mapping}),bank=candidates.filter(item=>item.side==='BANK_SIDE'&&item.bank_account_ref===scopePolicy.bank_account_ref&&item.currency===scopePolicy.currency),business=candidates.filter(item=>item.side==='BUSINESS_SIDE'&&item.bank_account_ref===scopePolicy.bank_account_ref&&item.currency===scopePolicy.currency);
     if(!bank.length||!business.length)continue;
+    for(const row of [...bank,...business])if(!items.some(policy=>policyEffectiveForRows(policy,[row])))exceptions.push(freeze({stage:'EXCEPTION',code:'WBS_AUTOREC_MATCHING_POLICY_NOT_EFFECTIVE',policy_scope:scopeKey,source_record_id:text(row.source_record_id)||null,source_version:text(row.source_version)||null,can_allocate:false,can_dispatch:false,can_post:false}));
     const effective=items.map(item=>freeze({policy:item,bank:bank.filter(row=>policyEffectiveForRows(item,[row])),business:business.filter(row=>policyEffectiveForRows(item,[row]))})).filter(item=>item.bank.length&&item.business.length);
-    if(!effective.length){exceptions.push(freeze({stage:'EXCEPTION',code:'WBS_AUTOREC_MATCHING_POLICY_NOT_EFFECTIVE',policy_scope:scopeKey,can_allocate:false,can_dispatch:false,can_post:false}));continue;}
+    if(!effective.length)continue;
     const memberships=new Set(),ambiguous=effective.some(item=>[...item.bank,...item.business].some(row=>{const key=[row.side,row.source_record_id,row.source_version].join('\u0000');if(memberships.has(key))return true;memberships.add(key);return false;}));
     if(ambiguous){exceptions.push(freeze({stage:'EXCEPTION',code:'WBS_AUTOREC_MATCHING_POLICY_AMBIGUOUS',policy_scope:scopeKey,can_allocate:false,can_dispatch:false,can_post:false}));continue;}
     for(const item of effective){

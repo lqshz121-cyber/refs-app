@@ -40,7 +40,7 @@ test('a retired policy is usable only for the accounting-date window it governed
   const accepted=await createWbsInboundAutoRecReadComposition({repository:historicalRepository}).read({...scope,replayKey:'retired-policy-historical'});
   assert.equal(accepted.review_plans.length,1,JSON.stringify({candidates:accepted.candidates,exceptions:accepted.exceptions,policy_exceptions:accepted.matching_policy_exceptions}));assert.equal(accepted.review_plans[0].matching_policy.status,'RETIRED');assert.equal(accepted.review_plans[0].company_control_trace,null);
   const expired=await createWbsInboundAutoRecReadComposition({repository:{...repository(),readApprovedWbsAutoRecMatchingPolicies:async()=>[retired]}}).read({...scope,replayKey:'retired-policy-expired'});
-  assert.equal(expired.review_plans.length,0);assert.equal(expired.matching_policy_exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_NOT_EFFECTIVE');
+  assert.equal(expired.review_plans.length,0);assert.deepEqual(expired.matching_policy_exceptions.map(item=>[item.code,item.source_record_id]).sort(),[['WBS_AUTOREC_MATCHING_POLICY_NOT_EFFECTIVE','bank-1'],['WBS_AUTOREC_MATCHING_POLICY_NOT_EFFECTIVE','pay-1']]);
 });
 
 test('disjoint historical and current policy windows create separate read-only plans rather than a false ambiguity',async()=>{
