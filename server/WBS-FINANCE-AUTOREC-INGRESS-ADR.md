@@ -129,6 +129,11 @@ authority in the system of record.
   accounting month; a current balance cannot attest a historical source.
 - Cost GL requires exactly fourteen canonical metric values at the PostgreSQL
   persistence boundary; Property metric cardinality remains mapping-defined.
+- The generic WBS control-total feed is not Cost GL or Property evidence by
+  itself. `wbs-control-report-inbound.mjs` accepts it only when the provider
+  declares a report type, formula id/version, exact metric rows, scope, and a
+  verified receipt bound to the response hash; the resulting object is still
+  evidence-only and feeds the existing exact-metric reconciler.
 - Signed nonempty production receipts, provider state/cancel/reopen semantics,
   Cost GL formulas, and Property calculation scope remain **UNKNOWN** until
   supplied and independently verified.
