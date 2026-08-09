@@ -87,7 +87,9 @@ test('Draft and AutoRec requests are review-only seams with immutable source tra
   const postedEvidence={source_system:'REFS_STANDARD_JE',status:'POSTED',journal_entry_id:'je-1',ledger_line_ids:['ll-1','ll-2'],review_audit_id:'audit-r',approval_audit_id:'audit-a',post_audit_id:'audit-p',source_trace:{...draft.trace}};
   const trace=validatePostedJournalTrace({draftRequest:draft,postedEvidence});
   assert.equal(trace.ok,true);assert.equal(trace.trace.raw_event_id,'raw-pay');assert.deepEqual({company:trace.trace.company_key,currency:trace.trace.currency,accountingDate:trace.trace.accounting_date},{company:'COMPANY-A',currency:'USD',accountingDate:'2026-08-01'});
+  assert.deepEqual({receipt:trace.trace.receipt_hash,businessDate:trace.trace.business_date,direction:trace.trace.direction},{receipt:reviewedPayable.receipt_hash,businessDate:'2026-08-01',direction:'DEBIT'});
   assert.throws(()=>validatePostedJournalTrace({draftRequest:draft,postedEvidence:{...postedEvidence,source_trace:{...draft.trace,currency:'CAD'}}}),error=>error.code==='WBS_POSTED_SOURCE_TRACE_MISMATCH');
+  assert.throws(()=>validatePostedJournalTrace({draftRequest:draft,postedEvidence:{...postedEvidence,source_trace:{...draft.trace,receipt_hash:'sha256:'+'9'.repeat(64)}}}),error=>error.code==='WBS_POSTED_SOURCE_TRACE_MISMATCH');
   assert.throws(()=>validatePostedJournalTrace({draftRequest:draft,postedEvidence:{...postedEvidence,source_trace:{...draft.trace,mapping_snapshot_hash:'sha256:'+'9'.repeat(64)}}}),error=>error.code==='WBS_POSTED_SOURCE_TRACE_MISMATCH');
   const payableDraftRelation={payable_source_detail:{relation:'trace-only'}};
   const relatedDraft=buildStandardDraftRequest({stagingItem:{...reviewedPayable,external_trace:payableDraftRelation,external_trace_hash:canonicalRequestHash(payableDraftRelation)},mapping:draftMapping,journal:{period_id:'period-1',journal_number:'AUTO-RELATION-1',company_key:'COMPANY-A',currency:'USD',accounting_date:'2026-08-01',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:100}]}});
@@ -100,6 +102,8 @@ test('Draft and AutoRec requests are review-only seams with immutable source tra
   const bankDraft=buildStandardDraftRequest({stagingItem:reviewedBank,mapping:{mapping_id:'bank-map-1',version:'4',snapshot_hash:'sha256:'+'2'.repeat(64),status:'APPROVED',source_type:'BANK_TRANSACTION',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-OP'},journal:bankJournal});
   assert.equal(bankDraft.mapping.bank_account_ref,'BANK-OP');
   assert.throws(()=>buildStandardDraftRequest({stagingItem:reviewedBank,mapping:{...bankDraft.mapping,bank_account_ref:'BANK-OTHER',status:'APPROVED'},journal:bankJournal}),error=>error.code==='WBS_MAPPING_APPROVED_REQUIRED');
+  assert.throws(()=>buildStandardDraftRequest({stagingItem:{...reviewedPayable,receipt_hash:''},mapping:draftMapping,journal:{period_id:'period-1',journal_number:'AUTO-MISSING-RECEIPT',company_key:'COMPANY-A',currency:'USD',accounting_date:'2026-08-01',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:100}]}}),error=>error.code==='WBS_STAGING_TRACE_REQUIRED');
+  assert.throws(()=>buildStandardDraftRequest({stagingItem:{...reviewedPayable,direction:'UNKNOWN'},mapping:draftMapping,journal:{period_id:'period-1',journal_number:'AUTO-BAD-DIRECTION',company_key:'COMPANY-A',currency:'USD',accounting_date:'2026-08-01',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:100}]}}),error=>error.code==='WBS_STAGING_TRACE_REQUIRED');
 });
 
 test('G11 accepts only both posted AutoRec legs with exact source trace and per-member 291001 net zero',()=>{
@@ -214,7 +218,7 @@ test('orchestrator fails closed without capability, after receipt failure, and a
 
 test('adapter rejects a mutable reader, cross-currency AutoRec pair, and unbalanced Draft request',async()=>{
   assert.throws(()=>createWbsInboundDataAdapter({snapshotReader:{readSnapshot:async()=>snapshot()}}),error=>error instanceof WbsInboundDataError&&error.code==='WBS_INBOUND_READER_INVALID');
-  const staged={receipt_id:'receipt',receipt_ref:'object://wbs/receipt',receipt_hash:'sha256:'+'a'.repeat(64),stage:'STAGING_REVIEWED',source_record_id:'one',source_version:'v',currency:'USD',amount:100,company_key:'C',raw_event_id:'raw',source_document_id:'doc',staging_item_id:'stg',business_date:'2026-08-01',accounting_date:'2026-08-01',bank_account_ref:'BANK',account_before:'291000',account_after:'291001',review_event_id:'review'};
+  const staged={receipt_id:'receipt',receipt_ref:'object://wbs/receipt',receipt_hash:'sha256:'+'a'.repeat(64),stage:'STAGING_REVIEWED',source_record_id:'one',source_version:'v',currency:'USD',amount:100,company_key:'C',raw_event_id:'raw',source_document_id:'doc',staging_item_id:'stg',business_date:'2026-08-01',accounting_date:'2026-08-01',direction:'DEBIT',bank_account_ref:'BANK',account_before:'291000',account_after:'291001',review_event_id:'review'};
   assert.throws(()=>buildAutoReconciliationReviewRequest({bankStaging:{...staged,source_type:'BANK_TRANSACTION',direction:'CREDIT',journal_no:'JE',payee_no:'PAYEE'},businessStaging:{...staged,source_type:'PAYABLE',direction:'DEBIT',currency:'CAD',bill_no:'BILL',project_ref:'PROJECT',project_code:'PJ'}}),error=>error.code==='WBS_AUTOREC_SCOPE_MISMATCH');
   const scopedStaging={...staged,source_type:'PAYABLE'};
   const scopedMapping={mapping_id:'m',version:'1',snapshot_hash:'sha256:'+'3'.repeat(64),status:'APPROVED',source_type:'PAYABLE',company_key:'C',currency:'USD'};
