@@ -2,6 +2,7 @@ import {createPublicKey,verify} from 'node:crypto';
 import {AccountingApiError} from './accounting-http.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const REFS_TENANT_CLAIM='https://refs-app.onrender.com/claims/tenant_id';
 const decodeJson=part=>{try{return JSON.parse(Buffer.from(part,'base64url').toString('utf8'));}catch{throw new AccountingApiError(401,'INVALID_ACCESS_TOKEN','Access token is malformed');}};
 const authHeader=headers=>{if(typeof headers?.get==='function')return headers.get('authorization');const key=Object.keys(headers||{}).find(value=>value.toLowerCase()==='authorization');return key?headers[key]:null;};
 const deny=message=>{throw new AccountingApiError(401,'INVALID_ACCESS_TOKEN',message);};
@@ -28,7 +29,7 @@ export class RemoteJwksResolver{
 }
 
 export class OidcJwtAuthenticator{
-  constructor({issuer,audience,keyResolver,tenantClaim='tenant_id',subjectClaim='sub',clock=()=>Date.now(),clockSkewSeconds=30,maxTokenLifetimeSeconds=3600}={}){
+  constructor({issuer,audience,keyResolver,tenantClaim=REFS_TENANT_CLAIM,subjectClaim='sub',clock=()=>Date.now(),clockSkewSeconds=30,maxTokenLifetimeSeconds=3600}={}){
     if(typeof issuer!=='string'||!issuer.startsWith('https://'))throw new Error('OIDC issuer must use HTTPS');
     if(typeof audience!=='string'||!audience)throw new Error('OIDC audience is required');
     if(!keyResolver||typeof keyResolver.resolve!=='function')throw new Error('OIDC keyResolver is required');
