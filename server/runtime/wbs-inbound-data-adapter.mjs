@@ -316,7 +316,13 @@ export function buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows,busin
   const plan=buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tolerance,dateWindowDays:window,dateMatchBasis});
   if(plan.status==='BLOCKED')return plan;
   const policyTrace=freeze({policy_id:text(matchingPolicy.policy_id),version:text(matchingPolicy.version),mapping_id:text(matchingPolicy.mapping_id),mapping_version:text(matchingPolicy.mapping_version),rule_id:text(matchingPolicy.rule_id),rule_version:text(matchingPolicy.rule_version),bank_mapping_id:text(matchingPolicy.bank_mapping_id),bank_mapping_version:text(matchingPolicy.bank_mapping_version),business_mapping_id:text(matchingPolicy.business_mapping_id),business_mapping_version:text(matchingPolicy.business_mapping_version),date_match_basis:dateMatchBasis,receipt_id:text(matchingPolicy.receipt_id),receipt_ref:text(matchingPolicy.receipt_ref),receipt_hash:receiptHash});
-  return freeze({...plan,review_plan_id:canonicalRequestHash({review_plan_id:plan.review_plan_id,matching_policy:policyTrace}),matching_policy:policyTrace,control_totals:freeze({...plan.control_totals,tolerance}),controls:freeze({...plan.controls,matching_policy_required:true})});
+  // A generic proposal edge is deliberately policy-agnostic for local
+  // fixtures.  Once provider-backed, the edge itself must bind the approved
+  // rule/mapping receipt: a later policy revision cannot silently reuse a
+  // reviewer-visible edge as though it had been assessed under the new rule.
+  const allocationPlan=freeze(plan.allocation_plan.map(edge=>freeze({...edge,proposal_allocation_edge_id:edge.allocation_edge_id,allocation_edge_id:canonicalRequestHash({proposal_allocation_edge_id:edge.allocation_edge_id,matching_policy:policyTrace}),matching_policy:policyTrace})));
+  const trace=freeze(plan.trace.map((item,index)=>freeze({...item,proposal_allocation_edge_id:item.allocation_edge_id,allocation_edge_id:allocationPlan[index].allocation_edge_id,matching_policy:policyTrace})));
+  return freeze({...plan,review_plan_id:canonicalRequestHash({review_plan_id:plan.review_plan_id,matching_policy:policyTrace}),allocation_plan:allocationPlan,trace,matching_policy:policyTrace,control_totals:freeze({...plan.control_totals,tolerance}),controls:freeze({...plan.controls,matching_policy_required:true})});
 }
 
 // The integrated kernel currently persists immutable snapshot receipts through
