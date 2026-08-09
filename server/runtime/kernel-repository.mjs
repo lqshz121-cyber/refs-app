@@ -138,6 +138,22 @@ export class PostgresAccountingKernel{
     ),'WBS_INBOUND_SNAPSHOT_PERSIST_FAILED','WBS inbound snapshot persistence did not return a result').result);
   }
 
+  async persistWbsTraceRelationEvidence({tenantId,entityId,source,traceReceipt,relations,idempotencyKey,bindingHash}){
+    const requestHash=canonicalRequestHash({source,receipt:traceReceipt,relations});
+    if(bindingHash!==undefined&&bindingHash!==requestHash)throw new KernelError('WBS_TRACE_RELATION_HASH_INVALID','WBS trace relation binding hash must match the canonical source, receipt, and relation evidence');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_persist_wbs_trace_relation_evidence($1,$2,$3,$4,$5,$6,$7) AS result',
+      [tenantId,entityId,JSON.stringify(source),JSON.stringify(traceReceipt),JSON.stringify(relations),idempotencyKey,requestHash]
+    ),'WBS_TRACE_RELATION_PERSIST_FAILED','WBS trace relation persistence did not return a result').result);
+  }
+
+  async readWbsTraceRelationEvidence({tenantId,entityId,source,read_only}){
+    if(read_only!==true||!source||typeof source!=='object')throw new KernelError('WBS_TRACE_RELATION_READ_SCOPE_INVALID','An explicit read-only WBS trace source selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_trace_relation_evidence($1,$2,$3) AS result',[tenantId,entityId,JSON.stringify(source)]
+    ),'WBS_TRACE_RELATION_READ_FAILED','WBS trace relation read did not return a result').result);
+  }
+
   async readPersistedWbsInboundRows({tenantId,entityId,companyKey,sourceRecordIds,read_only}){
     if(read_only!==true||typeof companyKey!=='string'||companyKey.trim()===''||!Array.isArray(sourceRecordIds)||sourceRecordIds.length===0||sourceRecordIds.some(value=>typeof value!=='string'||value.trim()===''))throw new KernelError('WBS_AUTOREC_READ_SCOPE_INVALID','A non-empty read-only WBS inbound selection is required');
     return this.inSession(async client=>requireRow(await client.query(

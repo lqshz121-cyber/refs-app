@@ -308,5 +308,10 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'062_wbs_inbound_single_receipt_audit_fix.sql',
     up:'724d86bce8ceb1818f65cc98b8a886fcee0ac23c43376a780260627682da2aa2',
     down:'040ce2131abe45dc2140ddf5bd35ea62ac09a1c3f041815ef996082b141ba3c4'
+  }),
+  Object.freeze({
+    name:'063_wbs_trace_relation_evidence.sql',
+    up:'f7d0d1de5244eed67054b5ebeafaa8e7fece5b0f193917e6d116dd7565b92ee9',
+    down:'32639b2bec19eed5d4880b03c2d139680a13b21de4eb5f851e28dc52baa2c884'
   })
 ]);
