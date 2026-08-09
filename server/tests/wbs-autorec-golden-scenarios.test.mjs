@@ -86,6 +86,20 @@ test('date-compatible allocation maximizes matched capacity instead of taking th
   assert.deepEqual(plan.allocation_plan.map(edge=>[edge.bank_source_record_id,edge.business_source_record_id]).sort(),[['b-flex','p-flex'],['b-required','p-required']]);
 });
 
+test('receipt-bound policy matching retains maximum date-compatible allocation without caller widening',()=>{
+  const bankMapping={mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const businessMapping={mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({
+    bankRows:[{...bank('b-policy-flex',50,'2026-08-02'),...bankMapping},{...bank('b-policy-required',50,'2026-08-01'),...bankMapping}],
+    businessRows:[{...payable('p-policy-required',50,'2026-08-01'),mapping:businessMapping},{...payable('p-policy-flex',50,'2026-08-03'),mapping:businessMapping}],
+    matchingPolicy:{...policy,date_window_days:1}
+  });
+  assert.equal(plan.status,'REVIEW_REQUIRED');
+  assert.deepEqual({allocated:plan.control_totals.allocated_total,fullyAllocated:plan.control_totals.fully_allocated,policy:plan.matching_policy.rule_id},{allocated:100,fullyAllocated:true,policy:'amount-date-rule'});
+  assert.deepEqual(plan.allocation_plan.map(edge=>[edge.bank_source_record_id,edge.business_source_record_id]).sort(),[['b-policy-flex','p-policy-flex'],['b-policy-required','p-policy-required']]);
+  assert(plan.allocation_plan.every(edge=>edge.matching_policy.policy_snapshot_hash===policy.policy_snapshot_hash));
+});
+
 test('receipt-backed Company Screening controls remain in a review plan and reject a mixed snapshot',()=>{
   const control={control_snapshot_hash:'sha256:'+'e'.repeat(64),receipt_id:'control-receipt',receipt_ref:'object://receipt/control',receipt_hash:'sha256:'+'f'.repeat(64),source_record_id:'company-control',source_version:'v1',company_key:'COMPANY-A',completed_periods:{match:'2026-06',release:'2026-06',incur:'2025-03'},quantity:10,released_quantity:8,incurred_quantity:6,amount:'100.0000',released_amount:'80.0000',incurred_amount:'60.0000',reconciliation_balance:'20.0000',new_balance:'40.0000',balance_date:'2026-08-09',can_match:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false};
   const plan=run([{...bank('bank-control',100),company_control_trace:control}],[{...payable('payable-control',100),company_control_trace:control}]);
