@@ -113,6 +113,16 @@ test('a released WBS detail is retained as observed state, never a REFS transiti
   assert.equal(unsafeStatus.exceptions[0].code,'WBS_AUTOREC_STATUS_CODE_INVALID');
 });
 
+test('WBS accounting-log labels are receipt-bound audit trace, never a REFS workflow instruction',()=>{
+  const log={detail_kind:'ACCOUNTING_AUDIT_LOG',company_key:'COMPANY-A',receipt_id:'receipt-log',receipt_ref:'object://wbs/receipt/log',receipt_hash:common.receipt_hash,source_record_id:'accounting-log-1',source_version:'v1',external_event_id:'event-1',operation_type:'Delete',observed_at:'2026-08-10T09:30:00.000Z'};
+  const evidence=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[log]});
+  assert.equal(evidence.exceptions.length,0);
+  assert.deepEqual(evidence.details[0].retained_audit_trace,{external_event_id:'event-1',operation_type:'Delete',observed_at:'2026-08-10T09:30:00.000Z',event_authority:'WBS_OBSERVED_EVIDENCE_ONLY',can_transition_state:false,can_create_draft:false,can_approve:false,can_post:false});
+  assert.equal(evidence.details[0].observed_state,null);
+  const incomplete=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[{...log,observed_at:'2026-08-10'}]});
+  assert.equal(incomplete.exceptions[0].code,'WBS_AUTOREC_AUDIT_TRACE_REQUIRED');
+});
+
 test('signed WBS amounts preserve direction and absolute capacity, while a bad company control blocks only that company',()=>{
   const observed={...companyControl,company_key:'COMPANY-B',amount:'-298741.5900',released_amount:'0.0000',incurred_amount:'-141059.8100',reconciliation_balance:'-157681.7800',new_balance:'-157681.7800'};
   const signed=projectObservedWbsAutoRecControlEvidence({companyRows:[observed]});assert.equal(signed.exceptions.length,0);assert.equal(signed.controls[0].incurred_amount,'-141059.8100');

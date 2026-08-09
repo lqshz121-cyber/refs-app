@@ -1,7 +1,7 @@
 import {canonicalRequestHash} from './request-hash.mjs';
 
 const TRANSACTION_TYPES=new Set(['BANK_TRANSACTION','PAYABLE','AUTOREC_PAYMENT_DETAIL']);
-const OBSERVED_DETAIL_KINDS=new Set(['NOT_MATCH_PAYMENT','RELEASED_PAYMENT','INCURRED_PAYMENT','COMPANY_ACCOUNT','JE_TRACE','BS_CONTROL','IS_CONTROL']);
+const OBSERVED_DETAIL_KINDS=new Set(['NOT_MATCH_PAYMENT','RELEASED_PAYMENT','INCURRED_PAYMENT','COMPANY_ACCOUNT','JE_TRACE','ACCOUNTING_AUDIT_LOG','BS_CONTROL','IS_CONTROL']);
 const OBSERVED_AUTOREC_STATE=Object.freeze({NOT_MATCH_PAYMENT:'NOT_MATCHED',RELEASED_PAYMENT:'RELEASED',INCURRED_PAYMENT:'INCURRED'});
 const OBSERVED_WORKFLOW_STEPS=Object.freeze([
   Object.freeze({step:'COMPANY_SCREENING',wbs_label:'Company Screening',admission:'COMPANY_CONTROL_EVIDENCE_ONLY'}),
@@ -127,14 +127,19 @@ function detailControl(row){
     const humanTrace=['user_ref','reviewer','comments_log'];
     if(incurredMissing.length||dimensions.some(key=>text(row[key])==='')||humanTrace.some(key=>text(row[key])==='')||(text(row.vendor)===''&&text(row.payee)==='')||text(row.invoice_receipt_evidence)==='')return {error:exception(row,'WBS_AUTOREC_INCURRED_RELATION_REQUIRED','Incurred WBS payment requires immutable bank-to-AUTOC relation, dimensions, attachment evidence, and human review trace')};
   }
-  const fields=['seq_no','transaction_date','posting_date','create_date','source','journal_no','check_no','payee','vendor','memo','ref_no','account_code','bank_account_code','cost_code','cost_class','project_department','brief_description','payable_ref','unit_ref','invoice_receipt_evidence','comments_log','direction','amount','deposit','payment','debit','credit','originator','reviewer','approver','user_ref','workflow_status','review_status','approval_status','posting_status','bank_source_record_id','bank_source_version'];
+  if(text(row.detail_kind)==='ACCOUNTING_AUDIT_LOG'){
+    const auditRequired=['external_event_id','operation_type','observed_at'];
+    if(auditRequired.some(key=>text(row[key])==='')||!validInstant(row.observed_at))return {error:exception(row,'WBS_AUTOREC_AUDIT_TRACE_REQUIRED','WBS accounting audit evidence requires an immutable event identifier, operation label, and exact UTC observation time')};
+  }
+  const fields=['seq_no','transaction_date','posting_date','create_date','source','journal_no','check_no','payee','vendor','memo','ref_no','account_code','bank_account_code','cost_code','cost_class','project_department','brief_description','payable_ref','unit_ref','invoice_receipt_evidence','comments_log','direction','amount','deposit','payment','debit','credit','originator','reviewer','approver','user_ref','workflow_status','review_status','approval_status','posting_status','bank_source_record_id','bank_source_version','external_event_id','operation_type','observed_at'];
   const observed_fields=Object.fromEntries(fields.filter(key=>row[key]!=null&&text(row[key])!=='').map(key=>[key,(key==='debit'||key==='credit')?decimalText(row[key]):text(row[key])]));
   if(('transaction_date' in observed_fields&&!validDate(observed_fields.transaction_date))||('posting_date' in observed_fields&&!validDate(observed_fields.posting_date))||('create_date' in observed_fields&&!validDate(observed_fields.create_date))||['amount','deposit','payment','debit','credit'].some(key=>key in observed_fields&&decimal(observed_fields[key])===null))return {error:exception(row,'WBS_AUTOREC_CONTROL_TRACE_INVALID','Observed WBS detail has an invalid transaction, posting, creation, or monetary value')};
   const retained_relation=text(row.detail_kind)==='INCURRED_PAYMENT'?freeze({bank_record:freeze({source_record_id:text(row.bank_source_record_id),source_version:text(row.bank_source_version),bank_account_code:text(row.bank_account_code)}),autoc_payable:freeze({long_id:text(row.autoc_payable_long_id)}),match_status:text(row.match_status),dimensions:freeze({project_department:text(row.project_department),cost_code:text(row.cost_code)}),attachment_invoice_evidence:text(row.invoice_receipt_evidence),human_review_trace:freeze({user_ref:text(row.user_ref),reviewer:text(row.reviewer),comments_log:text(row.comments_log)}),can_create_transaction:false,can_approve:false,can_post:false}):null;
+  const retained_audit_trace=text(row.detail_kind)==='ACCOUNTING_AUDIT_LOG'?freeze({external_event_id:text(row.external_event_id),operation_type:text(row.operation_type),observed_at:text(row.observed_at),event_authority:'WBS_OBSERVED_EVIDENCE_ONLY',can_transition_state:false,can_create_draft:false,can_approve:false,can_post:false}):null;
   const observedState=OBSERVED_AUTOREC_STATE[text(row.detail_kind)]??null;
   const observedStep=OBSERVED_WORKFLOW_STEP_BY_DETAIL_KIND[text(row.detail_kind)]??null;
   const observed_status_codes=freeze({detail_status:statusCode(rawStatus),match_status:statusCode(rawMatchStatus),semantics:'UNVERIFIED_SOURCE_CODE'});
-  return {detail:freeze({detail_kind:text(row.detail_kind),observed_state:observedState,state_authority:observedState?'WBS_OBSERVED_EVIDENCE_ONLY':null,observed_workflow_step:observedStep,workflow_authority:observedStep?'WBS_OBSERVED_EVIDENCE_ONLY':null,observed_status_codes,can_transition_state:false,receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),observed_fields:freeze(observed_fields),retained_relation,can_dispatch:false,can_post:false})};
+  return {detail:freeze({detail_kind:text(row.detail_kind),observed_state:observedState,state_authority:observedState?'WBS_OBSERVED_EVIDENCE_ONLY':null,observed_workflow_step:observedStep,workflow_authority:observedStep?'WBS_OBSERVED_EVIDENCE_ONLY':null,observed_status_codes,can_transition_state:false,receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),observed_fields:freeze(observed_fields),retained_relation,retained_audit_trace,can_dispatch:false,can_post:false})};
 }
 
 // A read-only copy of the observed WBS Auto Bank Reconciliation controls. It
