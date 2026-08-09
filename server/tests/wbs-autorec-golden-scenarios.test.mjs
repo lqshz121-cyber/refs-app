@@ -56,6 +56,14 @@ test('provider-backed matching policy declares the WBS date basis instead of ass
   assert.equal(omitted.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_REQUIRED');
 });
 
+test('receipt-backed Company Screening controls remain in a review plan and reject a mixed snapshot',()=>{
+  const control={control_snapshot_hash:'sha256:'+'e'.repeat(64),receipt_id:'control-receipt',receipt_ref:'object://receipt/control',receipt_hash:'sha256:'+'f'.repeat(64),source_record_id:'company-control',source_version:'v1',company_key:'COMPANY-A',completed_periods:{match:'2026-06',release:'2026-06',incur:'2025-03'},quantity:10,released_quantity:8,incurred_quantity:6,amount:'100.0000',released_amount:'80.0000',incurred_amount:'60.0000',reconciliation_balance:'20.0000',new_balance:'40.0000',balance_date:'2026-08-09',can_match:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false};
+  const plan=run([{...bank('bank-control',100),company_control_trace:control}],[{...payable('payable-control',100),company_control_trace:control}]);
+  assert.equal(plan.status,'REVIEW_REQUIRED');assert.equal(plan.company_control_trace.control_snapshot_hash,control.control_snapshot_hash);assert.equal(plan.trace[0].company_control_snapshot_hash,control.control_snapshot_hash);
+  const changed=run([{...bank('bank-control',100),company_control_trace:control}],[{...payable('payable-control',100),company_control_trace:{...control,control_snapshot_hash:'sha256:'+'0'.repeat(64)}}]);
+  assert.equal(changed.status,'BLOCKED');assert.equal(changed.exceptions[0].code,'WBS_AUTOREC_CONTROL_TRACE_MISMATCH');
+});
+
 test('review allocation edges are replay-stable when business source types share a record-shaped ID',()=>{
   const payableRow=payable('shared-id',40);
   const detailRow={...payable('shared-id',60),source_type:'AUTOREC_PAYMENT_DETAIL',receipt_id:'receipt-detail-shared',receipt_ref:'object://receipt/detail-shared',raw_event_id:'raw-detail-shared',source_document_id:'doc-detail-shared',staging_item_id:'staging-detail-shared',review_event_id:'review-detail-shared'};
