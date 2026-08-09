@@ -40,3 +40,13 @@ test('Cost GL and Property comparison use immutable scoped control reads and one
   await assert.rejects(()=>kernel.readPersistedRefsControlMetricSnapshot({...selection,read_only:false}),error=>error.code==='WBS_CONTROL_READ_SCOPE_INVALID');
   await assert.rejects(()=>kernel.readApprovedWbsControlReconciliationMapping({...selection,scope:null}),error=>error.code==='WBS_CONTROL_READ_SCOPE_INVALID');
 });
+
+test('control reconciliation mapping read returns the database-owned mapping family',async()=>{
+  const up=await readFile(new URL('../db/migrations/068_wbs_control_reconciliation_mapping_type.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/068_wbs_control_reconciliation_mapping_type.sql',import.meta.url),'utf8');
+  assert.match(up,/'mapping_type',m\.family/);
+  assert.match(up,/SET search_path=pg_catalog,public,pg_temp/);
+  assert.doesNotMatch(up,/\b(?:INSERT|UPDATE|DELETE)\b/i);
+  assert.doesNotMatch(down,/'mapping_type',m\.family/);
+  assert.match(down,/SET search_path=pg_catalog,public,pg_temp/);
+});
