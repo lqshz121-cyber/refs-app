@@ -283,6 +283,19 @@ pgTest('WBS Property Comparison metrics retain property and bank scope as non-tr
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
 });
 
+pgTest('WBS AutoRec mapping read retains its immutable snapshot and effective window',async()=>{
+  const ids=await seed({status:'DRAFT'});
+  const inputKeys={company_key:ids.sourceEntityId,source_type:'BANK_TRANSACTION',currency:'USD',bank_account_ref:'BANK-1'};
+  const mappingId=randomUUID();
+  const hashes=(await adminPool.query("SELECT refs_jsonb_hash($1::jsonb) AS input_key_hash,refs_jsonb_hash(jsonb_build_object('input_keys',$1::jsonb,'output_rules','{}'::jsonb)) AS snapshot_hash",[JSON.stringify(inputKeys)])).rows[0];
+  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,effective_to,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3::uuid,'WBS_AUTOREC','ENTITY',($3::uuid)::text,$4,7,0,'2026-01-01T00:00:00.000Z',NULL,'APPROVED',$5::jsonb,'{}'::jsonb,$6,'mapping-maker','mapping-approver',now())`,[mappingId,ids.tenantId,ids.entityId,hashes.input_key_hash,JSON.stringify(inputKeys),hashes.snapshot_hash]);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'autorec-reader',['WBS.SNAPSHOT.IMPORT'])});
+  const mappings=await kernel.readApprovedWbsAutoRecMappings({tenantId:ids.tenantId,entityId:ids.entityId,companyKey:ids.sourceEntityId,read_only:true});
+  const mapping=mappings.find(row=>row.mapping_id===mappingId);
+  assert.deepEqual({snapshot_hash:mapping?.snapshot_hash,effective_from:mapping?.effective_from,effective_to:mapping?.effective_to,source_type:mapping?.source_type,currency:mapping?.currency,bank_account_ref:mapping?.bank_account_ref},{snapshot_hash:hashes.snapshot_hash,effective_from:'2026-01-01T00:00:00+00:00',effective_to:null,source_type:'BANK_TRANSACTION',currency:'USD',bank_account_ref:'BANK-1'});
+});
+
 pgTest('WBS AutoRec observed state evidence is receipt-bound history, not a REFS workflow command',async()=>{
   const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),capturedAt=new Date().toISOString();
   const journalsBefore=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;

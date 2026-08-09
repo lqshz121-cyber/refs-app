@@ -50,3 +50,12 @@ test('control reconciliation mapping read returns the database-owned mapping fam
   assert.doesNotMatch(down,/'mapping_type',m\.family/);
   assert.match(down,/SET search_path=pg_catalog,public,pg_temp/);
 });
+
+test('AutoRec mapping reader includes the immutable mapping snapshot and effective window',async()=>{
+  const up=await readFile(new URL('../db/migrations/069_wbs_autorec_mapping_trace_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/069_wbs_autorec_mapping_trace_read.sql',import.meta.url),'utf8');
+  for(const token of ["'snapshot_hash',snapshot_hash","'effective_from',effective_from","'effective_to',effective_to",'family=\'WBS_AUTOREC\'','refs_assert_scope','REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token));
+  assert.doesNotMatch(up,/\b(?:INSERT|UPDATE|DELETE)\b/i);
+  assert.doesNotMatch(down,/'snapshot_hash',snapshot_hash/);
+  assert.match(down,/SET search_path=pg_catalog,public,pg_temp/);
+});
