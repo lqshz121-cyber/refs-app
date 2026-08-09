@@ -72,6 +72,14 @@ test('a persisted AutoRec candidate requires the immutable snapshot of its appro
   assert.equal(forgedSnapshot.candidates.length,0);assert.equal(forgedSnapshot.exceptions[0].code,'WBS_AUTOREC_MAPPING_MISSING');
 });
 
+test('Payable source-detail and bank/AUTOC relations remain receipt-bound trace evidence, never candidate authority',()=>{
+  const external_trace={payable_source_detail:{source:'PAYABLE',long_id:'relation-only',can_use_as_source_key:false},posting_date:'2026-08-05',bank_relation_ref:'bank-relation',autoc_relation_ref:'autoc-relation'};
+  const result=projectPersistedWbsInboundAutoRec({rows:[{...payable,external_trace}],mappings:[mapping(payable)]});
+  const candidate=result.candidates[0];assert.deepEqual(candidate.external_relation_evidence,{fields:external_trace,can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});assert.equal(candidate.trace.external_relation_evidence.can_post,false);
+  const unsafe=projectPersistedWbsInboundAutoRec({rows:[{...payable,external_trace:{...external_trace,token:'redacted'}}],mappings:[mapping(payable)]});
+  assert.equal(unsafe.candidates.length,0);assert.equal(unsafe.exceptions[0].code,'WBS_AUTOREC_EXTERNAL_TRACE_INVALID');
+});
+
 test('copies observed WBS M/R/C controls and JE detail only as fail-closed read-only evidence',()=>{
   const evidence=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[{detail_kind:'JE_TRACE',company_key:'COMPANY-A',receipt_id:'receipt-1',receipt_ref:'object://wbs/receipt/1',receipt_hash:common.receipt_hash,source_record_id:'journal-1',source_version:'v1',posting_date:'2026-08-05',journal_no:'J-1',account_code:'291001',debit:'100.0000',credit:'100.0000',review_status:'REVIEWED',approval_status:'APPROVED',posting_status:'POSTED'}]});
   assert.equal(evidence.exceptions.length,0);assert.deepEqual(evidence.controls[0].completed_periods,{match:'2026-06',release:'2026-06',incur:'2025-03'});assert.equal(evidence.controls[0].released_amount,'80.0000');assert(evidence.forbidden_wbs_operations.includes('Delete'));assert.equal(evidence.details[0].observed_fields.account_code,'291001');assert.equal(evidence.can_post,false);

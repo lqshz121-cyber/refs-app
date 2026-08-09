@@ -35,6 +35,12 @@ const sensitiveInput=value=>{
   if(typeof value==='object')return Object.entries(value).some(([key,item])=>/(token|authorization|cookie|password|secret)/i.test(key)||sensitiveInput(item));
   return false;
 };
+const externalRelationEvidence=row=>{
+  const value=row?.external_trace;
+  if(value==null)return {trace:null};
+  if(typeof value!=='object'||Array.isArray(value)||sensitiveInput(value))return {error:exception(row,'WBS_AUTOREC_EXTERNAL_TRACE_INVALID','Persisted external relation evidence is malformed or contains a sensitive locator')};
+  try{return {trace:freeze(structuredClone(value))};}catch{return {error:exception(row,'WBS_AUTOREC_EXTERNAL_TRACE_INVALID','Persisted external relation evidence cannot be retained safely')};}
+};
 
 export class WbsInboundProjectionError extends Error { constructor(code,message){super(message);this.name='WbsInboundProjectionError';this.code=code;} }
 const exception=(row,code,message)=>freeze({stage:'EXCEPTION',code,message,company_key:text(row?.company_key)||null,source_record_id:text(row?.source_record_id)||null,bank_source_record_id:text(row?.bank_source_record_id)||null,raw_event_id:text(row?.raw_event_id)||null,staging_item_id:text(row?.staging_item_id)||null,can_dispatch:false,can_post:false});
@@ -225,10 +231,12 @@ export function projectPersistedWbsInboundAutoRec({rows,mappings=[],companyContr
     if(globallyBlocked||blockedCompanies.has(text(row.company_key))||blockedSources.has(text(row.source_record_id))){exceptions.push(exception(row,'WBS_AUTOREC_CONTROL_SCOPE_BLOCKED','Observed WBS control evidence blocks this company or source scope'));continue;}
     if(!TRANSACTION_TYPES.has(text(row.source_type))){exceptions.push(exception(row,'WBS_AUTOREC_SOURCE_TYPE_INVALID','Persisted WBS source type cannot enter Auto Reconciliation'));continue;}
     const missing=missingFields(row);if(missing.length){exceptions.push(exception(row,'WBS_AUTOREC_TRACE_REQUIRED',`Persisted WBS source is missing ${missing.join(', ')}`));continue;}
+    const relation=externalRelationEvidence(row);if(relation.error){exceptions.push(relation.error);continue;}
     const resolution=mappingFor(row,mappings);if(resolution.error){exceptions.push(resolution.error);continue;}
     const side=row.source_type==='BANK_TRANSACTION'?'BANK_SIDE':'BUSINESS_SIDE';
-    const trace=freeze({receipt_id:row.receipt_id,receipt_ref:row.receipt_ref,receipt_hash:row.receipt_hash,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,source_record_id:row.source_record_id,source_version:row.source_version,mapping_id:resolution.mapping.mapping_id,mapping_version:resolution.mapping.version,mapping_snapshot_hash:resolution.mapping.snapshot_hash});
-    candidates.push(freeze({review_candidate_id:canonicalRequestHash({side,trace}),stage:'STAGING_REVIEWED',side,source_type:row.source_type,entity_id:row.entity_id,company_key:row.company_key,currency:row.currency,amount:decimal(row.amount),business_date:row.business_date,accounting_date:row.accounting_date,bank_account_ref:row.bank_account_ref??null,source_record_id:row.source_record_id,source_version:row.source_version,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,mapping:freeze({mapping_id:resolution.mapping.mapping_id,version:resolution.mapping.version,snapshot_hash:resolution.mapping.snapshot_hash}),trace,can_dispatch:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false}));
+    const relationTrace=relation.trace===null?null:freeze({fields:relation.trace,can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});
+    const trace=freeze({receipt_id:row.receipt_id,receipt_ref:row.receipt_ref,receipt_hash:row.receipt_hash,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,source_record_id:row.source_record_id,source_version:row.source_version,mapping_id:resolution.mapping.mapping_id,mapping_version:resolution.mapping.version,mapping_snapshot_hash:resolution.mapping.snapshot_hash,external_relation_evidence:relationTrace});
+    candidates.push(freeze({review_candidate_id:canonicalRequestHash({side,trace}),stage:'STAGING_REVIEWED',side,source_type:row.source_type,entity_id:row.entity_id,company_key:row.company_key,currency:row.currency,amount:decimal(row.amount),business_date:row.business_date,accounting_date:row.accounting_date,bank_account_ref:row.bank_account_ref??null,source_record_id:row.source_record_id,source_version:row.source_version,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,mapping:freeze({mapping_id:resolution.mapping.mapping_id,version:resolution.mapping.version,snapshot_hash:resolution.mapping.snapshot_hash}),external_relation_evidence:relationTrace,trace,can_dispatch:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false}));
   }
   return freeze({projection:'WBS_PERSISTED_INBOUND_AUTOREC_REVIEW_V1',candidates:freeze(candidates),exceptions:freeze(exceptions),control_evidence,controls:freeze({candidate_count:candidates.length,exception_count:exceptions.length,can_dispatch:false,can_post:false}),required_next_controls:freeze(['human Auto Reconciliation review','separate authoritative allocation/release command','standard Draft JE workflow'])});
 }
