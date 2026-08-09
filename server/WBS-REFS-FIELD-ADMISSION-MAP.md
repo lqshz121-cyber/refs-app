@@ -57,6 +57,27 @@ watermark. A provider snapshot must pin the selected company/filter scope,
 capture instant, immutable record keys, page cursor and snapshot token before
 all pages can form a control population.
 
+The live page has separate business-form, transaction, check, accounting
+Source Detail, comments-log, and WBS `Not Match` surfaces. They explain how a
+Payable row was processed in WBS, but they do not widen REFS authority:
+
+```
+Payable receipt/key/version
+  -> Raw -> Normalized -> Staging or Exception
+  -> review-only business-side candidate
+  -> (separate REFS bank evidence + approved mapping/policy)
+  -> authoritative REFS allocation and accounting workflow
+
+WBS business/transaction/check/source-detail/log/not-match pages
+  -> receipt-bound external trace only
+```
+
+In particular, WBS `Not Match`, Forward, Refresh, status change, upload,
+account-setting, and log actions are excluded from the adapter allowlist. The
+accounting `sourceDetail` labels (`source`, `comeFrom`, `sourceType`, long-ID)
+remain trace-only even when they are visible from Posting Date; they cannot
+provide a match key or state transition.
+
 ## AutoRec review-plan contract
 
 Only separate reviewed REFS bank-side and business-side records can enter a

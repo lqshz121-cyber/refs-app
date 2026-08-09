@@ -82,6 +82,31 @@ payable long ID; otherwise it records
 nor log drill-down may supply the immutable payable key, a bank key, a match
 instruction, workflow transition, Draft request or posting authority.
 
+The same page presents a WBS-side `Not Match` route plus operational controls
+to forward, refresh, change status, upload/download, set an account, change
+pay type/journal/cost state, and create a log entry. Those controls establish
+that the report mixes inquiry, workflow, and maintenance surfaces. They are
+all **forbidden** to the REFS provider adapter: a source read cannot call a
+WBS action, and the presence of an observed `Not Match` link cannot create a
+REFS match group or a review decision.
+
+| Payable page surface | Observed purpose | REFS retained result | Explicit non-equivalence |
+| --- | --- | --- | --- |
+| Business-form drill-down | Shows the originating WBS business document | Receipt-bound external business-form trace, if the immutable payable key/version are supplied separately | Does not become a source key, mapping, or Draft authority |
+| Transaction-date drill-down | Shows a WBS transaction detail for the row | External transaction-date trace | Does not substitute for the separately required Posting Date |
+| Check-information drill-down | Shows WBS check/payment detail | External check trace | Does not prove a bank-record key, clearance, or REFS payment |
+| Accounting Source Detail | Shows WBS accounting origin labels and a long-ID locator | `payable_source_detail` relation trace only | Does not prove a posted REFS journal or satisfy G11 |
+| Comments log | Shows WBS review/comment history | Append-only external audit display trace when receipt-bound | Does not establish REFS reviewer, approver, or SoD |
+| `Not Match` page action | Opens WBS matching workflow | Observed unmatched state only | Does not allocate, release, incur, split, create a JE, or post in REFS |
+
+The read-only recheck confirms that `viewBizForm` receives six display/workflow
+arguments, while transaction and check drill-downs receive two arguments and
+the comments-log drill-down receives one. Argument count is navigation
+evidence, not a provider contract: no argument position has been promoted to
+an immutable key. A signed provider receipt still must deliver the payable
+key, source version, company, currency, amount/direction, and accounting date
+before the row can enter REFS Staging.
+
 ## Tested relationship findings
 
 The following aggregate-only read checks were executed without selecting a
