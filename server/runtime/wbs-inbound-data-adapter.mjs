@@ -408,7 +408,7 @@ export function validatePostedJournalTrace({draftRequest,postedEvidence}={}){
   if(text(postedEvidence?.source_system)!=='REFS_STANDARD_JE'||text(postedEvidence?.status)!=='POSTED')fail('WBS_POSTED_EVIDENCE_REQUIRED','A POSTED standard REFS journal receipt is required');
   for(const field of ['journal_entry_id','review_audit_id','approval_audit_id','post_audit_id'])if(!text(postedEvidence?.[field]))fail('WBS_POSTED_EVIDENCE_REQUIRED',`Posted evidence ${field} is required`);
   if(!Array.isArray(postedEvidence.ledger_line_ids)||postedEvidence.ledger_line_ids.length<2)fail('WBS_POSTED_EVIDENCE_REQUIRED','Posted evidence ledger_line_ids are required');
-  const traceFields=['raw_event_id','source_document_id','source_record_id','source_version','source_type','company_key','currency','accounting_date'];
+  const traceFields=['raw_event_id','source_document_id','source_record_id','source_version','source_type','company_key','currency','accounting_date','mapping_id','mapping_version','mapping_snapshot_hash'];
   if(!postedEvidence.source_trace||traceFields.some(field=>text(postedEvidence.source_trace[field])!==text(draftRequest.trace?.[field])))fail('WBS_POSTED_SOURCE_TRACE_MISMATCH','Posted journal evidence must retain the exact reviewed WBS Draft source trace.');
   return Object.freeze({ok:true,can_post:false,trace:{...draftRequest.trace,journal_entry_id:postedEvidence.journal_entry_id,ledger_line_ids:[...postedEvidence.ledger_line_ids],audit_ids:[postedEvidence.review_audit_id,postedEvidence.approval_audit_id,postedEvidence.post_audit_id]}});
 }
