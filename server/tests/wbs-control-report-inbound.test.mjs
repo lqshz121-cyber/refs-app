@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {canonicalRequestBody} from '../runtime/request-hash.mjs';
 import {buildWbsControlReportEvidence,WbsControlReportInboundError} from '../runtime/wbs-control-report-inbound.mjs';
+import {reconcileWbsControlEvidence} from '../runtime/wbs-control-reconciliation.mjs';
 import {createHash} from 'node:crypto';
 
 const hash=value=>createHash('sha256').update(canonicalRequestBody(value),'utf8').digest('hex');
@@ -13,6 +14,21 @@ test('verified Cost GL report metrics become evidence-only input for exact REFS 
   const source=envelope(),result=buildWbsControlReportEvidence({sourceType:'COST_GENERAL_LEDGER',envelope:source,receipt:receipt(source),tenantId:'tenant-a',entityId:'entity-a'});
   assert.equal(result.source_type,'COST_GENERAL_LEDGER');assert.equal(result.metrics.length,14);assert.equal(result.scope.period,'2026-08');assert.equal(result.provider_report.formula_id,'cost-gl-v1');
   assert.deepEqual({transaction:result.can_create_transaction,draft:result.can_create_draft,post:result.can_post},{transaction:false,draft:false,post:false});
+});
+
+test('receipt-bound Cost GL evidence bridges to exact REFS controls without creating an accounting action',()=>{
+  const source=envelope();
+  const evidence=buildWbsControlReportEvidence({sourceType:'COST_GENERAL_LEDGER',envelope:source,receipt:receipt(source),tenantId:'tenant-a',entityId:'entity-a'});
+  const targetReceipt={hash:'sha256:'+'b'.repeat(64),metrics_hash:evidence.source_receipt.metrics_hash,ref:'object://refs/control/cost-1',version:'v4',scope:evidence.scope};
+  const result=reconcileWbsControlEvidence({
+    sourceType:evidence.source_type,scope:evidence.scope,sourceReceipt:evidence.source_receipt,targetReceipt,
+    approvedMapping:{status:'APPROVED',mapping_type:'WBS_COST_GL_CONTROL_RECONCILIATION',mapping_id:'cost-map-1',version:'v4',snapshot_hash:'sha256:'+'c'.repeat(64),scope:evidence.scope,metric_keys:evidence.metrics.map(row=>row.metric_key)},
+    sourceMetrics:evidence.metrics,targetMetrics:evidence.metrics
+  });
+  assert.equal(result.status,'RECONCILED');
+  assert.equal(result.comparisons.length,14);
+  assert.deepEqual({transaction:result.can_create_transaction,draft:result.can_create_draft,post:result.can_post},{transaction:false,draft:false,post:false});
+  assert.equal(result.receipt_trace.source.hash,evidence.source_receipt.hash);
 });
 
 test('report identity, receipt binding, metric cardinality, and Property scope fail closed',()=>{
