@@ -131,6 +131,16 @@ export class PostgresAccountingKernel{
     ),'WBS_INBOUND_PERSIST_FAILED','WBS inbound persistence did not return a result').result);
   }
 
+  // The database function is REFS-owned and verifies receipt-backed WBS
+  // sources under locks. It never invokes WBS and never creates or posts JE.
+  async executeWbsAutoRecIntent({tenantId,entityId,intent}){
+    if(!intent||typeof intent!=='object'||typeof intent.idempotency_key!=='string'||typeof intent.request_hash!=='string')throw new KernelError('WBS_AUTOREC_EXECUTION_INPUT_INVALID','A canonical WBS AutoRec execution intent is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_execute_wbs_autorec_intent($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,JSON.stringify(intent),intent.idempotency_key,intent.request_hash]
+    ),'WBS_AUTOREC_EXECUTION_FAILED','WBS AutoRec execution did not return a result').result);
+  }
+
   async persistWbsInboundSnapshotRows({tenantId,entityId,importBatchId,groups,idempotencyKey,requestHash}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_persist_wbs_inbound_snapshot_rows($1,$2,$3,$4,$5,$6) AS result',

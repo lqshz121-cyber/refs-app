@@ -87,7 +87,7 @@ const journalEntryReadSql=await readFile(new URL('../db/migrations/057_journal_e
 const journalEntryReadDown=await readFile(new URL('../db/migrations/down/057_journal_entry_read.sql',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts including append-only WBS inbound scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name).slice(-3),['070_wbs_autorec_historical_mapping_read.sql','071_wbs_autorec_matching_policy_read.sql','072_wbs_autorec_historical_matching_policy_read.sql']);
+  assert.deepEqual(MIGRATION_MANIFEST.map(item=>item.name).slice(-4),['070_wbs_autorec_historical_mapping_read.sql','071_wbs_autorec_matching_policy_read.sql','072_wbs_autorec_historical_matching_policy_read.sql','073_wbs_autorec_execution_reservation.sql']);
   assert.equal(MIGRATION_MANIFEST[0].name,'001_wbs_accounting_core.sql');
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){

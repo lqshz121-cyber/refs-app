@@ -14,6 +14,7 @@ import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {createWbsSnapshotSignatureVerifier} from '../runtime/wbs-snapshot-signature.mjs';
 import {createWbsTraceRelationOrchestrator} from '../runtime/wbs-mcp-inbound-service.mjs';
+import {buildWbsAutoRecExecutionIntent} from '../runtime/wbs-autorec-execution-contract.mjs';
 import {createProductionAccountingServer} from '../runtime/accounting-server.mjs';
 import {OidcJwtAuthenticator} from '../api/oidc-authenticator.mjs';
 
@@ -204,6 +205,33 @@ pgTest('WBS single-receipt inbound persistence retains request-correlated audit 
   const replay=await kernel.persistWbsInboundRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,receipt,rows,idempotencyKey,requestHash});assert.equal(replay.idempotent,true);
   await assert.rejects(kernel.persistWbsInboundRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,receipt,rows,idempotencyKey,requestHash:hash('changed-single-request')}),error=>error.code==='23505');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
+});
+
+pgTest('WBS AutoRec Reserve and Release persist receipt-bound source reservations without creating a journal',async()=>{
+  const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),capturedAt=new Date().toISOString();
+  const journalsBefore=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:capturedAt,environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-EXECUTION',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:randomUUID(),ap_type:'AUTOC'}]}]};
+  snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));snapshot.package_hash=canonicalRequestHash(snapshot);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'autorec-manager',['WBS.SNAPSHOT.IMPORT','BANK.AUTOREC.MANAGE'])});
+  const observed=await kernel.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'snapshot-execution-0001'});
+  const bankId='BANK-RESERVE-1',payId='PAY-RESERVE-1',bankHash=hash('reserve-bank'),payHash=hash('reserve-pay');
+  const makeGroup=(sourceRecordId,receiptHash,payloadRef,normalized)=>({receipt:{payload_hash:receiptHash,payload_ref:payloadRef},rows:[{source_record_id:sourceRecordId,source_version:'v1',raw:{company_key:ids.sourceEntityId},normalized,outcome:{stage:'STAGING_REVIEWED'},outcome_kind:'STAGING'}]});
+  const bank=makeGroup(bankId,bankHash,`object://wbs-snapshot/${snapshotId}/bank`,{source_type:'BANK_TRANSACTION',source_record_id:bankId,source_version:'v1',company_key:ids.sourceEntityId,currency:'USD',amount:'100.0000',bank_account_ref:'BANK-1'});
+  const payable=makeGroup(payId,payHash,`object://wbs-snapshot/${snapshotId}/payable`,{source_type:'PAYABLE',source_record_id:payId,source_version:'v1',company_key:ids.sourceEntityId,currency:'USD',amount:'100.0000'});
+  const groups=[bank,payable],inboundKey='wbs-execution-inbound-001',inboundHash=canonicalRequestHash({tenant_id:ids.tenantId,entity_id:ids.entityId,import_batch_id:observed.import_batch_id,groups,idempotency_key:inboundKey});
+  await kernel.persistWbsInboundSnapshotRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,groups,idempotencyKey:inboundKey,requestHash:inboundHash});
+  const config=(await adminPool.query("SELECT refs_jsonb_hash(jsonb_build_object('input_keys',jsonb_build_object('company_key',$1::text,'currency','USD'),'output_rules','{}'::jsonb)) AS snapshot_hash",[ids.sourceEntityId])).rows[0];
+  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3::uuid,'WBS_AUTOREC','ENTITY',$3::uuid::text,$4,1,1,'2020-01-01','APPROVED',jsonb_build_object('company_key',$5::text,'currency','USD'),'{}',$6,'fixture-maker','fixture-approver',now())`,[randomUUID(),ids.tenantId,ids.entityId,hash('reserve-mapping-key'),ids.sourceEntityId,config.snapshot_hash]);
+  const review={request_type:'AUTOREC_REVIEW_REQUEST',status:'REVIEW_REQUIRED',review_candidate_id:hash('reserve-candidate'),company_key:ids.sourceEntityId,currency:'USD',bank_account_ref:'BANK-1',allocated_amount:'100.0000',trace:{bank_source_record_id:bankId,bank_source_version:'v1',business_source_record_id:payId,business_source_version:'v1',bank_receipt_id:'bank-receipt',bank_receipt_ref:bank.receipt.payload_ref,bank_receipt_hash:bankHash,business_receipt_id:'pay-receipt',business_receipt_ref:payable.receipt.payload_ref,business_receipt_hash:payHash,bank_business_date:'2026-08-01',bank_accounting_date:'2026-08-01',business_business_date:'2026-08-01',business_accounting_date:'2026-08-01'}};
+  const reserve=buildWbsAutoRecExecutionIntent({command:'RESERVE',currentState:'REVIEW_REQUIRED',reviewCandidate:review,idempotencyKey:'wbs-reserve-pg-0001'});
+  const created=await kernel.executeWbsAutoRecIntent({tenantId:ids.tenantId,entityId:ids.entityId,intent:reserve});
+  assert.deepEqual({state:created.next_state,draft:created.can_create_draft,post:created.can_post},{state:'RESERVED',draft:false,post:false});
+  const replay=await kernel.executeWbsAutoRecIntent({tenantId:ids.tenantId,entityId:ids.entityId,intent:reserve});assert.equal(replay.idempotent,true);
+  const release=buildWbsAutoRecExecutionIntent({command:'RELEASE',currentState:'RESERVED',reviewCandidate:review,reservationReceipt:{reservation_id:created.execution_receipt_id,request_hash:created.request_hash,control_hash:created.control_hash,version:String(created.version),review_candidate_id:review.review_candidate_id,bank_source_record_id:bankId,bank_source_version:'v1',business_source_record_id:payId,business_source_version:'v1',allocated_amount:'100.0000'},idempotencyKey:'wbs-release-pg-0001'});
+  const released=await kernel.executeWbsAutoRecIntent({tenantId:ids.tenantId,entityId:ids.entityId,intent:release});assert.equal(released.next_state,'RELEASED');
+  const counts=await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_autorec_execution_event WHERE tenant_id=$1) AS events,(SELECT count(*)::int FROM wbs_autorec_source_reservation WHERE tenant_id=$1) AS reservations,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) AS journals",[ids.tenantId]);
+  assert.deepEqual(counts.rows[0],{events:2,reservations:2,journals:journalsBefore});
 });
 
 pgTest('WBS trace relation evidence is receipt-bound, replay-safe, readable, and never creates a journal',async()=>{
