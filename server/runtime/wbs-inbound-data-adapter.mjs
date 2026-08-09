@@ -368,29 +368,62 @@ export function buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows,busin
   return freeze({...plan,review_plan_id:canonicalRequestHash({review_plan_id:plan.review_plan_id,matching_policy:policyTrace}),allocation_plan:allocationPlan,trace,matching_policy:policyTrace,control_totals:freeze({...plan.control_totals,tolerance}),controls:freeze({...plan.controls,matching_policy_required:true})});
 }
 
-// The integrated kernel currently persists immutable snapshot receipts through
-// recordWbsSnapshot, but has no Raw→Normalized→Staging writer. Build both
-// sides explicitly: the supported receipt command and the intentionally
-// non-dispatchable ingestion request that a future kernel command must accept.
-export function buildWbsInboundPersistencePlan({snapshot,prepared,tenantId,entityId,idempotencyKey,importBatchId}={}){
+// Snapshot and inbound receipts are distinct database objects. The current
+// kernel writer can atomically persist one immutable payload group. A snapshot
+// containing more than one group stays fail-closed until the kernel exposes a
+// single all-groups transaction; sequential writes would permit a partial
+// snapshot and are therefore forbidden here.
+const inboundIdentity=row=>[text(row?.source_type),text(row?.source_record_id),text(row?.source_version),text(row?.receipt_ref),text(row?.receipt_hash)].join('\u0000');
+function inboundRowGroups(prepared){
+  const rawByIdentity=new Map(),outcomeByIdentity=new Map();
+  for(const raw of prepared.raw){
+    if(!TRANSACTION_TYPES.has(text(raw?.source_type)))continue;
+    const normalized={source_type:raw.source_type,source_record_id:raw?.receipt?.source_record_id,source_version:raw?.receipt?.source_version,receipt_ref:raw?.receipt?.payload_ref,receipt_hash:raw?.receipt?.payload_hash};
+    const key=inboundIdentity(normalized);if(rawByIdentity.has(key))fail('WBS_INBOUND_ROW_TRACE_INVALID','One WBS transaction source/version/receipt identity may occur only once in an inbound snapshot');
+    rawByIdentity.set(key,raw);
+  }
+  for(const outcome of [...prepared.staging,...prepared.exceptions]){
+    const key=inboundIdentity(outcome?.raw_trace);if(outcomeByIdentity.has(key))fail('WBS_INBOUND_ROW_TRACE_INVALID','One normalized WBS transaction may have only one Staging or Exception outcome');
+    outcomeByIdentity.set(key,outcome);
+  }
+  const grouped=new Map();
+  for(const normalized of prepared.normalized){
+    const key=inboundIdentity(normalized),raw=rawByIdentity.get(key),outcome=outcomeByIdentity.get(key);
+    if(!raw||!outcome)fail('WBS_INBOUND_ROW_TRACE_INVALID','Every normalized WBS transaction requires one matching Raw record and one Staging or Exception outcome');
+    const receipt=freeze({payload_ref:text(normalized.receipt_ref),payload_hash:text(normalized.receipt_hash)});
+    const receiptKey=`${receipt.payload_ref}\u0000${receipt.payload_hash}`,rows=grouped.get(receiptKey)??[];
+    rows.push(freeze({source_record_id:text(normalized.source_record_id),source_version:text(normalized.source_version),raw:freeze(structuredClone(raw.row)),normalized:freeze(structuredClone(normalized)),outcome:freeze(structuredClone(outcome)),outcome_kind:outcome.stage==='EXCEPTION'?'EXCEPTION':'STAGING'}));
+    grouped.set(receiptKey,rows);
+  }
+  if(grouped.size===0)fail('WBS_INBOUND_ROW_TRACE_INVALID','At least one transaction-producer row is required for WBS inbound persistence');
+  return freeze([...grouped.entries()].map(([receiptKey,rows])=>{
+    const [payload_ref,payload_hash]=receiptKey.split('\u0000');
+    return freeze({receipt:freeze({payload_ref,payload_hash}),rows:freeze(rows)});
+  }).sort((left,right)=>`${left.receipt.payload_hash}\u0000${left.receipt.payload_ref}`.localeCompare(`${right.receipt.payload_hash}\u0000${right.receipt.payload_ref}`)));
+}
+
+// A snapshot import creates the authoritative import_batch_id. The atomic
+// inbound writer creates a distinct receipt_id for each WBS payload group.
+export function buildWbsInboundPersistencePlan({snapshot,prepared,tenantId,entityId,idempotencyKey}={}){
   let validated;try{validated=validateWbsSnapshotPackage(snapshot);}catch(cause){if(cause instanceof WbsSnapshotError)fail(cause.code,cause.message);throw cause;}
-  if(!UUID.test(text(tenantId))||!UUID.test(text(entityId))||!UUID.test(text(importBatchId)))fail('WBS_INBOUND_SCOPE_INVALID','Tenant, entity and import batch identifiers must be UUIDs');
+  if(!UUID.test(text(tenantId))||!UUID.test(text(entityId)))fail('WBS_INBOUND_SCOPE_INVALID','Tenant and entity identifiers must be UUIDs');
   if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{15,255}$/.test(text(idempotencyKey)))fail('WBS_INBOUND_IDEMPOTENCY_REQUIRED','A stable WBS inbound idempotency key is required');
   if(!prepared||prepared.snapshot_id!==validated.snapshot_id||prepared.package_hash!==validated.package_hash||!Array.isArray(prepared.raw)||!Array.isArray(prepared.normalized)||!Array.isArray(prepared.staging)||!Array.isArray(prepared.exceptions))fail('WBS_INBOUND_PREPARED_TRACE_INVALID','Prepared WBS adapter output does not bind the supplied immutable snapshot');
   const traceRows=[...prepared.staging,...prepared.exceptions].map(row=>row.raw_trace).filter(Boolean);
   if(traceRows.length!==prepared.normalized.length||traceRows.some(row=>!text(row.receipt_ref)||!text(row.receipt_hash)||!text(row.source_record_id)||!text(row.source_version)))fail('WBS_INBOUND_TRACE_REQUIRED','Every normalized WBS row requires immutable receipt and source-version trace');
+  const rowGroups=inboundRowGroups(prepared);
   const ingress=Object.freeze({
-    tenant_id:tenantId,entity_id:entityId,import_batch_id:importBatchId,snapshot_id:validated.snapshot_id,package_hash:validated.package_hash,
-    receipt_count:validated.receipt_count,raw_count:prepared.raw.length,normalized_count:prepared.normalized.length,staging_count:prepared.staging.length,exception_count:prepared.exceptions.length,
+    tenant_id:tenantId,entity_id:entityId,import_batch_id_from_snapshot_record:true,snapshot_id:validated.snapshot_id,package_hash:validated.package_hash,
+    receipt_count:validated.receipt_count,raw_count:prepared.raw.length,normalized_count:prepared.normalized.length,staging_count:prepared.staging.length,exception_count:prepared.exceptions.length,row_receipt_group_count:rowGroups.length,
     trace_rows:Object.freeze(traceRows.map(row=>Object.freeze({source_type:row.source_type,source_record_id:row.source_record_id,source_version:row.source_version,receipt_ref:row.receipt_ref,receipt_hash:row.receipt_hash})))
   });
   const planFingerprint=canonicalRequestHash({ingress,idempotency_key:idempotencyKey});
   return Object.freeze({
-    request_type:'WBS_INBOUND_PERSISTENCE_PLAN_V1',status:'BLOCKED_ON_RAW_NORMALIZED_STAGING_COMMAND',can_dispatch:false,can_create_draft:false,can_post:false,
+    request_type:'WBS_INBOUND_PERSISTENCE_PLAN_V1',status:rowGroups.length===1?'READY_FOR_ATOMIC_WBS_INBOUND_PERSISTENCE':'BLOCKED_ON_ATOMIC_MULTI_RECEIPT_PERSISTENCE',can_dispatch:false,can_create_draft:false,can_post:false,
     idempotency_key:idempotencyKey,plan_fingerprint:planFingerprint,ingress,
     receipt_persistence:Object.freeze({kernel_method:'recordWbsSnapshot',supported:true,request:{tenantId,entityId,snapshot,idempotencyKey}}),
-    raw_normalized_staging_persistence:Object.freeze({supported:false,code:'WBS_RAW_NORMALIZED_STAGING_PERSISTENCE_UNAVAILABLE',required_command:'persistWbsInboundRows',required_fields:['tenant_id','entity_id','import_batch_id','receipt_id_from_record_snapshot','receipt_ref','receipt_hash','source_record_id','source_version','raw','normalized','staging_or_exception','idempotency_key']}),
-    required_next_controls:Object.freeze(['persist receipt with recordWbsSnapshot','implement and authorize atomic raw/normalized/staging persistence','staging review','approved mapping','standard JE command'])
+    raw_normalized_staging_persistence:Object.freeze({supported:rowGroups.length===1,kernel_method:'persistWbsInboundRows',code:rowGroups.length===1?null:'WBS_INBOUND_MULTI_RECEIPT_ATOMICITY_REQUIRED',receipt_groups:rowGroups,required_fields:['tenant_id','entity_id','import_batch_id_from_snapshot_record','inbound_receipt_id','receipt_ref','receipt_hash','source_record_id','source_version','raw','normalized','staging_or_exception','idempotency_key','request_hash']}),
+    required_next_controls:Object.freeze(rowGroups.length===1?['persist snapshot receipt with recordWbsSnapshot','persist immutable payload group atomically','staging review','approved mapping','standard JE command']:['implement a single atomic multi-receipt inbound persistence command','staging review','approved mapping','standard JE command'])
   });
 }
 
@@ -405,12 +438,12 @@ export function createWbsInboundOrchestrator({adapter,kernel}={}){
   const replay=new Map();
   return Object.freeze({
     mode:'WBS_INBOUND_ORCHESTRATOR_V1',read_only:true,
-    async persist({snapshot,prepared=null,tenantId,entityId,importBatchId,idempotencyKey}={}){
+    async persist({snapshot,prepared=null,tenantId,entityId,idempotencyKey}={}){
       if(!kernel||typeof kernel.recordWbsSnapshot!=='function'||typeof kernel.persistWbsInboundRows!=='function')fail('WBS_INBOUND_KERNEL_PERSISTENCE_UNAVAILABLE','Kernel must provide recordWbsSnapshot and persistWbsInboundRows before WBS inbound persistence can start');
       const verifiedPrepared=await adapter.prepareVerified(snapshot);
       if(prepared&&canonicalRequestHash(prepared)!==canonicalRequestHash(verifiedPrepared))fail('WBS_INBOUND_PREPARED_TRACE_INVALID','Caller-provided WBS preparation differs from the receipt/signature-verified preparation.');
       const canonicalPrepared=verifiedPrepared;
-      const plan=buildWbsInboundPersistencePlan({snapshot,prepared:canonicalPrepared,tenantId,entityId,importBatchId,idempotencyKey});
+      const plan=buildWbsInboundPersistencePlan({snapshot,prepared:canonicalPrepared,tenantId,entityId,idempotencyKey});
       const existing=replay.get(idempotencyKey);
       if(existing){
         if(existing.plan_fingerprint!==plan.plan_fingerprint)fail('WBS_INBOUND_IDEMPOTENCY_CONFLICT','Idempotency key was already used for a different immutable WBS inbound plan');
@@ -419,14 +452,24 @@ export function createWbsInboundOrchestrator({adapter,kernel}={}){
       const promise=(async()=>{
         let receiptResult;
         try{receiptResult=await kernel.recordWbsSnapshot(plan.receipt_persistence.request);}catch{fail('WBS_INBOUND_RECEIPT_PERSISTENCE_FAILED','Immutable WBS receipt persistence failed');}
-        const receiptId=text(receiptResult?.receipt_id);
-        if(!succeeded(receiptResult)||!receiptId)fail('WBS_INBOUND_RECEIPT_PERSISTENCE_FAILED','Immutable WBS receipt persistence must return one receipt identity before inbound rows can be persisted');
-        const receiptTrace=freeze(plan.ingress.trace_rows.map(item=>freeze({...item,receipt_id:receiptId})));
-        const rowRequest=Object.freeze({tenantId,entityId,importBatchId,idempotencyKey,planFingerprint:plan.plan_fingerprint,receiptId,receiptTrace,raw:canonicalPrepared.raw,normalized:canonicalPrepared.normalized,staging:canonicalPrepared.staging,exceptions:canonicalPrepared.exceptions});
-        let rowResult;
-        try{rowResult=await kernel.persistWbsInboundRows(rowRequest);}catch{fail('WBS_INBOUND_ROW_PERSISTENCE_FAILED','WBS Raw, Normalized and Staging persistence failed');}
-        if(!succeeded(rowResult)||text(rowResult?.receipt_id)!==receiptId)fail('WBS_INBOUND_ROW_PERSISTENCE_FAILED','WBS Raw, Normalized and Staging persistence must acknowledge the exact immutable receipt identity');
-        return Object.freeze({status:'PERSISTED_STAGING_REVIEW_REQUIRED',can_dispatch_draft:false,can_dispatch_autorec:false,can_post:false,plan_fingerprint:plan.plan_fingerprint,receipt_persistence:receiptResult,row_persistence:rowResult,trace:freeze({...plan.ingress,receipt_id:receiptId,trace_rows:receiptTrace})});
+        const importBatchId=text(receiptResult?.import_batch_id);
+        if(!succeeded(receiptResult)||!UUID.test(importBatchId))fail('WBS_INBOUND_RECEIPT_PERSISTENCE_FAILED','Immutable WBS snapshot persistence must return one authoritative import batch identity before inbound rows can be persisted');
+        if(!plan.raw_normalized_staging_persistence.supported)fail('WBS_INBOUND_MULTI_RECEIPT_ATOMICITY_REQUIRED','One WBS snapshot has multiple immutable payload groups; sequential inbound writes are forbidden until the kernel provides one atomic multi-receipt command');
+        const rowPersistence=[],receiptByTraceIdentity=new Map();
+        for(const [index,group] of plan.raw_normalized_staging_persistence.receipt_groups.entries()){
+          const groupIdempotencyKey=`wbs-inbound:${canonicalRequestHash({idempotency_key:idempotencyKey,receipt:group.receipt})}`;
+          const requestHash=canonicalRequestHash({tenant_id:tenantId,entity_id:entityId,import_batch_id:importBatchId,receipt:group.receipt,rows:group.rows,idempotency_key:groupIdempotencyKey});
+          const rowRequest=Object.freeze({tenantId,entityId,importBatchId,receipt:group.receipt,rows:group.rows,idempotencyKey:groupIdempotencyKey,requestHash,planFingerprint:plan.plan_fingerprint,groupIndex:index});
+          let rowResult;
+          try{rowResult=await kernel.persistWbsInboundRows(rowRequest);}catch{fail('WBS_INBOUND_ROW_PERSISTENCE_FAILED','WBS Raw, Normalized and Staging persistence failed');}
+          const receiptId=text(rowResult?.receipt_id);
+          if(!succeeded(rowResult)||!UUID.test(receiptId)||Number(rowResult?.row_count)!==group.rows.length)fail('WBS_INBOUND_ROW_PERSISTENCE_FAILED','WBS Raw, Normalized and Staging persistence must acknowledge one inbound receipt identity and the exact row count');
+          for(const row of group.rows)receiptByTraceIdentity.set(inboundIdentity(row.normalized),receiptId);
+          rowPersistence.push(freeze({receipt:group.receipt,receipt_id:receiptId,row_count:group.rows.length,idempotency_key:groupIdempotencyKey,request_hash:requestHash,result:rowResult}));
+        }
+        const receiptTrace=freeze(plan.ingress.trace_rows.map(item=>freeze({...item,receipt_id:receiptByTraceIdentity.get(inboundIdentity(item))??null})));
+        if(receiptTrace.some(item=>!UUID.test(text(item.receipt_id))))fail('WBS_INBOUND_ROW_PERSISTENCE_FAILED','Every persisted WBS trace row must bind to its exact inbound receipt identity');
+        return Object.freeze({status:'PERSISTED_STAGING_REVIEW_REQUIRED',can_dispatch_draft:false,can_dispatch_autorec:false,can_post:false,plan_fingerprint:plan.plan_fingerprint,receipt_persistence:receiptResult,row_persistence:freeze(rowPersistence),trace:freeze({...plan.ingress,import_batch_id:importBatchId,trace_rows:receiptTrace})});
       })();
       replay.set(idempotencyKey,Object.freeze({plan_fingerprint:plan.plan_fingerprint,promise}));
       return promise;
