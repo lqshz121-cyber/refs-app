@@ -23,6 +23,20 @@ column, relationship, and state semantics.
 | Cost General Ledger | `list_control_totals` plus future scoped metric receipt | Control evidence | company, period, metric definition, immutable receipt | Never a source document or journal command |
 | Property Comparison Report | no current transaction MCP producer | **UNKNOWN / control-only** | signed scoped report receipt and approved REFS control mapping | Blocked; cannot form a candidate |
 
+## Observed Finance navigation boundary
+
+On 2026-08-09, the authenticated WBS Finance & Accounting landing page exposed
+Payable Report, Bank Transaction Journal Entries, Auto Bank Reconciliation,
+Auto Payments Reconciliation, Cost General Ledger, Property Comparison Report,
+and WBS Journal Entry as separate navigation entries. This proves that the
+entries exist in the source application; it does **not** prove their row schema,
+join keys, or posting authority. In particular, Auto Payments Reconciliation
+is retained as an **UNKNOWN control/trace source** until the provider supplies a
+signed nonempty read receipt with an immutable row key, company scope, currency,
+amount direction, and explicit relationship to the AutoRec payment/bank key.
+It must not be mapped to a REFS transaction, allocation, Draft journal, or
+posting path merely because it appears beside Auto Bank Reconciliation.
+
 `trace_by_key` is relation evidence only. It cannot make any row a transaction
 producer. A WBS report therefore never becomes a posting instruction.
 
