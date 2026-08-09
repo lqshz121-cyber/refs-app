@@ -19,7 +19,7 @@ fixtures. `OBSERVED` means read-only WBS schema or page evidence exists.
 | Cost General Ledger control reconciliation | Exactly fourteen receipt-bound metrics with tenant/entity/company/period/currency and an approved immutable mapping snapshot; exact four-decimal per-metric forward/reverse differences/trace. Aggregate totals are diagnostic only and cannot offset mismatches. The standard Draft seam rejects this source type. | LOCAL_TESTED + OBSERVED configuration candidates | Provider-defined metric names/formulas and signed nonempty Cost GL receipt |
 | Property Comparison control reconciliation | Receipt-bound tenant/entity/company/property/date/currency/bank scope with an approved immutable mapping snapshot; exact per-metric forward/reverse trace. Aggregate totals are diagnostic only and cannot offset mismatches. The standard Draft seam rejects this source type. | LOCAL_TESTED + OBSERVED configuration candidates | Provider report join/calculation and signed nonempty Property receipt |
 | 12 golden scenarios | [`contracts/wbs-autorec-golden-scenarios-v1.json`](contracts/wbs-autorec-golden-scenarios-v1.json) fixes exact, partial, one-to-many, many-to-one, cross-company, tolerance, duplicate, reopen boundary, NUL isolation, invalid date, 291001 trace and the Cost GL/Property report-as-source block. The latter permits only `RECONCILED`/`DIFFERENCE` control evidence through WBS snapshot -> approved mapping -> REFS metric snapshot trace. | LOCAL_TESTED | De-identified provider sample set and source-vs-target control-total comparison |
-| Raw -> Normalized -> Staging/Exception provenance | Immutable receipt/key/version, idempotency and atomic ingress seams; missing facts become Exception | LOCAL_TESTED | Production receipt store, signature keyring, PostgreSQL persistence and replay test |
+| Raw -> Normalized -> Staging/Exception provenance | The immutable receipt snapshot must first return one `receipt_id`; the same receipt identity is then attached to every ingress trace row and must be acknowledged by the Raw/Normalized/Staging persistence command. Immutable receipt/key/version, idempotency and atomic ingress seams apply; missing facts become Exception. | LOCAL_TESTED | Production receipt store, signature keyring, PostgreSQL persistence and replay test |
 | Forward and reverse trace | Source receipt/key/version -> Raw/Normalized/Staging -> review proposal -> REFS mapping/JE/ledger readback; `trace_by_key` rejects display identifiers | LOCAL_TESTED | Live receipt-backed persisted trace plus browser refresh across the authoritative REFS UI |
 | Security and mutation boundary | WBS allowlist is read-only; no WBS write, no provider credential/token/business row in source/logs; Cost/Property cannot transact | LOCAL_TESTED | Independent production security review of configured provider client, receipt store and logs |
 
@@ -28,7 +28,8 @@ fixtures. `OBSERVED` means read-only WBS schema or page evidence exists.
 1. Supply and validate the signed, nonempty provider receipts named above.
 2. Run the actual provider responses through the same fail-closed ingress.
 3. Persist and read back receipt, source version, Raw, Normalized, Staging and
-   Exception rows in PostgreSQL.
+   Exception rows in PostgreSQL, proving that each row acknowledges the exact
+   receipt identity returned by the immutable snapshot write.
 4. Reconcile the twelve de-identified golden scenarios and their control totals.
 5. Let only the authoritative REFS kernel reserve/release/incur/create/review/
    approve/post, then validate G11 and ledger trace. The two posted legs must
