@@ -122,32 +122,45 @@ before the row can enter REFS Staging.
 The following aggregate-only read checks were executed without selecting a
 business row:
 
-1. `fast_auto_payment_detail.pd_batchguid` has populated values, but no value
+1. A 2026-08-10 aggregate-only schema recheck found 78,333 Detail rows where
+   `fast_auto_payment_detail.pd_pvguid = autopaymentbank.PB_GuId`, covering
+   145 PB keys; all matched Detail rows with a populated business type were
+   `AUTOC`. This is **OBSERVED relation evidence**, not a verified foreign-key
+   or state-transition contract: the Detail table has no compatible company
+   code in this comparison, currency is absent, and the provider has not
+   supplied revision/cardinality semantics. REFS may retain it only after a
+   signed same-snapshot `pd_guid -> pb_guid` relation receipt and approved
+   relation policy; it must not be used as an allocation, release, incur,
+   reversal, Draft, or posting instruction.
+2. `fast_auto_payment_detail.pd_batchguid` has populated values, but no value
    matched `autopaymentbank.PB_GuId` in the tested source. It is therefore
    **not a verified AutoRec batch foreign key** and must never fill `pb_guid`.
-2. `match_business_info.MB_BatchGuId` likewise produced no match to
+3. `match_business_info.MB_BatchGuId` likewise produced no match to
    `autopaymentbank.PB_GuId`. It is not a verified PB relation.
-3. `account_book_payable_info.cb_id` and
+4. `account_book_payable_info.cb_id` and
    `fast_auto_payment_detail.pd_cbid` are both frequently populated, but their
    relationship/cardinality has not yet been proven. They remain retained
    bank-relation evidence only.
-4. `accountbookpaymentset.APS_AccountId` partially matches `accountbook.ID`.
+5. `accountbookpaymentset.APS_AccountId` partially matches `accountbook.ID`.
    The unmatched population prevents treating the join as an authoritative
    mapping or account admission rule.
-5. Some Payable primary-key rows have a shared `cb_id` with WBS-source
+6. Some Payable primary-key rows have a shared `cb_id` with WBS-source
    `accounting_info` lines. This is the only observed Payable-to-accounting
    relation in the tested candidates. `long_id -> business_guid` and
    `journal_no -> journal_no` produced zero matches and must remain external
    display trace, not join keys.
-6. `match_business_info.MB_BusinessId` matches
+7. `match_business_info.MB_BusinessId` matches
    `fast_auto_payment_detail.pd_guid` only for the observed business types
    `AUTOC`, `AUTOP`, and (except for a small unmatched remainder) `AUTOR`.
    It has no observed match to Payable `uuid`; `MB_BatchGuId` has no observed
    match to either PB key or Detail batch key.
 
-These negative findings are material: the REFS adapter must reject any future
-provider mapping that silently derives a PB key from `pd_batchguid`,
-`MB_BatchGuId`, `pd_pvguid`, a memo, a reference number, or a display sequence.
+These findings are material: the REFS adapter must reject any future provider
+mapping that silently derives a PB key from `pd_batchguid`, `MB_BatchGuId`, a
+memo, a reference number, or a display sequence. `pd_pvguid` is different: it
+is a high-coverage observed Detail-to-PB relation, but still requires the
+separate signed receipt, exact snapshot scope, approved policy, and immutable
+`pd_guid` binding enforced by the REFS adapter.
 
 `match_business_info` is a multi-business routing/relation table, not an
 AutoRec-only allocation table. A direct Detail relation is admissible only if
