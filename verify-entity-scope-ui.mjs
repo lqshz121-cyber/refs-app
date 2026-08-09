@@ -29,7 +29,7 @@ assert.equal(
 assert.match(reportsSource, /if \(!hasReportEntity && !drill\) return/, 'GL must render an entity-required state before report calculations');
 assert.match(reportsSource, /Financial statements, control totals, drill-downs, and evidence status are never calculated across all entities\./, 'GL needs an explicit no-consolidation boundary');
 assert.match(reportsSource, /REFS does not aggregate entity balances, journal counts, or mock projections into an “All entities” report\./, 'Reports Center needs an explicit no-global-results state');
-assert.match(reportsSource, /reportCenterReturn:\{route:'reports',reportName:tab,category,search\}/, 'Reports launch must retain its return scope');
+assert.match(reportsSource, /reportCenterReturn:\{route:'reports',reportName:tab,category,search,reportPage\}/, 'Reports launch must retain its return scope and catalog page');
 assert.ok(!reportsSource.includes('<div className="reports-clean-title">Reports Center</div>'), 'Reports Center must not render a duplicate title');
 assert.ok(!reportsSource.includes('>Create new report</button>'), 'unsupported report creation must not remain visible');
 assert.ok(!reportsSource.includes('aria-label="WBS mock posted JE report impact"'), 'unscoped WBS mock values must not be mixed into entity reports');

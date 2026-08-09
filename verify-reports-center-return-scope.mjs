@@ -15,6 +15,10 @@ assert.match(reports, /reportName:tab,category,search/, 'Reports Center launch m
 assert.match(reports, /const reportsReturn = navContext\?\.route === 'reports'/, 'Reports Center must consume a direct Back target.');
 assert.match(reports, /useState\(reportsReturn\?\.search \|\| ''\)/, 'Reports Center must restore the search query after Back.');
 assert.match(reports, /useState\(reportsReturn\?\.category \|\| 'Standard reports'\)/, 'Reports Center must restore the selected category after Back.');
+assert.match(reports, /const \[reportPage, setReportPage\] = useState\(Math\.max\(0, Number\(reportsReturn\?\.reportPage\) \|\| 0\)\)/, 'Reports Center must restore the visible catalog page after Back.');
+assert.match(reports, /reportName:tab,category,search,reportPage/, 'Report launches must freeze the catalog page with category and search.');
+assert.match(reports, /page=\{reportPage\} onPageChange=\{setReportPage\}/, 'The report workbench must use its frozen parent-owned page.');
+assert.match(reports, /features=\{\{exportable:false,filterable:false\}\}/, 'The report workbench must not create a second untracked table search.');
 
 for (const name of ['openJournalFromReport', 'registerTargetForReport', 'sourceTargetFor', 'cashFlowRegisterTarget', 'agingTarget']) {
   const start = reports.indexOf(name);

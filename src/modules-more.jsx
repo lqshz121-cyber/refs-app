@@ -393,6 +393,7 @@ export function Reports({ctx}) {
   const [open, setOpen] = useState(()=>reportsReturn?.openReport || null);
   const [search, setSearch] = useState(reportsReturn?.search || '');
   const [category, setCategory] = useState(reportsReturn?.category || 'Standard reports');
+  const [reportPage, setReportPage] = useState(Math.max(0, Number(reportsReturn?.reportPage) || 0));
   const [previewTool, setPreviewTool] = useState(null);
   const [managementView, setManagementView] = useState('Published');
   const [dashboardQuery, setDashboardQuery] = useState('');
@@ -407,10 +408,10 @@ export function Reports({ctx}) {
   const posted = scopedJournals.filter(j=>j.posting_status==='POSTED');
   const reportScope = localReportScopeState({journals:jes,entityId:entity,fromPeriod:'2026-01',toPeriod:'2026-07'});
   const openGLReport = (tab, options={}) => {
-    ctx.goto('gl', localLedgerReportLaunchContext(tab, entity, {...options,reportCenterReturn:{route:'reports',reportName:tab,category,search}}));
+    ctx.goto('gl', localLedgerReportLaunchContext(tab, entity, {...options,reportCenterReturn:{route:'reports',reportName:tab,category,search,reportPage}}));
   };
   const cashControlReportReturn = {
-    route:'reports', reportName:'Cash & Restricted Cash Control', category, search,
+    route:'reports', reportName:'Cash & Restricted Cash Control', category, search, reportPage,
     openReport:'Cash & Restricted Cash Control',
   };
   const cashControlRows = hasEntity
@@ -631,9 +632,9 @@ export function Reports({ctx}) {
     </section>
     <div className="report-shelf"><span className="report-shelf-chip report-shelf-chip-on">Local control reports</span><span className="report-shelf-chip">Construction & WBS</span><span className="report-shelf-chip">Control reports</span><span className="report-shelf-chip">Drill to ledger</span><span className="report-shelf-spacer" /><span className="report-shelf-note">Posted-evidence cadence · source-linked</span></div>
     <div className="qbo-report-centerbar">
-      <label className="qbo-report-search"><span aria-hidden="true" /><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Type report name here" /></label>
+      <label className="qbo-report-search"><span aria-hidden="true" /><input value={search} onChange={e=>{setSearch(e.target.value);setReportPage(0);}} placeholder="Type report name here" /></label>
     </div>
-    <div className="report-shelf qbo-report-tabs"><button type="button" className={`report-shelf-chip ${category==='Standard reports'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('Standard reports')}>Core financial reports</button><button type="button" className={`report-shelf-chip ${category==='All reports'?'report-shelf-chip-on':''}`} onClick={()=>setCategory('All reports')}>All retained reports</button><span className="report-shelf-spacer" /><span className="report-shelf-note">POSTED local evidence · scoped drill and return · favorites and report menus unavailable</span></div>
+    <div className="report-shelf qbo-report-tabs"><button type="button" className={`report-shelf-chip ${category==='Standard reports'?'report-shelf-chip-on':''}`} onClick={()=>{setCategory('Standard reports');setReportPage(0);}}>Core financial reports</button><button type="button" className={`report-shelf-chip ${category==='All reports'?'report-shelf-chip-on':''}`} onClick={()=>{setCategory('All reports');setReportPage(0);}}>All retained reports</button><span className="report-shelf-spacer" /><span className="report-shelf-note">POSTED local evidence · scoped drill and return · favorites and report menus unavailable</span></div>
     {hasEntity ? <><div className="qbo-report-promo"><span>SELECTED ENTITY</span><b>Financial summary for the current reporting scope</b><p>Review same-entity POSTED balance, income, and control signals before opening the report.</p><button type="button" onClick={()=>launchReport('Balance Sheet','gl')}>Review summary</button></div>
     <div className="kpi-row">
       <KPI label="Total assets" value={money(st.assets)} />
@@ -656,7 +657,7 @@ export function Reports({ctx}) {
     <SectionTitle>Retained report workbench</SectionTitle>
     <div className="report-workbench">
       <div className="report-workbench-head"><div><div className="report-preview-crumb">Reports Center · Workbench</div><div className="page-subtitle">Browse retained financial statements, aging, and reconciliation evidence with a consistent drill path.</div></div><div className="report-preview-meta" aria-label="Report workbench summary"><span><i>Reports</i>{' '}<b>{reportRows.length}</b></span><span><i>Linked statements</i>{' '}<b>{reportRows.filter(r=>r.route==='gl').length}</b></span><span><i>Preview-only</i>{' '}<b>{reportRows.filter(r=>!r.route).length}</b></span></div></div>
-      <Table exportName="reports-workbench" features={{exportable:false}} className="table-journal-entries reports-workbench-table" onRow={r=>r.capability.state==='REFERENCE_ONLY' ? undefined : launchReport(r.name, r.route)} pageSize={12} cols={[
+      <Table exportName="reports-workbench" features={{exportable:false,filterable:false}} className="table-journal-entries reports-workbench-table" onRow={r=>r.capability.state==='REFERENCE_ONLY' ? undefined : launchReport(r.name, r.route)} pageSize={12} page={reportPage} onPageChange={setReportPage} cols={[
         {h:'Report',render:r=><span className="rep-table-name">{r.name}</span>,csv:r=>r.name},
         {h:'Category',render:r=><Badge tone="muted">{r.category}</Badge>,csv:r=>r.category},
         {h:'Experience',k:'experience'},
