@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildWbsAutoRecExecutionIntent,createWbsAutoRecExecutionIntentService,WbsAutoRecExecutionContractError} from '../runtime/wbs-autorec-execution-contract.mjs';
+import {buildWbsAutoRecExecutionIntent,createWbsAutoRecExecutionIntentService,createWbsAutoRecExecutionOrchestrator,WbsAutoRecExecutionContractError} from '../runtime/wbs-autorec-execution-contract.mjs';
 
 const hash=letter=>'sha256:'+letter.repeat(64);
 const trace={company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',allocated_amount:'100.0000',bank_business_date:'2026-08-01',bank_accounting_date:'2026-08-01',business_business_date:'2026-08-01',business_accounting_date:'2026-08-01',bank_receipt_id:'r-bank',bank_receipt_ref:'object://receipt/bank',bank_receipt_hash:hash('a'),business_receipt_id:'r-pay',business_receipt_ref:'object://receipt/pay',business_receipt_hash:hash('b'),bank_raw_event_id:'raw-bank',business_raw_event_id:'raw-pay',bank_source_document_id:'doc-bank',business_source_document_id:'doc-pay',bank_source_record_id:'bank-1',bank_source_version:'v1',business_source_record_id:'pay-1',business_source_version:'v1',bank_staging_item_id:'stg-bank',business_staging_item_id:'stg-pay'};
@@ -40,4 +40,17 @@ test('execution intents replay only the exact canonical command for one review c
   const first=service.prepare(input),replay=service.prepare(input);
   assert.equal(first.replayed,false);assert.equal(replay.replayed,true);assert.equal(replay.request_hash,first.request_hash);
   assert.throws(()=>service.prepare({...input,command:'REQUEST_REVERSE',currentState:'INCURRED',reason:'different command'}),error=>error.code==='WBS_AUTOREC_EXECUTION_REPLAY_CONFLICT');
+});
+
+test('orchestrator fails closed without a persistent kernel command and accepts only an exact authoritative receipt',async()=>{
+  const input={tenantId:'11111111-1111-4111-8111-111111111111',entityId:'22222222-2222-4222-8222-222222222222',command:'RESERVE',currentState:'REVIEW_REQUIRED',reviewCandidate:review,idempotencyKey:'wbs-autorec-kernel-001'};
+  await assert.rejects(()=>createWbsAutoRecExecutionOrchestrator().execute(input),error=>error.code==='WBS_AUTOREC_EXECUTION_KERNEL_UNAVAILABLE');
+  let calls=0;
+  const kernel={executeWbsAutoRecIntent:async ({intent})=>{calls+=1;return {ok:true,execution_receipt_id:'33333333-3333-4333-8333-333333333333',review_candidate_id:intent.review_candidate.review_candidate_id,idempotency_key:intent.idempotency_key,request_hash:intent.request_hash,current_state:intent.current_state,next_state:intent.next_state,version:4,can_write_wbs:false,can_dispatch:false,can_create_draft:false,can_post:false};}};
+  const service=createWbsAutoRecExecutionOrchestrator({kernel});
+  const first=await service.execute(input),replay=await service.execute(input);
+  assert.equal(first.next_state,'RESERVED');assert.equal(replay.replayed,true);assert.equal(calls,1);
+  await assert.rejects(()=>service.execute({...input,command:'RELEASE',currentState:'RESERVED',reservationReceipt}),error=>error.code==='WBS_AUTOREC_EXECUTION_REPLAY_CONFLICT');
+  const invalid=createWbsAutoRecExecutionOrchestrator({kernel:{executeWbsAutoRecIntent:async()=>({ok:true,execution_receipt_id:'33333333-3333-4333-8333-333333333333'})}});
+  await assert.rejects(()=>invalid.execute(input),error=>error.code==='WBS_AUTOREC_EXECUTION_RECEIPT_INVALID');
 });

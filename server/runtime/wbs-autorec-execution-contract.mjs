@@ -8,6 +8,7 @@ import {canonicalRequestHash} from './request-hash.mjs';
 const text=value=>value==null?'':String(value).trim();
 const freeze=value=>Object.freeze(value);
 const hash=value=>/^sha256:[0-9a-f]{64}$/.test(text(value));
+const uuid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text(value));
 const amount=value=>{const candidate=typeof value==='number'?String(value):text(value);return /^-?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(candidate)&&Number.isFinite(Number(candidate))?Number(candidate):null;};
 const validDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const parsed=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(parsed.getTime())&&parsed.toISOString().slice(0,10)===candidate;};
 const fail=(code,message)=>{const error=new WbsAutoRecExecutionContractError(code,message);throw error;};
@@ -89,6 +90,41 @@ export function createWbsAutoRecExecutionIntentService(){
       const accepted=freeze({...intent,replayed:false});
       receipts.set(scope,freeze({request_hash:intent.request_hash,intent:accepted}));
       return accepted;
+    }
+  });
+}
+
+// This is the only permitted bridge from a read-side intent to an eventual
+// REFS command store. WBS stays strictly read-only; no kernel capability means
+// zero local state change instead of an in-memory fallback transition.
+export function createWbsAutoRecExecutionOrchestrator({kernel}={}){
+  const replay=new Map();
+  const assertReceipt=(result,intent)=>{
+    if(!result||result.ok===false||!uuid(result.execution_receipt_id)||text(result.review_candidate_id)!==intent.review_candidate.review_candidate_id||text(result.idempotency_key)!==intent.idempotency_key||text(result.request_hash)!==intent.request_hash||text(result.current_state)!==intent.current_state||text(result.next_state)!==intent.next_state||!Number.isInteger(result.version)||result.version<0)fail('WBS_AUTOREC_EXECUTION_RECEIPT_INVALID','The kernel execution receipt must bind the exact candidate, intent hash, transition, and authoritative revision.');
+    if(result.can_write_wbs===true||result.can_dispatch===true||result.can_create_draft===true||result.can_post===true)fail('WBS_AUTOREC_EXECUTION_RECEIPT_INVALID','A WBS execution receipt cannot grant WBS write, Draft dispatch, or posting authority.');
+    return freeze({...result,replayed:result.replayed===true,can_write_wbs:false,can_dispatch:false,can_create_draft:false,can_post:false});
+  };
+  return freeze({
+    mode:'WBS_AUTOREC_REFS_EXECUTION_ORCHESTRATOR_V1',
+    read_only_wbs:true,
+    async execute({tenantId,entityId,...input}={}){
+      if(!uuid(tenantId)||!uuid(entityId))fail('WBS_AUTOREC_EXECUTION_SCOPE_INVALID','Tenant and entity identifiers must be UUIDs.');
+      if(!kernel||typeof kernel.executeWbsAutoRecIntent!=='function')fail('WBS_AUTOREC_EXECUTION_KERNEL_UNAVAILABLE','The authoritative REFS kernel must provide executeWbsAutoRecIntent; no local state transition was made.');
+      const intent=buildWbsAutoRecExecutionIntent(input);
+      const scope=[tenantId,entityId,intent.review_candidate.review_candidate_id,intent.idempotency_key].join('\u0000');
+      const prior=replay.get(scope);
+      if(prior){
+        if(prior.request_hash!==intent.request_hash)fail('WBS_AUTOREC_EXECUTION_REPLAY_CONFLICT','An AutoRec idempotency key cannot be reused for a different execution intent.');
+        return prior.promise.then(result=>freeze({...result,replayed:true}));
+      }
+      const request=freeze({tenantId,entityId,intent});
+      const promise=(async()=>{
+        let result;
+        try{result=await kernel.executeWbsAutoRecIntent(request);}catch{fail('WBS_AUTOREC_EXECUTION_KERNEL_FAILED','The REFS kernel rejected or failed the execution command; no local transition was made.');}
+        return assertReceipt(result,intent);
+      })();
+      replay.set(scope,freeze({request_hash:intent.request_hash,promise}));
+      return promise;
     }
   });
 }
