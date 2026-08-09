@@ -146,6 +146,8 @@ test('golden acceptance artifact has twelve sanitized source-to-target controls 
   for(const trace of ['refs_metric_snapshot','wbs_control_snapshot'])assert.ok(reports.reverse_trace.includes(trace),`report reverse ${trace}`);
   const tolerance=goldenArtifact.scenarios.find(scenario=>scenario.id==='amount_and_date_tolerance');
   assert.equal(tolerance.input.date_match_basis,'BUSINESS_AND_ACCOUNTING');assert.equal(tolerance.expected.date_match_basis,'BUSINESS_AND_ACCOUNTING');
+  const g11=goldenArtifact.scenarios.find(scenario=>scenario.id==='posted_291001_trace');
+  assert.equal(g11.input.reviewed_allocation_amount,'100.0000');assert.equal(g11.expected.clearing_amount_equals_reviewed_allocation,true);
   const reopen=goldenArtifact.scenarios.find(scenario=>scenario.id==='reopen_boundary');
   assert.deepEqual(reopen.input.observed_wbs_detail_sequence,['RELEASED_PAYMENT','INCURRED_PAYMENT']);
   assert.deepEqual(reopen.expected,{latest_observed_state:'INCURRED',canonical_wbs_transition_graph:'UNKNOWN',can_transition_state:false,can_post:false});

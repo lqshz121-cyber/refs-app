@@ -75,8 +75,8 @@
     },
     {
       "id": "posted_291001_trace",
-      "input": {"payable_incur_posted": true, "autoc_posted": true, "member_291001_net": "0.0000"},
-      "expected": {"g11_status": "POSTED_TRACE_VERIFIED", "can_transition_case": false, "can_post": false},
+      "input": {"payable_incur_posted": true, "autoc_posted": true, "reviewed_allocation_amount": "100.0000", "member_291001_net": "0.0000"},
+      "expected": {"g11_status": "POSTED_TRACE_VERIFIED", "clearing_amount_equals_reviewed_allocation": true, "can_transition_case": false, "can_post": false},
       "forward_trace": ["receipt", "staging", "posted_payable_incur", "posted_autoc", "ledger"],
       "reverse_trace": ["ledger", "journal_audit", "staging", "receipt_hash"]
     },
