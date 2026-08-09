@@ -50,3 +50,11 @@ test('a complete production delivery can attest an explicitly empty scoped view'
   assert.equal(validated.receipt_count,4);
   assert.deepEqual(validated.delivery_attestation.views.find(view=>view.name==='BGDATA.bank_transaction'),{name:'BGDATA.bank_transaction',company_key:'COMPANY-A',row_count:0,first_primary_key:null,last_primary_key:null,content_hash:canonicalRequestHash([])});
 });
+
+test('Cost and Property source relations can be delivered as signed production control evidence only',()=>{
+  const rows=[{propertyRelationGuid:'PROPERTY-RELATION-1'}];
+  const value={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-03T10:00:00.000Z',environment:'PRODUCTION',source_system:'WBS',dictionary_version:'WBS-DICT-2026-08-03',views:[{name:'wbsdata.pjcat_property_relation',company_key:'COMPANY-A',rows,content_hash:canonicalRequestHash(rows),row_count:1,first_primary_key:'PROPERTY-RELATION-1',last_primary_key:'PROPERTY-RELATION-1'}],delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',snapshot_token:'provider-snapshot-1',extract_started_at:'2026-08-03T09:59:00.000Z',extract_completed_at:'2026-08-03T10:00:00.000Z',consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'},detached_signature:{key_id:'wbs-prod-test',algorithm:'Ed25519',value:'base64-signature-placeholder'}};
+  const {detached_signature,...manifest}=value;value.package_hash=canonicalRequestHash(manifest);
+  const validated=validateWbsSnapshotPackage(value);
+  assert.equal(validated.receipt_count,1);assert.equal(validated.receipts[0].ingestion_kind,'CONTROL_EVIDENCE');assert.equal(validated.receipts[0].source_record_id,'PROPERTY-RELATION-1');
+});
