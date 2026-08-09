@@ -280,8 +280,8 @@ test('HTTP CORS permits only configured browser origins and preflights without a
   const origin='https://staging.refs.example';const server=createAccountingHttpServer({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel,allowedOrigins:[origin]});
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));try{
     const base=`http://127.0.0.1:${server.address().port}`;
-    let response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills`,{method:'OPTIONS',headers:{origin,'access-control-request-method':'GET'}});
-    assert.equal(response.status,204);assert.equal(response.headers.get('access-control-allow-origin'),origin);assert.equal(response.headers.get('access-control-allow-credentials'),'true');assert.match(response.headers.get('access-control-allow-headers'),/idempotency-key/);
+    let response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills`,{method:'OPTIONS',headers:{origin,'access-control-request-method':'GET','access-control-request-headers':'authorization'}});
+    assert.equal(response.status,204);assert.equal(response.headers.get('access-control-allow-origin'),origin);assert.equal(response.headers.get('access-control-allow-credentials'),'true');assert.match(response.headers.get('access-control-allow-headers'),/(^|,\s*)authorization(,|$)/);assert.match(response.headers.get('access-control-allow-headers'),/idempotency-key/);
     response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills`,{headers:{origin}});assert.equal(response.status,200);assert.equal(response.headers.get('access-control-allow-origin'),origin);assert.equal(response.headers.get('vary'),'Origin');
     response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills`,{headers:{origin:'https://attacker.example'}});assert.equal(response.status,403);assert.equal(response.headers.get('access-control-allow-origin'),null);assert.equal((await response.json()).code,'CORS_ORIGIN_FORBIDDEN');
   }finally{await new Promise(resolve=>server.close(resolve));}
