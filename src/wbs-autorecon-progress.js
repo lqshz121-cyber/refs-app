@@ -7,6 +7,12 @@ export const WBS_AUTORECON_PROGRESS = Object.freeze({
     { source: 'Cost General Ledger', role: 'Control evidence only', entry: 'Signed receipt -> immutable metric snapshot -> approved mapping -> control reconciliation', gate: 'Requires fourteen receipt-bound metrics and a scoped REFS target. It never creates a source document, allocation, Draft, or posting.' },
     { source: 'Property Comparison Report', role: 'Control evidence only', entry: 'Signed receipt -> immutable metric snapshot -> approved mapping -> control reconciliation', gate: 'Requires company, property, period, currency, bank scope, and a scoped REFS target. It never creates a source document, allocation, Draft, or posting.' },
   ],
+  workflow: [
+    { stage: 'Company Screening', observed: 'Company, bank account, M/R/C periods, quantity, amount, released/incurred totals, reconciliation balance, and date.', refs: 'Receipt-bound company control snapshot and per-company control-total trace.', authority: 'No allocation, Release, Incur, Draft, or posting authority.' },
+    { stage: 'Data Processing and Release', observed: 'Not-matched bank payments and released payment detail with vendor, project, cost, reviewer, and relation trace.', refs: 'Bank and business evidence enters Raw -> Normalized -> Staging/Exception; a reviewed pair may become a non-dispatchable match proposal.', authority: 'WBS Release is observed history only; REFS allocation is separately authorized.' },
+    { stage: 'Incur', observed: 'Observed Incur status and accounting relationship evidence when returned by a receipt.', refs: 'REFS validates its own posted PAYABLE_INCUR plus AUTOC legs, source/ledger links, and 291001 net zero.', authority: 'Observed WBS Incur cannot create or post a REFS journal.' },
+    { stage: 'Incurred List', observed: 'Bank-to-AUTOC/payable relation, dimensions, attachment reference, reviewer, and comments-log trace.', refs: 'Append-only readback evidence for forward and reverse trace.', authority: 'No state transition, cancellation, JE, or posting command is available from this view.' },
+  ],
   controls: [
     'A REFS allocation requires a source-level reservation and must reject duplicate allocation across match groups.',
     'REFS Release must freeze the complete source batch; cancellation cannot rewrite reviewed or posted accounting.',

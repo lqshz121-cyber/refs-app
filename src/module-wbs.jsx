@@ -12,6 +12,10 @@ export function AutoBankRec({ctx={}}) {
       <Table rowKey="source" rows={WBS_AUTORECON_PROGRESS.sources} cols={[
         {h:'WBS source',k:'source'},{h:'REFS role',k:'role'},{h:'Entry path',k:'entry'},{h:'Required gate',k:'gate'},
       ]}/>
+      <SectionTitle>Observed WBS workflow and REFS authority boundary</SectionTitle>
+      <Table rowKey="stage" rows={WBS_AUTORECON_PROGRESS.workflow} cols={[
+        {h:'WBS stage',k:'stage'},{h:'Observed evidence',k:'observed'},{h:'REFS evidence path',k:'refs'},{h:'Authority boundary',k:'authority'},
+      ]}/>
       <SectionTitle>Implemented accounting controls</SectionTitle>
       <ul className="muted sm">{WBS_AUTORECON_PROGRESS.controls.map(control=><li key={control}>{control}</li>)}</ul>
     </section>
