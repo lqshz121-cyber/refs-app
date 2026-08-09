@@ -265,14 +265,23 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
     if(bank.remaining<=toleranceValue||business.remaining<=toleranceValue)continue;
     const allocated=Number(Math.min(bank.remaining,business.remaining).toFixed(4));
     bank.remaining=Number((bank.remaining-allocated).toFixed(4));business.remaining=Number((business.remaining-allocated).toFixed(4));
-    allocation.push(freeze({bank_source_record_id:bank.row.source_record_id,bank_source_version:bank.row.source_version,business_source_record_id:business.row.source_record_id,business_source_version:business.row.source_version,amount:allocated,currency:anchor.currency,bank_receipt_hash:bank.row.receipt_hash,business_receipt_hash:business.row.receipt_hash,can_allocate:false,can_release:false,can_post:false}));
+    // This is a proposal identity, never an allocation command identity.  It
+    // lets a later reservation service prove precisely which immutable source
+    // versions, receipts, amount and matching basis a reviewer inspected.
+    const edgeTrace={
+      algorithm:'WBS_AUTOREC_READONLY_PROPOSAL_V1',date_match_basis:dateBasis,
+      bank_source_type:text(bank.row.source_type),bank_source_record_id:text(bank.row.source_record_id),bank_source_version:text(bank.row.source_version),bank_receipt_hash:text(bank.row.receipt_hash),
+      business_source_type:text(business.row.source_type),business_source_record_id:text(business.row.source_record_id),business_source_version:text(business.row.source_version),business_receipt_hash:text(business.row.receipt_hash),
+      amount:allocated,currency:text(anchor.currency)
+    };
+    allocation.push(freeze({allocation_edge_id:canonicalRequestHash(edgeTrace),bank_source_type:edgeTrace.bank_source_type,bank_source_record_id:bank.row.source_record_id,bank_source_version:bank.row.source_version,business_source_type:edgeTrace.business_source_type,business_source_record_id:business.row.source_record_id,business_source_version:business.row.source_version,amount:allocated,currency:anchor.currency,date_match_basis:dateBasis,bank_receipt_hash:bank.row.receipt_hash,business_receipt_hash:business.row.receipt_hash,can_allocate:false,can_release:false,can_post:false}));
   }
   const bankTotal=Number(banks.reduce((sum,item)=>sum+Math.abs(amount(item.row.amount)),0).toFixed(4));
   const businessTotal=Number(businesses.reduce((sum,item)=>sum+Math.abs(amount(item.row.amount)),0).toFixed(4));
   const allocatedTotal=Number(allocation.reduce((sum,item)=>sum+item.amount,0).toFixed(4));
   const bankRemaining=Number(banks.reduce((sum,item)=>sum+item.remaining,0).toFixed(4)),businessRemaining=Number(businesses.reduce((sum,item)=>sum+item.remaining,0).toFixed(4));
   const difference=Number(Math.abs(bankTotal-businessTotal).toFixed(4)),balanced=difference<=toleranceValue;
-  const trace=allocation.map(item=>({bank_source_record_id:item.bank_source_record_id,bank_source_version:item.bank_source_version,business_source_record_id:item.business_source_record_id,business_source_version:item.business_source_version,bank_receipt_hash:item.bank_receipt_hash,business_receipt_hash:item.business_receipt_hash}));
+  const trace=allocation.map(item=>({allocation_edge_id:item.allocation_edge_id,date_match_basis:item.date_match_basis,bank_source_type:item.bank_source_type,bank_source_record_id:item.bank_source_record_id,bank_source_version:item.bank_source_version,business_source_type:item.business_source_type,business_source_record_id:item.business_source_record_id,business_source_version:item.business_source_version,bank_receipt_hash:item.bank_receipt_hash,business_receipt_hash:item.business_receipt_hash}));
   return freeze({review_plan_id:canonicalRequestHash({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,tolerance:toleranceValue,date_window_days:dateWindow,date_match_basis:dateBasis,trace}),status:balanced?'REVIEW_REQUIRED':'PARTIAL_REVIEW_REQUIRED',allocation_plan:freeze(allocation),exceptions:freeze([]),control_totals:freeze({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,bank_total:bankTotal,business_total:businessTotal,allocated_total:allocatedTotal,bank_unallocated:bankRemaining,business_unallocated:businessRemaining,difference,tolerance:toleranceValue,date_match_basis:dateBasis,balanced}),trace:freeze(trace),controls:freeze({can_allocate:false,can_release:false,can_post:false,required_next_controls:freeze(['authoritative source reservation','human Auto Reconciliation review','standard REFS release/incur workflow'])})});
 }
 

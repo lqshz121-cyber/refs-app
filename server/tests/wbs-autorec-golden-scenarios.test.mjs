@@ -19,6 +19,9 @@ test('provider-backed review plan uses one approved receipt-bound matching polic
   assert.equal(plan.status,'REVIEW_REQUIRED');
   assert.equal(plan.control_totals.tolerance,0.01);
   assert.equal(plan.trace.length,1);
+  assert.match(plan.allocation_plan[0].allocation_edge_id,/^sha256:[0-9a-f]{64}$/);
+  assert.equal(plan.trace[0].allocation_edge_id,plan.allocation_plan[0].allocation_edge_id);
+  assert.deepEqual({dateMatchBasis:plan.trace[0].date_match_basis,bankType:plan.trace[0].bank_source_type,businessType:plan.trace[0].business_source_type},{dateMatchBasis:'BUSINESS_AND_ACCOUNTING',bankType:'BANK_TRANSACTION',businessType:'PAYABLE'});
   assert.deepEqual(plan.matching_policy,{policy_id:'policy-bank-1',version:'1',mapping_id:'matching-policy-map',mapping_version:'4',rule_id:'amount-date-rule',rule_version:'2',bank_mapping_id:'bank-map',bank_mapping_version:'3',business_mapping_id:'payable-map',business_mapping_version:'5',date_match_basis:'BUSINESS_AND_ACCOUNTING',receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash});
   assert.equal(plan.controls.matching_policy_required,true);
   const missing=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bank('b-missing',100)],businessRows:[payable('p-missing',100)]});

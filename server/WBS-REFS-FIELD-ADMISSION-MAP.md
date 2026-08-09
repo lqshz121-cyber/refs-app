@@ -76,6 +76,10 @@ tolerance-aware **review** allocations and control totals. It is never a
 source reservation: `can_allocate`, `can_release`, `can_dispatch`,
 `can_create_draft`, and `can_post` remain false. The REFS authoritative kernel
 must re-check reservation, SoD, version, approval, period and ledger rules.
+Each proposed edge carries a deterministic `allocation_edge_id` over both
+source types/keys/versions, both receipt hashes, amount, currency and approved
+date-match basis. It is a trace handle only; it cannot be reused as a kernel
+reservation, WBS identifier, or posting authority.
 
 ## WBS workflow evidence, not state authority
 
