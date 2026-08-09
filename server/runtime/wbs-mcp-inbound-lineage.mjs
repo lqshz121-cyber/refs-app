@@ -31,6 +31,10 @@ const payableTrace=row=>freeze(Object.fromEntries([
   ['bank_relation_ref',row.cb_id],['cost_ledger_ref',row.cost_ledger_id],['owner_code',row.owner_code],['owner_company',row.owner_company],['company_code',row.company_code],['company_name',row.company_name],['division',row.division],
   ['project_code',row.pj_code],['activity_no',row.activity_no],['description',row.description],['faster_yardi_code',row.faster_yardi_code],['unit_code',row.unit_code],['cost_code',row.cost_code],['cost_name',row.cost_name],['cost_account_name',row.cost_account_name],['cost_state',row.cost_state],['create_mode',row.create_mode],['remarks',row.remarks],['bj_team_remarks',row.bj_team_remarks],['aging',row.aging]
 ].filter(([,value])=>text(value)!=='').map(([key,value])=>[key,text(value)])));
+// The observed Payable Report opens a PAYABLE source-detail drill-down by a
+// longId-style locator. It is relation evidence only: ap_guid remains the
+// producer key, and URLs/session tokens are deliberately never retained.
+const payableSourceDetailRelation=row=>freeze({source:'PAYABLE',source_type:'payable',long_id:text(row.ap_long_id)||null,can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});
 const bankTrace=row=>freeze(Object.fromEntries([
   ['transaction_date',row.set_date],['posting_date',row.posting_date],['account_code',row.account_code],['account_name',row.account_name],['payee',row.payee],['payee_no',row.payee_no],['memo',row.description],['ref_no',row.ref_no],
   ['deposit',row.deposit],['payment',row.payment],['project_code',row.pj_code],['department',row.department],['cost_code',row.cost_code],['brief_description',row.brief_description],
@@ -188,7 +192,7 @@ export function mapWbsMcpEnvelopeToInbound({envelope,bankDirectionConventions=nu
       // evidence. Incurred date may establish the business date, but must not
       // silently substitute for a missing/invalid posting date at admission.
       const admission=!isoDate(row.posting_date)?freeze({admission:'EXCEPTION_REVIEW_REQUIRED',exception_code:'WBS_MCP_PAYABLE_POSTING_DATE_REQUIRED',missing:freeze([...new Set([...baseAdmission.missing,'posting_date'])])}):baseAdmission;
-      rows.push(freeze({...common,...admission,exception_code:!directionRule?'WBS_MCP_PAYABLE_DIRECTION_CONVENTION_REQUIRED':admission.exception_code,business_date:businessDate,posting_date:row.posting_date||null,amount:movement?.amount??null,direction:movement?.direction??null,currency,payable_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_ref:row.cost_id||null,payable_link:row.ap_long_id||null,journal_trace:row.journal_no||null,payable_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false}));
+      rows.push(freeze({...common,...admission,exception_code:!directionRule?'WBS_MCP_PAYABLE_DIRECTION_CONVENTION_REQUIRED':admission.exception_code,business_date:businessDate,posting_date:row.posting_date||null,amount:movement?.amount??null,direction:movement?.direction??null,currency,payable_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_ref:row.cost_id||null,payable_link:row.ap_long_id||null,payable_source_detail:payableSourceDetailRelation(row),journal_trace:row.journal_no||null,payable_trace:payableTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false}));
     }
     else if(tool==='list_bank_transactions'){
       const directionRule=bankRules.get(text(row.account_code)),movement=directionRule?signedMovement(row,'lender','debtor',directionRule.lender_direction,directionRule.debtor_direction):null;
