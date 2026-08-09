@@ -117,6 +117,10 @@ test('formal provider envelope validates stable string keys, integer journal ids
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,content_sha256:'caller-value'}}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,rows:[{ap_guid:'AP-1',currency:'USD',amount:'1.00'}]}}),error=>error.code==='WBS_MCP_CONTENT_HASH_MISMATCH');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,rows:[{ap_guid:'AP-1',currency:'CAD'}]}}),error=>error.code==='WBS_MCP_CURRENCY_UNSUPPORTED');
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,cursor_next:'next-page'}}),error=>error.code==='WBS_MCP_PAGINATION_SNAPSHOT_TOKEN_REQUIRED');
+  const paged={...envelope,scope:{...envelope.scope,snapshot_token:'snapshot-2026.08:1'},cursor_next:'next-page'};
+  assert.equal(validateWbsReadEnvelope({toolName:'list_payables',envelope:paged}).scope.snapshot_token,'snapshot-2026.08:1');
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,scope:{...envelope.scope,snapshot_token:'bad token'}}}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
 });
 
 test('tool call fails closed on invalid JSON text, invalid hash and remote error',async()=>{

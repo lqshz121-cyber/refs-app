@@ -15,7 +15,10 @@ const completeEnvelope=(envelope,toolName)=>{
 };
 const checkedProviderEnvelope=(envelope,toolName)=>{
   const normalized=providerEnvelope(envelope);
-  try{return validateWbsReadEnvelope({toolName,envelope:normalized});}catch{fail('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} page is not a valid immutable read envelope.`);}
+  try{return validateWbsReadEnvelope({toolName,envelope:normalized});}catch(cause){
+    if(cause?.code)fail(cause.code,cause.message);
+    fail('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} page is not a valid immutable read envelope.`);
+  }
 };
 async function readCompleteTransactionEnvelope({client,toolName,args,companyKey}){
   let raw;try{raw=await client.readView({toolName,args:structuredClone(args)});}catch(cause){
