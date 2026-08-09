@@ -235,6 +235,32 @@ pgTest('WBS trace relation evidence is receipt-bound, replay-safe, readable, and
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
 });
 
+pgTest('WBS Cost GL control metrics are receipt-bound, readable, replay-safe, and never create a journal',async()=>{
+  const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),capturedAt=new Date().toISOString();
+  const journalsBefore=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:capturedAt,environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-CONTROL',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:randomUUID(),ap_type:'AUTOC'}]}]};
+  snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));snapshot.package_hash=canonicalRequestHash(snapshot);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'control-importer',['WBS.SNAPSHOT.IMPORT'])});
+  const observed=await kernel.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'snapshot-control-0001'});
+  const inboundReceipt={payload_hash:hash('cost-control-receipt'),payload_ref:`object://wbs-snapshot/${snapshotId}/inbound/COST-GL`};
+  const rows=[{source_record_id:'COST-GL',source_version:`snapshot:${snapshotId}:COST-GL`,raw:{record_id:'COST-GL',company_key:ids.sourceEntityId},normalized:{source_type:'COST_GENERAL_LEDGER',source_record_id:'COST-GL',source_version:`snapshot:${snapshotId}:COST-GL`,company_key:ids.sourceEntityId,receipt_hash:inboundReceipt.payload_hash,receipt_ref:inboundReceipt.payload_ref},outcome:{stage:'CONTROL_EVIDENCE_ONLY'},outcome_kind:'EXCEPTION'}];
+  const inboundKey='wbs-control-inbound-0001',inboundHash=canonicalRequestHash({tenant_id:ids.tenantId,entity_id:ids.entityId,import_batch_id:observed.import_batch_id,receipt:inboundReceipt,rows,idempotency_key:inboundKey});
+  const inbound=await kernel.persistWbsInboundRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,receipt:inboundReceipt,rows,idempotencyKey:inboundKey,requestHash:inboundHash});
+  const scope={tenant_id:ids.tenantId,entity_id:ids.entityId,company_key:ids.sourceEntityId,period:'2026-08',currency:'USD'};
+  const metrics=[{metric_key:'COST_METRIC_01',amount:'10.0000'},{metric_key:'COST_METRIC_02',amount:'20.0000'}];
+  const receipt={hash:inboundReceipt.payload_hash,metrics_hash:canonicalRequestHash(metrics),ref:inboundReceipt.payload_ref,version:'v1',scope,signature_verified:true,manifest_hash:hash('control-manifest'),key_id:'wbs-control-key',algorithm:'Ed25519'};
+  const bindingHash=canonicalRequestHash({sourceType:'COST_GENERAL_LEDGER',scope,receiptId:inbound.receipt_id,receipt,metrics});
+  const created=await kernel.persistWbsControlMetricSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,sourceType:'COST_GENERAL_LEDGER',scope,receiptId:inbound.receipt_id,receipt,metrics,idempotencyKey:bindingHash,bindingHash});
+  assert.deepEqual({source:created.source_type,draft:created.can_create_draft,post:created.can_post},{source:'COST_GENERAL_LEDGER',draft:false,post:false});
+  const replay=await kernel.persistWbsControlMetricSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,sourceType:'COST_GENERAL_LEDGER',scope,receiptId:inbound.receipt_id,receipt,metrics,idempotencyKey:bindingHash,bindingHash});assert.equal(replay.idempotent,true);
+  const read=await kernel.readPersistedWbsControlSnapshot({source_type:'COST_GENERAL_LEDGER',tenant_id:ids.tenantId,entity_id:ids.entityId,scope,read_only:true});assert.equal(read.snapshot_id,created.snapshot_id);assert.equal(read.metrics.length,2);assert.equal(read.receipt.signature_verified,true);assert.equal(read.can_post,false);
+  await assert.rejects(kernel.persistWbsControlMetricSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,sourceType:'COST_GENERAL_LEDGER',scope,receiptId:inbound.receipt_id,receipt,metrics:[...metrics,{metric_key:'COST_METRIC_03',amount:'30.0000'}],idempotencyKey:'wbs-control-forged-0001'}),error=>error.code==='WBS_CONTROL_SNAPSHOT_METRICS_HASH_INVALID');
+  const propertyScope={tenant_id:ids.tenantId,entity_id:ids.entityId,company_key:ids.sourceEntityId,property_ref:'PROPERTY-001',period_start:'2026-08-01',period_end:'2026-08-31',currency:'USD',bank_account_ref:'BANK-001'};
+  const propertyReceipt={...receipt,scope:propertyScope};
+  await assert.rejects(kernel.persistWbsControlMetricSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,sourceType:'PROPERTY_COMPARISON',scope:propertyScope,receiptId:inbound.receipt_id,receipt:propertyReceipt,metrics,idempotencyKey:'wbs-control-cross-source-0001'}),error=>error.code==='22023');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
+});
+
 pgTest('authenticated HTTP records only sandbox WBS snapshot observations in its authorized entity',async()=>{
   const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),rowId=randomUUID();
   const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:new Date().toISOString(),environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-HTTP',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:rowId,ap_type:'AUTOC'}]}]};snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));snapshot.package_hash=canonicalRequestHash(snapshot);

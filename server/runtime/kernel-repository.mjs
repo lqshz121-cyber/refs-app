@@ -154,6 +154,23 @@ export class PostgresAccountingKernel{
     ),'WBS_TRACE_RELATION_READ_FAILED','WBS trace relation read did not return a result').result);
   }
 
+  async persistWbsControlMetricSnapshot({tenantId,entityId,sourceType,scope,receiptId,receipt,metrics,idempotencyKey,bindingHash}){
+    const requestHash=canonicalRequestHash({sourceType,scope,receiptId,receipt,metrics});
+    if(bindingHash!==undefined&&bindingHash!==requestHash)throw new KernelError('WBS_CONTROL_SNAPSHOT_HASH_INVALID','WBS control snapshot binding hash must match the canonical source, scope, receipt, and metrics');
+    if(!receipt||receipt.metrics_hash!==canonicalRequestHash(metrics))throw new KernelError('WBS_CONTROL_SNAPSHOT_METRICS_HASH_INVALID','WBS control snapshot metrics must match the receipt metrics hash');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_persist_wbs_control_metric_snapshot($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',
+      [tenantId,entityId,sourceType,JSON.stringify(scope),receiptId,JSON.stringify(receipt),JSON.stringify(metrics),idempotencyKey,requestHash]
+    ),'WBS_CONTROL_SNAPSHOT_PERSIST_FAILED','WBS control metric snapshot persistence did not return a result').result);
+  }
+
+  async readPersistedWbsControlSnapshot({source_type,tenant_id,entity_id,scope,read_only}){
+    if(read_only!==true||!scope||typeof scope!=='object')throw new KernelError('WBS_CONTROL_READ_SCOPE_INVALID','An explicit read-only WBS control selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_control_metric_snapshot($1,$2,$3,$4) AS result',[tenant_id,entity_id,source_type,JSON.stringify(scope)]
+    ),'WBS_CONTROL_READ_FAILED','WBS control snapshot read did not return a result').result);
+  }
+
   async readPersistedWbsInboundRows({tenantId,entityId,companyKey,sourceRecordIds,read_only}){
     if(read_only!==true||typeof companyKey!=='string'||companyKey.trim()===''||!Array.isArray(sourceRecordIds)||sourceRecordIds.length===0||sourceRecordIds.some(value=>typeof value!=='string'||value.trim()===''))throw new KernelError('WBS_AUTOREC_READ_SCOPE_INVALID','A non-empty read-only WBS inbound selection is required');
     return this.inSession(async client=>requireRow(await client.query(
