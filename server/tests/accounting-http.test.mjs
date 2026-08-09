@@ -276,6 +276,18 @@ test('real HTTP listener parses JSON, enforces size limits and emits no-store pr
   }finally{await new Promise(resolve=>server.close(resolve));}
 });
 
+test('real HTTP listener preserves an absent GET body and rejects an absent POST body',async()=>{
+  const server=createAccountingHttpServer({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try{
+    const base=`http://127.0.0.1:${server.address().port}`;
+    let response=await fetch(`${base}/api/v1/entities/${entityId}/reports/financial-statements?periodId=${periodId}`);
+    assert.equal(response.status,200);assert.equal((await response.json()).ok,true);
+    response=await fetch(`${base}/api/v1/entities/${entityId}/journal-entries/manual`,{method:'POST',headers:{'idempotency-key':'idem-http-empty'}});
+    assert.equal(response.status,400);assert.equal((await response.json()).code,'JSON_OBJECT_REQUIRED');
+  }finally{await new Promise(resolve=>server.close(resolve));}
+});
+
 test('HTTP CORS permits only configured browser origins and preflights without authentication',async()=>{
   const origin='https://staging.refs.example';const server=createAccountingHttpServer({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel,allowedOrigins:[origin]});
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));try{
