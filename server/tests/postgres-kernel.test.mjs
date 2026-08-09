@@ -169,6 +169,23 @@ pgTest('authorized WBS snapshot import persists immutable observations without c
   await assert.rejects(adminPool.query("UPDATE wbs_snapshot_receipt SET source_record_id='tampered' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
 });
 
+pgTest('WBS multi-receipt inbound snapshot persists atomically and replays without a journal command',async()=>{
+  const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),rowId=randomUUID(),capturedAt=new Date().toISOString();
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:capturedAt,environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-TEST',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:rowId,ap_type:'AUTOC'}]}]};
+  snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));snapshot.package_hash=canonicalRequestHash(snapshot);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-importer',['WBS.SNAPSHOT.IMPORT'])});
+  const observed=await kernel.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'snapshot-multi-inbound-0001'});
+  const group=(recordId,receiptHash)=>({receipt:{payload_hash:receiptHash,payload_ref:`object://wbs-snapshot/${snapshotId}/inbound/${recordId}`},rows:[{source_record_id:recordId,source_version:`snapshot:${snapshotId}:${recordId}`,raw:{record_id:recordId},normalized:{source_type:'PAYABLE',source_record_id:recordId,source_version:`snapshot:${snapshotId}:${recordId}`,receipt_hash:receiptHash,receipt_ref:`object://wbs-snapshot/${snapshotId}/inbound/${recordId}`},outcome:{stage:'STAGING_REVIEW_REQUIRED'},outcome_kind:'STAGING'}]});
+  const groups=[group('PAY-1',hash('multi-receipt-1')),group('BANK-1',hash('multi-receipt-2'))],idempotencyKey='wbs-multi-receipt-0001',requestHash=canonicalRequestHash({tenant_id:ids.tenantId,entity_id:ids.entityId,import_batch_id:observed.import_batch_id,groups,idempotency_key:idempotencyKey});
+  const created=await kernel.persistWbsInboundSnapshotRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,groups,idempotencyKey,requestHash});
+  assert.deepEqual({groups:created.receipt_group_count,rows:created.row_count,draft:created.can_create_draft,post:created.can_post},{groups:2,rows:2,draft:false,post:false});assert.equal(created.groups.length,2);assert(created.groups.every(item=>item.receipt_id&&item.row_count===1));
+  const replay=await kernel.persistWbsInboundSnapshotRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,groups,idempotencyKey,requestHash});assert.equal(replay.idempotent,true);
+  await assert.rejects(kernel.persistWbsInboundSnapshotRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,groups,idempotencyKey,requestHash:hash('changed-multi-request')}),error=>error.code==='23505');
+  const duplicate=[group('DUP-1',hash('multi-duplicate-1')),group('DUP-1',hash('multi-duplicate-2'))],duplicateHash=canonicalRequestHash({tenant_id:ids.tenantId,entity_id:ids.entityId,import_batch_id:observed.import_batch_id,groups:duplicate,idempotency_key:'wbs-multi-receipt-0002'});
+  await assert.rejects(kernel.persistWbsInboundSnapshotRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,groups:duplicate,idempotencyKey:'wbs-multi-receipt-0002',requestHash:duplicateHash}),error=>error.code==='22023');
+  const counts=await adminPool.query('SELECT (SELECT count(*)::int FROM wbs_inbound_receipt WHERE tenant_id=$1 AND entity_id=$2) AS receipts,(SELECT count(*)::int FROM wbs_inbound_row WHERE tenant_id=$1 AND entity_id=$2) AS rows',[ids.tenantId,ids.entityId]);assert.deepEqual(counts.rows[0],{receipts:2,rows:2});
+});
+
 pgTest('authenticated HTTP records only sandbox WBS snapshot observations in its authorized entity',async()=>{
   const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),rowId=randomUUID();
   const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:new Date().toISOString(),environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-HTTP',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:rowId,ap_type:'AUTOC'}]}]};snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));snapshot.package_hash=canonicalRequestHash(snapshot);

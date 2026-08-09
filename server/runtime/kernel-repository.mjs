@@ -131,6 +131,13 @@ export class PostgresAccountingKernel{
     ),'WBS_INBOUND_PERSIST_FAILED','WBS inbound persistence did not return a result').result);
   }
 
+  async persistWbsInboundSnapshotRows({tenantId,entityId,importBatchId,groups,idempotencyKey,requestHash}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_persist_wbs_inbound_snapshot_rows($1,$2,$3,$4,$5,$6) AS result',
+      [tenantId,entityId,importBatchId,JSON.stringify(groups),idempotencyKey,requestHash]
+    ),'WBS_INBOUND_SNAPSHOT_PERSIST_FAILED','WBS inbound snapshot persistence did not return a result').result);
+  }
+
   async readPersistedWbsInboundRows({tenantId,entityId,companyKey,sourceRecordIds,read_only}){
     if(read_only!==true||typeof companyKey!=='string'||companyKey.trim()===''||!Array.isArray(sourceRecordIds)||sourceRecordIds.length===0||sourceRecordIds.some(value=>typeof value!=='string'||value.trim()===''))throw new KernelError('WBS_AUTOREC_READ_SCOPE_INVALID','A non-empty read-only WBS inbound selection is required');
     return this.inSession(async client=>requireRow(await client.query(
