@@ -323,5 +323,10 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'065_wbs_autorec_observed_state_evidence.sql',
     up:'ef6c6e72c7441903ffb627c9d2746561f9b89a16254343d2f68d411ee42c3e6b',
     down:'bec250a1c2ad8386ab7cc74a0ba41669612db6771b2d5c5007c3d93cf82ca138'
+  }),
+  Object.freeze({
+    name:'066_wbs_cost_gl_metric_cardinality.sql',
+    up:'f4a8854a4a8e12f0027b721a1762913463b389f73355c947876af5acd35dcf4e',
+    down:'0deb5de4e5b027274091d2c9865576d1b3b258fb401aaecba8f95de2027634a7'
   })
 ]);
