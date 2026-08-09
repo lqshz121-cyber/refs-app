@@ -156,7 +156,11 @@ substitutes. Returned relations remain read-only evidence.
    (`policy/matching-rule` IDs and versions plus the exact bank-side and
    business-side mapping IDs and versions). UI/import parameters cannot widen
    the policy. A missing, stale, ambiguous, cross-scope, or source-mapping
-   mismatch is blocked;
+   mismatch is blocked. Every mapping must be effective on its row's
+   accounting date, and all rows on the same policy side must carry one
+   identical immutable mapping effective window. Date-compatible edges use
+   deterministic maximum flow, so an early flexible row cannot consume the
+   only compatible counterparty of a later restricted row;
    this remains a review plan rather than a reservation.
 3. Review candidates have `can_allocate=false`, `can_create_draft=false`, and
    `can_post=false`; allocation/release/incur/posting remain authoritative REFS
