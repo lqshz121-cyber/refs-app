@@ -281,6 +281,28 @@ pgTest('WBS Property Comparison metrics retain property and bank scope as non-tr
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
 });
 
+pgTest('WBS AutoRec observed state evidence is receipt-bound history, not a REFS workflow command',async()=>{
+  const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),capturedAt=new Date().toISOString();
+  const journalsBefore=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:capturedAt,environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-AUTOREC',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:randomUUID(),ap_type:'AUTOC'}]}]};
+  snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));snapshot.package_hash=canonicalRequestHash(snapshot);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'autorec-observation-importer',['WBS.SNAPSHOT.IMPORT'])});
+  const observed=await kernel.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'snapshot-autorec-observation-0001'});
+  const receipt={payload_hash:hash('autorec-observation-receipt'),payload_ref:`object://wbs-snapshot/${snapshotId}/inbound/AUTOREC-DETAIL`};
+  const rows=[{source_record_id:'PD-OBSERVED-001',source_version:`snapshot:${snapshotId}:PD-OBSERVED-001`,raw:{record_id:'PD-OBSERVED-001',company_key:ids.sourceEntityId},normalized:{source_type:'AUTOREC_PAYMENT_DETAIL',source_record_id:'PD-OBSERVED-001',source_version:`snapshot:${snapshotId}:PD-OBSERVED-001`,company_key:ids.sourceEntityId,receipt_hash:receipt.payload_hash,receipt_ref:receipt.payload_ref},outcome:{stage:'REVIEW_ONLY'},outcome_kind:'EXCEPTION'}];
+  const inboundKey='wbs-autorec-observation-inbound-0001',inboundHash=canonicalRequestHash({tenant_id:ids.tenantId,entity_id:ids.entityId,import_batch_id:observed.import_batch_id,receipt,rows,idempotency_key:inboundKey});
+  const inbound=await kernel.persistWbsInboundRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,receipt,rows,idempotencyKey:inboundKey,requestHash:inboundHash});
+  const observations=[{company_key:ids.sourceEntityId,source_record_id:'PD-OBSERVED-001',source_version:rows[0].source_version,receipt_id:inbound.receipt_id,receipt_hash:receipt.payload_hash,observed_at:'2026-08-10T12:00:00Z',observed_state:'RELEASED',observed_workflow_step:'DATA_PROCESSING_RELEASE',source_status_code:'Released',source_match_status_code:'Matched'}];
+  const bindingHash=canonicalRequestHash({tenantId:ids.tenantId,entityId:ids.entityId,observations});
+  const created=await kernel.persistWbsAutoRecObservedStateEvidence({tenantId:ids.tenantId,entityId:ids.entityId,observations,idempotencyKey:bindingHash,bindingHash});
+  assert.deepEqual({accepted:created.accepted_count,release:created.can_release,incur:created.can_incur,post:created.can_post},{accepted:1,release:false,incur:false,post:false});
+  const replay=await kernel.persistWbsAutoRecObservedStateEvidence({tenantId:ids.tenantId,entityId:ids.entityId,observations,idempotencyKey:bindingHash,bindingHash});assert.equal(replay.idempotent,true);
+  const read=await kernel.readWbsAutoRecObservedStateEvidence({tenantId:ids.tenantId,entityId:ids.entityId,companyKey:ids.sourceEntityId,sourceRecordIds:['PD-OBSERVED-001'],read_only:true});
+  assert.deepEqual({count:read.length,state:read[0].observed_state,step:read[0].observed_workflow_step,post:read[0].can_post},{count:1,state:'RELEASED',step:'DATA_PROCESSING_RELEASE',post:false});
+  await assert.rejects(kernel.persistWbsAutoRecObservedStateEvidence({tenantId:ids.tenantId,entityId:ids.entityId,observations,idempotencyKey:'wbs-autorec-observation-forged-0001',bindingHash:hash('forged-state-binding')}),error=>error.code==='WBS_AUTOREC_OBSERVED_STATE_HASH_INVALID');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
+});
+
 pgTest('authenticated HTTP records only sandbox WBS snapshot observations in its authorized entity',async()=>{
   const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),rowId=randomUUID();
   const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:new Date().toISOString(),environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-HTTP',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:rowId,ap_type:'AUTOC'}]}]};snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));snapshot.package_hash=canonicalRequestHash(snapshot);

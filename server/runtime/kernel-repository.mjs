@@ -171,6 +171,22 @@ export class PostgresAccountingKernel{
     ),'WBS_CONTROL_READ_FAILED','WBS control snapshot read did not return a result').result);
   }
 
+  async persistWbsAutoRecObservedStateEvidence({tenantId,entityId,observations,idempotencyKey,bindingHash}){
+    const requestHash=canonicalRequestHash({tenantId,entityId,observations});
+    if(bindingHash!==undefined&&bindingHash!==requestHash)throw new KernelError('WBS_AUTOREC_OBSERVED_STATE_HASH_INVALID','WBS observed-state evidence binding hash must match its scoped observations');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_persist_wbs_autorec_observed_state_evidence($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,JSON.stringify(observations),idempotencyKey,requestHash]
+    ),'WBS_AUTOREC_OBSERVED_STATE_PERSIST_FAILED','WBS observed-state evidence persistence did not return a result').result);
+  }
+
+  async readWbsAutoRecObservedStateEvidence({tenantId,entityId,companyKey,sourceRecordIds,read_only}){
+    if(read_only!==true||typeof companyKey!=='string'||companyKey.trim()===''||!Array.isArray(sourceRecordIds)||sourceRecordIds.length===0||sourceRecordIds.some(value=>typeof value!=='string'||value.trim()===''))throw new KernelError('WBS_AUTOREC_OBSERVED_STATE_READ_SCOPE_INVALID','A non-empty read-only observed-state selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_autorec_observed_state_evidence($1,$2,$3,$4::text[]) AS rows',[tenantId,entityId,companyKey,sourceRecordIds]
+    ),'WBS_AUTOREC_OBSERVED_STATE_READ_FAILED','WBS observed-state evidence read did not return a result').rows);
+  }
+
   async readPersistedWbsInboundRows({tenantId,entityId,companyKey,sourceRecordIds,read_only}){
     if(read_only!==true||typeof companyKey!=='string'||companyKey.trim()===''||!Array.isArray(sourceRecordIds)||sourceRecordIds.length===0||sourceRecordIds.some(value=>typeof value!=='string'||value.trim()===''))throw new KernelError('WBS_AUTOREC_READ_SCOPE_INVALID','A non-empty read-only WBS inbound selection is required');
     return this.inSession(async client=>requireRow(await client.query(
