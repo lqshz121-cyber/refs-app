@@ -1,6 +1,7 @@
 import {KernelError,requireRow,withSerializableRetry} from './db.mjs';
 import {PostgresGrantSync} from './grant-sync.mjs';
 import {canonicalRequestHash} from './request-hash.mjs';
+import {RemoteJwksResolver,OidcJwtAuthenticator} from '../api/oidc-authenticator.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CODE=/^[A-Z0-9_-]{2,32}$/;
@@ -93,6 +94,21 @@ export function stage1GrantConfig(environment=process.env){
   });
 }
 
+export function stage1AuthenticatedGrantConfig(environment=process.env){
+  exactStaging(environment);
+  const expectedVersion=Number(required(environment,'REFS_STAGE1_GRANT_EXPECTED_VERSION'));
+  if(!Number.isSafeInteger(expectedVersion)||expectedVersion<0)throw new KernelError('STAGE1_BOOTSTRAP_CONFIG_INVALID','REFS_STAGE1_GRANT_EXPECTED_VERSION must be a non-negative safe integer');
+  return Object.freeze({
+    tenantId:uuid(required(environment,'REFS_STAGE1_TENANT_ID'),'REFS_STAGE1_TENANT_ID'),
+    entityId:uuid(required(environment,'REFS_STAGE1_ENTITY_ID'),'REFS_STAGE1_ENTITY_ID'),
+    expectedVersion,
+    idempotencyKey:text(required(environment,'REFS_STAGE1_GRANT_IDEMPOTENCY_KEY'),'REFS_STAGE1_GRANT_IDEMPOTENCY_KEY',{pattern:IDEMPOTENCY,max:128}),
+    accessToken:required(environment,'REFS_AUTHENTICATED_ACCESS_TOKEN'),
+    issuer:required(environment,'OIDC_ISSUER'),audience:required(environment,'OIDC_AUDIENCE'),jwksUri:required(environment,'OIDC_JWKS_URI'),
+    permissions:[...STAGE1_READ_PERMISSIONS],
+  });
+}
+
 const normalizedRow=row=>Object.fromEntries(Object.entries(row).map(([key,value])=>[key,value instanceof Date?value.toISOString().slice(0,10):value]));
 const same=(actual,expected)=>canonicalRequestHash(normalizedRow(actual))===canonicalRequestHash(expected);
 const conflict=(label)=>{throw new KernelError('STAGE1_BOOTSTRAP_STATE_CONFLICT',`${label} conflicts with the requested immutable staging scope`);};
@@ -147,4 +163,11 @@ export async function grantStage1ReadAccess(pool,config,{principalProvider=async
   const returned=[...(result.permissions||[])].sort();
   if(returned.length!==STAGE1_READ_PERMISSIONS.length||returned.some((value,index)=>value!==STAGE1_READ_PERMISSIONS[index]))throw new KernelError('STAGE1_GRANT_RESULT_INVALID','Grant sync returned an unexpected permission set');
   return {idempotent:result.idempotent===true,version:result.version,permissionCount:returned.length};
+}
+
+export async function grantStage1AuthenticatedReadAccess(pool,config,{authenticator}={}){
+  const verified=authenticator||new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:new RemoteJwksResolver({jwksUri:config.jwksUri})});
+  const principal=await verified.authenticate({headers:{authorization:`Bearer ${config.accessToken}`}});
+  if(principal.tenantId!==config.tenantId)throw new KernelError('STAGE1_GRANT_TENANT_DENIED','Authenticated token tenant does not match the configured Stage 1 tenant');
+  return grantStage1ReadAccess(pool,{tenantId:config.tenantId,entityId:config.entityId,actorId:principal.actorId,expectedVersion:config.expectedVersion,idempotencyKey:config.idempotencyKey,permissions:config.permissions});
 }

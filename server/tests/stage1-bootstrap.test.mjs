@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {STAGE1_READ_PERMISSIONS,grantStage1ReadAccess,stage1GrantConfig,stage1ProvisionConfig} from '../runtime/stage1-bootstrap.mjs';
+import {STAGE1_READ_PERMISSIONS,grantStage1AuthenticatedReadAccess,grantStage1ReadAccess,stage1AuthenticatedGrantConfig,stage1GrantConfig,stage1ProvisionConfig} from '../runtime/stage1-bootstrap.mjs';
 
 const serverRoot=fileURLToPath(new URL('..',import.meta.url));
 
@@ -37,6 +37,12 @@ test('Stage 1 bootstrap refuses non-staging execution, invalid scope, incomplete
 test('Stage 1 grant wrapper refuses an altered permission set before reaching PostgreSQL',async()=>{
   const config={...stage1GrantConfig(base),permissions:['AP.VIEW']};
   await assert.rejects(grantStage1ReadAccess({},config),error=>error.code==='STAGE1_GRANT_SCOPE_DENIED');
+});
+
+test('authenticated Stage 1 grants derive only the verified access-token subject and reject tenant swaps before PostgreSQL',async()=>{
+  const config=stage1AuthenticatedGrantConfig({...base,REFS_AUTHENTICATED_ACCESS_TOKEN:'opaque-access-token',OIDC_ISSUER:'https://issuer.example',OIDC_AUDIENCE:'refs-stage1',OIDC_JWKS_URI:'https://issuer.example/jwks'});
+  assert.equal(Object.hasOwn(config,'actorId'),false);
+  await assert.rejects(grantStage1AuthenticatedReadAccess({},config,{authenticator:{authenticate:async()=>({tenantId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',actorId:'auth0|swapped'})}}),error=>error.code==='STAGE1_GRANT_TENANT_DENIED');
 });
 
 test('Stage 1 CLI failure output contains only a stable code and never echoes configuration or secrets',()=>{
