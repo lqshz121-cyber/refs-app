@@ -67,3 +67,10 @@ test('AutoRec mapping reader retains retired snapshots for closed-period receipt
   assert.doesNotMatch(up,/effective_from<=clock_timestamp\(\)/);
   assert.match(down,/status='APPROVED'/);
 });
+
+test('AutoRec matching-policy reader is scoped configuration evidence and cannot write accounting data',async()=>{
+  const up=await readFile(new URL('../db/migrations/071_wbs_autorec_matching_policy_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/071_wbs_autorec_matching_policy_read.sql',import.meta.url),'utf8');
+  for(const token of ['WBS_AUTOREC_MATCH',"'amount_tolerance'","'date_match_basis'",'refs_assert_scope','REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token));
+  assert.doesNotMatch(up,/\b(?:INSERT|UPDATE|DELETE)\b/i);assert.match(down,/DROP FUNCTION IF EXISTS refs_read_wbs_autorec_matching_policies/);
+});
