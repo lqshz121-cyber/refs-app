@@ -160,6 +160,9 @@ test('G11 accepts only both posted AutoRec legs with exact source trace and per-
 });
 
 test('observed WBS source, Come From, detail, relation, audit and forbidden-operation contract is exact and read-only',()=>{
+  for(const field of ['company','vendor','project','account','posting_date','journal_no','match_status'])assert(WBS_AUTOREC_OBSERVED_CONTRACT.payable_filter_fields.includes(field));
+  for(const field of ['payable_no','invoice_no','amount','posting_date','journal_no','cost_account_name','aging'])assert(WBS_AUTOREC_OBSERVED_CONTRACT.payable_row_fields.includes(field));
+  assert.deepEqual(WBS_AUTOREC_OBSERVED_CONTRACT.payable_trace_affordances,{cost_account_name:'PROJECT_COST_DETAIL_OBSERVED',posting_date:'ACCOUNTING_JOURNAL_TRACE_OBSERVED'});
   assert(WBS_AUTOREC_OBSERVED_CONTRACT.company_account_sources.includes('Auto Bank Reimbursement'));assert(WBS_AUTOREC_OBSERVED_CONTRACT.company_account_sources.includes('ROE'));
   assert(WBS_AUTOREC_OBSERVED_CONTRACT.company_account_come_from.includes('FINREPAYMENT'));assert(WBS_AUTOREC_OBSERVED_CONTRACT.company_account_come_from.includes('Yardi S.L'));
   assert.deepEqual(WBS_AUTOREC_OBSERVED_CONTRACT.bankbook_come_from,['Not Match','Construction Loan','Financing','Reversal','YARDI','YARDISL','No Need To Match']);

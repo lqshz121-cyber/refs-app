@@ -16,6 +16,12 @@ const VIEW_TYPES=Object.freeze({
 });
 const TRANSACTION_TYPES=new Set(['PAYABLE','BANK_TRANSACTION','AUTOREC_PAYMENT_DETAIL']);
 export const WBS_AUTOREC_OBSERVED_CONTRACT=Object.freeze({
+  // Read-only observation of the WBS Payable Report list on 2026-08-10.
+  // These names are an external display schema, not permission to use a
+  // display value as an immutable source key or to reproduce WBS actions.
+  payable_filter_fields:Object.freeze(['type','company','owner_code','owner_company','project','vendor','account','unit_code','payable_no','check_system','business_status','pay_type','check','pay_status','match_status','cost_code','aging_date','check_no','journal_no','invoice_no','journal_code','description','amount','check_amount','cost_ledger','cost_state','review_status','posting_status','check_date','incurred_date','pay_due_date','posting_date','clear_date']),
+  payable_row_fields:Object.freeze(['match_status','display_guid','seq_no','payable_no','pay_status','vendor','type','account_code','account_code_name','invoice_no','invoice_description','invoice_date','amount','incurred_date','pay_due_date','rolling_date','pay_type','check_system','check_no','check_date','check_amount','clear_date','status','owner_code','owner_company','company_code','company','division','project','activity_no','description','fast_yardi_code','unit_code','cost_code','cost_name','journal_code','cost_account_name','cost_state','posting_date','journal_no','create_mode','remarks','bj_team_remarks','aging']),
+  payable_trace_affordances:Object.freeze({cost_account_name:'PROJECT_COST_DETAIL_OBSERVED',posting_date:'ACCOUNTING_JOURNAL_TRACE_OBSERVED'}),
   company_account_sources:Object.freeze(['Auto Bank Reimbursement','Auto Payment','Auto Reimbursement','Contract Invoice','Reimbursement Invoice','Manually Importing','FAST','FASTER','GC','Internal Transfer','Income','Individual','Internal','Monthly','Payable','Reversal','ROE']),
   company_account_come_from:Object.freeze(['FAST','Work Order','FASTER','Contract Invoice','Reimbursement Invoice','Manually Importing','Internal Transfer','Sales Income','Sales2','Sales3','Dividend','Const Loan','FINDRAW','FINREPAYMENT','FINPAYINT','FINFEE','Auto Payment','Auto Reimbursement','Auto Bank Reimbursement','Multiplier','Collection funds','Internal payment process','Paid expenses','HOA','Yardi','Yardi S.L','CONSOLIDATE']),
   bankbook_come_from:Object.freeze(['Not Match','Construction Loan','Financing','Reversal','YARDI','YARDISL','No Need To Match']),

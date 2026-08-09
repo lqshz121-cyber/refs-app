@@ -41,6 +41,29 @@ reversal, ledger, and audit actions.
 `cb_id`, journal number, Payable No., Ref No., Seq No., batch ID, memo, and
 display GuId are never immutable transaction or allocation keys.
 
+### Observed Payable lineage (read-only evidence)
+
+The live Payable Report list was read without changing a WBS record. Its
+filter surface includes company, vendor, project, account, payable/invoice and
+journal identifiers, pay/match/review/posting statuses, cost code, amount and
+business/date filters. The list exposes Payable/Invoice identity *display
+fields*, vendor, company, project, account/cost dimensions, amount, invoice,
+incurred, due, check, clear and **Posting Date**, Journal No., and aging.
+
+The observed display routes show two useful trace affordances: **Cost Account
+Name** opens a project-cost detail, and **Posting Date** opens an accounting
+journal trace. Neither target is an import authorization, immutable provider
+key, or posting instruction. In REFS the lineage is therefore:
+
+`receipt-backed Payable source -> Raw -> Normalized (business date + Posting
+Date as accounting date) -> Staging/Exception -> mapping/review candidate ->
+standard REFS Draft request -> REFS approval/post/ledger trace`.
+
+The WBS controls visible on the list (process/status changes, refresh,
+download/upload, account/type/code changes, and save) remain forbidden. The
+observed schema is captured in `WBS_AUTOREC_OBSERVED_CONTRACT` and is marked
+OBSERVED, not VERIFIED provider semantics.
+
 ## State and accounting boundaries
 
 WBS stage labels are retained as observed evidence only:
