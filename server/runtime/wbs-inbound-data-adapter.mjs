@@ -291,7 +291,6 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
     const accountingMatches=dayDistance(bank.accounting_date,business.accounting_date)<=dateWindow;
     return dateBasis==='BUSINESS_ONLY'?businessMatches:dateBasis==='ACCOUNTING_ONLY'?accountingMatches:businessMatches&&accountingMatches;
   };
-  for(const bank of bankRows)for(const business of businessRows)if(!dateMatches(bank,business))exceptions.push(eligibilityException('PAIR',business,'WBS_AUTOREC_PLAN_DATE_WINDOW_MISMATCH','Proposed bank and business rows exceed the approved date window for the selected date-match basis.'));
   // Company Screening M/R/C evidence is optional for local fixtures, but once
   // admitted into a candidate it cannot be silently dropped or mixed with a
   // different snapshot in the resulting review proposal.
@@ -321,6 +320,11 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
   const banks=remaining(bankRows),businesses=remaining(businessRows),allocation=[];
   for(const bank of banks)for(const business of businesses){
     if(bank.remaining<=toleranceValue||business.remaining<=toleranceValue)continue;
+    // Date compatibility is an allocation-edge constraint, not a requirement
+    // that every bank row match every business row in a split proposal.
+    // Otherwise one unrelated cross-pair would block a valid one-to-many or
+    // many-to-one partial review plan.
+    if(!dateMatches(bank.row,business.row))continue;
     const allocated=Number(Math.min(bank.remaining,business.remaining).toFixed(4));
     bank.remaining=Number((bank.remaining-allocated).toFixed(4));business.remaining=Number((business.remaining-allocated).toFixed(4));
     // This is a proposal identity, never an allocation command identity.  It
@@ -338,9 +342,11 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
   const businessTotal=Number(businesses.reduce((sum,item)=>sum+Math.abs(amount(item.row.amount)),0).toFixed(4));
   const allocatedTotal=Number(allocation.reduce((sum,item)=>sum+item.amount,0).toFixed(4));
   const bankRemaining=Number(banks.reduce((sum,item)=>sum+item.remaining,0).toFixed(4)),businessRemaining=Number(businesses.reduce((sum,item)=>sum+item.remaining,0).toFixed(4));
-  const difference=Number(Math.abs(bankTotal-businessTotal).toFixed(4)),balanced=difference<=toleranceValue;
+  const difference=Number(Math.abs(bankTotal-businessTotal).toFixed(4)),amountsBalanced=difference<=toleranceValue,fullyAllocated=bankRemaining<=toleranceValue&&businessRemaining<=toleranceValue;
+  if(allocation.length===0)return freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze([eligibilityException('PAIR',anchor,'WBS_AUTOREC_PLAN_DATE_WINDOW_MISMATCH','No proposed bank/business allocation edge is within the approved date window for the selected date-match basis.')]),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
+  const balanced=amountsBalanced&&fullyAllocated;
   const trace=allocation.map(item=>({allocation_edge_id:item.allocation_edge_id,date_match_basis:item.date_match_basis,bank_source_type:item.bank_source_type,bank_source_record_id:item.bank_source_record_id,bank_source_version:item.bank_source_version,business_source_type:item.business_source_type,business_source_record_id:item.business_source_record_id,business_source_version:item.business_source_version,bank_receipt_hash:item.bank_receipt_hash,business_receipt_hash:item.business_receipt_hash,company_control_snapshot_hash:item.company_control_snapshot_hash}));
-  return freeze({review_plan_id:canonicalRequestHash({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,tolerance:toleranceValue,date_window_days:dateWindow,date_match_basis:dateBasis,company_control_snapshot_hash:companyControlTrace?.control_snapshot_hash??null,trace}),status:balanced?'REVIEW_REQUIRED':'PARTIAL_REVIEW_REQUIRED',allocation_plan:freeze(allocation),exceptions:freeze([]),control_totals:freeze({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,bank_total:bankTotal,business_total:businessTotal,allocated_total:allocatedTotal,bank_unallocated:bankRemaining,business_unallocated:businessRemaining,difference,tolerance:toleranceValue,date_window_days:dateWindow,date_match_basis:dateBasis,balanced,company_control_snapshot_hash:companyControlTrace?.control_snapshot_hash??null}),company_control_trace:companyControlTrace,trace:freeze(trace),controls:freeze({can_allocate:false,can_release:false,can_post:false,required_next_controls:freeze(['authoritative source reservation','human Auto Reconciliation review','standard REFS release/incur workflow'])})});
+  return freeze({review_plan_id:canonicalRequestHash({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,tolerance:toleranceValue,date_window_days:dateWindow,date_match_basis:dateBasis,company_control_snapshot_hash:companyControlTrace?.control_snapshot_hash??null,trace}),status:balanced?'REVIEW_REQUIRED':'PARTIAL_REVIEW_REQUIRED',allocation_plan:freeze(allocation),exceptions:freeze([]),control_totals:freeze({company_key:anchor.company_key,currency:anchor.currency,bank_account_ref:anchor.bank_account_ref,bank_total:bankTotal,business_total:businessTotal,allocated_total:allocatedTotal,bank_unallocated:bankRemaining,business_unallocated:businessRemaining,difference,tolerance:toleranceValue,date_window_days:dateWindow,date_match_basis:dateBasis,amounts_balanced:amountsBalanced,fully_allocated:fullyAllocated,balanced,company_control_snapshot_hash:companyControlTrace?.control_snapshot_hash??null}),company_control_trace:companyControlTrace,trace:freeze(trace),controls:freeze({can_allocate:false,can_release:false,can_post:false,required_next_controls:freeze(['authoritative source reservation','human Auto Reconciliation review','standard REFS release/incur workflow'])})});
 }
 
 // The generic builder above is intentionally useful for local golden fixtures.

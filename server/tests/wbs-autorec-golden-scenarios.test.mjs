@@ -58,6 +58,16 @@ test('provider-backed matching policy declares the WBS date basis instead of ass
   assert.equal(omitted.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_REQUIRED');
 });
 
+test('date windows constrain each allocation edge and leave unmatched same-total rows partial',()=>{
+  const bankEarly={...bank('b-early',50,'2026-08-01'),mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const bankLate={...bank('b-late',50,'2026-08-10'),mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const payableEarly={...payable('p-early',50,'2026-08-01'),mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const payableOutside={...payable('p-outside',50,'2026-08-20'),mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bankEarly,bankLate],businessRows:[payableEarly,payableOutside],matchingPolicy:{...policy,date_window_days:1}});
+  assert.equal(plan.status,'PARTIAL_REVIEW_REQUIRED');
+  assert.deepEqual({edges:plan.allocation_plan.length,allocated:plan.control_totals.allocated_total,bankUnallocated:plan.control_totals.bank_unallocated,businessUnallocated:plan.control_totals.business_unallocated,amountsBalanced:plan.control_totals.amounts_balanced,fullyAllocated:plan.control_totals.fully_allocated},{edges:1,allocated:50,bankUnallocated:50,businessUnallocated:50,amountsBalanced:true,fullyAllocated:false});
+});
+
 test('receipt-backed Company Screening controls remain in a review plan and reject a mixed snapshot',()=>{
   const control={control_snapshot_hash:'sha256:'+'e'.repeat(64),receipt_id:'control-receipt',receipt_ref:'object://receipt/control',receipt_hash:'sha256:'+'f'.repeat(64),source_record_id:'company-control',source_version:'v1',company_key:'COMPANY-A',completed_periods:{match:'2026-06',release:'2026-06',incur:'2025-03'},quantity:10,released_quantity:8,incurred_quantity:6,amount:'100.0000',released_amount:'80.0000',incurred_amount:'60.0000',reconciliation_balance:'20.0000',new_balance:'40.0000',balance_date:'2026-08-09',can_match:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false};
   const plan=run([{...bank('bank-control',100),company_control_trace:control}],[{...payable('payable-control',100),company_control_trace:control}]);
