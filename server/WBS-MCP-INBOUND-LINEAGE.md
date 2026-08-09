@@ -138,7 +138,9 @@ AutoRec match key or posting authority.
 Reverse lookup through `trace_by_key` first reads and exactly verifies the
 persisted REFS source under tenant, entity, company, source type/key/version,
 and receipt hash. It then accepts only that immutable source key (`ap_guid`,
-`cb_id`, `pd_guid`, `pb_guid`, or journal `id`). It rejects display references
+`bank_transaction_id`, `pd_guid`, `pb_guid`, or journal `id`). `cb_id` is
+relation-navigation evidence only and can never substitute for a bank
+transaction key. It rejects display references
 such as Ref No., memo, `cb_id` relation fields, and `pd_pv_guid` as lookup
 substitutes. Returned relations remain read-only evidence.
 
