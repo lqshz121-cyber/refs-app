@@ -210,6 +210,25 @@ export function bindReceiptBackedWbsAutoRecControlEvidence({companyRows,detailRo
   return freeze({evidence_type:'WBS_AUTOREC_RECEIPT_BACKED_CONTROL_EVIDENCE_V1',observed_workflow:wbsAutoRecObservedWorkflowContract(),controls:freeze(controls),details:freeze(details),exceptions:freeze(exceptions),forbidden_wbs_operations:FORBIDDEN_WBS_OPERATIONS,can_dispatch:false,can_create_draft:false,can_post:false});
 }
 
+// A Company Screening row is only useful to a future reconciliation decision
+// when it can be traced to one immutable receipt.  Keep its M/R/C totals on
+// the candidate as control evidence, never as matching or posting authority.
+function receiptBackedCompanyControlTraces(controlEvidence){
+  const traces=new Map(),exceptions=[];
+  if(controlEvidence?.evidence_type!=='WBS_AUTOREC_RECEIPT_BACKED_CONTROL_EVIDENCE_V1')return {traces,exceptions};
+  for(const control of controlEvidence.controls){
+    const receipt=control.receipt_trace;
+    if(!receipt)continue;
+    const snapshot=freeze({company_key:control.company_key,completed_periods:control.completed_periods,quantity:control.quantity,released_quantity:control.released_quantity,incurred_quantity:control.incurred_quantity,amount:control.amount,released_amount:control.released_amount,incurred_amount:control.incurred_amount,reconciliation_balance:control.reconciliation_balance,new_balance:control.new_balance,balance_date:control.balance_date,receipt_trace:receipt});
+    const trace=freeze({control_snapshot_hash:canonicalRequestHash(snapshot),receipt_id:receipt.receipt_id,receipt_ref:receipt.receipt_ref,receipt_hash:receipt.receipt_hash,source_record_id:receipt.source_record_id,source_version:receipt.source_version,company_key:control.company_key,completed_periods:control.completed_periods,quantity:control.quantity,released_quantity:control.released_quantity,incurred_quantity:control.incurred_quantity,amount:control.amount,released_amount:control.released_amount,incurred_amount:control.incurred_amount,reconciliation_balance:control.reconciliation_balance,new_balance:control.new_balance,balance_date:control.balance_date,can_match:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false});
+    const current=traces.get(control.company_key)??new Map();current.set(trace.control_snapshot_hash,trace);traces.set(control.company_key,current);
+  }
+  for(const [companyKey,items] of traces){
+    if(items.size!==1)exceptions.push(scopedException(exception({company_key:companyKey},'WBS_AUTOREC_CONTROL_SNAPSHOT_AMBIGUOUS','More than one receipt-backed Company Screening control snapshot exists for this company'), 'COMPANY'));
+  }
+  return {traces,exceptions};
+}
+
 // Read-only projection from a persisted staging/exception read model. It does
 // not allocate, release, dispatch a Draft command, or post. The source rows
 // must already carry the immutable receipt and Raw→Staging identifiers created
@@ -220,7 +239,9 @@ export function projectPersistedWbsInboundAutoRec({rows,mappings=[],companyContr
   const candidates=[],exceptions=[];
   const control_evidence=companyControlRows===null?null:(persistedControlRows===null?projectObservedWbsAutoRecControlEvidence({companyRows:companyControlRows,detailRows:detailControlRows}):bindReceiptBackedWbsAutoRecControlEvidence({companyRows:companyControlRows,detailRows:detailControlRows,persistedRows:persistedControlRows,scope}));
   if(control_evidence?.exceptions.length)exceptions.push(...control_evidence.exceptions);
-  const evidenceExceptions=control_evidence?.exceptions||[];
+  const controlTraces=receiptBackedCompanyControlTraces(control_evidence);
+  if(controlTraces.exceptions.length)exceptions.push(...controlTraces.exceptions);
+  const evidenceExceptions=[...(control_evidence?.exceptions||[]),...controlTraces.exceptions];
   const blockedCompanies=new Set(evidenceExceptions.filter(item=>item.block_scope==='COMPANY'||(!item.block_scope&&item.company_key)).map(item=>item.company_key).filter(Boolean));
   const blockedSources=new Set(evidenceExceptions.filter(item=>item.block_scope==='SOURCE'||(!item.block_scope&&!item.company_key)).map(item=>item.bank_source_record_id||item.source_record_id).filter(Boolean));
   const globallyBlocked=evidenceExceptions.some(item=>!item.company_key&&!item.bank_source_record_id&&!item.source_record_id);
@@ -235,8 +256,10 @@ export function projectPersistedWbsInboundAutoRec({rows,mappings=[],companyContr
     const resolution=mappingFor(row,mappings);if(resolution.error){exceptions.push(resolution.error);continue;}
     const side=row.source_type==='BANK_TRANSACTION'?'BANK_SIDE':'BUSINESS_SIDE';
     const relationTrace=relation.trace===null?null:freeze({fields:relation.trace,trace_hash:relation.trace_hash,can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});
-    const trace=freeze({receipt_id:row.receipt_id,receipt_ref:row.receipt_ref,receipt_hash:row.receipt_hash,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,source_record_id:row.source_record_id,source_version:row.source_version,mapping_id:resolution.mapping.mapping_id,mapping_version:resolution.mapping.version,mapping_snapshot_hash:resolution.mapping.snapshot_hash,external_relation_evidence:relationTrace});
-    candidates.push(freeze({review_candidate_id:canonicalRequestHash({side,trace}),stage:'STAGING_REVIEWED',side,source_type:row.source_type,entity_id:row.entity_id,company_key:row.company_key,currency:row.currency,amount:decimal(row.amount),business_date:row.business_date,accounting_date:row.accounting_date,bank_account_ref:row.bank_account_ref??null,source_record_id:row.source_record_id,source_version:row.source_version,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,mapping:freeze({mapping_id:resolution.mapping.mapping_id,version:resolution.mapping.version,snapshot_hash:resolution.mapping.snapshot_hash}),external_relation_evidence:relationTrace,trace,can_dispatch:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false}));
+    const companyControls=controlTraces.traces.get(text(row.company_key));
+    const controlTrace=companyControls?.size===1?[...companyControls.values()][0]:null;
+    const trace=freeze({receipt_id:row.receipt_id,receipt_ref:row.receipt_ref,receipt_hash:row.receipt_hash,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,source_record_id:row.source_record_id,source_version:row.source_version,mapping_id:resolution.mapping.mapping_id,mapping_version:resolution.mapping.version,mapping_snapshot_hash:resolution.mapping.snapshot_hash,external_relation_evidence:relationTrace,company_control_trace:controlTrace});
+    candidates.push(freeze({review_candidate_id:canonicalRequestHash({side,trace}),stage:'STAGING_REVIEWED',side,source_type:row.source_type,entity_id:row.entity_id,company_key:row.company_key,currency:row.currency,amount:decimal(row.amount),business_date:row.business_date,accounting_date:row.accounting_date,bank_account_ref:row.bank_account_ref??null,source_record_id:row.source_record_id,source_version:row.source_version,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,mapping:freeze({mapping_id:resolution.mapping.mapping_id,version:resolution.mapping.version,snapshot_hash:resolution.mapping.snapshot_hash}),external_relation_evidence:relationTrace,company_control_trace:controlTrace,trace,can_dispatch:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false}));
   }
   return freeze({projection:'WBS_PERSISTED_INBOUND_AUTOREC_REVIEW_V1',candidates:freeze(candidates),exceptions:freeze(exceptions),control_evidence,controls:freeze({candidate_count:candidates.length,exception_count:exceptions.length,can_dispatch:false,can_post:false}),required_next_controls:freeze(['human Auto Reconciliation review','separate authoritative allocation/release command','standard Draft JE workflow'])});
 }

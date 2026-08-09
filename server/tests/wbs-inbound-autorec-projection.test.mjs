@@ -158,6 +158,18 @@ test('receipt-backed control evidence accepts only exact persisted receipt, sour
   const crossSource={...detail,bank_source_record_id:'pay-1',bank_source_version:'v1'};
   const crossSourceResult=projectPersistedWbsInboundAutoRec({rows:[bank,payable],mappings:[mapping(bank),mapping(payable)],companyControlRows:[control],detailControlRows:[crossSource],persistedControlRows:persisted});assert.equal(crossSourceResult.candidates.length,1);assert.equal(crossSourceResult.candidates[0].source_record_id,'bank-1');
   const projection=projectPersistedWbsInboundAutoRec({rows:[bank,payable],mappings:[mapping(bank),mapping(payable)],companyControlRows:[control],persistedControlRows:persisted});assert.equal(projection.candidates.length,2);assert.equal(projection.control_evidence.evidence_type,'WBS_AUTOREC_RECEIPT_BACKED_CONTROL_EVIDENCE_V1');
+  assert.equal(projection.candidates[0].company_control_trace.receipt_hash,control.receipt_hash);
+  assert.equal(projection.candidates[0].trace.company_control_trace.control_snapshot_hash,projection.candidates[0].company_control_trace.control_snapshot_hash);
+  assert.equal(projection.candidates[0].company_control_trace.can_release,false);
+});
+
+test('two receipt-backed M/R/C snapshots for one company block only that company candidates',()=>{
+  const first={...companyControl,receipt_id:'control-a',receipt_ref:'object://wbs/receipt/control-a',receipt_hash:'sha256:'+'1'.repeat(64),source_record_id:'control-a',source_version:'v1'};
+  const second={...companyControl,receipt_id:'control-b',receipt_ref:'object://wbs/receipt/control-b',receipt_hash:'sha256:'+'2'.repeat(64),source_record_id:'control-b',source_version:'v1'};
+  const other={...payable,company_key:'COMPANY-B',source_record_id:'pay-b',raw_event_id:'raw-b',source_document_id:'doc-b',staging_item_id:'stg-b'};
+  const result=projectPersistedWbsInboundAutoRec({rows:[bank,other],mappings:[mapping(bank),mapping(other)],companyControlRows:[first,second],persistedControlRows:[first,second]});
+  assert.equal(result.candidates.length,1);assert.equal(result.candidates[0].company_key,'COMPANY-B');
+  assert(result.exceptions.some(item=>item.code==='WBS_AUTOREC_CONTROL_SNAPSHOT_AMBIGUOUS'&&item.company_key==='COMPANY-A'));
 });
 
 test('receipt binding rejects the same source/version when its persisted tenant or entity differs from the selected scope',()=>{
