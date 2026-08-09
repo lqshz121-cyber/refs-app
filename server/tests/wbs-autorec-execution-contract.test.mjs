@@ -10,6 +10,7 @@ const posted=[journal('PAYABLE_INCUR',[{ledger_line_id:'l1',account_code:'291001
 
 test('REFS execution intent separates WBS observation from reservation, release, and incur authority',()=>{
   assert.throws(()=>buildWbsAutoRecExecutionIntent({command:'RESERVE',currentState:'REVIEW_REQUIRED',reviewCandidate:{...review,trace:{...trace,business_source_version:''}}}),error=>error.code==='WBS_AUTOREC_EXECUTION_REVIEW_REQUIRED');
+  assert.throws(()=>buildWbsAutoRecExecutionIntent({command:'RESERVE',currentState:'REVIEW_REQUIRED',reviewCandidate:{...review,trace:{...trace,bank_receipt_ref:''}}}),error=>error.code==='WBS_AUTOREC_EXECUTION_REVIEW_REQUIRED');
   const reserved=buildWbsAutoRecExecutionIntent({command:'RESERVE',currentState:'REVIEW_REQUIRED',reviewCandidate:review});
   assert.deepEqual({state:reserved.next_state,dispatch:reserved.can_dispatch,post:reserved.can_post},{state:'RESERVED',dispatch:false,post:false});
   assert.throws(()=>buildWbsAutoRecExecutionIntent({command:'RELEASE',currentState:'RESERVED',reviewCandidate:review}),error=>error instanceof WbsAutoRecExecutionContractError&&error.code==='WBS_AUTOREC_EXECUTION_RESERVATION_REQUIRED');
