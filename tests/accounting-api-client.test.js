@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {accountingApiConfig,applyAuthoritativeCredit,createAuthoritativeAdjustment,createAuthoritativeBusinessDocument,createAuthoritativeSettlement,refreshAuthoritativeBankTransactions,refreshAuthoritativeDocuments,refreshAuthoritativeJournalEntries,refreshAuthoritativeReconciliation,transitionAuthoritativeJournal,refreshAuthoritativeAging,refreshAuthoritativeControlTotals} from '../src/accounting-api.js';
+import {bindAuthoritativeFetcher} from '../src/authoritative-app.jsx';
 const entityId='11111111-1111-4111-8111-111111111111';
 const periodId='33333333-3333-4333-8333-333333333333';
 assert.equal(accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'http://unsafe.example',entityId,periodId}}),null);
@@ -10,6 +11,15 @@ assert.equal(accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'https://api.
 const rows={'/ap/bills':[{business_document_id:entityId,document_number:'B-1',counterparty_ref:'V-1',counterparty_name:'Vendor',currency:'USD',accounting_date:'2026-08-01',due_date:'2026-08-31',gross_amount:'10.2500',open_balance:'7.2500',status:'PARTIALLY_PAID',posted_journal_entry_id:null,version:3}],'/ar/invoices':[{business_document_id:'22222222-2222-4222-8222-222222222222',document_number:'I-1',counterparty_ref:'C-1',counterparty_name:'Customer',currency:'USD',accounting_date:'2026-08-01',due_date:null,gross_amount:'8.0000',open_balance:'8.0000',status:'OPEN',posted_journal_entry_id:null,version:0}],'/ap/adjustments':[{business_adjustment_id:entityId,adjustment_kind:'AP_VENDOR_CREDIT',amount:'3.0000',status:'DRAFT'}],'/ar/adjustments':[{business_adjustment_id:'22222222-2222-4222-8222-222222222222',adjustment_kind:'AR_CREDIT_MEMO',amount:'2.0000',status:'POSTED'}]};
 const config=configured;
 (async()=>{
+  const receiverEnvironment={name:'authoritative-browser-environment'};
+  const receiverCalls=[];
+  const receiverSensitiveFetcher=function(url,options){assert.equal(this,receiverEnvironment);receiverCalls.push(url);return {ok:true,json:async()=>({ok:true,data:url.endsWith('/journal-entries')?[]:rows[new URL(url).pathname.replace(`/api/v1/entities/${entityId}`,'')]||[]})};};
+  const receiverBoundFetcher=bindAuthoritativeFetcher(receiverEnvironment,receiverSensitiveFetcher);
+  assert.equal((await refreshAuthoritativeDocuments({config,fetcher:receiverBoundFetcher})).ok,true);
+  assert.equal((await refreshAuthoritativeJournalEntries({config,fetcher:receiverBoundFetcher})).ok,true);
+  assert.equal((await refreshAuthoritativeBankTransactions({config,bankAccountRef:'BANK-1',fetcher:receiverBoundFetcher})).ok,true);
+  assert.equal(receiverCalls.length,6,'document, journal, and child-workspace reads must share the environment-bound fetcher');
+
   const readCalls=[];const result=await refreshAuthoritativeDocuments({config,fetcher:async(url,options)=>{readCalls.push({url,options});return {ok:true,json:async()=>({ok:true,data:rows[new URL(url).pathname.replace(`/api/v1/entities/${entityId}`,'')]})};}});
   assert.equal(result.ok,true);assert.equal(result.ap.bills[0].business_document_id,entityId);assert.equal(result.ap.bills[0].open_balance,7.25);assert.equal(result.ar.invoices[0].business_document_id,'22222222-2222-4222-8222-222222222222');assert.equal(result.ar.invoices[0].inv_no,'I-1');assert.equal(result.ap.adjustments[0].adjustment_kind,'AP_VENDOR_CREDIT');assert.equal(result.ar.adjustments[0].status,'POSTED');
   assert.equal(readCalls.length,4);for(const read of readCalls){assert.equal(read.options.method,'GET');assert.equal(read.options.credentials,'include');assert.equal(read.options.cache,'no-store');assert.equal(read.options.headers.authorization,`Bearer ${accessToken}`);}

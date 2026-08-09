@@ -20,6 +20,11 @@ import {
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
 
+export const bindAuthoritativeFetcher = (environment, fetcher) =>
+  typeof fetcher === 'function'
+    ? (url, options) => Reflect.apply(fetcher, environment, [url, options])
+    : fetcher;
+
 // ---------------------------------------------------------------------------
 // Route retention.
 //
@@ -87,6 +92,7 @@ const JournalTable = ({ journals, workingJournalIds, onWorkflow }) => <section a
 
 export function AuthoritativeApp({ environment = globalThis, fetcher = globalThis.fetch }) {
   const configured = authoritativeRuntimeConfigured(environment);
+  const boundFetcher = useMemo(() => bindAuthoritativeFetcher(environment, fetcher), [environment, fetcher]);
   const [phase, setPhase] = useState(configured ? 'CHECKING_IDENTITY' : 'CONFIGURATION_REQUIRED');
   const [route, setRouteState] = useState(() => readRetainedRoute(environment));
   const [data, setData] = useState({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] });
@@ -115,7 +121,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     window.addEventListener('keydown', onEscape);
     return () => window.removeEventListener('keydown', onEscape);
   }, [navOpen]);
-  const oidcClient = useMemo(() => configured ? new BrowserOidcClient({ environment, fetcher }) : null, [configured, environment, fetcher]);
+  const oidcClient = useMemo(() => configured ? new BrowserOidcClient({ environment, fetcher:boundFetcher }) : null, [configured, environment, boundFetcher]);
   const config = useMemo(() => configured ? accountingApiConfig(environment) : null, [configured, environment, phase]);
 
   const setRoute = useCallback(next => { setRouteState(next); retainRoute(environment, next); }, [environment]);
@@ -124,8 +130,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     if (!config) return;
     setPhase('LOADING_ACCOUNTING'); setError(null);
     const [documents, journals] = await Promise.all([
-      refreshAuthoritativeDocuments({ config, fetcher }),
-      refreshAuthoritativeJournalEntries({ config, fetcher }),
+      refreshAuthoritativeDocuments({ config, fetcher:boundFetcher }),
+      refreshAuthoritativeJournalEntries({ config, fetcher:boundFetcher }),
     ]);
     if (!documents.ok || !journals.ok) {
       const failure = !documents.ok ? documents : journals;
@@ -134,7 +140,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     }
     setData({ ap:documents.ap, ar:documents.ar, journals:journals.journals });
     setPhase('READY');
-  }, [config, fetcher]);
+  }, [config, boundFetcher]);
 
   useEffect(() => {
     if (!configured || !oidcClient || typeof environment?.document === 'undefined') return;
@@ -193,7 +199,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     const journalEntryId = row.journal_entry_id;
     if (!journalEntryId || workingJournalIds.has(journalEntryId)) return;
     setWorkingJournalIds(current => new Set(current).add(journalEntryId)); setError(null);
-    const result = await transitionAuthoritativeJournal({ config, journalEntryId, revision:Number(row.journal_revision ?? row.revision), action, fetcher });
+    const result = await transitionAuthoritativeJournal({ config, journalEntryId, revision:Number(row.journal_revision ?? row.revision), action, fetcher:boundFetcher });
     setWorkingJournalIds(current => { const next = new Set(current); next.delete(journalEntryId); return next; });
     if (!result.ok) { setError(result); return; }
     await refresh();
@@ -239,11 +245,11 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {error && <RuntimeErrorPanel code={error.code} detail={error.message} onRetry={refresh} onSignIn={startLogin}/>}
         {phase === 'LOADING_ACCOUNTING' && <StateBlock tone="loading">Loading authoritative accounting records…</StateBlock>}
         {phase === 'READY' && route === 'overview' && <><h1>Accounting control overview</h1><p className="page-subtitle">Live records are loaded from the configured accounting API. Browser seeds and localStorage are not accounting authority.</p><div className="qbo-toolgrid"><span><i>AP bills</i><b>{counts.bills}</b></span><span><i>AR invoices</i><b>{counts.invoices}</b></span><span><i>Adjustments</i><b>{counts.adjustments}</b></span><span><i>Journal entries</i><b>{counts.journals}</b></span></div></>}
-        {phase === 'READY' && route === 'payables' && <><AuthoritativeDocumentTable title="AP bills" documents={data.ap.bills} kind="AP"/><AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={data.ap.adjustments}/><AuthoritativeWorkflowTable title="AP journal workflow" documents={data.ap.bills} kind="AP" onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeWorkflowAdjustmentTable title="AP adjustment workflow" adjustments={data.ap.adjustments} onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeAgingWorkspace config={config} side="ap" fetcher={fetcher}/></>}
-        {phase === 'READY' && route === 'receivables' && <><AuthoritativeDocumentTable title="AR invoices" documents={data.ar.invoices} kind="AR"/><AuthoritativeAdjustmentSummary title="AR adjustments" adjustments={data.ar.adjustments}/><AuthoritativeWorkflowTable title="AR journal workflow" documents={data.ar.invoices} kind="AR" onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeWorkflowAdjustmentTable title="AR adjustment workflow" adjustments={data.ar.adjustments} onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeAgingWorkspace config={config} side="ar" fetcher={fetcher}/></>}
-        {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace config={config} fetcher={fetcher}/>}
-        {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace config={config} fetcher={fetcher}/>}
-        {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace config={config} fetcher={fetcher}/>}
+        {phase === 'READY' && route === 'payables' && <><AuthoritativeDocumentTable title="AP bills" documents={data.ap.bills} kind="AP"/><AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={data.ap.adjustments}/><AuthoritativeWorkflowTable title="AP journal workflow" documents={data.ap.bills} kind="AP" onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeWorkflowAdjustmentTable title="AP adjustment workflow" adjustments={data.ap.adjustments} onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeAgingWorkspace config={config} side="ap" fetcher={boundFetcher}/></>}
+        {phase === 'READY' && route === 'receivables' && <><AuthoritativeDocumentTable title="AR invoices" documents={data.ar.invoices} kind="AR"/><AuthoritativeAdjustmentSummary title="AR adjustments" adjustments={data.ar.adjustments}/><AuthoritativeWorkflowTable title="AR journal workflow" documents={data.ar.invoices} kind="AR" onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeWorkflowAdjustmentTable title="AR adjustment workflow" adjustments={data.ar.adjustments} onWorkflow={workflow} workingJournalIds={workingJournalIds}/><AuthoritativeAgingWorkspace config={config} side="ar" fetcher={boundFetcher}/></>}
+        {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace config={config} fetcher={boundFetcher}/>}
+        {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace config={config} fetcher={boundFetcher}/>}
+        {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'journals' && <JournalTable journals={data.journals} workingJournalIds={workingJournalIds} onWorkflow={workflow}/>}
         {phase === 'READY' && route === 'drafts' && <AuthoritativeDraftForm/>}
       </main>

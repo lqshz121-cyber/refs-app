@@ -8,7 +8,13 @@ const oidc = readFileSync(new URL('./src/oidc-client.js', import.meta.url), 'utf
 assert.match(app, /<AuthoritativeApp environment=\{globalThis\}\s*\/>/, 'production runtime must enter AuthoritativeApp');
 assert.doesNotMatch(app, /__REFS_RUNTIME_MODE__==='REQUIRES_AUTHORITATIVE_API'\) return <AuthoritativeRuntimeLock/, 'configured production must not unconditionally lock');
 assert.match(authoritative, /accountingApiConfig\(environment\) && oidcRuntimeConfig\(environment\)/, 'API and OIDC configuration must both be required');
-assert.match(authoritative, /new BrowserOidcClient\(\{ environment, fetcher \}\)/, 'authoritative runtime must bootstrap the configured OIDC client');
+assert.match(authoritative, /Reflect\.apply\(fetcher, environment, \[url, options\]\)/, 'authoritative runtime must bind browser fetch to its environment');
+assert.match(authoritative, /new BrowserOidcClient\(\{ environment, fetcher:boundFetcher \}\)/, 'authoritative runtime must bootstrap OIDC with the environment-bound fetcher');
+assert.match(authoritative, /refreshAuthoritativeDocuments\(\{ config, fetcher:boundFetcher \}\)/, 'authoritative AP and AR reads must use the environment-bound fetcher');
+assert.match(authoritative, /refreshAuthoritativeJournalEntries\(\{ config, fetcher:boundFetcher \}\)/, 'authoritative journal reads must use the environment-bound fetcher');
+for (const workspace of ['AuthoritativeAgingWorkspace', 'AuthoritativeBankWorkspace', 'AuthoritativeReconciliationWorkspace', 'AuthoritativeReportsWorkspace']) {
+  assert.match(authoritative, new RegExp(`<${workspace}[^>]+fetcher=\\{boundFetcher\\}`), `${workspace} must receive the environment-bound fetcher`);
+}
 assert.match(authoritative, /refreshAuthoritativeDocuments/, 'authoritative AP and AR reads must be mounted');
 assert.match(authoritative, /refreshAuthoritativeJournalEntries/, 'authoritative Journal Entry reads must be mounted');
 assert.match(authoritative, /transitionAuthoritativeJournal/, 'authoritative workflow transitions must be mounted');
