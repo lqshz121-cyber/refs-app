@@ -8,7 +8,7 @@ const metricHash=rows=>canonicalRequestHash([...rows].map(row=>({metric_key:row.
 const receipt=(id,scope,metrics)=>({hash:'sha256:'+id.repeat(64).slice(0,64),metrics_hash:metricHash(metrics),ref:`object://receipt/${id}`,version:'v1',scope,signature_verified:true,manifest_hash:'sha256:'+`${id}f`.repeat(64).slice(0,64),key_id:'wbs-control-test',algorithm:'Ed25519'});
 const costScope={tenant_id:'tenant-a',entity_id:'entity-a',company_key:'COMPANY-A',period:'2026-08',currency:'USD'};
 const costMetricKeys=Array.from({length:14},(_,index)=>`COST_METRIC_${String(index+1).padStart(2,'0')}`);
-const costMapping={status:'APPROVED',mapping_type:'WBS_COST_GL_CONTROL_RECONCILIATION',mapping_id:'map-cost',version:'4',scope:costScope,metric_keys:costMetricKeys};
+const costMapping={status:'APPROVED',mapping_type:'WBS_COST_GL_CONTROL_RECONCILIATION',mapping_id:'map-cost',version:'4',snapshot_hash:'sha256:'+'c'.repeat(64),scope:costScope,metric_keys:costMetricKeys};
 const costMetrics=costMetricKeys.map((metric_key,index)=>({metric_key,amount:(index+1)*25}));
 const costArgs={sourceType:'COST_GENERAL_LEDGER',scope:costScope,sourceReceipt:receipt('a',costScope,costMetrics),targetReceipt:receipt('b',costScope,costMetrics),approvedMapping:costMapping,sourceMetrics:costMetrics,targetMetrics:costMetrics};
 
@@ -16,7 +16,7 @@ test('Cost GL reconciles only exact receipt-bound approved metrics and has forwa
   const result=reconcileWbsControlEvidence(costArgs);
   assert.deepEqual({status:result.status,count:result.control_totals.metric_count,diff:result.control_totals.difference_total,draft:result.can_create_draft,post:result.can_post},{status:'RECONCILED',count:14,diff:0,draft:false,post:false});
   assert.deepEqual({basis:result.control_totals.reconciliation_basis,aggregate:result.control_totals.aggregate_semantics,proves:result.control_totals.aggregate_can_prove_reconciled},{basis:'EXACT_PER_APPROVED_METRIC',aggregate:'DIAGNOSTIC_ONLY',proves:false});
-  assert.equal(result.comparisons[0].forward_trace.mapping_id,'map-cost');assert.equal(result.comparisons[0].reverse_trace.target_receipt_version,'v1');
+  assert.equal(result.comparisons[0].forward_trace.mapping_id,'map-cost');assert.equal(result.comparisons[0].forward_trace.mapping_snapshot_hash,costMapping.snapshot_hash);assert.equal(result.comparisons[0].reverse_trace.target_receipt_version,'v1');assert.equal(result.mapping_trace.snapshot_hash,costMapping.snapshot_hash);
 });
 
 test('Control differences remain evidence-only and Property needs its exact mapping and date/bank scope',()=>{
@@ -25,8 +25,9 @@ test('Control differences remain evidence-only and Property needs its exact mapp
   assert.equal(difference.status,'DIFFERENCE');assert.equal(difference.control_totals.difference_total,1);assert.equal(difference.can_allocate,false);
   const propertyScope={tenant_id:'tenant-a',entity_id:'entity-a',company_key:'COMPANY-A',property_ref:'PROPERTY-A',period_start:'2026-08-01',period_end:'2026-08-31',currency:'USD',bank_account_ref:'BANK-1'};
   const propertyMetrics=[{metric_key:'PROPERTY_VALUE',amount:10}];
-  const property={sourceType:'PROPERTY_COMPARISON',scope:propertyScope,sourceReceipt:receipt('c',propertyScope,propertyMetrics),targetReceipt:receipt('d',propertyScope,propertyMetrics),approvedMapping:{status:'APPROVED',mapping_type:'WBS_PROPERTY_CONTROL_RECONCILIATION',mapping_id:'map-property',version:'1',scope:propertyScope,metric_keys:['PROPERTY_VALUE']},sourceMetrics:propertyMetrics,targetMetrics:propertyMetrics};
+  const property={sourceType:'PROPERTY_COMPARISON',scope:propertyScope,sourceReceipt:receipt('c',propertyScope,propertyMetrics),targetReceipt:receipt('d',propertyScope,propertyMetrics),approvedMapping:{status:'APPROVED',mapping_type:'WBS_PROPERTY_CONTROL_RECONCILIATION',mapping_id:'map-property',version:'1',snapshot_hash:'sha256:'+'d'.repeat(64),scope:propertyScope,metric_keys:['PROPERTY_VALUE']},sourceMetrics:propertyMetrics,targetMetrics:propertyMetrics};
   assert.equal(reconcileWbsControlEvidence(property).status,'RECONCILED');
+  assert.throws(()=>reconcileWbsControlEvidence({...property,approvedMapping:{...property.approvedMapping,snapshot_hash:'sha256:forged'}}),error=>error instanceof WbsControlReconciliationError&&error.code==='WBS_CONTROL_MAPPING_REQUIRED');
   assert.throws(()=>reconcileWbsControlEvidence({...property,approvedMapping:{...property.approvedMapping,scope:{...propertyScope,bank_account_ref:'BANK-2'}}}),error=>error instanceof WbsControlReconciliationError&&error.code==='WBS_CONTROL_MAPPING_REQUIRED');
   assert.throws(()=>reconcileWbsControlEvidence({...property,scope:{...propertyScope,property_ref:''}}),error=>error instanceof WbsControlReconciliationError&&error.code==='WBS_CONTROL_SCOPE_REQUIRED');
 });
@@ -41,7 +42,7 @@ test('missing receipt, incomplete metric mapping, and invalid Property periods f
 test('blank report metric values never coerce to zero for Cost GL or Property controls',()=>{
   const propertyScope={tenant_id:'tenant-a',entity_id:'entity-a',company_key:'COMPANY-A',property_ref:'PROPERTY-A',period_start:'2026-08-01',period_end:'2026-08-31',currency:'USD',bank_account_ref:'BANK-1'};
   const propertyMetrics=[{metric_key:'PROPERTY_VALUE',amount:10}];
-  const propertyArgs={sourceType:'PROPERTY_COMPARISON',scope:propertyScope,sourceReceipt:receipt('c',propertyScope,propertyMetrics),targetReceipt:receipt('d',propertyScope,propertyMetrics),approvedMapping:{status:'APPROVED',mapping_type:'WBS_PROPERTY_CONTROL_RECONCILIATION',mapping_id:'map-property',version:'1',scope:propertyScope,metric_keys:['PROPERTY_VALUE']},sourceMetrics:propertyMetrics,targetMetrics:propertyMetrics};
+  const propertyArgs={sourceType:'PROPERTY_COMPARISON',scope:propertyScope,sourceReceipt:receipt('c',propertyScope,propertyMetrics),targetReceipt:receipt('d',propertyScope,propertyMetrics),approvedMapping:{status:'APPROVED',mapping_type:'WBS_PROPERTY_CONTROL_RECONCILIATION',mapping_id:'map-property',version:'1',snapshot_hash:'sha256:'+'d'.repeat(64),scope:propertyScope,metric_keys:['PROPERTY_VALUE']},sourceMetrics:propertyMetrics,targetMetrics:propertyMetrics};
   for(const args of [costArgs,propertyArgs])for(const invalidAmount of ['', '  ', null, true, '0x10', '1e2', '10.00001', '.5']){
     assert.throws(()=>reconcileWbsControlEvidence({...args,sourceMetrics:[{...args.sourceMetrics[0],amount:invalidAmount},...args.sourceMetrics.slice(1)]}),error=>error.code==='WBS_CONTROL_METRICS_INVALID');
   }
@@ -73,7 +74,7 @@ test('control reconciliation reads only exact persisted WBS/REFS evidence and ap
   const repository={readPersistedWbsControlSnapshot:async()=>source,readPersistedRefsControlMetricSnapshot:async()=>target,readApprovedWbsControlReconciliationMapping:async()=>mapping};
   const reader=createWbsControlReconciliationReadComposition({repository});
   const input={sourceType:'COST_GENERAL_LEDGER',tenantId:'tenant-a',entityId:'entity-a',scope:costScope,replayKey:'control-read-1'};
-  const accepted=await reader.read(input);assert.equal(accepted.status,'READ_ONLY_CONTROL_RECONCILED');assert.equal(accepted.reconciliation.status,'RECONCILED');assert.equal(accepted.trace.forward_trace.wbs_control_snapshot.snapshot_id,'wbs-control-cost-1');assert.equal(accepted.trace.reverse_trace.refs_metric_snapshot.snapshot_id,'refs-metric-cost-1');assert.equal(accepted.can_post,false);
+  const accepted=await reader.read(input);assert.equal(accepted.status,'READ_ONLY_CONTROL_RECONCILED');assert.equal(accepted.reconciliation.status,'RECONCILED');assert.equal(accepted.trace.forward_trace.wbs_control_snapshot.snapshot_id,'wbs-control-cost-1');assert.equal(accepted.trace.forward_trace.mapping_snapshot_hash,costMapping.snapshot_hash);assert.equal(accepted.trace.reverse_trace.refs_metric_snapshot.snapshot_id,'refs-metric-cost-1');assert.equal(accepted.can_post,false);
   assert.equal(accepted.trace.forward_trace.wbs_control_snapshot.receipt_algorithm,'Ed25519');
   assert.equal((await reader.read(input)).replayed,true);
   assert.equal((await reader.read({...input,scope:{...costScope,period:'2026-07'}})).code,'WBS_CONTROL_READ_REPLAY_CONFLICT');
