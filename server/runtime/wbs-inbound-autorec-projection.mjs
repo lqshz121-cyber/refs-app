@@ -23,6 +23,7 @@ const decimal=value=>{
 };
 const decimalText=value=>{const parsed=decimal(value);return parsed===null?null:parsed.toFixed(4);};
 const validDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const date=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(date.getTime())&&date.toISOString().slice(0,10)===candidate;};
+const validInstant=value=>{const candidate=text(value);return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(candidate)&&!Number.isNaN(Date.parse(candidate));};
 const freeze=value=>Object.freeze(value);
 const statusCode=value=>{const candidate=text(value);return candidate===''||candidate.length>64||/[\u0000-\u001f\u007f]/.test(candidate)?null:candidate;};
 const FORBIDDEN_WBS_OPERATIONS=freeze(['Add','Refresh','Delete','Create','Post','Post All','Cancel Post','Review','Download','Upload','Release','Batch Settings','Set Vendor','Set Project','Set Cost Code','Set User','Split Record']);
@@ -131,6 +132,41 @@ export function projectObservedWbsAutoRecControlEvidence({companyRows,detailRows
   // suppress otherwise valid candidates for the same company.
   for(const row of detailRows){const result=detailControl(row);result.error?exceptions.push(scopedException(result.error,'SOURCE')):details.push(result.detail);}
   return freeze({evidence_type:'WBS_AUTOREC_OBSERVED_CONTROL_EVIDENCE_V1',observed_workflow:wbsAutoRecObservedWorkflowContract(),controls:freeze(controls),details:freeze(details),exceptions:freeze(exceptions),forbidden_wbs_operations:FORBIDDEN_WBS_OPERATIONS,can_dispatch:false,can_create_draft:false,can_post:false});
+}
+
+// A receipt sequence can prove that WBS displayed different states at different
+// times. It cannot prove that those changes form WBS's canonical transition
+// graph or authorize the equivalent REFS transition.
+export function buildWbsObservedAutoRecStateHistory({observations}={}){
+  if(!Array.isArray(observations))throw new WbsInboundProjectionError('WBS_AUTOREC_STATE_OBSERVATIONS_REQUIRED','Observed WBS AutoRec state observations must be an array');
+  const exceptions=[],bySource=new Map();
+  for(const row of observations){
+    const projected=detailControl(row);
+    if(projected.error){exceptions.push(scopedException(projected.error,'SOURCE'));continue;}
+    const detail=projected.detail,observedAt=text(row?.observed_at);
+    if(!detail.observed_state){exceptions.push(scopedException(exception(row,'WBS_AUTOREC_STATE_OBSERVATION_KIND_INVALID','Only observed payment-state detail kinds can enter state history'),'SOURCE'));continue;}
+    if(!validInstant(observedAt)){exceptions.push(scopedException(exception(row,'WBS_AUTOREC_STATE_OBSERVATION_TIME_INVALID','Observed WBS state history requires an exact UTC observation time'),'SOURCE'));continue;}
+    const sourceKey=detail.source_record_id,versionKey=`${detail.source_version}:${detail.receipt_hash}`;
+    const entries=bySource.get(sourceKey)??[];
+    const duplicate=entries.find(item=>item.version_key===versionKey);
+    if(duplicate){
+      if(duplicate.observed_state!==detail.observed_state||duplicate.observed_at!==observedAt)exceptions.push(scopedException(exception(row,'WBS_AUTOREC_STATE_OBSERVATION_CONFLICT','One immutable WBS source version cannot attest conflicting state observations'),'SOURCE'));
+      continue;
+    }
+    entries.push(freeze({source_record_id:sourceKey,source_version:detail.source_version,receipt_id:detail.receipt_id,receipt_ref:detail.receipt_ref,receipt_hash:detail.receipt_hash,observed_at:observedAt,observed_state:detail.observed_state,version_key:versionKey}));
+    bySource.set(sourceKey,entries);
+  }
+  const histories=[];
+  for(const [sourceRecordId,entries] of bySource){
+    const ordered=[...entries].sort((left,right)=>left.observed_at.localeCompare(right.observed_at)||left.version_key.localeCompare(right.version_key));
+    if(ordered.some((item,index)=>index>0&&item.observed_at===ordered[index-1].observed_at&&item.observed_state!==ordered[index-1].observed_state)){
+      exceptions.push(scopedException(exception({source_record_id:sourceRecordId},'WBS_AUTOREC_STATE_OBSERVATION_ORDER_AMBIGUOUS','Different WBS states at one observation time cannot establish a sequence'),'SOURCE'));
+      continue;
+    }
+    const events=ordered.map((item,index)=>freeze({observed_at:item.observed_at,observed_state:item.observed_state,previous_observed_state:index?ordered[index-1].observed_state:null,observed_change:index>0&&item.observed_state!==ordered[index-1].observed_state,receipt:freeze({receipt_id:item.receipt_id,receipt_ref:item.receipt_ref,receipt_hash:item.receipt_hash}),source_version:item.source_version,can_transition_state:false,can_release:false,can_incur:false,can_reverse:false,can_post:false}));
+    histories.push(freeze({source_record_id:sourceRecordId,observations:freeze(events),latest_observed_state:events.at(-1).observed_state,canonical_wbs_transition_graph:'UNKNOWN',transition_authority:'WBS_OBSERVED_EVIDENCE_ONLY',requires_provider_transition_contract:true,forward_trace:freeze({source_record_id:sourceRecordId,receipt_hashes:freeze(events.map(item=>item.receipt.receipt_hash)),source_versions:freeze(events.map(item=>item.source_version))}),reverse_trace:freeze({latest_receipt_hash:events.at(-1).receipt.receipt_hash,latest_source_version:events.at(-1).source_version,source_record_id:sourceRecordId}),can_transition_state:false,can_release:false,can_incur:false,can_reverse:false,can_post:false}));
+  }
+  return freeze({evidence_type:'WBS_AUTOREC_OBSERVED_STATE_HISTORY_V1',canonical_wbs_transition_graph:'UNKNOWN',histories:freeze(histories),exceptions:freeze(exceptions),can_transition_state:false,can_release:false,can_incur:false,can_reverse:false,can_post:false});
 }
 
 const receiptTrace=row=>freeze({tenant_id:text(row.tenant_id)||null,entity_id:text(row.entity_id)||null,receipt_id:text(row.receipt_id),receipt_ref:text(row.receipt_ref),receipt_hash:text(row.receipt_hash),source_record_id:text(row.source_record_id),source_version:text(row.source_version),company_key:text(row.company_key)});

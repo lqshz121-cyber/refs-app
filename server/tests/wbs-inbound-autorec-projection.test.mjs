@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {projectPersistedWbsInboundAutoRec,projectObservedWbsAutoRecControlEvidence,bindReceiptBackedWbsAutoRecControlEvidence,wbsAutoRecObservedWorkflowContract,WbsInboundProjectionError} from '../runtime/wbs-inbound-autorec-projection.mjs';
+import {projectPersistedWbsInboundAutoRec,projectObservedWbsAutoRecControlEvidence,bindReceiptBackedWbsAutoRecControlEvidence,buildWbsObservedAutoRecStateHistory,wbsAutoRecObservedWorkflowContract,WbsInboundProjectionError} from '../runtime/wbs-inbound-autorec-projection.mjs';
 
 const common={receipt_id:'receipt-1',receipt_ref:'object://wbs/receipt/1',receipt_hash:'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',entity_id:'entity-1',company_key:'COMPANY-A',currency:'USD',business_date:'2026-08-04',accounting_date:'2026-08-05',stage:'STAGING_REVIEWED'};
 const bank={...common,source_type:'BANK_TRANSACTION',source_record_id:'bank-1',source_version:'v1',raw_event_id:'raw-bank',source_document_id:'doc-bank',staging_item_id:'stg-bank',bank_account_ref:'BANK-OP',amount:-100};
@@ -15,6 +15,19 @@ test('observed WBS workflow is explicitly evidence-only and does not invent a ca
   assert.equal(workflow.detail_kind_to_step.INCURRED_PAYMENT,'INCURRED_LIST');
   assert.equal(workflow.canonical_wbs_transition_graph,'UNKNOWN');
   assert.deepEqual({transition:workflow.can_transition_refs,release:workflow.can_release,incur:workflow.can_incur,draft:workflow.can_create_draft,post:workflow.can_post},{transition:false,release:false,incur:false,draft:false,post:false});
+});
+
+test('receipt-backed WBS state observations retain history without authorizing a REFS transition',()=>{
+  const released={detail_kind:'RELEASED_PAYMENT',company_key:'COMPANY-A',receipt_id:'receipt-release',receipt_ref:'object://wbs/release',receipt_hash:'sha256:'+'a'.repeat(64),source_record_id:'pd-1',source_version:'v1',observed_at:'2026-08-09T09:00:00Z'};
+  const incurred={detail_kind:'INCURRED_PAYMENT',company_key:'COMPANY-A',receipt_id:'receipt-incurred',receipt_ref:'object://wbs/incurred',receipt_hash:'sha256:'+'b'.repeat(64),source_record_id:'pd-1',source_version:'v2',observed_at:'2026-08-09T10:00:00Z',bank_source_record_id:'bank-1',bank_source_version:'v2',bank_source_receipt_id:'bank-receipt',bank_source_receipt_ref:'object://wbs/bank',bank_source_receipt_hash:'sha256:'+'c'.repeat(64),autoc_payable_long_id:'autoc-1',match_status:'MATCHED',transaction_date:'2026-08-08',posting_date:'2026-08-09',bank_account_code:'100100',ref_no:'REF-1',memo:'External memo',direction:'CREDIT',amount:'100.0000',project_department:'PROJECT',cost_code:'COST',invoice_receipt_evidence:'attachment-evidence',user_ref:'MASKED',reviewer:'REVIEWER',comments_log:'review-log',vendor:'VENDOR'};
+  const history=buildWbsObservedAutoRecStateHistory({observations:[incurred,released]});
+  assert.equal(history.exceptions.length,0);assert.equal(history.histories.length,1);
+  const item=history.histories[0];
+  assert.deepEqual(item.observations.map(event=>event.observed_state),['RELEASED','INCURRED']);
+  assert.equal(item.observations[1].previous_observed_state,'RELEASED');assert.equal(item.observations[1].observed_change,true);
+  assert.equal(item.canonical_wbs_transition_graph,'UNKNOWN');assert.equal(item.can_transition_state,false);assert.equal(item.can_post,false);
+  const ambiguous=buildWbsObservedAutoRecStateHistory({observations:[released,{...incurred,observed_at:'2026-08-09T09:00:00Z'}]});
+  assert.equal(ambiguous.histories.length,0);assert.equal(ambiguous.exceptions[0].code,'WBS_AUTOREC_STATE_OBSERVATION_ORDER_AMBIGUOUS');
 });
 
 test('projects reviewed persisted bank and business rows into read-only AutoRec candidates with complete trace',()=>{
