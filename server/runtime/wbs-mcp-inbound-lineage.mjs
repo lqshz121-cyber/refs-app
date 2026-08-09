@@ -24,9 +24,12 @@ const validCurrency=value=>/^[A-Z]{3}$/.test(text(value).toUpperCase());
 const validPeriod=value=>/^\d{4}-(0[1-9]|1[0-2])$/.test(text(value));
 const scopedCurrency=(accepted,row)=>text(row.currency??accepted.scope.currency).toUpperCase()||null;
 const payableTrace=row=>freeze(Object.fromEntries([
-  ['ap_long_id',row.ap_long_id],['ap_type',row.ap_type],['business_status',row.business_status],['pay_status',row.pay_status],['pay_type',row.pay_type],
-  ['posting_date',row.posting_date],['journal_no',row.journal_no],['check_no',row.check_no],['check_date',row.check_date],['clear_date',row.clear_date],
-  ['bank_relation_ref',row.cb_id],['cost_ledger_ref',row.cost_ledger_id],['vendor_name',row.vendor_name],['project_code',row.pj_code]
+  ['ap_long_id',row.ap_long_id],['ap_type',row.ap_type],['match_status',row.match_status],['payable_no',row.payable_no],['business_status',row.business_status],['pay_status',row.pay_status],['pay_type',row.pay_type],['status',row.status],
+  ['vendor_ref',row.vendor_no],['vendor_name',row.vendor_name],['account_code',row.account_code],['account_name',row.account_code_name],['invoice_no',row.invoice_no],['invoice_description',row.invoice_description],['invoice_date',row.invoice_date],
+  ['posting_date',row.posting_date],['incurred_date',row.incurred_date],['pay_due_date',row.pay_due_date],['rolling_date',row.rolling_date],['journal_code',row.journal_code],['journal_no',row.journal_no],
+  ['check_system',row.check_system],['check_no',row.check_no],['check_date',row.check_date],['check_amount',row.check_amount],['clear_date',row.clear_date],
+  ['bank_relation_ref',row.cb_id],['cost_ledger_ref',row.cost_ledger_id],['owner_code',row.owner_code],['owner_company',row.owner_company],['company_code',row.company_code],['company_name',row.company_name],['division',row.division],
+  ['project_code',row.pj_code],['activity_no',row.activity_no],['description',row.description],['faster_yardi_code',row.faster_yardi_code],['unit_code',row.unit_code],['cost_code',row.cost_code],['cost_name',row.cost_name],['cost_account_name',row.cost_account_name],['cost_state',row.cost_state],['create_mode',row.create_mode],['remarks',row.remarks],['bj_team_remarks',row.bj_team_remarks],['aging',row.aging]
 ].filter(([,value])=>text(value)!=='').map(([key,value])=>[key,text(value)])));
 const bankTrace=row=>freeze(Object.fromEntries([
   ['transaction_date',row.set_date],['posting_date',row.posting_date],['account_code',row.account_code],['payee',row.payee],['payee_no',row.payee_no],['memo',row.description],
