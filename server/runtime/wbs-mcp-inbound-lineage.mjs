@@ -4,9 +4,11 @@ import {validateWbsReadEnvelope,WBS_READONLY_ROW_FIELDS} from './wbs-readonly-mc
 // This module is deliberately an admission and lineage layer, not a WBS
 // business-operation adapter.  Its output can be persisted only by the
 // receipt-backed REFS ingress workflow and is never a Draft or posting command.
-const stableKey=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
+const stableKey=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'bank_transaction_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
 const sourceType=Object.freeze({list_payables:'PAYABLE',list_bank_transactions:'BANK_TRANSACTION',list_autorec_details:'AUTOREC_PAYMENT_DETAIL',list_autorec_banks:'AUTOREC_BANK_CONTROL',list_journal_entries:'WBS_JOURNAL_EVIDENCE',list_control_totals:'WBS_CONTROL_TOTAL',trace_by_key:'WBS_TRACE_RELATION'});
-const traceKeyTypes=new Set(['ap_guid','cb_id','pd_guid','pb_guid','id']);
+// `cb_id` can be retained as the related accounting locator in a trace, but
+// only `bank_transaction_id` may identify a bank-side transaction producer.
+const traceKeyTypes=new Set(['ap_guid','bank_transaction_id','cb_id','pd_guid','pb_guid','id']);
 const text=value=>value==null?'':String(value).trim();
 // WBS MCP row values are canonical decimal payloads, never display strings.
 // Reject missing values explicitly: Number('') and Number(null) are zero in
@@ -243,7 +245,7 @@ export function buildWbsTraceRelationEvidence({envelope,lookup}={}){
 }
 
 const snapshotView=Object.freeze({list_payables:'BGDATA.payable',list_bank_transactions:'BGDATA.bank_transaction',list_autorec_details:'BGDATA.autoc_detail'});
-const snapshotPrimaryKey=Object.freeze({list_payables:'apGuId',list_bank_transactions:'cashOrBankBookId',list_autorec_details:'pdGuId'});
+const snapshotPrimaryKey=Object.freeze({list_payables:'apGuId',list_bank_transactions:'bankTransactionId',list_autorec_details:'pdGuId'});
 const uuid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text(value));
 const iso=value=>typeof value==='string'&&!Number.isNaN(Date.parse(value));
 
@@ -256,7 +258,7 @@ function snapshotRow(accepted,row,bankRules,payableRules,detailRules){
   }
   if(accepted.tool_name==='list_bank_transactions'){
     const directionRule=bankRules?.get(text(row.account_code)),movement=directionRule?signedMovement(row,'lender','debtor',directionRule.lender_direction,directionRule.debtor_direction):null;
-    return freeze({...provenance,cashOrBankBookId:text(row.cb_id),bank_account_ref:row.account_code||null,currency:scopedCurrency(accepted,row),amount:movement?.amount??null,transaction_date:row.set_date||null,posting_date:row.posting_date||null,direction:movement?.direction??null,bank_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,description:row.description||null,come_from:row.come_from||null,external_trace:bankTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false});
+    return freeze({...provenance,bankTransactionId:text(row.bank_transaction_id),bank_account_ref:row.account_code||null,currency:scopedCurrency(accepted,row),amount:movement?.amount??null,transaction_date:row.set_date||null,posting_date:row.posting_date||null,direction:movement?.direction??null,bank_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,description:row.description||null,come_from:row.come_from||null,external_trace:bankTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false});
   }
   const directionRule=detailRules?.get(text(row.biz_type)),movement=directionRule?signedMovement(row,'deposit','payment',directionRule.deposit_direction,directionRule.payment_direction):null;
   // pd_pv_guid is observed as a relation navigation value, not a verified

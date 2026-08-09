@@ -7,13 +7,13 @@ import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,buildWbsI
 const guid='11111111-1111-4111-8111-111111111111';
 const snapshot=()=>{const value={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-05T10:00:00.000Z',environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-2026-08-05',views:[
   {name:'BGDATA.payable',company_key:'COMPANY-A',rows:[{apGuId:guid,currency:'USD',amount:'100.0000',invoice_date:'2026-08-01',posting_date:'2026-08-01',direction:'DEBIT',bank_account_ref:'BANK-OP'}]},
-  {name:'BGDATA.bank_transaction',company_key:'COMPANY-A',rows:[{cashOrBankBookId:'BANK-1',bank_account_ref:'BANK-OP',currency:'USD',amount:'-100.0000',transaction_date:'2026-08-02',posting_date:'2026-08-02',direction:'CREDIT',source:'AUTOC',come_from:'Auto Payment'}]},
+  {name:'BGDATA.bank_transaction',company_key:'COMPANY-A',rows:[{bankTransactionId:'BANK-TX-1',bank_account_ref:'BANK-OP',currency:'USD',amount:'-100.0000',transaction_date:'2026-08-02',posting_date:'2026-08-02',direction:'CREDIT',source:'AUTOC',come_from:'Auto Payment'}]},
   {name:'BGDATA.autoc_detail',company_key:'COMPANY-A',rows:[{pdGuId:'33333333-3333-4333-8333-333333333333',pbGuId:'44444444-4444-4444-8444-444444444444',currency:'USD',amount:'100.0000',payment_date:'2026-08-02',posting_date:'2026-08-02',vendor_ref:'VEN-1',project_ref:'PROJ-1',cost_code_ref:'COST-1',description:'masked'}]}
 ]};value.views=value.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));return {...value,package_hash:canonicalRequestHash(value)};};
 const singleReceiptSnapshot=()=>{const value=snapshot();value.views=[value.views[0]];delete value.package_hash;return {...value,package_hash:canonicalRequestHash(value)};};
 const reader=value=>({readOnly:true,readSnapshot:async()=>structuredClone(value)});
 const productionSnapshot=()=>{
-  const pair=generateKeyPairSync('ed25519'),base=snapshot(),keyId='wbs-prod-test-1',ids={'BGDATA.payable':'apGuId','BGDATA.bank_transaction':'cashOrBankBookId','BGDATA.autoc_detail':'pdGuId'};
+  const pair=generateKeyPairSync('ed25519'),base=snapshot(),keyId='wbs-prod-test-1',ids={'BGDATA.payable':'apGuId','BGDATA.bank_transaction':'bankTransactionId','BGDATA.autoc_detail':'pdGuId'};
   const value={...base,schema_version:'WBS_READONLY_SNAPSHOT_V2',environment:'PRODUCTION',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',extract_started_at:'2026-08-05T10:00:00.000Z',extract_completed_at:'2026-08-05T10:00:00.000Z',consistency:'COMPLETE',read_consistency:'REPEATABLE_READ_TRANSACTION',pagination:'PRIMARY_KEY_SEEK'},views:base.views.map(view=>({...view,row_count:view.rows.length,first_primary_key:view.rows[0][ids[view.name]],last_primary_key:view.rows.at(-1)[ids[view.name]]})),detached_signature:{key_id:keyId,algorithm:'Ed25519',value:''}};
   const {package_hash,detached_signature,...manifest}=value;value.package_hash=canonicalRequestHash(manifest);value.detached_signature.value=sign(null,Buffer.from(value.package_hash),pair.privateKey).toString('base64');
   return {value,publicKeys:{[keyId]:pair.publicKey.export({type:'spki',format:'pem'})}};
@@ -22,7 +22,7 @@ const productionSnapshot=()=>{
 test('read-only snapshot adapter produces typed Raw/Normalized/Staging seams without a WBS write or Draft command',async()=>{
   const result=await createWbsInboundDataAdapter({snapshotReader:reader(snapshot())}).pull({selection:{company:'COMPANY-A'}});
   assert.deepEqual({raw:result.raw.length,normalized:result.normalized.length,staging:result.staging.length,exceptions:result.exceptions.length},{raw:3,normalized:3,staging:3,exceptions:0});
-  assert.equal(result.admission.can_write_wbs,false);assert.equal(result.admission.can_create_draft,false);assert.equal(result.staging.find(item=>item.raw_trace.source_type==='BANK_TRANSACTION').raw_trace.source_record_id,'BANK-1');
+  assert.equal(result.admission.can_write_wbs,false);assert.equal(result.admission.can_create_draft,false);assert.equal(result.staging.find(item=>item.raw_trace.source_type==='BANK_TRANSACTION').raw_trace.source_record_id,'BANK-TX-1');
 });
 
 test('incomplete receipt rows reach Exception rather than staging or a Draft request',async()=>{

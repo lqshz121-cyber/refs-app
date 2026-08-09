@@ -5,9 +5,9 @@ import {createWbsManifestSignatureVerifier} from './wbs-snapshot-signature.mjs';
 
 const transactionTools=Object.freeze(['list_payables','list_bank_transactions','list_autorec_details']);
 const controlTraceTools=Object.freeze(['list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
-const traceKeyTypeBySourceType=Object.freeze({PAYABLE:'ap_guid',BANK_TRANSACTION:'cb_id',AUTOREC_PAYMENT_DETAIL:'pd_guid',AUTOREC_BANK_CONTROL:'pb_guid',WBS_JOURNAL_EVIDENCE:'id'});
-const stableSourceKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
-const traceKeyTypes=new Set(Object.values(traceKeyTypeBySourceType));
+const traceKeyTypeBySourceType=Object.freeze({PAYABLE:'ap_guid',BANK_TRANSACTION:'bank_transaction_id',AUTOREC_PAYMENT_DETAIL:'pd_guid',AUTOREC_BANK_CONTROL:'pb_guid',WBS_JOURNAL_EVIDENCE:'id'});
+const stableSourceKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'bank_transaction_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
+const traceKeyTypes=new Set([...Object.values(traceKeyTypeBySourceType),'cb_id']);
 const text=value=>value==null?'':String(value).trim();
 const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const immutableReceiptHash=value=>/^sha256:[0-9a-f]{64}$/.test(text(value));

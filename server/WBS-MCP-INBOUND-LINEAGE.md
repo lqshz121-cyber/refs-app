@@ -16,7 +16,7 @@ column, relationship, and state semantics.
 | WBS Finance source | Formal MCP view | REFS role | Required identity / evidence | Result before human review |
 | --- | --- | --- | --- | --- |
 | Payable Report | `list_payables` | Transaction producer | `ap_guid`, company, currency, amount, posting/incurred date, envelope hash | Raw → Normalized → Staging review or Exception |
-| Bank Transaction Journal Entries | `list_bank_transactions` | Bank-side transaction producer | `cb_id`, company, bank account, lender/debtor direction, envelope hash | Raw → Normalized → Staging review or Exception |
+| Bank Transaction Journal Entries | `list_bank_transactions` | Bank-side transaction producer | provider `bank_transaction_id`, company, bank account, lender/debtor direction, envelope hash; `cb_id` is relation evidence only | Raw → Normalized → Staging review or Exception |
 | Auto Bank Reconciliation detail | `list_autorec_details` | Business-side matching evidence | `pd_guid`, `cb_id` relation, deposit/payment direction, dimensions, envelope hash | Raw → Normalized → Staging review or Exception |
 | Auto Bank Reconciliation company/bank summary | `list_autorec_banks` | Control evidence | `pb_guid`, company, quantity/amount/released/incurred fields, envelope hash | Control evidence only |
 | WBS Journal Entries | `list_journal_entries` | Journal/ledger trace evidence | stable numeric `id`, company, posting date, journal reference, debit/credit evidence | Trace evidence only |
@@ -43,8 +43,9 @@ producer. A WBS report therefore never becomes a posting instruction.
 The observed WBS `accounting_info` data set is not a substitute for
 `list_bank_transactions`: it has multiple accounting rows for a shared
 `cb_id`, and therefore enters REFS only as Journal/ledger trace evidence. The
-provider must expose the immutable bank record separately before a bank-side
-transaction candidate can be admitted.
+provider must expose `bank_transaction_id` as the immutable bank record key
+before a bank-side transaction candidate can be admitted. A `cb_id`, Ref No.,
+or journal identifier alone is blocked and cannot become a source key.
 
 ## State and matching boundary
 

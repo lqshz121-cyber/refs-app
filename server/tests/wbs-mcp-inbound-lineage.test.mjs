@@ -5,7 +5,10 @@ import {buildWbsMcpReadonlySnapshot,buildWbsAutoRecBankControlEvidence,mapWbsMcp
 import {createWbsInboundDataAdapter} from '../runtime/wbs-inbound-data-adapter.mjs';
 import {validateWbsSnapshotPackage} from '../runtime/wbs-snapshot-package.mjs';
 
-const envelope=(tool,rows,scope={company:'COMPANY-A'})=>({contract_version:'WBS-REFS-MCP-V1',tool,environment:'production',captured_at:'2026-08-09T12:00:00.000Z',source:{system:'WBS'},scope,record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:'Snapshot comparison required',rows});
+const envelope=(tool,rows,scope={company:'COMPANY-A'})=>{
+  const materialized=tool==='list_bank_transactions'?rows.map((row,index)=>Object.hasOwn(row,'bank_transaction_id')?row:{...row,bank_transaction_id:`BANK-TX-${index+1}`}):rows;
+  return {contract_version:'WBS-REFS-MCP-V1',tool,environment:'production',captured_at:'2026-08-09T12:00:00.000Z',source:{system:'WBS'},scope,record_count:materialized.length,content_sha256:canonicalRequestHash(materialized).slice(7),cursor_next:null,etl_notice:'Snapshot comparison required',rows:materialized};
+};
 const bankDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/bank/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-BANK-DR-1',version:'1',debtor_direction:'DEBIT',lender_direction:'CREDIT'}];
 const payableDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/payable/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-PAYABLE-DR-1',version:'1',ap_type:'AUTOC',direction:'DEBIT'}];
 const detailDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/autorec/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-AUTOREC-DR-1',version:'1',biz_type:'WB',deposit_direction:'CREDIT',payment_direction:'DEBIT'}];
@@ -37,6 +40,11 @@ test('MCP direction ambiguity becomes an exception and report/control views cann
   assert.deepEqual({admission:ambiguous.rows[0].admission,code:ambiguous.rows[0].exception_code,draft:ambiguous.can_create_draft},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_AMOUNT_DIRECTION_REQUIRED',draft:false});
   const control=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_control_totals',[{company:'COMPANY-A',period:'2026-08',total_balance:'100'}])});
   assert.equal(control.rows[0].admission,'CONTROL_OR_TRACE_ONLY');assert.equal(control.rows[0].source_record_id,null);assert.equal(control.can_post,false);
+});
+
+test('Bank Journal cb_id remains a relation locator and cannot substitute for a bank transaction key',()=>{
+  const missingKey=envelope('list_bank_transactions',[{bank_transaction_id:'',cb_id:'RELATION-ONLY',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-01',posting_date:'2026-08-01'}]);
+  assert.throws(()=>mapWbsMcpEnvelopeToInbound({envelope:missingKey}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
 });
 
 test('AutoRec Detail requires exactly one nonzero Deposit or Payment before it can be review evidence',()=>{

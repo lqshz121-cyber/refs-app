@@ -3,7 +3,7 @@ import {canonicalRequestHash} from './request-hash.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VIEW_POLICY=Object.freeze({
   'BGDATA.payable':Object.freeze({id:'apGuId',kind:'TRANSACTION_CANDIDATE'}),
-  'BGDATA.bank_transaction':Object.freeze({id:'cashOrBankBookId',kind:'TRANSACTION_CANDIDATE',scoped:true}),
+  'BGDATA.bank_transaction':Object.freeze({id:'bankTransactionId',kind:'TRANSACTION_CANDIDATE',scoped:true}),
   'BGDATA.autoc_detail':Object.freeze({id:'pdGuId',kind:'AUTOREC_CANDIDATE'}),
   'BGDATA.autoc_bank':Object.freeze({id:'pbGuId',kind:'CONTROL_SOURCE'}),
   'accounting.accounting_info':Object.freeze({id:'accountingInfoId',kind:'LEDGER_EVIDENCE',scoped:true}),
