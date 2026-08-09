@@ -156,12 +156,14 @@ export function buildStandardDraftRequest({stagingItem,mapping,journal}={}){
   if(journalAmounts.some(line=>line.debit===null||line.credit===null||line.debit<0||line.credit<0))fail('WBS_DRAFT_REQUEST_UNBALANCED','Draft request journal line amounts must be canonical nonnegative decimals');
   const debit=journalAmounts.reduce((sum,line)=>sum+line.debit,0),credit=journalAmounts.reduce((sum,line)=>sum+line.credit,0);
   if(Math.abs(debit-credit)>0.0001||debit<=0)fail('WBS_DRAFT_REQUEST_UNBALANCED','Draft request journal lines must be positive and balanced');
+  const relationHash=externalRelationHash(stagingItem);
+  if(relationHash===undefined)fail('WBS_STAGING_TRACE_REQUIRED','Draft request relation evidence must retain its exact immutable hash.');
   return Object.freeze({
     request_type:'STANDARD_AUTO_JOURNAL_REQUEST',status:'READY_FOR_STANDARD_JE_COMMAND',
     can_dispatch:false,can_post:false,kernel_method:'createAutoJournal',
     staging_item_id:stagingItem.staging_item_id,company_key:stagingItem.company_key,currency:stagingItem.currency,accounting_date:stagingItem.accounting_date,period_id:journal.period_id,journal_number:journal.journal_number,description:journal.description??null,lines:structuredClone(journal.lines),
     mapping:{mapping_id:mapping.mapping_id,version:mapping.version,snapshot_hash:mapping.snapshot_hash,source_type:mapping.source_type,company_key:mapping.company_key,currency:mapping.currency,bank_account_ref:mapping.bank_account_ref??null},
-    trace:{raw_event_id:stagingItem.raw_event_id,source_document_id:stagingItem.source_document_id,source_record_id:stagingItem.source_record_id,source_version:stagingItem.source_version,source_type:stagingItem.source_type,company_key:stagingItem.company_key,currency:stagingItem.currency,accounting_date:stagingItem.accounting_date,mapping_id:mapping.mapping_id,mapping_version:mapping.version,mapping_snapshot_hash:mapping.snapshot_hash}
+    trace:{raw_event_id:stagingItem.raw_event_id,source_document_id:stagingItem.source_document_id,source_record_id:stagingItem.source_record_id,source_version:stagingItem.source_version,source_type:stagingItem.source_type,company_key:stagingItem.company_key,currency:stagingItem.currency,accounting_date:stagingItem.accounting_date,mapping_id:mapping.mapping_id,mapping_version:mapping.version,mapping_snapshot_hash:mapping.snapshot_hash,external_relation_trace_hash:relationHash}
   });
 }
 
@@ -420,6 +422,8 @@ export function validatePostedJournalTrace({draftRequest,postedEvidence}={}){
   if(!Array.isArray(postedEvidence.ledger_line_ids)||postedEvidence.ledger_line_ids.length<2)fail('WBS_POSTED_EVIDENCE_REQUIRED','Posted evidence ledger_line_ids are required');
   const traceFields=['raw_event_id','source_document_id','source_record_id','source_version','source_type','company_key','currency','accounting_date','mapping_id','mapping_version','mapping_snapshot_hash'];
   if(!postedEvidence.source_trace||traceFields.some(field=>text(postedEvidence.source_trace[field])!==text(draftRequest.trace?.[field])))fail('WBS_POSTED_SOURCE_TRACE_MISMATCH','Posted journal evidence must retain the exact reviewed WBS Draft source trace.');
+  const relationHash=text(draftRequest.trace?.external_relation_trace_hash);
+  if(relationHash!==''&&(!/^sha256:[0-9a-f]{64}$/.test(relationHash)||text(postedEvidence.source_trace.external_relation_trace_hash)!==relationHash))fail('WBS_POSTED_SOURCE_TRACE_MISMATCH','Posted journal evidence must retain exact WBS relation evidence when it was admitted to the Draft trace.');
   return Object.freeze({ok:true,can_post:false,trace:{...draftRequest.trace,journal_entry_id:postedEvidence.journal_entry_id,ledger_line_ids:[...postedEvidence.ledger_line_ids],audit_ids:[postedEvidence.review_audit_id,postedEvidence.approval_audit_id,postedEvidence.post_audit_id]}});
 }
 

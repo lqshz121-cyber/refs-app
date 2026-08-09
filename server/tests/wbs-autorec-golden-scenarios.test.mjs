@@ -158,7 +158,7 @@ test('golden acceptance artifact has twelve sanitized source-to-target controls 
   assert.equal(required.size,0);
 });
 
-test('G11 acceptance rejects a substituted top-level policy or allocation edge',()=>{
+test('G11 acceptance rejects a substituted top-level policy, allocation edge, or relation hash',()=>{
   assert.match(acceptanceMatrix,/persisted review request must also equal that policy trace/i);
-  assert.match(acceptanceMatrix,/substituted top-level policy, snapshot, plan or allocation edge is rejected/i);
+  assert.match(acceptanceMatrix,/substituted top-level policy, snapshot, plan, allocation edge, or relation hash is rejected/i);
 });
