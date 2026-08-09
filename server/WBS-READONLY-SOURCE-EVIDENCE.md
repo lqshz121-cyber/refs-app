@@ -157,6 +157,15 @@ to the receipt's `pd_guid`. Even then it is retained as relation evidence;
 it cannot reserve, split, release, incur, reverse, or post anything. All other
 business types and any unmatched row remain outside the AutoRec Detail path.
 
+The 2026-08-10 aggregate-only recheck found at least twenty-one distinct
+relation-table business families, including FAST/FASTER, Yardi, Expense, loan,
+sale, reversal, HOA and finance families in addition to
+`AUTOC`/`AUTOP`/`AUTOR`. Every observed family had populated business and batch
+reference fields. That proves broad routing coverage, not a common foreign-key
+target or allocation semantics: a generic `MB_BatchGuId`, relation presence,
+or a `REVERSAL` label cannot become an AutoRec batch, REFS reversal,
+reservation, or state transition.
+
 ### Amount direction and control-total boundary
 
 Aggregate-only Detail evidence shows that an observed row normally has exactly
