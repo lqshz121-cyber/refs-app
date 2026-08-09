@@ -261,6 +261,26 @@ pgTest('WBS Cost GL control metrics are receipt-bound, readable, replay-safe, an
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
 });
 
+pgTest('WBS Property Comparison metrics retain property and bank scope as non-transactional control evidence',async()=>{
+  const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),capturedAt=new Date().toISOString();
+  const journalsBefore=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:capturedAt,environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-PROPERTY',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:randomUUID(),ap_type:'AUTOC'}]}]};
+  snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));snapshot.package_hash=canonicalRequestHash(snapshot);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'property-control-importer',['WBS.SNAPSHOT.IMPORT'])});
+  const observed=await kernel.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'snapshot-property-control-0001'});
+  const inboundReceipt={payload_hash:hash('property-control-receipt'),payload_ref:`object://wbs-snapshot/${snapshotId}/inbound/PROPERTY`};
+  const rows=[{source_record_id:'PROPERTY-CONTROL',source_version:`snapshot:${snapshotId}:PROPERTY-CONTROL`,raw:{record_id:'PROPERTY-CONTROL',company_key:ids.sourceEntityId},normalized:{source_type:'PROPERTY_COMPARISON',source_record_id:'PROPERTY-CONTROL',source_version:`snapshot:${snapshotId}:PROPERTY-CONTROL`,company_key:ids.sourceEntityId,receipt_hash:inboundReceipt.payload_hash,receipt_ref:inboundReceipt.payload_ref},outcome:{stage:'CONTROL_EVIDENCE_ONLY'},outcome_kind:'EXCEPTION'}];
+  const inboundKey='wbs-property-inbound-0001',inboundHash=canonicalRequestHash({tenant_id:ids.tenantId,entity_id:ids.entityId,import_batch_id:observed.import_batch_id,receipt:inboundReceipt,rows,idempotency_key:inboundKey});
+  const inbound=await kernel.persistWbsInboundRows({tenantId:ids.tenantId,entityId:ids.entityId,importBatchId:observed.import_batch_id,receipt:inboundReceipt,rows,idempotencyKey:inboundKey,requestHash:inboundHash});
+  const scope={tenant_id:ids.tenantId,entity_id:ids.entityId,company_key:ids.sourceEntityId,property_ref:'PROPERTY-001',period_start:'2026-08-01',period_end:'2026-08-31',currency:'USD',bank_account_ref:'BANK-001'};
+  const metrics=[{metric_key:'PROPERTY_VALUE',amount:'100.0000'}],receipt={hash:inboundReceipt.payload_hash,metrics_hash:canonicalRequestHash(metrics),ref:inboundReceipt.payload_ref,version:'v1',scope,signature_verified:true,manifest_hash:hash('property-control-manifest'),key_id:'wbs-property-key',algorithm:'Ed25519'};
+  const bindingHash=canonicalRequestHash({sourceType:'PROPERTY_COMPARISON',scope,receiptId:inbound.receipt_id,receipt,metrics});
+  const created=await kernel.persistWbsControlMetricSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,sourceType:'PROPERTY_COMPARISON',scope,receiptId:inbound.receipt_id,receipt,metrics,idempotencyKey:bindingHash,bindingHash});
+  const read=await kernel.readPersistedWbsControlSnapshot({source_type:'PROPERTY_COMPARISON',tenant_id:ids.tenantId,entity_id:ids.entityId,scope,read_only:true});
+  assert.deepEqual({id:read.snapshot_id===created.snapshot_id,property:read.scope.property_ref,bank:read.scope.bank_account_ref,draft:read.can_create_draft,post:read.can_post},{id:true,property:'PROPERTY-001',bank:'BANK-001',draft:false,post:false});
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
+});
+
 pgTest('authenticated HTTP records only sandbox WBS snapshot observations in its authorized entity',async()=>{
   const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),rowId=randomUUID();
   const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:snapshotId,captured_at:new Date().toISOString(),environment:'SANDBOX',source_system:'WBS',dictionary_version:'WBS-DICT-HTTP',views:[{name:'BGDATA.payable',company_key:ids.sourceEntityId,rows:[{apGuId:rowId,ap_type:'AUTOC'}]}]};snapshot.views=snapshot.views.map(view=>({...view,content_hash:canonicalRequestHash(view.rows)}));snapshot.package_hash=canonicalRequestHash(snapshot);
