@@ -202,13 +202,13 @@ export function TableSkeleton({cols = 5, rows = 6, label = 'Loading records'}) {
 // sort / text filter / CSV export / pagination / density / row click
 const _loadView = (k)=>{ try{ return JSON.parse(localStorage.getItem('refs_view_'+k))||{}; }catch(e){ return {}; } };
 const _saveView = (k,v)=>{ try{ localStorage.setItem('refs_view_'+k, JSON.stringify(v)); }catch(e){} };
-export function Table({cols, rows, onRow, empty='No records to display.', emptyTone='empty', rowKey, features={}, pageSize=25, exportName, loading, error}) {
+export function Table({cols, rows, onRow, empty='No records to display.', emptyTone='empty', rowKey, features={}, pageSize=25, page:controlledPage, onPageChange, exportName, loading, error}) {
   const V = exportName ? _loadView(exportName) : {};
   const {sortable=true, filterable=rows&&rows.length>8, exportable=!!exportName, paginate=rows&&rows.length>pageSize} = features;
   const [sortK, setSortK] = useState(V.sortK??null);
   const [sortDir, setSortDir] = useState(V.sortDir??1);
   const [q, setQ] = useState(V.q||'');
-  const [page, setPage] = useState(0);
+  const [localPage, setLocalPage] = useState(0);
   const [dense, setDense] = useState(!!V.dense);
   const [hi, setHi] = useState(-1);
   // Pointer position and keyboard position are different facts. `kb` records
@@ -231,6 +231,13 @@ export function Table({cols, rows, onRow, empty='No records to display.', emptyT
       return String(x??'').localeCompare(String(y??''))*sortDir; });
   },[filtered,sortK,sortDir,cols]);
   const pages = Math.max(1, Math.ceil(sorted.length/pageSize));
+  const requestedPage = Number.isFinite(controlledPage) ? controlledPage : localPage;
+  const page = Math.max(0, Math.min(Math.floor(requestedPage), pages - 1));
+  const setPage = (next) => {
+    const target = Math.max(0, Math.floor(typeof next === 'function' ? next(page) : next) || 0);
+    if (typeof onPageChange === 'function') onPageChange(target);
+    else setLocalPage(target);
+  };
   const view = paginate ? sorted.slice(page*pageSize,(page+1)*pageSize) : sorted;
 
   const doExport = () => {

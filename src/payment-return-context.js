@@ -4,7 +4,8 @@ export function localPaymentReturnScopeLabel(context = {}) {
   const payment = context?.paymentReturn || context || {};
   const entity = payment.entityId ? `entity ${payment.entityId}` : 'entity unselected';
   const vendor = payment.vendorName || payment.vendorId || 'vendor unselected';
-  return `Retained payment scope / bill ${payment.billId || 'unselected'} / ${entity} / vendor ${vendor} / date ${payment.paymentDate || 'All dates'} / ${payment.tab || 'Payments'}`;
+  const page = payment.expenseReturnScope ? Math.max(0, Number(payment.expenseReturnScope.expensePage) || 0) + 1 : null;
+  return `Retained payment scope / bill ${payment.billId || 'unselected'} / ${entity} / vendor ${vendor} / date ${payment.paymentDate || 'All dates'} / ${payment.tab || 'Payments'}${page ? ` / Bills page ${page}` : ''}`;
 }
 
 export function localPaymentReportDrillContext({ tab = 'GL Detail', entityId = '', drillLabel = '', paymentReturn = null } = {}) {

@@ -11,7 +11,8 @@ for (const required of [
   'Register/GL drillback',
   'Account creation, editing, activation, deactivation, and WBS account administration are unavailable.',
   'chartAccountDrill(r)',
-  "coaReturn:{route:'coa',tab:LOCAL_TAB,qboQuery,accountType,entityId:entity || ''}",
+  "coaReturn:{route:'coa',tab:LOCAL_TAB,qboQuery,accountType,coaPage,entityId:entity || ''}",
+  'pageSize={200} page={coaPage} onPageChange={setCoaPage}',
 ]) assert.ok(source.includes(required), `COA readonly shell must retain ${required}`);
 
 for (const forbidden of [
