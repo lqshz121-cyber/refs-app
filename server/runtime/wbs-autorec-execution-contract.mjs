@@ -71,3 +71,24 @@ export function buildWbsAutoRecExecutionIntent({command,currentState,reviewCandi
   }
   fail('WBS_AUTOREC_EXECUTION_COMMAND_INVALID','Unsupported REFS AutoRec execution command.');
 }
+
+// In-memory orchestration seam for an eventual authoritative repository.
+// It deliberately persists no accounting state; it only proves the replay
+// behavior that a database-backed command endpoint must preserve.
+export function createWbsAutoRecExecutionIntentService(){
+  const receipts=new Map();
+  return freeze({
+    prepare(input={}){
+      const intent=buildWbsAutoRecExecutionIntent(input);
+      const scope=[intent.review_candidate.review_candidate_id,intent.idempotency_key].join('\u0000');
+      const prior=receipts.get(scope);
+      if(prior){
+        if(prior.request_hash!==intent.request_hash)fail('WBS_AUTOREC_EXECUTION_REPLAY_CONFLICT','An AutoRec idempotency key cannot be reused for a different execution intent.');
+        return freeze({...prior.intent,replayed:true});
+      }
+      const accepted=freeze({...intent,replayed:false});
+      receipts.set(scope,freeze({request_hash:intent.request_hash,intent:accepted}));
+      return accepted;
+    }
+  });
+}

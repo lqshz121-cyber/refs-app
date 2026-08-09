@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildWbsAutoRecExecutionIntent,WbsAutoRecExecutionContractError} from '../runtime/wbs-autorec-execution-contract.mjs';
+import {buildWbsAutoRecExecutionIntent,createWbsAutoRecExecutionIntentService,WbsAutoRecExecutionContractError} from '../runtime/wbs-autorec-execution-contract.mjs';
 
 const hash=letter=>'sha256:'+letter.repeat(64);
 const trace={company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',allocated_amount:'100.0000',bank_business_date:'2026-08-01',bank_accounting_date:'2026-08-01',business_business_date:'2026-08-01',business_accounting_date:'2026-08-01',bank_receipt_id:'r-bank',bank_receipt_ref:'object://receipt/bank',bank_receipt_hash:hash('a'),business_receipt_id:'r-pay',business_receipt_ref:'object://receipt/pay',business_receipt_hash:hash('b'),bank_raw_event_id:'raw-bank',business_raw_event_id:'raw-pay',bank_source_document_id:'doc-bank',business_source_document_id:'doc-pay',bank_source_record_id:'bank-1',bank_source_version:'v1',business_source_record_id:'pay-1',business_source_version:'v1',bank_staging_item_id:'stg-bank',business_staging_item_id:'stg-pay'};
@@ -32,4 +32,12 @@ test('reverse is a two-leg standard Draft/Post workflow and cannot be inferred f
   assert.equal(reversed.next_state,'REVERSED');assert.equal(reversed.posted_reversals.length,2);
   assert.throws(()=>execute({command:'COMPLETE_REVERSE',currentState:'REVERSE_DRAFT_REQUIRED',reviewCandidate:review,postedJournals:posted,postedReversalJournals:[{journal_entry_id:'reversal-pay',reverses_journal_entry_id:'je-PAYABLE_INCUR',status:'POSTED'},{journal_entry_id:'reversal-two',reverses_journal_entry_id:'je-PAYABLE_INCUR',status:'POSTED'}]}),error=>error.code==='WBS_AUTOREC_EXECUTION_REVERSE_EVIDENCE_REQUIRED');
   assert.throws(()=>execute({command:'RELEASE',currentState:'INCURRED',reviewCandidate:review,reservationReceipt}),error=>error.code==='WBS_AUTOREC_EXECUTION_TRANSITION_INVALID');
+});
+
+test('execution intents replay only the exact canonical command for one review candidate',()=>{
+  const service=createWbsAutoRecExecutionIntentService();
+  const input={command:'RESERVE',currentState:'REVIEW_REQUIRED',reviewCandidate:review,idempotencyKey:'wbs-autorec-replay-001'};
+  const first=service.prepare(input),replay=service.prepare(input);
+  assert.equal(first.replayed,false);assert.equal(replay.replayed,true);assert.equal(replay.request_hash,first.request_hash);
+  assert.throws(()=>service.prepare({...input,command:'REQUEST_REVERSE',currentState:'INCURRED',reason:'different command'}),error=>error.code==='WBS_AUTOREC_EXECUTION_REPLAY_CONFLICT');
 });
