@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mapWbsReadonlyProviderRow,WbsProviderReadonlyRowAdapterError} from '../runtime/wbs-provider-readonly-row-adapter.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {mapWbsMcpEnvelopeToInbound} from '../runtime/wbs-mcp-inbound-lineage.mjs';
+import {buildWbsMcpReadonlySnapshot,mapWbsMcpEnvelopeToInbound} from '../runtime/wbs-mcp-inbound-lineage.mjs';
+import {createWbsInboundDataAdapter} from '../runtime/wbs-inbound-data-adapter.mjs';
 
 const scope={company_code:'COMPANY-A',currency:'USD'};
 
@@ -29,4 +30,16 @@ test('an observed AutoRec physical row with no posting-date column becomes an ex
   const conventions=[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${content_sha256}`,ref:'object://wbs/test/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-10T00:00:00.000Z'},rule_id:'WBS-AUTOREC-DR-1',version:'1',biz_type:'WB',deposit_direction:'CREDIT',payment_direction:'DEBIT',business_date_field:'incurred_date'}];
   const mapped=mapWbsMcpEnvelopeToInbound({envelope,autoRecDetailDirectionConventions:conventions}).rows[0];
   assert.deepEqual({admission:mapped.admission,code:mapped.exception_code,staging:mapped.can_create_draft,post:mapped.can_post},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_AUTOREC_POSTING_DATE_REQUIRED',staging:false,post:false});
+});
+
+test('a mapped physical Payable row reaches receipt-bound Raw/Normalized/Staging only through the existing ingress seam',async()=>{
+  const row=mapWbsReadonlyProviderRow({sourceTable:'wbsdata.account_book_payable_info',scope,row:{uuid:'11111111-1111-4111-8111-111111111111',company_code:'COMPANY-A',type:'AUTOC',amount:'100.0000',incurred_date:'2026-08-01',posting_date:'2026-08-02',vendor_no:'V-1',project_code:'P-1',cost_id:'C-1',journal_no:'J-1'}});
+  const rows=[row],content_sha256=canonicalRequestHash(rows).slice(7);
+  const envelope={contract_version:'WBS-REFS-MCP-V1',tool:'list_payables',environment:'production',captured_at:'2026-08-10T00:00:00.000Z',source:{system:'WBS'},scope:{company:'COMPANY-A',currency:'USD'},record_count:1,content_sha256,cursor_next:null,etl_notice:'Snapshot comparison required',rows};
+  const conventions=[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${content_sha256}`,ref:'object://wbs/test/payable-receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-10T00:00:00.000Z'},rule_id:'WBS-PAYABLE-DR-1',version:'1',ap_type:'AUTOC',direction:'DEBIT'}];
+  const snapshot=buildWbsMcpReadonlySnapshot({envelopes:[envelope],snapshotId:'22222222-2222-4222-8222-222222222222',dictionaryVersion:'WBS-MCP-V1',payableDirectionConventions:conventions});
+  const prepared=await createWbsInboundDataAdapter({snapshotReader:{readOnly:true,readSnapshot:async()=>snapshot}}).pull();
+  assert.deepEqual({raw:prepared.raw.length,normalized:prepared.normalized.length,staging:prepared.staging.length,exceptions:prepared.exceptions.length},{raw:1,normalized:1,staging:1,exceptions:0});
+  assert.equal(prepared.can_dispatch_draft,undefined);assert.equal(prepared.can_post,undefined);
+  assert.deepEqual({source:prepared.staging[0].raw_trace.source_type,key:prepared.staging[0].raw_trace.source_record_id,posting:prepared.staging[0].raw_trace.posting_date,amount:prepared.staging[0].raw_trace.amount},{source:'PAYABLE',key:'11111111-1111-4111-8111-111111111111',posting:'2026-08-02',amount:-100});
 });
