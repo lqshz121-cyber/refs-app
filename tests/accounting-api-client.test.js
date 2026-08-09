@@ -86,6 +86,10 @@ const config=configured;
   // A 5xx is decided by the status line: a server failure must not be relabelled
   // by whatever the failing server put in the body.
   assert.equal((await refreshAuthoritativeJournalEntries({config,fetcher:async()=>respond(503,{ok:false,code:'PERIOD_CLOSED'})})).code,'ACCOUNTING_API_SERVER_ERROR');
+  assert.match((await refreshAuthoritativeJournalEntries({config,fetcher:async()=>respond(503,{ok:false,code:'PERIOD_CLOSED'})})).message,/Read: JOURNAL_ENTRIES\./);
+  const failedBill=await refreshAuthoritativeDocuments({config,fetcher:async url=>url.includes('/ap/bills')?respond(500,{ok:false,code:'INTERNAL_ERROR'}):respond(200,{ok:true,data:[]})});
+  assert.equal(failedBill.code,'ACCOUNTING_API_SERVER_ERROR');
+  assert.match(failedBill.message,/Read: AP_BILLS\./);
 
   // A 401 or 403 is decided by the status line. A body code must not be able to
   // relabel an authentication failure as an authorization failure or the reverse.
