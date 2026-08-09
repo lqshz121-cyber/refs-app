@@ -41,6 +41,11 @@ reversal, ledger, and audit actions.
 `cb_id`, journal number, Payable No., Ref No., Seq No., batch ID, memo, and
 display GuId are never immutable transaction or allocation keys.
 
+Payable `Account Code` is an AP/expense dimension, not a bank account. A
+Payable may be matched with a bank transaction only when its signed receipt
+contains a dedicated `bank_account_ref`; `cb_id`, Journal No., and the
+display Account Code cannot fill that field.
+
 ### Observed Payable lineage (read-only evidence)
 
 The live Payable Report list was read without changing a WBS record. Its

@@ -8,7 +8,10 @@ export const WBS_MCP_PILOT_LIMIT=10;
 export const WBS_MCP_MAX_CONCURRENCY=2;
 const WBS_CURSOR_READ_TOOLS=new Set(['list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
 export const WBS_READONLY_ROW_FIELDS=Object.freeze({
-  list_payables:Object.freeze(['amount','ap_guid','ap_long_id','ap_type','business_status','cb_id','check_date','check_no','clear_date','company_code','company_name','cost_id','cost_ledger_id','description','incurred_date','journal_no','pay_status','pay_type','pj_code','pj_name','posting_date','project_guid','review_status','vendor_name','vendor_no']),
+  // bank_account_ref is a future receipt-bound relation field. It is never
+  // synthesized from the Payable Account Code, Journal No., cb_id, or another
+  // display field; without it the REFS AutoRec candidate remains blocked.
+  list_payables:Object.freeze(['amount','ap_guid','ap_long_id','ap_type','bank_account_ref','business_status','cb_id','check_date','check_no','clear_date','company_code','company_name','cost_id','cost_ledger_id','description','incurred_date','journal_no','pay_status','pay_type','pj_code','pj_name','posting_date','project_guid','review_status','vendor_name','vendor_no']),
   list_bank_transactions:Object.freeze(['account_code','bank_transaction_id','cb_id','child_come_from','child_count','come_from','company_code','debtor','description','lender','payee','payee_no','posting_date','review','set_date','statistical_business','sys_id','turn_flag']),
   list_autorec_details:Object.freeze(['batch_guid','biz_type','cb_id','clear_date','cost_code','data_source','deposit','incurred_date','match_guid','match_status','payment','pd_guid','pd_pv_guid','posting_date','project_guid','released_by','released_date','status','vendor_no']),
   list_autorec_banks:Object.freeze(['ah_id','ah_name','company_code','company_name','debit_amount','incurred','pay_amount','pb_guid','quantity','reconciliation_start_date','released','released_quantity','status']),
