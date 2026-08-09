@@ -154,6 +154,22 @@ business row:
    `AUTOC`, `AUTOP`, and (except for a small unmatched remainder) `AUTOR`.
    It has no observed match to Payable `uuid`; `MB_BatchGuId` has no observed
    match to either PB key or Detail batch key.
+8. A 2026-08-10 aggregate-only recheck found 18,845 exact
+   `account_book_payable_info.business_id = fast_auto_payment_detail.pd_guid`
+   pairs, with no duplicate pair in that population. The observed type pairs
+   were predominantly `AUTOP/AUTOP`, `AUTOR/AUTOR`, and `AUTOC/AUTOC`; the
+   Payable amount equalled Detail Payment for 18,155 pairs. This is an
+   **OBSERVED Payable-to-Detail relation**, not a cross-company-safe source
+   key: only 4,087 pairs shared the available company-name field, and no
+   compatible owner-company-code comparison was proven. It must remain a
+   signed, scoped trace relation until a provider receipt supplies an exact
+   company/currency/version contract.
+9. `account_book_payable_info.long_id = fast_auto_payment_detail.pd_long_id`
+   yielded 263,550 distinct pairs across only 14,133 Payable rows and 13,942
+   long IDs. This is a high-fan-out display/source relation, not an immutable
+   matching, allocation, or posting key. `uuid = pd_guid` had zero observed
+   pairs. The isolated `long_id = pd_pvguid` population had one distinct key
+   only and has no usable cardinality semantics.
 
 These findings are material: the REFS adapter must reject any future provider
 mapping that silently derives a PB key from `pd_batchguid`, `MB_BatchGuId`, a
@@ -161,6 +177,11 @@ memo, a reference number, or a display sequence. `pd_pvguid` is different: it
 is a high-coverage observed Detail-to-PB relation, but still requires the
 separate signed receipt, exact snapshot scope, approved policy, and immutable
 `pd_guid` binding enforced by the REFS adapter.
+
+Likewise, the observed `business_id = pd_guid` pairs explain lineage but do
+not collapse the distinct Payable and Detail source identities in REFS. The
+Payable record and Detail record retain separate Raw/Normalized/Staging rows;
+only a receipt-bound relation trace may connect them during human review.
 
 `match_business_info` is a multi-business routing/relation table, not an
 AutoRec-only allocation table. A direct Detail relation is admissible only if
