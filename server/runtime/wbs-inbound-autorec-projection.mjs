@@ -16,11 +16,10 @@ const text=value=>value==null?'':String(value).trim();
 // zero-value evidence. The inbound normalized form is a decimal, not a
 // display value, so accept only a finite number or an explicit decimal token.
 const decimal=value=>{
-  if(typeof value==='number')return Number.isFinite(value)?Number(value.toFixed(4)):null;
-  const candidate=typeof value==='string'?value.trim():'';
-  if(!/^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(candidate))return null;
-  const parsed=Number(candidate);
-  return Number.isFinite(parsed)?Number(parsed.toFixed(4)):null;
+  const candidate=typeof value==='number'?(Number.isFinite(value)?String(value):''):typeof value==='string'?value.trim():'';
+  if(!/^-?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(candidate))return null;
+  const parsed=Number(candidate),scaled=parsed*10000;
+  return Number.isFinite(parsed)&&Number.isSafeInteger(Math.round(scaled))?Number(parsed.toFixed(4)):null;
 };
 const decimalText=value=>{const parsed=decimal(value);return parsed===null?null:parsed.toFixed(4);};
 const validDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const date=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(date.getTime())&&date.toISOString().slice(0,10)===candidate;};

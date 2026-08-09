@@ -70,8 +70,8 @@ test('signed WBS amounts preserve direction and absolute capacity, while a bad c
   assert.equal(scoped.candidates.length,1);assert.equal(scoped.candidates[0].company_key,'COMPANY-C');assert(scoped.exceptions.some(item=>item.code==='WBS_AUTOREC_CONTROL_SCOPE_BLOCKED'&&item.company_key==='COMPANY-A'));
 });
 
-test('blank or null WBS controls never coerce to zero-valued evidence',()=>{
-  for(const invalidValue of ['', '   ', null, true, '0x10']){
+test('blank, noncanonical, or over-precision WBS controls never coerce to zero-valued evidence',()=>{
+  for(const invalidValue of ['', '   ', null, true, '0x10', '1e2', '100.00001', '.5']){
     const result=projectObservedWbsAutoRecControlEvidence({companyRows:[{...companyControl,released_amount:invalidValue}]});
     assert.equal(result.controls.length,0);
     assert.equal(result.exceptions[0].code,'WBS_AUTOREC_CONTROL_INVALID');
