@@ -225,6 +225,7 @@ const receiptTrace=row=>freeze({tenant_id:text(row.tenant_id)||null,entity_id:te
 function receiptBinding(row,persistedRows,scope=null){
   const required=['receipt_id','receipt_ref','receipt_hash','source_record_id','source_version','company_key'];
   if(required.some(key=>text(row?.[key])===''))return {error:exception(row,'WBS_AUTOREC_RECEIPT_TRACE_REQUIRED','Observed WBS evidence requires an immutable receipt, source version, and company scope')};
+  if(!/^sha256:[0-9a-f]{64}$/.test(text(row?.receipt_hash)))return {error:exception(row,'WBS_AUTOREC_RECEIPT_HASH_INVALID','Observed WBS evidence requires a canonical immutable SHA-256 receipt hash')};
   const scoped=scope&&typeof scope==='object';
   if(scoped&&(!text(scope.tenant_id)||!text(scope.entity_id)||!text(scope.company_key)))return {error:exception(row,'WBS_AUTOREC_RECEIPT_SCOPE_REQUIRED','Receipt-backed WBS evidence requires tenant, entity, and company scope')};
   const sourceRows=persistedRows.filter(item=>text(item?.source_record_id)===text(row.source_record_id));
