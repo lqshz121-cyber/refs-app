@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {buildWbsMcpReadonlySnapshot,buildWbsAutoRecBankControlEvidence,mapWbsMcpEnvelopeToInbound,planWbsMcpSnapshotDiff,WbsMcpLineageError} from '../runtime/wbs-mcp-inbound-lineage.mjs';
+import {buildWbsMcpReadonlySnapshot,buildWbsAutoRecBankControlEvidence,buildWbsAutoRecDetailCaseBinding,mapWbsMcpEnvelopeToInbound,planWbsMcpSnapshotDiff,WbsMcpLineageError} from '../runtime/wbs-mcp-inbound-lineage.mjs';
 import {createWbsInboundDataAdapter} from '../runtime/wbs-inbound-data-adapter.mjs';
 import {validateWbsSnapshotPackage} from '../runtime/wbs-snapshot-package.mjs';
 
@@ -32,6 +32,23 @@ test('formal WBS Payable, Bank Journal, and AutoRec detail envelopes map to read
   const blockedDetail=mapWbsMcpEnvelopeToInbound({envelope:detailEnvelope});
   assert.deepEqual({admission:blockedDetail.rows[0].admission,code:blockedDetail.rows[0].exception_code,direction:blockedDetail.rows[0].direction},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_AUTOREC_DIRECTION_CONVENTION_REQUIRED',direction:null});
   assert.deepEqual(detail.rows[0].autorc_detail_trace,{batch_guid:'BATCH-1',biz_type:'WB',clear_date:'2026-08-02',incurred_date:'2026-08-01',posting_date:'2026-08-01',released_date:'2026-08-01',released_by:'USER-MASKED',status:'INCURRED',match_status:'MATCHED',match_ref:'MATCH-1',bank_relation_ref:'B-1',autoc_relation_ref:'PB-1',vendor_ref:'V-1',project_ref:'PROJECT-1',cost_code_ref:'COST-1'});assert.equal(detail.rows[0].can_use_trace_as_state_authority,false);assert.equal(detail.rows[0].can_use_trace_as_posting_authority,false);
+});
+
+test('a receipt-bound pd_guid to pb_guid relation is the only way an AutoRec Detail gets its case and bank scope',async()=>{
+  const scope={company:'COMPANY-A',currency:'USD',snapshot_token:'snapshot-case-1'};
+  const pdGuid='22222222-2222-4222-8222-222222222222',pbGuid='33333333-3333-4333-8333-333333333333';
+  const detail=envelope('list_autorec_details',[{pd_guid:pdGuid,company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:'0',payment:'100',incurred_date:'2026-08-09',posting_date:'2026-08-09',vendor_no:'V-1',project_guid:'PROJECT-1',cost_code:'COST-1',description:'Receipt-bound detail',pd_pv_guid:'NAVIGATION-ONLY',cb_id:'NAVIGATION-ONLY'}],scope);
+  const bank=envelope('list_autorec_banks',[{pb_guid:pbGuid,company_code:'COMPANY-A',ah_id:'BANK-1',quantity:'1',released_quantity:'0',pay_amount:'100',released:'0',incurred:'0',debit_amount:'0'}],scope);
+  const trace=envelope('trace_by_key',[{relation_id:'relation-1',relation_type:'DETAIL_TO_CASE',source_key_type:'pd_guid',source_key_value:pdGuid,related_key_type:'pb_guid',related_key_value:pbGuid}],{...scope,trace_key_type:'pd_guid',trace_key_value:pdGuid});
+  const policy={status:'APPROVED',mapping_type:'WBS_AUTOREC_DETAIL_CASE_RELATION',policy_id:'detail-case-policy-1',version:'1',snapshot_hash:'sha256:'+'a'.repeat(64),relation_type:'DETAIL_TO_CASE',scope:{company_key:'COMPANY-A',currency:'USD'}};
+  const binding=buildWbsAutoRecDetailCaseBinding({detailEnvelope:detail,bankEnvelope:bank,traceEnvelope:trace,lookup:{key_type:'pd_guid',key_value:pdGuid},relationPolicy:policy});
+  assert.deepEqual({pd:binding.pd_guid,pb:binding.pb_guid,bank:binding.bank_account_ref,match:binding.can_match,post:binding.can_post},{pd:pdGuid,pb:pbGuid,bank:'BANK-1',match:false,post:false});
+  const snapshot=buildWbsMcpReadonlySnapshot({envelopes:[detail],snapshotId:'11111111-1111-4111-8111-111111111111',dictionaryVersion:'WBS-MCP-V1',autoRecDetailDirectionConventions:detailDirectionConventions(detail),autoRecDetailCaseBindings:[binding]});
+  const staged=await createWbsInboundDataAdapter({snapshotReader:{readOnly:true,readSnapshot:async()=>snapshot}}).pull();
+  assert.equal(staged.staging.length,1);assert.equal(staged.exceptions.length,0);
+  assert.deepEqual({source:staged.staging[0].raw_trace.source_type,pb:staged.staging[0].raw_trace.pb_guid,bank:staged.staging[0].raw_trace.bank_account_ref},{source:'AUTOREC_PAYMENT_DETAIL',pb:pbGuid,bank:'BANK-1'});
+  assert.throws(()=>buildWbsAutoRecDetailCaseBinding({detailEnvelope:detail,bankEnvelope:bank,traceEnvelope:trace,lookup:{key_type:'pd_guid',key_value:pdGuid},relationPolicy:{...policy,relation_type:'OTHER'}}),error=>error instanceof WbsMcpLineageError&&error.code==='WBS_MCP_AUTOREC_CASE_RELATION_REQUIRED');
+  assert.throws(()=>buildWbsMcpReadonlySnapshot({envelopes:[detail],snapshotId:'11111111-1111-4111-8111-111111111111',dictionaryVersion:'WBS-MCP-V1',autoRecDetailDirectionConventions:detailDirectionConventions(detail),autoRecDetailCaseBindings:[{...binding,relation_trace_hash:'sha256:'+'0'.repeat(64)}]}),error=>error instanceof WbsMcpLineageError&&error.code==='WBS_MCP_AUTOREC_CASE_BINDING_INVALID');
 });
 
 test('observed Payable source-detail routes remain unbound trace when the provider did not supply all relation labels',()=>{

@@ -32,7 +32,7 @@ reversal, ledger, and audit actions.
 | --- | --- | --- | --- |
 | Payable Report | Business-side producer | payable provider key, source version, company, currency, amount/direction, business and posting dates, approved mapping, signed receipt | Staging or scoped Exception; then review-only candidate |
 | Bank Transaction Journal Entries | Bank-side producer | bank transaction key, source version, company, bank account, currency, amount/direction, dates, approved mapping, signed receipt | Staging or scoped Exception; then review-only candidate |
-| AutoRec detail | Relation/business evidence | `pd_guid`, source version, company/currency, amount/direction, detail/relation receipt | Staging or scoped Exception; relation trace only until fully admitted |
+| AutoRec detail | Relation/business evidence | `pd_guid`, source version, company/currency, amount/direction, a receipt-bound `pd_guid`→`pb_guid` relation, PB bank account, and approved relation policy | Staging or scoped Exception; review-only evidence, never a WBS workflow command |
 | AutoRec company summary | Control evidence | company, M/R/C periods, quantity, amount, released/incurred/balance, receipt formula/hash | Append-only control snapshot; never a capacity or command |
 | Cost General Ledger | Control evidence | company/period/currency, signed receipt, exactly 14 canonical metrics, approved mapping | Per-metric reconciliation and trace only |
 | Property Comparison Report | Control evidence | company/property/period/currency/bank scope, signed receipt, approved mapping | Per-metric reconciliation and trace only |
@@ -45,6 +45,17 @@ Payable `Account Code` is an AP/expense dimension, not a bank account. A
 Payable may be matched with a bank transaction only when its signed receipt
 contains a dedicated `bank_account_ref`; `cb_id`, Journal No., and the
 display Account Code cannot fill that field.
+
+### AutoRec Detail case admission
+
+An AutoRec Detail does not gain an accounting case merely because a page shows
+`cb_id` or `pd_pv_guid`: both are retained as navigation evidence. REFS admits
+the detail only when a signed `trace_by_key` response supplies exactly one
+approved `pd_guid`→`pb_guid` relation for the same company, currency, capture
+instant, and provider snapshot token. The related signed PB control row must
+then supply the bank account. The complete relation/policy/hash trace is
+preserved in Raw/Normalized/Staging. Missing, ambiguous, stale, cross-scope,
+or unsigned relation evidence stays in Exception.
 
 ### Observed Payable lineage (read-only evidence)
 

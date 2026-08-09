@@ -262,6 +262,28 @@ export function buildWbsTraceRelationEvidence({envelope,lookup}={}){
   return freeze({status:relations.length?'RELATION_EVIDENCE_READY':'NO_RELATION_OBSERVED',lookup:freeze({key_type:keyType,key_value:keyValue}),receipt_hash:`sha256:${accepted.content_sha256}`,relations:freeze(relations),can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
 }
 
+// An AutoRec Detail can identify its case only through a separately received
+// immutable pd_guid -> pb_guid edge.  The page's cb_id and pd_pv_guid remain
+// navigation traces and are never accepted here.  The PB control row supplies
+// the bank account scope, but remains control evidence rather than a match or
+// posting command.
+export function buildWbsAutoRecDetailCaseBinding({detailEnvelope,bankEnvelope,traceEnvelope,lookup,relationPolicy}={}){
+  const detail=validateWbsReadEnvelope({toolName:detailEnvelope?.tool,envelope:detailEnvelope}),bank=validateWbsReadEnvelope({toolName:bankEnvelope?.tool,envelope:bankEnvelope}),trace=validateWbsReadEnvelope({toolName:traceEnvelope?.tool,envelope:traceEnvelope});
+  const pdGuid=text(lookup?.key_value),company=text(detail.scope.company),currency=text(detail.scope.currency).toUpperCase(),snapshotToken=text(detail.scope.snapshot_token);
+  if(detail.tool_name!=='list_autorec_details'||bank.tool_name!=='list_autorec_banks'||trace.tool_name!=='trace_by_key'||text(lookup?.key_type)!=='pd_guid'||!pdGuid||!company||!validCurrency(currency)||!snapshotToken||detail.captured_at!==bank.captured_at||detail.captured_at!==trace.captured_at||text(bank.scope.company)!==company||text(trace.scope.company)!==company||text(bank.scope.currency).toUpperCase()!==currency||text(trace.scope.currency).toUpperCase()!==currency||text(bank.scope.snapshot_token)!==snapshotToken||text(trace.scope.snapshot_token)!==snapshotToken)throw new WbsMcpLineageError('WBS_MCP_AUTOREC_CASE_SCOPE_INVALID','AutoRec Detail case binding requires one company, currency, capture instant, and provider snapshot token.');
+  const detailRow=detail.rows.find(row=>text(row.pd_guid)===pdGuid);
+  if(!detailRow)throw new WbsMcpLineageError('WBS_MCP_AUTOREC_DETAIL_NOT_FOUND','The requested immutable AutoRec Detail key is absent from the signed detail snapshot.');
+  const evidence=buildWbsTraceRelationEvidence({envelope:traceEnvelope,lookup});
+  const policy=relationPolicy||{},policyScope=policy.scope||{},relationType=text(policy.relation_type);
+  if(text(policy.status)!=='APPROVED'||text(policy.mapping_type)!=='WBS_AUTOREC_DETAIL_CASE_RELATION'||!text(policy.policy_id)||!text(policy.version)||!/^sha256:[0-9a-f]{64}$/.test(text(policy.snapshot_hash))||!relationType||text(policyScope.company_key)!==company||text(policyScope.currency).toUpperCase()!==currency)throw new WbsMcpLineageError('WBS_MCP_AUTOREC_CASE_POLICY_REQUIRED','AutoRec Detail case binding requires one approved, receipt-traceable relation policy for the exact company and currency.');
+  const matches=evidence.relations.filter(relation=>relation.relation_type===relationType&&relation.source.key_type==='pd_guid'&&relation.source.key_value===pdGuid&&relation.related.key_type==='pb_guid');
+  if(matches.length!==1)throw new WbsMcpLineageError('WBS_MCP_AUTOREC_CASE_RELATION_REQUIRED','Exactly one approved immutable pd_guid to pb_guid relation is required for an AutoRec Detail case binding.');
+  const relation=matches[0],bankRow=bank.rows.find(row=>text(row.pb_guid)===relation.related.key_value),bankAccountRef=text(bankRow?.ah_id);
+  if(!bankRow||!bankAccountRef)throw new WbsMcpLineageError('WBS_MCP_AUTOREC_CASE_BANK_REQUIRED','The related immutable AutoRec case must have one receipt-bound bank account reference.');
+  const relationTrace=freeze({relation_id:relation.relation_id,relation_type:relation.relation_type,pd_guid:pdGuid,pb_guid:relation.related.key_value,relation_receipt_hash:evidence.receipt_hash,detail_content_hash:`sha256:${detail.content_sha256}`,case_control_content_hash:`sha256:${bank.content_sha256}`,policy_id:text(policy.policy_id),policy_version:text(policy.version),policy_snapshot_hash:text(policy.snapshot_hash),provider_snapshot_token:snapshotToken});
+  return freeze({pd_guid:pdGuid,pb_guid:relation.related.key_value,bank_account_ref:bankAccountRef,relation_trace:relationTrace,relation_trace_hash:hash(relationTrace),can_use_as_source_key:false,can_match:false,can_transition:false,can_post:false});
+}
+
 const snapshotView=Object.freeze({list_payables:'BGDATA.payable',list_bank_transactions:'BGDATA.bank_transaction',list_autorec_details:'BGDATA.autoc_detail'});
 const snapshotPrimaryKey=Object.freeze({list_payables:'apGuId',list_bank_transactions:'bankTransactionId',list_autorec_details:'pdGuId'});
 const uuid=value=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text(value));
@@ -283,15 +305,19 @@ function snapshotRow(accepted,row,bankRules,payableRules,detailRules){
   }
   const directionRule=detailRules?.get(text(row.biz_type)),movement=directionRule?signedMovement(row,'deposit','payment',directionRule.deposit_direction,directionRule.payment_direction):null;
   // pd_pv_guid is observed as a relation navigation value, not a verified
-  // pb_guid. Leave pbGuId absent so the existing staging gate quarantines it.
-  return freeze({...provenance,pdGuId:text(row.pd_guid),currency:scopedCurrency(accepted,row),amount:movement?.amount??null,payment_date:directionRule?row[directionRule.business_date_field]||null:null,posting_date:row.posting_date||null,direction:movement?.direction??null,autorc_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,business_date_field:directionRule.business_date_field,receipt_hash:directionRule.receipt.hash}):null,autoc_relation_ref:row.pd_pv_guid||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_code||null,external_trace:autoRecDetailTrace(row),can_use_trace_as_key:false,can_use_trace_as_state_authority:false,can_use_trace_as_posting_authority:false});
+  // pb_guid. A separately receipt-bound case binding may add pbGuId and the
+  // corresponding bank account; otherwise the existing staging gate
+  // quarantines the row.
+  const caseBinding=row.auto_rec_case_binding&&typeof row.auto_rec_case_binding==='object'?row.auto_rec_case_binding:null;
+  const externalTrace=freeze({...autoRecDetailTrace(row),...(caseBinding?{auto_rec_case_binding:caseBinding}:{} )});
+  return freeze({...provenance,pdGuId:text(row.pd_guid),pbGuId:text(row.pb_guid)||null,bank_account_ref:text(row.bank_account_ref)||null,currency:scopedCurrency(accepted,row),amount:movement?.amount??null,payment_date:directionRule?row[directionRule.business_date_field]||null:null,posting_date:row.posting_date||null,direction:movement?.direction??null,autorc_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,business_date_field:directionRule.business_date_field,receipt_hash:directionRule.receipt.hash}):null,autoc_relation_ref:row.pd_pv_guid||null,vendor_ref:row.vendor_no||null,project_ref:row.project_guid||null,cost_code_ref:row.cost_code||null,description:row.description||null,external_trace:externalTrace,can_use_trace_as_key:false,can_use_trace_as_state_authority:false,can_use_trace_as_posting_authority:false});
 }
 
 // Creates a receipt-bearing snapshot package that the existing REFS inbound
 // adapter can consume. It accepts only transaction-producer views; report and
 // control views must flow through their control-reconciliation path instead.
 // It deliberately does not manufacture a pb_guid from pd_pv_guid.
-export function buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVersion,environment='SANDBOX',delivery=null,detachedSignature=null,bankDirectionConventions=null,payableDirectionConventions=null,autoRecDetailDirectionConventions=null}={}){
+export function buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVersion,environment='SANDBOX',delivery=null,detachedSignature=null,bankDirectionConventions=null,payableDirectionConventions=null,autoRecDetailDirectionConventions=null,autoRecDetailCaseBindings=null}={}){
   if(!uuid(snapshotId)||typeof dictionaryVersion!=='string'||!dictionaryVersion.trim()||!Array.isArray(envelopes)||envelopes.length===0)throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_INPUT_INVALID','Snapshot id, dictionary version, and formal MCP envelopes are required.');
   if(!['SANDBOX','PRODUCTION'].includes(environment))throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_INPUT_INVALID','Snapshot environment is invalid.');
   const accepted=envelopes.map(envelope=>validateWbsReadEnvelope({toolName:envelope?.tool,envelope}));
@@ -316,8 +342,21 @@ export function buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVers
   if(detailEnvelope&&detailEnvelope.rows.some(row=>!detailRules.has(text(row.biz_type))))throw new WbsMcpLineageError('WBS_MCP_AUTOREC_DIRECTION_CONVENTION_REQUIRED','Every selected AutoRec Detail business type requires a receipt-bound direction convention before snapshot admission.');
   for(const item of accepted){const key=stableKey[item.tool_name];if(!sorted(item.rows,key))throw new WbsMcpLineageError('WBS_MCP_ROWS_NOT_SORTED','WBS rows must be ascending by their stable source key.');}
   if(environment==='PRODUCTION'&&(!delivery||!detachedSignature))throw new WbsMcpLineageError('WBS_MCP_SNAPSHOT_SIGNATURE_REQUIRED','Production MCP snapshots require complete delivery evidence and a detached signature.');
+  const bindings=new Map();
+  if(autoRecDetailCaseBindings!==null){
+    if(!Array.isArray(autoRecDetailCaseBindings))throw new WbsMcpLineageError('WBS_MCP_AUTOREC_CASE_BINDING_INVALID','AutoRec Detail case bindings must be an array.');
+    for(const binding of autoRecDetailCaseBindings){
+      const pdGuid=text(binding?.pd_guid),pbGuid=text(binding?.pb_guid),bankAccountRef=text(binding?.bank_account_ref),trace=binding?.relation_trace;
+      if(!pdGuid||!pbGuid||!bankAccountRef||!trace||text(trace.pd_guid)!==pdGuid||text(trace.pb_guid)!==pbGuid||text(trace.provider_snapshot_token)!==providerSnapshotToken||!/^sha256:[0-9a-f]{64}$/.test(text(binding?.relation_trace_hash))||text(binding.relation_trace_hash)!==hash(trace)||bindings.has(pdGuid))throw new WbsMcpLineageError('WBS_MCP_AUTOREC_CASE_BINDING_INVALID','Every AutoRec Detail case binding requires one immutable detail, case, bank, snapshot-token, and relation hash trace.');
+      bindings.set(pdGuid,binding);
+    }
+  }
   const views=accepted.map(item=>{
-    const rows=item.rows.map(row=>snapshotRow(item,row,item.tool_name==='list_bank_transactions'?bankRules:null,item.tool_name==='list_payables'?payableRules:null,item.tool_name==='list_autorec_details'?detailRules:null));
+    const rows=item.rows.map(row=>{
+      const binding=item.tool_name==='list_autorec_details'?bindings.get(text(row.pd_guid)):null;
+      const enriched=binding?{...row,pb_guid:binding.pb_guid,bank_account_ref:binding.bank_account_ref,auto_rec_case_binding:binding.relation_trace}:row;
+      return snapshotRow(item,enriched,item.tool_name==='list_bank_transactions'?bankRules:null,item.tool_name==='list_payables'?payableRules:null,item.tool_name==='list_autorec_details'?detailRules:null);
+    });
     const key=snapshotPrimaryKey[item.tool_name];
     const view={name:snapshotView[item.tool_name],company_key:company,rows:freeze(rows),content_hash:canonicalRequestHash(rows)};
     if(environment==='PRODUCTION')Object.assign(view,{row_count:rows.length,first_primary_key:rows.length?rows[0][key]:null,last_primary_key:rows.length?rows.at(-1)[key]:null});
