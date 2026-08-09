@@ -31,6 +31,22 @@ test('receipt-bound Cost GL evidence bridges to exact REFS controls without crea
   assert.equal(result.receipt_trace.source.hash,evidence.source_receipt.hash);
 });
 
+test('receipt-bound Property Comparison evidence bridges only to its exact mapped property control scope',()=>{
+  const propertyRows=[{metric_key:'PROPERTY_VALUE',amount:'100.0000'}];
+  const propertyScope={company:'COMPANY-A',currency:'USD',report_type:'PROPERTY_COMPARISON',property_ref:'PROPERTY-A',period_start:'2026-08-01',period_end:'2026-08-31',bank_account_ref:'BANK-1'};
+  const source=envelope(propertyRows,propertyScope,{report_formula_id:'property-v1',report_formula_version:'3'});
+  const evidence=buildWbsControlReportEvidence({sourceType:'PROPERTY_COMPARISON',envelope:source,receipt:receipt(source),tenantId:'tenant-a',entityId:'entity-a'});
+  const targetReceipt={hash:'sha256:'+'d'.repeat(64),metrics_hash:evidence.source_receipt.metrics_hash,ref:'object://refs/control/property-1',version:'v3',scope:evidence.scope};
+  const result=reconcileWbsControlEvidence({
+    sourceType:evidence.source_type,scope:evidence.scope,sourceReceipt:evidence.source_receipt,targetReceipt,
+    approvedMapping:{status:'APPROVED',mapping_type:'WBS_PROPERTY_CONTROL_RECONCILIATION',mapping_id:'property-map-1',version:'v3',snapshot_hash:'sha256:'+'e'.repeat(64),scope:evidence.scope,metric_keys:['PROPERTY_VALUE']},
+    sourceMetrics:evidence.metrics,targetMetrics:evidence.metrics
+  });
+  assert.equal(result.status,'RECONCILED');
+  assert.equal(result.scope.bank_account_ref,'BANK-1');
+  assert.equal(result.can_create_draft,false);
+});
+
 test('report identity, receipt binding, metric cardinality, and Property scope fail closed',()=>{
   const source=envelope();
   assert.throws(()=>buildWbsControlReportEvidence({sourceType:'COST_GENERAL_LEDGER',envelope:{...source,source:{}},receipt:receipt(source),tenantId:'tenant-a',entityId:'entity-a'}),error=>error instanceof WbsControlReportInboundError&&error.code==='WBS_CONTROL_REPORT_IDENTITY_REQUIRED');
