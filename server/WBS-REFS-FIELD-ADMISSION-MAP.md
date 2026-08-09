@@ -78,8 +78,12 @@ source reservation: `can_allocate`, `can_release`, `can_dispatch`,
 must re-check reservation, SoD, version, approval, period and ledger rules.
 Each proposed edge carries a deterministic `allocation_edge_id` over both
 source types/keys/versions, both receipt hashes, amount, currency and approved
-date-match basis. It is a trace handle only; it cannot be reused as a kernel
-reservation, WBS identifier, or posting authority.
+date-match basis. Provider-backed plans additionally bind that edge to one
+receipt-bound `review_plan_id`, the policy-specific proposal-edge identity, and
+the approved matching-policy receipt. These identities must be echoed by the
+review request and both posted accounting legs. They are trace handles only;
+none can be reused as a kernel reservation, WBS identifier, or posting
+authority.
 
 ## WBS workflow evidence, not state authority
 
@@ -129,8 +133,12 @@ The posted REFS evidence must echo the complete reviewed source trace
 (`Raw`/document/source/version/type/company/currency/accounting date); a
 posted journal with a different trace is not a valid WBS accounting result.
 For AutoRec G11 readback, both posted legs must additionally carry the exact
-reviewed company, currency, bank account, and each source's business and
-accounting dates before the per-member `291001` zero-net control can pass.
+reviewed company, currency, bank account, each source's business and
+accounting dates, and the immutable reviewed allocation amount before the
+per-member `291001` zero-net control can pass. Each leg's aggregate `291001`
+clearing must equal that reviewed amount. For policy-bound proposals, both
+legs and the persisted review request must also echo the same `review_plan_id`,
+allocation edge, proposal edge, and approved policy receipt.
 The review pair keeps both receipt reference/hash and Source Document ID; an
 ID-only receipt or a journal without the exact two source-document links is
 not an auditable WBS-to-REFS result.
