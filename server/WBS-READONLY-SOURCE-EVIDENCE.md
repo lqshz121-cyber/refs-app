@@ -290,6 +290,16 @@ the partial Cost/Project-setting joins may not be filled in by fallback rules.
 | `accounting.accounting_balance_cell` + `accounting_income_cell` | Both expose company, account/subaccount, fiscal period, balance/net/debit/credit and review flag. The observed balance review-flag domain is `N`, `R`, `C`; amount-type codes are documented as balance/debit/credit/net/opening. | Financial-statement control evidence, not a Cost GL producer or AutoRec source. Cost GL's required fourteen metrics still need a signed, scoped provider definition. |
 | `accounting.fastautopaymentbank1` | It has the same observed PB primary/company/control field family as `wbsdata.autopaymentbank` (with a shorter column set). | A parallel accounting-side control projection is plausible but UNVERIFIED. Do not deduplicate, join, or substitute it for the WBS table without a signed relation contract. |
 
+An indexed, aggregate-only recheck on 2026-08-10 confirms why `cb_id` is
+trace-only. In a bounded recent `accounting_info.id` window,
+`accounting_info.cb_id = fast_auto_payment_detail.pd_cbid` produced 2,328
+pairs from only 87 accounting rows and 64 Detail rows. That is a many-to-many
+fan-out, not a one-to-one bank or payment identity. The rows in that aggregate
+had a Posting Date, but that does not establish an immutable transaction key,
+same-company scope, currency, or REFS posting authority. A separate
+`bill_no -> payable.journal_no` aggregate timed out; its relationship remains
+**UNKNOWN**, and no fallback join is permitted.
+
 ### Observed state values, not a translatable state machine
 
 Aggregate-only source reads observed AutoRec Detail `pd_match_status` values
