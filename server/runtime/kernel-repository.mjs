@@ -171,6 +171,20 @@ export class PostgresAccountingKernel{
     ),'WBS_CONTROL_READ_FAILED','WBS control snapshot read did not return a result').result);
   }
 
+  async readPersistedRefsControlMetricSnapshot({source_type,tenant_id,entity_id,scope,read_only}){
+    if(read_only!==true||!scope||typeof scope!=='object')throw new KernelError('WBS_CONTROL_READ_SCOPE_INVALID','An explicit read-only REFS control selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_refs_control_metric_snapshot($1,$2,$3,$4) AS result',[tenant_id,entity_id,source_type,JSON.stringify(scope)]
+    ),'WBS_CONTROL_READ_FAILED','REFS control metric snapshot read did not return a result').result);
+  }
+
+  async readApprovedWbsControlReconciliationMapping({source_type,tenant_id,entity_id,scope,read_only}){
+    if(read_only!==true||!scope||typeof scope!=='object')throw new KernelError('WBS_CONTROL_READ_SCOPE_INVALID','An explicit read-only WBS control mapping selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_control_reconciliation_mapping($1,$2,$3,$4) AS result',[tenant_id,entity_id,source_type,JSON.stringify(scope)]
+    ),'WBS_CONTROL_READ_FAILED','WBS control reconciliation mapping read did not return a result').result);
+  }
+
   async persistWbsAutoRecObservedStateEvidence({tenantId,entityId,observations,idempotencyKey,bindingHash}){
     const requestHash=canonicalRequestHash({tenantId,entityId,observations});
     if(bindingHash!==undefined&&bindingHash!==requestHash)throw new KernelError('WBS_AUTOREC_OBSERVED_STATE_HASH_INVALID','WBS observed-state evidence binding hash must match its scoped observations');
