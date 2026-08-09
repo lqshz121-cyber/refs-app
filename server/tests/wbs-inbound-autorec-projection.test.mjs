@@ -172,6 +172,16 @@ test('two receipt-backed M/R/C snapshots for one company block only that company
   assert(result.exceptions.some(item=>item.code==='WBS_AUTOREC_CONTROL_SNAPSHOT_AMBIGUOUS'&&item.company_key==='COMPANY-A'));
 });
 
+test('a changed immutable Company Screening receipt changes the candidate trace and replay identity',()=>{
+  const first={...companyControl,receipt_id:'control-a',receipt_ref:'object://wbs/receipt/control-a',receipt_hash:'sha256:'+'3'.repeat(64),source_record_id:'control-a',source_version:'v1'};
+  const next={...first,receipt_id:'control-b',receipt_ref:'object://wbs/receipt/control-b',receipt_hash:'sha256:'+'4'.repeat(64),source_record_id:'control-b',source_version:'v2',new_balance:'30.0000'};
+  const initial=projectPersistedWbsInboundAutoRec({rows:[bank],mappings:[mapping(bank)],companyControlRows:[first],persistedControlRows:[first]}).candidates[0];
+  const refreshed=projectPersistedWbsInboundAutoRec({rows:[bank],mappings:[mapping(bank)],companyControlRows:[next],persistedControlRows:[next]}).candidates[0];
+  assert.notEqual(initial.review_candidate_id,refreshed.review_candidate_id);
+  assert.notEqual(initial.company_control_trace.control_snapshot_hash,refreshed.company_control_trace.control_snapshot_hash);
+  assert.equal(refreshed.trace.company_control_trace.receipt_hash,next.receipt_hash);
+});
+
 test('receipt binding rejects the same source/version when its persisted tenant or entity differs from the selected scope',()=>{
   const scope={tenant_id:'tenant-a',entity_id:'entity-a',company_key:'COMPANY-A'};
   const control={...companyControl,...scope,receipt_id:'scope-receipt',receipt_ref:'object://wbs/receipt/scope',receipt_hash:'sha256:'+'f'.repeat(64),source_record_id:'shared-control',source_version:'v1'};
