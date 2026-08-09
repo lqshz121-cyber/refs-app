@@ -53,6 +53,7 @@ test('review allocation edges are replay-stable when business source types share
   const first=run([bank('bank-stable',100)],[payableRow,detailRow]);
   const replay=run([bank('bank-stable',100)],[detailRow,payableRow]);
   assert.equal(first.status,'REVIEW_REQUIRED');
+  assert.equal(replay.review_plan_id,first.review_plan_id);
   assert.deepEqual(replay.allocation_plan,first.allocation_plan);
   assert.deepEqual(replay.trace,first.trace);
   assert.equal(new Set(first.allocation_plan.map(edge=>edge.allocation_edge_id)).size,2);
