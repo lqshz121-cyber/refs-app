@@ -26,13 +26,14 @@ const plansFor=(candidates,policies)=>{
   for(const [scopeKey,items] of grouped){
     const scopePolicy=items[0],toPlanRow=item=>freeze({...item,...item.trace,mapping:item.mapping}),bank=candidates.filter(item=>item.side==='BANK_SIDE'&&item.bank_account_ref===scopePolicy.bank_account_ref&&item.currency===scopePolicy.currency),business=candidates.filter(item=>item.side==='BUSINESS_SIDE'&&item.bank_account_ref===scopePolicy.bank_account_ref&&item.currency===scopePolicy.currency);
     if(!bank.length||!business.length)continue;
-    const effective=items.filter(item=>policyEffectiveForRows(item,[...bank,...business]));
+    const effective=items.map(item=>freeze({policy:item,bank:bank.filter(row=>policyEffectiveForRows(item,[row])),business:business.filter(row=>policyEffectiveForRows(item,[row]))})).filter(item=>item.bank.length&&item.business.length);
     if(!effective.length){exceptions.push(freeze({stage:'EXCEPTION',code:'WBS_AUTOREC_MATCHING_POLICY_NOT_EFFECTIVE',policy_scope:scopeKey,can_allocate:false,can_dispatch:false,can_post:false}));continue;}
-    if(effective.length!==1){exceptions.push(freeze({stage:'EXCEPTION',code:'WBS_AUTOREC_MATCHING_POLICY_AMBIGUOUS',policy_scope:scopeKey,can_allocate:false,can_dispatch:false,can_post:false}));continue;}
-    const policy=matchingPolicy(effective[0]);
-    const planBank=bank.map(toPlanRow),planBusiness=business.map(toPlanRow);
-  const plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:planBank,businessRows:planBusiness,matchingPolicy:policy});
-  if(plan.status==='BLOCKED')exceptions.push(...plan.exceptions);else plans.push(freeze({...plan,policy_evidence_type:policy.evidence_type,can_allocate:false,can_release:false,can_post:false}));
+    const memberships=new Set(),ambiguous=effective.some(item=>[...item.bank,...item.business].some(row=>{const key=[row.side,row.source_record_id,row.source_version].join('\u0000');if(memberships.has(key))return true;memberships.add(key);return false;}));
+    if(ambiguous){exceptions.push(freeze({stage:'EXCEPTION',code:'WBS_AUTOREC_MATCHING_POLICY_AMBIGUOUS',policy_scope:scopeKey,can_allocate:false,can_dispatch:false,can_post:false}));continue;}
+    for(const item of effective){
+      const policy=matchingPolicy(item.policy),plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:item.bank.map(toPlanRow),businessRows:item.business.map(toPlanRow),matchingPolicy:policy});
+      if(plan.status==='BLOCKED')exceptions.push(...plan.exceptions);else plans.push(freeze({...plan,policy_evidence_type:policy.evidence_type,can_allocate:false,can_release:false,can_post:false}));
+    }
   }
   return freeze({plans:freeze(plans),exceptions:freeze(exceptions)});
 };

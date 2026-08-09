@@ -43,6 +43,18 @@ test('a retired policy is usable only for the accounting-date window it governed
   assert.equal(expired.review_plans.length,0);assert.equal(expired.matching_policy_exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_NOT_EFFECTIVE');
 });
 
+test('disjoint historical and current policy windows create separate read-only plans rather than a false ambiguity',async()=>{
+  const historicalBank={...bank,source_record_id:'bank-historical',raw_event_id:'raw-bh',source_document_id:'doc-bh',staging_item_id:'stg-bh',accounting_date:'2025-12-15',business_date:'2025-12-15'};
+  const historicalPayable={...payable,source_record_id:'pay-historical',raw_event_id:'raw-ph',source_document_id:'doc-ph',staging_item_id:'stg-ph',accounting_date:'2025-12-15',business_date:'2025-12-15'};
+  const retired={...policy,policy_id:'policy-historical',mapping_id:'policy-historical',status:'RETIRED',effective_from:'2025-01-01T00:00:00.000Z',effective_to:'2026-01-01T00:00:00.000Z',bank_mapping_id:'map-bank-historical',business_mapping_id:'map-pay-historical'};
+  const historicalMap=row=>({...map(row),mapping_id:row.source_type==='BANK_TRANSACTION'?'map-bank-historical':'map-pay-historical',status:'RETIRED',effective_from:'2025-01-01T00:00:00.000Z',effective_to:'2026-01-01T00:00:00.000Z'});
+  const currentMap=row=>({...map(row),mapping_id:row.source_type==='BANK_TRANSACTION'?'map-bank-1':'map-pay-1'});
+  const rows=[historicalBank,historicalPayable,bank,payable];
+  const reader=createWbsInboundAutoRecReadComposition({repository:{...repository(),readPersistedWbsInboundRows:async()=>rows,readApprovedWbsAutoRecMappings:async()=>[historicalMap(historicalBank),historicalMap(historicalPayable),currentMap(bank),currentMap(payable)],readApprovedWbsAutoRecMatchingPolicies:async()=>[retired,policy]}});
+  const result=await reader.read({...scope,sourceRecordIds:['bank-historical','pay-historical','bank-1','pay-1','control-1'],replayKey:'policy-disjoint-periods'});
+  assert.deepEqual(result.review_plans.map(plan=>plan.matching_policy.policy_id).sort(),['policy-1','policy-historical']);assert.equal(result.matching_policy_exceptions.length,0);
+});
+
 test('missing capability, read failure, and tenant/entity/company/source leakage fail closed with zero candidates',async()=>{
   assert.equal((await createWbsInboundAutoRecReadComposition({}).read(scope)).code,'WBS_AUTOREC_READ_CAPABILITY_UNAVAILABLE');
   assert.equal((await createWbsInboundAutoRecReadComposition({repository:repository({fail:true})}).read(scope)).code,'WBS_AUTOREC_READ_FAILED');
