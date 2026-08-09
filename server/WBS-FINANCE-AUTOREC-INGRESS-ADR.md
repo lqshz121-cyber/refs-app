@@ -54,8 +54,10 @@ the detail only when a signed `trace_by_key` response supplies exactly one
 approved `pd_guid`→`pb_guid` relation for the same company, currency, capture
 instant, and provider snapshot token. The related signed PB control row must
 then supply the bank account. The complete relation/policy/hash trace is
-preserved in Raw/Normalized/Staging. Missing, ambiguous, stale, cross-scope,
-or unsigned relation evidence stays in Exception.
+preserved in Raw/Normalized/Staging; the provider snapshot token itself is
+used only during intake equality checks and is retained as a hash. Missing,
+ambiguous, stale, cross-scope, or unsigned relation evidence stays in
+Exception.
 
 ### Observed Payable lineage (read-only evidence)
 
