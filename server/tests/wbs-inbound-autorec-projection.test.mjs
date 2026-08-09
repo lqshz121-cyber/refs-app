@@ -6,7 +6,7 @@ import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 const common={receipt_id:'receipt-1',receipt_ref:'object://wbs/receipt/1',receipt_hash:'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',entity_id:'entity-1',company_key:'COMPANY-A',currency:'USD',business_date:'2026-08-04',accounting_date:'2026-08-05',stage:'STAGING_REVIEWED'};
 const bank={...common,source_type:'BANK_TRANSACTION',source_record_id:'bank-1',source_version:'v1',raw_event_id:'raw-bank',source_document_id:'doc-bank',staging_item_id:'stg-bank',bank_account_ref:'BANK-OP',amount:-100};
 const payable={...common,source_type:'PAYABLE',source_record_id:'pay-1',source_version:'v1',raw_event_id:'raw-pay',source_document_id:'doc-pay',staging_item_id:'stg-pay',amount:100};
-const mapping=row=>({mapping_id:`map-${row.source_record_id}`,version:'2',snapshot_hash:'sha256:'+(row.source_type==='BANK_TRANSACTION'?'b':'a').repeat(64),status:'APPROVED',source_type:row.source_type,entity_id:row.entity_id,company_key:row.company_key,currency:row.currency,bank_account_ref:'BANK-OP'});
+const mapping=row=>({mapping_id:`map-${row.source_record_id}`,version:'2',snapshot_hash:'sha256:'+(row.source_type==='BANK_TRANSACTION'?'b':'a').repeat(64),status:'APPROVED',source_type:row.source_type,entity_id:row.entity_id,company_key:row.company_key,currency:row.currency,bank_account_ref:'BANK-OP',effective_from:'2026-01-01T00:00:00.000Z',effective_to:null});
 const companyControl={company_key:'COMPANY-A',user_ref:'USER-MASKED',completed_match_period:'M:06/2026',completed_release_period:'R:06/2026',completed_incur_period:'C:03/2025',quantity:10,amount:'100.0000',released_quantity:8,released_amount:'80.0000',incurred_quantity:6,incurred_amount:'60.0000',reconciliation_balance:'20.0000',new_balance:'40.0000',balance_date:'2026-08-05'};
 
 test('observed WBS workflow is explicitly evidence-only and does not invent a canonical transition graph',()=>{
@@ -51,7 +51,7 @@ test('WBS state history never merges a reused source record id across company or
 test('projects reviewed persisted bank and business rows into read-only AutoRec candidates with complete trace',()=>{
   const result=projectPersistedWbsInboundAutoRec({rows:[bank,payable],mappings:[mapping(bank),mapping(payable)]});
   assert.deepEqual({candidates:result.candidates.length,exceptions:result.exceptions.length,dispatch:result.controls.can_dispatch,post:result.controls.can_post},{candidates:2,exceptions:0,dispatch:false,post:false});
-  const candidate=result.candidates.find(row=>row.side==='BANK_SIDE'),payableCandidate=result.candidates.find(row=>row.side==='BUSINESS_SIDE');assert.equal(candidate.trace.receipt_hash,bank.receipt_hash);assert.equal(candidate.trace.raw_event_id,'raw-bank');assert.equal(candidate.trace.mapping_snapshot_hash,mapping(bank).snapshot_hash);assert.equal(candidate.mapping.mapping_id,'map-bank-1');assert.equal(candidate.can_allocate,false);assert.deepEqual({bank:payableCandidate.bank_account_ref,mapping:payableCandidate.mapping.bank_account_ref,trace:payableCandidate.trace.mapping_bank_account_ref},{bank:'BANK-OP',mapping:'BANK-OP',trace:'BANK-OP'});
+  const candidate=result.candidates.find(row=>row.side==='BANK_SIDE'),payableCandidate=result.candidates.find(row=>row.side==='BUSINESS_SIDE');assert.equal(candidate.trace.receipt_hash,bank.receipt_hash);assert.equal(candidate.trace.raw_event_id,'raw-bank');assert.equal(candidate.trace.mapping_snapshot_hash,mapping(bank).snapshot_hash);assert.equal(candidate.mapping.mapping_id,'map-bank-1');assert.equal(candidate.can_allocate,false);assert.deepEqual({bank:payableCandidate.bank_account_ref,mapping:payableCandidate.mapping.bank_account_ref,trace:payableCandidate.trace.mapping_bank_account_ref,effective:payableCandidate.trace.mapping_effective_from},{bank:'BANK-OP',mapping:'BANK-OP',trace:'BANK-OP',effective:'2026-01-01T00:00:00.000Z'});
 });
 
 test('persisted exceptions and incomplete source, receipt, mapping, or scope facts stay blocked',()=>{
@@ -73,6 +73,8 @@ test('a persisted AutoRec candidate requires the immutable snapshot of its appro
   assert.equal(forgedSnapshot.candidates.length,0);assert.equal(forgedSnapshot.exceptions[0].code,'WBS_AUTOREC_MAPPING_MISSING');
   const missingBankScope=projectPersistedWbsInboundAutoRec({rows:[payable],mappings:[{...mapping(payable),bank_account_ref:''}]});
   assert.equal(missingBankScope.candidates.length,0);assert.equal(missingBankScope.exceptions[0].code,'WBS_AUTOREC_MAPPING_MISSING');
+  const notEffective=projectPersistedWbsInboundAutoRec({rows:[payable],mappings:[{...mapping(payable),effective_from:'2027-01-01T00:00:00.000Z'}]});
+  assert.equal(notEffective.candidates.length,0);assert.equal(notEffective.exceptions[0].code,'WBS_AUTOREC_MAPPING_NOT_EFFECTIVE');
 });
 
 test('Payable source-detail and bank/AUTOC relations remain receipt-bound trace evidence, never candidate authority',()=>{

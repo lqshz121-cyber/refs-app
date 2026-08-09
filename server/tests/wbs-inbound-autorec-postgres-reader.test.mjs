@@ -6,7 +6,7 @@ const scope={tenantId:'t1',entityId:'e1',companyKey:'COMPANY-A',sourceRecordIds:
 const receipt={receipt_id:'r1',receipt_ref:'object://wbs/r1',receipt_hash:'sha256:'+'a'.repeat(64)};
 const bank={...receipt,tenant_id:'t1',entity_id:'e1',company_key:'COMPANY-A',source_record_id:'bank-1',source_version:'v1',source_type:'BANK_TRANSACTION',stage:'STAGING_REVIEWED',raw_event_id:'raw-b',source_document_id:'doc-b',staging_item_id:'stg-b',currency:'USD',amount:-100,business_date:'2026-08-01',accounting_date:'2026-08-01',bank_account_ref:'BANK-1'};
 const control={...receipt,tenant_id:'t1',entity_id:'e1',company_key:'COMPANY-A',source_record_id:'control-1',source_version:'v1',user_ref:'MASKED',completed_match_period:'M:08/2026',completed_release_period:'R:08/2026',completed_incur_period:'C:08/2026',quantity:1,released_quantity:0,incurred_quantity:0,amount:'100.0000',released_amount:'0.0000',incurred_amount:'0.0000',reconciliation_balance:'100.0000',new_balance:'100.0000',balance_date:'2026-08-01'};
-const mapping={mapping_id:'map-bank',version:'1',snapshot_hash:'sha256:'+'b'.repeat(64),status:'APPROVED',source_type:'BANK_TRANSACTION',entity_id:'e1',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1'};
+const mapping={mapping_id:'map-bank',version:'1',snapshot_hash:'sha256:'+'b'.repeat(64),status:'APPROVED',source_type:'BANK_TRANSACTION',entity_id:'e1',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
 
 test('factory injects only scoped read capabilities and returns a non-dispatchable projection',async()=>{
   const calls=[];
