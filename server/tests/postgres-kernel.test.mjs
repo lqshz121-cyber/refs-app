@@ -229,6 +229,9 @@ pgTest('WBS trace relation evidence is receipt-bound, replay-safe, readable, and
   await assert.rejects(kernel.persistWbsTraceRelationEvidence({tenantId:ids.tenantId,entityId:ids.entityId,source,traceReceipt,relations,idempotencyKey:'wbs-trace-relation-0002',bindingHash:hash('forged-binding')}),error=>error.code==='WBS_TRACE_RELATION_HASH_INVALID');
   const read=await kernel.readWbsTraceRelationEvidence({tenantId:ids.tenantId,entityId:ids.entityId,source,read_only:true});assert.equal(read.relation_evidence_id,created.relation_evidence_id);assert.equal(read.relations.length,1);assert.equal(read.relations[0].related.key_type,'cb_id');assert.equal(read.can_post,false);
   const audit=(await adminPool.query("SELECT after_hash,metadata FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='WBS_TRACE_RELATION_PERSISTED' AND object_id=$3",[ids.tenantId,ids.entityId,created.relation_evidence_id])).rows[0];assert.deepEqual(audit,{after_hash:bindingHash,metadata:{relation_count:1}});
+  const reportSource={...source,source_type:'COST_GENERAL_LEDGER'};
+  await assert.rejects(kernel.persistWbsTraceRelationEvidence({tenantId:ids.tenantId,entityId:ids.entityId,source:reportSource,traceReceipt,relations,idempotencyKey:'wbs-trace-report-blocked-0001'}),error=>error.code==='22023');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_trace_relation_evidence WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,1);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
 });
 
