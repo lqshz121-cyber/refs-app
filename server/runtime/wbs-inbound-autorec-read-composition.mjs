@@ -22,13 +22,13 @@ export function createWbsInboundAutoRecReadComposition({repository}={}){
       const selection=selectionFor(input);if(!selection)return empty('WBS_AUTOREC_READ_SELECTION_INVALID');
       const requestHash=canonicalRequestHash({tenantId:selection.tenantId,entityId:selection.entityId,companyKey:selection.companyKey,sourceRecordIds:selection.sourceRecordIds});
       const prior=replays.get(selection.replayKey);if(prior){if(prior.request_hash!==requestHash)return empty('WBS_AUTOREC_READ_REPLAY_CONFLICT',true);return freeze({...prior.result,replayed:true});}
-      const methods=['readPersistedWbsInboundRows','readPersistedWbsControlRows','readApprovedWbsAutoRecMappings'];
+      const methods=['readPersistedWbsInboundRows','readPersistedWbsControlRows','readApprovedWbsAutoRecMappings','readWbsAutoRecObservedStateEvidence'];
       if(!repository||methods.some(name=>typeof repository[name]!=='function'))return empty('WBS_AUTOREC_READ_CAPABILITY_UNAVAILABLE');
-      let inbound,control,mappings;
-      try{[inbound,control,mappings]=await Promise.all([repository.readPersistedWbsInboundRows({...selection,read_only:true}),repository.readPersistedWbsControlRows({...selection,read_only:true}),repository.readApprovedWbsAutoRecMappings({...selection,read_only:true})]);}catch{return empty('WBS_AUTOREC_READ_FAILED');}
-      if(!scoped(inbound,selection)||!control||!scoped(control.companyRows,selection)||!scoped(control.detailRows,selection)||!scoped(control.persistedRows,selection)||!Array.isArray(mappings)||!mappings.every(row=>row&&text(row.entity_id)===selection.entityId&&text(row.company_key)===selection.companyKey))return empty('WBS_AUTOREC_READ_SCOPE_INVALID');
+      let inbound,control,mappings,observedStateEvidence;
+      try{[inbound,control,mappings,observedStateEvidence]=await Promise.all([repository.readPersistedWbsInboundRows({...selection,read_only:true}),repository.readPersistedWbsControlRows({...selection,read_only:true}),repository.readApprovedWbsAutoRecMappings({...selection,read_only:true}),repository.readWbsAutoRecObservedStateEvidence({...selection,read_only:true})]);}catch{return empty('WBS_AUTOREC_READ_FAILED');}
+      if(!scoped(inbound,selection)||!control||!scoped(control.companyRows,selection)||!scoped(control.detailRows,selection)||!scoped(control.persistedRows,selection)||!scoped(observedStateEvidence,selection)||!Array.isArray(mappings)||!mappings.every(row=>row&&text(row.entity_id)===selection.entityId&&text(row.company_key)===selection.companyKey))return empty('WBS_AUTOREC_READ_SCOPE_INVALID');
       const projection=projectPersistedWbsInboundAutoRec({rows:inbound,mappings,companyControlRows:control.companyRows,detailControlRows:control.detailRows,persistedControlRows:control.persistedRows,scope:{tenant_id:selection.tenantId,entity_id:selection.entityId,company_key:selection.companyKey}});
-      const result=freeze({status:'READ_ONLY_PROJECTED',request_hash:requestHash,replayed:false,...projection,can_dispatch:false,can_create_draft:false,can_post:false});
+      const result=freeze({status:'READ_ONLY_PROJECTED',request_hash:requestHash,replayed:false,...projection,observed_state_evidence:freeze(observedStateEvidence.map(row=>freeze({...row,can_transition_refs:false,can_release:false,can_incur:false,can_create_draft:false,can_post:false}))),can_dispatch:false,can_create_draft:false,can_post:false});
       replays.set(selection.replayKey,freeze({request_hash:requestHash,result}));return result;
     }
   });
