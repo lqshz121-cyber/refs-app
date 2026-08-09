@@ -185,6 +185,18 @@ or a REFS transition from the current table columns alone.
 | `accounting.costcode_account_relation` + `setting_cost_relation` + `setting_project_relation` + `accounting_setting` | Accounting-side configuration has cost/project-to-setting relations, company, account/journal, date range, business type and source fields. Aggregate joins to `accounting_setting` are partial. | Configuration/audit evidence only; partial joins preclude an automatic mapping. No configuration row can authorize Draft/post or replace REFS mapping approval. |
 | `accounting_report_approval` | Schema provides company, Balance/Income report month/type, review/approval/rejection actor/time fields. The observed aggregate was empty. | Defines a possible report-approval evidence shape only; it does not prove any approval, Cost GL result, Property Comparison result, or REFS posting authority. |
 
+The 2026-08-10 structure recheck confirms that `pjcat_unit_report` is a broad
+unit/property reporting projection: it combines commercial, construction,
+budget/released/incurred, loan/draw/repayment, sales, lease and investor
+attributes under `UR_GuId`, but still has no observed company, currency,
+accounting period, bank-account or immutable report-receipt field. The
+`accounting_cost_relation` table is even narrower: it contains only an
+internal relation ID plus account/business/type/bill references, with no
+amount, company, period, currency or approval version. Neither table can be
+treated as a Cost GL metric, a Property Comparison metric, a transaction
+producer, or an AutoRec allocation source. A signed report-specific metric
+receipt and approved REFS control mapping remain mandatory.
+
 The attempted direct join `pjcat_property_relation.PPR_PropertyUnitGuid` to
 `pjcat_unit_report.UR_GuId` produced zero matches. This is explicit negative
 evidence: neither value may be used as a Property Comparison relation key until
