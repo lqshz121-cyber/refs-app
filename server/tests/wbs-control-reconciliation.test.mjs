@@ -15,6 +15,7 @@ const costArgs={sourceType:'COST_GENERAL_LEDGER',scope:costScope,sourceReceipt:r
 test('Cost GL reconciles only exact receipt-bound approved metrics and has forward/reverse trace',()=>{
   const result=reconcileWbsControlEvidence(costArgs);
   assert.deepEqual({status:result.status,count:result.control_totals.metric_count,diff:result.control_totals.difference_total,draft:result.can_create_draft,post:result.can_post},{status:'RECONCILED',count:14,diff:0,draft:false,post:false});
+  assert.deepEqual({basis:result.control_totals.reconciliation_basis,aggregate:result.control_totals.aggregate_semantics,proves:result.control_totals.aggregate_can_prove_reconciled},{basis:'EXACT_PER_APPROVED_METRIC',aggregate:'DIAGNOSTIC_ONLY',proves:false});
   assert.equal(result.comparisons[0].forward_trace.mapping_id,'map-cost');assert.equal(result.comparisons[0].reverse_trace.target_receipt_version,'v1');
 });
 
@@ -57,6 +58,12 @@ test('control receipts cannot be replayed across company, period, or currency sc
 test('control metrics cannot be substituted after a receipt has been captured',()=>{
   const altered=costMetrics.map(row=>row.metric_key==='COST_METRIC_02'?{...row,amount:51}:row);
   assert.throws(()=>reconcileWbsControlEvidence({...costArgs,sourceMetrics:altered}),error=>error.code==='WBS_CONTROL_RECEIPT_METRICS_MISMATCH');
+});
+
+test('offsetting control differences remain a difference even when their diagnostic aggregate is zero',()=>{
+  const offsetting=costMetrics.map(row=>row.metric_key==='COST_METRIC_01'?{...row,amount:26}:row.metric_key==='COST_METRIC_02'?{...row,amount:49}:row);
+  const result=reconcileWbsControlEvidence({...costArgs,targetReceipt:receipt('b',costScope,offsetting),targetMetrics:offsetting});
+  assert.equal(result.status,'DIFFERENCE');assert.equal(result.control_totals.difference_count,2);assert.equal(result.control_totals.difference_total,0);assert.equal(result.control_totals.aggregate_can_prove_reconciled,false);
 });
 
 test('control reconciliation reads only exact persisted WBS/REFS evidence and approved mappings',async()=>{
