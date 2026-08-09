@@ -9,6 +9,7 @@ import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
+import {STAGE1_READ_PERMISSIONS,grantStage1ReadAccess,provisionStage1Scope,stage1GrantConfig,stage1ProvisionConfig} from '../runtime/stage1-bootstrap.mjs';
 import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
@@ -331,6 +332,35 @@ pgTest('formal IAM grant sync reconciles and revokes desired state with version,
   await adminPool.query("UPDATE permission_catalog SET active=false,version=version+1 WHERE permission_code='AP.VIEW'");
   await assert.rejects(trustedSession(ids,actor,['AP.VIEW']),error=>error.code==='42501');
   await adminPool.query("UPDATE permission_catalog SET active=true,version=version+1 WHERE permission_code='AP.VIEW'");
+});
+
+pgTest('Stage 1 provisioning creates only minimal read scope, replays exactly and grants the observed OIDC subject',async()=>{
+  const tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID();
+  const environment={
+    NODE_ENV:'production',REFS_DEPLOYMENT_ENV:'staging',REFS_STAGE1_BOOTSTRAP_CONFIRM:'STAGE1_AUTHORITATIVE_ONLY',
+    REFS_STAGE1_TENANT_ID:tenantId,REFS_STAGE1_TENANT_CODE:`T${tenantId.replaceAll('-','').slice(0,8)}`.toUpperCase(),REFS_STAGE1_TENANT_NAME:'Stage 1 tenant',
+    REFS_STAGE1_ENTITY_ID:entityId,REFS_STAGE1_ENTITY_CODE:`E${entityId.replaceAll('-','').slice(0,8)}`.toUpperCase(),REFS_STAGE1_ENTITY_NAME:'Stage 1 entity',
+    REFS_STAGE1_PERIOD_ID:periodId,REFS_STAGE1_PERIOD_CODE:'2026-08',REFS_STAGE1_PERIOD_START:'2026-08-01',REFS_STAGE1_PERIOD_END:'2026-08-31',
+    REFS_STAGE1_BASE_CURRENCY:'USD',REFS_STAGE1_CASH_ACCOUNT_CODE:'111000',REFS_STAGE1_PROVISION_IDEMPOTENCY_KEY:'stage1-provision-pg-0001',
+    REFS_STAGE1_OIDC_SUBJECT:'auth0|observed-stage1-subject',REFS_STAGE1_GRANT_EXPECTED_VERSION:'0',REFS_STAGE1_GRANT_IDEMPOTENCY_KEY:'stage1-grant-pg-0001',
+  };
+  const provision=stage1ProvisionConfig(environment),grant=stage1GrantConfig(environment);
+  await assert.rejects(provisionStage1Scope(runtimePool,provision),error=>error.code==='STAGE1_BOOTSTRAP_DB_IDENTITY_DENIED');
+  const created=await provisionStage1Scope(adminPool,provision,{allowTestIdentity:true});
+  assert.deepEqual(created,{idempotent:false,tenantCount:1,entityCount:1,periodCount:1,accountCount:3,auditCount:1});
+  const replay=await provisionStage1Scope(adminPool,provision,{allowTestIdentity:true});
+  assert.equal(replay.idempotent,true);
+  await assert.rejects(provisionStage1Scope(adminPool,{...provision,entityName:'Conflicting entity name'},{allowTestIdentity:true}),error=>error.code==='STAGE1_BOOTSTRAP_IDEMPOTENCY_CONFLICT');
+  assert.deepEqual((await adminPool.query('SELECT (SELECT count(*)::int FROM tenant) tenants,(SELECT count(*)::int FROM entity) entities,(SELECT count(*)::int FROM accounting_period) periods,(SELECT count(*)::int FROM account_master) accounts,(SELECT count(*)::int FROM audit_event WHERE event_type=\'STAGE1_SCOPE_PROVISIONED\') provision_audits')).rows[0],{tenants:1,entities:1,periods:1,accounts:3,provision_audits:1});
+  await assert.rejects(grantStage1ReadAccess(adminPool,grant),error=>error.code==='GRANT_SYNC_DB_IDENTITY_DENIED');
+  await assert.rejects(grantStage1ReadAccess(grantSyncPool,grant,{principalProvider:async()=>({trusted:false,serviceId:'platform-iam-sync'})}),error=>error.code==='GRANT_SYNC_PRINCIPAL_DENIED');
+  const granted=await grantStage1ReadAccess(grantSyncPool,grant);
+  assert.deepEqual(granted,{idempotent:false,version:1,permissionCount:5});
+  const grantReplay=await grantStage1ReadAccess(grantSyncPool,grant);
+  assert.equal(grantReplay.idempotent,true);
+  const permissions=(await adminPool.query('SELECT permission FROM runtime_actor_grant WHERE tenant_id=$1 AND entity_id=$2 AND actor_id=$3 AND revoked_at IS NULL ORDER BY permission',[tenantId,entityId,grant.actorId])).rows.map(row=>row.permission);
+  assert.deepEqual(permissions,STAGE1_READ_PERMISSIONS);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type IN ('STAGE1_SCOPE_PROVISIONED','ACTOR_GRANTS_RECONCILED')",[tenantId,entityId])).rows[0].n,2);
 });
 
 pgTest('two connections enforce duplicate canonical raw source and atomic idempotency compare/replay',async()=>{
