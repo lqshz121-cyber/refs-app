@@ -171,6 +171,21 @@ test('observed WBS source, Come From, detail, relation, audit and forbidden-oper
   for(const operation of ['Create','Copy','Delete','Release','Incur','Revocation','Post','Post All','Cancel Post','Upload','Refresh'])assert(WBS_AUTOREC_OBSERVED_CONTRACT.forbidden_wbs_operations.includes(operation));
 });
 
+test('observed Cost GL and Property source tables retain receipt evidence only, never a transaction path',async()=>{
+  const value=singleReceiptSnapshot();
+  const controls=[
+    ['accounting.accounting_cost_relation','accountingCostRelationId','cost-relation-1'],
+    ['wbsdata.costcode_account_relation','costAccountRelationId','cost-map-1'],
+    ['wbsdata.pjcat_property_relation','propertyRelationGuid','property-relation-1'],
+    ['wbsdata.pjcat_unit_report','unitReportGuid','unit-report-1']
+  ].map(([name,key,id])=>({name,company_key:'COMPANY-A',rows:[{[key]:id}],content_hash:canonicalRequestHash([{[key]:id}])}));
+  value.views=[...value.views,...controls];delete value.package_hash;value.package_hash=canonicalRequestHash(value);
+  const prepared=await createWbsInboundDataAdapter({snapshotReader:reader(value)}).pull();
+  assert.equal(prepared.controls.filter(item=>item.source_type==='CONTROL_EVIDENCE').length,4);
+  assert.equal(prepared.normalized.length,1);assert.equal(prepared.staging.length,1);
+  for(const item of prepared.controls.filter(item=>item.source_type==='CONTROL_EVIDENCE'))assert.deepEqual({transaction:item.can_create_transaction,allocate:item.can_allocate,draft:item.can_create_draft,post:item.can_post},{transaction:false,allocate:false,draft:false,post:false});
+});
+
 test('AutoRec eligibility fails line-scoped with zero candidates for missing trace and pair mismatches',()=>{
   const trace={receipt_id:'receipt',receipt_ref:'object://wbs/receipt',receipt_hash:'sha256:'+'a'.repeat(64),raw_event_id:'raw',source_document_id:'doc',staging_item_id:'stg',source_record_id:'source',source_version:'v1',company_key:'COMPANY-A',currency:'USD',amount:100,business_date:'2026-08-01',accounting_date:'2026-08-02',bank_account_ref:'BANK-OP',stage:'STAGING_REVIEWED',account_before:'291000',account_after:'291001',review_event_id:'review'};
   const bank={...trace,source_type:'BANK_TRANSACTION',source_record_id:'bank',direction:'CREDIT',journal_no:'JE-1',payee_no:'PAYEE-1'};

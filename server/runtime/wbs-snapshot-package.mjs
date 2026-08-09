@@ -8,7 +8,15 @@ const VIEW_POLICY=Object.freeze({
   'BGDATA.autoc_bank':Object.freeze({id:'pbGuId',kind:'CONTROL_SOURCE'}),
   'accounting.accounting_info':Object.freeze({id:'accountingInfoId',kind:'LEDGER_EVIDENCE',scoped:true}),
   'accounting.balance_cell':Object.freeze({id:'controlCellId',kind:'CONTROL_EVIDENCE'}),
-  'accounting.income_cell':Object.freeze({id:'controlCellId',kind:'CONTROL_EVIDENCE'})
+  'accounting.income_cell':Object.freeze({id:'controlCellId',kind:'CONTROL_EVIDENCE'}),
+  // These observed WBS tables can retain an immutable read receipt and be
+  // reconciled as controls only. They are deliberately not producer views:
+  // no table key, relation count, or unit/project value can form a source
+  // document, allocation, Draft request, or posting instruction.
+  'accounting.accounting_cost_relation':Object.freeze({id:'accountingCostRelationId',kind:'CONTROL_EVIDENCE'}),
+  'wbsdata.costcode_account_relation':Object.freeze({id:'costAccountRelationId',kind:'CONTROL_EVIDENCE'}),
+  'wbsdata.pjcat_property_relation':Object.freeze({id:'propertyRelationGuid',kind:'CONTROL_EVIDENCE'}),
+  'wbsdata.pjcat_unit_report':Object.freeze({id:'unitReportGuid',kind:'CONTROL_EVIDENCE'})
 });
 
 export class WbsSnapshotError extends Error {

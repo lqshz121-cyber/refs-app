@@ -12,9 +12,26 @@ const VIEW_TYPES=Object.freeze({
   'BGDATA.autoc_bank':'AUTOREC_CASE_CONTROL',
   'accounting.accounting_info':'LEDGER_EVIDENCE',
   'accounting.balance_cell':'CONTROL_EVIDENCE',
-  'accounting.income_cell':'CONTROL_EVIDENCE'
+  'accounting.income_cell':'CONTROL_EVIDENCE',
+  'accounting.accounting_cost_relation':'CONTROL_EVIDENCE',
+  'wbsdata.costcode_account_relation':'CONTROL_EVIDENCE',
+  'wbsdata.pjcat_property_relation':'CONTROL_EVIDENCE',
+  'wbsdata.pjcat_unit_report':'CONTROL_EVIDENCE'
 });
 const TRANSACTION_TYPES=new Set(['PAYABLE','BANK_TRANSACTION','AUTOREC_PAYMENT_DETAIL']);
+const VIEW_SOURCE_KEY=Object.freeze({
+  'BGDATA.payable':'apGuId',
+  'BGDATA.bank_transaction':'bankTransactionId',
+  'BGDATA.autoc_detail':'pdGuId',
+  'BGDATA.autoc_bank':'pbGuId',
+  'accounting.accounting_info':'accountingInfoId',
+  'accounting.balance_cell':'controlCellId',
+  'accounting.income_cell':'controlCellId',
+  'accounting.accounting_cost_relation':'accountingCostRelationId',
+  'wbsdata.costcode_account_relation':'costAccountRelationId',
+  'wbsdata.pjcat_property_relation':'propertyRelationGuid',
+  'wbsdata.pjcat_unit_report':'unitReportGuid'
+});
 export const WBS_AUTOREC_OBSERVED_CONTRACT=Object.freeze({
   // Read-only observation of the WBS Payable Report list on 2026-08-10.
   // These names are an external display schema, not permission to use a
@@ -61,7 +78,7 @@ export class WbsInboundDataError extends Error {
 
 function fail(code,message){throw new WbsInboundDataError(code,message);}
 function receiptFor(validated,view,row){
-  return validated.receipts.find(receipt=>receipt.source_module===view.name&&receipt.source_record_id===String(row[view.name==='BGDATA.payable'?'apGuId':view.name==='BGDATA.bank_transaction'?'bankTransactionId':view.name==='BGDATA.autoc_detail'?'pdGuId':view.name==='BGDATA.autoc_bank'?'pbGuId':view.name==='accounting.accounting_info'?'accountingInfoId':'controlCellId']));
+  return validated.receipts.find(receipt=>receipt.source_module===view.name&&receipt.source_record_id===String(row[VIEW_SOURCE_KEY[view.name]]));
 }
 function requiredFields(type,row){
   const base=['currency','amount'];
