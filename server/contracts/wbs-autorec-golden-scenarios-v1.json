@@ -7,36 +7,36 @@
       "id": "exact_one_to_one",
       "input": {"bank_total": "100.0000", "business_total": "100.0000", "same_scope": true},
       "expected": {"review_status": "REVIEW_REQUIRED", "allocated_total": "100.0000", "bank_remainder": "0.0000", "business_remainder": "0.0000"},
-      "forward_trace": ["receipt", "raw", "normalized", "staging", "review_plan"],
-      "reverse_trace": ["review_plan", "staging", "source_version", "receipt_hash"]
+      "forward_trace": ["receipt", "raw", "normalized", "staging", "approved_mapping_snapshot", "review_plan"],
+      "reverse_trace": ["review_plan", "approved_mapping_snapshot", "staging", "source_version", "receipt_hash"]
     },
     {
       "id": "partial_match",
       "input": {"bank_total": "150.0000", "business_total": "100.0000", "same_scope": true},
       "expected": {"review_status": "PARTIAL_REVIEW_REQUIRED", "allocated_total": "100.0000", "bank_remainder": "50.0000", "business_remainder": "0.0000"},
-      "forward_trace": ["receipt", "raw", "normalized", "staging", "review_plan"],
-      "reverse_trace": ["review_plan", "staging", "source_version", "receipt_hash"]
+      "forward_trace": ["receipt", "raw", "normalized", "staging", "approved_mapping_snapshot", "review_plan"],
+      "reverse_trace": ["review_plan", "approved_mapping_snapshot", "staging", "source_version", "receipt_hash"]
     },
     {
       "id": "one_to_many",
       "input": {"bank_total": "100.0000", "business_total": "100.0000", "business_rows": 2},
       "expected": {"review_status": "REVIEW_REQUIRED", "allocation_edges": 2, "bank_remainder": "0.0000", "business_remainder": "0.0000"},
-      "forward_trace": ["receipt", "raw", "normalized", "staging", "review_plan"],
-      "reverse_trace": ["review_plan", "staging", "source_version", "receipt_hash"]
+      "forward_trace": ["receipt", "raw", "normalized", "staging", "approved_mapping_snapshot", "review_plan"],
+      "reverse_trace": ["review_plan", "approved_mapping_snapshot", "staging", "source_version", "receipt_hash"]
     },
     {
       "id": "many_to_one",
       "input": {"bank_total": "100.0000", "business_total": "100.0000", "bank_rows": 2},
       "expected": {"review_status": "REVIEW_REQUIRED", "allocation_edges": 2, "bank_remainder": "0.0000", "business_remainder": "0.0000"},
-      "forward_trace": ["receipt", "raw", "normalized", "staging", "review_plan"],
-      "reverse_trace": ["review_plan", "staging", "source_version", "receipt_hash"]
+      "forward_trace": ["receipt", "raw", "normalized", "staging", "approved_mapping_snapshot", "review_plan"],
+      "reverse_trace": ["review_plan", "approved_mapping_snapshot", "staging", "source_version", "receipt_hash"]
     },
     {
       "id": "amount_and_date_tolerance",
       "input": {"bank_total": "100.0000", "business_total": "100.0050", "amount_tolerance": "0.0100", "date_window_days": 2, "date_match_basis": "BUSINESS_AND_ACCOUNTING"},
       "expected": {"review_status": "REVIEW_REQUIRED", "difference": "0.0050", "date_match_basis": "BUSINESS_AND_ACCOUNTING", "can_allocate": false, "can_post": false},
-      "forward_trace": ["policy_receipt", "mapping_version", "staging", "review_plan"],
-      "reverse_trace": ["review_plan", "mapping_version", "policy_receipt"]
+      "forward_trace": ["policy_receipt", "policy_mapping_snapshot", "bank_mapping_snapshot", "business_mapping_snapshot", "staging", "review_plan"],
+      "reverse_trace": ["review_plan", "policy_mapping_snapshot", "bank_mapping_snapshot", "business_mapping_snapshot", "policy_receipt"]
     },
     {
       "id": "cross_company_block",
@@ -77,15 +77,15 @@
       "id": "posted_291001_trace",
       "input": {"payable_incur_posted": true, "autoc_posted": true, "reviewed_allocation_amount": "100.0000", "member_291001_net": "0.0000"},
       "expected": {"g11_status": "POSTED_TRACE_VERIFIED", "clearing_amount_equals_reviewed_allocation": true, "can_transition_case": false, "can_post": false},
-      "forward_trace": ["receipt", "staging", "posted_payable_incur", "posted_autoc", "ledger"],
-      "reverse_trace": ["ledger", "journal_audit", "staging", "receipt_hash"]
+      "forward_trace": ["receipt", "approved_mapping_snapshot", "policy_mapping_snapshot", "staging", "posted_payable_incur", "posted_autoc", "ledger"],
+      "reverse_trace": ["ledger", "journal_audit", "staging", "policy_mapping_snapshot", "approved_mapping_snapshot", "receipt_hash"]
     },
     {
       "id": "report_as_source_blocked",
       "input": {"source_types": ["COST_GENERAL_LEDGER", "PROPERTY_COMPARISON"], "control_only": true},
       "expected": {"review_status": "BLOCKED", "candidate_count": 0, "draft_request": false, "posting": false, "allowed_control_statuses": ["RECONCILED", "DIFFERENCE"]},
-      "forward_trace": ["control_receipt", "wbs_control_snapshot", "approved_mapping", "refs_metric_snapshot", "control_comparison"],
-      "reverse_trace": ["control_comparison", "refs_metric_snapshot", "mapping_version", "wbs_control_snapshot", "control_receipt"]
+      "forward_trace": ["control_receipt", "wbs_control_snapshot", "approved_mapping", "approved_mapping_snapshot", "refs_metric_snapshot", "control_comparison"],
+      "reverse_trace": ["control_comparison", "refs_metric_snapshot", "approved_mapping_snapshot", "wbs_control_snapshot", "control_receipt"]
     }
   ]
 }

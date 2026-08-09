@@ -144,12 +144,13 @@ test('golden acceptance artifact has twelve sanitized source-to-target controls 
   const reports=goldenArtifact.scenarios.find(scenario=>scenario.id==='report_as_source_blocked');
   assert.deepEqual(reports.input.source_types,['COST_GENERAL_LEDGER','PROPERTY_COMPARISON']);
   assert.deepEqual(reports.expected.allowed_control_statuses,['RECONCILED','DIFFERENCE']);
-  for(const trace of ['wbs_control_snapshot','approved_mapping','refs_metric_snapshot'])assert.ok(reports.forward_trace.includes(trace),`report forward ${trace}`);
-  for(const trace of ['refs_metric_snapshot','wbs_control_snapshot'])assert.ok(reports.reverse_trace.includes(trace),`report reverse ${trace}`);
+  for(const trace of ['wbs_control_snapshot','approved_mapping','approved_mapping_snapshot','refs_metric_snapshot'])assert.ok(reports.forward_trace.includes(trace),`report forward ${trace}`);
+  for(const trace of ['refs_metric_snapshot','approved_mapping_snapshot','wbs_control_snapshot'])assert.ok(reports.reverse_trace.includes(trace),`report reverse ${trace}`);
   const tolerance=goldenArtifact.scenarios.find(scenario=>scenario.id==='amount_and_date_tolerance');
   assert.equal(tolerance.input.date_match_basis,'BUSINESS_AND_ACCOUNTING');assert.equal(tolerance.expected.date_match_basis,'BUSINESS_AND_ACCOUNTING');
+  for(const trace of ['policy_mapping_snapshot','bank_mapping_snapshot','business_mapping_snapshot']){assert.ok(tolerance.forward_trace.includes(trace),`tolerance forward ${trace}`);assert.ok(tolerance.reverse_trace.includes(trace),`tolerance reverse ${trace}`);}
   const g11=goldenArtifact.scenarios.find(scenario=>scenario.id==='posted_291001_trace');
-  assert.equal(g11.input.reviewed_allocation_amount,'100.0000');assert.equal(g11.expected.clearing_amount_equals_reviewed_allocation,true);
+  assert.equal(g11.input.reviewed_allocation_amount,'100.0000');assert.equal(g11.expected.clearing_amount_equals_reviewed_allocation,true);assert.ok(g11.forward_trace.includes('policy_mapping_snapshot'));assert.ok(g11.reverse_trace.includes('approved_mapping_snapshot'));
   const reopen=goldenArtifact.scenarios.find(scenario=>scenario.id==='reopen_boundary');
   assert.deepEqual(reopen.input.observed_wbs_detail_sequence,['RELEASED_PAYMENT','INCURRED_PAYMENT']);
   assert.deepEqual(reopen.expected,{latest_observed_state:'INCURRED',canonical_wbs_transition_graph:'UNKNOWN',can_transition_state:false,can_post:false});
@@ -159,5 +160,5 @@ test('golden acceptance artifact has twelve sanitized source-to-target controls 
 
 test('G11 acceptance rejects a substituted top-level policy or allocation edge',()=>{
   assert.match(acceptanceMatrix,/persisted review request must also equal that policy trace/i);
-  assert.match(acceptanceMatrix,/substituted top-level policy, plan or allocation edge is rejected/i);
+  assert.match(acceptanceMatrix,/substituted top-level policy, snapshot, plan or allocation edge is rejected/i);
 });
