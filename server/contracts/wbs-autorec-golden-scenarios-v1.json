@@ -33,8 +33,8 @@
     },
     {
       "id": "amount_and_date_tolerance",
-      "input": {"bank_total": "100.0000", "business_total": "100.0050", "amount_tolerance": "0.0100", "date_window_days": 2},
-      "expected": {"review_status": "REVIEW_REQUIRED", "difference": "0.0050", "can_allocate": false, "can_post": false},
+      "input": {"bank_total": "100.0000", "business_total": "100.0050", "amount_tolerance": "0.0100", "date_window_days": 2, "date_match_basis": "BUSINESS_AND_ACCOUNTING"},
+      "expected": {"review_status": "REVIEW_REQUIRED", "difference": "0.0050", "date_match_basis": "BUSINESS_AND_ACCOUNTING", "can_allocate": false, "can_post": false},
       "forward_trace": ["policy_receipt", "mapping_version", "staging", "review_plan"],
       "reverse_trace": ["review_plan", "mapping_version", "policy_receipt"]
     },
@@ -54,10 +54,10 @@
     },
     {
       "id": "reopen_boundary",
-      "input": {"observed_wbs_detail_kind": "RELEASED_PAYMENT"},
-      "expected": {"observed_state": "RELEASED", "can_transition_state": false, "can_post": false},
-      "forward_trace": ["receipt", "observed_detail", "workflow_evidence"],
-      "reverse_trace": ["workflow_evidence", "source_version", "receipt_hash"]
+      "input": {"observed_wbs_detail_sequence": ["RELEASED_PAYMENT", "INCURRED_PAYMENT"]},
+      "expected": {"latest_observed_state": "INCURRED", "canonical_wbs_transition_graph": "UNKNOWN", "can_transition_state": false, "can_post": false},
+      "forward_trace": ["receipt", "observed_detail", "state_history", "workflow_evidence"],
+      "reverse_trace": ["state_history", "workflow_evidence", "source_version", "receipt_hash"]
     },
     {
       "id": "nul_company_isolation",
