@@ -10,4 +10,6 @@ assert.match(reports, /Core financial reports/, 'Core report category must remai
 for (const name of ['Trial Balance','GL Detail','Balance Sheet','Income Statement','Cash Flow']) assert.match(reports, new RegExp(name), `${name} must remain launchable.`);
 assert.match(reports, /Back to Reports Center/, 'Report details must retain a full-page Back path.');
 assert.match(reports, /setSearch/, 'Catalog search must remain functional.');
+assert.match(reports, /className="report-summary-link"/, 'The report summary entry must use the shared link treatment rather than an unstyled browser button.');
+assert.match(reports, /aria-label="Open Balance Sheet summary"/, 'The report summary entry must state its exact destination.');
 console.log('PASS: Reports Center removes favorite/menu mutation while retaining core report catalog, search, launch and full-page Back.');

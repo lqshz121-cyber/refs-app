@@ -95,6 +95,16 @@ const NAV = [
   {group:'Admin', short:'Admin', glyph:'shield', icon:'◈', adminOnly:true, items:[['masterdata','Master Data'],['ap','AP (legacy)'],['ar','AR (legacy)'],['cash','Bank Accounts'],['audit','Audit Log'],['admin','Users & Settings']]},
 ];
 NAV.find(group => group.group === 'Accounting Operations')?.items.splice(9, 0, ['amortization', 'Amortization Center'], ['accruals', 'Accrual Center']);
+// Secondary navigation uses the same self-authored stroke icon vocabulary as
+// the rail. Letter tiles made related accounting pages look like unrelated apps.
+const NAV_ITEM_GLYPHS = {
+  dashboard:'gauge', approvals:'check', aireview:'shield', aijeworkbench:'document',
+  setting:'gear', rules:'check', mapping:'exchange', staging:'inbox', sourcedocs:'document', integration:'exchange', exceptions:'shield',
+  autobankrec:'cycle', banktx:'bank', bankrec:'check', checks:'wallet', je:'document',
+  gl:'lines', consolidation:'layers', register:'book', subledger:'lines', coa:'book',
+  closing:'calendar', intercompany:'exchange', assets:'layers', amortization:'lines', accruals:'document',
+  close:'calendar', periods:'calendar', reports:'bars', masterdata:'book', ap:'wallet', ar:'exchange', cash:'bank', audit:'document', admin:'shield',
+};
 const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, setting:CompanySetting, aireview:AIAudit, aijeworkbench:AIJEWorkbench, staging:StagingCenter, unittransfer:UnitTransfer, sourcedocs:SourceDocs, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
   pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARWorkspace,
   cash:CashModule, bankrec:BankRec2, autobankrec:AutoBankRec, checks:CheckMgmt, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
@@ -436,7 +446,7 @@ function App() {
             <div className="nav-panel-title">{g.group}</div>
             <div id={groupPanelId} className="nav-group-items">{g.items.map(([k,l])=>
               <button key={k} aria-current={route===k?'page':undefined} className={`nav-item nav-sub ${route===k?'nav-on':''}`} onClick={()=>goto(k)}>
-                <span className="nav-badge" aria-hidden="true">{l.slice(0,1).toUpperCase()}</span>
+                <span className="nav-item-icon" aria-hidden="true"><Icon name={NAV_ITEM_GLYPHS[k] || g.glyph} size={18}/></span>
                 <span className="nav-item-label">{l}</span>
                 <span className="nav-chev" aria-hidden="true">›</span>
               </button>)}</div>

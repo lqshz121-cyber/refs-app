@@ -2260,3 +2260,10 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 - **REFS implementation:** Operations exposes Amortization Center and Accrual Center after Fixed Assets while Closing Accounting remains the first visible workspace. A retained 12-month insurance source automatically exposes a 12-line prepaid-insurance schedule with source trace and balanced monthly Draft previews. No automatic posting, payment, external provider call, or export is enabled.
 - **Status:** **VERIFIED LOCAL** for navigation, automatic 12-period schedule, balance control, and Draft-only boundary. **PARTIAL** for production AI classification and QBO interaction behavior.
 - **Verification:** `node verify-amortization-accrual-centers.mjs`; `node verify-navigation-multi-expand.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## REFS shell: unified navigation and report-summary icons (2026-08-10)
+
+- **Observed product evidence:** The user-provided REFS Reports screenshot identified an unstyled rectangular `Review summary` control and mixed letter-square icons in secondary navigation as visually inconsistent with the line-icon rail.
+- **REFS implementation:** Secondary navigation now maps every visible workspace to the shared self-authored stroke-icon set, removing colored letter-square tiles. `Review summary` is now a compact text action with the same line-icon language and an explicit `Open Balance Sheet summary` accessible name; it retains its existing read-only report launch.
+- **Status:** **VERIFIED LOCAL** for icon treatment, accessible destination name, navigation behavior, build, and visual verifier suite. This is a REFS visual-system refinement, not a QBO icon-equivalence claim.
+- **Verification:** `node verify-navigation-multi-expand.mjs`; `node verify-reports-readonly-catalog.mjs`; `node verify-a11y-offcanvas-and-dark-contrast.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.

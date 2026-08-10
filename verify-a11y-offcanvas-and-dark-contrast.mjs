@@ -348,10 +348,6 @@ assert.match(cssNoComments, /body\.dark \.nav-item\.nav-on\{[^}]*background:var\
 // The five bank-queue rules that used to sit after it are the reason this
 // check exists: they won the cascade in both themes.
 const REVIEWED_LITERALS = new Set([
-  // Coloured group badges. Each has an explicit body.dark pairing directly below
-  // the light one, asserted separately.
-  '.nav-tone-0 .nav-badge', '.nav-tone-1 .nav-badge', '.nav-tone-2 .nav-badge',
-  '.nav-tone-3 .nav-badge', '.nav-tone-4 .nav-badge', '.nav-tone-5 .nav-badge',
   // White ink on a saturated fill: correct in both themes by construction.
   '.btn-danger', '.toast', '.bank-health-icon',
   // Modal scrims: a dark wash over the page, correct in both themes.

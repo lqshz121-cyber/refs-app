@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from 'react';
-import { Card, KPI, Btn, Badge, Money, Table, Tabs, Segmented, SectionTitle, StateBlock, Unavailable } from './ui.jsx';
+import { Card, KPI, Btn, Badge, Icon, Money, Table, Tabs, Segmented, SectionTitle, StateBlock, Unavailable } from './ui.jsx';
 import { COA, ENTITIES, VENDORS, CUSTOMERS, LOANS, BANK_ACCOUNTS, MAPPINGS, PROPERTIES, PROJECTS } from './data.js';
 import { LOAN_TXNS, IC_TXNS, PM_ROWS, SOURCE_DOCS } from './seed.js';
 import { acct, money, sum, jeTotals, trialBalance, statements, downloadCSV } from './engine.js';
@@ -635,7 +635,7 @@ export function Reports({ctx}) {
       <label className="qbo-report-search"><span aria-hidden="true" /><input value={search} onChange={e=>{setSearch(e.target.value);setReportPage(0);}} placeholder="Type report name here" /></label>
     </div>
     <div className="report-shelf qbo-report-tabs"><button type="button" className={`report-shelf-chip ${category==='Standard reports'?'report-shelf-chip-on':''}`} onClick={()=>{setCategory('Standard reports');setReportPage(0);}}>Core financial reports</button><button type="button" className={`report-shelf-chip ${category==='All reports'?'report-shelf-chip-on':''}`} onClick={()=>{setCategory('All reports');setReportPage(0);}}>All retained reports</button><span className="report-shelf-spacer" /><span className="report-shelf-note">POSTED local evidence · scoped drill and return · favorites and report menus unavailable</span></div>
-    {hasEntity ? <><div className="qbo-report-promo"><span>SELECTED ENTITY</span><b>Financial summary for the current reporting scope</b><p>Review same-entity POSTED balance, income, and control signals before opening the report.</p><button type="button" onClick={()=>launchReport('Balance Sheet','gl')}>Review summary</button></div>
+    {hasEntity ? <><div className="qbo-report-promo"><span>SELECTED ENTITY</span><b>Financial summary for the current reporting scope</b><p>Review same-entity POSTED balance, income, and control signals before opening the report.</p><button type="button" className="report-summary-link" onClick={()=>launchReport('Balance Sheet','gl')} aria-label="Open Balance Sheet summary"><Icon name="bars" size={16}/><span>Review summary</span></button></div>
     <div className="kpi-row">
       <KPI label="Total assets" value={money(st.assets)} />
       <KPI label="Current period revenue" value={money(st.revenue)} tone="ok" />
