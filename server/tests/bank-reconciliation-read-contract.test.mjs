@@ -40,3 +40,17 @@ test('Bank Match candidates are a high-risk scoped read of exact POSTED cash evi
   assert.deepEqual(calls[0].args,['tenant','entity','bank-source']);
   assert.match(calls[0].sql,/^SELECT \* FROM refs_list_bank_match_candidates/);
 });
+
+test('reconciliation worksheet is an open scoped evidence read and cannot synthesize clearance authority',async()=>{
+  const up=await readFile(new URL('../db/migrations/066_reconciliation_worksheet_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/066_reconciliation_worksheet_read.sql',import.meta.url),'utf8');
+  for(const token of ["'BANK.VIEW'",'refs_assert_scope',"r.status IN ('DRAFT','IN_REVIEW','REOPENED')","previous.status='RECONCILED'","bm.status='ACTIVE'","COALESCE(item.state,'NOT_CLEARED')",'FOR SHARE','REVOKE ALL','GRANT EXECUTE'])assert.ok(up.includes(token),`worksheet migration must contain ${token}`);
+  const executable=up.replace(/--.*$/gm,'');
+  assert.doesNotMatch(executable,/\b(?:INSERT INTO|UPDATE |DELETE FROM|refs_set_reconciliation_clearance|refs_transition_reconciliation|refs_post_journal)\b/i);
+  assert.match(down,/DROP FUNCTION IF EXISTS refs_list_reconciliation_worksheet/);
+  const calls=[],kernel=Object.create(PostgresAccountingKernel.prototype);
+  kernel.inSession=async work=>work({query:async(sql,args)=>{calls.push({sql,args});return {rows:[]};}});
+  assert.deepEqual(await kernel.listReconciliationWorksheet({tenantId:'tenant',entityId:'entity',reconciliationId:'reconciliation'}),[]);
+  assert.deepEqual(calls[0].args,['tenant','entity','reconciliation']);
+  assert.match(calls[0].sql,/^SELECT \* FROM refs_list_reconciliation_worksheet/);
+});
