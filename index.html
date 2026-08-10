@@ -430,7 +430,7 @@ input,select,textarea{
 .nav-badge{display:grid;place-items:center;flex:0 0 auto;width:22px;height:22px;border:1px solid transparent;border-radius:7px;font:700 10.5px/1 var(--qb-sans);letter-spacing:.02em;background:var(--qb-divider);color:var(--qb-text-muted);transition:transform .16s ease,background-color .16s ease,border-color .16s ease;}
 .nav-item:hover .nav-badge{transform:translateY(-1px);}
 @media(prefers-reduced-motion:reduce){.nav-badge{transition:none;}.nav-item:hover .nav-badge{transform:none;}}
-.nav-item-label{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.nav-item-label{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; letter-spacing:-.012em;}
 .nav-chev{flex:0 0 auto; color:var(--qb-text-faint); font-size:15px; line-height:1;}
 /* The current page is marked by a 3px accent bar, not only by a fill. The fill
    alone is 1.23:1 against the panel in light and 1.16:1 in dark - below the 3:1
@@ -485,6 +485,7 @@ input,select,textarea{
    badge) is the one that gives way, with an ellipsis. Identity stays legible;
    nothing overflows the viewport. */
 .top-right>.badge{flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.demo-label-short,.demo-label-xs{display:none;}
 .user-av{flex:0 0 28px;}
 .user-nm{min-width:0; overflow:hidden; text-overflow:ellipsis;}
 .icon-btn{
@@ -1520,8 +1521,10 @@ select{padding-right:28px; cursor:pointer;}
 @media(max-width:1440px){
   .content{padding:24px 28px 56px;}
   .top-right>.muted{display:none;}
-  .topbar>.sw:first-of-type{max-width:360px;}
-  .cmdk{max-width:200px;}
+  .topbar>.sw:first-of-type{flex-basis:260px; max-width:320px;}
+  .cmdk{flex-basis:180px; max-width:180px;}
+  .user-chip{flex-basis:154px; min-width:154px;}
+  .user-nm{max-width:108px;}
 }
 @media(max-width:1280px){
   :root{--qb-navpanel-w:210px; --qb-greet-side:200px;}
@@ -1530,8 +1533,10 @@ select{padding-right:28px; cursor:pointer;}
   .topbar>.sw:first-of-type{flex:1 1 auto; max-width:none;}
   .top-right{gap:8px;}
   .top-right .icon-btn:nth-of-type(1),.top-right .icon-btn:nth-of-type(2){display:none;}
-  .user-chip{max-width:190px; min-width:0; overflow:hidden;}
-  .user-nm{min-width:0; overflow:hidden; text-overflow:ellipsis;}
+  .demo-label-full{display:none;}
+  .demo-label-short{display:inline;}
+  .user-chip{flex:0 1 154px; max-width:154px; min-width:120px; overflow:hidden;}
+  .user-nm{min-width:0; max-width:108px; overflow:hidden; text-overflow:ellipsis;}
   .user-nm .muted{display:none;}
   .kpi-row{grid-template-columns:repeat(2,minmax(0,1fr));}
   .qbo-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
@@ -1583,6 +1588,8 @@ select{padding-right:28px; cursor:pointer;}
   .topbar>.sw:first-of-type{min-width:0!important; flex:1 1 auto;}
   .top-right{margin-left:auto; gap:6px;}
   .period-chip,.top-right>.muted,.user-nm{display:none;}
+  .demo-label-short{display:none;}
+  .demo-label-xs{display:inline;}
   .content{padding:18px 16px 44px;}
   .page-h{font-size:24px;}
   .page-top,.accounting-page-head,.report-workbench-head,.card-head,.gl-drill-head,

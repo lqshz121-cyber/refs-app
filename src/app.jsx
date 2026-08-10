@@ -459,7 +459,7 @@ function App() {
           <button className="icon-btn" title="Notifications" onClick={()=>setRoute('exceptions')}>🔔</button>
           <button className="icon-btn" onClick={()=>actions.resetData()} title="Reset demo data">⟲</button>
           <button className="icon-btn" onClick={()=>setTheme(!dark)} aria-pressed={dark} title={dark?'Switch to light theme':'Switch to dark theme'}>{dark?'☀':'☾'}</button>
-          <span className="badge badge-warn" title="This build serves browser demonstration data. It is not an accounting record and carries no entity, period, approval or posting authority.">Public demonstration data</span>
+          <span className="badge badge-warn demo-data-badge" aria-label="Public demonstration data" title="This build serves browser demonstration data. It is not an accounting record and carries no entity, period, approval or posting authority."><span className="demo-label-full">Public demonstration data</span><span className="demo-label-short" aria-hidden="true">Demo data</span><span className="demo-label-xs" aria-hidden="true">Demo</span></span>
           <span className="muted" style={{fontSize:10.5,opacity:.7}} title="commit · build time">{typeof window!=='undefined'&&window.__BUILD?`${window.__BUILD.sha} · ${window.__BUILD.time}`:''}</span>
           <div className="user-chip" title={'Role '+user.role_code}>
             <span className="user-av">{user.name[0]}</span>

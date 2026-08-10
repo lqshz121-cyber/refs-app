@@ -2288,3 +2288,10 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 - **REFS implementation:** Trial Balance now uses its own full-width four-column table contract and keeps account, debit, credit, and balance together in one readable surface. The export affordance is removed from this read-only report. Wide Journal Entries/GL tables retain their independent horizontal-scroll behavior.
 - **Status:** **VERIFIED LOCAL** for the focused Trial Balance markup and layout contract; live responsive validation remains required before this is treated as released UX.
 - **Verification:** `node verify-trial-balance-layout.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## REFS shell: responsive readability audit baseline (2026-08-10)
+
+- **Observed product evidence:** Desktop and compact-width review identified two avoidable readability failures: long secondary-navigation labels were clipped even where the panel was visible, and the header allowed the demonstration-data label and signed-in identity to compress into unusable fragments.
+- **REFS implementation:** Secondary-navigation labels use a compact readable type treatment. The header retains the full `Public demonstration data` explanation on wide screens, a clear `Demo data` label on tablet, and `Demo` on phone while preserving the full accessible name. Desktop reserves space for the signed-in identity; the existing off-canvas mobile navigation remains the narrow-width entry point.
+- **Status:** **VERIFIED LOCAL** for the responsive source contract and shared visual suite. Live browser verification is recorded separately and no claim is made that every data-dependent layout is production-equivalent.
+- **Verification:** `node verify-shell-responsive-readability.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
