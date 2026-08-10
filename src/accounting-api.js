@@ -87,7 +87,7 @@ const bankMatchCandidateRow=row=>{
   if(!row||!UUID.test(row.payment_occurrence_id||'')||!UNSIGNED_INTEGER.test(String(row.occurrence_version??''))||!['AP_PAYMENT','AR_RECEIPT'].includes(row.occurrence_kind)||!UUID.test(row.business_source_document_id||'')||!validDate(row.accounting_date)||!/^[A-Z]{3}$/.test(row.currency||'')||!MONEY4.test(String(row.amount??''))||!UUID.test(row.journal_entry_id||'')||!UUID.test(row.journal_line_id||'')||!UUID.test(row.ledger_line_id||'')||!Number.isSafeInteger(row.date_delta_days)||row.date_delta_days<-31||row.date_delta_days>31)return null;
   const occurrenceVersion=Number(row.occurrence_version),amount=Number(row.amount);
   if(!Number.isSafeInteger(occurrenceVersion)||occurrenceVersion<0||!Number.isFinite(amount))return null;
-  return {payment_occurrence_id:row.payment_occurrence_id,occurrence_version:occurrenceVersion,occurrence_kind:row.occurrence_kind,business_source_document_id:row.business_source_document_id,accounting_date:row.accounting_date,currency:row.currency,amount,journal_entry_id:row.journal_entry_id,journal_line_id:row.journal_line_id,ledger_line_id:row.ledger_line_id,date_delta_days:row.date_delta_days};
+  return {payment_occurrence_id:row.payment_occurrence_id,occurrence_version:occurrenceVersion,occurrence_kind:row.occurrence_kind,business_source_document_id:row.business_source_document_id,accounting_date:row.accounting_date,currency:row.currency,amount,amount_text:String(row.amount),journal_entry_id:row.journal_entry_id,journal_line_id:row.journal_line_id,ledger_line_id:row.ledger_line_id,date_delta_days:row.date_delta_days};
 };
 
 const reconciliationRow=(row,account,statementEndingDate)=>{
@@ -190,8 +190,9 @@ const reconciliationWorksheetRow=(row,reconciliationId)=>{
 
 export async function createAuthoritativeBankPaymentMatch({config,bankSourceId,bankRevision,candidate,reason,fetcher=globalThis.fetch}={}){
   const approvedReason=bankCommandReason(reason);
-  const scaled=typeof candidate?.amount==='number'?candidate.amount*10000:NaN;
-  const normalizedCandidate=Number.isSafeInteger(scaled)?bankMatchCandidateRow({...candidate,amount:candidate.amount.toFixed(4)}):null;
+  const amountText=typeof candidate?.amount_text==='string'?candidate.amount_text:null;
+  const normalizedCandidate=amountText===null?null:bankMatchCandidateRow({...candidate,amount:amountText});
+  if(normalizedCandidate&&candidate.amount!==normalizedCandidate.amount)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Bank Match requires one validated exact candidate, current bank revision, and review reason.'};
   if(!UUID.test(bankSourceId||'')||!Number.isSafeInteger(bankRevision)||bankRevision<0||!approvedReason||!normalizedCandidate)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Bank Match requires one validated exact candidate, current bank revision, and review reason.'};
   const idempotencyKey=`UI-BANK-MATCH-${bankSourceId}-${bankRevision}-${normalizedCandidate.payment_occurrence_id}-${normalizedCandidate.occurrence_version}`;
   return bankCommandResult({config,path:`/bank/transactions/${bankSourceId}/matches`,revision:bankRevision,idempotencyKey,body:{paymentOccurrenceId:normalizedCandidate.payment_occurrence_id,expectedOccurrenceRevision:normalizedCandidate.occurrence_version,reason:approvedReason},fetcher,operation:'BANK_MATCH'});
