@@ -112,6 +112,16 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await kernel.getFinancialStatements({tenantId:principal.tenantId,entityId,periodId});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===6&&parts[4]==='reports'&&parts[5]==='financial-statement-period-comparison'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['currentPeriodId','priorPeriodId']);
+        const currentPeriodId=requireUuid(parsedUrl.searchParams.get('currentPeriodId'),'currentPeriodId');
+        const priorPeriodId=requireUuid(parsedUrl.searchParams.get('priorPeriodId'),'priorPeriodId');
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        result=await kernel.getFinancialStatementPeriodComparison({tenantId:principal.tenantId,entityId,currentPeriodId,priorPeriodId});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===6&&parts[4]==='reports'&&parts[5]==='dimension-profitability'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');

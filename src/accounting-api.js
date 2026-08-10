@@ -311,6 +311,31 @@ export async function refreshAuthoritativeFinancialStatements({config,fetcher=gl
   }catch{return unreachable('The browser could not complete the authoritative financial statement read; no HTTP response was produced.');}
 }
 
+export async function refreshAuthoritativeFinancialStatementPeriodComparison({config,priorPeriodId,fetcher=globalThis.fetch}={}){
+  const prior=String(priorPeriodId||'');
+  if(!config||typeof fetcher!=='function'||!UUID.test(config.periodId||'')||!UUID.test(prior)||prior===config.periodId)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Period comparison requires two distinct authoritative accounting-period identifiers.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({currentPeriodId:config.periodId,priorPeriodId:prior});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/reports/financial-statement-period-comparison?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid financial statement comparison envelope.'};
+    const statements=new Set(['TRIAL_BALANCE','BALANCE_SHEET','INCOME_STATEMENT','CASH_FLOW']);
+    const statuses=new Set(['COMPARABLE_POSTED_EVIDENCE','MISSING_CURRENT_EVIDENCE','MISSING_PRIOR_EVIDENCE']);
+    const idSets=['current_journal_entry_ids','current_journal_line_ids','current_ledger_line_ids','current_source_document_ids','prior_journal_entry_ids','prior_journal_line_ids','prior_ledger_line_ids','prior_source_document_ids'];
+    const invalid=row=>{
+      const currentPresent=row?.comparison_status!=='MISSING_CURRENT_EVIDENCE',priorPresent=row?.comparison_status!=='MISSING_PRIOR_EVIDENCE';
+      const validIds=field=>row?.[field]===null
+        ? (field.startsWith('current_')?!currentPresent:!priorPresent)
+        : Array.isArray(row?.[field])&&row[field].every(id=>UUID.test(id||''));
+      return row?.current_period_id!==config.periodId||row?.prior_period_id!==prior||!PERIOD_CODE.test(row?.current_period_code||'')||!PERIOD_CODE.test(row?.prior_period_code||'')||!validDate(row?.current_period_start)||!validDate(row?.current_period_end)||!validDate(row?.prior_period_start)||!validDate(row?.prior_period_end)||row.current_period_start>row.current_period_end||row.prior_period_start>row.prior_period_end||row.prior_period_end>=row.current_period_start||!statements.has(row?.statement_type)||typeof row?.statement_section!=='string'||!row.statement_section||row?.classification_basis!=='ACCOUNT_CODE_PREFIX_AND_BANK_MEMBER'||!ACCOUNT_CODE.test(row?.account_code||'')||typeof row?.account_name!=='string'||!row.account_name.trim()||!statuses.has(row?.comparison_status)||currentPresent!==REPORT_MONEY4.test(String(row?.current_display_balance??''))||priorPresent!==REPORT_MONEY4.test(String(row?.prior_display_balance??''))||idSets.some(field=>!validIds(field));
+    };
+    if(body.data.some(invalid))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or incomplete financial statement comparison row.'};
+    if(new Set(body.data.map(row=>`${row.statement_type}:${row.account_code}`)).size!==body.data.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate financial statement comparison evidence.'};
+    return {ok:true,rows:body.data.map(row=>({...row,current_display_balance:row.current_display_balance===null?null:String(row.current_display_balance),prior_display_balance:row.prior_display_balance===null?null:String(row.prior_display_balance)})),scope:{entityId:config.entityId,currentPeriodId:config.periodId,priorPeriodId:prior}};
+  }catch{return unreachable('The browser could not complete the authoritative financial statement comparison read; no HTTP response was produced.');}
+}
+
 export async function refreshAuthoritativeDimensionProfitability({config,dimensionType,dimensionRef,fetcher=globalThis.fetch}={}){
   const type=String(dimensionType||''),ref=String(dimensionRef||'');
   if(!config||typeof fetcher!=='function'||!UUID.test(config.periodId||'')||!['PROPERTY','PROJECT','UNIT'].includes(type)||!ref||ref!==ref.trim()||ref.length>160||/[\u0000-\u001f\u007f]/.test(ref))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Dimension profitability requires one authoritative entity and period plus a canonical Property, Project, or Unit reference.'};

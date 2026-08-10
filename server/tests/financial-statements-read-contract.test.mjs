@@ -33,6 +33,26 @@ test('repository and HTTP expose one authenticated entity-period no-store read',
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/reports/financial-statements?periodId=${periodId}`,headers:{},body:{}})).body.code,'READ_BODY_FORBIDDEN');
 });
 
+test('financial statement period comparison is a two-period POSTED evidence read that marks missing evidence rather than zero',async()=>{
+  const up=await readFile(new URL('../db/migrations/076_financial_statement_period_comparison_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/076_financial_statement_period_comparison_read.sql',import.meta.url),'utf8');
+  for(const token of ['refs_get_financial_statement_period_comparison',"'GL.REPORT.VIEW'",'refs_assert_scope','p_current_period=p_prior_period','v_prior.ends_on>=v_current.starts_on','refs_get_financial_statements','FULL OUTER JOIN','MISSING_CURRENT_EVIDENCE','MISSING_PRIOR_EVIDENCE','COMPARABLE_POSTED_EVIDENCE','REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token));
+  assert.doesNotMatch(up,/INSERT INTO journal_entry|UPDATE journal_entry|DELETE FROM journal_entry|INSERT INTO ledger_line|UPDATE ledger_line|DELETE FROM ledger_line|refs_post_journal/i);
+  assert.match(down,/DROP FUNCTION refs_get_financial_statement_period_comparison/);
+  const calls=[],kernel=Object.create(PostgresAccountingKernel.prototype);
+  kernel.inSession=async work=>work({query:async(sql,args)=>{calls.push({sql,args});return {rows:[{comparison_status:'COMPARABLE_POSTED_EVIDENCE'}]};}});
+  assert.deepEqual(await kernel.getFinancialStatementPeriodComparison({tenantId:'tenant',entityId:'entity',currentPeriodId:'current',priorPeriodId:'prior'}),[{comparison_status:'COMPARABLE_POSTED_EVIDENCE'}]);
+  assert.deepEqual(calls,[{sql:'SELECT * FROM refs_get_financial_statement_period_comparison($1,$2,$3,$4)',args:['tenant','entity','current','prior']}]);
+  const tenantId=randomUUID(),entityId=randomUUID(),currentPeriodId=randomUUID(),priorPeriodId=randomUUID(),httpCalls=[];
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({getFinancialStatementPeriodComparison:async scope=>{httpCalls.push(scope);return [];}})});
+  const base=`/api/v1/entities/${entityId}/reports/financial-statement-period-comparison?currentPeriodId=${currentPeriodId}&priorPeriodId=${priorPeriodId}`;
+  const response=await api({method:'GET',url:base,headers:{},body:null});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(httpCalls,[{tenantId,entityId,currentPeriodId,priorPeriodId}]);
+  assert.equal((await api({method:'GET',url:base.replace('&priorPeriodId','&unexpected'),headers:{},body:null})).body.code,'UNEXPECTED_QUERY_PARAMETER');
+  assert.equal((await api({method:'GET',url:base,headers:{'idempotency-key':'forbidden'},body:null})).body.code,'IDEMPOTENCY_KEY_NOT_ALLOWED');
+  assert.equal((await api({method:'GET',url:base,headers:{},body:{}})).body.code,'READ_BODY_FORBIDDEN');
+});
+
 test('dimension profitability is a bounded POSTED-ledger read and never infers a missing dimension',async()=>{
   const up=await readFile(new URL('../db/migrations/074_dimension_profitability_read.sql',import.meta.url),'utf8');
   const down=await readFile(new URL('../db/migrations/down/074_dimension_profitability_read.sql',import.meta.url),'utf8');
