@@ -2267,3 +2267,17 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 - **REFS implementation:** Secondary navigation now maps every visible workspace to the shared self-authored stroke-icon set, removing colored letter-square tiles. `Review summary` is now a compact text action with the same line-icon language and an explicit `Open Balance Sheet summary` accessible name; it retains its existing read-only report launch.
 - **Status:** **VERIFIED LOCAL** for icon treatment, accessible destination name, navigation behavior, build, and visual verifier suite. This is a REFS visual-system refinement, not a QBO icon-equivalence claim.
 - **Verification:** `node verify-navigation-multi-expand.mjs`; `node verify-reports-readonly-catalog.mjs`; `node verify-a11y-offcanvas-and-dark-contrast.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## REFS shell: retained navigation badges and report/source visual hierarchy (2026-08-10)
+
+- **Observed product evidence:** The user corrected the navigation decision: coloured letter-square badges remain in second-level navigation. A General Ledger screenshot also exposed default-button chrome around the retained-source labels (`CLOSING`, `AUTOC`), and the seven shared Balance Sheet/General Ledger snapshot metrics wrapped into two rows.
+- **REFS implementation:** Secondary navigation again uses the distinct, coloured letter-square `nav-badge` treatment. Evidence/status labels remain compact round pills; source-drill buttons now reset browser border, background, outline, and shadow, so a clickable source has the same visual treatment as a non-clickable source. The seven report snapshot metrics are one horizontal, scrollable strip at every breakpoint rather than a split grid.
+- **Status:** **VERIFIED LOCAL** for the styling and source/navigation contracts. It does not claim external QBO equivalence or authenticated production-browser validation.
+- **Verification:** `node verify-badge-visual-contract.mjs`; `node verify-gl-overview-strip-layout.mjs`; `node verify-navigation-multi-expand.mjs`; `node verify-a11y-offcanvas-and-dark-contrast.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## REFS shell: lively but controlled icon color system (2026-08-10)
+
+- **Observed product evidence:** The user requested a more lively icon and color system after reviewing the accounting shell, while retaining a professional controller workspace.
+- **REFS implementation:** Each primary navigation family now carries the same restrained accent into its active rail glyph, hover glyph, and retained second-level letter badge. The treatments remain text-labelled and high-contrast; source/status evidence pills remain neutral in shape and continue to communicate status rather than decoration.
+- **Status:** **VERIFIED LOCAL** for the shared visual contract and dark-mode contrast gate. This is REFS visual-system work, not a QBO-equivalence claim.
+- **Verification:** `node verify-badge-visual-contract.mjs`; `node verify-a11y-offcanvas-and-dark-contrast.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.

@@ -81,6 +81,14 @@
   --qb-pill-h:44px;
   --qb-badge-ink:#04263A;     /* dark circular icon badge behind a light glyph */
   --qb-badge-glyph:#5FE3B0;
+  /* Navigation family accents: distinct enough to orient the rail, restrained
+     enough that accounting states still own the semantic colours. */
+  --nav-0-hover:#E1F2EC; --nav-0-ink:#006B50; --nav-0-active:#006B50; --nav-0-active-fg:#FFFFFF;
+  --nav-1-hover:#E5F0FA; --nav-1-ink:#1A5B93; --nav-1-active:#1A5B93; --nav-1-active-fg:#FFFFFF;
+  --nav-2-hover:#EEE8F8; --nav-2-ink:#634895; --nav-2-active:#634895; --nav-2-active-fg:#FFFFFF;
+  --nav-3-hover:#FFF0DD; --nav-3-ink:#8A5A00; --nav-3-active:#8A5A00; --nav-3-active-fg:#FFFFFF;
+  --nav-4-hover:#E1F1F2; --nav-4-ink:#1F6570; --nav-4-active:#1F6570; --nav-4-active-fg:#FFFFFF;
+  --nav-5-hover:#F9E6EA; --nav-5-ink:#8F3D4B; --nav-5-active:#8F3D4B; --nav-5-active-fg:#FFFFFF;
   --qb-greet-side:264px;      /* greeting row side columns keep the title centered */
   /* ---- round 3: motion. QB has no lift, no spring and no parallax; the only
      honest motion is a short ease-out on paint properties. Two durations,
@@ -157,6 +165,12 @@ body.dark{
   --qb-chip-border:#6E7B85;   /* 3.57:1 on --qb-raised, 3.91:1 on --qb-surface */
   --qb-badge-ink:#0A2B22;
   --qb-badge-glyph:#6FE0B4;
+  --nav-0-hover:#163D32; --nav-0-ink:#8BE2B9; --nav-0-active:#2E9A72; --nav-0-active-fg:#06271C;
+  --nav-1-hover:#17334A; --nav-1-ink:#9DCCF4; --nav-1-active:#4C8DCA; --nav-1-active-fg:#071E33;
+  --nav-2-hover:#2E2446; --nav-2-ink:#CDBCF0; --nav-2-active:#9878C9; --nav-2-active-fg:#201331;
+  --nav-3-hover:#40310E; --nav-3-ink:#F0C978; --nav-3-active:#C99131; --nav-3-active-fg:#2B1A00;
+  --nav-4-hover:#14363B; --nav-4-ink:#97D8DF; --nav-4-active:#4B9AA3; --nav-4-active-fg:#08292D;
+  --nav-5-hover:#3D2027; --nav-5-ink:#F2ADB8; --nav-5-active:#BD6979; --nav-5-active-fg:#2D1016;
   /* round 3 tokens keep full dark-mode parity; the motion tokens are
      colour-free so they are inherited unchanged. */
   --qb-skel:#232B31;
@@ -338,7 +352,7 @@ input,select,textarea{
   display:grid; place-items:center; flex:0 0 auto;
   width:var(--qb-rail-glyph); height:var(--qb-rail-glyph);
   border-radius:var(--qb-r-panel); background:transparent; color:var(--qb-text-strong);
-  transition:background-color var(--qb-dur-1) var(--qb-ease-out),color var(--qb-dur-1) var(--qb-ease-out);
+  transition:background-color var(--qb-dur-1) var(--qb-ease-out),color var(--qb-dur-1) var(--qb-ease-out),transform var(--qb-dur-1) var(--qb-ease-out);
 }
 .rail-glyph svg{display:block; width:24px; height:24px;
   transition:transform var(--qb-dur-1) var(--qb-ease-out);}
@@ -359,8 +373,21 @@ input,select,textarea{
   font:600 11px/1.1 var(--qb-sans); color:var(--qb-text-strong); text-align:center;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
-/* selected: the glyph sits on a filled 44x44 brand square, the label stays plain */
+/* Each workspace family has one restrained accent. The rail stays recognisable
+   at a glance, while the selected glyph remains high-contrast and professional. */
 .nav-group-h.rail-on .rail-glyph{background:var(--qb-brand); color:var(--qb-brand-fg);}
+.nav-tone-0 .nav-group-h:hover .rail-glyph{background:var(--nav-0-hover);color:var(--nav-0-ink);}
+.nav-tone-1 .nav-group-h:hover .rail-glyph{background:var(--nav-1-hover);color:var(--nav-1-ink);}
+.nav-tone-2 .nav-group-h:hover .rail-glyph{background:var(--nav-2-hover);color:var(--nav-2-ink);}
+.nav-tone-3 .nav-group-h:hover .rail-glyph{background:var(--nav-3-hover);color:var(--nav-3-ink);}
+.nav-tone-4 .nav-group-h:hover .rail-glyph{background:var(--nav-4-hover);color:var(--nav-4-ink);}
+.nav-tone-5 .nav-group-h:hover .rail-glyph{background:var(--nav-5-hover);color:var(--nav-5-ink);}
+.nav-tone-0 .nav-group-h.rail-on .rail-glyph{background:var(--nav-0-active);color:var(--nav-0-active-fg);}
+.nav-tone-1 .nav-group-h.rail-on .rail-glyph{background:var(--nav-1-active);color:var(--nav-1-active-fg);}
+.nav-tone-2 .nav-group-h.rail-on .rail-glyph{background:var(--nav-2-active);color:var(--nav-2-active-fg);}
+.nav-tone-3 .nav-group-h.rail-on .rail-glyph{background:var(--nav-3-active);color:var(--nav-3-active-fg);}
+.nav-tone-4 .nav-group-h.rail-on .rail-glyph{background:var(--nav-4-active);color:var(--nav-4-active-fg);}
+.nav-tone-5 .nav-group-h.rail-on .rail-glyph{background:var(--nav-5-active);color:var(--nav-5-active-fg);}
 /* an expanded group keeps a background tint so the rail still shows which
    groups are listed in the panel - several may be expanded at once */
 .nav-group-h[aria-expanded="true"]{background:var(--qb-divider);}
@@ -398,11 +425,11 @@ input,select,textarea{
 }
 .nav-item:hover{background:var(--qb-canvas);}
 .nav-item:focus-visible{outline:2px solid var(--qb-accent); outline-offset:-2px;}
-/* Panel pages use the same 24px stroke-icon grid as the left rail. There are
-   no letter tiles or coloured squares competing with the navigation state. */
-.nav-item-icon{display:grid;place-items:center;flex:0 0 auto;width:22px;height:22px;color:var(--qb-text-muted);}
-.nav-item-icon svg{display:block;}
-.nav-item:hover .nav-item-icon,.nav-item.nav-on .nav-item-icon{color:var(--qb-accent);}
+/* Coloured letter badges distinguish related workspace pages while retaining
+   the rail's line icons for primary navigation. */
+.nav-badge{display:grid;place-items:center;flex:0 0 auto;width:22px;height:22px;border:1px solid transparent;border-radius:7px;font:700 10.5px/1 var(--qb-sans);letter-spacing:.02em;background:var(--qb-divider);color:var(--qb-text-muted);transition:transform .16s ease,background-color .16s ease,border-color .16s ease;}
+.nav-item:hover .nav-badge{transform:translateY(-1px);}
+@media(prefers-reduced-motion:reduce){.nav-badge{transition:none;}.nav-item:hover .nav-badge{transform:none;}}
 .nav-item-label{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .nav-chev{flex:0 0 auto; color:var(--qb-text-faint); font-size:15px; line-height:1;}
 /* The current page is marked by a 3px accent bar, not only by a fill. The fill
@@ -412,6 +439,13 @@ input,select,textarea{
 .nav-item.nav-on{background:var(--qb-divider); color:var(--qb-text-strong); font-weight:500;
   box-shadow:inset 3px 0 0 0 var(--qb-accent);}
 .nav-item.nav-on .nav-chev{color:var(--qb-text-muted);}
+/* One hue per navigation group keeps the familiar letter markers readable. */
+.nav-tone-0 .nav-badge{background:#D2F0E4;border-color:#A5DCC6;color:#005A43;}
+.nav-tone-1 .nav-badge{background:#D9ECFF;border-color:#AFD0EF;color:#194F83;}
+.nav-tone-2 .nav-badge{background:#EAE1FF;border-color:#CBB8EC;color:#563B84;}
+.nav-tone-3 .nav-badge{background:#FFEBCF;border-color:#EBC885;color:#805400;}
+.nav-tone-4 .nav-badge{background:#D9F0F1;border-color:#A9D7DA;color:#1B5961;}
+.nav-tone-5 .nav-badge{background:#F9DFE5;border-color:#E6B7C2;color:#7D3544;}
 .mobile-nav-btn,.mobile-nav-scrim,.mobile-nav-close{display:none;}
 
 /* ---- Topbar ---- */
@@ -787,6 +821,7 @@ select{padding-right:28px; cursor:pointer;}
 .source-doc-kv,.source-doc-panel-grid,.bank-summary-metrics,.src-grid{
   display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:12px 0; min-width:0;
 }
+.gl-overview-strip{grid-template-columns:repeat(7,minmax(164px,1fr));overflow-x:auto;grid-auto-flow:column;scrollbar-gutter:stable;}
 .qbo-toolgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:12px 0;min-width:0;}
 .qbo-toolgrid>span,.qbo-toolgrid>div{display:flex;flex-direction:column;gap:5px;min-width:0;
   padding:14px 16px;background:var(--qb-inset);
@@ -812,7 +847,7 @@ select{padding-right:28px; cursor:pointer;}
   display:inline-flex; align-items:center; gap:6px; max-width:100%;
   padding:2px 8px; border-radius:var(--qb-r-pill);
   font:500 11px/1.5 var(--qb-sans); letter-spacing:.01em; text-transform:none;
-  overflow:hidden; text-overflow:ellipsis;
+  overflow:hidden; text-overflow:ellipsis; border:0; outline:0; box-shadow:none;
 }
 .badge::before{content:''; flex:0 0 auto; width:6px; height:6px; border-radius:50%; background:currentColor;}
 .badge-muted{background:var(--qb-divider); color:var(--qb-text-muted);}
@@ -1189,7 +1224,13 @@ select{padding-right:28px; cursor:pointer;}
 .report-drill:hover{border-bottom-color:var(--qb-link); background:var(--qb-canvas);}
 .report-drill:hover>span:last-child{opacity:1;}
 .report-drill.total .num{font-weight:700;}
-.report-drill-hint,.source-drill,.drill-target{color:var(--qb-text-muted); font-size:12px;}
+.report-drill-hint,.drill-target{color:var(--qb-text-muted); font-size:12px;}
+/* A source label can open its retained evidence.  It must still look like the
+   same quiet status pill as a non-drillable source: the browser button border
+   was creating the square right/bottom edge visible in the GL table. */
+.source-drill{display:inline-flex; align-items:center; max-width:100%; padding:0; border:0;
+  outline:0; background:transparent; box-shadow:none; color:inherit; font:inherit; line-height:inherit; cursor:pointer;}
+.source-drill:hover .badge,.source-drill:focus-visible .badge{filter:brightness(.96);}
 .report-drill-panel{margin-top:18px; padding:16px 18px; border-left:3px solid var(--qb-accent);}
 .report-drill-panel .sec-title{margin-top:0;}
 .report-drill-panel .tr-click{cursor:pointer;}
@@ -1551,6 +1592,7 @@ select{padding-right:28px; cursor:pointer;}
   .accounting-filter-bar label,.accounting-filter-bar select{width:100%;}
   .kpi-row,.qbo-grid,.rep-grid,.rep-grid-featured,.todo-grid,.kv-grid,.qbo-toolgrid,
   .qbo-drill-summary,.gl-overview-strip,.detail-grid,.bank-account-strip{grid-template-columns:minmax(0,1fr);}
+  .gl-overview-strip{grid-template-columns:repeat(7,minmax(164px,1fr));overflow-x:auto;}
   .trace-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
   .trace-grid span{white-space:normal; overflow-wrap:anywhere;}
   .tabs,.seg,.je-queue-chips,.bank-queue-tabs{max-width:100%; overflow-x:auto;}
@@ -1638,6 +1680,12 @@ body.dark .nav-group-h.rail-on .rail-label{color:var(--qb-text-strong); font-wei
 body.dark .nav-item:hover{background:var(--qb-raised);}
 body.dark .nav-item.nav-on{background:var(--qb-accent-tint); color:var(--qb-text-strong);}
 body.dark .nav-item.nav-on .nav-chev{color:var(--qb-accent);}
+body.dark .nav-tone-0 .nav-badge{background:#163D32;border-color:#286B57;color:#8BE2B9;}
+body.dark .nav-tone-1 .nav-badge{background:#17334A;border-color:#2E648C;color:#9DCCF4;}
+body.dark .nav-tone-2 .nav-badge{background:#2E2446;border-color:#654E91;color:#CDBCF0;}
+body.dark .nav-tone-3 .nav-badge{background:#40310E;border-color:#7E6223;color:#F0C978;}
+body.dark .nav-tone-4 .nav-badge{background:#14363B;border-color:#2E7079;color:#97D8DF;}
+body.dark .nav-tone-5 .nav-badge{background:#3D2027;border-color:#7A4551;color:#F2ADB8;}
 /* The empty-state glyph is a data URI, so dark mode needs its own stroke. */
 body.dark .empty::before,body.dark .empty-state::before,
 body.dark .bank-queue-empty::before,body.dark .ap-aging-empty::before{
