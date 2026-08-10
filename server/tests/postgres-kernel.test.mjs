@@ -2145,3 +2145,35 @@ pgTest('budget versus actual reads one approved immutable snapshot against same-
   await assert.rejects(adminPool.query('UPDATE budget_line SET budget_amount=999 WHERE budget_snapshot_id=$1',[snapshotId]),error=>error.code==='55000');
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:actor}),kernelFactory:async()=>reader});const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/budget-vs-actual?periodId=${ids.periodId}`,body:null,headers:{}});assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.find(row=>row.account_code==='111000').report_status,'APPROVED_BUDGET_VS_ACTUAL');
 });
+
+pgTest('consolidation reads only an approved immutable two-member scope with explicit elimination evidence and never creates an elimination journal',async()=>{
+  const reporting=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN'});
+  const member=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',tenantId:reporting.tenantId,extraMembers:[{memberRef:'AFFILIATE-1',memberType:'CUSTOMER_OR_AFFILIATE',displayName:'Affiliate member'}],journalLines:[{lineNo:1,accountCode:'111000',debit:0,credit:100,memberRef:'BANK-1'},{lineNo:2,accountCode:'120200',debit:100,credit:0,memberRef:'AFFILIATE-1'}]});
+  const reportingTrace=await attachAutoSource(reporting),memberTrace=await attachAutoSource(member);
+  await new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(reporting,'consolidation-reporting-poster',['GL.JE.POST'])}).postJournal({...reporting,journalEntryId:reporting.journalId,periodId:reporting.periodId,expectedRevision:0,idempotencyKey:'consolidation-reporting-post-001'});
+  await new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(member,'consolidation-member-poster',['GL.JE.POST'])}).postJournal({...member,journalEntryId:member.journalId,periodId:member.periodId,expectedRevision:0,idempotencyKey:'consolidation-member-post-001'});
+  const snapshotId=randomUUID(),groupRef='GROUP-2026-07',actor='consolidation-reader',snapshotHash=hash('consolidation-snapshot'),receiptHash=hash('consolidation-receipt');
+  await adminPool.query(`INSERT INTO consolidation_snapshot(consolidation_snapshot_id,tenant_id,reporting_entity_id,reporting_period_id,group_ref,version,currency,source_ref,source_version,receipt_hash,snapshot_hash,prepared_by,approved_by,approved_at)
+    VALUES($1,$2,$3,$4,$5,1,'USD','approved-consolidation-2026-07','1',$6,$7,'consolidation-maker','consolidation-approver',now())`,[snapshotId,reporting.tenantId,reporting.entityId,reporting.periodId,groupRef,receiptHash,snapshotHash]);
+  for(const value of [
+    [reporting.entityId,reporting.periodId,'REPORTING-ENTITY'],[member.entityId,member.periodId,'AFFILIATE-ENTITY']
+  ])await adminPool.query(`INSERT INTO consolidation_member(consolidation_snapshot_id,tenant_id,reporting_entity_id,reporting_period_id,member_entity_id,member_period_id,member_ref,member_source_ref,member_source_version,member_receipt_hash,member_snapshot_hash)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'1',$9,$10)`,[snapshotId,reporting.tenantId,reporting.entityId,reporting.periodId,value[0],value[1],value[2],`member-source:${value[2]}`,hash(`member-receipt:${value[2]}`),hash(`member-snapshot:${value[2]}`)]);
+  await adminPool.query(`INSERT INTO consolidation_account_map(consolidation_snapshot_id,member_entity_id,source_account_code,presentation_account_code,presentation_side,mapping_hash)
+    VALUES($1,$2,'291001','IC-100','CREDIT',$3),($1,$4,'120200','IC-100','CREDIT',$5)`,[snapshotId,reporting.entityId,hash('consolidation-map-reporting'),member.entityId,hash('consolidation-map-member')]);
+  await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'GL.REPORT.VIEW')",[reporting.tenantId,actor,reporting.entityId]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(reporting,actor,['GL.REPORT.VIEW'])});
+  let rows=await reader.getConsolidation({tenantId:reporting.tenantId,entityId:reporting.entityId,periodId:reporting.periodId,groupRef});
+  assert.deepEqual({status:rows[0].report_status,actual:rows[0].member_actual_amount,elimination:rows[0].elimination_amount},{status:'BLOCKED_MEMBER_SCOPE_REQUIRED',actual:null,elimination:null});
+  await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'GL.REPORT.VIEW')",[reporting.tenantId,actor,member.entityId]);
+  rows=await reader.getConsolidation({tenantId:reporting.tenantId,entityId:reporting.entityId,periodId:reporting.periodId,groupRef});
+  assert.deepEqual({status:rows[0].report_status,actual:rows[0].member_actual_amount,elimination:rows[0].elimination_amount},{status:'BLOCKED_ELIMINATION_EVIDENCE_REQUIRED',actual:null,elimination:null});
+  await adminPool.query(`INSERT INTO consolidation_elimination_evidence(consolidation_snapshot_id,presentation_account_code,presentation_side,elimination_ref,elimination_amount,evidence_hash,receipt_hash)
+    VALUES($1,'IC-100','CREDIT','approved-elimination-2026-07',0,$2,$3)`,[snapshotId,hash('consolidation-elimination-evidence'),hash('consolidation-elimination-receipt')]);
+  rows=await reader.getConsolidation({tenantId:reporting.tenantId,entityId:reporting.entityId,periodId:reporting.periodId,groupRef});
+  assert.deepEqual({status:rows[0].report_status,members:rows[0].member_count,evidenceMembers:rows[0].evidence_member_count,actual:rows[0].member_actual_amount,elimination:rows[0].elimination_amount,consolidated:rows[0].consolidated_amount,snapshot:rows[0].consolidation_snapshot_id,hash:rows[0].consolidation_snapshot_hash},{status:'APPROVED_CONSOLIDATION_SNAPSHOT_AND_POSTED_LEDGER_EXACT',members:2,evidenceMembers:2,actual:'0.0000',elimination:'0.0000',consolidated:'0.0000',snapshot:snapshotId,hash:snapshotHash});
+  assert.deepEqual(rows[0].source_document_ids.sort(),[reportingTrace.documentId,memberTrace.documentId].sort());assert.deepEqual(rows[0].elimination_refs,['approved-elimination-2026-07']);
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:reporting.tenantId,actorId:actor}),kernelFactory:async()=>reader});
+  const response=await api({method:'GET',url:`/api/v1/entities/${reporting.entityId}/reports/consolidation?periodId=${reporting.periodId}&groupRef=${groupRef}`,body:null,headers:{}});assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data[0].report_status,'APPROVED_CONSOLIDATION_SNAPSHOT_AND_POSTED_LEDGER_EXACT');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1 AND journal_type='ELIMINATION'",[reporting.tenantId])).rows[0].n,0);
+});

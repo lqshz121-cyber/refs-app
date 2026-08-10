@@ -1,0 +1,16 @@
+BEGIN;
+REVOKE EXECUTE ON FUNCTION refs_get_consolidation(uuid,uuid,uuid,text) FROM refs_app;
+DROP FUNCTION refs_get_consolidation(uuid,uuid,uuid,text);
+DROP TRIGGER consolidation_elimination_append_only ON consolidation_elimination_evidence;
+DROP TRIGGER consolidation_account_map_append_only ON consolidation_account_map;
+DROP TRIGGER consolidation_member_append_only ON consolidation_member;
+DROP TRIGGER consolidation_snapshot_append_only ON consolidation_snapshot;
+DROP POLICY consolidation_elimination_scope_policy ON consolidation_elimination_evidence;
+DROP POLICY consolidation_account_map_scope_policy ON consolidation_account_map;
+DROP POLICY consolidation_member_scope_policy ON consolidation_member;
+DROP POLICY consolidation_snapshot_scope_policy ON consolidation_snapshot;
+DROP TABLE consolidation_elimination_evidence;
+DROP TABLE consolidation_account_map;
+DROP TABLE consolidation_member;
+DROP TABLE consolidation_snapshot;
+COMMIT;

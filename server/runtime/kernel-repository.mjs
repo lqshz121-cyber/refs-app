@@ -551,6 +551,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getConsolidation({tenantId,entityId,periodId,groupRef}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_consolidation($1,$2,$3,$4)',[tenantId,entityId,periodId,groupRef]
+    )).rows);
+  }
+
   async getApAging({tenantId,entityId,asOfDate}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_ap_aging($1,$2,$3::date)',[tenantId,entityId,asOfDate]
