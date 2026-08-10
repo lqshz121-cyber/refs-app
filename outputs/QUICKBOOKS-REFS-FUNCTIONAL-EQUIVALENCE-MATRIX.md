@@ -2253,3 +2253,17 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 - **REFS implementation:** The Reports Center freezes `category`, `search`, and the parent-owned catalog `reportPage` in every GL/control-report return context. Opening a report is a full-page replacement; Back restores the original filtered catalog page. Catalog search/category changes reset to page one. The workbench does not expose a second table-local search, report export, save, share, or customize action.
 - **Verification:** `node verify-reports-page-return-context.mjs`; `node verify-reports-center-return-scope.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
 - **Status:** VERIFIED LOCAL for REFS return-context behavior; **PARTIAL** for QBO equivalence until the paginated Reports interaction is directly observed in the authenticated QBO session. No report-derived journal, payment, posting, export, or customization operation is enabled.
+
+## Accounting Operations: automatic insurance amortization schedule (2026-08-10)
+
+- **Observed product evidence:** The user confirmed the intended REFS business flow: a 12-month insurance coverage record is recognized and appears in the Amortization Center. No QBO transaction was created, edited, or posted.
+- **REFS implementation:** Operations exposes Amortization Center and Accrual Center after Fixed Assets while Closing Accounting remains the first visible workspace. A retained 12-month insurance source automatically exposes a 12-line prepaid-insurance schedule with source trace and balanced monthly Draft previews. No automatic posting, payment, external provider call, or export is enabled.
+- **Status:** **VERIFIED LOCAL** for navigation, automatic 12-period schedule, balance control, and Draft-only boundary. **PARTIAL** for production AI classification and QBO interaction behavior.
+- **Verification:** `node verify-amortization-accrual-centers.mjs`; `node verify-navigation-multi-expand.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## REFS shell: unified navigation and report-summary icons (2026-08-10)
+
+- **Observed product evidence:** The user-provided REFS Reports screenshot identified an unstyled rectangular `Review summary` control and mixed letter-square icons in secondary navigation as visually inconsistent with the line-icon rail.
+- **REFS implementation:** Secondary navigation now maps every visible workspace to the shared self-authored stroke-icon set, removing colored letter-square tiles. `Review summary` is now a compact text action with the same line-icon language and an explicit `Open Balance Sheet summary` accessible name; it retains its existing read-only report launch.
+- **Status:** **VERIFIED LOCAL** for icon treatment, accessible destination name, navigation behavior, build, and visual verifier suite. This is a REFS visual-system refinement, not a QBO icon-equivalence claim.
+- **Verification:** `node verify-navigation-multi-expand.mjs`; `node verify-reports-readonly-catalog.mjs`; `node verify-a11y-offcanvas-and-dark-contrast.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.

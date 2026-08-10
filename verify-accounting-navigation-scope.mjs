@@ -7,7 +7,7 @@ const fail = message => {
   process.exit(1);
 };
 
-if (!source.includes("const IA_HIDDEN_ROUTES = new Set(['cost','unitcost','unittransfer','loan','loanreg','pmpickup','amortization','accruals'])")) {
+if (!source.includes("const IA_HIDDEN_ROUTES = new Set(['cost','unitcost','unittransfer','loan','loanreg','pmpickup'])")) {
   fail('WBS operational routes must be hidden from the REFS accounting navigation.');
 }
 if (!source.includes("group:'Payables & Receivables'")) {
@@ -15,6 +15,9 @@ if (!source.includes("group:'Payables & Receivables'")) {
 }
 if (!source.includes("group:'Accounting Operations'")) {
   fail('Accounting-only operational evidence must have an explicit accounting label.');
+}
+for (const accountingCenter of ['amortization', 'accruals']) {
+  if (!new RegExp(`\\['${accountingCenter}'\\s*,\\s*'`).test(source)) fail(`Controller accounting operations must expose ${accountingCenter}.`);
 }
 if (/IA_HIDDEN_ROUTES[^\n]+(?:intercompany|assets)/.test(source)) {
   fail('Intercompany and Fixed Assets are accounting workspaces and must not be hidden with WBS operations.');

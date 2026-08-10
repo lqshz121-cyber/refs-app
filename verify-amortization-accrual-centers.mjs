@@ -31,7 +31,8 @@ if (!appSource.includes('COMP.accruals = AccrualCenter')) fail('Accrual Center i
   'Recognized',
   'Remaining balance',
   'Source evidence',
-  'Activate schedule',
+  'Automatic 12-month schedule',
+  'automatically creates this prepaid amortization schedule',
   'Create selected monthly Draft JE',
   'Accrual Center',
   'Month-end accrual checklist',
@@ -42,6 +43,8 @@ if (!appSource.includes('COMP.accruals = AccrualCenter')) fail('Accrual Center i
 ].forEach(label => {
   if (!moduleSource.includes(label)) fail(`Missing required visible label or control: ${label}`);
 });
+if (!moduleSource.includes("const scheduleStatus = state.status || 'AUTO_SCHEDULED'")) fail('Insurance amortization must render as an automatically generated schedule.');
+if (moduleSource.includes('Activate schedule')) fail('Automatic insurance schedules must not require manual activation.');
 if (!moduleSource.includes('actions.newJEFromRule')) fail('Centers must create Draft JEs through the app action boundary.');
 if (/posting_status:\\s*'POSTED'/.test(moduleSource)) fail('Centers must not create posted journal entries.');
 

@@ -398,18 +398,11 @@ input,select,textarea{
 }
 .nav-item:hover{background:var(--qb-canvas);}
 .nav-item:focus-visible{outline:2px solid var(--qb-accent); outline-offset:-2px;}
-/* Rounded square, not a filled circle. A circular letter chip reads as a
-   dated avatar; a squircle with a lighter weight reads as a product mark and
-   sits better beside the rail's stroke icons. Tone colours are unchanged -
-   they are contrast-checked by verify-a11y-offcanvas-and-dark-contrast.mjs. */
-.nav-badge{
-  display:grid; place-items:center; flex:0 0 auto; width:22px; height:22px;
-  border-radius:7px; font:600 10.5px/1 var(--qb-sans); letter-spacing:.02em;
-  background:var(--qb-divider); color:var(--qb-text-muted);
-  transition:transform .16s ease, background-color .16s ease;
-}
-.nav-item:hover .nav-badge{transform:translateY(-1px);}
-@media(prefers-reduced-motion:reduce){.nav-badge{transition:none;} .nav-item:hover .nav-badge{transform:none;}}
+/* Panel pages use the same 24px stroke-icon grid as the left rail. There are
+   no letter tiles or coloured squares competing with the navigation state. */
+.nav-item-icon{display:grid;place-items:center;flex:0 0 auto;width:22px;height:22px;color:var(--qb-text-muted);}
+.nav-item-icon svg{display:block;}
+.nav-item:hover .nav-item-icon,.nav-item.nav-on .nav-item-icon{color:var(--qb-accent);}
 .nav-item-label{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .nav-chev{flex:0 0 auto; color:var(--qb-text-faint); font-size:15px; line-height:1;}
 /* The current page is marked by a 3px accent bar, not only by a fill. The fill
@@ -419,13 +412,6 @@ input,select,textarea{
 .nav-item.nav-on{background:var(--qb-divider); color:var(--qb-text-strong); font-weight:500;
   box-shadow:inset 3px 0 0 0 var(--qb-accent);}
 .nav-item.nav-on .nav-chev{color:var(--qb-text-muted);}
-/* one hue per navigation group - the pattern, not Intuit's hues */
-.nav-tone-0 .nav-badge{background:#D9EAE3; color:#00543F;}
-.nav-tone-1 .nav-badge{background:#DCE8F4; color:#1C4E82;}
-.nav-tone-2 .nav-badge{background:#E7E0F2; color:#553C7B;}
-.nav-tone-3 .nav-badge{background:#F6E7D3; color:#7A5200;}
-.nav-tone-4 .nav-badge{background:#DEEBEC; color:#1F5560;}
-.nav-tone-5 .nav-badge{background:#F4E1E4; color:#7C3540;}
 .mobile-nav-btn,.mobile-nav-scrim,.mobile-nav-close{display:none;}
 
 /* ---- Topbar ---- */
@@ -1365,7 +1351,9 @@ select{padding-right:28px; cursor:pointer;}
 .qbo-report-promo{display:flex;flex-direction:column;gap:7px;padding:16px;margin:12px 0;}
 .qbo-report-promo>span{color:var(--qb-text-muted); font:600 12px/1.3 var(--qb-sans); letter-spacing:.06em;}
 .qbo-report-promo>p{margin:0; color:var(--qb-text-muted);}
-.qbo-report-promo>button{align-self:flex-start;}
+.report-summary-link{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0;border:0;background:transparent;color:var(--qb-link);font:600 14px/1 var(--qb-sans);cursor:pointer;}
+.report-summary-link:hover{text-decoration:underline;color:var(--qb-link);}
+.report-summary-link:focus-visible{outline:2px solid var(--qb-accent);outline-offset:3px;border-radius:3px;}
 .qbo-report-promo .qbo-toolgrid{margin:0;}
 .qbo-report-builder{display:flex; flex-direction:column; gap:12px; margin-bottom:14px; min-width:0;}
 .qbo-report-controls{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; padding:12px 14px; align-items:end;}
@@ -1650,12 +1638,6 @@ body.dark .nav-group-h.rail-on .rail-label{color:var(--qb-text-strong); font-wei
 body.dark .nav-item:hover{background:var(--qb-raised);}
 body.dark .nav-item.nav-on{background:var(--qb-accent-tint); color:var(--qb-text-strong);}
 body.dark .nav-item.nav-on .nav-chev{color:var(--qb-accent);}
-body.dark .nav-tone-0 .nav-badge{background:#16352C; color:#7BD4AF;}
-body.dark .nav-tone-1 .nav-badge{background:#152B3E; color:#8DBBEC;}
-body.dark .nav-tone-2 .nav-badge{background:#271F3A; color:#BFAEE4;}
-body.dark .nav-tone-3 .nav-badge{background:#33280F; color:#E8BE72;}
-body.dark .nav-tone-4 .nav-badge{background:#122B30; color:#8CC9D3;}
-body.dark .nav-tone-5 .nav-badge{background:#331C20; color:#EDA3AA;}
 /* The empty-state glyph is a data URI, so dark mode needs its own stroke. */
 body.dark .empty::before,body.dark .empty-state::before,
 body.dark .bank-queue-empty::before,body.dark .ap-aging-empty::before{
