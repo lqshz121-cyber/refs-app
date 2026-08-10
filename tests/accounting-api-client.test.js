@@ -27,6 +27,8 @@ const config=configured;
   const blockedCashFlow={...cashFlowRow,classification:'BLOCKED',mapping_status:'BLOCKED_MAPPING_REQUIRED',classification_basis:'CASH_FLOW_MAPPING_SNAPSHOT_REQUIRED',mapping_snapshot_id:null,mapping_version:null,mapping_snapshot_hash:null};
   const blockedRead=await refreshAuthoritativeCashFlowClassification({config,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:[blockedCashFlow]})})});
   assert.equal(blockedRead.ok,true);assert.equal(blockedRead.complete,false);
+  const emptyCashFlowRead=await refreshAuthoritativeCashFlowClassification({config,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:[]})})});
+  assert.equal(emptyCashFlowRead.ok,true);assert.equal(emptyCashFlowRead.complete,false);assert.deepEqual(emptyCashFlowRead.rows,[]);
   assert.equal((await refreshAuthoritativeCashFlowClassification({config,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:[{...cashFlowRow,mapping_snapshot_id:null}]})})})).code,'ACCOUNTING_API_PROTOCOL');
   const receiverEnvironment={name:'authoritative-browser-environment'};
   const receiverCalls=[];
