@@ -3,7 +3,7 @@ import {createAccountingApi,createAccountingHttpServer} from '../api/accounting-
 
 const tenantId=randomUUID(),entityId=randomUUID(),journalEntryId=randomUUID(),periodId=randomUUID();
 const calls=[];const invoke=name=>async args=>{calls.push([name,args]);return {journal_entry_id:journalEntryId,status:'DRAFT',idempotent:false};};
-const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),listBusinessAdjustments:invoke('listBusinessAdjustments'),listJournalEntries:invoke('listJournalEntries'),listBankTransactions:invoke('listBankTransactions'),listBankMatchCandidates:invoke('listBankMatchCandidates'),getReconciliationSummary:invoke('getReconciliationSummary'),listReconciliationWorksheet:invoke('listReconciliationWorksheet'),getFinancialStatements:invoke('getFinancialStatements'),createBankPaymentMatch:invoke('createBankPaymentMatch'),unmatchBankPayment:invoke('unmatchBankPayment'),startReconciliation:invoke('startReconciliation'),setReconciliationClearance:invoke('setReconciliationClearance'),transitionReconciliation:invoke('transitionReconciliation'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit'),recordWbsSnapshot:invoke('recordWbsSnapshot')};
+const kernel={createManualJournal:invoke('createManualJournal'),createAutoJournal:invoke('createAutoJournal'),transitionJournal:invoke('transitionJournal'),postJournal:invoke('postJournal'),createJournalAdjustment:invoke('createJournalAdjustment'),createApBillVoid:invoke('createApBillVoid'),createApPayment:invoke('createApPayment'),createApPaymentReversal:invoke('createApPaymentReversal'),createArReceipt:invoke('createArReceipt'),createArReceiptReversal:invoke('createArReceiptReversal'),getArAging:invoke('getArAging'),getApAging:invoke('getApAging'),getArControlTotal:invoke('getArControlTotal'),getApControlTotal:invoke('getApControlTotal'),listBusinessDocuments:invoke('listBusinessDocuments'),listBusinessAdjustments:invoke('listBusinessAdjustments'),listJournalEntries:invoke('listJournalEntries'),listBankTransactions:invoke('listBankTransactions'),listBankMatchCandidates:invoke('listBankMatchCandidates'),getReconciliationSummary:invoke('getReconciliationSummary'),listReconciliationWorksheet:invoke('listReconciliationWorksheet'),getFinancialStatements:invoke('getFinancialStatements'),createBankPaymentMatch:invoke('createBankPaymentMatch'),unmatchBankPayment:invoke('unmatchBankPayment'),startReconciliation:invoke('startReconciliation'),setReconciliationClearance:invoke('setReconciliationClearance'),setReconciliationAdjustmentClearance:invoke('setReconciliationAdjustmentClearance'),transitionReconciliation:invoke('transitionReconciliation'),createReconciliationAdjustmentDraft:invoke('createReconciliationAdjustmentDraft'),createArCreditMemo:invoke('createArCreditMemo'),applyArCreditMemo:invoke('applyArCreditMemo'),createArRefund:invoke('createArRefund'),createApVendorCredit:invoke('createApVendorCredit'),applyApVendorCredit:invoke('applyApVendorCredit'),recordWbsSnapshot:invoke('recordWbsSnapshot')};
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
@@ -44,6 +44,27 @@ test('reconciliation lifecycle routes derive identity and require idempotency pl
   assert.equal(response.status,201);assert.deepEqual(calls[0],['transitionReconciliation',{tenantId,entityId,reconciliationId,action:'SIGN_OFF',expectedVersion:4,reason:'Independent controller sign off',idempotencyKey:'idem-key-0001'}]);
   assert.equal((await command(`/api/v1/entities/${entityId}/bank/reconciliations/${reconciliationId}/transitions/review`,{reason:'Review complete'})).status,428);
   assert.equal((await command(`/api/v1/entities/${entityId}/bank/reconciliations/${reconciliationId}/items/${bankSourceId}/clearance`,{clear:'yes',expectedBankRevision:2,reason:'Invalid state'},{'If-Match':'"3"'})).status,400);
+});
+
+test('reconciliation adjustment Draft route binds the current reconciliation and statement-source revisions and cannot create a posted journal',async()=>{
+  calls.length=0;const reconciliationId=randomUUID(),bankSourceId=randomUUID();const body={bankSourceId,periodId,journalNumber:'RECON-ADJ-1',journalDate:'2026-07-31',currency:'USD',description:'Statement adjustment evidence',attachmentIds:[randomUUID()],lines:[
+    {line_no:1,account_code:'100100',debit_amount:'25.0000',credit_amount:'0.0000',member_ref:'BANK-1'},
+    {line_no:2,account_code:'610000',debit_amount:'0.0000',credit_amount:'25.0000',member_ref:null}
+  ],reason:'Controller-supported statement difference adjustment'};
+  const response=await command(`/api/v1/entities/${entityId}/bank/reconciliations/${reconciliationId}/adjustment-drafts`,body,{'If-Match':'"7"'});
+  assert.equal(response.status,201);assert.equal(calls[0][0],'createReconciliationAdjustmentDraft');
+  assert.deepEqual(calls[0][1],{...body,tenantId,entityId,reconciliationId,expectedReconciliationVersion:7,idempotencyKey:'idem-key-0001'});
+  assert.equal((await command(`/api/v1/entities/${entityId}/bank/reconciliations/${reconciliationId}/adjustment-drafts`,body)).status,428);
+  assert.equal((await command(`/api/v1/entities/${entityId}/bank/reconciliations/${reconciliationId}/adjustment-drafts`,{...body,actorId:'attacker'},{'If-Match':'"7"'})).status,400);
+});
+
+test('posted reconciliation adjustment clearance derives the exact statement source and both concurrency revisions',async()=>{
+  calls.length=0;const reconciliationId=randomUUID(),bankSourceId=randomUUID();
+  const body={clear:true,expectedBankRevision:4,reason:'Clear the posted statement adjustment evidence'};
+  const response=await command(`/api/v1/entities/${entityId}/bank/reconciliations/${reconciliationId}/adjustment-items/${bankSourceId}/clearance`,body,{'If-Match':'"8"'});
+  assert.equal(response.status,201);assert.equal(calls[0][0],'setReconciliationAdjustmentClearance');
+  assert.deepEqual(calls[0][1],{clear:true,reason:body.reason,tenantId,entityId,reconciliationId,bankSourceId,expectedReconciliationVersion:8,expectedBankVersion:4,idempotencyKey:'idem-key-0001'});
+  assert.equal((await command(`/api/v1/entities/${entityId}/bank/reconciliations/${reconciliationId}/adjustment-items/${bankSourceId}/clearance`,{...body,clear:'yes'},{'If-Match':'"8"'})).status,400);
 });
 
 test('AP Bill Void route derives tenant entity bill id and revision from trusted boundaries',async()=>{

@@ -1590,6 +1590,46 @@ pgTest('reconciliation lifecycle is scoped, idempotent, separated by role, snaps
   assert.equal(snapshot.signed_off_by,'recon-signer');assert.equal(snapshot.snapshot_hash,signed.snapshot_hash);
 });
 
+pgTest('reconciliation adjustment Draft binds one unresolved bank source through Posted clearance, review, and immutable sign-off',async()=>{
+  const ids=await seed({status:'APPROVED'});const trace=await attachAutoSource(ids,{linkJournal:false});const bankSourceId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','BANK-ADJUSTMENT-1','2026-07-20','USD',50)`,[bankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
+  const attachmentId=(await adminPool.query("SELECT attachment_id FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3 AND attachment_id IS NOT NULL",[ids.tenantId,ids.entityId,ids.journalId])).rows[0].attachment_id;
+  const starter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'adjustment-starter',['BANK.RECONCILIATION.START'])});
+  const started=await starter.startReconciliation({...ids,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'50.0000',reason:'Start statement with one unresolved bank charge',idempotencyKey:'adjustment-start-001'});
+  assert.equal(Number(started.difference),50);assert.equal(started.revision,0);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'adjustment-maker',['BANK.RECONCILIATION.ADJUSTMENT_DRAFT','BANK.RECONCILIATION.REVIEW','GL.JE.CREATE','GL.JE.SUBMIT'])});
+  const args={...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,periodId:ids.periodId,journalNumber:'JE-RECON-ADJ-001',journalDate:'2026-07-20',currency:'USD',description:'Record the supported statement cash adjustment',lines:[
+    {line_no:1,account_code:'111000',debit_amount:'50.0000',credit_amount:'0.0000',member_ref:'BANK-1',description:'Statement bank movement',dimensions:{}},
+    {line_no:2,account_code:'291001',debit_amount:'0.0000',credit_amount:'50.0000',member_ref:'VENDOR-1',description:'Offsetting payable evidence',dimensions:{}}
+  ],attachmentIds:[attachmentId],reason:'Independent support for one exact statement adjustment',idempotencyKey:'adjustment-draft-001'};
+  const otherEntity=await seed({status:'DRAFT',tenantId:ids.tenantId}),otherAttachment=(await adminPool.query("SELECT attachment_id FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3 AND attachment_id IS NOT NULL",[otherEntity.tenantId,otherEntity.entityId,otherEntity.journalId])).rows[0].attachment_id;
+  await assert.rejects(maker.createReconciliationAdjustmentDraft({...args,attachmentIds:[otherAttachment],idempotencyKey:'adjustment-cross-entity-evidence'}),error=>error.code==='23503');
+  const created=await maker.createReconciliationAdjustmentDraft(args),replay=await maker.createReconciliationAdjustmentDraft(args);
+  assert.equal(created.journal_status,'DRAFT');assert.equal(created.reconciliation_revision,1);assert.equal(replay.idempotent,true);assert.equal(replay.journal_entry_id,created.journal_entry_id);
+  const clearer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'adjustment-clearer',['BANK.RECONCILIATION.CLEAR'])});
+  const clearArgs={...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:1,expectedBankVersion:0,clear:true,reason:'Clear exact posted adjustment against statement source',idempotencyKey:'adjustment-clear-001'};
+  await assert.rejects(clearer.setReconciliationAdjustmentClearance(clearArgs),error=>error.code==='23514');
+  await maker.transitionJournal({...ids,journalEntryId:created.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'adjustment-submit-001'});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'adjustment-reviewer',['GL.JE.REVIEW','BANK.RECONCILIATION.REVIEW'])});
+  await reviewer.transitionJournal({...ids,journalEntryId:created.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'adjustment-je-review-001'});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'adjustment-approver',['GL.JE.APPROVE'])});
+  await approver.transitionJournal({...ids,journalEntryId:created.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'adjustment-approve-001'});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'adjustment-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:created.journal_entry_id,expectedRevision:3,idempotencyKey:'adjustment-post-001'});
+  const cleared=await clearer.setReconciliationAdjustmentClearance(clearArgs),clearReplay=await clearer.setReconciliationAdjustmentClearance(clearArgs);
+  assert.equal(Number(cleared.difference),0);assert.equal(cleared.revision,2);assert.equal(clearReplay.idempotent,true);
+  await assert.rejects(maker.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:2,reason:'Maker must not review own adjustment reconciliation',idempotencyKey:'adjustment-maker-review-001'}),error=>error.code==='42501');
+  const reviewed=await reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:2,reason:'Independent reviewer confirmed exact Posted adjustment evidence',idempotencyKey:'adjustment-review-001'});
+  assert.equal(reviewed.status,'IN_REVIEW');
+  const signer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'adjustment-signer',['BANK.RECONCILIATION.SIGN_OFF'])});
+  const signed=await signer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:3,reason:'Independent controller signs off adjusted statement evidence',idempotencyKey:'adjustment-signoff-001'});
+  assert.equal(signed.status,'RECONCILED');assert.ok(signed.snapshot_id);
+  assert.deepEqual((await adminPool.query('SELECT state,bank_match_id FROM reconciliation_item WHERE reconciliation_id=$1 AND bank_source_id=$2',[started.reconciliation_id,bankSourceId])).rows[0],{state:'CLEARED',bank_match_id:null});
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='RECONCILIATION_ADJUSTMENT_DRAFT_CREATED'",[created.journal_entry_id])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='RECONCILIATION_ADJUSTMENT_ITEM_CLEARED'",[started.reconciliation_id])).rows[0].n,1);
+});
+
 pgTest('reconciliation rejects mixed currencies and non-posted hand-made match evidence',async()=>{
   const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null});const trace=await attachAutoSource(ids);
   const starter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'recon-negative-starter',['BANK.RECONCILIATION.START'])});

@@ -337,6 +337,19 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async setReconciliationAdjustmentClearance(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_reconciliation_adjustment_clearance_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',
+        [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceId,args.expectedReconciliationVersion,args.expectedBankVersion,args.clear,args.reason]
+      ),'RECONCILIATION_ADJUSTMENT_CLEARANCE_HASH_FAILED','Reconciliation adjustment clearance hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_set_reconciliation_adjustment_clearance($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+        [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceId,args.expectedReconciliationVersion,args.expectedBankVersion,args.clear,args.reason,args.idempotencyKey,requestHash]
+      ),'RECONCILIATION_ADJUSTMENT_CLEARANCE_FAILED','Reconciliation adjustment clearance did not return a result').result;
+    });
+  }
+
   async transitionReconciliation(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
@@ -344,9 +357,22 @@ export class PostgresAccountingKernel{
         [args.tenantId,args.entityId,args.reconciliationId,args.action,args.expectedVersion,args.reason]
       ),'RECONCILIATION_TRANSITION_HASH_FAILED','Reconciliation transition hash was not produced').request_hash;
       return requireRow(await client.query(
-        'SELECT refs_transition_reconciliation($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+        'SELECT refs_transition_reconciliation_adjustment_aware($1,$2,$3,$4,$5,$6,$7,$8) AS result',
         [args.tenantId,args.entityId,args.reconciliationId,args.action,args.expectedVersion,args.reason,args.idempotencyKey,requestHash]
       ),'RECONCILIATION_TRANSITION_FAILED','Reconciliation transition did not return a result').result;
+    });
+  }
+
+  async createReconciliationAdjustmentDraft(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_reconciliation_adjustment_draft_hash($1,$2,$3,$4,$5,$6,$7,$8::date,$9,$10,$11,$12,$13) AS request_hash',
+        [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceId,args.expectedReconciliationVersion,args.periodId,args.journalNumber,args.journalDate,args.currency,args.description??null,JSON.stringify(args.lines),args.attachmentIds,args.reason]
+      ),'RECONCILIATION_ADJUSTMENT_DRAFT_HASH_FAILED','Reconciliation adjustment Draft hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_reconciliation_adjustment_draft($1,$2,$3,$4,$5,$6,$7,$8::date,$9,$10,$11,$12,$13,$14,$15) AS result',
+        [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceId,args.expectedReconciliationVersion,args.periodId,args.journalNumber,args.journalDate,args.currency,args.description??null,JSON.stringify(args.lines),args.attachmentIds,args.reason,args.idempotencyKey,requestHash]
+      ),'RECONCILIATION_ADJUSTMENT_DRAFT_FAILED','Reconciliation adjustment Draft creation did not return a result').result;
     });
   }
 

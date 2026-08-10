@@ -328,5 +328,10 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'066_reconciliation_worksheet_read.sql',
     up:'4e5b2a909c233bb0d681cae97102bf6e0c6bceb43a25588838fa795c74de86f7',
     down:'2429e8cf4e87d1ceab78d0f65b65ddec8c4395566d24e8a79805f939cfdecf44'
+  }),
+  Object.freeze({
+    name:'067_reconciliation_adjustment_draft.sql',
+    up:'708a7478962eae8b35356bf0b3070d19d9274cc5aa75c9a10ec377a9145dab34',
+    down:'d14c895619b5f728eabc572145a22b821ef0cf967d791d0249ac949135fc6ef3'
   })
 ]);
