@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect,useRef,useState} from 'react';
 import {refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 
@@ -26,20 +26,20 @@ const ReadError=({error,onRetry})=><StateBlock tone="error" title={error?.code||
   <p>{error?.message||'The authoritative read could not be completed.'}</p>
 </StateBlock>;
 
-export const AuthoritativeBankTable=({rows=[],onOpen=()=>{}})=><section className="card" aria-label="Authoritative bank transaction evidence">
+export const AuthoritativeBankTable=({rows=[],onOpen=()=>{},registerOpener=()=>{}})=><section className="card" aria-label="Authoritative bank transaction evidence">
   <div className="card-head"><div><h2>Bank transactions</h2><p className="muted sm">Read-only source and retained match evidence from the accounting API.</p></div><span className="badge badge-muted">READ ONLY</span></div>
-  {!rows.length?<StateBlock tone="empty" title="No bank transactions returned">No bank transactions were returned for this account and date scope.</StateBlock>:<div className="table-wrap"><table className="tbl">
+  {!rows.length?<StateBlock tone="empty" title="No bank transactions returned">No bank transactions were returned for this account and date scope. This scoped empty result is not evidence of zero cash activity, zero ledger activity, or a completed reconciliation.</StateBlock>:<div className="table-wrap"><table className="tbl">
     <thead><tr><th>Date</th><th>Source</th><th>Type</th><th>Amount</th><th>Match evidence</th><th>Version</th><th>Evidence</th></tr></thead>
     <tbody>{rows.map(row=><tr key={row.bank_source_id}>
       <td>{row.transaction_date}</td><td><b>{row.external_bank_line_id}</b><div className="muted sm">{row.source_ref}</div></td>
       <td>{row.document_type}</td><td className="num">{money(row.amount)} <span className="muted sm">{row.currency}</span></td>
       <td>{row.match_status||'Unmatched'}{row.journal_entry_id&&<div className="muted sm">Journal {row.journal_entry_id}</div>}</td><td>{row.version}</td>
-      <td><button type="button" className="btn btn-sm" onClick={()=>onOpen(row)}>Open detail</button></td>
+      <td><button ref={node=>registerOpener(row.bank_source_id,node)} type="button" className="btn btn-sm" onClick={()=>onOpen(row)}>Open detail</button></td>
     </tr>)}</tbody>
   </table></div>}
 </section>;
 
-export const AuthoritativeBankDetail=({row,scope,onBack})=><section className="card authoritative-evidence-detail" aria-label="Bank transaction detail">
+export const AuthoritativeBankDetail=({row,scope,onBack})=><section className="full-bleed qbo-transaction-report" aria-label="Bank transaction detail">
   <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to bank transactions</button><h1>{row.external_bank_line_id}</h1><p className="muted sm">Independent, read-only evidence detail. Matching, clearing, categorizing, posting, and deletion are unavailable.</p></div><span className="badge badge-muted">READ ONLY</span></div>
   <div className="qbo-toolgrid">
     <span><i>Bank account</i><b>{row.bank_account_ref}</b></span><span><i>Transaction date</i><b>{row.transaction_date}</b></span>
@@ -50,19 +50,26 @@ export const AuthoritativeBankDetail=({row,scope,onBack})=><section className="c
     <span><i>Bank source ID</i><b>{row.bank_source_id}</b></span><span><i>Source reference</i><b>{row.source_ref||'Unavailable'}</b></span>
     <span><i>Source document</i><b>{row.source_document_id||'Unavailable'}</b></span><span><i>Journal entry</i><b>{row.journal_entry_id||'Unavailable'}</b></span>
   </div>
+  {row.bank_match_id&&<div className="qbo-toolgrid">
+    <span><i>Bank match ID</i><b>{row.bank_match_id}</b></span><span><i>Business source document</i><b>{row.business_source_document_id}</b></span>
+    <span><i>Journal line</i><b>{row.journal_line_id||'Unavailable'}</b></span><span><i>Candidate rule</i><b>{row.candidate_rule_code||'Unavailable'}</b></span>
+    <span><i>Amount delta</i><b>{money(row.amount_delta)}</b></span><span><i>Currency match</i><b>{String(row.currency_match)}</b></span>
+    <span><i>Date delta days</i><b>{row.date_delta_days??'Unavailable'}</b></span><span><i>Match version</i><b>{row.match_version}</b></span>
+    <span><i>Matched by</i><b>{row.matched_by}</b></span><span><i>Matched at</i><b>{row.matched_at}</b></span>
+  </div>}
   <p className="muted sm">Scope: entity {scope.entityId}; account {scope.bankAccountRef}; from {scope.from||'opening'} through {scope.through||'latest'}.</p>
 </section>;
 
-export const AuthoritativeReconciliationSummary=({row=null,onOpen=()=>{}})=><section className="card" aria-label="Authoritative reconciliation evidence">
+export const AuthoritativeReconciliationSummary=({row=null,onOpen=()=>{},openerRef=null})=><section className="card" aria-label="Authoritative reconciliation evidence">
   <div className="card-head"><div><h2>Reconciliation statement</h2><p className="muted sm">Statement-scoped evidence only. This page cannot match, clear, reopen, sign off, or post.</p></div><span className="badge badge-muted">READ ONLY</span></div>
-  {!row?<StateBlock tone="empty" title="No reconciliation statement returned">No reconciliation statement was returned for this account and cutoff.</StateBlock>:<>
+  {!row?<StateBlock tone="empty" title="No reconciliation statement returned">No reconciliation statement was returned for this account and cutoff. This scoped empty result is not evidence of zero statement activity, zero difference, review, or sign-off.</StateBlock>:<>
     <div className="qbo-toolgrid"><span><i>Status</i><b>{row.status}</b></span><span><i>Statement ending balance</i><b>{money(row.statement_ending_balance)}</b></span><span><i>Statement activity</i><b>{money(row.statement_activity_amount)}</b></span><span><i>Difference</i><b>{money(row.difference)}</b></span></div>
     <div className="qbo-toolgrid"><span><i>Bank transactions</i><b>{row.bank_transaction_count}</b></span><span><i>Active matches</i><b>{row.active_match_count}</b></span><span><i>Unmatched</i><b>{row.unmatched_transaction_count}</b></span><span><i>Version</i><b>{row.version}</b></span></div>
-    <button type="button" className="btn btn-sm" onClick={()=>onOpen(row)}>Open statement detail</button>
+    <button ref={openerRef} type="button" className="btn btn-sm" onClick={()=>onOpen(row)}>Open statement detail</button>
   </>}
 </section>;
 
-export const AuthoritativeReconciliationDetail=({row,scope,onBack})=><section className="card authoritative-evidence-detail" aria-label="Reconciliation statement detail">
+export const AuthoritativeReconciliationDetail=({row,scope,onBack})=><section className="full-bleed qbo-transaction-report" aria-label="Reconciliation statement detail">
   <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to reconciliation evidence</button><h1>Statement ending {row.statement_ending_date}</h1><p className="muted sm">Independent statement evidence. Matching, clearing, reopening, sign-off, adjustment, and posting are unavailable.</p></div><span className="badge badge-muted">READ ONLY</span></div>
   <div className="qbo-toolgrid">
     <span><i>Bank account</i><b>{row.bank_account_ref}</b></span><span><i>Status</i><b>{row.status}</b></span><span><i>Ending balance</i><b>{money(row.statement_ending_balance)}</b></span>
@@ -71,6 +78,8 @@ export const AuthoritativeReconciliationDetail=({row,scope,onBack})=><section cl
   <div className="qbo-toolgrid">
     <span><i>Reconciliation ID</i><b>{row.reconciliation_id}</b></span><span><i>Bank transactions</i><b>{row.bank_transaction_count}</b></span>
     <span><i>Active matches</i><b>{row.active_match_count}</b></span><span><i>Unmatched</i><b>{row.unmatched_transaction_count}</b></span>
+    <span><i>Reconciled by</i><b>{row.reconciled_by||'Unavailable'}</b></span><span><i>Reconciled at</i><b>{row.reconciled_at||'Unavailable'}</b></span>
+    <span><i>Reopened by</i><b>{row.reopened_by||'Unavailable'}</b></span><span><i>Reopened at</i><b>{row.reopened_at||'Unavailable'}</b></span>
   </div>
   <p className="muted sm">Scope: entity {scope.entityId}; account {scope.bankAccountRef}; statement cutoff {scope.statementEndingDate}.</p>
 </section>;
@@ -79,8 +88,11 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch}){
   const [scope,setScope]=useState({bankAccountRef:'',from:'',through:''});
   const [state,setState]=useState({phase:'IDLE',rows:[],error:null});
   const [selected,setSelected]=useState(null);
+  const openerRefs=useRef(new Map());
+  const returnFocusId=useRef(null);
+  useEffect(()=>{if(!selected&&returnFocusId.current){openerRefs.current.get(returnFocusId.current)?.focus?.();returnFocusId.current=null;}},[selected]);
   const load=async event=>{event?.preventDefault?.();setSelected(null);setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeBankTransactions({config,bankAccountRef:scope.bankAccountRef,from:scope.from||null,through:scope.through||null,limit:100,fetcher});setState(result.ok?{phase:'READY',rows:result.rows,error:null}:{phase:'ERROR',rows:[],error:result});};
-  if(selected)return <AuthoritativeBankDetail row={selected} scope={{...scope,entityId:config.entityId}} onBack={()=>setSelected(null)}/>;
+  if(selected)return <AuthoritativeBankDetail row={selected} scope={{...scope,entityId:config.entityId}} onBack={()=>{returnFocusId.current=selected.bank_source_id;setSelected(null);}}/>;
   return <div className="stack"><div><h1>Bank transaction evidence</h1><p className="page-subtitle">Entity-scoped, OIDC-authenticated records only. Browser seeds and local storage are never used.</p></div>
     <form className="filterbar" onSubmit={load} aria-label="Bank transaction scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>
@@ -92,7 +104,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch}){
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and an optional date range to read authoritative evidence.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative bank transaction evidence...</StateBlock>}
     {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
-    {state.phase==='READY'&&<AuthoritativeBankTable rows={state.rows} onOpen={setSelected}/>}
+    {state.phase==='READY'&&<AuthoritativeBankTable rows={state.rows} onOpen={setSelected} registerOpener={(id,node)=>{if(node)openerRefs.current.set(id,node);else openerRefs.current.delete(id);}}/>}
   </div>;
 }
 
@@ -100,8 +112,11 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
   const [scope,setScope]=useState({bankAccountRef:'',statementEndingDate:''});
   const [state,setState]=useState({phase:'IDLE',row:null,error:null});
   const [detailOpen,setDetailOpen]=useState(false);
+  const openerRef=useRef(null);
+  const restoreFocus=useRef(false);
+  useEffect(()=>{if(!detailOpen&&restoreFocus.current){openerRef.current?.focus?.();restoreFocus.current=false;}},[detailOpen]);
   const load=async event=>{event?.preventDefault?.();setDetailOpen(false);setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeReconciliation({config,bankAccountRef:scope.bankAccountRef,statementEndingDate:scope.statementEndingDate,fetcher});setState(result.ok?{phase:'READY',row:result.row,error:null}:{phase:'ERROR',row:null,error:result});};
-  if(detailOpen&&state.row)return <AuthoritativeReconciliationDetail row={state.row} scope={{...scope,entityId:config.entityId}} onBack={()=>setDetailOpen(false)}/>;
+  if(detailOpen&&state.row)return <AuthoritativeReconciliationDetail row={state.row} scope={{...scope,entityId:config.entityId}} onBack={()=>{restoreFocus.current=true;setDetailOpen(false);}}/>;
   return <div className="stack"><div><h1>Reconciliation evidence</h1><p className="page-subtitle">One authoritative statement cutoff for one entity and bank account. No reconciliation mutation is available.</p></div>
     <form className="filterbar" onSubmit={load} aria-label="Reconciliation statement scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>
@@ -112,6 +127,6 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and statement ending date to read reconciliation evidence.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative reconciliation evidence...</StateBlock>}
     {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
-    {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} onOpen={()=>setDetailOpen(true)}/>}
+    {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} onOpen={()=>setDetailOpen(true)} openerRef={openerRef}/>}
   </div>;
 }

@@ -44,6 +44,8 @@ const nullableRevision=value=>value===null||value===undefined||(UNSIGNED_INTEGER
 const validTimestamp=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T/.test(value)&&!Number.isNaN(new Date(value).valueOf());
 const JOURNAL_TYPES=new Set(['MANUAL','AUTO','REVERSAL','RECLASS']);
 const JOURNAL_STATUSES=new Set(['DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED']);
+const BANK_MATCH_STATUSES=new Set(['ACTIVE','UNMATCHED','REVERSED']);
+const RECONCILIATION_STATUSES=new Set(['DRAFT','IN_REVIEW','RECONCILED','REOPENED']);
 
 const journalRow=row=>{
   if(!row||!UUID.test(row.journal_entry_id||'')||!TEXT_TOKEN.test(row.journal_number||'')||!JOURNAL_TYPES.has(row.journal_type)||!JOURNAL_STATUSES.has(row.status)||!validDate(row.journal_date)||!/^[A-Z]{3}$/.test(row.currency||'')||row.description!==null&&row.description!==undefined&&(typeof row.description!=='string'||row.description.length>2000)||!UNSIGNED_INTEGER.test(String(row.revision??''))||!validTimestamp(row.created_at)||row.posted_at!==null&&row.posted_at!==undefined&&!validTimestamp(row.posted_at)||!UNSIGNED_INTEGER.test(String(row.ledger_line_count??'')))return null;
@@ -68,6 +70,26 @@ const adjustmentRow=(row,side)=>{
   const version=Number(row.version),journalRevision=row.journal_revision===null||row.journal_revision===undefined?null:Number(row.journal_revision),amount=Number(row.amount);
   if(!Number.isSafeInteger(version)||version<0||journalRevision!==null&&(!Number.isSafeInteger(journalRevision)||journalRevision<0)||!Number.isFinite(amount))return null;
   return {...row,amount,version,journal_revision:journalRevision};
+};
+
+const bankTransactionRow=(row,account)=>{
+  if(!row||!UUID.test(row.bank_source_id||'')||row.bank_account_ref!==account||!TEXT_TOKEN.test(row.external_bank_line_id||'')||!validDate(row.transaction_date)||!/^[A-Z]{3}$/.test(row.currency||'')||!MONEY4.test(String(row.amount??''))||!UNSIGNED_INTEGER.test(String(row.version??''))||!UUID.test(row.source_document_id||'')||!TEXT_TOKEN.test(row.source_ref||'')||!TEXT_TOKEN.test(row.document_type||''))return null;
+  const matchId=row.bank_match_id??null;
+  const matchValues=['match_status','business_source_document_id','journal_entry_id','journal_line_id','candidate_rule_code','amount_delta','currency_match','date_delta_days','matched_by','matched_at','match_version'];
+  if(matchId===null){if(matchValues.some(field=>row[field]!==null&&row[field]!==undefined))return null;}
+  else if(!UUID.test(matchId)||!BANK_MATCH_STATUSES.has(row.match_status)||!UUID.test(row.business_source_document_id||'')||!nullableUuid(row.journal_entry_id)||!nullableUuid(row.journal_line_id)||row.journal_line_id&&!row.journal_entry_id||row.candidate_rule_code!==null&&row.candidate_rule_code!==undefined&&!STATUS_TOKEN.test(row.candidate_rule_code)||!MONEY4.test(String(row.amount_delta??''))||typeof row.currency_match!=='boolean'||row.date_delta_days!==null&&row.date_delta_days!==undefined&&(!Number.isSafeInteger(row.date_delta_days)||row.date_delta_days<0)||!TEXT_TOKEN.test(row.matched_by||'')||!validTimestamp(row.matched_at)||!UNSIGNED_INTEGER.test(String(row.match_version??'')))return null;
+  const version=Number(row.version),matchVersion=matchId===null?null:Number(row.match_version),amount=Number(row.amount),amountDelta=matchId===null?null:Number(row.amount_delta);
+  if(!Number.isSafeInteger(version)||version<0||matchVersion!==null&&(!Number.isSafeInteger(matchVersion)||matchVersion<0)||!Number.isFinite(amount)||amountDelta!==null&&!Number.isFinite(amountDelta))return null;
+  return {bank_source_id:row.bank_source_id,bank_account_ref:row.bank_account_ref,external_bank_line_id:row.external_bank_line_id,transaction_date:row.transaction_date,currency:row.currency,amount,version,source_document_id:row.source_document_id,source_ref:row.source_ref,document_type:row.document_type,bank_match_id:matchId,match_status:row.match_status??null,business_source_document_id:row.business_source_document_id??null,journal_entry_id:row.journal_entry_id??null,journal_line_id:row.journal_line_id??null,candidate_rule_code:row.candidate_rule_code??null,amount_delta:amountDelta,currency_match:row.currency_match??null,date_delta_days:row.date_delta_days??null,matched_by:row.matched_by??null,matched_at:row.matched_at??null,match_version:matchVersion};
+};
+
+const reconciliationRow=(row,account,statementEndingDate)=>{
+  if(!row||!UUID.test(row.reconciliation_id||'')||row.bank_account_ref!==account||row.statement_ending_date!==statementEndingDate||!MONEY4.test(String(row.statement_ending_balance??''))||!MONEY4.test(String(row.difference??''))||!RECONCILIATION_STATUSES.has(row.status)||!UNSIGNED_INTEGER.test(String(row.version??''))||!UNSIGNED_INTEGER.test(String(row.bank_transaction_count??''))||!UNSIGNED_INTEGER.test(String(row.active_match_count??''))||!UNSIGNED_INTEGER.test(String(row.unmatched_transaction_count??''))||!MONEY4.test(String(row.statement_activity_amount??'')))return null;
+  const reconciledBy=row.reconciled_by??null,reconciledAt=row.reconciled_at??null,reopenedBy=row.reopened_by??null,reopenedAt=row.reopened_at??null;
+  if((reconciledBy===null)!==(reconciledAt===null)||(reopenedBy===null)!==(reopenedAt===null)||reconciledBy!==null&&!TEXT_TOKEN.test(reconciledBy)||reconciledAt!==null&&!validTimestamp(reconciledAt)||reopenedBy!==null&&!TEXT_TOKEN.test(reopenedBy)||reopenedAt!==null&&!validTimestamp(reopenedAt)||row.status==='RECONCILED'&&(reconciledBy===null||row.difference!=='0.0000')||row.status==='REOPENED'&&reopenedBy===null)return null;
+  const version=Number(row.version),bankTransactionCount=Number(row.bank_transaction_count),activeMatchCount=Number(row.active_match_count),unmatchedTransactionCount=Number(row.unmatched_transaction_count);
+  if(![version,bankTransactionCount,activeMatchCount,unmatchedTransactionCount].every(value=>Number.isSafeInteger(value)&&value>=0)||activeMatchCount+unmatchedTransactionCount!==bankTransactionCount)return null;
+  return {reconciliation_id:row.reconciliation_id,bank_account_ref:row.bank_account_ref,statement_ending_date:row.statement_ending_date,statement_ending_balance:Number(row.statement_ending_balance),difference:Number(row.difference),status:row.status,version,reconciled_by:reconciledBy,reconciled_at:reconciledAt,reopened_by:reopenedBy,reopened_at:reopenedAt,bank_transaction_count:bankTransactionCount,active_match_count:activeMatchCount,unmatched_transaction_count:unmatchedTransactionCount,statement_activity_amount:Number(row.statement_activity_amount)};
 };
 
 export async function refreshAuthoritativeDocuments({config,fetcher=globalThis.fetch}={}){
@@ -99,9 +121,8 @@ export async function refreshAuthoritativeBankTransactions({config,bankAccountRe
     const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/bank/transactions?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
     if(!response.ok)return await failure(response);
     const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid bank transaction envelope.'};
-    if(body.data.some(row=>!UUID.test(row?.bank_source_id||'')||!UUID.test(row?.source_document_id||'')||row.bank_account_ref!==account||!validDate(row.transaction_date)||!/^[A-Z]{3}$/.test(row.currency||'')||!MONEY4.test(row.amount||'')||!UNSIGNED_INTEGER.test(row.version||'')||row.amount_delta!==null&&!MONEY4.test(row.amount_delta||'')))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid bank transaction row.'};
-    const rows=body.data.map(row=>({...row,amount:Number(row.amount),version:Number(row.version),amount_delta:row.amount_delta===null?null:Number(row.amount_delta)}));
-    if(rows.some(row=>!Number.isSafeInteger(row.version)||row.version<0))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid bank transaction row.'};
+    const rows=body.data.map(row=>bankTransactionRow(row,account)),bankSourceIds=rows.map(row=>row?.bank_source_id),externalLineIds=rows.map(row=>row?.external_bank_line_id);
+    if(rows.some(row=>row===null)||new Set(bankSourceIds).size!==bankSourceIds.length||new Set(externalLineIds).size!==externalLineIds.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate bank transaction row.'};
     return {ok:true,rows,scope:{entityId:config.entityId,bankAccountRef:account,from,through,limit}};
   }catch{return unreachable('The browser could not complete the authoritative bank transaction read; no HTTP response was produced.');}
 }
@@ -115,9 +136,8 @@ export async function refreshAuthoritativeReconciliation({config,bankAccountRef,
     const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/bank/reconciliation?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
     if(!response.ok)return await failure(response);
     const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data)||body.data.length>1)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation envelope.'};
-    if(body.data.some(row=>!UUID.test(row?.reconciliation_id||'')||row.bank_account_ref!==account||row.statement_ending_date!==statementEndingDate||!['DRAFT','IN_REVIEW','RECONCILED','REOPENED'].includes(row.status)||!MONEY4.test(row.statement_ending_balance||'')||!MONEY4.test(row.difference||'')||!UNSIGNED_INTEGER.test(row.version||'')||![row.bank_transaction_count,row.active_match_count,row.unmatched_transaction_count].every(value=>UNSIGNED_INTEGER.test(value||''))||!MONEY4.test(row.statement_activity_amount||'')))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation row.'};
-    const rows=body.data.map(row=>({...row,statement_ending_balance:Number(row.statement_ending_balance),difference:Number(row.difference),version:Number(row.version),bank_transaction_count:Number(row.bank_transaction_count),active_match_count:Number(row.active_match_count),unmatched_transaction_count:Number(row.unmatched_transaction_count),statement_activity_amount:Number(row.statement_activity_amount)}));
-    if(rows.some(row=>!Number.isSafeInteger(row.version)||![row.bank_transaction_count,row.active_match_count,row.unmatched_transaction_count].every(Number.isSafeInteger)))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation row.'};
+    const rows=body.data.map(row=>reconciliationRow(row,account,statementEndingDate));
+    if(rows.some(row=>row===null))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation row.'};
     return {ok:true,row:rows[0]||null,scope:{entityId:config.entityId,bankAccountRef:account,statementEndingDate}};
   }catch{return unreachable('The browser could not complete the authoritative reconciliation read; no HTTP response was produced.');}
 }

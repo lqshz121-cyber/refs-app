@@ -16,17 +16,19 @@ assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(recon
 
 const bankTable=renderToStaticMarkup(<AuthoritativeBankTable rows={[bankRow]}/>);
 assert.match(bankTable,/BANK-LINE-1/);assert.match(bankTable,/SOURCE-1/);assert.match(bankTable,/Unmatched/);assert.match(bankTable,/READ ONLY/);assert.match(bankTable,/Open detail/);assert.doesNotMatch(bankTable,/>\s*(Match|Clear|Post|Delete|Create)\s*</);
-assert.match(renderToStaticMarkup(<AuthoritativeBankTable rows={[]}/>),/No bank transactions were returned/);
+const emptyBank=renderToStaticMarkup(<AuthoritativeBankTable rows={[]}/>);assert.match(emptyBank,/No bank transactions were returned/);assert.match(emptyBank,/not evidence of zero cash activity/);assert.doesNotMatch(emptyBank,/<table/);
 
 const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(bankDetail,/Back to bank transactions/);assert.match(bankDetail,/Bank transaction detail/);assert.match(bankDetail,/-\$125\.25/);assert.match(bankDetail,/2026-07-01/);assert.match(bankDetail,/2026-07-31/);
+assert.match(bankDetail,/full-bleed qbo-transaction-report/);
 
 const reconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={reconciliationRow}/>);
 assert.match(reconciliation,/RECONCILED/);assert.match(reconciliation,/\$1,000\.00/);assert.match(reconciliation,/Unmatched/);assert.match(reconciliation,/READ ONLY/);assert.match(reconciliation,/Open statement detail/);assert.doesNotMatch(reconciliation,/>\s*(Match|Clear|Reopen|Sign off|Post)\s*</);
-assert.match(renderToStaticMarkup(<AuthoritativeReconciliationSummary row={null}/>),/No reconciliation statement was returned/);
+const emptyReconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={null}/>);assert.match(emptyReconciliation,/No reconciliation statement was returned/);assert.match(emptyReconciliation,/not evidence of zero statement activity/);assert.doesNotMatch(emptyReconciliation,/Open statement detail/);
 
 const reconciliationDetail=renderToStaticMarkup(<AuthoritativeReconciliationDetail row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(reconciliationDetail,/Back to reconciliation evidence/);assert.match(reconciliationDetail,/Statement ending 2026-07-31/);assert.match(reconciliationDetail,/\$1,000\.00/);assert.match(reconciliationDetail,/11111111-1111-4111-8111-111111111111/);
+assert.match(reconciliationDetail,/full-bleed qbo-transaction-report/);assert.match(reconciliationDetail,/Reconciled by/);
 
 const source=readFileSync('src/authoritative-bank-workspace.jsx','utf8');
 // Phase 2a: the four states are rendered only by the shared StateBlock, which
@@ -38,6 +40,10 @@ assert.match(source,/phase==='READY'.*AuthoritativeBankTable/s,'Bank results mus
 assert.match(source,/phase==='READY'.*AuthoritativeReconciliationSummary/s,'Reconciliation results must render only after an API success');
 assert.match(source,/if\(selected\).*AuthoritativeBankDetail/s,'Bank detail must replace the list and retain an explicit Back path');
 assert.match(source,/if\(detailOpen&&state\.row\).*AuthoritativeReconciliationDetail/s,'Reconciliation detail must replace the summary and retain an explicit Back path');
+assert.match(source,/returnFocusId\.current=selected\.bank_source_id[\s\S]*setSelected\(null\)/,'Bank Back must retain the immutable source key for focus restoration');
+assert.match(source,/openerRefs\.current\.get\(returnFocusId\.current\)\?\.focus/,'Bank Back must restore focus to the originating evidence control');
+assert.match(source,/restoreFocus\.current=true;setDetailOpen\(false\)/,'Reconciliation Back must request focus restoration');
+assert.match(source,/openerRef\.current\?\.focus/,'Reconciliation Back must restore focus to the statement evidence control');
 assert.doesNotMatch(source,/localStorage|SEED_|bankMatch|bankRecord|bankSignoff/,'authoritative Bank/Reconcile UI must not depend on demo state or mutation helpers');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');
