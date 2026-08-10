@@ -1157,6 +1157,20 @@
         "responses": {"200": {"$ref": "#/components/responses/CwipRollforwardReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/reports/intercompany-reconciliation": {
+      "get": {
+        "operationId": "getIntercompanyReconciliation",
+        "summary": "Read a bidirectional mapped intercompany reconciliation",
+        "description": "Requires two distinct entity scopes with exactly aligned accounting-period dates, report-view authority in both scopes, reciprocal immutable mapping snapshots, and POSTED ledger evidence. A difference is evidence for review only. This operation cannot infer a counterparty from a memo, vendor, amount, account label, or shared code, and cannot create an elimination or adjustment.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}},
+          {"name": "counterpartyEntityId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}},
+          {"name": "counterpartyPeriodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}
+        ],
+        "responses": {"200": {"$ref": "#/components/responses/IntercompanyReconciliationReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/bank/reconciliations": {
       "post": {
         "operationId": "startReconciliation",
@@ -2685,6 +2699,19 @@
         }
       },
       "CwipRollforwardReadEnvelope": {"type":"object", "additionalProperties":false, "required":["ok","data"], "properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/CwipRollforwardReadRow"}}}},
+      "IntercompanyReconciliationReadRow": {
+        "type": "object", "additionalProperties": false,
+        "required": ["period_id","counterparty_period_id","period_code","period_start","period_end","account_code","account_name","counterparty_account_code","counterparty_account_name","mapping_status","classification_basis","current_closing_balance","counterparty_closing_balance","difference_amount","in_balance","mapping_snapshot_id","mapping_version","mapping_snapshot_hash","counterparty_mapping_snapshot_id","counterparty_mapping_version","counterparty_mapping_snapshot_hash","journal_entry_ids","journal_line_ids","ledger_line_ids","source_document_ids","counterparty_journal_entry_ids","counterparty_journal_line_ids","counterparty_ledger_line_ids","counterparty_source_document_ids"],
+        "properties": {
+          "period_id": {"$ref":"#/components/schemas/Uuid"}, "counterparty_period_id": {"$ref":"#/components/schemas/Uuid"}, "period_code": {"type":"string", "pattern":"^[0-9]{4}-(0[1-9]|1[0-2])$"}, "period_start": {"type":"string", "format":"date"}, "period_end": {"type":"string", "format":"date"},
+          "account_code": {"type":"string"}, "account_name": {"type":"string"}, "counterparty_account_code": {"type":"string"}, "counterparty_account_name": {"type":"string"},
+          "mapping_status": {"type":"string", "enum":["MAPPED_INTERCOMPANY_PAIR","BLOCKED_MAPPING_AMBIGUOUS","BLOCKED_MAPPING_RULE_INVALID","BLOCKED_COUNTERPARTY_MAPPING_REQUIRED","BLOCKED_COUNTERPARTY_MAPPING_AMBIGUOUS","BLOCKED_COUNTERPARTY_MAPPING_MISMATCH","BLOCKED_CURRENT_POSTED_EVIDENCE_REQUIRED","BLOCKED_COUNTERPARTY_POSTED_EVIDENCE_REQUIRED"]}, "classification_basis": {"type":"string"},
+          "current_closing_balance": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "counterparty_closing_balance": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "difference_amount": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "in_balance": {"type":"boolean"},
+          "mapping_snapshot_id": {"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]}, "mapping_version": {"type":["string","null"]}, "mapping_snapshot_hash": {"type":["string","null"]}, "counterparty_mapping_snapshot_id": {"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]}, "counterparty_mapping_version": {"type":["string","null"]}, "counterparty_mapping_snapshot_hash": {"type":["string","null"]},
+          "journal_entry_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "journal_line_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "ledger_line_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "source_document_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "counterparty_journal_entry_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "counterparty_journal_line_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "counterparty_ledger_line_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "counterparty_source_document_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}
+        }
+      },
+      "IntercompanyReconciliationReadEnvelope": {"type":"object", "additionalProperties":false, "required":["ok","data"], "properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/IntercompanyReconciliationReadRow"}}}},
       "ReconciliationWorksheetRow": {
         "type": "object",
         "additionalProperties": false,
@@ -4177,6 +4204,11 @@
         "description": "Scoped immutable mapping-backed CWIP rollforward evidence",
         "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CwipRollforwardReadEnvelope"}}}
+      },
+      "IntercompanyReconciliationReadOk": {
+        "description": "Scoped, read-only intercompany reconciliation evidence; a nonzero difference requires review and cannot create an elimination or adjustment",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/IntercompanyReconciliationReadEnvelope"}}}
       },
       "BankMatchCandidateReadOk": {
         "description": "Scoped, controller-authorized exact POSTED bank-match candidates",

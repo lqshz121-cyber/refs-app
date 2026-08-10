@@ -441,6 +441,29 @@ export async function refreshAuthoritativePrepaidRollforward({config,fetcher=glo
   }catch{return unreachable('The browser could not complete the authoritative prepaid rollforward read; no HTTP response was produced.');}
 }
 
+export async function refreshAuthoritativeIntercompanyReconciliation({config,counterpartyEntityId,counterpartyPeriodId,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!UUID.test(config.periodId||'')||!UUID.test(counterpartyEntityId||'')||!UUID.test(counterpartyPeriodId||'')||counterpartyEntityId===config.entityId)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Intercompany reconciliation requires two distinct authoritative entities and one period for each entity.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({periodId:config.periodId,counterpartyEntityId,counterpartyPeriodId});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/reports/intercompany-reconciliation?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid intercompany reconciliation envelope.'};
+    const statuses=new Set(['MAPPED_INTERCOMPANY_PAIR','BLOCKED_MAPPING_AMBIGUOUS','BLOCKED_MAPPING_RULE_INVALID','BLOCKED_COUNTERPARTY_MAPPING_REQUIRED','BLOCKED_COUNTERPARTY_MAPPING_AMBIGUOUS','BLOCKED_COUNTERPARTY_MAPPING_MISMATCH','BLOCKED_CURRENT_POSTED_EVIDENCE_REQUIRED','BLOCKED_COUNTERPARTY_POSTED_EVIDENCE_REQUIRED']);
+    const ids=['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids','counterparty_journal_entry_ids','counterparty_journal_line_ids','counterparty_ledger_line_ids','counterparty_source_document_ids'];
+    const invalid=row=>{
+      const mapped=row?.mapping_status==='MAPPED_INTERCOMPANY_PAIR';
+      const amounts=['current_closing_balance','counterparty_closing_balance','difference_amount'];
+      const snapshotValid=(id,version,hash)=>id===null&&version===null&&hash===null||UUID.test(id||'')&&/^[1-9][0-9]*$/.test(String(version??''))&&/^sha256:[0-9a-f]{64}$/.test(hash||'');
+      const currentMappingValid=snapshotValid(row?.mapping_snapshot_id,row?.mapping_version,row?.mapping_snapshot_hash);
+      const counterpartyMappingValid=snapshotValid(row?.counterparty_mapping_snapshot_id,row?.counterparty_mapping_version,row?.counterparty_mapping_snapshot_hash);
+      return row?.period_id!==config.periodId||row?.counterparty_period_id!==counterpartyPeriodId||!PERIOD_CODE.test(row?.period_code||'')||!validDate(row?.period_start)||!validDate(row?.period_end)||row.period_start>row.period_end||row.period_start.slice(0,7)!==row.period_code||row.period_end.slice(0,7)!==row.period_code||!ACCOUNT_CODE.test(row?.account_code||'')||!ACCOUNT_CODE.test(row?.counterparty_account_code||'')||typeof row?.account_name!=='string'||!row.account_name.trim()||typeof row?.counterparty_account_name!=='string'||!row.counterparty_account_name.trim()||!statuses.has(row?.mapping_status)||typeof row?.classification_basis!=='string'||!row.classification_basis.trim()||!currentMappingValid||!counterpartyMappingValid||(mapped&&(!UUID.test(row?.mapping_snapshot_id||'')||!UUID.test(row?.counterparty_mapping_snapshot_id||'')))||ids.some(field=>!Array.isArray(row?.[field])||row[field].some(id=>!UUID.test(id||'')))||(mapped?(amounts.some(field=>!REPORT_MONEY4.test(String(row?.[field]??'')))||typeof row.in_balance!=='boolean'):(amounts.some(field=>row?.[field]!==null)||row?.in_balance!==false));
+    };
+    if(body.data.some(invalid)||new Set(body.data.map(row=>row.account_code)).size!==body.data.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate intercompany reconciliation row.'};
+    return {ok:true,rows:body.data.map(row=>({...row,...Object.fromEntries(['current_closing_balance','counterparty_closing_balance','difference_amount'].map(field=>[field,row[field]===null?null:String(row[field])]))})),scope:{entityId:config.entityId,periodId:config.periodId,counterpartyEntityId,counterpartyPeriodId},complete:body.data.length>0&&body.data.every(row=>row.mapping_status==='MAPPED_INTERCOMPANY_PAIR')};
+  }catch{return unreachable('The browser could not complete the authoritative intercompany reconciliation read; no HTTP response was produced.');}
+}
+
 const CURRENCY3=/^[A-Z]{3}$/;
 const money4=v=>{if(typeof v==='number'&&Number.isFinite(v))return v.toFixed(4);if(typeof v==='string'&&MONEY4.test(v))return v;return null;};
 export async function refreshAuthoritativeAging({config,side,asOfDate,fetcher=globalThis.fetch}={}){

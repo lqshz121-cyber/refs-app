@@ -169,6 +169,18 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await kernel.getPrepaidRollforward({tenantId:principal.tenantId,entityId,periodId});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===6&&parts[4]==='reports'&&parts[5]==='intercompany-reconciliation'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId','counterpartyEntityId','counterpartyPeriodId']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId');
+        const counterpartyEntityId=requireUuid(parsedUrl.searchParams.get('counterpartyEntityId'),'counterpartyEntityId');
+        const counterpartyPeriodId=requireUuid(parsedUrl.searchParams.get('counterpartyPeriodId'),'counterpartyPeriodId');
+        if(counterpartyEntityId===entityId)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','counterpartyEntityId must differ from entityId');
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        result=await kernel.getIntercompanyReconciliation({tenantId:principal.tenantId,entityId,periodId,counterpartyEntityId,counterpartyPeriodId});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='review-candidates'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
