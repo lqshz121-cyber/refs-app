@@ -39,11 +39,12 @@ assert.match(source,/phase==='ERROR'.*<ReadError/s,'authoritative reads must exp
 assert.match(source,/phase==='READY'.*AuthoritativeBankTable/s,'Bank results must render only after an API success');
 assert.match(source,/phase==='READY'.*AuthoritativeReconciliationSummary/s,'Reconciliation results must render only after an API success');
 assert.match(source,/if\(selected\).*AuthoritativeBankDetail/s,'Bank detail must replace the list and retain an explicit Back path');
-assert.match(source,/if\(detailOpen&&state\.row\).*AuthoritativeReconciliationDetail/s,'Reconciliation detail must replace the summary and retain an explicit Back path');
-assert.match(source,/returnFocusId\.current=selected\.bank_source_id[\s\S]*setSelected\(null\)/,'Bank Back must retain the immutable source key for focus restoration');
-assert.match(source,/openerRefs\.current\.get\(returnFocusId\.current\)\?\.focus/,'Bank Back must restore focus to the originating evidence control');
-assert.match(source,/restoreFocus\.current=true;setDetailOpen\(false\)/,'Reconciliation Back must request focus restoration');
-assert.match(source,/openerRef\.current\?\.focus/,'Reconciliation Back must restore focus to the statement evidence control');
+assert.match(source,/if\(selected\).*AuthoritativeReconciliationDetail/s,'Reconciliation detail must replace the summary and retain an explicit Back path');
+assert.match(source,/authoritative-bank-\$\{row\.bank_source_id\}/,'Bank detail must retain a stable opener for focus restoration');
+assert.match(source,/authoritative-reconciliation-\$\{row\.reconciliation_id\}/,'Reconciliation detail must retain a stable opener for focus restoration');
+assert.match(source,/restoreAuthoritativeReturnContext\(environment,config,context\)/,'Bank and reconciliation Back must restore scope, scroll position and focus');
+assert.match(source,/bankAccountRef:scope\.bankAccountRef/,'Bank Back must retain the exact account scope');
+assert.match(source,/statementEndingDate:scope\.statementEndingDate/,'Reconciliation Back must retain the exact cutoff scope');
 assert.doesNotMatch(source,/localStorage|SEED_|bankMatch|bankRecord|bankSignoff/,'authoritative Bank/Reconcile UI must not depend on demo state or mutation helpers');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');
