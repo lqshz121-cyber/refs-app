@@ -52,8 +52,8 @@ export function buildWbsAccountingAnalysisReport(snapshot) {
     je.lines.reduce((sum, line) => sum + Number(line.debit_amount || 0), 0) -
     je.lines.reduce((sum, line) => sum + Number(line.credit_amount || 0), 0),
   ) < 0.005);
-  const blockedFlows = flowEvidence.flows.filter(flow => /REVIEW|BLOCK|EXCEPTION|CONTRACT_READY/.test(flow.control_state));
-  const postedFlows = flowEvidence.flows.filter(flow => /POSTED|TIED|READY|RETAINED/.test(flow.control_state));
+  const blockedFlows = flowEvidence.flows.filter(flow => flow.completion_model === 'CONTROL_REVIEW');
+  const postedFlows = flowEvidence.flows.filter(flow => flow.evidence.posted_je === true);
   const controlRows = [
     ...reportImpact.controls.map(row => ({ area: 'Financial statement', control: row.control, state: row.state, evidence: row.evidence })),
     { area: 'Workflow trace', control: 'Mock close flows traceable', state: flowEvidence.allFlowsTraceable ? 'TIED' : 'REVIEW_REQUIRED', evidence: `${flowEvidence.controls.flows_with_audit}/${flowEvidence.controls.total_flows} flows with audit trail` },
@@ -83,6 +83,7 @@ export function buildWbsAccountingAnalysisReport(snapshot) {
       suggested_jes: suggestedJEs.length,
       postable_suggested_jes: postableSuggestedJEs.length,
       workflows: flowEvidence.controls.total_flows,
+      completed_workflows: flowEvidence.controls.complete_flows,
       blocked_or_review_flows: blockedFlows.length,
       posted_or_tied_flows: postedFlows.length,
       trial_balance_state: reportImpact.trialBalance.balanced ? 'TIED' : 'REVIEW_REQUIRED',
@@ -98,6 +99,10 @@ export function buildWbsAccountingAnalysisReport(snapshot) {
       name: flow.name,
       source_id: flow.source_id,
       event_id: flow.event_id,
+      completion_model: flow.completion_model,
+      terminal_outcome: flow.terminal_outcome,
+      required_evidence: flow.required_evidence,
+      missing_evidence: flow.missing_evidence,
       control_state: flow.control_state,
       posted_state: flow.posted_state,
       next_action: flow.next_action,

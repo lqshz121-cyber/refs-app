@@ -200,6 +200,7 @@ export function createWbsMockDataset() {
     base('DOC', 'DOC-INS-12MO', { amount: 12000, document_type: 'INSURANCE_POLICY', document_hash: 'sha256-insurance-12mo', storage_ref: 'mock://wbs/documents/insurance-12mo.pdf' }),
     base('DOC', 'DOC-AP-MISSING-GL', { amount: 45000, document_type: 'PAYABLE_REPORT', document_hash: 'sha256-payable-accrual', storage_ref: 'mock://wbs/reports/payable-july.json' }),
     base('DOC', 'DOC-BANK-UNMATCHED', { amount: -8500, document_type: 'BANK_STATEMENT', document_hash: 'sha256-bank-unmatched', storage_ref: 'mock://wbs/bank/july.csv' }),
+    base('DOC', 'DOC-COST-POST-COMPLETE-01', { amount: 31000, document_type: 'COST_GENERAL_LEDGER', document_hash: 'sha256-cost-post-complete', storage_ref: 'mock://wbs/cost/completed-project-july.json', project_id: 'PROJ-DONE-01' }),
     base('DOC', 'DOC-LOAN-DRAW', { amount: 250000, document_type: 'LOAN_DRAW_SCHEDULE', document_hash: 'sha256-loan-draw', storage_ref: 'mock://wbs/loan/draw-07.pdf' }),
     base('DOC', 'DOC-RENT-ROLL', { amount: 98000, document_type: 'RENT_ROLL', document_hash: 'sha256-rent-roll', storage_ref: 'mock://wbs/pm/rent-roll.json' }),
     base('DOC', 'DOC-PROPERTY-TAX-2026', { amount: 24000, vendor_id: 'VEN-TAX-TRAVIS', document_type: 'PROPERTY_TAX_STATEMENT', document_hash: 'sha256-property-tax-2026', storage_ref: 'mock://wbs/tax/travis-2026.json' }),

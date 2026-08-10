@@ -3,6 +3,7 @@ import {
   approveAndPostSuggestedJEs,
   buildAccountingEvents,
   buildTrialBalance,
+  createAmortizationScheduleFromInsurance,
   createWbsMockDataset,
   projectToGeneralLedger,
   retainMockReviewApproval,
@@ -25,12 +26,15 @@ export function buildWbsReportImpact(snapshot = createWbsMockDataset()) {
   const events = buildAccountingEvents(snapshot);
   const findings = runDeterministicAccountingRules(snapshot, events);
   const suggestedJEs = findings.map(finding => finding.suggested_je).filter(Boolean);
-  const mockReviewDecisions = ['LOAN_DRAW_RECOGNITION','ACCRUAL_CANDIDATE','PROPERTY_TAX_ACCRUAL_REQUIRED'].map(ruleId => {
-    const suggestedJe = suggestedJEs.find(je => je.ai_rule_id === ruleId);
+  const insurance = createAmortizationScheduleFromInsurance(snapshot.payableInvoices.find(invoice => invoice.id === 'AP-INS-12MO'));
+  const insuranceJulyDraft = insurance.lines.find(line => line.period === '2026-07')?.suggested_je || null;
+  const postableJEs = [...suggestedJEs, insuranceJulyDraft].filter(Boolean);
+  const mockReviewDecisions = ['LOAN_DRAW_RECOGNITION','ACCRUAL_CANDIDATE','PROPERTY_TAX_ACCRUAL_REQUIRED','MONTHLY_PREPAID_AMORTIZATION'].map(ruleId => {
+    const suggestedJe = postableJEs.find(je => je.ai_rule_id === ruleId);
     return { rule_id: ruleId, source_document_id: suggestedJe?.source_document_id, je_fingerprint: mockJeReviewFingerprint(suggestedJe), decision: 'APPROVED_FOR_MOCK_POSTING', actor: 'CONTROLLER_MOCK', reviewed_at: '2026-08-05T00:00:00.000Z' };
   });
   const reviewApprovedJEs = mockReviewDecisions.map(decision => {
-    const suggested = suggestedJEs.find(je => je.ai_rule_id === decision.rule_id && je.source_document_id === decision.source_document_id);
+    const suggested = postableJEs.find(je => je.ai_rule_id === decision.rule_id && je.source_document_id === decision.source_document_id);
     return retainMockReviewApproval({ suggestedJe: suggested, decision });
   }).filter(Boolean);
   const postedWbsJEs = approveAndPostSuggestedJEs({ suggestedJEs: reviewApprovedJEs, periods: snapshot.accountingPeriods });
@@ -84,12 +88,52 @@ export function buildWbsReportImpact(snapshot = createWbsMockDataset()) {
     { control: 'Posted-only projection', state: postedJournalEntries.every(je => je.posting_status === 'POSTED') ? 'TIED' : 'REVIEW_REQUIRED', evidence: `${postedJournalEntries.length} posted JEs included` },
     { control: 'Source trace', state: impactRows.every(row => row.control_state === 'SOURCE_LINKED_POSTED') ? 'TIED' : 'REVIEW_REQUIRED', evidence: `${impactRows.filter(row => row.source_document_id).length} source-linked GL lines` },
   ];
+  const terminalReviews = [
+    {
+      flow_id: 'BANK_TO_EXCEPTION',
+      source_document_id: 'DOC-BANK-UNMATCHED',
+      event_id: 'EVT-BANK-UNMATCHED-01',
+      state: 'EXCEPTION_RETAINED',
+      actor: 'CONTROLLER_MOCK',
+      reviewed_at: '2026-08-05T00:00:00.000Z',
+      audit_trail: [{ id: 'AUD-BANK-UNMATCHED-review', action: 'review-retained-exception', at: '2026-08-05T00:00:00.000Z', actor: 'CONTROLLER_MOCK' }],
+    },
+    {
+      flow_id: 'COST_GL_TO_CWIP_REVIEW',
+      source_document_id: 'DOC-COST-POST-COMPLETE-01',
+      event_id: 'EVT-COST-POST-COMPLETE-01',
+      state: 'CUTOFF_REVIEW_RETAINED',
+      actor: 'CONTROLLER_MOCK',
+      reviewed_at: '2026-08-05T00:00:00.000Z',
+      audit_trail: [{ id: 'AUD-COST-CUTOFF-review', action: 'review-retained-cutoff', at: '2026-08-05T00:00:00.000Z', actor: 'CONTROLLER_MOCK' }],
+    },
+    {
+      flow_id: 'PROPERTY_OPS_TO_REVENUE',
+      source_document_id: 'DOC-RENT-ROLL',
+      event_id: 'EVT-RENT-JULY-01',
+      state: 'REVENUE_MISMATCH_RETAINED',
+      actor: 'CONTROLLER_MOCK',
+      reviewed_at: '2026-08-05T00:00:00.000Z',
+      audit_trail: [{ id: 'AUD-RENT-MISMATCH-review', action: 'review-retained-revenue-mismatch', at: '2026-08-05T00:00:00.000Z', actor: 'CONTROLLER_MOCK' }],
+    },
+    {
+      flow_id: 'GL_TO_AI_ANALYSIS',
+      source_document_id: 'DOC-AP-MISSING-GL',
+      event_id: 'EVT-AP-ACCRUAL-01',
+      state: 'ANALYSIS_RETAINED',
+      actor: 'CONTROLLER_MOCK',
+      reviewed_at: '2026-08-05T00:00:00.000Z',
+      audit_trail: [{ id: 'AUD-GL-AI-analysis', action: 'analysis-retained', at: '2026-08-05T00:00:00.000Z', actor: 'CONTROLLER_MOCK' }],
+    },
+  ];
   return {
     mode: 'WBS_MOCK_POSTED_REPORT_IMPACT',
     snapshot,
     events,
     findings,
     mockReviewDecisions,
+    insurance,
+    terminalReviews,
     postedWbsJEs,
     postedJournalEntries,
     glLines,

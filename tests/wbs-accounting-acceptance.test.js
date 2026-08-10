@@ -116,13 +116,28 @@ async function main() {
 
   const e2e = buildWbsEndToEndFlowEvidence(snapshot);
   assert(e2e.controls.total_flows === 10 && e2e.allFlowsReported, 'acceptance 13/16: AI Audit flow evidence must report all 10 source-to-report workflows');
-  assert(e2e.controls.complete_flows === 3 && e2e.controls.incomplete_flows === 7 && !e2e.allFlowsTraceable && !e2e.allFlowsComplete, 'acceptance 13/16: mock evidence must distinguish three same-lineage complete flows from seven explicit gaps');
+  assert(e2e.controls.complete_flows === 10 && e2e.controls.incomplete_flows === 0 && e2e.allFlowsTraceable && e2e.allFlowsComplete && e2e.all_flow_source_documents_admitted, 'acceptance 13/16: every local mock workflow must reach its explicitly permitted same-lineage terminal evidence state with an admitted source document');
   ['PAYABLE_TO_ACCRUAL', 'BANK_TO_EXCEPTION', 'LOAN_DRAW_TO_REPORTS', 'INSURANCE_TO_AMORTIZATION', 'PROPERTY_TAX_TO_ACCRUAL', 'SOURCE_TO_TB', 'TB_TO_STATEMENTS', 'GL_TO_AI_ANALYSIS'].forEach(id => {
     const row = e2e.flows.find(flow => flow.id === id);
     assert(row?.source_id && row.event_id && ['COMPLETE', 'INCOMPLETE'].includes(row.evidence_state), `acceptance 13/16: E2E flow ${id} must remain reported with an explicit evidence state`);
     if (row.evidence_state === 'COMPLETE') assert(row.audit_trail_count > 0, `acceptance 13/16: complete E2E flow ${id} must retain same-lineage audit evidence`);
     else assert(row.missing_evidence.length > 0, `acceptance 13/16: incomplete E2E flow ${id} must name its missing evidence`);
   });
+  const bankExceptionFlow = e2e.flows.find(flow => flow.id === 'BANK_TO_EXCEPTION');
+  const cutoffFlow = e2e.flows.find(flow => flow.id === 'COST_GL_TO_CWIP_REVIEW');
+  const revenueMismatchFlow = e2e.flows.find(flow => flow.id === 'PROPERTY_OPS_TO_REVENUE');
+  [bankExceptionFlow, cutoffFlow, revenueMismatchFlow].forEach(flow => {
+    assert(flow.completion_model === 'CONTROL_REVIEW' && flow.terminal_outcome && flow.posted_je_id === null, `acceptance 13/16: ${flow.id} must complete as retained review evidence, never a fabricated posting`);
+    assert(flow.evidence.review && flow.evidence.audit_trail && flow.evidence.terminal_outcome, `acceptance 13/16: ${flow.id} must retain controller review and audit evidence`);
+  });
+  const insuranceFlow = e2e.flows.find(flow => flow.id === 'INSURANCE_TO_AMORTIZATION');
+  assert(insuranceFlow.posted_je_id === 'AMORT-AP-INS-12MO-2026-07' && insuranceFlow.gl_line_count === 2 && insuranceFlow.report_impact_count === 2 && insuranceFlow.observed_gl_line_count === 4, 'acceptance 13/16: only the explicit reviewed July amortization may post into the mock GL and report evidence');
+  ['SOURCE_TO_TB', 'TB_TO_STATEMENTS'].forEach(id => {
+    const flow = e2e.flows.find(row => row.id === id);
+    assert(flow.completion_model === 'AGGREGATE_POSTED' && flow.evidence.aggregate_trace && flow.aggregate_trace.source_document_ids.length > 1 && flow.aggregate_trace.trial_balance_tied, `acceptance 13/16: ${id} must retain a multi-source POSTED aggregate trace, not a synthetic zero report`);
+  });
+  const aiAnalysisFlow = e2e.flows.find(flow => flow.id === 'GL_TO_AI_ANALYSIS');
+  assert(aiAnalysisFlow.completion_model === 'AI_ANALYSIS' && aiAnalysisFlow.terminal_outcome === 'ANALYSIS_RETAINED' && aiAnalysisFlow.posted_je_id === null, 'acceptance 13/16: AI analysis must complete as an audited read-only analysis, not an AI posting path');
   const propertyTaxFlow = e2e.flows.find(flow => flow.id === 'PROPERTY_TAX_TO_ACCRUAL');
   assert(propertyTaxFlow.control_state === 'POSTED_MOCK_IMPACT_TIED' && propertyTaxFlow.gl_line_count === 2 && propertyTaxFlow.report_impact_count === 2 && propertyTaxFlow.audit_trail_count >= 3, 'acceptance 13/16: property tax flow must retain reviewed posted, GL, report and audit evidence');
   const payableFlow = e2e.flows.find(flow => flow.id === 'PAYABLE_TO_ACCRUAL');
