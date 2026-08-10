@@ -42,6 +42,15 @@ const STATUS_TOKEN=/^[A-Z][A-Z0-9_]{0,63}$/;
 const nullableUuid=value=>value===null||value===undefined||UUID.test(value||'');
 const nullableRevision=value=>value===null||value===undefined||(UNSIGNED_INTEGER.test(String(value))&&Number.isSafeInteger(Number(value)));
 const validTimestamp=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T/.test(value)&&!Number.isNaN(new Date(value).valueOf());
+const JOURNAL_TYPES=new Set(['MANUAL','AUTO','REVERSAL','RECLASS']);
+const JOURNAL_STATUSES=new Set(['DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED']);
+
+const journalRow=row=>{
+  if(!row||!UUID.test(row.journal_entry_id||'')||!TEXT_TOKEN.test(row.journal_number||'')||!JOURNAL_TYPES.has(row.journal_type)||!JOURNAL_STATUSES.has(row.status)||!validDate(row.journal_date)||!/^[A-Z]{3}$/.test(row.currency||'')||row.description!==null&&row.description!==undefined&&(typeof row.description!=='string'||row.description.length>2000)||!UNSIGNED_INTEGER.test(String(row.revision??''))||!validTimestamp(row.created_at)||row.posted_at!==null&&row.posted_at!==undefined&&!validTimestamp(row.posted_at)||!UNSIGNED_INTEGER.test(String(row.ledger_line_count??'')))return null;
+  const revision=Number(row.revision),ledgerLineCount=Number(row.ledger_line_count);
+  if(!Number.isSafeInteger(revision)||revision<0||!Number.isSafeInteger(ledgerLineCount)||ledgerLineCount<0||(row.status==='POSTED')!==(row.posted_at!==null&&row.posted_at!==undefined))return null;
+  return {journal_entry_id:row.journal_entry_id,journal_number:row.journal_number,journal_type:row.journal_type,status:row.status,journal_date:row.journal_date,currency:row.currency,description:row.description??null,revision,created_at:row.created_at,posted_at:row.posted_at??null,ledger_line_count:ledgerLineCount};
+};
 
 const documentRow=(row,kind)=>{
   if(!row||!UUID.test(row.business_document_id||'')||!TEXT_TOKEN.test(row.document_number||'')||!TEXT_TOKEN.test(row.counterparty_ref||'')||!TEXT_TOKEN.test(row.counterparty_name||'')||!/^[A-Z]{3}$/.test(row.currency||'')||!validDate(row.accounting_date)||row.due_date!==null&&row.due_date!==undefined&&!validDate(row.due_date)||!MONEY4.test(String(row.gross_amount??''))||!MONEY4.test(String(row.open_balance??''))||!STATUS_TOKEN.test(row.status||'')||!nullableUuid(row.posted_journal_entry_id)||!UNSIGNED_INTEGER.test(String(row.version??''))||!nullableUuid(row.journal_entry_id)||row.journal_status!==null&&row.journal_status!==undefined&&!STATUS_TOKEN.test(row.journal_status)||!nullableRevision(row.journal_revision)||!nullableUuid(row.period_id)||row.offset_account_code!==null&&row.offset_account_code!==undefined&&!ACCOUNT_CODE.test(row.offset_account_code)||row.description!==null&&row.description!==undefined&&typeof row.description!=='string')return null;
@@ -75,8 +84,8 @@ export async function refreshAuthoritativeJournalEntries({config,fetcher=globalT
     const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/journal-entries`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
     if(!response.ok)return await failure(response,'JOURNAL_ENTRIES');
     const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal Entry read envelope.'};
-    const journals=body.data.map(row=>({...row,revision:Number(row.revision),ledger_line_count:Number(row.ledger_line_count)}));
-    if(journals.some(row=>!UUID.test(row.journal_entry_id||'')||!Number.isSafeInteger(row.revision)||row.revision<0||!Number.isSafeInteger(row.ledger_line_count)||row.ledger_line_count<0))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal Entry row.'};
+    const journals=body.data.map(journalRow),ids=journals.map(row=>row?.journal_entry_id),numbers=journals.map(row=>row?.journal_number);
+    if(journals.some(row=>row===null)||new Set(ids).size!==ids.length||new Set(numbers).size!==numbers.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate Journal Entry row.'};
     return {ok:true,journals};
   }catch{return unreachable('The browser could not complete the authoritative Journal Entry read; no HTTP response was produced.');}
 }
