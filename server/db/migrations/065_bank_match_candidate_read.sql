@@ -15,7 +15,7 @@ RETURNS TABLE(
   occurrence_version integer,
   occurrence_kind text,
   business_source_document_id uuid,
-  accounting_date date,
+  accounting_date text,
   currency char(3),
   amount numeric(20,4),
   journal_entry_id uuid,
@@ -37,8 +37,8 @@ BEGIN
   END IF;
 
   RETURN QUERY
-    SELECT po.payment_occurrence_id,po.version::integer,po.occurrence_kind,po.source_document_id,
-      po.accounting_date,po.currency,po.amount,je.journal_entry_id,jl.journal_line_id,
+    SELECT po.payment_occurrence_id,po.version::integer,po.occurrence_kind,po.business_document_id,
+      to_char(po.accounting_date,'YYYY-MM-DD'),po.currency,po.amount,je.journal_entry_id,jl.journal_line_id,
       ll.ledger_line_id,(bank_row.transaction_date-po.accounting_date)
     FROM public.payment_occurrence po
     JOIN public.journal_entry je

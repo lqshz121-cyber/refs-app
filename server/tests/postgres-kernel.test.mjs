@@ -1702,6 +1702,11 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
     date_delta_days:0
   });
   assert.ok(candidates[0].journal_line_id);assert.ok(candidates[0].ledger_line_id);
+  const shanghaiCandidates=await matcher.inSession(async client=>{
+    await client.query("SET LOCAL TIME ZONE 'Asia/Shanghai'");
+    return (await client.query('SELECT * FROM refs_list_bank_match_candidates($1,$2,$3)',[ids.tenantId,ids.entityId,bankSourceId])).rows;
+  });
+  assert.equal(shanghaiCandidates[0].accounting_date,'2026-07-16');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM bank_match WHERE bank_source_id=$1',[bankSourceId])).rows[0].n,0);
   const matchArgs={...ids,bankSourceId,paymentOccurrenceId:exact.payment.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Reviewed exact posted AP payment',idempotencyKey:'bank-match-exact-001'};
   const created=await matcher.createBankPaymentMatch(matchArgs);const replay=await matcher.createBankPaymentMatch(matchArgs);

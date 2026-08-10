@@ -2,6 +2,7 @@ import {spawn} from 'node:child_process';
 import {createServer} from 'node:net';
 import {fileURLToPath} from 'node:url';
 import {dirname,resolve} from 'node:path';
+import {postgresDataVolumeTarget} from './postgres-container.mjs';
 
 const serverRoot=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const project=`refs_kernel_gate_${process.pid}_${Date.now().toString(36)}`.toLowerCase();
@@ -42,6 +43,7 @@ const composeEnv={...process.env,
   POSTGRES_PASSWORD:passwords.migrator,
   POSTGRES_PORT:String(port)
 };
+composeEnv.POSTGRES_DATA_VOLUME_TARGET=postgresDataVolumeTarget(composeEnv.POSTGRES_IMAGE||'postgres:16-alpine');
 const testEnv={...composeEnv,
   REFS_PG_REQUIRED:'1',
   DATABASE_URL:`postgresql://refs_runtime:${passwords.runtime}@127.0.0.1:${port}/${database}`,

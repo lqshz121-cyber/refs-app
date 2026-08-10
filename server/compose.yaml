@@ -14,7 +14,7 @@ services:
       timeout: 3s
       retries: 30
     volumes:
-      - refs_kernel_pgdata:/var/lib/postgresql/data
+      - refs_kernel_pgdata:${POSTGRES_DATA_VOLUME_TARGET:-/var/lib/postgresql/data}
       - ./runtime/docker-init.sql:/docker-entrypoint-initdb.d/010-runtime-role.sql:ro
 
 volumes:
