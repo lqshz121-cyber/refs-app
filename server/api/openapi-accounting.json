@@ -1180,6 +1180,19 @@
         "responses": {"200": {"$ref": "#/components/responses/BudgetVsActualReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/reports/consolidation": {
+      "get": {
+        "operationId": "getConsolidation",
+        "summary": "Read approved immutable consolidation and elimination evidence",
+        "description": "Reads one approved immutable consolidation scope whose members, presentation mappings, and elimination evidence are all explicit. It admits only same-currency POSTED ledger evidence from every authorized member. Missing member scope, aligned period, mapping, posted evidence, or elimination evidence remains BLOCKED. This operation cannot create an elimination, adjustment, journal, mapping, or report snapshot.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}},
+          {"name": "groupRef", "in": "query", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^(?:\\S|\\S.*\\S)$"}}
+        ],
+        "responses": {"200": {"$ref": "#/components/responses/ConsolidationReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/bank/reconciliations": {
       "post": {
         "operationId": "startReconciliation",
@@ -2733,6 +2746,18 @@
         }
       },
       "BudgetVsActualReadEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/BudgetVsActualReadRow"}}}},
+      "ConsolidationReadRow": {
+        "type":"object", "additionalProperties":false,
+        "required":["group_ref","period_id","period_code","period_start","period_end","currency","presentation_account_code","presentation_side","report_status","classification_basis","member_count","evidence_member_count","member_actual_amount","elimination_amount","consolidated_amount","consolidation_snapshot_id","consolidation_version","consolidation_snapshot_hash","consolidation_receipt_hash","consolidation_source_ref","consolidation_source_version","member_entity_ids","journal_entry_ids","journal_line_ids","ledger_line_ids","source_document_ids","elimination_refs"],
+        "properties": {
+          "group_ref":{"type":"string"}, "period_id":{"$ref":"#/components/schemas/Uuid"}, "period_code":{"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])$"}, "period_start":{"type":"string","format":"date"}, "period_end":{"type":"string","format":"date"}, "currency":{"type":"string","pattern":"^[A-Z]{3}$"},
+          "presentation_account_code":{"type":"string"}, "presentation_side":{"type":"string","enum":["DEBIT","CREDIT"]}, "report_status":{"type":"string","enum":["APPROVED_CONSOLIDATION_SNAPSHOT_AND_POSTED_LEDGER_EXACT","BLOCKED_MEMBER_SCOPE_REQUIRED","BLOCKED_MEMBER_PERIOD_OR_CURRENCY_REQUIRED","BLOCKED_MEMBER_POSTED_EVIDENCE_REQUIRED","BLOCKED_ELIMINATION_EVIDENCE_REQUIRED"]}, "classification_basis":{"type":"string"}, "member_count":{"type":"integer","minimum":1}, "evidence_member_count":{"type":"integer","minimum":0},
+          "member_actual_amount":{"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "elimination_amount":{"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "consolidated_amount":{"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]},
+          "consolidation_snapshot_id":{"$ref":"#/components/schemas/Uuid"}, "consolidation_version":{"type":"string","pattern":"^[1-9][0-9]*$"}, "consolidation_snapshot_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}, "consolidation_receipt_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}, "consolidation_source_ref":{"type":"string"}, "consolidation_source_version":{"type":"string"},
+          "member_entity_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "journal_entry_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "journal_line_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "ledger_line_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "source_document_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "elimination_refs":{"type":"array","items":{"type":"string"}}
+        }
+      },
+      "ConsolidationReadEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/ConsolidationReadRow"}}}},
       "ReconciliationWorksheetRow": {
         "type": "object",
         "additionalProperties": false,
@@ -4235,6 +4260,11 @@
         "description": "Scoped, read-only approved immutable budget versus actual evidence; incomplete evidence remains blocked and cannot create or revise a budget, journal, mapping, or adjustment",
         "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BudgetVsActualReadEnvelope"}}}
+      },
+      "ConsolidationReadOk": {
+        "description": "Scoped, read-only approved immutable consolidation evidence; incomplete members, mappings, POSTED evidence, or elimination evidence remain BLOCKED and cannot create a journal or adjustment",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConsolidationReadEnvelope"}}}
       },
       "BankMatchCandidateReadOk": {
         "description": "Scoped, controller-authorized exact POSTED bank-match candidates",

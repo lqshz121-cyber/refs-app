@@ -484,6 +484,27 @@ export async function refreshAuthoritativeBudgetVsActual({config,fetcher=globalT
   }catch{return unreachable('The browser could not complete the authoritative budget-versus-actual read; no HTTP response was produced.');}
 }
 
+export async function refreshAuthoritativeConsolidation({config,groupRef,fetcher=globalThis.fetch}={}){
+  const group=String(groupRef??'').trim();
+  if(!config||typeof fetcher!=='function'||!UUID.test(config.periodId||'')||!group||group.length>160||/[\u0000-\u001f\u007f]/.test(group))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Consolidation requires one authoritative reporting entity, period, and canonical group reference.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({periodId:config.periodId,groupRef:group});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/reports/consolidation?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid consolidation envelope.'};
+    const statuses=new Set(['APPROVED_CONSOLIDATION_SNAPSHOT_AND_POSTED_LEDGER_EXACT','BLOCKED_MEMBER_SCOPE_REQUIRED','BLOCKED_MEMBER_PERIOD_OR_CURRENCY_REQUIRED','BLOCKED_MEMBER_POSTED_EVIDENCE_REQUIRED','BLOCKED_ELIMINATION_EVIDENCE_REQUIRED']);
+    const ids=['member_entity_ids','journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'];
+    const invalid=row=>{
+      const approved=row?.report_status==='APPROVED_CONSOLIDATION_SNAPSHOT_AND_POSTED_LEDGER_EXACT';
+      const amounts=['member_actual_amount','elimination_amount','consolidated_amount'];
+      return row?.group_ref!==group||row?.period_id!==config.periodId||!PERIOD_CODE.test(row?.period_code||'')||!validDate(row?.period_start)||!validDate(row?.period_end)||row.period_start>row.period_end||row.period_start.slice(0,7)!==row.period_code||row.period_end.slice(0,7)!==row.period_code||!CURRENCY3.test(row?.currency||'')||!ACCOUNT_CODE.test(row?.presentation_account_code||'')||!['DEBIT','CREDIT'].includes(row?.presentation_side)||!statuses.has(row?.report_status)||typeof row?.classification_basis!=='string'||!row.classification_basis.trim()||!Number.isSafeInteger(row?.member_count)||row.member_count<1||!Number.isSafeInteger(row?.evidence_member_count)||row.evidence_member_count<0||row.evidence_member_count>row.member_count||!UUID.test(row?.consolidation_snapshot_id||'')||!/^[1-9][0-9]*$/.test(String(row?.consolidation_version??''))||!/^sha256:[0-9a-f]{64}$/.test(row?.consolidation_snapshot_hash||'')||!/^sha256:[0-9a-f]{64}$/.test(row?.consolidation_receipt_hash||'')||typeof row?.consolidation_source_ref!=='string'||!row.consolidation_source_ref.trim()||typeof row?.consolidation_source_version!=='string'||!row.consolidation_source_version.trim()||ids.some(field=>!Array.isArray(row?.[field])||row[field].some(id=>!UUID.test(id||'')))||!Array.isArray(row?.elimination_refs)||row.elimination_refs.some(ref=>typeof ref!=='string'||!ref.trim())||(approved?amounts.some(field=>!REPORT_MONEY4.test(String(row?.[field]??''))):amounts.some(field=>row?.[field]!==null));
+    };
+    if(body.data.some(invalid)||new Set(body.data.map(row=>`${row.presentation_account_code}:${row.presentation_side}`)).size!==body.data.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate consolidation row.'};
+    return {ok:true,rows:body.data.map(row=>({...row,...Object.fromEntries(['member_actual_amount','elimination_amount','consolidated_amount'].map(field=>[field,row[field]===null?null:String(row[field])]))})),scope:{entityId:config.entityId,periodId:config.periodId,groupRef:group},complete:body.data.length>0&&body.data.every(row=>row.report_status==='APPROVED_CONSOLIDATION_SNAPSHOT_AND_POSTED_LEDGER_EXACT')};
+  }catch{return unreachable('The browser could not complete the authoritative consolidation read; no HTTP response was produced.');}
+}
+
 const CURRENCY3=/^[A-Z]{3}$/;
 const money4=v=>{if(typeof v==='number'&&Number.isFinite(v))return v.toFixed(4);if(typeof v==='string'&&MONEY4.test(v))return v;return null;};
 export async function refreshAuthoritativeAging({config,side,asOfDate,fetcher=globalThis.fetch}={}){
