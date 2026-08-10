@@ -538,6 +538,13 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getIntercompanyReconciliation({tenantId,entityId,periodId,counterpartyEntityId,counterpartyPeriodId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_intercompany_reconciliation($1,$2,$3,$4,$5)',
+      [tenantId,entityId,periodId,counterpartyEntityId,counterpartyPeriodId]
+    )).rows);
+  }
+
   async getApAging({tenantId,entityId,asOfDate}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_ap_aging($1,$2,$3::date)',[tenantId,entityId,asOfDate]
