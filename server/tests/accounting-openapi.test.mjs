@@ -154,6 +154,18 @@ test('dimension profitability is an exact, read-only Property, Project, or Unit 
   assert.equal(contract.components.responses.DimensionProfitabilityReadOk.headers['Cache-Control'].schema.const,'no-store');
 });
 
+test('cash flow classification requires a mapping snapshot and carries blocked evidence rather than inferred totals',()=>{
+  const operation=contract.paths['/entities/{entityId}/reports/cash-flow-classification'].get;
+  assert.equal(operation.operationId,'getCashFlowClassification');assert.equal(operation.parameters.find(parameter=>parameter.name==='periodId').required,true);
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/CashFlowClassificationReadOk');
+  assert.match(operation.description,/Missing, ambiguous, invalid, or multi-cash mappings remain BLOCKED/i);
+  const row=contract.components.schemas.CashFlowClassificationReadRow;
+  assert.equal(row.additionalProperties,false);assert.deepEqual(row.properties.classification.enum,['OPERATING','INVESTING','FINANCING','BLOCKED']);
+  assert.ok(row.properties.mapping_status.enum.includes('BLOCKED_MAPPING_REQUIRED'));assert.ok(row.properties.mapping_status.enum.includes('BLOCKED_JOURNAL_SHAPE_REQUIRED'));
+  for(const key of ['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'])assert.equal(row.properties[key].items.$ref,'#/components/schemas/Uuid');
+  assert.equal(contract.components.responses.CashFlowClassificationReadOk.headers['Cache-Control'].schema.const,'no-store');
+});
+
 test('AP and AR adjustment list reads expose only the authoritative scoped adjustment envelope',()=>{
   for(const [path,operationId] of [['/entities/{entityId}/ap/adjustments','listApAdjustments'],['/entities/{entityId}/ar/adjustments','listArAdjustments']]){
     const operation=contract.paths[path].get;
