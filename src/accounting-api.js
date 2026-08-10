@@ -159,6 +159,17 @@ const bankCommandResult=async({config,path,revision,idempotencyKey,body,fetcher,
   }catch{return unreachable(`The browser could not complete the authoritative ${operation} command; no HTTP response was produced.`);}
 };
 
+const reconciliationWorksheetRow=(row,reconciliationId)=>{
+  if(!row||row.reconciliation_id!==reconciliationId||!UNSIGNED_INTEGER.test(String(row.reconciliation_version??''))||!UUID.test(row.bank_source_id||'')||!UNSIGNED_INTEGER.test(String(row.bank_version??''))||!BANK_ACCOUNT_REF.test(row.bank_account_ref||'')||!TEXT_TOKEN.test(row.external_bank_line_id||'')||!validDate(row.transaction_date)||!/^[A-Z]{3}$/.test(row.currency||'')||!MONEY4.test(String(row.amount??''))||!['NOT_CLEARED','CLEARED','UNCLEARED'].includes(row.clearance_state))return null;
+  const reconciliationVersion=Number(row.reconciliation_version),bankVersion=Number(row.bank_version),amount=Number(row.amount),matchId=row.bank_match_id??null,itemId=row.reconciliation_item_id??null;
+  if(![reconciliationVersion,bankVersion].every(value=>Number.isSafeInteger(value)&&value>=0)||!Number.isFinite(amount)||matchId!==null&&!UUID.test(matchId)||itemId!==null&&!UUID.test(itemId))return null;
+  if(matchId===null&&['bank_match_version','match_status','business_source_document_id','journal_entry_id','journal_line_id'].some(field=>row[field]!==null&&row[field]!==undefined))return null;
+  if(matchId!==null&&(!UNSIGNED_INTEGER.test(String(row.bank_match_version??''))||row.match_status!=='ACTIVE'||!UUID.test(row.business_source_document_id||'')||!UUID.test(row.journal_entry_id||'')||!UUID.test(row.journal_line_id||'')))return null;
+  if(row.clearance_state==='NOT_CLEARED'&&itemId!==null)return null;
+  if(row.clearance_state!=='NOT_CLEARED'&&(!itemId||!UNSIGNED_INTEGER.test(String(row.item_version??''))||!TEXT_TOKEN.test(row.cleared_by||'')||!validTimestamp(row.cleared_at)))return null;
+  return {reconciliation_id:reconciliationId,reconciliation_version:reconciliationVersion,bank_source_id:row.bank_source_id,bank_version:bankVersion,bank_account_ref:row.bank_account_ref,external_bank_line_id:row.external_bank_line_id,transaction_date:row.transaction_date,currency:row.currency,amount,bank_match_id:matchId,bank_match_version:matchId===null?null:Number(row.bank_match_version),match_status:row.match_status??null,business_source_document_id:row.business_source_document_id??null,journal_entry_id:row.journal_entry_id??null,journal_line_id:row.journal_line_id??null,clearance_state:row.clearance_state,reconciliation_item_id:itemId,item_version:itemId===null?null:Number(row.item_version),cleared_by:row.cleared_by??null,cleared_at:row.cleared_at??null,uncleared_by:row.uncleared_by??null,uncleared_at:row.uncleared_at??null};
+};
+
 export async function createAuthoritativeBankPaymentMatch({config,bankSourceId,bankRevision,candidate,reason,fetcher=globalThis.fetch}={}){
   const approvedReason=bankCommandReason(reason);
   const scaled=typeof candidate?.amount==='number'?candidate.amount*10000:NaN;
@@ -188,6 +199,26 @@ export async function refreshAuthoritativeReconciliation({config,bankAccountRef,
     if(rows.some(row=>row===null))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation row.'};
     return {ok:true,row:rows[0]||null,scope:{entityId:config.entityId,bankAccountRef:account,statementEndingDate}};
   }catch{return unreachable('The browser could not complete the authoritative reconciliation read; no HTTP response was produced.');}
+}
+
+export async function refreshAuthoritativeReconciliationWorksheet({config,reconciliationId,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!UUID.test(reconciliationId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Reconciliation worksheet requires one authoritative reconciliation.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/bank/reconciliations/${reconciliationId}/worksheet`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'RECONCILIATION_WORKSHEET');
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation worksheet envelope.'};
+    const rows=body.data.map(row=>reconciliationWorksheetRow(row,reconciliationId)),ids=rows.map(row=>row?.bank_source_id);
+    if(rows.some(row=>row===null)||new Set(ids).size!==ids.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate reconciliation worksheet row.'};
+    return {ok:true,rows};
+  }catch{return unreachable('The browser could not complete the authoritative reconciliation worksheet read; no HTTP response was produced.');}
+}
+
+export async function setAuthoritativeReconciliationClearance({config,reconciliationId,reconciliationRevision,row,clear,reason,fetcher=globalThis.fetch}={}){
+  const approvedReason=bankCommandReason(reason);
+  if(!UUID.test(reconciliationId||'')||!Number.isSafeInteger(reconciliationRevision)||reconciliationRevision<0||!row||!UUID.test(row.bank_source_id||'')||!Number.isSafeInteger(row.bank_version)||row.bank_version<0||typeof clear!=='boolean'||!approvedReason||clear&&(row.match_status!=='ACTIVE'||!UUID.test(row.bank_match_id||'')))return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Clearance requires current reconciliation and bank revisions, an exact active match to clear, and a review reason.'};
+  const idempotencyKey=`UI-RECONCILIATION-${clear?'CLEAR':'UNCLEAR'}-${reconciliationId}-${reconciliationRevision}-${row.bank_source_id}-${row.bank_version}`;
+  return bankCommandResult({config,path:`/bank/reconciliations/${reconciliationId}/items/${row.bank_source_id}/clearance`,revision:reconciliationRevision,idempotencyKey,body:{clear,expectedBankRevision:row.bank_version,reason:approvedReason},fetcher,operation:'RECONCILIATION_CLEARANCE'});
 }
 
 export async function refreshAuthoritativeFinancialStatements({config,fetcher=globalThis.fetch}={}){

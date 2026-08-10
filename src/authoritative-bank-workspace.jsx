@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {createAuthoritativeBankPaymentMatch,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation,unmatchAuthoritativeBankPayment} from './accounting-api.js';
+import {createAuthoritativeBankPaymentMatch,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation,refreshAuthoritativeReconciliationWorksheet,setAuthoritativeReconciliationClearance,unmatchAuthoritativeBankPayment} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {DEFAULT_AUTHORITATIVE_LIST_VIEW,createAuthoritativeReturnContext,restoreAuthoritativeReturnContext} from './authoritative-list-context.js';
 
@@ -82,8 +82,13 @@ export const AuthoritativeReconciliationSummary=({row=null,onOpen=()=>{}})=><sec
   </>}
 </section>;
 
-export const AuthoritativeReconciliationDetail=({row,scope,onBack})=><section className="full-bleed qbo-transaction-report" aria-label="Reconciliation statement detail">
-  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to reconciliation evidence</button><h1>Statement ending {row.statement_ending_date}</h1><p className="muted sm">Independent statement evidence. Matching, clearing, reopening, sign-off, adjustment, and posting are unavailable.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+export function AuthoritativeReconciliationDetail({row,scope,onBack,config,fetcher,onChanged=()=>{}}){
+  const [worksheet,setWorksheet]=useState({phase:'IDLE',rows:[],error:null});
+  const [reason,setReason]=useState('');
+  const loadWorksheet=async()=>{setWorksheet({phase:'LOADING',rows:[],error:null});const result=await refreshAuthoritativeReconciliationWorksheet({config,reconciliationId:row.reconciliation_id,fetcher});setWorksheet(result.ok?{phase:'READY',rows:result.rows,error:null}:{phase:'ERROR',rows:[],error:result});};
+  const setClearance=async(item,clear)=>{setWorksheet(current=>({...current,phase:'COMMANDING',error:null}));const result=await setAuthoritativeReconciliationClearance({config,reconciliationId:row.reconciliation_id,reconciliationRevision:row.version,row:item,clear,reason,fetcher});if(result.ok){onChanged();await loadWorksheet();return;}setWorksheet(current=>({...current,phase:'READY',error:result}));};
+  return <section className="full-bleed qbo-transaction-report" aria-label="Reconciliation statement detail">
+  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to reconciliation evidence</button><h1>Statement ending {row.statement_ending_date}</h1><p className="muted sm">The worksheet is authoritative evidence. A controller may clear or unclear only a server-returned bank line; review, sign-off, adjustment, and posting remain separate commands.</p></div><span className="badge badge-muted">CONTROLLER REVIEW</span></div>
   <div className="qbo-toolgrid">
     <span><i>Bank account</i><b>{row.bank_account_ref}</b></span><span><i>Status</i><b>{row.status}</b></span><span><i>Ending balance</i><b>{money(row.statement_ending_balance)}</b></span>
     <span><i>Activity</i><b>{money(row.statement_activity_amount)}</b></span><span><i>Difference</i><b>{money(row.difference)}</b></span><span><i>Version</i><b>{row.version}</b></span>
@@ -94,8 +99,16 @@ export const AuthoritativeReconciliationDetail=({row,scope,onBack})=><section cl
     <span><i>Reconciled by</i><b>{row.reconciled_by||'Unavailable'}</b></span><span><i>Reconciled at</i><b>{row.reconciled_at||'Unavailable'}</b></span>
     <span><i>Reopened by</i><b>{row.reopened_by||'Unavailable'}</b></span><span><i>Reopened at</i><b>{row.reopened_at||'Unavailable'}</b></span>
   </div>
+  <section className="card" aria-label="Reconciliation worksheet">
+    <div className="card-head"><div><h2>Statement worksheet</h2><p className="muted sm">The API supplies the exact scoped bank line and active Match evidence. This screen cannot create a Match, sign off, reopen, create an adjustment, or post.</p></div><span className="badge badge-muted">SERVER EVIDENCE</span></div>
+    {worksheet.phase==='IDLE'&&<button type="button" className="btn btn-sm" onClick={loadWorksheet}>Load reconciliation worksheet</button>}
+    {worksheet.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative reconciliation worksheet...</StateBlock>}
+    {worksheet.phase==='ERROR'&&<ReadError error={worksheet.error} onRetry={loadWorksheet}/>}
+    {(worksheet.phase==='READY'||worksheet.phase==='COMMANDING')&&<><form className="filterbar" onSubmit={event=>event.preventDefault()}><label>Controller reason<input required minLength={8} maxLength={2000} value={reason} onChange={event=>setReason(event.target.value)}/></label></form>{!worksheet.rows.length?<StateBlock tone="empty" title="No worksheet items returned">This scoped empty result is not evidence of zero cash activity or a completed reconciliation.</StateBlock>:<div className="table-wrap"><table className="tbl"><thead><tr><th>Date</th><th>Bank evidence</th><th>Amount</th><th>Match</th><th>Clearance</th><th>Action</th></tr></thead><tbody>{worksheet.rows.map(item=><tr key={item.bank_source_id}><td>{item.transaction_date}</td><td><b>{item.external_bank_line_id}</b><div className="muted sm">{item.bank_source_id}</div></td><td className="num">{money(item.amount)} {item.currency}</td><td>{item.match_status==='ACTIVE'?<><b>ACTIVE</b><div className="muted sm">JE {item.journal_entry_id}</div></>:'No exact active Match'}</td><td>{item.clearance_state}</td><td>{item.clearance_state==='CLEARED'?<button type="button" className="btn btn-sm" disabled={worksheet.phase==='COMMANDING'} onClick={()=>setClearance(item,false)}>Unclear</button>:item.match_status==='ACTIVE'?<button type="button" className="btn btn-sm" disabled={worksheet.phase==='COMMANDING'} onClick={()=>setClearance(item,true)}>Clear matched item</button>:<span className="muted sm">Blocked</span>}</td></tr>)}</tbody></table></div>}{worksheet.error&&<ReadError error={worksheet.error} onRetry={loadWorksheet}/>}</>}
+  </section>
   <p className="muted sm">Scope: entity {scope.entityId}; account {scope.bankAccountRef}; statement cutoff {scope.statementEndingDate}.</p>
 </section>;
+}
 
 export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
   const [scope,setScope]=useState({bankAccountRef:'',from:'',through:''});
@@ -143,7 +156,7 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     setSelected(null);
     restoreAuthoritativeReturnContext(environment,config,context);
   };
-  if(selected)return <AuthoritativeReconciliationDetail row={selected.row} scope={{...scope,entityId:config.entityId}} onBack={closeEvidence}/>;
+  if(selected)return <AuthoritativeReconciliationDetail row={selected.row} scope={{...scope,entityId:config.entityId}} onBack={closeEvidence} config={config} fetcher={fetcher} onChanged={load}/>;
   return <div className="stack"><div><h1>Reconciliation evidence</h1><p className="page-subtitle">One authoritative statement cutoff for one entity and bank account. No reconciliation mutation is available.</p></div>
     <form className="filterbar" onSubmit={load} aria-label="Reconciliation statement scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>

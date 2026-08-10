@@ -12,7 +12,7 @@ const bankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={confi
 assert.match(bankInitial,/Bank transaction evidence/);assert.match(bankInitial,/Bank account/);assert.match(bankInitial,/From/);assert.match(bankInitial,/Through/);assert.match(bankInitial,/Choose one bank account/);assert.doesNotMatch(bankInitial,/localStorage|seed row/i);
 
 const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
-assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/No reconciliation mutation is available/);
+assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/One authoritative statement cutoff/);
 
 const bankTable=renderToStaticMarkup(<AuthoritativeBankTable rows={[bankRow]}/>);
 assert.match(bankTable,/BANK-LINE-1/);assert.match(bankTable,/SOURCE-1/);assert.match(bankTable,/Unmatched/);assert.match(bankTable,/READ ONLY/);assert.match(bankTable,/Open detail/);assert.doesNotMatch(bankTable,/>\s*(Match|Clear|Post|Delete|Create)\s*</);
@@ -23,12 +23,13 @@ assert.match(bankDetail,/Back to bank transactions/);assert.match(bankDetail,/Ba
 assert.match(bankDetail,/full-bleed qbo-transaction-report/);
 
 const reconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={reconciliationRow}/>);
-assert.match(reconciliation,/RECONCILED/);assert.match(reconciliation,/\$1,000\.00/);assert.match(reconciliation,/Unmatched/);assert.match(reconciliation,/READ ONLY/);assert.match(reconciliation,/Open statement detail/);assert.doesNotMatch(reconciliation,/>\s*(Match|Clear|Reopen|Sign off|Post)\s*</);
+assert.match(reconciliation,/RECONCILED/);assert.match(reconciliation,/\$1,000\.00/);assert.match(reconciliation,/Unmatched/);assert.match(reconciliation,/READ ONLY/);assert.match(reconciliation,/Open statement detail/);
 const emptyReconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={null}/>);assert.match(emptyReconciliation,/No reconciliation statement was returned/);assert.match(emptyReconciliation,/not evidence of zero statement activity/);assert.doesNotMatch(emptyReconciliation,/Open statement detail/);
 
 const reconciliationDetail=renderToStaticMarkup(<AuthoritativeReconciliationDetail row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(reconciliationDetail,/Back to reconciliation evidence/);assert.match(reconciliationDetail,/Statement ending 2026-07-31/);assert.match(reconciliationDetail,/\$1,000\.00/);assert.match(reconciliationDetail,/11111111-1111-4111-8111-111111111111/);
 assert.match(reconciliationDetail,/full-bleed qbo-transaction-report/);assert.match(reconciliationDetail,/Reconciled by/);
+assert.match(reconciliationDetail,/Load reconciliation worksheet/);assert.match(reconciliationDetail,/CONTROLLER REVIEW/);
 
 const source=readFileSync('src/authoritative-bank-workspace.jsx','utf8');
 // Phase 2a: the four states are rendered only by the shared StateBlock, which
@@ -50,5 +51,9 @@ assert.match(source,/refreshAuthoritativeBankMatchCandidates/,'Bank Match must s
 assert.match(source,/candidates\.length!==1/,'zero or multiple candidate sets must block the Match command');
 assert.match(source,/createAuthoritativeBankPaymentMatch/,'an exact candidate must execute through the authoritative command client');
 assert.match(source,/unmatchAuthoritativeBankPayment/,'an active match must use the authoritative Unmatch command client');
+assert.match(source,/refreshAuthoritativeReconciliationWorksheet/,'Reconciliation must load server-owned worksheet evidence before a clearance command');
+assert.match(source,/setAuthoritativeReconciliationClearance/,'Clear and Unclear must use the authoritative command client');
+assert.match(source,/item\.match_status==='ACTIVE'/,'Only a server-returned active Match may expose Clear');
+assert.match(source,/row:item/,'Clearance command must receive the selected server worksheet row, not the reconciliation summary');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');
