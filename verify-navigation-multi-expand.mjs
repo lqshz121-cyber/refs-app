@@ -47,7 +47,7 @@ assert.equal(stable, state, 'navigating inside the focused group must not produc
 
 const operationsVisible = {
   group: 'Accounting Operations',
-  items: [['closing', 'Closing Accounting'], ['intercompany', 'Intercompany'], ['assets', 'Fixed Assets']],
+  items: [['closing', 'Closing Accounting'], ['intercompany', 'Intercompany'], ['assets', 'Fixed Assets'], ['amortization', 'Amortization Center'], ['accruals', 'Accrual Center']],
 };
 assert.equal(firstNavigationRoute(operationsVisible), 'closing', 'Operations starts at its first visible child.');
 assert.equal(isDirectNavigationGroup({group:'Reports',items:[['reports','Reports Center']]}), true, 'singleton items stay direct entries.');
@@ -63,7 +63,7 @@ assert.deepEqual(operationsState, {'Accounting Operations':true}, 'Operations re
 const app = fs.readFileSync(new URL('./src/app.jsx', import.meta.url), 'utf8');
 assert.match(app, /const next=firstNavigationRoute\(g\); if\(!next\) return;[\s\S]*?setOpenGroups\(isSingleton\?\{\}:\{\[g\.group\]:true\}\); goto\(next,entry\);/, 'rail groups must enter their first visible route and replace the open panel.');
 assert.match(app, /railEntryRevision:\+\+railEntryRevision\.current/, 'a repeated rail click must remount the workspace rather than retaining child state.');
-assert.match(app, /\['cost','unitcost','unittransfer','loan','loanreg','pmpickup','amortization','accruals'\]/, 'WBS-only Operations routes must not become the initial REFS accounting destination.');
+assert.match(app, /\['cost','unitcost','unittransfer','loan','loanreg','pmpickup'\]/, 'WBS-only Operations routes must not become the initial REFS accounting destination.');
 
 // Whatever the sequence, never more than one group is listed.
 const openCount = Object.values(state).filter(Boolean).length;

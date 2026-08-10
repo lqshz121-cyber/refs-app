@@ -10,7 +10,7 @@ import {
   runDeterministicAccountingRules,
 } from './wbs-accounting-foundation.js';
 
-const toneForStatus = status => status === 'ACTIVE' || status === 'DRAFT_CREATED' ? 'ok' : status === 'BLOCKED' ? 'bad' : status === 'COMPLETED' ? 'muted' : 'warn';
+const toneForStatus = status => ['ACTIVE', 'AUTO_SCHEDULED', 'DRAFT_CREATED'].includes(status) ? 'ok' : status === 'BLOCKED' ? 'bad' : status === 'COMPLETED' ? 'muted' : 'warn';
 const lineDebit = line => Number(line.debit_amount || 0);
 const lineCredit = line => Number(line.credit_amount || 0);
 const jeDebit = je => sum(je?.lines || [], lineDebit);
@@ -75,7 +75,9 @@ export function AmortizationCenter({ ctx }) {
   const [selectedPeriod, setSelectedPeriod] = useState(model.amortizationSchedule.lines[0]?.period);
   const selectedLine = model.amortizationSchedule.lines.find(line => line.period === selectedPeriod) || model.amortizationSchedule.lines[0];
   const createdPeriods = new Set(state.createdPeriods || []);
-  const active = state.status === 'ACTIVE';
+  // A verified coverage term produces its schedule immediately.  Only the
+  // resulting journal candidates remain subject to controller review.
+  const scheduleStatus = state.status || 'AUTO_SCHEDULED';
   const createdTotal = model.amortizationSchedule.lines
     .filter(line => createdPeriods.has(line.period))
     .reduce((total, line) => total + Number(line.amount || 0), 0);
@@ -86,27 +88,14 @@ export function AmortizationCenter({ ctx }) {
     setState(next);
     repo.save('amortization_center_state', next);
   };
-  const activate = () => {
-    if (!model.insuranceInvoice.source_document_id) {
-      toast('Schedule blocked: source document is required.', 'bad');
-      return;
-    }
-    save({ status: 'ACTIVE' });
-    audit(user.user_id, 'AMORTIZATION_SCHEDULE_ACTIVATED', 'AMORTIZATION_SCHEDULE', model.amortizationSchedule.schedule_id, model.insuranceInvoice.source_document_id);
-    toast('Amortization schedule activated for monthly Draft JE review.');
-  };
   const createDraft = line => {
-    if (!active) {
-      toast('Activate the schedule before creating monthly Draft JEs.', 'warn');
-      return;
-    }
     if (!line?.suggested_je || !isBalanced(line.suggested_je) || !line.suggested_je.source_document_id) {
       toast('Draft blocked: monthly JE must be balanced and source-backed.', 'bad');
       return;
     }
     const jeId = actions.newJEFromRule(specFromSuggestedJE(line.suggested_je, `Monthly prepaid insurance amortization ${line.period}`));
     const nextPeriods = Array.from(new Set([...(state.createdPeriods || []), line.period]));
-    save({ status: nextPeriods.length === model.amortizationSchedule.lines.length ? 'COMPLETED' : 'ACTIVE', createdPeriods: nextPeriods, last_je_id: jeId });
+    save({ status: nextPeriods.length === model.amortizationSchedule.lines.length ? 'COMPLETED' : 'AUTO_SCHEDULED', createdPeriods: nextPeriods, last_je_id: jeId });
     audit(user.user_id, 'AMORTIZATION_DRAFT_JE_CREATED', 'AMORTIZATION_PERIOD', line.period, `JE ${jeId}`);
     toast('Monthly amortization Draft JE created for review.');
     goto('je');
@@ -114,7 +103,7 @@ export function AmortizationCenter({ ctx }) {
 
   const rows = model.amortizationSchedule.lines.map(line => ({
     ...line,
-    status: createdPeriods.has(line.period) ? 'DRAFT_CREATED' : active ? 'READY' : 'WAITING_FOR_ACTIVATION',
+    status: createdPeriods.has(line.period) ? 'DRAFT_CREATED' : 'READY_FOR_REVIEW',
     debit: jeDebit(line.suggested_je),
     credit: jeCredit(line.suggested_je),
     balanced: isBalanced(line.suggested_je),
@@ -123,9 +112,9 @@ export function AmortizationCenter({ ctx }) {
 
   return <div className="full-bleed">
     <h2 className="page-h">Amortization Center</h2>
-    <div className="filter-bar"><span className="muted sm">WBS mock insurance evidence creates a Draft-only prepaid amortization schedule. Monthly journal entries are created only for human review.</span></div>
+    <div className="filter-bar"><span className="muted sm">A retained 12-month insurance coverage record automatically creates this prepaid amortization schedule. Monthly journal entries remain Draft-only for controller review.</span></div>
     <div className="kpi-row">
-      <KPI label="Schedule status" value={state.status || 'DRAFT'} tone={toneForStatus(state.status || 'DRAFT')} />
+      <KPI label="Schedule status" value={scheduleStatus} tone={toneForStatus(scheduleStatus)} />
       <KPI label="Coverage period" value={`${model.amortizationSchedule.coverage_start} to ${model.amortizationSchedule.coverage_end}`} />
       <KPI label="Monthly lines" value={model.amortizationSchedule.lines.length} />
       <KPI label="Recognized" value={money(createdTotal)} />
@@ -141,11 +130,11 @@ export function AmortizationCenter({ ctx }) {
             <div><span>Vendor</span><b>{model.insuranceInvoice.vendor_id}</b></div>
             <div><span>Prepaid asset</span><b>{ACCOUNT_MAP.prepaidInsurance}</b></div>
             <div><span>Expense account</span><b>{ACCOUNT_MAP.insuranceExpense}</b></div>
+            <div><span>Recognition method</span><b>Automatic 12-month schedule</b></div>
             <div><span>Control</span><b>Draft-only monthly JE</b></div>
           </div>
           <div className="row-acts" style={{ marginTop: 14 }}>
-            <Btn variant="primary" onClick={activate} disabled={active || state.status === 'COMPLETED'} title={active ? 'This schedule is already active' : state.status === 'COMPLETED' ? 'This schedule is completed' : 'Activate this amortization schedule'}>Activate schedule</Btn>
-            <Btn onClick={() => createDraft(selectedLine)} disabled={!selectedLine || createdPeriods.has(selectedLine.period)} title={!selectedLine ? 'Select a schedule line first' : createdPeriods.has(selectedLine.period) ? 'A Draft JE already exists for this period' : 'Create the Draft JE for the selected period'}>Create selected monthly Draft JE</Btn>
+            <Btn variant="primary" onClick={() => createDraft(selectedLine)} disabled={!selectedLine || createdPeriods.has(selectedLine.period)} title={!selectedLine ? 'Select a schedule line first' : createdPeriods.has(selectedLine.period) ? 'A Draft JE already exists for this period' : 'Create the Draft JE for the selected period'}>Create selected monthly Draft JE</Btn>
           </div>
         </div>
         <Table

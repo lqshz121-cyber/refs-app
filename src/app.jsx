@@ -94,7 +94,7 @@ const NAV = [
   {group:'Reports', short:'Reports', glyph:'bars', icon:'▤', railBreak:true, items:[['reports','Reports Center']]},
   {group:'Admin', short:'Admin', glyph:'shield', icon:'◈', adminOnly:true, items:[['masterdata','Master Data'],['ap','AP (legacy)'],['ar','AR (legacy)'],['cash','Bank Accounts'],['audit','Audit Log'],['admin','Users & Settings']]},
 ];
-NAV.find(group => group.group === 'Accounting Operations')?.items.splice(3, 0, ['amortization', 'Amortization Center'], ['accruals', 'Accrual Center']);
+NAV.find(group => group.group === 'Accounting Operations')?.items.splice(9, 0, ['amortization', 'Amortization Center'], ['accruals', 'Accrual Center']);
 const COMP = { dashboard:Dashboard, je:JEWorkspace, banktx:BankTransactions, register:AccountRegister, subledger:SubsidiaryLedger, unitcost:UnitCostLedger, setting:CompanySetting, aireview:AIAudit, aijeworkbench:AIJEWorkbench, staging:StagingCenter, unittransfer:UnitTransfer, sourcedocs:SourceDocs, audit:AuditLog, approvals:Approvals, gl:GLTrialBalance, coa:COAWorkspace, loan:LoanWorkspace, loanreg:LoanRegister,
   pmpickup:PMPickup, closing:ClosingWorkspace, cost:ProjectCost, assets:Assets, ap:APWorkspace, ar:ARWorkspace,
   cash:CashModule, bankrec:BankRec2, autobankrec:AutoBankRec, checks:CheckMgmt, intercompany:Intercompany, integration:IntegrationHub, masterdata:MasterData,
@@ -108,9 +108,10 @@ COMP.accruals = AccrualCenter;
 // every role that can reach the ledger, including AUDITOR and READ_ONLY, whose
 // permission lists are empty and who need consolidated statements most.
 COMP.consolidation = Consolidation;
-// Project Cost, property operations, loan, amortization and accrual routes are
-// upstream/WBS workflows, not native REFS accounting-shell destinations.
-const IA_HIDDEN_ROUTES = new Set(['cost','unitcost','unittransfer','loan','loanreg','pmpickup','amortization','accruals']);
+// Project Cost, property operations, and loan routes remain upstream/WBS
+// workflows. Accrual and amortization are controller-facing accounting
+// operations when their source evidence is retained.
+const IA_HIDDEN_ROUTES = new Set(['cost','unitcost','unittransfer','loan','loanreg','pmpickup']);
 const ADMIN_ROLES = ['CONTROLLER','SYS_ADMIN','AUDITOR'];
 
 // ---- seed AP bills & bank rec model ----
