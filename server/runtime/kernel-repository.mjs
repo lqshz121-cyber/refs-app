@@ -545,6 +545,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getBudgetVsActual({tenantId,entityId,periodId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_budget_vs_actual($1,$2,$3)',[tenantId,entityId,periodId]
+    )).rows);
+  }
+
   async getApAging({tenantId,entityId,asOfDate}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_ap_aging($1,$2,$3::date)',[tenantId,entityId,asOfDate]

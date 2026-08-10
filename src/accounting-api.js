@@ -464,6 +464,26 @@ export async function refreshAuthoritativeIntercompanyReconciliation({config,cou
   }catch{return unreachable('The browser could not complete the authoritative intercompany reconciliation read; no HTTP response was produced.');}
 }
 
+export async function refreshAuthoritativeBudgetVsActual({config,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!UUID.test(config.periodId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Budget versus actual requires one authoritative entity and accounting period.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({periodId:config.periodId});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/reports/budget-vs-actual?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid budget-versus-actual envelope.'};
+    const statuses=new Set(['APPROVED_BUDGET_VS_ACTUAL','BLOCKED_ACCOUNT_REQUIRED','BLOCKED_BUDGET_CURRENCY_REQUIRED','BLOCKED_POSTED_ACTUAL_EVIDENCE_REQUIRED','BLOCKED_ACTUAL_CURRENCY_REQUIRED']);
+    const ids=['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'];
+    const invalid=row=>{
+      const approved=row?.report_status==='APPROVED_BUDGET_VS_ACTUAL';
+      const amounts=['budget_amount','actual_amount','variance_amount'];
+      return row?.period_id!==config.periodId||!PERIOD_CODE.test(row?.period_code||'')||!validDate(row?.period_start)||!validDate(row?.period_end)||row.period_start>row.period_end||row.period_start.slice(0,7)!==row.period_code||row.period_end.slice(0,7)!==row.period_code||!ACCOUNT_CODE.test(row?.account_code||'')||typeof row?.account_name!=='string'||!row.account_name.trim()||!CURRENCY3.test(row?.currency||'')||!['DEBIT','CREDIT'].includes(row?.comparison_side)||!statuses.has(row?.report_status)||typeof row?.classification_basis!=='string'||!row.classification_basis.trim()||!UUID.test(row?.budget_snapshot_id||'')||!/^[1-9][0-9]*$/.test(String(row?.budget_version??''))||!/^sha256:[0-9a-f]{64}$/.test(row?.budget_snapshot_hash||'')||!/^sha256:[0-9a-f]{64}$/.test(row?.budget_receipt_hash||'')||typeof row?.budget_source_ref!=='string'||!row.budget_source_ref.trim()||typeof row?.budget_source_version!=='string'||!row.budget_source_version.trim()||ids.some(field=>!Array.isArray(row?.[field])||row[field].some(id=>!UUID.test(id||'')))||(approved?amounts.some(field=>!REPORT_MONEY4.test(String(row?.[field]??''))):amounts.some(field=>row?.[field]!==null));
+    };
+    if(body.data.some(invalid)||new Set(body.data.map(row=>row.account_code)).size!==body.data.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate budget-versus-actual row.'};
+    return {ok:true,rows:body.data.map(row=>({...row,...Object.fromEntries(['budget_amount','actual_amount','variance_amount'].map(field=>[field,row[field]===null?null:String(row[field])]))})),scope:{entityId:config.entityId,periodId:config.periodId},complete:body.data.length>0&&body.data.every(row=>row.report_status==='APPROVED_BUDGET_VS_ACTUAL')};
+  }catch{return unreachable('The browser could not complete the authoritative budget-versus-actual read; no HTTP response was produced.');}
+}
+
 const CURRENCY3=/^[A-Z]{3}$/;
 const money4=v=>{if(typeof v==='number'&&Number.isFinite(v))return v.toFixed(4);if(typeof v==='string'&&MONEY4.test(v))return v;return null;};
 export async function refreshAuthoritativeAging({config,side,asOfDate,fetcher=globalThis.fetch}={}){
