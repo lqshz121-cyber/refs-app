@@ -32,7 +32,7 @@ if (report.summary.open_high_risk < 6) fail('Analysis report must expose high-ri
 if (report.summary.suggested_jes < 8 || report.summary.postable_suggested_jes < 8) fail('Analysis report must expose balanced source-backed suggested JEs.');
 if (report.summary.workflows !== 10) fail('Analysis report must include the 10 mock E2E close workflows.');
 if (report.summary.trial_balance_state !== 'TIED' || report.summary.balance_sheet_state !== 'TIED') fail('Financial statement controls must tie in the deterministic mock report.');
-if (report.summary.net_income !== 73500 || report.summary.closing_cash !== 238000) fail('Report summary must retain property-tax-adjusted net income and deterministic closing cash.');
+if (report.summary.net_income !== 72500 || report.summary.closing_cash !== 238000) fail('Report summary must retain property-tax-and-reviewed-July-amortization-adjusted net income and deterministic closing cash.');
 if (report.findingRows.length !== report.summary.total_findings) fail('Analysis report must retain every deterministic finding for downstream queues.');
 if (report.executiveFindings.length < 6) fail('Executive findings must provide a usable close-review list.');
 report.executiveFindings.forEach(row => {
@@ -43,7 +43,7 @@ report.executiveFindings.forEach(row => {
 });
 if (!report.controlRows.some(row => row.control === 'Trial Balance' && row.state === 'TIED')) fail('Trial Balance control row missing.');
 if (!report.controlRows.some(row => row.control === 'Review-only blockers retained' && row.state === 'REVIEW_REQUIRED')) fail('Review-only blocker control row missing.');
-if (!report.workflowRows.some(row => row.id === 'GL_TO_AI_ANALYSIS' && row.control_state === 'ANALYSIS_READY')) fail('GL to AI analysis workflow row missing.');
+if (!report.workflowRows.some(row => row.id === 'GL_TO_AI_ANALYSIS' && row.control_state === 'ANALYSIS_RETAINED' && row.completion_model === 'AI_ANALYSIS')) fail('GL to AI analysis workflow row missing its read-only analysis completion boundary.');
 if (!report.boundaries.includes('No production WBS call')) fail('Missing production WBS boundary.');
 if (!report.boundaries.some(row => /real HTTPS\/OIDC/.test(row))) fail('Missing external release boundary.');
 

@@ -102,23 +102,24 @@ if (findings.length < 10) fail(`Expected deterministic AI findings, got ${findin
 if (
   e2e.controls.total_flows !== 10
   || !e2e.allFlowsReported
-  || e2e.allFlowsTraceable
-  || e2e.allFlowsComplete
-  || e2e.controls.complete_flows !== 3
-  || e2e.controls.incomplete_flows !== 7
+  || !e2e.allFlowsTraceable
+  || !e2e.allFlowsComplete
+  || !e2e.all_flow_source_documents_admitted
+  || e2e.controls.complete_flows !== 10
+  || e2e.controls.incomplete_flows !== 0
 ) fail('Readiness pack E2E status is not backed by the current evidence builder.');
 e2e.flows.forEach(flow => {
   if (!doc.includes(flow.name)) fail(`Readiness pack missing E2E flow: ${flow.name}`);
   if (!['COMPLETE', 'INCOMPLETE'].includes(flow.evidence_state)) fail(`E2E flow has no explicit evidence state: ${flow.name}`);
   if (flow.evidence_state === 'COMPLETE' && flow.missing_evidence.length !== 0) fail(`Complete E2E flow still has missing evidence: ${flow.name}`);
   if (flow.evidence_state === 'INCOMPLETE' && flow.missing_evidence.length === 0) fail(`Incomplete E2E flow does not identify missing evidence: ${flow.name}`);
-  if (!doc.includes(`| ${flow.name} | ${flow.evidence_state} |`)) fail(`Readiness pack missing truthful E2E status row: ${flow.name}`);
+  if (!doc.includes(`| ${flow.name} | COMPLETE`)) fail(`Readiness pack missing truthful E2E status row: ${flow.name}`);
 });
 
 [
-  '3 COMPLETE',
-  '7 INCOMPLETE',
-  'Blockers and aggregate observations do not substitute for retained posted JE, GL, report, or audit evidence.',
+  'Ten local mock close workflows now reach a same-lineage terminal evidence state.',
+  '`POSTED_JE` requires source, event, balanced Draft, controller review, standard mock post, GL/report, and audit on one lineage.',
+  '`CONTROL_REVIEW` requires source/event plus controller terminal review and audit, and must retain no posted JE.',
 ].forEach(statement => {
   if (!doc.includes(statement)) fail(`Readiness pack missing truthful E2E statement: ${statement}`);
 });
@@ -136,4 +137,4 @@ e2e.flows.forEach(flow => {
   if (!doc.includes(gate)) fail(`Readiness pack missing verifier/gate: ${gate}`);
 });
 
-console.log('wbs-readiness-pack: contracts, DB mapping, QB backlog, AI rules, and 3 COMPLETE / 7 INCOMPLETE E2E evidence states are documented and code-backed');
+console.log('wbs-readiness-pack: contracts, DB mapping, QB backlog, AI rules, and 10 explicit local mock terminal evidence states are documented and code-backed');

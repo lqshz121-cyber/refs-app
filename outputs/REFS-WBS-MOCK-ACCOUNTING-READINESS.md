@@ -142,22 +142,22 @@ REFS aligns to QuickBooks Online Advanced only where it helps the real-estate cl
 
 Authoritative evidence builder: `src/wbs-e2e-flow-evidence.js`.
 
-Ten local mock close workflows are reported with this evidence summary: 3 COMPLETE, 7 INCOMPLETE. Only the three complete flows have the required same-lineage evidence. A finding, blocker, suggested JE, trial-balance tie, or aggregate report observation is not evidence that review, posting, GL impact, report impact, and audit trace occurred.
+Ten local mock close workflows now reach a same-lineage terminal evidence state. This is **local contract-and-fixture evidence only**: it does not upgrade any WBS provider fact, receipt, key, CDC semantics, or production deployment evidence. A completed exception/control/AI-analysis flow is deliberately not treated as a posted JE; its terminal review and audit record are the required evidence instead.
 
 | Flow | Evidence state | Missing retained evidence |
 | --- | --- | --- |
-| Payable Report -> AI finding -> Accrual Draft -> review | COMPLETE | none |
-| Bank Statement -> exception queue -> reconciliation review | INCOMPLETE | review, posted JE, GL impact, report impact |
-| Cost GL -> project cost classification -> CWIP cutoff review | INCOMPLETE | review, posted JE, GL impact, report impact |
-| Construction Loan Draw -> Loan JE -> GL -> reports | COMPLETE | none |
-| Insurance payment -> prepaid -> amortization schedule | INCOMPLETE | review, posted JE, GL impact, report impact |
-| Property tax statement -> accrual or prepaid decision | COMPLETE | none |
-| Property Operation Data -> rent income pickup -> entity GL | INCOMPLETE | review, posted JE, GL impact, report impact |
-| Source Transactions -> Journal Entries -> Trial Balance | INCOMPLETE | source data, accounting event, suggested JE, review, posted JE, GL impact, report impact, audit trail |
-| Trial Balance -> BS / IS / Cash Flow | INCOMPLETE | source data, accounting event, suggested JE, review, posted JE, GL impact, report impact, audit trail |
-| Full GL -> AI Audit Center -> Accounting Analysis Report | INCOMPLETE | source data, accounting event, suggested JE, review, posted JE, GL impact, report impact, audit trail |
+| Payable Report -> AI finding -> Accrual Draft -> review | COMPLETE — posted mock JE | exact source, approval/post audit, GL and report rows |
+| Bank Statement -> exception queue -> reconciliation review | COMPLETE — retained exception | controller terminal review/audit; no JE/GL/report posting is permitted |
+| Cost GL -> project cost classification -> CWIP cutoff review | COMPLETE — retained cutoff review | controller terminal review/audit; no reclass is inferred or posted |
+| Construction Loan Draw -> Loan JE -> GL -> reports | COMPLETE — posted mock JE | exact source, approval/post audit, GL and report rows |
+| Insurance payment -> prepaid -> amortization schedule | COMPLETE — July amortization posted | 12-line schedule is retained; only explicitly reviewed July mock line posts |
+| Property tax statement -> accrual or prepaid decision | COMPLETE — posted mock JE | exact source, approval/post audit, GL and report rows |
+| Property Operation Data -> rent income pickup -> entity GL | COMPLETE — retained revenue mismatch | controller terminal review/audit; mismatch never auto-posts a pickup |
+| Source Transactions -> Journal Entries -> Trial Balance | COMPLETE — aggregate posted trace | multi-source source/JE/GL trace and tied Trial Balance |
+| Trial Balance -> BS / IS / Cash Flow | COMPLETE — aggregate posted trace | multi-source aggregate, tied Trial Balance and Balance Sheet evidence |
+| Full GL -> AI Audit Center -> Accounting Analysis Report | COMPLETE — audited analysis | retained aggregate trace and analysis audit; AI cannot post |
 
-Blockers and aggregate observations do not substitute for retained posted JE, GL, report, or audit evidence. A flow becomes COMPLETE only when its source, accounting event, suggested JE, review, posted JE, GL impact, report impact, and audit trail are retained on the same lineage. Until then its explicit `missing_evidence` list is the acceptance boundary.
+The completion model is explicit per flow. `POSTED_JE` requires source, event, balanced Draft, controller review, standard mock post, GL/report, and audit on one lineage. `CONTROL_REVIEW` requires source/event plus controller terminal review and audit, and must retain no posted JE. `AGGREGATE_POSTED` additionally requires a multi-source, tied Trial Balance trace. `AI_ANALYSIS` requires retained GL/report aggregate evidence and an audited analysis terminal state, never a posting. A missing required item remains in `missing_evidence` and cannot be represented as complete.
 
 ## 7. MCP Readiness Checklist
 
