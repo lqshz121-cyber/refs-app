@@ -93,3 +93,14 @@ test('cash flow classification is a read-only exact mapping-snapshot report that
   assert.equal((await api({method:'GET',url:base,headers:{'idempotency-key':'forbidden'},body:null})).body.code,'IDEMPOTENCY_KEY_NOT_ALLOWED');
   assert.equal((await api({method:'GET',url:base,headers:{},body:{}})).body.code,'READ_BODY_FORBIDDEN');
 });
+
+test('CWIP rollforward is a read-only exact account-mapping report with no inferred capitalization conclusion',async()=>{
+  const up=await readFile(new URL('../db/migrations/077_cwip_rollforward_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/077_cwip_rollforward_read.sql',import.meta.url),'utf8');
+  for(const token of ['refs_get_cwip_rollforward',"'GL.REPORT.VIEW'",'CWIP_ACCOUNT_CLASSIFICATION','MAPPED_CWIP_ACCOUNT','BLOCKED_MAPPING_AMBIGUOUS','APPROVED_CWIP_ACCOUNT_MAPPING_SNAPSHOT_EXACT','REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token));
+  assert.doesNotMatch(up,/INSERT INTO journal_entry|UPDATE journal_entry|DELETE FROM journal_entry|INSERT INTO ledger_line|UPDATE ledger_line|DELETE FROM ledger_line|refs_post_journal/i);assert.match(down,/DROP FUNCTION refs_get_cwip_rollforward/);
+  const calls=[],kernel=Object.create(PostgresAccountingKernel.prototype);kernel.inSession=async work=>work({query:async(sql,args)=>{calls.push({sql,args});return {rows:[{mapping_status:'MAPPED_CWIP_ACCOUNT'}]};}});
+  assert.deepEqual(await kernel.getCwipRollforward({tenantId:'tenant',entityId:'entity',periodId:'period'}),[{mapping_status:'MAPPED_CWIP_ACCOUNT'}]);assert.deepEqual(calls,[{sql:'SELECT * FROM refs_get_cwip_rollforward($1,$2,$3)',args:['tenant','entity','period']}]);
+  const tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID(),httpCalls=[];const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({getCwipRollforward:async scope=>{httpCalls.push(scope);return [];}})});const base=`/api/v1/entities/${entityId}/reports/cwip-rollforward?periodId=${periodId}`;
+  const response=await api({method:'GET',url:base,headers:{},body:null});assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(httpCalls,[{tenantId,entityId,periodId}]);assert.equal((await api({method:'GET',url:`${base}&extra=1`,headers:{},body:null})).body.code,'UNEXPECTED_QUERY_PARAMETER');assert.equal((await api({method:'GET',url:base,headers:{},body:{}})).body.code,'READ_BODY_FORBIDDEN');
+});

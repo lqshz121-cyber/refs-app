@@ -83,4 +83,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"074_dimension_profitability_read.sql",up:"6822aa41c795c1f92233a3ad201ca6aef85b40cf7419595d702737074f279d80",down:"c5323abf03b8bf8f13b818d7535ad693a0bd20c1a6559b20b45d46c223596186"}),
   Object.freeze({name:"075_cash_flow_classification_read.sql",up:"ad26ad84ae8e2a291c73196a584673559770a022a6c38eadc095fed480746679",down:"53043c36c915421934708ab49cb5a5941ddb7863d6654e6a47bb26bc028b0c53"}),
   Object.freeze({name:"076_financial_statement_period_comparison_read.sql",up:"7c89514f29e2d6de1308cade37d3a752b3a2497183d0585a63ddee238703fad4",down:"e1b1b9be3732cc8e6079273365d48b10c67da83bb4f569c39b0be9e98b69782a"}),
+  Object.freeze({name:"077_cwip_rollforward_read.sql",up:"659172d8be5b2d2c76b00de9d089f17ad3dd3001ded6e9d6f884ef31993703e4",down:"140f5b9aa0a8dccf493a1bc76edd3e0e0c5e0343b3acf87ea4a55a064f90377c"}),
 ]);
