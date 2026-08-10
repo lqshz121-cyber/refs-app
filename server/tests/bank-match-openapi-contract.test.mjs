@@ -5,6 +5,20 @@ import {readFile} from 'node:fs/promises';
 const contract=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
 const path='/entities/{entityId}/bank/transactions/{bankSourceId}/matches';
 const unmatchPath='/entities/{entityId}/bank/transactions/{bankSourceId}/matches/{bankMatchId}/unmatch';
+const candidatesPath='/entities/{entityId}/bank/transactions/{bankSourceId}/match-candidates';
+
+test('Bank Match candidate read requires an authenticated scoped source and cannot carry command authority',()=>{
+  const operation=contract.paths[candidatesPath]?.get;assert.ok(operation);assert.equal(operation.operationId,'listBankMatchCandidates');
+  assert.deepEqual(operation.parameters.map(parameter=>parameter.$ref),['#/components/parameters/EntityId','#/components/parameters/BankSourceId']);
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/BankMatchCandidateReadOk');
+  assert.match(operation.description,/Zero or multiple rows require the controller to stop/i);
+  assert.match(operation.description,/never creates a match/i);
+  const response=contract.components.responses.BankMatchCandidateReadOk;
+  assert.equal(response.headers['Cache-Control'].schema.const,'no-store');
+  const row=response.content['application/json'].schema.properties.data.items;
+  assert.deepEqual(row.required,['payment_occurrence_id','occurrence_version','occurrence_kind','business_source_document_id','accounting_date','currency','amount','journal_entry_id','journal_line_id','ledger_line_id','date_delta_days']);
+  assert.deepEqual(row.properties.occurrence_kind.enum,['AP_PAYMENT','AR_RECEIPT']);
+});
 
 test('Bank Match OpenAPI mirrors the 061 runtime route and optimistic concurrency boundary',()=>{
   const operation=contract.paths[path]?.post;

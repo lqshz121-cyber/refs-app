@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const css = read('./index.html');
-const app = read('./src/app.jsx');
+const app = read('./src/legacy-demo-app.jsx');
 
 // Navigation and data evidence deliberately use different treatments: coloured
 // letter squares orient the secondary navigation, while compact source/status

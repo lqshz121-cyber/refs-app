@@ -8,6 +8,7 @@ import {
   AuthoritativeAdjustmentSummary,
   AuthoritativeDocumentDetail,
   AuthoritativeDocumentTable,
+  AuthoritativeDocumentWorkspace,
 } from '../src/authoritative-workspace.jsx';
 
 const entityId='11111111-1111-4111-8111-111111111111';
@@ -20,6 +21,14 @@ assert.match(list,/Authoritative API rows only/);
 assert.match(list,/Open evidence/);
 assert.match(list,/Open balance/);
 assert.match(list,/Evidence Vendor/);
+assert.match(list,/id="authoritative-document-22222222-2222-4222-8222-222222222222"/);
+
+const workspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'Evidence',status:'ALL',from:'2026-08-01',through:'2026-08-31',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.match(workspaceMarkup,/Payables presentation filters/);
+assert.match(workspaceMarkup,/Bill or vendor/);
+assert.match(workspaceMarkup,/2026-08-01/);
+assert.match(workspaceMarkup,/1 bills · 1 adjustments/);
+assert.match(workspaceMarkup,/id="authoritative-adjustment-44444444-4444-4444-8444-444444444444"/);
 
 const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);
@@ -47,8 +56,11 @@ for(const route of [apRoute,arRoute]){
   assert.doesNotMatch(route,/AuthoritativeWorkflow(?:Adjustment)?Table|onWorkflow=\{workflow\}/,'AP/AR evidence routes must not expose journal transition controls');
   assert.match(route,/AuthoritativeDocumentDetail/);
   assert.match(route,/AuthoritativeAdjustmentDetail/);
+  assert.match(route,/AuthoritativeDocumentWorkspace/);
 }
 const workspace=fs.readFileSync(path.join(process.cwd(),'src','authoritative-workspace.jsx'),'utf8');
 assert.doesNotMatch(workspace,/localStorage|SEED_/,'authoritative AP/AR evidence must not read browser business state');
+assert.match(app,/authoritative-scope-bar/,'authoritative shell must display the configured entity and period scope');
+assert.match(app,/restoreAuthoritativeReturnContext/,'full-page Back must restore scroll and focus only within the exact configured scope');
 
 console.log('authoritative-document-evidence: read-only AP/AR list, detail, Back, and empty-state contracts verified');

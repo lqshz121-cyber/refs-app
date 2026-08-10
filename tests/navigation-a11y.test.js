@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {focusFirstControl, navDrawerAttributes, navDrawerIsInert, readOffCanvas, restoreFocus, watchOffCanvas, NAV_DRAWER_MEDIA} from '../src/nav-drawer.js';
 
-const app=readFileSync('src/app.jsx','utf8');
+const app=readFileSync('src/legacy-demo-app.jsx','utf8');
 const authoritative=readFileSync('src/authoritative-app.jsx','utf8');
 assert.match(app,/<button className="mobile-nav-scrim" tabIndex=\{-1\} aria-label="Close navigation"/);
 assert.match(app,/<button className="mobile-nav-close" aria-label="Close navigation" onClick=\{\(\)=>setMobileNav\(false\)\}>Close<\/button>/);
@@ -67,7 +67,7 @@ assert.equal(restoreFocus(null),false,'a missing opener must not throw on close'
 
 // Both shells wire the same contract. The authoritative shell previously had no
 // opener at all, so below 1024px its navigation was off-screen with no way back.
-for (const [name,source,open] of [['src/app.jsx',app,'mobileNav'],['src/authoritative-app.jsx',authoritative,'navOpen']]) {
+for (const [name,source,open] of [['src/legacy-demo-app.jsx',app,'mobileNav'],['src/authoritative-app.jsx',authoritative,'navOpen']]) {
   assert.ok(source.includes(`{...navDrawerAttributes(navOffCanvas, ${open})}`),`${name}: the sidebar must be inert exactly when it is off-canvas and closed`);
   assert.match(source,/readOffCanvas\(\)/,`${name}: the viewport class must be read at mount`);
   assert.match(source,/watchOffCanvas\(null, setNavOffCanvas\)/,`${name}: growing past the breakpoint must un-inert the drawer`);

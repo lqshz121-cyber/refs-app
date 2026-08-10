@@ -11,10 +11,10 @@ const fail = message => {
 };
 
 const moduleSource = readFileSync('src/module-ai-je-workbench.jsx', 'utf8');
-const appSource = readFileSync('src/app.jsx', 'utf8');
+const appSource = readFileSync('src/legacy-demo-app.jsx', 'utf8');
 
 if (/[\p{Script=Han}\uFFFD]/u.test(moduleSource)) fail('AI JE Workbench contains visible CJK/mojibake characters.');
-if (!appSource.includes("import { AIJEWorkbench }")) fail('AI JE Workbench is not imported by app.jsx.');
+if (!appSource.includes("import { AIJEWorkbench }")) fail('AI JE Workbench is not retained by the frozen legacy demo shell.');
 if (!appSource.includes("['aijeworkbench','AI JE Workbench']")) fail('AI JE Workbench is not in navigation.');
 if (!appSource.includes('aijeworkbench:AIJEWorkbench')) fail('AI JE Workbench is not registered in route component map.');
 [

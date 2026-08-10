@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-const source = readFileSync('src/app.jsx', 'utf8');
+const source = readFileSync('src/legacy-demo-app.jsx', 'utf8');
 const dashboard = readFileSync('src/modules-core.jsx', 'utf8');
 const fail = message => {
   console.error(message);

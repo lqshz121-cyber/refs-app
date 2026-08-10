@@ -45,7 +45,7 @@ services:
       timeout: 3s
       retries: 30
     volumes:
-      - attachment_pg_data:/var/lib/postgresql/data
+      - attachment_pg_data:${POSTGRES_DATA_VOLUME_TARGET:-/var/lib/postgresql/data}
       - ./runtime/docker-init.sql:/docker-entrypoint-initdb.d/010-runtime-role.sql:ro
 
   scanner-bridge:

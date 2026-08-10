@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const css = read('./index.html');
-const app = read('./src/app.jsx');
+const app = read('./src/legacy-demo-app.jsx');
 
 assert.match(css, /\.nav-item-label\{[\s\S]*?font-size:13px; letter-spacing:-\.012em;/, 'secondary navigation long labels use the compact readable label treatment');
 assert.match(app, /demo-data-badge[\s\S]*?demo-label-full[\s\S]*?demo-label-short[\s\S]*?demo-label-xs/, 'demonstration-data status has explicit responsive labels');

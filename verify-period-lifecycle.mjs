@@ -36,14 +36,14 @@ import {
 } from './src/period-lifecycle.js';
 
 const read = file => readFileSync(new URL(file, import.meta.url), 'utf8');
-// The comments in these files quote the defect they removed - src/app.jsx says
+// The comments in these files quote the defect they removed - the frozen legacy shell says
 // in prose that there is deliberately no `|| {status:'OPEN'}` fallback. A gate
 // that read prose would fail on the explanation of its own rule, so code checks
 // run against the source with comments stripped.
 const codeOnly = text => text
   .replace(/\/\*[\s\S]*?\*\//g, ' ')
   .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-const app = read('./src/app.jsx');
+const app = read('./src/legacy-demo-app.jsx');
 const surface = read('./src/module-periods.jsx');
 const lifecycle = read('./src/period-lifecycle.js');
 const control = read('./src/period-control.js');
@@ -85,7 +85,7 @@ const reopenReason = 'Reopened to book the audit-agreed accrual reversal for Jun
   // The resolver, not the lifecycle module, is the fail-closed gate, and it is
   // still the only thing the application asks. No synthesised OPEN anywhere.
   assert.ok(!/\|\|\s*\{\s*[^}]*status\s*:\s*'OPEN'/.test(codeOnly(app)),
-    'src/app.jsx must never fall back to a synthesised OPEN period');
+    'the frozen legacy demo shell must never fall back to a synthesised OPEN period');
   assert.ok(!/\|\|\s*\{\s*[^}]*status\s*:\s*'OPEN'/.test(codeOnly(surface)),
     'the period surface must never synthesise an OPEN period');
   assert.ok(app.includes("useState(()=>load('periods',PERIODS))"),
@@ -277,7 +277,7 @@ const reopenReason = 'Reopened to book the audit-agreed accrual reversal for Jun
 // ---------------------------------------------------------------------------
 {
   const rolePerms = /const ROLE_PERMS = \{([\s\S]*?)\n\};/.exec(app);
-  assert.ok(rolePerms, 'ROLE_PERMS must remain statically locatable in src/app.jsx');
+  assert.ok(rolePerms, 'ROLE_PERMS must remain statically locatable in the frozen legacy demo shell');
   const table = rolePerms[1];
   assert.ok(table.includes("CONTROLLER: '*'"), 'CONTROLLER must keep its wildcard');
   assert.ok(table.includes(`'${PERM_PERIOD_CLOSE}'`),

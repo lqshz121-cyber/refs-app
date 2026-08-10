@@ -299,7 +299,7 @@ expectPeriod('Journal Entry editor resolves period control from the period maste
   editorWithoutResolver.includes('JE_PERIOD_NOT_CONFIGURED')&&editorWithoutResolver.includes('>BLOCKED<'));
 // The application shell is the place the control previously failed open. Assert
 // against the source that the synthesised OPEN period cannot come back.
-const appSource=readFileSync('src/app.jsx','utf8');
+const appSource=readFileSync('src/legacy-demo-app.jsx','utf8');
 // The period master is now application state, because the product can open and
 // close periods. That makes the "never synthesise OPEN" property MORE important,
 // not less: the state has to be seeded from the authored master in src/data.js
@@ -449,7 +449,7 @@ const authoritativeStampMockMarkup=renderToStaticMarkup(<App/>);
 if(!authoritativeStampMockMarkup.includes('Deployment assets disagree')||authoritativeStampMockMarkup.includes('WanBridge Real Estate Financial System')){failed++;console.error('FAIL an authoritative build stamp serves a demonstration adapter');}else console.log('PASS an authoritative build stamp refuses a demonstration adapter');
 globalThis.__BUILD={sha:'0000000',time:'2026-01-01 00:00 UTC',channel:'PUBLIC_DEMONSTRATION',authoritative:false};
 const explicitMockMarkup=renderToStaticMarkup(<App/>);
-if(!explicitMockMarkup.includes('WanBridge Real Estate Financial System')||explicitMockMarkup.includes('Authoritative API required')){failed++;console.error('FAIL explicit LOCAL_MOCK mode is unavailable');}else console.log('PASS only an explicitly stamped LOCAL_MOCK build enters the demonstration');
+if(!explicitMockMarkup.includes('Authoritative API required')||explicitMockMarkup.includes('Ricky (Controller)')){failed++;console.error('FAIL explicit LOCAL_MOCK mode reaches the retired demonstration');}else console.log('PASS the production entry refuses the retired LOCAL_MOCK surface');
 globalThis.__REFS_RUNTIME_MODE__='REQUIRES_AUTHORITATIVE_API';
 const demonstrationStampAuthoritativeMarkup=renderToStaticMarkup(<App/>);
 delete globalThis.__REFS_RUNTIME_MODE__;delete globalThis.__BUILD;

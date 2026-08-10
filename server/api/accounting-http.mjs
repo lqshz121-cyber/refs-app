@@ -73,6 +73,14 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await kernel.listBankTransactions({tenantId:principal.tenantId,entityId,bankAccountRef,fromDate,throughDate,limit:optionalReadLimit(parsedUrl.searchParams.get('limit'))});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===8&&parts[4]==='bank'&&parts[5]==='transactions'&&parts[7]==='match-candidates'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        result=await kernel.listBankMatchCandidates({tenantId:principal.tenantId,entityId,bankSourceId:requireUuid(parts[6],'bankSourceId')});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===6&&parts[4]==='bank'&&parts[5]==='reconciliation'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
@@ -81,6 +89,14 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const statementEndingDate=requireIsoDate(parsedUrl.searchParams.get('statementEndingDate'),'statementEndingDate');
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.getReconciliationSummary({tenantId:principal.tenantId,entityId,bankAccountRef,statementEndingDate});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===8&&parts[4]==='bank'&&parts[5]==='reconciliations'&&parts[7]==='worksheet'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        result=await kernel.listReconciliationWorksheet({tenantId:principal.tenantId,entityId,reconciliationId:requireUuid(parts[6],'reconciliationId')});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='reports'&&parts[5]==='financial-statements'){
@@ -148,11 +164,26 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         if(typeof payload.clear!=='boolean')throw new AccountingApiError(400,'INVALID_CLEARANCE_STATE','clear must be an explicit boolean');
         if(!Number.isSafeInteger(payload.expectedBankRevision)||payload.expectedBankRevision<0)throw new AccountingApiError(400,'INVALID_REVISION','expectedBankRevision must be a non-negative safe integer');
         result=await kernel.setReconciliationClearance({tenantId:principal.tenantId,entityId,reconciliationId:requireUuid(parts[6],'reconciliationId'),bankSourceId:requireUuid(parts[8],'bankSourceId'),expectedReconciliationVersion:requireRevision(headers),expectedBankVersion:payload.expectedBankRevision,clear:payload.clear,reason:requireReviewReason(payload.reason),idempotencyKey});
+      }else if(parts.length===10&&parts[4]==='bank'&&parts[5]==='reconciliations'&&parts[7]==='adjustment-items'&&parts[9]==='clearance'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['clear','expectedBankRevision','reason']);
+        if(typeof payload.clear!=='boolean')throw new AccountingApiError(400,'INVALID_CLEARANCE_STATE','clear must be an explicit boolean');
+        if(!Number.isSafeInteger(payload.expectedBankRevision)||payload.expectedBankRevision<0)throw new AccountingApiError(400,'INVALID_REVISION','expectedBankRevision must be a non-negative safe integer');
+        result=await kernel.setReconciliationAdjustmentClearance({tenantId:principal.tenantId,entityId,reconciliationId:requireUuid(parts[6],'reconciliationId'),bankSourceId:requireUuid(parts[8],'bankSourceId'),expectedReconciliationVersion:requireRevision(headers),expectedBankVersion:payload.expectedBankRevision,clear:payload.clear,reason:requireReviewReason(payload.reason),idempotencyKey});
       }else if(parts.length===9&&parts[4]==='bank'&&parts[5]==='reconciliations'&&parts[7]==='transitions'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['reason']);
         const action=parts[8].toUpperCase();if(!['REVIEW','SIGN_OFF','REOPEN'].includes(action))throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
         result=await kernel.transitionReconciliation({tenantId:principal.tenantId,entityId,reconciliationId:requireUuid(parts[6],'reconciliationId'),action,expectedVersion:requireRevision(headers),reason:requireReviewReason(payload.reason),idempotencyKey});
+      }else if(parts.length===8&&parts[4]==='bank'&&parts[5]==='reconciliations'&&parts[7]==='adjustment-drafts'){
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        allowOnly(payload,['bankSourceId','periodId','journalNumber','journalDate','currency','description','lines','attachmentIds','reason']);
+        result=await kernel.createReconciliationAdjustmentDraft({
+          tenantId:principal.tenantId,entityId,reconciliationId:requireUuid(parts[6],'reconciliationId'),expectedReconciliationVersion:requireRevision(headers),
+          bankSourceId:requireUuid(payload.bankSourceId,'bankSourceId'),periodId:requireUuid(payload.periodId,'periodId'),journalNumber:payload.journalNumber,journalDate:requireIsoDate(payload.journalDate,'journalDate'),
+          currency:payload.currency,description:payload.description??null,lines:payload.lines,attachmentIds:payload.attachmentIds,
+          reason:requireReviewReason(payload.reason),idempotencyKey
+        });
       }else if(parts.length===8&&parts[4]==='journal-entries'&&parts[6]==='transitions'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.transitionJournal({tenantId:principal.tenantId,entityId,journalEntryId:requireUuid(parts[5],'journalEntryId'),action:parts[7].toUpperCase(),expectedRevision:requireRevision(headers),reason:payload.reason??null,idempotencyKey});

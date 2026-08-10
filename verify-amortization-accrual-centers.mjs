@@ -15,10 +15,10 @@ const sum = (items, fn) => items.reduce((total, item) => total + Number(fn(item)
 const balanced = je => Math.abs(sum(je.lines || [], line => line.debit_amount) - sum(je.lines || [], line => line.credit_amount)) < 0.005;
 
 const moduleSource = readFileSync('src/module-amortization-accrual.jsx', 'utf8');
-const appSource = readFileSync('src/app.jsx', 'utf8');
+const appSource = readFileSync('src/legacy-demo-app.jsx', 'utf8');
 
 if (/[\p{Script=Han}\uFFFD]/u.test(moduleSource)) fail('Amortization/Accrual module contains visible CJK or mojibake.');
-if (!appSource.includes("import { AccrualCenter, AmortizationCenter }")) fail('Amortization/Accrual centers are not imported by app.jsx.');
+if (!appSource.includes("import { AccrualCenter, AmortizationCenter }")) fail('Amortization/Accrual centers are not retained by the frozen legacy demo shell.');
 if (!appSource.includes("['amortization', 'Amortization Center']")) fail('Amortization Center is not registered in navigation.');
 if (!appSource.includes("['accruals', 'Accrual Center']")) fail('Accrual Center is not registered in navigation.');
 if (!appSource.includes('COMP.amortization = AmortizationCenter')) fail('Amortization Center is not registered in route component map.');

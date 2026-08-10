@@ -318,5 +318,25 @@ export const MIGRATION_MANIFEST=Object.freeze([
     name:'064_journal_entry_read_type_fix.sql',
     up:'b10f8d61de430b38544523b1eeb97e7858f6d20b8b69ea68ac5475e80cc2df5c',
     down:'a331f327749d794890ef78f2e138e820b087d99d26329a89924bc7365de43949'
+  }),
+  Object.freeze({
+    name:'065_bank_match_candidate_read.sql',
+    up:'4bc0ad7b959ded8b2fde7c30b56b34167e6bd4bd34262a3ffb3b7ee8a18f875b',
+    down:'3d8285ba866d3d8915289a01c8e0e1e0c24efae5e58e1e70179edd877a022116'
+  }),
+  Object.freeze({
+    name:'066_reconciliation_worksheet_read.sql',
+    up:'4e5b2a909c233bb0d681cae97102bf6e0c6bceb43a25588838fa795c74de86f7',
+    down:'2429e8cf4e87d1ceab78d0f65b65ddec8c4395566d24e8a79805f939cfdecf44'
+  }),
+  Object.freeze({
+    name:'067_reconciliation_adjustment_draft.sql',
+    up:'708a7478962eae8b35356bf0b3070d19d9274cc5aa75c9a10ec377a9145dab34',
+    down:'d14c895619b5f728eabc572145a22b821ef0cf967d791d0249ac949135fc6ef3'
+  }),
+  Object.freeze({
+    name:'068_reconciliation_adjustment_post_guard.sql',
+    up:'d80b40eefee2a4b9356e45f24bb7b3c757df6662cfa57d3e693a82cbd23a18b9',
+    down:'6ef26a7ec071df4f8993d0ae504bc330b585ca8172592a7431d7619a83007cc4'
   })
 ]);

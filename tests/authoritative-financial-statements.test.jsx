@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {refreshAuthoritativeFinancialStatements} from '../src/accounting-api.js';
@@ -47,6 +48,10 @@ async function main(){
   assert.match(incomeMarkup,/Revenue/);assert.match(incomeMarkup,/Expenses/);assert.match(incomeMarkup,/Net income/);assert.match(incomeMarkup,/\$100\.05/);
   const cashMarkup=renderToStaticMarkup(<FinancialStatementSummary report="CASH_FLOW" rows={[{...row,statement_type:'CASH_FLOW',statement_section:'DIRECT_CASH_MOVEMENT',display_balance:'-2.0050'}]}/>);
   assert.match(cashMarkup,/Direct cash-account movement/);assert.match(cashMarkup,/Not classified as operating, investing, or financing/);assert.match(cashMarkup,/-\$2\.01/);
+  const workspace=fs.readFileSync('src/authoritative-reports-workspace.jsx','utf8');
+  assert.match(workspace,/full-bleed qbo-transaction-report/,'report detail must replace the full workspace rather than append a card');
+  assert.match(workspace,/restoreAuthoritativeReturnContext/,'report detail Back must restore its evidence opener and scroll position');
+  assert.match(workspace,/authoritative-report-\$\{row\.statement_type\}/,'report evidence controls need stable focus targets');
   console.log('authoritative financial statement contract tests passed');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

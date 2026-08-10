@@ -60,13 +60,13 @@ const files = listSourceFiles(srcRoot)
 // symbol from `symbols` the moment the page stops importing it.
 // ---------------------------------------------------------------------------
 const SEED_ALLOWLIST = {
-  'src/app.jsx': {
+  'src/legacy-demo-app.jsx': {
     symbols: ['JOURNAL_ENTRIES', 'EXCEPTIONS', 'CLOSE_TASKS', 'BANK_TXNS', 'FY2026', 'nextId', 'bumpId'],
     reason:
-      'Legacy demo shell. Seeds the whole LOCAL_MOCK store (journals, exceptions, close ' +
+      'Frozen legacy demo shell, no longer imported by the production entry point. It seeds the whole LOCAL_MOCK store (journals, exceptions, close ' +
       'tasks, bank transactions, FY2026 opening balances) that every legacy workspace reads. ' +
-      'This is the last entry to remove: it is deleted when app.jsx stops mounting the ' +
-      'LOCAL_MOCK tree at all and authoritative-app.jsx becomes the only root. ' +
+      'The production root has already stopped mounting it. This entry remains countable ' +
+      'only while later roadmap phases migrate or delete the frozen prototype modules. ' +
       'The blocking API gap underneath every other entry lives here: ' +
       'GET /entities/{entityId}/journal-entries returns JournalEntryReadRow, which carries ' +
       'ledger_line_count but no ledger lines - no account_code, no debit/credit, no ' +
@@ -216,14 +216,14 @@ const UI_PREFERENCE_WRITES = {
 
 // Delete an entry the moment its page stops writing business state.
 const BUSINESS_STATE_ALLOWLIST = {
-  "src/app.jsx::'refs_seedv'":
-    'LOCAL_MOCK seed version stamp. Exists only to invalidate the legacy demo store when ' +
-    'seed.js changes. Removed together with the legacy store itself.',
-  "src/app.jsx::'refs_'+k":
-    'Legacy demo persistence for the whole LOCAL_MOCK store: journals, exceptions, close ' +
+  "src/legacy-demo-app.jsx::'refs_seedv'":
+    'Frozen LOCAL_MOCK seed version stamp. The production entry does not import this file.',
+  "src/legacy-demo-app.jsx::'refs_'+k":
+    'Frozen legacy demo persistence for the whole LOCAL_MOCK store: journals, exceptions, close ' +
     'tasks, AP, bank, chart of accounts, AR and the selected demo user. This is business ' +
     'state in the browser and it is the single largest item the migration removes. It goes ' +
-    'when app.jsx stops mounting LOCAL_MOCK, which is blocked on the same missing ' +
+    'This file is not mounted by app.jsx; deletion awaits the later API migrations for its ' +
+    'remaining prototype modules and the same missing ' +
     'line-level journal read described in the SEED_ALLOWLIST entry for this file.',
   'src/repo.js::NS+k':
     'The single localStorage write behind repo.save(), which is the intended backend seam. ' +
@@ -257,6 +257,15 @@ for (const file of files) {
     ].join(' '));
   }
 }
+
+// Phase 2 production-root invariant: legacy modules may remain frozen while
+// their missing API contracts are built, but they must be unreachable from the
+// shipped entry point. The bundle gate below independently proves this after a
+// real build.
+const productionEntry = files.find(file => file.id === 'src/app.jsx')?.text || '';
+if (SEED_IMPORT.test(productionEntry)) fail('PRODUCTION_ENTRY_SEED', 'src/app.jsx must not import seed.js.');
+if (/localStorage\s*[.(]/.test(productionEntry)) fail('PRODUCTION_ENTRY_STORAGE', 'src/app.jsx must not read or write localStorage.');
+if (/legacy-demo-app/.test(productionEntry)) fail('PRODUCTION_ENTRY_LEGACY', 'src/app.jsx must not import the frozen legacy demo shell.');
 for (const [site, reason] of [...Object.entries(UI_PREFERENCE_WRITES), ...Object.entries(BUSINESS_STATE_ALLOWLIST)]) {
   if (seenWrites.has(site)) continue;
   const table = UI_PREFERENCE_WRITES[site] ? 'UI_PREFERENCE_WRITES' : 'BUSINESS_STATE_ALLOWLIST';

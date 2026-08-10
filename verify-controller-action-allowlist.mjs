@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const app = readFileSync(new URL('./src/app.jsx', import.meta.url), 'utf8');
+const app = readFileSync(new URL('./src/legacy-demo-app.jsx', import.meta.url), 'utf8');
 const start = app.indexOf('function Approvals({ctx})');
 const end = app.indexOf('\nexport { App,', start);
 assert.ok(start >= 0 && end > start, 'Controller Action Required workspace must be statically locatable.');

@@ -45,7 +45,7 @@ import { osPrefersDark, readStoredTheme, resolveInitialTheme } from './src/theme
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const html = read('./index.html');
-const appSource = read('./src/app.jsx');
+const appSource = read('./src/legacy-demo-app.jsx');
 const authoritativeSource = read('./src/authoritative-app.jsx');
 const preview = read('./docs/preview/shell-preview.html');
 const css = html.match(/<style>([\s\S]*?)<\/style>/)[1];
@@ -208,7 +208,7 @@ assert.ok(focusableInDrawer.length > 0,
 // A.8 STATIC. Both shells bind inert to the drawer-closed predicate, not to a
 // hand-written condition that can drift.
 for (const [name, source, openState] of [
-  ['src/app.jsx', appSource, 'mobileNav'],
+  ['src/legacy-demo-app.jsx', appSource, 'mobileNav'],
   ['src/authoritative-app.jsx', authoritativeSource, 'navOpen'],
 ]) {
   assert.ok(source.includes(`{...navDrawerAttributes(navOffCanvas, ${openState})}`),

@@ -87,10 +87,22 @@ const journalEntryReadSql=await readFile(new URL('../db/migrations/057_journal_e
 const journalEntryReadDown=await readFile(new URL('../db/migrations/down/057_journal_entry_read.sql',import.meta.url),'utf8');
 const journalEntryReadTypeFixSql=await readFile(new URL('../db/migrations/064_journal_entry_read_type_fix.sql',import.meta.url),'utf8');
 const journalEntryReadTypeFixDown=await readFile(new URL('../db/migrations/down/064_journal_entry_read_type_fix.sql',import.meta.url),'utf8');
+const bankMatchCandidateReadSql=await readFile(new URL('../db/migrations/065_bank_match_candidate_read.sql',import.meta.url),'utf8');
+const reconciliationAdjustmentPostGuardSql=await readFile(new URL('../db/migrations/068_reconciliation_adjustment_post_guard.sql',import.meta.url),'utf8');
+const reconciliationAdjustmentPostGuardDown=await readFile(new URL('../db/migrations/down/068_reconciliation_adjustment_post_guard.sql',import.meta.url),'utf8');
 
 test('migration manifest freezes normalized up and down artifacts including append-only WBS inbound scope',async()=>{
-  assert.deepEqual(MIGRATION_MANIFEST.slice(0,-1).map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql','018_ar_credit_memo_allocation.sql','019_ar_credit_memo_post_reducer.sql','020_ar_refund_command.sql','021_ar_refund_post_reducer.sql','022_ap_payment_reversal_command.sql','023_ap_payment_reversal_post_reducer.sql','024_ar_receipt_trigger_scope_fix.sql','025_idempotency_business_scope_allowlist.sql','026_allow_evidence_backed_auto_reversal.sql','027_fix_auto_reversal_predicate_rewrite.sql','028_ar_receipt_reversal_trigger_scope_fix.sql','029_ap_payment_trigger_scope_fix.sql','030_allocation_reservation_balance_fix.sql','031_ap_payment_reversal_trigger_scope_fix.sql','032_ap_bill_void_direct_source_workflow.sql','033_ap_bill_void_post_evidence.sql','034_ap_bill_void_post_stage_state.sql','035_posted_credit_allocation_reducer.sql','036_posted_ar_credit_allocation_reducer.sql','037_order_ar_credit_post_reducer.sql','038_order_ar_refund_post_reducer.sql','039_ap_ar_control_reconciliation.sql','040_ar_aging.sql','041_ap_aging.sql','042_ap_ar_control_total_read.sql','043_ar_refund_available_credit.sql','044_ar_credit_memo_control_integrity.sql','045_ap_vendor_credit_control_integrity.sql','046_ap_ar_aging_available_credits.sql','047_ap_ar_business_document_read.sql','048_ap_ar_native_document_command.sql','049_ap_ar_business_document_ui_read.sql','050_ap_ar_document_journal_workflow_read.sql','051_post_journal_response_integrity.sql','052_ap_ar_adjustment_read.sql','053_credit_allocation_response_state.sql','054_wbs_snapshot_observation.sql','055_wbs_snapshot_empty_view_observation.sql','056_wbs_snapshot_delivery_attestation.sql','057_journal_entry_read.sql','058_wbs_inbound_atomic_persistence.sql','059_wbs_inbound_autorec_read.sql','060_bank_reconciliation_read.sql','061_bank_match_command.sql','062_financial_statement_read.sql','063_reconciliation_command_lifecycle.sql']);
-  assert.equal(MIGRATION_MANIFEST.at(-1).name,'064_journal_entry_read_type_fix.sql');
+  /* Legacy explicit prefix list retained below for audit history.
+  assert.deepEqual(MIGRATION_MANIFEST.slice(0,-4).map(item=>item.name),['001_wbs_accounting_core.sql','002_accounting_runtime.sql','003_attachment_runtime.sql','004_ap_ar_business_runtime.sql','005_ap_bill_void_command.sql','006_ap_bill_void_http_cas.sql','007_ap_vendor_credit_command.sql','008_ap_vendor_credit_allocation.sql','009_ap_ar_posted_adjustment_reducer.sql','010_ap_bill_void_post_reducer.sql','011_ap_payment_command.sql','012_ap_payment_post_reducer.sql','013_ar_receipt_command.sql','014_ar_receipt_post_reducer.sql','015_ar_receipt_reversal_command.sql','016_ar_receipt_reversal_post_reducer.sql','017_ar_credit_memo_command.sql','018_ar_credit_memo_allocation.sql','019_ar_credit_memo_post_reducer.sql','020_ar_refund_command.sql','021_ar_refund_post_reducer.sql','022_ap_payment_reversal_command.sql','023_ap_payment_reversal_post_reducer.sql','024_ar_receipt_trigger_scope_fix.sql','025_idempotency_business_scope_allowlist.sql','026_allow_evidence_backed_auto_reversal.sql','027_fix_auto_reversal_predicate_rewrite.sql','028_ar_receipt_reversal_trigger_scope_fix.sql','029_ap_payment_trigger_scope_fix.sql','030_allocation_reservation_balance_fix.sql','031_ap_payment_reversal_trigger_scope_fix.sql','032_ap_bill_void_direct_source_workflow.sql','033_ap_bill_void_post_evidence.sql','034_ap_bill_void_post_stage_state.sql','035_posted_credit_allocation_reducer.sql','036_posted_ar_credit_allocation_reducer.sql','037_order_ar_credit_post_reducer.sql','038_order_ar_refund_post_reducer.sql','039_ap_ar_control_reconciliation.sql','040_ar_aging.sql','041_ap_aging.sql','042_ap_ar_control_total_read.sql','043_ar_refund_available_credit.sql','044_ar_credit_memo_control_integrity.sql','045_ap_vendor_credit_control_integrity.sql','046_ap_ar_aging_available_credits.sql','047_ap_ar_business_document_read.sql','048_ap_ar_native_document_command.sql','049_ap_ar_business_document_ui_read.sql','050_ap_ar_document_journal_workflow_read.sql','051_post_journal_response_integrity.sql','052_ap_ar_adjustment_read.sql','053_credit_allocation_response_state.sql','054_wbs_snapshot_observation.sql','055_wbs_snapshot_empty_view_observation.sql','056_wbs_snapshot_delivery_attestation.sql','057_journal_entry_read.sql','058_wbs_inbound_atomic_persistence.sql','059_wbs_inbound_autorec_read.sql','060_bank_reconciliation_read.sql','061_bank_match_command.sql','062_financial_statement_read.sql','063_reconciliation_command_lifecycle.sql']);
+  */
+  const prefix=MIGRATION_MANIFEST.slice(0,-5).map(item=>item.name);
+  assert.equal(prefix.length,63);
+  assert.equal(createHash('sha256').update(prefix.join('\n')).digest('hex'),'df9545df8432d195d774db4ba88470244a7b0c949c3bf0207ca9209ef53213cb');
+  assert.equal(MIGRATION_MANIFEST.at(-5).name,'064_journal_entry_read_type_fix.sql');
+  assert.equal(MIGRATION_MANIFEST.at(-4).name,'065_bank_match_candidate_read.sql');
+  assert.equal(MIGRATION_MANIFEST.at(-3).name,'066_reconciliation_worksheet_read.sql');
+  assert.equal(MIGRATION_MANIFEST.at(-2).name,'067_reconciliation_adjustment_draft.sql');
+  assert.equal(MIGRATION_MANIFEST.at(-1).name,'068_reconciliation_adjustment_post_guard.sql');
   for(const item of MIGRATION_MANIFEST){
     for(const direction of ['up','down']){
       const relative=direction==='up'?`../db/migrations/${item.name}`:`../db/migrations/down/${item.name}`;
@@ -130,6 +142,19 @@ test('Journal Entry read is introduced by a forward scoped permission migration 
   assert.doesNotMatch(journalEntryReadTypeFixDown,/j\.status::text/);
   assert.match(journalEntryReadTypeFixSql,/GRANT EXECUTE ON FUNCTION refs_list_journal_entries/);
   assert.doesNotMatch(journalEntryReadTypeFixSql,/INSERT INTO journal_entry|INSERT INTO ledger_line/);
+});
+
+test('bank match candidates return the immutable business document and a timezone-independent date-only value',()=>{
+  assert.match(bankMatchCandidateReadSql,/po\.business_document_id/);
+  assert.match(bankMatchCandidateReadSql,/to_char\(po\.accounting_date,'YYYY-MM-DD'\)/);
+  assert.match(bankMatchCandidateReadSql,/accounting_date text/);
+  assert.doesNotMatch(repository,/toISOString\(\)\.slice\(0,10\)/);
+});
+
+test('reconciliation adjustment guard sees the current posted journal and rolls back to the prior timing',()=>{
+  assert.match(reconciliationAdjustmentPostGuardSql,/AFTER UPDATE OF status ON journal_entry/);
+  assert.match(reconciliationAdjustmentPostGuardSql,/refs_guard_reconciliation_adjustment_lifecycle/);
+  assert.match(reconciliationAdjustmentPostGuardDown,/BEFORE UPDATE OF status ON journal_entry/);
 });
 
 test('empty scoped production observations are introduced only by a forward migration',()=>{

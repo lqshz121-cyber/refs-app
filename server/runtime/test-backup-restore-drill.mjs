@@ -3,6 +3,7 @@ import {createServer} from 'node:net';
 import {fileURLToPath} from 'node:url';
 import {dirname,resolve} from 'node:path';
 import {MIGRATION_MANIFEST} from './migration-manifest.mjs';
+import {postgresDataVolumeTarget} from './postgres-container.mjs';
 
 const serverRoot=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const project=`refs_backup_drill_${process.pid}_${Date.now().toString(36)}`.toLowerCase();
@@ -17,6 +18,7 @@ function run(command,args,env){return new Promise((resolveRun,reject)=>{const ch
 
 const port=await freePort();
 const composeEnv={...process.env,POSTGRES_DB:database,POSTGRES_USER:'refs_migrator',POSTGRES_PASSWORD:password,POSTGRES_PORT:String(port)};
+composeEnv.POSTGRES_DATA_VOLUME_TARGET=postgresDataVolumeTarget(composeEnv.POSTGRES_IMAGE||'postgres:16-alpine');
 const migrationUrl=`postgresql://refs_migrator:${password}@127.0.0.1:${port}/${database}`;
 const migrationEnv={...composeEnv,REFS_PG_REQUIRED:'1',DATABASE_URL:`postgresql://refs_runtime:refs_runtime_test_N7v2p9Q4x6Lm@127.0.0.1:${port}/${database}`,MIGRATION_DATABASE_URL:migrationUrl,CONTEXT_ISSUER_DATABASE_URL:`postgresql://refs_context_issuer:refs_issuer_test_P6m4s8V2q7Jc@127.0.0.1:${port}/${database}`,GRANT_SYNC_DATABASE_URL:`postgresql://refs_grant_sync:refs_grant_sync_test_R9k5d3W8y2Fn@127.0.0.1:${port}/${database}`};
 const shell=['set -eu',"pg_dump -U \"$POSTGRES_USER\" -Fc \"$POSTGRES_DB\" -f /tmp/refs-backup.dump",`createdb -U \"$POSTGRES_USER\" \"${restoredDatabase}\"`,`pg_restore -U \"$POSTGRES_USER\" --exit-on-error -d \"${restoredDatabase}\" /tmp/refs-backup.dump`,`test \"$(psql -U \"$POSTGRES_USER\" -d \"${restoredDatabase}\" -Atqc 'SELECT count(*) FROM refs_schema_migration')\" = '${MIGRATION_MANIFEST.length}'`,`test \"$(psql -U \"$POSTGRES_USER\" -d \"${restoredDatabase}\" -Atqc \"SELECT count(*) FROM tenant WHERE tenant_code='BKDRILL'\")\" = '1'`,`dropdb -U \"$POSTGRES_USER\" \"${restoredDatabase}\"`,'rm -f /tmp/refs-backup.dump'].join('; ');

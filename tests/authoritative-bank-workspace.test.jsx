@@ -12,7 +12,7 @@ const bankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={confi
 assert.match(bankInitial,/Bank transaction evidence/);assert.match(bankInitial,/Bank account/);assert.match(bankInitial,/From/);assert.match(bankInitial,/Through/);assert.match(bankInitial,/Choose one bank account/);assert.doesNotMatch(bankInitial,/localStorage|seed row/i);
 
 const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
-assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/No reconciliation mutation is available/);
+assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/One authoritative statement cutoff/);
 
 const bankTable=renderToStaticMarkup(<AuthoritativeBankTable rows={[bankRow]}/>);
 assert.match(bankTable,/BANK-LINE-1/);assert.match(bankTable,/SOURCE-1/);assert.match(bankTable,/Unmatched/);assert.match(bankTable,/READ ONLY/);assert.match(bankTable,/Open detail/);assert.doesNotMatch(bankTable,/>\s*(Match|Clear|Post|Delete|Create)\s*</);
@@ -23,12 +23,13 @@ assert.match(bankDetail,/Back to bank transactions/);assert.match(bankDetail,/Ba
 assert.match(bankDetail,/full-bleed qbo-transaction-report/);
 
 const reconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={reconciliationRow}/>);
-assert.match(reconciliation,/RECONCILED/);assert.match(reconciliation,/\$1,000\.00/);assert.match(reconciliation,/Unmatched/);assert.match(reconciliation,/READ ONLY/);assert.match(reconciliation,/Open statement detail/);assert.doesNotMatch(reconciliation,/>\s*(Match|Clear|Reopen|Sign off|Post)\s*</);
+assert.match(reconciliation,/RECONCILED/);assert.match(reconciliation,/\$1,000\.00/);assert.match(reconciliation,/Unmatched/);assert.match(reconciliation,/READ ONLY/);assert.match(reconciliation,/Open statement detail/);
 const emptyReconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={null}/>);assert.match(emptyReconciliation,/No reconciliation statement was returned/);assert.match(emptyReconciliation,/not evidence of zero statement activity/);assert.doesNotMatch(emptyReconciliation,/Open statement detail/);
 
 const reconciliationDetail=renderToStaticMarkup(<AuthoritativeReconciliationDetail row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(reconciliationDetail,/Back to reconciliation evidence/);assert.match(reconciliationDetail,/Statement ending 2026-07-31/);assert.match(reconciliationDetail,/\$1,000\.00/);assert.match(reconciliationDetail,/11111111-1111-4111-8111-111111111111/);
 assert.match(reconciliationDetail,/full-bleed qbo-transaction-report/);assert.match(reconciliationDetail,/Reconciled by/);
+assert.match(reconciliationDetail,/Load reconciliation worksheet/);assert.match(reconciliationDetail,/CONTROLLER REVIEW/);
 
 const source=readFileSync('src/authoritative-bank-workspace.jsx','utf8');
 // Phase 2a: the four states are rendered only by the shared StateBlock, which
@@ -39,11 +40,31 @@ assert.match(source,/phase==='ERROR'.*<ReadError/s,'authoritative reads must exp
 assert.match(source,/phase==='READY'.*AuthoritativeBankTable/s,'Bank results must render only after an API success');
 assert.match(source,/phase==='READY'.*AuthoritativeReconciliationSummary/s,'Reconciliation results must render only after an API success');
 assert.match(source,/if\(selected\).*AuthoritativeBankDetail/s,'Bank detail must replace the list and retain an explicit Back path');
-assert.match(source,/if\(detailOpen&&state\.row\).*AuthoritativeReconciliationDetail/s,'Reconciliation detail must replace the summary and retain an explicit Back path');
-assert.match(source,/returnFocusId\.current=selected\.bank_source_id[\s\S]*setSelected\(null\)/,'Bank Back must retain the immutable source key for focus restoration');
-assert.match(source,/openerRefs\.current\.get\(returnFocusId\.current\)\?\.focus/,'Bank Back must restore focus to the originating evidence control');
-assert.match(source,/restoreFocus\.current=true;setDetailOpen\(false\)/,'Reconciliation Back must request focus restoration');
-assert.match(source,/openerRef\.current\?\.focus/,'Reconciliation Back must restore focus to the statement evidence control');
-assert.doesNotMatch(source,/localStorage|SEED_|bankMatch|bankRecord|bankSignoff/,'authoritative Bank/Reconcile UI must not depend on demo state or mutation helpers');
+assert.match(source,/if\(selected\).*AuthoritativeReconciliationDetail/s,'Reconciliation detail must replace the summary and retain an explicit Back path');
+assert.match(source,/authoritative-bank-\$\{row\.bank_source_id\}/,'Bank detail must retain a stable opener for focus restoration');
+assert.match(source,/authoritative-reconciliation-\$\{row\.reconciliation_id\}/,'Reconciliation detail must retain a stable opener for focus restoration');
+assert.match(source,/restoreAuthoritativeReturnContext\(environment,config,context\)/,'Bank and reconciliation Back must restore scope, scroll position and focus');
+assert.match(source,/bankAccountRef:scope\.bankAccountRef/,'Bank Back must retain the exact account scope');
+assert.match(source,/statementEndingDate:scope\.statementEndingDate/,'Reconciliation Back must retain the exact cutoff scope');
+assert.doesNotMatch(source,/localStorage|SEED_|bankRecord|bankSignoff/,'authoritative Bank/Reconcile UI must not depend on demo state or legacy mutation helpers');
+assert.match(source,/refreshAuthoritativeBankMatchCandidates/,'Bank Match must start from server-validated candidate evidence, not a caller-supplied occurrence ID');
+assert.match(source,/candidates\.length!==1/,'zero or multiple candidate sets must block the Match command');
+assert.match(source,/createAuthoritativeBankPaymentMatch/,'an exact candidate must execute through the authoritative command client');
+assert.match(source,/unmatchAuthoritativeBankPayment/,'an active match must use the authoritative Unmatch command client');
+assert.match(source,/refreshAuthoritativeReconciliationWorksheet/,'Reconciliation must load server-owned worksheet evidence before a clearance command');
+assert.match(source,/setAuthoritativeReconciliationClearance/,'Clear and Unclear must use the authoritative command client');
+assert.match(source,/startAuthoritativeReconciliation/,'A missing scoped statement may be started only through the authoritative lifecycle command client');
+assert.match(source,/transitionAuthoritativeReconciliation/,'Review, sign-off, and reopen must use the authoritative lifecycle command client');
+assert.match(source,/item\.match_status==='ACTIVE'/,'Only a server-returned active Match may expose Clear');
+assert.match(source,/row:item/,'Clearance command must receive the selected server worksheet row, not the reconciliation summary');
+assert.match(source,/const reasonReady=reason\.trim\(\)\.length>=8/,'Clearance commands must require a non-blank controller reason before they can be clicked');
+assert.match(source,/disabled=\{commandInFlight\|\|!reasonReady\}/,'Clearance and lifecycle buttons must remain disabled until the controller reason is valid');
+assert.match(source,/Start DRAFT reconciliation/,'Starting a reconciliation must remain visibly Draft-only');
+assert.match(source,/createAuthoritativeReconciliationAdjustmentDraft/,'An adjustment Draft must use the authoritative reconciliation command client');
+assert.match(source,/setAuthoritativeReconciliationAdjustmentClearance/,'Adjustment clearance must use its separate posted-evidence command boundary');
+assert.match(source,/Prepare adjustment Draft/,'Only a selected server worksheet source may initiate an adjustment Draft');
+assert.match(source,/Clear Posted adjustment/,'The UI must not present an adjustment Draft as cleared before its separately verified posted-evidence command');
+assert.match(source,/configured cash account, exact four-decimal source amount/,'The UI must explain that it retains source amount and configured cash-account evidence instead of inferring a mapping');
+assert.match(source,/preserveDetail:true/,'A successful worksheet command must refresh the authoritative statement revision without losing the full-page detail context');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');
