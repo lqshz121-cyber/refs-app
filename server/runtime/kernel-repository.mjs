@@ -131,6 +131,86 @@ export class PostgresAccountingKernel{
     ),'WBS_INBOUND_PERSIST_FAILED','WBS inbound persistence did not return a result').result);
   }
 
+  // The database function is REFS-owned and verifies receipt-backed WBS
+  // sources under locks. It never invokes WBS and never creates or posts JE.
+  async executeWbsAutoRecIntent({tenantId,entityId,intent}){
+    if(!intent||typeof intent!=='object'||typeof intent.idempotency_key!=='string'||typeof intent.request_hash!=='string')throw new KernelError('WBS_AUTOREC_EXECUTION_INPUT_INVALID','A canonical WBS AutoRec execution intent is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_execute_wbs_autorec_intent($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,JSON.stringify(intent),intent.idempotency_key,intent.request_hash]
+    ),'WBS_AUTOREC_EXECUTION_FAILED','WBS AutoRec execution did not return a result').result);
+  }
+
+  async persistWbsInboundSnapshotRows({tenantId,entityId,importBatchId,groups,idempotencyKey,requestHash}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_persist_wbs_inbound_snapshot_rows($1,$2,$3,$4,$5,$6) AS result',
+      [tenantId,entityId,importBatchId,JSON.stringify(groups),idempotencyKey,requestHash]
+    ),'WBS_INBOUND_SNAPSHOT_PERSIST_FAILED','WBS inbound snapshot persistence did not return a result').result);
+  }
+
+  async persistWbsTraceRelationEvidence({tenantId,entityId,source,traceReceipt,relations,idempotencyKey,bindingHash}){
+    const requestHash=canonicalRequestHash({source,receipt:traceReceipt,relations});
+    if(bindingHash!==undefined&&bindingHash!==requestHash)throw new KernelError('WBS_TRACE_RELATION_HASH_INVALID','WBS trace relation binding hash must match the canonical source, receipt, and relation evidence');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_persist_wbs_trace_relation_evidence($1,$2,$3,$4,$5,$6,$7) AS result',
+      [tenantId,entityId,JSON.stringify(source),JSON.stringify(traceReceipt),JSON.stringify(relations),idempotencyKey,requestHash]
+    ),'WBS_TRACE_RELATION_PERSIST_FAILED','WBS trace relation persistence did not return a result').result);
+  }
+
+  async readWbsTraceRelationEvidence({tenantId,entityId,source,read_only}){
+    if(read_only!==true||!source||typeof source!=='object')throw new KernelError('WBS_TRACE_RELATION_READ_SCOPE_INVALID','An explicit read-only WBS trace source selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_trace_relation_evidence($1,$2,$3) AS result',[tenantId,entityId,JSON.stringify(source)]
+    ),'WBS_TRACE_RELATION_READ_FAILED','WBS trace relation read did not return a result').result);
+  }
+
+  async persistWbsControlMetricSnapshot({tenantId,entityId,sourceType,scope,receiptId,receipt,metrics,idempotencyKey,bindingHash}){
+    const requestHash=canonicalRequestHash({sourceType,scope,receiptId,receipt,metrics});
+    if(bindingHash!==undefined&&bindingHash!==requestHash)throw new KernelError('WBS_CONTROL_SNAPSHOT_HASH_INVALID','WBS control snapshot binding hash must match the canonical source, scope, receipt, and metrics');
+    if(!receipt||receipt.metrics_hash!==canonicalRequestHash(metrics))throw new KernelError('WBS_CONTROL_SNAPSHOT_METRICS_HASH_INVALID','WBS control snapshot metrics must match the receipt metrics hash');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_persist_wbs_control_metric_snapshot($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',
+      [tenantId,entityId,sourceType,JSON.stringify(scope),receiptId,JSON.stringify(receipt),JSON.stringify(metrics),idempotencyKey,requestHash]
+    ),'WBS_CONTROL_SNAPSHOT_PERSIST_FAILED','WBS control metric snapshot persistence did not return a result').result);
+  }
+
+  async readPersistedWbsControlSnapshot({source_type,tenant_id,entity_id,scope,read_only}){
+    if(read_only!==true||!scope||typeof scope!=='object')throw new KernelError('WBS_CONTROL_READ_SCOPE_INVALID','An explicit read-only WBS control selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_control_metric_snapshot($1,$2,$3,$4) AS result',[tenant_id,entity_id,source_type,JSON.stringify(scope)]
+    ),'WBS_CONTROL_READ_FAILED','WBS control snapshot read did not return a result').result);
+  }
+
+  async readPersistedRefsControlMetricSnapshot({source_type,tenant_id,entity_id,scope,read_only}){
+    if(read_only!==true||!scope||typeof scope!=='object')throw new KernelError('WBS_CONTROL_READ_SCOPE_INVALID','An explicit read-only REFS control selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_refs_control_metric_snapshot($1,$2,$3,$4) AS result',[tenant_id,entity_id,source_type,JSON.stringify(scope)]
+    ),'WBS_CONTROL_READ_FAILED','REFS control metric snapshot read did not return a result').result);
+  }
+
+  async readApprovedWbsControlReconciliationMapping({source_type,tenant_id,entity_id,scope,read_only}){
+    if(read_only!==true||!scope||typeof scope!=='object')throw new KernelError('WBS_CONTROL_READ_SCOPE_INVALID','An explicit read-only WBS control mapping selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_control_reconciliation_mapping($1,$2,$3,$4) AS result',[tenant_id,entity_id,source_type,JSON.stringify(scope)]
+    ),'WBS_CONTROL_READ_FAILED','WBS control reconciliation mapping read did not return a result').result);
+  }
+
+  async persistWbsAutoRecObservedStateEvidence({tenantId,entityId,observations,idempotencyKey,bindingHash}){
+    const requestHash=canonicalRequestHash({tenantId,entityId,observations});
+    if(bindingHash!==undefined&&bindingHash!==requestHash)throw new KernelError('WBS_AUTOREC_OBSERVED_STATE_HASH_INVALID','WBS observed-state evidence binding hash must match its scoped observations');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_persist_wbs_autorec_observed_state_evidence($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,JSON.stringify(observations),idempotencyKey,requestHash]
+    ),'WBS_AUTOREC_OBSERVED_STATE_PERSIST_FAILED','WBS observed-state evidence persistence did not return a result').result);
+  }
+
+  async readWbsAutoRecObservedStateEvidence({tenantId,entityId,companyKey,sourceRecordIds,read_only}){
+    if(read_only!==true||typeof companyKey!=='string'||companyKey.trim()===''||!Array.isArray(sourceRecordIds)||sourceRecordIds.length===0||sourceRecordIds.some(value=>typeof value!=='string'||value.trim()===''))throw new KernelError('WBS_AUTOREC_OBSERVED_STATE_READ_SCOPE_INVALID','A non-empty read-only observed-state selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_autorec_observed_state_evidence($1,$2,$3,$4::text[]) AS rows',[tenantId,entityId,companyKey,sourceRecordIds]
+    ),'WBS_AUTOREC_OBSERVED_STATE_READ_FAILED','WBS observed-state evidence read did not return a result').rows);
+  }
+
   async readPersistedWbsInboundRows({tenantId,entityId,companyKey,sourceRecordIds,read_only}){
     if(read_only!==true||typeof companyKey!=='string'||companyKey.trim()===''||!Array.isArray(sourceRecordIds)||sourceRecordIds.length===0||sourceRecordIds.some(value=>typeof value!=='string'||value.trim()===''))throw new KernelError('WBS_AUTOREC_READ_SCOPE_INVALID','A non-empty read-only WBS inbound selection is required');
     return this.inSession(async client=>requireRow(await client.query(
@@ -150,6 +230,13 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_wbs_autorec_mappings($1,$2,$3) AS rows',[tenantId,entityId,companyKey]
     ),'WBS_AUTOREC_READ_FAILED','WBS approved mapping read did not return a result').rows);
+  }
+
+  async readApprovedWbsAutoRecMatchingPolicies({tenantId,entityId,companyKey,read_only}){
+    if(read_only!==true||typeof companyKey!=='string'||companyKey.trim()==='')throw new KernelError('WBS_AUTOREC_READ_SCOPE_INVALID','An explicit scoped read-only WBS matching-policy selection is required');
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_autorec_matching_policies($1,$2,$3) AS rows',[tenantId,entityId,companyKey]
+    ),'WBS_AUTOREC_READ_FAILED','WBS approved matching-policy read did not return a result').rows);
   }
 
   async createAutoJournal(args){

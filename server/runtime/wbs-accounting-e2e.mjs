@@ -327,8 +327,12 @@ export function simulatePersistedReviewedStaging({
       staging_item_id: namespacedId('STG', key),
       raw_event_id: namespacedId('RAW', key),
       source_document_id: namespacedId('SRCDOC', key),
+      receipt_id: namespacedId('RCPT', key),
+      receipt_ref: `wbs-fixture://${stagingItem.tool}/${key}`,
+      receipt_hash: `sha256:${stagingItem.normalized.envelope_content_sha256}`,
       source_record_id: stagingItem.source_id,
       source_version: stagingItem.source_version,
+      source_type: stagingItem.normalized.source_type,
       stable_key: key,
       company_key: stagingItem.company_key,
       currency: stagingItem.currency,
@@ -867,17 +871,31 @@ export function buildLineageTrace({ receiptStage, lineageStage, event, postedJou
  * item plus an approved versioned mapping plus a balanced journal.
  */
 export function buildStandardJeCommand({ reviewedStaging, event, draft, periodId }) {
+  const mapping = Object.freeze({
+    status: 'APPROVED',
+    mapping_id: event.mapping_snapshot_id,
+    version: event.mapping_version,
+    source_type: reviewedStaging.source_type,
+    company_key: reviewedStaging.company_key,
+    currency: reviewedStaging.currency,
+    bank_account_ref: reviewedStaging.bank_account_ref ?? null,
+    effective_from: '2020-01-01T00:00:00.000Z',
+    effective_to: null,
+  });
+  const snapshotHash = `sha256:${sha256Hex(JSON.stringify(mapping))}`;
   const request = buildStandardDraftRequest({
     stagingItem: reviewedStaging,
     mapping: {
-      status: 'APPROVED',
-      mapping_id: event.mapping_snapshot_id,
-      version: event.mapping_version,
+      ...mapping,
+      snapshot_hash: snapshotHash,
     },
     journal: {
       period_id: periodId,
       journal_number: draft.journal.je_number,
       description: draft.journal.description,
+      company_key: reviewedStaging.company_key,
+      currency: reviewedStaging.currency,
+      accounting_date: reviewedStaging.accounting_date,
       lines: draft.journal.lines.map(line => ({
         account_code: line.account_code,
         member: line.member,

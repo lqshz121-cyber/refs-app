@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {createReadOnlyWbsMcpClient,validateWbsReadEnvelope,WbsMcpError,WBS_MCP_PILOT_LIMIT,WBS_MCP_PROTOCOL_VERSION,WBS_READONLY_ROW_FIELDS,WBS_READONLY_TOOLS} from '../runtime/wbs-readonly-mcp.mjs';
+import {createReadOnlyWbsMcpClient,validateWbsReadEnvelope,WbsMcpError,WBS_MCP_PILOT_LIMIT,WBS_MCP_PROTOCOL_VERSION,WBS_READONLY_ROW_FIELDS,WBS_READONLY_OPTIONAL_TRACE_FIELDS,WBS_READONLY_TOOLS} from '../runtime/wbs-readonly-mcp.mjs';
 
 const endpoint='https://refs-mcp.wbm3.com/mcp';
 const auth=async()=>({'CF-Access-Client-Id':'test-client-id','CF-Access-Client-Secret':'test-client-secret','X-REFS-Auth':'test-refs-auth'});
@@ -9,13 +9,13 @@ const json=(body,{status=200,headers={}}={})=>new Response(JSON.stringify(body),
 const eventStream=(events,{status=200,headers={}}={})=>new Response(events.map(event=>`event: message\ndata: ${JSON.stringify(event)}\n\n`).join(''),{status,headers:{'content-type':'text/event-stream',...headers}});
 const schemas=Object.freeze({
   get_meta:{type:'object',properties:{},additionalProperties:false},
-  list_payables:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'}},additionalProperties:false},
-  list_bank_transactions:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'}},additionalProperties:false},
-  list_autorec_details:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'}},additionalProperties:false},
-  list_autorec_banks:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'}},additionalProperties:false},
-  list_journal_entries:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'}},additionalProperties:false},
-  list_control_totals:{type:'object',properties:{company_code:{type:'string'},period:{type:'string'},limit:{type:'integer'},cursor:{type:'string'}},additionalProperties:false},
-  trace_by_key:{type:'object',properties:{key_type:{type:'string'},key_value:{type:'string'}},additionalProperties:false}
+  list_payables:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false},
+  list_bank_transactions:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false},
+  list_autorec_details:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false},
+  list_autorec_banks:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false},
+  list_journal_entries:{type:'object',properties:{company_code:{type:'string'},limit:{type:'integer'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false},
+  list_control_totals:{type:'object',properties:{company_code:{type:'string'},period:{type:'string'},limit:{type:'integer'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false},
+  trace_by_key:{type:'object',properties:{key_type:{type:'string'},key_value:{type:'string'},cursor:{type:'string'},snapshot_token:{type:'string'}},additionalProperties:false}
 });
 const descriptor=(name,overrides={})=>({name,description:`Read-only ${name}`,annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true},inputSchema:schemas[name],...overrides});
 const toolCatalog=(replace={})=>WBS_READONLY_TOOLS.map(name=>replace[name]??descriptor(name));
@@ -79,7 +79,8 @@ test('tool catalog fails closed when a tool is missing, extra, destructive, non-
     [...toolCatalog(),descriptor('unexpected_tool')],
     toolCatalog({list_payables:descriptor('list_payables',{annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true}})}),
     toolCatalog({list_payables:descriptor('list_payables',{annotations:{readOnlyHint:true,destructiveHint:true,idempotentHint:true}})}),
-    toolCatalog({list_payables:descriptor('list_payables',{annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:false}})})
+    toolCatalog({list_payables:descriptor('list_payables',{annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:false}})}),
+    toolCatalog({list_payables:descriptor('list_payables',{inputSchema:{type:'object',properties:{company_code:{type:'string'},cursor:{type:'string'}},additionalProperties:false}})})
   ];
   for(const catalog of invalidCatalogs){
     const client=createReadOnlyWbsMcpClient({endpoint,getAuthHeaders:auth,fetcher:rpcFetcher({catalog})});
@@ -107,16 +108,25 @@ test('data reads enforce the local allowlist and published argument schema, then
 
 test('formal provider envelope validates stable string keys, integer journal ids, nullable ETL notice and canonical hash',()=>{
   assert.deepEqual(WBS_READONLY_TOOLS,['get_meta','list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
-  assert(WBS_READONLY_ROW_FIELDS.list_payables.includes('ap_guid'));assert(WBS_READONLY_ROW_FIELDS.list_journal_entries.includes('id'));assert(WBS_READONLY_ROW_FIELDS.list_control_totals.includes('total_balance'));
+  assert(WBS_READONLY_ROW_FIELDS.list_payables.includes('ap_guid'));assert(WBS_READONLY_ROW_FIELDS.list_payables.includes('business_id'));assert(WBS_READONLY_ROW_FIELDS.list_journal_entries.includes('id'));assert(WBS_READONLY_ROW_FIELDS.list_control_totals.includes('total_balance'));assert.deepEqual(WBS_READONLY_OPTIONAL_TRACE_FIELDS.list_payables,['source_detail_source','source_detail_type','source_detail_come_from']);
   const envelope=readEnvelope();
   const accepted=validateWbsReadEnvelope({toolName:'list_payables',envelope});assert.equal(accepted.requires_snapshot_diff,true);assert.equal(accepted.has_revision_contract,false);assert.equal(accepted.etl_notice,null);
   const journal=readEnvelope({tool:'list_journal_entries',rows:[{id:7,currency:'USD'}],etl_notice:'Snapshot comparison required'});
   assert.equal(validateWbsReadEnvelope({toolName:'list_journal_entries',envelope:journal}).rows[0].id,7);
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_journal_entries',envelope:readEnvelope({tool:'list_journal_entries',rows:[{id:'7',currency:'USD'}]})}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,rows:[{currency:'USD'}]}}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:readEnvelope({rows:[{ap_guid:'AP-\u0001',currency:'USD'}]})}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,content_sha256:'caller-value'}}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,rows:[{ap_guid:'AP-1',currency:'USD',amount:'1.00'}]}}),error=>error.code==='WBS_MCP_CONTENT_HASH_MISMATCH');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,rows:[{ap_guid:'AP-1',currency:'CAD'}]}}),error=>error.code==='WBS_MCP_CURRENCY_UNSUPPORTED');
+  const duplicateRows=[{ap_guid:'AP-1',currency:'USD'},{ap_guid:'AP-1',currency:'USD'}];
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:readEnvelope({rows:duplicateRows})}),error=>error.code==='WBS_MCP_ROWS_NOT_SORTED');
+  const unorderedRows=[{ap_guid:'AP-2',currency:'USD'},{ap_guid:'AP-1',currency:'USD'}];
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:readEnvelope({rows:unorderedRows})}),error=>error.code==='WBS_MCP_ROWS_NOT_SORTED');
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,cursor_next:'next-page'}}),error=>error.code==='WBS_MCP_PAGINATION_SNAPSHOT_TOKEN_REQUIRED');
+  const paged={...envelope,scope:{...envelope.scope,snapshot_token:'snapshot-2026.08:1'},cursor_next:'next-page'};
+  assert.equal(validateWbsReadEnvelope({toolName:'list_payables',envelope:paged}).scope.snapshot_token,'snapshot-2026.08:1');
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,scope:{...envelope.scope,snapshot_token:'bad token'}}}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
 });
 
 test('tool call fails closed on invalid JSON text, invalid hash and remote error',async()=>{

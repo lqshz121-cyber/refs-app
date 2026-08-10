@@ -59,6 +59,8 @@ const ROWS = Object.freeze({
     amount: 1250.5,
     ap_guid: 'AP-GUID-0001',
     ap_long_id: 'AP-2026-0001',
+    bank_account_ref: '111000',
+    business_id: 'PD-GUID-0001',
     company_code: 'CO-A',
     cost_id: '03-100',
     description: 'Sanitized fixture payable',
@@ -71,6 +73,7 @@ const ROWS = Object.freeze({
   }),
   list_bank_transactions: Object.freeze({
     account_code: '111000',
+    bank_transaction_id: 'BANK-GUID-0001',
     cb_id: 'CB-0001',
     come_from: 'FAST',
     company_code: 'CO-A',
@@ -79,6 +82,7 @@ const ROWS = Object.freeze({
     lender: 1250.5,
     payee: 'Sanitized Payee',
     payee_no: 'P-0001',
+    posting_date: '2026-07-31',
     set_date: '2026-07-31',
     sys_id: 'SYS-0001',
   }),
@@ -95,6 +99,7 @@ const ROWS = Object.freeze({
     payment: 1250.5,
     pd_guid: 'PD-GUID-0001',
     pd_pv_guid: 'PV-GUID-0001',
+    posting_date: '2026-07-31',
     project_guid: 'PRJ-0001',
     status: 'Released',
     vendor_no: 'V-0001',
@@ -411,9 +416,8 @@ test('a row whose company differs from the read scope raises a scoped cross-comp
     envelope: envelopeFor('list_payables', [{ ...ROWS.list_payables, company_code: 'CO-B' }]),
     scope: SCOPE,
   });
-  assert.deepEqual(codes(result), [WBS_LINEAGE_EXCEPTIONS.CROSS_COMPANY]);
-  assert.equal(result.exceptions[0].detail.row_company, 'CO-B');
-  assert.equal(result.exceptions[0].detail.scope_company, 'CO-A');
+  assert.deepEqual(codes(result), [WBS_LINEAGE_EXCEPTIONS.SCHEMA_INVALID]);
+  assert.equal(result.exceptions[0].detail.upstream_code, 'WBS_MCP_ENVELOPE_SCOPE_MISMATCH');
   assert.equal(result.staging.length, 0);
 });
 
@@ -510,10 +514,9 @@ test('the same stable key twice in one window raises a scoped duplicate exceptio
     scope: SCOPE,
     mappingCandidatesByKey: mappingsFor([['list_payables', ROWS.list_payables, '640000']]),
   });
-  assert.deepEqual(codes(result), [WBS_LINEAGE_EXCEPTIONS.STABLE_KEY_DUPLICATE]);
-  assert.equal(result.exceptions[0].detail.first_row_index, 0);
-  assert.equal(result.exceptions[0].scope.row_index, 1);
-  assert.equal(result.je_request_seams.length, 1, 'the first occurrence still maps');
+  assert.deepEqual(codes(result), [WBS_LINEAGE_EXCEPTIONS.SCHEMA_INVALID]);
+  assert.equal(result.exceptions[0].detail.upstream_code, 'WBS_MCP_ROWS_NOT_SORTED');
+  assert.equal(result.je_request_seams.length, 0, 'a duplicate invalidates the complete receipt page');
 });
 
 /* ---------------- 9. exception class: unsupported currency -------------- */
@@ -751,8 +754,7 @@ test('the batch replay reports the exception classes it raised', () => {
   ];
   const replay = replayWbsLineage({ pages, scope: SCOPE });
   assert.deepEqual(replay.exception_counts, {
-    [WBS_LINEAGE_EXCEPTIONS.CROSS_COMPANY]: 1,
-    [WBS_LINEAGE_EXCEPTIONS.SCHEMA_INVALID]: 1,
+    [WBS_LINEAGE_EXCEPTIONS.SCHEMA_INVALID]: 2,
   });
   assert.equal(replay.can_post, false);
   assert.equal(replay.can_write_wbs, false);

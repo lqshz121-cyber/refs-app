@@ -1,0 +1,478 @@
+# WBS read-only source evidence register
+
+This register supplements [WBS-MCP-INBOUND-LINEAGE.md](WBS-MCP-INBOUND-LINEAGE.md).
+It records source discovery evidence separately from REFS admission rules. A
+table name is not proof of a field meaning, relationship, business transition,
+or permission.
+
+## Observation record
+
+- Observation method: authenticated WBS read-only metadata connector,
+  `list_tables`; no WBS write was attempted.
+- Observation date: 2026-08-09.
+- Business values, credentials, cookies, and tokenized URLs were neither
+  retained nor exported.
+- Field metadata was retrieved through the approved read-only provider path
+  after an initial connector transport failure. The table/field findings below
+  are **OBSERVED schema evidence**, not a license to bypass the signed provider
+  receipt, mapping, Staging/Exception, or human-review gates.
+
+## Observed source inventory
+
+| Database | Observed table | Intended evidence role | Confidence | Not yet established |
+| --- | --- | --- | --- | --- |
+| `wbsdata` | `account_book_payable_info` | Payable-report candidate source | OBSERVED table only | immutable payable key, posting date, amount, currency, mapping fields |
+| `wbsdata` | `accountbook` | Bank/account-book candidate source | OBSERVED table only | immutable bank-record key, signed amount direction, account and company scope |
+| `wbsdata` | `accountbookpaymentset` | Bank/payment configuration or relation candidate | OBSERVED table only | cardinality, lifecycle, and whether it is transactional |
+| `wbsdata` | `autopaymentbank` | AutoRec bank/control candidate source | OBSERVED table only | immutable `pb` key, period/control-total field semantics |
+| `wbsdata` | `fast_auto_payment_detail` | AutoRec payment/detail candidate source | OBSERVED table only | immutable `pd` key, deposit/payment direction, bank/payable relation |
+| `wbsdata` | `match_business_info` | Matching relation candidate source | OBSERVED table only | relationship keys, allocation meaning, state-history semantics |
+| `accounting` | `accounting_info` | WBS accounting trace candidate source | OBSERVED table only | immutable journal key, posting/review/approval state semantics |
+| `accounting` | `accounting_log` | Accounting audit/log candidate source | OBSERVED table only | actor/event identity, append-only behavior, linkage to journal evidence |
+| `accounting` | `accounting_monthly_relation` | Monthly reconciliation/control relation candidate | OBSERVED table only | period key, company scope, control-total definition |
+| `accounting` | `accounting_monthly_setting` | Monthly settings candidate | OBSERVED table only | whether setting is approved/effective and admissible as a mapping |
+| `accounting` | `accounting_cost_relation` | Cost GL control relation candidate | OBSERVED table only | fourteen metric definitions and REFS mapping semantics |
+| `accounting` | `fastautopaymentbank1` | AutoRec accounting/control candidate source | OBSERVED table only | whether it duplicates or projects `wbsdata.autopaymentbank` |
+| `wbsdata` | `pjcat_property_relation` | Property Comparison relation candidate | OBSERVED table only | authoritative report join, company/currency/period scope, and report semantics |
+| `wbsdata` | `pjcat_unit_report` | Property Comparison control candidate | OBSERVED table only | report grain, property relation, company/currency/period scope, and source-of-truth calculation |
+| `wbsdata` | `costcode_account_relation` | Cost/account mapping candidate | OBSERVED table only | company/effective-date/approval scope and whether it is the Cost GL metric source |
+
+## Observed AutoRec and Payable schema facts
+
+| Source | Observed keys and accounting fields | Evidence classification | REFS consequence |
+| --- | --- | --- | --- |
+| `autopaymentbank` | `PB_GuId` is the non-null primary key; `PB_CompanyCode` is indexed; it stores Pay/Debit/Released/Incurred amounts, Quantity, bank-account ID/name, Status, M/R/C months, start transaction date, and check status/date. | VERIFIED schema | It is a company-scoped control source. It may contribute receipt-bound M/R/C and quantity/amount controls, never an allocation, release, incur, Draft, or post command. |
+| `fast_auto_payment_detail` | `pd_guid` is the non-null primary key; indexed relation-like fields include `pd_cbid`, project keys, clear/incurred/check dates and business type. It stores Deposit/Payment, vendor, project, cost, memo, status, release/incur actors/dates, source data, and `pd_pvguid`/`pd_batchguid`. | VERIFIED schema | `pd_guid` is the only observed candidate immutable detail key. Deposit/Payment needs signed-direction validation. `pd_cbid` and `pd_pvguid` are retained relation evidence, not REFS keys or state authority. |
+| `match_business_info` | `MB_Id` is the primary key. `MB_BusinessType`, `MB_BusinessId`, and `MB_BatchGuId` are indexed; it also has create time and source. | VERIFIED schema | A match relation exists, but cardinality/history meaning is UNKNOWN. It cannot by itself create an AutoRec allocation or change a REFS state. |
+| `account_book_payable_info` | `uuid` is the primary key; indexed `type`/`long_id`; it stores company, amount, invoice/incurred/posting/clear dates, vendor/project/cost dimensions, payment/review status, account/journal data, and `cb_id`. | VERIFIED schema | It is the observed Payable candidate. Do not equate `uuid` with formal `ap_guid` without provider contract proof. `cb_id`, journal, and posting fields are trace only until receipt-backed mapping verifies them. |
+| `accountbook` | `ID` is the primary key and `ComCode` is indexed; it stores account code/name, company, book type, balances, bank balance/date, and operational configuration. | VERIFIED schema | Bank-account master/control evidence, not an observed bank-transaction feed. It cannot enter AutoRec as a bank source row. |
+| `accountbookpaymentset` | `APS_GuId` is the primary key and company is indexed; it holds project/entity/account settings and status. | VERIFIED schema | A partial value-level join from `APS_AccountId` to `accountbook.ID` exists, but unmatched settings remain. Treat as configuration evidence only until effective-date, approval, and company/cardinality semantics are proven. |
+
+## Payable Report page observation
+
+On 2026-08-09, the authenticated **Payable Report** page was inspected
+read-only. Its visible selector schema includes Company, Owner/Project,
+Vendor, Account, Unit Code, Payable/Check/Journal/Invoice number, Business
+Status, Pay Type, Pay Status, Match Status, Cost Code, Cost Ledger, Cost State,
+Review Status, Posting Status, Amount/Check Amount, and date windows for
+Check, Incurred, Pay Due, Posting and Clear Date. It also exposes empty-company,
+empty-account, no-check, abnormal-data and show-all selectors.
+
+This confirms that the report separates operational, payment, matching,
+review, posting and accounting-date facts. It does **not** prove that a filter
+value, display identifier, visible row, or Posting Date drill-down is an
+immutable transaction key, a change-data feed, a match rule, or an accounting
+command. REFS therefore accepts the page only through the signed provider
+receipt -> Raw -> Normalized -> Staging route, retaining these fields as
+scope/trace facts and quarantining a row that lacks the required immutable
+key, version, company, currency, direction, amount, accounting date or
+approved mapping.
+
+An indexed, aggregate-only recheck grouped the underlying Payable candidates
+by their source `type`. Every material type family had some rows without a
+Posting Date, including the observed `AUTOC` family, while the same aggregate
+also exposed one control-character type token. This is direct evidence that
+neither a non-null `uuid`, a nonzero amount, nor a familiar Payable type makes
+a row accounting-admissible. The provider adapter must validate the exact
+per-row type token, immutable key, nonzero amount, signed direction convention
+and valid Posting Date before Staging; a missing/invalid field is an Exception
+and can never be filled from Incurred, Check, or Clear Date.
+
+### 2026-08-10 read-only drill-down recheck
+
+The current page also exposes separate read-only drill-downs for the WBS
+business form, transaction date, check information, accounting Source Detail
+and comments log. The observed Accounting Source Detail route labels the
+relation as `PAYABLE` / `payable` with an `EXPA` origin and a long-ID-style
+locator. These labels are now modelled as `payable_source_detail` trace
+evidence only. REFS retains them as `RECEIPT_BOUND_DISPLAY_TRACE` only when a
+future signed provider payload supplies all four relation labels and the
+payable long ID; otherwise it records
+`PAGE_OBSERVED_UNBOUND_TRACE`. Neither form, transaction, check, Source Detail
+nor log drill-down may supply the immutable payable key, a bank key, a match
+instruction, workflow transition, Draft request or posting authority.
+
+The same page presents a WBS-side `Not Match` route plus operational controls
+to forward, refresh, change status, upload/download, set an account, change
+pay type/journal/cost state, and create a log entry. Those controls establish
+that the report mixes inquiry, workflow, and maintenance surfaces. They are
+all **forbidden** to the REFS provider adapter: a source read cannot call a
+WBS action, and the presence of an observed `Not Match` link cannot create a
+REFS match group or a review decision.
+
+| Payable page surface | Observed purpose | REFS retained result | Explicit non-equivalence |
+| --- | --- | --- | --- |
+| Business-form drill-down | Shows the originating WBS business document | Receipt-bound external business-form trace, if the immutable payable key/version are supplied separately | Does not become a source key, mapping, or Draft authority |
+| Transaction-date drill-down | Shows a WBS transaction detail for the row | External transaction-date trace | Does not substitute for the separately required Posting Date |
+| Check-information drill-down | Shows WBS check/payment detail | External check trace | Does not prove a bank-record key, clearance, or REFS payment |
+| Accounting Source Detail | Shows WBS accounting origin labels and a long-ID locator | `payable_source_detail` relation trace only | Does not prove a posted REFS journal or satisfy G11 |
+| Comments log | Shows WBS review/comment history | Append-only external audit display trace when receipt-bound | Does not establish REFS reviewer, approver, or SoD |
+| `Not Match` page action | Opens WBS matching workflow | Observed unmatched state only | Does not allocate, release, incur, split, create a JE, or post in REFS |
+
+The read-only recheck confirms that `viewBizForm` receives six display/workflow
+arguments, while transaction and check drill-downs receive two arguments and
+the comments-log drill-down receives one. Argument count is navigation
+evidence, not a provider contract: no argument position has been promoted to
+an immutable key. A signed provider receipt still must deliver the payable
+key, source version, company, currency, amount/direction, and accounting date
+before the row can enter REFS Staging.
+
+## Tested relationship findings
+
+The following aggregate-only read checks were executed without selecting a
+business row:
+
+1. A 2026-08-10 aggregate-only schema recheck found 78,333 Detail rows where
+   `fast_auto_payment_detail.pd_pvguid = autopaymentbank.PB_GuId`, covering
+   145 PB keys; all matched Detail rows with a populated business type were
+   `AUTOC`. This is **OBSERVED relation evidence**, not a verified foreign-key
+   or state-transition contract: the Detail table has no compatible company
+   code in this comparison, currency is absent, and the provider has not
+   supplied revision/cardinality semantics. REFS may retain it only after a
+   signed same-snapshot `pd_guid -> pb_guid` relation receipt and approved
+   relation policy; it must not be used as an allocation, release, incur,
+   reversal, Draft, or posting instruction.
+2. `fast_auto_payment_detail.pd_batchguid` has populated values, but no value
+   matched `autopaymentbank.PB_GuId` in the tested source. It is therefore
+   **not a verified AutoRec batch foreign key** and must never fill `pb_guid`.
+3. `match_business_info.MB_BatchGuId` likewise produced no match to
+   `autopaymentbank.PB_GuId`. It is not a verified PB relation.
+4. `account_book_payable_info.cb_id` and
+   `fast_auto_payment_detail.pd_cbid` are both frequently populated, but their
+   relationship/cardinality has not yet been proven. They remain retained
+   bank-relation evidence only.
+5. `accountbookpaymentset.APS_AccountId` partially matches `accountbook.ID`.
+   The unmatched population prevents treating the join as an authoritative
+   mapping or account admission rule.
+6. Some Payable primary-key rows have a shared `cb_id` with WBS-source
+   `accounting_info` lines. This is the only observed Payable-to-accounting
+   relation in the tested candidates. `long_id -> business_guid` and
+   `journal_no -> journal_no` produced zero matches and must remain external
+   display trace, not join keys.
+7. `match_business_info.MB_BusinessId` matches
+   `fast_auto_payment_detail.pd_guid` only for the observed business types
+   `AUTOC`, `AUTOP`, and (except for a small unmatched remainder) `AUTOR`.
+   It has no observed match to Payable `uuid`; `MB_BatchGuId` has no observed
+   match to either PB key or Detail batch key.
+8. A 2026-08-10 aggregate-only recheck found 18,845 exact
+   `account_book_payable_info.business_id = fast_auto_payment_detail.pd_guid`
+   pairs, with no duplicate pair in that population. The observed type pairs
+   were predominantly `AUTOP/AUTOP`, `AUTOR/AUTOR`, and `AUTOC/AUTOC`; the
+   Payable amount equalled Detail Payment for 18,155 pairs. This is an
+   **OBSERVED Payable-to-Detail relation**, not a cross-company-safe source
+   key: only 4,087 pairs shared the available company-name field, and no
+   compatible owner-company-code comparison was proven. It must remain a
+   signed, scoped trace relation until a provider receipt supplies an exact
+   company/currency/version contract.
+9. `account_book_payable_info.long_id = fast_auto_payment_detail.pd_long_id`
+   yielded 263,550 distinct pairs across only 14,133 Payable rows and 13,942
+   long IDs. This is a high-fan-out display/source relation, not an immutable
+   matching, allocation, or posting key. `uuid = pd_guid` had zero observed
+   pairs. The isolated `long_id = pd_pvguid` population had one distinct key
+   only and has no usable cardinality semantics.
+
+These findings are material: the REFS adapter must reject any future provider
+mapping that silently derives a PB key from `pd_batchguid`, `MB_BatchGuId`, a
+memo, a reference number, or a display sequence. `pd_pvguid` is different: it
+is a high-coverage observed Detail-to-PB relation, but still requires the
+separate signed receipt, exact snapshot scope, approved policy, and immutable
+`pd_guid` binding enforced by the REFS adapter.
+
+Likewise, the observed `business_id = pd_guid` pairs explain lineage but do
+not collapse the distinct Payable and Detail source identities in REFS. The
+Payable record and Detail record retain separate Raw/Normalized/Staging rows;
+only a receipt-bound relation trace may connect them during human review.
+
+`match_business_info` is a multi-business routing/relation table, not an
+AutoRec-only allocation table. A direct Detail relation is admissible only if
+a signed provider receipt identifies its immutable `MB_Id`, has one of the
+observed Detail-compatible business types, and binds `MB_BusinessId` exactly
+to the receipt's `pd_guid`. Even then it is retained as relation evidence;
+it cannot reserve, split, release, incur, reverse, or post anything. All other
+business types and any unmatched row remain outside the AutoRec Detail path.
+
+The 2026-08-10 aggregate-only recheck found at least twenty-one distinct
+relation-table business families, including FAST/FASTER, Yardi, Expense, loan,
+sale, reversal, HOA and finance families in addition to
+`AUTOC`/`AUTOP`/`AUTOR`. Every observed family had populated business and batch
+reference fields. That proves broad routing coverage, not a common foreign-key
+target or allocation semantics: a generic `MB_BatchGuId`, relation presence,
+or a `REVERSAL` label cannot become an AutoRec batch, REFS reversal,
+reservation, or state transition.
+
+### Amount direction and control-total boundary
+
+Aggregate-only Detail evidence shows that an observed row normally has exactly
+one non-zero `pd_deposit` or `pd_payment`; no observed row had both values
+non-zero, but a non-empty set had both values zero. REFS therefore derives a
+Detail direction only when exactly one field is non-zero and quarantines a
+zero/zero or both-nonzero row. `pd_owner_company_code` is not populated on all
+Detail rows and cannot replace a signed company scope; there is also no
+observed currency column in the table.
+
+The 2026-08-10 recheck measured 230,154 payment-only, 33,132 deposit-only,
+zero both-nonzero, and 73 zero/zero Detail rows. This supports the existing
+direction gate but is not a provider debit/credit convention: REFS still
+requires a signed direction rule and quarantines the 73 ambiguous rows.
+
+The same recheck found that 219 of 220 PB control rows have all three M/R/C
+month fields, while all 220 carry Pay/Released/Incurred amount fields. The
+missing M/R/C row remains a scoped control exception; it must not become a
+zero period or a global block for another company. For joined Detail/PB rows,
+the currently observed `PB_Status` value was `N`, while Detail status values
+included `I`, `R`, `RR`, `IR`, `P`, blank, and a control-character value. This
+is an observed code distribution only. The values have no VERIFIED transition
+meaning, and control-character status values must be quarantined rather than
+normalized into a REFS state.
+
+PB control rows have non-null Pay Amount, but some observed Released/Incurred
+absolute values exceed absolute Pay Amount. That disproves a simple per-row
+`abs(released|incurred) <= abs(pay_amount)` conservation rule. M/R/C months
+are not populated for every PB row. The adapter must therefore require the
+provider's signed control-total formula, currency/period scope, and explicit
+missing-control handling; it must not infer zero, capacity, release completion
+or a REFS transition from the current table columns alone.
+
+## Observed Property Comparison and Cost mapping facts
+
+| Source | Verified schema facts | REFS role and boundary |
+| --- | --- | --- |
+| `pjcat_property_relation` | `PPR_Guid` is the primary key; property code and property-unit code/guid are indexed. It carries vertical/property/HOA/Yardi identifiers, version, status, lock, and create/modify fields. | Property association/control evidence only. It has no observed company, currency, period, monetary comparison, or AutoRec transaction key. |
+| `pjcat_unit_report` | `UR_GuId` is the primary key; it contains unit/project/owner fields and budget, released, incurred, total, balance, loan/draw/repayment and many date/status fields. | Potential Property Comparison control input only. It has no observed company/currency/receipt version or verified relation to `pjcat_property_relation`, so it cannot create a source document, bank row, allocation, Draft, or posting. |
+| `wbsdata.costcode_account_relation` | `id` is the primary key; cost code/name, WBS and Yardi account/name, type, business type, and status exist. The documented status domain is `0` normal and `1` disabled. | Candidate mapping evidence only. It lacks observed company, effective date, approval actor and receipt version; REFS still requires its own approved scoped mapping. |
+| `accounting.costcode_account_relation` + `setting_cost_relation` + `setting_project_relation` + `accounting_setting` | Accounting-side configuration has cost/project-to-setting relations, company, account/journal, date range, business type and source fields. Aggregate joins to `accounting_setting` are partial. | Configuration/audit evidence only; partial joins preclude an automatic mapping. No configuration row can authorize Draft/post or replace REFS mapping approval. |
+| `accounting_report_approval` | Schema provides company, Balance/Income report month/type, review/approval/rejection actor/time fields. The observed aggregate was empty. | Defines a possible report-approval evidence shape only; it does not prove any approval, Cost GL result, Property Comparison result, or REFS posting authority. |
+
+The 2026-08-10 structure recheck confirms that `pjcat_unit_report` is a broad
+unit/property reporting projection: it combines commercial, construction,
+budget/released/incurred, loan/draw/repayment, sales, lease and investor
+attributes under `UR_GuId`, but still has no observed company, currency,
+accounting period, bank-account or immutable report-receipt field. The
+`accounting_cost_relation` table is even narrower: it contains only an
+internal relation ID plus account/business/type/bill references, with no
+amount, company, period, currency or approval version. Neither table can be
+treated as a Cost GL metric, a Property Comparison metric, a transaction
+producer, or an AutoRec allocation source. A signed report-specific metric
+receipt and approved REFS control mapping remain mandatory.
+
+The same recheck used aggregate-only reads (no business rows exported):
+`accounting_cost_relation` contains 323,465 relation rows and 323,411 distinct
+`business_id` values, while still exposing no monetary or reporting-period
+columns. This establishes it as a high-cardinality reference relation, not a
+Cost General Ledger metric fact. A direct join from
+`pjcat_property_relation.PPR_PropertyUnitGuid` to
+`pjcat_unit_report.UR_GuId` returned zero matches. Consequently, neither a
+synthetic property join nor a relation-row count may be used as a Property
+Comparison total or as a substitute for a signed report snapshot.
+
+An aggregate over the full `accounting_info` journal table timed out at the
+read-only provider boundary on 2026-08-10. Its proposed population-level
+cardinality/status evidence is therefore **UNKNOWN**; REFS must retain the
+previous schema-only rule that an accounting line is trace evidence only until
+the provider supplies a bounded, signed result set.
+
+The attempted direct join `pjcat_property_relation.PPR_PropertyUnitGuid` to
+`pjcat_unit_report.UR_GuId` produced zero matches. This is explicit negative
+evidence: neither value may be used as a Property Comparison relation key until
+the provider supplies the report's actual immutable join contract. Likewise,
+the partial Cost/Project-setting joins may not be filled in by fallback rules.
+
+## Observed accounting, report, and state evidence
+
+| Source | Verified schema facts | REFS role and boundary |
+| --- | --- | --- |
+| `accounting.accounting_info` | `id` is the primary key; `cb_id`, company, account, source, set date and journal number are indexed. It contains DR/CR, amount, posting/clear/check dates, `come_from`, `bill_no`, `journal_no`, review/approval/closed fields, project/cost/unit dimensions, and attachment relation references. A `data_source='WBS'` population is observed. | Journal/ledger trace evidence only. In the WBS population, `cb_id` is intentionally non-unique (multiple accounting rows per bank-record relation); its own `id` and state fields do not prove a bank transaction, posted REFS journal, immutable REFS ledger line, or authority to transition a REFS AutoRec case. |
+| `accounting.accounting_log` | `id` is the primary key; company, `cb_id`, system/source, bill, operation type, user, time, and relation-content fields exist. | External audit/relation trace only. Append-only and row-to-journal cardinality are UNKNOWN. |
+| `accounting.accounting_info_history` | Mirrors accounting-line fields and adds `history_create_date`, but exposes no observed immutable pointer to a current `accounting_info` row, no source revision number, and no tombstone operation. | Historical observation only. It cannot supply CDC, a REFS source version, or deletion semantics. |
+| `accounting.accounting_closed` | Has company, period, `closed`, create/update actor and time. The observed close-flag domain is `Y`/`N`. | WBS period-close control evidence only. It cannot close or reopen a REFS period. |
+| `accounting.accounting_report_check_red` | Has company, report month, account/subaccount, Balance/Income parameter type, report/source amounts, and check time. | Balance/Income variance-control evidence only. It is not Cost GL's fourteen-metric receipt or a transaction producer. |
+| `accounting.accounting_monthly_relation` + `accounting_monthly_setting` | Relation has company, bank transaction (`cb_id`), month and setting ID. Setting has company, project, debit/credit account/journal fields, start/end date and reverse flag. An aggregate-only check found a partial setting-ID match; not every relation joined. | Potential monthly control/mapping evidence only. It is not an approved REFS mapping and cannot produce a Draft/post request. |
+| `accounting.accounting_balance_cell` + `accounting_income_cell` | Both expose company, account/subaccount, fiscal period, balance/net/debit/credit and review flag. The observed balance review-flag domain is `N`, `R`, `C`; amount-type codes are documented as balance/debit/credit/net/opening. | Financial-statement control evidence, not a Cost GL producer or AutoRec source. Cost GL's required fourteen metrics still need a signed, scoped provider definition. |
+| `accounting.fastautopaymentbank1` | It has the same observed PB primary/company/control field family as `wbsdata.autopaymentbank` (with a shorter column set). | A parallel accounting-side control projection is plausible but UNVERIFIED. Do not deduplicate, join, or substitute it for the WBS table without a signed relation contract. |
+
+An indexed, aggregate-only recheck on 2026-08-10 confirms why `cb_id` is
+trace-only. In a bounded recent `accounting_info.id` window,
+`accounting_info.cb_id = fast_auto_payment_detail.pd_cbid` produced 2,328
+pairs from only 87 accounting rows and 64 Detail rows. That is a many-to-many
+fan-out, not a one-to-one bank or payment identity. The rows in that aggregate
+had a Posting Date, but that does not establish an immutable transaction key,
+same-company scope, currency, or REFS posting authority. A separate
+`bill_no -> payable.journal_no` aggregate timed out; its relationship remains
+**UNKNOWN**, and no fallback join is permitted.
+
+### Observed state values, not a translatable state machine
+
+Aggregate-only source reads observed AutoRec Detail `pd_match_status` values
+`Match` and `NotMatch`, together with `pd_status` values including empty,
+`I`, `R`, `IR`, `RR`, `P`, `AUTOC`, and other source-specific values. AutoRec
+Bank currently has status `N` in the observed aggregate. `accounting_info`
+has observed `review` values null, `0`, and `1`; its current aggregate showed
+only `approve_status=0`. Balance cells expose review flags `N`, `R`, and `C`.
+
+A second read-only aggregate recheck on 2026-08-10 found `pd_status='I'` in
+both `Match` and `NotMatch` populations. Release, incurred, clear, and check
+date presence also overlaps across those populations rather than forming an
+observed one-way chain. The AutoRec Bank aggregate still exposed only raw
+`PB_Status='N'`; its check flag is a multi-character validation indicator,
+not an observed workflow state. These facts rule out deriving a state-machine
+transition, cancellation, or reopening rule from status letters, date
+presence, or the check-flag text.
+
+These are **OBSERVED codes only**. The database comments and aggregate values
+do not establish legal transitions, actor/permission rules, cancellation
+semantics, SoD, period-close semantics, or equivalence to REFS states. The
+REFS authoritative lifecycle remains its own review/approval/posting workflow;
+WBS codes are retained only as receipt-bound display/audit evidence until an
+official state/transition contract is received.
+
+### Accounting-log operation boundary
+
+A bounded, read-only 2026 aggregate over `accounting_log.type` observed the
+operation labels `Create`, `Review`, `Modify`, `Individual`, and `Delete`.
+No row content, identifiers, or user names were collected. This confirms that
+the log can retain an external event label and event timestamp when they are
+receipt-bound. It does **not** establish that `Delete` is a cancellation,
+that `Modify` is a reopening, that any event is specific to AutoRec, or that
+an event has a one-to-one relationship with an accounting line or ledger
+effect. REFS must therefore not translate these labels into cancel, reopen,
+release, incur, reverse, approval, or posting commands.
+
+### Bank-record to journal relation boundary
+
+An aggregate-only cross-database existence check confirms that some WBS-source
+`accounting_info.cb_id` values occur in
+`fast_auto_payment_detail.pd_cbid`. The WBS accounting population also has
+many more journal rows than distinct `cb_id` values. This proves a shared
+relation domain, not a one-to-one relationship or a transaction source key.
+
+The observed `wbsdata.accountbook` table is an account master, while
+`accounting_info` is a multi-line accounting trace. No directly admissible
+immutable bank-record table was identified from the observed `wbsdata` and
+`accounting` metadata inventory. Therefore the future provider must still
+deliver the formal `list_bank_transactions` record with its own immutable
+`cb_id`, company, bank account, date, currency, direction, amount and receipt
+version. REFS must never synthesize that bank record from `accounting_info.id`,
+`cb_id`, journal number, memo, or a relation row.
+
+### Payable to accounting-trace boundary
+
+The observed Payable table has its own immutable `uuid`; its `cb_id` can
+participate in a receipt-bound forward/reverse trace to WBS accounting lines.
+This relation is not unique on the accounting side and therefore must retain
+both the payable source identity and each accounting-line identity. It cannot
+replace the provider's formal Payable immutable key or turn an accounting line
+into a source payable.
+
+The tested alternatives, Payable `long_id` to accounting `business_guid` and
+Payable `journal_no` to accounting `journal_no`, had zero matching key values.
+REFS must retain them as masked external references only; it must not use them
+for joins, replay identity, allocation, matching, or posting.
+
+### AutoRec match-relation boundary
+
+`MB_Id` is the observed match-relation primary key, while `MB_BusinessId` is
+not globally a Detail key. The exact Detail-compatible subset is currently
+limited to `AUTOC`, `AUTOP`, and `AUTOR`; it is a scope guard, not a state
+machine. The provider must supply a signed receipt containing the relation ID,
+business type, business ID, capture time, company scope and source version
+before REFS can retain this edge. No observed table join proves whether these
+rows are append-only history, current state, or allocation history, so REFS
+continues to use its own match-group/allocation history and control totals.
+
+### Incremental and close-control boundary
+
+The observed `accounting_info_history` schema has a distinct history primary
+key and capture time but no version number, immutable parent accounting-line
+key, or tombstone field. Its current observed population is too small and too
+weakly linked to establish change data capture. No source table examined so far
+provides a provider-approved revision/CDC/tombstone contract for Payable, Bank
+Transaction, AutoRec Detail, Property, or Cost controls.
+
+`accounting_closed` exposes WBS company-period close flags and
+`accounting_report_check_red` exposes Balance/Income report-vs-source checks.
+Both are receipt-bound external controls. REFS must preserve its own period
+status, authority, audit and reopening rules; it may record a mismatch or
+block a review according to approved policy, but cannot translate a WBS `Y/N`
+flag into a REFS state transition.
+
+### 2026-08-09 read-only metadata refresh
+
+Metadata-only inspection (no business rows) confirms the following schema
+facts. They refine scope and trace retention; none is transaction-admission or
+posting evidence.
+
+* `pjcat_property_relation` has immutable `PPR_Guid`, property/unit keys,
+  `PPR_Version`, status and create/modify timestamps. It also holds optional
+  HOA-company fields. It has no observed currency, period, bank account,
+  receipt, or accounting-event key; therefore it can scope a Property control
+  mapping only after a provider receipt supplies the missing attributes.
+* `pjcat_unit_report` has immutable `UR_GuId`, property/project/unit
+  identifiers and multiple commercial, cost, released and incurred amount
+  columns. Those values are report/control evidence, not payable, bank, or
+  JE source rows. A report row must never be inferred to join a Property
+  relation merely from display codes.
+* `costcode_account_relation` maps a cost code to account/Yardi account with
+  type, business type and an enabled/disabled flag. It contains no observed
+  company, effective period, approval/versioned mapping receipt or source-row
+  identity. REFS therefore requires its own approved, scoped mapping version
+  before it can be used as coding evidence; it cannot authorize matching or
+  a Draft request.
+* Accounting balance/income cells and monthly/report-setting tables expose
+  account, company, fiscal/period, balance/debit/credit and review/approval
+  related fields. Their keys/cardinality and effective-dating semantics have
+  not been proven as a provider mapping contract. They remain Cost GL /
+  financial-statement control evidence only.
+
+These observations are **VERIFIED_SCHEMA** only. Values, join cardinalities,
+currency semantics, approval semantics, and change/tombstone behavior remain
+**UNKNOWN** until delivered in a signed nonempty provider receipt.
+
+## Required read-only field evidence before provider mapping
+
+The provider must supply a versioned metadata receipt showing the column name,
+type, nullability, primary/unique-key membership, and foreign-key metadata for
+each table above. The following checks are mandatory before replacing the
+formal MCP mapping with direct provider mappings:
+
+1. **Payable:** prove immutable key, company, currency, non-zero amount,
+   posting date, payable status, and source-to-journal relation.
+   The current live report proves only a display-level Source Detail relation:
+   Posting Date opens an accounting view labelled `source=PAYABLE` (or
+   `Direct`), `comeFrom=EXPA`, `sourceType=payable`, and a payable long-ID.
+   Retain it as trace; do not use the parameters as a provider key, receipt,
+   mapping, or posting authority.
+2. **Bank transaction:** prove immutable bank record key, company, bank account,
+   transaction/posting date, amount plus unambiguous DR/CR direction, and
+   retained memo/reference relation.
+3. **AutoRec detail and control:** prove the `pd` and `pb` keys independently;
+   demonstrate `pd` to bank/payable/AUTOC cardinality without promoting a
+   display/reference field to a REFS key; prove quantity/released/incurred
+   control semantics and signed conservation.
+4. **Matching:** prove whether `match_business_info` is append-only history or
+   current state, and its exact business/bank/allocation keys. Absence of a row
+   may not be treated as unmatch or deletion without a tombstone contract.
+5. **Accounting trace:** prove journal identity, posting/review/approval
+   evidence, ledger line identity, and the two `PAYABLE_INCUR`/`AUTOC` legs
+   required by the REFS G11 verifier. WBS state text never authorizes a REFS
+   command.
+6. **Cost GL and Property:** prove metric names, scope, period, currency and
+   receipt version. These remain control evidence only; no finding can create
+   a source document, allocation, Draft JE, or ledger posting.
+
+## Safe next provider queries
+
+Only after column metadata is available, collect aggregate-only evidence per
+company and bounded date scope: row count, null count for each required key,
+distinct-key count, min/max date, signed amount totals, and FK-orphan count.
+Do not select identifiers, memo/vendor text, attachments, credentials, or
+tokenized URLs. Store the response only as an immutable provider receipt hash
+and version in REFS.
+
+## Admission consequence
+
+Until the required evidence is signed and nonempty, direct table access is
+blocked from REFS persistence. The existing formal MCP boundary remains the
+only allowed input shape and still requires its own detached signature,
+scope/receipt checks, Raw -> Normalized -> Staging/Exception trace, and human
+review. Nothing in this register grants Draft, approval, posting, release,
+incur, split, upload, or WBS-write authority.

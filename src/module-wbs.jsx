@@ -3,14 +3,18 @@ import { WBS_AUTORECON_PROGRESS } from './wbs-autorecon-progress.js';
 
 // WBS views are evidence-only. They cannot issue WBS commands or create REFS journals.
 export function AutoBankRec({ctx={}}) {
-  if(ctx.authoritativeMode)return <section className="card" role="status"><h2 className="page-h">Auto Bank Reconciliation</h2><p>AUTOREC_API_UNAVAILABLE</p></section>;
+  const authoritative=ctx.authoritativeMode===true;
   return <div className="full-bleed">
     <h2 className="page-h">Auto Bank Reconciliation</h2>
     <section className="card" style={{marginBottom:16}}>
       <SectionTitle>WBS to REFS integration status</SectionTitle>
-      <p className="muted sm"><Badge tone="warn">DEMO_DATA_ONLY</Badge> <Badge tone="warn">{WBS_AUTORECON_PROGRESS.status}</Badge> {WBS_AUTORECON_PROGRESS.liveEvidence}</p>
+      <p className="muted sm">{authoritative?<><Badge tone="warn">AUTOREC_API_UNAVAILABLE</Badge> <Badge tone="warn">RECEIPT_EVIDENCE_PENDING</Badge> The authoritative service has not returned a scoped immutable receipt. No candidate, Draft, allocation, Release, Incur, approval, or posting action is available.</>:<><Badge tone="warn">DEMO_DATA_ONLY</Badge> <Badge tone="warn">{WBS_AUTORECON_PROGRESS.status}</Badge> {WBS_AUTORECON_PROGRESS.liveEvidence}</>}</p>
       <Table rowKey="source" rows={WBS_AUTORECON_PROGRESS.sources} cols={[
         {h:'WBS source',k:'source'},{h:'REFS role',k:'role'},{h:'Entry path',k:'entry'},{h:'Required gate',k:'gate'},
+      ]}/>
+      <SectionTitle>Observed WBS workflow and REFS authority boundary</SectionTitle>
+      <Table rowKey="stage" rows={WBS_AUTORECON_PROGRESS.workflow} cols={[
+        {h:'WBS stage',k:'stage'},{h:'Observed evidence',k:'observed'},{h:'REFS evidence path',k:'refs'},{h:'Authority boundary',k:'authority'},
       ]}/>
       <SectionTitle>Implemented accounting controls</SectionTitle>
       <ul className="muted sm">{WBS_AUTORECON_PROGRESS.controls.map(control=><li key={control}>{control}</li>)}</ul>

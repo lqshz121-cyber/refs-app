@@ -157,6 +157,7 @@ export const PAYABLE_MAPPINGS = Object.freeze({
 export const BANK_ROWS = Object.freeze([
   Object.freeze({
     account_code: '111000',
+    bank_transaction_id: 'BANK-GUID-0001',
     cb_id: 'CB-0001',
     come_from: 'FAST',
     company_code: FIXTURE_COMPANY_KEY,
@@ -165,6 +166,7 @@ export const BANK_ROWS = Object.freeze([
     lender: 1250.5,
     payee: 'Sanitized Vendor One',
     payee_no: 'V-0001',
+    posting_date: '2026-07-31',
     review: 'Reviewed',
     set_date: '2026-07-31',
     statistical_business: 'Payable',
@@ -173,6 +175,7 @@ export const BANK_ROWS = Object.freeze([
   }),
   Object.freeze({
     account_code: '111000',
+    bank_transaction_id: 'BANK-GUID-0002',
     cb_id: 'CB-0002',
     come_from: 'FAST',
     company_code: FIXTURE_COMPANY_KEY,
@@ -181,6 +184,7 @@ export const BANK_ROWS = Object.freeze([
     lender: 4400,
     payee: 'Sanitized Vendor Nine',
     payee_no: 'V-0009',
+    posting_date: '2026-07-29',
     review: 'Not Match',
     set_date: '2026-07-29',
     statistical_business: 'Payable',
@@ -189,6 +193,7 @@ export const BANK_ROWS = Object.freeze([
   }),
   Object.freeze({
     account_code: '111000',
+    bank_transaction_id: 'BANK-GUID-0003',
     cb_id: 'CB-0003',
     come_from: 'Const Loan',
     company_code: FIXTURE_COMPANY_KEY,
@@ -197,6 +202,7 @@ export const BANK_ROWS = Object.freeze([
     lender: 0,
     payee: 'Sanitized Lender',
     payee_no: 'L-0001',
+    posting_date: '2026-07-15',
     review: 'Reviewed',
     set_date: '2026-07-15',
     statistical_business: 'Financing',

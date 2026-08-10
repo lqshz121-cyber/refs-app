@@ -1,0 +1,145 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {generateKeyPairSync,sign} from 'node:crypto';
+import {canonicalRequestHash} from '../runtime/request-hash.mjs';
+import {buildWbsTraceReceiptManifest,buildWbsTraceRelationPersistencePlan,createWbsMcpInboundService,createWbsMcpInboundServiceWithKeyring,createWbsTraceRelationOrchestrator,WbsMcpInboundServiceError} from '../runtime/wbs-mcp-inbound-service.mjs';
+import {WbsMcpLineageError} from '../runtime/wbs-mcp-inbound-lineage.mjs';
+
+const raw=(tool,rows,capturedAt='2026-08-09T12:00:00.000Z')=>({tool_name:tool,contract_version:'WBS-REFS-MCP-V1',environment:'production',captured_at:capturedAt,source:{system:'WBS'},scope:{company:'COMPANY-A'},record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:'snapshot required',rows});
+const bankDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/bank/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-BANK-DR-1',version:'1',debtor_direction:'DEBIT',lender_direction:'CREDIT'}];
+const payableDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/payable/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-PAYABLE-DR-1',version:'1',ap_type:'AUTOC',direction:'DEBIT'}];
+const detailDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/autorec/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-AUTOREC-DR-1',version:'1',biz_type:'WB',deposit_direction:'CREDIT',payment_direction:'DEBIT',business_date_field:'incurred_date'}];
+const values={
+  list_payables:raw('list_payables',[{ap_guid:'11111111-1111-4111-8111-111111111111',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:100,posting_date:'2026-08-09'}]),
+  list_bank_transactions:raw('list_bank_transactions',[{bank_transaction_id:'BANK-TX-1',cb_id:'BANK-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:100,lender:0,set_date:'2026-08-09',posting_date:'2026-08-09'}]),
+  list_autorec_details:raw('list_autorec_details',[{pd_guid:'22222222-2222-4222-8222-222222222222',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:0,payment:100,incurred_date:'2026-08-09',posting_date:'2026-08-09'}])
+};
+const args={list_payables:{company:'COMPANY-A'},list_bank_transactions:{company:'COMPANY-A'},list_autorec_details:{company:'COMPANY-A'}};
+
+test('service reads only the three producer views and prepares a receipt-gated snapshot without accounting dispatch',async()=>{
+  const calls=[],service=createWbsMcpInboundService({client:{readView:async request=>(calls.push(request),structuredClone(values[request.toolName]))}});
+  const result=await service.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',bankDirectionConventions:bankDirectionConventions(values.list_bank_transactions),payableDirectionConventions:payableDirectionConventions(values.list_payables),autoRecDetailDirectionConventions:detailDirectionConventions(values.list_autorec_details)});
+  assert.deepEqual(calls.map(item=>item.toolName),['list_payables','list_bank_transactions','list_autorec_details']);assert.equal(result.snapshot.views.length,3);assert.deepEqual({persist:result.can_persist,draft:result.can_create_draft,post:result.can_post},{persist:false,draft:false,post:false});
+});
+
+test('service forwards AutoRec detail case bindings into the receipt-gated snapshot validator',async()=>{
+  const service=createWbsMcpInboundService({client:{readView:async({toolName})=>structuredClone(values[toolName])}});
+  await assert.rejects(()=>service.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',bankDirectionConventions:bankDirectionConventions(values.list_bank_transactions),payableDirectionConventions:payableDirectionConventions(values.list_payables),autoRecDetailDirectionConventions:detailDirectionConventions(values.list_autorec_details),autoRecDetailCaseBindings:[{}]}),error=>error instanceof WbsMcpLineageError&&error.code==='WBS_MCP_AUTOREC_CASE_BINDING_INVALID');
+});
+
+test('scope mismatch, malformed selections, failed reads, or unequal capture times fail before a snapshot can be persisted',async()=>{
+  const service=createWbsMcpInboundService({client:{readView:async({toolName})=>structuredClone(values[toolName])}});
+  await assert.rejects(()=>service.pullTransactionSnapshot({companyKey:'COMPANY-B',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error instanceof WbsMcpInboundServiceError&&error.code==='WBS_MCP_RESPONSE_SCOPE_INVALID');
+  await assert.rejects(()=>service.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:{list_payables:{}},snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_SELECTION_REQUIRED');
+  const failing=createWbsMcpInboundService({client:{readView:async()=>{throw new Error('network');}}});await assert.rejects(()=>failing.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_READ_FAILED');
+  const unequal=createWbsMcpInboundService({client:{readView:async({toolName})=>toolName==='list_autorec_details'?raw(toolName,values[toolName].rows,'2026-08-09T12:01:00.000Z'):structuredClone(values[toolName])}});await assert.rejects(()=>unequal.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_SNAPSHOT_SCOPE_INVALID');
+  const paged=createWbsMcpInboundService({client:{readView:async({toolName})=>toolName==='list_payables'?{...values[toolName],cursor_next:'opaque-next-page'}:structuredClone(values[toolName])}});await assert.rejects(()=>paged.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-433333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_PAGINATION_SNAPSHOT_TOKEN_REQUIRED');
+});
+
+test('transaction snapshot safely combines all cursor pages only inside one immutable provider snapshot token',async()=>{
+  const first={...values.list_payables,scope:{company:'COMPANY-A',snapshot_token:'snapshot-1'},cursor_next:'cursor-2'};
+  const second={...raw('list_payables',[{ap_guid:'22222222-2222-4222-8222-222222222222',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:50,posting_date:'2026-08-09'}]),scope:{company:'COMPANY-A',snapshot_token:'snapshot-1'}};
+  const combined={...first,cursor_next:null,record_count:2,rows:[...first.rows,...second.rows],content_sha256:canonicalRequestHash([...first.rows,...second.rows]).slice(7)};
+  const calls=[],service=createWbsMcpInboundService({client:{readView:async request=>{calls.push(request);if(request.toolName==='list_payables')return structuredClone(request.args.cursor?second:first);return structuredClone(values[request.toolName]);}}});
+  const result=await service.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',bankDirectionConventions:bankDirectionConventions(values.list_bank_transactions),payableDirectionConventions:payableDirectionConventions(combined),autoRecDetailDirectionConventions:detailDirectionConventions(values.list_autorec_details)});
+  assert.equal(result.snapshot.views.find(view=>view.name==='BGDATA.payable').rows.length,2);assert.deepEqual(calls[1],{toolName:'list_payables',args:{company:'COMPANY-A',cursor:'cursor-2',snapshot_token:'snapshot-1'}});
+  const mismatched=createWbsMcpInboundService({client:{readView:async request=>request.toolName==='list_payables'?(request.args.cursor?{...second,scope:{...second.scope,snapshot_token:'other'}}:first):structuredClone(values[request.toolName])}});
+  await assert.rejects(()=>mismatched.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_PAGINATION_SNAPSHOT_MISMATCH');
+  const duplicatePage={...second,rows:[structuredClone(first.rows[0])],content_sha256:canonicalRequestHash(first.rows).slice(7)};
+  const duplicate=createWbsMcpInboundService({client:{readView:async request=>request.toolName==='list_payables'?(request.args.cursor?duplicatePage:first):structuredClone(values[request.toolName])}});
+  await assert.rejects(()=>duplicate.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_PAGINATION_ROWS_INVALID');
+});
+
+test('control and trace views are read separately and cannot enter a transaction path',async()=>{
+  const control=raw('list_autorec_banks',[{pb_guid:'PB-1',company_code:'COMPANY-A',quantity:10,released_quantity:8,pay_amount:100,released:80,incurred:60}]);
+  const calls=[],service=createWbsMcpInboundService({client:{readView:async request=>(calls.push(request),structuredClone(control))}});
+  const result=await service.pullControlOrTraceEvidence({companyKey:'COMPANY-A',toolName:'list_autorec_banks',args:{company:'COMPANY-A'}});
+  assert.deepEqual(calls.map(call=>call.toolName),['list_autorec_banks']);
+  assert.deepEqual({status:result.status,admission:result.evidence.rows[0].admission,transaction:result.can_create_transaction,draft:result.can_create_draft,post:result.can_post},{status:'WBS_MCP_CONTROL_EVIDENCE_READY',admission:'CONTROL_EVIDENCE_ONLY',transaction:false,draft:false,post:false});
+  await assert.rejects(()=>service.pullControlOrTraceEvidence({companyKey:'COMPANY-A',toolName:'list_payables',args:{company:'COMPANY-A'}}),error=>error.code==='WBS_MCP_CONTROL_SELECTION_REQUIRED');
+  const paged=createWbsMcpInboundService({client:{readView:async()=>({...control,cursor_next:'opaque-next-page'})}});
+  await assert.rejects(()=>paged.pullControlOrTraceEvidence({companyKey:'COMPANY-A',toolName:'list_autorec_banks',args:{company:'COMPANY-A'}}),error=>error.code==='WBS_MCP_PAGINATION_SNAPSHOT_TOKEN_REQUIRED');
+});
+
+test('AutoRec Bank control pull requires an exact provider formula and stays evidence-only',async()=>{
+  const control=raw('list_autorec_banks',[{pb_guid:'PB-1',company_code:'COMPANY-A',ah_id:'BANK-1',quantity:10,released_quantity:8,pay_amount:100,released:80,incurred:60,debit_amount:40}]);
+  const service=createWbsMcpInboundService({client:{readView:async()=>structuredClone(control)}});
+  const attestation={scope:{company_key:'COMPANY-A',currency:'USD',period:'2026-08',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${control.content_sha256}`,ref:'object://wbs/pb/1',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},formula:{formula_id:'WBS-PB-ROW-SUM',version:'1',aggregation:'ROW_SUM'},totals:{quantity:10,released_quantity:8,pay_amount:100,released_amount:80,incurred_amount:60,debit_amount:40}};
+  const result=await service.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:attestation});
+  assert.deepEqual({status:result.status,amount:result.evidence.control_totals.pay_amount,release:result.can_release,post:result.can_post},{status:'WBS_MCP_AUTOREC_BANK_CONTROL_READY',amount:100,release:false,post:false});
+  await assert.rejects(()=>service.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:{...attestation,scope:{...attestation.scope,period:'2026-13'}}}),error=>error.code==='WBS_MCP_CONTROL_SCOPE_INVALID');
+  const first={...control,scope:{company:'COMPANY-A',currency:'USD',snapshot_token:'control-snapshot-1'},cursor_next:'cursor-2'};
+  const secondRows=[{pb_guid:'PB-2',company_code:'COMPANY-A',ah_id:'BANK-1',quantity:2,released_quantity:2,pay_amount:20,released:20,incurred:20,debit_amount:8}];
+  const second={...raw('list_autorec_banks',secondRows),scope:{company:'COMPANY-A',currency:'USD',snapshot_token:'control-snapshot-1'}};
+  const combinedRows=[...first.rows,...second.rows];
+  const combined={...first,cursor_next:null,record_count:combinedRows.length,rows:combinedRows,content_sha256:canonicalRequestHash(combinedRows).slice(7)};
+  const pagedAttestation={...attestation,receipt:{...attestation.receipt,hash:`sha256:${combined.content_sha256}`},totals:{quantity:12,released_quantity:10,pay_amount:120,released_amount:100,incurred_amount:80,debit_amount:48}};
+  const calls=[],paged=createWbsMcpInboundService({client:{readView:async request=>(calls.push(request),structuredClone(request.args.cursor?second:first))}});
+  const pagedResult=await paged.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:pagedAttestation});
+  assert.equal(pagedResult.evidence.control_totals.pay_amount,120);
+  assert.deepEqual(calls,[{toolName:'list_autorec_banks',args:{company:'COMPANY-A'}},{toolName:'list_autorec_banks',args:{company:'COMPANY-A',cursor:'cursor-2',snapshot_token:'control-snapshot-1'}}]);
+  const mismatchedPage={...second,scope:{...second.scope,snapshot_token:'control-snapshot-other'}};
+  const mismatched=createWbsMcpInboundService({client:{readView:async request=>structuredClone(request.args.cursor?mismatchedPage:first)}});
+  await assert.rejects(()=>mismatched.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:pagedAttestation}),error=>error.code==='WBS_MCP_PAGINATION_SNAPSHOT_MISMATCH');
+});
+
+test('reverse trace lookup permits only a persisted immutable producer key and stays relation evidence',async()=>{
+  const trace={...raw('trace_by_key',[{relation_id:'REL-1',relation_type:'PAYABLE_TO_BANK',source_key_type:'ap_guid',source_key_value:'11111111-1111-4111-8111-111111111111',related_key_type:'cb_id',related_key_value:'BANK-1'}]),scope:{company:'COMPANY-A',trace_key_type:'ap_guid',trace_key_value:'11111111-1111-4111-8111-111111111111'}};
+  const calls=[],identity={tenant_id:'tenant-1',entity_id:'entity-1',company_key:'COMPANY-A',source_type:'PAYABLE',source_record_id:'11111111-1111-4111-8111-111111111111',source_version:'observed:'+'a'.repeat(64),receipt_hash:'sha256:'+'b'.repeat(64)};
+  const traceReceipt={ref:'receipt://wbs/trace/redacted',version:'v1',issued_at:'2026-08-09T12:00:00.000Z',detached_signature:{key_id:'wbs-trace-1',algorithm:'Ed25519',value:'placeholder'}};
+  traceReceipt.manifest_hash=buildWbsTraceReceiptManifest({envelope:trace,traceReceipt});
+  const verified=[],verifier=async value=>(verified.push(value),true);
+  const service=createWbsMcpInboundService({client:{readView:async request=>(calls.push(request),structuredClone(trace))},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})},traceReceiptVerifier:verifier});
+  const result=await service.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:'11111111-1111-4111-8111-111111111111',sourceVersion:'observed:'+'a'.repeat(64),receiptHash:'sha256:'+'b'.repeat(64),traceReceipt});
+  assert.deepEqual(calls,[{toolName:'trace_by_key',args:{key_type:'ap_guid',key_value:'11111111-1111-4111-8111-111111111111'}}]);
+  assert.deepEqual({status:result.status,tenant:result.lookup.tenant_id,source:result.lookup.source_record_id,key:result.lookup.wbs_key_type,relationKey:result.lookup.can_use_relation_as_key,post:result.can_post},{status:'WBS_MCP_REVERSE_TRACE_EVIDENCE_READY',tenant:'tenant-1',source:'11111111-1111-4111-8111-111111111111',key:'ap_guid',relationKey:false,post:false});
+  assert.deepEqual({status:result.evidence.status,related:result.evidence.relations[0].related.key_value,match:result.evidence.relations[0].can_match,post:result.evidence.can_post},{status:'RELATION_EVIDENCE_READY',related:'BANK-1',match:false,post:false});
+  assert.deepEqual(verified,[{manifest_hash:traceReceipt.manifest_hash,detached_signature:traceReceipt.detached_signature}]);assert.equal(result.trace_receipt.manifest_hash,traceReceipt.manifest_hash);
+  assert.deepEqual({request:result.relation_persistence_plan.request_type,source:result.relation_persistence_plan.source.source_record_id,relations:result.relation_persistence_plan.relation_count,match:result.relation_persistence_plan.can_match,post:result.relation_persistence_plan.can_post},{request:'WBS_TRACE_RELATION_PERSISTENCE_PLAN_V1',source:identity.source_record_id,relations:1,match:false,post:false});
+  assert.match(result.relation_persistence_plan.binding_hash,/^sha256:[0-9a-f]{64}$/);assert.throws(()=>buildWbsTraceRelationPersistencePlan({lookup:result.lookup,traceReceipt:result.trace_receipt,evidence:{...result.evidence,lookup:{...result.evidence.lookup,key_value:'forged'}}}),error=>error.code==='WBS_MCP_TRACE_PERSISTENCE_EVIDENCE_REQUIRED');
+  assert.throws(()=>buildWbsTraceRelationPersistencePlan({lookup:result.lookup,traceReceipt:{...result.trace_receipt,content_hash:'sha256:'+'0'.repeat(64)},evidence:result.evidence}),error=>error.code==='WBS_MCP_TRACE_PERSISTENCE_RECEIPT_MISMATCH');
+  assert.throws(()=>buildWbsTraceRelationPersistencePlan({lookup:result.lookup,traceReceipt:result.trace_receipt,evidence:{...result.evidence,relations:[{...result.evidence.relations[0],can_match:true}]}}),error=>error.code==='WBS_MCP_TRACE_PERSISTENCE_EVIDENCE_INVALID');
+  const persistCalls=[],orchestrator=createWbsTraceRelationOrchestrator({kernel:{persistWbsTraceRelationEvidence:async request=>(persistCalls.push(request),{ok:true,relation_evidence_id:'relation-1'})}});
+  const persistedTrace=await orchestrator.persist({relationPersistencePlan:result.relation_persistence_plan});assert.deepEqual({status:persistedTrace.status,match:persistedTrace.can_match,post:persistedTrace.can_post},{status:'WBS_MCP_TRACE_RELATION_PERSISTED',match:false,post:false});
+  await orchestrator.persist({relationPersistencePlan:result.relation_persistence_plan});assert.equal(persistCalls.length,1);assert.equal(persistCalls[0].idempotencyKey,result.relation_persistence_plan.binding_hash);assert.equal(persistCalls[0].tenantId,identity.tenant_id);assert.equal(persistCalls[0].entityId,identity.entity_id);
+  await assert.rejects(()=>createWbsTraceRelationOrchestrator({}).persist({relationPersistencePlan:result.relation_persistence_plan}),error=>error.code==='WBS_MCP_TRACE_PERSISTENCE_CAPABILITY_UNAVAILABLE');
+  await assert.rejects(()=>orchestrator.persist({relationPersistencePlan:{...result.relation_persistence_plan,relations:[]}}),error=>error.code==='WBS_MCP_TRACE_PERSISTENCE_PLAN_INVALID');
+  await assert.rejects(()=>createWbsTraceRelationOrchestrator({kernel:{persistWbsTraceRelationEvidence:async()=>({ok:false,status:'FAILED'})}}).persist({relationPersistencePlan:result.relation_persistence_plan}),error=>error.code==='WBS_MCP_TRACE_PERSISTENCE_FAILED');
+  const paged=createWbsMcpInboundService({client:{readView:async()=>({...trace,cursor_next:'opaque-next-page'})},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})},traceReceiptVerifier:verifier});
+  await assert.rejects(()=>paged.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt}),error=>error.code==='WBS_MCP_PAGINATION_SNAPSHOT_TOKEN_REQUIRED');
+  const firstTrace={...trace,scope:{...trace.scope,snapshot_token:'trace-snapshot-1'},cursor_next:'trace-cursor-2'};
+  const secondTraceRows=[{relation_id:'REL-2',relation_type:'PAYABLE_TO_BANK',source_key_type:'ap_guid',source_key_value:identity.source_record_id,related_key_type:'cb_id',related_key_value:'BANK-2'}];
+  const secondTrace={...raw('trace_by_key',secondTraceRows),scope:{...trace.scope,snapshot_token:'trace-snapshot-1'}};
+  const completeTraceRows=[...firstTrace.rows,...secondTrace.rows];
+  const completeTrace={tool:'trace_by_key',contract_version:firstTrace.contract_version,environment:firstTrace.environment,captured_at:firstTrace.captured_at,source:firstTrace.source,scope:firstTrace.scope,record_count:completeTraceRows.length,content_sha256:canonicalRequestHash(completeTraceRows).slice(7),cursor_next:null,etl_notice:firstTrace.etl_notice,rows:completeTraceRows};
+  const completeTraceReceipt={...traceReceipt};completeTraceReceipt.manifest_hash=buildWbsTraceReceiptManifest({envelope:completeTrace,traceReceipt:completeTraceReceipt});
+  const traceCalls=[],completeTraceService=createWbsMcpInboundService({client:{readView:async request=>(traceCalls.push(request),structuredClone(request.args.cursor?secondTrace:firstTrace))},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})},traceReceiptVerifier:verifier});
+  const completeTraceResult=await completeTraceService.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt:completeTraceReceipt});
+  assert.equal(completeTraceResult.evidence.relations.length,2);
+  assert.deepEqual(traceCalls,[{toolName:'trace_by_key',args:{key_type:'ap_guid',key_value:identity.source_record_id}},{toolName:'trace_by_key',args:{key_type:'ap_guid',key_value:identity.source_record_id,cursor:'trace-cursor-2',snapshot_token:'trace-snapshot-1'}}]);
+  await assert.rejects(()=>service.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:'REF-NO-ONLY',sourceVersion:'',receiptHash:'sha256:'+'b'.repeat(64),traceReceipt}),error=>error.code==='WBS_MCP_TRACE_SELECTION_REQUIRED');
+  const missingReader=createWbsMcpInboundService({client:{readView:async()=>structuredClone(trace)}});
+  await assert.rejects(()=>missingReader.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:'A-1',sourceVersion:'v1',receiptHash:'sha256:'+'b'.repeat(64)}),error=>error.code==='WBS_MCP_PERSISTED_SOURCE_READER_REQUIRED');
+  const mismatch=createWbsMcpInboundService({client:{readView:async()=>structuredClone(trace)},persistedSourceReader:{readOnly:true,getPersistedSource:async()=>({...identity,entity_id:'other-entity'})},traceReceiptVerifier:verifier});
+  await assert.rejects(()=>mismatch.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt}),error=>error.code==='WBS_MCP_PERSISTED_SOURCE_MISMATCH');
+  const crossScope=createWbsMcpInboundService({client:{readView:async()=>structuredClone(trace)},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})},traceReceiptVerifier:verifier});
+  await assert.rejects(()=>crossScope.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-B',sourceType:'PAYABLE',sourceRecordId:'A-1',sourceVersion:'v1',receiptHash:'sha256:'+'b'.repeat(64),traceReceipt}),error=>error.code==='WBS_MCP_RESPONSE_SCOPE_INVALID');
+  const wrongKey={...trace,scope:{...trace.scope,trace_key_value:'another-source'}};
+  const wrongKeyService=createWbsMcpInboundService({client:{readView:async()=>structuredClone(wrongKey)},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})},traceReceiptVerifier:verifier});
+  await assert.rejects(()=>wrongKeyService.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt}),error=>error.code==='WBS_MCP_TRACE_RESPONSE_KEY_MISMATCH');
+  const noVerifier=createWbsMcpInboundService({client:{readView:async()=>structuredClone(trace)},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})}});
+  await assert.rejects(()=>noVerifier.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt}),error=>error.code==='WBS_MCP_TRACE_VERIFIER_REQUIRED');
+  await assert.rejects(()=>service.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt:{...traceReceipt,manifest_hash:'sha256:'+'0'.repeat(64)}}),error=>error.code==='WBS_MCP_TRACE_RECEIPT_REQUIRED');
+  const pair=generateKeyPairSync('ed25519'),trustedReceipt={...traceReceipt,detached_signature:{key_id:'wbs-trace-prod',algorithm:'Ed25519',value:''}};
+  trustedReceipt.manifest_hash=buildWbsTraceReceiptManifest({envelope:trace,traceReceipt:trustedReceipt});trustedReceipt.detached_signature.value=sign(null,Buffer.from(trustedReceipt.manifest_hash),pair.privateKey).toString('base64');
+  const keyringService=createWbsMcpInboundServiceWithKeyring({client:{readView:async()=>structuredClone(trace)},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})},wbsPublicKeys:{'wbs-trace-prod':pair.publicKey.export({type:'spki',format:'pem'})}});
+  assert.equal((await keyringService.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt:trustedReceipt})).status,'WBS_MCP_REVERSE_TRACE_EVIDENCE_READY');
+  const incompleteRows=[{relation_id:'REL-2',relation_type:'PAYABLE_TO_BANK',source_key_type:'ap_guid',source_key_value:identity.source_record_id,related_key_type:'cb_id'}],incompleteTrace={...trace,rows:incompleteRows,record_count:incompleteRows.length,content_sha256:canonicalRequestHash(incompleteRows).slice(7)};
+  const incompleteReceipt={...trustedReceipt};incompleteReceipt.manifest_hash=buildWbsTraceReceiptManifest({envelope:incompleteTrace,traceReceipt:incompleteReceipt});incompleteReceipt.detached_signature={...incompleteReceipt.detached_signature,value:sign(null,Buffer.from(incompleteReceipt.manifest_hash),pair.privateKey).toString('base64')};
+  const incompleteService=createWbsMcpInboundServiceWithKeyring({client:{readView:async()=>structuredClone(incompleteTrace)},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})},wbsPublicKeys:{'wbs-trace-prod':pair.publicKey.export({type:'spki',format:'pem'})}});
+  await assert.rejects(()=>incompleteService.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt:incompleteReceipt}),error=>error.code==='WBS_MCP_TRACE_RELATION_FIELDS_REQUIRED');
+  const duplicateRows=[...trace.rows,{...trace.rows[0]}],duplicateTrace={...trace,rows:duplicateRows,record_count:duplicateRows.length,content_sha256:canonicalRequestHash(duplicateRows).slice(7)};
+  const duplicateReceipt={...trustedReceipt};duplicateReceipt.manifest_hash=buildWbsTraceReceiptManifest({envelope:duplicateTrace,traceReceipt:duplicateReceipt});duplicateReceipt.detached_signature={...duplicateReceipt.detached_signature,value:sign(null,Buffer.from(duplicateReceipt.manifest_hash),pair.privateKey).toString('base64')};
+  const duplicateService=createWbsMcpInboundServiceWithKeyring({client:{readView:async()=>structuredClone(duplicateTrace)},persistedSourceReader:{readOnly:true,getPersistedSource:async request=>({...identity,...request})},wbsPublicKeys:{'wbs-trace-prod':pair.publicKey.export({type:'spki',format:'pem'})}});
+  await assert.rejects(()=>duplicateService.pullTraceByPersistedSource({tenantId:'tenant-1',entityId:'entity-1',companyKey:'COMPANY-A',sourceType:'PAYABLE',sourceRecordId:identity.source_record_id,sourceVersion:identity.source_version,receiptHash:identity.receipt_hash,traceReceipt:duplicateReceipt}),error=>error.code==='WBS_MCP_TRACE_RELATION_AMBIGUOUS');
+});

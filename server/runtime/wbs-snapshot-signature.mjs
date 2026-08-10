@@ -16,13 +16,19 @@ function keyring(publicKeys){
   return keys;
 }
 
-export function createWbsSnapshotSignatureVerifier({publicKeys}={}){
+export function createWbsManifestSignatureVerifier({publicKeys}={}){
   const keys=keyring(publicKeys);
-  return async snapshot=>{
-    const signature=snapshot?.detached_signature;
+  return async manifest=>{
+    const signature=manifest?.detached_signature,manifestHash=manifest?.manifest_hash;
     if(!signature||!KEY_ID.test(signature.key_id||'')||signature.algorithm!=='Ed25519'||typeof signature.value!=='string'||!signature.value.length)return false;
+    if(typeof manifestHash!=='string'||!/^sha256:[0-9a-f]{64}$/.test(manifestHash))return false;
     const publicKey=keys.get(signature.key_id);if(!publicKey)return false;
-    try{return verify(null,Buffer.from(snapshot.package_hash,'utf8'),publicKey,Buffer.from(signature.value,'base64'));}
+    try{return verify(null,Buffer.from(manifestHash,'utf8'),publicKey,Buffer.from(signature.value,'base64'));}
     catch{return false;}
   };
+}
+
+export function createWbsSnapshotSignatureVerifier({publicKeys}={}){
+  const verifyManifest=createWbsManifestSignatureVerifier({publicKeys});
+  return snapshot=>verifyManifest({manifest_hash:snapshot?.package_hash,detached_signature:snapshot?.detached_signature});
 }
