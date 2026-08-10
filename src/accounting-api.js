@@ -148,6 +148,24 @@ export async function refreshAuthoritativeBankMatchCandidates({config,bankSource
 }
 
 const bankCommandReason=value=>typeof value==='string'&&value.trim().length>=8&&value.trim().length<=2000?value.trim():null;
+const reconciliationCommandKey=async(action,identity)=>{
+  if(typeof action!=='string'||!action||typeof globalThis?.crypto?.subtle?.digest!=='function')return null;
+  try{
+    const bytes=new TextEncoder().encode(JSON.stringify({action,identity}));
+    const digest=new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256',bytes));
+    return `UI-RECONCILIATION-${action}-${Array.from(digest,byte=>byte.toString(16).padStart(2,'0')).join('')}`;
+  }catch{return null;}
+};
+const bankCreateCommandResult=async({config,path,idempotencyKey,body,fetcher,operation})=>{
+  if(!config||typeof fetcher!=='function'||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:`${operation} command configuration is invalid.`};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});
+    if(!response.ok)return await failure(response,operation);
+    const result=await response.json();if(result?.ok!==true||!result.data||typeof result.data!=='object')return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:`Accounting API returned an invalid ${operation} command envelope.`};
+    return {ok:true,data:result.data,idempotent:response.status===200};
+  }catch{return unreachable(`The browser could not complete the authoritative ${operation} command; no HTTP response was produced.`);}
+};
 const bankCommandResult=async({config,path,revision,idempotencyKey,body,fetcher,operation})=>{
   if(!config||typeof fetcher!=='function'||!Number.isSafeInteger(revision)||revision<0||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:`${operation} command configuration is invalid.`};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
@@ -219,6 +237,22 @@ export async function setAuthoritativeReconciliationClearance({config,reconcilia
   if(!UUID.test(reconciliationId||'')||!Number.isSafeInteger(reconciliationRevision)||reconciliationRevision<0||!row||!UUID.test(row.bank_source_id||'')||!Number.isSafeInteger(row.bank_version)||row.bank_version<0||typeof clear!=='boolean'||!approvedReason||clear&&(row.match_status!=='ACTIVE'||!UUID.test(row.bank_match_id||'')))return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Clearance requires current reconciliation and bank revisions, an exact active match to clear, and a review reason.'};
   const idempotencyKey=`UI-RECONCILIATION-${clear?'CLEAR':'UNCLEAR'}-${reconciliationId}-${reconciliationRevision}-${row.bank_source_id}-${row.bank_version}`;
   return bankCommandResult({config,path:`/bank/reconciliations/${reconciliationId}/items/${row.bank_source_id}/clearance`,revision:reconciliationRevision,idempotencyKey,body:{clear,expectedBankRevision:row.bank_version,reason:approvedReason},fetcher,operation:'RECONCILIATION_CLEARANCE'});
+}
+
+export async function startAuthoritativeReconciliation({config,bankAccountRef,statementEndingDate,statementOpeningBalance,statementEndingBalance,reason,fetcher=globalThis.fetch}={}){
+  const account=String(bankAccountRef||'').trim(),opening=String(statementOpeningBalance||''),ending=String(statementEndingBalance||''),approvedReason=bankCommandReason(reason);
+  if(!config||typeof fetcher!=='function'||!BANK_ACCOUNT_REF.test(account)||!validDate(statementEndingDate)||!REPORT_MONEY4.test(opening)||!REPORT_MONEY4.test(ending)||!approvedReason)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Starting reconciliation requires one valid account, statement cutoff, four-decimal balances, and controller reason.'};
+  const idempotencyKey=await reconciliationCommandKey('START',{account,statementEndingDate,opening,ending,reason:approvedReason});
+  if(!idempotencyKey)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'The browser could not create a reconciliation command identity.'};
+  return bankCreateCommandResult({config,path:'/bank/reconciliations',idempotencyKey,body:{bankAccountRef:account,statementEndingDate,statementOpeningBalance:opening,statementEndingBalance:ending,reason:approvedReason},fetcher,operation:'RECONCILIATION_START'});
+}
+
+export async function transitionAuthoritativeReconciliation({config,reconciliationId,revision,action,reason,fetcher=globalThis.fetch}={}){
+  const transition=String(action||'').toUpperCase(),approvedReason=bankCommandReason(reason);
+  if(!UUID.test(reconciliationId||'')||!Number.isSafeInteger(revision)||revision<0||!['REVIEW','SIGN_OFF','REOPEN'].includes(transition)||!approvedReason)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Reconciliation transition requires the current statement revision, an allowed action, and controller reason.'};
+  const idempotencyKey=await reconciliationCommandKey(transition,{reconciliationId,revision,reason:approvedReason});
+  if(!idempotencyKey)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'The browser could not create a reconciliation command identity.'};
+  return bankCommandResult({config,path:`/bank/reconciliations/${reconciliationId}/transitions/${transition.toLowerCase()}`,revision,idempotencyKey,body:{reason:approvedReason},fetcher,operation:`RECONCILIATION_${transition}`});
 }
 
 export async function refreshAuthoritativeFinancialStatements({config,fetcher=globalThis.fetch}={}){
