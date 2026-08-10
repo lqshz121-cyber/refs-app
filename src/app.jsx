@@ -463,7 +463,7 @@ function App() {
           <span className="muted" style={{fontSize:10.5,opacity:.7}} title="commit · build time">{typeof window!=='undefined'&&window.__BUILD?`${window.__BUILD.sha} · ${window.__BUILD.time}`:''}</span>
           <div className="user-chip" title={'Role '+user.role_code}>
             <span className="user-av">{user.name[0]}</span>
-            <span className="user-nm">{user.name}<span className="muted sm"> · {user.role_code}</span></span>
+            <span className="user-nm" aria-label={`${user.name} · ${user.role_code}`}><span className="user-name-full">{user.name}</span><span className="user-name-short" aria-hidden="true">{user.name.replace(/\s*\(.*/, '')}</span><span className="muted sm"> · {user.role_code}</span></span>
             <button className="link-btn" onClick={actions.logout}>Sign out</button>
           </div>
         </div>

@@ -485,7 +485,7 @@ input,select,textarea{
    badge) is the one that gives way, with an ellipsis. Identity stays legible;
    nothing overflows the viewport. */
 .top-right>.badge{flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-.demo-label-short,.demo-label-xs{display:none;}
+.demo-label-short,.demo-label-xs,.user-name-short{display:none;}
 .user-av{flex:0 0 28px;}
 .user-nm{min-width:0; overflow:hidden; text-overflow:ellipsis;}
 .icon-btn{
@@ -1527,6 +1527,8 @@ select{padding-right:28px; cursor:pointer;}
   .demo-label-short{display:inline;}
   .user-chip{flex:0 0 154px; min-width:154px;}
   .user-nm{max-width:52px;}
+  .user-name-full{display:none;}
+  .user-name-short{display:inline;}
   .user-nm .muted{display:none;}
 }
 @media(max-width:1280px){
