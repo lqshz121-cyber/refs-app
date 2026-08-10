@@ -278,7 +278,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'receivables' && (documentDetail?.kind==='AR'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AR" entityId={config.entityId} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AR'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AR" entityId={config.entityId} onBack={closeAdjustmentEvidence}/>:<><AuthoritativeDocumentWorkspace kind="AR" documents={data.ar.invoices} adjustments={data.ar.adjustments} view={listViews.AR} onViewChange={view=>updateListView('AR',view)} onOpenDocument={(row,focusId)=>openDocumentEvidence('AR',row,focusId)} onOpenAdjustment={(row,focusId)=>openAdjustmentEvidence('AR',row,focusId)}/><AuthoritativeAgingWorkspace config={config} side="ar" fetcher={boundFetcher}/></>)}
         {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace config={config} fetcher={boundFetcher}/>}
-        {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace config={config} fetcher={boundFetcher}/>}
+        {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace config={config} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={config} environment={environment}/>}
       </main>
     </div>
