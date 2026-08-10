@@ -1148,6 +1148,15 @@
         }
       }
     },
+    "/entities/{entityId}/reports/cwip-rollforward": {
+      "get": {
+        "operationId": "getCwipRollforward",
+        "summary": "Read a mapping-backed CWIP account rollforward",
+        "description": "Returns only POSTED ledger evidence for exact accounts admitted by one immutable CWIP account-classification mapping snapshot. It does not infer capitalization, transfers, write-offs, or zero CWIP from account labels, prefixes, source headers, or an empty result.",
+        "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}],
+        "responses": {"200": {"$ref": "#/components/responses/CwipRollforwardReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/bank/reconciliations": {
       "post": {
         "operationId": "startReconciliation",
@@ -2664,6 +2673,18 @@
         "required": ["ok", "data"],
         "properties": {"ok": {"const": true}, "data": {"type": "array", "items": {"$ref": "#/components/schemas/CashFlowClassificationReadRow"}}}
       },
+      "CwipRollforwardReadRow": {
+        "type": "object", "additionalProperties": false,
+        "required": ["period_id","period_code","period_start","period_end","account_code","account_name","mapping_status","classification_basis","opening_balance","period_debit","period_credit","closing_balance","mapping_snapshot_id","mapping_version","mapping_snapshot_hash","journal_entry_ids","journal_line_ids","ledger_line_ids","source_document_ids"],
+        "properties": {
+          "period_id": {"$ref": "#/components/schemas/Uuid"}, "period_code": {"type": "string"}, "period_start": {"type": "string", "format": "date"}, "period_end": {"type": "string", "format": "date"},
+          "account_code": {"type": "string"}, "account_name": {"type": "string"}, "mapping_status": {"type": "string", "enum": ["MAPPED_CWIP_ACCOUNT","BLOCKED_MAPPING_REQUIRED","BLOCKED_MAPPING_AMBIGUOUS","BLOCKED_MAPPING_RULE_INVALID"]}, "classification_basis": {"type": "string"},
+          "opening_balance": {"oneOf": [{"$ref": "#/components/schemas/Money"},{"type":"null"}]}, "period_debit": {"oneOf": [{"$ref": "#/components/schemas/Money"},{"type":"null"}]}, "period_credit": {"oneOf": [{"$ref": "#/components/schemas/Money"},{"type":"null"}]}, "closing_balance": {"oneOf": [{"$ref": "#/components/schemas/Money"},{"type":"null"}]},
+          "mapping_snapshot_id": {"oneOf": [{"$ref": "#/components/schemas/Uuid"},{"type":"null"}]}, "mapping_version": {"type": ["string","null"]}, "mapping_snapshot_hash": {"type": ["string","null"]},
+          "journal_entry_ids": {"type":"array", "items":{"$ref":"#/components/schemas/Uuid"}}, "journal_line_ids": {"type":"array", "items":{"$ref":"#/components/schemas/Uuid"}}, "ledger_line_ids": {"type":"array", "items":{"$ref":"#/components/schemas/Uuid"}}, "source_document_ids": {"type":"array", "items":{"$ref":"#/components/schemas/Uuid"}}
+        }
+      },
+      "CwipRollforwardReadEnvelope": {"type":"object", "additionalProperties":false, "required":["ok","data"], "properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/CwipRollforwardReadRow"}}}},
       "ReconciliationWorksheetRow": {
         "type": "object",
         "additionalProperties": false,
@@ -4151,6 +4172,11 @@
         "description": "Scoped immutable mapping-backed cash-flow evidence",
         "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CashFlowClassificationReadEnvelope"}}}
+      },
+      "CwipRollforwardReadOk": {
+        "description": "Scoped immutable mapping-backed CWIP rollforward evidence",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CwipRollforwardReadEnvelope"}}}
       },
       "BankMatchCandidateReadOk": {
         "description": "Scoped, controller-authorized exact POSTED bank-match candidates",

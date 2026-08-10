@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useState} from 'react';
-import {refreshAuthoritativeCashFlowClassification,refreshAuthoritativeDimensionProfitability,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatements} from './accounting-api.js';
+import {refreshAuthoritativeCashFlowClassification,refreshAuthoritativeCwipRollforward,refreshAuthoritativeDimensionProfitability,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatements} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {DEFAULT_AUTHORITATIVE_LIST_VIEW,createAuthoritativeReturnContext,restoreAuthoritativeReturnContext} from './authoritative-list-context.js';
 
@@ -64,11 +64,13 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   const [dimensionRef,setDimensionRef]=useState('');
   const [dimensionState,setDimensionState]=useState({phase:'IDLE',rows:[],error:null,scope:null});
   const [cashFlowState,setCashFlowState]=useState({phase:'IDLE',rows:[],error:null,scope:null,complete:false});
+  const [cwipState,setCwipState]=useState({phase:'IDLE',rows:[],error:null,scope:null,complete:false});
   const [priorPeriodId,setPriorPeriodId]=useState('');
   const [comparisonState,setComparisonState]=useState({phase:'IDLE',rows:[],error:null,scope:null});
   const load=async()=>{setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeFinancialStatements({config,fetcher});setState(result.ok?{phase:'READY',rows:result.rows,error:null}:{phase:'ERROR',rows:[],error:result});};
   const loadDimension=async()=>{setDimensionState({phase:'LOADING',rows:[],error:null,scope:null});const result=await refreshAuthoritativeDimensionProfitability({config,dimensionType,dimensionRef,fetcher});setDimensionState(result.ok?{phase:'READY',rows:result.rows,error:null,scope:result.scope}:{phase:'ERROR',rows:[],error:result,scope:null});};
   const loadCashFlow=async()=>{setCashFlowState({phase:'LOADING',rows:[],error:null,scope:null,complete:false});const result=await refreshAuthoritativeCashFlowClassification({config,fetcher});setCashFlowState(result.ok?{phase:'READY',rows:result.rows,error:null,scope:result.scope,complete:result.complete}:{phase:'ERROR',rows:[],error:result,scope:null,complete:false});};
+  const loadCwip=async()=>{setCwipState({phase:'LOADING',rows:[],error:null,scope:null,complete:false});const result=await refreshAuthoritativeCwipRollforward({config,fetcher});setCwipState(result.ok?{phase:'READY',rows:result.rows,error:null,scope:result.scope,complete:result.complete}:{phase:'ERROR',rows:[],error:result,scope:null,complete:false});};
   const loadComparison=async()=>{setComparisonState({phase:'LOADING',rows:[],error:null,scope:null});const result=await refreshAuthoritativeFinancialStatementPeriodComparison({config,priorPeriodId,fetcher});setComparisonState(result.ok?{phase:'READY',rows:result.rows,error:null,scope:result.scope}:{phase:'ERROR',rows:[],error:result,scope:null});};
   useEffect(()=>{load();},[config?.entityId,config?.periodId]);
   const rows=useMemo(()=>state.rows.filter(row=>row.statement_type===report),[state.rows,report]);
@@ -113,6 +115,16 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
       {comparisonState.phase==='ERROR'&&<StateBlock tone="error" title={comparisonState.error?.code}><p>{comparisonState.error?.message}</p></StateBlock>}
       {comparisonState.phase==='READY'&&!comparisonState.rows.length&&<StateBlock tone="empty" title="No comparable POSTED evidence returned">This scoped empty result is not evidence of no period-over-period change.</StateBlock>}
       {comparisonState.phase==='READY'&&!!comparisonState.rows.length&&<div className="table-wrap"><table className="tbl"><thead><tr><th>Statement / account</th><th>Current period</th><th>Prior period</th><th>Evidence status</th></tr></thead><tbody>{comparisonState.rows.map(row=><tr key={`${row.statement_type}:${row.account_code}`}><td><b>{row.account_code}</b><div className="muted sm">{row.statement_type} / {row.statement_section}</div></td><td className="num">{row.current_display_balance===null?'Evidence missing':money(row.current_display_balance)}</td><td className="num">{row.prior_display_balance===null?'Evidence missing':money(row.prior_display_balance)}</td><td><span className={row.comparison_status==='COMPARABLE_POSTED_EVIDENCE'?'badge badge-muted':'badge badge-danger'}>{row.comparison_status}</span></td></tr>)}</tbody></table></div>}
+    </section>
+    <section className="card" aria-label="CWIP rollforward evidence">
+      <div className="card-head"><div><h2>CWIP rollforward</h2><p className="muted sm">Exact approved CWIP-account mappings plus POSTED ledger evidence. Debit and credit movement stay in ledger form; REFS does not infer capitalization, transfers, or write-offs.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+      <div className="qbo-filter-grid"><button type="button" className="btn" onClick={loadCwip}>Load CWIP rollforward evidence</button></div>
+      <p className="muted sm">An account enters this view only through one immutable mapping snapshot with classification CWIP. An empty or blocked result is not evidence of zero CWIP, zero construction activity, or a completed capitalization review.</p>
+      {cwipState.phase==='LOADING'&&<StateBlock tone="loading">Loading mapping-backed CWIP ledger evidence...</StateBlock>}
+      {cwipState.phase==='ERROR'&&<StateBlock tone="error" title={cwipState.error?.code}><p>{cwipState.error?.message}</p></StateBlock>}
+      {cwipState.phase==='READY'&&!cwipState.rows.length&&<StateBlock tone="empty" title="No admitted CWIP ledger evidence returned">No immutable CWIP account mapping with retained POSTED ledger evidence was returned for this period. This scoped empty result is not zero CWIP.</StateBlock>}
+      {cwipState.phase==='READY'&&!!cwipState.rows.length&&!cwipState.complete&&<StateBlock tone="error" title="BLOCKED_CWIP_MAPPING">At least one CWIP account mapping is missing, ambiguous, or invalid. REFS will not assert a complete CWIP rollforward.</StateBlock>}
+      {cwipState.phase==='READY'&&!!cwipState.rows.length&&<div className="table-wrap"><table className="tbl"><thead><tr><th>Account</th><th>Opening</th><th>Period debit</th><th>Period credit</th><th>Closing</th><th>Mapping</th></tr></thead><tbody>{cwipState.rows.map(row=><tr key={row.account_code}><td><b>{row.account_code}</b><div className="muted sm">{row.account_name}</div><div className="muted sm">{row.mapping_status}</div></td><td className="num">{row.opening_balance===null?'Blocked':money(row.opening_balance)}</td><td className="num">{row.period_debit===null?'Blocked':money(row.period_debit)}</td><td className="num">{row.period_credit===null?'Blocked':money(row.period_credit)}</td><td className="num">{row.closing_balance===null?'Blocked':money(row.closing_balance)}</td><td>{row.mapping_snapshot_id?<><code>{row.mapping_snapshot_id}</code><div className="muted sm">v{row.mapping_version}</div></>:'Not admitted'}</td></tr>)}</tbody></table></div>}
     </section>
     <section className="card" aria-label="Dimension profitability evidence">
       <div className="card-head"><div><h2>Dimension profitability</h2><p className="muted sm">Property, Project, and Unit P&amp;L use only exact dimensions retained on POSTED ledger lines.</p></div><span className="badge badge-muted">READ ONLY</span></div>
