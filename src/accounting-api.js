@@ -349,7 +349,7 @@ export async function refreshAuthoritativeCashFlowClassification({config,fetcher
     };
     if(body.data.some(invalidCashFlowRow))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid cash flow statement row.'};
     if(new Set(body.data.map(row=>`${row.journal_entry_ids[0]}:${row.cash_account_code}:${row.counterpart_account_code}`)).size!==body.data.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate cash flow statement evidence.'};
-    return {ok:true,rows:body.data.map(row=>({...row,cash_effect:String(row.cash_effect)})),scope:{entityId:config.entityId,periodId:config.periodId},complete:body.data.every(row=>row.mapping_status==='CLASSIFIED')};
+    return {ok:true,rows:body.data.map(row=>({...row,cash_effect:String(row.cash_effect)})),scope:{entityId:config.entityId,periodId:config.periodId},complete:body.data.length>0&&body.data.every(row=>row.mapping_status==='CLASSIFIED')};
   }catch{return unreachable('The browser could not complete the authoritative cash flow statement read; no HTTP response was produced.');}
 }
 
