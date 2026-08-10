@@ -201,7 +201,7 @@ pass(`group boundary is load bearing: excluding the funder leaves ${(excludedRes
 // -- 8. source contracts -----------------------------------------------------
 const engineSource = read('./src/consolidation.js');
 const groupSource = read('./src/consolidation-groups.js');
-const appSource = read('./src/app.jsx');
+const appSource = read('./src/legacy-demo-app.jsx');
 const moduleSource = read('./src/module-consolidation.jsx');
 const transferSource = read('./src/unit-transfer-pairing.js');
 

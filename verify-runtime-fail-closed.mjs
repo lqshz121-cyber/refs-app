@@ -147,7 +147,8 @@ const app = read('src/app.jsx');
 assert.match(app, /resolveRuntimeBoundary\(globalThis\)/, 'app.jsx must resolve the runtime boundary rather than test the mode inline');
 assert.doesNotMatch(app, /__REFS_RUNTIME_MODE__\s*[!=]==/, 'app.jsx must not compare the runtime mode directly');
 assert.match(app, /boundary\.surface === SURFACE_ERROR\) return <RuntimeErrorPage/, 'an error surface must render the runtime error page');
-assert.match(app, /boundary\.surface !== SURFACE_DEMONSTRATION\) return <AuthoritativeApp/, 'anything that is not the demonstration surface must go to the authoritative app');
+assert.match(app, /boundary\.surface !== SURFACE_AUTHORITATIVE/, 'only the authoritative surface may reach the authoritative app');
+assert.doesNotMatch(app, /SURFACE_DEMONSTRATION|legacy-demo-app|seed\.js|localStorage/, 'the production entry must not retain a route to browser demonstration state');
 
 const authoritative = read('src/authoritative-app.jsx');
 assert.match(authoritative, /AUTHENTICATION_REQUIRED' \? 'LOGIN_REQUIRED'/, '401 must route to re-authentication');
@@ -197,7 +198,7 @@ if (existsSync(new URL('./dist/refs-runtime-config.js', import.meta.url)) && exi
   published = `${modes[0]} / ${channels[0]} -> ${boundary.surface}`;
 }
 
-console.log(`PASS EXECUTED: ${boundaryCases.length} runtime environments resolved; exactly 1 reaches demonstration data.`);
+console.log(`PASS EXECUTED: ${boundaryCases.length} runtime environments resolved; app.jsx refuses the one legacy demonstration surface.`);
 console.log('PASS EXECUTED: deployment adapter refuses a demonstration build with authoritative coordinates, an unsupported mode, and a plaintext API base.');
 console.log(`PASS EXECUTED: published assets ${published}.`);
 console.log('PASS STATIC: app boundary, 401/403 separation, route retention and error-state copy are wired as required.');

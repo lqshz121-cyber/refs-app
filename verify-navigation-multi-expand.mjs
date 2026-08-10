@@ -60,7 +60,7 @@ assert.deepEqual(
 const operationsState = retainActiveNavigationGroup({'Auto Reconciliation':true}, [operationsVisible], 'closing');
 assert.deepEqual(operationsState, {'Accounting Operations':true}, 'Operations replaces the prior panel.');
 
-const app = fs.readFileSync(new URL('./src/app.jsx', import.meta.url), 'utf8');
+const app = fs.readFileSync(new URL('./src/legacy-demo-app.jsx', import.meta.url), 'utf8');
 assert.match(app, /<span className="nav-badge" aria-hidden="true">\{l\.slice\(0,1\)\.toUpperCase\(\)\}<\/span>/, 'secondary navigation must retain the coloured letter-square badges.');
 assert.match(app, /const next=firstNavigationRoute\(g\); if\(!next\) return;[\s\S]*?setOpenGroups\(isSingleton\?\{\}:\{\[g\.group\]:true\}\); goto\(next,entry\);/, 'rail groups must enter their first visible route and replace the open panel.');
 assert.match(app, /railEntryRevision:\+\+railEntryRevision\.current/, 'a repeated rail click must remount the workspace rather than retaining child state.');
