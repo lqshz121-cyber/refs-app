@@ -53,9 +53,12 @@ assert.match(source,/createAuthoritativeBankPaymentMatch/,'an exact candidate mu
 assert.match(source,/unmatchAuthoritativeBankPayment/,'an active match must use the authoritative Unmatch command client');
 assert.match(source,/refreshAuthoritativeReconciliationWorksheet/,'Reconciliation must load server-owned worksheet evidence before a clearance command');
 assert.match(source,/setAuthoritativeReconciliationClearance/,'Clear and Unclear must use the authoritative command client');
+assert.match(source,/startAuthoritativeReconciliation/,'A missing scoped statement may be started only through the authoritative lifecycle command client');
+assert.match(source,/transitionAuthoritativeReconciliation/,'Review, sign-off, and reopen must use the authoritative lifecycle command client');
 assert.match(source,/item\.match_status==='ACTIVE'/,'Only a server-returned active Match may expose Clear');
 assert.match(source,/row:item/,'Clearance command must receive the selected server worksheet row, not the reconciliation summary');
 assert.match(source,/const reasonReady=reason\.trim\(\)\.length>=8/,'Clearance commands must require a non-blank controller reason before they can be clicked');
-assert.match(source,/disabled=\{worksheet\.phase==='COMMANDING'\|\|!reasonReady\}/,'Clearance buttons must remain disabled until the controller reason is valid');
+assert.match(source,/disabled=\{commandInFlight\|\|!reasonReady\}/,'Clearance and lifecycle buttons must remain disabled until the controller reason is valid');
+assert.match(source,/Start DRAFT reconciliation/,'Starting a reconciliation must remain visibly Draft-only');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');
