@@ -2281,3 +2281,17 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 - **REFS implementation:** Each primary navigation family now carries the same restrained accent into its active rail glyph, hover glyph, and retained second-level letter badge. The treatments remain text-labelled and high-contrast; source/status evidence pills remain neutral in shape and continue to communicate status rather than decoration.
 - **Status:** **VERIFIED LOCAL** for the shared visual contract and dark-mode contrast gate. This is REFS visual-system work, not a QBO-equivalence claim.
 - **Verification:** `node verify-badge-visual-contract.mjs`; `node verify-a11y-offcanvas-and-dark-contrast.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## Reports: Trial Balance uses a compact accounting table (2026-08-10)
+
+- **Observed product evidence:** The user-provided Trial Balance capture showed a four-column accounting table rendered with the wide Journal Entries table contract. The result was a large empty right-hand pane, clipped values, and an unrelated `Export CSV` unavailable control.
+- **REFS implementation:** Trial Balance now uses its own full-width four-column table contract and keeps account, debit, credit, and balance together in one readable surface. The export affordance is removed from this read-only report. Wide Journal Entries/GL tables retain their independent horizontal-scroll behavior.
+- **Status:** **VERIFIED LOCAL** for the focused Trial Balance markup and layout contract; live responsive validation remains required before this is treated as released UX.
+- **Verification:** `node verify-trial-balance-layout.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## REFS shell: responsive readability audit baseline (2026-08-10)
+
+- **Observed product evidence:** Desktop and compact-width review identified two avoidable readability failures: long secondary-navigation labels were clipped even where the panel was visible, and the header allowed the demonstration-data label and signed-in identity to compress into unusable fragments.
+- **REFS implementation:** Secondary-navigation labels use a compact readable type treatment. The header retains the full `Public demonstration data` explanation on wide screens, a clear `Demo data` label on tablet, and `Demo` on phone while preserving the full accessible name. Desktop reserves space for the signed-in identity; the existing off-canvas mobile navigation remains the narrow-width entry point.
+- **Status:** **VERIFIED LOCAL** for the responsive source contract and shared visual suite. Live browser verification is recorded separately and no claim is made that every data-dependent layout is production-equivalent.
+- **Verification:** `node verify-shell-responsive-readability.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.

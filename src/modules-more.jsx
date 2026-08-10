@@ -218,8 +218,7 @@ export function GLTrialBalance({ctx}) {
     </details>
     {tab==='Trial Balance' && <>
       <div className="stmt-h">Trial Balance · As of {toP} <span className="muted sm">(same-entity, same-dimension, cumulative POSTED local evidence)</span></div>
-      <div style={{textAlign:'right',marginBottom:8}}><Unavailable reason="Business-data export is outside the local evidence scope.">Export CSV</Unavailable></div>
-      <div className="table-wrap table-journal-entries trial-balance-table">
+      <div className="table-wrap trial-balance-table">
       <table className="tbl stmt-tbl">
         <thead><tr><th>Account</th><th className="ta-r" style={{width:150}}>Debit</th><th className="ta-r" style={{width:150}}>Credit</th><th className="ta-r" style={{width:160}}>Balance</th></tr></thead>
         <tbody>{secRows.map((r,i)=> r._sec ?
