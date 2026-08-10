@@ -328,6 +328,31 @@ export async function refreshAuthoritativeDimensionProfitability({config,dimensi
   }catch{return unreachable('The browser could not complete the authoritative dimension profitability read; no HTTP response was produced.');}
 }
 
+export async function refreshAuthoritativeCashFlowClassification({config,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!UUID.test(config.periodId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'The cash flow statement requires one authoritative entity and accounting period.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({periodId:config.periodId});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/reports/cash-flow-classification?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid cash flow statement envelope.'};
+    const sections=new Set(['OPERATING','INVESTING','FINANCING','BLOCKED']);
+    const statuses=new Set(['CLASSIFIED','BLOCKED_MAPPING_REQUIRED','BLOCKED_MAPPING_AMBIGUOUS','BLOCKED_MAPPING_RULE_INVALID','BLOCKED_JOURNAL_SHAPE_REQUIRED']);
+    const blocked=new Set([...statuses].filter(value=>value!=='CLASSIFIED'));
+    const idFields=['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'];
+    const invalidCashFlowRow=row=>{
+      const classified=row?.mapping_status==='CLASSIFIED';
+      const validMapping=classified
+        ? ['OPERATING','INVESTING','FINANCING'].includes(row.classification)&&UUID.test(row.mapping_snapshot_id||'')&&/^[1-9][0-9]*$/.test(String(row.mapping_version??''))&&/^sha256:[0-9a-f]{64}$/.test(row.mapping_snapshot_hash||'')
+        : blocked.has(row?.mapping_status)&&row?.classification==='BLOCKED'&&row?.mapping_snapshot_id===null&&row?.mapping_version===null&&row?.mapping_snapshot_hash===null;
+      return row?.period_id!==config.periodId||!PERIOD_CODE.test(row?.period_code||'')||!validDate(row?.period_start)||!validDate(row?.period_end)||row.period_start>row.period_end||row.period_start.slice(0,7)!==row.period_code||row.period_end.slice(0,7)!==row.period_code||!sections.has(row?.classification)||!statuses.has(row?.mapping_status)||typeof row?.classification_basis!=='string'||!row.classification_basis.trim()||(!ACCOUNT_CODE.test(row?.cash_account_code||'')&&row?.cash_account_code!=='UNRESOLVED_CASH_ACCOUNT')||typeof row?.counterpart_account_code!=='string'||!row.counterpart_account_code.trim()||!REPORT_MONEY4.test(String(row?.cash_effect??''))||idFields.some(field=>!Array.isArray(row?.[field])||row[field].some(id=>!UUID.test(id||'')))||!validMapping;
+    };
+    if(body.data.some(invalidCashFlowRow))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid cash flow statement row.'};
+    if(new Set(body.data.map(row=>`${row.journal_entry_ids[0]}:${row.cash_account_code}:${row.counterpart_account_code}`)).size!==body.data.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate cash flow statement evidence.'};
+    return {ok:true,rows:body.data.map(row=>({...row,cash_effect:String(row.cash_effect)})),scope:{entityId:config.entityId,periodId:config.periodId},complete:body.data.every(row=>row.mapping_status==='CLASSIFIED')};
+  }catch{return unreachable('The browser could not complete the authoritative cash flow statement read; no HTTP response was produced.');}
+}
+
 const CURRENCY3=/^[A-Z]{3}$/;
 const money4=v=>{if(typeof v==='number'&&Number.isFinite(v))return v.toFixed(4);if(typeof v==='string'&&MONEY4.test(v))return v;return null;};
 export async function refreshAuthoritativeAging({config,side,asOfDate,fetcher=globalThis.fetch}={}){

@@ -1117,6 +1117,21 @@
         }
       }
     },
+    "/entities/{entityId}/reports/cash-flow-classification": {
+      "get": {
+        "operationId": "getCashFlowClassification",
+        "summary": "Read a mapping-backed statement of cash flows from POSTED ledger evidence",
+        "description": "Each cash movement requires exactly one immutable approved or historical mapping snapshot for its cash-account and counterpart-account pair. Missing, ambiguous, invalid, or multi-cash mappings remain BLOCKED and cannot contribute to operating, investing, or financing totals. This operation cannot create, adjust, post, export, or persist a report.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/CashFlowClassificationReadOk"},
+          "default": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/bank/reconciliations": {
       "post": {
         "operationId": "startReconciliation",
@@ -2587,6 +2602,36 @@
           "ok": {"const": true},
           "data": {"type": "array", "items": {"$ref": "#/components/schemas/DimensionProfitabilityReadRow"}}
         }
+      },
+      "CashFlowClassificationReadRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["period_id", "period_code", "period_start", "period_end", "classification", "mapping_status", "classification_basis", "cash_account_code", "counterpart_account_code", "cash_effect", "mapping_snapshot_id", "mapping_version", "mapping_snapshot_hash", "journal_entry_ids", "journal_line_ids", "ledger_line_ids", "source_document_ids"],
+        "properties": {
+          "period_id": {"$ref": "#/components/schemas/Uuid"},
+          "period_code": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"},
+          "period_start": {"type": "string", "format": "date"},
+          "period_end": {"type": "string", "format": "date"},
+          "classification": {"type": "string", "enum": ["OPERATING", "INVESTING", "FINANCING", "BLOCKED"]},
+          "mapping_status": {"type": "string", "enum": ["CLASSIFIED", "BLOCKED_MAPPING_REQUIRED", "BLOCKED_MAPPING_AMBIGUOUS", "BLOCKED_MAPPING_RULE_INVALID", "BLOCKED_JOURNAL_SHAPE_REQUIRED"]},
+          "classification_basis": {"type": "string", "minLength": 1},
+          "cash_account_code": {"type": "string", "minLength": 1},
+          "counterpart_account_code": {"type": "string", "minLength": 1},
+          "cash_effect": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{4}$"},
+          "mapping_snapshot_id": {"type": ["string", "null"], "format": "uuid"},
+          "mapping_version": {"type": ["string", "null"], "pattern": "^[1-9][0-9]*$"},
+          "mapping_snapshot_hash": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+          "journal_entry_ids": {"type": "array", "items": {"$ref": "#/components/schemas/Uuid"}},
+          "journal_line_ids": {"type": "array", "items": {"$ref": "#/components/schemas/Uuid"}},
+          "ledger_line_ids": {"type": "array", "items": {"$ref": "#/components/schemas/Uuid"}},
+          "source_document_ids": {"type": "array", "items": {"$ref": "#/components/schemas/Uuid"}}
+        }
+      },
+      "CashFlowClassificationReadEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok", "data"],
+        "properties": {"ok": {"const": true}, "data": {"type": "array", "items": {"$ref": "#/components/schemas/CashFlowClassificationReadRow"}}}
       },
       "ReconciliationWorksheetRow": {
         "type": "object",
@@ -4065,6 +4110,11 @@
             }
           }
         }
+      },
+      "CashFlowClassificationReadOk": {
+        "description": "Scoped immutable mapping-backed cash-flow evidence",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CashFlowClassificationReadEnvelope"}}}
       },
       "BankMatchCandidateReadOk": {
         "description": "Scoped, controller-authorized exact POSTED bank-match candidates",

@@ -2020,3 +2020,25 @@ pgTest('dimension profitability reads only exact POSTED ledger dimensions and ne
   const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/dimension-profitability?periodId=${ids.periodId}&dimensionType=PROPERTY&dimensionRef=PROPERTY-01`,body:null,headers:{}});
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.length,2);
 });
+
+pgTest('cash flow statement classifies POSTED cash only through one exact approved mapping snapshot',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN'});
+  const trace=await attachAutoSource(ids);
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cash-flow-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'cash-flow-post-001'});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cash-flow-reader',['GL.REPORT.VIEW'])});
+  const missing=await reader.getCashFlowClassification({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  assert.equal(missing.length,1);assert.deepEqual({classification:missing[0].classification,status:missing[0].mapping_status,basis:missing[0].classification_basis,effect:missing[0].cash_effect,mapping:missing[0].mapping_snapshot_id},{classification:'BLOCKED',status:'BLOCKED_MAPPING_REQUIRED',basis:'CASH_FLOW_MAPPING_SNAPSHOT_REQUIRED',effect:'100.0000',mapping:null});
+  const inputKeys={cash_account_code:'111000',counterpart_account_code:'291001'};
+  const snapshotHash=(await adminPool.query("SELECT refs_jsonb_hash(jsonb_build_object('input_keys',$1::jsonb,'output_rules',jsonb_build_object('classification','OPERATING'))) AS snapshot_hash",[JSON.stringify(inputKeys)])).rows[0].snapshot_hash;
+  const mappingId=randomUUID();
+  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3,'CASH_FLOW_CLASSIFICATION','ENTITY',$7,$4,1,0,'2026-01-01','APPROVED',$5::jsonb,jsonb_build_object('classification','OPERATING'),$6,'cash-flow-maker','cash-flow-approver',now())`,[mappingId,ids.tenantId,ids.entityId,hash('cash-flow-mapping-key'),JSON.stringify(inputKeys),snapshotHash,ids.entityId]);
+  const rows=await reader.getCashFlowClassification({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  assert.equal(rows.length,1);assert.deepEqual({classification:rows[0].classification,status:rows[0].mapping_status,basis:rows[0].classification_basis,effect:rows[0].cash_effect,mapping:rows[0].mapping_snapshot_id,version:rows[0].mapping_version,hash:rows[0].mapping_snapshot_hash},{classification:'OPERATING',status:'CLASSIFIED',basis:'APPROVED_CASH_FLOW_MAPPING_SNAPSHOT_EXACT',effect:'100.0000',mapping:mappingId,version:'1',hash:snapshotHash});
+  assert.deepEqual(rows[0].source_document_ids,[trace.documentId]);
+  await assert.rejects(reader.getCashFlowClassification({tenantId:ids.tenantId,entityId:randomUUID(),periodId:ids.periodId}),error=>error.code==='42501');
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'cash-flow-reader'}),kernelFactory:async()=>reader});
+  const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/cash-flow-classification?periodId=${ids.periodId}`,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data[0].mapping_status,'CLASSIFIED');
+});
