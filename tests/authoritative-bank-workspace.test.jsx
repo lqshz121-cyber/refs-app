@@ -45,6 +45,10 @@ assert.match(source,/authoritative-reconciliation-\$\{row\.reconciliation_id\}/,
 assert.match(source,/restoreAuthoritativeReturnContext\(environment,config,context\)/,'Bank and reconciliation Back must restore scope, scroll position and focus');
 assert.match(source,/bankAccountRef:scope\.bankAccountRef/,'Bank Back must retain the exact account scope');
 assert.match(source,/statementEndingDate:scope\.statementEndingDate/,'Reconciliation Back must retain the exact cutoff scope');
-assert.doesNotMatch(source,/localStorage|SEED_|bankMatch|bankRecord|bankSignoff/,'authoritative Bank/Reconcile UI must not depend on demo state or mutation helpers');
+assert.doesNotMatch(source,/localStorage|SEED_|bankRecord|bankSignoff/,'authoritative Bank/Reconcile UI must not depend on demo state or legacy mutation helpers');
+assert.match(source,/refreshAuthoritativeBankMatchCandidates/,'Bank Match must start from server-validated candidate evidence, not a caller-supplied occurrence ID');
+assert.match(source,/candidates\.length!==1/,'zero or multiple candidate sets must block the Match command');
+assert.match(source,/createAuthoritativeBankPaymentMatch/,'an exact candidate must execute through the authoritative command client');
+assert.match(source,/unmatchAuthoritativeBankPayment/,'an active match must use the authoritative Unmatch command client');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');

@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation} from './accounting-api.js';
+import {createAuthoritativeBankPaymentMatch,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation,unmatchAuthoritativeBankPayment} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {DEFAULT_AUTHORITATIVE_LIST_VIEW,createAuthoritativeReturnContext,restoreAuthoritativeReturnContext} from './authoritative-list-context.js';
 
@@ -40,8 +40,19 @@ export const AuthoritativeBankTable=({rows=[],onOpen=()=>{}})=><section classNam
   </table></div>}
 </section>;
 
-export const AuthoritativeBankDetail=({row,scope,onBack})=><section className="full-bleed qbo-transaction-report" aria-label="Bank transaction detail">
-  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to bank transactions</button><h1>{row.external_bank_line_id}</h1><p className="muted sm">Independent, read-only evidence detail. Matching, clearing, categorizing, posting, and deletion are unavailable.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+export function AuthoritativeBankMatchReview({row,config,fetcher,onChanged=()=>{}}){
+  const [candidateState,setCandidateState]=useState({phase:'IDLE',candidates:[],error:null});
+  const [reason,setReason]=useState('');
+  const loadCandidates=async()=>{setCandidateState({phase:'LOADING',candidates:[],error:null});const result=await refreshAuthoritativeBankMatchCandidates({config,bankSourceId:row.bank_source_id,fetcher});setCandidateState(result.ok?{phase:'READY',candidates:result.candidates,error:null}:{phase:'ERROR',candidates:[],error:result});};
+  const createMatch=async event=>{event.preventDefault();const candidate=candidateState.candidates[0];setCandidateState(current=>({...current,phase:'COMMANDING',error:null}));const result=await createAuthoritativeBankPaymentMatch({config,bankSourceId:row.bank_source_id,bankRevision:row.version,candidate,reason,fetcher});if(result.ok){onChanged();return;}setCandidateState(current=>({...current,phase:'READY',error:result}));};
+  const unmatch=async event=>{event.preventDefault();setCandidateState(current=>({...current,phase:'COMMANDING',error:null}));const result=await unmatchAuthoritativeBankPayment({config,bankSourceId:row.bank_source_id,bankMatchId:row.bank_match_id,bankMatchRevision:row.match_version,reason,fetcher});if(result.ok){onChanged();return;}setCandidateState(current=>({...current,phase:'READY',error:result}));};
+  if(row.bank_match_id)return <section className="card" aria-label="Bank match correction"><div className="card-head"><div><h2>Active Match correction</h2><p className="muted sm">Unmatch preserves the immutable evidence and requires a controller reason. It cannot reverse or post a journal.</p></div><span className="badge badge-muted">CONTROLLER</span></div><form className="filterbar" onSubmit={unmatch}><label>Correction reason<input required minLength={8} maxLength={2000} value={reason} onChange={event=>setReason(event.target.value)}/></label><button type="submit" className="btn btn-sm" disabled={candidateState.phase==='COMMANDING'}>Unmatch evidence</button></form>{candidateState.error&&<ReadError error={candidateState.error} onRetry={()=>{}}/>}</section>;
+  const candidate=candidateState.candidates[0];
+  return <section className="card" aria-label="Bank match candidate review"><div className="card-head"><div><h2>Exact POSTED Match candidate</h2><p className="muted sm">Candidates are server-validated against posted AP/AR cash, account, currency, amount, date, source and ledger evidence. Zero or multiple candidates stop the command.</p></div><span className="badge badge-muted">CONTROLLER</span></div>{candidateState.phase==='IDLE'&&<button type="button" className="btn btn-sm" onClick={loadCandidates}>Load exact candidate</button>}{candidateState.phase==='LOADING'&&<StateBlock tone="loading">Reading exact POSTED match evidence...</StateBlock>}{candidateState.phase==='ERROR'&&<ReadError error={candidateState.error} onRetry={loadCandidates}/>} {candidateState.phase==='READY'&&candidateState.candidates.length!==1&&<StateBlock tone="empty" title="Match blocked">This bank transaction has {candidateState.candidates.length===0?'no':'multiple'} exact POSTED candidate{candidateState.candidates.length===1?'':'s'}. No Match command is available.</StateBlock>}{candidateState.phase==='READY'&&candidateState.candidates.length===1&&<><div className="qbo-toolgrid"><span><i>Occurrence</i><b>{candidate.occurrence_kind}</b></span><span><i>Occurrence ID</i><b>{candidate.payment_occurrence_id}</b></span><span><i>Amount</i><b>{money(candidate.amount)} {candidate.currency}</b></span><span><i>Accounting date</i><b>{candidate.accounting_date}</b></span><span><i>Journal entry</i><b>{candidate.journal_entry_id}</b></span><span><i>Ledger line</i><b>{candidate.ledger_line_id}</b></span></div><form className="filterbar" onSubmit={createMatch}><label>Review reason<input required minLength={8} maxLength={2000} value={reason} onChange={event=>setReason(event.target.value)}/></label><button type="submit" className="btn btn-primary" disabled={candidateState.phase==='COMMANDING'}>Create reviewed Match</button></form>{candidateState.error&&<ReadError error={candidateState.error} onRetry={loadCandidates}/>}</>}</section>;
+}
+
+export const AuthoritativeBankDetail=({row,scope,onBack,config,fetcher,onMatchChanged})=><section className="full-bleed qbo-transaction-report" aria-label="Bank transaction detail">
+  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to bank transactions</button><h1>{row.external_bank_line_id}</h1><p className="muted sm">Independent source evidence. Only a controller may create or correct a server-validated Match; clearing, categorizing, posting, and deletion are unavailable.</p></div><span className="badge badge-muted">READ ONLY</span></div>
   <div className="qbo-toolgrid">
     <span><i>Bank account</i><b>{row.bank_account_ref}</b></span><span><i>Transaction date</i><b>{row.transaction_date}</b></span>
     <span><i>Amount</i><b>{money(row.amount)} {row.currency}</b></span><span><i>Type</i><b>{row.document_type}</b></span>
@@ -58,6 +69,7 @@ export const AuthoritativeBankDetail=({row,scope,onBack})=><section className="f
     <span><i>Date delta days</i><b>{row.date_delta_days??'Unavailable'}</b></span><span><i>Match version</i><b>{row.match_version}</b></span>
     <span><i>Matched by</i><b>{row.matched_by}</b></span><span><i>Matched at</i><b>{row.matched_at}</b></span>
   </div>}
+  {config&&<AuthoritativeBankMatchReview row={row} config={config} fetcher={fetcher} onChanged={onMatchChanged}/>}
   <p className="muted sm">Scope: entity {scope.entityId}; account {scope.bankAccountRef}; from {scope.from||'opening'} through {scope.through||'latest'}.</p>
 </section>;
 
@@ -100,7 +112,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     setSelected(null);
     restoreAuthoritativeReturnContext(environment,config,context);
   };
-  if(selected)return <AuthoritativeBankDetail row={selected.row} scope={{...scope,entityId:config.entityId}} onBack={closeEvidence}/>;
+  if(selected)return <AuthoritativeBankDetail row={selected.row} scope={{...scope,entityId:config.entityId}} onBack={closeEvidence} config={config} fetcher={fetcher} onMatchChanged={()=>load()}/>;
   return <div className="stack"><div><h1>Bank transaction evidence</h1><p className="page-subtitle">Entity-scoped, OIDC-authenticated records only. Browser seeds and local storage are never used.</p></div>
     <form className="filterbar" onSubmit={load} aria-label="Bank transaction scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>
