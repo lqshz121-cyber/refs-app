@@ -1171,6 +1171,15 @@
         "responses": {"200": {"$ref": "#/components/responses/IntercompanyReconciliationReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/reports/budget-vs-actual": {
+      "get": {
+        "operationId": "getBudgetVsActual",
+        "summary": "Read approved immutable budget versus actual evidence",
+        "description": "Returns only the latest approved immutable budget snapshot for the requested entity and period, compared with same-currency POSTED ledger evidence. The comparison side is explicit on every budget line. Missing account, currency, snapshot, or POSTED evidence remains BLOCKED and is never interpreted as zero. This operation cannot create or revise a budget, journal, mapping, or adjustment.",
+        "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}],
+        "responses": {"200": {"$ref": "#/components/responses/BudgetVsActualReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/bank/reconciliations": {
       "post": {
         "operationId": "startReconciliation",
@@ -2712,6 +2721,18 @@
         }
       },
       "IntercompanyReconciliationReadEnvelope": {"type":"object", "additionalProperties":false, "required":["ok","data"], "properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/IntercompanyReconciliationReadRow"}}}},
+      "BudgetVsActualReadRow": {
+        "type":"object", "additionalProperties":false,
+        "required":["period_id","period_code","period_start","period_end","account_code","account_name","currency","comparison_side","report_status","classification_basis","budget_amount","actual_amount","variance_amount","budget_snapshot_id","budget_version","budget_snapshot_hash","budget_receipt_hash","budget_source_ref","budget_source_version","journal_entry_ids","journal_line_ids","ledger_line_ids","source_document_ids"],
+        "properties": {
+          "period_id":{"$ref":"#/components/schemas/Uuid"}, "period_code":{"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])$"}, "period_start":{"type":"string","format":"date"}, "period_end":{"type":"string","format":"date"},
+          "account_code":{"type":"string"}, "account_name":{"type":"string"}, "currency":{"type":"string","pattern":"^[A-Z]{3}$"}, "comparison_side":{"type":"string","enum":["DEBIT","CREDIT"]}, "report_status":{"type":"string","enum":["APPROVED_BUDGET_VS_ACTUAL","BLOCKED_ACCOUNT_REQUIRED","BLOCKED_BUDGET_CURRENCY_REQUIRED","BLOCKED_POSTED_ACTUAL_EVIDENCE_REQUIRED","BLOCKED_ACTUAL_CURRENCY_REQUIRED"]}, "classification_basis":{"type":"string"},
+          "budget_amount":{"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "actual_amount":{"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "variance_amount":{"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]},
+          "budget_snapshot_id":{"$ref":"#/components/schemas/Uuid"}, "budget_version":{"type":"string","pattern":"^[1-9][0-9]*$"}, "budget_snapshot_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}, "budget_receipt_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}, "budget_source_ref":{"type":"string"}, "budget_source_version":{"type":"string"},
+          "journal_entry_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "journal_line_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "ledger_line_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "source_document_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}
+        }
+      },
+      "BudgetVsActualReadEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/BudgetVsActualReadRow"}}}},
       "ReconciliationWorksheetRow": {
         "type": "object",
         "additionalProperties": false,
@@ -4209,6 +4230,11 @@
         "description": "Scoped, read-only intercompany reconciliation evidence; a nonzero difference requires review and cannot create an elimination or adjustment",
         "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/IntercompanyReconciliationReadEnvelope"}}}
+      },
+      "BudgetVsActualReadOk": {
+        "description": "Scoped, read-only approved immutable budget versus actual evidence; incomplete evidence remains blocked and cannot create or revise a budget, journal, mapping, or adjustment",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BudgetVsActualReadEnvelope"}}}
       },
       "BankMatchCandidateReadOk": {
         "description": "Scoped, controller-authorized exact POSTED bank-match candidates",

@@ -1,0 +1,10 @@
+BEGIN;
+REVOKE EXECUTE ON FUNCTION refs_get_budget_vs_actual(uuid,uuid,uuid) FROM refs_app;
+DROP FUNCTION refs_get_budget_vs_actual(uuid,uuid,uuid);
+DROP TRIGGER budget_line_append_only ON budget_line;
+DROP TRIGGER budget_snapshot_append_only ON budget_snapshot;
+DROP POLICY budget_line_scope_policy ON budget_line;
+DROP POLICY budget_snapshot_scope_policy ON budget_snapshot;
+DROP TABLE budget_line;
+DROP TABLE budget_snapshot;
+COMMIT;
