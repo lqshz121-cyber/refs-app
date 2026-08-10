@@ -1100,6 +1100,22 @@
         }
       }
     },
+    "/entities/{entityId}/reports/financial-statement-period-comparison": {
+      "get": {
+        "operationId": "getFinancialStatementPeriodComparison",
+        "summary": "Read a conservative current-to-prior financial statement comparison",
+        "description": "Reads POSTED financial-statement evidence for two distinct, non-overlapping entity-scoped accounting periods. Missing evidence on either side is explicitly marked and cannot be interpreted as zero. This operation cannot create, adjust, post, export, or persist a report.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name": "currentPeriodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}},
+          {"name": "priorPeriodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/FinancialStatementPeriodComparisonReadOk"},
+          "default": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/reports/dimension-profitability": {
       "get": {
         "operationId": "getDimensionProfitability",
@@ -2564,6 +2580,21 @@
           }
         }
       },
+      "FinancialStatementPeriodComparisonReadRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["current_period_id", "current_period_code", "current_period_start", "current_period_end", "prior_period_id", "prior_period_code", "prior_period_start", "prior_period_end", "statement_type", "statement_section", "classification_basis", "account_code", "account_name", "comparison_status", "current_display_balance", "prior_display_balance", "current_journal_entry_ids", "current_journal_line_ids", "current_ledger_line_ids", "current_source_document_ids", "prior_journal_entry_ids", "prior_journal_line_ids", "prior_ledger_line_ids", "prior_source_document_ids"],
+        "properties": {
+          "current_period_id": {"$ref": "#/components/schemas/Uuid"}, "current_period_code": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"}, "current_period_start": {"type": "string", "format": "date"}, "current_period_end": {"type": "string", "format": "date"},
+          "prior_period_id": {"$ref": "#/components/schemas/Uuid"}, "prior_period_code": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"}, "prior_period_start": {"type": "string", "format": "date"}, "prior_period_end": {"type": "string", "format": "date"},
+          "statement_type": {"type": "string", "enum": ["TRIAL_BALANCE", "BALANCE_SHEET", "INCOME_STATEMENT", "CASH_FLOW"]}, "statement_section": {"type": "string", "minLength": 1}, "classification_basis": {"const": "ACCOUNT_CODE_PREFIX_AND_BANK_MEMBER"}, "account_code": {"type": "string", "minLength": 1}, "account_name": {"type": "string", "minLength": 1},
+          "comparison_status": {"type": "string", "enum": ["COMPARABLE_POSTED_EVIDENCE", "MISSING_CURRENT_EVIDENCE", "MISSING_PRIOR_EVIDENCE"]},
+          "current_display_balance": {"type": ["string", "null"], "pattern": "^-?[0-9]+\\.[0-9]{4}$"}, "prior_display_balance": {"type": ["string", "null"], "pattern": "^-?[0-9]+\\.[0-9]{4}$"},
+          "current_journal_entry_ids": {"type": ["array", "null"], "items": {"$ref": "#/components/schemas/Uuid"}}, "current_journal_line_ids": {"type": ["array", "null"], "items": {"$ref": "#/components/schemas/Uuid"}}, "current_ledger_line_ids": {"type": ["array", "null"], "items": {"$ref": "#/components/schemas/Uuid"}}, "current_source_document_ids": {"type": ["array", "null"], "items": {"$ref": "#/components/schemas/Uuid"}},
+          "prior_journal_entry_ids": {"type": ["array", "null"], "items": {"$ref": "#/components/schemas/Uuid"}}, "prior_journal_line_ids": {"type": ["array", "null"], "items": {"$ref": "#/components/schemas/Uuid"}}, "prior_ledger_line_ids": {"type": ["array", "null"], "items": {"$ref": "#/components/schemas/Uuid"}}, "prior_source_document_ids": {"type": ["array", "null"], "items": {"$ref": "#/components/schemas/Uuid"}}
+        }
+      },
+      "FinancialStatementPeriodComparisonReadEnvelope": {"type": "object", "additionalProperties": false, "required": ["ok", "data"], "properties": {"ok": {"const": true}, "data": {"type": "array", "items": {"$ref": "#/components/schemas/FinancialStatementPeriodComparisonReadRow"}}}},
       "DimensionProfitabilityReadRow": {
         "type": "object",
         "additionalProperties": false,
@@ -4093,6 +4124,11 @@
             }
           }
         }
+      },
+      "FinancialStatementPeriodComparisonReadOk": {
+        "description": "Scoped two-period POSTED financial-statement comparison evidence",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FinancialStatementPeriodComparisonReadEnvelope"}}}
       },
       "DimensionProfitabilityReadOk": {
         "description": "Scoped exact-dimension POSTED-ledger profitability evidence",

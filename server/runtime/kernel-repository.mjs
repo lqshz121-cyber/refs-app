@@ -496,6 +496,13 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getFinancialStatementPeriodComparison({tenantId,entityId,currentPeriodId,priorPeriodId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_financial_statement_period_comparison($1,$2,$3,$4)',
+      [tenantId,entityId,currentPeriodId,priorPeriodId]
+    )).rows);
+  }
+
   async getDimensionProfitability({tenantId,entityId,periodId,dimensionType,dimensionRef}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_dimension_profitability($1,$2,$3,$4,$5)',

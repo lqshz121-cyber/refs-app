@@ -1994,6 +1994,26 @@ pgTest('financial statements read only POSTED ledger evidence with entity, perio
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.length,rows.length);
 });
 
+pgTest('financial statement period comparison reads two ordered periods and marks a missing prior side rather than deriving zero',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'610000',accountName:'Operating Expense'}],
+    journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'111000',debit:0,credit:100,memberRef:'BANK-1'}]});
+  await attachAutoSource(ids);
+  const priorPeriodId=randomUUID();
+  await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-06','2026-06-01','2026-06-30','OPEN')",[priorPeriodId,ids.tenantId,ids.entityId]);
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'comparison-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'comparison-post-001'});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'comparison-reader',['GL.REPORT.VIEW'])});
+  const rows=await reader.getFinancialStatementPeriodComparison({tenantId:ids.tenantId,entityId:ids.entityId,currentPeriodId:ids.periodId,priorPeriodId});
+  const current=rows.find(row=>row.statement_type==='INCOME_STATEMENT'&&row.account_code==='610000');
+  assert.equal(current.comparison_status,'MISSING_PRIOR_EVIDENCE');assert.equal(current.current_display_balance,'100.0000');assert.equal(current.prior_display_balance,null);assert.equal(current.prior_ledger_line_ids,null);
+  await assert.rejects(reader.getFinancialStatementPeriodComparison({tenantId:ids.tenantId,entityId:ids.entityId,currentPeriodId:ids.periodId,priorPeriodId:ids.periodId}),error=>error.code==='22023');
+  await assert.rejects(reader.getFinancialStatementPeriodComparison({tenantId:ids.tenantId,entityId:ids.entityId,currentPeriodId:priorPeriodId,priorPeriodId:ids.periodId}),error=>error.code==='22023');
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'comparison-reader'}),kernelFactory:async()=>reader});
+  const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/financial-statement-period-comparison?currentPeriodId=${ids.periodId}&priorPeriodId=${priorPeriodId}`,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.find(row=>row.account_code==='610000').comparison_status,'MISSING_PRIOR_EVIDENCE');
+});
+
 pgTest('dimension profitability reads only exact POSTED ledger dimensions and never fills a missing property, project, or unit',async()=>{
   const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
     extraAccounts:[{accountCode:'400000',accountName:'Rental Revenue'},{accountCode:'610000',accountName:'Property Expense'}],
