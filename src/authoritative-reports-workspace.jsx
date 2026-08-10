@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useState} from 'react';
-import {refreshAuthoritativeFinancialStatements} from './accounting-api.js';
+import {refreshAuthoritativeDimensionProfitability,refreshAuthoritativeFinancialStatements} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {DEFAULT_AUTHORITATIVE_LIST_VIEW,createAuthoritativeReturnContext,restoreAuthoritativeReturnContext} from './authoritative-list-context.js';
 
@@ -9,6 +9,7 @@ const REPORTS=[
   ['INCOME_STATEMENT','Income Statement'],
   ['CASH_FLOW','Cash movement evidence'],
 ];
+const DIMENSION_TYPES=Object.freeze([['PROPERTY','Property P&L'],['PROJECT','Project P&L'],['UNIT','Unit profitability']]);
 const fixed4=value=>{const match=/^(-?)([0-9]+)\.([0-9]{4})$/.exec(String(value??'0.0000'));if(!match)return 0n;return BigInt(`${match[1]}${match[2]}${match[3]}`);};
 const fixed4String=value=>{const negative=value<0n,absolute=negative?-value:value,digits=absolute.toString().padStart(5,'0');return `${negative?'-':''}${digits.slice(0,-4)}.${digits.slice(-4)}`;};
 const add=(...values)=>fixed4String(values.reduce((sum,value)=>sum+fixed4(value),0n));
@@ -35,11 +36,11 @@ const ReportDetail=({row,returnContext,onBack})=><section className="full-bleed 
   <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to financial statement</button><span>Entity {returnContext?.entityId} · Period {returnContext?.periodId} · {returnContext?.report}</span></div>
   <div className="card-head"><div><h2>{row.account_code} - {row.account_name}</h2><p className="muted sm">{row.statement_type} / {row.statement_section}</p></div><span className="badge badge-muted">POSTED EVIDENCE</span></div>
   <div className="qbo-toolgrid">
-    <span><i>Opening debits</i><b>{money(row.opening_debit)}</b></span><span><i>Opening credits</i><b>{money(row.opening_credit)}</b></span>
+    {row.opening_debit!==undefined&&<><span><i>Opening debits</i><b>{money(row.opening_debit)}</b></span><span><i>Opening credits</i><b>{money(row.opening_credit)}</b></span></>}
     <span><i>Period debits</i><b>{money(row.period_debit)}</b></span><span><i>Period credits</i><b>{money(row.period_credit)}</b></span>
     <span><i>Statement balance</i><b>{money(row.display_balance)}</b></span>
   </div>
-  <p className="muted sm">Classification basis: {row.classification_basis}. Period {row.period_code}, {row.period_start} through {row.period_end}.</p>
+  <p className="muted sm">Classification basis: {row.classification_basis}. Period {row.period_code}, {row.period_start} through {row.period_end}.{row.dimension_type&&` Exact ${row.dimension_type.toLowerCase()} ${row.dimension_ref}.`}</p>
   <div className="detail-grid">
     <EvidenceIds label="Journal entries" ids={row.journal_entry_ids}/><EvidenceIds label="Journal lines" ids={row.journal_line_ids}/>
     <EvidenceIds label="Ledger lines" ids={row.ledger_line_ids}/><EvidenceIds label="Source documents" ids={row.source_document_ids}/>
@@ -50,7 +51,11 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   const [report,setReport]=useState('TRIAL_BALANCE');
   const [selected,setSelected]=useState(null);
   const [state,setState]=useState({phase:'LOADING',rows:[],error:null});
+  const [dimensionType,setDimensionType]=useState('PROPERTY');
+  const [dimensionRef,setDimensionRef]=useState('');
+  const [dimensionState,setDimensionState]=useState({phase:'IDLE',rows:[],error:null,scope:null});
   const load=async()=>{setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeFinancialStatements({config,fetcher});setState(result.ok?{phase:'READY',rows:result.rows,error:null}:{phase:'ERROR',rows:[],error:result});};
+  const loadDimension=async()=>{setDimensionState({phase:'LOADING',rows:[],error:null,scope:null});const result=await refreshAuthoritativeDimensionProfitability({config,dimensionType,dimensionRef,fetcher});setDimensionState(result.ok?{phase:'READY',rows:result.rows,error:null,scope:result.scope}:{phase:'ERROR',rows:[],error:result,scope:null});};
   useEffect(()=>{load();},[config?.entityId,config?.periodId]);
   const rows=useMemo(()=>state.rows.filter(row=>row.statement_type===report),[state.rows,report]);
   const openEvidence=(row,focusId)=>{
@@ -59,7 +64,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   };
   const closeEvidence=()=>{
     const context=selected?.returnContext;
-    if(context?.report)setReport(context.report);
+    if(REPORTS.some(([key])=>key===context?.report))setReport(context.report);
     setSelected(null);
     restoreAuthoritativeReturnContext(environment,config,context);
   };
@@ -75,5 +80,14 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
       {report==='CASH_FLOW'&&<p className="muted sm">This view is direct cash-account movement evidence only. It is not a statement of cash flows and does not infer operating, investing, or financing activities.</p>}
       {!rows.length?<StateBlock tone="empty" title="No POSTED ledger evidence returned">No POSTED ledger evidence was returned for this statement and period.</StateBlock>:<div className="table-wrap"><table className="tbl"><thead><tr><th>Section</th><th>Account</th><th>Period debit</th><th>Period credit</th><th>Balance</th><th>Evidence</th></tr></thead><tbody>{rows.map(row=>{const focusId=`authoritative-report-${row.statement_type}-${row.account_code}`;return <tr key={`${row.statement_type}:${row.account_code}`}><td>{row.statement_section}</td><td><b>{row.account_code}</b><div className="muted sm">{row.account_name}</div></td><td className="num">{money(row.period_debit)}</td><td className="num">{money(row.period_credit)}</td><td className="num">{money(row.display_balance)}</td><td><button id={focusId} type="button" className="btn btn-sm" onClick={()=>openEvidence(row,focusId)}>Open evidence</button></td></tr>;})}</tbody></table></div>}
     </section>}
+    <section className="card" aria-label="Dimension profitability evidence">
+      <div className="card-head"><div><h2>Dimension profitability</h2><p className="muted sm">Property, Project, and Unit P&amp;L use only exact dimensions retained on POSTED ledger lines.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+      <div className="qbo-filter-grid"><label>Dimension type<select value={dimensionType} onChange={event=>{setDimensionType(event.target.value);setDimensionState({phase:'IDLE',rows:[],error:null,scope:null});}}>{DIMENSION_TYPES.map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label><label>Exact reference<input value={dimensionRef} maxLength="160" onChange={event=>setDimensionRef(event.target.value)} placeholder="e.g. PROPERTY-01"/></label><button type="button" className="btn" disabled={!dimensionRef.trim()} onClick={loadDimension}>Load profitability evidence</button></div>
+      <p className="muted sm">A blank result is not zero profitability: it means no retained POSTED ledger line carries this exact dimension for the selected period. The report never infers a dimension from a memo, bank account, or source header.</p>
+      {dimensionState.phase==='LOADING'&&<StateBlock tone="loading">Loading exact-dimension POSTED ledger evidence...</StateBlock>}
+      {dimensionState.phase==='ERROR'&&<StateBlock tone="error" title={dimensionState.error?.code}><p>{dimensionState.error?.message}</p></StateBlock>}
+      {dimensionState.phase==='READY'&&!dimensionState.rows.length&&<StateBlock tone="empty" title="No exact-dimension POSTED ledger evidence returned">This scoped empty result is not evidence of zero property, project, or unit profitability.</StateBlock>}
+      {dimensionState.phase==='READY'&&!!dimensionState.rows.length&&<div className="table-wrap"><table className="tbl"><thead><tr><th>Section</th><th>Account</th><th>Period debit</th><th>Period credit</th><th>Balance</th><th>Evidence</th></tr></thead><tbody>{dimensionState.rows.map(row=>{const focusId=`authoritative-dimension-${row.dimension_type}-${row.dimension_ref}-${row.account_code}`;return <tr key={`${row.dimension_type}:${row.dimension_ref}:${row.statement_section}:${row.account_code}`}><td>{row.statement_section}</td><td><b>{row.account_code}</b><div className="muted sm">{row.account_name}</div></td><td className="num">{money(row.period_debit)}</td><td className="num">{money(row.period_credit)}</td><td className="num">{money(row.display_balance)}</td><td><button id={focusId} type="button" className="btn btn-sm" onClick={()=>openEvidence(row,focusId)}>Open evidence</button></td></tr>;})}</tbody></table></div>}
+    </section>
   </div>;
 }

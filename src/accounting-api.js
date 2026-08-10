@@ -311,6 +311,23 @@ export async function refreshAuthoritativeFinancialStatements({config,fetcher=gl
   }catch{return unreachable('The browser could not complete the authoritative financial statement read; no HTTP response was produced.');}
 }
 
+export async function refreshAuthoritativeDimensionProfitability({config,dimensionType,dimensionRef,fetcher=globalThis.fetch}={}){
+  const type=String(dimensionType||''),ref=String(dimensionRef||'');
+  if(!config||typeof fetcher!=='function'||!UUID.test(config.periodId||'')||!['PROPERTY','PROJECT','UNIT'].includes(type)||!ref||ref!==ref.trim()||ref.length>160||/[\u0000-\u001f\u007f]/.test(ref))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Dimension profitability requires one authoritative entity and period plus a canonical Property, Project, or Unit reference.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({periodId:config.periodId,dimensionType:type,dimensionRef:ref});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/reports/dimension-profitability?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid dimension profitability envelope.'};
+    const statementType={PROPERTY:'PROPERTY_PNL',PROJECT:'PROJECT_PNL',UNIT:'UNIT_PROFITABILITY'}[type];
+    const numericFields=['period_debit','period_credit','display_balance'],idFields=['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'];
+    if(body.data.some(row=>row?.period_id!==config.periodId||!PERIOD_CODE.test(row.period_code||'')||!validDate(row.period_start)||!validDate(row.period_end)||row.period_start>row.period_end||row.period_start.slice(0,7)!==row.period_code||row.period_end.slice(0,7)!==row.period_code||row.dimension_type!==type||row.dimension_ref!==ref||row.statement_type!==statementType||!['REVENUE','EXPENSES'].includes(row.statement_section)||row.classification_basis!=='POSTED_LEDGER_DIMENSION_EXACT'||!ACCOUNT_CODE.test(row.account_code||'')||typeof row.account_name!=='string'||!row.account_name.trim()||numericFields.some(field=>!REPORT_MONEY4.test(String(row[field]??'')))||idFields.some(field=>!Array.isArray(row[field])||row[field].some(id=>!UUID.test(id||'')))))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid dimension profitability row.'};
+    if(new Set(body.data.map(row=>`${row.statement_section}:${row.account_code}`)).size!==body.data.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate dimension profitability rows.'};
+    return {ok:true,rows:body.data.map(row=>({...row,...Object.fromEntries(numericFields.map(field=>[field,String(row[field])]))})),scope:{entityId:config.entityId,periodId:config.periodId,dimensionType:type,dimensionRef:ref}};
+  }catch{return unreachable('The browser could not complete the authoritative dimension profitability read; no HTTP response was produced.');}
+}
+
 const CURRENCY3=/^[A-Z]{3}$/;
 const money4=v=>{if(typeof v==='number'&&Number.isFinite(v))return v.toFixed(4);if(typeof v==='string'&&MONEY4.test(v))return v;return null;};
 export async function refreshAuthoritativeAging({config,side,asOfDate,fetcher=globalThis.fetch}={}){

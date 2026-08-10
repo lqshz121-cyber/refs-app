@@ -32,3 +32,24 @@ test('repository and HTTP expose one authenticated entity-period no-store read',
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/reports/financial-statements?periodId=${periodId}`,headers:{'idempotency-key':'forbidden'},body:null})).body.code,'IDEMPOTENCY_KEY_NOT_ALLOWED');
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/reports/financial-statements?periodId=${periodId}`,headers:{},body:{}})).body.code,'READ_BODY_FORBIDDEN');
 });
+
+test('dimension profitability is a bounded POSTED-ledger read and never infers a missing dimension',async()=>{
+  const up=await readFile(new URL('../db/migrations/074_dimension_profitability_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/074_dimension_profitability_read.sql',import.meta.url),'utf8');
+  for(const token of ['refs_get_dimension_profitability','PROPERTY','PROJECT','UNIT',"'GL.REPORT.VIEW'",'j.status=\'POSTED\'','POSTED_LEDGER_DIMENSION_EXACT','l.dimensions @> jsonb_build_object','REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token));
+  assert.doesNotMatch(up,/source_document_line.*JOIN.*ledger_line|INSERT INTO journal_entry|UPDATE journal_entry|DELETE FROM journal_entry|INSERT INTO ledger_line|UPDATE ledger_line|DELETE FROM ledger_line/i);
+  assert.match(down,/DROP FUNCTION refs_get_dimension_profitability/);assert.match(down,/DROP INDEX ledger_line_dimension_profitability_gin_idx/);
+  const calls=[],kernel=Object.create(PostgresAccountingKernel.prototype);
+  kernel.inSession=async work=>work({query:async(sql,args)=>{calls.push({sql,args});return {rows:[{dimension_type:'PROPERTY'}]};}});
+  assert.deepEqual(await kernel.getDimensionProfitability({tenantId:'tenant',entityId:'entity',periodId:'period',dimensionType:'PROPERTY',dimensionRef:'PROPERTY-01'}),[{dimension_type:'PROPERTY'}]);
+  assert.deepEqual(calls,[{sql:'SELECT * FROM refs_get_dimension_profitability($1,$2,$3,$4,$5)',args:['tenant','entity','period','PROPERTY','PROPERTY-01']}]);
+  const tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID(),httpCalls=[];
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({getDimensionProfitability:async scope=>{httpCalls.push(scope);return [];}})});
+  const base=`/api/v1/entities/${entityId}/reports/dimension-profitability?periodId=${periodId}&dimensionType=PROPERTY&dimensionRef=PROPERTY-01`;
+  const response=await api({method:'GET',url:base,headers:{},body:null});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(httpCalls,[{tenantId,entityId,periodId,dimensionType:'PROPERTY',dimensionRef:'PROPERTY-01'}]);
+  assert.equal((await api({method:'GET',url:base.replace('PROPERTY','UNKNOWN'),headers:{},body:null})).body.code,'INVALID_QUERY_PARAMETER');
+  assert.equal((await api({method:'GET',url:`${base}&unexpected=1`,headers:{},body:null})).body.code,'UNEXPECTED_QUERY_PARAMETER');
+  assert.equal((await api({method:'GET',url:base,headers:{'idempotency-key':'forbidden'},body:null})).body.code,'IDEMPOTENCY_KEY_NOT_ALLOWED');
+  assert.equal((await api({method:'GET',url:base,headers:{},body:{}})).body.code,'READ_BODY_FORBIDDEN');
+});

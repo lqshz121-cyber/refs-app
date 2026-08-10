@@ -85,7 +85,7 @@ async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VE
   await adminPool.query(`INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,created_by,reviewed_by,approved_by)
     VALUES($1,$2,$3,$4,$5,$6,$7,'2026-07-15','USD','maker',$8,$9)`,[journalId,tenantId,entityId,periodId,`JE-${journalId.slice(0,8)}`,journalType,status,actors[0],actors[1]]);
   const lines=journalLines||[{lineNo:1,accountCode:'111000',debit:100,credit:0,memberRef:'BANK-1'},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}];
-  for(const line of lines)await adminPool.query('INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[tenantId,entityId,periodId,journalId,line.lineNo,line.accountCode,line.debit,line.credit,line.memberRef??null]);
+  for(const line of lines)await adminPool.query('INSERT INTO journal_line(tenant_id,entity_id,period_id,journal_entry_id,line_no,account_code,debit_amount,credit_amount,member_ref,dimensions) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)',[tenantId,entityId,periodId,journalId,line.lineNo,line.accountCode,line.debit,line.credit,line.memberRef??null,JSON.stringify(line.dimensions??{})]);
   if(attachmentStatus){
     const attachmentId=randomUUID();
     await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at)
@@ -1992,4 +1992,31 @@ pgTest('financial statements read only POSTED ledger evidence with entity, perio
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'report-reader'}),kernelFactory:async()=>reader});
   const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/financial-statements?periodId=${ids.periodId}`,body:null,headers:{}});
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.length,rows.length);
+});
+
+pgTest('dimension profitability reads only exact POSTED ledger dimensions and never fills a missing property, project, or unit',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'400000',accountName:'Rental Revenue'},{accountCode:'610000',accountName:'Property Expense'}],
+    journalLines:[
+      {lineNo:1,accountCode:'111000',debit:75,credit:0,memberRef:'BANK-1',dimensions:{property_ref:'PROPERTY-01',project_ref:'PROJECT-01',unit_ref:'UNIT-01'}},
+      {lineNo:2,accountCode:'400000',debit:0,credit:100,dimensions:{property_ref:'PROPERTY-01',project_ref:'PROJECT-01',unit_ref:'UNIT-01'}},
+      {lineNo:3,accountCode:'610000',debit:25,credit:0,dimensions:{property_ref:'PROPERTY-01',project_ref:'PROJECT-01',unit_ref:'UNIT-01'}}
+    ]});
+  const trace=await attachAutoSource(ids);
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'dimension-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'dimension-post-001'});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'dimension-reader',['GL.REPORT.VIEW'])});
+  const propertyRows=await reader.getDimensionProfitability({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,dimensionType:'PROPERTY',dimensionRef:'PROPERTY-01'});
+  assert.deepEqual(propertyRows.map(row=>[row.statement_type,row.statement_section,row.account_code,row.display_balance]),[['PROPERTY_PNL','EXPENSES','610000','25.0000'],['PROPERTY_PNL','REVENUE','400000','100.0000']]);
+  assert.ok(propertyRows.every(row=>row.classification_basis==='POSTED_LEDGER_DIMENSION_EXACT'&&row.dimension_type==='PROPERTY'&&row.dimension_ref==='PROPERTY-01'));
+  assert.ok(propertyRows.every(row=>row.journal_entry_ids.includes(ids.journalId)&&row.source_document_ids.includes(trace.documentId)));
+  const projectRows=await reader.getDimensionProfitability({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,dimensionType:'PROJECT',dimensionRef:'PROJECT-01'});
+  assert.equal(projectRows.length,2);assert.ok(projectRows.every(row=>row.statement_type==='PROJECT_PNL'));
+  const unitRows=await reader.getDimensionProfitability({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,dimensionType:'UNIT',dimensionRef:'UNIT-01'});
+  assert.equal(unitRows.length,2);assert.ok(unitRows.every(row=>row.statement_type==='UNIT_PROFITABILITY'));
+  assert.deepEqual(await reader.getDimensionProfitability({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,dimensionType:'PROPERTY',dimensionRef:'PROPERTY-MISSING'}),[]);
+  await assert.rejects(reader.getDimensionProfitability({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,dimensionType:'ACCOUNT',dimensionRef:'PROPERTY-01'}),error=>error.code==='22023');
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'dimension-reader'}),kernelFactory:async()=>reader});
+  const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/dimension-profitability?periodId=${ids.periodId}&dimensionType=PROPERTY&dimensionRef=PROPERTY-01`,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.length,2);
 });
