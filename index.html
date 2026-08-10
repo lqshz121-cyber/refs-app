@@ -1235,7 +1235,11 @@ select{padding-right:28px; cursor:pointer;}
 .report-drill-panel .sec-title{margin-top:0;}
 .report-drill-panel .tr-click{cursor:pointer;}
 .report-drill-panel .tr-click td:first-child{color:var(--qb-link); font-weight:500;}
-.trial-balance-table .tbl,.reports-workbench-table .tbl{min-width:760px;}
+/* Trial Balance has four accounting columns, not a Journal Entries wide-table
+   schema.  It fills the report canvas at desktop size and only scrolls when a
+   genuinely narrow viewport cannot keep the Account/Debit/Credit/Balance set legible. */
+.trial-balance-table .tbl{min-width:640px; width:100%; table-layout:fixed;}
+.reports-workbench-table .tbl{min-width:760px;}
 .trial-balance-table,.reports-workbench-table{overflow-x:auto;}
 /* A table rendered without an explicit wrapper still scrolls inside its own
    region rather than pushing the page sideways. */

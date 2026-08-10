@@ -2281,3 +2281,10 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 - **REFS implementation:** Each primary navigation family now carries the same restrained accent into its active rail glyph, hover glyph, and retained second-level letter badge. The treatments remain text-labelled and high-contrast; source/status evidence pills remain neutral in shape and continue to communicate status rather than decoration.
 - **Status:** **VERIFIED LOCAL** for the shared visual contract and dark-mode contrast gate. This is REFS visual-system work, not a QBO-equivalence claim.
 - **Verification:** `node verify-badge-visual-contract.mjs`; `node verify-a11y-offcanvas-and-dark-contrast.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## Reports: Trial Balance uses a compact accounting table (2026-08-10)
+
+- **Observed product evidence:** The user-provided Trial Balance capture showed a four-column accounting table rendered with the wide Journal Entries table contract. The result was a large empty right-hand pane, clipped values, and an unrelated `Export CSV` unavailable control.
+- **REFS implementation:** Trial Balance now uses its own full-width four-column table contract and keeps account, debit, credit, and balance together in one readable surface. The export affordance is removed from this read-only report. Wide Journal Entries/GL tables retain their independent horizontal-scroll behavior.
+- **Status:** **VERIFIED LOCAL** for the focused Trial Balance markup and layout contract; live responsive validation remains required before this is treated as released UX.
+- **Verification:** `node verify-trial-balance-layout.mjs`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
