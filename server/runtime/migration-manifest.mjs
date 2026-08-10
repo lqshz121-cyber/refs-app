@@ -321,7 +321,7 @@ export const MIGRATION_MANIFEST=Object.freeze([
   }),
   Object.freeze({
     name:'065_bank_match_candidate_read.sql',
-    up:'1edd3297aabf8edb208989782df9b14ab029982d34dcbbaa4c8499df2587403b',
+    up:'5f0ec60a2125116709b2e8f3361f67eff5c8d5b2d6677549e764fb4913f69ee7',
     down:'3d8285ba866d3d8915289a01c8e0e1e0c24efae5e58e1e70179edd877a022116'
   })
 ]);

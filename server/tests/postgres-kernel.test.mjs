@@ -1650,7 +1650,7 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
   assert.equal(candidates.length,1);
   assert.deepEqual(candidates[0],{
     payment_occurrence_id:exact.payment.payment_occurrence_id,
-    occurrence_version:'1',
+    occurrence_version:1,
     occurrence_kind:'AP_PAYMENT',
     business_source_document_id:billId,
     accounting_date:'2026-07-16',
