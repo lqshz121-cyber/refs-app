@@ -291,6 +291,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listBankMatchCandidates({tenantId,entityId,bankSourceId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_bank_match_candidates($1,$2,$3)',[tenantId,entityId,bankSourceId]
+    )).rows);
+  }
+
   async getReconciliationSummary({tenantId,entityId,bankAccountRef,statementEndingDate}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_reconciliation_summary($1,$2,$3,$4::date)',

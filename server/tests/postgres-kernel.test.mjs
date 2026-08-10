@@ -1646,6 +1646,23 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
     VALUES($1,$2,$3,$4,'BANK-1','BANK-MATCH-EXACT','2026-07-16','USD',-40)`,[bankSourceId,ids.tenantId,ids.entityId,exact.trace.documentId]);
   const matcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bank-payment-matcher',['BANK.MATCH.CREATE'])});
   const unmatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'bank-payment-unmatcher',['BANK.MATCH.UNMATCH'])});
+  const candidates=await matcher.listBankMatchCandidates({...ids,bankSourceId});
+  assert.equal(candidates.length,1);
+  assert.deepEqual(candidates[0],{
+    payment_occurrence_id:exact.payment.payment_occurrence_id,
+    occurrence_version:'1',
+    occurrence_kind:'AP_PAYMENT',
+    business_source_document_id:billId,
+    accounting_date:'2026-07-16',
+    currency:'USD',
+    amount:'40.0000',
+    journal_entry_id:exact.payment.journal_entry_id,
+    journal_line_id:candidates[0].journal_line_id,
+    ledger_line_id:candidates[0].ledger_line_id,
+    date_delta_days:0
+  });
+  assert.ok(candidates[0].journal_line_id);assert.ok(candidates[0].ledger_line_id);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM bank_match WHERE bank_source_id=$1',[bankSourceId])).rows[0].n,0);
   const matchArgs={...ids,bankSourceId,paymentOccurrenceId:exact.payment.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Reviewed exact posted AP payment',idempotencyKey:'bank-match-exact-001'};
   const created=await matcher.createBankPaymentMatch(matchArgs);const replay=await matcher.createBankPaymentMatch(matchArgs);
   assert.equal(created.status,'ACTIVE');assert.equal(created.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.bank_match_id,created.bank_match_id);
