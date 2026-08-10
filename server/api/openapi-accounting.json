@@ -1100,6 +1100,23 @@
         }
       }
     },
+    "/entities/{entityId}/reports/dimension-profitability": {
+      "get": {
+        "operationId": "getDimensionProfitability",
+        "summary": "Read Property, Project, or Unit profitability from exact POSTED ledger dimensions",
+        "description": "Returns only POSTED ledger lines carrying the exact requested property_ref, project_ref, or unit_ref dimension. Missing dimensions are excluded rather than inferred from a source header, memo, bank account, or display label. This operation cannot create, adjust, post, export, or persist a report.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}},
+          {"name": "dimensionType", "in": "query", "required": true, "schema": {"type": "string", "enum": ["PROPERTY", "PROJECT", "UNIT"]}},
+          {"name": "dimensionRef", "in": "query", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^(?:\\S|\\S.*\\S)$"}}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/DimensionProfitabilityReadOk"},
+          "default": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/bank/reconciliations": {
       "post": {
         "operationId": "startReconciliation",
@@ -2530,6 +2547,45 @@
               "$ref": "#/components/schemas/FinancialStatementReadRow"
             }
           }
+        }
+      },
+      "DimensionProfitabilityReadRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "period_id", "period_code", "period_start", "period_end", "dimension_type", "dimension_ref",
+          "statement_type", "statement_section", "classification_basis", "account_code", "account_name",
+          "period_debit", "period_credit", "display_balance", "journal_entry_ids", "journal_line_ids",
+          "ledger_line_ids", "source_document_ids"
+        ],
+        "properties": {
+          "period_id": {"$ref": "#/components/schemas/Uuid"},
+          "period_code": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"},
+          "period_start": {"type": "string", "format": "date"},
+          "period_end": {"type": "string", "format": "date"},
+          "dimension_type": {"type": "string", "enum": ["PROPERTY", "PROJECT", "UNIT"]},
+          "dimension_ref": {"type": "string", "minLength": 1, "maxLength": 160},
+          "statement_type": {"type": "string", "enum": ["PROPERTY_PNL", "PROJECT_PNL", "UNIT_PROFITABILITY"]},
+          "statement_section": {"type": "string", "enum": ["REVENUE", "EXPENSES"]},
+          "classification_basis": {"const": "POSTED_LEDGER_DIMENSION_EXACT"},
+          "account_code": {"type": "string", "minLength": 1},
+          "account_name": {"type": "string", "minLength": 1},
+          "period_debit": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{4}$"},
+          "period_credit": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{4}$"},
+          "display_balance": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{4}$"},
+          "journal_entry_ids": {"type": "array", "items": {"$ref": "#/components/schemas/Uuid"}},
+          "journal_line_ids": {"type": "array", "items": {"$ref": "#/components/schemas/Uuid"}},
+          "ledger_line_ids": {"type": "array", "items": {"$ref": "#/components/schemas/Uuid"}},
+          "source_document_ids": {"type": "array", "items": {"$ref": "#/components/schemas/Uuid"}}
+        }
+      },
+      "DimensionProfitabilityReadEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {"type": "array", "items": {"$ref": "#/components/schemas/DimensionProfitabilityReadRow"}}
         }
       },
       "ReconciliationWorksheetRow": {
@@ -3989,6 +4045,23 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/FinancialStatementReadEnvelope"
+            }
+          }
+        }
+      },
+      "DimensionProfitabilityReadOk": {
+        "description": "Scoped exact-dimension POSTED-ledger profitability evidence",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DimensionProfitabilityReadEnvelope"
             }
           }
         }
