@@ -524,6 +524,13 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getConstructionLoanRollforward({tenantId,entityId,periodId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_construction_loan_rollforward($1,$2,$3)',
+      [tenantId,entityId,periodId]
+    )).rows);
+  }
+
   async getApAging({tenantId,entityId,asOfDate}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_ap_aging($1,$2,$3::date)',[tenantId,entityId,asOfDate]

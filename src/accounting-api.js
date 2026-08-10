@@ -399,6 +399,27 @@ export async function refreshAuthoritativeCwipRollforward({config,fetcher=global
   }catch{return unreachable('The browser could not complete the authoritative CWIP rollforward read; no HTTP response was produced.');}
 }
 
+export async function refreshAuthoritativeConstructionLoanRollforward({config,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!UUID.test(config.periodId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Construction-loan rollforward requires one authoritative entity and accounting period.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({periodId:config.periodId});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/reports/construction-loan-rollforward?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid construction-loan rollforward envelope.'};
+    const statuses=new Set(['MAPPED_CONSTRUCTION_LOAN_ACCOUNT','BLOCKED_MAPPING_REQUIRED','BLOCKED_MAPPING_AMBIGUOUS','BLOCKED_MAPPING_RULE_INVALID']);
+    const ids=['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'];
+    const invalid=row=>{
+      const mapped=row?.mapping_status==='MAPPED_CONSTRUCTION_LOAN_ACCOUNT';
+      const validMapping=mapped?UUID.test(row.mapping_snapshot_id||'')&&/^[1-9][0-9]*$/.test(String(row.mapping_version??''))&&/^sha256:[0-9a-f]{64}$/.test(row.mapping_snapshot_hash||''):row?.mapping_snapshot_id===null&&row?.mapping_version===null&&row?.mapping_snapshot_hash===null;
+      const values=['opening_balance','period_draws','period_repayments','closing_balance'];
+      return row?.period_id!==config.periodId||!PERIOD_CODE.test(row?.period_code||'')||!validDate(row?.period_start)||!validDate(row?.period_end)||row.period_start>row.period_end||row.period_start.slice(0,7)!==row.period_code||row.period_end.slice(0,7)!==row.period_code||!ACCOUNT_CODE.test(row?.account_code||'')||typeof row?.account_name!=='string'||!row.account_name.trim()||!statuses.has(row?.mapping_status)||typeof row?.classification_basis!=='string'||!row.classification_basis.trim()||!validMapping||ids.some(field=>!Array.isArray(row?.[field])||row[field].some(id=>!UUID.test(id||'')))||(mapped?values.some(field=>!REPORT_MONEY4.test(String(row?.[field]??''))):values.some(field=>row?.[field]!==null));
+    };
+    if(body.data.some(invalid)||new Set(body.data.map(row=>row.account_code)).size!==body.data.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate construction-loan rollforward row.'};
+    return {ok:true,rows:body.data.map(row=>({...row,...Object.fromEntries(['opening_balance','period_draws','period_repayments','closing_balance'].map(field=>[field,row[field]===null?null:String(row[field])]))})),scope:{entityId:config.entityId,periodId:config.periodId},complete:body.data.length>0&&body.data.every(row=>row.mapping_status==='MAPPED_CONSTRUCTION_LOAN_ACCOUNT')};
+  }catch{return unreachable('The browser could not complete the authoritative construction-loan rollforward read; no HTTP response was produced.');}
+}
+
 const CURRENCY3=/^[A-Z]{3}$/;
 const money4=v=>{if(typeof v==='number'&&Number.isFinite(v))return v.toFixed(4);if(typeof v==='string'&&MONEY4.test(v))return v;return null;};
 export async function refreshAuthoritativeAging({config,side,asOfDate,fetcher=globalThis.fetch}={}){
