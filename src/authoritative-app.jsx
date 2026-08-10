@@ -1,19 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { accountingApiConfig, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, transitionAuthoritativeJournal } from './accounting-api.js';
+import { accountingApiConfig, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries } from './accounting-api.js';
 import { BrowserOidcClient, RENEWAL_MIN_INTERVAL_MS, oidcRuntimeConfig, silentRenewalSchedule } from './oidc-client.js';
-import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
 import { StateBlock } from './ui.jsx';
 import { focusFirstControl, navDrawerAttributes, readOffCanvas, restoreFocus, watchOffCanvas } from './nav-drawer.js';
 import { RuntimeErrorPage, RuntimeErrorPanel } from './runtime-error-page.jsx';
 import { AuthoritativeReportsWorkspace } from './authoritative-reports-workspace.jsx';
 import { AuthoritativeAgingWorkspace } from './authoritative-aging-workspace.jsx';
+import { AuthoritativeJournalWorkspace } from './authoritative-journal-workspace.jsx';
 import {
   AuthoritativeAdjustmentDetail,
   AuthoritativeAdjustmentSummary,
   AuthoritativeDocumentDetail,
   AuthoritativeDocumentTable,
-  AuthoritativeDraftForm,
   AuthoritativeRuntimeLock,
 } from './authoritative-workspace.jsx';
 
@@ -38,7 +37,7 @@ export const bindAuthoritativeFetcher = (environment, fetcher) =>
 // what survives a link or a manual reload; sessionStorage covers the case where
 // the OIDC redirect completion rewrote the URL.
 // ---------------------------------------------------------------------------
-const ROUTES = ['overview', 'payables', 'receivables', 'bank', 'reconciliation', 'reports', 'journals', 'drafts'];
+const ROUTES = ['overview', 'payables', 'receivables', 'bank', 'reconciliation', 'reports', 'journals'];
 const ROUTE_KEY = 'refs_authoritative_route';
 
 export const readRetainedRoute = (environment = globalThis) => {
@@ -74,22 +73,6 @@ const phaseForFailure = failure =>
 const RENEWAL_WATCH_PHASES = new Set(['AUTHENTICATED', 'LOADING_ACCOUNTING', 'READY', 'LOAD_FAILED']);
 const RENEWAL_MAX_SLEEP_MS = 300000;
 
-const JournalTable = ({ journals, workingJournalIds, onWorkflow }) => <section aria-label="Authoritative journal entries">
-  <h2>Journal entries</h2>
-  <table className="tbl">
-    <thead><tr><th>Journal</th><th>Date</th><th>Type</th><th>Status</th><th>Revision</th><th>Ledger lines</th><th>Action</th></tr></thead>
-    <tbody>{journals.map(row => {
-      const action = nextAuthoritativeWorkflowAction(row.status);
-      return <tr key={row.journal_entry_id}>
-        <td>{row.journal_number}</td><td>{row.journal_date}</td><td>{row.journal_type}</td><td>{row.status}</td>
-        <td>{row.revision}</td><td>{row.ledger_line_count}</td>
-        <td>{action ? <button type="button" className="btn btn-sm" disabled={workingJournalIds.has(row.journal_entry_id)} onClick={() => onWorkflow(row, action)}>{action}</button> : 'Complete'}</td>
-      </tr>;
-    })}</tbody>
-  </table>
-  {!journals.length && <StateBlock tone="empty" title="No authoritative journal entries">No authoritative journal entries are available for this entity.</StateBlock>}
-</section>;
-
 export function AuthoritativeApp({ environment = globalThis, fetcher = globalThis.fetch }) {
   const configured = authoritativeRuntimeConfigured(environment);
   const boundFetcher = useMemo(() => bindAuthoritativeFetcher(environment, fetcher), [environment, fetcher]);
@@ -99,7 +82,6 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [documentDetail, setDocumentDetail] = useState(null);
   const [adjustmentDetail, setAdjustmentDetail] = useState(null);
   const [error, setError] = useState(null);
-  const [workingJournalIds, setWorkingJournalIds] = useState(new Set());
   const [renewalFailure, setRenewalFailure] = useState(null);
   const [sessionExpired, setSessionExpired] = useState(false);
   // Same off-canvas drawer contract as the demonstration shell: below 1024px the
@@ -198,16 +180,6 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     catch { setError({ code:'OIDC_CONFIGURATION_REQUIRED', message:'The configured OIDC provider could not start a secure PKCE login.' }); setPhase('IDENTITY_FAILED'); }
   };
   const logout = () => { oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED'); };
-  const workflow = async (row, action) => {
-    const journalEntryId = row.journal_entry_id;
-    if (!journalEntryId || workingJournalIds.has(journalEntryId)) return;
-    setWorkingJournalIds(current => new Set(current).add(journalEntryId)); setError(null);
-    const result = await transitionAuthoritativeJournal({ config, journalEntryId, revision:Number(row.journal_revision ?? row.revision), action, fetcher:boundFetcher });
-    setWorkingJournalIds(current => { const next = new Set(current); next.delete(journalEntryId); return next; });
-    if (!result.ok) { setError(result); return; }
-    await refresh();
-  };
-
   if (!configured) return <RuntimeErrorPage code="CONFIGURATION_REQUIRED"/>;
   if (typeof environment?.document === 'undefined') return <main className="login-shell"><section className="login-card"><h1>Authoritative accounting</h1><p>Secure OIDC session verification is in progress.</p></section></main>;
   if (phase === 'CHECKING_IDENTITY') return <main className="login-shell"><section className="login-card"><h1>Verifying identity</h1><p>Checking the configured OIDC session before loading accounting data.</p></section></main>;
@@ -234,7 +206,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={() => setNavOpen(false)}>Close</button>}
       <nav aria-label="Authoritative accounting navigation">
         <div className="nav-group"><div className="nav-group-h"><span className="nav-ic">●</span>Accounting API</div>
-        {[['overview','Control overview'],['payables','Payables'],['receivables','Receivables'],['bank','Bank transactions'],['reconciliation','Reconciliation'],['reports','Financial statements'],['journals','Journal entries'],['drafts','Draft entry']].map(([item,label]) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => { setRoute(item); setNavOpen(false); }}>{label}</button>)}</div>
+        {[['overview','Control overview'],['payables','Payables'],['receivables','Receivables'],['bank','Bank transactions'],['reconciliation','Reconciliation'],['reports','Financial statements'],['journals','Journal entries']].map(([item,label]) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => { setRoute(item); setNavOpen(false); }}>{label}</button>)}</div>
       </nav>
     </aside>
     {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
@@ -253,8 +225,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace config={config} fetcher={boundFetcher}/>}
-        {phase === 'READY' && route === 'journals' && <JournalTable journals={data.journals} workingJournalIds={workingJournalIds} onWorkflow={workflow}/>}
-        {phase === 'READY' && route === 'drafts' && <AuthoritativeDraftForm/>}
+        {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} entityId={config.entityId}/>}
       </main>
     </div>
   </div>;
