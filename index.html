@@ -398,11 +398,11 @@ input,select,textarea{
 }
 .nav-item:hover{background:var(--qb-canvas);}
 .nav-item:focus-visible{outline:2px solid var(--qb-accent); outline-offset:-2px;}
-/* Panel pages use the same 24px stroke-icon grid as the left rail. There are
-   no letter tiles or coloured squares competing with the navigation state. */
-.nav-item-icon{display:grid;place-items:center;flex:0 0 auto;width:22px;height:22px;color:var(--qb-text-muted);}
-.nav-item-icon svg{display:block;}
-.nav-item:hover .nav-item-icon,.nav-item.nav-on .nav-item-icon{color:var(--qb-accent);}
+/* Coloured letter badges distinguish related workspace pages while retaining
+   the rail's line icons for primary navigation. */
+.nav-badge{display:grid;place-items:center;flex:0 0 auto;width:22px;height:22px;border-radius:7px;font:600 10.5px/1 var(--qb-sans);letter-spacing:.02em;background:var(--qb-divider);color:var(--qb-text-muted);transition:transform .16s ease,background-color .16s ease;}
+.nav-item:hover .nav-badge{transform:translateY(-1px);}
+@media(prefers-reduced-motion:reduce){.nav-badge{transition:none;}.nav-item:hover .nav-badge{transform:none;}}
 .nav-item-label{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .nav-chev{flex:0 0 auto; color:var(--qb-text-faint); font-size:15px; line-height:1;}
 /* The current page is marked by a 3px accent bar, not only by a fill. The fill
@@ -412,6 +412,13 @@ input,select,textarea{
 .nav-item.nav-on{background:var(--qb-divider); color:var(--qb-text-strong); font-weight:500;
   box-shadow:inset 3px 0 0 0 var(--qb-accent);}
 .nav-item.nav-on .nav-chev{color:var(--qb-text-muted);}
+/* One hue per navigation group keeps the familiar letter markers readable. */
+.nav-tone-0 .nav-badge{background:#D9EAE3;color:#00543F;}
+.nav-tone-1 .nav-badge{background:#DCE8F4;color:#1C4E82;}
+.nav-tone-2 .nav-badge{background:#E7E0F2;color:#553C7B;}
+.nav-tone-3 .nav-badge{background:#F6E7D3;color:#7A5200;}
+.nav-tone-4 .nav-badge{background:#DEEBEC;color:#1F5560;}
+.nav-tone-5 .nav-badge{background:#F4E1E4;color:#7C3540;}
 .mobile-nav-btn,.mobile-nav-scrim,.mobile-nav-close{display:none;}
 
 /* ---- Topbar ---- */
@@ -787,6 +794,7 @@ select{padding-right:28px; cursor:pointer;}
 .source-doc-kv,.source-doc-panel-grid,.bank-summary-metrics,.src-grid{
   display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin:12px 0; min-width:0;
 }
+.gl-overview-strip{grid-template-columns:repeat(7,minmax(164px,1fr));overflow-x:auto;grid-auto-flow:column;scrollbar-gutter:stable;}
 .qbo-toolgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:12px 0;min-width:0;}
 .qbo-toolgrid>span,.qbo-toolgrid>div{display:flex;flex-direction:column;gap:5px;min-width:0;
   padding:14px 16px;background:var(--qb-inset);
@@ -812,7 +820,7 @@ select{padding-right:28px; cursor:pointer;}
   display:inline-flex; align-items:center; gap:6px; max-width:100%;
   padding:2px 8px; border-radius:var(--qb-r-pill);
   font:500 11px/1.5 var(--qb-sans); letter-spacing:.01em; text-transform:none;
-  overflow:hidden; text-overflow:ellipsis;
+  overflow:hidden; text-overflow:ellipsis; border:0; outline:0; box-shadow:none;
 }
 .badge::before{content:''; flex:0 0 auto; width:6px; height:6px; border-radius:50%; background:currentColor;}
 .badge-muted{background:var(--qb-divider); color:var(--qb-text-muted);}
@@ -1189,7 +1197,13 @@ select{padding-right:28px; cursor:pointer;}
 .report-drill:hover{border-bottom-color:var(--qb-link); background:var(--qb-canvas);}
 .report-drill:hover>span:last-child{opacity:1;}
 .report-drill.total .num{font-weight:700;}
-.report-drill-hint,.source-drill,.drill-target{color:var(--qb-text-muted); font-size:12px;}
+.report-drill-hint,.drill-target{color:var(--qb-text-muted); font-size:12px;}
+/* A source label can open its retained evidence.  It must still look like the
+   same quiet status pill as a non-drillable source: the browser button border
+   was creating the square right/bottom edge visible in the GL table. */
+.source-drill{display:inline-flex; align-items:center; max-width:100%; padding:0; border:0;
+  outline:0; background:transparent; box-shadow:none; color:inherit; font:inherit; line-height:inherit; cursor:pointer;}
+.source-drill:hover .badge,.source-drill:focus-visible .badge{filter:brightness(.96);}
 .report-drill-panel{margin-top:18px; padding:16px 18px; border-left:3px solid var(--qb-accent);}
 .report-drill-panel .sec-title{margin-top:0;}
 .report-drill-panel .tr-click{cursor:pointer;}
@@ -1551,6 +1565,7 @@ select{padding-right:28px; cursor:pointer;}
   .accounting-filter-bar label,.accounting-filter-bar select{width:100%;}
   .kpi-row,.qbo-grid,.rep-grid,.rep-grid-featured,.todo-grid,.kv-grid,.qbo-toolgrid,
   .qbo-drill-summary,.gl-overview-strip,.detail-grid,.bank-account-strip{grid-template-columns:minmax(0,1fr);}
+  .gl-overview-strip{grid-template-columns:repeat(7,minmax(164px,1fr));overflow-x:auto;}
   .trace-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
   .trace-grid span{white-space:normal; overflow-wrap:anywhere;}
   .tabs,.seg,.je-queue-chips,.bank-queue-tabs{max-width:100%; overflow-x:auto;}
@@ -1638,6 +1653,12 @@ body.dark .nav-group-h.rail-on .rail-label{color:var(--qb-text-strong); font-wei
 body.dark .nav-item:hover{background:var(--qb-raised);}
 body.dark .nav-item.nav-on{background:var(--qb-accent-tint); color:var(--qb-text-strong);}
 body.dark .nav-item.nav-on .nav-chev{color:var(--qb-accent);}
+body.dark .nav-tone-0 .nav-badge{background:#16352C;color:#7BD4AF;}
+body.dark .nav-tone-1 .nav-badge{background:#152B3E;color:#8DBBEC;}
+body.dark .nav-tone-2 .nav-badge{background:#271F3A;color:#BFAEE4;}
+body.dark .nav-tone-3 .nav-badge{background:#33280F;color:#E8BE72;}
+body.dark .nav-tone-4 .nav-badge{background:#122B30;color:#8CC9D3;}
+body.dark .nav-tone-5 .nav-badge{background:#331C20;color:#EDA3AA;}
 /* The empty-state glyph is a data URI, so dark mode needs its own stroke. */
 body.dark .empty::before,body.dark .empty-state::before,
 body.dark .bank-queue-empty::before,body.dark .ap-aging-empty::before{

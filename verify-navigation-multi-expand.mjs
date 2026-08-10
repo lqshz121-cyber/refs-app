@@ -61,9 +61,7 @@ const operationsState = retainActiveNavigationGroup({'Auto Reconciliation':true}
 assert.deepEqual(operationsState, {'Accounting Operations':true}, 'Operations replaces the prior panel.');
 
 const app = fs.readFileSync(new URL('./src/app.jsx', import.meta.url), 'utf8');
-assert.match(app, /const NAV_ITEM_GLYPHS = \{/, 'secondary navigation must map pages to the shared stroke-icon vocabulary.');
-assert.match(app, /<span className="nav-item-icon" aria-hidden="true"><Icon name=\{NAV_ITEM_GLYPHS\[k\] \|\| g\.glyph\} size=\{18\}\/><\/span>/, 'secondary navigation must render shared icons rather than letter tiles.');
-assert.doesNotMatch(app, /className="nav-badge"/, 'secondary navigation must not render coloured letter-square badges.');
+assert.match(app, /<span className="nav-badge" aria-hidden="true">\{l\.slice\(0,1\)\.toUpperCase\(\)\}<\/span>/, 'secondary navigation must retain the coloured letter-square badges.');
 assert.match(app, /const next=firstNavigationRoute\(g\); if\(!next\) return;[\s\S]*?setOpenGroups\(isSingleton\?\{\}:\{\[g\.group\]:true\}\); goto\(next,entry\);/, 'rail groups must enter their first visible route and replace the open panel.');
 assert.match(app, /railEntryRevision:\+\+railEntryRevision\.current/, 'a repeated rail click must remount the workspace rather than retaining child state.');
 assert.match(app, /\['cost','unitcost','unittransfer','loan','loanreg','pmpickup'\]/, 'WBS-only Operations routes must not become the initial REFS accounting destination.');
