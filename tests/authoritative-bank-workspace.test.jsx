@@ -55,5 +55,7 @@ assert.match(source,/refreshAuthoritativeReconciliationWorksheet/,'Reconciliatio
 assert.match(source,/setAuthoritativeReconciliationClearance/,'Clear and Unclear must use the authoritative command client');
 assert.match(source,/item\.match_status==='ACTIVE'/,'Only a server-returned active Match may expose Clear');
 assert.match(source,/row:item/,'Clearance command must receive the selected server worksheet row, not the reconciliation summary');
+assert.match(source,/const reasonReady=reason\.trim\(\)\.length>=8/,'Clearance commands must require a non-blank controller reason before they can be clicked');
+assert.match(source,/disabled=\{worksheet\.phase==='COMMANDING'\|\|!reasonReady\}/,'Clearance buttons must remain disabled until the controller reason is valid');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');
