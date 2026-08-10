@@ -185,7 +185,7 @@ const reconciliationWorksheetRow=(row,reconciliationId)=>{
   if(matchId!==null&&(!UNSIGNED_INTEGER.test(String(row.bank_match_version??''))||row.match_status!=='ACTIVE'||!UUID.test(row.business_source_document_id||'')||!UUID.test(row.journal_entry_id||'')||!UUID.test(row.journal_line_id||'')))return null;
   if(row.clearance_state==='NOT_CLEARED'&&itemId!==null)return null;
   if(row.clearance_state!=='NOT_CLEARED'&&(!itemId||!UNSIGNED_INTEGER.test(String(row.item_version??''))||!TEXT_TOKEN.test(row.cleared_by||'')||!validTimestamp(row.cleared_at)))return null;
-  return {reconciliation_id:reconciliationId,reconciliation_version:reconciliationVersion,bank_source_id:row.bank_source_id,bank_version:bankVersion,bank_account_ref:row.bank_account_ref,external_bank_line_id:row.external_bank_line_id,transaction_date:row.transaction_date,currency:row.currency,amount,bank_match_id:matchId,bank_match_version:matchId===null?null:Number(row.bank_match_version),match_status:row.match_status??null,business_source_document_id:row.business_source_document_id??null,journal_entry_id:row.journal_entry_id??null,journal_line_id:row.journal_line_id??null,clearance_state:row.clearance_state,reconciliation_item_id:itemId,item_version:itemId===null?null:Number(row.item_version),cleared_by:row.cleared_by??null,cleared_at:row.cleared_at??null,uncleared_by:row.uncleared_by??null,uncleared_at:row.uncleared_at??null};
+  return {reconciliation_id:reconciliationId,reconciliation_version:reconciliationVersion,bank_source_id:row.bank_source_id,bank_version:bankVersion,bank_account_ref:row.bank_account_ref,external_bank_line_id:row.external_bank_line_id,transaction_date:row.transaction_date,currency:row.currency,amount,amount_text:String(row.amount),bank_match_id:matchId,bank_match_version:matchId===null?null:Number(row.bank_match_version),match_status:row.match_status??null,business_source_document_id:row.business_source_document_id??null,journal_entry_id:row.journal_entry_id??null,journal_line_id:row.journal_line_id??null,clearance_state:row.clearance_state,reconciliation_item_id:itemId,item_version:itemId===null?null:Number(row.item_version),cleared_by:row.cleared_by??null,cleared_at:row.cleared_at??null,uncleared_by:row.uncleared_by??null,uncleared_at:row.uncleared_at??null};
 };
 
 export async function createAuthoritativeBankPaymentMatch({config,bankSourceId,bankRevision,candidate,reason,fetcher=globalThis.fetch}={}){
@@ -237,6 +237,42 @@ export async function setAuthoritativeReconciliationClearance({config,reconcilia
   if(!UUID.test(reconciliationId||'')||!Number.isSafeInteger(reconciliationRevision)||reconciliationRevision<0||!row||!UUID.test(row.bank_source_id||'')||!Number.isSafeInteger(row.bank_version)||row.bank_version<0||typeof clear!=='boolean'||!approvedReason||clear&&(row.match_status!=='ACTIVE'||!UUID.test(row.bank_match_id||'')))return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Clearance requires current reconciliation and bank revisions, an exact active match to clear, and a review reason.'};
   const idempotencyKey=`UI-RECONCILIATION-${clear?'CLEAR':'UNCLEAR'}-${reconciliationId}-${reconciliationRevision}-${row.bank_source_id}-${row.bank_version}`;
   return bankCommandResult({config,path:`/bank/reconciliations/${reconciliationId}/items/${row.bank_source_id}/clearance`,revision:reconciliationRevision,idempotencyKey,body:{clear,expectedBankRevision:row.bank_version,reason:approvedReason},fetcher,operation:'RECONCILIATION_CLEARANCE'});
+}
+
+const adjustmentLinesForBankRow=({row,cashAccountCode,offsetAccountCode,description})=>{
+  const amount=String(row?.amount_text??'');
+  const offset=String(offsetAccountCode??'').trim();
+  if(!row||!UUID.test(row.bank_source_id||'')||!BANK_ACCOUNT_REF.test(row.bank_account_ref||'')||!/^[A-Z]{3}$/.test(row.currency||'')||row.clearance_state!=='NOT_CLEARED'||row.match_status!==null||!MONEY4.test(amount)||amount==='0.0000'||!ACCOUNT_CODE.test(cashAccountCode||'')||!ACCOUNT_CODE.test(offset)||cashAccountCode===offset)return null;
+  const isCredit=amount.startsWith('-'),absolute=isCredit?amount.slice(1):amount;
+  const zero='0.0000',lineDescription=typeof description==='string'&&description.trim()?description.trim():null;
+  return [
+    {lineNo:1,accountCode:cashAccountCode,debitAmount:isCredit?zero:absolute,creditAmount:isCredit?absolute:zero,memberRef:row.bank_account_ref,description:lineDescription,dimensions:{}},
+    {lineNo:2,accountCode:offset,debitAmount:isCredit?absolute:zero,creditAmount:isCredit?zero:absolute,memberRef:null,description:lineDescription,dimensions:{}},
+  ];
+};
+
+const canonicalAttachmentIds=value=>{
+  if(!Array.isArray(value)||!value.length||value.some(id=>!UUID.test(id||'')))return null;
+  const ids=[...new Set(value)];
+  return ids.length===value.length?ids.sort():null;
+};
+
+export async function createAuthoritativeReconciliationAdjustmentDraft({config,reconciliationId,reconciliationRevision,row,journalNumber,journalDate,offsetAccountCode,description=null,attachmentIds,reason,fetcher=globalThis.fetch}={}){
+  const approvedReason=bankCommandReason(reason),number=String(journalNumber||'').trim(),date=String(journalDate||''),attachments=canonicalAttachmentIds(attachmentIds);
+  const normalizedDescription=description===null||description===undefined||String(description).trim()===''?null:String(description).trim();
+  const lines=adjustmentLinesForBankRow({row,cashAccountCode:config?.cashAccountCode,offsetAccountCode,description:normalizedDescription});
+  if(!config||!UUID.test(reconciliationId||'')||!Number.isSafeInteger(reconciliationRevision)||reconciliationRevision<0||!UUID.test(config.periodId||'')||!lines||!TEXT_TOKEN.test(number)||!validDate(date)||!attachments||!approvedReason)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Adjustment Draft requires one unresolved bank source, current statement revision, configured cash account, explicit offset account, clean attachment IDs, date, and controller reason.'};
+  const identity={reconciliationId,reconciliationRevision,bankSourceId:row.bank_source_id,periodId:config.periodId,journalNumber:number,journalDate:date,currency:row.currency,description:normalizedDescription,lines,attachmentIds:attachments,reason:approvedReason};
+  const idempotencyKey=await reconciliationCommandKey('ADJUSTMENT_DRAFT',identity);
+  if(!idempotencyKey)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'The browser could not create an adjustment Draft command identity.'};
+  return bankCommandResult({config,path:`/bank/reconciliations/${reconciliationId}/adjustment-drafts`,revision:reconciliationRevision,idempotencyKey,body:{bankSourceId:row.bank_source_id,periodId:config.periodId,journalNumber:number,journalDate:date,currency:row.currency,description:normalizedDescription,lines,attachmentIds:attachments,reason:approvedReason},fetcher,operation:'RECONCILIATION_ADJUSTMENT_DRAFT'});
+}
+
+export async function setAuthoritativeReconciliationAdjustmentClearance({config,reconciliationId,reconciliationRevision,row,clear,reason,fetcher=globalThis.fetch}={}){
+  const approvedReason=bankCommandReason(reason);
+  if(!UUID.test(reconciliationId||'')||!Number.isSafeInteger(reconciliationRevision)||reconciliationRevision<0||!row||!UUID.test(row.bank_source_id||'')||!Number.isSafeInteger(row.bank_version)||row.bank_version<0||typeof clear!=='boolean'||!approvedReason||clear&&(row.match_status!==null||row.clearance_state!=='NOT_CLEARED'))return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Adjustment clearance requires one currently unmatched statement item, current revisions, explicit state, and controller reason.'};
+  const idempotencyKey=`UI-RECONCILIATION-ADJUSTMENT-${clear?'CLEAR':'UNCLEAR'}-${reconciliationId}-${reconciliationRevision}-${row.bank_source_id}-${row.bank_version}`;
+  return bankCommandResult({config,path:`/bank/reconciliations/${reconciliationId}/adjustment-items/${row.bank_source_id}/clearance`,revision:reconciliationRevision,idempotencyKey,body:{clear,expectedBankRevision:row.bank_version,reason:approvedReason},fetcher,operation:'RECONCILIATION_ADJUSTMENT_CLEARANCE'});
 }
 
 export async function startAuthoritativeReconciliation({config,bankAccountRef,statementEndingDate,statementOpeningBalance,statementEndingBalance,reason,fetcher=globalThis.fetch}={}){

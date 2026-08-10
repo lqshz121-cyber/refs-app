@@ -60,5 +60,11 @@ assert.match(source,/row:item/,'Clearance command must receive the selected serv
 assert.match(source,/const reasonReady=reason\.trim\(\)\.length>=8/,'Clearance commands must require a non-blank controller reason before they can be clicked');
 assert.match(source,/disabled=\{commandInFlight\|\|!reasonReady\}/,'Clearance and lifecycle buttons must remain disabled until the controller reason is valid');
 assert.match(source,/Start DRAFT reconciliation/,'Starting a reconciliation must remain visibly Draft-only');
+assert.match(source,/createAuthoritativeReconciliationAdjustmentDraft/,'An adjustment Draft must use the authoritative reconciliation command client');
+assert.match(source,/setAuthoritativeReconciliationAdjustmentClearance/,'Adjustment clearance must use its separate posted-evidence command boundary');
+assert.match(source,/Prepare adjustment Draft/,'Only a selected server worksheet source may initiate an adjustment Draft');
+assert.match(source,/Clear Posted adjustment/,'The UI must not present an adjustment Draft as cleared before its separately verified posted-evidence command');
+assert.match(source,/configured cash account, exact four-decimal source amount/,'The UI must explain that it retains source amount and configured cash-account evidence instead of inferring a mapping');
+assert.match(source,/preserveDetail:true/,'A successful worksheet command must refresh the authoritative statement revision without losing the full-page detail context');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');
