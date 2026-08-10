@@ -1561,6 +1561,7 @@ select{padding-right:28px; cursor:pointer;}
 @media(max-width:1024px){
   /* Tablet: the rail goes off-canvas and gains a reachable open/close pair. */
   .sidebar{position:fixed; top:0; left:0; z-index:32; transform:translateX(-100%);
+    width:min(88vw,320px); flex-basis:min(88vw,320px);
     transition:transform var(--qb-dur-2) var(--qb-ease-out); box-shadow:var(--qb-shadow-strong);}
   .sidebar.mobile-open{transform:translateX(0);}
   .main{margin:6px;}
