@@ -1,0 +1,182 @@
+import {buildWbsAutoRecBankControlEvidence,buildWbsMcpReadonlySnapshot,buildWbsTraceRelationEvidence,mapWbsMcpEnvelopeToInbound,WbsMcpLineageError} from './wbs-mcp-inbound-lineage.mjs';
+import {validateWbsReadEnvelope} from './wbs-readonly-mcp.mjs';
+import {canonicalRequestHash} from './request-hash.mjs';
+import {createWbsManifestSignatureVerifier} from './wbs-snapshot-signature.mjs';
+
+const transactionTools=Object.freeze(['list_payables','list_bank_transactions','list_autorec_details']);
+const controlTraceTools=Object.freeze(['list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
+const traceKeyTypeBySourceType=Object.freeze({PAYABLE:'ap_guid',BANK_TRANSACTION:'bank_transaction_id',AUTOREC_PAYMENT_DETAIL:'pd_guid',AUTOREC_BANK_CONTROL:'pb_guid',WBS_JOURNAL_EVIDENCE:'id'});
+const stableSourceKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'bank_transaction_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
+const traceKeyTypes=new Set([...Object.values(traceKeyTypeBySourceType),'cb_id']);
+const text=value=>value==null?'':String(value).trim();
+const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+const immutableReceiptHash=value=>/^sha256:[0-9a-f]{64}$/.test(text(value));
+const isoInstant=value=>/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(text(value))&&!Number.isNaN(Date.parse(text(value)));
+const checkedProviderEnvelope=(envelope,toolName)=>{
+  const normalized=providerEnvelope(envelope);
+  try{return validateWbsReadEnvelope({toolName,envelope:normalized});}catch(cause){
+    if(cause?.code)fail(cause.code,cause.message);
+    fail('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} page is not a valid immutable read envelope.`);
+  }
+};
+// Every producer, control, and trace view is read as one immutable provider
+// snapshot.  A first page is never control evidence by itself: cursor pages
+// must share the same provider snapshot and are folded into a new canonical
+// receipt payload before any mapper sees them.
+async function readCompleteEnvelope({client,toolName,args,companyKey}){
+  let raw;try{raw=await client.readView({toolName,args:structuredClone(args)});}catch(cause){
+    if(cause instanceof WbsMcpLineageError)throw cause;
+    fail('WBS_MCP_READ_FAILED',`WBS ${toolName} read failed before any REFS persistence.`);
+  }
+  if(!raw||raw.tool_name!==toolName||text(raw.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS MCP response is outside the selected company scope.');
+  const first=checkedProviderEnvelope(raw,toolName);
+  if(first.cursor_next===null)return providerEnvelope(raw);
+  const snapshotToken=text(first.scope?.snapshot_token);
+  if(!snapshotToken)fail('WBS_MCP_PAGINATION_SNAPSHOT_TOKEN_REQUIRED',`WBS ${toolName} pagination needs one immutable snapshot_token echoed by every page.`);
+  const rows=[...first.rows],seenCursors=new Set();let cursor=first.cursor_next;
+  while(cursor!==null){
+    if(!text(cursor)||seenCursors.has(cursor)||seenCursors.size>=10000)fail('WBS_MCP_PAGINATION_INVALID',`WBS ${toolName} pagination cursor is empty, repeated, or exceeds the safe page limit.`);
+    seenCursors.add(cursor);
+    let pageRaw;try{pageRaw=await client.readView({toolName,args:{...structuredClone(args),cursor,snapshot_token:snapshotToken}});}catch{fail('WBS_MCP_READ_FAILED',`WBS ${toolName} cursor read failed before any REFS persistence.`);}
+    if(!pageRaw||pageRaw.tool_name!==toolName||text(pageRaw.scope?.company)!==text(companyKey))fail('WBS_MCP_RESPONSE_SCOPE_INVALID','WBS MCP cursor response is outside the selected company scope.');
+    const page=checkedProviderEnvelope(pageRaw,toolName);
+    if(text(page.scope?.snapshot_token)!==snapshotToken||page.captured_at!==first.captured_at||page.contract_version!==first.contract_version||page.environment!==first.environment||canonicalRequestHash(page.source)!==canonicalRequestHash(first.source))fail('WBS_MCP_PAGINATION_SNAPSHOT_MISMATCH',`WBS ${toolName} cursor pages must retain the same snapshot token, capture instant, provider contract, environment, and source.`);
+    rows.push(...page.rows);cursor=page.cursor_next;
+  }
+  const stableKey=stableSourceKeyByTool[toolName];
+  if(stableKey&&!rows.every((row,index)=>index===0||rows[index-1][stableKey]<row[stableKey]))fail('WBS_MCP_PAGINATION_ROWS_INVALID',`WBS ${toolName} cursor pages must form one strictly ascending, non-duplicated stable-key population.`);
+  return {tool:toolName,contract_version:first.contract_version,environment:first.environment,captured_at:first.captured_at,source:structuredClone(first.source),scope:structuredClone(first.scope),record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:first.etl_notice,rows};
+}
+
+export class WbsMcpInboundServiceError extends Error {
+  constructor(code,message){super(message);this.name='WbsMcpInboundServiceError';this.code=code;}
+}
+const fail=(code,message)=>{throw new WbsMcpInboundServiceError(code,message);};
+const providerEnvelope=envelope=>({tool:envelope.tool_name,contract_version:envelope.contract_version,environment:envelope.environment,captured_at:envelope.captured_at,source:structuredClone(envelope.source),scope:structuredClone(envelope.scope),record_count:envelope.record_count,content_sha256:envelope.content_sha256,cursor_next:envelope.cursor_next,etl_notice:envelope.etl_notice,rows:structuredClone(envelope.rows)});
+
+// The provider signs this canonical envelope context—not relation rows alone—
+// so a valid same-company response cannot be replayed for another lookup.
+export function buildWbsTraceReceiptManifest({envelope,traceReceipt}={}){
+  const toolName=envelope?.tool_name??envelope?.tool;
+  if(!envelope||toolName!=='trace_by_key'||!traceReceipt||typeof traceReceipt!=='object'||!text(traceReceipt.ref)||!text(traceReceipt.version)||!isoInstant(traceReceipt.issued_at)||!traceReceipt.detached_signature||typeof traceReceipt.detached_signature!=='object')return null;
+  return canonicalRequestHash({tool_name:toolName,scope:structuredClone(envelope.scope),captured_at:envelope.captured_at,content_hash:`sha256:${envelope.content_sha256}`,receipt_ref:text(traceReceipt.ref),receipt_version:text(traceReceipt.version),issued_at:text(traceReceipt.issued_at)});
+}
+
+// The provider relation result is not allowed to mutate a WBS source record.
+// It becomes a separate, idempotent REFS persistence request tied to the exact
+// already-persisted WBS receipt/version.  A later kernel implementation may
+// persist this request, but cannot reinterpret it as matching or posting
+// authority.
+export function buildWbsTraceRelationPersistencePlan({lookup,traceReceipt,evidence}={}){
+  const requiredLookup=['tenant_id','entity_id','company_key','source_type','source_record_id','source_version','receipt_hash','wbs_key_type'];
+  if(!lookup||requiredLookup.some(key=>!text(lookup[key]))||!immutableReceiptHash(lookup.receipt_hash))throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_PERSISTENCE_SCOPE_REQUIRED','Trace relation persistence requires the exact persisted WBS source identity and receipt hash.');
+  if(!traceReceipt||!text(traceReceipt.ref)||!text(traceReceipt.version)||!isoInstant(traceReceipt.issued_at)||!immutableReceiptHash(traceReceipt.manifest_hash)||!immutableReceiptHash(traceReceipt.content_hash)||!text(traceReceipt.key_id)||text(traceReceipt.algorithm)!=='Ed25519')throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_PERSISTENCE_RECEIPT_REQUIRED','Trace relation persistence requires a verified immutable Ed25519 trace receipt and content hash.');
+  if(!evidence||!['RELATION_EVIDENCE_READY','NO_RELATION_OBSERVED'].includes(text(evidence.status))||text(evidence.lookup?.key_type)!==text(lookup.wbs_key_type)||text(evidence.lookup?.key_value)!==text(lookup.source_record_id)||!immutableReceiptHash(evidence.receipt_hash)||!Array.isArray(evidence.relations))throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_PERSISTENCE_EVIDENCE_REQUIRED','Trace relation persistence requires evidence bound to the exact immutable source lookup.');
+  if(text(traceReceipt.content_hash)!==text(evidence.receipt_hash))throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_PERSISTENCE_RECEIPT_MISMATCH','Trace receipt content hash must exactly bind the retained relation evidence.');
+  if(evidence.relations.some(relation=>!relation||!text(relation.relation_id)||!text(relation.relation_type)||!text(relation.observed_version)||text(relation.source?.key_type)!==text(lookup.wbs_key_type)||text(relation.source?.key_value)!==text(lookup.source_record_id)||!traceKeyTypes.has(text(relation.related?.key_type))||!text(relation.related?.key_value)||relation.can_use_as_source_key!==false||relation.can_match!==false||relation.can_transition!==false||relation.can_post!==false))throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_PERSISTENCE_EVIDENCE_INVALID','Every trace relation must retain the exact source lookup and no transaction authority.');
+  const source=Object.freeze(Object.fromEntries(requiredLookup.map(key=>[key,text(lookup[key])])));
+  const receipt=Object.freeze({ref:text(traceReceipt.ref),version:text(traceReceipt.version),issued_at:text(traceReceipt.issued_at),manifest_hash:text(traceReceipt.manifest_hash),key_id:text(traceReceipt.key_id),algorithm:text(traceReceipt.algorithm),content_hash:text(evidence.receipt_hash)});
+  const relations=Object.freeze(evidence.relations.map(relation=>Object.freeze(structuredClone(relation))));
+  const bindingHash=canonicalRequestHash({source,receipt,relations});
+  return Object.freeze({request_type:'WBS_TRACE_RELATION_PERSISTENCE_PLAN_V1',status:'BLOCKED_ON_RELATION_EVIDENCE_PERSISTENCE',idempotency_key:bindingHash,binding_hash:bindingHash,source,trace_receipt:receipt,relations,relation_count:relations.length,can_write_wbs:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_post:false,required_kernel_capability:'persistWbsTraceRelationEvidence'});
+}
+
+const persistenceSucceeded=value=>value!==null&&value!==undefined&&value.ok!==false&&value.status!=='FAILED';
+export function createWbsTraceRelationOrchestrator({kernel}={}){
+  const replay=new Map();
+  return Object.freeze({
+    mode:'WBS_TRACE_RELATION_ORCHESTRATOR_V1',read_only_wbs:true,
+    async persist({relationPersistencePlan}={}){
+      const plan=relationPersistencePlan;
+      if(!plan||text(plan.request_type)!=='WBS_TRACE_RELATION_PERSISTENCE_PLAN_V1'||text(plan.status)!=='BLOCKED_ON_RELATION_EVIDENCE_PERSISTENCE')fail('WBS_MCP_TRACE_PERSISTENCE_PLAN_REQUIRED','One immutable WBS trace relation persistence plan is required.');
+      const fingerprint=canonicalRequestHash({source:plan.source,receipt:plan.trace_receipt,relations:plan.relations});
+      if(text(plan.binding_hash)!==fingerprint||text(plan.idempotency_key)!==fingerprint||text(plan.required_kernel_capability)!=='persistWbsTraceRelationEvidence')fail('WBS_MCP_TRACE_PERSISTENCE_PLAN_INVALID','Trace relation persistence plan has an invalid immutable binding.');
+      if(!kernel||typeof kernel.persistWbsTraceRelationEvidence!=='function')fail('WBS_MCP_TRACE_PERSISTENCE_CAPABILITY_UNAVAILABLE','Kernel must provide persistWbsTraceRelationEvidence before WBS relation evidence can be persisted.');
+      const prior=replay.get(fingerprint);if(prior)return prior;
+      const promise=(async()=>{
+        let receipt;try{receipt=await kernel.persistWbsTraceRelationEvidence(Object.freeze({tenantId:plan.source.tenant_id,entityId:plan.source.entity_id,idempotencyKey:fingerprint,bindingHash:fingerprint,source:plan.source,traceReceipt:plan.trace_receipt,relations:plan.relations}));}catch{fail('WBS_MCP_TRACE_PERSISTENCE_FAILED','WBS trace relation evidence persistence failed.');}
+        if(!persistenceSucceeded(receipt))fail('WBS_MCP_TRACE_PERSISTENCE_FAILED','WBS trace relation evidence persistence did not succeed.');
+        return Object.freeze({status:'WBS_MCP_TRACE_RELATION_PERSISTED',binding_hash:fingerprint,persistence_receipt:receipt,can_write_wbs:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_post:false});
+      })();
+      replay.set(fingerprint,promise);return promise;
+    }
+  });
+}
+
+// This service has exactly one outward capability: read through the injected
+// read-only MCP client. It has no repository, Draft, allocation, or posting
+// dependency, so a pull cannot mutate WBS or the REFS accounting ledger.
+export function createWbsMcpInboundService({client,persistedSourceReader=null,traceReceiptVerifier=null}={}){
+  if(!client||typeof client.readView!=='function')throw new WbsMcpInboundServiceError('WBS_MCP_CLIENT_REQUIRED','A configured read-only WBS MCP client is required.');
+  return Object.freeze({
+    read_only:true,
+    tools:transactionTools,
+    control_trace_tools:controlTraceTools,
+    async pullTransactionSnapshot({companyKey,argsByTool,snapshotId,dictionaryVersion,environment='SANDBOX',delivery=null,detachedSignature=null,bankDirectionConventions=null,payableDirectionConventions=null,autoRecDetailDirectionConventions=null,autoRecDetailCaseBindings=null}={}){
+      if(!text(companyKey)||!plain(argsByTool))fail('WBS_MCP_SELECTION_REQUIRED','Company scope and structured MCP arguments are required.');
+      if(Object.keys(argsByTool).some(key=>!transactionTools.includes(key))||transactionTools.some(tool=>!plain(argsByTool[tool])))fail('WBS_MCP_SELECTION_REQUIRED','Each transaction producer needs structured arguments and no other MCP tool may be called.');
+      const envelopes=[];
+      for(const toolName of transactionTools){
+        const envelope=await readCompleteEnvelope({client,toolName,args:argsByTool[toolName],companyKey});
+        // The helper returns a validated provider-shaped envelope; snapshot
+        // construction validates it again before producing any ingress data.
+        envelopes.push(envelope);
+      }
+      try{
+        const snapshot=buildWbsMcpReadonlySnapshot({envelopes,snapshotId,dictionaryVersion,environment,delivery,detachedSignature,bankDirectionConventions,payableDirectionConventions,autoRecDetailDirectionConventions,autoRecDetailCaseBindings});
+        return Object.freeze({status:'WBS_MCP_SNAPSHOT_READY_FOR_RECEIPT_VERIFICATION',snapshot,can_persist:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['verify detached signature','persist immutable snapshot receipt','persist Raw/Normalized/Staging through REFS kernel','human staging review'])});
+      }catch(cause){
+        if(cause instanceof WbsMcpLineageError)throw cause;
+        throw new WbsMcpInboundServiceError('WBS_MCP_SNAPSHOT_BUILD_FAILED','WBS MCP responses could not form one safe REFS inbound snapshot.');
+      }
+    },
+    async pullControlOrTraceEvidence({companyKey,toolName,args}={}){
+      if(!text(companyKey)||!controlTraceTools.includes(toolName)||!plain(args))fail('WBS_MCP_CONTROL_SELECTION_REQUIRED','Company scope, one allowed control/trace tool, and structured arguments are required.');
+      let envelope;try{envelope=await readCompleteEnvelope({client,toolName,args,companyKey});}catch(cause){if(cause instanceof WbsMcpInboundServiceError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_CONTROL_READ_FAILED',`WBS ${toolName} control/trace read failed before any REFS persistence.`);}
+      let evidence;try{evidence=mapWbsMcpEnvelopeToInbound({envelope});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_CONTROL_MAPPING_FAILED','WBS control/trace response could not be mapped as read-only evidence.');}
+      return Object.freeze({status:'WBS_MCP_CONTROL_EVIDENCE_READY',tool_name:toolName,evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['persist immutable receipt-backed control evidence','approved scoped control mapping where reconciliation is required','authoritative REFS trace read'])});
+    },
+    async pullAutoRecBankControlEvidence({companyKey,args,control}={}){
+      if(!text(companyKey)||!plain(args)||!plain(control))fail('WBS_MCP_CONTROL_SELECTION_REQUIRED','AutoRec Bank controls require company scope, structured read arguments, and provider control attestation.');
+      let envelope;try{envelope=await readCompleteEnvelope({client,toolName:'list_autorec_banks',args,companyKey});}catch(cause){if(cause instanceof WbsMcpInboundServiceError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_CONTROL_READ_FAILED','WBS AutoRec Bank control read failed before any REFS persistence.');}
+      let evidence;try{evidence=buildWbsAutoRecBankControlEvidence({envelope,control:structuredClone(control)});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_CONTROL_MAPPING_FAILED','WBS AutoRec Bank response could not form receipt-bound control evidence.');}
+      return Object.freeze({status:'WBS_MCP_AUTOREC_BANK_CONTROL_READY',tool_name:'list_autorec_banks',evidence,can_persist:false,can_create_transaction:false,can_allocate:false,can_release:false,can_incur:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['persist immutable receipt-backed control evidence','approved scoped control mapping where reconciliation is required','authoritative REFS trace read'])});
+    },
+    // A reverse trace lookup is intentionally keyed only by a persisted WBS
+    // immutable source identifier. Display values such as Ref No., memo, cb_id
+    // relation fields, and pd_pv_guid must never be promoted into lookup keys.
+    async pullTraceByPersistedSource({tenantId,entityId,companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,traceReceipt}={}){
+      const keyType=traceKeyTypeBySourceType[text(sourceType)];
+      if(!text(tenantId)||!text(entityId)||!text(companyKey)||!keyType||!text(sourceRecordId)||!text(sourceVersion)||!immutableReceiptHash(receiptHash))fail('WBS_MCP_TRACE_SELECTION_REQUIRED','Reverse trace requires tenant, entity, company scope, supported source type, immutable source key/version, and receipt hash.');
+      if(!persistedSourceReader||persistedSourceReader.readOnly!==true||typeof persistedSourceReader.getPersistedSource!=='function')fail('WBS_MCP_PERSISTED_SOURCE_READER_REQUIRED','Reverse trace requires a read-only REFS persisted-source reader.');
+      let persisted;try{persisted=await persistedSourceReader.getPersistedSource({tenant_id:text(tenantId),entity_id:text(entityId),company_key:text(companyKey),source_type:text(sourceType),source_record_id:text(sourceRecordId),source_version:text(sourceVersion),receipt_hash:text(receiptHash)});}catch{fail('WBS_MCP_PERSISTED_SOURCE_READ_FAILED','Persisted REFS source could not be read before WBS reverse trace lookup.');}
+      const exact=persisted&&text(persisted.tenant_id)===text(tenantId)&&text(persisted.entity_id)===text(entityId)&&text(persisted.company_key)===text(companyKey)&&text(persisted.source_type)===text(sourceType)&&text(persisted.source_record_id)===text(sourceRecordId)&&text(persisted.source_version)===text(sourceVersion)&&text(persisted.receipt_hash)===text(receiptHash);
+      if(!exact)fail('WBS_MCP_PERSISTED_SOURCE_MISMATCH','Reverse trace source identity must exactly match a persisted REFS receipt-backed source.');
+      let envelope;try{envelope=await readCompleteEnvelope({client,toolName:'trace_by_key',args:{key_type:keyType,key_value:text(sourceRecordId)},companyKey});}catch(cause){if(cause instanceof WbsMcpInboundServiceError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_READ_FAILED','WBS reverse trace read failed before any REFS persistence.');}
+      // A company-scoped trace page alone is not proof that its relations
+      // belong to this exact persisted source.  The provider must echo the
+      // immutable lookup pair in its signed/read-only envelope scope.
+      if(text(envelope.scope?.trace_key_type)!==keyType||text(envelope.scope?.trace_key_value)!==text(sourceRecordId))fail('WBS_MCP_TRACE_RESPONSE_KEY_MISMATCH','WBS trace response must echo the exact immutable lookup key before relation evidence can be retained.');
+      const manifestHash=buildWbsTraceReceiptManifest({envelope,traceReceipt});
+      if(!manifestHash||text(traceReceipt.manifest_hash)!==manifestHash)fail('WBS_MCP_TRACE_RECEIPT_REQUIRED','WBS trace evidence requires an immutable receipt bound to the complete response context.');
+      if(typeof traceReceiptVerifier!=='function')fail('WBS_MCP_TRACE_VERIFIER_REQUIRED','WBS trace evidence requires a configured detached-signature verifier.');
+      let verified=false;try{verified=await traceReceiptVerifier({manifest_hash:manifestHash,detached_signature:structuredClone(traceReceipt.detached_signature)});}catch{verified=false;}
+      if(verified!==true)fail('WBS_MCP_TRACE_SIGNATURE_INVALID','WBS trace receipt signature verification failed before relation evidence could be retained.');
+      let evidence;try{evidence=buildWbsTraceRelationEvidence({envelope,lookup:{key_type:keyType,key_value:text(sourceRecordId)}});}catch(cause){if(cause instanceof WbsMcpLineageError)throw cause;throw new WbsMcpInboundServiceError('WBS_MCP_TRACE_MAPPING_FAILED','WBS reverse trace response could not be mapped as read-only relation evidence.');}
+      const lookup=freezeLookup({tenantId,entityId,companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,keyType});
+      const receipt=Object.freeze({ref:text(traceReceipt.ref),version:text(traceReceipt.version),issued_at:text(traceReceipt.issued_at),manifest_hash:manifestHash,content_hash:text(evidence.receipt_hash),key_id:text(traceReceipt.detached_signature.key_id),algorithm:text(traceReceipt.detached_signature.algorithm)});
+      const relation_persistence_plan=buildWbsTraceRelationPersistencePlan({lookup,traceReceipt:receipt,evidence});
+      return Object.freeze({status:'WBS_MCP_REVERSE_TRACE_EVIDENCE_READY',lookup,trace_receipt:receipt,evidence,relation_persistence_plan,can_persist:false,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false,required_next_controls:Object.freeze(['persist returned relation evidence through the exact receipt/source-version binding','read authoritative REFS trace','human review where a relationship affects accounting'])});
+    }
+  });
+}
+
+// Trusted application composition can reuse the pinned WBS keyring without
+// handing a caller an ad-hoc verifier choice for reverse trace evidence.
+export function createWbsMcpInboundServiceWithKeyring({client,persistedSourceReader=null,wbsPublicKeys}={}){
+  return createWbsMcpInboundService({client,persistedSourceReader,traceReceiptVerifier:createWbsManifestSignatureVerifier({publicKeys:wbsPublicKeys})});
+}
+
+function freezeLookup({tenantId,entityId,companyKey,sourceType,sourceRecordId,sourceVersion,receiptHash,keyType}){
+  return Object.freeze({tenant_id:text(tenantId),entity_id:text(entityId),company_key:text(companyKey),source_type:text(sourceType),source_record_id:text(sourceRecordId),source_version:text(sourceVersion),receipt_hash:text(receiptHash),wbs_key_type:keyType,can_use_relation_as_key:false,can_use_relation_as_posting_authority:false});
+}

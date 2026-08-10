@@ -1,0 +1,218 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {buildWbsAutoReconciliationReviewPlan,buildReceiptBoundWbsAutoReconciliationReviewPlan} from '../runtime/wbs-inbound-data-adapter.mjs';
+import {projectObservedWbsAutoRecControlEvidence} from '../runtime/wbs-inbound-autorec-projection.mjs';
+
+const hash='sha256:'+'a'.repeat(64);
+const staged=({id,amount=100,direction,company='COMPANY-A',currency='USD',account='BANK-1',date='2026-08-09',type})=>({receipt_id:`receipt-${id}`,receipt_ref:`object://receipt/${id}`,receipt_hash:hash,raw_event_id:`raw-${id}`,source_document_id:`doc-${id}`,staging_item_id:`staging-${id}`,source_record_id:id,source_version:'v1',company_key:company,currency,amount,business_date:date,accounting_date:date,bank_account_ref:account,direction,review_event_id:`review-${id}`,stage:'STAGING_REVIEWED',source_type:type});
+const bank=(id,amount,date)=>staged({id,amount,direction:'CREDIT',date,type:'BANK_TRANSACTION'});
+const payable=(id,amount,date,options={})=>staged({id,amount,direction:'DEBIT',date,type:'PAYABLE',...options});
+const run=(banks,businesses,options)=>buildWbsAutoReconciliationReviewPlan({bankRows:banks,businessRows:businesses,...options});
+const policy={policy_id:'policy-bank-1',version:'1',mapping_id:'matching-policy-map',mapping_version:'4',policy_snapshot_hash:'sha256:'+'b'.repeat(64),effective_from:'2026-01-01T00:00:00.000Z',effective_to:null,rule_id:'amount-date-rule',rule_version:'2',bank_mapping_id:'bank-map',bank_mapping_version:'3',bank_mapping_snapshot_hash:'sha256:'+'c'.repeat(64),business_mapping_id:'payable-map',business_mapping_version:'5',business_mapping_snapshot_hash:'sha256:'+'d'.repeat(64),status:'APPROVED',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',amount_tolerance:'0.0100',date_window_days:2,date_match_basis:'BUSINESS_AND_ACCOUNTING',receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash};
+const goldenArtifact=JSON.parse(readFileSync(new URL('../contracts/wbs-autorec-golden-scenarios-v1.json',import.meta.url),'utf8'));
+const acceptanceMatrix=readFileSync(new URL('../WBS-AUTOREC-EQUIVALENCE-ACCEPTANCE-MATRIX.md',import.meta.url),'utf8');
+
+test('provider-backed review plan uses one approved receipt-bound matching policy, never caller matching parameters',()=>{
+  const matchedBank={...bank('b-rule',100,'2026-08-09'),mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const matchedPayable={...payable('p-rule',100.005,'2026-08-11'),mapping:{mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null}};
+  const plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[matchedBank],businessRows:[matchedPayable],matchingPolicy:policy,tolerance:999,dateWindowDays:999});
+  assert.equal(plan.status,'REVIEW_REQUIRED');
+  assert.equal(plan.control_totals.tolerance,0.01);
+  assert.equal(plan.trace.length,1);
+  assert.match(plan.allocation_plan[0].allocation_edge_id,/^sha256:[0-9a-f]{64}$/);
+  assert.equal(plan.trace[0].allocation_edge_id,plan.allocation_plan[0].allocation_edge_id);
+  assert.match(plan.allocation_plan[0].proposal_allocation_edge_id,/^sha256:[0-9a-f]{64}$/);
+  assert.notEqual(plan.allocation_plan[0].allocation_edge_id,plan.allocation_plan[0].proposal_allocation_edge_id);
+  assert.equal(plan.allocation_plan[0].matching_policy.rule_version,'2');
+  assert.deepEqual({dateMatchBasis:plan.trace[0].date_match_basis,bankType:plan.trace[0].bank_source_type,businessType:plan.trace[0].business_source_type},{dateMatchBasis:'BUSINESS_AND_ACCOUNTING',bankType:'BANK_TRANSACTION',businessType:'PAYABLE'});
+  assert.deepEqual(plan.matching_policy,{policy_id:'policy-bank-1',version:'1',status:'APPROVED',mapping_id:'matching-policy-map',mapping_version:'4',policy_snapshot_hash:policy.policy_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null,rule_id:'amount-date-rule',rule_version:'2',bank_mapping_id:'bank-map',bank_mapping_version:'3',bank_mapping_snapshot_hash:policy.bank_mapping_snapshot_hash,bank_mapping_effective_from:'2026-01-01T00:00:00.000Z',bank_mapping_effective_to:null,business_mapping_id:'payable-map',business_mapping_version:'5',business_mapping_snapshot_hash:policy.business_mapping_snapshot_hash,business_mapping_effective_from:'2026-01-01T00:00:00.000Z',business_mapping_effective_to:null,date_match_basis:'BUSINESS_AND_ACCOUNTING',receipt_id:'policy-receipt-1',receipt_ref:'object://receipt/policy-1',receipt_hash:hash});
+  assert.equal(plan.controls.matching_policy_required,true);
+  const missing=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bank('b-missing',100)],businessRows:[payable('p-missing',100)]});
+  const crossScope=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[{...bank('b-cross',100),mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash}],businessRows:[{...payable('p-cross',100),mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash}],matchingPolicy:{...policy,currency:'CAD'}});
+  const mappingMismatch=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[{...bank('b-map',100),mapping_id:'wrong',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash}],businessRows:[{...payable('p-map',100),mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash}],matchingPolicy:policy});
+  assert.equal(missing.status,'BLOCKED');assert.equal(crossScope.status,'BLOCKED');
+  assert.equal(missing.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_REQUIRED');
+  assert.equal(crossScope.allocation_plan.length,0);
+  assert.equal(mappingMismatch.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_MISMATCH');
+  const snapshotMismatch=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[{...matchedBank,snapshot_hash:'sha256:'+'e'.repeat(64)}],businessRows:[matchedPayable],matchingPolicy:policy});
+  assert.equal(snapshotMismatch.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_MISMATCH');
+  const expired=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[{...matchedBank,effective_to:'2026-08-01T00:00:00.000Z'}],businessRows:[matchedPayable],matchingPolicy:policy});
+  assert.equal(expired.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_NOT_EFFECTIVE');
+  const inconsistentWindow=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[matchedBank,{...matchedBank,source_record_id:'b-window-2',source_document_id:'doc-b-window-2',staging_item_id:'staging-b-window-2',raw_event_id:'raw-b-window-2',receipt_id:'receipt-b-window-2',receipt_ref:'object://receipt/b-window-2',review_event_id:'review-b-window-2',effective_to:'2026-12-31T00:00:00.000Z'}],businessRows:[matchedPayable],matchingPolicy:policy});
+  assert.equal(inconsistentWindow.status,'BLOCKED');
+  assert.equal(inconsistentWindow.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_MAPPING_WINDOW_MISMATCH');
+  const revisedRule=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[matchedBank],businessRows:[matchedPayable],matchingPolicy:{...policy,rule_version:'3'}});
+  assert.notEqual(revisedRule.allocation_plan[0].allocation_edge_id,plan.allocation_plan[0].allocation_edge_id);
+  assert.equal(revisedRule.allocation_plan[0].proposal_allocation_edge_id,plan.allocation_plan[0].proposal_allocation_edge_id);
+});
+
+test('provider-backed matching policy declares the WBS date basis instead of assuming Posting Date matches a bank date',()=>{
+  const bankRow={...bank('b-date-basis',100,'2026-08-09'),accounting_date:'2026-08-01',mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const payableRow={...payable('p-date-basis',100,'2026-08-10'),accounting_date:'2026-08-20',mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const businessOnly=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bankRow],businessRows:[payableRow],matchingPolicy:{...policy,date_match_basis:'BUSINESS_ONLY'}});
+  const accountingOnly=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bankRow],businessRows:[payableRow],matchingPolicy:{...policy,date_match_basis:'ACCOUNTING_ONLY'}});
+  const omitted=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bankRow],businessRows:[payableRow],matchingPolicy:{...policy,date_match_basis:''}});
+  assert.equal(businessOnly.status,'REVIEW_REQUIRED');
+  assert.equal(businessOnly.control_totals.date_match_basis,'BUSINESS_ONLY');
+  assert.equal(accountingOnly.status,'BLOCKED');
+  assert.equal(accountingOnly.exceptions[0].code,'WBS_AUTOREC_PLAN_DATE_WINDOW_MISMATCH');
+  assert.equal(omitted.status,'BLOCKED');
+  assert.equal(omitted.exceptions[0].code,'WBS_AUTOREC_MATCHING_POLICY_REQUIRED');
+});
+
+test('date windows constrain each allocation edge and leave unmatched same-total rows partial',()=>{
+  const bankEarly={...bank('b-early',50,'2026-08-01'),mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const bankLate={...bank('b-late',50,'2026-08-10'),mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const payableEarly={...payable('p-early',50,'2026-08-01'),mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const payableOutside={...payable('p-outside',50,'2026-08-20'),mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({bankRows:[bankEarly,bankLate],businessRows:[payableEarly,payableOutside],matchingPolicy:{...policy,date_window_days:1}});
+  assert.equal(plan.status,'PARTIAL_REVIEW_REQUIRED');
+  assert.deepEqual({edges:plan.allocation_plan.length,allocated:plan.control_totals.allocated_total,bankUnallocated:plan.control_totals.bank_unallocated,businessUnallocated:plan.control_totals.business_unallocated,amountsBalanced:plan.control_totals.amounts_balanced,fullyAllocated:plan.control_totals.fully_allocated},{edges:1,allocated:50,bankUnallocated:50,businessUnallocated:50,amountsBalanced:true,fullyAllocated:false});
+});
+
+test('date-compatible allocation maximizes matched capacity instead of taking the first compatible edge',()=>{
+  // b-flex can match p-required or p-flex; b-required can only match
+  // p-required. A greedy b-flex→p-required choice would strand b-required.
+  const plan=run([
+    bank('b-flex',50,'2026-08-02'),
+    bank('b-required',50,'2026-08-01')
+  ],[
+    payable('p-required',50,'2026-08-01'),
+    payable('p-flex',50,'2026-08-03')
+  ],{dateWindowDays:1});
+  assert.equal(plan.status,'REVIEW_REQUIRED');
+  assert.deepEqual({allocated:plan.control_totals.allocated_total,bankUnallocated:plan.control_totals.bank_unallocated,businessUnallocated:plan.control_totals.business_unallocated,fullyAllocated:plan.control_totals.fully_allocated},{allocated:100,bankUnallocated:0,businessUnallocated:0,fullyAllocated:true});
+  assert.deepEqual(plan.allocation_plan.map(edge=>[edge.bank_source_record_id,edge.business_source_record_id]).sort(),[['b-flex','p-flex'],['b-required','p-required']]);
+});
+
+test('receipt-bound policy matching retains maximum date-compatible allocation without caller widening',()=>{
+  const bankMapping={mapping_id:'bank-map',mapping_version:'3',snapshot_hash:policy.bank_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const businessMapping={mapping_id:'payable-map',mapping_version:'5',snapshot_hash:policy.business_mapping_snapshot_hash,effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
+  const plan=buildReceiptBoundWbsAutoReconciliationReviewPlan({
+    bankRows:[{...bank('b-policy-flex',50,'2026-08-02'),...bankMapping},{...bank('b-policy-required',50,'2026-08-01'),...bankMapping}],
+    businessRows:[{...payable('p-policy-required',50,'2026-08-01'),mapping:businessMapping},{...payable('p-policy-flex',50,'2026-08-03'),mapping:businessMapping}],
+    matchingPolicy:{...policy,date_window_days:1}
+  });
+  assert.equal(plan.status,'REVIEW_REQUIRED');
+  assert.deepEqual({allocated:plan.control_totals.allocated_total,fullyAllocated:plan.control_totals.fully_allocated,policy:plan.matching_policy.rule_id},{allocated:100,fullyAllocated:true,policy:'amount-date-rule'});
+  assert.deepEqual(plan.allocation_plan.map(edge=>[edge.bank_source_record_id,edge.business_source_record_id]).sort(),[['b-policy-flex','p-policy-flex'],['b-policy-required','p-policy-required']]);
+  assert(plan.allocation_plan.every(edge=>edge.matching_policy.policy_snapshot_hash===policy.policy_snapshot_hash));
+});
+
+test('receipt-backed Company Screening controls remain in a review plan and reject a mixed snapshot',()=>{
+  const control={control_snapshot_hash:'sha256:'+'e'.repeat(64),receipt_id:'control-receipt',receipt_ref:'object://receipt/control',receipt_hash:'sha256:'+'f'.repeat(64),source_record_id:'company-control',source_version:'v1',company_key:'COMPANY-A',completed_periods:{match:'2026-06',release:'2026-06',incur:'2025-03'},quantity:10,released_quantity:8,incurred_quantity:6,amount:'100.0000',released_amount:'80.0000',incurred_amount:'60.0000',reconciliation_balance:'20.0000',new_balance:'40.0000',balance_date:'2026-08-09',can_match:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false};
+  const plan=run([{...bank('bank-control',100),company_control_trace:control}],[{...payable('payable-control',100),company_control_trace:control}]);
+  assert.equal(plan.status,'REVIEW_REQUIRED');assert.equal(plan.company_control_trace.control_snapshot_hash,control.control_snapshot_hash);assert.equal(plan.trace[0].company_control_snapshot_hash,control.control_snapshot_hash);
+  const changed=run([{...bank('bank-control',100),company_control_trace:control}],[{...payable('payable-control',100),company_control_trace:{...control,control_snapshot_hash:'sha256:'+'0'.repeat(64)}}]);
+  assert.equal(changed.status,'BLOCKED');assert.equal(changed.exceptions[0].code,'WBS_AUTOREC_CONTROL_TRACE_MISMATCH');
+  const wrongMonth=run([{...bank('bank-control-month',100),company_control_trace:control}],[{...payable('payable-control-month',100,'2026-09-01'),company_control_trace:control}]);
+  assert.equal(wrongMonth.status,'BLOCKED');assert.equal(wrongMonth.exceptions[0].code,'WBS_AUTOREC_CONTROL_TRACE_MISMATCH');
+});
+
+test('review allocation edges are replay-stable when business source types share a record-shaped ID',()=>{
+  const payableRow=payable('shared-id',40);
+  const detailRow={...payable('shared-id',60),source_type:'AUTOREC_PAYMENT_DETAIL',receipt_id:'receipt-detail-shared',receipt_ref:'object://receipt/detail-shared',raw_event_id:'raw-detail-shared',source_document_id:'doc-detail-shared',staging_item_id:'staging-detail-shared',review_event_id:'review-detail-shared'};
+  const first=run([bank('bank-stable',100)],[payableRow,detailRow]);
+  const replay=run([bank('bank-stable',100)],[detailRow,payableRow]);
+  assert.equal(first.status,'REVIEW_REQUIRED');
+  assert.equal(replay.review_plan_id,first.review_plan_id);
+  assert.deepEqual(replay.allocation_plan,first.allocation_plan);
+  assert.deepEqual(replay.trace,first.trace);
+  assert.equal(new Set(first.allocation_plan.map(edge=>edge.allocation_edge_id)).size,2);
+});
+
+test('twelve sanitized golden scenarios express WBS→AutoRec controls without granting allocation or posting authority',()=>{
+  const cases=[
+    ['exact_one_to_one',run([bank('b1',100)],[payable('p1',100)]),plan=>plan.status==='REVIEW_REQUIRED'&&plan.allocation_plan.length===1&&plan.control_totals.allocated_total===100],
+    ['one_bank_to_two_payables',run([bank('b1',100)],[payable('p1',40),payable('p2',60)]),plan=>plan.status==='REVIEW_REQUIRED'&&plan.allocation_plan.length===2],
+    ['two_banks_to_one_payable',run([bank('b1',40),bank('b2',60)],[payable('p1',100)]),plan=>plan.status==='REVIEW_REQUIRED'&&plan.allocation_plan.length===2],
+    ['partial_match_requires_review',run([bank('b1',150)],[payable('p1',100)]),plan=>plan.status==='PARTIAL_REVIEW_REQUIRED'&&plan.control_totals.bank_unallocated===50],
+    ['amount_tolerance',run([bank('b1',100)],[payable('p1',100.005)],{tolerance:0.01}),plan=>plan.status==='REVIEW_REQUIRED'&&plan.control_totals.difference===0.005],
+    ['date_tolerance',run([bank('b1',100,'2026-08-09')],[payable('p1',100,'2026-08-11')],{dateWindowDays:2}),plan=>plan.status==='REVIEW_REQUIRED'],
+    ['cross_company_blocked',run([bank('b1',100)],[payable('p1',100,undefined,{company:'COMPANY-B'})]),plan=>plan.status==='BLOCKED'&&plan.exceptions[0].code==='WBS_AUTOREC_PLAN_SCOPE_MISMATCH'],
+    ['cross_currency_blocked',run([bank('b1',100)],[payable('p1',100,undefined,{currency:'CAD'})]),plan=>plan.status==='BLOCKED'&&plan.exceptions[0].code==='WBS_AUTOREC_PLAN_SCOPE_MISMATCH'],
+    ['bank_account_blocked',run([bank('b1',100)],[payable('p1',100,undefined,{account:'BANK-2'})]),plan=>plan.status==='BLOCKED'],
+    ['date_outside_window_blocked',run([bank('b1',100,'2026-08-01')],[payable('p1',100,'2026-08-09')],{dateWindowDays:3}),plan=>plan.status==='BLOCKED'&&plan.exceptions[0].code==='WBS_AUTOREC_PLAN_DATE_WINDOW_MISMATCH'],
+    ['missing_receipt_blocked',run([{...bank('b1',100),receipt_hash:''}],[payable('p1',100)]),plan=>plan.status==='BLOCKED'&&plan.exceptions[0].code==='WBS_AUTOREC_PLAN_TRACE_REQUIRED'],
+    ['same_direction_blocked',run([bank('b1',100)],[{...payable('p1',100),direction:'CREDIT'}]),plan=>plan.status==='BLOCKED'&&plan.exceptions[0].code==='WBS_AUTOREC_PLAN_DIRECTION_MISMATCH']
+  ];
+  assert.equal(cases.length,12);
+  for(const [name,plan,assertion] of cases){assert.ok(assertion(plan),name);assert.equal(plan.controls.can_allocate,false,name);assert.equal(plan.controls.can_post,false,name);}
+});
+
+test('a review proposal never counts one WBS source twice or mixes its versions',()=>{
+  const duplicate=run([bank('b1',100),bank('b1',100)],[payable('p1',200)]);
+  assert.equal(duplicate.status,'BLOCKED');
+  assert.equal(duplicate.allocation_plan.length,0);
+  assert.equal(duplicate.exceptions[0].code,'WBS_AUTOREC_PLAN_SOURCE_DUPLICATE');
+
+  const mixedVersion=run([bank('b1',100),{...bank('b1',100),source_version:'v2'}],[payable('p1',200)]);
+  assert.equal(mixedVersion.status,'BLOCKED');
+  assert.equal(mixedVersion.allocation_plan.length,0);
+  assert.ok(mixedVersion.exceptions.some(exception=>exception.code==='WBS_AUTOREC_PLAN_SOURCE_VERSION_AMBIGUOUS'));
+});
+
+test('review tolerance is a canonical accounting decimal, never an implicit JavaScript number',()=>{
+  for(const tolerance of ['1e2','0x10','0.00001','.5',true]){
+    assert.throws(()=>run([bank('b-options',100)],[payable('p-options',100)],{tolerance}),error=>error.code==='WBS_AUTOREC_PLAN_OPTIONS_INVALID');
+  }
+});
+
+test('required WBS golden matrix retains the twelve accounting-boundary scenarios',()=>{
+  const control={company_key:'COMPANY-A',user_ref:'MASKED',completed_match_period:'M:08/2026',completed_release_period:'R:08/2026',completed_incur_period:'C:08/2026',quantity:1,released_quantity:0,incurred_quantity:0,amount:'100.0000',released_amount:'0.0000',incurred_amount:'0.0000',reconciliation_balance:'100.0000',new_balance:'100.0000',balance_date:'2026-08-09'};
+  const receipt={receipt_id:'receipt-control',receipt_ref:'object://receipt/control',receipt_hash:hash,source_record_id:'control-1',source_version:'v1'};
+  const released={detail_kind:'RELEASED_PAYMENT',company_key:'COMPANY-A',...receipt,posting_date:'2026-08-09',payment:'100.0000',reviewer:'Reviewer'};
+  const journal={detail_kind:'JE_TRACE',company_key:'COMPANY-A',...receipt,source_record_id:'journal-291001',posting_date:'2026-08-09',journal_no:'AUTOC-1',account_code:'291001',debit:'100.0000',credit:'100.0000',review_status:'REVIEWED',approval_status:'APPROVED',posting_status:'POSTED'};
+  const cases=[
+    ['exact_match',()=>run([bank('b-exact',100)],[payable('p-exact',100)]).status==='REVIEW_REQUIRED'],
+    ['partial_match',()=>run([bank('b-partial',150)],[payable('p-partial',100)]).control_totals.bank_unallocated===50],
+    ['one_to_many',()=>run([bank('b-one-many',100)],[payable('p-many-1',40),payable('p-many-2',60)]).allocation_plan.length===2],
+    ['many_to_one',()=>run([bank('b-many-1',40),bank('b-many-2',60)],[payable('p-one',100)]).allocation_plan.length===2],
+    ['cross_company_block',()=>run([bank('b-company',100)],[payable('p-company',100,undefined,{company:'COMPANY-B'})]).status==='BLOCKED'],
+    ['amount_and_date_tolerance',()=>run([bank('b-tol',100,'2026-08-09')],[payable('p-tol',100.005,'2026-08-11')],{tolerance:0.01,dateWindowDays:2}).status==='REVIEW_REQUIRED'],
+    ['duplicate_replay_block',()=>run([bank('b-replay',100),bank('b-replay',100)],[payable('p-replay',200)]).status==='BLOCKED'],
+    ['cancel_or_reopen_never_follows_wbs_released_state',()=>{const detail=projectObservedWbsAutoRecControlEvidence({companyRows:[control],detailRows:[released]}).details[0];return detail.observed_state==='RELEASED'&&detail.can_transition_state===false&&detail.can_post===false;}],
+    ['nul_company_isolation',()=>{const plan=run([bank('b-nul',100)],[payable('p-nul',100,undefined,{company:'NUL'})]);return plan.status==='BLOCKED'&&plan.exceptions.some(item=>item.code==='WBS_AUTOREC_PLAN_SCOPE_MISMATCH');}],
+    ['invalid_2064_date_quarantined',()=>run([bank('b-date','100','2064-02-30')],[payable('p-date',100,'2064-02-30')]).status==='BLOCKED'],
+    ['291001_trace_is_evidence_not_posting',()=>{const detail=projectObservedWbsAutoRecControlEvidence({companyRows:[control],detailRows:[journal]}).details[0];return detail.observed_fields.account_code==='291001'&&detail.can_post===false&&detail.can_transition_state===false;}],
+    ['report_as_source_blocked',()=>run([{...bank('control-only',100),source_type:'AUTOREC_BANK_CONTROL'}],[payable('p-report',100)]).status==='BLOCKED']
+  ];
+  assert.equal(cases.length,12);
+  for(const [name,assertion] of cases)assert.ok(assertion(),name);
+});
+
+test('golden acceptance artifact has twelve sanitized source-to-target controls and bidirectional trace requirements',()=>{
+  assert.equal(goldenArtifact.contract,'WBS_AUTOREC_GOLDEN_SCENARIOS_V1');
+  assert.equal(goldenArtifact.classification,'SANITIZED_LOCAL_ACCEPTANCE_EVIDENCE');
+  const required=new Set(['exact_one_to_one','partial_match','one_to_many','many_to_one','amount_and_date_tolerance','cross_company_block','duplicate_replay_block','reopen_boundary','nul_company_isolation','invalid_2064_date_quarantined','posted_291001_trace','report_as_source_blocked']);
+  assert.equal(goldenArtifact.scenarios.length,required.size);
+  for(const scenario of goldenArtifact.scenarios){
+    assert.ok(required.delete(scenario.id),scenario.id);
+    assert.ok(Object.keys(scenario.input).length>0,`${scenario.id} input`);
+    assert.ok(Object.keys(scenario.expected).length>0,`${scenario.id} expected controls`);
+    assert.ok(scenario.forward_trace.includes('receipt')||scenario.forward_trace.includes('control_receipt')||scenario.forward_trace.includes('policy_receipt'),`${scenario.id} forward receipt trace`);
+    assert.ok(scenario.reverse_trace.includes('receipt_hash')||scenario.reverse_trace.includes('control_receipt')||scenario.reverse_trace.includes('policy_receipt'),`${scenario.id} reverse receipt trace`);
+    assert.equal(JSON.stringify(scenario),JSON.stringify(scenario).replace(/(?:token|cookie|password|secret)/gi,'redacted'),`${scenario.id} may not contain sensitive locator keys`);
+  }
+  const reports=goldenArtifact.scenarios.find(scenario=>scenario.id==='report_as_source_blocked');
+  assert.deepEqual(reports.input.source_types,['COST_GENERAL_LEDGER','PROPERTY_COMPARISON']);
+  assert.deepEqual(reports.expected.allowed_control_statuses,['RECONCILED','DIFFERENCE']);
+  for(const trace of ['wbs_control_snapshot','approved_mapping','approved_mapping_snapshot','refs_metric_snapshot'])assert.ok(reports.forward_trace.includes(trace),`report forward ${trace}`);
+  for(const trace of ['refs_metric_snapshot','approved_mapping_snapshot','wbs_control_snapshot'])assert.ok(reports.reverse_trace.includes(trace),`report reverse ${trace}`);
+  const tolerance=goldenArtifact.scenarios.find(scenario=>scenario.id==='amount_and_date_tolerance');
+  assert.equal(tolerance.input.date_match_basis,'BUSINESS_AND_ACCOUNTING');assert.equal(tolerance.expected.date_match_basis,'BUSINESS_AND_ACCOUNTING');
+  for(const trace of ['policy_mapping_snapshot','bank_mapping_snapshot','business_mapping_snapshot']){assert.ok(tolerance.forward_trace.includes(trace),`tolerance forward ${trace}`);assert.ok(tolerance.reverse_trace.includes(trace),`tolerance reverse ${trace}`);}
+  const g11=goldenArtifact.scenarios.find(scenario=>scenario.id==='posted_291001_trace');
+  assert.equal(g11.input.reviewed_allocation_amount,'100.0000');assert.equal(g11.expected.clearing_amount_equals_reviewed_allocation,true);assert.ok(g11.forward_trace.includes('policy_mapping_snapshot'));assert.ok(g11.reverse_trace.includes('approved_mapping_snapshot'));
+  const reopen=goldenArtifact.scenarios.find(scenario=>scenario.id==='reopen_boundary');
+  assert.deepEqual(reopen.input.observed_wbs_detail_sequence,['RELEASED_PAYMENT','INCURRED_PAYMENT']);
+  assert.deepEqual(reopen.expected,{latest_observed_state:'INCURRED',canonical_wbs_transition_graph:'UNKNOWN',can_transition_state:false,can_post:false});
+  assert.ok(reopen.forward_trace.includes('state_history'));assert.ok(reopen.reverse_trace.includes('state_history'));
+  assert.equal(required.size,0);
+});
+
+test('G11 acceptance rejects a substituted top-level policy, allocation edge, or relation hash',()=>{
+  assert.match(acceptanceMatrix,/persisted review request must also equal that policy trace/i);
+  assert.match(acceptanceMatrix,/substituted top-level policy, snapshot, plan, allocation edge, or relation hash is rejected/i);
+});

@@ -36,17 +36,17 @@ Receipt  ->  Raw  ->  Normalized  ->  Staging / Exception  ->  Mapping Review
 
 ## 2. The eight sources
 
-Field counts below are asserted by the test suite. Total declared fields: **112**;
-mapped source fields: **112** (coverage ratio `1.0`). A declared field counts as
+Field counts below are asserted by the test suite. Total declared fields: **117**;
+mapped source fields: **117** (coverage ratio `1.0`). A declared field counts as
 mapped when it feeds a normalized alias, the stable key (`source_id`) or the
 `source_document_ref` trace.
 
 | # | Tool | WBS module | Role | Terminus | Declared fields | Stable-key parts | Source-document ref | Schema origin |
 |---|---|---|---|---|---|---|---|---|
 | 1 | `get_meta` | `wbs.meta` | `METADATA` | `RECEIPT` | 5 | `contract_version` + `generated_at` | — | REFS-declared* |
-| 2 | `list_payables` | `BGDATA.payable` | `TRANSACTION_PRODUCER` | `STANDARD_JE_REQUEST_SEAM` | 25 | `ap_guid` | `ap_guid` | frozen allowlist |
-| 3 | `list_bank_transactions` | `BGDATA.bank_transaction` | `TRANSACTION_PRODUCER` | `STANDARD_JE_REQUEST_SEAM` | 16 | `cb_id` | `sys_id` | frozen allowlist |
-| 4 | `list_autorec_details` | `BGDATA.autoc_detail` | `TRANSACTION_PRODUCER` | `AUTOREC_REVIEW` | 18 | `pd_guid` | `pd_pv_guid` | frozen allowlist |
+| 2 | `list_payables` | `BGDATA.payable` | `TRANSACTION_PRODUCER` | `STANDARD_JE_REQUEST_SEAM` | 27 | `ap_guid` | `ap_guid` | frozen allowlist |
+| 3 | `list_bank_transactions` | `BGDATA.bank_transaction` | `TRANSACTION_PRODUCER` | `STANDARD_JE_REQUEST_SEAM` | 18 | `bank_transaction_id` | `sys_id` | frozen allowlist |
+| 4 | `list_autorec_details` | `BGDATA.autoc_detail` | `TRANSACTION_PRODUCER` | `AUTOREC_REVIEW` | 19 | `pd_guid` | `pd_pv_guid` | frozen allowlist |
 | 5 | `list_autorec_banks` | `BGDATA.autoc_bank` | `CASE_CONTROL` | `AUTOREC_REVIEW` | 13 | `pb_guid` | — | frozen allowlist |
 | 6 | `list_journal_entries` | `accounting.accounting_info` | `LEDGER_EVIDENCE` | `EVIDENCE_SEAM` | 19 | `id` | `sys_id` | frozen allowlist |
 | 7 | `list_control_totals` | `accounting.balance_cell` | `CONTROL_EVIDENCE_ONLY` | `EVIDENCE_SEAM` | 8 | `company` + `period` + `formula` | — | frozen allowlist |
@@ -70,7 +70,7 @@ truth in `WBS_SOURCE_CATALOG`.
 |---|---|---|---|---|
 | `company_key` | `company_code` | | `bill_no` | `ap_long_id` |
 | `company_name` | `company_name` | | `journal_no` | `journal_no` |
-| `amount` | `amount` | | `bank_account_ref` | `cb_id` |
+| `amount` | `amount` | | `bank_account_ref` | `bank_account_ref` |
 | `business_date` | `incurred_date` | | `payable_type` | `ap_type` |
 | `accounting_date` | `posting_date` | | `pay_type` | `pay_type` |
 | `clear_date` | `clear_date` | | `pay_status` | `pay_status` |
@@ -78,6 +78,7 @@ truth in `WBS_SOURCE_CATALOG`.
 | `vendor_ref` / `vendor_name` | `vendor_no` / `vendor_name` | | `review_status` | `review_status` |
 | `project_ref` / `project_code` / `project_name` | `project_guid` / `pj_code` / `pj_name` | | `cost_code_ref` | `cost_id` |
 | `description` | `description` | | `cost_ledger_ref` | `cost_ledger_id` |
+| `payable_detail_relation_ref` | `business_id` | | `accounting_trace_ref` | `cb_id` |
 
 Direction is fixed `CREDIT` (`Cr 291001` per the two-step model in
 `REFS-ARCHITECTURE-V2.md` §6).
@@ -260,8 +261,8 @@ persisting it is a kernel command and is out of scope for this read-only mapper.
 | Metric | Value |
 |---|---|
 | Sources catalogued | 8 / 8 |
-| Declared, typed fields | 112 |
-| Fields mapped (normalized alias, stable key, or source-document ref) | 112 |
+| Declared, typed fields | 117 |
+| Fields mapped (normalized alias, stable key, or source-document ref) | 117 |
 | Coverage ratio | 1.0 |
 | Sources whose schema is asserted against the frozen row-field allowlist | 6 / 8 |
 | Sources whose schema is REFS-declared pending provider confirmation | 2 / 8 (`get_meta`, `trace_by_key`) |

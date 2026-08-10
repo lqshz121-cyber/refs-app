@@ -10,13 +10,24 @@ export const WBS_MCP_PROTOCOL_VERSION='2025-06-18';
 export const WBS_READONLY_TOOLS=Object.freeze(['get_meta','list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
 export const WBS_MCP_PILOT_LIMIT=10;
 export const WBS_MCP_MAX_CONCURRENCY=2;
+const WBS_CURSOR_READ_TOOLS=new Set(['list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries','list_control_totals','trace_by_key']);
 export const WBS_READONLY_ROW_FIELDS=Object.freeze({
-  list_payables:Object.freeze(['amount','ap_guid','ap_long_id','ap_type','business_status','cb_id','check_date','check_no','clear_date','company_code','company_name','cost_id','cost_ledger_id','description','incurred_date','journal_no','pay_status','pay_type','pj_code','pj_name','posting_date','project_guid','review_status','vendor_name','vendor_no']),
-  list_bank_transactions:Object.freeze(['account_code','cb_id','child_come_from','child_count','come_from','company_code','debtor','description','lender','payee','payee_no','review','set_date','statistical_business','sys_id','turn_flag']),
-  list_autorec_details:Object.freeze(['batch_guid','biz_type','cb_id','clear_date','cost_code','data_source','deposit','incurred_date','match_guid','match_status','payment','pd_guid','pd_pv_guid','project_guid','released_by','released_date','status','vendor_no']),
+  // bank_account_ref is a future receipt-bound relation field. It is never
+  // synthesized from the Payable Account Code, Journal No., cb_id, or another
+  // display field; without it the REFS AutoRec candidate remains blocked.
+  list_payables:Object.freeze(['amount','ap_guid','ap_long_id','ap_type','bank_account_ref','business_id','business_status','cb_id','check_date','check_no','clear_date','company_code','company_name','cost_id','cost_ledger_id','description','incurred_date','journal_no','pay_status','pay_type','pj_code','pj_name','posting_date','project_guid','review_status','vendor_name','vendor_no']),
+  list_bank_transactions:Object.freeze(['account_code','bank_transaction_id','cb_id','child_come_from','child_count','come_from','company_code','debtor','description','lender','payee','payee_no','posting_date','review','set_date','statistical_business','sys_id','turn_flag']),
+  list_autorec_details:Object.freeze(['batch_guid','biz_type','cb_id','clear_date','cost_code','data_source','deposit','incurred_date','match_guid','match_status','payment','pd_guid','pd_pv_guid','posting_date','project_guid','released_by','released_date','status','vendor_no']),
   list_autorec_banks:Object.freeze(['ah_id','ah_name','company_code','company_name','debit_amount','incurred','pay_amount','pb_guid','quantity','reconciliation_start_date','released','released_quantity','status']),
   list_journal_entries:Object.freeze(['account','bill_no','cb_id','closed','come_from','company','cost_code','debtor','id','journal_no','lender','pj_code','posting_date','project','reverse','review','reviewer','set_date','sys_id']),
   list_control_totals:Object.freeze(['cell_count','company','formula','period','quality','total_balance','total_credit','total_debit'])
+});
+// These fields preserve a page-level WBS drill-down only after a provider
+// includes them in the signed row. They are intentionally not admission
+// fields: losing a display route must not force an importer to invent it, and
+// having one must not make it a transaction, matching, or posting key.
+export const WBS_READONLY_OPTIONAL_TRACE_FIELDS=Object.freeze({
+  list_payables:Object.freeze(['source_detail_source','source_detail_type','source_detail_come_from'])
 });
 
 export class WbsMcpError extends Error {
@@ -25,6 +36,8 @@ export class WbsMcpError extends Error {
 
 const plainObject=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype;
 const safeToolName=value=>typeof value==='string'&&/^[A-Za-z][A-Za-z0-9._-]{0,127}$/.test(value);
+const scopedText=value=>typeof value==='string'?value.trim():'';
+const safeProviderKey=value=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=512&&!/[\u0000-\u001f\u007f]/.test(value);
 const MAX_EVENT_STREAM_BYTES=1024*1024;
 
 async function boundedText(response){
@@ -73,11 +86,26 @@ function safeArguments(args){
   return structuredClone(args);
 }
 
-const stableKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
+// cb_id is an accounting/relation locator.  It is not the immutable bank-row
+// key: one accounting relationship can span several source rows.  Bank input
+// remains fail-closed until the provider supplies its own immutable key.
+const stableKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'bank_transaction_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
 export function validateWbsReadEnvelope({toolName,envelope}={}){
   if(!WBS_READONLY_TOOLS.includes(toolName)||!plainObject(envelope)||!Array.isArray(envelope.rows)||!/^[0-9a-f]{64}$/.test(envelope.content_sha256)||typeof envelope.contract_version!=='string'||!envelope.contract_version.trim()||envelope.tool!==toolName||typeof envelope.environment!=='string'||envelope.environment.toLowerCase()!=='production'||typeof envelope.captured_at!=='string'||Number.isNaN(Date.parse(envelope.captured_at))||!plainObject(envelope.source)||!plainObject(envelope.scope)||!Number.isSafeInteger(envelope.record_count)||envelope.record_count!==envelope.rows.length||(envelope.cursor_next!==null&&typeof envelope.cursor_next!=='string')||(envelope.etl_notice!==null&&typeof envelope.etl_notice!=='string'))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS production read envelope, scope, count, hash, or cursor is invalid.');
+  const scopeCompany=scopedText(envelope.scope.company);
+  const scopeCurrency=scopedText(envelope.scope.currency).toUpperCase();
+  const snapshotToken=envelope.scope.snapshot_token;
+  if(snapshotToken!==undefined&&(typeof snapshotToken!=='string'||!/^[A-Za-z0-9._~:-]{1,256}$/.test(snapshotToken)))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS provider snapshot_token must be an opaque bounded token without control characters.');
+  if(envelope.cursor_next!==null&&!snapshotToken)throw new WbsMcpError('WBS_MCP_PAGINATION_SNAPSHOT_TOKEN_REQUIRED','Every cursor-paged WBS response must echo its immutable provider snapshot token.');
+  if(scopeCurrency&&scopeCurrency!=='USD')throw new WbsMcpError('WBS_MCP_CURRENCY_UNSUPPORTED','WBS pilot accepts USD scope only.');
+  if(scopeCompany&&envelope.rows.some(row=>plainObject(row)&&row.company_code!=null&&scopedText(row.company_code)!==scopeCompany||plainObject(row)&&row.company!=null&&scopedText(row.company)!==scopeCompany))throw new WbsMcpError('WBS_MCP_ENVELOPE_SCOPE_MISMATCH','WBS row company does not match the requested company scope.');
+  if(scopeCurrency&&envelope.rows.some(row=>plainObject(row)&&row.currency!=null&&scopedText(row.currency).toUpperCase()!==scopeCurrency))throw new WbsMcpError('WBS_MCP_ENVELOPE_SCOPE_MISMATCH','WBS row currency does not match the requested currency scope.');
   const stableKey=stableKeyByTool[toolName];
-  if(stableKey&&envelope.rows.some(row=>!plainObject(row)||(stableKey==='id'?!Number.isSafeInteger(row[stableKey]):typeof row[stableKey]!=='string'||!row[stableKey].trim())))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} rows require stable ${stableKey}.`);
+  if(stableKey&&envelope.rows.some(row=>!plainObject(row)||(stableKey==='id'?!Number.isSafeInteger(row[stableKey]):!safeProviderKey(row[stableKey]))))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} rows require a bounded, control-character-free stable ${stableKey}.`);
+  // The content hash preserves array order.  Require the provider's stable
+  // source key to be strictly ascending so a repeated row cannot silently
+  // inflate a later control total or appear as two source facts.
+  if(stableKey&&!envelope.rows.every((row,index)=>index===0||envelope.rows[index-1][stableKey]<row[stableKey]))throw new WbsMcpError('WBS_MCP_ROWS_NOT_SORTED','WBS rows must be strictly ascending and unique by their stable source key.');
   if(envelope.rows.some(row=>plainObject(row)&&row.currency!=null&&row.currency!=='USD'))throw new WbsMcpError('WBS_MCP_CURRENCY_UNSUPPORTED','WBS pilot accepts USD rows only.');
   const expectedHash=createHash('sha256').update(canonicalRequestBody(envelope.rows),'utf8').digest('hex');
   if(!timingSafeEqual(Buffer.from(envelope.content_sha256,'hex'),Buffer.from(expectedHash,'hex')))throw new WbsMcpError('WBS_MCP_CONTENT_HASH_MISMATCH','WBS content_sha256 does not match canonical sorted compact rows.');
@@ -132,6 +160,15 @@ export function createReadOnlyWbsMcpClient({endpoint,getAuthHeaders,allowedReadT
       tools=result.tools.map(toolMetadata);
       const names=tools.map(tool=>tool.name).sort();
       if(JSON.stringify(names)!==JSON.stringify([...WBS_READONLY_TOOLS].sort())||tools.some(tool=>!tool.readOnly||tool.destructive||!tool.idempotent))throw new WbsMcpError('WBS_MCP_TOOL_CATALOG_INVALID','WBS MCP tool catalog is not the exact read-only idempotent contract.');
+      // REFS never accepts a first page as a final control/trace population.
+      // Every data view must therefore advertise the opaque token that REFS
+      // echoes on cursor reads; otherwise a provider could return page one but
+      // reject the safe completion request after a partial view was accepted.
+      if(tools.some(tool=>{
+        if(!WBS_CURSOR_READ_TOOLS.has(tool.name))return false;
+        const properties=plainObject(tool.inputSchema?.properties)?tool.inputSchema.properties:{};
+        return !plainObject(properties.cursor)||properties.cursor.type!=='string'||!plainObject(properties.snapshot_token)||properties.snapshot_token.type!=='string';
+      }))throw new WbsMcpError('WBS_MCP_TOOL_CATALOG_INVALID','Every WBS cursor-readable tool must publish string cursor and snapshot_token arguments.');
       return tools.map(tool=>({...tool}));
     },
     async readView({toolName,args}={}){
