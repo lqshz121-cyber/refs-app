@@ -416,8 +416,8 @@ function App() {
           group only and the first visible child replaces any old subpage. */}
       <div className="nav-rail">
         <span className="rail-logo" aria-hidden="true">◈</span>
-        {nav.map(g=>{ const isSingleton = isDirectNavigationGroup(g); const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k)); const groupPanelId=`nav-group-${g.group.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`; const inGroup = g.items.some(([k])=>route===k);
-          return <div key={g.group} className="nav-group">
+        {nav.map((g,gi)=>{ const isSingleton = isDirectNavigationGroup(g); const opened = isSingleton ? false : (openGroups[g.group] ?? g.items.some(([k])=>route===k)); const groupPanelId=`nav-group-${g.group.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`; const inGroup = g.items.some(([k])=>route===k);
+          return <div key={g.group} className={`nav-group nav-tone-${gi%6}`}>
             {g.railBreak && <span className="rail-sep" aria-hidden="true"/>}
             <button className={`nav-group-h ${inGroup?'rail-on':''}`} title={g.group} aria-expanded={isSingleton?undefined:opened} aria-controls={isSingleton?undefined:groupPanelId} aria-current={isSingleton&&route===g.items[0][0]?'page':undefined} onClick={()=>{ const next=firstNavigationRoute(g); if(!next) return; const entry={...railNavigationContext(g,next), railEntryRevision:++railEntryRevision.current}; setOpenGroups(isSingleton?{}:{[g.group]:true}); goto(next,entry); }}>
               <span className="rail-glyph" aria-hidden="true"><Icon name={g.glyph}/></span>
