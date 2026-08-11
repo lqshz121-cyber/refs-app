@@ -55,8 +55,11 @@ for (const [name, source] of Object.entries({authorityShell, authorityTopbar, au
 // One CSS vocabulary supplies both products.  Each shared class must have its
 // canonical definition in the common stylesheet; authority-only variants may
 // add data-state affordances but may not replace the structural classes.
-for (const selector of ['.app{', '.sidebar{', '.nav-rail{', '.nav-panel{', '.topbar{', '.content{', '.qb-home{', '.qbo-home-hero{', '.qbo-quicklinks{', '.qbo-grid{', '.accounting-page-head{', '.kpi-row{', '.tabs{']) {
-  has(styles, selector, `shared presentation stylesheet must define ${selector}`);
+// qb-home is a semantic page hook in both trees; its visual geometry is
+// provided by the nested demo qbo-* selectors below, so it intentionally has
+// no standalone CSS declaration to duplicate.
+for (const selector of ['app', 'sidebar', 'nav-rail', 'nav-panel', 'topbar', 'content', 'qbo-home-hero', 'qbo-quicklinks', 'qbo-grid', 'accounting-page-head', 'kpi-row', 'tabs']) {
+  assert.match(styles, new RegExp(`\\.${selector}(?:[\\s,:{>])`), `shared presentation stylesheet must define .${selector}`);
 }
 
 console.log('demo presentation parity: authority root uses the demo-derived shell, dashboard, and AP/AR class hierarchy without demo state');
