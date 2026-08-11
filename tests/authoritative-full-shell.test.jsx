@@ -4,6 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES } from '../src/authoritative-navigation.js';
 import { AuthoritativeNavigationShell } from '../src/authoritative-navigation-shell.jsx';
+import { AuthoritativeDemoTopbar } from '../src/authoritative-demo-shell.jsx';
 import { AuthoritativeUnavailableWorkspace } from '../src/authoritative-unavailable-workspace.jsx';
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the production catalog keeps the complete major workspace taxonomy discoverable');
@@ -17,6 +18,13 @@ assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting O
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.match(navMarkup, /API/); assert.match(navMarkup, /Unavailable/); assert.match(navMarkup, /Workspace/);
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
+const topbarMarkup = renderToStaticMarkup(<AuthoritativeDemoTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
+assert.match(topbarMarkup, /WBHO WB Home LLC/);
+assert.match(topbarMarkup, /Period/);
+assert.match(topbarMarkup, /Authoritative/);
+assert.match(topbarMarkup, /Authenticated/);
+assert.doesNotMatch(fs.readFileSync('src/authoritative-demo-shell.jsx', 'utf8'), /seed\.js|repo\.js|localStorage|legacy-demo-app/,
+  'the copied visual shell must accept authoritative slots only');
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(unavailableMarkup, /Source Documents is not available/);
 assert.match(unavailableMarkup, /No browser or demonstration data is shown/);
@@ -50,6 +58,7 @@ assert.match(appSource, /Elimination, adjustment, and intercompany posting workf
 assert.match(appSource, /Elimination creation, group maintenance, and browser-side consolidation workbooks remain unavailable/, 'the consolidation surface must not recreate a browser-side workbook');
 assert.match(appSource, /AuthoritativeWbsTransitionWorkspace/, 'WBS evidence must mount an API-backed signed-contract verifier, not a demo workspace');
 assert.match(appSource, /authoritative-topbar/, 'the formal app must use the complete workbench-style top bar rather than the old title-only header');
+assert.match(appSource, /AuthoritativeDemoTopbar/, 'the production app must reuse the complete demonstration topbar structure rather than reimplement a divergent header');
 assert.match(appSource, /Authoritative entity \$\{config\.entityId\}/, 'the top bar must expose the configured API entity as scope, not a local selector');
 assert.match(appSource, /Authoritative period \$\{config\.periodId\}/, 'the top bar must expose the configured API period as scope');
 assert.match(appSource, /Refresh authoritative accounting evidence/, 'the top-bar refresh control must name its real GET-only outcome');
@@ -58,4 +67,5 @@ assert.match(appSource, /onClick=\{logout\}>Sign out/, 'the visual shell keeps t
 const styles = fs.readFileSync('index.html', 'utf8');
 assert.match(styles, /\.authoritative-entity-chip\{/, 'the authoritative entity scope needs the complete-shell selector treatment');
 assert.match(styles, /\.authoritative-mode-chip\{/, 'the top bar must disclose authoritative mode rather than demonstration mode');
+assert.match(styles, /@media \(max-width:1180px\) and \(min-width:769px\)/, 'the demo shell must release its rail before evidence is squeezed on narrow desktops');
 console.log('authoritative full shell: complete catalog renders API routes and unavailable workspaces fail closed');

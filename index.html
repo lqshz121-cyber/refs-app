@@ -60,6 +60,7 @@
   /* elevation - tight and low; borders do the separation work */
   --qb-shadow-card:0 1px 4px rgba(76,85,91,.20);
   --qb-shadow-strong:0 1px 4px rgba(33,38,42,.60);
+  --qb-scrim:rgba(15,20,24,.32);
   --qb-shadow-stick:-2px 0 2px rgba(0,0,0,.15);
   /* metrics */
   --qb-control-h:36px;
@@ -158,6 +159,7 @@ body.dark{
   --qb-bad:#F0999C;     --qb-bad-bg:#3B1E20;  --qb-bad-line:#6D3A3D;
   --qb-shadow-card:0 1px 4px rgba(0,0,0,.55);
   --qb-shadow-strong:0 2px 8px rgba(0,0,0,.70);
+  --qb-scrim:rgba(0,0,0,.56);
   --qb-shadow-stick:-2px 0 2px rgba(0,0,0,.45);
   --qb-focus-ring:0 0 0 3px rgba(123,212,175,.28);
   /* round 2 structural tokens keep full dark-mode parity */
@@ -375,6 +377,20 @@ input,select,textarea{
 .authoritative-app .authoritative-sidebar .nav-panel .nav-item-label{white-space:normal; overflow:visible; text-overflow:clip; line-height:1.25;}
 .authoritative-app .authoritative-sidebar .nav-panel .authoritative-nav-status{margin-left:auto;}
 .authoritative-app .authoritative-sidebar .nav-panel .nav-chev{display:block;}
+/* Exact presentation structure from the complete REFS shell: scope control,
+   period chip, actions and user chip stay in one topbar.  Move navigation off
+   canvas before a narrow desktop can compress accounting evidence. */
+.authoritative-demo-topbar .authoritative-shell-scope{display:flex; flex:1 1 340px; min-width:200px; max-width:420px;}
+.authoritative-demo-topbar .authoritative-shell-select{display:flex; align-items:center; width:100%; min-width:0; height:var(--qb-control-h); padding:0 34px 0 12px; overflow:hidden; border:1px solid var(--qb-border); border-radius:var(--qb-r-control); background:var(--qb-surface); color:var(--qb-text-strong); font-size:13px; font-weight:500; text-overflow:ellipsis; white-space:nowrap; position:relative;}
+.authoritative-demo-topbar .authoritative-shell-select::after{content:'⌄'; position:absolute; right:12px; color:var(--qb-text-muted); font-size:18px;}
+.authoritative-demo-topbar .authoritative-top-actions{margin-left:auto;}
+@media (max-width:1180px) and (min-width:769px){
+  .authoritative-app .sidebar{position:fixed; top:0; left:0; z-index:32; transform:translateX(-100%); transition:transform var(--qb-dur-2) var(--qb-ease-out); box-shadow:var(--qb-shadow-strong);}
+  .authoritative-app .sidebar.mobile-open{transform:translateX(0);}
+  .authoritative-app .mobile-nav-btn{display:inline-grid; place-items:center; flex:0 0 auto;}
+  .authoritative-app .mobile-nav-scrim{display:block; position:fixed; inset:0; z-index:31; border:0; background:var(--qb-scrim);}
+  .authoritative-app .main{margin-left:6px;}
+}
 
 /* Authoritative page pattern. The parent workspace supplies all figures from
    authenticated API reads; this layer owns presentation only. */

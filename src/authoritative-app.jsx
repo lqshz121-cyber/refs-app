@@ -27,6 +27,7 @@ import {
 import { AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES, navigationItemForRoute } from './authoritative-navigation.js';
 import { AuthoritativeOverview } from './authoritative-overview.jsx';
 import { AuthoritativeNavigationShell } from './authoritative-navigation-shell.jsx';
+import { AuthoritativeDemoTopbar } from './authoritative-demo-shell.jsx';
 import { AuthoritativeUnavailableWorkspace } from './authoritative-unavailable-workspace.jsx';
 
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
@@ -370,7 +371,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     </aside>}
     {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
     <div className="main">
-      <header className="topbar authoritative-topbar">
+      {false && <header className="topbar authoritative-topbar">
         <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>☰</button>
         <div className="authoritative-entity-chip" aria-label={`Authoritative entity ${config.entityId}`}>
           <span className="authoritative-top-label">Entity</span><strong>{config.entityId}</strong><span aria-hidden="true">⌄</span>
@@ -385,7 +386,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           <span className="user-chip authoritative-user-chip" aria-label="Authenticated OIDC session"><span className="user-av" aria-hidden="true">A</span><span className="user-nm">Authenticated</span></span>
           <button type="button" className="btn btn-sm btn-ghost authoritative-signout" onClick={logout}>Sign out</button>
         </div>
-      </header>
+      </header>}
+      <AuthoritativeDemoTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={config.entityId} periodLabel={config.periodId} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout}/>
       <main className="content">
         <section className="authoritative-scope-bar" aria-label="Authoritative accounting scope">
           <span><b>Entity</b> {config.entityId}</span>
