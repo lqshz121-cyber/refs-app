@@ -45,6 +45,21 @@ export const FinancialStatementSummary=({report,rows})=>{
   return <div className="qbo-toolgrid" aria-label="Trial Balance control"><span><i>Net debit balance</i><b>{money(sumRows(rows))}</b></span></div>;
 };
 
+// Property, project, and unit reporting must stay scoped to an exact retained
+// dimension.  This summary deliberately uses the same fixed-point evidence
+// rows that power the table below; it never looks up a browser-side property
+// record or derives a dimension from a description.
+export const DimensionProfitabilitySummary=({rows,dimensionType,dimensionRef})=>{
+  const revenue=sumRows(rows,['REVENUE']);
+  const expenses=sumRows(rows,['EXPENSES']);
+  return <div className="qbo-toolgrid authoritative-profitability-summary" aria-label={`${dimensionType} profitability summary for ${dimensionRef}`}>
+    <span><i>Exact {dimensionType.toLowerCase()} reference</i><b>{dimensionRef}</b></span>
+    <span><i>Revenue</i><b>{money(revenue)}</b></span>
+    <span><i>Expenses</i><b>{money(expenses)}</b></span>
+    <span><i>Net income</i><b>{money(subtract(revenue,expenses))}</b></span>
+  </div>;
+};
+
 const EvidenceIds=({label,ids=[]})=><div><b>{label}</b>{ids.length?<ul className="evidence-id-list">{ids.map(id=><li key={id}><code>{id}</code></li>)}</ul>:<p className="muted sm">No retained identifier.</p>}</div>;
 const ReadError=({state,onRetry,label='Retry read'})=>state.phase==='ERROR'?<StateBlock tone="error" title={state.error?.code} actions={<button type="button" className="btn btn-sm" onClick={onRetry}>{label}</button>}><p>{state.error?.message}</p></StateBlock>:null;
 
@@ -102,6 +117,19 @@ const CwipRollforwardDetail=({row,returnContext,onBack})=><section className="fu
   <p className="muted sm">This read never creates capitalization, a transfer, a write-off, a journal, or an adjustment. Missing, ambiguous, or invalid mapping evidence remains blocked.</p>
   <section className="card" aria-label="CWIP retained trace"><div className="card-head"><div><h2>Retained trace</h2><p className="muted sm">Use these immutable identifiers to continue an authorized server-backed evidence drill.</p></div></div><div className="detail-grid"><EvidenceIds label="Journal entries" ids={row.journal_entry_ids}/><EvidenceIds label="Journal lines" ids={row.journal_line_ids}/><EvidenceIds label="Ledger lines" ids={row.ledger_line_ids}/><EvidenceIds label="Source documents" ids={row.source_document_ids}/></div></section>
 </section>;
+
+const DimensionProfitabilityDetail=({row,returnContext,onBack})=>{
+  const dimension=returnContext?.dimension;
+  const type=row.dimension_type||dimension?.type||'DIMENSION';
+  const reference=row.dimension_ref||dimension?.ref||'Unavailable';
+  return <section className="full-bleed qbo-transaction-report authoritative-profitability-detail" aria-label={`${type} profitability account evidence`}>
+    <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to {type.toLowerCase()} profitability</button><span>Entity {returnContext?.entityId} · Period {returnContext?.periodId}</span></div>
+    <header className="card-head"><div><div className="page-eyebrow">OPERATING ANALYSIS | POSTED EVIDENCE</div><h1 className="page-h">{type} P&amp;L — {reference}</h1><p className="muted sm">This account is included only because its POSTED ledger line retained this exact dimension. The report does not infer a property, project, or unit from a memo, source header, or browser state.</p></div><span className="badge badge-muted">READ ONLY</span></header>
+    <div className="qbo-toolgrid" aria-label="Dimension profitability account summary"><span><i>Account</i><b>{row.account_code} · {row.account_name}</b></span><span><i>Statement section</i><b>{row.statement_section}</b></span><span><i>Period debit</i><b>{money(row.period_debit)}</b></span><span><i>Period credit</i><b>{money(row.period_credit)}</b></span><span><i>Statement balance</i><b>{money(row.display_balance)}</b></span></div>
+    <section className="card" aria-label="Exact dimension scope"><div className="card-head"><div><h2>Evidence scope</h2><p className="muted sm">The API returned this immutable entity, period, dimension, and classification boundary.</p></div><span className="badge badge-muted">API GET</span></div><div className="detail-grid"><div><i>Dimension type</i><b>{type}</b></div><div><i>Exact reference</i><b>{reference}</b></div><div><i>Classification basis</i><b>{row.classification_basis}</b></div><div><i>Period</i><b>{row.period_code} · {row.period_start} through {row.period_end}</b></div></div></section>
+    <section className="card" aria-label="Dimension profitability retained trace"><div className="card-head"><div><h2>Retained trace</h2><p className="muted sm">These identifiers are supplied by the accounting API for an authorized server-backed evidence drill.</p></div></div><div className="detail-grid"><EvidenceIds label="Journal entries" ids={row.journal_entry_ids}/><EvidenceIds label="Journal lines" ids={row.journal_line_ids}/><EvidenceIds label="Ledger lines" ids={row.ledger_line_ids}/><EvidenceIds label="Source documents" ids={row.source_document_ids}/></div></section>
+  </section>;
+};
 };
 
 const ComparisonDetail=({row,returnContext,onBack})=><section className="full-bleed qbo-transaction-report" aria-label="Prior-period comparison evidence">
@@ -159,9 +187,9 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   const loadComparison=async()=>{setComparisonState({phase:'LOADING',rows:[],error:null,scope:null});const result=await refreshAuthoritativeFinancialStatementPeriodComparison({config,priorPeriodId,fetcher});setComparisonState(result.ok?{phase:'READY',rows:result.rows,error:null,scope:result.scope}:{phase:'ERROR',rows:[],error:result,scope:null});};
   useEffect(()=>{load();},[config?.entityId,config?.periodId]);
   const rows=useMemo(()=>state.rows.filter(row=>row.statement_type===report),[state.rows,report]);
-  const openEvidence=(row,focusId,kind='STATEMENT',title=null)=>{
+  const openEvidence=(row,focusId,kind='STATEMENT',title=null,detailContext=null)=>{
     const base=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
-    if(base)setSelected({kind,row,title,returnContext:{...base,report,workbenchTab,reportsCatalog:normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:report})}});
+    if(base)setSelected({kind,row,title,returnContext:{...base,report,workbenchTab,reportsCatalog:normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:report}),...(detailContext&&typeof detailContext==='object'?detailContext:{})}});
   };
   const closeEvidence=()=>{
     const context=selected?.returnContext;
@@ -171,10 +199,14 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
     setWorkbenchTab(catalog.category);
     setCatalogSearch(catalog.query);
     setReport(catalog.preview);
+    if(['PROPERTY','PROJECT','UNIT'].includes(context?.dimension?.type)&&typeof context.dimension.ref==='string'&&context.dimension.ref.trim()){
+      setDimensionType(context.dimension.type);
+      setDimensionRef(context.dimension.ref);
+    }
     setSelected(null);
     restoreAuthoritativeReturnContext(environment,config,context);
   };
-  if(selected)return selected.kind==='CASH_FLOW_CLASSIFICATION'?<CashFlowDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='INTERCOMPANY_RECONCILIATION'?<IntercompanyDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='BUDGET_VS_ACTUAL'?<BudgetActualDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CONSOLIDATION'?<ConsolidationDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='PERIOD_COMPARISON'?<ComparisonDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CWIP_ROLLFORWARD'?<CwipRollforwardDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='ROLLFORWARD'?<RollforwardDetail title={selected.title} row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:<ReportDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>;
+  if(selected)return selected.kind==='CASH_FLOW_CLASSIFICATION'?<CashFlowDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='INTERCOMPANY_RECONCILIATION'?<IntercompanyDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='BUDGET_VS_ACTUAL'?<BudgetActualDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CONSOLIDATION'?<ConsolidationDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='PERIOD_COMPARISON'?<ComparisonDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CWIP_ROLLFORWARD'?<CwipRollforwardDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='DIMENSION_PROFITABILITY'?<DimensionProfitabilityDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='ROLLFORWARD'?<RollforwardDetail title={selected.title} row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:<ReportDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>;
   const matchingWorkbenchTabs=REPORT_WORKBENCH_TABS.filter(([,label,description])=>`${label} ${description}`.toLowerCase().includes(catalogSearch.trim().toLowerCase()));
   const visibleWorkbenchTabs=catalogSearch.trim()?matchingWorkbenchTabs:REPORT_WORKBENCH_TABS;
   return <div className="stack reports-library authoritative-reports-library"><header className="accounting-page-head reports-head"><div><div className="page-eyebrow">AUTHORITATIVE · REPORTING</div><h1 className="page-h">Reports center</h1><p className="page-subtitle">OIDC-authenticated, entity-and-period-scoped POSTED ledger evidence. Every displayed report reads the accounting API; no browser data is used.</p></div><div className="report-period-chip"><span>Reporting scope</span><b>Entity {config.entityId} · Period {config.periodId}</b></div></header>
@@ -282,7 +314,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
       {dimensionState.phase==='LOADING'&&<StateBlock tone="loading">Loading exact-dimension POSTED ledger evidence...</StateBlock>}
       <ReadError state={dimensionState} onRetry={loadDimension}/>
       {dimensionState.phase==='READY'&&!dimensionState.rows.length&&<StateBlock tone="empty" title="No exact-dimension POSTED ledger evidence returned">This scoped empty result is not evidence of zero property, project, or unit profitability.</StateBlock>}
-      {dimensionState.phase==='READY'&&!!dimensionState.rows.length&&<div className="table-wrap"><table className="tbl"><thead><tr><th>Section</th><th>Account</th><th>Period debit</th><th>Period credit</th><th>Balance</th><th>Evidence</th></tr></thead><tbody>{dimensionState.rows.map(row=>{const focusId=`authoritative-dimension-${row.dimension_type}-${row.dimension_ref}-${row.account_code}`;return <tr key={`${row.dimension_type}:${row.dimension_ref}:${row.statement_section}:${row.account_code}`}><td>{row.statement_section}</td><td><b>{row.account_code}</b><div className="muted sm">{row.account_name}</div></td><td className="num">{money(row.period_debit)}</td><td className="num">{money(row.period_credit)}</td><td className="num">{money(row.display_balance)}</td><td><button id={focusId} type="button" className="btn btn-sm" onClick={()=>openEvidence(row,focusId)}>Open evidence</button></td></tr>;})}</tbody></table></div>}
+      {dimensionState.phase==='READY'&&!!dimensionState.rows.length&&<><DimensionProfitabilitySummary rows={dimensionState.rows} dimensionType={dimensionType} dimensionRef={dimensionRef}/><div className="table-wrap authoritative-profitability-table" tabIndex={0} aria-label="Dimension profitability rows; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Section</th><th>Account</th><th>Period debit</th><th>Period credit</th><th>Balance</th><th>Evidence</th></tr></thead><tbody>{dimensionState.rows.map(row=>{const focusId=`authoritative-dimension-${row.dimension_type}-${row.dimension_ref}-${row.account_code}`;return <tr key={`${row.dimension_type}:${row.dimension_ref}:${row.statement_section}:${row.account_code}`}><td>{row.statement_section}</td><td><b>{row.account_code}</b><div className="muted sm">{row.account_name}</div></td><td className="num">{money(row.period_debit)}</td><td className="num">{money(row.period_credit)}</td><td className="num">{money(row.display_balance)}</td><td><button id={focusId} type="button" className="btn btn-sm" onClick={()=>openEvidence(row,focusId,'DIMENSION_PROFITABILITY',null,{dimension:{type:dimensionType,ref:dimensionRef}})}>Open evidence</button></td></tr>;})}</tbody></table></div></>}
     </section>}
     </section>
   </div>;
