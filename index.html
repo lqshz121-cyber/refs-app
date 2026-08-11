@@ -891,6 +891,15 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-bank-scope-strip>span{display:flex;flex-direction:column;gap:3px;min-width:0;padding:2px 4px;}
 .authoritative-bank-scope-strip i{font-style:normal;color:var(--qb-text-muted);font-size:11px;font-weight:600;letter-spacing:.035em;text-transform:uppercase;}
 .authoritative-bank-scope-strip b{color:var(--qb-text-strong);font-size:13px;overflow-wrap:anywhere;}
+.authoritative-aging-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
+.authoritative-aging-heading h2{margin:3px 0 5px;}
+.authoritative-aging-controls{display:grid;grid-template-columns:minmax(150px,1.35fr) minmax(150px,1.35fr) minmax(150px,.9fr) auto;align-items:end;gap:10px;margin:2px 0 0;padding:12px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);background:var(--qb-inset);}
+.authoritative-aging-scope{display:flex;min-width:0;flex-direction:column;gap:3px;padding:2px 4px;}
+.authoritative-aging-scope i,.authoritative-aging-controls label span{font-style:normal;color:var(--qb-text-muted);font-size:11px;font-weight:600;letter-spacing:.035em;text-transform:uppercase;}
+.authoritative-aging-scope b{overflow-wrap:anywhere;color:var(--qb-text-strong);font-family:var(--qb-mono);font-size:12px;}
+.authoritative-aging-controls label{display:flex;min-width:0;flex-direction:column;gap:5px;}
+.authoritative-aging-context{margin:0;color:var(--qb-text-muted);font-size:12px;overflow-wrap:anywhere;}
+.authoritative-aging-table .tbl{min-width:760px;}
 .authoritative-bank-queue-note{display:flex;align-items:baseline;gap:6px;margin:0 0 12px;padding:10px 12px;border-left:3px solid var(--qb-accent);background:var(--qb-inset);color:var(--qb-text-muted);font-size:12px;}
 .authoritative-bank-queue-note b{color:var(--qb-text-strong);font-size:16px;font-variant-numeric:tabular-nums;}
 .authoritative-evidence-stage{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0;padding:11px 12px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);background:var(--qb-surface);}
@@ -1765,6 +1774,9 @@ select{padding-right:28px; cursor:pointer;}
   .filter-bar label,.expense-toolbar label,.filterbar label{width:100%;}
   .filter-bar select,.expense-toolbar select,.filterbar select,.filterbar input{width:100%; min-width:0;}
   .authoritative-bank-scope-strip{grid-template-columns:minmax(0,1fr);}
+  .authoritative-aging-heading{align-items:flex-start;flex-direction:column;}
+  .authoritative-aging-controls{grid-template-columns:minmax(0,1fr);align-items:stretch;}
+  .authoritative-aging-controls .btn{width:100%;}
   .authoritative-evidence-stage{align-items:stretch;flex-direction:column;}
   .authoritative-evidence-stage span{justify-content:flex-start;}
   .expense-search,.je-search,.bank-search,.qbo-report-search{max-width:none; width:100%; flex:1 1 auto;}
