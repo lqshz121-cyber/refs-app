@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {AuthoritativeAgingWorkspace} from '../src/authoritative-aging-workspace.jsx';
+
+const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222'};
+const markup=renderToStaticMarkup(<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})}/>);
+assert.match(markup,/Accounts receivable \/ aging report/);
+assert.match(markup,/Entity reporting scope/);
+assert.match(markup,/Configured period/);
+assert.match(markup,/As-of date/);
+assert.match(markup,/Load report/);
+assert.match(markup,/Loading authoritative AR aging/);
+assert.doesNotMatch(markup,/>Customize<|>Save<|>Print<|>Export<|>Email<|>More</i);
+
+const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-aging-workspace.jsx'),'utf8');
+assert.match(source,/Change the as-of date and load the report again/);
+assert.match(source,/not evidence of zero invoices, receipts, bills, payments, or ledger activity/);
+assert.match(source,/authoritative-aging-table/);
+assert.match(source,/tabIndex=\{0\}/);
+assert.doesNotMatch(source,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data/);
+console.log('authoritative-aging-workspace: API-only scope, as-of report control, actionable empty state, and contained tables verified');
