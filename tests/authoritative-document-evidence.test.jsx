@@ -22,6 +22,8 @@ assert.match(list,/Open evidence/);
 assert.match(list,/Open balance/);
 assert.match(list,/Evidence Vendor/);
 assert.match(list,/id="authoritative-document-22222222-2222-4222-8222-222222222222"/);
+assert.match(list,/class="table-wrap authoritative-document-table" role="region" tabindex="0" aria-label="AP bills; scroll horizontally to view every column"/,'AP/AR list evidence must be reachable through a labelled keyboard-focusable horizontal scroll region');
+assert.match(list,/<th scope="col">Bill<\/th>/,'data-table headers must have column semantics');
 
 const workspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'Evidence',status:'PARTIALLY_PAID',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(workspaceMarkup,/Payables presentation filters/);
@@ -58,6 +60,8 @@ assert.match(detail,/Entity 11111111-1111-4111-8111-111111111111/);
 assert.match(detail,/authoritative list revision 3/);
 assert.match(detail,/cannot create, edit, approve, pay, allocate, post, print, export, or synchronize/);
 assert.doesNotMatch(detail,/<input|<select|>Approve<|>Post<|>Pay</i);
+assert.match(detail,/class="table-wrap authoritative-document-detail-table" role="region" tabindex="0" aria-label="Bill evidence fields; scroll horizontally to view every column"/,'full-page evidence fields must remain keyboard-scrollable at narrow widths');
+assert.match(detail,/<th scope="row">Entity<\/th>/,'full-page evidence field labels must expose row-header semantics');
 
 const adjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={[adjustment]} onOpen={()=>{}}/>);
 assert.match(adjustmentList,/AP_VENDOR_CREDIT/);
@@ -66,6 +70,8 @@ const adjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjus
 assert.match(adjustmentDetail,/Back to AP adjustments/);
 assert.match(adjustmentDetail,/authoritative adjustment revision 2/);
 assert.match(adjustmentDetail,/cannot create, edit, apply, refund, approve, post, reverse, print, export, or synchronize/);
+assert.match(adjustmentList,/class="table-wrap authoritative-document-table" role="region" tabindex="0" aria-label="AP adjustments; scroll horizontally to view every column"/);
+assert.match(adjustmentDetail,/class="table-wrap authoritative-document-detail-table" role="region" tabindex="0" aria-label="AP adjustment evidence fields; scroll horizontally to view every column"/);
 
 const empty=renderToStaticMarkup(<AuthoritativeDocumentTable title="AR invoices" documents={[]} kind="AR"/>);
 assert.match(empty,/not evidence of a zero balance/);
@@ -87,5 +93,8 @@ assert.match(workspace,/authoritative-document-workspace stack/,'authoritative A
 assert.match(workspace,/presentation contract/,'authoritative AP/AR hierarchy must state its API-only list/detail return boundary');
 assert.match(app,/authoritative-scope-bar/,'authoritative shell must display the configured entity and period scope');
 assert.match(app,/restoreAuthoritativeReturnContext/,'full-page Back must restore scroll and focus only within the exact configured scope');
+const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
+assert.match(styles,/\.authoritative-document-table \.tbl\{min-width:940px;table-layout:fixed;\}/,'wide AP/AR evidence tables must be contained in their own scroll region');
+assert.match(styles,/\.authoritative-document-detail-table \.tbl\{min-width:720px;table-layout:fixed;\}/,'four-column detail facts must retain readable columns without overflowing the page');
 
 console.log('authoritative-document-evidence: read-only AP/AR list, detail, Back, and empty-state contracts verified');
