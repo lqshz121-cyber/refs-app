@@ -87,6 +87,15 @@ The WBS canonical state transition graph, cancel/reopen behavior, actor
 separation, and period semantics remain **UNKNOWN** until a signed provider
 contract proves them. REFS must use its own authoritative state machine.
 
+REFS now has a fail-closed verifier for that future provider artifact:
+`WBS_AUTOREC_TRANSITION_CONTRACT_V1` must be production-scoped, signed with a
+pinned Ed25519 key, hash-bound, company-scoped, time-bounded, and declare each
+cancel/reopen edge, reason requirement, requester/reviewer separation, prior
+actor exclusions, and accounting reviewed/approved/posted guards. A verified
+artifact remains external evidence (`can_transition_refs=false`); it cannot
+invoke, alter, or authorize a REFS command. A missing, unpinned, tampered, or
+incomplete artifact leaves cancellation/reopen BLOCKED.
+
 ## Matching and accounting result
 
 The review-only matching proposal requires same company, currency, and bank
