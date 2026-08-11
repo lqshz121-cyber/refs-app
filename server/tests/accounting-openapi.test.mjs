@@ -102,6 +102,31 @@ test('Journal Entry list read is authenticated, scoped and no-store',()=>{
   assert.equal(contract.components.responses.JournalEntryReadOk.headers['Cache-Control'].schema.const,'no-store');
 });
 
+test('Source Document reads are OIDC-authenticated entity evidence only and match the no-query runtime contract',()=>{
+  assert.deepEqual(contract.security,[{bearerAuth:[]}]);
+  const list=contract.paths['/entities/{entityId}/source-documents'].get;
+  const detail=contract.paths['/entities/{entityId}/source-documents/{sourceDocumentId}'].get;
+  assert.equal(list.operationId,'listSourceDocuments');assert.equal(detail.operationId,'getSourceDocumentDetail');
+  assert.deepEqual(list.parameters,[{$ref:'#/components/parameters/EntityId'}]);
+  assert.deepEqual(detail.parameters,[{$ref:'#/components/parameters/EntityId'},{$ref:'#/components/parameters/SourceDocumentId'}]);
+  assert.equal(contract.components.parameters.SourceDocumentId.schema.$ref,'#/components/schemas/Uuid');
+  assert.equal(list.responses['200'].$ref,'#/components/responses/SourceDocumentReadOk');
+  assert.equal(detail.responses['200'].$ref,'#/components/responses/SourceDocumentDetailReadOk');
+  for(const operation of [list,detail]){
+    assert.match(operation.description,/OIDC Bearer token/i);assert.match(operation.description,/does not accept a period query parameter/i);
+    assert.match(operation.description,/never returns raw provider payloads, attachment bytes, storage references, or provider credentials/i);
+  }
+  for(const response of ['SourceDocumentReadOk','SourceDocumentDetailReadOk'])assert.equal(contract.components.responses[response].headers['Cache-Control'].schema.const,'no-store');
+  const listRow=contract.components.schemas.SourceDocumentReadRow,detailRow=contract.components.schemas.SourceDocumentDetailReadRow,line=contract.components.schemas.SourceDocumentLineReadRow;
+  assert.equal(listRow.additionalProperties,false);assert.equal(detailRow.additionalProperties,false);assert.equal(line.additionalProperties,false);
+  assert.deepEqual(listRow.required,['source_document_id','source_document_revision','raw_event_id','source_system','source_module','source_record_id','source_version','document_type','document_no','business_date','accounting_date','currency','gross_amount','status','payload_hash','source_line_count','posted_journal_entry_ids','created_at','updated_at']);
+  assert.ok(detailRow.required.includes('lines'));assert.equal(detailRow.properties.lines.items.$ref,'#/components/schemas/SourceDocumentLineReadRow');
+  assert.equal(listRow.properties.source_document_revision.minimum,0);assert.equal(listRow.properties.gross_amount.pattern,'^-?(?:0|[1-9][0-9]{0,15})\\.[0-9]{4}$');
+  assert.equal(line.properties.amount.pattern,'^-?(?:0|[1-9][0-9]{0,15})\\.[0-9]{4}$');
+  const publicSchemas=JSON.stringify({listRow,detailRow,line});
+  for(const forbidden of ['"payload":','"raw_payload"','"attachment"','"attachment_id"','"attachment_ids"','"storage_ref"','"storage_version"','"provider"','"provider_'])assert.equal(publicSchemas.includes(forbidden),false);
+});
+
 test('bank transaction and reconciliation reads are scoped no-store evidence only',()=>{
   const transactions=contract.paths['/entities/{entityId}/bank/transactions'].get;
   assert.equal(transactions.operationId,'listBankTransactions');

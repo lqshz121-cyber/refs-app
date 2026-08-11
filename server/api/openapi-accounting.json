@@ -132,6 +132,49 @@
         }
       }
     },
+    "/entities/{entityId}/source-documents": {
+      "get": {
+        "operationId": "listSourceDocuments",
+        "summary": "List immutable source-document evidence for the authenticated entity",
+        "description": "Requires the configured OIDC Bearer token and GL.JE.VIEW for the path entity. Returns persisted REFS metadata and immutable identifiers only; it never returns raw provider payloads, attachment bytes, storage references, or provider credentials. This entity-scoped endpoint does not accept a period query parameter; each row carries its persisted business and accounting dates.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourceDocumentReadOk"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
+    "/entities/{entityId}/source-documents/{sourceDocumentId}": {
+      "get": {
+        "operationId": "getSourceDocumentDetail",
+        "summary": "Read one immutable source-document evidence record for the authenticated entity",
+        "description": "Requires the configured OIDC Bearer token and GL.JE.VIEW for the path entity. The source document must belong to that entity. Returns persisted REFS metadata and line evidence only; it never returns raw provider payloads, attachment bytes, storage references, or provider credentials. This endpoint does not accept a period query parameter; its immutable business and accounting dates are response evidence.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "$ref": "#/components/parameters/SourceDocumentId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SourceDocumentDetailReadOk"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
+    },
     "/entities/{entityId}/journal-entries/manual": {
       "post": {
         "operationId": "createManualJournal",
@@ -2160,6 +2203,152 @@
           }
         }
       },
+      "SourceDocumentReadRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_document_id",
+          "source_document_revision",
+          "raw_event_id",
+          "source_system",
+          "source_module",
+          "source_record_id",
+          "source_version",
+          "document_type",
+          "document_no",
+          "business_date",
+          "accounting_date",
+          "currency",
+          "gross_amount",
+          "status",
+          "payload_hash",
+          "source_line_count",
+          "posted_journal_entry_ids",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "source_document_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_document_revision": {"type": "integer", "minimum": 0},
+          "raw_event_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_system": {"type": "string", "minLength": 1, "maxLength": 255},
+          "source_module": {"type": "string", "minLength": 1, "maxLength": 255},
+          "source_record_id": {"type": "string", "minLength": 1, "maxLength": 255},
+          "source_version": {"type": "string", "minLength": 1, "maxLength": 255},
+          "document_type": {"type": "string", "minLength": 1, "maxLength": 255},
+          "document_no": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
+          "business_date": {"type": "string", "format": "date"},
+          "accounting_date": {"type": "string", "format": "date"},
+          "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+          "gross_amount": {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]{0,15})\\.[0-9]{4}$"},
+          "status": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$"},
+          "payload_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "source_line_count": {"type": "integer", "minimum": 0},
+          "posted_journal_entry_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/components/schemas/Uuid"}},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "SourceDocumentLineReadRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_document_line_id",
+          "source_line_id",
+          "line_no",
+          "amount",
+          "direction",
+          "party_ref",
+          "bank_account_ref",
+          "project_ref",
+          "property_ref",
+          "phase_ref",
+          "unit_ref",
+          "loan_ref",
+          "cost_code_ref"
+        ],
+        "properties": {
+          "source_document_line_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_line_id": {"type": "string", "minLength": 1, "maxLength": 255},
+          "line_no": {"type": "integer", "minimum": 1},
+          "amount": {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]{0,15})\\.[0-9]{4}$"},
+          "direction": {"type": "string", "enum": ["DEBIT", "CREDIT", "INFLOW", "OUTFLOW", "NONE"]},
+          "party_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
+          "bank_account_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
+          "project_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
+          "property_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
+          "phase_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
+          "unit_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
+          "loan_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
+          "cost_code_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255}
+        }
+      },
+      "SourceDocumentDetailReadRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_document_id",
+          "source_document_revision",
+          "raw_event_id",
+          "source_system",
+          "source_module",
+          "source_record_id",
+          "source_version",
+          "document_type",
+          "document_no",
+          "business_date",
+          "accounting_date",
+          "currency",
+          "gross_amount",
+          "status",
+          "payload_hash",
+          "source_line_count",
+          "posted_journal_entry_ids",
+          "lines",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "source_document_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_document_revision": {"type": "integer", "minimum": 0},
+          "raw_event_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_system": {"type": "string", "minLength": 1, "maxLength": 255},
+          "source_module": {"type": "string", "minLength": 1, "maxLength": 255},
+          "source_record_id": {"type": "string", "minLength": 1, "maxLength": 255},
+          "source_version": {"type": "string", "minLength": 1, "maxLength": 255},
+          "document_type": {"type": "string", "minLength": 1, "maxLength": 255},
+          "document_no": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
+          "business_date": {"type": "string", "format": "date"},
+          "accounting_date": {"type": "string", "format": "date"},
+          "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+          "gross_amount": {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]{0,15})\\.[0-9]{4}$"},
+          "status": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$"},
+          "payload_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "source_line_count": {"type": "integer", "minimum": 0},
+          "posted_journal_entry_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/components/schemas/Uuid"}},
+          "lines": {"type": "array", "items": {"$ref": "#/components/schemas/SourceDocumentLineReadRow"}},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "SourceDocumentReadEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {"type": "array", "items": {"$ref": "#/components/schemas/SourceDocumentReadRow"}}
+        }
+      },
+      "SourceDocumentDetailReadEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"$ref": "#/components/schemas/SourceDocumentDetailReadRow"}}
+        }
+      },
       "ReadEnvelope": {
         "type": "object",
         "additionalProperties": false,
@@ -2965,6 +3154,14 @@
     "parameters": {
       "EntityId": {
         "name": "entityId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Uuid"
+        }
+      },
+      "SourceDocumentId": {
+        "name": "sourceDocumentId",
         "in": "path",
         "required": true,
         "schema": {
@@ -4165,6 +4362,40 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/JournalEntryReadEnvelope"
+            }
+          }
+        }
+      },
+      "SourceDocumentReadOk": {
+        "description": "Authenticated entity-scoped immutable source-document metadata read",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SourceDocumentReadEnvelope"
+            }
+          }
+        }
+      },
+      "SourceDocumentDetailReadOk": {
+        "description": "Authenticated entity-scoped immutable source-document metadata and line-evidence read",
+        "headers": {
+          "Cache-Control": {
+            "schema": {
+              "const": "no-store"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SourceDocumentDetailReadEnvelope"
             }
           }
         }
