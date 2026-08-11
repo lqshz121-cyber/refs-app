@@ -12,6 +12,8 @@ assert.match(list,/GENERAL LEDGER/); assert.match(list,/JOURNAL REGISTER/); asse
 assert.match(list,/In scope/); assert.match(list,/Draft/); assert.match(list,/Needs review/); assert.match(list,/Posted/);
 assert.match(list,/Memo \/ description/); assert.match(list,/Revision 3/); assert.match(list,/Clear filters/);
 assert.match(list,/Journal entry presentation filters/); assert.match(list,/id="authoritative-journal-22222222-2222-4222-8222-222222222222"/);
+assert.match(list,/class="table-wrap authoritative-journal-table" tabindex="0" aria-label="Journal entry list; scroll horizontally to view every column"/,
+  'the eight-column Journal list must be keyboard-focusable and contained by its own horizontal scroller');
 assert.doesNotMatch(list,/>Submit<|>Review<|>Approve<|>Post<|>Reverse</i);
 
 const detail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journal} entityId={entityId} returnContext={{view:{query:'JE-100',page:2}}} onBack={()=>{}}/>);
@@ -30,6 +32,10 @@ assert.match(app,/AuthoritativeJournalWorkspace/);
 assert.doesNotMatch(app,/transitionAuthoritativeJournal|nextAuthoritativeWorkflowAction|Draft entry|route === 'drafts'/);
 const workspace=fs.readFileSync(path.join(process.cwd(),'src','authoritative-journal-workspace.jsx'),'utf8');
 assert.match(workspace,/restoreAuthoritativeReturnContext/,'Back must restore scroll and focus to the originating evidence control');
+assert.match(workspace,/table-wrap authoritative-journal-table/,'Journal facts must use the shared, page-contained table scroller');
 assert.doesNotMatch(workspace,/localStorage|SEED_|legacy-demo|seed\.js|repo\.js/,'authoritative Journal evidence must not read browser accounting state');
+const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
+assert.match(styles,/\.authoritative-journal-table \.tbl\{min-width:1060px;table-layout:fixed;\}/,
+  'the journal evidence columns must scroll inside the table container rather than squeezing or widening the page');
 
 console.log('authoritative-journal-evidence: API-only journal register, full-page evidence, Back/focus, lineage block, and empty-state contracts verified');

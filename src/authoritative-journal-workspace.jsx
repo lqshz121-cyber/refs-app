@@ -47,7 +47,7 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
     </div>
     {!page.total ? <StateBlock tone="empty" title={journals.length?'No journal entries match these presentation filters':'No authoritative journal entries in this scope'}>
       {journals.length?'Change a presentation filter to see retained list facts. A local no-match is not evidence of zero ledger activity.':'No journal entries were returned for this entity. A scoped empty list is not evidence of zero ledger activity.'}
-    </StateBlock> : <div className="table-scroll table-journal-entries authoritative-journal-table"><table className="tbl">
+    </StateBlock> : <div className="table-wrap authoritative-journal-table" tabIndex={0} aria-label="Journal entry list; scroll horizontally to view every column"><table className="tbl">
       <thead><tr><th>Journal</th><th>Date</th><th>Memo / description</th><th>Type</th><th>Currency</th><th>Status</th><th>Ledger lines</th><th>Evidence</th></tr></thead>
       <tbody>{page.rows.map(row => <tr key={row.journal_entry_id}>
         <td><b>{row.journal_number}</b><small className="journal-row-revision">Revision {row.revision}</small></td><td>{row.journal_date}</td><td className="journal-row-description">{row.description||'No description returned'}</td><td>{row.journal_type}</td><td>{row.currency}</td><td><span className="badge">{row.status}</span></td>
