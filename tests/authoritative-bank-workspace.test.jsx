@@ -27,7 +27,7 @@ assert.match(bankDetail,/AUTHORITATIVE SOURCE EVIDENCE/);assert.match(bankDetail
 const reconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={reconciliationRow}/>);
 assert.match(reconciliation,/RECONCILED/);assert.match(reconciliation,/\$1,000\.00/);assert.match(reconciliation,/Unmatched/);assert.match(reconciliation,/READ ONLY/);assert.match(reconciliation,/Open statement detail/);
 assert.match(reconciliation,/STATEMENT → REVIEW → SIGN-OFF/);assert.match(reconciliation,/Reconciliation lifecycle/);assert.match(reconciliation,/Immutable history/);
-const emptyReconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={null}/>);assert.match(emptyReconciliation,/No reconciliation statement was returned/);assert.match(emptyReconciliation,/not evidence of zero statement activity/);assert.doesNotMatch(emptyReconciliation,/Open statement detail/);
+const emptyReconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={null}/>);assert.match(emptyReconciliation,/Reconciliation evidence blocked/);assert.match(emptyReconciliation,/BLOCKED — The accounting API returned no authorized reconciliation statement/);assert.match(emptyReconciliation,/not evidence of zero statement activity/);assert.doesNotMatch(emptyReconciliation,/Open statement detail|Start DRAFT|Connect now|Get started/);
 
 const reconciliationDetail=renderToStaticMarkup(<AuthoritativeReconciliationDetail row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(reconciliationDetail,/Back to reconciliation evidence/);assert.match(reconciliationDetail,/Statement ending 2026-07-31/);assert.match(reconciliationDetail,/\$1,000\.00/);assert.match(reconciliationDetail,/11111111-1111-4111-8111-111111111111/);
@@ -57,19 +57,22 @@ assert.match(source,/createAuthoritativeBankPaymentMatch/,'an exact candidate mu
 assert.match(source,/unmatchAuthoritativeBankPayment/,'an active match must use the authoritative Unmatch command client');
 assert.match(source,/refreshAuthoritativeReconciliationWorksheet/,'Reconciliation must load server-owned worksheet evidence before a clearance command');
 assert.match(source,/setAuthoritativeReconciliationClearance/,'Clear and Unclear must use the authoritative command client');
-assert.match(source,/startAuthoritativeReconciliation/,'A missing scoped statement may be started only through the authoritative lifecycle command client');
+assert.doesNotMatch(source,/Start DRAFT reconciliation|Start controlled reconciliation/,'A missing scoped statement must fail closed instead of presenting a false Start Draft affordance');
 assert.match(source,/transitionAuthoritativeReconciliation/,'Review, sign-off, and reopen must use the authoritative lifecycle command client');
 assert.match(source,/item\.match_status==='ACTIVE'/,'Only a server-returned active Match may expose Clear');
 assert.match(source,/row:item/,'Clearance command must receive the selected server worksheet row, not the reconciliation summary');
 assert.match(source,/const reasonReady=reason\.trim\(\)\.length>=8/,'Clearance commands must require a non-blank controller reason before they can be clicked');
 assert.match(source,/disabled=\{commandInFlight\|\|!reasonReady\}/,'Clearance and lifecycle buttons must remain disabled until the controller reason is valid');
-assert.match(source,/Start DRAFT reconciliation/,'Starting a reconciliation must remain visibly Draft-only');
 assert.match(source,/createAuthoritativeReconciliationAdjustmentDraft/,'An adjustment Draft must use the authoritative reconciliation command client');
 assert.match(source,/setAuthoritativeReconciliationAdjustmentClearance/,'Adjustment clearance must use its separate posted-evidence command boundary');
 assert.match(source,/Prepare adjustment Draft/,'Only a selected server worksheet source may initiate an adjustment Draft');
 assert.match(source,/Clear Posted adjustment/,'The UI must not present an adjustment Draft as cleared before its separately verified posted-evidence command');
 assert.match(source,/configured cash account, exact four-decimal source amount/,'The UI must explain that it retains source amount and configured cash-account evidence instead of inferring a mapping');
 assert.match(source,/preserveDetail:true/,'A successful worksheet command must refresh the authoritative statement revision without losing the full-page detail context');
+assert.match(source,/Reconciliation evidence blocked/,'A missing statement must report an explicit evidence BLOCKED state');
+assert.match(source,/hasAuthorizedWorksheetEvidence/,'Controller controls must be gated on exact server-returned worksheet evidence');
+assert.match(source,/Reconciliation controls blocked/,'An empty authoritative worksheet must explicitly block controller actions');
+assert.match(source,/hasAuthorizedWorksheetEvidence&&<section className="card" aria-label="Reconciliation lifecycle command"/,'Review, sign-off, and reopen controls must not render without authorized worksheet evidence');
 assert.doesNotMatch(source,/legacy-demo-app|module-banktx|module-bankrec/,'authoritative Bank/Reconcile hierarchy must not import legacy demo UI modules');
 const css=readFileSync('index.html','utf8');
 assert.match(css,/\.authoritative-bank-scope-strip/,'Bank/Reconcile detail scope must have a dedicated responsive hierarchy');
