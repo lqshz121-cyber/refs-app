@@ -185,7 +185,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     if (!configured || !oidcClient || typeof environment?.document === 'undefined') return;
     let active = true;
     environment.refsOidcClient = oidcClient;
-    oidcClient.completeRedirect().then(result => {
+    const finishIdentity = result => {
       if (!active) return;
       if (!result.ok) { setPhase(result.code === 'OIDC_LOGIN_REQUIRED' ? 'LOGIN_REQUIRED' : 'IDENTITY_FAILED'); setError(result); return; }
       // The redirect completion rewrites the address bar, so the retained route
@@ -193,7 +193,24 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       setRouteState(readRetainedRoute(environment));
       retainRoute(environment, readRetainedRoute(environment));
       setPhase('AUTHENTICATED');
-    });
+    };
+    const restoreOrCompleteIdentity = async () => {
+      const result = await oidcClient.completeRedirect();
+      if (!active) return;
+      // A top-level reload has no usable local token, but it may still have a
+      // first-party provider SSO session. Use one PKCE prompt=none round trip
+      // to restore it. It creates no durable credential beyond the same
+      // validated session record an interactive sign-in would create. An IdP
+      // refusal returns through completeRedirect and stops here; there is no
+      // loop and no demo fallback.
+      if (!result.ok && result.code === 'OIDC_LOGIN_REQUIRED') {
+        try { await oidcClient.startLogin({prompt:'none'}); }
+        catch { finishIdentity({ok:false,code:'OIDC_LOGIN_REQUIRED'}); }
+        return;
+      }
+      finishIdentity(result);
+    };
+    void restoreOrCompleteIdentity();
     return () => { active = false; };
   }, [configured, environment, oidcClient]);
 
