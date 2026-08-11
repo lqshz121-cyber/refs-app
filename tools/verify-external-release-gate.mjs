@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { createPublicKey, verify } from 'node:crypto';
+import { createHash, createPublicKey, verify } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,21 +20,31 @@ const jsonFile = (path, label) => {
   try { return JSON.parse(readFileSync(path, 'utf8')); }
   catch { return fail('RELEASE_GATE_EVIDENCE_INVALID', `${label} is not JSON`); }
 };
-const normalizeWbsPublicKeys = value => {
-  const raw = value?.publicKeys || value?.public_keys || value;
-  const entries = Array.isArray(raw?.keys)
-    ? raw.keys.map(row => [row.kid || row.key_id, row.public_key || row.publicKey])
-    : Object.entries(raw || {});
-  const keys = new Map();
-  for (const [keyId, pem] of entries) {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(String(keyId || ''))) return null;
-    if (typeof pem !== 'string' || pem.trim().length < 64) return null;
-    let key;
-    try { key = createPublicKey(pem.replace(/\\n/g, '\n')); } catch { return null; }
-    if (key.asymmetricKeyType !== 'ed25519') return null;
-    keys.set(keyId, key);
-  }
-  return keys.size ? keys : null;
+const receiptSigningFields = Object.freeze([
+  'issuer', 'kid', 'algorithm', 'request_sha256', 'response_sha256', 'package_hash',
+  'nonce', 'signed_at', 'expires_at', 'tenant_id', 'entity_id', 'company_code',
+  'immutable_version', 'nonempty',
+]);
+const hash = value => `sha256:${createHash('sha256').update(value).digest('hex')}`;
+
+// The provider signs this exact, fixed-order UTF-8 representation.  Keeping the
+// signature input here avoids accepting a signature over only a self-described
+// package hash while the other receipt claims are mutable.
+export const canonicalWbsReceiptSigningPayload = receipt => JSON.stringify(
+  Object.fromEntries(receiptSigningFields.map(field => [field, receipt?.[field]])),
+);
+
+const normalizePinnedWbsProviderTrust = value => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const issuer = String(value.issuer || '').trim();
+  const keyId = String(value.key_id || value.kid || '').trim();
+  const pem = value.public_key || value.publicKey;
+  if (!issuer || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(keyId)) return null;
+  if (typeof pem !== 'string' || pem.trim().length < 64) return null;
+  let publicKey;
+  try { publicKey = createPublicKey(pem.replace(/\\n/g, '\n')); } catch { return null; }
+  if (publicKey.asymmetricKeyType !== 'ed25519') return null;
+  return Object.freeze({ issuer, keyId, publicKey });
 };
 
 export function verifyUiEvidence(environment = process.env) {
@@ -76,23 +86,39 @@ export function verifyS3ScannerEvidence(environment = process.env) {
 }
 
 export function verifyWbsReceiptEvidence(environment = process.env) {
-  if (!requireEnv(environment, ['WBS_SNAPSHOT_ED25519_PUBLIC_KEYS', 'REFS_WBS_SIGNED_RECEIPT_FILE'])) return false;
-  const keyring = jsonFile(resolve(environment.WBS_SNAPSHOT_ED25519_PUBLIC_KEYS), 'WBS_SNAPSHOT_ED25519_PUBLIC_KEYS');
-  if (!keyring) return false;
-  const keys = normalizeWbsPublicKeys(keyring);
-  if (!keys) return fail('RELEASE_WBS_KEYRING_INVALID', 'expected pinned Ed25519 public keys');
+  // Trust is deployment configuration, deliberately separate from the provider
+  // evidence and from the runtime keyring used by inbound services.  A receipt
+  // must never be allowed to bring the key that verifies it.
+  if (!requireEnv(environment, [
+    'REFS_WBS_PROVIDER_TRUST_FILE', 'REFS_WBS_SIGNED_RECEIPT_FILE',
+    'REFS_WBS_REQUEST_RAW_FILE', 'REFS_WBS_RESPONSE_RAW_FILE', 'REFS_WBS_PACKAGE_RAW_FILE',
+  ])) return false;
+  const providerTrust = jsonFile(resolve(environment.REFS_WBS_PROVIDER_TRUST_FILE), 'REFS_WBS_PROVIDER_TRUST_FILE');
+  if (!providerTrust) return false;
+  const pin = normalizePinnedWbsProviderTrust(providerTrust);
+  if (!pin) return fail('RELEASE_WBS_PROVIDER_TRUST_INVALID', 'expected one pinned Ed25519 provider issuer and key');
   const receipt = jsonFile(resolve(environment.REFS_WBS_SIGNED_RECEIPT_FILE), 'REFS_WBS_SIGNED_RECEIPT_FILE');
   if (!receipt) return false;
   const required = ['issuer', 'kid', 'algorithm', 'response_sha256', 'request_sha256', 'package_hash', 'nonce', 'signed_at', 'expires_at', 'tenant_id', 'entity_id', 'company_code', 'immutable_version'];
   if (!required.every(field => String(receipt[field] || '').trim()) || receipt.nonempty !== true) return fail('RELEASE_WBS_RECEIPT_INCOMPLETE', required.join(','));
+  if (receipt.algorithm !== 'Ed25519' || ![receipt.request_sha256, receipt.response_sha256, receipt.package_hash].every(value => /^sha256:[0-9a-f]{64}$/.test(String(value)))) return fail('RELEASE_WBS_RECEIPT_INCOMPLETE', 'canonical SHA-256 receipt hashes are required');
+  if (String(receipt.issuer).trim() !== pin.issuer) return fail('RELEASE_WBS_RECEIPT_ISSUER_MISMATCH', 'receipt issuer does not match the configured provider pin');
+  if (String(receipt.kid).trim() !== pin.keyId) return fail('RELEASE_WBS_RECEIPT_KEY_MISMATCH', 'receipt key id does not match the configured provider pin');
+  let raw;
+  try {
+    raw = {
+      request: readFileSync(resolve(environment.REFS_WBS_REQUEST_RAW_FILE)),
+      response: readFileSync(resolve(environment.REFS_WBS_RESPONSE_RAW_FILE)),
+      package: readFileSync(resolve(environment.REFS_WBS_PACKAGE_RAW_FILE)),
+    };
+  } catch { return fail('RELEASE_WBS_RAW_EVIDENCE_MISSING', 'canonical raw request, response, and package bytes are required'); }
+  if (hash(raw.request) !== receipt.request_sha256 || hash(raw.response) !== receipt.response_sha256 || hash(raw.package) !== receipt.package_hash) return fail('RELEASE_WBS_RAW_HASH_MISMATCH', 'receipt hashes do not bind the supplied canonical raw bytes');
   const signature = receipt.detached_signature;
   if (!signature || signature.key_id !== receipt.kid || signature.algorithm !== 'Ed25519' || typeof signature.value !== 'string') return fail('RELEASE_WBS_RECEIPT_SIGNATURE_MISSING', receipt.kid || 'unknown');
-  const publicKey = keys.get(signature.key_id);
-  if (!publicKey) return fail('RELEASE_WBS_RECEIPT_KEY_UNKNOWN', signature.key_id);
   let verified = false;
-  try { verified = verify(null, Buffer.from(receipt.package_hash, 'utf8'), publicKey, Buffer.from(signature.value, 'base64')); } catch {}
+  try { verified = verify(null, Buffer.from(canonicalWbsReceiptSigningPayload(receipt), 'utf8'), pin.publicKey, Buffer.from(signature.value, 'base64')); } catch {}
   if (!verified) return fail('RELEASE_WBS_RECEIPT_SIGNATURE_INVALID', signature.key_id);
-  console.log('release-wbs-receipt: signed nonempty receipt evidence verified');
+  console.log('release-wbs-receipt: pinned provider receipt and canonical raw evidence verified');
   return true;
 }
 

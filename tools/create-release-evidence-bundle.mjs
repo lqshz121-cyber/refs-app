@@ -85,8 +85,11 @@ const scriptCoverage = Object.fromEntries(
 const localArtifacts = {
   uiManifest: rel(envConfig.REFS_UI_E2E_MANIFEST),
   s3ScannerReceipt: rel(envConfig.REFS_S3_SCANNER_LIFECYCLE_RECEIPT),
-  wbsPublicKeys: rel(envConfig.WBS_SNAPSHOT_ED25519_PUBLIC_KEYS),
+  wbsProviderTrust: rel(envConfig.REFS_WBS_PROVIDER_TRUST_FILE),
   wbsSignedReceipt: rel(envConfig.REFS_WBS_SIGNED_RECEIPT_FILE),
+  wbsRequestRaw: rel(envConfig.REFS_WBS_REQUEST_RAW_FILE),
+  wbsResponseRaw: rel(envConfig.REFS_WBS_RESPONSE_RAW_FILE),
+  wbsPackageRaw: rel(envConfig.REFS_WBS_PACKAGE_RAW_FILE),
   envFile: rel(envPath),
 };
 
