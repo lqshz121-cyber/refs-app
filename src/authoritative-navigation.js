@@ -56,10 +56,16 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // project-cost register. Cost-code and vendor registers remain unavailable
     // until their own server read contracts exist.
     item('project-cost-cwip', 'Project Cost & CWIP', 'API_READ'), item('unit-cost-ledger', 'Unit Cost Ledger'),
-    item('unit-transfer', 'Unit Transfer'), item('construction-loan', 'Construction Loan'),
+    item('unit-transfer', 'Unit Transfer'),
+    // Existing OIDC report readers expose only mapping-backed rollforward
+    // evidence. The loan register and lender workflow remain unavailable.
+    item('construction-loan', 'Construction Loan', 'API_READ'),
     item('loan-register', 'Loan Register'), item('property-ops-pickup', 'Property Ops Pickup'),
     item('closing-accounting', 'Closing Accounting'), item('intercompany', 'Intercompany'),
-    item('fixed-assets', 'Fixed Assets'), item('amortization', 'Amortization Center'),
+    item('fixed-assets', 'Fixed Assets'),
+    // The authoritative reader is prepaid rollforward evidence only; it does
+    // not manufacture a legacy amortization schedule or posting workflow.
+    item('amortization', 'Amortization Center', 'API_READ'),
     item('accruals', 'Accrual Center'),
   ]),
   group('Close', [item('month-end-close', 'Month-End Close'), item('period-management', 'Period Management')]),

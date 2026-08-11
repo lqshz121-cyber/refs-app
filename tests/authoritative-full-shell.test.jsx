@@ -9,7 +9,7 @@ import { AuthoritativeUnavailableWorkspace } from '../src/authoritative-unavaila
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the production catalog keeps the complete major workspace taxonomy discoverable');
 assert.ok(AUTHORITATIVE_ROUTES.includes('project-cost-cwip'));
 assert.ok(AUTHORITATIVE_ROUTES.includes('ai-audit'));
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'bank', 'chart-of-accounts', 'general-ledger', 'journals', 'overview', 'payables', 'project-cost-cwip', 'receivables', 'reconciliation', 'reports', 'source-documents'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'amortization', 'bank', 'chart-of-accounts', 'construction-loan', 'general-ledger', 'journals', 'overview', 'payables', 'project-cost-cwip', 'receivables', 'reconciliation', 'reports', 'source-documents'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroup="Auto Reconciliation" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroup="Reports" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
@@ -40,4 +40,8 @@ assert.match(appSource, /AuthoritativeGeneralLedgerWorkspace/);
 assert.match(appSource, /route === 'project-cost-cwip'/, 'Project Cost & CWIP must mount existing authenticated report readers rather than an unavailable demo route');
 assert.match(appSource, /initialDimensionType="PROJECT"/, 'the direct Project Cost & CWIP entry must default only its existing API-backed profitability reader to Project');
 assert.match(appSource, /Cost-code, vendor, and project transaction registers remain unavailable/, 'the direct workspace may not pretend that the legacy transaction register has an API contract');
+assert.match(appSource, /route === 'construction-loan'/, 'Construction Loan must mount its existing API rollforward rather than a demo route');
+assert.match(appSource, /route === 'amortization'/, 'Amortization Center must mount its existing API prepaid rollforward rather than a demo route');
+assert.match(appSource, /Loan register, lender, commitment, and draw-management workflows remain unavailable/, 'the construction-loan reader must not overstate unavailable operational contracts');
+assert.match(appSource, /Schedule authoring, posting, and browser-local amortization calculations remain unavailable/, 'the amortization reader must not recreate a browser-side accounting workflow');
 console.log('authoritative full shell: complete catalog renders API routes and unavailable workspaces fail closed');
