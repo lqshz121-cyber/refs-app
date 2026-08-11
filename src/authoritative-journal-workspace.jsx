@@ -27,6 +27,14 @@ const journalReturnScope = (entityId, journal, view) => [
   `page ${view?.page || 1}`,
 ].join(' | ');
 
+const journalMatchesReturnContext = (journal, entityId, context) => Boolean(
+  journal?.journal_entry_id
+  && Number.isSafeInteger(journal?.revision)
+  && context?.entityId === entityId
+  && context?.journalId === journal.journal_entry_id
+  && context?.journalRevision === journal.revision,
+);
+
 export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHORITATIVE_LIST_VIEW, onViewChange, onOpen }) {
   const filtered=filterAuthoritativeRows(journals,view,'journal_date');
   const page=paginateAuthoritativeRows(filtered,view);
@@ -71,7 +79,13 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
 }
 
 export function AuthoritativeJournalDetail({ journal, entityId, returnContext, onBack }) {
+  const scopeMatches = journalMatchesReturnContext(journal, entityId, returnContext);
   const lineEvidence=Array.isArray(journal.line_evidence)?journal.line_evidence:null;
+  if (!scopeMatches) return <section className="full-bleed qbo-transaction-report authoritative-journal-detail" aria-label="Journal entry evidence">
+    <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>{journalReturnScope(entityId, journal, returnContext?.view)}</span></div>
+    <header className="journal-evidence-header"><div><div className="authoritative-eyebrow">GENERAL LEDGER | RETAINED EVIDENCE</div><h1>Journal entry {journal.journal_number}</h1><p className="page-subtitle">Read-only facts returned by the authoritative Journal Entry list API.</p></div><span className="badge badge-danger">BLOCKED</span></header>
+    <StateBlock tone="blocked" title="BLOCKED — immutable Journal scope mismatch">The journal row does not match the entity, Journal ID, and revision retained in its parent return context. It remains visible for review, but cannot support a line, ledger, source, or workflow drill.</StateBlock>
+  </section>;
   return <section className="full-bleed qbo-transaction-report authoritative-journal-detail" aria-label="Journal entry evidence">
     <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>{journalReturnScope(entityId, journal, returnContext?.view)}</span></div>
     <header className="journal-evidence-header">
@@ -106,7 +120,7 @@ export function AuthoritativeJournalWorkspace({ journals, config, environment=gl
   const [view,setView] = useState({...DEFAULT_AUTHORITATIVE_LIST_VIEW});
   const openEvidence=(journal,focusId)=>{
     const returnContext=createAuthoritativeReturnContext({config,view,focusId,scrollY:Number(environment?.scrollY)||0});
-    if(returnContext)setDetail({journal,returnContext});
+    if(returnContext)setDetail({journal,returnContext:{...returnContext,journalId:journal.journal_entry_id,journalRevision:journal.revision}});
   };
   if (detail) return <AuthoritativeJournalDetail journal={detail.journal} entityId={config.entityId} returnContext={detail.returnContext} onBack={() => { setView(detail.returnContext.view); setDetail(null); restoreAuthoritativeReturnContext(environment,config,detail.returnContext); }}/>;
   return <AuthoritativeJournalTable journals={journals} view={view} onViewChange={setView} onOpen={openEvidence}/>;
