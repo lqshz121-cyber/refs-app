@@ -9,7 +9,7 @@ import { AuthoritativeUnavailableWorkspace } from '../src/authoritative-unavaila
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the production catalog keeps the complete major workspace taxonomy discoverable');
 assert.ok(AUTHORITATIVE_ROUTES.includes('project-cost-cwip'));
 assert.ok(AUTHORITATIVE_ROUTES.includes('ai-audit'));
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'amortization', 'bank', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'receivables', 'reconciliation', 'reports', 'source-documents'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'amortization', 'bank', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'receivables', 'reconciliation', 'reports', 'source-documents', 'wbs-autorec-evidence'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroup="Auto Reconciliation" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroup="Reports" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
@@ -48,4 +48,5 @@ assert.match(appSource, /route === 'intercompany'/, 'Intercompany must mount its
 assert.match(appSource, /route === 'consolidation'/, 'Consolidation must mount existing snapshot evidence rather than a browser workbook');
 assert.match(appSource, /Elimination, adjustment, and intercompany posting workflows remain unavailable/, 'the intercompany surface must not overstate unavailable posting contracts');
 assert.match(appSource, /Elimination creation, group maintenance, and browser-side consolidation workbooks remain unavailable/, 'the consolidation surface must not recreate a browser-side workbook');
+assert.match(appSource, /AuthoritativeWbsTransitionWorkspace/, 'WBS evidence must mount an API-backed signed-contract verifier, not a demo workspace');
 console.log('authoritative full shell: complete catalog renders API routes and unavailable workspaces fail closed');
