@@ -371,6 +371,18 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listChartOfAccounts({tenantId,entityId,periodId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_chart_of_accounts($1,$2,$3)',[tenantId,entityId,periodId]
+    )).rows);
+  }
+
+  async listAccountRegister({tenantId,entityId,periodId,accountCode}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_account_register($1,$2,$3,$4)',[tenantId,entityId,periodId,accountCode]
+    )).rows);
+  }
+
   async listBankTransactions({tenantId,entityId,bankAccountRef,fromDate=null,throughDate=null,limit=100}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_bank_transactions($1,$2,$3,$4::date,$5::date,$6)',

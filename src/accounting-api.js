@@ -545,6 +545,49 @@ export async function refreshAuthoritativeControlTotals({config,side,fetcher=glo
   }catch{return unreachable('The browser could not complete the authoritative control-total read; no HTTP response was produced.');}
 }
 
+const accountCode=value=>ACCOUNT_CODE.test(String(value||''))?String(value):null;
+const decimalText=value=>MONEY4.test(String(value??''))?String(value):null;
+const registerTimestampDate=value=>validDate(value)?value:null;
+const readAuthoritativeRows=async({config,path,operation,fetcher})=>{
+  if(!config||typeof fetcher!=='function')return notConfigured();
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,operation);
+    const body=await response.json();
+    return body?.ok===true&&Array.isArray(body.data)?{ok:true,rows:body.data}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:`Accounting API returned an invalid ${operation} envelope.`};
+  }catch{return unreachable('The browser could not complete the authoritative accounting read; no HTTP response was produced.');}
+};
+
+export async function refreshAuthoritativeChartOfAccounts({config,fetcher=globalThis.fetch}={}){
+  if(!config)return notConfigured();
+  const result=await readAuthoritativeRows({config,path:`/general-ledger/chart-of-accounts?${new URLSearchParams({periodId:config.periodId})}`,operation:'CHART_OF_ACCOUNTS',fetcher});
+  if(!result.ok)return result;
+  const rows=[];const keys=new Set();
+  for(const row of result.rows){
+    const code=accountCode(row?.account_code),currency=row?.currency===null?null:(/^[A-Z]{3}$/.test(row?.currency||'')?row.currency:null);
+    const periodId=UUID.test(row?.period_id||'')?row.period_id:null;
+    const allBalances=['opening_balance','period_debit','period_credit','ending_balance'].map(field=>row?.[field]===null?null:decimalText(row?.[field]));
+    if(!code||typeof row?.account_name!=='string'||!row.account_name||typeof row.requires_member!=='boolean'||typeof row.active!=='boolean'||periodId!==config.periodId||!PERIOD_CODE.test(row.period_code||'')||!validDate(row.period_start)||!validDate(row.period_end)||!Number.isSafeInteger(row.posted_ledger_line_count)||row.posted_ledger_line_count<0||currency!==null&&allBalances.some(value=>value===null)||currency===null&&!(allBalances.every(value=>value===null)&&row.posted_ledger_line_count===0))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Chart of Accounts row.'};
+    const key=`${code}\u001f${currency||'NO_POSTED_CURRENCY'}`;if(keys.has(key))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate Chart of Accounts evidence.'};keys.add(key);
+    rows.push({...row,account_code:code,currency,opening_balance:allBalances[0],period_debit:allBalances[1],period_credit:allBalances[2],ending_balance:allBalances[3]});
+  }
+  return {ok:true,rows,scope:{entityId:config.entityId,periodId:config.periodId}};
+}
+
+export async function refreshAuthoritativeAccountRegister({config,accountCode:requestedAccountCode,fetcher=globalThis.fetch}={}){
+  const code=accountCode(requestedAccountCode);if(!config||!code)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Account register requires one authoritative entity, period, and account code.'};
+  const result=await readAuthoritativeRows({config,path:`/general-ledger/account-register?${new URLSearchParams({periodId:config.periodId,accountCode:code})}`,operation:'ACCOUNT_REGISTER',fetcher});
+  if(!result.ok)return result;
+  const rows=[];const ids=new Set();
+  for(const row of result.rows){
+    const amounts=['debit_amount','credit_amount','opening_balance','running_balance'].map(field=>decimalText(row?.[field]));
+    if(!row||row.account_code!==code||!UUID.test(row.period_id||'')||row.period_id!==config.periodId||!PERIOD_CODE.test(row.period_code||'')||!validDate(row.period_start)||!validDate(row.period_end)||typeof row.account_name!=='string'||!row.account_name||!/^[A-Z]{3}$/.test(row.currency||'')||!registerTimestampDate(row.journal_date)||!UUID.test(row.journal_entry_id||'')||typeof row.journal_number!=='string'||!row.journal_number||!UUID.test(row.journal_line_id||'')||!UUID.test(row.ledger_line_id||'')||row.member_ref!==null&&row.member_ref!==undefined&&typeof row.member_ref!=='string'||row.description!==null&&row.description!==undefined&&typeof row.description!=='string'||amounts.some(value=>value===null)||!Array.isArray(row.source_document_ids)||row.source_document_ids.some(id=>!UUID.test(id||''))||ids.has(row.ledger_line_id))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Account Register row.'};
+    ids.add(row.ledger_line_id);rows.push({...row,debit_amount:amounts[0],credit_amount:amounts[1],opening_balance:amounts[2],running_balance:amounts[3],source_document_ids:[...row.source_document_ids]});
+  }
+  return {ok:true,rows,scope:{entityId:config.entityId,periodId:config.periodId,accountCode:code}};
+}
+
 const failure=async(response,operation=null)=>{
   const status=Number(response?.status)||0;
   let body;try{body=await response.json();}catch{}

@@ -1994,6 +1994,28 @@ pgTest('financial statements read only POSTED ledger evidence with entity, perio
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.length,rows.length);
 });
 
+pgTest('chart of accounts and account register read only same-entity POSTED fixed-decimal ledger evidence',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'610000',accountName:'Operating Expense'}],
+    journalLines:[{lineNo:1,accountCode:'610000',debit:10.101,credit:0},{lineNo:2,accountCode:'111000',debit:0,credit:10.101,memberRef:'BANK-1'}]});
+  const trace=await attachAutoSource(ids);
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'coa-register-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'coa-register-post-001'});
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'coa-register-denied',['AP.VIEW'])});
+  await assert.rejects(denied.listChartOfAccounts({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId}),error=>error.code==='42501');
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'coa-register-reader',['GL.REPORT.VIEW','GL.JE.VIEW'])});
+  const coa=await reader.listChartOfAccounts({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  const expense=coa.find(row=>row.account_code==='610000'&&row.currency==='USD');
+  assert.deepEqual({opening:expense.opening_balance,debit:expense.period_debit,credit:expense.period_credit,ending:expense.ending_balance,lines:expense.posted_ledger_line_count},{opening:'0.0000',debit:'10.1010',credit:'0.0000',ending:'10.1010',lines:'1'});
+  const register=await reader.listAccountRegister({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'610000'});
+  assert.equal(register.length,1);assert.deepEqual({debit:register[0].debit_amount,credit:register[0].credit_amount,opening:register[0].opening_balance,running:register[0].running_balance},{debit:'10.1010',credit:'0.0000',opening:'0.0000',running:'10.1010'});
+  assert.deepEqual(register[0].source_document_ids,[trace.documentId]);
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'coa-register-reader'}),kernelFactory:async()=>reader});
+  const coaResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/general-ledger/chart-of-accounts?periodId=${ids.periodId}`,body:null,headers:{}});
+  const registerResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/general-ledger/account-register?periodId=${ids.periodId}&accountCode=610000`,body:null,headers:{}});
+  assert.equal(coaResponse.status,200);assert.equal(registerResponse.status,200);assert.equal(coaResponse.headers['cache-control'],'no-store');assert.equal(registerResponse.body.data[0].running_balance,'10.1010');
+});
+
 pgTest('financial statement period comparison reads two ordered periods and marks a missing prior side rather than deriving zero',async()=>{
   const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
     extraAccounts:[{accountCode:'610000',accountName:'Operating Expense'}],
