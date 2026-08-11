@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES } from '../src/authoritative-navigation.js';
+import { AuthoritativeNavigationShell } from '../src/authoritative-navigation-shell.jsx';
+import { AuthoritativeUnavailableWorkspace } from '../src/authoritative-unavailable-workspace.jsx';
+
+assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the production catalog keeps the complete major workspace taxonomy discoverable');
+assert.ok(AUTHORITATIVE_ROUTES.includes('project-cost-cwip'));
+assert.ok(AUTHORITATIVE_ROUTES.includes('ai-audit'));
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['bank', 'journals', 'overview', 'payables', 'receivables', 'reconciliation', 'reports'].sort());
+assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
+const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroup="Auto Reconciliation" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroup="Reports" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
+assert.match(navMarkup, /API/); assert.match(navMarkup, /Unavailable/); assert.match(navMarkup, /aria-expanded="true"/);
+const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Project Cost & CWIP'}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
+assert.match(unavailableMarkup, /Project Cost &amp; CWIP is not available/);
+assert.match(unavailableMarkup, /No browser or demonstration data is shown/);
+assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
+console.log('authoritative full shell: complete catalog renders API routes and unavailable workspaces fail closed');

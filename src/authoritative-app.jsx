@@ -20,8 +20,10 @@ import {
   createAuthoritativeReturnContext,
   restoreAuthoritativeReturnContext,
 } from './authoritative-list-context.js';
-import { AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES } from './authoritative-navigation.js';
+import { AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES, navigationItemForRoute } from './authoritative-navigation.js';
 import { AuthoritativeOverview } from './authoritative-overview.jsx';
+import { AuthoritativeNavigationShell } from './authoritative-navigation-shell.jsx';
+import { AuthoritativeUnavailableWorkspace } from './authoritative-unavailable-workspace.jsx';
 
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
@@ -297,7 +299,10 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
 
   const counts = { bills:data.ap.bills.length, invoices:data.ar.invoices.length, adjustments:data.ap.adjustments.length + data.ar.adjustments.length, journals:data.journals.length };
   return <div className="app authoritative-app">
-    <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar ${navOpen ? 'mobile-open' : ''}`}
+    <AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route={route} expandedGroup={expandedNavigationGroup}
+      onSelectGroup={selectNavigationGroup} onSelectItem={next => { setRoute(next); setNavOpen(false); }} navOpen={navOpen}
+      navDrawerRef={navDrawerRef} drawerAttributes={navDrawerAttributes(navOffCanvas, navOpen)} onClose={() => setNavOpen(false)}/>
+    {false && <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar ${navOpen ? 'mobile-open' : ''}`}
       {...navDrawerAttributes(navOffCanvas, navOpen)}>
       <div className="brand"><span className="logo">◇</span> REFS<span className="brand-sub">Authoritative</span></div>
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={() => setNavOpen(false)}>Close</button>}
@@ -315,7 +320,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           </div>;
         })}
       </nav>
-    </aside>
+    </aside>}
     {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
     <div className="main">
       <header className="topbar"><button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>☰</button><div><b>Authoritative accounting</b><span className="muted sm"> · API and OIDC secured</span></div><div className="row-acts"><button type="button" className="btn btn-sm btn-ghost" aria-pressed={theme === 'dark'} title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button><button type="button" className="btn btn-sm" onClick={refresh}>Refresh</button><button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button></div></header>
@@ -339,6 +344,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace key={`reconciliation-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace key={`reports-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={config} environment={environment}/>}
+        {phase === 'READY' && !['overview','payables','receivables','bank','reconciliation','reports','journals'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
       </main>
     </div>
   </div>;
