@@ -293,7 +293,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       <div className="brand"><span className="logo">◇</span> REFS<span className="brand-sub">Authoritative</span></div>
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={() => setNavOpen(false)}>Close</button>}
       <nav aria-label="Authoritative accounting navigation">
-        {AUTHORITATIVE_NAVIGATION.map(({ label: group, items }) => <div className="nav-group" key={group}>
+        {AUTHORITATIVE_NAVIGATION.map(({ label: group, items }, index) => <div className={`nav-group authoritative-nav-group nav-tone-${index}`} key={group}>
           <div className="nav-group-h"><span className="nav-ic">●</span>{group}</div>
           {items.map(({ route: item, label }) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => { setRoute(item); setNavOpen(false); }}>{label}</button>)}
         </div>)}

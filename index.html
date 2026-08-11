@@ -332,6 +332,17 @@ input,select,textarea{
   border-radius:0; text-align:left;
 }
 .authoritative-app .sidebar .nav-item{flex:0 0 auto; min-width:0; justify-content:flex-start; white-space:normal;}
+/* Each production workflow family has a compact circular marker.  It provides
+   visual scanning only: the text label and button semantics remain authoritative. */
+.authoritative-app .authoritative-nav-group .nav-group-h{gap:9px; padding:9px 10px; margin-top:4px; color:var(--qb-text-strong);}
+.authoritative-app .authoritative-nav-group .nav-group-h::before{display:inline-grid; place-items:center; flex:0 0 auto; width:26px; height:26px; border-radius:50%; background:var(--qb-brand); color:var(--qb-brand-fg); font:700 11px/1 var(--qb-sans);}
+.authoritative-app .authoritative-nav-group.nav-tone-0 .nav-group-h::before{content:'C';}
+.authoritative-app .authoritative-nav-group.nav-tone-1 .nav-group-h::before{content:'E'; background:#124f8a;}
+.authoritative-app .authoritative-nav-group.nav-tone-2 .nav-group-h::before{content:'R'; background:#0a7555;}
+.authoritative-app .authoritative-nav-group.nav-tone-3 .nav-group-h::before{content:'A'; background:#5b3f96;}
+.authoritative-app .authoritative-nav-group.nav-tone-4 .nav-group-h::before{content:'G'; background:#075a9c;}
+.authoritative-app .authoritative-nav-group.nav-tone-5 .nav-group-h::before{content:'P'; background:#9a5a0b;}
+.authoritative-app .authoritative-nav-group .nav-item{margin-left:35px; width:calc(100% - 35px);}
 /* --- rail --- */
 .nav-rail{
   display:flex; flex-direction:column; align-items:center;
