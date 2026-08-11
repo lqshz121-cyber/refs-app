@@ -11,6 +11,7 @@ assert.match(markup,/Loading authoritative Source Document evidence/);
 const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-source-documents-workspace.jsx'),'utf8');
 assert.match(source,/refreshAuthoritativeSourceDocuments/);assert.match(source,/readAuthoritativeSourceDocumentDetail/);assert.match(source,/does not expose attachment content, raw provider payloads/);assert.match(source,/Back to Source Documents/);
 assert.match(source,/authoritative-source-summary/,'Source Documents must present API-returned scope counts before the evidence register');
+assert.match(source,/authoritative-source-scope/,'Source Documents must visibly retain the API entity and period scope above the evidence register');
 assert.match(source,/Journal-linked/,'Source Documents must distinguish retained journal references from unlinked list facts');
 assert.match(source,/authoritative-source-intro/,'Source Documents must disclose its evidence-only boundary before the list');
 assert.match(source,/authoritative-source-filters/,'Source Documents must provide presentation-only source evidence filters');
