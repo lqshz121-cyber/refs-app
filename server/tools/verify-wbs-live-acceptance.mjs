@@ -17,9 +17,18 @@ import {validateWbsAutoRecG11PostedTrace} from '../runtime/wbs-inbound-data-adap
 
 const HASH=/^sha256:[0-9a-f]{64}$/;
 const KEY_ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const MONEY4=/^-?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/;
 const text=value=>value==null?'':String(value).trim();
 const fail=code=>{const error=new Error(code);error.code=code;throw error;};
 const required=(value,fields,code)=>{if(!value||typeof value!=='object'||Array.isArray(value)||fields.some(field=>!text(value[field])))fail(code);};
+
+function money4(value,code){
+  if(typeof value!=='string'||!MONEY4.test(value))fail(code);
+  const negative=value.startsWith('-');
+  const [whole,fraction='']=value.replace(/^-/, '').split('.');
+  const scaled=BigInt(whole)*10000n+BigInt(fraction.padEnd(4,'0'));
+  return negative?-scaled:scaled;
+}
 
 function readJson(path,label){
   if(!text(path))fail(`WBS_LIVE_ACCEPTANCE_${label}_PATH_REQUIRED`);
@@ -103,8 +112,8 @@ export function verifyGlReportEvidence({glReport,scope,g11}){
   if(glIds.size!==2||reportIds.size!==2||[...g11.journal_ids].some(id=>!glIds.has(id)||!reportIds.has(id)))fail('WBS_LIVE_ACCEPTANCE_GL_REPORT_TIE_FAILED');
   const totals=glReport.tie;
   required(totals,['gl_debits','gl_credits','report_debits','report_credits','ap_291001_net'],'WBS_LIVE_ACCEPTANCE_GL_REPORT_TIE_FAILED');
-  const numbers=Object.fromEntries(Object.entries(totals).map(([key,value])=>[key,Number(value)]));
-  if(Object.values(numbers).some(value=>!Number.isFinite(value))||Math.abs(numbers.gl_debits-numbers.gl_credits)>0.0001||Math.abs(numbers.report_debits-numbers.report_credits)>0.0001||Math.abs(numbers.gl_debits-numbers.report_debits)>0.0001||Math.abs(numbers.gl_credits-numbers.report_credits)>0.0001||Math.abs(numbers.ap_291001_net)>0.0001)fail('WBS_LIVE_ACCEPTANCE_GL_REPORT_TIE_FAILED');
+  const amounts=Object.fromEntries(Object.entries(totals).map(([key,value])=>[key,money4(value,'WBS_LIVE_ACCEPTANCE_GL_REPORT_TIE_FAILED')]));
+  if(amounts.gl_debits!==amounts.gl_credits||amounts.report_debits!==amounts.report_credits||amounts.gl_debits!==amounts.report_debits||amounts.gl_credits!==amounts.report_credits||amounts.ap_291001_net!==0n)fail('WBS_LIVE_ACCEPTANCE_GL_REPORT_TIE_FAILED');
   return Object.freeze({report_id:text(report.report_id),currency:text(gl.currency)});
 }
 
