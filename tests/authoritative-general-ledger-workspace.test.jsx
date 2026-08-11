@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeGeneralLedgerWorkspace} from '../src/authoritative-general-ledger-workspace.jsx';
+import {AuthoritativeGeneralLedgerDetail,AuthoritativeGeneralLedgerWorkspace} from '../src/authoritative-general-ledger-workspace.jsx';
 import {refreshAuthoritativeGeneralLedger} from '../src/accounting-api.js';
 
 const entityId='11111111-1111-4111-8111-111111111111',periodId='22222222-2222-4222-8222-222222222222',journalId='33333333-3333-4333-8333-333333333333',journalLineId='44444444-4444-4444-8444-444444444444',ledgerLineId='55555555-5555-4555-8555-555555555555',sourceId='66666666-6666-4666-8666-666666666666';
@@ -15,6 +15,12 @@ test('General Ledger client requires a no-store scoped GET and validates immutab
 test('General Ledger workspace is a retained read-only, contained-table surface',()=>{
   const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerWorkspace config={config} fetcher={async()=>new Response(JSON.stringify({ok:true,data:[]}),{status:200})}/>);
   for(const text of ['GENERAL LEDGER | POSTED EVIDENCE','Apply','Refresh evidence','POSTED ledger lines'])assert.match(markup,new RegExp(text));
-  const source=String(AuthoritativeGeneralLedgerWorkspace);for(const text of ['Journal ID','Ledger line ID','Source document IDs','scroll horizontally'])assert.match(source,new RegExp(text));
+  const source=String(AuthoritativeGeneralLedgerWorkspace);for(const text of ['Open evidence','Showing server page','scroll horizontally','ad-hoc date overrides are not supplied'])assert.match(source,new RegExp(text));
+  assert.doesNotMatch(markup,/localStorage|seed\.js|>Export<|>Post journal<|>Create journal</i);
+});
+test('General Ledger line evidence is a full-page immutable snapshot with exact Back context',()=>{
+  const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerDetail row={row} returnContext={{accountCode:'610000',query:'JE-100',page:2}} onBack={()=>{}}/>);
+  for(const text of ['Back to General Ledger','GENERAL LEDGER · LINE EVIDENCE','Immutable evidence identifiers','Journal entry ID','Journal line ID','Ledger line ID','Source document IDs','account 610000','search “JE-100”','page 2'])assert.match(markup,new RegExp(text));
+  assert.match(markup,new RegExp(ledgerLineId));
   assert.doesNotMatch(markup,/localStorage|seed\.js|>Export<|>Post journal<|>Create journal</i);
 });
