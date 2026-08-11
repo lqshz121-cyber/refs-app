@@ -62,10 +62,14 @@ assert.match(arWorkspaceMarkup,/Invoice, customer, account, or reference/);
 assert.doesNotMatch(arWorkspaceMarkup,/Category \(offset account\)/,'AR must not expose the AP-only category filter');
 assert.match(arWorkspaceMarkup,/1 invoices \| 0 adjustments/,'a stale AP-only account filter must not silently remove AR invoices');
 
-const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} onBack={()=>{}}/>);
+const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);
 assert.match(detail,/Entity 11111111-1111-4111-8111-111111111111/);
 assert.match(detail,/authoritative list revision 3/);
+assert.match(detail,/search Evidence/);
+assert.match(detail,/vendor Evidence Vendor/);
+assert.match(detail,/category 610000/);
+assert.match(detail,/page 2/);
 assert.match(detail,/cannot create, edit, approve, pay, allocate, post, print, export, or synchronize/);
 assert.match(detail,/class="authoritative-document-detail-summary"/,'full-page AP/AR evidence must elevate retained counterparty, amount, balance, and due-date facts');
 assert.match(detail,/Original amount/);
