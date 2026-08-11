@@ -128,6 +128,7 @@ export const STATE_CLASS = {
   loading: 'empty empty-state state-block state-loading',
   error: 'err-box state-block state-error',
   empty: 'empty empty-state state-block state-empty',
+  blocked: 'empty empty-state state-block state-blocked',
   permission: 'empty empty-state report-entity-required state-block state-permission',
   cleared: 'empty empty-state state-block state-empty state-cleared',
 };
