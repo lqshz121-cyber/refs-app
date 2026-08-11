@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {refreshAuthoritativeConsolidation,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatements} from '../src/accounting-api.js';
-import {AuthoritativeReportDetail,AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
+import {AuthoritativeReportDetail,AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,findAuthoritativeReportShortcuts,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
 
 const entityId='00000000-0000-4000-8000-000000000101',periodId='00000000-0000-4000-8000-000000000102';
 const config={baseUrl:'https://accounting.example',entityId,periodId,getAccessToken:async()=>'oidc.token.value-123456789'};
@@ -52,6 +52,9 @@ async function main(){
   assert.deepEqual(DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,{category:'STATEMENTS',query:'',preview:'TRIAL_BALANCE'},'a direct Reports entry must reset the catalog rather than recover a browser cache');
   assert.deepEqual(normalizeAuthoritativeReportsCatalog({category:'GROUP_AND_COMPARISON',query:'cash',preview:'BALANCE_SHEET'}),{category:'GROUP_AND_COMPARISON',query:'cash',preview:'BALANCE_SHEET'},'a full-page evidence drill must retain its catalog category, query, and preview for Back');
   assert.deepEqual(normalizeAuthoritativeReportsCatalog({category:'not-a-category',query:42,preview:'unknown'}),DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,'malformed Back context must fail back to the explicit Reports default');
+  assert.deepEqual(findAuthoritativeReportShortcuts('profit and loss').map(([key])=>key),['INCOME_STATEMENT'],'the report finder must map the observed Profit and Loss label to the existing Income Statement API reader');
+  assert.deepEqual(findAuthoritativeReportShortcuts('P&L').map(([key])=>key),['INCOME_STATEMENT'],'the report finder must recognize the common P&L abbreviation without creating a report alias state');
+  assert.deepEqual(findAuthoritativeReportShortcuts('profitability'),[],'finder aliases must not over-claim a property/project/unit report reader without an exact dimension scope');
   const balanceMarkup=renderToStaticMarkup(<FinancialStatementSummary report="BALANCE_SHEET" rows={[
     {...row,statement_type:'BALANCE_SHEET',statement_section:'ASSETS',display_balance:'125.1000'},
     {...row,statement_type:'BALANCE_SHEET',statement_section:'LIABILITIES',account_code:'291001',display_balance:'25.0500'},
@@ -94,6 +97,8 @@ async function main(){
   assert.match(workspace,/reports-library authoritative-reports-library/,'the authoritative Reports hierarchy must use the shared reports-library presentation, not the legacy application');
   assert.match(workspace,/rep-card/,'report families must be discoverable as report cards while remaining API-backed');
   assert.match(workspace,/REPORT_LIBRARY_SHORTCUTS/,'the Reports Center must offer API-backed core statement shortcuts without importing legacy report state');
+  assert.match(workspace,/findAuthoritativeReportShortcuts/,'the Reports finder must resolve only declared aliases for existing API statement readers');
+  assert.match(workspace,/Matching API-backed statements/,'a recognized statement alias must be actionable from the finder without a favorite or report mutation');
   assert.match(workspace,/authoritative-report-shortcut/,'core statement shortcuts must retain an explicit visual and focusable control contract');
   assert.match(workspace,/onOpenArAging\('authoritative-report-ar-aging'/,'the A\/R aging report entry must be an explicit read-only Reports shortcut, not a favorite mutation');
   assert.match(workspace,/trial-balance-table/,'the Trial Balance table needs its dedicated narrow-table layout contract');
