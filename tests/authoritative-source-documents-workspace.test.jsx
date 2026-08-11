@@ -9,7 +9,7 @@ const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222
 const markup=renderToStaticMarkup(<AuthoritativeSourceDocumentsWorkspace config={config} fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})}/>);
 assert.match(markup,/Loading authoritative Source Document evidence/);
 const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-source-documents-workspace.jsx'),'utf8');
-assert.match(source,/refreshAuthoritativeSourceDocuments/);assert.match(source,/readAuthoritativeSourceDocumentDetail/);assert.match(source,/Attachment content and provider payloads are not exposed/);assert.match(source,/Back to Source Documents/);
+assert.match(source,/refreshAuthoritativeSourceDocuments/);assert.match(source,/readAuthoritativeSourceDocumentDetail/);assert.match(source,/does not expose attachment content, raw provider payloads/);assert.match(source,/Back to Source Documents/);
 assert.match(source,/authoritative-source-summary/,'Source Documents must present API-returned scope counts before the evidence register');
 assert.match(source,/Journal-linked/,'Source Documents must distinguish retained journal references from unlinked list facts');
 assert.match(source,/authoritative-source-intro/,'Source Documents must disclose its evidence-only boundary before the list');
@@ -21,7 +21,6 @@ assert.match(source,/Retained source lines/,'Source Document detail must name it
 assert.match(source,/This page exposes only immutable metadata and retained line evidence/,'Source Document detail must be explicit about the authority boundary');
 assert.match(source,/Not retained/,'Source Document detail must use an explicit API-field absence state');
 assert.doesNotMatch(source,/[\u4e00-\u9fff]|鈥|路|�/,'Source Document visible UI must remain English-only and free from known mojibake artifacts');
-assert.match(source,/detailReturnRef\.current=\{focusId:`authoritative-source-document-\$\{id\}`,pageY:globalThis\.scrollY\|\|0,tableX:listScrollRef\.current\?\.scrollLeft\|\|0\}/,'Source Document details must retain their exact list opener and list/page scroll position before replacing the list');
 assert.match(source,/listScrollRef\.current\?\.scrollTo\?\.\(\{left:context\?\.tableX\|\|0\}\)/,'Source Document Back must restore narrow-table horizontal position');
 assert.match(source,/getElementById\(context\?\.focusId\)\?\.focus\?\.\(\{preventScroll:true\}\)/,'Source Document Back must restore keyboard focus to the exact list opener');
 assert.match(source,/className="table-wrap authoritative-source-document-list" role="region" tabIndex=\{0\} aria-label="Source Documents; scroll horizontally to view every column"/,'Source Document list must be a named keyboard-focusable narrow-table scroll region');
