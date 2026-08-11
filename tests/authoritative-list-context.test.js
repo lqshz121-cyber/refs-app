@@ -11,13 +11,15 @@ import {
 
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222'};
 const rows=[
-  {business_document_id:'33333333-3333-4333-8333-333333333333',bill_no:'B-100',vendor_name:'Alpha Vendor',bill_date:'2026-07-01',status:'OPEN'},
-  {business_document_id:'44444444-4444-4444-8444-444444444444',bill_no:'B-200',vendor_name:'Beta Vendor',bill_date:'2026-08-01',status:'PAID'},
+  {business_document_id:'33333333-3333-4333-8333-333333333333',bill_no:'B-100',vendor_name:'Alpha Vendor',account_code:'610000',bill_date:'2026-07-01',status:'OPEN'},
+  {business_document_id:'44444444-4444-4444-8444-444444444444',bill_no:'B-200',vendor_name:'Beta Vendor',account_code:'220000',bill_date:'2026-08-01',status:'PAID'},
 ];
 
 assert.deepEqual(normalizeAuthoritativeListView(null),DEFAULT_AUTHORITATIVE_LIST_VIEW);
 assert.deepEqual(filterAuthoritativeRows(rows,{query:'beta',status:'PAID',from:'2026-08-01',through:'2026-08-31'},'bill_date'),[rows[1]]);
 assert.deepEqual(filterAuthoritativeRows(rows,{from:'2026-08-02'},'bill_date'),[]);
+assert.deepEqual(filterAuthoritativeRows(rows,{counterparty:'Beta Vendor',accountCode:'220000'},'bill_date',{counterpartyField:'vendor_name',accountField:'account_code'}),[rows[1]]);
+assert.deepEqual(filterAuthoritativeRows(rows,{counterparty:'Beta Vendor',accountCode:'220000'},'bill_date'),rows,'document-only filters must not hide adjustment readers without retained fields');
 assert.deepEqual(paginateAuthoritativeRows(rows,{page:9,pageSize:1}),{rows:[rows[1]],page:2,pageCount:2,total:2});
 assert.equal(authoritativeEvidenceKey('document',rows[0]),rows[0].business_document_id);
 assert.equal(authoritativeEvidenceKey('document',{business_document_id:'display-id'}),null);
@@ -26,6 +28,7 @@ const context=createAuthoritativeReturnContext({config,view:{query:'Alpha',page:
 assert.equal(context.entityId,config.entityId);
 assert.equal(context.periodId,config.periodId);
 assert.equal(context.view.query,'Alpha');
+assert.equal(context.view.counterparty,'ALL');
 assert.equal(context.scrollY,420);
 
 const calls=[];

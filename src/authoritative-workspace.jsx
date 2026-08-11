@@ -46,10 +46,20 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   const counterpartyLabel=bill?'suppliers':'customers';
   const state=normalizeAuthoritativeListView(view);
   const dateField=bill?'bill_date':'inv_date';
-  const filteredDocuments=filterAuthoritativeRows(documents,state,dateField);
+  const counterpartyField=bill?'vendor_name':'customer_name';
+  const filteredDocuments=filterAuthoritativeRows(documents,state,dateField,{counterpartyField,accountField:'account_code'});
   const page=paginateAuthoritativeRows(filteredDocuments,state);
   const filteredAdjustments=filterAuthoritativeRows(adjustments,state,'accounting_date');
   const statuses=[...new Set([...documents,...adjustments].map(row=>row?.status).filter(Boolean))].sort();
+  const counterparties=[...new Set(documents.map(row=>row?.[counterpartyField]).filter(Boolean))].sort((left,right)=>left.localeCompare(right));
+  const accountCodes=[...new Set(documents.map(row=>row?.account_code).filter(Boolean))].sort((left,right)=>left.localeCompare(right));
+  const appliedScope=[
+    state.status!=='ALL'?`Status: ${state.status}`:null,
+    state.from?`From: ${state.from}`:null,
+    state.through?`Through: ${state.through}`:null,
+    state.counterparty!=='ALL'?`${bill?'Vendor':'Customer'}: ${state.counterparty}`:null,
+    state.accountCode!=='ALL'?`Offset account: ${state.accountCode}`:null,
+  ].filter(Boolean);
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
   return <div className="authoritative-document-workspace stack">
     <section className="accounting-page-head" aria-label={`${workspaceLabel} authoritative evidence header`}>
@@ -74,12 +84,16 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     </section>
     <section className="card" aria-label={`${workspaceLabel} API list filters`}>
     <div className="filter-bar authoritative-list-filters" role="search" aria-label={`${bill?'Payables':'Receivables'} presentation filters`}>
-      <label>Search <input value={state.query} onChange={event=>change({query:event.target.value})} placeholder={bill?'Bill or vendor':'Invoice or customer'}/></label>
+      <label>Search retained references <input value={state.query} onChange={event=>change({query:event.target.value})} placeholder={bill?'Bill, vendor, account, or reference':'Invoice, customer, account, or reference'}/></label>
       <label>Status <select value={state.status} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
       <label>From <input type="date" value={state.from} onChange={event=>change({from:event.target.value})}/></label>
       <label>Through <input type="date" value={state.through} onChange={event=>change({through:event.target.value})}/></label>
+      <label>{bill?'Payee / vendor':'Customer'} <select value={state.counterparty} onChange={event=>change({counterparty:event.target.value})}><option value="ALL">All retained {bill?'vendors':'customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+      {accountCodes.length>0?<label>Offset account <select value={state.accountCode} onChange={event=>change({accountCode:event.target.value})}><option value="ALL">All retained accounts</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Offset account unavailable — not returned by this API result.</span>}
+      <button type="button" className="btn btn-sm btn-ghost" disabled={!state.query&&!appliedScope.length} onClick={()=>change({query:'',status:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset filters</button>
       <span className="result-count" aria-live="polite">{page.total} {bill?'bills':'invoices'} · {filteredAdjustments.length} adjustments</span>
     </div>
+    <p className="muted sm authoritative-applied-scope" aria-live="polite">{appliedScope.length?`Applied presentation scope: ${appliedScope.join(' · ')}. It narrows retained API rows only.`:'Applied presentation scope: all retained API rows.'} Category and delivery-method filters are unavailable because this authenticated list response does not retain those facts.</p>
     </section>
     <section className="card" aria-label={`${workspaceLabel} document list facts`}>
     {page.total?<AuthoritativeDocumentTable title={bill?'AP bills':'AR invoices'} documents={page.rows} kind={kind} onOpen={onOpenDocument}/>:<StateBlock tone="empty" title={documents.length?`No ${bill?'bills':'invoices'} match these presentation filters`:`No authoritative ${bill?'bills':'invoices'} in this scope`}>{documents.length?'Change a presentation filter to see retained list facts. A local no-match is not evidence of zero balance.':'This scoped empty result is not evidence of a zero balance.'}</StateBlock>}
