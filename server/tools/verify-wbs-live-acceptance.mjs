@@ -2,15 +2,16 @@
 // Read-only acceptance verifier for evidence supplied after a real WBS run.
 // It never opens a network connection and never connects to an accounting DB.
 //
-// node tools/verify-wbs-live-acceptance.mjs --keyring <json> --receipt <json> \
+// node tools/verify-wbs-live-acceptance.mjs --provider-trust <json> --receipt <json> \
+//   --request-raw <bytes> --response-raw <bytes> --package-raw <bytes> \
 //   --ingress <json> --g11 <json> --gl-report <json>
 //
-// Evidence files are intentionally supplied at invocation time.  A PASS proves
-// only that the supplied, signed evidence chain is internally consistent; it
-// does not create, approve, or post anything.
+// Provider trust is a separately managed pinned configuration, not evidence
+// supplied by the run. A PASS verifies that the supplied evidence is bound to
+// that pin; it never creates, approves, or posts anything.
 
 import {existsSync,readFileSync} from 'node:fs';
-import {createPublicKey,verify} from 'node:crypto';
+import {createHash,createPublicKey,verify} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {validateWbsAutoRecG11PostedTrace} from '../runtime/wbs-inbound-data-adapter.mjs';
 
@@ -26,28 +27,33 @@ function readJson(path,label){
   try{return JSON.parse(readFileSync(path,'utf8'));}catch{fail(`WBS_LIVE_ACCEPTANCE_${label}_INVALID`);}
 }
 
-export function normalizeWbsKeyring(value){
-  const raw=value?.publicKeys??value?.public_keys??value;
-  const entries=Array.isArray(raw?.keys)?raw.keys.map(row=>[row.kid??row.key_id,row.public_key??row.publicKey]):Object.entries(raw??{});
-  if(!entries.length)fail('WBS_LIVE_ACCEPTANCE_KEYRING_INVALID');
-  const keys=new Map();
-  for(const [keyId,pem] of entries){
-    if(!KEY_ID.test(text(keyId))||typeof pem!=='string'||pem.trim().length<64)fail('WBS_LIVE_ACCEPTANCE_KEYRING_INVALID');
-    let key;try{key=createPublicKey(pem.replace(/\\n/g,'\n'));}catch{fail('WBS_LIVE_ACCEPTANCE_KEYRING_INVALID');}
-    if(key.asymmetricKeyType!=='ed25519')fail('WBS_LIVE_ACCEPTANCE_KEYRING_INVALID');
-    keys.set(text(keyId),key);
-  }
-  return keys;
+function readRaw(path,label){
+  if(!text(path))fail(`WBS_LIVE_ACCEPTANCE_${label}_PATH_REQUIRED`);
+  if(!existsSync(path))fail(`WBS_LIVE_ACCEPTANCE_${label}_MISSING`);
+  try{return readFileSync(path);}catch{fail(`WBS_LIVE_ACCEPTANCE_${label}_INVALID`);}
 }
 
-export function verifySignedReceipt({receipt,keyring}){
+export function normalizePinnedProviderTrust(value){
+  required(value,['issuer','key_id','public_key'],'WBS_LIVE_ACCEPTANCE_PROVIDER_TRUST_INVALID');
+  if(!KEY_ID.test(text(value.key_id))||typeof value.public_key!=='string'||value.public_key.trim().length<64)fail('WBS_LIVE_ACCEPTANCE_PROVIDER_TRUST_INVALID');
+  let publicKey;
+  try{publicKey=createPublicKey(value.public_key.replace(/\\n/g,'\n'));}catch{fail('WBS_LIVE_ACCEPTANCE_PROVIDER_TRUST_INVALID');}
+  if(publicKey.asymmetricKeyType!=='ed25519')fail('WBS_LIVE_ACCEPTANCE_PROVIDER_TRUST_INVALID');
+  return Object.freeze({issuer:text(value.issuer),key_id:text(value.key_id),publicKey});
+}
+
+const sha256=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
+
+export function verifySignedReceipt({receipt,providerTrust,raw}){
   required(receipt,['issuer','kid','algorithm','response_sha256','request_sha256','package_hash','nonce','signed_at','expires_at','tenant_id','entity_id','company_code','immutable_version'],'WBS_LIVE_ACCEPTANCE_RECEIPT_INCOMPLETE');
   if(receipt.nonempty!==true||receipt.algorithm!=='Ed25519'||!HASH.test(text(receipt.package_hash))||!HASH.test(text(receipt.request_sha256))||!HASH.test(text(receipt.response_sha256)))fail('WBS_LIVE_ACCEPTANCE_RECEIPT_INCOMPLETE');
+  if(!raw||!Buffer.isBuffer(raw.request)||!Buffer.isBuffer(raw.response)||!Buffer.isBuffer(raw.package))fail('WBS_LIVE_ACCEPTANCE_RAW_EVIDENCE_REQUIRED');
+  if(sha256(raw.request)!==text(receipt.request_sha256)||sha256(raw.response)!==text(receipt.response_sha256)||sha256(raw.package)!==text(receipt.package_hash))fail('WBS_LIVE_ACCEPTANCE_RAW_HASH_MISMATCH');
+  if(text(receipt.issuer)!==providerTrust.issuer)fail('WBS_LIVE_ACCEPTANCE_RECEIPT_ISSUER_MISMATCH');
+  if(text(receipt.kid)!==providerTrust.key_id)fail('WBS_LIVE_ACCEPTANCE_RECEIPT_KEY_ID_MISMATCH');
   const signature=receipt.detached_signature;
   if(!signature||text(signature.key_id)!==text(receipt.kid)||signature.algorithm!=='Ed25519'||typeof signature.value!=='string'||!signature.value.trim())fail('WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_MISSING');
-  const key=keyring.get(text(receipt.kid));
-  if(!key)fail('WBS_LIVE_ACCEPTANCE_RECEIPT_KEY_UNKNOWN');
-  try{if(!verify(null,Buffer.from(receipt.package_hash,'utf8'),key,Buffer.from(signature.value,'base64')))fail('WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_INVALID');}
+  try{if(!verify(null,Buffer.from(receipt.package_hash,'utf8'),providerTrust.publicKey,Buffer.from(signature.value,'base64')))fail('WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_INVALID');}
   catch(error){if(error?.code)throw error;fail('WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_INVALID');}
   return Object.freeze({tenant_id:text(receipt.tenant_id),entity_id:text(receipt.entity_id),company_code:text(receipt.company_code),package_hash:text(receipt.package_hash)});
 }
@@ -102,8 +108,8 @@ export function verifyGlReportEvidence({glReport,scope,g11}){
   return Object.freeze({report_id:text(report.report_id),currency:text(gl.currency)});
 }
 
-export function verifyWbsLiveAcceptance({keyring,receipt,ingress,g11,glReport}){
-  const scope=verifySignedReceipt({receipt,keyring:normalizeWbsKeyring(keyring)});
+export function verifyWbsLiveAcceptance({providerTrust,receipt,raw,ingress,g11,glReport}){
+  const scope=verifySignedReceipt({receipt,providerTrust:normalizePinnedProviderTrust(providerTrust),raw});
   const ingressResult=verifyIngressEvidence({ingress,scope});
   const g11Result=verifyG11Evidence({g11,scope});
   const reportResult=verifyGlReportEvidence({glReport,scope,g11:g11Result});
@@ -111,14 +117,14 @@ export function verifyWbsLiveAcceptance({keyring,receipt,ingress,g11,glReport}){
 }
 
 function argumentsFrom(argv){
-  const names=new Set(['keyring','receipt','ingress','g11','gl-report']);const out={};
+  const names=new Set(['provider-trust','receipt','request-raw','response-raw','package-raw','ingress','g11','gl-report']);const out={};
   for(let index=0;index<argv.length;index+=2){const flag=argv[index]?.replace(/^--/,'');if(!names.has(flag)||!argv[index+1]||out[flag])fail('WBS_LIVE_ACCEPTANCE_ARGUMENT_INVALID');out[flag]=argv[index+1];}
   if(Object.keys(out).length!==names.size)fail('WBS_LIVE_ACCEPTANCE_ARGUMENT_INVALID');
   return out;
 }
 
 export function main(argv=process.argv.slice(2)){
-  try{const args=argumentsFrom(argv);const result=verifyWbsLiveAcceptance({keyring:readJson(args.keyring,'KEYRING'),receipt:readJson(args.receipt,'RECEIPT'),ingress:readJson(args.ingress,'INGRESS'),g11:readJson(args.g11,'G11'),glReport:readJson(args['gl-report'],'GL_REPORT')});console.log(`wbs-live-acceptance: PASS ingress_rows=${result.ingress_rows} posted_journals=${result.posted_journal_count}`);return 0;}
+  try{const args=argumentsFrom(argv);const raw={request:readRaw(args['request-raw'],'REQUEST_RAW'),response:readRaw(args['response-raw'],'RESPONSE_RAW'),package:readRaw(args['package-raw'],'PACKAGE_RAW')};const result=verifyWbsLiveAcceptance({providerTrust:readJson(args['provider-trust'],'PROVIDER_TRUST'),receipt:readJson(args.receipt,'RECEIPT'),raw,ingress:readJson(args.ingress,'INGRESS'),g11:readJson(args.g11,'G11'),glReport:readJson(args['gl-report'],'GL_REPORT')});console.log(`wbs-live-acceptance: PASS ingress_rows=${result.ingress_rows} posted_journals=${result.posted_journal_count}`);return 0;}
   catch(error){console.error(`${error?.code||'WBS_LIVE_ACCEPTANCE_FAILED'}: evidence verification failed`);return 1;}
 }
 
