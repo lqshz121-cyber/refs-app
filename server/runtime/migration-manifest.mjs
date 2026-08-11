@@ -91,4 +91,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"082_consolidation_read.sql",up:"f068a896501b070cacc48694123e3daae61590c568981a1a4608038fb19671ad",down:"fa4a93a338aa333d94b436230bc85321c1f9b8fbe82b673c349588681eefa1e1"}),
   Object.freeze({name:"083_chart_of_accounts_register_read.sql",up:"b4d6b1043399e01512443bb6745d145cdab175b01f7bf7e2e493dbda725658d0",down:"0736c56081b105807105315294d4495c961f65b98a4a373e94018e83543e3a80"}),
   Object.freeze({name:"084_source_document_read.sql",up:"90e3a24d5e80c823969ce2302aad5bbf4e80eb4cde94543bca0ca663a315032e",down:"b9f2710fb9a01486aa150910a3a42421dba21391527783ac36fe3c09527e0cf0"}),
+  Object.freeze({name:"085_general_ledger_read.sql",up:"9bd269b8bbcd86d01c6a9710ad31e16b0259b3b9679978d554fd8a1e85f821c9",down:"2bf478e58288e132ea603f83178c81ad4e2cb052504593a0d09cd970434b0c98"}),
 ]);

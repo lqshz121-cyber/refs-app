@@ -47,7 +47,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
   ]),
   group('Journal Entry', [item('journals', 'Journal entries', 'API_READ')]),
   group('General Ledger', [
-    item('general-ledger', 'GL / TB / BS / IS'), item('consolidation', 'Consolidation'),
+    item('general-ledger', 'General Ledger', 'API_READ'), item('consolidation', 'Consolidation'),
     item('account-inquiry', 'Account inquiry', 'API_READ'), item('subsidiary-ledger', 'Subsidiary ledger'),
     item('chart-of-accounts', 'Chart of accounts', 'API_READ'),
   ]),

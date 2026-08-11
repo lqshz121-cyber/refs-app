@@ -383,6 +383,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listGeneralLedger({tenantId,entityId,periodId,accountCode=null,query=null,limit=50,offset=0}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_general_ledger($1,$2,$3,$4,$5,$6,$7)',[tenantId,entityId,periodId,accountCode,query,limit,offset]
+    )).rows);
+  }
+
   async listSourceDocuments({tenantId,entityId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_source_documents($1,$2)',[tenantId,entityId]

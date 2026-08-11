@@ -1133,6 +1133,22 @@
         "responses": {"200": {"$ref": "#/components/responses/AccountRegisterReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/general-ledger/entries": {
+      "get": {
+        "operationId": "listGeneralLedger",
+        "summary": "Read paginated entity-and-period scoped POSTED General Ledger evidence",
+        "description": "Returns only POSTED ledger lines, fixed four-decimal debit and credit strings, and immutable Journal Entry, Journal Line, Ledger Line, and retained Source Document identifiers. Query and pagination are read-only presentation controls. This operation cannot create, edit, post, adjust, reconcile, export, or call a provider.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}},
+          {"name": "accountCode", "in": "query", "required": false, "schema": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$"}},
+          {"name": "query", "in": "query", "required": false, "schema": {"type": "string", "maxLength": 160}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 200}},
+          {"name": "offset", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 0}}
+        ],
+        "responses": {"200": {"$ref": "#/components/responses/AccountRegisterReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/reports/financial-statements": {
       "get": {
         "operationId": "getFinancialStatements",
