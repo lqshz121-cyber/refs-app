@@ -1076,6 +1076,11 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-aging-table .tbl{min-width:760px;}
 .authoritative-bank-queue-note{display:flex;align-items:baseline;gap:6px;margin:0 0 12px;padding:10px 12px;border-left:3px solid var(--qb-accent);background:var(--qb-inset);color:var(--qb-text-muted);font-size:12px;}
 .authoritative-bank-queue-note b{color:var(--qb-text-strong);font-size:16px;font-variant-numeric:tabular-nums;}
+.authoritative-bank-summary-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 14px;}
+.authoritative-bank-summary-card{display:flex;min-width:0;flex-direction:column;gap:4px;padding:12px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);background:var(--qb-surface);}
+.authoritative-bank-summary-card i{color:var(--qb-text-muted);font-size:11px;font-style:normal;font-weight:600;letter-spacing:.035em;text-transform:uppercase;}
+.authoritative-bank-summary-card b{color:var(--qb-text-strong);font-size:22px;font-variant-numeric:tabular-nums;line-height:1.1;}
+.authoritative-bank-summary-card span{color:var(--qb-text-muted);font-size:12px;overflow-wrap:anywhere;}
 .authoritative-evidence-stage{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0;padding:11px 12px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);background:var(--qb-surface);}
 .authoritative-evidence-stage span{display:inline-flex;align-items:center;min-height:26px;padding:0 9px;border:1px solid var(--qb-border);border-radius:999px;color:var(--qb-text-muted);font-size:12px;font-weight:600;}
 .authoritative-evidence-stage .done{border-color:var(--qb-ok-line);background:var(--qb-ok-bg);color:var(--qb-ok);}
@@ -2040,6 +2045,7 @@ select{padding-right:28px; cursor:pointer;}
   .filter-bar label,.expense-toolbar label,.filterbar label{width:100%;}
   .filter-bar select,.expense-toolbar select,.filterbar select,.filterbar input{width:100%; min-width:0;}
   .authoritative-bank-scope-strip{grid-template-columns:minmax(0,1fr);}
+  .authoritative-bank-summary-cards{grid-template-columns:repeat(2,minmax(0,1fr));}
   .authoritative-aging-heading{align-items:flex-start;flex-direction:column;}
   .authoritative-aging-actions{justify-content:flex-start;}
   .authoritative-aging-controls{grid-template-columns:minmax(0,1fr);align-items:stretch;}
@@ -2055,6 +2061,7 @@ select{padding-right:28px; cursor:pointer;}
   .tbl th,.tbl td{overflow-wrap:anywhere;}
   .table-wrap{max-height:none;}
 }
+@media (max-width:430px){.authoritative-bank-summary-cards{grid-template-columns:minmax(0,1fr);}.authoritative-bank-summary-card{padding:11px 12px;}}
 @media(max-width:720px){.report-workbench-head{flex-direction:column;}.report-preview-meta{justify-content:flex-start;}.authoritative-report-shortcuts{grid-template-columns:1fr;}.authoritative-report-shortcut-grid{grid-template-columns:1fr;}}
 @media(max-width:600px){
   .qbo-home-actions{grid-template-columns:1fr;}
