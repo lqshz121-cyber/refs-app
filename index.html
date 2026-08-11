@@ -318,6 +318,20 @@ input,select,textarea{
   position:sticky; top:0; height:100vh; overflow:hidden; padding:0;
   background:var(--qb-surface); border-right:var(--qb-hair) solid var(--qb-divider);
 }
+/* The authoritative shell intentionally has one drawer, not the demonstration
+   shell's icon rail + detail panel pair.  Its direct children must stack: if
+   they inherit the shared horizontal rail layout, the navigation receives only
+   the space left after the brand and page controls, which truncates names at
+   every breakpoint. */
+.authoritative-app .sidebar{flex-direction:column; align-items:stretch;}
+.authoritative-app .sidebar>nav{width:100%;}
+.authoritative-app .sidebar>nav>.nav-group{display:flex; flex-direction:column; align-items:stretch; width:100%;}
+.authoritative-app .sidebar .nav-group-h{
+  flex:0 0 auto; flex-direction:row; justify-content:flex-start; gap:8px;
+  width:100%; height:auto; min-height:44px; margin:0; padding:0 16px;
+  border-radius:0; text-align:left;
+}
+.authoritative-app .sidebar .nav-item{flex:0 0 auto; min-width:0; justify-content:flex-start; white-space:normal;}
 /* --- rail --- */
 .nav-rail{
   display:flex; flex-direction:column; align-items:center;

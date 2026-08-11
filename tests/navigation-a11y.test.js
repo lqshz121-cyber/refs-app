@@ -4,6 +4,7 @@ import {focusFirstControl, navDrawerAttributes, navDrawerIsInert, readOffCanvas,
 
 const app=readFileSync('src/legacy-demo-app.jsx','utf8');
 const authoritative=readFileSync('src/authoritative-app.jsx','utf8');
+const styles=readFileSync('index.html','utf8');
 assert.match(app,/<button className="mobile-nav-scrim" tabIndex=\{-1\} aria-label="Close navigation"/);
 assert.match(app,/<button className="mobile-nav-close" aria-label="Close navigation" onClick=\{\(\)=>setMobileNav\(false\)\}>Close<\/button>/);
 assert.match(app,/aria-expanded=\{isSingleton\?undefined:opened\}/,'multi-item group headers must expose expanded state');
@@ -92,5 +93,15 @@ assert.match(authoritative, /aria-pressed=\{theme === 'dark'\}/,
   'the theme toggle must announce its selected state');
 assert.match(authoritative, /Switch to (?:light|dark) theme/,
   'the theme toggle must have an understandable accessible name');
+
+// The authoritative shell is a single-column drawer. It must not inherit the
+// demonstration shell's rail-and-panel flex row, which would squeeze page
+// names until the drawer is unreadable even though there is no page overflow.
+assert.match(styles,/\.authoritative-app \.sidebar\{flex-direction:column; align-items:stretch;\}/,
+  'the authoritative drawer must stack its brand and navigation vertically');
+assert.match(styles,/\.authoritative-app \.sidebar>nav>\.nav-group\{display:flex; flex-direction:column; align-items:stretch; width:100%;\}/,
+  'the authoritative navigation group must receive the full drawer width');
+assert.match(styles,/\.authoritative-app \.sidebar \.nav-item\{flex:0 0 auto; min-width:0; justify-content:flex-start; white-space:normal;\}/,
+  'authoritative page labels must remain readable rather than compressing into a rail column');
 
 console.log('navigation-a11y: mobile drawer is inert while off-canvas and closed, returns focus to its opener, and exposes accessible English controls');
