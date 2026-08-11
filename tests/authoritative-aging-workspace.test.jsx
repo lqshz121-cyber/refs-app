@@ -29,6 +29,10 @@ assert.match(reportBackMarkup,/Back to Reports/,'the Reports shortcut must not i
 assert.match(source,/AuthoritativeReadFailure/,'Aging must use the shared authoritative failure presentation.');
 assert.match(source,/authoritativeReadFailurePhase\(failure\)/,'Aging must classify only trusted-read boundary failures as BLOCKED.');
 assert.doesNotMatch(source,/blockedReadCodes/,'Aging must not maintain a divergent local blocked-code list.');
+assert.match(source,/agingContextMatches/,'Aging must validate its immutable parent return scope.');
+assert.match(source,/BLOCKED — immutable aging scope mismatch/,'Aging scope mismatches must fail closed.');
+const mismatchedScopeMarkup=renderToStaticMarkup(<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})} onBack={()=>{}} returnContext={{entityId:config.entityId,periodId:config.periodId,agingSide:'AP'}}/>);
+assert.match(mismatchedScopeMarkup,/BLOCKED — immutable aging scope mismatch/,'Aging must reject a parent scope from the opposite subledger.');
 assert.doesNotMatch(source,/鈥|路/);
 assert.doesNotMatch(source,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data/);
 console.log('authoritative-aging-workspace: API-only scope, as-of report control, full-page return, actionable empty and blocked states, and contained tables verified');
