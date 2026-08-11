@@ -110,6 +110,12 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   // and journal reads complete, so the visible workspace never keeps stale
   // evidence while the header claims that the reader refreshed the system.
   const [workspaceRefreshVersion, setWorkspaceRefreshVersion] = useState(0);
+  // A direct selection of Reports is an explicit catalog entry, not a
+  // continuation of the last report drill. React preserves a mounted route
+  // when a user selects its already-active navigation item, so keep a small
+  // route-local revision to remount the GET-only reports workspace and restore
+  // its documented default catalog in that case.
+  const [reportsNavigationVersion, setReportsNavigationVersion] = useState(0);
   // Same off-canvas drawer contract as the demonstration shell: below 1024px the
   // sidebar is pushed out of the viewport by transform alone, so without `inert`
   // its eight route buttons stay in the tab order while invisible. This surface
@@ -199,7 +205,11 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     restoreAuthoritativeReturnContext(environment,config,context);
   }, [agingDetail, updateListView, environment, config]);
 
-  const setRoute = useCallback(next => { setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setRouteState(next); retainRoute(environment, next); }, [environment]);
+  const setRoute = useCallback(next => {
+    setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null);
+    if (next === 'reports') setReportsNavigationVersion(current => current + 1);
+    setRouteState(next); retainRoute(environment, next);
+  }, [environment]);
   const selectNavigationGroup = useCallback(group => {
     const multiple = group.items.length > 1;
     setExpandedNavigationGroup(current => multiple && current === group.label ? null : group.label);
@@ -358,7 +368,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'receivables' && (agingDetail?.side==='AR'?<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={boundFetcher} onBack={closeAgingEvidence}/>:documentDetail?.kind==='AR'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AR" entityId={config.entityId} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AR'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AR" entityId={config.entityId} onBack={closeAdjustmentEvidence}/>:<><AuthoritativeDocumentWorkspace kind="AR" documents={data.ar.invoices} adjustments={data.ar.adjustments} view={listViews.AR} onViewChange={view=>updateListView('AR',view)} onOpenDocument={(row,focusId)=>openDocumentEvidence('AR',row,focusId)} onOpenAdjustment={(row,focusId)=>openAdjustmentEvidence('AR',row,focusId)}/><section className="card authoritative-aging-launch" aria-label="Accounts receivable aging report"><div className="card-head"><div><h2>Accounts receivable aging</h2><p className="muted sm">Open a full-page, authenticated aging report. The report preserves this invoices-and-receipts context on Back.</p></div><span className="badge badge-muted">READ ONLY</span></div><button id="authoritative-ar-aging-launch" type="button" className="btn" onClick={()=>openAgingEvidence('AR','authoritative-ar-aging-launch')}>Open AR aging report</button></section></>)}
         {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace key={`bank-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace key={`reconciliation-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment}/>}
-        {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace key={`reports-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment}/>}
+        {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace key={`reports-${workspaceRefreshVersion}-${reportsNavigationVersion}`} config={config} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={config} environment={environment}/>}
         {phase === 'READY' && route === 'source-documents' && <AuthoritativeSourceDocumentsWorkspace key={`source-documents-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && ['chart-of-accounts','account-inquiry'].includes(route) && <AuthoritativeChartOfAccountsWorkspace key={`coa-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}

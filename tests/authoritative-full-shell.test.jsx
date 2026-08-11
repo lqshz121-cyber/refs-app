@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES } from '../src/authoritative-navigation.js';
@@ -22,4 +23,11 @@ assert.match(unavailableMarkup, /No browser or demonstration data is shown/);
 assert.match(unavailableMarkup, /Required authoritative read contract/);
 assert.match(unavailableMarkup, /attachment-read contract/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
+const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
+assert.match(appSource, /const \[reportsNavigationVersion, setReportsNavigationVersion\] = useState\(0\)/,
+  'a direct Reports navigation needs a route-local revision when React would otherwise retain an already-mounted catalog');
+assert.match(appSource, /if \(next === 'reports'\) setReportsNavigationVersion\(current => current \+ 1\)/,
+  'a direct Reports selection must reset the catalog even when Reports is already the active route');
+assert.match(appSource, /key=\{`reports-\$\{workspaceRefreshVersion\}-\$\{reportsNavigationVersion\}`\}/,
+  'the reports workspace must consume its direct-navigation revision without creating a browser-side catalog store');
 console.log('authoritative full shell: complete catalog renders API routes and unavailable workspaces fail closed');
