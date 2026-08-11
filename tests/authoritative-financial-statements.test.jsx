@@ -89,6 +89,8 @@ async function main(){
   assert.match(workspace,/reports-library authoritative-reports-library/,'the authoritative Reports hierarchy must use the shared reports-library presentation, not the legacy application');
   assert.match(workspace,/rep-card/,'report families must be discoverable as report cards while remaining API-backed');
   assert.match(workspace,/trial-balance-table/,'the Trial Balance table needs its dedicated narrow-table layout contract');
+  assert.match(workspace,/report-section-row/,'statement rows must retain a readable section boundary instead of presenting a flat account list');
+  assert.match(workspace,/scope="rowgroup"/,'each visible statement section must expose table grouping semantics');
   assert.match(workspace,/disabled=\{state\.phase==='LOADING'\} onClick=\{load\}>Refresh statement evidence/,'statement refresh must be an API-read control that retains the current workspace state');
   assert.doesNotMatch(workspace,/Save As|Customize|<button[^>]*>Email|<button[^>]*>Print|<button[^>]*>Export/,'authoritative reports must not expose QBO save, customize, email, print, or export controls');
   assert.doesNotMatch(workspace,/from ['"]\.\/(?:legacy-demo-app|data|seed|repo)/,'authoritative reports must never import local demonstration state');
