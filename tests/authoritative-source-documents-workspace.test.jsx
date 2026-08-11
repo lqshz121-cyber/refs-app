@@ -10,5 +10,10 @@ const markup=renderToStaticMarkup(<AuthoritativeSourceDocumentsWorkspace config=
 assert.match(markup,/Loading authoritative Source Document evidence/);
 const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-source-documents-workspace.jsx'),'utf8');
 assert.match(source,/refreshAuthoritativeSourceDocuments/);assert.match(source,/readAuthoritativeSourceDocumentDetail/);assert.match(source,/Attachment content and provider payloads are not exposed/);assert.match(source,/Back to Source Documents/);
+assert.match(source,/detailReturnRef\.current=\{focusId:`authoritative-source-document-\$\{id\}`,pageY:globalThis\.scrollY\|\|0,tableX:listScrollRef\.current\?\.scrollLeft\|\|0\}/,'Source Document details must retain their exact list opener and list/page scroll position before replacing the list');
+assert.match(source,/listScrollRef\.current\?\.scrollTo\?\.\(\{left:context\?\.tableX\|\|0\}\)/,'Source Document Back must restore narrow-table horizontal position');
+assert.match(source,/getElementById\(context\?\.focusId\)\?\.focus\?\.\(\{preventScroll:true\}\)/,'Source Document Back must restore keyboard focus to the exact list opener');
+assert.match(source,/className="table-wrap authoritative-source-document-list" role="region" tabIndex=\{0\} aria-label="Source Documents; scroll horizontally to view every column"/,'Source Document list must be a named keyboard-focusable narrow-table scroll region');
+assert.match(source,/className="table-wrap authoritative-source-document-lines" role="region" tabIndex=\{0\} aria-label="Source Document lines; scroll horizontally to view every column"/,'Source Document detail lines must be a named keyboard-focusable narrow-table scroll region');
 assert.doesNotMatch(source,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data|\b(?:POST|PUT|PATCH|DELETE)\b/);
 console.log('authoritative Source Documents workspace: API-only persisted evidence and immutable detail verified');
