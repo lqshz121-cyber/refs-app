@@ -78,4 +78,19 @@ for (const [name,source,open] of [['src/legacy-demo-app.jsx',app,'mobileNav'],['
   assert.match(source,/className="mobile-nav-close"/,`${name}: an off-canvas drawer needs a visible way out`);
 }
 
+// The authoritative surface must expose the same presentation-only theme
+// control as the legacy shell.  It is deliberately an explicit button rather
+// than a system-only preference, so keyboard and touch users can always
+// choose a contrast mode without changing any accounting state.
+assert.match(authoritative, /resolveInitialTheme\(environment\)/,
+  'the authoritative shell must honour the reader or OS theme at startup');
+assert.match(authoritative, /watchOsTheme\(environment, next => setTheme\(next\)\)/,
+  'the authoritative shell must follow OS changes until the reader chooses a theme');
+assert.match(authoritative, /writeStoredTheme\(next, environment\)/,
+  'a reader-selected theme must use the audited presentation-preference store');
+assert.match(authoritative, /aria-pressed=\{theme === 'dark'\}/,
+  'the theme toggle must announce its selected state');
+assert.match(authoritative, /Switch to (?:light|dark) theme/,
+  'the theme toggle must have an understandable accessible name');
+
 console.log('navigation-a11y: mobile drawer is inert while off-canvas and closed, returns focus to its opener, and exposes accessible English controls');
