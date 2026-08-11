@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {refreshAuthoritativeConsolidation,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatements} from '../src/accounting-api.js';
-import {AuthoritativeReportsWorkspace,FinancialStatementSummary} from '../src/authoritative-reports-workspace.jsx';
+import {AuthoritativeReportsWorkspace,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
 
 const entityId='00000000-0000-4000-8000-000000000101',periodId='00000000-0000-4000-8000-000000000102';
 const config={baseUrl:'https://accounting.example',entityId,periodId,getAccessToken:async()=>'oidc.token.value-123456789'};
@@ -46,7 +46,10 @@ async function main(){
   const invalidConsolidation=await refreshAuthoritativeConsolidation({config,groupRef:'GROUP-2026-07',fetcher:async()=>new Response(JSON.stringify({ok:true,data:[{...consolidationRow,member_actual_amount:'0.00001'}]}),{status:200})});
   assert.equal(invalidConsolidation.ok,false);assert.equal(invalidConsolidation.code,'ACCOUNTING_API_PROTOCOL');
   const markup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher}/>);
-  assert.match(markup,/Financial statements/);assert.match(markup,/Trial Balance/);assert.match(markup,/Balance Sheet/);assert.match(markup,/Income Statement/);assert.match(markup,/Cash movement evidence/);assert.doesNotMatch(markup,/>Cash Flow</);assert.match(markup,/Statement of cash flows/);assert.match(markup,/exact approved immutable mapping/);assert.match(markup,/Browser seed data and local storage are not used/);assert.match(markup,/Prior-period comparison/);assert.match(markup,/Absence on either side is never converted to zero/);assert.match(markup,/Intercompany reconciliation/);assert.match(markup,/bidirectional approved mappings/);assert.match(markup,/No elimination or adjustment is created by this report/);assert.match(markup,/Budget versus actual/);assert.match(markup,/Latest approved immutable budget snapshot/);assert.match(markup,/Missing snapshot, account, currency, or POSTED evidence remains BLOCKED/);assert.match(markup,/Consolidation and elimination evidence/);assert.match(markup,/approved immutable consolidation snapshot/);assert.match(markup,/This view cannot create an elimination journal/);
+  assert.match(markup,/Financial statements/);assert.match(markup,/Reports center/);assert.match(markup,/Core statements/);assert.match(markup,/Cash &amp; capital/);assert.match(markup,/Operating analysis/);assert.match(markup,/Group &amp; comparison/);assert.match(markup,/Find a report/);assert.match(markup,/Trial Balance/);assert.match(markup,/Balance Sheet/);assert.match(markup,/Income Statement/);assert.match(markup,/Cash movement evidence/);assert.doesNotMatch(markup,/>Cash Flow</);assert.match(markup,/Browser seed data and local storage are not used/);assert.match(markup,/API READS ONLY/);
+  assert.deepEqual(DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,{category:'STATEMENTS',query:'',preview:'TRIAL_BALANCE'},'a direct Reports entry must reset the catalog rather than recover a browser cache');
+  assert.deepEqual(normalizeAuthoritativeReportsCatalog({category:'GROUP_AND_COMPARISON',query:'cash',preview:'BALANCE_SHEET'}),{category:'GROUP_AND_COMPARISON',query:'cash',preview:'BALANCE_SHEET'},'a full-page evidence drill must retain its catalog category, query, and preview for Back');
+  assert.deepEqual(normalizeAuthoritativeReportsCatalog({category:'not-a-category',query:42,preview:'unknown'}),DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,'malformed Back context must fail back to the explicit Reports default');
   const balanceMarkup=renderToStaticMarkup(<FinancialStatementSummary report="BALANCE_SHEET" rows={[
     {...row,statement_type:'BALANCE_SHEET',statement_section:'ASSETS',display_balance:'125.1000'},
     {...row,statement_type:'BALANCE_SHEET',statement_section:'LIABILITIES',account_code:'291001',display_balance:'25.0500'},
@@ -65,6 +68,10 @@ async function main(){
   assert.match(workspace,/full-bleed qbo-transaction-report/,'report detail must replace the full workspace rather than append a card');
   assert.match(workspace,/restoreAuthoritativeReturnContext/,'report detail Back must restore its evidence opener and scroll position');
   assert.match(workspace,/authoritative-report-\$\{row\.statement_type\}/,'report evidence controls need stable focus targets');
+  assert.match(workspace,/reportsCatalog:normalizeAuthoritativeReportsCatalog/,'full-page report evidence must retain exact catalog context for Back');
+  assert.match(workspace,/authoritative-cwip-\$\{row\.account_code\}/,'rollforward rows must also open full-page evidence instead of leaving a dead-end table');
+  assert.match(workspace,/authoritative-period-comparison-\$\{row\.statement_type\}/,'comparison rows must also open full-page evidence');
+  assert.doesNotMatch(workspace,/from ['"]\.\/(?:legacy-demo-app|data|seed|repo)/,'authoritative reports must never import local demonstration state');
   console.log('authoritative financial statement contract tests passed');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
