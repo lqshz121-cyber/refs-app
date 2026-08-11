@@ -2330,3 +2330,44 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 - **Authority implementation:** The existing read-only `Needs review` Journal queue now filters both retained `PENDING_REVIEW` and `PENDING_APPROVAL` rows, matching the summary-card count and exposing the same presentation-only status option. It makes no journal transition or API command.
 - **Boundary and gap:** QBO Journal Entry list/detail history, attachment evidence, populated line rows, role permissions, and responsive behavior remain unverified. The authority detail continues to BLOCKED state when its list reader lacks immutable line/source/audit lineage.
 - **Verification:** `npm.cmd run test:authoritative-list-context`; `npm.cmd run test:authoritative-journals`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## Authority site: AP/AR result count readability (2026-08-11)
+
+- **Observed QBO evidence:** The authenticated Expenses empty state keeps its filters and presents a clear, English `No expenses found` message with a suggestion to change filters. No QBO mutation was invoked.
+- **Authority implementation:** The authenticated AP/AR list-count separator is now ASCII (`|`) rather than a corrupted non-English glyph. List queries, filter state, full-page evidence, and Back are unchanged.
+- **Boundary and gap:** This is a read-model readability repair, not a claim that QBO Expenses and AP/AR are equivalent. QBO populated expense rows, filtering results, and responsive behavior remain unverified.
+- **Verification:** `npm.cmd run test:authoritative-documents`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## Authority site: Expenses filter evidence adapts Category safely (2026-08-11)
+
+- **Observed QBO evidence:** The authenticated Expenses filter popover shows Status, Delivery method, Date, From/To, Payee, Category, Reset, and Apply. It was opened read-only; no filter was applied and no QBO data changed.
+- **Authority implementation:** AP Bills now provides an exact `Category (offset account)` presentation filter only when the authenticated API list row retains an offset account code. The same immutable list-view context retains it through evidence Back. `Reset filters` restores the authority list default without any API command or business write. A stale AP category field in restored route context is deliberately ignored for AR invoices; AR exposes no category control and remains unfiltered by it.
+- **Boundary and gap:** This is not a general ledger-category inference, a Delivery method clone, or a Payee master filter; supplier search remains text matching and rows without retained account code are never assigned a category. QBO populated filter results and mobile behavior remain unverified.
+- **Verification:** `npm.cmd run test:authoritative-list-context`; `npm.cmd run test:authoritative-documents`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+## Authority site: Journal review queue filters the counted state (2026-08-11)
+
+- **Observed QBO evidence:** A QBO Journal Entry new-entry dialog was encountered read-only and immediately exited without typing or saving. Its visible Date/number/line/attachment/history/save controls remain excluded from the authority shell.
+- **Authority implementation:** The existing read-only `Needs review` Journal queue now filters both retained `PENDING_REVIEW` and `PENDING_APPROVAL` rows, matching the summary-card count and exposing the same presentation-only status option. It makes no journal transition or API command.
+- **Boundary and gap:** QBO Journal Entry list/detail history, attachment evidence, populated line rows, role permissions, and responsive behavior remain unverified. The authority detail continues to BLOCKED state when its list reader lacks immutable line/source/audit lineage.
+- **Verification:** `npm.cmd run test:authoritative-list-context`; `npm.cmd run test:authoritative-journals`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## Authority site: Banking retains controller workflow behind authoritative statement evidence (2026-08-11)
+
+- **Observed QBO evidence:** The authenticated, read-only Banking page showed an account chooser with separate `Bank` and `Posted` balances, queue tabs `Pending`, `Posted`, and `Excluded`, date scope, pagination, and a populated table with Date, Bank Description, Spent, Received, From/To, Match/Categorize, and Action columns. The page also displayed connection errors and external actions such as Link account, Match, Categorize, and Post. None of those actions was selected.
+- **REFS adaptation:** Bank and Reconciliation remain distinct controller surfaces. Bank evidence stays a scoped API read with full-page detail and exact Back context. Reconciliation shows `BLOCKED` only when the accounting API returns no authorized statement or no authorized worksheet; when statement and worksheet evidence are returned, the existing server-enforced controller lifecycle remains available. The change is explicitly not a deletion or replacement of an authorized workflow.
+- **Boundary and gap:** QBO connection repair, bank feeds, match/categorize/post, provider calls, and account-link actions are not copied. The observed QBO actions are external mutations and are not equivalent to REFS's separate OIDC/API-authorized controller workflow. QBO row-detail, role, audit-history, and narrow-screen behaviors remain unverified.
+- **Verification:** `npm.cmd run test:authoritative-bank`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check` (local authority contracts only; authenticated deployed E2E remains pending).
+
+## Authority site: Reports catalog retains report-level return context (2026-08-11)
+
+- **Observed QBO evidence:** The authenticated, read-only Standard Reports catalog exposed a report finder, `Create new report`, Shortcuts, Favorites, and core links for Accounts receivable aging summary, Balance Sheet, and Profit and Loss. The inspected report links included `previousRoute=standardreports` and `previousRouteText=Back to standard reports`. No Favorite, More Options, Create, or dashboard action was selected. A direct A/R Aging navigation attempt did not load report content before the read-only deadline, so its detail layout and result states were not observed in this cycle.
+- **REFS adaptation:** The authority Reports workspace retains the core accounting report catalog and opens evidence as a full-page surface with its immutable parent return context. It intentionally does not copy QBO report creation, Favorites, More Options, dashboard promotion, or report-preference actions. Existing REFS controller/report workflows are unaffected.
+- **Boundary and gap:** The catalog and report-return behavior is evidence-supported; A/R Aging populated detail, drill, permissions, audit history, empty state, and responsive behavior remain unverified. This is not a QBO feature-equivalence claim.
+- **Verification:** `npm.cmd run test:authoritative-reports`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check` (local authority contracts only; authenticated deployed E2E remains pending).
+
+## Authority site: AP Category scope cannot silently filter AR evidence (2026-08-11)
+
+- **Observed QBO evidence:** Earlier authenticated, read-only Expenses filtering exposed `Category` alongside Status, date, Payee, Reset, and Apply. The current QBO Expenses browser request exceeded its read-only deadline before new page content was returned, so no additional control was opened or operated.
+- **Authority implementation:** `Category (offset account)` remains an AP Bills-only presentation filter when the API retains an exact account code. The shared document workspace now explicitly removes that AP-only field from the AR Invoice filtering path, so stale AP route context cannot invisibly hide invoices where no corresponding AR control exists.
+- **Boundary and gap:** This does not infer AR categories or alter any API query, document, payment, journal, mapping, or Controller workflow. QBO populated Expenses rows and filter-result behavior remain unverified.
+- **Verification:** `npm.cmd run test:authoritative-list-context`; `npm.cmd run test:authoritative-documents`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check` (local authority contracts only; authenticated deployed E2E remains pending).
