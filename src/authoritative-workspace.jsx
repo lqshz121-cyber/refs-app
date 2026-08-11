@@ -40,6 +40,10 @@ export function AuthoritativeAdjustmentDetail({adjustment,side,entityId,onBack})
 
 export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[],view,onViewChange,onOpenDocument,onOpenAdjustment}) {
   const bill=kind==='AP';
+  const workspaceLabel=bill?'Payables':'Receivables';
+  const eyebrow=bill?'EXPENSES / ACCOUNTS PAYABLE':'REVENUE / ACCOUNTS RECEIVABLE';
+  const documentLabel=bill?'bills':'invoices';
+  const counterpartyLabel=bill?'suppliers':'customers';
   const state=normalizeAuthoritativeListView(view);
   const dateField=bill?'bill_date':'inv_date';
   const filteredDocuments=filterAuthoritativeRows(documents,state,dateField);
@@ -47,7 +51,19 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   const filteredAdjustments=filterAuthoritativeRows(adjustments,state,'accounting_date');
   const statuses=[...new Set([...documents,...adjustments].map(row=>row?.status).filter(Boolean))].sort();
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
-  return <div className="authoritative-document-workspace">
+  return <div className="authoritative-document-workspace stack">
+    <section className="accounting-page-head" aria-label={`${workspaceLabel} authoritative evidence header`}>
+      <div><div className="page-eyebrow">{eyebrow}</div><h1 className="page-h">{workspaceLabel}</h1><p className="page-subtitle">Review authenticated API list facts, retained revisions, and evidence details for {counterpartyLabel}. No browser seed or local accounting state is used.</p></div>
+      <span className="badge badge-muted">READ ONLY</span>
+    </section>
+    <section className="qbo-toolgrid" aria-label={`${workspaceLabel} list-fact summary`}>
+      <span><i>Retained {documentLabel}</i><b>{documents.length}</b></span>
+      <span><i>Visible after filters</i><b>{page.total}</b></span>
+      <span><i>Retained adjustments</i><b>{adjustments.length}</b></span>
+      <span><i>Visible adjustments</i><b>{filteredAdjustments.length}</b></span>
+    </section>
+    <p className="muted sm">This scope exposes list facts only. Create, pay, collect, apply, refund, approve, post, reverse, print, export, and synchronize actions are unavailable in this workspace.</p>
+    <section className="card" aria-label={`${workspaceLabel} API list filters`}>
     <div className="filter-bar authoritative-list-filters" role="search" aria-label={`${bill?'Payables':'Receivables'} presentation filters`}>
       <label>Search <input value={state.query} onChange={event=>change({query:event.target.value})} placeholder={bill?'Bill or vendor':'Invoice or customer'}/></label>
       <label>Status <select value={state.status} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
@@ -55,9 +71,14 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
       <label>Through <input type="date" value={state.through} onChange={event=>change({through:event.target.value})}/></label>
       <span className="result-count" aria-live="polite">{page.total} {bill?'bills':'invoices'} · {filteredAdjustments.length} adjustments</span>
     </div>
+    </section>
+    <section className="card" aria-label={`${workspaceLabel} document list facts`}>
     {page.total?<AuthoritativeDocumentTable title={bill?'AP bills':'AR invoices'} documents={page.rows} kind={kind} onOpen={onOpenDocument}/>:<StateBlock tone="empty" title={documents.length?`No ${bill?'bills':'invoices'} match these presentation filters`:`No authoritative ${bill?'bills':'invoices'} in this scope`}>{documents.length?'Change a presentation filter to see retained list facts. A local no-match is not evidence of zero balance.':'This scoped empty result is not evidence of a zero balance.'}</StateBlock>}
     {page.pageCount>1&&<nav className="pagination" aria-label={`${bill?'AP bills':'AR invoices'} pages`}><button type="button" disabled={page.page===1} onClick={()=>change({page:page.page-1})}>Previous</button><span>Page {page.page} of {page.pageCount}</span><button type="button" disabled={page.page===page.pageCount} onClick={()=>change({page:page.page+1})}>Next</button></nav>}
+    </section>
+    <section className="card" aria-label={`${workspaceLabel} adjustment list facts`}>
     {filteredAdjustments.length?<AuthoritativeAdjustmentSummary title={bill?'AP adjustments':'AR adjustments'} adjustments={filteredAdjustments} onOpen={onOpenAdjustment}/>:<StateBlock tone="empty" title={adjustments.length?'No adjustments match these presentation filters':'No authoritative adjustments in this scope'}>{adjustments.length?'Change a presentation filter to see retained adjustment facts. A local no-match is not evidence of zero balance.':'This scoped empty result is not evidence of a zero balance.'}</StateBlock>}
+    </section>
   </div>;
 }
 export function AuthoritativeWorkflowTable({title,documents=[],kind,onWorkflow,workingJournalIds=new Set()}){const bill=kind==='AP';return <section aria-label={title}><h2>{title}</h2>{documents.map(row=>{const action=nextAuthoritativeWorkflowAction(row.journal_status);return <div key={row.journal_entry_id}>{row[bill?'bill_no':'inv_no']} {action?<button disabled={workingJournalIds.has(row.journal_entry_id)} onClick={()=>onWorkflow(row,action)}>{action}</button>:row.journal_status}</div>;})}</section>;}
