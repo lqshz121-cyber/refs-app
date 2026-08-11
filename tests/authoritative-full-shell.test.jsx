@@ -36,4 +36,6 @@ assert.match(appSource, /initialCatalog=\{reportCatalogReturn\|\|DEFAULT_AUTHORI
   'A\/R aging Back must restore the exact Reports catalog without browser storage');
 assert.match(appSource, /backLabel="Back to Reports"/,
   'the A\/R aging full page must name its actual Reports parent on Back');
+assert.match(appSource, /!\['overview','payables','receivables','bank','reconciliation','reports','journals','source-documents','chart-of-accounts','account-inquiry'\]\.includes\(route\)/,
+  'Chart of Accounts and Account inquiry already have API-backed workspaces and must not also render the unavailable fallback');
 console.log('authoritative full shell: complete catalog renders API routes and unavailable workspaces fail closed');
