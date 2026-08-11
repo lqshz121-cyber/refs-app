@@ -30,4 +30,10 @@ assert.match(appSource, /if \(next === 'reports'\) setReportsNavigationVersion\(
   'a direct Reports selection must reset the catalog even when Reports is already the active route');
 assert.match(appSource, /key=\{`reports-\$\{workspaceRefreshVersion\}-\$\{reportsNavigationVersion\}`\}/,
   'the reports workspace must consume its direct-navigation revision without creating a browser-side catalog store');
+assert.match(appSource, /openReportAgingEvidence/,
+  'the Reports shortcut must open the existing API-backed A\/R aging surface rather than a local report implementation');
+assert.match(appSource, /initialCatalog=\{reportCatalogReturn\|\|DEFAULT_AUTHORITATIVE_REPORTS_CATALOG\}/,
+  'A\/R aging Back must restore the exact Reports catalog without browser storage');
+assert.match(appSource, /backLabel="Back to Reports"/,
+  'the A\/R aging full page must name its actual Reports parent on Back');
 console.log('authoritative full shell: complete catalog renders API routes and unavailable workspaces fail closed');

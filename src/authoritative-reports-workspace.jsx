@@ -170,10 +170,11 @@ export const AuthoritativeReportDetail=({row,returnContext,onBack})=>{
 </section>;
 };
 
-export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
-  const [report,setReport]=useState(DEFAULT_AUTHORITATIVE_REPORTS_CATALOG.preview);
-  const [workbenchTab,setWorkbenchTab]=useState(DEFAULT_AUTHORITATIVE_REPORTS_CATALOG.category);
-  const [catalogSearch,setCatalogSearch]=useState(DEFAULT_AUTHORITATIVE_REPORTS_CATALOG.query);
+export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,environment=globalThis,initialCatalog=DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,onOpenArAging=()=>{}}){
+  const initialCatalogState=normalizeAuthoritativeReportsCatalog(initialCatalog);
+  const [report,setReport]=useState(initialCatalogState.preview);
+  const [workbenchTab,setWorkbenchTab]=useState(initialCatalogState.category);
+  const [catalogSearch,setCatalogSearch]=useState(initialCatalogState.query);
   const [selected,setSelected]=useState(null);
   const [state,setState]=useState({phase:'LOADING',rows:[],error:null});
   const [dimensionType,setDimensionType]=useState('PROPERTY');
@@ -232,6 +233,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
     <section className="report-workbench" aria-label={`${REPORT_WORKBENCH_TABS.find(([key])=>key===workbenchTab)?.[1]} report workspace`}><div className="report-workbench-head"><div><b>{REPORT_WORKBENCH_TABS.find(([key])=>key===workbenchTab)?.[1]}</b><div className="page-subtitle">{REPORT_WORKBENCH_TABS.find(([key])=>key===workbenchTab)?.[2]} Each read is a real API GET; nothing is loaded from the demonstration shell.</div></div>{workbenchTab==='STATEMENTS'?<button type="button" className="btn btn-sm btn-ghost" disabled={state.phase==='LOADING'} onClick={load}>Refresh statement evidence</button>:<span className="badge badge-muted">READ ONLY</span>}</div>
     {workbenchTab==='STATEMENTS'&&<>
     <section className="authoritative-report-shortcuts" aria-label="Core statement shortcuts"><div><span className="page-eyebrow">CORE REPORTS</span><p className="muted sm">Open a statement view from the same authenticated API response.</p></div><div className="authoritative-report-shortcut-grid">{REPORT_LIBRARY_SHORTCUTS.map(([key,label,description])=><button key={key} type="button" className={`authoritative-report-shortcut ${report===key?'is-current':''}`} aria-pressed={report===key} onClick={()=>{setReport(key);setSelected(null);}}><span>{label}</span><small>{description}</small></button>)}</div></section>
+    <section className="card authoritative-aging-launch" aria-label="Accounts receivable aging summary shortcut"><div className="card-head"><div><h2>Accounts receivable aging summary</h2><p className="muted sm">Open the existing full-page, OIDC-authenticated aging evidence report. Back restores this Reports catalog, finder, and statement preview.</p></div><span className="badge badge-muted">READ ONLY</span></div><button id="authoritative-report-ar-aging" type="button" className="btn" onClick={()=>onOpenArAging('authoritative-report-ar-aging',normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:report}))}>Open aging report</button></section>
     <div className="tabs" role="tablist" aria-label="Financial statements">{REPORTS.map(([key,label])=><button type="button" role="tab" aria-selected={report===key} className={report===key?'tab active':'tab'} key={key} onClick={()=>{setReport(key);setSelected(null);}}>{label}</button>)}</div>
     <p className="muted sm">Entity {config.entityId} | Period {config.periodId} | Read only</p>
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative financial statements...</StateBlock>}
