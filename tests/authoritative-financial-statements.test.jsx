@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {refreshAuthoritativeConsolidation,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatements} from '../src/accounting-api.js';
-import {AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
+import {AuthoritativeReportDetail,AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
 
 const entityId='00000000-0000-4000-8000-000000000101',periodId='00000000-0000-4000-8000-000000000102';
 const config={baseUrl:'https://accounting.example',entityId,periodId,getAccessToken:async()=>'oidc.token.value-123456789'};
@@ -70,6 +70,10 @@ async function main(){
   assert.match(profitabilityMarkup,/Exact property reference/);assert.match(profitabilityMarkup,/PROPERTY-01/);assert.match(profitabilityMarkup,/Revenue/);assert.match(profitabilityMarkup,/Expenses/);assert.match(profitabilityMarkup,/Net income/);assert.match(profitabilityMarkup,/\$100\.05/);
   const cashMarkup=renderToStaticMarkup(<FinancialStatementSummary report="CASH_FLOW" rows={[{...row,statement_type:'CASH_FLOW',statement_section:'DIRECT_CASH_MOVEMENT',display_balance:'-2.0050'}]}/>);
   assert.match(cashMarkup,/Direct cash-account movement/);assert.match(cashMarkup,/Not classified as operating, investing, or financing/);assert.match(cashMarkup,/-\$2\.01/);
+  const completeDetail=renderToStaticMarkup(<AuthoritativeReportDetail row={row} returnContext={{entityId,periodId,report:'TRIAL_BALANCE'}} onBack={()=>{}}/>);
+  assert.match(completeDetail,/POSTED EVIDENCE/);assert.doesNotMatch(completeDetail,/BLOCKED — authoritative lineage unavailable/);
+  const incompleteDetail=renderToStaticMarkup(<AuthoritativeReportDetail row={{...row,ledger_line_ids:[]}} returnContext={{entityId,periodId,report:'TRIAL_BALANCE'}} onBack={()=>{}}/>);
+  assert.match(incompleteDetail,/BLOCKED — authoritative lineage unavailable/);assert.match(incompleteDetail,/Back to financial statement/);assert.match(incompleteDetail,/scoped statement data/);
   const workspace=fs.readFileSync('src/authoritative-reports-workspace.jsx','utf8');
   assert.match(workspace,/full-bleed qbo-transaction-report/,'report detail must replace the full workspace rather than append a card');
   assert.match(workspace,/restoreAuthoritativeReturnContext/,'report detail Back must restore its evidence opener and scroll position');
