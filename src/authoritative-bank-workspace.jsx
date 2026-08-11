@@ -89,9 +89,10 @@ export const AuthoritativeBankDetail=({row,scope,onBack,config,fetcher,onMatchCh
   <p className="muted sm">Scope: entity {scope.entityId}; account {scope.bankAccountRef}; from {scope.from||'opening'} through {scope.through||'latest'}.</p>
 </section>;
 
-export const AuthoritativeReconciliationSummary=({row=null,onOpen=()=>{}})=><section className="card authoritative-reconciliation-summary" aria-label="Authoritative reconciliation evidence">
+export const AuthoritativeReconciliationSummary=({row=null,scope=null,onOpen=()=>{}})=><section className="card authoritative-reconciliation-summary" aria-label="Authoritative reconciliation evidence">
   <div className="card-head"><div><p className="eyebrow">STATEMENT → REVIEW → SIGN-OFF</p><h2>Reconciliation statement</h2><p className="muted sm">Statement-scoped evidence only. This page cannot match, clear, reopen, sign off, or post.</p></div><span className="badge badge-muted">READ ONLY</span></div>
   {!row?<StateBlock tone="empty" title="Reconciliation evidence blocked">BLOCKED — The accounting API returned no authorized reconciliation statement for this account and cutoff. Reconciliation controls are unavailable until retained statement evidence is returned. This scoped result is not evidence of zero statement activity, zero difference, review, or sign-off.</StateBlock>:<>
+    <ScopeStrip items={[{label:'Entity',value:scope?.entityId},{label:'Bank account',value:row.bank_account_ref},{label:'Statement cutoff',value:row.statement_ending_date},{label:'Statement version',value:`v${row.version}`}]}/>
     <section className="authoritative-evidence-stage" aria-label="Reconciliation lifecycle"><span className="done">1 Statement retained</span><span className={row.status==='DRAFT'?'current':'done'}>2 Controller review</span><span className={row.status==='IN_REVIEW'?'current':row.status==='RECONCILED'?'done':'pending'}>3 Independent sign-off</span><span className={row.status==='RECONCILED'?'done':'pending'}>4 Immutable history</span></section>
     <div className="qbo-toolgrid"><span><i>Status</i><b>{row.status}</b></span><span><i>Statement ending balance</i><b>{money(row.statement_ending_balance)}</b></span><span><i>Statement activity</i><b>{money(row.statement_activity_amount)}</b></span><span><i>Difference</i><b>{money(row.difference)}</b></span></div>
     <div className="qbo-toolgrid"><span><i>Bank transactions</i><b>{row.bank_transaction_count}</b></span><span><i>Active matches</i><b>{row.active_match_count}</b></span><span><i>Unmatched</i><b>{row.unmatched_transaction_count}</b></span><span><i>Version</i><b>{row.version}</b></span></div>
@@ -203,6 +204,6 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and statement ending date to read reconciliation evidence.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative reconciliation evidence...</StateBlock>}
     {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
-    {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} onOpen={openEvidence}/>}
+    {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} scope={{...scope,entityId:config.entityId}} onOpen={openEvidence}/>}
   </div>;
 }
