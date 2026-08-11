@@ -391,7 +391,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={config} environment={environment}/>}
         {phase === 'READY' && route === 'source-documents' && <AuthoritativeSourceDocumentsWorkspace key={`source-documents-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && ['chart-of-accounts','account-inquiry'].includes(route) && <AuthoritativeChartOfAccountsWorkspace key={`coa-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
-        {phase === 'READY' && !['overview','payables','receivables','bank','reconciliation','reports','journals','source-documents'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
+        {phase === 'READY' && !['overview','payables','receivables','bank','reconciliation','reports','journals','source-documents','chart-of-accounts','account-inquiry'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
       </main>
     </div>
   </div>;
