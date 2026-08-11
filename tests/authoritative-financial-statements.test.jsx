@@ -83,10 +83,13 @@ async function main(){
   assert.match(profitabilityMarkup,/Exact property reference/);assert.match(profitabilityMarkup,/PROPERTY-01/);assert.match(profitabilityMarkup,/Revenue/);assert.match(profitabilityMarkup,/Expenses/);assert.match(profitabilityMarkup,/Net income/);assert.match(profitabilityMarkup,/\$100\.05/);
   const cashMarkup=renderToStaticMarkup(<FinancialStatementSummary report="CASH_FLOW" rows={[{...row,statement_type:'CASH_FLOW',statement_section:'DIRECT_CASH_MOVEMENT',display_balance:'-2.0050'}]}/>);
   assert.match(cashMarkup,/Direct cash-account movement/);assert.match(cashMarkup,/Not classified as operating, investing, or financing/);assert.match(cashMarkup,/-\$2\.01/);
-  const completeDetail=renderToStaticMarkup(<AuthoritativeReportDetail row={row} returnContext={{entityId,periodId,report:'TRIAL_BALANCE'}} onBack={()=>{}}/>);
+  const reportReturnContext={entityId,periodId,report:'TRIAL_BALANCE',reportAccountCode:row.account_code,reportSection:row.statement_section,reportDimensionType:null,reportDimensionRef:null};
+  const completeDetail=renderToStaticMarkup(<AuthoritativeReportDetail row={row} returnContext={reportReturnContext} onBack={()=>{}}/>);
   assert.match(completeDetail,/POSTED EVIDENCE/);assert.doesNotMatch(completeDetail,/BLOCKED — authoritative lineage unavailable/);
-  const incompleteDetail=renderToStaticMarkup(<AuthoritativeReportDetail row={{...row,ledger_line_ids:[]}} returnContext={{entityId,periodId,report:'TRIAL_BALANCE'}} onBack={()=>{}}/>);
+  const incompleteDetail=renderToStaticMarkup(<AuthoritativeReportDetail row={{...row,ledger_line_ids:[]}} returnContext={reportReturnContext} onBack={()=>{}}/>);
   assert.match(incompleteDetail,/BLOCKED — authoritative lineage unavailable/);assert.match(incompleteDetail,/Back to financial statement/);assert.match(incompleteDetail,/scoped statement data/);
+  const mismatchedRowIdentity=renderToStaticMarkup(<AuthoritativeReportDetail row={{...row,account_code:'999999'}} returnContext={reportReturnContext} onBack={()=>{}}/>);
+  assert.match(mismatchedRowIdentity,/BLOCKED — immutable report scope mismatch/);assert.doesNotMatch(mismatchedRowIdentity,/POSTED EVIDENCE/,'a row from the same report and period must still match the frozen account identity');
   const fullReport=renderToStaticMarkup(<AuthoritativeFullStatementReport report="TRIAL_BALANCE" rows={[row]} returnContext={{entityId,periodId,report:'TRIAL_BALANCE'}} onBack={()=>{}} onRefresh={()=>{}} onOpenEvidence={()=>{}}/>);
   assert.match(fullReport,/Trial Balance/);assert.match(fullReport,/Back to Reports/);assert.match(fullReport,/Refresh statement evidence/);assert.match(fullReport,/GET ONLY/);assert.match(fullReport,/report-section-row/);assert.match(fullReport,/scope="rowgroup"/);assert.match(fullReport,/authoritative-full-report-TRIAL_BALANCE-111000/);
   const workspace=fs.readFileSync('src/authoritative-reports-workspace.jsx','utf8');
@@ -98,6 +101,9 @@ async function main(){
   assert.match(workspace,/restoreAuthoritativeReturnContext/,'report detail Back must restore its evidence opener and scroll position');
   assert.match(workspace,/authoritative-report-\$\{row\.statement_type\}/,'report evidence controls need stable focus targets');
   assert.match(workspace,/reportsCatalog:normalizeAuthoritativeReportsCatalog/,'full-page report evidence must retain exact catalog context for Back');
+  assert.match(workspace,/reportRowMatchesReturnContext/,'report rows must fail closed when the immutable return identity differs');
+  assert.match(workspace,/row\.account_code===context\.reportAccountCode/);
+  assert.match(workspace,/reportAccountCode:row\.account_code\|\|null/,'the parent context must freeze the opened account identity');
   assert.match(workspace,/authoritative-cwip-\$\{row\.account_code\}/,'rollforward rows must also open full-page evidence instead of leaving a dead-end table');
   assert.match(workspace,/CwipRollforwardDetail/,'CWIP must have a dedicated authoritative evidence page instead of reusing a generic presentation');
   assert.match(workspace,/CWIP_ROLLFORWARD/,'CWIP evidence controls must select the dedicated API-backed workbench');
