@@ -78,6 +78,13 @@ const config=configured;
   assert.equal(journalRead.ok,true);assert.equal(journalRead.journals[0].revision,2);assert.equal(journalRead.journals[0].ledger_line_count,0);
   const validJournal={journal_entry_id:entityId,journal_number:'JE-1',journal_type:'MANUAL',status:'DRAFT',journal_date:'2026-08-01',currency:'USD',description:null,revision:'2',created_at:'2026-08-01T00:00:00.000Z',posted_at:null,ledger_line_count:'0'};
   const readJournalRows=async data=>refreshAuthoritativeJournalEntries({config,fetcher:async()=>({ok:true,json:async()=>({ok:true,data})})});
+  const exactLine={journal_entry_id:entityId,journal_line_id:'33333333-3333-4333-8333-333333333333',ledger_line_id:'44444444-4444-4444-8444-444444444444',line_no:1,account_code:'111000',debit_amount:'10.0000',credit_amount:'0.0000',member_ref:'BANK-1',description:'Exact API line',source_document_ids:['55555555-5555-4555-8555-555555555555']};
+  const exactJournal={...validJournal,ledger_line_count:'1',line_evidence:[exactLine]};
+  const exactJournalRead=await readJournalRows([exactJournal]);
+  assert.equal(exactJournalRead.ok,true,'a future explicit exact Journal line extension may be passed through only after strict validation');
+  assert.deepEqual(exactJournalRead.journals[0].line_evidence,[exactLine]);
+  for(const invalidLineEvidence of [[],[{...exactLine,journal_entry_id:'22222222-2222-4222-8222-222222222222'}],[{...exactLine,journal_line_id:'not-a-uuid'}],[{...exactLine,debit_amount:'0.0000',credit_amount:'0.0000'}],[{...exactLine,source_document_ids:['not-a-uuid']}],[exactLine,{...exactLine,line_no:1,ledger_line_id:'66666666-6666-4666-8666-666666666666'}]])assert.equal((await readJournalRows([{...exactJournal,line_evidence:invalidLineEvidence}])).code,'ACCOUNTING_API_PROTOCOL','partial, mismatched, or duplicate Journal line facts must fail closed');
+  assert.equal((await readJournalRows([{...exactJournal,ledger_line_count:'2'}])).code,'ACCOUNTING_API_PROTOCOL','a line extension must account for the exact list ledger-line count');
   for(const invalid of [
     {...validJournal,journal_entry_id:'not-a-uuid'}, {...validJournal,journal_number:''}, {...validJournal,journal_type:'IMPORTED'},
     {...validJournal,status:'REVIEWED'}, {...validJournal,journal_date:'2026-02-30'}, {...validJournal,currency:'US'},

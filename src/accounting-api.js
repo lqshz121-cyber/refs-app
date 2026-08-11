@@ -51,11 +51,31 @@ const JOURNAL_STATUSES=new Set(['DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APP
 const BANK_MATCH_STATUSES=new Set(['ACTIVE','UNMATCHED','REVERSED']);
 const RECONCILIATION_STATUSES=new Set(['DRAFT','IN_REVIEW','RECONCILED','REOPENED']);
 
+// Journal entry list evidence is deliberately a separate, optional extension
+// of the current list contract.  The deployed reader does not return it yet.
+// If a future API explicitly does, every row must be exact and self-bound to
+// the same Journal Entry; partial rows are not useful evidence and fail the
+// complete read rather than being silently presented as a reconstructed line.
+const journalLineEvidence=(value,journalEntryId)=>{
+  if(value===undefined)return null;
+  if(!Array.isArray(value)||value.length===0)return undefined;
+  const lineIds=new Set(),ledgerIds=new Set(),lineNos=new Set();
+  const lines=[];
+  for(const row of value){
+    const debit=decimalText(row?.debit_amount),credit=decimalText(row?.credit_amount);
+    const sourceDocumentIds=Array.isArray(row?.source_document_ids)?row.source_document_ids:null;
+    if(!row||row.journal_entry_id!==journalEntryId||!UUID.test(row.journal_line_id||'')||!UUID.test(row.ledger_line_id||'')||!Number.isSafeInteger(row.line_no)||row.line_no<1||!ACCOUNT_CODE.test(row.account_code||'')||debit===null||credit===null||(debit==='0.0000')===(credit==='0.0000')||row.member_ref!==null&&row.member_ref!==undefined&&!TEXT_TOKEN.test(row.member_ref)||row.description!==null&&row.description!==undefined&&typeof row.description!=='string'||!sourceDocumentIds||sourceDocumentIds.some(id=>!UUID.test(id||''))||new Set(sourceDocumentIds).size!==sourceDocumentIds.length||lineIds.has(row.journal_line_id)||ledgerIds.has(row.ledger_line_id)||lineNos.has(row.line_no))return undefined;
+    lineIds.add(row.journal_line_id);ledgerIds.add(row.ledger_line_id);lineNos.add(row.line_no);
+    lines.push({journal_entry_id:journalEntryId,journal_line_id:row.journal_line_id,ledger_line_id:row.ledger_line_id,line_no:row.line_no,account_code:row.account_code,debit_amount:debit,credit_amount:credit,member_ref:row.member_ref??null,description:row.description??null,source_document_ids:[...sourceDocumentIds]});
+  }
+  return lines.sort((a,b)=>a.line_no-b.line_no);
+};
+
 const journalRow=row=>{
   if(!row||!UUID.test(row.journal_entry_id||'')||!TEXT_TOKEN.test(row.journal_number||'')||!JOURNAL_TYPES.has(row.journal_type)||!JOURNAL_STATUSES.has(row.status)||!validDate(row.journal_date)||!/^[A-Z]{3}$/.test(row.currency||'')||row.description!==null&&row.description!==undefined&&(typeof row.description!=='string'||row.description.length>2000)||!UNSIGNED_INTEGER.test(String(row.revision??''))||!validTimestamp(row.created_at)||row.posted_at!==null&&row.posted_at!==undefined&&!validTimestamp(row.posted_at)||!UNSIGNED_INTEGER.test(String(row.ledger_line_count??'')))return null;
-  const revision=Number(row.revision),ledgerLineCount=Number(row.ledger_line_count);
-  if(!Number.isSafeInteger(revision)||revision<0||!Number.isSafeInteger(ledgerLineCount)||ledgerLineCount<0||(row.status==='POSTED')!==(row.posted_at!==null&&row.posted_at!==undefined))return null;
-  return {journal_entry_id:row.journal_entry_id,journal_number:row.journal_number,journal_type:row.journal_type,status:row.status,journal_date:row.journal_date,currency:row.currency,description:row.description??null,revision,created_at:row.created_at,posted_at:row.posted_at??null,ledger_line_count:ledgerLineCount};
+  const revision=Number(row.revision),ledgerLineCount=Number(row.ledger_line_count),lineEvidence=journalLineEvidence(row.line_evidence,row.journal_entry_id);
+  if(!Number.isSafeInteger(revision)||revision<0||!Number.isSafeInteger(ledgerLineCount)||ledgerLineCount<0||(row.status==='POSTED')!==(row.posted_at!==null&&row.posted_at!==undefined)||lineEvidence===undefined||lineEvidence!==null&&lineEvidence.length!==ledgerLineCount)return null;
+  return {journal_entry_id:row.journal_entry_id,journal_number:row.journal_number,journal_type:row.journal_type,status:row.status,journal_date:row.journal_date,currency:row.currency,description:row.description??null,revision,created_at:row.created_at,posted_at:row.posted_at??null,ledger_line_count:ledgerLineCount,line_evidence:lineEvidence};
 };
 
 const documentRow=(row,kind)=>{

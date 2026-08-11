@@ -71,6 +71,7 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
 }
 
 export function AuthoritativeJournalDetail({ journal, entityId, returnContext, onBack }) {
+  const lineEvidence=Array.isArray(journal.line_evidence)?journal.line_evidence:null;
   return <section className="full-bleed qbo-transaction-report authoritative-journal-detail" aria-label="Journal entry evidence">
     <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>{journalReturnScope(entityId, journal, returnContext?.view)}</span></div>
     <header className="journal-evidence-header">
@@ -85,8 +86,17 @@ export function AuthoritativeJournalDetail({ journal, entityId, returnContext, o
       <div><dt>Ledger line count</dt><dd>{journal.ledger_line_count}</dd></div><div><dt>Created</dt><dd>{journal.created_at}</dd></div>
       <div><dt>Posted</dt><dd>{journal.posted_at || 'Not posted'}</dd></div><div><dt>Description</dt><dd>{journal.description || 'No description returned'}</dd></div>
     </dl>
+    {lineEvidence ? <section className="authoritative-journal-line-evidence" aria-label="Authoritative journal line evidence">
+      <div className="authoritative-section-heading"><div><div className="authoritative-eyebrow">EXACT API LINE FACTS</div><h2>Journal lines</h2><p className="page-subtitle">Only immutable line and ledger identifiers returned by the same authoritative Journal Entry read are shown.</p></div><span className="badge">{lineEvidence.length} retained lines</span></div>
+      <div className="table-wrap authoritative-journal-line-table" tabIndex={0} aria-label="Journal line evidence; scroll horizontally to view every column"><table className="tbl">
+        <thead><tr><th>Line</th><th>Account</th><th>Debit</th><th>Credit</th><th>Member reference</th><th>Description</th><th>Journal line ID</th><th>Ledger line ID</th><th>Source documents</th></tr></thead>
+        <tbody>{lineEvidence.map(line=><tr key={line.journal_line_id}><td>{line.line_no}</td><td>{line.account_code}</td><td>{line.debit_amount}</td><td>{line.credit_amount}</td><td>{line.member_ref||'—'}</td><td>{line.description||'—'}</td><td>{line.journal_line_id}</td><td>{line.ledger_line_id}</td><td>{line.source_document_ids.length?line.source_document_ids.join(', '):'None returned'}</td></tr>)}</tbody>
+      </table></div>
+    </section> : <StateBlock tone="blocked" title="Authoritative journal line evidence unavailable">
+      This Journal Entry list response does not carry exact Journal Lines, Ledger Line IDs, or Source Document IDs. No line values, account mappings, or source links are reconstructed from browser state.
+    </StateBlock>}
     <StateBlock tone="blocked" title="Authoritative lineage unavailable">
-      This list read model does not return Journal Lines, Ledger Line IDs, Source Document IDs, mapping decisions, or audit events. It cannot create, edit, submit, review, approve, post, reverse, attach, print, export, or synchronize a journal.
+      This read model does not return mapping decisions or audit events. It cannot create, edit, submit, review, approve, post, reverse, attach, print, export, or synchronize a journal.
     </StateBlock>
   </section>;
 }
