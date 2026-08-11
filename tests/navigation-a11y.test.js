@@ -113,5 +113,9 @@ assert.match(styles,/\.authoritative-app \.authoritative-nav-group \.nav-ic\{dis
   'the legacy glyph must not compete with the production workflow marker');
 assert.match(authoritative,/authoritative-nav-group nav-tone-\$\{index\}/,
   'the authoritative shell must apply one stable visual tone per API-backed workflow group');
+assert.match(authoritative,/aria-expanded=\{multiple \? expanded : undefined\}/,
+  'only a multi-workspace production group may expose an expandable menu');
+assert.match(authoritative,/className="nav-group-items"/,
+  'multi-workspace navigation must keep an addressable child panel for assistive technology');
 
 console.log('navigation-a11y: mobile drawer is inert while off-canvas and closed, returns focus to its opener, and exposes accessible English controls');

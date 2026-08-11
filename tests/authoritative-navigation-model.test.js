@@ -9,4 +9,10 @@ const source = await import('node:fs').then(({readFileSync})=>readFileSync(new U
 for (const group of AUTHORITATIVE_NAVIGATION) assert.match(source, /AUTHORITATIVE_NAVIGATION\.map/, 'the shell must render navigation groups rather than flattening them into a generic API list');
 assert.doesNotMatch(source, /legacy-demo-app|\.\/repo\.js|\.\/seed\.js|module-wbs|module-aiaudit|module-ai-je-workbench/,
   'authoritative navigation may not import demo, mock, or browser-state workspaces');
+assert.match(source, /selectNavigationGroup\(group\)/,
+  'a workflow group header must navigate to its first API-backed workspace');
+assert.match(source, /group\.items\.length > 1/,
+  'single-workspace groups must avoid redundant child menus');
+assert.match(source, /aria-expanded=\{multiple \? expanded : undefined\}/,
+  'the multi-workspace group must expose its expandable state');
 console.log('authoritative navigation model: only API-backed production workflows are exposed');

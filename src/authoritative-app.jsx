@@ -21,6 +21,7 @@ import {
   restoreAuthoritativeReturnContext,
 } from './authoritative-list-context.js';
 import { AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES } from './authoritative-navigation.js';
+import { AuthoritativeOverview } from './authoritative-overview.jsx';
 
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
@@ -110,6 +111,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   // previously had no opener at all, which made the navigation unreachable on a
   // tablet as well as untabbable - both are fixed by the same three pieces.
   const [navOpen, setNavOpen] = useState(false);
+  const [expandedNavigationGroup, setExpandedNavigationGroup] = useState(() =>
+    AUTHORITATIVE_NAVIGATION.find(group => group.items.some(item => item.route === readRetainedRoute(environment)))?.label || null);
   const [navOffCanvas, setNavOffCanvas] = useState(() => readOffCanvas());
   const navDrawerRef = useRef(null);
   const navOpenerRef = useRef(null);
@@ -179,6 +182,12 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   }, [adjustmentDetail, updateListView, environment, config]);
 
   const setRoute = useCallback(next => { setDocumentDetail(null); setAdjustmentDetail(null); setRouteState(next); retainRoute(environment, next); }, [environment]);
+  const selectNavigationGroup = useCallback(group => {
+    const multiple = group.items.length > 1;
+    setExpandedNavigationGroup(current => multiple && current === group.label ? null : group.label);
+    setRoute(group.items[0].route);
+    setNavOpen(false);
+  }, [setRoute]);
 
   const refresh = useCallback(async () => {
     if (!config) return;
@@ -293,10 +302,18 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       <div className="brand"><span className="logo">◇</span> REFS<span className="brand-sub">Authoritative</span></div>
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={() => setNavOpen(false)}>Close</button>}
       <nav aria-label="Authoritative accounting navigation">
-        {AUTHORITATIVE_NAVIGATION.map(({ label: group, items }, index) => <div className={`nav-group authoritative-nav-group nav-tone-${index}`} key={group}>
-          <div className="nav-group-h"><span className="nav-ic">●</span>{group}</div>
-          {items.map(({ route: item, label }) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => { setRoute(item); setNavOpen(false); }}>{label}</button>)}
-        </div>)}
+        {AUTHORITATIVE_NAVIGATION.map((group, index) => {
+          const multiple = group.items.length > 1;
+          const expanded = multiple && expandedNavigationGroup === group.label;
+          const active = group.items.some(item => route === item.route);
+          const panelId = `authoritative-navigation-group-${index}`;
+          return <div className={`nav-group authoritative-nav-group nav-tone-${index} ${active ? 'nav-group-active' : ''}`} key={group.label}>
+            <button type="button" className="nav-group-h" aria-current={!multiple && active ? 'page' : undefined}
+              aria-expanded={multiple ? expanded : undefined} aria-controls={multiple ? panelId : undefined}
+              onClick={() => selectNavigationGroup(group)}><span className="nav-ic">●</span>{group.label}</button>
+            {multiple && expanded && <div id={panelId} className="nav-group-items">{group.items.map(({ route: item, label }) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => { setRoute(item); setNavOpen(false); }}>{label}</button>)}</div>}
+          </div>;
+        })}
       </nav>
     </aside>
     {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
@@ -315,7 +332,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           onSignIn={startLogin}/>}
         {error && <RuntimeErrorPanel code={error.code} detail={error.message} onRetry={refresh} onSignIn={startLogin}/>}
         {phase === 'LOADING_ACCOUNTING' && <StateBlock tone="loading">Loading authoritative accounting records…</StateBlock>}
-        {phase === 'READY' && route === 'overview' && <><h1>Accounting control overview</h1><p className="page-subtitle">Live records are loaded from the configured accounting API. Browser seeds and localStorage are not accounting authority.</p><div className="qbo-toolgrid"><span><i>AP bills</i><b>{counts.bills}</b></span><span><i>AR invoices</i><b>{counts.invoices}</b></span><span><i>Adjustments</i><b>{counts.adjustments}</b></span><span><i>Journal entries</i><b>{counts.journals}</b></span></div></>}
+        {phase === 'READY' && route === 'overview' && <AuthoritativeOverview counts={counts} onNavigate={setRoute}/>}
         {phase === 'READY' && route === 'payables' && (documentDetail?.kind==='AP'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AP" entityId={config.entityId} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AP'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AP" entityId={config.entityId} onBack={closeAdjustmentEvidence}/>:<><AuthoritativeDocumentWorkspace kind="AP" documents={data.ap.bills} adjustments={data.ap.adjustments} view={listViews.AP} onViewChange={view=>updateListView('AP',view)} onOpenDocument={(row,focusId)=>openDocumentEvidence('AP',row,focusId)} onOpenAdjustment={(row,focusId)=>openAdjustmentEvidence('AP',row,focusId)}/><AuthoritativeAgingWorkspace config={config} side="ap" fetcher={boundFetcher}/></>)}
         {phase === 'READY' && route === 'receivables' && (documentDetail?.kind==='AR'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AR" entityId={config.entityId} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AR'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AR" entityId={config.entityId} onBack={closeAdjustmentEvidence}/>:<><AuthoritativeDocumentWorkspace kind="AR" documents={data.ar.invoices} adjustments={data.ar.adjustments} view={listViews.AR} onViewChange={view=>updateListView('AR',view)} onOpenDocument={(row,focusId)=>openDocumentEvidence('AR',row,focusId)} onOpenAdjustment={(row,focusId)=>openAdjustmentEvidence('AR',row,focusId)}/><AuthoritativeAgingWorkspace config={config} side="ar" fetcher={boundFetcher}/></>)}
         {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace key={`bank-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment}/>}
