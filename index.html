@@ -1640,6 +1640,19 @@ select{padding-right:28px; cursor:pointer;}
 .report-period-chip{display:flex; flex-direction:column; gap:3px; min-width:190px; padding:10px 13px;}
 .report-period-chip span{color:var(--qb-text-muted); font:600 11px/1.3 var(--qb-sans); letter-spacing:.07em; text-transform:uppercase;}
 .report-period-chip b{color:var(--qb-text-strong); font-size:14px;}
+.report-period-chip small{color:var(--qb-text-muted); font-size:12px;}
+.authoritative-report-finder{display:grid; gap:12px;}
+.authoritative-report-finder label{display:grid; gap:6px; max-width:520px; color:var(--qb-text-strong); font-weight:600;}
+.authoritative-report-finder input{width:100%;}
+.authoritative-report-shortcuts{display:grid; grid-template-columns:minmax(180px,.72fr) minmax(0,2.28fr); gap:14px; align-items:start; margin:0 0 14px; padding:14px; border:var(--qb-hair) solid var(--qb-divider); border-radius:var(--qb-r-card); background:var(--qb-inset);}
+.authoritative-report-shortcuts p{margin:5px 0 0;}
+.authoritative-report-shortcut-grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px;}
+.authoritative-report-shortcut{display:grid; gap:3px; min-height:60px; padding:10px 12px; text-align:left; color:var(--qb-text-strong); background:var(--qb-surface); border:var(--qb-hair) solid var(--qb-divider); border-radius:var(--qb-r-control); cursor:pointer;}
+.authoritative-report-shortcut:hover{border-color:var(--qb-accent); background:var(--qb-canvas);}
+.authoritative-report-shortcut.is-current{border:2px solid var(--qb-accent); background:var(--qb-accent-tint); padding:9px 11px;}
+.authoritative-report-shortcut span{font-weight:600; line-height:1.3;}
+.authoritative-report-shortcut small{color:var(--qb-text-muted); font-size:11px; line-height:1.35;}
+.authoritative-report-shortcut:focus-visible{outline:2px solid var(--qb-accent); outline-offset:2px;}
 .rep-grid,.rep-grid-featured{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px;}
 .rep-card{display:flex; align-items:center; justify-content:space-between; gap:10px;
   min-width:0; min-height:66px; padding:12px 14px; border-radius:var(--qb-r-card);
@@ -1951,7 +1964,7 @@ select{padding-right:28px; cursor:pointer;}
   .tbl th,.tbl td{overflow-wrap:anywhere;}
   .table-wrap{max-height:none;}
 }
-@media(max-width:720px){.report-workbench-head{flex-direction:column;}.report-preview-meta{justify-content:flex-start;}}
+@media(max-width:720px){.report-workbench-head{flex-direction:column;}.report-preview-meta{justify-content:flex-start;}.authoritative-report-shortcuts{grid-template-columns:1fr;}.authoritative-report-shortcut-grid{grid-template-columns:1fr;}}
 @media(max-width:600px){
   .qbo-home-actions{grid-template-columns:1fr;}
   .qbo-home-actions .btn:last-child{grid-column:auto;}

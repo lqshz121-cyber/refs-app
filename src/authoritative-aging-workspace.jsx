@@ -10,7 +10,7 @@ const BUCKETS=[['current_amount','Current'],['days_1_30','1–30 days'],['days_3
 const money=value=>{const m=/^(-?)([0-9]+)\.([0-9]{2})[0-9]{2}$/.exec(String(value??'0.0000'));if(!m)return String(value??'');const whole=m[2].replace(/\B(?=(\d{3})+(?!\d))/g,',');return `${m[1]}$${whole}.${m[3]}`;};
 const defaultAsOf=()=>{try{return new Date().toISOString().slice(0,10);}catch{return '2026-07-31';}};
 
-export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetch,onBack}){
+export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetch,onBack,backLabel='Back to invoices & receipts'}){
   const label=side==='ap'?'AP':'AR';
   const businessLabel=side==='ap'?'Accounts payable':'Accounts receivable';
   const [asOf,setAsOf]=useState(defaultAsOf());
@@ -34,7 +34,7 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
         <p className="page-subtitle">OIDC-authenticated, entity-scoped report facts from the accounting API. Browser seed data and local storage are not used.</p>
       </div>
       <div className="authoritative-aging-actions">
-        {typeof onBack==='function'&&<button type="button" className="btn btn-sm" onClick={onBack}>Back to invoices &amp; receipts</button>}
+        {typeof onBack==='function'&&<button type="button" className="btn btn-sm" onClick={onBack}>{backLabel}</button>}
         <span className="badge badge-muted">READ ONLY</span>
       </div>
     </header>
