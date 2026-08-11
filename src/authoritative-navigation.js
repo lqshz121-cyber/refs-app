@@ -26,7 +26,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Entity-scoped persisted staging items with immutable receipt, source version, mapping version, and review state.',
       'Read-only list and detail endpoints before any controller workflow can be exposed.',
     ]),
-    item('source-documents', 'Source Documents', 'API_UNAVAILABLE', [
+    item('source-documents', 'Source Documents', 'API_READ', [
       'Entity-scoped source-document list and immutable detail endpoints.',
       'Separate authorised attachment-read contract; upload and finalise endpoints are not a document reader.',
     ]),

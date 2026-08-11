@@ -592,6 +592,35 @@ export async function refreshAuthoritativeAccountRegister({config,accountCode:re
   return {ok:true,rows,scope:{entityId:config.entityId,periodId:config.periodId,accountCode:code}};
 }
 
+const sourceDocumentRow=row=>{
+  if(!row||!UUID.test(row.source_document_id||'')||!UNSIGNED_INTEGER.test(String(row.source_document_revision??''))||!UUID.test(row.raw_event_id||'')||!TEXT_TOKEN.test(row.source_system||'')||!TEXT_TOKEN.test(row.source_module||'')||!TEXT_TOKEN.test(row.source_record_id||'')||!TEXT_TOKEN.test(row.source_version||'')||!TEXT_TOKEN.test(row.document_type||'')||row.document_no!==null&&row.document_no!==undefined&&!TEXT_TOKEN.test(row.document_no)||!validDate(row.business_date)||!validDate(row.accounting_date)||!/^[A-Z]{3}$/.test(row.currency||'')||!REPORT_MONEY4.test(String(row.gross_amount??''))||!STATUS_TOKEN.test(row.status||'')||!/^sha256:[0-9a-f]{64}$/.test(row.payload_hash||'')||!Number.isSafeInteger(row.source_line_count)||row.source_line_count<0||!Array.isArray(row.posted_journal_entry_ids)||row.posted_journal_entry_ids.some(id=>!UUID.test(id||''))||!validTimestamp(row.created_at)||!validTimestamp(row.updated_at))return null;
+  const revision=Number(row.source_document_revision);if(!Number.isSafeInteger(revision)||revision<0||new Set(row.posted_journal_entry_ids).size!==row.posted_journal_entry_ids.length)return null;
+  return {...row,source_document_revision:revision,gross_amount:String(row.gross_amount),posted_journal_entry_ids:[...row.posted_journal_entry_ids]};
+};
+const sourceDocumentLine=row=>{
+  const nullableText=value=>value===null||value===undefined||TEXT_TOKEN.test(value);
+  if(!row||!UUID.test(row.source_document_line_id||'')||!TEXT_TOKEN.test(row.source_line_id||'')||!Number.isSafeInteger(row.line_no)||row.line_no<1||!REPORT_MONEY4.test(String(row.amount??''))||!['DEBIT','CREDIT','INFLOW','OUTFLOW','NONE'].includes(row.direction)||!['party_ref','bank_account_ref','project_ref','property_ref','phase_ref','unit_ref','loan_ref','cost_code_ref'].every(field=>nullableText(row[field])))return null;
+  return {...row,amount:String(row.amount)};
+};
+
+export async function refreshAuthoritativeSourceDocuments({config,fetcher=globalThis.fetch}={}){
+  const result=await readAuthoritativeRows({config,path:'/source-documents',operation:'SOURCE_DOCUMENTS',fetcher});
+  if(!result.ok)return result;
+  const rows=result.rows.map(sourceDocumentRow),ids=rows.map(row=>row?.source_document_id);
+  if(rows.some(row=>row===null)||new Set(ids).size!==ids.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate Source Document evidence row.'};
+  return {ok:true,rows,scope:{entityId:config.entityId}};
+}
+
+export async function readAuthoritativeSourceDocumentDetail({config,sourceDocumentId,fetcher=globalThis.fetch}={}){
+  if(!config||!UUID.test(sourceDocumentId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Source Document detail requires one authoritative entity and immutable source-document ID.'};
+  const result=await readAuthoritativeRows({config,path:`/source-documents/${sourceDocumentId}`,operation:'SOURCE_DOCUMENT_DETAIL',fetcher});
+  if(!result.ok)return result;
+  if(result.rows.length!==1)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Source Document detail cardinality.'};
+  const detail=sourceDocumentRow(result.rows[0]),lines=Array.isArray(result.rows[0]?.lines)?result.rows[0].lines.map(sourceDocumentLine):null;
+  if(!detail||detail.source_document_id!==sourceDocumentId||!lines||lines.length!==detail.source_line_count||new Set(lines.map(line=>line?.source_document_line_id)).size!==lines.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned invalid Source Document detail evidence.'};
+  return {ok:true,detail:{...detail,lines},scope:{entityId:config.entityId,sourceDocumentId}};
+}
+
 const failure=async(response,operation=null)=>{
   const status=Number(response?.status)||0;
   let body;try{body=await response.json();}catch{}
