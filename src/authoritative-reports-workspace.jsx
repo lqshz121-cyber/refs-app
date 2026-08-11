@@ -181,6 +181,15 @@ const ComparisonDetail=({row,returnContext,onBack})=><section className="full-bl
 </section>;
 
 const hasCompleteReportLineage=row=>['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'].every(field=>Array.isArray(row?.[field])&&row[field].length>0);
+const reportRowMatchesReturnContext=(row,context)=>Boolean(
+  row && context
+  && row.period_id===context.periodId
+  && row.statement_type===context.report
+  && row.account_code===context.reportAccountCode
+  && row.statement_section===context.reportSection
+  && (row.dimension_type||null)===(context.reportDimensionType||null)
+  && (row.dimension_ref||null)===(context.reportDimensionRef||null),
+);
 
 const statementLabel=report=>REPORTS.find(([key])=>key===report)?.[1]||'Financial statement';
 
@@ -200,7 +209,12 @@ export const AuthoritativeFullStatementReport=({report,rows,returnContext,onBack
 };
 
 export const AuthoritativeReportDetail=({row,returnContext,onBack})=>{
+  const scopeMatches=reportRowMatchesReturnContext(row,returnContext);
   const lineageComplete=hasCompleteReportLineage(row);
+  if(!scopeMatches)return <section className="full-bleed qbo-transaction-report" aria-label="Financial statement account evidence">
+    <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to financial statement</button><span>Entity {returnContext?.entityId} · Period {returnContext?.periodId} · {returnContext?.report}</span></div>
+    <StateBlock tone="blocked" title="BLOCKED — immutable report scope mismatch">This report row does not match the account, section, dimension, entity, period, and statement retained when the evidence page was opened. It remains visible for review, but cannot support a posted-evidence assertion or Journal/source drill.</StateBlock>
+  </section>;
   return <section className="full-bleed qbo-transaction-report" aria-label="Financial statement account evidence">
   <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to financial statement</button><span>Entity {returnContext?.entityId} · Period {returnContext?.periodId} · {returnContext?.report}</span></div>
   <div className="card-head"><div><h2>{row.account_code} - {row.account_name}</h2><p className="muted sm">{row.statement_type} / {row.statement_section}</p></div><span className={lineageComplete?'badge badge-muted':'badge badge-danger'}>{lineageComplete?'POSTED EVIDENCE':'BLOCKED'}</span></div>
@@ -255,7 +269,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   const rows=useMemo(()=>state.rows.filter(row=>row.statement_type===report),[state.rows,report]);
   const openEvidence=(row,focusId,kind='STATEMENT',title=null,detailContext=null)=>{
     const base=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
-    if(base)setSelected({kind,row,title,returnContext:{...base,report,workbenchTab,reportsCatalog:normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:report}),...(detailContext&&typeof detailContext==='object'?detailContext:{})}});
+    if(base)setSelected({kind,row,title,returnContext:{...base,report,reportAccountCode:row.account_code||null,reportSection:row.statement_section||null,reportDimensionType:row.dimension_type||null,reportDimensionRef:row.dimension_ref||null,workbenchTab,reportsCatalog:normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:report}),...(detailContext&&typeof detailContext==='object'?detailContext:{})}});
   };
   const openPropertyReport=(shortcut)=>{
     const [, , ,nextTab,nextDimensionType]=shortcut;
@@ -273,7 +287,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   const openEvidenceFromFullStatement=(row,focusId)=>{
     const parent=selected;
     if(!parent||parent.kind!=='FULL_STATEMENT')return;
-    setSelected({kind:'STATEMENT',row,returnContext:{...parent.returnContext,focusId,parentFullStatement:parent}});
+    setSelected({kind:'STATEMENT',row,returnContext:{...parent.returnContext,reportAccountCode:row.account_code||null,reportSection:row.statement_section||null,reportDimensionType:row.dimension_type||null,reportDimensionRef:row.dimension_ref||null,focusId,parentFullStatement:parent}});
   };
   const closeEvidence=()=>{
     const context=selected?.returnContext;
