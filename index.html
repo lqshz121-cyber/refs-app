@@ -910,6 +910,20 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-list-filters input,.authoritative-list-filters select{min-width:0;}
 .authoritative-list-filters .result-count{margin-left:auto;color:var(--qb-text-muted);font-size:12px;}
 
+/* Shared authoritative workbench frame.  It adopts the demonstrated product
+   hierarchy (a clear page deck, numbered reading path, and full-page detail)
+   without bringing any demonstration data, local persistence, or commands
+   into the authenticated runtime. */
+.authoritative-workbench-shell{min-width:0;}
+.authoritative-workbench-shell>.accounting-page-head,.authoritative-workbench-shell>.authoritative-page-header{position:relative;overflow:hidden;margin-bottom:10px;padding:20px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);background:linear-gradient(135deg,var(--qb-surface) 0%,var(--qb-inset) 100%);box-shadow:var(--qb-shadow-card);}
+.authoritative-workbench-shell>.accounting-page-head::after,.authoritative-workbench-shell>.authoritative-page-header::after{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--qb-accent);}
+.authoritative-workbench-shell>.accounting-page-head>*,.authoritative-workbench-shell>.authoritative-page-header>*{position:relative;}
+.authoritative-workbench-rail{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 16px;color:var(--qb-text-muted);font-size:12px;}
+.authoritative-workbench-rail span{display:inline-flex;align-items:center;gap:7px;min-height:30px;padding:0 10px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-pill);background:var(--qb-surface);}
+.authoritative-workbench-rail b{display:inline-grid;place-items:center;width:17px;height:17px;border-radius:50%;background:var(--qb-accent-tint);color:var(--qb-accent);font-size:11px;}
+.authoritative-evidence-page{padding-top:4px;}
+.authoritative-evidence-page>.qbo-report-back{position:sticky;top:0;z-index:1;margin:0 -2px 14px;padding:8px 2px;background:color-mix(in srgb,var(--qb-canvas) 94%,transparent);border-bottom:var(--qb-hair) solid var(--qb-divider);}
+
 /* Authoritative Journal register.  This deliberately mirrors the hierarchy of
    the established Journal workspace without inheriting its local queue, draft,
    or workflow state.  Every count and row below is derived from the API list
@@ -955,6 +969,7 @@ select{padding-right:28px; cursor:pointer;}
 .journal-evidence-grid{margin-bottom:16px;}
 @media (max-width:1024px){.authoritative-journal-summary{grid-template-columns:repeat(2,minmax(0,1fr));}.journal-evidence-scope{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media (max-width:600px){.authoritative-journal-summary,.journal-evidence-scope{grid-template-columns:minmax(0,1fr);}.journal-evidence-header{flex-direction:column;gap:8px;}.authoritative-journal-line-evidence .authoritative-section-heading{flex-direction:column;gap:6px;}.authoritative-list-filters .result-count{margin-left:0;}.authoritative-list-filters .btn{width:100%;}}
+@media (max-width:600px){.authoritative-workbench-shell>.accounting-page-head,.authoritative-workbench-shell>.authoritative-page-header{padding:16px;}.authoritative-workbench-rail{gap:6px;}.authoritative-workbench-rail span{width:100%;}.authoritative-evidence-page>.qbo-report-back{position:static;}}
 .authoritative-document-workspace>.pagination{display:flex;justify-content:flex-end;align-items:center;gap:10px;margin:10px 0 20px;}
 .authoritative-document-workspace>.pagination button{min-height:34px;}
 .authoritative-document-summary{margin:0 0 18px;}

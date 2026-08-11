@@ -42,7 +42,7 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
   const queueCounts=journalQueueCounts(journals);
   const change=patch=>onViewChange?.({...view,...patch,page:patch.page??1});
   const setQueue=status=>change({status});
-  return <section className="authoritative-journal-workspace" aria-label="Authoritative journal entries">
+  return <section className="authoritative-journal-workspace authoritative-workbench-shell" aria-label="Authoritative journal entries">
     <header className="authoritative-page-header journal-page-header">
       <div>
         <div className="authoritative-eyebrow">GENERAL LEDGER | JOURNAL REGISTER</div>
@@ -51,6 +51,9 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
       </div>
       <div className="authoritative-readonly-chip" aria-label="Journal entries are read only">Read only</div>
     </header>
+    <div className="authoritative-workbench-rail" aria-label="Journal workspace structure">
+      <span><b>1</b> Register</span><span><b>2</b> Scoped evidence</span><span><b>3</b> Exact Back</span>
+    </div>
     <section className="authoritative-journal-summary" aria-label="Journal entry queue summary">
       <button type="button" className={`journal-summary-card ${view.status==='ALL'?'journal-summary-card-on':''}`} aria-pressed={view.status==='ALL'} onClick={()=>setQueue('ALL')}><span>In scope</span><b>{queueCounts.all}</b><small>All retained journals</small></button>
       <button type="button" className={`journal-summary-card ${view.status==='DRAFT'?'journal-summary-card-on':''}`} aria-pressed={view.status==='DRAFT'} onClick={()=>setQueue('DRAFT')}><span>Draft</span><b>{queueCounts.draft}</b><small>Not posted</small></button>
@@ -81,12 +84,12 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
 export function AuthoritativeJournalDetail({ journal, entityId, returnContext, onBack }) {
   const scopeMatches = journalMatchesReturnContext(journal, entityId, returnContext);
   const lineEvidence=Array.isArray(journal.line_evidence)?journal.line_evidence:null;
-  if (!scopeMatches) return <section className="full-bleed qbo-transaction-report authoritative-journal-detail" aria-label="Journal entry evidence">
+  if (!scopeMatches) return <section className="full-bleed qbo-transaction-report authoritative-evidence-page authoritative-journal-detail" aria-label="Journal entry evidence">
     <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>{journalReturnScope(entityId, journal, returnContext?.view)}</span></div>
     <header className="journal-evidence-header"><div><div className="authoritative-eyebrow">GENERAL LEDGER | RETAINED EVIDENCE</div><h1>Journal entry {journal.journal_number}</h1><p className="page-subtitle">Read-only facts returned by the authoritative Journal Entry list API.</p></div><span className="badge badge-danger">BLOCKED</span></header>
     <StateBlock tone="blocked" title="BLOCKED — immutable Journal scope mismatch">The journal row does not match the entity, Journal ID, and revision retained in its parent return context. It remains visible for review, but cannot support a line, ledger, source, or workflow drill.</StateBlock>
   </section>;
-  return <section className="full-bleed qbo-transaction-report authoritative-journal-detail" aria-label="Journal entry evidence">
+  return <section className="full-bleed qbo-transaction-report authoritative-evidence-page authoritative-journal-detail" aria-label="Journal entry evidence">
     <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>{journalReturnScope(entityId, journal, returnContext?.view)}</span></div>
     <header className="journal-evidence-header">
       <div><div className="authoritative-eyebrow">GENERAL LEDGER | RETAINED EVIDENCE</div><h1>Journal entry {journal.journal_number}</h1><p className="page-subtitle">Read-only facts returned by the authoritative Journal Entry list API.</p></div>
