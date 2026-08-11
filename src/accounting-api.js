@@ -42,6 +42,10 @@ const STATUS_TOKEN=/^[A-Z][A-Z0-9_]{0,63}$/;
 const nullableUuid=value=>value===null||value===undefined||UUID.test(value||'');
 const nullableRevision=value=>value===null||value===undefined||(UNSIGNED_INTEGER.test(String(value))&&Number.isSafeInteger(Number(value)));
 const validTimestamp=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T/.test(value)&&!Number.isNaN(new Date(value).valueOf());
+// The current list contracts do not carry lineage. Preserve a future explicit
+// API lineage object verbatim for the presentation layer to validate; never
+// synthesize it from list facts or browser state.
+const optionalLineage=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:null;
 const JOURNAL_TYPES=new Set(['MANUAL','AUTO','REVERSAL','RECLASS']);
 const JOURNAL_STATUSES=new Set(['DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED']);
 const BANK_MATCH_STATUSES=new Set(['ACTIVE','UNMATCHED','REVERSED']);
@@ -61,7 +65,7 @@ const documentRow=(row,kind)=>{
   return {
     business_document_id:row.business_document_id,
     ...(kind==='AP_BILL'?{bill_id:row.business_document_id,bill_no:row.document_number,invoice_no:row.document_number,vendor_id:row.counterparty_ref,vendor_name:row.counterparty_name,bill_date:row.accounting_date}:{inv_id:row.business_document_id,inv_no:row.document_number,customer_id:row.counterparty_ref,customer_name:row.counterparty_name,inv_date:row.accounting_date}),
-    due_date:row.due_date??null,amount:grossAmount,open_balance:openBalance,currency:row.currency,status:row.status,je_number:row.posted_journal_entry_id||null,revision:version,journal_entry_id:row.journal_entry_id??null,journal_status:row.journal_status??null,journal_revision:journalRevision,period_id:row.period_id??null,account_code:row.offset_account_code??null,description:row.description??null,
+    due_date:row.due_date??null,amount:grossAmount,open_balance:openBalance,currency:row.currency,status:row.status,je_number:row.posted_journal_entry_id||null,posted_journal_entry_id:row.posted_journal_entry_id??null,revision:version,journal_entry_id:row.journal_entry_id??null,journal_status:row.journal_status??null,journal_revision:journalRevision,period_id:row.period_id??null,account_code:row.offset_account_code??null,description:row.description??null,lineage:optionalLineage(row.lineage),
   };
 };
 
@@ -69,7 +73,7 @@ const adjustmentRow=(row,side)=>{
   if(!row||!UUID.test(row.business_adjustment_id||'')||!STATUS_TOKEN.test(row.adjustment_kind||'')||!row.adjustment_kind.startsWith(`${side}_`)||!nullableUuid(row.business_document_id)||!nullableUuid(row.source_adjustment_id)||!MONEY4.test(String(row.amount??''))||!/^[A-Z]{3}$/.test(row.currency||'')||!validDate(row.accounting_date)||!UUID.test(row.period_id||'')||typeof row.reason!=='string'||!STATUS_TOKEN.test(row.status||'')||!UNSIGNED_INTEGER.test(String(row.version??''))||!nullableUuid(row.journal_entry_id)||row.journal_status!==null&&row.journal_status!==undefined&&!STATUS_TOKEN.test(row.journal_status)||!nullableRevision(row.journal_revision)||!validTimestamp(row.created_at))return null;
   const version=Number(row.version),journalRevision=row.journal_revision===null||row.journal_revision===undefined?null:Number(row.journal_revision),amount=Number(row.amount);
   if(!Number.isSafeInteger(version)||version<0||journalRevision!==null&&(!Number.isSafeInteger(journalRevision)||journalRevision<0)||!Number.isFinite(amount))return null;
-  return {...row,amount,version,journal_revision:journalRevision};
+  return {...row,amount,version,journal_revision:journalRevision,lineage:optionalLineage(row.lineage)};
 };
 
 const bankTransactionRow=(row,account)=>{
