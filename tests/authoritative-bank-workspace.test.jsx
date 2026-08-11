@@ -27,6 +27,9 @@ assert.match(bankDetail,/full-bleed qbo-transaction-report/);
 assert.match(bankDetail,/AUTHORITATIVE SOURCE EVIDENCE/);assert.match(bankDetail,/Bank evidence lifecycle/);assert.match(bankDetail,/Reconciliation separate/);assert.match(bankDetail,/Authoritative evidence scope/);
 assert.match(bankDetail,/Match review/);assert.match(bankDetail,/Journal reference unavailable/);
 assert.match(bankDetail,/Direction/);assert.match(bankDetail,/OUTFLOW/);
+const mismatchedBankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-OTHER',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}} config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
+assert.match(mismatchedBankDetail,/BLOCKED — immutable bank scope mismatch/);assert.match(mismatchedBankDetail,/Back to bank transactions/);
+assert.doesNotMatch(mismatchedBankDetail,/Bank match candidate review|Active Match correction|Load exact candidate|Create reviewed Match|Unmatch evidence/);
 const activeMatchDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={activeMatchRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(activeMatchDetail,/Business source document/);assert.match(activeMatchDetail,/Journal entry/);assert.match(activeMatchDetail,/Journal line/);assert.match(activeMatchDetail,/Ledger line/);assert.match(activeMatchDetail,/Unavailable from the active-Match read/);assert.match(activeMatchDetail,/Matched by/);assert.match(activeMatchDetail,/Matched at/);assert.match(activeMatchDetail,/Match version/);assert.match(activeMatchDetail,/Active Match retained/);assert.match(activeMatchDetail,/Journal reference retained/);
 const historicalMatchDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={historicalMatchRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}} config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
@@ -43,6 +46,9 @@ assert.match(reconciliationDetail,/Back to reconciliation evidence/);assert.matc
 assert.match(reconciliationDetail,/full-bleed qbo-transaction-report/);assert.match(reconciliationDetail,/Reconciled by/);
 assert.match(reconciliationDetail,/Load reconciliation worksheet/);assert.match(reconciliationDetail,/CONTROLLER REVIEW/);
 assert.match(reconciliationDetail,/AUTHORITATIVE STATEMENT WORKSHEET/);assert.match(reconciliationDetail,/Reconciliation lifecycle/);assert.match(reconciliationDetail,/Authoritative evidence scope/);
+const mismatchedReconciliationDetail=renderToStaticMarkup(<AuthoritativeReconciliationDetail row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-OTHER',statementEndingDate:'2026-07-30'}} onBack={()=>{}} config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
+assert.match(mismatchedReconciliationDetail,/BLOCKED — immutable reconciliation scope mismatch/);assert.match(mismatchedReconciliationDetail,/Back to reconciliation evidence/);
+assert.doesNotMatch(mismatchedReconciliationDetail,/Load reconciliation worksheet|Prepare adjustment Draft|Create adjustment Draft|Clear matched item|Send to independent review|Sign off reviewed statement|Reopen signed statement/);
 
 const source=readFileSync('src/authoritative-bank-workspace.jsx','utf8');
 // Phase 2a: the four states are rendered only by the shared StateBlock, which
@@ -60,9 +66,16 @@ assert.match(source,/className="table-wrap" role="region" tabIndex=\{0\} aria-la
 assert.match(source,/className="table-wrap" role="region" tabIndex=\{0\} aria-label="Reconciliation worksheet; scroll horizontally to view every column"/,'Reconciliation worksheet table must be keyboard-focusable and named when it overflows at narrow widths');
 assert.match(source,/restoreAuthoritativeReturnContext\(environment,config,context\)/,'Bank and reconciliation Back must restore scope, scroll position and focus');
 assert.match(source,/bankAccountRef:scope\.bankAccountRef/,'Bank Back must retain the exact account scope');
+assert.match(source,/const bankRowMatchesScope=/,'Bank detail must reject a row outside the immutable parent account scope');
+assert.match(source,/scopeMatches&&config&&<AuthoritativeBankMatchReview/,'Bank match controls require a matching immutable account scope');
+assert.match(source,/BLOCKED — immutable bank scope mismatch/,'Bank scope mismatches must remain evidence-only');
 assert.match(source,/load\(null,\{preserveDetail:true\}\)/,'A successful bank command must re-read the current scoped source and retain the full-page detail');
 assert.match(source,/const refreshed=result\.rows\.find\(row=>row\.bank_source_id===current\.row\.bank_source_id\)/,'A refreshed Bank detail must use the same immutable source identity, never a positional row');
 assert.match(source,/statementEndingDate:scope\.statementEndingDate/,'Reconciliation Back must retain the exact cutoff scope');
+assert.match(source,/const reconciliationRowMatchesScope=/,'Reconciliation detail must bind account and statement cutoff to its parent scope');
+assert.match(source,/scopeMatches&&worksheet\.phase==='IDLE'/,'A mismatched reconciliation cannot fetch worksheet evidence');
+assert.match(source,/scopeMatches&&hasAuthorizedWorksheetEvidence&&<section className="card" aria-label="Reconciliation lifecycle command"/,'Lifecycle controls require matching immutable scope and server worksheet evidence');
+assert.match(source,/BLOCKED — immutable reconciliation scope mismatch/,'Reconciliation scope mismatches must remain evidence-only');
 assert.match(source,/AuthoritativeReconciliationSummary row=\{state\.row\} scope=\{\{\.\.\.scope,entityId:config\.entityId\}\}/,'Reconciliation summary must retain its exact entity and statement scope after a successful authoritative read');
 assert.doesNotMatch(source,/localStorage|SEED_|bankRecord|bankSignoff/,'authoritative Bank/Reconcile UI must not depend on demo state or legacy mutation helpers');
 assert.match(source,/refreshAuthoritativeBankMatchCandidates/,'Bank Match must start from server-validated candidate evidence, not a caller-supplied occurrence ID');
