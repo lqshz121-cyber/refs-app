@@ -30,6 +30,21 @@ test('live acceptance verifier rejects a report that does not tie to both G11 jo
   assert.throws(()=>verifyWbsLiveAcceptance(input),error=>error.code==='WBS_LIVE_ACCEPTANCE_GL_REPORT_TIE_FAILED');
 });
 
+test('live acceptance verifier compares report ties as exact MONEY4 strings without floating point rounding',()=>{
+  const input=evidence();
+  Object.assign(input.glReport.tie,{gl_debits:'10.1010',gl_credits:'10.1010',report_debits:'10.1010',report_credits:'10.1010',ap_291001_net:'0.0000'});
+  assert.equal(verifyWbsLiveAcceptance(input).status,'WBS_LIVE_ACCEPTANCE_EVIDENCE_VERIFIED');
+  input.glReport.tie.report_credits='10.1011';
+  assert.throws(()=>verifyWbsLiveAcceptance(input),error=>error.code==='WBS_LIVE_ACCEPTANCE_GL_REPORT_TIE_FAILED');
+});
+
+test('live acceptance verifier rejects non-canonical or numeric report totals',()=>{
+  const numeric=evidence();numeric.glReport.tie.gl_debits=200;
+  assert.throws(()=>verifyWbsLiveAcceptance(numeric),error=>error.code==='WBS_LIVE_ACCEPTANCE_GL_REPORT_TIE_FAILED');
+  const precision=evidence();precision.glReport.tie.gl_debits='200.00001';
+  assert.throws(()=>verifyWbsLiveAcceptance(precision),error=>error.code==='WBS_LIVE_ACCEPTANCE_GL_REPORT_TIE_FAILED');
+});
+
 test('live acceptance verifier does not trust a self-supplied evidence keyring',()=>{
   const input=evidence();
   delete input.providerTrust;
