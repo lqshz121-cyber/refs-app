@@ -139,9 +139,13 @@ const ComparisonDetail=({row,returnContext,onBack})=><section className="full-bl
   <div className="detail-grid"><EvidenceIds label="Current journal entries" ids={row.current_journal_entry_ids}/><EvidenceIds label="Current source documents" ids={row.current_source_document_ids}/><EvidenceIds label="Prior journal entries" ids={row.prior_journal_entry_ids}/><EvidenceIds label="Prior source documents" ids={row.prior_source_document_ids}/></div>
 </section>;
 
-const ReportDetail=({row,returnContext,onBack})=><section className="full-bleed qbo-transaction-report" aria-label="Financial statement account evidence">
+const hasCompleteReportLineage=row=>['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'].every(field=>Array.isArray(row?.[field])&&row[field].length>0);
+
+export const AuthoritativeReportDetail=({row,returnContext,onBack})=>{
+  const lineageComplete=hasCompleteReportLineage(row);
+  return <section className="full-bleed qbo-transaction-report" aria-label="Financial statement account evidence">
   <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to financial statement</button><span>Entity {returnContext?.entityId} · Period {returnContext?.periodId} · {returnContext?.report}</span></div>
-  <div className="card-head"><div><h2>{row.account_code} - {row.account_name}</h2><p className="muted sm">{row.statement_type} / {row.statement_section}</p></div><span className="badge badge-muted">POSTED EVIDENCE</span></div>
+  <div className="card-head"><div><h2>{row.account_code} - {row.account_name}</h2><p className="muted sm">{row.statement_type} / {row.statement_section}</p></div><span className={lineageComplete?'badge badge-muted':'badge badge-danger'}>{lineageComplete?'POSTED EVIDENCE':'BLOCKED'}</span></div>
   <div className="qbo-toolgrid">
     {row.opening_debit!==undefined&&<><span><i>Opening debits</i><b>{money(row.opening_debit)}</b></span><span><i>Opening credits</i><b>{money(row.opening_credit)}</b></span></>}
     <span><i>Period debits</i><b>{money(row.period_debit)}</b></span><span><i>Period credits</i><b>{money(row.period_credit)}</b></span>
@@ -152,7 +156,9 @@ const ReportDetail=({row,returnContext,onBack})=><section className="full-bleed 
     <EvidenceIds label="Journal entries" ids={row.journal_entry_ids}/><EvidenceIds label="Journal lines" ids={row.journal_line_ids}/>
     <EvidenceIds label="Ledger lines" ids={row.ledger_line_ids}/><EvidenceIds label="Source documents" ids={row.source_document_ids}/>
   </div>
+  {!lineageComplete&&<StateBlock tone="blocked" title="BLOCKED — authoritative lineage unavailable">This report row remains visible as scoped statement data, but it cannot support a Journal Entry or source drill until the accounting API returns Journal Entry, Journal Line, ledger-line, and source-document identifiers together.</StateBlock>}
 </section>;
+};
 
 export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
   const [report,setReport]=useState(DEFAULT_AUTHORITATIVE_REPORTS_CATALOG.preview);
@@ -206,7 +212,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
     setSelected(null);
     restoreAuthoritativeReturnContext(environment,config,context);
   };
-  if(selected)return selected.kind==='CASH_FLOW_CLASSIFICATION'?<CashFlowDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='INTERCOMPANY_RECONCILIATION'?<IntercompanyDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='BUDGET_VS_ACTUAL'?<BudgetActualDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CONSOLIDATION'?<ConsolidationDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='PERIOD_COMPARISON'?<ComparisonDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CWIP_ROLLFORWARD'?<CwipRollforwardDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='DIMENSION_PROFITABILITY'?<DimensionProfitabilityDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='ROLLFORWARD'?<RollforwardDetail title={selected.title} row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:<ReportDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>;
+  if(selected)return selected.kind==='CASH_FLOW_CLASSIFICATION'?<CashFlowDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='INTERCOMPANY_RECONCILIATION'?<IntercompanyDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='BUDGET_VS_ACTUAL'?<BudgetActualDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CONSOLIDATION'?<ConsolidationDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='PERIOD_COMPARISON'?<ComparisonDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CWIP_ROLLFORWARD'?<CwipRollforwardDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='DIMENSION_PROFITABILITY'?<DimensionProfitabilityDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='ROLLFORWARD'?<RollforwardDetail title={selected.title} row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:<AuthoritativeReportDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>;
   const matchingWorkbenchTabs=REPORT_WORKBENCH_TABS.filter(([,label,description])=>`${label} ${description}`.toLowerCase().includes(catalogSearch.trim().toLowerCase()));
   const visibleWorkbenchTabs=catalogSearch.trim()?matchingWorkbenchTabs:REPORT_WORKBENCH_TABS;
   return <div className="stack reports-library authoritative-reports-library"><header className="accounting-page-head reports-head"><div><div className="page-eyebrow">AUTHORITATIVE · REPORTING</div><h1 className="page-h">Reports center</h1><p className="page-subtitle">OIDC-authenticated, entity-and-period-scoped POSTED ledger evidence. Every displayed report reads the accounting API; no browser data is used.</p></div><div className="report-period-chip"><span>Reporting scope</span><b>Entity {config.entityId} · Period {config.periodId}</b></div></header>
