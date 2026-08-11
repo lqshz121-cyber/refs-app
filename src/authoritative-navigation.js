@@ -47,7 +47,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
   ]),
   group('Journal Entry', [item('journals', 'Journal entries', 'API_READ')]),
   group('General Ledger', [
-    item('general-ledger', 'General Ledger', 'API_READ'), item('consolidation', 'Consolidation'),
+    item('general-ledger', 'General Ledger', 'API_READ'),
+    // Consolidation is an evidence reader only. It cannot create eliminations
+    // or substitute a legacy browser-side consolidation workbook.
+    item('consolidation', 'Consolidation', 'API_READ'),
     item('account-inquiry', 'Account inquiry', 'API_READ'), item('subsidiary-ledger', 'Subsidiary ledger'),
     item('chart-of-accounts', 'Chart of accounts', 'API_READ'),
   ]),
@@ -61,7 +64,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // evidence. The loan register and lender workflow remain unavailable.
     item('construction-loan', 'Construction Loan', 'API_READ'),
     item('loan-register', 'Loan Register'), item('property-ops-pickup', 'Property Ops Pickup'),
-    item('closing-accounting', 'Closing Accounting'), item('intercompany', 'Intercompany'),
+    item('closing-accounting', 'Closing Accounting'),
+    // The available scope is the existing two-entity reconciliation reader;
+    // it does not expose an uncontracted intercompany posting workflow.
+    item('intercompany', 'Intercompany', 'API_READ'),
     item('fixed-assets', 'Fixed Assets'),
     // The authoritative reader is prepaid rollforward evidence only; it does
     // not manufacture a legacy amortization schedule or posting workflow.
