@@ -37,6 +37,12 @@ assert.equal(oidcRuntimeConfig({__REFS_OIDC__:{...base.__REFS_OIDC__,scope:'prof
      assert.deepEqual(await restoredSessionClient.completeRedirect(),{ok:false,code:'OIDC_LOGIN_REQUIRED'},'an unusable stored session must require a new login before rendering');
      assert.equal(restoredSessionEnvironment.sessionStorage.getItem('refs_oidc_pkce_v1'),null,'an unusable stored session must be cleared rather than retained');
    }
+   restoredSessionEnvironment.sessionStorage.setItem('refs_oidc_pkce_v1','{not-json');
+   assert.deepEqual(await restoredSessionClient.completeRedirect(),{ok:false,code:'OIDC_LOGIN_REQUIRED'},'a malformed stored record must require login rather than restoring the authoritative shell');
+   assert.equal(restoredSessionEnvironment.sessionStorage.getItem('refs_oidc_pkce_v1'),null,'a malformed stored record must be removed before the app can start a prompt=none recovery');
+   restoredSessionEnvironment.sessionStorage.setItem('refs_oidc_pkce_v1',JSON.stringify({kind:'pending',state:'old',verifier:'old',createdAt:1_000_000}));
+   assert.deepEqual(await restoredSessionClient.completeRedirect(),{ok:false,code:'OIDC_LOGIN_REQUIRED'},'a pending PKCE record without a callback is not an authenticated session');
+   assert.equal(restoredSessionEnvironment.sessionStorage.getItem('refs_oidc_pkce_v1'),null,'a stale pending record must not survive into a later reload');
    const restoredEnvironment={...base,sessionStorage:storage(),location:{search:'',assign(url){this.assigned=url;}},history:{replaceState(){}}};
   const restoredClient=new BrowserOidcClient({environment:restoredEnvironment,now:()=>1_000_000,fetcher:async()=>{throw new Error('the authorization redirect has not returned yet');}});
   await restoredClient.startLogin({prompt:'none'});assert.match(restoredEnvironment.location.assigned,/prompt=none/,'startup restoration must be explicit prompt=none PKCE');assert.match(restoredEnvironment.location.assigned,/code_challenge_method=S256/);assert.equal(JSON.parse(restoredEnvironment.sessionStorage.getItem('refs_oidc_pkce_v1')).kind,'pending');

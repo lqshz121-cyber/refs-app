@@ -17,6 +17,9 @@ const digest=async(environment,value)=>base64url(new Uint8Array(await environmen
 const save=(environment,value)=>environment.sessionStorage?.setItem(STORAGE_KEY,JSON.stringify(value));
 const load=environment=>json(environment.sessionStorage?.getItem(STORAGE_KEY)||'');
 const clear=environment=>environment.sessionStorage?.removeItem(STORAGE_KEY);
+const hasStoredRecord=environment=>{
+  try{return environment?.sessionStorage?.getItem(STORAGE_KEY)!==null;}catch{return false;}
+};
 const tokenClaims=token=>{const part=token?.split('.')?.[1];if(!part)return null;try{const base64=part.replace(/-/g,'+').replace(/_/g,'/');return json(atob(base64.padEnd(base64.length+(4-base64.length%4)%4,'=')));}catch{return null;}};
 
 // ---------------------------------------------------------------------------
@@ -162,7 +165,10 @@ export class BrowserOidcClient {
     if(!code){
       const session=this.session();
       if(session&&text(session.subject)&&Number.isSafeInteger(session.expiresAt)&&session.expiresAt>this.now()+30000)return {ok:true};
-      if(session)clear(this.environment);
+      // `session()` intentionally returns null for malformed JSON and records
+      // of another kind.  Clear those too: retaining an unreadable record
+      // would leave a later reload to reinterpret browser state as identity.
+      if(hasStoredRecord(this.environment))clear(this.environment);
       return {ok:false,code:'OIDC_LOGIN_REQUIRED'};
     }
     const pending=load(this.environment);if(!pending||pending.kind!=='pending'||pending.state!==state||!Number.isSafeInteger(pending.createdAt)||pending.createdAt+600000<this.now()){clear(this.environment);return {ok:false,code:'OIDC_STATE_INVALID'};}
