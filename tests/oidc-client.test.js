@@ -37,12 +37,20 @@ assert.equal(oidcRuntimeConfig({__REFS_OIDC__:{...base.__REFS_OIDC__,scope:'prof
 //
 // The failure paths are the point. The happy path is one case out of eleven.
 // ===========================================================================
-import {RENEWAL_LEAD_MS,RENEWAL_MESSAGE,respondFromRenewalFrame,silentRenewalSchedule} from '../src/oidc-client.js';
+import {RENEWAL_EVIDENCE_EVENT,RENEWAL_LEAD_MS,RENEWAL_MESSAGE,respondFromRenewalFrame,silentRenewalSchedule} from '../src/oidc-client.js';
 
 const APP_ORIGIN='https://app.example';
 const PROVIDER='https://issuer.example';
 const SESSION_KEY='refs_oidc_pkce_v1';
 const tokenResponse=(claims,expires_in=600)=>({ok:true,json:async()=>({access_token:token(claims),token_type:'Bearer',expires_in})});
+const evidenceCrypto={
+  getRandomValues:crypto.getRandomValues,
+  subtle:{digest:async(_algorithm,input)=>{
+    const output=new Uint8Array(32);
+    for(const [index,value] of new Uint8Array(input).entries())output[index%output.length]=(output[index%output.length]+value+index)%256;
+    return output.buffer;
+  }},
+};
 
 // A top-level document with a hidden-frame host. `respond` is the provider: it
 // is handed the frame that was just attached and decides what, if anything,
@@ -134,6 +142,30 @@ process.on('exit',()=>{
     assert.equal(await client.getAccessToken(),token({iss:PROVIDER,aud:'refs-accounting',sub:'subject-1',exp:2200}));
   }
 
+  // -- 2a. Successful renewal emits only verifiable, non-secret evidence. --
+  {
+    const env=renewalEnvironment((frame,e)=>e.deliver(`?code=renewed&state=${frameState(frame)}`));
+    env.crypto=evidenceCrypto;
+    const evidence=[];
+    env.CustomEvent=class {constructor(type,init={}){this.type=type;this.detail=init.detail;}};
+    env.document.dispatchEvent=event=>{evidence.push(event);return true;};
+    await seedSession(env);
+    const client=renewalClient(env,async()=>tokenResponse({iss:PROVIDER,aud:'refs-accounting',sub:'subject-1',exp:2200}));
+    assert.deepEqual(await client.renewSilently({timeoutMs:200}),{ok:true,expiresAt:2_100_000});
+    assert.equal(evidence.length,1,'a valid renewal should emit exactly one release-evidence event');
+    const event=evidence[0],detail=event.detail;
+    assert.equal(event.type,RENEWAL_EVIDENCE_EVENT);
+    assert.deepEqual(Object.keys(detail).sort(),['expires_at_after','expires_at_before','mode','schema','subject_hash','token_hash_after','token_hash_before']);
+    assert.equal(detail.schema,'refs.oidc.silent-renewal-evidence/v1');
+    assert.equal(detail.mode,'prompt_none_pkce');
+    assert.match(detail.subject_hash,/^sha256:/);
+    assert.match(detail.token_hash_before,/^sha256:/);
+    assert.match(detail.token_hash_after,/^sha256:/);
+    assert.notEqual(detail.token_hash_before,detail.token_hash_after,'token hashes must prove that renewal replaced the token');
+    assert.equal(detail.expires_at_before,1_600_000);
+    assert.equal(detail.expires_at_after,2_100_000);
+    assert.doesNotMatch(JSON.stringify(detail),/subject-1|accessToken|renewed|signature/,'release evidence must never contain raw identity or credentials');
+  }
   // -- 3. Renewal refused: the third-party-cookie case. --------------------
   {
     const env=renewalEnvironment((frame,e)=>e.deliver(`?error=login_required&state=${frameState(frame)}`));
