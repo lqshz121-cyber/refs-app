@@ -1,0 +1,44 @@
+name: WBS read-only pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      tool:
+        description: Approved read-only WBS tool to pilot
+        required: true
+        default: list_autorec_details
+        type: choice
+        options:
+          - list_payables
+          - list_bank_transactions
+          - list_autorec_details
+          - list_autorec_banks
+          - list_journal_entries
+          - list_control_totals
+
+permissions:
+  contents: read
+
+jobs:
+  pilot:
+    # This environment must hold the three WBS read credentials and require an
+    # accounting-operations approval before a production provider is contacted.
+    environment: wbs-readonly-pilot
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Pull one read-only WBS pilot page
+        env:
+          WBS_CF_ACCESS_CLIENT_ID: ${{ secrets.WBS_CF_ACCESS_CLIENT_ID }}
+          WBS_CF_ACCESS_CLIENT_SECRET: ${{ secrets.WBS_CF_ACCESS_CLIENT_SECRET }}
+          WBS_REFS_AUTH: ${{ secrets.WBS_REFS_AUTH }}
+        run: >-
+          node server/tools/wbs-pull.mjs
+          --tool "${{ inputs.tool }}"
+          --limit 1
