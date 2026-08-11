@@ -22,9 +22,19 @@ assert.match(detail,/Back to Journal entries/); assert.match(detail,/Entity 1111
 assert.match(detail,/search JE-100/); assert.match(detail,/status POSTED/); assert.match(detail,/from 2026-08-01/); assert.match(detail,/through 2026-08-31/); assert.match(detail,/page 2/);
 assert.match(detail,/Journal entry JE-100/); assert.match(detail,/Journal evidence scope/); assert.match(detail,/Authoritative lineage unavailable/);
 assert.match(detail,/Journal ID/); assert.match(detail,/22222222-2222-4222-8222-222222222222/);
-assert.match(detail,/Journal Lines, Ledger Line IDs, Source Document IDs, mapping decisions, or audit events/);
+assert.match(detail,/Authoritative journal line evidence unavailable/);
+assert.match(detail,/does not carry exact Journal Lines, Ledger Line IDs, or Source Document IDs/);
 assert.match(detail,/cannot create, edit, submit, review, approve, post, reverse, attach, print, export, or synchronize/);
 assert.doesNotMatch(detail,/<input|<select|>Submit<|>Approve<|>Post</i);
+
+const journalWithExactLines={...journal,line_evidence:[
+  {journal_entry_id:journal.journal_entry_id,journal_line_id:'33333333-3333-4333-8333-333333333333',ledger_line_id:'44444444-4444-4444-8444-444444444444',line_no:1,account_code:'111000',debit_amount:'25.0000',credit_amount:'0.0000',member_ref:'BANK-1',description:'Exact cash line',source_document_ids:['55555555-5555-4555-8555-555555555555']},
+  {journal_entry_id:journal.journal_entry_id,journal_line_id:'66666666-6666-4666-8666-666666666666',ledger_line_id:'77777777-7777-4777-8777-777777777777',line_no:2,account_code:'291001',debit_amount:'0.0000',credit_amount:'25.0000',member_ref:null,description:'Exact offset line',source_document_ids:[]},
+]};
+const exactDetail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journalWithExactLines} entityId={entityId} returnContext={{view:{}}} onBack={()=>{}}/>);
+assert.match(exactDetail,/EXACT API LINE FACTS/);assert.match(exactDetail,/Journal lines/);assert.match(exactDetail,/111000/);assert.match(exactDetail,/25\.0000/);assert.match(exactDetail,/33333333-3333-4333-8333-333333333333/);
+assert.match(exactDetail,/class="table-wrap authoritative-journal-line-table" tabindex="0" aria-label="Journal line evidence; scroll horizontally to view every column"/);
+assert.doesNotMatch(exactDetail,/Authoritative journal line evidence unavailable/,'an explicit exact API line extension must be shown rather than reconstructed or blocked');
 
 const empty=renderToStaticMarkup(<AuthoritativeJournalTable journals={[]} onOpen={()=>{}}/>);
 assert.match(empty,/not evidence of zero ledger activity/); assert.doesNotMatch(empty,/<table/);
@@ -36,6 +46,7 @@ const workspace=fs.readFileSync(path.join(process.cwd(),'src','authoritative-jou
 assert.match(workspace,/restoreAuthoritativeReturnContext/,'Back must restore scroll and focus to the originating evidence control');
 assert.match(workspace,/setQueue\('REVIEW_REQUIRED'\)/,'Needs review must include the retained review and approval statuses it counts');
 assert.match(workspace,/table-wrap authoritative-journal-table/,'Journal facts must use the shared, page-contained table scroller');
+assert.match(workspace,/line_evidence/,'only an explicit API line extension may render exact Journal line facts');
 assert.doesNotMatch(workspace,/localStorage|SEED_|legacy-demo|seed\.js|repo\.js/,'authoritative Journal evidence must not read browser accounting state');
 const evidenceWorkspace=renderToStaticMarkup(<AuthoritativeJournalWorkspace journals={[journal]} config={{entityId,periodId:'33333333-3333-4333-8333-333333333333'}} environment={{scrollY:0,setTimeout:callback=>callback(),document:{getElementById:()=>null}}}/>);
 assert.match(evidenceWorkspace,/GENERAL LEDGER \| JOURNAL REGISTER/);
@@ -44,5 +55,7 @@ assert.doesNotMatch(detail,/\u8def|鈥|路/,'authority Journal detail must rende
 const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.match(styles,/\.authoritative-journal-table \.tbl\{min-width:1060px;table-layout:fixed;\}/,
   'the journal evidence columns must scroll inside the table container rather than squeezing or widening the page');
+assert.match(styles,/\.authoritative-journal-line-table \.tbl\{min-width:1420px;table-layout:fixed;\}/,
+  'exact Journal line evidence must remain in a keyboard-focusable local table scroller');
 
 console.log('authoritative-journal-evidence: API-only journal register, full-page evidence, Back/focus, lineage block, and empty-state contracts verified');
