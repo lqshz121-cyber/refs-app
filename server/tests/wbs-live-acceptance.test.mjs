@@ -8,7 +8,7 @@ const hash=letter=>`sha256:${letter.repeat(64)}`;
 const rawHash=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
 function evidence(){
   const pair=generateKeyPairSync('ed25519'),raw={request:Buffer.from('{"request":"canonical"}'),response:Buffer.from('{"response":"canonical"}'),package:Buffer.from('{"package":"canonical"}')},packageHash=rawHash(raw.package),scope={tenant_id:'tenant-1',entity_id:'entity-1',company_code:'COMPANY-A',package_hash:packageHash};
-  const receipt={...scope,issuer:'wbs',kid:'wbs-2026',algorithm:'Ed25519',response_sha256:rawHash(raw.response),request_sha256:rawHash(raw.request),nonce:'nonce-1',signed_at:'2026-08-11T00:00:00.000Z',expires_at:'2026-08-12T00:00:00.000Z',immutable_version:'1',nonempty:true};
+  const receipt={...scope,issuer:'wbs',kid:'wbs-2026',algorithm:'Ed25519',response_sha256:rawHash(raw.response),request_sha256:rawHash(raw.request),nonce:'nonce-1',signed_at:'2026-08-11T00:00:00.000Z',expires_at:'2099-08-12T00:00:00.000Z',immutable_version:'1',nonempty:true};
   receipt.detached_signature={key_id:'wbs-2026',algorithm:'Ed25519',value:sign(null,Buffer.from(canonicalWbsLiveReceiptSigningPayload(receipt),'utf8'),pair.privateKey).toString('base64')};
   const trace={company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',bank_business_date:'2026-08-10',bank_accounting_date:'2026-08-10',business_business_date:'2026-08-10',business_accounting_date:'2026-08-10',bank_receipt_id:'receipt-bank',bank_receipt_ref:'ref-bank',bank_receipt_hash:hash('d'),business_receipt_id:'receipt-pay',business_receipt_ref:'ref-pay',business_receipt_hash:hash('e'),bank_raw_event_id:'raw-bank',business_raw_event_id:'raw-pay',bank_source_document_id:'doc-bank',business_source_document_id:'doc-pay',bank_source_record_id:'bank-1',bank_source_version:'1',business_source_record_id:'pay-1',business_source_version:'1',bank_staging_item_id:'stg-bank',business_staging_item_id:'stg-pay',allocated_amount:'100.0000'};
   const review_request={request_type:'AUTOREC_REVIEW_REQUEST',status:'REVIEW_REQUIRED',allocated_amount:'100.0000',company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1',trace};
@@ -69,4 +69,13 @@ test('live acceptance verifier rejects a receipt claim changed after signing',()
   const input=evidence();
   input.receipt.immutable_version='substituted-version';
   assert.throws(()=>verifyWbsLiveAcceptance(input),error=>error.code==='WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_INVALID');
+});
+
+test('live acceptance verifier rejects expired, malformed, and implausibly future receipt windows before accepting the signature',()=>{
+  const expired=evidence();expired.receipt.expires_at='2026-08-10T00:00:00.000Z';
+  assert.throws(()=>verifyWbsLiveAcceptance({...expired,now:Date.parse('2026-08-11T00:00:00.000Z')}),error=>error.code==='WBS_LIVE_ACCEPTANCE_RECEIPT_TIME_WINDOW_INVALID');
+  const malformed=evidence();malformed.receipt.signed_at='2026-08-11';
+  assert.throws(()=>verifyWbsLiveAcceptance({...malformed,now:Date.parse('2026-08-11T00:00:00.000Z')}),error=>error.code==='WBS_LIVE_ACCEPTANCE_RECEIPT_TIME_WINDOW_INVALID');
+  const future=evidence();future.receipt.signed_at='2099-08-11T00:00:00.000Z';future.receipt.expires_at='2099-08-12T00:00:00.000Z';
+  assert.throws(()=>verifyWbsLiveAcceptance({...future,now:Date.parse('2026-08-11T00:00:00.000Z')}),error=>error.code==='WBS_LIVE_ACCEPTANCE_RECEIPT_TIME_WINDOW_INVALID');
 });

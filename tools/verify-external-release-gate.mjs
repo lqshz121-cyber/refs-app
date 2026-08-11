@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { canonicalWbsLiveReceiptSigningPayload } from '../server/runtime/wbs-live-receipt-signing.mjs';
+import { canonicalWbsLiveReceiptSigningPayload, isWbsLiveReceiptTimeWindowValid } from '../server/runtime/wbs-live-receipt-signing.mjs';
 
 const forbidden = /[\p{Script=Han}\uFFFD\u0080-\u009F]/u;
 const pages = ['Dashboard', 'Reports', 'Reconcile', 'BankTx', 'Expenses', 'Accounting', 'Rule Center', 'Integration Hub'];
@@ -95,6 +95,7 @@ export function verifyWbsReceiptEvidence(environment = process.env) {
   const required = ['issuer', 'kid', 'algorithm', 'response_sha256', 'request_sha256', 'package_hash', 'nonce', 'signed_at', 'expires_at', 'tenant_id', 'entity_id', 'company_code', 'immutable_version'];
   if (!required.every(field => String(receipt[field] || '').trim()) || receipt.nonempty !== true) return fail('RELEASE_WBS_RECEIPT_INCOMPLETE', required.join(','));
   if (receipt.algorithm !== 'Ed25519' || ![receipt.request_sha256, receipt.response_sha256, receipt.package_hash].every(value => /^sha256:[0-9a-f]{64}$/.test(String(value)))) return fail('RELEASE_WBS_RECEIPT_INCOMPLETE', 'canonical SHA-256 receipt hashes are required');
+  if (!isWbsLiveReceiptTimeWindowValid(receipt)) return fail('RELEASE_WBS_RECEIPT_TIME_WINDOW_INVALID', 'receipt timestamps must be canonical UTC, unexpired, and within clock skew');
   if (String(receipt.issuer).trim() !== pin.issuer) return fail('RELEASE_WBS_RECEIPT_ISSUER_MISMATCH', 'receipt issuer does not match the configured provider pin');
   if (String(receipt.kid).trim() !== pin.keyId) return fail('RELEASE_WBS_RECEIPT_KEY_MISMATCH', 'receipt key id does not match the configured provider pin');
   let raw;
