@@ -6,6 +6,7 @@ import {AuthoritativeBankDetail,AuthoritativeBankTable,AuthoritativeBankWorkspac
 
 const config={entityId:'11111111-1111-4111-8111-111111111111'};
 const bankRow={bank_source_id:'11111111-1111-4111-8111-111111111111',bank_account_ref:'BANK-1',external_bank_line_id:'BANK-LINE-1',transaction_date:'2026-07-15',currency:'USD',amount:'-125.2500',version:3,source_ref:'SOURCE-1',document_type:'BANK_TRANSACTION',match_status:null,journal_entry_id:null};
+const activeMatchRow={...bankRow,bank_match_id:'22222222-2222-4222-8222-222222222222',match_status:'ACTIVE',business_source_document_id:'33333333-3333-4333-8333-333333333333',journal_entry_id:'44444444-4444-4444-8444-444444444444',journal_line_id:'55555555-5555-4555-8555-555555555555',candidate_rule_code:'EXACT_POSTED_CASH',amount_delta:'0.0000',currency_match:true,date_delta_days:0,match_version:4,matched_by:'controller@example.test',matched_at:'2026-07-16T10:00:00.000Z'};
 const reconciliationRow={reconciliation_id:'11111111-1111-4111-8111-111111111111',bank_account_ref:'BANK-1',statement_ending_date:'2026-07-31',statement_ending_balance:'1000.0000',difference:'0.0000',status:'RECONCILED',version:4,bank_transaction_count:6,active_match_count:5,unmatched_transaction_count:1,statement_activity_amount:'250.0000'};
 
 const bankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
@@ -23,6 +24,9 @@ const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} sco
 assert.match(bankDetail,/Back to bank transactions/);assert.match(bankDetail,/Bank transaction detail/);assert.match(bankDetail,/-\$125\.25/);assert.match(bankDetail,/2026-07-01/);assert.match(bankDetail,/2026-07-31/);
 assert.match(bankDetail,/full-bleed qbo-transaction-report/);
 assert.match(bankDetail,/AUTHORITATIVE SOURCE EVIDENCE/);assert.match(bankDetail,/Bank evidence lifecycle/);assert.match(bankDetail,/Reconciliation separate/);assert.match(bankDetail,/Authoritative evidence scope/);
+assert.match(bankDetail,/Direction/);assert.match(bankDetail,/OUTFLOW/);
+const activeMatchDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={activeMatchRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
+assert.match(activeMatchDetail,/Business source document/);assert.match(activeMatchDetail,/Journal entry/);assert.match(activeMatchDetail,/Journal line/);assert.match(activeMatchDetail,/Ledger line/);assert.match(activeMatchDetail,/Unavailable from the active-Match read/);assert.match(activeMatchDetail,/Matched by/);assert.match(activeMatchDetail,/Matched at/);assert.match(activeMatchDetail,/Match version/);
 
 const reconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={reconciliationRow}/>);
 assert.match(reconciliation,/RECONCILED/);assert.match(reconciliation,/\$1,000\.00/);assert.match(reconciliation,/Unmatched/);assert.match(reconciliation,/READ ONLY/);assert.match(reconciliation,/Open statement detail/);
@@ -51,9 +55,13 @@ assert.match(source,/className="table-wrap" role="region" tabIndex=\{0\} aria-la
 assert.match(source,/className="table-wrap" role="region" tabIndex=\{0\} aria-label="Reconciliation worksheet; scroll horizontally to view every column"/,'Reconciliation worksheet table must be keyboard-focusable and named when it overflows at narrow widths');
 assert.match(source,/restoreAuthoritativeReturnContext\(environment,config,context\)/,'Bank and reconciliation Back must restore scope, scroll position and focus');
 assert.match(source,/bankAccountRef:scope\.bankAccountRef/,'Bank Back must retain the exact account scope');
+assert.match(source,/load\(null,\{preserveDetail:true\}\)/,'A successful bank command must re-read the current scoped source and retain the full-page detail');
+assert.match(source,/const refreshed=result\.rows\.find\(row=>row\.bank_source_id===current\.row\.bank_source_id\)/,'A refreshed Bank detail must use the same immutable source identity, never a positional row');
 assert.match(source,/statementEndingDate:scope\.statementEndingDate/,'Reconciliation Back must retain the exact cutoff scope');
 assert.doesNotMatch(source,/localStorage|SEED_|bankRecord|bankSignoff/,'authoritative Bank/Reconcile UI must not depend on demo state or legacy mutation helpers');
 assert.match(source,/refreshAuthoritativeBankMatchCandidates/,'Bank Match must start from server-validated candidate evidence, not a caller-supplied occurrence ID');
+assert.match(source,/aria-label="Exact posted candidate evidence"/,'The candidate card must identify its server-returned evidence boundary');
+for(const label of ['Business source document','Occurrence revision','Journal entry','Journal line','Ledger line','Date delta days'])assert.match(source,new RegExp(`<i>${label}</i>`),`Exact candidate evidence must expose ${label} from the authoritative reader`);
 assert.match(source,/candidates\.length!==1/,'zero or multiple candidate sets must block the Match command');
 assert.match(source,/createAuthoritativeBankPaymentMatch/,'an exact candidate must execute through the authoritative command client');
 assert.match(source,/unmatchAuthoritativeBankPayment/,'an active match must use the authoritative Unmatch command client');
