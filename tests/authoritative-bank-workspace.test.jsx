@@ -7,6 +7,7 @@ import {AuthoritativeBankDetail,AuthoritativeBankTable,AuthoritativeBankWorkspac
 const config={entityId:'11111111-1111-4111-8111-111111111111'};
 const bankRow={bank_source_id:'11111111-1111-4111-8111-111111111111',bank_account_ref:'BANK-1',external_bank_line_id:'BANK-LINE-1',transaction_date:'2026-07-15',currency:'USD',amount:'-125.2500',version:3,source_ref:'SOURCE-1',document_type:'BANK_TRANSACTION',match_status:null,journal_entry_id:null};
 const activeMatchRow={...bankRow,bank_match_id:'22222222-2222-4222-8222-222222222222',match_status:'ACTIVE',business_source_document_id:'33333333-3333-4333-8333-333333333333',journal_entry_id:'44444444-4444-4444-8444-444444444444',journal_line_id:'55555555-5555-4555-8555-555555555555',candidate_rule_code:'EXACT_POSTED_CASH',amount_delta:'0.0000',currency_match:true,date_delta_days:0,match_version:4,matched_by:'controller@example.test',matched_at:'2026-07-16T10:00:00.000Z'};
+const historicalMatchRow={...activeMatchRow,match_status:'REVERSED'};
 const reconciliationRow={reconciliation_id:'11111111-1111-4111-8111-111111111111',bank_account_ref:'BANK-1',statement_ending_date:'2026-07-31',statement_ending_balance:'1000.0000',difference:'0.0000',status:'RECONCILED',version:4,bank_transaction_count:6,active_match_count:5,unmatched_transaction_count:1,statement_activity_amount:'250.0000'};
 
 const bankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
@@ -27,6 +28,8 @@ assert.match(bankDetail,/AUTHORITATIVE SOURCE EVIDENCE/);assert.match(bankDetail
 assert.match(bankDetail,/Direction/);assert.match(bankDetail,/OUTFLOW/);
 const activeMatchDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={activeMatchRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(activeMatchDetail,/Business source document/);assert.match(activeMatchDetail,/Journal entry/);assert.match(activeMatchDetail,/Journal line/);assert.match(activeMatchDetail,/Ledger line/);assert.match(activeMatchDetail,/Unavailable from the active-Match read/);assert.match(activeMatchDetail,/Matched by/);assert.match(activeMatchDetail,/Matched at/);assert.match(activeMatchDetail,/Match version/);
+const historicalMatchDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={historicalMatchRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}} config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
+assert.match(historicalMatchDetail,/Match correction blocked/);assert.match(historicalMatchDetail,/not ACTIVE/);assert.match(historicalMatchDetail,/READ ONLY HISTORY/);assert.doesNotMatch(historicalMatchDetail,/Unmatch evidence/);
 
 const reconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={reconciliationRow}/>);
 assert.match(reconciliation,/RECONCILED/);assert.match(reconciliation,/\$1,000\.00/);assert.match(reconciliation,/Unmatched/);assert.match(reconciliation,/READ ONLY/);assert.match(reconciliation,/Open statement detail/);
@@ -65,6 +68,8 @@ for(const label of ['Business source document','Occurrence revision','Journal en
 assert.match(source,/candidates\.length!==1/,'zero or multiple candidate sets must block the Match command');
 assert.match(source,/createAuthoritativeBankPaymentMatch/,'an exact candidate must execute through the authoritative command client');
 assert.match(source,/unmatchAuthoritativeBankPayment/,'an active match must use the authoritative Unmatch command client');
+assert.match(source,/row\.bank_match_id&&row\.match_status!=='ACTIVE'/,'a historical non-ACTIVE Match must not imply an Unmatch command is available');
+assert.match(source,/Match correction blocked/,'historical Match evidence must be explicit BLOCKED/read-only history');
 assert.match(source,/refreshAuthoritativeReconciliationWorksheet/,'Reconciliation must load server-owned worksheet evidence before a clearance command');
 assert.match(source,/setAuthoritativeReconciliationClearance/,'Clear and Unclear must use the authoritative command client');
 assert.doesNotMatch(source,/Start DRAFT reconciliation|Start controlled reconciliation/,'A missing scoped statement must fail closed instead of presenting a false Start Draft affordance');
