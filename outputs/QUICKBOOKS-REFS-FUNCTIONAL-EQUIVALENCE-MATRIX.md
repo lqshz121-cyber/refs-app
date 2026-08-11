@@ -2324,3 +2324,9 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 - **Authority implementation:** Core statement tables now expose the authoritative `statement_section` transition as a semantic `rowgroup` boundary before its retained account rows. This changes neither API data, posted balances, evidence drill, nor the exact catalog-return contract.
 - **Boundary and gap:** REFS does not invent QBO account parents or subtotals where the authority API supplies only flat statement rows. QBO row-level drill, responsive behavior, account permissions, and populated report variants remain unverified.
 - **Verification:** `npm.cmd run test:authoritative-reports`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+## Authority site: Journal review queue filters the counted state (2026-08-11)
+
+- **Observed QBO evidence:** A QBO Journal Entry new-entry dialog was encountered read-only and immediately exited without typing or saving. Its visible Date/number/line/attachment/history/save controls remain excluded from the authority shell.
+- **Authority implementation:** The existing read-only `Needs review` Journal queue now filters both retained `PENDING_REVIEW` and `PENDING_APPROVAL` rows, matching the summary-card count and exposing the same presentation-only status option. It makes no journal transition or API command.
+- **Boundary and gap:** QBO Journal Entry list/detail history, attachment evidence, populated line rows, role permissions, and responsive behavior remain unverified. The authority detail continues to BLOCKED state when its list reader lacks immutable line/source/audit lineage.
+- **Verification:** `npm.cmd run test:authoritative-list-context`; `npm.cmd run test:authoritative-journals`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.

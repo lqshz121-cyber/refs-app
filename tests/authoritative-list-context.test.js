@@ -20,6 +20,8 @@ assert.deepEqual(filterAuthoritativeRows(rows,{query:'beta',status:'PAID',from:'
 assert.deepEqual(filterAuthoritativeRows(rows,{from:'2026-08-02'},'bill_date'),[]);
 assert.deepEqual(filterAuthoritativeRows(rows,{counterparty:'Beta Vendor',accountCode:'220000'},'bill_date',{counterpartyField:'vendor_name',accountField:'account_code'}),[rows[1]]);
 assert.deepEqual(filterAuthoritativeRows(rows,{counterparty:'Beta Vendor',accountCode:'220000'},'bill_date'),rows,'document-only filters must not hide adjustment readers without retained fields');
+const reviewRows=[{status:'PENDING_REVIEW'},{status:'PENDING_APPROVAL'},{status:'POSTED'}];
+assert.deepEqual(filterAuthoritativeRows(reviewRows,{status:'REVIEW_REQUIRED'},'journal_date'),reviewRows.slice(0,2),'the review queue must include both retained review and approval statuses');
 assert.deepEqual(paginateAuthoritativeRows(rows,{page:9,pageSize:1}),{rows:[rows[1]],page:2,pageCount:2,total:2});
 assert.equal(authoritativeEvidenceKey('document',rows[0]),rows[0].business_document_id);
 assert.equal(authoritativeEvidenceKey('document',{business_document_id:'display-id'}),null);

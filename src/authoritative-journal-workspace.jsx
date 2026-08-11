@@ -34,12 +34,12 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
     <section className="authoritative-journal-summary" aria-label="Journal entry queue summary">
       <button type="button" className={`journal-summary-card ${view.status==='ALL'?'journal-summary-card-on':''}`} aria-pressed={view.status==='ALL'} onClick={()=>setQueue('ALL')}><span>In scope</span><b>{queueCounts.all}</b><small>All retained journals</small></button>
       <button type="button" className={`journal-summary-card ${view.status==='DRAFT'?'journal-summary-card-on':''}`} aria-pressed={view.status==='DRAFT'} onClick={()=>setQueue('DRAFT')}><span>Draft</span><b>{queueCounts.draft}</b><small>Not posted</small></button>
-      <button type="button" className={`journal-summary-card ${['PENDING_REVIEW','PENDING_APPROVAL'].includes(view.status)?'journal-summary-card-on':''}`} aria-pressed={['PENDING_REVIEW','PENDING_APPROVAL'].includes(view.status)} onClick={()=>setQueue('PENDING_REVIEW')}><span>Needs review</span><b>{queueCounts.review}</b><small>Retained status only</small></button>
+      <button type="button" className={`journal-summary-card ${view.status==='REVIEW_REQUIRED'?'journal-summary-card-on':''}`} aria-pressed={view.status==='REVIEW_REQUIRED'} onClick={()=>setQueue('REVIEW_REQUIRED')}><span>Needs review</span><b>{queueCounts.review}</b><small>Retained status only</small></button>
       <button type="button" className={`journal-summary-card ${view.status==='POSTED'?'journal-summary-card-on':''}`} aria-pressed={view.status==='POSTED'} onClick={()=>setQueue('POSTED')}><span>Posted</span><b>{queueCounts.posted}</b><small>API list status</small></button>
     </section>
     <div className="filter-bar authoritative-list-filters" role="search" aria-label="Journal entry presentation filters">
       <label>Search <input value={view.query||''} onChange={event=>change({query:event.target.value})} placeholder="Journal number or description"/></label>
-      <label>Status <select value={view.status||'ALL'} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
+      <label>Status <select value={view.status||'ALL'} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option><option value="REVIEW_REQUIRED">Needs review</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
       <label>From <input type="date" value={view.from||''} onChange={event=>change({from:event.target.value})}/></label>
       <label>Through <input type="date" value={view.through||''} onChange={event=>change({through:event.target.value})}/></label>
       <span className="result-count" aria-live="polite">{page.total} matching journal entries</span>

@@ -42,7 +42,8 @@ export const filterAuthoritativeRows = (rows, view, dateField, { counterpartyFie
   return (Array.isArray(rows) ? rows : []).filter(row => {
     const rowDate = cleanDate(row?.[dateField]);
     if (query && !searchable(row).includes(query)) return false;
-    if (state.status !== 'ALL' && row?.status !== state.status) return false;
+    if (state.status === 'REVIEW_REQUIRED' && !['PENDING_REVIEW','PENDING_APPROVAL'].includes(row?.status)) return false;
+    if (state.status !== 'ALL' && state.status !== 'REVIEW_REQUIRED' && row?.status !== state.status) return false;
     if (state.from && (!rowDate || rowDate < state.from)) return false;
     if (state.through && (!rowDate || rowDate > state.through)) return false;
     if (counterpartyField && state.counterparty !== 'ALL' && row?.[counterpartyField] !== state.counterparty) return false;
