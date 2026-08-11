@@ -67,11 +67,42 @@ const acceptToken=(body,config,now)=>{
 // therefore cannot let an expired token reach the accounting API.
 // ---------------------------------------------------------------------------
 export const RENEWAL_MESSAGE='refs.oidc.silent-renewal.callback';
+// A successful renewal can be observed by the release-evidence harness without
+// exposing a bearer token, raw subject, code, verifier, or provider response.
+// This is deliberately an event, not browser storage: it is transient and has
+// no bearing on authentication or accounting authority.
+export const RENEWAL_EVIDENCE_EVENT='refs.oidc.silent-renewal.evidence';
 export const RENEWAL_LEAD_MS=120000;
 export const RENEWAL_TIMEOUT_MS=8000;
 export const RENEWAL_MIN_INTERVAL_MS=30000;
 
 const renewalFail=(code,message)=>({ok:false,code,message});
+
+const safeRenewalEvidence=async(environment,before,after)=>{
+  if(!before||!after||text(before.subject)!==text(after.subject)||!Number.isSafeInteger(before.expiresAt)||!Number.isSafeInteger(after.expiresAt)||after.expiresAt<=before.expiresAt)return null;
+  try{
+    const [subjectHash,beforeTokenHash,afterTokenHash]=await Promise.all([
+      digest(environment,before.subject),
+      digest(environment,before.accessToken),
+      digest(environment,after.accessToken),
+    ]);
+    return Object.freeze({
+      schema:'refs.oidc.silent-renewal-evidence/v1',
+      mode:'prompt_none_pkce',
+      subject_hash:`sha256:${subjectHash}`,
+      token_hash_before:`sha256:${beforeTokenHash}`,
+      token_hash_after:`sha256:${afterTokenHash}`,
+      expires_at_before:before.expiresAt,
+      expires_at_after:after.expiresAt,
+    });
+  }catch{return null;}
+};
+
+const emitSafeRenewalEvidence=async(environment,before,after)=>{
+  const detail=await safeRenewalEvidence(environment,before,after);
+  if(!detail||typeof environment?.document?.dispatchEvent!=='function'||typeof environment?.CustomEvent!=='function')return;
+  try{environment.document.dispatchEvent(new environment.CustomEvent(RENEWAL_EVIDENCE_EVENT,{detail}));}catch{/* evidence delivery never changes a valid renewal */}
+};
 
 // When the renewal should be attempted, and whether the session is already
 // gone. Pure, so the schedule can be asserted without a browser or a timer.
@@ -211,6 +242,7 @@ export class BrowserOidcClient {
     if(!current||!Number.isSafeInteger(current.expiresAt)||text(current.subject)!==subject)return renewalFail('OIDC_RENEWAL_SUBJECT_MISMATCH','The session changed while the renewal was in flight, so the renewed token was discarded rather than written over whatever replaced it.');
     if(accepted.expiresAt<=current.expiresAt)return renewalFail('OIDC_RENEWAL_INVALID','The renewed token expires no later than the one it would replace, so it renews nothing. It was discarded.');
     save(this.environment,accepted);
+    await emitSafeRenewalEvidence(this.environment,current,accepted);
     return {ok:true,expiresAt:accepted.expiresAt};
   }
 
