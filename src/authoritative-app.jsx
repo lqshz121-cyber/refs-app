@@ -8,7 +8,7 @@ import { RuntimeErrorPage, RuntimeErrorPanel } from './runtime-error-page.jsx';
 import { AuthoritativeReportsWorkspace } from './authoritative-reports-workspace.jsx';
 import { AuthoritativeAgingWorkspace } from './authoritative-aging-workspace.jsx';
 import { AuthoritativeJournalWorkspace } from './authoritative-journal-workspace.jsx';
-import { resolveInitialTheme, watchOsTheme, writeStoredTheme } from './theme-preference.js';
+import { resolveInitialTheme, watchOsTheme, writeStoredTheme } from './authoritative-theme-preference.js';
 import {
   AuthoritativeAdjustmentDetail,
   AuthoritativeDocumentDetail,
