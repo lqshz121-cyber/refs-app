@@ -924,6 +924,56 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-evidence-page{padding-top:4px;}
 .authoritative-evidence-page>.qbo-report-back{position:sticky;top:0;z-index:1;margin:0 -2px 14px;padding:8px 2px;background:color-mix(in srgb,var(--qb-canvas) 94%,transparent);border-bottom:var(--qb-hair) solid var(--qb-divider);}
 
+/* WBS transition evidence is a formal signed-contract reader. Its visual
+   hierarchy mirrors the authoritative workbench while preserving a strict
+   evidence-only boundary: these cards report what is required or verified,
+   never provide WBS or accounting commands. */
+.authoritative-wbs-transition-workspace{min-width:0;}
+.authoritative-wbs-transition-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;}
+.authoritative-wbs-transition-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+.authoritative-wbs-transition-scope{display:grid;grid-template-columns:auto minmax(150px,.9fr) minmax(150px,.9fr) minmax(240px,1.6fr);gap:12px;align-items:center;margin:0 0 16px;padding:14px 16px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);background:var(--qb-surface);box-shadow:var(--qb-shadow-card);}
+.authoritative-wbs-transition-scope-mark{display:grid;place-items:center;width:38px;height:38px;border-radius:50%;background:var(--qb-brand);color:var(--qb-brand-fg);font-size:17px;font-weight:800;}
+.authoritative-wbs-transition-scope div{min-width:0;display:flex;flex-direction:column;gap:3px;}
+.authoritative-wbs-transition-scope small{color:var(--qb-text-muted);font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;}
+.authoritative-wbs-transition-scope strong{overflow-wrap:anywhere;color:var(--qb-text-strong);font-size:13px;}
+.authoritative-wbs-transition-scope p{margin:0;color:var(--qb-text-muted);font-size:12px;line-height:1.45;}
+.authoritative-wbs-transition-boundaries{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0 0 16px;}
+.authoritative-wbs-transition-boundaries article{display:flex;gap:12px;min-width:0;padding:15px 16px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);background:var(--qb-inset);}
+.authoritative-wbs-transition-boundary-mark{display:grid;place-items:center;flex:0 0 auto;width:28px;height:28px;border-radius:50%;background:var(--qb-accent-tint);color:var(--qb-accent);font-size:12px;font-weight:800;}
+.authoritative-wbs-transition-boundaries strong{display:block;color:var(--qb-text-strong);font-size:14px;line-height:1.3;}
+.authoritative-wbs-transition-boundaries p{margin:4px 0 0;color:var(--qb-text-muted);font-size:12px;line-height:1.45;}
+.authoritative-wbs-transition-verifier{display:grid;grid-template-columns:minmax(230px,.88fr) minmax(300px,1.12fr);gap:24px;margin-bottom:16px;padding:20px;}
+.authoritative-wbs-transition-verifier>.state-block{grid-column:1/-1;margin:0;}
+.authoritative-wbs-transition-verifier h2,.authoritative-wbs-transition-verified h2{margin:3px 0 8px;font-size:1.18rem;}
+.authoritative-wbs-transition-verifier-copy>p:not(.authoritative-eyebrow){margin:0;line-height:1.55;}
+.authoritative-wbs-transition-rule-list{display:grid;gap:8px;margin:16px 0 0;padding:0;list-style:none;color:var(--qb-text-muted);font-size:12px;line-height:1.45;}
+.authoritative-wbs-transition-rule-list li{position:relative;padding-left:18px;}
+.authoritative-wbs-transition-rule-list li::before{content:"";position:absolute;left:0;top:.42em;width:8px;height:8px;border:2px solid var(--qb-accent);border-radius:50%;box-sizing:border-box;}
+.authoritative-wbs-transition-form{display:flex;flex-direction:column;gap:12px;min-width:0;}
+.authoritative-wbs-transition-form label{display:flex;flex-direction:column;gap:7px;color:var(--qb-text-strong);font-size:13px;font-weight:700;}
+.authoritative-wbs-transition-form textarea{width:100%;min-height:220px;box-sizing:border-box;resize:vertical;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-control);background:var(--qb-canvas);color:var(--qb-text);font:12px/1.45 var(--font-mono,ui-monospace,SFMono-Regular,Consolas,monospace);padding:12px;}
+.authoritative-wbs-transition-form textarea:focus-visible{outline:2px solid var(--qb-accent);outline-offset:2px;border-color:var(--qb-accent);}
+.authoritative-wbs-transition-form-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.authoritative-wbs-transition-form-actions span{color:var(--qb-text-muted);font-size:11px;line-height:1.4;}
+.authoritative-wbs-transition-verified{margin-bottom:16px;padding:20px;}
+.authoritative-wbs-transition-evidence-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0 12px;}
+.authoritative-wbs-transition-evidence-grid span{display:flex;flex-direction:column;gap:5px;min-width:0;padding:12px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-control);background:var(--qb-inset);}
+.authoritative-wbs-transition-evidence-grid i,.authoritative-wbs-transition-metadata b{color:var(--qb-text-muted);font-size:11px;font-style:normal;font-weight:800;letter-spacing:.05em;text-transform:uppercase;}
+.authoritative-wbs-transition-evidence-grid b{color:var(--qb-text-strong);font-size:12px;overflow-wrap:anywhere;}
+.authoritative-wbs-transition-metadata{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px;}
+.authoritative-wbs-transition-metadata span{display:inline-flex;gap:5px;min-width:0;padding:7px 9px;border-radius:var(--qb-r-pill);background:var(--qb-inset);color:var(--qb-text);font-size:12px;overflow-wrap:anywhere;}
+.authoritative-wbs-transition-metadata b{flex:0 0 auto;}
+.authoritative-wbs-transition-table{margin-top:4px;}
+.authoritative-wbs-transition-table .tbl{min-width:1050px;table-layout:fixed;}
+.authoritative-wbs-transition-table th:nth-child(1),.authoritative-wbs-transition-table td:nth-child(1){width:17%;}
+.authoritative-wbs-transition-table th:nth-child(2),.authoritative-wbs-transition-table td:nth-child(2){width:13%;}
+.authoritative-wbs-transition-table th:nth-child(3),.authoritative-wbs-transition-table td:nth-child(3){width:18%;}
+.authoritative-wbs-transition-table th:nth-child(4),.authoritative-wbs-transition-table td:nth-child(4){width:11%;}
+.authoritative-wbs-transition-table th:nth-child(5),.authoritative-wbs-transition-table td:nth-child(5){width:18%;}
+.authoritative-wbs-transition-table th:nth-child(6),.authoritative-wbs-transition-table td:nth-child(6){width:23%;}
+@media (max-width:900px){.authoritative-wbs-transition-scope{grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);}.authoritative-wbs-transition-scope p{grid-column:2/-1;}.authoritative-wbs-transition-boundaries{grid-template-columns:1fr;}.authoritative-wbs-transition-verifier{grid-template-columns:1fr;}.authoritative-wbs-transition-evidence-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media (max-width:600px){.authoritative-wbs-transition-header{flex-direction:column;gap:10px;}.authoritative-wbs-transition-status{justify-content:flex-start;}.authoritative-wbs-transition-scope{grid-template-columns:auto minmax(0,1fr);padding:14px;}.authoritative-wbs-transition-scope p{grid-column:1/-1;}.authoritative-wbs-transition-verifier,.authoritative-wbs-transition-verified{padding:16px;}.authoritative-wbs-transition-evidence-grid{grid-template-columns:1fr;}.authoritative-wbs-transition-form-actions .btn{width:100%;}}
+
 /* Authoritative Journal register.  This deliberately mirrors the hierarchy of
    the established Journal workspace without inheriting its local queue, draft,
    or workflow state.  Every count and row below is derived from the API list
