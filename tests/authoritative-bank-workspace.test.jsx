@@ -25,15 +25,16 @@ const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} sco
 assert.match(bankDetail,/Back to bank transactions/);assert.match(bankDetail,/Bank transaction detail/);assert.match(bankDetail,/-\$125\.25/);assert.match(bankDetail,/2026-07-01/);assert.match(bankDetail,/2026-07-31/);
 assert.match(bankDetail,/full-bleed qbo-transaction-report/);
 assert.match(bankDetail,/AUTHORITATIVE SOURCE EVIDENCE/);assert.match(bankDetail,/Bank evidence lifecycle/);assert.match(bankDetail,/Reconciliation separate/);assert.match(bankDetail,/Authoritative evidence scope/);
+assert.match(bankDetail,/Match review/);assert.match(bankDetail,/Journal reference unavailable/);
 assert.match(bankDetail,/Direction/);assert.match(bankDetail,/OUTFLOW/);
 const activeMatchDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={activeMatchRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
-assert.match(activeMatchDetail,/Business source document/);assert.match(activeMatchDetail,/Journal entry/);assert.match(activeMatchDetail,/Journal line/);assert.match(activeMatchDetail,/Ledger line/);assert.match(activeMatchDetail,/Unavailable from the active-Match read/);assert.match(activeMatchDetail,/Matched by/);assert.match(activeMatchDetail,/Matched at/);assert.match(activeMatchDetail,/Match version/);
+assert.match(activeMatchDetail,/Business source document/);assert.match(activeMatchDetail,/Journal entry/);assert.match(activeMatchDetail,/Journal line/);assert.match(activeMatchDetail,/Ledger line/);assert.match(activeMatchDetail,/Unavailable from the active-Match read/);assert.match(activeMatchDetail,/Matched by/);assert.match(activeMatchDetail,/Matched at/);assert.match(activeMatchDetail,/Match version/);assert.match(activeMatchDetail,/Active Match retained/);assert.match(activeMatchDetail,/Journal reference retained/);
 const historicalMatchDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={historicalMatchRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}} config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(historicalMatchDetail,/Match correction blocked/);assert.match(historicalMatchDetail,/not ACTIVE/);assert.match(historicalMatchDetail,/READ ONLY HISTORY/);assert.doesNotMatch(historicalMatchDetail,/Unmatch evidence/);
 
 const reconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}}/>);
 assert.match(reconciliation,/RECONCILED/);assert.match(reconciliation,/\$1,000\.00/);assert.match(reconciliation,/Unmatched/);assert.match(reconciliation,/READ ONLY/);assert.match(reconciliation,/Open statement detail/);
-assert.match(reconciliation,/STATEMENT → REVIEW → SIGN-OFF/);assert.match(reconciliation,/Reconciliation lifecycle/);assert.match(reconciliation,/Immutable history/);
+assert.match(reconciliation,/STATEMENT → REVIEW → SIGN-OFF/);assert.match(reconciliation,/Reconciliation lifecycle/);assert.match(reconciliation,/Immutable history/);assert.match(reconciliation,/Independent sign-off retained/);assert.match(reconciliation,/Immutable history retained/);
 assert.match(reconciliation,/Authoritative evidence scope/);assert.match(reconciliation,/Bank account/);assert.match(reconciliation,/Statement cutoff/);assert.match(reconciliation,/2026-07-31/);assert.match(reconciliation,/v4/);
 const emptyReconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={null}/>);assert.match(emptyReconciliation,/Reconciliation evidence blocked/);assert.match(emptyReconciliation,/BLOCKED — The accounting API returned no authorized reconciliation statement/);assert.match(emptyReconciliation,/not evidence of zero statement activity/);assert.doesNotMatch(emptyReconciliation,/Open statement detail|Start DRAFT|Connect now|Get started/);
 
@@ -41,7 +42,7 @@ const reconciliationDetail=renderToStaticMarkup(<AuthoritativeReconciliationDeta
 assert.match(reconciliationDetail,/Back to reconciliation evidence/);assert.match(reconciliationDetail,/Statement ending 2026-07-31/);assert.match(reconciliationDetail,/\$1,000\.00/);assert.match(reconciliationDetail,/11111111-1111-4111-8111-111111111111/);
 assert.match(reconciliationDetail,/full-bleed qbo-transaction-report/);assert.match(reconciliationDetail,/Reconciled by/);
 assert.match(reconciliationDetail,/Load reconciliation worksheet/);assert.match(reconciliationDetail,/CONTROLLER REVIEW/);
-assert.match(reconciliationDetail,/AUTHORITATIVE STATEMENT WORKSHEET/);assert.match(reconciliationDetail,/Statement workflow/);assert.match(reconciliationDetail,/Authoritative evidence scope/);
+assert.match(reconciliationDetail,/AUTHORITATIVE STATEMENT WORKSHEET/);assert.match(reconciliationDetail,/Reconciliation lifecycle/);assert.match(reconciliationDetail,/Authoritative evidence scope/);
 
 const source=readFileSync('src/authoritative-bank-workspace.jsx','utf8');
 // Phase 2a: the four states are rendered only by the shared StateBlock, which
@@ -88,6 +89,7 @@ assert.match(source,/item\.clearance_state==='CLEARED'&&item\.match_status==='AC
 assert.match(source,/configured cash account, exact four-decimal source amount/,'The UI must explain that it retains source amount and configured cash-account evidence instead of inferring a mapping');
 assert.match(source,/preserveDetail:true/,'A successful worksheet command must refresh the authoritative statement revision without losing the full-page detail context');
 assert.match(source,/Reconciliation evidence blocked/,'A missing statement must report an explicit evidence BLOCKED state');
+assert.match(source,/tone="blocked"/,'Unavailable reconciliation statements and worksheets must use the distinct warning BLOCKED state');
 assert.match(source,/hasAuthorizedWorksheetEvidence/,'Controller controls must be gated on exact server-returned worksheet evidence');
 assert.match(source,/Reconciliation controls blocked/,'An empty authoritative worksheet must explicitly block controller actions');
 assert.match(source,/hasAuthorizedWorksheetEvidence&&<section className="card" aria-label="Reconciliation lifecycle command"/,'Review, sign-off, and reopen controls must not render without authorized worksheet evidence');
@@ -101,5 +103,7 @@ assert.doesNotMatch(source,/[\u4E00-\u9FFF\uFFFD]/,'authoritative Bank/Reconcile
 const css=readFileSync('index.html','utf8');
 assert.match(css,/\.authoritative-bank-scope-strip/,'Bank/Reconcile detail scope must have a dedicated responsive hierarchy');
 assert.match(css,/\.authoritative-evidence-stage/,'Bank/Reconcile must render a text-labelled lifecycle hierarchy rather than infer state from colour');
+assert.match(readFileSync('src/ui.jsx','utf8'),/blocked: 'empty empty-state state-block state-blocked'/,'The shared state system must represent an authoritative BLOCKED result distinctly from an ordinary empty result');
+assert.match(css,/\.state-blocked\{border-color:var\(--qb-warn-line\)/,'The BLOCKED state must have a visible warning treatment without becoming a disabled action');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');

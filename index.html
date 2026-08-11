@@ -1291,6 +1291,8 @@ select{padding-right:28px; cursor:pointer;}
 .state-block-acts{display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:10px;}
 .state-error .state-block-acts{justify-content:flex-start;}
 .state-loading{opacity:.9;}
+.state-blocked{border-color:var(--qb-warn-line); background:var(--qb-warn-bg); color:var(--qb-warn);}
+.state-blocked b{color:var(--qb-text-strong);}
 /* ---- Cleared: an empty work queue is an outcome, not a blank page (round 3).
    Used only where the queue genuinely holds finite work that has been finished.
    It is a statement about the queue, never a claim that any period is closed,
