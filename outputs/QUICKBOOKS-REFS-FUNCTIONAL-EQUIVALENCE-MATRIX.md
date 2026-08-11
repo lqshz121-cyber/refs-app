@@ -2317,3 +2317,10 @@ Current REFS implementation contains both layers; any WBS-specific surface not y
 - **Authority implementation:** The Core statements workbench now has `Refresh statement evidence`. It re-runs only the existing authenticated financial-statements API GET while leaving the selected report, catalog category, finder query, and future evidence-return context untouched.
 - **Boundary and gap:** No QBO save/customize/email/print/export/insight action is copied. The control is not an API command and does not alter periods, reports, journals, mappings, or browser accounting state. QBO populated-result and responsive report behavior remain unverified.
 - **Verification:** `npm.cmd run test:authoritative-financial-statements`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
+
+## Authority site: ready Balance Sheet section hierarchy (2026-08-11)
+
+- **Observed QBO evidence:** The authenticated Balance Sheet ready state uses a full-page report table with visible hierarchy: Assets, Current Assets, Bank Accounts, individual account rows, then `Total for Bank Accounts`. The sampled account row is a plain table row rather than a clickable drill target.
+- **Authority implementation:** Core statement tables now expose the authoritative `statement_section` transition as a semantic `rowgroup` boundary before its retained account rows. This changes neither API data, posted balances, evidence drill, nor the exact catalog-return contract.
+- **Boundary and gap:** REFS does not invent QBO account parents or subtotals where the authority API supplies only flat statement rows. QBO row-level drill, responsive behavior, account permissions, and populated report variants remain unverified.
+- **Verification:** `npm.cmd run test:authoritative-reports`; `npm.cmd run build`; `npm.cmd run test:visual`; `git diff --check`.
