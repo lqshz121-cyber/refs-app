@@ -22,9 +22,14 @@
 // ---------------------------------------------------------------------------
 
 // The single source of truth for the breakpoint. index.html's
-// `@media(max-width:1024px)` block is what actually pushes the drawer
+// `@media(max-width:1280px)` block is what actually pushes the drawer
 // off-canvas; the verifier asserts the two numbers still agree.
-export const NAV_DRAWER_BREAKPOINT = 1024;
+// The demonstrated two-column navigation needs roughly 310px before a page
+// receives any reading width.  Keeping it visible in a split desktop window
+// left Reports with a few hundred pixels and caused cards to overlap.  Treat
+// this intermediate width as a drawer layout, just as the complete shell does
+// on a tablet, so the API-backed page remains readable.
+export const NAV_DRAWER_BREAKPOINT = 1280;
 export const NAV_DRAWER_MEDIA = `(max-width:${NAV_DRAWER_BREAKPOINT}px)`;
 
 // Off-canvas AND closed is the only state in which the drawer is unreachable
