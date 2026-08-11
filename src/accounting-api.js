@@ -6,6 +6,7 @@ const MONEY4=/^-?[0-9]+\.[0-9]{4}$/;
 const REPORT_MONEY4=/^-?(?:0|[1-9][0-9]{0,15})\.[0-9]{4}$/;
 const PERIOD_CODE=/^[0-9]{4}-(?:0[1-9]|1[0-2])$/;
 const UNSIGNED_INTEGER=/^[0-9]+$/;
+const SHA256=/^sha256:[0-9a-f]{64}$/i;
 
 export const accountingApiConfig=(environment=globalThis)=>{
   const source=environment?.__REFS_ACCOUNTING_API__;
@@ -673,6 +674,23 @@ const failure=async(response,operation=null)=>{
   const message=operation?`${baseMessage} Read: ${operation}.`:baseMessage;
   return {ok:false,code,status,message};
 };
+
+// This endpoint is intentionally a POST because the provider-signed contract
+// is supplied for verification.  It is still evidence-only: it sends no
+// command headers, requires all action flags to be false, and the server
+// rejects any response that would grant REFS transition or posting authority.
+const wbsTransitionEvidence=value=>{
+  const text=item=>typeof item==='string'&&item.length>0&&item.length<=255;
+  const transition=row=>row&&typeof row==='object'&&text(row.transition_id)&&text(row.operation)&&text(row.from_state)&&text(row.to_state)&&row.from_state!==row.to_state&&row.requires_reason===true&&Array.isArray(row.required_actor_roles)&&row.required_actor_roles.length>0&&row.required_actor_roles.every(text)&&row.segregation_of_duties&&typeof row.segregation_of_duties.review_required==='boolean'&&typeof row.segregation_of_duties.requester_reviewer_must_differ==='boolean'&&row.accounting_guard&&['blocks_when_accounting_reviewed','blocks_when_accounting_approved','blocks_when_accounting_posted'].every(key=>typeof row.accounting_guard[key]==='boolean');
+  return value&&typeof value==='object'&&!Array.isArray(value)&&value.schema_version==='WBS_AUTOREC_TRANSITION_CONTRACT_V1'&&value.source_system==='WBS'&&value.environment==='PRODUCTION'&&UUID.test(value.contract_id||'')&&SHA256.test(value.contract_hash||'')&&validTimestamp(value.issued_at)&&validTimestamp(value.valid_from)&&validTimestamp(value.valid_until)&&Date.parse(value.valid_from)<=Date.parse(value.valid_until)&&value.scope&&Array.isArray(value.scope.company_keys)&&value.scope.company_keys.length>0&&value.scope.company_keys.every(text)&&text(value.scope.dictionary_version)&&Array.isArray(value.transitions)&&value.transitions.length>0&&value.transitions.every(transition)&&value.signature&&text(value.signature.key_id)&&value.signature.algorithm==='Ed25519'&&value.signature_verified===true&&value.transition_authority==='WBS_SIGNED_EXTERNAL_EVIDENCE_ONLY'&&value.can_transition_refs===false&&value.can_release===false&&value.can_incur===false&&value.can_reverse===false&&value.can_create_draft===false&&value.can_post===false;
+};
+
+export async function verifyAuthoritativeWbsTransitionContract({config,contract,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function')return notConfigured();
+  if(!contract||typeof contract!=='object'||Array.isArray(contract))return {ok:false,code:'WBS_TRANSITION_CONTRACT_INVALID',message:'A signed WBS transition-contract JSON object is required.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/wbs/auto-reconciliation/transition-contracts/verify`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json',...authorization},body:JSON.stringify({contract})});if(!response.ok)return await failure(response,'WBS_TRANSITION_CONTRACT_EVIDENCE');const body=await response.json();if(body?.ok!==true||!wbsTransitionEvidence(body.data))return {ok:false,code:'WBS_TRANSITION_CONTRACT_PROTOCOL',message:'The accounting API returned transition evidence that was incomplete or offered REFS action authority.'};return {ok:true,data:body.data};}catch{return unreachable('The browser could not verify the signed WBS transition contract; no HTTP response was produced.');}
+}
 
 export async function createAuthoritativeBusinessDocument({config,kind,document,idempotencyKey,fetcher=globalThis.fetch}={}){
   if(!config||typeof fetcher!=='function'||!['AP_BILL','AR_INVOICE'].includes(kind)||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Authoritative command configuration is invalid.'};
