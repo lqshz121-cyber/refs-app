@@ -9,6 +9,8 @@ test('fresh PostgreSQL gate owns a unique test-only compose project and cleanup 
   assert.match(source,/const database='refs_kernel_gate_test'/);
   assert.match(source,/if\(!database\.endsWith\('_test'\)\)/);
   assert.match(source,/\['compose','-p',project,'-f','compose\.yaml','up','-d','--wait'\]/);
+  assert.match(source,/waitForPostgresReadiness\(\{probe:\(\)=>probePostgres\(testEnv\.MIGRATION_DATABASE_URL\)\}\)/);
+  assert.match(source,/applicationName:'refs-fresh-gate-readiness'/);
   assert.match(source,/\['compose','-p',project,'-f','compose\.yaml','down','-v','--remove-orphans'\]/);
   assert.doesNotMatch(source,/docker\s+(volume|system)\s+(prune|rm)/i);
 });

@@ -3,6 +3,8 @@ import {createServer} from 'node:net';
 import {fileURLToPath} from 'node:url';
 import {dirname,resolve} from 'node:path';
 import {postgresDataVolumeTarget} from './postgres-container.mjs';
+import {createPool} from './db.mjs';
+import {waitForPostgresReadiness} from './postgres-readiness.mjs';
 
 const serverRoot=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const project=`refs_kernel_gate_${process.pid}_${Date.now().toString(36)}`.toLowerCase();
@@ -36,6 +38,12 @@ function run(command,args,env){
   });
 }
 
+async function probePostgres(databaseUrl){
+  const pool=await createPool({databaseUrl,applicationName:'refs-fresh-gate-readiness',max:1});
+  try{await pool.query('SELECT 1');}
+  finally{await pool.end();}
+}
+
 const port=await freePort();
 const composeEnv={...process.env,
   POSTGRES_DB:database,
@@ -55,6 +63,8 @@ const testEnv={...composeEnv,
 console.log(`Fresh PostgreSQL gate project=${project} database=${database} port=${port} image=${composeEnv.POSTGRES_IMAGE||'postgres:16-alpine'}`);
 try{
   await run('docker',['compose','-p',project,'-f','compose.yaml','up','-d','--wait'],composeEnv);
+  const readiness=await waitForPostgresReadiness({probe:()=>probePostgres(testEnv.MIGRATION_DATABASE_URL)});
+  console.log(`Fresh PostgreSQL gate ready after ${readiness.attempts} probe(s) in ${readiness.elapsedMs}ms`);
   await run(process.platform==='win32'?'npm.cmd':'npm',['run','test:postgres'],testEnv);
 }finally{
   await run('docker',['compose','-p',project,'-f','compose.yaml','down','-v','--remove-orphans'],composeEnv).catch(error=>{
