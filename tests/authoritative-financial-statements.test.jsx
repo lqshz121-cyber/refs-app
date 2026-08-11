@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {refreshAuthoritativeConsolidation,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatements} from '../src/accounting-api.js';
-import {AuthoritativeReportDetail,AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,findAuthoritativeReportShortcuts,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
+import {AuthoritativeFullStatementReport,AuthoritativeReportDetail,AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,findAuthoritativeReportShortcuts,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
 
 const entityId='00000000-0000-4000-8000-000000000101',periodId='00000000-0000-4000-8000-000000000102';
 const config={baseUrl:'https://accounting.example',entityId,periodId,getAccessToken:async()=>'oidc.token.value-123456789'};
@@ -78,8 +78,14 @@ async function main(){
   assert.match(completeDetail,/POSTED EVIDENCE/);assert.doesNotMatch(completeDetail,/BLOCKED — authoritative lineage unavailable/);
   const incompleteDetail=renderToStaticMarkup(<AuthoritativeReportDetail row={{...row,ledger_line_ids:[]}} returnContext={{entityId,periodId,report:'TRIAL_BALANCE'}} onBack={()=>{}}/>);
   assert.match(incompleteDetail,/BLOCKED — authoritative lineage unavailable/);assert.match(incompleteDetail,/Back to financial statement/);assert.match(incompleteDetail,/scoped statement data/);
+  const fullReport=renderToStaticMarkup(<AuthoritativeFullStatementReport report="TRIAL_BALANCE" rows={[row]} returnContext={{entityId,periodId,report:'TRIAL_BALANCE'}} onBack={()=>{}} onRefresh={()=>{}} onOpenEvidence={()=>{}}/>);
+  assert.match(fullReport,/Trial Balance/);assert.match(fullReport,/Back to Reports/);assert.match(fullReport,/Refresh statement evidence/);assert.match(fullReport,/GET ONLY/);assert.match(fullReport,/report-section-row/);assert.match(fullReport,/scope="rowgroup"/);assert.match(fullReport,/authoritative-full-report-TRIAL_BALANCE-111000/);
   const workspace=fs.readFileSync('src/authoritative-reports-workspace.jsx','utf8');
   assert.match(workspace,/full-bleed qbo-transaction-report/,'report detail must replace the full workspace rather than append a card');
+  assert.match(workspace,/AuthoritativeFullStatementReport/,'each core statement needs an API-backed full-page report rather than only an account evidence view');
+  assert.match(workspace,/Open full report/,'the catalog statement preview must expose a dedicated full-page report action');
+  assert.match(workspace,/parentFullStatement/,'a row evidence Back from the full report must return to the full report before it returns to the Reports catalog');
+  assert.match(workspace,/Back to Reports/,'the full report must provide an explicit catalog Back action');
   assert.match(workspace,/restoreAuthoritativeReturnContext/,'report detail Back must restore its evidence opener and scroll position');
   assert.match(workspace,/authoritative-report-\$\{row\.statement_type\}/,'report evidence controls need stable focus targets');
   assert.match(workspace,/reportsCatalog:normalizeAuthoritativeReportsCatalog/,'full-page report evidence must retain exact catalog context for Back');
