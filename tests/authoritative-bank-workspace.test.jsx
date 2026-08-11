@@ -90,6 +90,12 @@ assert.match(source,/hasAuthorizedWorksheetEvidence/,'Controller controls must b
 assert.match(source,/Reconciliation controls blocked/,'An empty authoritative worksheet must explicitly block controller actions');
 assert.match(source,/hasAuthorizedWorksheetEvidence&&<section className="card" aria-label="Reconciliation lifecycle command"/,'Review, sign-off, and reopen controls must not render without authorized worksheet evidence');
 assert.doesNotMatch(source,/legacy-demo-app|module-banktx|module-bankrec/,'authoritative Bank/Reconcile hierarchy must not import legacy demo UI modules');
+// Keep the authoritative Bank/Reconcile surface English-readable. These are
+// deliberate punctuation characters, not mojibake; the source must never gain
+// a replacement glyph or CJK/mis-decoded text in a visible label.
+for(const label of ['SOURCE → MATCH → JOURNAL','STATEMENT → REVIEW → SIGN-OFF','BLOCKED — The accounting API returned no authorized reconciliation statement','BLOCKED — The accounting API returned no authorized worksheet evidence','Selected bank source'])assert.match(source,new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),`authoritative Bank/Reconcile UI must retain readable ${label}`);
+assert.match(source,/\{adjustment\.item\.external_bank_line_id\} · \{money\(adjustment\.item\.amount\)\}/,'Adjustment evidence must use the canonical middle-dot separator');
+assert.doesNotMatch(source,/[\u4E00-\u9FFF\uFFFD]/,'authoritative Bank/Reconcile visible source must not contain CJK or replacement-character mojibake');
 const css=readFileSync('index.html','utf8');
 assert.match(css,/\.authoritative-bank-scope-strip/,'Bank/Reconcile detail scope must have a dedicated responsive hierarchy');
 assert.match(css,/\.authoritative-evidence-stage/,'Bank/Reconcile must render a text-labelled lifecycle hierarchy rather than infer state from colour');
