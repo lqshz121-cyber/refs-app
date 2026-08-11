@@ -96,6 +96,8 @@ async function main(){
   assert.match(workspace,/report-section-row/,'statement rows must retain a readable section boundary instead of presenting a flat account list');
   assert.match(workspace,/scope="rowgroup"/,'each visible statement section must expose table grouping semantics');
   assert.match(workspace,/disabled=\{state\.phase==='LOADING'\} onClick=\{load\}>Refresh statement evidence/,'statement refresh must be an API-read control that retains the current workspace state');
+  assert.match(workspace,/AuthoritativeReadFailure/,'Reports must use the shared explicit authoritative read failure state.');
+  assert.match(workspace,/authoritativeReadFailurePhase\(result\)/,'Reports must classify only authentication, configuration, scope, and protocol failures as BLOCKED.');
   assert.doesNotMatch(workspace,/Save As|Customize|<button[^>]*>Email|<button[^>]*>Print|<button[^>]*>Export/,'authoritative reports must not expose QBO save, customize, email, print, or export controls');
   assert.doesNotMatch(workspace,/from ['"]\.\/(?:legacy-demo-app|data|seed|repo)/,'authoritative reports must never import local demonstration state');
   assert.doesNotMatch(workspace,/localStorage/,'authoritative reports must never persist report business state in browser storage');

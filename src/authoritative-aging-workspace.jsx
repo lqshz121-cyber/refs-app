@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {refreshAuthoritativeAging,refreshAuthoritativeControlTotals} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
+import {AuthoritativeReadFailure,authoritativeReadFailurePhase} from './authoritative-read-state.jsx';
 
 // This is a read-only reporting surface.  The configured entity and period are
 // accounting scope supplied by the authoritative runtime; the only reader
@@ -8,8 +9,6 @@ import {StateBlock} from './ui.jsx';
 const BUCKETS=[['current_amount','Current'],['days_1_30','1–30 days'],['days_31_60','31–60 days'],['days_61_90','61–90 days'],['days_91_plus','91+ days'],['total_open_balance','Total open']];
 const money=value=>{const m=/^(-?)([0-9]+)\.([0-9]{2})[0-9]{2}$/.exec(String(value??'0.0000'));if(!m)return String(value??'');const whole=m[2].replace(/\B(?=(\d{3})+(?!\d))/g,',');return `${m[1]}$${whole}.${m[3]}`;};
 const defaultAsOf=()=>{try{return new Date().toISOString().slice(0,10);}catch{return '2026-07-31';}};
-
-const blockedReadCodes=new Set(['AUTHENTICATION_REQUIRED','AUTHORIZATION_DENIED','ACCOUNTING_API_SCOPE_INVALID','ACCOUNTING_API_PROTOCOL','CONFIGURATION_REQUIRED']);
 
 export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetch,onBack}){
   const label=side==='ap'?'AP':'AR';
@@ -22,7 +21,7 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
       refreshAuthoritativeAging({config,side,asOfDate:date,fetcher}),
       refreshAuthoritativeControlTotals({config,side,fetcher}),
     ]);
-    if(!aging.ok||!control.ok){const failure=!aging.ok?aging:control;setState({phase:blockedReadCodes.has(failure.code)?'BLOCKED':'ERROR',aging:[],control:[],error:failure});return;}
+    if(!aging.ok||!control.ok){const failure=!aging.ok?aging:control;setState({phase:authoritativeReadFailurePhase(failure),aging:[],control:[],error:failure});return;}
     setState({phase:'READY',aging:aging.rows,control:control.rows,error:null});
   };
   useEffect(()=>{void load(asOf);},[config?.entityId,side]);
@@ -49,8 +48,7 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
       <b>Evidence scope</b><span>Entity {config.entityId} · configured period {config.periodId} · as of {asOf}</span><span>GET-only refresh; no accounting record can be changed from this report.</span>
     </section>
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative {label} aging…</StateBlock>}
-    {state.phase==='BLOCKED'&&<StateBlock tone="error" title="BLOCKED — authoritative evidence unavailable" actions={<button type="button" className="btn btn-sm" onClick={()=>void load(asOf)}>Retry read-only evidence</button>}><p>{state.error?.code}: {state.error?.message}</p><p>Keep the current report scope and resolve the authoritative access or evidence issue before treating this view as accounting evidence.</p></StateBlock>}
-    {state.phase==='ERROR'&&<StateBlock tone="error" title={state.error?.code} actions={<button type="button" className="btn btn-sm" onClick={()=>void load(asOf)}>Retry report read</button>}><p>{state.error?.message}</p></StateBlock>}
+    <AuthoritativeReadFailure state={state} onRetry={()=>void load(asOf)}/>
     {state.phase==='READY'&&<>
       <section className="card" aria-label={`${label} control totals`}>
         <div className="card-head"><div><h3>Control totals</h3><p className="muted sm">Subledger open balance compared with the retained GL control account.</p></div><span className="badge badge-muted">READ ONLY</span></div>
