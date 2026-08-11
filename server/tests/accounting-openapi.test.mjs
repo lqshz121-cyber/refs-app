@@ -4,11 +4,11 @@ const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.pos
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
-  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','finalizeAttachment','postJournal','recordWbsSnapshot','reserveAttachment','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','transitionJournal','transitionReconciliation','unmatchBankPayment']);
+  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','finalizeAttachment','postJournal','recordWbsSnapshot','reserveAttachment','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','transitionJournal','transitionReconciliation','unmatchBankPayment','verifyWbsAutoRecTransitionContract']);
 });
 
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{
-  for(const operation of operations)assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IdempotencyKey'));
+  for(const operation of operations.filter(operation=>operation.operationId!=='verifyWbsAutoRecTransitionContract'))assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IdempotencyKey'));
   for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment','setReconciliationClearance','setReconciliationAdjustmentClearance','transitionReconciliation','createReconciliationAdjustmentDraft'].includes(item.operationId)))assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IfMatch'));
   assert.equal(contract.components.parameters.IfMatch.schema.pattern,'^\\\"[0-9]+\\\"$');
 });
@@ -26,9 +26,17 @@ test('all responses are no-store and use a structured success or problem envelop
   assert.deepEqual(contract.components.responses.Problem.headers['Retry-After'].schema,{type:'integer',minimum:0});
   assert.match(contract.components.responses.Problem.description,/412/);
   assert.match(contract.components.responses.Problem.description,/503/);
-  for(const operation of operations){assert.ok(operation.responses['200']);assert.ok(operation.responses['201']);assert.ok(operation.responses['503']);assert.ok(operation.responses.default);}
+  for(const operation of operations){assert.ok(operation.responses['200']);assert.ok(operation.responses['503']);assert.ok(operation.responses.default);if(operation.operationId!=='verifyWbsAutoRecTransitionContract')assert.ok(operation.responses['201']);}
   for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment','setReconciliationClearance','setReconciliationAdjustmentClearance','transitionReconciliation','createReconciliationAdjustmentDraft'].includes(item.operationId)))assert.equal(operation.responses['412'].$ref,'#/components/responses/PreconditionFailed');
   assert.equal(contract.components.responses.SerializationRetryExhausted.headers['Retry-After'].schema.minimum,0);
+});
+
+test('WBS transition-contract verification is scoped, signed evidence rather than a command',()=>{
+  const operation=contract.paths['/entities/{entityId}/wbs/auto-reconciliation/transition-contracts/verify'].post;
+  assert.deepEqual(operation.parameters.map(parameter=>parameter.$ref),['#/components/parameters/EntityId']);
+  assert.equal(operation.requestBody.$ref,'#/components/requestBodies/WbsAutoRecTransitionContractVerify');
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/ReadOk');
+  assert.match(operation.description,/requires WBS AutoRec view scope/i);assert.match(operation.description,/never writes WBS.*Draft.*approves.*posts/i);
 });
 
 test('attachment create and replay responses use the exact attachment envelope',()=>{

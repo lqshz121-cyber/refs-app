@@ -14,6 +14,7 @@ import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/att
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {createWbsSnapshotSignatureVerifier} from '../runtime/wbs-snapshot-signature.mjs';
+import {createWbsAutoRecTransitionContractVerifier} from '../runtime/wbs-autorec-transition-contract.mjs';
 import {createWbsTraceRelationOrchestrator} from '../runtime/wbs-mcp-inbound-service.mjs';
 import {buildWbsAutoRecExecutionIntent} from '../runtime/wbs-autorec-execution-contract.mjs';
 import {createProductionAccountingServer} from '../runtime/accounting-server.mjs';
@@ -170,6 +171,22 @@ pgTest('authorized WBS snapshot import persists immutable observations without c
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_SNAPSHOT_OBSERVED'",[ids.tenantId])).rows[0].n,2);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_SNAPSHOT_DELIVERY_ATTESTED'",[ids.tenantId])).rows[0].n,1);
   await assert.rejects(adminPool.query("UPDATE wbs_snapshot_receipt SET source_record_id='tampered' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
+});
+
+pgTest('signed WBS transition-contract verification is view-scoped and produces no accounting write',async()=>{
+  const ids=await seed({status:'DRAFT'}),{privateKey,publicKey}=generateKeyPairSync('ed25519');
+  const unsigned={schema_version:'WBS_AUTOREC_TRANSITION_CONTRACT_V1',source_system:'WBS',environment:'PRODUCTION',contract_id:randomUUID(),issued_at:'2026-08-11T00:00:00Z',valid_from:'2026-08-11T00:00:00Z',valid_until:'2027-08-11T00:00:00Z',scope:{company_keys:[ids.sourceEntityId],dictionary_version:'WBS-DICT-2026-08'},transitions:[{transition_id:'CANCEL_RELEASE_V1',operation:'CANCEL_RELEASE',from_state:'RELEASED',to_state:'NOT_MATCHED',requires_reason:true,required_actor_roles:['AUTOREC_CONTROLLER'],segregation_of_duties:{review_required:true,requester_reviewer_must_differ:true,forbidden_prior_actor_roles:['INCURRENCE_APPROVER']},accounting_guard:{blocks_when_accounting_reviewed:true,blocks_when_accounting_approved:true,blocks_when_accounting_posted:true}}]};
+  const contractHash=canonicalRequestHash(unsigned),contract={...unsigned,contract_hash:contractHash,detached_signature:{key_id:'wbs-transition-pg-test',algorithm:'Ed25519',value:sign(null,Buffer.from(contractHash),privateKey).toString('base64')}};
+  const verifier=createWbsAutoRecTransitionContractVerifier({publicKeys:{'wbs-transition-pg-test':publicKey.export({type:'spki',format:'pem'})}});
+  const readerSession=await trustedSession(ids,'transition-contract-reader',['WBS.AUTOREC.VIEW']);
+  const before=(await adminPool.query('SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>readerSession,wbsAutoRecTransitionContractVerifier:verifier});
+  const verified=await reader.verifyWbsAutoRecTransitionContract({tenantId:ids.tenantId,entityId:ids.entityId,contract});
+  assert.deepEqual({verified:verified.signature_verified,refsAction:verified.can_transition_refs,post:verified.can_post},{verified:true,refsAction:false,post:false});
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'transition-contract-denied',[]),wbsAutoRecTransitionContractVerifier:verifier});
+  await assert.rejects(denied.verifyWbsAutoRecTransitionContract({tenantId:ids.tenantId,entityId:ids.entityId,contract}),error=>error.code==='42501');
+  const after=(await adminPool.query('SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  assert.equal(after,before);
 });
 
 pgTest('WBS multi-receipt inbound snapshot persists atomically and replays without a journal command',async()=>{
@@ -1006,7 +1023,6 @@ pgTest('production HTTP listener verifies an RS256 access token before DB contex
   const permissions={maker:['GL.JE.CREATE','GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']};
   for(const [actor,grants] of Object.entries(permissions))for(const permission of grants)await adminPool.query('INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,$4)',[ids.tenantId,actor,ids.entityId,permission]);
   const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048}),issuer='https://issuer.refs.test',audience='refs-accounting',authenticator=new OidcJwtAuthenticator({issuer,audience,keyResolver:{resolve:async()=>publicKey}});
-  const token=actor=>{const now=Math.floor(Date.now()/1000),header=Buffer.from(JSON.stringify({alg:'RS256',kid:'test-key',typ:'JWT'})).toString('base64url'),payload=Buffer.from(JSON.stringify({iss:issuer,aud:audience,iat:now,exp:now+300,[REFS_TENANT_CLAIM]:ids.tenantId,sub:actor})).toString('base64url'),signature=sign('RSA-SHA256',Buffer.from(`${header}.${payload}`),privateKey).toString('base64url');return `${header}.${payload}.${signature}`;};
   const token=actor=>{const now=Math.floor(Date.now()/1000),header=Buffer.from(JSON.stringify({alg:'RS256',kid:'test-key',typ:'JWT'})).toString('base64url'),payload=Buffer.from(JSON.stringify({iss:issuer,aud:audience,iat:now,exp:now+300,[REFS_TENANT_CLAIM]:ids.tenantId,sub:actor})).toString('base64url'),signature=sign('RSA-SHA256',Buffer.from(`${header}.${payload}`),privateKey).toString('base64url');return `${header}.${payload}.${signature}`;};
   const server=createProductionAccountingServer({runtimePool,issuerPool,authenticator,attachmentStorage:{probe:async()=>true},virusScanner:{probe:async()=>true},scannerServiceActorId:'scanner-service',wbsSnapshotVerifier:()=>true,wbsAutoRecTransitionContractVerifier:()=>({signature_verified:true}),allowedOrigins:['https://app.example']});
   await new Promise((resolve,reject)=>server.listen(0,'127.0.0.1',error=>error?reject(error):resolve()));

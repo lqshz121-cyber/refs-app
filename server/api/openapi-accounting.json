@@ -1583,6 +1583,25 @@
         }
       }
     },
+    "/entities/{entityId}/wbs/auto-reconciliation/transition-contracts/verify": {
+      "post": {
+        "operationId": "verifyWbsAutoRecTransitionContract",
+        "summary": "Verify a signed WBS AutoRec transition contract as read-only evidence",
+        "description": "Requires WBS AutoRec view scope and pinned signature verification. It never writes WBS, changes a REFS reconciliation state, creates a Draft, approves, or posts.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"}
+        ],
+        "requestBody": {"$ref": "#/components/requestBodies/WbsAutoRecTransitionContractVerify"},
+        "responses": {
+          "200": {"$ref": "#/components/responses/ReadOk"},
+          "400": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"},
+          "default": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/wbs/control-reconciliation": {
       "get": {
         "operationId": "getWbsControlReconciliation",
@@ -3269,6 +3288,24 @@
       }
     },
     "requestBodies": {
+      "WbsAutoRecTransitionContractVerify": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["contract"],
+              "properties": {
+                "contract": {
+                  "type": "object",
+                  "description": "Exact signed WBS_AUTOREC_TRANSITION_CONTRACT_V1. The server validates schema, canonical hash, pinned Ed25519 signature, entity scope, and all false REFS action flags."
+                }
+              }
+            }
+          }
+        }
+      },
       "BankPaymentMatch": {
         "required": true,
         "content": {
