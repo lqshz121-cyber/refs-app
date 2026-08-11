@@ -9,6 +9,7 @@ import {
   AuthoritativeDocumentDetail,
   AuthoritativeDocumentTable,
   AuthoritativeDocumentWorkspace,
+  authoritativeLineageFor,
 } from '../src/authoritative-workspace.jsx';
 
 const entityId='11111111-1111-4111-8111-111111111111';
@@ -63,6 +64,20 @@ assert.doesNotMatch(detail,/<input|<select|>Approve<|>Post<|>Pay</i);
 assert.match(detail,/class="table-wrap authoritative-document-detail-table" role="region" tabindex="0" aria-label="Bill evidence fields; scroll horizontally to view every column"/,'full-page evidence fields must remain keyboard-scrollable at narrow widths');
 assert.match(detail,/<th scope="row">Entity<\/th>/,'full-page evidence field labels must expose row-header semantics');
 
+const postedJournalId='66666666-6666-4666-8666-666666666666';
+const completeBill={...bill,posted_journal_entry_id:postedJournalId,journal_entry_id:postedJournalId,journal_status:'POSTED',journal_revision:4,lineage:{entity_id:entityId,record_id:bill.business_document_id,record_revision:3,source_document_id:'77777777-7777-4777-8777-777777777777',source_document_revision:1,receipt_id:'88888888-8888-4888-8888-888888888888',receipt_revision:2,mapping_snapshot_id:'99999999-9999-4999-8999-999999999999',mapping_version:4,audit_event_ids:['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'],posted_journal_entry_id:postedJournalId,posted_journal_revision:4,ledger_line_ids:['cccccccc-cccc-4ccc-8ccc-cccccccccccc','dddddddd-dddd-4ddd-8ddd-dddddddddddd']}};
+const completeLineage=authoritativeLineageFor(completeBill,entityId);
+assert.equal(completeLineage?.posted_journal_entry_id,postedJournalId,'only a lineage set bound to the same exact record and posted journal may be exposed');
+assert.equal(completeLineage?.audit_event_ids.length,2);
+const completeDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={completeBill} kind="AP" entityId={entityId} onBack={()=>{}}/>);
+assert.match(completeDetail,/Immutable authoritative lineage/);
+assert.match(completeDetail,/Mapping snapshot/);
+assert.doesNotMatch(completeDetail,/BLOCKED — authoritative lineage unavailable/,'a complete same-revision API lineage response must not be unconditionally blocked');
+const mismatchedLineage={...completeBill,lineage:{...completeBill.lineage,record_revision:2}};
+assert.equal(authoritativeLineageFor(mismatchedLineage,entityId),null,'a stale or mismatched record revision must fail closed');
+const mismatchedDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={mismatchedLineage} kind="AP" entityId={entityId} onBack={()=>{}}/>);
+assert.match(mismatchedDetail,/BLOCKED — authoritative lineage unavailable/);
+
 const adjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={[adjustment]} onOpen={()=>{}}/>);
 assert.match(adjustmentList,/AP_VENDOR_CREDIT/);
 assert.match(adjustmentList,/Open evidence/);
@@ -72,6 +87,12 @@ assert.match(adjustmentDetail,/authoritative adjustment revision 2/);
 assert.match(adjustmentDetail,/cannot create, edit, apply, refund, approve, post, reverse, print, export, or synchronize/);
 assert.match(adjustmentList,/class="table-wrap authoritative-document-table" role="region" tabindex="0" aria-label="AP adjustments; scroll horizontally to view every column"/);
 assert.match(adjustmentDetail,/class="table-wrap authoritative-document-detail-table" role="region" tabindex="0" aria-label="AP adjustment evidence fields; scroll horizontally to view every column"/);
+
+const completeAdjustment={...adjustment,status:'POSTED',journal_entry_id:postedJournalId,journal_status:'POSTED',journal_revision:5,lineage:{...completeBill.lineage,record_id:adjustment.business_adjustment_id,record_revision:2,posted_journal_entry_id:postedJournalId,posted_journal_revision:5}};
+assert.equal(authoritativeLineageFor(completeAdjustment,entityId)?.posted_journal_revision,5,'adjustment lineage must also bind to its own exact immutable revision');
+const completeAdjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={completeAdjustment} side="AP" entityId={entityId} onBack={()=>{}}/>);
+assert.match(completeAdjustmentDetail,/Immutable authoritative lineage/);
+assert.doesNotMatch(completeAdjustmentDetail,/BLOCKED — authoritative lineage unavailable/);
 
 const empty=renderToStaticMarkup(<AuthoritativeDocumentTable title="AR invoices" documents={[]} kind="AR"/>);
 assert.match(empty,/not evidence of a zero balance/);
