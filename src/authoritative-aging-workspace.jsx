@@ -10,16 +10,17 @@ const BUCKETS=[['current_amount','Current'],['days_1_30','1–30 days'],['days_3
 const money=value=>{const m=/^(-?)([0-9]+)\.([0-9]{2})[0-9]{2}$/.exec(String(value??'0.0000'));if(!m)return String(value??'');const whole=m[2].replace(/\B(?=(\d{3})+(?!\d))/g,',');return `${m[1]}$${whole}.${m[3]}`;};
 const defaultAsOf=()=>{try{return new Date().toISOString().slice(0,10);}catch{return '2026-07-31';}};
 
-const agingContextMatches=(config,side,returnContext)=>!returnContext||(
+const agingContextMatches=(config,side,returnContext,expectedOrigin)=>!returnContext||(
   returnContext.entityId===config?.entityId
   && returnContext.periodId===config?.periodId
   && returnContext.agingSide===String(side||'').toUpperCase()
+  && (!expectedOrigin||returnContext.agingOrigin===expectedOrigin)
 );
 
-export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetch,onBack,backLabel='Back to invoices & receipts',returnContext}){
+export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetch,onBack,backLabel='Back to invoices & receipts',returnContext,expectedOrigin}){
   const label=side==='ap'?'AP':'AR';
   const businessLabel=side==='ap'?'Accounts payable':'Accounts receivable';
-  const scopeMatches=agingContextMatches(config,side,returnContext);
+  const scopeMatches=agingContextMatches(config,side,returnContext,expectedOrigin);
   const [asOf,setAsOf]=useState(defaultAsOf());
   const [state,setState]=useState({phase:'LOADING',aging:[],control:[],error:null});
   const load=async date=>{
@@ -54,7 +55,7 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
     <section className="authoritative-aging-context" aria-label="Immutable evidence scope">
       <b>Evidence scope</b><span>Entity {config.entityId} · configured period {config.periodId} · as of {asOf}</span><span>GET-only refresh; no accounting record can be changed from this report.</span>
     </section>
-    {!scopeMatches&&<StateBlock tone="blocked" title="BLOCKED — immutable aging scope mismatch">The full-page aging report no longer matches the entity, configured period, or AP/AR side retained by its parent list. Return to the parent report; no aging result is asserted from this mismatched scope.</StateBlock>}
+    {!scopeMatches&&<StateBlock tone="blocked" title="BLOCKED — immutable aging scope mismatch">The full-page aging report no longer matches the entity, configured period, AP/AR side, or parent route retained by its return context. Return to the parent report; no aging result is asserted from this mismatched scope.</StateBlock>}
     {scopeMatches&&<>
       {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative {label} aging…</StateBlock>}
       <AuthoritativeReadFailure state={state} onRetry={()=>void load(asOf)}/>

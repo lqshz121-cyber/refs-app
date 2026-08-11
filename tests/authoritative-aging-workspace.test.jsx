@@ -31,8 +31,8 @@ assert.match(source,/authoritativeReadFailurePhase\(failure\)/,'Aging must class
 assert.doesNotMatch(source,/blockedReadCodes/,'Aging must not maintain a divergent local blocked-code list.');
 assert.match(source,/agingContextMatches/,'Aging must validate its immutable parent return scope.');
 assert.match(source,/BLOCKED — immutable aging scope mismatch/,'Aging scope mismatches must fail closed.');
-const mismatchedScopeMarkup=renderToStaticMarkup(<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})} onBack={()=>{}} returnContext={{entityId:config.entityId,periodId:config.periodId,agingSide:'AP'}}/>);
-assert.match(mismatchedScopeMarkup,/BLOCKED — immutable aging scope mismatch/,'Aging must reject a parent scope from the opposite subledger.');
+const mismatchedScopeMarkup=renderToStaticMarkup(<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})} onBack={()=>{}} expectedOrigin="REPORTS" returnContext={{entityId:config.entityId,periodId:config.periodId,agingSide:'AR',agingOrigin:'RECEIVABLES'}}/>);
+assert.match(mismatchedScopeMarkup,/BLOCKED — immutable aging scope mismatch/,'Aging must reject a Receivables parent scope for Reports evidence.');
 assert.doesNotMatch(source,/鈥|路/);
 assert.doesNotMatch(source,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data/);
 console.log('authoritative-aging-workspace: API-only scope, as-of report control, full-page return, actionable empty and blocked states, and contained tables verified');
