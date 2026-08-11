@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { StateBlock } from './ui.jsx';
-import {AuthoritativeDemoView,AuthoritativeDemoWorkspaceHeader} from './authoritative-demo-view.jsx';
+import {AuthoritativeDemoJournalView} from './authoritative-demo-journal-view.jsx';
 import {
   DEFAULT_AUTHORITATIVE_LIST_VIEW,
   createAuthoritativeReturnContext,
@@ -43,8 +43,7 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
   const queueCounts=journalQueueCounts(journals);
   const change=patch=>onViewChange?.({...view,...patch,page:patch.page??1});
   const setQueue=status=>change({status});
-  return <AuthoritativeDemoView area="Journal entries" className="authoritative-journal-workspace authoritative-workbench-shell">
-    <AuthoritativeDemoWorkspaceHeader className="journal-page-header" eyebrow="GENERAL LEDGER | JOURNAL REGISTER" title="Journal entries" description="Review retained journal list facts and open immutable scope evidence from the authoritative accounting API." status="Read only"/>
+  return <AuthoritativeDemoJournalView>
     <div className="authoritative-workbench-rail" aria-label="Journal workspace structure">
       <span><b>1</b> Register</span><span><b>2</b> Scoped evidence</span><span><b>3</b> Exact Back</span>
     </div>
@@ -72,7 +71,7 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
       </tr>)}</tbody>
     </table></div>}
     {page.pageCount>1&&<nav className="pagination" aria-label="Journal entry pages"><button type="button" disabled={page.page===1} onClick={()=>change({page:page.page-1})}>Previous</button><span>Page {page.page} of {page.pageCount}</span><button type="button" disabled={page.page===page.pageCount} onClick={()=>change({page:page.page+1})}>Next</button></nav>}
-  </AuthoritativeDemoView>;
+  </AuthoritativeDemoJournalView>;
 }
 
 export function AuthoritativeJournalDetail({ journal, entityId, returnContext, onBack }) {

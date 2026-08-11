@@ -48,6 +48,9 @@ const app=fs.readFileSync(path.join(process.cwd(),'src','authoritative-app.jsx')
 assert.match(app,/AuthoritativeJournalWorkspace/);
 assert.doesNotMatch(app,/transitionAuthoritativeJournal|nextAuthoritativeWorkflowAction|Draft entry|route === 'drafts'/);
 const workspace=fs.readFileSync(path.join(process.cwd(),'src','authoritative-journal-workspace.jsx'),'utf8');
+const demoJournalView=fs.readFileSync(path.join(process.cwd(),'src','authoritative-demo-journal-view.jsx'),'utf8');
+assert.doesNotMatch(demoJournalView,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,'the journal presentation extraction must receive authoritative facts as slots');
+assert.match(list,/demo-journal-presentation/);
 assert.match(workspace,/restoreAuthoritativeReturnContext/,'Back must restore scroll and focus to the originating evidence control');
 assert.match(workspace,/const journalMatchesReturnContext/);
 assert.match(workspace,/context\?\.journalId === journal\.journal_entry_id/);
