@@ -49,4 +49,13 @@ assert.match(appSource, /route === 'consolidation'/, 'Consolidation must mount e
 assert.match(appSource, /Elimination, adjustment, and intercompany posting workflows remain unavailable/, 'the intercompany surface must not overstate unavailable posting contracts');
 assert.match(appSource, /Elimination creation, group maintenance, and browser-side consolidation workbooks remain unavailable/, 'the consolidation surface must not recreate a browser-side workbook');
 assert.match(appSource, /AuthoritativeWbsTransitionWorkspace/, 'WBS evidence must mount an API-backed signed-contract verifier, not a demo workspace');
+assert.match(appSource, /authoritative-topbar/, 'the formal app must use the complete workbench-style top bar rather than the old title-only header');
+assert.match(appSource, /Authoritative entity \$\{config\.entityId\}/, 'the top bar must expose the configured API entity as scope, not a local selector');
+assert.match(appSource, /Authoritative period \$\{config\.periodId\}/, 'the top bar must expose the configured API period as scope');
+assert.match(appSource, /Refresh authoritative accounting evidence/, 'the top-bar refresh control must name its real GET-only outcome');
+assert.match(appSource, /Authenticated OIDC session/, 'the user chip must describe an authenticated session without fabricating a demo user');
+assert.match(appSource, /onClick=\{logout\}>Sign out/, 'the visual shell keeps the real OIDC sign-out command');
+const styles = fs.readFileSync('index.html', 'utf8');
+assert.match(styles, /\.authoritative-entity-chip\{/, 'the authoritative entity scope needs the complete-shell selector treatment');
+assert.match(styles, /\.authoritative-mode-chip\{/, 'the top bar must disclose authoritative mode rather than demonstration mode');
 console.log('authoritative full shell: complete catalog renders API routes and unavailable workspaces fail closed');

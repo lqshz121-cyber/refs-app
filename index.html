@@ -570,6 +570,27 @@ input,select,textarea{
   background:var(--qb-surface); border:1px solid var(--qb-border); color:var(--qb-text);
 }
 .topbar select{height:var(--qb-control-h); padding:0 10px; border-radius:var(--qb-r-control); font-size:13px; font-weight:500;}
+.authoritative-topbar{gap:12px;}
+/* Same compact workbench hierarchy as the complete REFS shell.  These are
+   deliberately scope displays, not browser-owned selectors: the entity and
+   period come from the configured authoritative API scope. */
+.authoritative-entity-chip{
+  display:flex; align-items:center; gap:8px; flex:1 1 340px; min-width:190px; max-width:440px;
+  height:var(--qb-control-h); padding:0 12px; border:1px solid var(--qb-border); border-radius:var(--qb-r-control);
+  background:var(--qb-surface); color:var(--qb-text-strong); overflow:hidden;
+}
+.authoritative-entity-chip strong{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px;}
+.authoritative-entity-chip>span:last-child{margin-left:auto; color:var(--qb-text-muted); font-size:16px; line-height:1;}
+.authoritative-top-label{flex:0 0 auto; color:var(--qb-text-muted); font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;}
+.authoritative-period-chip{border-color:var(--qb-border);}
+.authoritative-mode-chip{
+  display:inline-flex; align-items:center; gap:6px; flex:0 1 auto; min-width:0; height:var(--qb-control-h);
+  padding:0 10px; border-radius:var(--qb-r-pill); background:var(--qb-accent-tint); color:var(--qb-accent);
+  font-size:12px; font-weight:700; white-space:nowrap;
+}
+.authoritative-mode-chip>span{color:var(--qb-ok); font-size:11px;}
+.authoritative-user-chip{flex:0 1 auto;}
+.authoritative-signout{flex:0 0 auto;}
 .cmdk{
   flex:0 1 240px; min-width:150px; height:var(--qb-control-h);
   padding:0 12px; border-radius:var(--qb-r-control); text-align:left;
@@ -872,7 +893,7 @@ select{padding-right:28px; cursor:pointer;}
   background:var(--qb-surface); border:var(--qb-hair) solid var(--qb-divider);
   border-radius:var(--qb-r-card); box-sizing:border-box;
 }
-.authoritative-scope-bar{display:flex;flex-wrap:wrap;gap:8px 18px;margin:0 0 16px;padding:10px 14px;border:var(--qb-hair) solid var(--qb-border);border-radius:8px;background:var(--qb-surface);font-size:12px;color:var(--qb-text-muted);}
+.authoritative-scope-bar{display:flex;flex-wrap:wrap;gap:8px 18px;margin:0 0 16px;padding:10px 14px;border:var(--qb-hair) solid var(--qb-border);border-radius:8px;background:var(--qb-surface-subtle);font-size:12px;color:var(--qb-text-muted);}
 .authoritative-scope-bar span{min-width:0;overflow-wrap:anywhere;}
 .authoritative-scope-bar b{color:var(--qb-text-strong);margin-right:4px;}
 .authoritative-list-filters{margin-bottom:16px;}
@@ -1960,6 +1981,10 @@ select{padding-right:28px; cursor:pointer;}
 }
 @media(max-width:768px){
   .topbar{padding:0 14px; gap:8px;}
+  .authoritative-entity-chip{flex:1 1 auto; min-width:0; max-width:none;}
+  .authoritative-top-actions{gap:6px;}
+  .authoritative-mode-chip{display:none;}
+  .authoritative-signout{padding:0 8px;}
   .authoritative-page-header{align-items:flex-start; flex-direction:column; gap:10px;}
   .authoritative-overview-hero{align-items:flex-start; flex-direction:column; gap:12px;}
   .authoritative-overview-hero-status{align-items:flex-start;}
@@ -2042,6 +2067,7 @@ select{padding-right:28px; cursor:pointer;}
   .page-h{font-size:21px;}
   .page-subtitle{font-size:13px;}
   .topbar{height:54px; padding:0 10px;}
+  .authoritative-user-chip{display:none;}
   .user-chip{flex:0 0 78px; min-width:78px; max-width:78px; gap:3px; padding:0; overflow:hidden;}
   .user-chip .btn{font-size:11px;}
   .topbar .icon-btn:nth-of-type(n+3){display:none;}

@@ -370,7 +370,22 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     </aside>}
     {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
     <div className="main">
-      <header className="topbar"><button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>☰</button><div><b>Authoritative accounting</b><span className="muted sm"> · API and OIDC secured</span></div><div className="row-acts"><button type="button" className="btn btn-sm btn-ghost" aria-pressed={theme === 'dark'} title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button><button type="button" className="btn btn-sm" onClick={refresh}>Refresh</button><button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button></div></header>
+      <header className="topbar authoritative-topbar">
+        <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>☰</button>
+        <div className="authoritative-entity-chip" aria-label={`Authoritative entity ${config.entityId}`}>
+          <span className="authoritative-top-label">Entity</span><strong>{config.entityId}</strong><span aria-hidden="true">⌄</span>
+        </div>
+        <div className="period-chip authoritative-period-chip" aria-label={`Authoritative period ${config.periodId}`}>
+          <span className="period-label">Period</span><b>{config.periodId}</b><span className="badge badge-ok">API read</span>
+        </div>
+        <div className="top-right authoritative-top-actions">
+          <button type="button" className="icon-btn" aria-label="Refresh authoritative accounting evidence" title="Refresh authoritative accounting evidence" onClick={refresh}>↻</button>
+          <button type="button" className="icon-btn" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} aria-pressed={theme === 'dark'} title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>{theme === 'dark' ? '☀' : '◐'}</button>
+          <span className="authoritative-mode-chip"><span aria-hidden="true">●</span> Authoritative</span>
+          <span className="user-chip authoritative-user-chip" aria-label="Authenticated OIDC session"><span className="user-av" aria-hidden="true">A</span><span className="user-nm">Authenticated</span></span>
+          <button type="button" className="btn btn-sm btn-ghost authoritative-signout" onClick={logout}>Sign out</button>
+        </div>
+      </header>
       <main className="content">
         <section className="authoritative-scope-bar" aria-label="Authoritative accounting scope">
           <span><b>Entity</b> {config.entityId}</span>
