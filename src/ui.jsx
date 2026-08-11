@@ -202,7 +202,7 @@ export function TableSkeleton({cols = 5, rows = 6, label = 'Loading records'}) {
 // sort / text filter / CSV export / pagination / density / row click
 const _loadView = (k)=>{ try{ return JSON.parse(localStorage.getItem('refs_view_'+k))||{}; }catch(e){ return {}; } };
 const _saveView = (k,v)=>{ try{ localStorage.setItem('refs_view_'+k, JSON.stringify(v)); }catch(e){} };
-export function Table({cols, rows, onRow, empty='No records to display.', emptyTone='empty', rowKey, features={}, pageSize=25, page:controlledPage, onPageChange, exportName, loading, error}) {
+export function Table({cols, rows, onRow, empty='No records to display.', emptyTone='empty', rowKey, features={}, pageSize=25, page:controlledPage, onPageChange, exportName, loading, error, className=''}) {
   const V = exportName ? _loadView(exportName) : {};
   const {sortable=true, filterable=rows&&rows.length>8, exportable=!!exportName, paginate=rows&&rows.length>pageSize} = features;
   const [sortK, setSortK] = useState(V.sortK??null);
@@ -239,6 +239,7 @@ export function Table({cols, rows, onRow, empty='No records to display.', emptyT
     else setLocalPage(target);
   };
   const view = paginate ? sorted.slice(page*pageSize,(page+1)*pageSize) : sorted;
+  const tableClassName = ['table-wrap', exportName && `table-${exportName.replace(/[^a-z0-9_-]/gi,'-').toLowerCase()}`, className].filter(Boolean).join(' ');
 
   const doExport = () => {
     const head = cols.map(c=>c.h);
@@ -260,7 +261,7 @@ export function Table({cols, rows, onRow, empty='No records to display.', emptyT
       <button type="button" className="grid-tool" onClick={()=>{setDense(d=>{persist({dense:!d}); return !d;});}} title="Change row density" aria-label={`Use ${dense?'comfortable':'compact'} table density`}>{dense?'Comfortable':'Compact'}</button>
       {exportable && <button type="button" className="grid-tool" onClick={doExport} aria-label="Export table as CSV">Export CSV</button>}
     </div>}
-    <div className={`table-wrap ${exportName?'table-'+exportName.replace(/[^a-z0-9_-]/gi,'-').toLowerCase():''}`} role="region" aria-label={exportName ? `${exportName} table` : 'Records table'} tabIndex={0} onKeyDown={e=>{ if(!view.length) return;
+    <div className={tableClassName} role="region" aria-label={exportName ? `${exportName} table` : 'Records table'} tabIndex={0} onKeyDown={e=>{ if(!view.length) return;
       if(e.key==='ArrowDown'){ e.preventDefault(); setHi(h=>Math.min(view.length-1,h+1)); }
       if(e.key==='ArrowUp'){ e.preventDefault(); setHi(h=>Math.max(0,h-1)); }
       if(e.key==='Enter' && hi>=0 && onRow){ e.preventDefault(); onRow(view[hi]); }
