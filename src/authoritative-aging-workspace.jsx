@@ -9,7 +9,9 @@ const BUCKETS=[['current_amount','Current'],['days_1_30','1–30 days'],['days_3
 const money=value=>{const m=/^(-?)([0-9]+)\.([0-9]{2})[0-9]{2}$/.exec(String(value??'0.0000'));if(!m)return String(value??'');const whole=m[2].replace(/\B(?=(\d{3})+(?!\d))/g,',');return `${m[1]}$${whole}.${m[3]}`;};
 const defaultAsOf=()=>{try{return new Date().toISOString().slice(0,10);}catch{return '2026-07-31';}};
 
-export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetch}){
+const blockedReadCodes=new Set(['AUTHENTICATION_REQUIRED','AUTHORIZATION_DENIED','ACCOUNTING_API_SCOPE_INVALID','ACCOUNTING_API_PROTOCOL','CONFIGURATION_REQUIRED']);
+
+export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetch,onBack}){
   const label=side==='ap'?'AP':'AR';
   const businessLabel=side==='ap'?'Accounts payable':'Accounts receivable';
   const [asOf,setAsOf]=useState(defaultAsOf());
@@ -20,28 +22,34 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
       refreshAuthoritativeAging({config,side,asOfDate:date,fetcher}),
       refreshAuthoritativeControlTotals({config,side,fetcher}),
     ]);
-    if(!aging.ok||!control.ok){const failure=!aging.ok?aging:control;setState({phase:'ERROR',aging:[],control:[],error:failure});return;}
+    if(!aging.ok||!control.ok){const failure=!aging.ok?aging:control;setState({phase:blockedReadCodes.has(failure.code)?'BLOCKED':'ERROR',aging:[],control:[],error:failure});return;}
     setState({phase:'READY',aging:aging.rows,control:control.rows,error:null});
   };
   useEffect(()=>{void load(asOf);},[config?.entityId,side]);
   const submit=event=>{event.preventDefault();void load(asOf);};
-  return <section className="authoritative-aging-workspace stack" aria-label={`${label} aging and control totals`} style={{marginTop:18}}>
+  return <section className="authoritative-aging-workspace stack" aria-label={`${label} aging and control totals`}>
     <header className="authoritative-aging-heading">
       <div>
         <div className="authoritative-eyebrow">{businessLabel} / aging report</div>
         <h2>{label} aging &amp; control totals</h2>
         <p className="page-subtitle">OIDC-authenticated, entity-scoped report facts from the accounting API. Browser seed data and local storage are not used.</p>
       </div>
-      <span className="badge badge-muted">READ ONLY</span>
+      <div className="authoritative-aging-actions">
+        {typeof onBack==='function'&&<button type="button" className="btn btn-sm" onClick={onBack}>Back to invoices &amp; receipts</button>}
+        <span className="badge badge-muted">READ ONLY</span>
+      </div>
     </header>
     <form className="authoritative-aging-controls" aria-label={`${label} aging report scope`} onSubmit={submit}>
       <output className="authoritative-aging-scope"><i>Entity reporting scope</i><b>{config.entityId}</b></output>
       <output className="authoritative-aging-scope"><i>Configured period</i><b>{config.periodId}</b></output>
       <label><span>As-of date</span><input type="date" aria-label={`${label} aging as-of date`} value={asOf} onChange={event=>setAsOf(event.target.value)}/></label>
-      <button type="submit" className="btn btn-sm">Load report</button>
+      <button type="submit" className="btn btn-sm">Refresh evidence</button>
     </form>
-    <p className="authoritative-aging-context">Report scope: entity {config.entityId} · configured period {config.periodId} · as of {asOf}. Changing the date reloads only this authenticated report; it never changes accounting records.</p>
+    <section className="authoritative-aging-context" aria-label="Immutable evidence scope">
+      <b>Evidence scope</b><span>Entity {config.entityId} · configured period {config.periodId} · as of {asOf}</span><span>GET-only refresh; no accounting record can be changed from this report.</span>
+    </section>
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative {label} aging…</StateBlock>}
+    {state.phase==='BLOCKED'&&<StateBlock tone="error" title="BLOCKED — authoritative evidence unavailable" actions={<button type="button" className="btn btn-sm" onClick={()=>void load(asOf)}>Retry read-only evidence</button>}><p>{state.error?.code}: {state.error?.message}</p><p>Keep the current report scope and resolve the authoritative access or evidence issue before treating this view as accounting evidence.</p></StateBlock>}
     {state.phase==='ERROR'&&<StateBlock tone="error" title={state.error?.code} actions={<button type="button" className="btn btn-sm" onClick={()=>void load(asOf)}>Retry report read</button>}><p>{state.error?.message}</p></StateBlock>}
     {state.phase==='READY'&&<>
       <section className="card" aria-label={`${label} control totals`}>
