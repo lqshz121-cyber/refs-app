@@ -107,5 +107,11 @@ assert.match(styles,/\.authoritative-app \.sidebar>nav>\.nav-group\{display:flex
   'the authoritative navigation group must receive the full drawer width');
 assert.match(styles,/\.authoritative-app \.sidebar \.nav-item\{flex:0 0 auto; min-width:0; justify-content:flex-start; white-space:normal;\}/,
   'authoritative page labels must remain readable rather than compressing into a rail column');
+assert.match(styles,/\.authoritative-app \.authoritative-nav-group \.nav-group-h::before/,
+  'production navigation groups must retain a compact visual workflow marker');
+assert.match(styles,/\.authoritative-app \.authoritative-nav-group \.nav-ic\{display:none;\}/,
+  'the legacy glyph must not compete with the production workflow marker');
+assert.match(authoritative,/authoritative-nav-group nav-tone-\$\{index\}/,
+  'the authoritative shell must apply one stable visual tone per API-backed workflow group');
 
 console.log('navigation-a11y: mobile drawer is inert while off-canvas and closed, returns focus to its opener, and exposes accessible English controls');

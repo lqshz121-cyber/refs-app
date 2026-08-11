@@ -20,6 +20,7 @@ import {
   createAuthoritativeReturnContext,
   restoreAuthoritativeReturnContext,
 } from './authoritative-list-context.js';
+import { AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES } from './authoritative-navigation.js';
 
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
@@ -42,7 +43,7 @@ export const bindAuthoritativeFetcher = (environment, fetcher) =>
 // what survives a link or a manual reload; sessionStorage covers the case where
 // the OIDC redirect completion rewrote the URL.
 // ---------------------------------------------------------------------------
-const ROUTES = ['overview', 'payables', 'receivables', 'bank', 'reconciliation', 'reports', 'journals'];
+const ROUTES = AUTHORITATIVE_ROUTES;
 const ROUTE_KEY = 'refs_authoritative_route';
 
 export const readRetainedRoute = (environment = globalThis) => {
@@ -292,8 +293,10 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       <div className="brand"><span className="logo">◇</span> REFS<span className="brand-sub">Authoritative</span></div>
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={() => setNavOpen(false)}>Close</button>}
       <nav aria-label="Authoritative accounting navigation">
-        <div className="nav-group"><div className="nav-group-h"><span className="nav-ic">●</span>Accounting API</div>
-        {[['overview','Control overview'],['payables','Payables'],['receivables','Receivables'],['bank','Bank transactions'],['reconciliation','Reconciliation'],['reports','Financial statements'],['journals','Journal entries']].map(([item,label]) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => { setRoute(item); setNavOpen(false); }}>{label}</button>)}</div>
+        {AUTHORITATIVE_NAVIGATION.map(({ label: group, items }, index) => <div className={`nav-group authoritative-nav-group nav-tone-${index}`} key={group}>
+          <div className="nav-group-h"><span className="nav-ic">●</span>{group}</div>
+          {items.map(({ route: item, label }) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => { setRoute(item); setNavOpen(false); }}>{label}</button>)}
+        </div>)}
       </nav>
     </aside>
     {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
