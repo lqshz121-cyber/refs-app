@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES } from '../src/authoritative-navigation.js';
 import { AuthoritativeNavigationShell } from '../src/authoritative-navigation-shell.jsx';
 import { AuthoritativeDemoTopbar } from '../src/authoritative-demo-shell.jsx';
+import { AuthoritativeDemoView, AuthoritativeDemoWorkspaceHeader } from '../src/authoritative-demo-view.jsx';
 import { AuthoritativeUnavailableWorkspace } from '../src/authoritative-unavailable-workspace.jsx';
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the production catalog keeps the complete major workspace taxonomy discoverable');
@@ -27,6 +28,13 @@ assert.match(topbarMarkup, /Authoritative/);
 assert.match(topbarMarkup, /Authenticated/);
 assert.doesNotMatch(fs.readFileSync('src/authoritative-demo-shell.jsx', 'utf8'), /seed\.js|repo\.js|localStorage|legacy-demo-app/,
   'the copied visual shell must accept authoritative slots only');
+const demoViewMarkup = renderToStaticMarkup(<AuthoritativeDemoView area="Reports"><AuthoritativeDemoWorkspaceHeader eyebrow="AUTHORITATIVE | REPORTING" title="Reports center" description="API-backed report facts only."/><div>API-owned report content</div></AuthoritativeDemoView>);
+assert.match(demoViewMarkup, /Reports workspace/);
+assert.match(demoViewMarkup, /AUTHORITATIVE \| REPORTING/);
+assert.match(demoViewMarkup, /API-owned report content/);
+const demoViewSource = fs.readFileSync('src/authoritative-demo-view.jsx', 'utf8');
+assert.doesNotMatch(demoViewSource, /seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js/,
+  'the reusable demo presentation frame must not import or persist demonstration accounting state');
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(unavailableMarkup, /Source Documents is not available/);
 assert.match(unavailableMarkup, /No browser or demonstration data is shown/);

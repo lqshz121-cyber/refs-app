@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
 import {createAuthoritativeBankPaymentMatch,createAuthoritativeReconciliationAdjustmentDraft,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation,refreshAuthoritativeReconciliationWorksheet,setAuthoritativeReconciliationClearance,transitionAuthoritativeReconciliation,unmatchAuthoritativeBankPayment} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
+import {AuthoritativeDemoView,AuthoritativeDemoWorkspaceHeader} from './authoritative-demo-view.jsx';
 import {DEFAULT_AUTHORITATIVE_LIST_VIEW,createAuthoritativeReturnContext,restoreAuthoritativeReturnContext} from './authoritative-list-context.js';
 
 const fixed4Units=value=>{
@@ -211,7 +212,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     restoreAuthoritativeReturnContext(environment,config,context);
   };
   if(selected)return <AuthoritativeBankDetail row={selected.row} scope={{...scope,entityId:config.entityId}} onBack={closeEvidence} config={config} fetcher={fetcher} onMatchChanged={()=>load(null,{preserveDetail:true})}/>;
-  return <div className="stack"><div><h1>Bank transaction evidence</h1><p className="page-subtitle">Entity-scoped, OIDC-authenticated records only. Browser seeds and local storage are never used.</p></div>
+  return <AuthoritativeDemoView area="Bank transaction evidence" className="stack authoritative-bank-workspace"><AuthoritativeDemoWorkspaceHeader eyebrow="BANKING | SOURCE EVIDENCE" title="Bank transaction evidence" description="Entity-scoped, OIDC-authenticated records only. Browser seeds and local storage are never used."/>
     <form className="filterbar" onSubmit={load} aria-label="Bank transaction scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>
       <label>From<input type="date" value={scope.from} onChange={event=>setScope(current=>({...current,from:event.target.value}))}/></label>
@@ -223,7 +224,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative bank transaction evidence...</StateBlock>}
     {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
     {state.phase==='READY'&&<AuthoritativeBankTable rows={state.rows} onOpen={openEvidence}/>}
-  </div>;
+  </AuthoritativeDemoView>;
 }
 
 export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
@@ -242,7 +243,7 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     restoreAuthoritativeReturnContext(environment,config,context);
   };
   if(selected)return <AuthoritativeReconciliationDetail row={selected.row} scope={{...scope,entityId:config.entityId}} onBack={closeEvidence} config={config} fetcher={fetcher} onChanged={()=>load(null,{preserveDetail:true})}/>;
-  return <div className="stack"><div><h1>Reconciliation evidence</h1><p className="page-subtitle">One authoritative statement cutoff for one entity and bank account. Lifecycle commands are controller-gated, revision-bound, idempotent, and audited by the accounting API.</p></div>
+  return <AuthoritativeDemoView area="Reconciliation evidence" className="stack authoritative-reconciliation-workspace"><AuthoritativeDemoWorkspaceHeader eyebrow="BANKING | RECONCILIATION" title="Reconciliation evidence" description="One authoritative statement cutoff for one entity and bank account. Lifecycle commands are controller-gated, revision-bound, idempotent, and audited by the accounting API."/>
     <form className="filterbar" onSubmit={load} aria-label="Reconciliation statement scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>
       <label>Statement ending date<input required type="date" value={scope.statementEndingDate} onChange={event=>setScope(current=>({...current,statementEndingDate:event.target.value}))}/></label>
@@ -253,5 +254,5 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative reconciliation evidence...</StateBlock>}
     {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
     {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} scope={{...scope,entityId:config.entityId}} onOpen={openEvidence}/>}
-  </div>;
+  </AuthoritativeDemoView>;
 }
