@@ -109,6 +109,8 @@ assert.match(styles,/\.authoritative-app \.sidebar \.nav-item\{flex:0 0 auto; mi
   'authoritative page labels must remain readable rather than compressing into a rail column');
 assert.match(styles,/\.authoritative-app \.authoritative-nav-group \.nav-group-h::before/,
   'production navigation groups must retain a compact visual workflow marker');
+assert.match(styles,/\.authoritative-app \.authoritative-nav-group \.nav-ic\{display:none;\}/,
+  'the legacy glyph must not compete with the production workflow marker');
 assert.match(authoritative,/authoritative-nav-group nav-tone-\$\{index\}/,
   'the authoritative shell must apply one stable visual tone per API-backed workflow group');
 
