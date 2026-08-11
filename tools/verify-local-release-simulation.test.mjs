@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { canonicalWbsReceiptSigningPayload } from './verify-external-release-gate.mjs';
 
 const node = process.execPath;
 const generator = resolve('tools/create-local-release-simulation.mjs');
@@ -101,6 +103,47 @@ const tampered = spawnSync(node, [gate, 'wbs'], {
   env: { ...env, REFS_WBS_SIGNED_RECEIPT_FILE: tamperedReceipt },
 });
 assert.equal(tampered.status, 2, 'tampered WBS receipt must fail closed');
-assert.match(`${tampered.stdout}${tampered.stderr}`, /RELEASE_WBS_RECEIPT_SIGNATURE_INVALID/);
+assert.match(`${tampered.stdout}${tampered.stderr}`, /RELEASE_WBS_RAW_HASH_MISMATCH/);
+
+const wrongIssuerReceipt = resolve('outputs/local-release-simulation/wbs-signed-receipt-wrong-issuer.json');
+writeFileSync(wrongIssuerReceipt, `${JSON.stringify({ ...wbsReceipt, issuer: 'untrusted-wbs' }, null, 2)}\n`, 'utf8');
+const wrongIssuer = spawnSync(node, [gate, 'wbs'], {
+  encoding: 'utf8',
+  env: { ...env, REFS_WBS_SIGNED_RECEIPT_FILE: wrongIssuerReceipt },
+});
+assert.equal(wrongIssuer.status, 2, 'receipt issuer must match the deployment-pinned provider');
+assert.match(`${wrongIssuer.stdout}${wrongIssuer.stderr}`, /RELEASE_WBS_RECEIPT_ISSUER_MISMATCH/);
+
+const wrongKidReceipt = resolve('outputs/local-release-simulation/wbs-signed-receipt-wrong-kid.json');
+writeFileSync(wrongKidReceipt, `${JSON.stringify({ ...wbsReceipt, kid: 'unexpected-key', detached_signature: { ...wbsReceipt.detached_signature, key_id: 'unexpected-key' } }, null, 2)}\n`, 'utf8');
+const wrongKid = spawnSync(node, [gate, 'wbs'], {
+  encoding: 'utf8',
+  env: { ...env, REFS_WBS_SIGNED_RECEIPT_FILE: wrongKidReceipt },
+});
+assert.equal(wrongKid.status, 2, 'receipt key id must match the deployment-pinned provider');
+assert.match(`${wrongKid.stdout}${wrongKid.stderr}`, /RELEASE_WBS_RECEIPT_KEY_MISMATCH/);
+
+const forgedPair = generateKeyPairSync('ed25519');
+const forgedReceipt = { ...wbsReceipt, detached_signature: { ...wbsReceipt.detached_signature } };
+forgedReceipt.detached_signature.value = sign(null, Buffer.from(canonicalWbsReceiptSigningPayload(forgedReceipt), 'utf8'), forgedPair.privateKey).toString('base64');
+const forgedReceiptPath = resolve('outputs/local-release-simulation/wbs-signed-receipt-forged-key.json');
+const callerKeyringPath = resolve('outputs/local-release-simulation/caller-supplied-keyring.json');
+writeFileSync(forgedReceiptPath, `${JSON.stringify(forgedReceipt, null, 2)}\n`, 'utf8');
+writeFileSync(callerKeyringPath, `${JSON.stringify({ [wbsReceipt.kid]: forgedPair.publicKey.export({ type: 'spki', format: 'pem' }) }, null, 2)}\n`, 'utf8');
+const callerSuppliedKeyring = spawnSync(node, [gate, 'wbs'], {
+  encoding: 'utf8',
+  env: { ...env, REFS_WBS_SIGNED_RECEIPT_FILE: forgedReceiptPath, WBS_SNAPSHOT_ED25519_PUBLIC_KEYS: callerKeyringPath },
+});
+assert.equal(callerSuppliedKeyring.status, 2, 'a caller-supplied runtime keyring must not establish release trust');
+assert.match(`${callerSuppliedKeyring.stdout}${callerSuppliedKeyring.stderr}`, /RELEASE_WBS_RECEIPT_SIGNATURE_INVALID/);
+
+const rawMismatchPath = resolve('outputs/local-release-simulation/wbs-response-tampered.raw');
+writeFileSync(rawMismatchPath, '{"response":"tampered"}\n', 'utf8');
+const rawMismatch = spawnSync(node, [gate, 'wbs'], {
+  encoding: 'utf8',
+  env: { ...env, REFS_WBS_RESPONSE_RAW_FILE: rawMismatchPath },
+});
+assert.equal(rawMismatch.status, 2, 'receipt must bind its response hash to the supplied canonical raw response bytes');
+assert.match(`${rawMismatch.stdout}${rawMismatch.stderr}`, /RELEASE_WBS_RAW_HASH_MISMATCH/);
 
 console.log('local-release-simulation: ui, s3, and wbs gates pass with local simulation artifacts');

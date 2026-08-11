@@ -134,15 +134,23 @@ npm.cmd run test:release-simulation
 Do not run this until the user supplies and authorizes real provider evidence:
 
 ```powershell
-$env:WBS_SNAPSHOT_ED25519_PUBLIC_KEYS='C:\secure\wbs-public-keys.json'
+$env:REFS_WBS_PROVIDER_TRUST_FILE='C:\secure\wbs-provider-trust.json'
 $env:REFS_WBS_SIGNED_RECEIPT_FILE='C:\secure\wbs-signed-receipt.json'
+$env:REFS_WBS_REQUEST_RAW_FILE='C:\secure\wbs-request.raw'
+$env:REFS_WBS_RESPONSE_RAW_FILE='C:\secure\wbs-response.raw'
+$env:REFS_WBS_PACKAGE_RAW_FILE='C:\secure\wbs-package.raw'
 npm.cmd run verify:release-wbs-receipt
 ```
 
-The provider-backed run must retain redacted raw output and an exit code. No
-credentials, cookies, authorization headers, or raw business payloads belong in
-repository logs. Exit `0` is necessary but does not replace the immutable receipt,
-signature, scope, version, cursor, and replay evidence.
+`REFS_WBS_PROVIDER_TRUST_FILE` is deployment-managed trust configuration, not
+provider evidence. It pins exactly one `issuer`, `key_id`, and Ed25519 public key.
+The verifier ignores any keyring supplied alongside the receipt, recomputes all
+three SHA-256 hashes from the exact captured request/response/package bytes, and
+requires the provider signature over the canonical receipt claims. The provider-backed
+run must retain redacted raw output and an exit code. No credentials, cookies,
+authorization headers, or raw business payloads belong in repository logs. Exit `0`
+is necessary but does not replace the immutable receipt, signature, scope, version,
+cursor, and replay evidence.
 
 ## 9. Discovery provenance
 

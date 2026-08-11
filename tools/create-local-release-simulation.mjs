@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { generateKeyPairSync, sign } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
+import { canonicalWbsReceiptSigningPayload } from './verify-external-release-gate.mjs';
 
 const outRoot = resolve('outputs/local-release-simulation');
 const writeText = (path, text) => {
@@ -97,31 +98,36 @@ writeJson(resolve(outRoot, 's3-scanner-receipt.json'), {
 
 const { privateKey: wbsPrivateKey, publicKey: wbsPublicKey } = generateKeyPairSync('ed25519');
 const wbsKeyId = 'local-sim-key-1';
-const wbsPackageHash = `sha256:${'2'.repeat(64)}`;
-const wbsSignature = sign(null, Buffer.from(wbsPackageHash, 'utf8'), wbsPrivateKey).toString('base64');
+const rawHash = value => `sha256:${createHash('sha256').update(value).digest('hex')}`;
+const wbsRaw = {
+  request: Buffer.from('{"request":"local-simulation-canonical"}\n', 'utf8'),
+  response: Buffer.from('{"response":"local-simulation-canonical"}\n', 'utf8'),
+  package: Buffer.from('{"package":"local-simulation-canonical"}\n', 'utf8'),
+};
+const wbsRawPaths = {
+  request: resolve(outRoot, 'wbs-request.raw'),
+  response: resolve(outRoot, 'wbs-response.raw'),
+  package: resolve(outRoot, 'wbs-package.raw'),
+};
+for (const [name, value] of Object.entries(wbsRaw)) writeFileSync(wbsRawPaths[name], value);
 
-writeJson(resolve(outRoot, 'wbs-public-keys.json'), {
+writeJson(resolve(outRoot, 'wbs-provider-trust.json'), {
   mode: 'LOCAL_SIMULATION',
-  publicKeys: {
-    [wbsKeyId]: wbsPublicKey.export({ type: 'spki', format: 'pem' }),
-  },
+  issuer: 'wbs-local-simulation',
+  key_id: wbsKeyId,
+  public_key: wbsPublicKey.export({ type: 'spki', format: 'pem' }),
 });
 
-writeJson(resolve(outRoot, 'wbs-signed-receipt.json'), {
+const wbsReceipt = {
   mode: 'LOCAL_SIMULATION',
   warning: 'This verifies release harness wiring only. It is not a live WBS signed receipt.',
   nonempty: true,
   issuer: 'wbs-local-simulation',
   kid: wbsKeyId,
   algorithm: 'Ed25519',
-  response_sha256: '0'.repeat(64),
-  request_sha256: '1'.repeat(64),
-  package_hash: wbsPackageHash,
-  detached_signature: {
-    key_id: wbsKeyId,
-    algorithm: 'Ed25519',
-    value: wbsSignature,
-  },
+  response_sha256: rawHash(wbsRaw.response),
+  request_sha256: rawHash(wbsRaw.request),
+  package_hash: rawHash(wbsRaw.package),
   nonce: 'local-simulation-nonce',
   signed_at: '2026-08-05T00:00:00.000Z',
   expires_at: '2026-08-06T00:00:00.000Z',
@@ -134,7 +140,13 @@ writeJson(resolve(outRoot, 'wbs-signed-receipt.json'), {
     rows: 1,
     amount: '123.45',
   },
-});
+};
+wbsReceipt.detached_signature = {
+  key_id: wbsKeyId,
+  algorithm: 'Ed25519',
+  value: sign(null, Buffer.from(canonicalWbsReceiptSigningPayload(wbsReceipt), 'utf8'), wbsPrivateKey).toString('base64'),
+};
+writeJson(resolve(outRoot, 'wbs-signed-receipt.json'), wbsReceipt);
 
 writeJson(resolve(outRoot, 'env.json'), {
   REFS_STAGING_WEB_ORIGIN: webOrigin,
@@ -147,8 +159,11 @@ writeJson(resolve(outRoot, 'env.json'), {
   VIRUS_SCANNER_CA_FILE: scannerCaFile,
   VIRUS_SCANNER_SERVER_NAME: scannerServerName,
   REFS_S3_SCANNER_LIFECYCLE_RECEIPT: resolve(outRoot, 's3-scanner-receipt.json'),
-  WBS_SNAPSHOT_ED25519_PUBLIC_KEYS: resolve(outRoot, 'wbs-public-keys.json'),
+  REFS_WBS_PROVIDER_TRUST_FILE: resolve(outRoot, 'wbs-provider-trust.json'),
   REFS_WBS_SIGNED_RECEIPT_FILE: resolve(outRoot, 'wbs-signed-receipt.json'),
+  REFS_WBS_REQUEST_RAW_FILE: wbsRawPaths.request,
+  REFS_WBS_RESPONSE_RAW_FILE: wbsRawPaths.response,
+  REFS_WBS_PACKAGE_RAW_FILE: wbsRawPaths.package,
 });
 
 writeText(scannerCaFile, 'LOCAL SIMULATION CA PLACEHOLDER\n');
