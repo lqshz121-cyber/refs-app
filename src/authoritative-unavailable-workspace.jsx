@@ -1,24 +1,15 @@
 import React from 'react';
+import {AuthoritativeDemoView,AuthoritativeDemoWorkspaceHeader} from './authoritative-demo-view.jsx';
 
 export function AuthoritativeUnavailableWorkspace({ item, config }) {
   const requirements = Array.isArray(item?.requirements) ? item.requirements : [];
-  return <section className="authoritative-page authoritative-unavailable-workspace" aria-labelledby="authoritative-unavailable-title">
-    <header className="authoritative-page-header">
-      <div>
-        <p className="authoritative-eyebrow">Authoritative workspace catalog</p>
-        <h1 id="authoritative-unavailable-title">{item?.label || 'Workspace'} is not available in the authoritative API</h1>
-        <p className="page-subtitle">This product area remains visible so its scope is clear, but no signed-in read model has been configured for it.</p>
-      </div>
-      <span className="badge badge-danger">API unavailable</span>
-    </header>
-    <div className="authoritative-unavailable-card" role="status">
-      <h2>No browser or demonstration data is shown</h2>
-      <p>REFS will not substitute seed data, local storage, or an inferred accounting balance for this workspace. It also cannot offer create, approve, pay, match, post, export, or synchronization controls until an authoritative API contract exists.</p>
-      <dl className="authoritative-unavailable-scope"><div><dt>Entity scope</dt><dd>{config?.entityId || 'Not configured'}</dd></div><div><dt>Period scope</dt><dd>{config?.periodId || 'Not configured'}</dd></div><div><dt>Requested workspace</dt><dd>{item?.label || 'Unknown'}</dd></div></dl>
-      {requirements.length > 0 && <section className="authoritative-unavailable-requirements" aria-labelledby="authoritative-unavailable-requirements-title">
-        <h2 id="authoritative-unavailable-requirements-title">Required authoritative read contract</h2>
-        <ul>{requirements.map(requirement => <li key={requirement}>{requirement}</li>)}</ul>
-      </section>}
-    </div>
-  </section>;
+  const label = item?.label || 'Workspace';
+  return <AuthoritativeDemoView area={`${label} unavailable workspace`} className="stack authoritative-unavailable-workspace">
+    <AuthoritativeDemoWorkspaceHeader eyebrow="AUTHORITATIVE WORKSPACE CATALOG" title={`${label} is not available in the authoritative API`} description="This product area remains visible so its scope is clear, but no signed-in read model has been configured for it." status="API UNAVAILABLE"/>
+    <section className="report-workbench" role="status">
+      <div className="report-workbench-head"><div><b>No browser or demonstration data is shown</b><div className="page-subtitle">REFS will not substitute seed data, local storage, or an inferred accounting balance for this workspace. It cannot offer create, approve, pay, match, post, export, or synchronization controls until an authoritative API contract exists.</div></div><span className="badge badge-warning">BLOCKED</span></div>
+      <div className="qbo-toolgrid"><span><i>Entity scope</i><b>{config?.entityId || 'Not configured'}</b></span><span><i>Period scope</i><b>{config?.periodId || 'Not configured'}</b></span><span><i>Requested workspace</i><b>{label}</b></span></div>
+      {requirements.length > 0 && <section aria-labelledby="authoritative-unavailable-requirements-title"><h2 id="authoritative-unavailable-requirements-title" className="qb-sec">Required authoritative read contract</h2><ul className="muted sm">{requirements.map(requirement => <li key={requirement}>{requirement}</li>)}</ul></section>}
+    </section>
+  </AuthoritativeDemoView>;
 }
