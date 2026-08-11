@@ -52,7 +52,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('chart-of-accounts', 'Chart of accounts', 'API_READ'),
   ]),
   group('Accounting Operations', [
-    item('project-cost-cwip', 'Project Cost & CWIP'), item('unit-cost-ledger', 'Unit Cost Ledger'),
+    // This is an authenticated report-evidence workspace, not the legacy
+    // project-cost register. Cost-code and vendor registers remain unavailable
+    // until their own server read contracts exist.
+    item('project-cost-cwip', 'Project Cost & CWIP', 'API_READ'), item('unit-cost-ledger', 'Unit Cost Ledger'),
     item('unit-transfer', 'Unit Transfer'), item('construction-loan', 'Construction Loan'),
     item('loan-register', 'Loan Register'), item('property-ops-pickup', 'Property Ops Pickup'),
     item('closing-accounting', 'Closing Accounting'), item('intercompany', 'Intercompany'),
