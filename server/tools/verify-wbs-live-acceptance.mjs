@@ -14,7 +14,7 @@ import {existsSync,readFileSync} from 'node:fs';
 import {createHash,createPublicKey,verify} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {validateWbsAutoRecG11PostedTrace} from '../runtime/wbs-inbound-data-adapter.mjs';
-import {canonicalWbsLiveReceiptSigningPayload} from '../runtime/wbs-live-receipt-signing.mjs';
+import {canonicalWbsLiveReceiptSigningPayload,isWbsLiveReceiptTimeWindowValid} from '../runtime/wbs-live-receipt-signing.mjs';
 
 const HASH=/^sha256:[0-9a-f]{64}$/;
 const KEY_ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -54,9 +54,10 @@ export function normalizePinnedProviderTrust(value){
 
 const sha256=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
 
-export function verifySignedReceipt({receipt,providerTrust,raw}){
+export function verifySignedReceipt({receipt,providerTrust,raw,now=Date.now()}){
   required(receipt,['issuer','kid','algorithm','response_sha256','request_sha256','package_hash','nonce','signed_at','expires_at','tenant_id','entity_id','company_code','immutable_version'],'WBS_LIVE_ACCEPTANCE_RECEIPT_INCOMPLETE');
   if(receipt.nonempty!==true||receipt.algorithm!=='Ed25519'||!HASH.test(text(receipt.package_hash))||!HASH.test(text(receipt.request_sha256))||!HASH.test(text(receipt.response_sha256)))fail('WBS_LIVE_ACCEPTANCE_RECEIPT_INCOMPLETE');
+  if(!isWbsLiveReceiptTimeWindowValid(receipt,now))fail('WBS_LIVE_ACCEPTANCE_RECEIPT_TIME_WINDOW_INVALID');
   if(!raw||!Buffer.isBuffer(raw.request)||!Buffer.isBuffer(raw.response)||!Buffer.isBuffer(raw.package))fail('WBS_LIVE_ACCEPTANCE_RAW_EVIDENCE_REQUIRED');
   if(sha256(raw.request)!==text(receipt.request_sha256)||sha256(raw.response)!==text(receipt.response_sha256)||sha256(raw.package)!==text(receipt.package_hash))fail('WBS_LIVE_ACCEPTANCE_RAW_HASH_MISMATCH');
   if(text(receipt.issuer)!==providerTrust.issuer)fail('WBS_LIVE_ACCEPTANCE_RECEIPT_ISSUER_MISMATCH');
@@ -118,8 +119,8 @@ export function verifyGlReportEvidence({glReport,scope,g11}){
   return Object.freeze({report_id:text(report.report_id),currency:text(gl.currency)});
 }
 
-export function verifyWbsLiveAcceptance({providerTrust,receipt,raw,ingress,g11,glReport}){
-  const scope=verifySignedReceipt({receipt,providerTrust:normalizePinnedProviderTrust(providerTrust),raw});
+export function verifyWbsLiveAcceptance({providerTrust,receipt,raw,ingress,g11,glReport,now=Date.now()}){
+  const scope=verifySignedReceipt({receipt,providerTrust:normalizePinnedProviderTrust(providerTrust),raw,now});
   const ingressResult=verifyIngressEvidence({ingress,scope});
   const g11Result=verifyG11Evidence({g11,scope});
   const reportResult=verifyGlReportEvidence({glReport,scope,g11:g11Result});

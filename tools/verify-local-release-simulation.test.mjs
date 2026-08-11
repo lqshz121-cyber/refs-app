@@ -96,6 +96,15 @@ assert.equal(wbsReceipt.mode, 'LOCAL_SIMULATION');
 assert.match(wbsReceipt.warning, /not a live WBS signed receipt/i);
 assert.equal(wbsReceipt.detached_signature?.algorithm, 'Ed25519');
 
+const expiredReceipt = resolve('outputs/local-release-simulation/wbs-signed-receipt-expired.json');
+writeFileSync(expiredReceipt, `${JSON.stringify({ ...wbsReceipt, expires_at: '2020-01-01T00:00:00.000Z' }, null, 2)}\n`, 'utf8');
+const expired = spawnSync(node, [gate, 'wbs'], {
+  encoding: 'utf8',
+  env: { ...env, REFS_WBS_SIGNED_RECEIPT_FILE: expiredReceipt },
+});
+assert.equal(expired.status, 2, 'an expired signed WBS receipt must fail closed before signature acceptance');
+assert.match(`${expired.stdout}${expired.stderr}`, /RELEASE_WBS_RECEIPT_TIME_WINDOW_INVALID/);
+
 const tamperedReceipt = resolve('outputs/local-release-simulation/wbs-signed-receipt-tampered.json');
 writeFileSync(tamperedReceipt, `${JSON.stringify({ ...wbsReceipt, package_hash: 'sha256:'.concat('9'.repeat(64)) }, null, 2)}\n`, 'utf8');
 const tampered = spawnSync(node, [gate, 'wbs'], {
