@@ -16,8 +16,10 @@ assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting O
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.match(navMarkup, /API/); assert.match(navMarkup, /Unavailable/); assert.match(navMarkup, /Workspace/);
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
-const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Project Cost & CWIP'}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
-assert.match(unavailableMarkup, /Project Cost &amp; CWIP is not available/);
+const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
+assert.match(unavailableMarkup, /Source Documents is not available/);
 assert.match(unavailableMarkup, /No browser or demonstration data is shown/);
+assert.match(unavailableMarkup, /Required authoritative read contract/);
+assert.match(unavailableMarkup, /attachment-read contract/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 console.log('authoritative full shell: complete catalog renders API routes and unavailable workspaces fail closed');

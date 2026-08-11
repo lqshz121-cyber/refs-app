@@ -11,6 +11,10 @@ for (const group of AUTHORITATIVE_NAVIGATION) {
 }
 assert.equal(navigationItemForRoute('project-cost-cwip').availability, 'API_UNAVAILABLE');
 assert.equal(navigationItemForRoute('bank').availability, 'API_READ');
+const sourceDocuments = navigationItemForRoute('source-documents');
+assert.equal(sourceDocuments.availability, 'API_UNAVAILABLE');
+assert.equal(sourceDocuments.requirements.length, 2, 'source documents must name its missing read contracts instead of borrowing demo state');
+assert.match(sourceDocuments.requirements.join(' '), /attachment-read contract/);
 const source = readFileSync(new URL('../src/authoritative-app.jsx', import.meta.url), 'utf8');
 assert.match(source, /AuthoritativeNavigationShell/, 'the production app must render the reusable formal shell');
 assert.match(source, /AuthoritativeUnavailableWorkspace/, 'unsupported modules must render an explicit fail-closed workspace');

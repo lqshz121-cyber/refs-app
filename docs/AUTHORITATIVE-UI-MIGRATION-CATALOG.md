@@ -28,8 +28,10 @@ model may render accounting facts.
 - Production never imports `legacy-demo-app.jsx`, `seed.js`, `data.js`, or
   `repo.js` to satisfy an unavailable workspace.
 - An unavailable entry displays its entity and period scope plus an explicit
-  `API unavailable` state. It exposes no create, approve, pay, match, post,
-  export, or synchronization action.
+  `API unavailable` state. Source & Staging entries also name the specific
+  missing read contract, so a familiar legacy page is never mistaken for a
+  live data view. It exposes no create, approve, pay, match, post, export, or
+  synchronization action.
 - New API contracts may promote exactly one catalog entry from unavailable to
   API read. They must add a client contract and tests before changing the UI
   state.

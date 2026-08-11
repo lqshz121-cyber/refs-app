@@ -3,7 +3,12 @@
 // when the authoritative client has a corresponding signed-in read workspace.
 // Everything else remains discoverable but explicitly fails closed as an
 // unavailable read model; it never receives seed, repo, or browser state.
-const item = (route, label, availability = 'API_UNAVAILABLE') => Object.freeze({ route, label, availability });
+const item = (route, label, availability = 'API_UNAVAILABLE', requirements = []) => Object.freeze({
+  route,
+  label,
+  availability,
+  requirements: Object.freeze(requirements),
+});
 const group = (label, items) => Object.freeze({ label, items: Object.freeze(items) });
 
 export const AUTHORITATIVE_NAVIGATION = Object.freeze([
@@ -17,8 +22,22 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('settings', 'Core settings'), item('rules', 'Rule Center'), item('mapping', 'Mapping Center'),
   ]),
   group('Source & Staging', [
-    item('staging', 'Accounting Staging'), item('source-documents', 'Source Documents'),
-    item('integration-hub', 'Integration Hub'), item('mapping-exceptions', 'Mapping Exceptions'),
+    item('staging', 'Accounting Staging', 'API_UNAVAILABLE', [
+      'Entity-scoped persisted staging items with immutable receipt, source version, mapping version, and review state.',
+      'Read-only list and detail endpoints before any controller workflow can be exposed.',
+    ]),
+    item('source-documents', 'Source Documents', 'API_UNAVAILABLE', [
+      'Entity-scoped source-document list and immutable detail endpoints.',
+      'Separate authorised attachment-read contract; upload and finalise endpoints are not a document reader.',
+    ]),
+    item('integration-hub', 'Integration Hub', 'API_UNAVAILABLE', [
+      'Read-only connector health, immutable receipt, and source-version evidence scoped to this entity.',
+      'No provider synchronisation control is shown until a server-authorised contract exists.',
+    ]),
+    item('mapping-exceptions', 'Mapping Exceptions', 'API_UNAVAILABLE', [
+      'Entity- and period-scoped exception read model with mapping version, reason, and retained audit evidence.',
+      'A reviewed resolution command must be separately authorised and versioned.',
+    ]),
   ]),
   group('Auto Reconciliation', [
     item('bank-batch-pipeline', 'Bank Batch Pipeline'),
