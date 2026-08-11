@@ -23,6 +23,9 @@ assert.match(navMarkup, /No authorised create action is available in this worksp
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
 const topbarMarkup = renderToStaticMarkup(<AuthoritativeDemoTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
 assert.match(topbarMarkup, /WBHO WB Home LLC/);
+assert.match(topbarMarkup, /Search or jump/, 'the authoritative topbar must retain the demo command-slot geometry');
+assert.match(topbarMarkup, /Search is unavailable until an authorised server-backed discovery contract exists/,
+  'the visually retained command slot must fail closed until an API contract exists');
 assert.match(topbarMarkup, /Period/);
 assert.match(topbarMarkup, /Authoritative/);
 assert.match(topbarMarkup, /Authenticated/);

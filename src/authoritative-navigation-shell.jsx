@@ -1,16 +1,6 @@
 import React from 'react';
 import { Icon } from './ui.jsx';
 
-function compactLabel(label) {
-  return label
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(word => word[0])
-    .join('')
-    .slice(0, 3)
-    .toUpperCase();
-}
-
 function railLabel(label) {
   return label.split(/\s+/)[0] || label;
 }
