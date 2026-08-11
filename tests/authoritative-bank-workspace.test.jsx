@@ -64,9 +64,10 @@ assert.match(source,/row:item/,'Clearance command must receive the selected serv
 assert.match(source,/const reasonReady=reason\.trim\(\)\.length>=8/,'Clearance commands must require a non-blank controller reason before they can be clicked');
 assert.match(source,/disabled=\{commandInFlight\|\|!reasonReady\}/,'Clearance and lifecycle buttons must remain disabled until the controller reason is valid');
 assert.match(source,/createAuthoritativeReconciliationAdjustmentDraft/,'An adjustment Draft must use the authoritative reconciliation command client');
-assert.match(source,/setAuthoritativeReconciliationAdjustmentClearance/,'Adjustment clearance must use its separate posted-evidence command boundary');
 assert.match(source,/Prepare adjustment Draft/,'Only a selected server worksheet source may initiate an adjustment Draft');
-assert.match(source,/Clear Posted adjustment/,'The UI must not present an adjustment Draft as cleared before its separately verified posted-evidence command');
+assert.match(source,/Posted adjustment clearance is BLOCKED until the API returns separate posted adjustment evidence/,'A worksheet that lacks a posted-adjustment evidence field must not expose a clearance command for an unproven adjustment');
+assert.doesNotMatch(source,/setAuthoritativeReconciliationAdjustmentClearance|Clear Posted adjustment/,'The UI must not call the adjustment-clearance command until the worksheet contract exposes independent posted-adjustment evidence');
+assert.match(source,/item\.clearance_state==='CLEARED'&&item\.match_status==='ACTIVE'/,'Only an active server-returned Match can expose the ordinary Unclear command');
 assert.match(source,/configured cash account, exact four-decimal source amount/,'The UI must explain that it retains source amount and configured cash-account evidence instead of inferring a mapping');
 assert.match(source,/preserveDetail:true/,'A successful worksheet command must refresh the authoritative statement revision without losing the full-page detail context');
 assert.match(source,/Reconciliation evidence blocked/,'A missing statement must report an explicit evidence BLOCKED state');
