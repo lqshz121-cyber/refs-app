@@ -34,6 +34,7 @@
     "test:navigation-a11y": "esbuild ./tests/navigation-a11y.test.js --bundle --platform=node --format=cjs --outfile=tests/navigation-a11y.test.cjs && node tests/navigation-a11y.test.cjs",
     "test:authoritative-navigation-model": "node tests/authoritative-navigation-model.test.js",
     "test:demo-presentation-parity": "node verify-demo-presentation-parity.mjs",
+    "test:demo-visual-parity": "node verify-demo-visual-parity.mjs",
     "test:authoritative-overview": "esbuild ./tests/authoritative-overview.test.jsx --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=tests/authoritative-overview.test.cjs && node tests/authoritative-overview.test.cjs",
     "test:authoritative-full-shell": "esbuild ./tests/authoritative-full-shell.test.jsx --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=tests/authoritative-full-shell.test.cjs && node tests/authoritative-full-shell.test.cjs",
     "test:workflow": "esbuild ./tests/authoritative-workflow.test.js --bundle --platform=node --format=cjs --outfile=tests/authoritative-workflow.test.cjs && node tests/authoritative-workflow.test.cjs",
