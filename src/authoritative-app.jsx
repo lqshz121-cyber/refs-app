@@ -8,6 +8,7 @@ import { RuntimeErrorPage, RuntimeErrorPanel } from './runtime-error-page.jsx';
 import { AuthoritativeReportsWorkspace } from './authoritative-reports-workspace.jsx';
 import { AuthoritativeAgingWorkspace } from './authoritative-aging-workspace.jsx';
 import { AuthoritativeJournalWorkspace } from './authoritative-journal-workspace.jsx';
+import { resolveInitialTheme, watchOsTheme, writeStoredTheme } from './theme-preference.js';
 import {
   AuthoritativeAdjustmentDetail,
   AuthoritativeDocumentDetail,
@@ -92,6 +93,11 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [error, setError] = useState(null);
   const [renewalFailure, setRenewalFailure] = useState(null);
   const [sessionExpired, setSessionExpired] = useState(false);
+  // Theme is a presentation preference only.  It never changes accounting
+  // scope, records, or the API client, and uses the same explicit body class
+  // contract as the demonstration shell so an authoritative reader has a
+  // reachable dark-mode choice at every viewport.
+  const [theme, setTheme] = useState(() => resolveInitialTheme(environment));
   // Bank, reconciliation, and report workspaces own their scoped read state.
   // A successful header refresh remounts the active one after the shared AP/AR
   // and journal reads complete, so the visible workspace never keeps stale
@@ -108,6 +114,16 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const navOpenerRef = useRef(null);
   const navWasOpen = useRef(false);
   useEffect(() => watchOffCanvas(null, setNavOffCanvas), []);
+  useEffect(() => {
+    const body = environment?.document?.body;
+    if (body) body.className = theme;
+  }, [environment, theme]);
+  useEffect(() => watchOsTheme(environment, next => setTheme(next)), [environment]);
+  const toggleTheme = useCallback(() => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    writeStoredTheme(next, environment);
+    setTheme(next);
+  }, [environment, theme]);
   useEffect(() => {
     if (navOpen && navOffCanvas) { navWasOpen.current = true; focusFirstControl(navDrawerRef.current); return; }
     if (navWasOpen.current) { navWasOpen.current = false; restoreFocus(navOpenerRef.current); }
@@ -282,7 +298,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     </aside>
     {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
     <div className="main">
-      <header className="topbar"><button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>☰</button><div><b>Authoritative accounting</b><span className="muted sm"> · API and OIDC secured</span></div><div className="row-acts"><button type="button" className="btn btn-sm" onClick={refresh}>Refresh</button><button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button></div></header>
+      <header className="topbar"><button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>☰</button><div><b>Authoritative accounting</b><span className="muted sm"> · API and OIDC secured</span></div><div className="row-acts"><button type="button" className="btn btn-sm btn-ghost" aria-pressed={theme === 'dark'} title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button><button type="button" className="btn btn-sm" onClick={refresh}>Refresh</button><button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button></div></header>
       <main className="content">
         <section className="authoritative-scope-bar" aria-label="Authoritative accounting scope">
           <span><b>Entity</b> {config.entityId}</span>
