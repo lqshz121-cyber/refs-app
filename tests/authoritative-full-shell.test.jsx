@@ -16,7 +16,9 @@ const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation=
 const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroup="Reports" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
-assert.match(navMarkup, /API/); assert.match(navMarkup, /Unavailable/); assert.match(navMarkup, /Workspace/);
+assert.match(navMarkup, /API/); assert.match(navMarkup, /Unavailable/);
+assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
+assert.match(navMarkup, /No authorised create action is available in this workspace/);
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
 const topbarMarkup = renderToStaticMarkup(<AuthoritativeDemoTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
 assert.match(topbarMarkup, /WBHO WB Home LLC/);
