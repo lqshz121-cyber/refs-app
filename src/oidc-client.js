@@ -142,11 +142,11 @@ export class BrowserOidcClient {
   sessionExpiresAt(){const session=this.session();return session&&Number.isSafeInteger(session.expiresAt)?session.expiresAt:null;}
   sessionSubject(){return text(this.session()?.subject);}
   async getAccessToken(){const session=this.session();if(!session||!Number.isSafeInteger(session.expiresAt)||session.expiresAt<=this.now()+30000)throw new Error('OIDC access token is unavailable or expired');return session.accessToken;}
-  async startLogin(){
+  async startLogin({prompt=null}={}){
     if(!this.configured())throw new Error('OIDC browser configuration is unavailable');
     const state=random(this.environment),verifier=random(this.environment),challenge=await digest(this.environment,verifier);
     save(this.environment,{kind:'pending',state,verifier,createdAt:this.now()});
-    const query=new URLSearchParams({response_type:'code',client_id:this.config.clientId,redirect_uri:this.config.redirectUri,scope:this.config.scope,state,code_challenge:challenge,code_challenge_method:'S256'});if(this.config.audience)query.set('audience',this.config.audience);
+    const query=new URLSearchParams({response_type:'code',client_id:this.config.clientId,redirect_uri:this.config.redirectUri,scope:this.config.scope,state,code_challenge:challenge,code_challenge_method:'S256'});if(this.config.audience)query.set('audience',this.config.audience);if(prompt==='none')query.set('prompt','none');
     this.environment.location.assign(`${this.config.authorizationEndpoint}${this.config.authorizationEndpoint.includes('?')?'&':'?'}${query}`);
   }
   async completeRedirect(){
