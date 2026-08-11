@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {refreshAuthoritativeConsolidation,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatements} from '../src/accounting-api.js';
-import {AuthoritativeFullStatementReport,AuthoritativeReportDetail,AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,findAuthoritativeReportShortcuts,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
+import {AuthoritativeFullStatementReport,AuthoritativeReportDetail,AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,findAuthoritativePropertyReportShortcuts,findAuthoritativeReportShortcuts,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
 
 const entityId='00000000-0000-4000-8000-000000000101',periodId='00000000-0000-4000-8000-000000000102';
 const config={baseUrl:'https://accounting.example',entityId,periodId,getAccessToken:async()=>'oidc.token.value-123456789'};
@@ -46,7 +46,8 @@ async function main(){
   const invalidConsolidation=await refreshAuthoritativeConsolidation({config,groupRef:'GROUP-2026-07',fetcher:async()=>new Response(JSON.stringify({ok:true,data:[{...consolidationRow,member_actual_amount:'0.00001'}]}),{status:200})});
   assert.equal(invalidConsolidation.ok,false);assert.equal(invalidConsolidation.code,'ACCOUNTING_API_PROTOCOL');
   const markup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher}/>);
-  assert.match(markup,/AUTHORITATIVE · REPORTING/);assert.match(markup,/Reports center/);assert.match(markup,/Reporting scope/);assert.match(markup,/POSTED ledger evidence/);assert.match(markup,/Core statements/);assert.match(markup,/Cash &amp; capital/);assert.match(markup,/Operating analysis/);assert.match(markup,/Group &amp; comparison/);assert.match(markup,/Find a report/);assert.match(markup,/Core statement shortcuts/);assert.match(markup,/Trial Balance/);assert.match(markup,/Balance Sheet/);assert.match(markup,/Income Statement/);assert.match(markup,/Cash movement evidence/);assert.doesNotMatch(markup,/>Cash Flow</);assert.match(markup,/Every displayed report reads the accounting API/);assert.match(markup,/API READS ONLY/);assert.match(markup,/rep-grid/);assert.match(markup,/rep-card/);assert.match(markup,/report-workbench/);
+  assert.match(markup,/AUTHORITATIVE · REPORTING/);assert.match(markup,/Reports center/);assert.match(markup,/Reporting scope/);assert.match(markup,/POSTED ledger evidence/);assert.match(markup,/Core statements/);assert.match(markup,/Cash &amp; capital/);assert.match(markup,/Property &amp; project analysis/);assert.match(markup,/Group &amp; comparison/);assert.match(markup,/Find a report/);assert.match(markup,/Core statement shortcuts/);assert.match(markup,/Trial Balance/);assert.match(markup,/Balance Sheet/);assert.match(markup,/Income Statement/);assert.match(markup,/Cash movement evidence/);assert.doesNotMatch(markup,/>Cash Flow</);assert.match(markup,/Every displayed report reads the accounting API/);assert.match(markup,/API READS ONLY/);assert.match(markup,/rep-grid/);assert.match(markup,/rep-card/);assert.match(markup,/report-workbench/);
+  assert.match(markup,/PROPERTY &amp; PROJECT REPORTS/);assert.match(markup,/Property P&amp;L/);assert.match(markup,/Project P&amp;L/);assert.match(markup,/Unit profitability/);assert.match(markup,/CWIP rollforward/);assert.match(markup,/Construction loan rollforward/);assert.match(markup,/Prepaid rollforward/);assert.match(markup,/Budget versus actual/);
   assert.match(markup,/Refresh statement evidence/);
   assert.match(markup,/Accounts receivable aging summary/);assert.match(markup,/id="authoritative-report-ar-aging"/);assert.match(markup,/Open aging report/);
   assert.deepEqual(DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,{category:'STATEMENTS',query:'',preview:'TRIAL_BALANCE'},'a direct Reports entry must reset the catalog rather than recover a browser cache');
@@ -55,6 +56,8 @@ async function main(){
   assert.deepEqual(findAuthoritativeReportShortcuts('profit and loss').map(([key])=>key),['INCOME_STATEMENT'],'the report finder must map the observed Profit and Loss label to the existing Income Statement API reader');
   assert.deepEqual(findAuthoritativeReportShortcuts('P&L').map(([key])=>key),['INCOME_STATEMENT'],'the report finder must recognize the common P&L abbreviation without creating a report alias state');
   assert.deepEqual(findAuthoritativeReportShortcuts('profitability'),[],'finder aliases must not over-claim a property/project/unit report reader without an exact dimension scope');
+  assert.deepEqual(findAuthoritativePropertyReportShortcuts('property').map(([key])=>key),['PROPERTY_PROFITABILITY'],'the catalog must make the exact Property P&L reader discoverable without inventing a reference');
+  assert.deepEqual(findAuthoritativePropertyReportShortcuts('construction loan').map(([key])=>key),['CONSTRUCTION_LOAN_ROLLFORWARD'],'the catalog must only route loan work to its existing API-backed rollforward reader');
   const balanceMarkup=renderToStaticMarkup(<FinancialStatementSummary report="BALANCE_SHEET" rows={[
     {...row,statement_type:'BALANCE_SHEET',statement_section:'ASSETS',display_balance:'125.1000'},
     {...row,statement_type:'BALANCE_SHEET',statement_section:'LIABILITIES',account_code:'291001',display_balance:'25.0500'},
@@ -103,6 +106,9 @@ async function main(){
   assert.match(workspace,/reports-library authoritative-reports-library/,'the authoritative Reports hierarchy must use the shared reports-library presentation, not the legacy application');
   assert.match(workspace,/rep-card/,'report families must be discoverable as report cards while remaining API-backed');
   assert.match(workspace,/REPORT_LIBRARY_SHORTCUTS/,'the Reports Center must offer API-backed core statement shortcuts without importing legacy report state');
+  assert.match(workspace,/PROPERTY_REPORT_SHORTCUTS/,'the Reports Center must expose actual property, project, unit, CWIP, loan, prepaid, and budget readers from one authoritative directory');
+  assert.match(workspace,/Property and project report directory/,'the property report directory must be discoverable before a user knows the legacy navigation');
+  assert.match(workspace,/openPropertyReport/,'property report shortcuts must only select an existing report workspace; they may not manufacture report rows');
   assert.match(workspace,/findAuthoritativeReportShortcuts/,'the Reports finder must resolve only declared aliases for existing API statement readers');
   assert.match(workspace,/Matching API-backed statements/,'a recognized statement alias must be actionable from the finder without a favorite or report mutation');
   assert.match(workspace,/authoritative-report-shortcut/,'core statement shortcuts must retain an explicit visual and focusable control contract');
@@ -118,6 +124,7 @@ async function main(){
   assert.doesNotMatch(workspace,/localStorage/,'authoritative reports must never persist report business state in browser storage');
   const css=fs.readFileSync('index.html','utf8');
   assert.match(css,/authoritative-report-shortcuts/,'Reports shortcuts must stack without clipping at narrow widths');
+  assert.match(css,/authoritative-property-table/,'property rollforward tables must use contained horizontal scrolling rather than expanding the page');
   assert.match(css,/@media\(max-width:720px\).*authoritative-report-shortcuts/s,'Reports shortcut controls need an explicit narrow-screen layout');
   console.log('authoritative financial statement contract tests passed');
 }
