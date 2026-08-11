@@ -16,6 +16,8 @@ const rows=[
 ];
 
 assert.deepEqual(normalizeAuthoritativeListView(null),DEFAULT_AUTHORITATIVE_LIST_VIEW);
+assert.equal(normalizeAuthoritativeListView({transactionType:'VENDOR_CREDITS'}).transactionType,'VENDOR_CREDITS');
+assert.equal(normalizeAuthoritativeListView({transactionType:'PAYMENT'}).transactionType,'ALL','unsupported payment types must fail closed to the retained all-transactions view');
 assert.deepEqual(filterAuthoritativeRows(rows,{query:'beta',status:'PAID',from:'2026-08-01',through:'2026-08-31'},'bill_date'),[rows[1]]);
 assert.deepEqual(filterAuthoritativeRows(rows,{from:'2026-08-02'},'bill_date'),[]);
 assert.deepEqual(filterAuthoritativeRows(rows,{counterparty:'Beta Vendor',accountCode:'220000'},'bill_date',{counterpartyField:'vendor_name',accountField:'account_code'}),[rows[1]]);

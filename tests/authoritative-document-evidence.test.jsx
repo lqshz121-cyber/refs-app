@@ -28,6 +28,9 @@ assert.match(list,/<th scope="col">Bill<\/th>/,'data-table headers must have col
 
 const workspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'Evidence',status:'PARTIALLY_PAID',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(workspaceMarkup,/Payables presentation filters/);
+assert.match(workspaceMarkup,/Transaction type/);
+assert.match(workspaceMarkup,/All retained transactions/);
+assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/Category \(offset account\)/);
 assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/EXPENSES \/ ACCOUNTS PAYABLE/);
@@ -53,6 +56,11 @@ assert.match(workspaceMarkup,/class="qbo-toolgrid authoritative-document-summary
 assert.match(workspaceMarkup,/class="authoritative-document-intro"/,'AP/AR list/detail boundaries must be presented as a compact evidence guide');
 assert.match(workspaceMarkup,/Filter retained evidence/,'filters need a visible read-only heading rather than a bare control row');
 
+const creditsOnlyMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'',status:'ALL',transactionType:'VENDOR_CREDITS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.match(creditsOnlyMarkup,/Vendor credits/);
+assert.match(creditsOnlyMarkup,/AP_VENDOR_CREDIT/);
+assert.doesNotMatch(creditsOnlyMarkup,/B-100/,'a Vendor credits presentation scope must not render Bill list rows');
+
 const invoice={...bill,business_document_id:'55555555-5555-4555-8555-555555555555',inv_no:'I-100',customer_name:'Evidence Customer',inv_date:'2026-08-01'};
 const arWorkspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AR" documents={[invoice]} adjustments={[]} view={{query:'',status:'ALL',from:'',through:'',accountCode:'999999',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(arWorkspaceMarkup,/REVENUE \/ ACCOUNTS RECEIVABLE/);
@@ -62,13 +70,14 @@ assert.match(arWorkspaceMarkup,/Invoice, customer, account, or reference/);
 assert.doesNotMatch(arWorkspaceMarkup,/Category \(offset account\)/,'AR must not expose the AP-only category filter');
 assert.match(arWorkspaceMarkup,/1 invoices \| 0 adjustments/,'a stale AP-only account filter must not silently remove AR invoices');
 
-const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
+const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);
 assert.match(detail,/Entity 11111111-1111-4111-8111-111111111111/);
 assert.match(detail,/authoritative list revision 3/);
 assert.match(detail,/search Evidence/);
 assert.match(detail,/vendor Evidence Vendor/);
 assert.match(detail,/category 610000/);
+assert.match(detail,/transaction type ALL/);
 assert.match(detail,/page 2/);
 assert.match(detail,/cannot create, edit, approve, pay, allocate, post, print, export, or synchronize/);
 assert.match(detail,/class="authoritative-document-detail-summary"/,'full-page AP/AR evidence must elevate retained counterparty, amount, balance, and due-date facts');

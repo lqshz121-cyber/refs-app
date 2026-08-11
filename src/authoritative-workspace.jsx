@@ -58,6 +58,7 @@ const documentReturnScope = (entityId, view, revision, includeVendor) => [
   `through ${view?.through || 'Any date'}`,
   ...(includeVendor ? [`vendor ${view?.counterparty || 'All vendors'}`] : []),
   ...(includeVendor ? [`category ${view?.accountCode || 'All offset accounts'}`] : []),
+  ...(includeVendor ? [`transaction type ${view?.transactionType || 'ALL'}`] : []),
   `page ${view?.page || 1}`,
 ].join(' | ');
 
@@ -86,8 +87,12 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   // has no corresponding visible category contract.
   const documentView=bill?state:{...state,accountCode:'ALL'};
   const filteredDocuments=filterAuthoritativeRows(documents,documentView,dateField,{counterpartyField,accountField:bill?'account_code':null});
-  const page=paginateAuthoritativeRows(filteredDocuments,state);
+  // AP Vendor credits are retained adjustment facts, not bill rows.  The
+  // presentation-only type selector must never synthesize an expense/payment.
+  const visibleDocuments=bill&&state.transactionType==='VENDOR_CREDITS'?[]:filteredDocuments;
+  const page=paginateAuthoritativeRows(visibleDocuments,state);
   const filteredAdjustments=filterAuthoritativeRows(adjustments,{...state,accountCode:''},'accounting_date');
+  const visibleAdjustments=bill&&state.transactionType==='BILLS'?[]:filteredAdjustments.filter(row=>state.transactionType!=='VENDOR_CREDITS'||row.adjustment_kind==='AP_VENDOR_CREDIT');
   const statuses=[...new Set([...documents,...adjustments].map(row=>row?.status).filter(Boolean))].sort();
   const counterparties=[...new Set(documents.map(row=>row?.[counterpartyField]).filter(Boolean))].sort((left,right)=>left.localeCompare(right));
   const accountCodes=[...new Set(documents.map(row=>row?.account_code).filter(Boolean))].sort((left,right)=>left.localeCompare(right));
@@ -97,6 +102,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     state.through?`Through: ${state.through}`:null,
     state.counterparty!=='ALL'?`${bill?'Vendor':'Customer'}: ${state.counterparty}`:null,
     bill&&state.accountCode!=='ALL'?`Category (offset account): ${state.accountCode}`:null,
+    bill&&state.transactionType!=='ALL'?`Transaction type: ${state.transactionType==='BILLS'?'Bills':'Vendor credits'}`:null,
   ].filter(Boolean);
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
   return <div className="authoritative-document-workspace stack">
@@ -108,7 +114,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
       <span><i>Retained {documentLabel}</i><b>{documents.length}</b><small>Returned by this API scope</small></span>
       <span><i>Visible after filters</i><b>{page.total}</b><small>Current presentation view</small></span>
       <span><i>Retained adjustments</i><b>{adjustments.length}</b><small>Returned by this API scope</small></span>
-      <span><i>Visible adjustments</i><b>{filteredAdjustments.length}</b><small>Current presentation view</small></span>
+      <span><i>Visible adjustments</i><b>{visibleAdjustments.length}</b><small>Current presentation view</small></span>
     </section>
     <section className="authoritative-document-intro" aria-label={`${workspaceLabel} presentation contract`}>
       <div><b>Document and adjustment evidence</b><p>Filter retained API list facts, then open an independent read-only evidence page. Back restores this exact route context.</p></div>
@@ -121,10 +127,11 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
       <label>Status <select value={state.status} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
       <label>From <input type="date" value={state.from} onChange={event=>change({from:event.target.value})}/></label>
       <label>Through <input type="date" value={state.through} onChange={event=>change({through:event.target.value})}/></label>
+      {bill&&<label>Transaction type <select value={state.transactionType} onChange={event=>change({transactionType:event.target.value})}><option value="ALL">All retained transactions</option><option value="BILLS">Bills</option><option value="VENDOR_CREDITS">Vendor credits</option></select></label>}
       <label>{bill?'Vendor':'Customer'} <select value={state.counterparty} onChange={event=>change({counterparty:event.target.value})}><option value="ALL">All retained {bill?'vendors':'customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
       {bill&&(accountCodes.length>0?<label>Category (offset account) <select value={state.accountCode} onChange={event=>change({accountCode:event.target.value})}><option value="ALL">All retained offset accounts</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category unavailable — offset account is not returned by this API result.</span>)}
-      <button type="button" className="btn btn-sm btn-ghost" disabled={!state.query&&!appliedScope.length} onClick={()=>change({query:'',status:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset filters</button>
-      <span className="result-count" aria-live="polite">{page.total} {bill?'bills':'invoices'} | {filteredAdjustments.length} adjustments</span>
+      <button type="button" className="btn btn-sm btn-ghost" disabled={!state.query&&!appliedScope.length} onClick={()=>change({query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset filters</button>
+      <span className="result-count" aria-live="polite">{page.total} {bill?'bills':'invoices'} | {visibleAdjustments.length} adjustments</span>
     </div>
     <p className="muted sm authoritative-applied-scope" aria-live="polite">{appliedScope.length?`Applied presentation scope: ${appliedScope.join(' | ')}. It narrows retained API rows only.`:'Applied presentation scope: all retained API rows.'} {bill?'Category is derived only from the retained AP Bill offset-account field. Delivery method is unavailable because this authenticated list response does not retain it.':'Category and delivery-method filters are unavailable because this authenticated list response does not retain those facts.'}</p>
     </section>
@@ -133,7 +140,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     {page.pageCount>1&&<nav className="pagination" aria-label={`${bill?'AP bills':'AR invoices'} pages`}><button type="button" disabled={page.page===1} onClick={()=>change({page:page.page-1})}>Previous</button><span>Page {page.page} of {page.pageCount}</span><button type="button" disabled={page.page===page.pageCount} onClick={()=>change({page:page.page+1})}>Next</button></nav>}
     </section>
     <section className="card" aria-label={`${workspaceLabel} adjustment list facts`}>
-    {filteredAdjustments.length?<AuthoritativeAdjustmentSummary title={bill?'AP adjustments':'AR adjustments'} adjustments={filteredAdjustments} onOpen={onOpenAdjustment}/>:<StateBlock tone="empty" title={adjustments.length?'No adjustments match these presentation filters':'No authoritative adjustments in this scope'}>{adjustments.length?'Change a presentation filter to see retained adjustment facts. A local no-match is not evidence of zero balance.':'This scoped empty result is not evidence of a zero balance.'}</StateBlock>}
+    {visibleAdjustments.length?<AuthoritativeAdjustmentSummary title={bill&&state.transactionType==='VENDOR_CREDITS'?'Vendor credits':bill?'AP adjustments':'AR adjustments'} adjustments={visibleAdjustments} onOpen={onOpenAdjustment}/>:<StateBlock tone="empty" title={adjustments.length?'No adjustments match these presentation filters':'No authoritative adjustments in this scope'}>{adjustments.length?'Change a presentation filter to see retained adjustment facts. A local no-match is not evidence of zero balance.':'This scoped empty result is not evidence of a zero balance.'}</StateBlock>}
     </section>
   </div>;
 }

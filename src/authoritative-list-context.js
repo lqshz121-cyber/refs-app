@@ -3,6 +3,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 export const DEFAULT_AUTHORITATIVE_LIST_VIEW = Object.freeze({
   query: '',
   status: 'ALL',
+  transactionType: 'ALL',
   from: '',
   through: '',
   counterparty: 'ALL',
@@ -20,6 +21,7 @@ export const normalizeAuthoritativeListView = value => {
   return {
     query: cleanText(value?.query),
     status: /^[A-Z][A-Z0-9_]{0,63}$/.test(String(value?.status || '')) ? String(value.status) : 'ALL',
+    transactionType: ['ALL','BILLS','VENDOR_CREDITS'].includes(String(value?.transactionType || '')) ? String(value.transactionType) : 'ALL',
     from: cleanDate(value?.from),
     through: cleanDate(value?.through),
     counterparty: cleanText(value?.counterparty, 128) || 'ALL',
