@@ -162,6 +162,23 @@ const ComparisonDetail=({row,returnContext,onBack})=><section className="full-bl
 
 const hasCompleteReportLineage=row=>['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'].every(field=>Array.isArray(row?.[field])&&row[field].length>0);
 
+const statementLabel=report=>REPORTS.find(([key])=>key===report)?.[1]||'Financial statement';
+
+// The report API returns account rows and their declared statement sections; it
+// does not return a report-builder document, configurable columns, or saved
+// totals.  Keep this full page deliberately narrow: it is a readable view of
+// that one authenticated response, not a browser-side reconstruction of a
+// demonstration report.
+export const AuthoritativeFullStatementReport=({report,rows,returnContext,onBack,onRefresh,onOpenEvidence,loading=false})=>{
+  const title=statementLabel(report);
+  return <section className="full-bleed qbo-transaction-report authoritative-full-statement" aria-label={`${title} full report`}>
+    <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Reports</button><span>Entity {returnContext?.entityId} | Period {returnContext?.periodId} | {title}</span></div>
+    <header className="accounting-page-head"><div><div className="page-eyebrow">POSTED EVIDENCE | API GET</div><h1 className="page-h">{title}</h1><p className="page-subtitle">Entity- and period-scoped statement evidence from the authenticated accounting API. This page has no saved layout, export, delivery, or browser data fallback.</p></div><div className="report-period-chip"><span>Evidence scope</span><b>Entity {returnContext?.entityId} | Period {returnContext?.periodId}</b><small>READ ONLY</small></div></header>
+    <div className="authoritative-full-statement-actions"><button type="button" className="btn btn-sm btn-ghost" disabled={loading} onClick={onRefresh}>Refresh statement evidence</button><span className="badge badge-muted">GET ONLY</span></div>
+    {!rows.length?<StateBlock tone="empty" title="No POSTED ledger evidence returned">No POSTED ledger evidence was returned for this statement and period.</StateBlock>:<div className={`table-wrap reports-workbench-table authoritative-full-statement-table ${report==='TRIAL_BALANCE'?'trial-balance-table':''}`} tabIndex={0} aria-label={`${title} rows; scroll horizontally to view every column`}><table className="tbl"><thead><tr><th>Section</th><th>Account</th><th>Period debit</th><th>Period credit</th><th>Balance</th><th>Evidence</th></tr></thead><tbody>{rows.map((row,index)=>{const focusId=`authoritative-full-report-${row.statement_type}-${row.account_code}`;const beginsSection=index===0||rows[index-1].statement_section!==row.statement_section;return <React.Fragment key={`${row.statement_type}:${row.account_code}`}>{beginsSection&&<tr className="report-section-row"><th colSpan="6" scope="rowgroup">{row.statement_section}</th></tr>}<tr><td>{row.statement_section}</td><td><b>{row.account_code}</b><div className="muted sm">{row.account_name}</div></td><td className="num">{money(row.period_debit)}</td><td className="num">{money(row.period_credit)}</td><td className="num">{money(row.display_balance)}</td><td><button id={focusId} type="button" className="btn btn-sm" onClick={()=>onOpenEvidence(row,focusId)}>Open evidence</button></td></tr></React.Fragment>;})}</tbody></table></div>}
+  </section>;
+};
+
 export const AuthoritativeReportDetail=({row,returnContext,onBack})=>{
   const lineageComplete=hasCompleteReportLineage(row);
   return <section className="full-bleed qbo-transaction-report" aria-label="Financial statement account evidence">
@@ -219,8 +236,21 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
     const base=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
     if(base)setSelected({kind,row,title,returnContext:{...base,report,workbenchTab,reportsCatalog:normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:report}),...(detailContext&&typeof detailContext==='object'?detailContext:{})}});
   };
+  const openFullStatement=(focusId='authoritative-open-full-statement')=>{
+    const base=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
+    if(base)setSelected({kind:'FULL_STATEMENT',rows,returnContext:{...base,report,workbenchTab,reportsCatalog:normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:report})}});
+  };
+  const openEvidenceFromFullStatement=(row,focusId)=>{
+    const parent=selected;
+    if(!parent||parent.kind!=='FULL_STATEMENT')return;
+    setSelected({kind:'STATEMENT',row,returnContext:{...parent.returnContext,focusId,parentFullStatement:parent}});
+  };
   const closeEvidence=()=>{
     const context=selected?.returnContext;
+    if(context?.parentFullStatement?.kind==='FULL_STATEMENT'){
+      setSelected(context.parentFullStatement);
+      return;
+    }
     if(REPORTS.some(([key])=>key===context?.report))setReport(context.report);
     if(REPORT_WORKBENCH_TABS.some(([key])=>key===context?.workbenchTab))setWorkbenchTab(context.workbenchTab);
     const catalog=normalizeAuthoritativeReportsCatalog(context?.reportsCatalog);
@@ -234,7 +264,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
     setSelected(null);
     restoreAuthoritativeReturnContext(environment,config,context);
   };
-  if(selected)return selected.kind==='CASH_FLOW_CLASSIFICATION'?<CashFlowDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='INTERCOMPANY_RECONCILIATION'?<IntercompanyDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='BUDGET_VS_ACTUAL'?<BudgetActualDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CONSOLIDATION'?<ConsolidationDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='PERIOD_COMPARISON'?<ComparisonDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CWIP_ROLLFORWARD'?<CwipRollforwardDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='DIMENSION_PROFITABILITY'?<DimensionProfitabilityDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='ROLLFORWARD'?<RollforwardDetail title={selected.title} row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:<AuthoritativeReportDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>;
+  if(selected)return selected.kind==='FULL_STATEMENT'?<AuthoritativeFullStatementReport report={selected.returnContext.report} rows={rows} returnContext={selected.returnContext} onBack={closeEvidence} onRefresh={load} loading={state.phase==='LOADING'} onOpenEvidence={openEvidenceFromFullStatement}/>:selected.kind==='CASH_FLOW_CLASSIFICATION'?<CashFlowDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='INTERCOMPANY_RECONCILIATION'?<IntercompanyDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='BUDGET_VS_ACTUAL'?<BudgetActualDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CONSOLIDATION'?<ConsolidationDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='PERIOD_COMPARISON'?<ComparisonDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CWIP_ROLLFORWARD'?<CwipRollforwardDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='DIMENSION_PROFITABILITY'?<DimensionProfitabilityDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='ROLLFORWARD'?<RollforwardDetail title={selected.title} row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:<AuthoritativeReportDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>;
   const matchingWorkbenchTabs=REPORT_WORKBENCH_TABS.filter(([,label,description])=>`${label} ${description}`.toLowerCase().includes(catalogSearch.trim().toLowerCase()));
   const matchingShortcuts=findAuthoritativeReportShortcuts(catalogSearch);
   const visibleWorkbenchTabs=catalogSearch.trim()?matchingWorkbenchTabs:REPORT_WORKBENCH_TABS;
@@ -252,7 +282,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative financial statements...</StateBlock>}
     <ReadError state={state} onRetry={load}/>
     {state.phase==='READY'&&<section className="card" aria-label={`${REPORTS.find(item=>item[0]===report)?.[1]} rows`}>
-      <div className="card-head"><div><h2>{REPORTS.find(item=>item[0]===report)?.[1]}</h2><p className="muted sm">{rows.length} accounts in retained evidence.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+      <div className="card-head"><div><h2>{REPORTS.find(item=>item[0]===report)?.[1]}</h2><p className="muted sm">{rows.length} accounts in retained evidence.</p></div><div className="row-acts"><span className="badge badge-muted">READ ONLY</span><button id="authoritative-open-full-statement" type="button" className="btn btn-sm btn-ghost" disabled={state.phase==='LOADING'} onClick={()=>openFullStatement('authoritative-open-full-statement')}>Open full report</button></div></div>
       {!!rows.length&&<FinancialStatementSummary report={report} rows={rows}/>}
       {report==='CASH_FLOW'&&<p className="muted sm">This view is direct cash-account movement evidence only. It is not a statement of cash flows and does not infer operating, investing, or financing activities.</p>}
       {!rows.length?<StateBlock tone="empty" title="No POSTED ledger evidence returned">No POSTED ledger evidence was returned for this statement and period.</StateBlock>:<div className={`table-wrap reports-workbench-table ${report==='TRIAL_BALANCE'?'trial-balance-table':''}`}><table className="tbl"><thead><tr><th>Section</th><th>Account</th><th>Period debit</th><th>Period credit</th><th>Balance</th><th>Evidence</th></tr></thead><tbody>{rows.map((row,index)=>{const focusId=`authoritative-report-${row.statement_type}-${row.account_code}`;const beginsSection=index===0||rows[index-1].statement_section!==row.statement_section;return <React.Fragment key={`${row.statement_type}:${row.account_code}`}>{beginsSection&&<tr className="report-section-row"><th colSpan="6" scope="rowgroup">{row.statement_section}</th></tr>}<tr><td>{row.statement_section}</td><td><b>{row.account_code}</b><div className="muted sm">{row.account_name}</div></td><td className="num">{money(row.period_debit)}</td><td className="num">{money(row.period_credit)}</td><td className="num">{money(row.display_balance)}</td><td><button id={focusId} type="button" className="btn btn-sm" onClick={()=>openEvidence(row,focusId)}>Open evidence</button></td></tr></React.Fragment>;})}</tbody></table></div>}
