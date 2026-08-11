@@ -17,7 +17,8 @@ assert.match(list,/class="table-wrap authoritative-journal-table" tabindex="0" a
   'the eight-column Journal list must be keyboard-focusable and contained by its own horizontal scroller');
 assert.doesNotMatch(list,/>Submit<|>Review<|>Approve<|>Post<|>Reverse</i);
 
-const detail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journal} entityId={entityId} returnContext={{view:{query:'JE-100',status:'POSTED',from:'2026-08-01',through:'2026-08-31',page:2}}} onBack={()=>{}}/>);
+const returnContext={entityId,periodId:'33333333-3333-4333-8333-333333333333',journalId:journal.journal_entry_id,journalRevision:journal.revision,view:{query:'JE-100',status:'POSTED',from:'2026-08-01',through:'2026-08-31',page:2}};
+const detail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journal} entityId={entityId} returnContext={returnContext} onBack={()=>{}}/>);
 assert.match(detail,/Back to Journal entries/); assert.match(detail,/Entity 11111111-1111-4111-8111-111111111111/); assert.match(detail,/authoritative list revision 3/);
 assert.match(detail,/search JE-100/); assert.match(detail,/status POSTED/); assert.match(detail,/from 2026-08-01/); assert.match(detail,/through 2026-08-31/); assert.match(detail,/page 2/);
 assert.match(detail,/Journal entry JE-100/); assert.match(detail,/Journal evidence scope/); assert.match(detail,/Authoritative lineage unavailable/);
@@ -31,7 +32,7 @@ const journalWithExactLines={...journal,line_evidence:[
   {journal_entry_id:journal.journal_entry_id,journal_line_id:'33333333-3333-4333-8333-333333333333',ledger_line_id:'44444444-4444-4444-8444-444444444444',line_no:1,account_code:'111000',debit_amount:'25.0000',credit_amount:'0.0000',member_ref:'BANK-1',description:'Exact cash line',source_document_ids:['55555555-5555-4555-8555-555555555555']},
   {journal_entry_id:journal.journal_entry_id,journal_line_id:'66666666-6666-4666-8666-666666666666',ledger_line_id:'77777777-7777-4777-8777-777777777777',line_no:2,account_code:'291001',debit_amount:'0.0000',credit_amount:'25.0000',member_ref:null,description:'Exact offset line',source_document_ids:[]},
 ]};
-const exactDetail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journalWithExactLines} entityId={entityId} returnContext={{view:{}}} onBack={()=>{}}/>);
+const exactDetail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journalWithExactLines} entityId={entityId} returnContext={{...returnContext,view:{}}} onBack={()=>{}}/>);
 assert.match(exactDetail,/EXACT API LINE FACTS/);assert.match(exactDetail,/Journal lines/);assert.match(exactDetail,/111000/);assert.match(exactDetail,/25\.0000/);assert.match(exactDetail,/33333333-3333-4333-8333-333333333333/);
 assert.match(exactDetail,/class="table-wrap authoritative-journal-line-table" tabindex="0" aria-label="Journal line evidence; scroll horizontally to view every column"/);
 assert.doesNotMatch(exactDetail,/Authoritative journal line evidence unavailable/,'an explicit exact API line extension must be shown rather than reconstructed or blocked');
@@ -44,10 +45,18 @@ assert.match(app,/AuthoritativeJournalWorkspace/);
 assert.doesNotMatch(app,/transitionAuthoritativeJournal|nextAuthoritativeWorkflowAction|Draft entry|route === 'drafts'/);
 const workspace=fs.readFileSync(path.join(process.cwd(),'src','authoritative-journal-workspace.jsx'),'utf8');
 assert.match(workspace,/restoreAuthoritativeReturnContext/,'Back must restore scroll and focus to the originating evidence control');
+assert.match(workspace,/const journalMatchesReturnContext/);
+assert.match(workspace,/context\?\.journalId === journal\.journal_entry_id/);
+assert.match(workspace,/context\?\.journalRevision === journal\.revision/);
+assert.match(workspace,/BLOCKED — immutable Journal scope mismatch/);
 assert.match(workspace,/setQueue\('REVIEW_REQUIRED'\)/,'Needs review must include the retained review and approval statuses it counts');
 assert.match(workspace,/table-wrap authoritative-journal-table/,'Journal facts must use the shared, page-contained table scroller');
 assert.match(workspace,/line_evidence/,'only an explicit API line extension may render exact Journal line facts');
 assert.doesNotMatch(workspace,/localStorage|SEED_|legacy-demo|seed\.js|repo\.js/,'authoritative Journal evidence must not read browser accounting state');
+const mismatchedDetail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journal} entityId={entityId} returnContext={{...returnContext,journalId:'22222222-2222-4222-8222-222222222999'}} onBack={()=>{}}/>);
+assert.match(mismatchedDetail,/BLOCKED — immutable Journal scope mismatch/);
+assert.match(mismatchedDetail,/Back to Journal entries/);
+assert.doesNotMatch(mismatchedDetail,/Authoritative lineage unavailable/,'a stale Journal identity must block before generic lineage messaging');
 const evidenceWorkspace=renderToStaticMarkup(<AuthoritativeJournalWorkspace journals={[journal]} config={{entityId,periodId:'33333333-3333-4333-8333-333333333333'}} environment={{scrollY:0,setTimeout:callback=>callback(),document:{getElementById:()=>null}}}/>);
 assert.match(evidenceWorkspace,/GENERAL LEDGER \| JOURNAL REGISTER/);
 assert.doesNotMatch(evidenceWorkspace,/\u8def|鈥|路/,'authority Journal workspace must render English-only separators');
