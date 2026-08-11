@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {refreshAuthoritativeConsolidation,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatements} from '../src/accounting-api.js';
-import {AuthoritativeReportsWorkspace,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
+import {AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
 
 const entityId='00000000-0000-4000-8000-000000000101',periodId='00000000-0000-4000-8000-000000000102';
 const config={baseUrl:'https://accounting.example',entityId,periodId,getAccessToken:async()=>'oidc.token.value-123456789'};
@@ -62,6 +62,11 @@ async function main(){
     {...row,statement_type:'INCOME_STATEMENT',statement_section:'EXPENSES',account_code:'610000',display_balance:'20.0500'},
   ]}/>);
   assert.match(incomeMarkup,/Revenue/);assert.match(incomeMarkup,/Expenses/);assert.match(incomeMarkup,/Net income/);assert.match(incomeMarkup,/\$100\.05/);
+  const profitabilityMarkup=renderToStaticMarkup(<DimensionProfitabilitySummary dimensionType="PROPERTY" dimensionRef="PROPERTY-01" rows={[
+    {...row,statement_type:'INCOME_STATEMENT',statement_section:'REVENUE',dimension_type:'PROPERTY',dimension_ref:'PROPERTY-01',display_balance:'120.1000'},
+    {...row,statement_type:'INCOME_STATEMENT',statement_section:'EXPENSES',account_code:'610000',dimension_type:'PROPERTY',dimension_ref:'PROPERTY-01',display_balance:'20.0500'},
+  ]}/>);
+  assert.match(profitabilityMarkup,/Exact property reference/);assert.match(profitabilityMarkup,/PROPERTY-01/);assert.match(profitabilityMarkup,/Revenue/);assert.match(profitabilityMarkup,/Expenses/);assert.match(profitabilityMarkup,/Net income/);assert.match(profitabilityMarkup,/\$100\.05/);
   const cashMarkup=renderToStaticMarkup(<FinancialStatementSummary report="CASH_FLOW" rows={[{...row,statement_type:'CASH_FLOW',statement_section:'DIRECT_CASH_MOVEMENT',display_balance:'-2.0050'}]}/>);
   assert.match(cashMarkup,/Direct cash-account movement/);assert.match(cashMarkup,/Not classified as operating, investing, or financing/);assert.match(cashMarkup,/-\$2\.01/);
   const workspace=fs.readFileSync('src/authoritative-reports-workspace.jsx','utf8');
@@ -74,6 +79,10 @@ async function main(){
   assert.match(workspace,/CWIP_ROLLFORWARD/,'CWIP evidence controls must select the dedicated API-backed workbench');
   assert.match(workspace,/authoritative-cwip-table/,'CWIP rows must use a contained table region rather than scrolling the page');
   assert.match(workspace,/mapping_snapshot_hash/,'CWIP evidence must retain the immutable mapping hash in its full-page scope');
+  assert.match(workspace,/DimensionProfitabilityDetail/,'property, project, and unit P&L rows must open a dedicated authoritative evidence page');
+  assert.match(workspace,/DIMENSION_PROFITABILITY/,'dimension rows must select the dedicated API-backed workbench instead of a generic statement detail');
+  assert.match(workspace,/authoritative-profitability-table/,'dimension rows must use a contained table region rather than scrolling the page');
+  assert.match(workspace,/dimension:\{type:dimensionType,ref:dimensionRef\}/,'Back must retain the exact API dimension type and reference');
   assert.match(workspace,/authoritative-period-comparison-\$\{row\.statement_type\}/,'comparison rows must also open full-page evidence');
   assert.match(workspace,/reportsCatalog:normalizeAuthoritativeReportsCatalog/,'Back must restore the exact report category, finder query, and preview');
   assert.match(workspace,/reports-library authoritative-reports-library/,'the authoritative Reports hierarchy must use the shared reports-library presentation, not the legacy application');
