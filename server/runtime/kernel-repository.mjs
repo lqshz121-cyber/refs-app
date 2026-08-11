@@ -383,6 +383,18 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listSourceDocuments({tenantId,entityId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_source_documents($1,$2)',[tenantId,entityId]
+    )).rows);
+  }
+
+  async getSourceDocumentDetail({tenantId,entityId,sourceDocumentId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_source_document_detail($1,$2,$3)',[tenantId,entityId,sourceDocumentId]
+    )).rows);
+  }
+
   async listBankTransactions({tenantId,entityId,bankAccountRef,fromDate=null,throughDate=null,limit=100}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_bank_transactions($1,$2,$3,$4::date,$5::date,$6)',

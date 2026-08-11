@@ -4,7 +4,7 @@ import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTE
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the formal navigation must retain the full product taxonomy');
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'every formal route needs a stable unique identity');
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry','bank','chart-of-accounts','journals','overview','payables','receivables','reconciliation','reports'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry','bank','chart-of-accounts','journals','overview','payables','receivables','reconciliation','reports','source-documents'].sort());
 for (const group of AUTHORITATIVE_NAVIGATION) {
   assert.ok(group.items.length > 0, `${group.label} may not be empty`);
   for (const item of group.items) assert.ok(AUTHORITATIVE_ROUTES.includes(item.route));
@@ -12,8 +12,8 @@ for (const group of AUTHORITATIVE_NAVIGATION) {
 assert.equal(navigationItemForRoute('project-cost-cwip').availability, 'API_UNAVAILABLE');
 assert.equal(navigationItemForRoute('bank').availability, 'API_READ');
 const sourceDocuments = navigationItemForRoute('source-documents');
-assert.equal(sourceDocuments.availability, 'API_UNAVAILABLE');
-assert.equal(sourceDocuments.requirements.length, 2, 'source documents must name its missing read contracts instead of borrowing demo state');
+assert.equal(sourceDocuments.availability, 'API_READ');
+assert.equal(sourceDocuments.requirements.length, 2, 'source documents retain the separate attachment-read boundary');
 assert.match(sourceDocuments.requirements.join(' '), /attachment-read contract/);
 const source = readFileSync(new URL('../src/authoritative-app.jsx', import.meta.url), 'utf8');
 assert.match(source, /AuthoritativeNavigationShell/, 'the production app must render the reusable formal shell');
