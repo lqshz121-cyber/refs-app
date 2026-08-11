@@ -5,6 +5,7 @@ import {OidcJwtAuthenticator,RemoteJwksResolver} from '../api/oidc-authenticator
 import {createProductionAccountingServer} from './accounting-server.mjs';
 import {S3AttachmentStorage,HttpVirusScanner} from './attachment-storage.mjs';
 import {createWbsSnapshotSignatureVerifier} from './wbs-snapshot-signature.mjs';
+import {createWbsAutoRecTransitionContractVerifier} from './wbs-autorec-transition-contract.mjs';
 
 const integer=(value,name,{min,max})=>{const parsed=Number(value);if(!Number.isSafeInteger(parsed)||parsed<min||parsed>max)throw new Error(`${name} must be an integer between ${min} and ${max}`);return parsed;};
 const integrationMode=(value,name,production)=>{
@@ -44,9 +45,10 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
   const resolver=new RemoteJwksResolver({jwksUri:config.jwksUri,fetcher});
   const authenticator=new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:resolver});
   const wbsSnapshotVerifier=config.wbsIngestMode==='REQUIRED'?createWbsSnapshotSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
+  const wbsAutoRecTransitionContractVerifier=config.wbsIngestMode==='REQUIRED'?createWbsAutoRecTransitionContractVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
   const attachmentStorage=config.attachmentMode==='REQUIRED'?new S3AttachmentStorage({...config.s3,fetcher}):null;
   const virusScanner=config.attachmentMode==='REQUIRED'?new HttpVirusScanner({...config.scanner,ca:await readFile(config.scanner.caFile)}):null;
-  const server=createProductionAccountingServer({runtimePool,issuerPool,authenticator,attachmentStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,maxBodyBytes:config.maxBodyBytes,allowedOrigins:config.allowedOrigins});
+  const server=createProductionAccountingServer({runtimePool,issuerPool,authenticator,attachmentStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,wbsAutoRecTransitionContractVerifier,maxBodyBytes:config.maxBodyBytes,allowedOrigins:config.allowedOrigins});
   try{await Promise.all([runtimePool.query('SELECT 1'),issuerPool.query('SELECT 1')]);await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(config.port,config.host,resolve);});}
   catch(error){await Promise.allSettled([runtimePool.end(),issuerPool.end()]);throw error;}
   let stopping=false;const stop=async signal=>{if(stopping)return;stopping=true;logger.info?.(JSON.stringify({event:'accounting_server_stopping',signal}));await new Promise(resolve=>server.close(resolve));await Promise.allSettled([runtimePool.end(),issuerPool.end()]);};

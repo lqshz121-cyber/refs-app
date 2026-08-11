@@ -92,4 +92,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"083_chart_of_accounts_register_read.sql",up:"b4d6b1043399e01512443bb6745d145cdab175b01f7bf7e2e493dbda725658d0",down:"0736c56081b105807105315294d4495c961f65b98a4a373e94018e83543e3a80"}),
   Object.freeze({name:"084_source_document_read.sql",up:"90e3a24d5e80c823969ce2302aad5bbf4e80eb4cde94543bca0ca663a315032e",down:"b9f2710fb9a01486aa150910a3a42421dba21391527783ac36fe3c09527e0cf0"}),
   Object.freeze({name:"085_general_ledger_read.sql",up:"9bd269b8bbcd86d01c6a9710ad31e16b0259b3b9679978d554fd8a1e85f821c9",down:"2bf478e58288e132ea603f83178c81ad4e2cb052504593a0d09cd970434b0c98"}),
+  Object.freeze({name:"086_wbs_autorec_transition_contract_read.sql",up:"a02b8977ecc841a83a231b86f693d440f8ab7e3c2d2cf1680af1b621473fe496",down:"f0df97d5dff8d74af5a4b7c4b823e88bd364a3a410d253b2f7328894e7ace350"}),
 ]);

@@ -1,6 +1,7 @@
 import {KernelError,requireRow,withSerializableRetry} from './db.mjs';
 import {canonicalRequestHash} from './request-hash.mjs';
 import {validateWbsSnapshotPackage} from './wbs-snapshot-package.mjs';
+import {validateWbsAutoRecTransitionContract} from './wbs-autorec-transition-contract.mjs';
 
 function assertTrustedSession(session){
   if(!session||session.trusted!==true||typeof session.contextToken!=='string'||session.contextToken.length<32)throw new KernelError('TRUSTED_SESSION_REQUIRED','Kernel session requires an opaque DB-issued context token from authenticated middleware');
@@ -8,10 +9,10 @@ function assertTrustedSession(session){
 }
 
 export class PostgresAccountingKernel{
-  constructor(pool,{sessionProvider,runtimeLoginAllowlist=['refs_runtime'],wbsSnapshotVerifier=null}={}){
+  constructor(pool,{sessionProvider,runtimeLoginAllowlist=['refs_runtime'],wbsSnapshotVerifier=null,wbsAutoRecTransitionContractVerifier=null}={}){
     if(typeof sessionProvider!=='function')throw new KernelError('SESSION_PROVIDER_REQUIRED','A trusted session provider is required');
     this.pool=pool;this.sessionProvider=sessionProvider;this.runtimeLoginAllowlist=new Set(runtimeLoginAllowlist);
-    this.wbsSnapshotVerifier=wbsSnapshotVerifier;
+    this.wbsSnapshotVerifier=wbsSnapshotVerifier;this.wbsAutoRecTransitionContractVerifier=wbsAutoRecTransitionContractVerifier;
   }
 
   async inSession(work){
@@ -122,6 +123,20 @@ export class PostgresAccountingKernel{
         [tenantId,entityId,validated.snapshot_id,validated.captured_at,validated.environment,validated.dictionary_version,validated.package_hash,JSON.stringify(validated.receipts),deliveryAttestation,idempotencyKey,requestHash]
       ),'WBS_SNAPSHOT_IMPORT_FAILED','WBS snapshot import did not return a result').result;
     });
+  }
+
+  // A verified provider transition contract is read-only external evidence.
+  // It is deliberately not persisted or converted into a REFS command here:
+  // any later cancellation/reopen workflow must still meet REFS CAS, SoD,
+  // period, audit, and posted-ledger controls independently.
+  async verifyWbsAutoRecTransitionContract({tenantId,entityId,contract}){
+    const validated=validateWbsAutoRecTransitionContract(contract);
+    if(typeof this.wbsAutoRecTransitionContractVerifier!=='function')throw new KernelError('WBS_AUTOREC_TRANSITION_CONTRACT_SIGNATURE_REQUIRED','WBS AutoRec transition evidence requires a configured detached-signature verifier');
+    await this.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'WBS.AUTOREC.VIEW')",[tenantId,entityId]));
+    let verified;
+    try{verified=await this.wbsAutoRecTransitionContractVerifier(contract);}catch{throw new KernelError('WBS_AUTOREC_TRANSITION_CONTRACT_SIGNATURE_INVALID','WBS AutoRec transition contract signature verification failed');}
+    if(!verified||verified.signature_verified!==true||verified.contract_hash!==validated.contract_hash)throw new KernelError('WBS_AUTOREC_TRANSITION_CONTRACT_SIGNATURE_INVALID','WBS AutoRec transition contract signature verification failed');
+    return Object.freeze({...validated,signature_verified:true});
   }
 
   async persistWbsInboundRows({tenantId,entityId,importBatchId,receipt,rows,idempotencyKey,requestHash}){

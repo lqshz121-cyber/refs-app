@@ -268,6 +268,14 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=assertWbsControlReadOnlyResult(await service.readControlReconciliation({tenantId:principal.tenantId,entityId,sourceType:selection.sourceType,scope:selection.scope}));
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='POST'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='transition-contracts'&&parts[7]==='verify'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'WBS_AUTOREC_TRANSITION_CONTRACT_VERIFY_HEADERS_FORBIDDEN','Signed transition-contract verification is a read-only evidence operation and does not accept command headers');
+        allowOnly(payload,['contract']);const contract=payload.contract;if(!contract||typeof contract!=='object'||Array.isArray(contract))throw new AccountingApiError(400,'WBS_AUTOREC_TRANSITION_CONTRACT_INVALID','contract must be a JSON object');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.verifyWbsAutoRecTransitionContract!=='function')throw new AccountingApiError(503,'WBS_AUTOREC_TRANSITION_CONTRACT_UNAVAILABLE','WBS AutoRec transition-contract verification is unavailable');
+        result=await kernel.verifyWbsAutoRecTransitionContract({tenantId:principal.tenantId,entityId,contract});
+        if(!result||result.signature_verified!==true||result.can_transition_refs!==false||result.can_release!==false||result.can_incur!==false||result.can_reverse!==false||result.can_create_draft!==false||result.can_post!==false)throw new AccountingApiError(422,'WBS_AUTOREC_TRANSITION_CONTRACT_RESPONSE_INVALID','Verified WBS transition-contract evidence must not grant REFS action authority');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===6&&['ap','ar'].includes(parts[4])&&parts[5]==='adjustments'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
         if(Object.keys(payload).length)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');

@@ -115,6 +115,16 @@ test('WBS AutoRec review refuses unavailable services and any result that could 
   const rejected=await unsafe({method:'GET',url:path,body:null,headers:{}});assert.equal(rejected.status,503);assert.equal(rejected.body.code,'WBS_READ_RESULT_INVALID');
 });
 
+test('a signed WBS transition contract is authenticated read-only evidence with no command headers',async()=>{
+  const contract={schema_version:'WBS_AUTOREC_TRANSITION_CONTRACT_V1'},evidence={contract_id:randomUUID(),contract_hash:`sha256:${'c'.repeat(64)}`,signature_verified:true,can_transition_refs:false,can_release:false,can_incur:false,can_reverse:false,can_create_draft:false,can_post:false};let received;
+  const transitionApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-reader'}),kernelFactory:async()=>({verifyWbsAutoRecTransitionContract:async input=>(received=input,evidence)})});
+  const path=`/api/v1/entities/${entityId}/wbs/auto-reconciliation/transition-contracts/verify`,response=await transitionApi({method:'POST',url:path,body:{contract},headers:{}});
+  assert.equal(response.status,200);assert.deepEqual(received,{tenantId,entityId,contract});assert.deepEqual(response.body.data,evidence);
+  assert.equal((await transitionApi({method:'POST',url:path,body:{contract},headers:{'Idempotency-Key':'not-a-command'}})).status,400);
+  const unsafe=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-reader'}),kernelFactory:async()=>({verifyWbsAutoRecTransitionContract:async()=>({...evidence,can_post:true})})});
+  assert.equal((await unsafe({method:'POST',url:path,body:{contract},headers:{}})).status,422);
+});
+
 test('WBS Cost GL and Property controls are authenticated evidence-only reads with exact scopes',async()=>{
   const calls=[];const controlApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-reader'}),kernelFactory:async()=>kernel,wbsReadServiceFactory:async()=>({readControlReconciliation:async input=>{calls.push(input);return {status:'READ_ONLY_CONTROL_RECONCILED',reconciliation:{status:'RECONCILED'},can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false};}})});
   const cost=`/api/v1/entities/${entityId}/wbs/control-reconciliation?sourceType=COST_GENERAL_LEDGER&companyKey=COMPANY-A&period=2026-08&currency=USD`;
