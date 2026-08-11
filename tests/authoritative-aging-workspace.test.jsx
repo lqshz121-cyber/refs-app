@@ -20,5 +20,8 @@ assert.match(source,/Change the as-of date and load the report again/);
 assert.match(source,/not evidence of zero invoices, receipts, bills, payments, or ledger activity/);
 assert.match(source,/authoritative-aging-table/);
 assert.match(source,/tabIndex=\{0\}/);
+assert.match(source,/1–30 days/);
+assert.match(source,/31–60 days/);
+assert.doesNotMatch(source,/鈥|路/);
 assert.doesNotMatch(source,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data/);
 console.log('authoritative-aging-workspace: API-only scope, as-of report control, actionable empty state, and contained tables verified');
