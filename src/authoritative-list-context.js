@@ -5,6 +5,8 @@ export const DEFAULT_AUTHORITATIVE_LIST_VIEW = Object.freeze({
   status: 'ALL',
   from: '',
   through: '',
+  counterparty: 'ALL',
+  accountCode: 'ALL',
   page: 1,
   pageSize: 25,
 });
@@ -20,6 +22,8 @@ export const normalizeAuthoritativeListView = value => {
     status: /^[A-Z][A-Z0-9_]{0,63}$/.test(String(value?.status || '')) ? String(value.status) : 'ALL',
     from: cleanDate(value?.from),
     through: cleanDate(value?.through),
+    counterparty: cleanText(value?.counterparty, 128) || 'ALL',
+    accountCode: /^[A-Za-z0-9._-]{1,64}$/.test(String(value?.accountCode || '')) ? String(value.accountCode) : 'ALL',
     page: Number.isSafeInteger(page) && page > 0 ? page : 1,
     pageSize: Number.isSafeInteger(pageSize) && pageSize >= 1 && pageSize <= 100 ? pageSize : 25,
   };
@@ -30,7 +34,9 @@ const searchable = row => Object.values(row || {})
   .join(' ')
   .toLocaleLowerCase('en-US');
 
-export const filterAuthoritativeRows = (rows, view, dateField) => {
+// Counterparty and offset-account filters are deliberately opt-in. AP/AR
+// document readers retain those facts, while adjustment readers do not.
+export const filterAuthoritativeRows = (rows, view, dateField, { counterpartyField = null, accountField = null } = {}) => {
   const state = normalizeAuthoritativeListView(view);
   const query = state.query.toLocaleLowerCase('en-US');
   return (Array.isArray(rows) ? rows : []).filter(row => {
@@ -39,6 +45,8 @@ export const filterAuthoritativeRows = (rows, view, dateField) => {
     if (state.status !== 'ALL' && row?.status !== state.status) return false;
     if (state.from && (!rowDate || rowDate < state.from)) return false;
     if (state.through && (!rowDate || rowDate > state.through)) return false;
+    if (counterpartyField && state.counterparty !== 'ALL' && row?.[counterpartyField] !== state.counterparty) return false;
+    if (accountField && state.accountCode !== 'ALL' && row?.[accountField] !== state.accountCode) return false;
     return true;
   });
 };
