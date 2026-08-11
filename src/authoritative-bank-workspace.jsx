@@ -22,19 +22,32 @@ const money=value=>{
   return `${negative?'-':''}$${whole}.${cents}`;
 };
 
+const direction=value=>{
+  const units=fixed4Units(value);
+  return units===null?'UNAVAILABLE':units<0n?'OUTFLOW':'INFLOW';
+};
+
 const ReadError=({error,onRetry})=><StateBlock tone="error" title={error?.code||'ACCOUNTING_API_UNAVAILABLE'}
   actions={<button type="button" className="btn btn-sm" onClick={onRetry}>Retry read</button>}>
   <p>{error?.message||'The authoritative read could not be completed.'}</p>
 </StateBlock>;
 
-export const AuthoritativeBankTable=({rows=[],onOpen=()=>{}})=><section className="card" aria-label="Authoritative bank transaction evidence">
-  <div className="card-head"><div><h2>Bank transactions</h2><p className="muted sm">Read-only source and retained match evidence from the accounting API.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+const statusTone=status=>/^(ACTIVE|RECONCILED|CLEARED)$/i.test(String(status||''))?'badge-ok':/^(UNMATCHED|DRAFT|IN_REVIEW|REOPENED)$/i.test(String(status||''))?'badge-warn':'badge-muted';
+const EvidenceBadge=({children})=><span className={`badge ${statusTone(children)}`}>{children||'UNMATCHED'}</span>;
+
+const ScopeStrip=({items=[]})=><div className="authoritative-bank-scope-strip" aria-label="Authoritative evidence scope">
+  {items.map(({label,value})=><span key={label}><i>{label}</i><b>{value||'Not retained'}</b></span>)}
+</div>;
+
+export const AuthoritativeBankTable=({rows=[],onOpen=()=>{}})=><section className="card authoritative-bank-queue" aria-label="Authoritative bank transaction evidence">
+  <div className="card-head"><div><p className="eyebrow">SOURCE → MATCH → JOURNAL</p><h2>Bank transactions</h2><p className="muted sm">Read-only source and retained match evidence from the accounting API. Match review happens only after you open one scoped source item.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+  <div className="authoritative-bank-queue-note"><b>{rows.length}</b> retained source item{rows.length===1?'':'s'} in this response. Queue status never implies reconciliation, clearance, or posting.</div>
   {!rows.length?<StateBlock tone="empty" title="No bank transactions returned">No bank transactions were returned for this account and date scope. This scoped empty result is not evidence of zero cash activity, zero ledger activity, or a completed reconciliation.</StateBlock>:<div className="table-wrap"><table className="tbl">
-    <thead><tr><th>Date</th><th>Source</th><th>Type</th><th>Amount</th><th>Match evidence</th><th>Version</th><th>Evidence</th></tr></thead>
+    <thead><tr><th>Date</th><th>Source evidence</th><th>Direction</th><th>Amount</th><th>Match evidence</th><th>Source version</th><th>Evidence</th></tr></thead>
     <tbody>{rows.map(row=><tr key={row.bank_source_id}>
       <td>{row.transaction_date}</td><td><b>{row.external_bank_line_id}</b><div className="muted sm">{row.source_ref}</div></td>
-      <td>{row.document_type}</td><td className="num">{money(row.amount)} <span className="muted sm">{row.currency}</span></td>
-      <td>{row.match_status||'Unmatched'}{row.journal_entry_id&&<div className="muted sm">Journal {row.journal_entry_id}</div>}</td><td>{row.version}</td>
+      <td><b>{direction(row.amount)}</b><div className="muted sm">{row.document_type}</div></td><td className="num">{money(row.amount)} <span className="muted sm">{row.currency}</span></td>
+      <td><EvidenceBadge>{row.match_status||'UNMATCHED'}</EvidenceBadge>{row.journal_entry_id&&<div className="muted sm">Journal retained</div>}</td><td>v{row.version}</td>
       <td><button id={`authoritative-bank-${row.bank_source_id}`} type="button" className="btn btn-sm" onClick={()=>onOpen(row,`authoritative-bank-${row.bank_source_id}`)}>Open detail</button></td>
     </tr>)}</tbody>
   </table></div>}
@@ -51,8 +64,10 @@ export function AuthoritativeBankMatchReview({row,config,fetcher,onChanged=()=>{
   return <section className="card" aria-label="Bank match candidate review"><div className="card-head"><div><h2>Exact POSTED Match candidate</h2><p className="muted sm">Candidates are server-validated against posted AP/AR cash, account, currency, amount, date, source and ledger evidence. Zero or multiple candidates stop the command.</p></div><span className="badge badge-muted">CONTROLLER</span></div>{candidateState.phase==='IDLE'&&<button type="button" className="btn btn-sm" onClick={loadCandidates}>Load exact candidate</button>}{candidateState.phase==='LOADING'&&<StateBlock tone="loading">Reading exact POSTED match evidence...</StateBlock>}{candidateState.phase==='ERROR'&&<ReadError error={candidateState.error} onRetry={loadCandidates}/>} {candidateState.phase==='READY'&&candidateState.candidates.length!==1&&<StateBlock tone="empty" title="Match blocked">This bank transaction has {candidateState.candidates.length===0?'no':'multiple'} exact POSTED candidate{candidateState.candidates.length===1?'':'s'}. No Match command is available.</StateBlock>}{candidateState.phase==='READY'&&candidateState.candidates.length===1&&<><div className="qbo-toolgrid"><span><i>Occurrence</i><b>{candidate.occurrence_kind}</b></span><span><i>Occurrence ID</i><b>{candidate.payment_occurrence_id}</b></span><span><i>Amount</i><b>{money(candidate.amount)} {candidate.currency}</b></span><span><i>Accounting date</i><b>{candidate.accounting_date}</b></span><span><i>Journal entry</i><b>{candidate.journal_entry_id}</b></span><span><i>Ledger line</i><b>{candidate.ledger_line_id}</b></span></div><form className="filterbar" onSubmit={createMatch}><label>Review reason<input required minLength={8} maxLength={2000} value={reason} onChange={event=>setReason(event.target.value)}/></label><button type="submit" className="btn btn-primary" disabled={candidateState.phase==='COMMANDING'}>Create reviewed Match</button></form>{candidateState.error&&<ReadError error={candidateState.error} onRetry={loadCandidates}/>}</>}</section>;
 }
 
-export const AuthoritativeBankDetail=({row,scope,onBack,config,fetcher,onMatchChanged})=><section className="full-bleed qbo-transaction-report" aria-label="Bank transaction detail">
-  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to bank transactions</button><h1>{row.external_bank_line_id}</h1><p className="muted sm">Independent source evidence. Only a controller may create or correct a server-validated Match; clearing, categorizing, posting, and deletion are unavailable.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+export const AuthoritativeBankDetail=({row,scope,onBack,config,fetcher,onMatchChanged})=><section className="full-bleed qbo-transaction-report authoritative-bank-detail" aria-label="Bank transaction detail">
+  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to bank transactions</button><p className="eyebrow">AUTHORITATIVE SOURCE EVIDENCE</p><h1>{row.external_bank_line_id}</h1><p className="muted sm">Independent source evidence. Only a controller may create or correct a server-validated Match; clearing, categorizing, posting, and deletion are unavailable.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+  <ScopeStrip items={[{label:'Entity',value:scope.entityId},{label:'Account',value:row.bank_account_ref},{label:'Source version',value:`v${row.version}`},{label:'Match state',value:row.match_status||'UNMATCHED'}]}/>
+  <section className="authoritative-evidence-stage" aria-label="Bank evidence lifecycle"><span className="done">1 Source retained</span><span className={row.bank_match_id?'done':'current'}>2 Match evidence</span><span className={row.journal_entry_id?'done':'pending'}>3 Journal trace</span><span className="pending">4 Reconciliation separate</span></section>
   <div className="qbo-toolgrid">
     <span><i>Bank account</i><b>{row.bank_account_ref}</b></span><span><i>Transaction date</i><b>{row.transaction_date}</b></span>
     <span><i>Amount</i><b>{money(row.amount)} {row.currency}</b></span><span><i>Type</i><b>{row.document_type}</b></span>
@@ -73,9 +88,10 @@ export const AuthoritativeBankDetail=({row,scope,onBack,config,fetcher,onMatchCh
   <p className="muted sm">Scope: entity {scope.entityId}; account {scope.bankAccountRef}; from {scope.from||'opening'} through {scope.through||'latest'}.</p>
 </section>;
 
-export const AuthoritativeReconciliationSummary=({row=null,onOpen=()=>{}})=><section className="card" aria-label="Authoritative reconciliation evidence">
-  <div className="card-head"><div><h2>Reconciliation statement</h2><p className="muted sm">Statement-scoped evidence only. This page cannot match, clear, reopen, sign off, or post.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+export const AuthoritativeReconciliationSummary=({row=null,onOpen=()=>{}})=><section className="card authoritative-reconciliation-summary" aria-label="Authoritative reconciliation evidence">
+  <div className="card-head"><div><p className="eyebrow">STATEMENT → REVIEW → SIGN-OFF</p><h2>Reconciliation statement</h2><p className="muted sm">Statement-scoped evidence only. This page cannot match, clear, reopen, sign off, or post.</p></div><span className="badge badge-muted">READ ONLY</span></div>
   {!row?<StateBlock tone="empty" title="No reconciliation statement returned">No reconciliation statement was returned for this account and cutoff. This scoped empty result is not evidence of zero statement activity, zero difference, review, or sign-off.</StateBlock>:<>
+    <section className="authoritative-evidence-stage" aria-label="Reconciliation lifecycle"><span className="done">1 Statement retained</span><span className={row.status==='DRAFT'?'current':'done'}>2 Controller review</span><span className={row.status==='IN_REVIEW'?'current':row.status==='RECONCILED'?'done':'pending'}>3 Independent sign-off</span><span className={row.status==='RECONCILED'?'done':'pending'}>4 Immutable history</span></section>
     <div className="qbo-toolgrid"><span><i>Status</i><b>{row.status}</b></span><span><i>Statement ending balance</i><b>{money(row.statement_ending_balance)}</b></span><span><i>Statement activity</i><b>{money(row.statement_activity_amount)}</b></span><span><i>Difference</i><b>{money(row.difference)}</b></span></div>
     <div className="qbo-toolgrid"><span><i>Bank transactions</i><b>{row.bank_transaction_count}</b></span><span><i>Active matches</i><b>{row.active_match_count}</b></span><span><i>Unmatched</i><b>{row.unmatched_transaction_count}</b></span><span><i>Version</i><b>{row.version}</b></span></div>
     <button id={`authoritative-reconciliation-${row.reconciliation_id}`} type="button" className="btn btn-sm" onClick={()=>onOpen(row,`authoritative-reconciliation-${row.reconciliation_id}`)}>Open statement detail</button>
@@ -99,7 +115,9 @@ export function AuthoritativeReconciliationDetail({row,scope,onBack,config,fetch
   const runTransition=async()=>{if(!transition||!reasonReady)return;setTransitionState({phase:'COMMANDING',error:null});const result=await transitionAuthoritativeReconciliation({config,reconciliationId:row.reconciliation_id,revision:row.version,action:transition.action,reason,fetcher});if(result.ok){onChanged();return;}setTransitionState({phase:'READY',error:result});};
   const commandInFlight=worksheet.phase==='COMMANDING'||transitionState.phase==='COMMANDING';
   return <section className="full-bleed qbo-transaction-report" aria-label="Reconciliation statement detail">
-  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to reconciliation evidence</button><h1>Statement ending {row.statement_ending_date}</h1><p className="muted sm">The worksheet is authoritative evidence. A controller may clear or unclear only a server-returned bank line; review, sign-off, and reopen are separately audited commands. An adjustment may create only a Draft Journal Entry; independent workflow approval and posting remain outside this screen.</p></div><span className="badge badge-muted">CONTROLLER REVIEW</span></div>
+  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to reconciliation evidence</button><p className="eyebrow">AUTHORITATIVE STATEMENT WORKSHEET</p><h1>Statement ending {row.statement_ending_date}</h1><p className="muted sm">The worksheet is authoritative evidence. A controller may clear or unclear only a server-returned bank line; review, sign-off, and reopen are separately audited commands. An adjustment may create only a Draft Journal Entry; independent workflow approval and posting remain outside this screen.</p></div><span className="badge badge-muted">CONTROLLER REVIEW</span></div>
+  <ScopeStrip items={[{label:'Entity',value:scope.entityId},{label:'Bank account',value:row.bank_account_ref},{label:'Cutoff',value:row.statement_ending_date},{label:'Statement version',value:`v${row.version}`}]}/>
+  <section className="authoritative-evidence-stage" aria-label="Statement workflow"><span className="done">1 Statement scope</span><span className={['DRAFT','REOPENED'].includes(row.status)?'current':'done'}>2 Clear exact evidence</span><span className={row.status==='IN_REVIEW'?'current':row.status==='RECONCILED'?'done':'pending'}>3 Review and sign-off</span><span className={row.status==='RECONCILED'?'done':'pending'}>4 Retained history</span></section>
   <div className="qbo-toolgrid">
     <span><i>Bank account</i><b>{row.bank_account_ref}</b></span><span><i>Status</i><b>{row.status}</b></span><span><i>Ending balance</i><b>{money(row.statement_ending_balance)}</b></span>
     <span><i>Activity</i><b>{money(row.statement_activity_amount)}</b></span><span><i>Difference</i><b>{money(row.difference)}</b></span><span><i>Version</i><b>{row.version}</b></span>
