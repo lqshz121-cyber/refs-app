@@ -50,6 +50,8 @@ async function main(){
   assert.match(markup,/PROPERTY &amp; PROJECT REPORTS/);assert.match(markup,/Property P&amp;L/);assert.match(markup,/Project P&amp;L/);assert.match(markup,/Unit profitability/);assert.match(markup,/CWIP rollforward/);assert.match(markup,/Construction loan rollforward/);assert.match(markup,/Prepaid rollforward/);assert.match(markup,/Budget versus actual/);
   assert.match(markup,/Refresh statement evidence/);
   assert.match(markup,/Accounts receivable aging summary/);assert.match(markup,/id="authoritative-report-ar-aging"/);assert.match(markup,/Open aging report/);
+  const projectCostMarkup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="PROJECT" workspaceEyebrow="AUTHORITATIVE · ACCOUNTING OPERATIONS" workspaceTitle="Project Cost & CWIP" workspaceDescription="Existing API readers only."/>);
+  assert.match(projectCostMarkup,/Project Cost &amp; CWIP/);assert.match(projectCostMarkup,/AUTHORITATIVE · ACCOUNTING OPERATIONS/);assert.match(projectCostMarkup,/Project P&amp;L/);assert.match(projectCostMarkup,/CWIP rollforward/);assert.match(projectCostMarkup,/Dimension type/);assert.match(projectCostMarkup,/value="PROJECT" selected=""/);
   assert.deepEqual(DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,{category:'STATEMENTS',query:'',preview:'TRIAL_BALANCE'},'a direct Reports entry must reset the catalog rather than recover a browser cache');
   assert.deepEqual(normalizeAuthoritativeReportsCatalog({category:'GROUP_AND_COMPARISON',query:'cash',preview:'BALANCE_SHEET'}),{category:'GROUP_AND_COMPARISON',query:'cash',preview:'BALANCE_SHEET'},'a full-page evidence drill must retain its catalog category, query, and preview for Back');
   assert.deepEqual(normalizeAuthoritativeReportsCatalog({category:'not-a-category',query:42,preview:'unknown'}),DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,'malformed Back context must fail back to the explicit Reports default');
@@ -122,6 +124,8 @@ async function main(){
   assert.doesNotMatch(workspace,/Save As|Customize|<button[^>]*>Email|<button[^>]*>Print|<button[^>]*>Export/,'authoritative reports must not expose QBO save, customize, email, print, or export controls');
   assert.doesNotMatch(workspace,/from ['"]\.\/(?:legacy-demo-app|data|seed|repo)/,'authoritative reports must never import local demonstration state');
   assert.doesNotMatch(workspace,/localStorage/,'authoritative reports must never persist report business state in browser storage');
+  assert.match(workspace,/workspaceTitle='Reports center'/,'the API-only reports workspace must allow a formal direct authority entry without importing a demo component');
+  assert.match(workspace,/initialDimensionType='PROPERTY'/,'the direct authority entry must select only a declared API-backed dimension type');
   const css=fs.readFileSync('index.html','utf8');
   assert.match(css,/authoritative-report-shortcuts/,'Reports shortcuts must stack without clipping at narrow widths');
   assert.match(css,/authoritative-property-table/,'property rollforward tables must use contained horizontal scrolling rather than expanding the page');
