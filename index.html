@@ -352,6 +352,30 @@ input,select,textarea{
 .authoritative-nav-status-ready{border-color:var(--qb-ok-line); background:var(--qb-ok-bg); color:var(--qb-ok);}
 .authoritative-nav-status-blocked{border-color:var(--qb-border-soft); background:var(--qb-inset); color:var(--qb-text-faint);}
 
+/* Production uses the same two-level workspace shell as the complete REFS
+   interface: a compact workflow rail plus a readable page panel.  The content
+   remains API-owned; this is presentation and route selection only. */
+.authoritative-app .authoritative-sidebar{flex-direction:row; align-items:stretch;}
+.authoritative-app .authoritative-sidebar .nav-rail{display:flex; flex:0 0 var(--qb-rail-w); width:var(--qb-rail-w);}
+.authoritative-app .authoritative-sidebar .nav-rail .nav-group-h{
+  flex-direction:column; justify-content:flex-start; gap:2px;
+  width:var(--qb-rail-item-w); height:var(--qb-rail-item-h); min-height:0;
+  margin:0 auto; padding:2px 2px 0; border-radius:var(--qb-r-card); text-align:center;
+}
+.authoritative-app .authoritative-sidebar .nav-rail .rail-glyph{display:grid; width:var(--qb-rail-glyph); height:var(--qb-rail-glyph); font:700 10px/1 var(--qb-sans); letter-spacing:.03em;}
+.authoritative-app .authoritative-sidebar .nav-rail .rail-label{display:block;}
+.authoritative-app .authoritative-sidebar .nav-panel{display:flex; flex:1 1 auto; min-width:0;}
+.authoritative-app .authoritative-sidebar .nav-panel nav{width:100%;}
+.authoritative-nav-heading{display:flex; align-items:center; gap:10px; flex:0 0 auto; min-width:0; padding:14px 16px 10px; border-bottom:var(--qb-hair) solid var(--qb-divider);}
+.authoritative-nav-heading-mark{display:grid; place-items:center; flex:0 0 auto; width:30px; height:30px; border-radius:50%; background:var(--qb-brand); color:var(--qb-brand-fg); font:700 10px/1 var(--qb-sans);}
+.authoritative-nav-eyebrow{display:block; margin:0 0 2px; color:var(--qb-text-muted); font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;}
+.authoritative-nav-heading strong{display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--qb-text-strong); font-size:13px;}
+.authoritative-app .authoritative-sidebar .nav-panel .nav-group-items{display:flex; flex-direction:column; width:100%; padding:6px 0 16px;}
+.authoritative-app .authoritative-sidebar .nav-panel .nav-item{width:100%; min-height:42px; margin:0; padding:0 14px;}
+.authoritative-app .authoritative-sidebar .nav-panel .nav-item-label{white-space:normal; overflow:visible; text-overflow:clip; line-height:1.25;}
+.authoritative-app .authoritative-sidebar .nav-panel .authoritative-nav-status{margin-left:auto;}
+.authoritative-app .authoritative-sidebar .nav-panel .nav-chev{display:block;}
+
 /* Authoritative page pattern. The parent workspace supplies all figures from
    authenticated API reads; this layer owns presentation only. */
 .authoritative-page{min-width:0;}

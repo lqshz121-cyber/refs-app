@@ -46,7 +46,7 @@ async function main(){
   const invalidConsolidation=await refreshAuthoritativeConsolidation({config,groupRef:'GROUP-2026-07',fetcher:async()=>new Response(JSON.stringify({ok:true,data:[{...consolidationRow,member_actual_amount:'0.00001'}]}),{status:200})});
   assert.equal(invalidConsolidation.ok,false);assert.equal(invalidConsolidation.code,'ACCOUNTING_API_PROTOCOL');
   const markup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher}/>);
-  assert.match(markup,/Financial statements/);assert.match(markup,/Reports center/);assert.match(markup,/Core statements/);assert.match(markup,/Cash &amp; capital/);assert.match(markup,/Operating analysis/);assert.match(markup,/Group &amp; comparison/);assert.match(markup,/Find a report/);assert.match(markup,/Trial Balance/);assert.match(markup,/Balance Sheet/);assert.match(markup,/Income Statement/);assert.match(markup,/Cash movement evidence/);assert.doesNotMatch(markup,/>Cash Flow</);assert.match(markup,/Browser seed data and local storage are not used/);assert.match(markup,/API READS ONLY/);
+  assert.match(markup,/AUTHORITATIVE · REPORTING/);assert.match(markup,/Reports center/);assert.match(markup,/Reporting scope/);assert.match(markup,/Core statements/);assert.match(markup,/Cash &amp; capital/);assert.match(markup,/Operating analysis/);assert.match(markup,/Group &amp; comparison/);assert.match(markup,/Find a report/);assert.match(markup,/Trial Balance/);assert.match(markup,/Balance Sheet/);assert.match(markup,/Income Statement/);assert.match(markup,/Cash movement evidence/);assert.doesNotMatch(markup,/>Cash Flow</);assert.match(markup,/Every displayed report reads the accounting API/);assert.match(markup,/API READS ONLY/);assert.match(markup,/rep-grid/);assert.match(markup,/rep-card/);assert.match(markup,/report-workbench/);
   assert.deepEqual(DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,{category:'STATEMENTS',query:'',preview:'TRIAL_BALANCE'},'a direct Reports entry must reset the catalog rather than recover a browser cache');
   assert.deepEqual(normalizeAuthoritativeReportsCatalog({category:'GROUP_AND_COMPARISON',query:'cash',preview:'BALANCE_SHEET'}),{category:'GROUP_AND_COMPARISON',query:'cash',preview:'BALANCE_SHEET'},'a full-page evidence drill must retain its catalog category, query, and preview for Back');
   assert.deepEqual(normalizeAuthoritativeReportsCatalog({category:'not-a-category',query:42,preview:'unknown'}),DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,'malformed Back context must fail back to the explicit Reports default');
@@ -71,7 +71,12 @@ async function main(){
   assert.match(workspace,/reportsCatalog:normalizeAuthoritativeReportsCatalog/,'full-page report evidence must retain exact catalog context for Back');
   assert.match(workspace,/authoritative-cwip-\$\{row\.account_code\}/,'rollforward rows must also open full-page evidence instead of leaving a dead-end table');
   assert.match(workspace,/authoritative-period-comparison-\$\{row\.statement_type\}/,'comparison rows must also open full-page evidence');
+  assert.match(workspace,/reportsCatalog:normalizeAuthoritativeReportsCatalog/,'Back must restore the exact report category, finder query, and preview');
+  assert.match(workspace,/reports-library authoritative-reports-library/,'the authoritative Reports hierarchy must use the shared reports-library presentation, not the legacy application');
+  assert.match(workspace,/rep-card/,'report families must be discoverable as report cards while remaining API-backed');
+  assert.match(workspace,/trial-balance-table/,'the Trial Balance table needs its dedicated narrow-table layout contract');
   assert.doesNotMatch(workspace,/from ['"]\.\/(?:legacy-demo-app|data|seed|repo)/,'authoritative reports must never import local demonstration state');
+  assert.doesNotMatch(workspace,/localStorage/,'authoritative reports must never persist report business state in browser storage');
   console.log('authoritative financial statement contract tests passed');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

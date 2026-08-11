@@ -13,7 +13,9 @@ assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'e
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroup="Auto Reconciliation" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroup="Reports" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
-assert.match(navMarkup, /API/); assert.match(navMarkup, /Unavailable/); assert.match(navMarkup, /aria-expanded="true"/);
+assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
+assert.match(navMarkup, /API/); assert.match(navMarkup, /Unavailable/); assert.match(navMarkup, /Workspace/);
+assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Project Cost & CWIP'}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(unavailableMarkup, /Project Cost &amp; CWIP is not available/);
 assert.match(unavailableMarkup, /No browser or demonstration data is shown/);

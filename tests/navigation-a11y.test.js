@@ -99,30 +99,26 @@ assert.match(authoritative, /aria-pressed=\{theme === 'dark'\}/,
 assert.match(authoritative, /Switch to (?:light|dark) theme/,
   'the theme toggle must have an understandable accessible name');
 
-// The authoritative shell is a single-column drawer. It must not inherit the
-// demonstration shell's rail-and-panel flex row, which would squeeze page
-// names until the drawer is unreadable even though there is no page overflow.
-assert.match(styles,/\.authoritative-app \.sidebar\{flex-direction:column; align-items:stretch;\}/,
-  'the authoritative drawer must stack its brand and navigation vertically');
-assert.match(styles,/\.authoritative-app \.sidebar>nav>\.nav-group\{display:flex; flex-direction:column; align-items:stretch; width:100%;\}/,
-  'the authoritative navigation group must receive the full drawer width');
-assert.match(styles,/\.authoritative-app \.sidebar \.nav-item\{flex:0 0 auto; min-width:0; justify-content:flex-start; white-space:normal;\}/,
-  'authoritative page labels must remain readable rather than compressing into a rail column');
-assert.match(styles,/\.authoritative-app \.authoritative-nav-group \.nav-group-h::before/,
-  'production navigation groups must retain a compact visual workflow marker');
-assert.match(styles,/\.authoritative-app \.authoritative-nav-group \.nav-ic\{display:none;\}/,
-  'the legacy glyph must not compete with the production workflow marker');
-assert.match(authoritative,/authoritative-nav-group nav-tone-\$\{index\}/,
-  'the authoritative shell must apply one stable visual tone per API-backed workflow group');
-assert.match(authoritative,/aria-expanded=\{multiple \? expanded : undefined\}/,
-  'only a multi-workspace production group may expose an expandable menu');
-assert.match(authoritative,/className="nav-group-items"/,
-  'multi-workspace navigation must keep an addressable child panel for assistive technology');
-assert.match(authoritativeShell,/aria-label="Authoritative accounting navigation"/,
-  'the production shell must expose a named navigation landmark');
-assert.match(authoritativeShell,/aria-expanded=\{multiple \? expanded : undefined\}/,
-  'the reusable production shell must disclose expandable group state');
+// The authoritative shell deliberately reuses the complete two-level REFS
+// workspace layout: a compact workflow rail and a full-width readable page
+// panel.  Only its navigation model is shared; its data remains API-only.
+assert.match(styles,/\.authoritative-app \.authoritative-sidebar\{flex-direction:row; align-items:stretch;\}/,
+  'the authoritative shell must use the readable rail-and-panel layout');
+assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-rail \.nav-group-h/,
+  'the production workflow rail must keep compact, stable group controls');
+assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:normal/,
+  'the production page panel must allow long labels to remain readable');
+assert.match(authoritativeShell,/className="nav-rail"/,
+  'the reusable production shell must render a workflow rail');
+assert.match(authoritativeShell,/className="nav-panel"/,
+  'the reusable production shell must render a full page navigation panel');
+assert.match(authoritativeShell,/aria-label="Accounting workspace groups"/,
+  'the production workflow rail must expose an accessible landmark name');
+assert.match(authoritativeShell,/aria-label=\{`\$\{activeGroup\.label\} navigation`\}/,
+  'the selected production group must expose a named page navigation landmark');
 assert.match(authoritativeShell,/authoritative-nav-status/,
   'each visible catalog entry must disclose whether an API read model exists');
+assert.doesNotMatch(authoritativeShell,/legacy-demo-app|from ['"]\.\/data|from ['"]\.\/seed|from ['"]\.\/repo|localStorage/,
+  'the full production shell must not import or persist demonstration business state');
 
 console.log('navigation-a11y: mobile drawer is inert while off-canvas and closed, returns focus to its opener, and exposes accessible English controls');

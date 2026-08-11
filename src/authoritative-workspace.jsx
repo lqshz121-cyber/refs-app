@@ -63,6 +63,15 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
       <span><i>Visible adjustments</i><b>{filteredAdjustments.length}</b></span>
     </section>
     <p className="muted sm">This scope exposes list facts only. Create, pay, collect, apply, refund, approve, post, reverse, print, export, and synchronize actions are unavailable in this workspace.</p>
+    <section className="report-workbench" aria-label={`${workspaceLabel} presentation contract`}>
+      <div className="report-workbench-head"><div><b>Document and adjustment evidence</b><div className="page-subtitle">Use the API-backed filters to narrow retained list facts. Opening evidence replaces the list with an independent read-only page; Back restores this exact route context.</div></div><span className="badge badge-muted">API ONLY</span></div>
+      <div className="qbo-toolgrid">
+        <div><b>List facts</b><div className="muted sm">{documentLabel} and adjustments returned by the authenticated reader</div></div>
+        <div><b>Presentation state</b><div className="muted sm">Query, status, date range, page, focus, and scroll are route context only</div></div>
+        <div><b>Evidence detail</b><div className="muted sm">A separate full page with an explicit Back action</div></div>
+        <div><b>Unavailable</b><div className="muted sm">No create, payment, collection, approval, posting, export, or synchronization</div></div>
+      </div>
+    </section>
     <section className="card" aria-label={`${workspaceLabel} API list filters`}>
     <div className="filter-bar authoritative-list-filters" role="search" aria-label={`${bill?'Payables':'Receivables'} presentation filters`}>
       <label>Search <input value={state.query} onChange={event=>change({query:event.target.value})} placeholder={bill?'Bill or vendor':'Invoice or customer'}/></label>

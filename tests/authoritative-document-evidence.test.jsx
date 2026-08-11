@@ -31,6 +31,10 @@ assert.match(workspaceMarkup,/Retained bills/);
 assert.match(workspaceMarkup,/Visible after filters/);
 assert.match(workspaceMarkup,/READ ONLY/);
 assert.match(workspaceMarkup,/Create, pay, collect, apply, refund, approve, post, reverse, print, export, and synchronize actions are unavailable/);
+assert.match(workspaceMarkup,/Document and adjustment evidence/);
+assert.match(workspaceMarkup,/Opening evidence replaces the list with an independent read-only page/);
+assert.match(workspaceMarkup,/Query, status, date range, page, focus, and scroll are route context only/);
+assert.match(workspaceMarkup,/No create, payment, collection, approval, posting, export, or synchronization/);
 assert.match(workspaceMarkup,/Bill or vendor/);
 assert.match(workspaceMarkup,/2026-08-01/);
 assert.match(workspaceMarkup,/1 bills · 1 adjustments/);
@@ -41,6 +45,7 @@ const arWorkspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kin
 assert.match(arWorkspaceMarkup,/REVENUE \/ ACCOUNTS RECEIVABLE/);
 assert.match(arWorkspaceMarkup,/Receivables/);
 assert.match(arWorkspaceMarkup,/Retained invoices/);
+assert.match(arWorkspaceMarkup,/Invoice or customer/);
 
 const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);
@@ -74,6 +79,7 @@ const workspace=fs.readFileSync(path.join(process.cwd(),'src','authoritative-wor
 assert.doesNotMatch(workspace,/localStorage|SEED_/,'authoritative AP/AR evidence must not read browser business state');
 assert.doesNotMatch(workspace,/from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data/,'authoritative AP/AR presentation must not import demo business state');
 assert.match(workspace,/authoritative-document-workspace stack/,'authoritative AP/AR list facts require a full-page hierarchy rather than a bare table');
+assert.match(workspace,/presentation contract/,'authoritative AP/AR hierarchy must state its API-only list/detail return boundary');
 assert.match(app,/authoritative-scope-bar/,'authoritative shell must display the configured entity and period scope');
 assert.match(app,/restoreAuthoritativeReturnContext/,'full-page Back must restore scroll and focus only within the exact configured scope');
 
