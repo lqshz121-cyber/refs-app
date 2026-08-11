@@ -154,7 +154,17 @@ export class BrowserOidcClient {
     if(!this.configured())return {ok:false,code:'OIDC_CONFIGURATION_REQUIRED'};
     const params=new URLSearchParams(this.environment.location.search||'');const code=params.get('code'),state=params.get('state'),error=params.get('error');
     if(error){clear(this.environment);return {ok:false,code:'OIDC_LOGIN_REJECTED'};}
-    if(!code)return this.session()?{ok:true}: {ok:false,code:'OIDC_LOGIN_REQUIRED'};
+    // A remembered record is not authentication on its own.  Without a new
+    // redirect code it may restore the shell only while it is still usable by
+    // the same access-token gate that protects every API request.  Otherwise
+    // the app could briefly enter AUTHENTICATED and only fail after rendering.
+    // Clear stale or malformed records before asking for a new PKCE login.
+    if(!code){
+      const session=this.session();
+      if(session&&text(session.subject)&&Number.isSafeInteger(session.expiresAt)&&session.expiresAt>this.now()+30000)return {ok:true};
+      if(session)clear(this.environment);
+      return {ok:false,code:'OIDC_LOGIN_REQUIRED'};
+    }
     const pending=load(this.environment);if(!pending||pending.kind!=='pending'||pending.state!==state||!Number.isSafeInteger(pending.createdAt)||pending.createdAt+600000<this.now()){clear(this.environment);return {ok:false,code:'OIDC_STATE_INVALID'};}
     let response,body;try{response=await this.fetch(this.config.tokenEndpoint,{method:'POST',headers:{accept:'application/json','content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:this.config.redirectUri,client_id:this.config.clientId,code_verifier:pending.verifier}).toString(),cache:'no-store',redirect:'error'});body=await response.json();}catch{clear(this.environment);return {ok:false,code:'OIDC_TOKEN_UNAVAILABLE'};}
     const accepted=response?.ok?acceptToken(body,this.config,this.now()):null;
