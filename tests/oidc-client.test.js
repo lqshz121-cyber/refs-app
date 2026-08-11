@@ -17,9 +17,27 @@ assert.equal(oidcRuntimeConfig({__REFS_OIDC__:{...base.__REFS_OIDC__,scope:'prof
   await boundClient.startLogin();const boundPending=JSON.parse(boundEnvironment.sessionStorage.getItem('refs_oidc_pkce_v1'));boundEnvironment.location.search=`?code=bound-code&state=${boundPending.state}`;
   assert.deepEqual(await boundClient.completeRedirect(),{ok:true});assert.equal(observedReceiver,boundEnvironment,'browser fetch must be invoked with its owning environment as receiver');
   const client=new BrowserOidcClient({environment:base,now:()=>1_000_000,fetcher:async()=>({ok:true,json:async()=>({access_token:token({iss:'https://issuer.example',aud:'refs-accounting',exp:2000}),token_type:'Bearer',expires_in:600})})});
-  await client.startLogin();assert.match(base.location.assigned,/code_challenge_method=S256/);assert.doesNotMatch(base.location.assigned,/prompt=none/,'interactive sign-in must not silently reuse a provider session');const pending=JSON.parse(base.sessionStorage.getItem('refs_oidc_pkce_v1'));base.location.search=`?code=code-123&state=${pending.state}`;
-  assert.deepEqual(await client.completeRedirect(),{ok:true});assert.equal(await client.getAccessToken(),token({iss:'https://issuer.example',aud:'refs-accounting',exp:2000}));assert.equal(base.location.replaced,'https://app.example/callback');
-  const restoredEnvironment={...base,sessionStorage:storage(),location:{search:'',assign(url){this.assigned=url;}},history:{replaceState(){}}};
+   await client.startLogin();assert.match(base.location.assigned,/code_challenge_method=S256/);assert.doesNotMatch(base.location.assigned,/prompt=none/,'interactive sign-in must not silently reuse a provider session');const pending=JSON.parse(base.sessionStorage.getItem('refs_oidc_pkce_v1'));base.location.search=`?code=code-123&state=${pending.state}`;
+   assert.deepEqual(await client.completeRedirect(),{ok:true});assert.equal(await client.getAccessToken(),token({iss:'https://issuer.example',aud:'refs-accounting',exp:2000}));assert.equal(base.location.replaced,'https://app.example/callback');
+   // An existing record can skip a redirect only if it is usable by the same
+   // 30-second access-token gate.  A stale, near-expiry, or malformed record
+   // must not let the UI enter an authenticated phase before its first API
+   // request rejects it.
+   const restoredSessionEnvironment={...base,sessionStorage:storage(),location:{search:'',assign(){}},history:{replaceState(){}}};
+   const savedSession=(value)=>restoredSessionEnvironment.sessionStorage.setItem('refs_oidc_pkce_v1',JSON.stringify(value));
+   const restoredSessionClient=new BrowserOidcClient({environment:restoredSessionEnvironment,now:()=>1_000_000,fetcher:async()=>{throw new Error('no redirect token exchange is expected');}});
+   savedSession({kind:'token',accessToken:'stored',subject:'reader-1',expiresAt:1_030_001});
+   assert.deepEqual(await restoredSessionClient.completeRedirect(),{ok:true},'a session beyond the access-token guard may restore the authenticated shell');
+   for(const invalidSession of [
+     {kind:'token',accessToken:'expired',subject:'reader-1',expiresAt:999_999},
+     {kind:'token',accessToken:'near-expiry',subject:'reader-1',expiresAt:1_030_000},
+     {kind:'token',accessToken:'malformed',subject:'',expiresAt:2_000_000},
+   ]){
+     savedSession(invalidSession);
+     assert.deepEqual(await restoredSessionClient.completeRedirect(),{ok:false,code:'OIDC_LOGIN_REQUIRED'},'an unusable stored session must require a new login before rendering');
+     assert.equal(restoredSessionEnvironment.sessionStorage.getItem('refs_oidc_pkce_v1'),null,'an unusable stored session must be cleared rather than retained');
+   }
+   const restoredEnvironment={...base,sessionStorage:storage(),location:{search:'',assign(url){this.assigned=url;}},history:{replaceState(){}}};
   const restoredClient=new BrowserOidcClient({environment:restoredEnvironment,now:()=>1_000_000,fetcher:async()=>{throw new Error('the authorization redirect has not returned yet');}});
   await restoredClient.startLogin({prompt:'none'});assert.match(restoredEnvironment.location.assigned,/prompt=none/,'startup restoration must be explicit prompt=none PKCE');assert.match(restoredEnvironment.location.assigned,/code_challenge_method=S256/);assert.equal(JSON.parse(restoredEnvironment.sessionStorage.getItem('refs_oidc_pkce_v1')).kind,'pending');
   const rejected=new BrowserOidcClient({environment:{...base,sessionStorage:storage(),location:{search:'?code=x&state=wrong'},history:{replaceState(){}}},now:()=>1_000_000,fetcher:async()=>{throw new Error('must not call');}});assert.equal((await rejected.completeRedirect()).code,'OIDC_STATE_INVALID');
