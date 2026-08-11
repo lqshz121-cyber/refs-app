@@ -8,6 +8,9 @@ import { AuthoritativeJournalDetail, AuthoritativeJournalWorkspace, Authoritativ
 const entityId='11111111-1111-4111-8111-111111111111';
 const journal={journal_entry_id:'22222222-2222-4222-8222-222222222222',journal_number:'JE-100',journal_type:'MANUAL',status:'DRAFT',journal_date:'2026-08-01',currency:'USD',description:'Read-only journal evidence',revision:3,created_at:'2026-08-01T00:00:00.000Z',posted_at:null,ledger_line_count:2};
 const list=renderToStaticMarkup(<AuthoritativeJournalTable journals={[journal]} onOpen={()=>{}}/>);
+assert.match(list,/authoritative-workbench-shell/,'the authoritative journal list adopts the shared production workbench frame, not the legacy demo shell');
+assert.match(list,/Journal workspace structure/);
+assert.match(list,/Scoped evidence/);
 assert.match(list,/GENERAL LEDGER/); assert.match(list,/JOURNAL REGISTER/); assert.match(list,/Read only/); assert.match(list,/Currency/); assert.match(list,/Open evidence/); assert.match(list,/JE-100/);
 assert.match(list,/In scope/); assert.match(list,/Draft/); assert.match(list,/Needs review/); assert.match(list,/Posted/);
 assert.match(list,/value="REVIEW_REQUIRED"/,'the journal review queue must be filterable as the same aggregate counted by its summary card');
@@ -19,6 +22,7 @@ assert.doesNotMatch(list,/>Submit<|>Review<|>Approve<|>Post<|>Reverse</i);
 
 const returnContext={entityId,periodId:'33333333-3333-4333-8333-333333333333',journalId:journal.journal_entry_id,journalRevision:journal.revision,view:{query:'JE-100',status:'POSTED',from:'2026-08-01',through:'2026-08-31',page:2}};
 const detail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journal} entityId={entityId} returnContext={returnContext} onBack={()=>{}}/>);
+assert.match(detail,/authoritative-evidence-page/,'journal detail must use the full-page authoritative evidence frame');
 assert.match(detail,/Back to Journal entries/); assert.match(detail,/Entity 11111111-1111-4111-8111-111111111111/); assert.match(detail,/authoritative list revision 3/);
 assert.match(detail,/search JE-100/); assert.match(detail,/status POSTED/); assert.match(detail,/from 2026-08-01/); assert.match(detail,/through 2026-08-31/); assert.match(detail,/page 2/);
 assert.match(detail,/Journal entry JE-100/); assert.match(detail,/Journal evidence scope/); assert.match(detail,/Authoritative lineage unavailable/);

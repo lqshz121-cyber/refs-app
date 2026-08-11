@@ -22,9 +22,11 @@ const workspaces = [
 // model. This component owns no storage, network access, or accounting state.
 // `state` is intentionally display-only: it makes unavailable/ongoing reads
 // explicit rather than substituting demo values while the parent resolves them.
-export function AuthoritativeOverview({ counts = {}, onNavigate, state = 'ready', detail }) {
+export function AuthoritativeOverview({ counts = {}, onNavigate, state = 'ready', detail, scope = {} }) {
   const cards = overviewCards(counts);
   const navigate = route => { if (typeof onNavigate === 'function') onNavigate(route); };
+  const entity = scope.entityId || 'Configured entity';
+  const period = scope.periodId || 'Configured period';
 
   if (state === 'loading') return <section className="authoritative-page authoritative-overview" aria-labelledby="authoritative-overview-title" aria-busy="true">
     <header className="authoritative-page-header"><div><p className="authoritative-eyebrow">Control center</p><h1 id="authoritative-overview-title">Accounting control overview</h1></div><span className="badge badge-muted">LOADING</span></header>
@@ -47,9 +49,25 @@ export function AuthoritativeOverview({ counts = {}, onNavigate, state = 'ready'
       <div className="authoritative-overview-hero-status"><span className="badge badge-muted">API-BACKED</span><span className="authoritative-overview-hero-note">Scoped to your current access</span></div>
     </header>
 
+    <section className="authoritative-overview-scope" aria-label="Current authoritative overview scope">
+      <span className="authoritative-overview-scope-mark" aria-hidden="true">S</span>
+      <div><small>Entity scope</small><strong>{entity}</strong></div>
+      <div><small>Accounting period</small><strong>{period}</strong></div>
+      <p>Every card and workspace below reads only this OIDC-authorised server scope.</p>
+    </section>
+
     <section className="authoritative-overview-summary" aria-label="Authoritative overview summary">
       <div><span className="authoritative-overview-summary-kicker">Live accounting evidence</span><strong>{cards.reduce((total, card) => total + card.value, 0)}</strong><span>retained records in the current overview</span></div>
       <p>Counts are returned by the authenticated API. They are not balance totals, and a zero never implies activity outside this entity, period, or access scope.</p>
+    </section>
+
+    <section className="authoritative-overview-actions" aria-label="Authoritative accounting shortcuts">
+      <div><p className="authoritative-eyebrow">Quick paths</p><h2>Continue from a trusted read</h2><p>These links only open retained, API-backed evidence workspaces.</p></div>
+      <div className="authoritative-overview-action-list">
+        <button type="button" className="btn" onClick={() => navigate('payables')}>Review payables</button>
+        <button type="button" className="btn btn-ghost" onClick={() => navigate('reports')}>Open reports</button>
+        <button type="button" className="btn btn-ghost" onClick={() => navigate('journals')}>Review journals</button>
+      </div>
     </section>
 
     <section aria-labelledby="authoritative-overview-metrics"><div className="authoritative-overview-section-heading"><div><p className="authoritative-eyebrow">At a glance</p><h2 id="authoritative-overview-metrics">Evidence in scope</h2></div><span className="muted sm">Open a workspace for detail</span></div>

@@ -68,9 +68,22 @@ const ScopeStrip=({items=[]})=><div className="authoritative-bank-scope-strip" a
   {items.map(({label,value})=><span key={label}><i>{label}</i><b>{value||'Not retained'}</b></span>)}
 </div>;
 
+const BankQueueSummary=({rows=[]})=>{
+  const matched=rows.filter(row=>row.match_status==='ACTIVE').length;
+  const journaled=rows.filter(row=>Boolean(row.journal_entry_id)).length;
+  const unmatched=Math.max(0,rows.length-matched);
+  return <section className="authoritative-bank-summary-cards" aria-label="Bank queue read summary">
+    <div className="authoritative-bank-summary-card"><i>Returned sources</i><b>{rows.length}</b><span>Current API response</span></div>
+    <div className="authoritative-bank-summary-card"><i>Active Matches</i><b>{matched}</b><span>Retained evidence only</span></div>
+    <div className="authoritative-bank-summary-card"><i>Unmatched sources</i><b>{unmatched}</b><span>Not a reconciliation state</span></div>
+    <div className="authoritative-bank-summary-card"><i>Journal references</i><b>{journaled}</b><span>When supplied by the API</span></div>
+  </section>;
+};
+
 export const AuthoritativeBankTable=({rows=[],onOpen=()=>{}})=><section className="card authoritative-bank-queue" aria-label="Authoritative bank transaction evidence">
   <div className="card-head"><div><p className="eyebrow">SOURCE → MATCH → JOURNAL</p><h2>Bank transactions</h2><p className="muted sm">Read-only source and retained match evidence from the accounting API. Match review happens only after you open one scoped source item.</p></div><span className="badge badge-muted">READ ONLY</span></div>
   <div className="authoritative-bank-queue-note"><b>{rows.length}</b> retained source item{rows.length===1?'':'s'} in this response. Queue status never implies reconciliation, clearance, or posting.</div>
+  {!!rows.length&&<BankQueueSummary rows={rows}/>}
   {!rows.length?<StateBlock tone="empty" title="No bank transactions returned">No bank transactions were returned for this account and date scope. This scoped empty result is not evidence of zero cash activity, zero ledger activity, or a completed reconciliation.</StateBlock>:<div className="table-wrap" role="region" tabIndex={0} aria-label="Bank transactions; scroll horizontally to view every column"><table className="tbl">
     <thead><tr><th>Date</th><th>Source evidence</th><th>Direction</th><th>Amount</th><th>Match evidence</th><th>Source version</th><th>Evidence</th></tr></thead>
     <tbody>{rows.map(row=><tr key={row.bank_source_id}>

@@ -199,7 +199,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const openAgingEvidence = useCallback((side, focusId) => {
     const returnContext=createAuthoritativeReturnContext({config,view:listViews[side],focusId,scrollY:Number(environment?.scrollY)||0});
     if (!returnContext) return;
-    setAgingDetail({side,returnContext});
+    setAgingDetail({side,returnContext:{...returnContext,agingSide:String(side).toUpperCase(),agingOrigin:'RECEIVABLES'}});
   }, [config, environment, listViews]);
 
   const closeAgingEvidence = useCallback(() => {
@@ -212,7 +212,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const openReportAgingEvidence = useCallback((focusId, catalog) => {
     const returnContext=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
     if (!returnContext) return;
-    setReportAgingDetail({returnContext,catalog});
+    setReportAgingDetail({returnContext:{...returnContext,agingSide:'AR',agingOrigin:'REPORTS'},catalog});
     setRouteState('receivables');
     retainRoute(environment, 'receivables');
   }, [config, environment]);
@@ -370,7 +370,22 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     </aside>}
     {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
     <div className="main">
-      <header className="topbar"><button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>☰</button><div><b>Authoritative accounting</b><span className="muted sm"> · API and OIDC secured</span></div><div className="row-acts"><button type="button" className="btn btn-sm btn-ghost" aria-pressed={theme === 'dark'} title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</button><button type="button" className="btn btn-sm" onClick={refresh}>Refresh</button><button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button></div></header>
+      <header className="topbar authoritative-topbar">
+        <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>☰</button>
+        <div className="authoritative-entity-chip" aria-label={`Authoritative entity ${config.entityId}`}>
+          <span className="authoritative-top-label">Entity</span><strong>{config.entityId}</strong><span aria-hidden="true">⌄</span>
+        </div>
+        <div className="period-chip authoritative-period-chip" aria-label={`Authoritative period ${config.periodId}`}>
+          <span className="period-label">Period</span><b>{config.periodId}</b><span className="badge badge-ok">API read</span>
+        </div>
+        <div className="top-right authoritative-top-actions">
+          <button type="button" className="icon-btn" aria-label="Refresh authoritative accounting evidence" title="Refresh authoritative accounting evidence" onClick={refresh}>↻</button>
+          <button type="button" className="icon-btn" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} aria-pressed={theme === 'dark'} title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>{theme === 'dark' ? '☀' : '◐'}</button>
+          <span className="authoritative-mode-chip"><span aria-hidden="true">●</span> Authoritative</span>
+          <span className="user-chip authoritative-user-chip" aria-label="Authenticated OIDC session"><span className="user-av" aria-hidden="true">A</span><span className="user-nm">Authenticated</span></span>
+          <button type="button" className="btn btn-sm btn-ghost authoritative-signout" onClick={logout}>Sign out</button>
+        </div>
+      </header>
       <main className="content">
         <section className="authoritative-scope-bar" aria-label="Authoritative accounting scope">
           <span><b>Entity</b> {config.entityId}</span>
@@ -384,9 +399,9 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           onSignIn={startLogin}/>}
         {error && <RuntimeErrorPanel code={error.code} detail={error.message} onRetry={refresh} onSignIn={startLogin}/>}
         {phase === 'LOADING_ACCOUNTING' && <StateBlock tone="loading">Loading authoritative accounting records…</StateBlock>}
-        {phase === 'READY' && route === 'overview' && <AuthoritativeOverview counts={counts} onNavigate={setRoute}/>}
+        {phase === 'READY' && route === 'overview' && <AuthoritativeOverview counts={counts} onNavigate={setRoute} scope={{entityId:config.entityId,periodId:config.periodId}}/>}
         {phase === 'READY' && route === 'payables' && (documentDetail?.kind==='AP'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AP" entityId={config.entityId} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AP'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AP" entityId={config.entityId} onBack={closeAdjustmentEvidence}/>:<><AuthoritativeDocumentWorkspace kind="AP" documents={data.ap.bills} adjustments={data.ap.adjustments} view={listViews.AP} onViewChange={view=>updateListView('AP',view)} onOpenDocument={(row,focusId)=>openDocumentEvidence('AP',row,focusId)} onOpenAdjustment={(row,focusId)=>openAdjustmentEvidence('AP',row,focusId)}/><AuthoritativeAgingWorkspace config={config} side="ap" fetcher={boundFetcher}/></>)}
-        {phase === 'READY' && route === 'receivables' && (reportAgingDetail?<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={boundFetcher} onBack={closeReportAgingEvidence} backLabel="Back to Reports"/>:agingDetail?.side==='AR'?<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={boundFetcher} onBack={closeAgingEvidence}/>:documentDetail?.kind==='AR'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AR" entityId={config.entityId} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AR'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AR" entityId={config.entityId} onBack={closeAdjustmentEvidence}/>:<><AuthoritativeDocumentWorkspace kind="AR" documents={data.ar.invoices} adjustments={data.ar.adjustments} view={listViews.AR} onViewChange={view=>updateListView('AR',view)} onOpenDocument={(row,focusId)=>openDocumentEvidence('AR',row,focusId)} onOpenAdjustment={(row,focusId)=>openAdjustmentEvidence('AR',row,focusId)}/><section className="card authoritative-aging-launch" aria-label="Accounts receivable aging report"><div className="card-head"><div><h2>Accounts receivable aging</h2><p className="muted sm">Open a full-page, authenticated aging report. The report preserves this invoices-and-receipts context on Back.</p></div><span className="badge badge-muted">READ ONLY</span></div><button id="authoritative-ar-aging-launch" type="button" className="btn" onClick={()=>openAgingEvidence('AR','authoritative-ar-aging-launch')}>Open AR aging report</button></section></>)}
+        {phase === 'READY' && route === 'receivables' && (reportAgingDetail?<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={boundFetcher} onBack={closeReportAgingEvidence} backLabel="Back to Reports" returnContext={reportAgingDetail.returnContext} expectedOrigin="REPORTS"/>:agingDetail?.side==='AR'?<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={boundFetcher} onBack={closeAgingEvidence} returnContext={agingDetail.returnContext} expectedOrigin="RECEIVABLES"/>:documentDetail?.kind==='AR'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AR" entityId={config.entityId} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AR'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AR" entityId={config.entityId} onBack={closeAdjustmentEvidence}/>:<><AuthoritativeDocumentWorkspace kind="AR" documents={data.ar.invoices} adjustments={data.ar.adjustments} view={listViews.AR} onViewChange={view=>updateListView('AR',view)} onOpenDocument={(row,focusId)=>openDocumentEvidence('AR',row,focusId)} onOpenAdjustment={(row,focusId)=>openAdjustmentEvidence('AR',row,focusId)}/><section className="card authoritative-aging-launch" aria-label="Accounts receivable aging report"><div className="card-head"><div><h2>Accounts receivable aging</h2><p className="muted sm">Open a full-page, authenticated aging report. The report preserves this invoices-and-receipts context on Back.</p></div><span className="badge badge-muted">READ ONLY</span></div><button id="authoritative-ar-aging-launch" type="button" className="btn" onClick={()=>openAgingEvidence('AR','authoritative-ar-aging-launch')}>Open AR aging report</button></section></>)}
         {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace key={`bank-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace key={`reconciliation-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'wbs-autorec-evidence' && <AuthoritativeWbsTransitionWorkspace key={`wbs-autorec-evidence-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}

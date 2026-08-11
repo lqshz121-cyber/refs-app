@@ -106,7 +106,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   ].filter(Boolean);
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
   return <div className="authoritative-document-workspace stack">
-    <section className="accounting-page-head" aria-label={`${workspaceLabel} authoritative evidence header`}>
+    <section className="accounting-page-head authoritative-document-page-head" aria-label={`${workspaceLabel} authoritative evidence header`}>
       <div><div className="page-eyebrow">{eyebrow}</div><h1 className="page-h">{workspaceLabel}</h1><p className="page-subtitle">Review authenticated API list facts, retained revisions, and evidence details for {counterpartyLabel}. No browser seed or local accounting state is used.</p></div>
       <span className="badge badge-muted">READ ONLY</span>
     </section>
