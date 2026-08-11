@@ -346,6 +346,11 @@ input,select,textarea{
 .authoritative-app .authoritative-nav-group .nav-item{margin-left:35px; width:calc(100% - 35px);}
 .authoritative-app .authoritative-nav-group.nav-group-active>.nav-group-h{background:var(--qb-accent-tint); color:var(--qb-accent); font-weight:700;}
 .authoritative-app .authoritative-nav-group .nav-group-items{display:flex; flex-direction:column; align-items:stretch; width:100%;}
+.authoritative-app .authoritative-nav-group .nav-item{display:flex; align-items:center; gap:8px;}
+.authoritative-app .authoritative-nav-group .nav-item>span:first-child{min-width:0; overflow-wrap:anywhere;}
+.authoritative-nav-status{margin-left:auto; flex:0 0 auto; padding:2px 5px; border:1px solid var(--qb-border-soft); border-radius:var(--qb-r-pill); font-size:10px; font-weight:700; line-height:1.2;}
+.authoritative-nav-status-ready{border-color:var(--qb-ok-line); background:var(--qb-ok-bg); color:var(--qb-ok);}
+.authoritative-nav-status-blocked{border-color:var(--qb-border-soft); background:var(--qb-inset); color:var(--qb-text-faint);}
 
 /* Authoritative page pattern. The parent workspace supplies all figures from
    authenticated API reads; this layer owns presentation only. */
@@ -360,6 +365,13 @@ input,select,textarea{
 .authoritative-overview-card strong{margin-top:12px; color:var(--qb-text-strong); font-size:32px; line-height:1;}
 .authoritative-overview-card-hint{margin-top:auto; color:var(--qb-link); font-size:12px; font-weight:600;}
 .authoritative-page-note{max-width:760px; margin:18px 0 0; color:var(--qb-text-muted); font-size:13px; line-height:1.55;}
+.authoritative-unavailable-card{max-width:860px; margin-top:20px; padding:20px; border:1px solid var(--qb-warn-line); border-radius:var(--qb-r-card); background:var(--qb-warn-bg); color:var(--qb-text-strong);}
+.authoritative-unavailable-card h2{margin:0 0 8px; font-size:18px;}
+.authoritative-unavailable-card p{max-width:760px; margin:0; line-height:1.55;}
+.authoritative-unavailable-scope{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:18px 0 0;}
+.authoritative-unavailable-scope>div{min-width:0; padding:10px; border:1px solid var(--qb-warn-line); border-radius:var(--qb-r-control); background:var(--qb-surface);}
+.authoritative-unavailable-scope dt{color:var(--qb-text-muted); font-size:11px; font-weight:700; text-transform:uppercase;}
+.authoritative-unavailable-scope dd{margin:4px 0 0; overflow-wrap:anywhere; font-family:var(--qb-mono); font-size:12px;}
 /* --- rail --- */
 .nav-rail{
   display:flex; flex-direction:column; align-items:center;
@@ -1644,6 +1656,7 @@ select{padding-right:28px; cursor:pointer;}
   .topbar{padding:0 14px; gap:8px;}
   .authoritative-page-header{align-items:flex-start; flex-direction:column; gap:10px;}
   .authoritative-overview-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .authoritative-unavailable-scope{grid-template-columns:minmax(0,1fr);}
   .topbar>.sw:first-of-type{min-width:0!important; flex:1 1 auto;}
   .top-right{margin-left:auto; gap:6px;}
   .period-chip,.top-right>.muted,.user-nm{display:none;}

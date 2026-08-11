@@ -4,6 +4,7 @@ import {focusFirstControl, navDrawerAttributes, navDrawerIsInert, readOffCanvas,
 
 const app=readFileSync('src/legacy-demo-app.jsx','utf8');
 const authoritative=readFileSync('src/authoritative-app.jsx','utf8');
+const authoritativeShell=readFileSync('src/authoritative-navigation-shell.jsx','utf8');
 const styles=readFileSync('index.html','utf8');
 assert.match(app,/<button className="mobile-nav-scrim" tabIndex=\{-1\} aria-label="Close navigation"/);
 assert.match(app,/<button className="mobile-nav-close" aria-label="Close navigation" onClick=\{\(\)=>setMobileNav\(false\)\}>Close<\/button>/);
@@ -117,5 +118,11 @@ assert.match(authoritative,/aria-expanded=\{multiple \? expanded : undefined\}/,
   'only a multi-workspace production group may expose an expandable menu');
 assert.match(authoritative,/className="nav-group-items"/,
   'multi-workspace navigation must keep an addressable child panel for assistive technology');
+assert.match(authoritativeShell,/aria-label="Authoritative accounting navigation"/,
+  'the production shell must expose a named navigation landmark');
+assert.match(authoritativeShell,/aria-expanded=\{multiple \? expanded : undefined\}/,
+  'the reusable production shell must disclose expandable group state');
+assert.match(authoritativeShell,/authoritative-nav-status/,
+  'each visible catalog entry must disclose whether an API read model exists');
 
 console.log('navigation-a11y: mobile drawer is inert while off-canvas and closed, returns focus to its opener, and exposes accessible English controls');
