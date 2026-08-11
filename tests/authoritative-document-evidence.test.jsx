@@ -107,7 +107,7 @@ const adjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjus
 assert.match(adjustmentDetail,/Back to AP adjustments/);
 assert.match(adjustmentDetail,/authoritative adjustment revision 2/);
 assert.match(adjustmentDetail,/cannot create, edit, apply, refund, approve, post, reverse, print, export, or synchronize/);
-assert.match(adjustmentList,/class="table-wrap authoritative-document-table" role="region" tabindex="0" aria-label="AP adjustments; scroll horizontally to view every column"/);
+assert.match(adjustmentList,/class="table-wrap authoritative-adjustment-table" role="region" tabindex="0" aria-label="AP adjustments; scroll horizontally to view every column"/,'the adjustment list must own a keyboard-focusable table scroller instead of inheriting document-table widths');
 assert.match(adjustmentDetail,/class="table-wrap authoritative-document-detail-table" role="region" tabindex="0" aria-label="AP adjustment evidence fields; scroll horizontally to view every column"/);
 
 const completeAdjustment={...adjustment,status:'POSTED',journal_entry_id:postedJournalId,journal_status:'POSTED',journal_revision:5,lineage:{...completeBill.lineage,record_id:adjustment.business_adjustment_id,record_revision:2,posted_journal_entry_id:postedJournalId,posted_journal_revision:5}};
@@ -137,7 +137,9 @@ assert.match(workspace,/presentation contract/,'authoritative AP/AR hierarchy mu
 assert.match(app,/authoritative-scope-bar/,'authoritative shell must display the configured entity and period scope');
 assert.match(app,/restoreAuthoritativeReturnContext/,'full-page Back must restore scroll and focus only within the exact configured scope');
 const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
-assert.match(styles,/\.authoritative-document-table \.tbl\{min-width:940px;table-layout:fixed;\}/,'wide AP/AR evidence tables must be contained in their own scroll region');
+assert.match(styles,/\.authoritative-document-workspace,.authoritative-document-workspace>\*,.authoritative-document-table,.authoritative-adjustment-table\{min-width:0;max-width:100%;\}/,'AP/AR workspace descendants must be shrinkable so their table regions, not the page, own narrow-width overflow');
+assert.match(styles,/\.authoritative-document-table \.tbl\{min-width:980px;table-layout:fixed;\}/,'wide AP/AR evidence tables must reserve semantic columns inside their own scroll region');
+assert.match(styles,/\.authoritative-adjustment-table \.tbl\{min-width:760px;table-layout:fixed;\}/,'six-column adjustment evidence must retain readable columns in its own contained scroller');
 assert.match(styles,/\.authoritative-document-detail-table \.tbl\{min-width:720px;table-layout:fixed;\}/,'four-column detail facts must retain readable columns without overflowing the page');
 assert.match(styles,/\.authoritative-document-summary>span\{position:relative;min-height:116px/,'summary cards must retain a stable visual hierarchy');
 assert.match(styles,/\.authoritative-list-filters\{display:grid;grid-template-columns:minmax\(220px,2fr\)/,'wide AP\/AR filters must align as a readable grid');

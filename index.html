@@ -944,16 +944,24 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-list-filters .result-count{grid-column:1/-1;margin:0;padding-top:2px;color:var(--qb-text-muted);font-size:12px;}
 .authoritative-applied-scope{margin:14px 0 0;padding:10px 12px;border-left:3px solid var(--qb-accent);border-radius:0 var(--qb-r-control) var(--qb-r-control) 0;background:var(--qb-inset);line-height:1.5;}
 .authoritative-row-status{max-width:150px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;}
-/* AP/AR evidence is deliberately table-first.  Keep every field reachable at
-   narrow widths without allowing the page itself to overflow; the wrapper is
-   a labelled, keyboard-focusable scroll region. */
-.authoritative-document-table .tbl{min-width:940px;table-layout:fixed;}
-.authoritative-document-table th:nth-child(1),.authoritative-document-table td:nth-child(1){width:12%;}
-.authoritative-document-table th:nth-child(2),.authoritative-document-table td:nth-child(2){width:20%;}
+/* AP/AR evidence is deliberately table-first. Keep every retained field
+   reachable at reduced widths without giving the document page a horizontal
+   scrollbar: the named, focusable table region owns the overflow. */
+.authoritative-document-workspace,.authoritative-document-workspace>*,.authoritative-document-table,.authoritative-adjustment-table{min-width:0;max-width:100%;}
+.authoritative-document-table .tbl{min-width:980px;table-layout:fixed;}
+.authoritative-document-table th:nth-child(1),.authoritative-document-table td:nth-child(1){width:13%;}
+.authoritative-document-table th:nth-child(2),.authoritative-document-table td:nth-child(2){width:19%;}
 .authoritative-document-table th:nth-child(3),.authoritative-document-table td:nth-child(3),.authoritative-document-table th:nth-child(4),.authoritative-document-table td:nth-child(4){width:11%;white-space:nowrap;}
-.authoritative-document-table th:nth-child(5),.authoritative-document-table td:nth-child(5),.authoritative-document-table th:nth-child(6),.authoritative-document-table td:nth-child(6){width:12%;white-space:nowrap;}
-.authoritative-document-table th:nth-child(7),.authoritative-document-table td:nth-child(7){width:12%;}
+.authoritative-document-table th:nth-child(5),.authoritative-document-table td:nth-child(5),.authoritative-document-table th:nth-child(6),.authoritative-document-table td:nth-child(6){width:13%;white-space:nowrap;}
+.authoritative-document-table th:nth-child(7),.authoritative-document-table td:nth-child(7){width:10%;}
 .authoritative-document-table th:nth-child(8),.authoritative-document-table td:nth-child(8){width:10%;white-space:nowrap;}
+.authoritative-adjustment-table .tbl{min-width:760px;table-layout:fixed;}
+.authoritative-adjustment-table th:nth-child(1),.authoritative-adjustment-table td:nth-child(1){width:18%;}
+.authoritative-adjustment-table th:nth-child(2),.authoritative-adjustment-table td:nth-child(2){width:13%;white-space:nowrap;}
+.authoritative-adjustment-table th:nth-child(3),.authoritative-adjustment-table td:nth-child(3){width:29%;}
+.authoritative-adjustment-table th:nth-child(4),.authoritative-adjustment-table td:nth-child(4){width:15%;white-space:nowrap;}
+.authoritative-adjustment-table th:nth-child(5),.authoritative-adjustment-table td:nth-child(5){width:13%;}
+.authoritative-adjustment-table th:nth-child(6),.authoritative-adjustment-table td:nth-child(6){width:12%;white-space:nowrap;}
 .authoritative-document-detail-table .tbl{min-width:720px;table-layout:fixed;}
 .authoritative-document-detail-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 14px;}
 .authoritative-document-detail-summary>span{display:flex;flex-direction:column;gap:4px;min-width:0;padding:12px 14px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-control);background:var(--qb-inset);}
