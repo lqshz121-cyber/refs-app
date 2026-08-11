@@ -15,6 +15,18 @@ const journalQueueCounts = journals => ({
   posted:(journals || []).filter(row => row.status === 'POSTED').length,
 });
 
+// Captured presentation context only; never reconstruct scope from the
+// rendered journal row.
+const journalReturnScope = (entityId, journal, view) => [
+  `Entity ${entityId}`,
+  `authoritative list revision ${journal.revision}`,
+  `search ${view?.query || 'All'}`,
+  `status ${view?.status === 'ALL' || !view?.status ? 'All statuses' : view.status}`,
+  `from ${view?.from || 'Any date'}`,
+  `through ${view?.through || 'Any date'}`,
+  `page ${view?.page || 1}`,
+].join(' | ');
+
 export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHORITATIVE_LIST_VIEW, onViewChange, onOpen }) {
   const filtered=filterAuthoritativeRows(journals,view,'journal_date');
   const page=paginateAuthoritativeRows(filtered,view);
@@ -25,7 +37,7 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
   return <section className="authoritative-journal-workspace" aria-label="Authoritative journal entries">
     <header className="authoritative-page-header journal-page-header">
       <div>
-        <div className="authoritative-eyebrow">GENERAL LEDGER · JOURNAL REGISTER</div>
+        <div className="authoritative-eyebrow">GENERAL LEDGER | JOURNAL REGISTER</div>
         <h1>Journal entries</h1>
         <p className="page-subtitle">Review retained journal list facts and open immutable scope evidence from the authoritative accounting API.</p>
       </div>
@@ -60,14 +72,14 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
 
 export function AuthoritativeJournalDetail({ journal, entityId, returnContext, onBack }) {
   return <section className="full-bleed qbo-transaction-report authoritative-journal-detail" aria-label="Journal entry evidence">
-    <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>Entity scope retained · list revision {journal.revision} · query {returnContext?.view?.query||'All'} · page {returnContext?.view?.page||1}</span></div>
+    <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>{journalReturnScope(entityId, journal, returnContext?.view)}</span></div>
     <header className="journal-evidence-header">
-      <div><div className="authoritative-eyebrow">GENERAL LEDGER · RETAINED EVIDENCE</div><h1>Journal entry {journal.journal_number}</h1><p className="page-subtitle">Read-only facts returned by the authoritative Journal Entry list API.</p></div>
+      <div><div className="authoritative-eyebrow">GENERAL LEDGER | RETAINED EVIDENCE</div><h1>Journal entry {journal.journal_number}</h1><p className="page-subtitle">Read-only facts returned by the authoritative Journal Entry list API.</p></div>
       <span className="badge journal-detail-status">{journal.status}</span>
     </header>
     <section className="journal-evidence-scope" aria-label="Journal evidence scope"><span><b>Entity</b>{entityId}</span><span><b>Currency</b>{journal.currency}</span><span><b>List revision</b>{journal.revision}</span><span><b>Scope date</b>{journal.journal_date}</span></section>
     <dl className="evidence-grid journal-evidence-grid">
-      <div><dt>Journal</dt><dd>{journal.journal_number}</dd></div><div><dt>Date</dt><dd>{journal.journal_date}</dd></div>
+      <div><dt>Journal</dt><dd>{journal.journal_number}</dd></div><div><dt>Journal ID</dt><dd>{journal.journal_entry_id}</dd></div><div><dt>Date</dt><dd>{journal.journal_date}</dd></div>
       <div><dt>Type</dt><dd>{journal.journal_type}</dd></div><div><dt>Currency</dt><dd>{journal.currency}</dd></div>
       <div><dt>Status</dt><dd>{journal.status}</dd></div><div><dt>Revision</dt><dd>{journal.revision}</dd></div>
       <div><dt>Ledger line count</dt><dd>{journal.ledger_line_count}</dd></div><div><dt>Created</dt><dd>{journal.created_at}</dd></div>
