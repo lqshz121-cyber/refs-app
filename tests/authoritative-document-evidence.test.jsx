@@ -40,7 +40,7 @@ assert.match(workspaceMarkup,/Filter retained API list facts, then open an indep
 assert.match(workspaceMarkup,/Query, filters, page, focus, and scroll are preserved/);
 assert.match(workspaceMarkup,/No create, payment, collection, approval, posting, export, or synchronization/);
 assert.match(workspaceMarkup,/Search retained references/);
-assert.match(workspaceMarkup,/Payee \/ vendor/);
+  assert.match(workspaceMarkup,/Vendor/);
 assert.match(workspaceMarkup,/Category \(offset account\)/);
 assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/Applied presentation scope: Status: PARTIALLY_PAID/);
