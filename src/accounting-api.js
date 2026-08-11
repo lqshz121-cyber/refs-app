@@ -592,6 +592,22 @@ export async function refreshAuthoritativeAccountRegister({config,accountCode:re
   return {ok:true,rows,scope:{entityId:config.entityId,periodId:config.periodId,accountCode:code}};
 }
 
+export async function refreshAuthoritativeGeneralLedger({config,accountCode:requestedAccountCode=null,query=null,limit=50,offset=0,fetcher=globalThis.fetch}={}){
+  const code=requestedAccountCode===null?null:accountCode(requestedAccountCode);
+  if(!config||requestedAccountCode!==null&&!code||typeof query!=='string'&&query!==null||query!==null&&(query!==query.trim()||query.length>160)||!Number.isSafeInteger(limit)||limit<1||limit>200||!Number.isSafeInteger(offset)||offset<0)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'General Ledger requires one authoritative entity, period, optional account, bounded query, and page.'};
+  const params=new URLSearchParams({periodId:config.periodId,limit:String(limit),offset:String(offset)});if(code)params.set('accountCode',code);if(query)params.set('query',query);
+  const result=await readAuthoritativeRows({config,path:`/general-ledger/entries?${params}`,operation:'GENERAL_LEDGER',fetcher});
+  if(!result.ok)return result;
+  const rows=[];const ids=new Set();let total=null;
+  for(const row of result.rows){
+    const amounts=['debit_amount','credit_amount'].map(field=>decimalText(row?.[field]));const count=Number(row?.total_count);
+    if(!row||!UUID.test(row.period_id||'')||row.period_id!==config.periodId||!PERIOD_CODE.test(row.period_code||'')||!validDate(row.period_start)||!validDate(row.period_end)||!accountCode(row.account_code)||typeof row.account_name!=='string'||!row.account_name||!/^[A-Z]{3}$/.test(row.currency||'')||!validDate(row.journal_date)||!UUID.test(row.journal_entry_id||'')||typeof row.journal_number!=='string'||!row.journal_number||!UUID.test(row.journal_line_id||'')||!UUID.test(row.ledger_line_id||'')||row.member_ref!==null&&row.member_ref!==undefined&&typeof row.member_ref!=='string'||row.description!==null&&row.description!==undefined&&typeof row.description!=='string'||amounts.some(value=>value===null)||!Array.isArray(row.source_document_ids)||row.source_document_ids.some(id=>!UUID.test(id||''))||!Number.isSafeInteger(count)||count<1||ids.has(row.ledger_line_id))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid General Ledger evidence row.'};
+    if(total===null)total=count;else if(total!==count)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned inconsistent General Ledger pagination evidence.'};
+    ids.add(row.ledger_line_id);rows.push({...row,debit_amount:amounts[0],credit_amount:amounts[1],source_document_ids:[...row.source_document_ids],total_count:count});
+  }
+  return {ok:true,rows,total:total??0,scope:{entityId:config.entityId,periodId:config.periodId,accountCode:code,query,limit,offset}};
+}
+
 const sourceDocumentRow=row=>{
   if(!row||!UUID.test(row.source_document_id||'')||!UNSIGNED_INTEGER.test(String(row.source_document_revision??''))||!UUID.test(row.raw_event_id||'')||!TEXT_TOKEN.test(row.source_system||'')||!TEXT_TOKEN.test(row.source_module||'')||!TEXT_TOKEN.test(row.source_record_id||'')||!TEXT_TOKEN.test(row.source_version||'')||!TEXT_TOKEN.test(row.document_type||'')||row.document_no!==null&&row.document_no!==undefined&&!TEXT_TOKEN.test(row.document_no)||!validDate(row.business_date)||!validDate(row.accounting_date)||!/^[A-Z]{3}$/.test(row.currency||'')||!REPORT_MONEY4.test(String(row.gross_amount??''))||!STATUS_TOKEN.test(row.status||'')||!/^sha256:[0-9a-f]{64}$/.test(row.payload_hash||'')||!Number.isSafeInteger(row.source_line_count)||row.source_line_count<0||!Array.isArray(row.posted_journal_entry_ids)||row.posted_journal_entry_ids.some(id=>!UUID.test(id||''))||!validTimestamp(row.created_at)||!validTimestamp(row.updated_at))return null;
   const revision=Number(row.source_document_revision);if(!Number.isSafeInteger(revision)||revision<0||new Set(row.posted_journal_entry_ids).size!==row.posted_journal_entry_ids.length)return null;

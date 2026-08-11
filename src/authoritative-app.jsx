@@ -10,6 +10,7 @@ import { AuthoritativeReportsWorkspace, DEFAULT_AUTHORITATIVE_REPORTS_CATALOG } 
 import { AuthoritativeAgingWorkspace } from './authoritative-aging-workspace.jsx';
 import { AuthoritativeJournalWorkspace } from './authoritative-journal-workspace.jsx';
 import { AuthoritativeChartOfAccountsWorkspace } from './authoritative-coa-register-workspace.jsx';
+import { AuthoritativeGeneralLedgerWorkspace } from './authoritative-general-ledger-workspace.jsx';
 import { resolveInitialTheme, watchOsTheme, writeStoredTheme } from './authoritative-theme-preference.js';
 import {
   AuthoritativeAdjustmentDetail,
@@ -391,7 +392,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={config} environment={environment}/>}
         {phase === 'READY' && route === 'source-documents' && <AuthoritativeSourceDocumentsWorkspace key={`source-documents-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && ['chart-of-accounts','account-inquiry'].includes(route) && <AuthoritativeChartOfAccountsWorkspace key={`coa-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
-        {phase === 'READY' && !['overview','payables','receivables','bank','reconciliation','reports','journals','source-documents','chart-of-accounts','account-inquiry'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
+        {phase === 'READY' && route === 'general-ledger' && <AuthoritativeGeneralLedgerWorkspace key={`general-ledger-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
+        {phase === 'READY' && !['overview','payables','receivables','bank','reconciliation','reports','journals','source-documents','chart-of-accounts','account-inquiry','general-ledger'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
       </main>
     </div>
   </div>;
