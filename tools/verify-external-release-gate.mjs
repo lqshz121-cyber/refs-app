@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { canonicalWbsLiveReceiptSigningPayload } from '../server/runtime/wbs-live-receipt-signing.mjs';
 
 const forbidden = /[\p{Script=Han}\uFFFD\u0080-\u009F]/u;
 const pages = ['Dashboard', 'Reports', 'Reconcile', 'BankTx', 'Expenses', 'Accounting', 'Rule Center', 'Integration Hub'];
@@ -20,19 +21,11 @@ const jsonFile = (path, label) => {
   try { return JSON.parse(readFileSync(path, 'utf8')); }
   catch { return fail('RELEASE_GATE_EVIDENCE_INVALID', `${label} is not JSON`); }
 };
-const receiptSigningFields = Object.freeze([
-  'issuer', 'kid', 'algorithm', 'request_sha256', 'response_sha256', 'package_hash',
-  'nonce', 'signed_at', 'expires_at', 'tenant_id', 'entity_id', 'company_code',
-  'immutable_version', 'nonempty',
-]);
 const hash = value => `sha256:${createHash('sha256').update(value).digest('hex')}`;
 
-// The provider signs this exact, fixed-order UTF-8 representation.  Keeping the
-// signature input here avoids accepting a signature over only a self-described
-// package hash while the other receipt claims are mutable.
-export const canonicalWbsReceiptSigningPayload = receipt => JSON.stringify(
-  Object.fromEntries(receiptSigningFields.map(field => [field, receipt?.[field]])),
-);
+// Backwards-compatible export for the release-simulation harness.  The shared
+// runtime helper prevents this release gate and server acceptance from drifting.
+export const canonicalWbsReceiptSigningPayload = canonicalWbsLiveReceiptSigningPayload;
 
 const normalizePinnedWbsProviderTrust = value => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;

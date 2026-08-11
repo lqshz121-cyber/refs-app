@@ -14,6 +14,7 @@ import {existsSync,readFileSync} from 'node:fs';
 import {createHash,createPublicKey,verify} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {validateWbsAutoRecG11PostedTrace} from '../runtime/wbs-inbound-data-adapter.mjs';
+import {canonicalWbsLiveReceiptSigningPayload} from '../runtime/wbs-live-receipt-signing.mjs';
 
 const HASH=/^sha256:[0-9a-f]{64}$/;
 const KEY_ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -62,7 +63,7 @@ export function verifySignedReceipt({receipt,providerTrust,raw}){
   if(text(receipt.kid)!==providerTrust.key_id)fail('WBS_LIVE_ACCEPTANCE_RECEIPT_KEY_ID_MISMATCH');
   const signature=receipt.detached_signature;
   if(!signature||text(signature.key_id)!==text(receipt.kid)||signature.algorithm!=='Ed25519'||typeof signature.value!=='string'||!signature.value.trim())fail('WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_MISSING');
-  try{if(!verify(null,Buffer.from(receipt.package_hash,'utf8'),providerTrust.publicKey,Buffer.from(signature.value,'base64')))fail('WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_INVALID');}
+  try{if(!verify(null,Buffer.from(canonicalWbsLiveReceiptSigningPayload(receipt),'utf8'),providerTrust.publicKey,Buffer.from(signature.value,'base64')))fail('WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_INVALID');}
   catch(error){if(error?.code)throw error;fail('WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_INVALID');}
   return Object.freeze({tenant_id:text(receipt.tenant_id),entity_id:text(receipt.entity_id),company_code:text(receipt.company_code),package_hash:text(receipt.package_hash)});
 }
