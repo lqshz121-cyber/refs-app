@@ -20,6 +20,7 @@
     "test:attachment-client": "esbuild ./tests/attachment-api-client.test.js --bundle --platform=node --format=cjs --outfile=tests/attachment-api-client.test.cjs && node tests/attachment-api-client.test.cjs",
     "test:oidc": "esbuild ./tests/oidc-client.test.js --bundle --platform=node --format=cjs --outfile=tests/oidc-client.test.cjs && node tests/oidc-client.test.cjs",
     "test:runtime-config": "esbuild ./tests/runtime-config.test.js --bundle --platform=node --format=cjs --outfile=tests/runtime-config.test.cjs && node tests/runtime-config.test.cjs",
+    "test:authoritative-theme-preference": "esbuild ./tests/authoritative-theme-preference.test.js --bundle --platform=node --format=cjs --outfile=tests/authoritative-theme-preference.test.cjs && node tests/authoritative-theme-preference.test.cjs",
     "test:ai-draft-je-contract": "esbuild ./tests/ai-draft-je-contract.test.js --bundle --platform=node --format=cjs --outfile=tests/ai-draft-je-contract.test.cjs && node tests/ai-draft-je-contract.test.cjs",
     "test:ai-review-outcome-contract": "esbuild ./tests/ai-review-outcome-contract.test.js --bundle --platform=node --format=cjs --outfile=tests/ai-review-outcome-contract.test.cjs && node tests/ai-review-outcome-contract.test.cjs",
     "test:navigation-a11y": "esbuild ./tests/navigation-a11y.test.js --bundle --platform=node --format=cjs --outfile=tests/navigation-a11y.test.cjs && node tests/navigation-a11y.test.cjs",

@@ -83,6 +83,10 @@ for (const [name,source,open] of [['src/legacy-demo-app.jsx',app,'mobileNav'],['
 // control as the legacy shell.  It is deliberately an explicit button rather
 // than a system-only preference, so keyboard and touch users can always
 // choose a contrast mode without changing any accounting state.
+assert.match(authoritative, /from '\.\/authoritative-theme-preference\.js'/,
+  'the authoritative shell must use the session-only presentation preference helper');
+assert.doesNotMatch(authoritative, /from '\.\/theme-preference\.js'/,
+  'the authoritative shell must not import the demonstration localStorage preference helper');
 assert.match(authoritative, /resolveInitialTheme\(environment\)/,
   'the authoritative shell must honour the reader or OS theme at startup');
 assert.match(authoritative, /watchOsTheme\(environment, next => setTheme\(next\)\)/,
