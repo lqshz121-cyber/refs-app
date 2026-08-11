@@ -106,8 +106,8 @@ assert.match(styles,/\.authoritative-app \.authoritative-sidebar\{flex-direction
   'the authoritative shell must use the readable rail-and-panel layout');
 assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-rail \.nav-group-h/,
   'the production workflow rail must keep compact, stable group controls');
-assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:normal/,
-  'the production page panel must allow long labels to remain readable');
+assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:nowrap/,
+  'the production page panel must keep the demo shell’s stable single-line rows');
 assert.match(authoritativeShell,/className="nav-rail"/,
   'the reusable production shell must render a workflow rail');
 assert.match(authoritativeShell,/className="nav-panel"/,
@@ -116,6 +116,12 @@ assert.match(authoritativeShell,/aria-label="Accounting workspace groups"/,
   'the production workflow rail must expose an accessible landmark name');
 assert.match(authoritativeShell,/aria-label=\{`\$\{activeGroup\.label\} navigation`\}/,
   'the selected production group must expose a named page navigation landmark');
+assert.match(authoritativeShell,/className="nav-panel-title"/,
+  'the production panel must retain the demo shell’s group title hierarchy');
+assert.match(authoritativeShell,/className="new-btn authoritative-new-disabled"/,
+  'the familiar New control must stay visibly disabled until an authorised API action exists');
+assert.match(authoritativeShell,/from '\.\/ui\.jsx'/,
+  'the presentation shell must reuse the local, self-authored rail icon vocabulary');
 assert.match(authoritativeShell,/authoritative-nav-status/,
   'each visible catalog entry must disclose whether an API read model exists');
 assert.doesNotMatch(authoritativeShell,/legacy-demo-app|from ['"]\.\/data|from ['"]\.\/seed|from ['"]\.\/repo|localStorage/,
