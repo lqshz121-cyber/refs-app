@@ -8,6 +8,7 @@ import { RuntimeErrorPage, RuntimeErrorPanel } from './runtime-error-page.jsx';
 import { AuthoritativeReportsWorkspace } from './authoritative-reports-workspace.jsx';
 import { AuthoritativeAgingWorkspace } from './authoritative-aging-workspace.jsx';
 import { AuthoritativeJournalWorkspace } from './authoritative-journal-workspace.jsx';
+import { AuthoritativeChartOfAccountsWorkspace } from './authoritative-coa-register-workspace.jsx';
 import { resolveInitialTheme, watchOsTheme, writeStoredTheme } from './authoritative-theme-preference.js';
 import {
   AuthoritativeAdjustmentDetail,
@@ -358,6 +359,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace key={`reconciliation-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace key={`reports-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={config} environment={environment}/>}
+        {phase === 'READY' && ['chart-of-accounts','account-inquiry'].includes(route) && <AuthoritativeChartOfAccountsWorkspace key={`coa-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && !['overview','payables','receivables','bank','reconciliation','reports','journals'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
       </main>
     </div>

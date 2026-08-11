@@ -17,6 +17,7 @@ const requireUuid=(value,name)=>{if(!UUID.test(value||''))throw new AccountingAp
 const requireIsoDate=(value,name)=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER',`${name} must be an ISO calendar date`);const date=new Date(`${value}T00:00:00.000Z`);if(!Number.isFinite(date.getTime())||date.toISOString().slice(0,10)!==value)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER',`${name} must be an ISO calendar date`);return value;};
 const optionalIsoDate=(value,name)=>value==null?null:requireIsoDate(value,name);
 const requireBankAccountRef=value=>{if(typeof value!=='string'||!value||value!==value.trim()||value.length>128||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','bankAccountRef must be a canonical trimmed value of 1-128 printable characters');return value;};
+const requireAccountCode=value=>{if(typeof value!=='string'||!/^[A-Za-z0-9._-]{1,64}$/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','accountCode must be a canonical account code of 1-64 letters, digits, dot, underscore, or hyphen');return value;};
 const requireDimensionType=value=>{if(!['PROPERTY','PROJECT','UNIT'].includes(value||''))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','dimensionType must be PROPERTY, PROJECT, or UNIT');return value;};
 const requireDimensionRef=value=>{if(typeof value!=='string'||!value||value!==value.trim()||value.length>160||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','dimensionRef must be a canonical trimmed value of 1-160 printable characters');return value;};
 const optionalReadLimit=value=>{if(value==null||value==='')return 100;if(!/^[1-9]\d{0,2}$/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 200');const limit=Number(value);if(limit>200)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 200');return limit;};
@@ -63,6 +64,25 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         if(Object.keys(payload).length)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.listJournalEntries({tenantId:principal.tenantId,entityId});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='general-ledger'&&parts[5]==='chart-of-accounts'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId');
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        result=await kernel.listChartOfAccounts({tenantId:principal.tenantId,entityId,periodId});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='general-ledger'&&parts[5]==='account-register'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId','accountCode']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId');
+        const accountCode=requireAccountCode(parsedUrl.searchParams.get('accountCode'));
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        result=await kernel.listAccountRegister({tenantId:principal.tenantId,entityId,periodId,accountCode});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='bank'&&parts[5]==='transactions'){
