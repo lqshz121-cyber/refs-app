@@ -2047,6 +2047,22 @@ select{padding-right:28px; cursor:pointer;}
 @media(max-width:1280px){
   :root{--qb-navpanel-w:210px; --qb-greet-side:200px;}
   .content{padding:22px 24px 52px;}
+  /* A two-level navigation is useful on a full desktop, but it must never
+     consume the report canvas in a narrow split window.  Use the existing
+     accessible drawer contract before cards begin competing for space. */
+  .sidebar{position:fixed; top:0; left:0; z-index:32; transform:translateX(-100%);
+    width:min(88vw,320px); flex-basis:min(88vw,320px);
+    transition:transform var(--qb-dur-2) var(--qb-ease-out); box-shadow:var(--qb-shadow-strong);}
+  .sidebar.mobile-open{transform:translateX(0);}
+  .main{margin:6px;}
+  .mobile-nav-close{display:inline-flex; align-items:center; justify-content:center; align-self:flex-end;
+    margin:10px 12px 0; min-height:var(--qb-control-h-sm); padding:0 12px;
+    border:1px solid var(--qb-border); border-radius:var(--qb-r-control);
+    background:var(--qb-surface); color:var(--qb-text-strong); font:500 13px/1 var(--qb-sans); cursor:pointer;}
+  .mobile-nav-btn{display:inline-grid; place-items:center; flex:0 0 auto;
+    width:var(--qb-control-h); height:var(--qb-control-h);
+    border:1px solid var(--qb-border); border-radius:var(--qb-r-control);
+    background:var(--qb-surface); color:var(--qb-text-strong); font-size:17px; cursor:pointer;}
   .cmdk{display:none;}
   .topbar>.sw:first-of-type{flex:1 1 auto; max-width:none;}
   .top-right{gap:8px;}
