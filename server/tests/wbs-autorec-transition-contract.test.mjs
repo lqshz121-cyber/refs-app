@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {generateKeyPairSync,sign} from 'node:crypto';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {createWbsAutoRecTransitionContractVerifier,validateWbsAutoRecTransitionContract,WbsAutoRecTransitionContractError} from '../runtime/wbs-autorec-transition-contract.mjs';
+import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 
 const without=(value,...keys)=>Object.fromEntries(Object.entries(value).filter(([key])=>!keys.includes(key)));
 const make=()=>({schema_version:'WBS_AUTOREC_TRANSITION_CONTRACT_V1',source_system:'WBS',environment:'PRODUCTION',contract_id:'11111111-1111-4111-8111-111111111111',issued_at:'2026-08-11T00:00:00Z',valid_from:'2026-08-11T00:00:00Z',valid_until:'2027-08-11T00:00:00Z',scope:{company_keys:['COMPANY-A'],dictionary_version:'WBS-DICT-2026-08'},transitions:[{transition_id:'CANCEL_RELEASE_V1',operation:'CANCEL_RELEASE',from_state:'RELEASED',to_state:'NOT_MATCHED',requires_reason:true,required_actor_roles:['AUTOREC_CONTROLLER'],segregation_of_duties:{review_required:true,requester_reviewer_must_differ:true,forbidden_prior_actor_roles:['INCURRENCE_APPROVER']},accounting_guard:{blocks_when_accounting_reviewed:true,blocks_when_accounting_approved:true,blocks_when_accounting_posted:true}}]});
@@ -19,4 +20,14 @@ test('transition contracts reject tampered hashes, unpinned signatures, and inco
   const tampered=structuredClone(contract);tampered.transitions[0].to_state='INCURRED';assert.throws(()=>validateWbsAutoRecTransitionContract(tampered),error=>error instanceof WbsAutoRecTransitionContractError&&error.code==='WBS_AUTOREC_TRANSITION_CONTRACT_HASH_MISMATCH');
   const unsigned=structuredClone(contract);delete unsigned.transitions[0].accounting_guard.blocks_when_accounting_posted;unsigned.contract_hash=canonicalRequestHash(without(unsigned,'contract_hash','detached_signature'));assert.throws(()=>validateWbsAutoRecTransitionContract(unsigned),error=>error instanceof WbsAutoRecTransitionContractError&&error.code==='WBS_AUTOREC_TRANSITION_CONTRACT_INVALID');
   const unknown=structuredClone(contract);unknown.detached_signature.key_id='unknown';await assert.rejects(()=>verify(unknown),error=>error instanceof WbsAutoRecTransitionContractError&&error.code==='WBS_AUTOREC_TRANSITION_CONTRACT_SIGNATURE_INVALID');
+});
+
+test('the production kernel accepts only an independently verified provider contract and grants no command authority',async()=>{
+  const pair=generateKeyPairSync('ed25519'),contract=signed(pair),verifier=createWbsAutoRecTransitionContractVerifier({publicKeys:{'wbs-transition-2026-08':pair.publicKey.export({type:'spki',format:'pem'})}});
+  const calls=[],configured=new PostgresAccountingKernel({}, {sessionProvider:async()=>({trusted:true,contextToken:'x'.repeat(32)}),wbsAutoRecTransitionContractVerifier:verifier});configured.inSession=async work=>work({query:async(sql,args)=>{calls.push({sql,args});return {rows:[{}]};}});
+  const evidence=await configured.verifyWbsAutoRecTransitionContract({tenantId:'tenant',entityId:'entity',contract});
+  assert.deepEqual({verified:evidence.signature_verified,release:evidence.can_release,post:evidence.can_post},{verified:true,release:false,post:false});
+  assert.deepEqual(calls,[{sql:"SELECT refs_assert_scope($1,$2,'WBS.AUTOREC.VIEW')",args:['tenant','entity']}]);
+  const unconfigured=new PostgresAccountingKernel({}, {sessionProvider:async()=>({trusted:true,contextToken:'x'.repeat(32)})});
+  await assert.rejects(()=>unconfigured.verifyWbsAutoRecTransitionContract({contract}),error=>error.code==='WBS_AUTOREC_TRANSITION_CONTRACT_SIGNATURE_REQUIRED');
 });
