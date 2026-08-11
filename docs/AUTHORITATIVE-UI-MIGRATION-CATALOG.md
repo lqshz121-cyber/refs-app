@@ -5,6 +5,15 @@ This catalog is the production replacement plan: every familiar workspace is
 discoverable in the authoritative navigation, but only a signed-in API read
 model may render accounting facts.
 
+## One presentation system
+
+REFS maintains **one presentation system**, not a separate demo design and
+authoritative design. New authoritative UI work must extract or reuse the
+demo's presentational JSX, tokens, layout, and responsive rules, then attach
+an API/OIDC controller. The demo keeps only its fixture data and local action
+controller; the authoritative build keeps only server-backed facts and
+authorised commands. A parallel authoritative visual rewrite is not allowed.
+
 | Legacy navigation area | Formal authoritative entry | Current state |
 | --- | --- | --- |
 | Dashboard | Control Center / Dashboard | API read: AP, AR, journal counts |
