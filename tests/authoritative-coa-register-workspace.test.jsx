@@ -13,4 +13,6 @@ assert.match(source,/refreshAuthoritativeChartOfAccounts/);assert.match(source,/
 assert.doesNotMatch(source,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data|\b(?:POST|PUT|PATCH|DELETE)\b|[鈥路]/);
 const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.match(styles,/\.authoritative-coa-summary/);assert.match(styles,/\.authoritative-register-scope/);assert.match(styles,/\.authoritative-coa-filter/);assert.match(styles,/\.authoritative-coa-pagination/);assert.match(styles,/\.authoritative-status\.is-active/);assert.match(styles,/@media \(max-width:600px\)/);
+assert.match(source,/authoritative-workbench-shell/);assert.match(source,/Chart of Accounts reading path/);assert.match(source,/Account register reading path/);
+assert.match(styles,/\.authoritative-ledger-reading-rail/);assert.match(styles,/\.authoritative-ledger-toolbar/);
 console.log('authoritative COA/Register workspace: API-only filters, paging, exact Back context, contained tables, and responsive evidence verified');

@@ -11,15 +11,17 @@ const returnText=context=>[
   context.query&&`search “${context.query}”`,
   `page ${context.page}`,
 ].join(' | ');
+const ReadingRail=({items,label})=><div className="authoritative-workbench-rail authoritative-ledger-reading-rail" aria-label={label}>{items.map((item,index)=><span key={item}><b>{index+1}</b>{item}</span>)}</div>;
 
 function EvidenceIds({label,ids}){
   return <div className="authoritative-gl-id-card"><i>{label}</i>{ids.length?<div>{ids.map(id=><code key={id}>{id}</code>)}</div>:<b>No retained source-document ID</b>}</div>;
 }
 
 export function AuthoritativeGeneralLedgerDetail({row,returnContext,onBack}){
-  return <section className="full-bleed authoritative-general-ledger-detail" aria-label="Authoritative General Ledger line detail">
+  return <section className="full-bleed authoritative-general-ledger-detail authoritative-workbench-shell authoritative-evidence-page" aria-label="Authoritative General Ledger line detail">
     <div className="qbo-report-back authoritative-gl-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to General Ledger</button><span>Exact API snapshot</span></div>
     <header className="journal-evidence-header"><div><div className="authoritative-eyebrow">GENERAL LEDGER · LINE EVIDENCE</div><h1>Posted ledger line</h1><p className="page-subtitle">Read-only evidence returned by the scoped General Ledger API. No journal reconstruction, export, posting, adjustment, or provider action is available.</p></div><span className="badge badge-muted">READ ONLY</span></header>
+    <ReadingRail label="Ledger line evidence reading path" items={['Immutable line','Posted amounts','Retained identifiers']}/>
     <div className="authoritative-register-scope authoritative-gl-detail-scope" aria-label="Posted ledger line scope">
       <span><i>Account</i><b><code>{row.account_code}</code> · {row.account_name}</b></span>
       <span><i>Posting date</i><b>{row.journal_date}</b></span>
@@ -44,8 +46,9 @@ export function AuthoritativeGeneralLedgerWorkspace({config,fetcher=globalThis.f
   const closeDetail=()=>{setDetail(null);setTimeout(()=>{globalThis.document?.getElementById(opener.current)?.focus();globalThis.window?.scrollTo?.({top:scrollY.current,behavior:'auto'});},0);};
   const rows=useMemo(()=>state.rows,[state.rows]);
   if(detail)return <AuthoritativeGeneralLedgerDetail row={detail.row} returnContext={detail.returnContext} onBack={closeDetail}/>;
-  return <section className="full-bleed authoritative-general-ledger" aria-label="Authoritative General Ledger">
+  return <section className="full-bleed authoritative-general-ledger authoritative-workbench-shell" aria-label="Authoritative General Ledger">
     <header className="journal-evidence-header"><div><div className="authoritative-eyebrow">GENERAL LEDGER · POSTED EVIDENCE</div><h1>General Ledger</h1><p className="page-subtitle">Entity and accounting-period scoped POSTED ledger lines only. No export, posting, adjustment, or provider action is available.</p></div><span className="badge badge-muted">READ ONLY</span></header>
+    <ReadingRail label="General Ledger reading path" items={['Scoped ledger','POSTED evidence','Immutable line detail']}/>
     <p className="authoritative-coa-scope">{scopeText(state.scope||config)}. The configured period is the immutable date scope; ad-hoc date overrides are not supplied by this API. Amounts are fixed four-decimal strings and currencies are never combined.</p>
     <div className="authoritative-filter-bar" aria-label="General Ledger filters"><label><span>Account code</span><input value={accountCode} onChange={event=>setAccountCode(event.target.value)} placeholder="Optional exact account"/></label><label><span>Search posted evidence</span><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Account, journal, or description"/></label><button type="button" className="btn btn-sm" onClick={apply}>Apply</button>{(query||accountCode)&&<button type="button" className="btn btn-sm btn-ghost" onClick={reset}>Reset</button>}<button type="button" className="btn btn-sm btn-ghost" onClick={()=>void load()}>Refresh evidence</button><span className="result-count"><b>{state.phase==='READY'?state.total:'—'}</b> POSTED lines</span></div>
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative POSTED ledger evidence…</StateBlock>}

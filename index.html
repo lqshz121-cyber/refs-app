@@ -1288,6 +1288,27 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-coa-table th:nth-child(6),.authoritative-coa-table td:nth-child(6),.authoritative-coa-table th:nth-child(7),.authoritative-coa-table td:nth-child(7),.authoritative-coa-table th:nth-child(8),.authoritative-coa-table td:nth-child(8),.authoritative-coa-table th:nth-child(9),.authoritative-coa-table td:nth-child(9){width:9%;}
 .authoritative-coa-table th:nth-child(10),.authoritative-coa-table td:nth-child(10){width:8%;}
 .authoritative-coa-table th:nth-child(11),.authoritative-coa-table td:nth-child(11){width:11%;}
+/* API-backed accounting workbenches adopt the demonstrated product hierarchy:
+   a short reading rail, compact fact cards, then a contained evidence table.
+   These selectors only arrange server-returned facts; they never provide demo
+   rows, browser persistence, or accounting actions. */
+.authoritative-coa-workbench,.authoritative-general-ledger{min-width:0;}
+.authoritative-ledger-reading-rail{margin:0 0 14px;}
+.authoritative-ledger-reading-rail span{background:var(--qb-inset);}
+.authoritative-coa-workbench .journal-evidence-header,.authoritative-general-ledger .journal-evidence-header{position:relative;overflow:hidden;margin:0 0 12px;padding:20px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);background:linear-gradient(135deg,var(--qb-surface) 0%,var(--qb-inset) 100%);box-shadow:var(--qb-shadow-card);}
+.authoritative-coa-workbench .journal-evidence-header::after,.authoritative-general-ledger .journal-evidence-header::after{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--qb-accent);}
+.authoritative-coa-workbench .journal-evidence-header>*,.authoritative-general-ledger .journal-evidence-header>*{position:relative;}
+.authoritative-ledger-toolbar{margin:0 0 12px;padding:14px 16px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);background:var(--qb-surface);box-shadow:var(--qb-shadow-card);}
+.authoritative-coa-summary>span,.authoritative-register-scope>span{min-height:94px;box-shadow:var(--qb-shadow-card);}
+.authoritative-coa-summary>span:first-child,.authoritative-register-scope>span:first-child{border-top:3px solid var(--qb-brand);}
+.authoritative-coa-summary>span:nth-child(2),.authoritative-register-scope>span:nth-child(2){border-top:3px solid var(--qb-accent);}
+.authoritative-coa-summary>span:nth-child(3),.authoritative-register-scope>span:nth-child(3){border-top:3px solid var(--qb-warn);}
+.authoritative-coa-summary>span:nth-child(4),.authoritative-register-scope>span:nth-child(4){border-top:3px solid var(--qb-text-muted);}
+.authoritative-coa-table,.authoritative-register-table,.authoritative-general-ledger-table{box-shadow:var(--qb-shadow-card);}
+.authoritative-coa-table tbody tr:hover,.authoritative-register-table tbody tr:hover,.authoritative-general-ledger-table tbody tr:hover{background:var(--qb-inset);}
+.authoritative-general-ledger .authoritative-filter-bar{margin:0 0 12px;padding:14px 16px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);background:var(--qb-surface);box-shadow:var(--qb-shadow-card);}
+.authoritative-gl-amount-card{border:var(--qb-hair) solid var(--qb-divider);box-shadow:var(--qb-shadow-card);}
+.authoritative-gl-amount-card>div{padding:4px 6px;}
 @media (max-width:1024px){.authoritative-coa-summary,.authoritative-register-scope{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media (max-width:600px){.authoritative-coa-summary,.authoritative-register-scope,.authoritative-gl-amount-card,.authoritative-gl-id-grid{grid-template-columns:minmax(0,1fr);}.authoritative-coa-filter .result-count{align-self:flex-start;margin-left:0;}.authoritative-coa-filter .btn,.authoritative-register-filter .btn,.authoritative-coa-pagination .btn{width:100%;}.authoritative-coa-page-size{width:100%;}.authoritative-register-back{align-items:flex-start;flex-direction:column;gap:8px;}.authoritative-coa-pagination{align-items:stretch;flex-direction:column;}.authoritative-coa-pagination span{margin-right:0;}}
 .tbl,.mini-table,.stmt-tbl,.je-lines{width:100%; border-collapse:separate; border-spacing:0; font-size:14px;}

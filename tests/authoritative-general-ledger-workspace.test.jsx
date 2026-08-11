@@ -24,3 +24,10 @@ test('General Ledger line evidence is a full-page immutable snapshot with exact 
   assert.match(markup,new RegExp(ledgerLineId));
   assert.doesNotMatch(markup,/localStorage|seed\.js|>Export<|>Post journal<|>Create journal</i);
 });
+test('General Ledger keeps the demonstrated workbench hierarchy without importing demo state',()=>{
+  const workspace=String(AuthoritativeGeneralLedgerWorkspace);
+  const detail=String(AuthoritativeGeneralLedgerDetail);
+  assert.match(workspace,/authoritative-workbench-shell/);assert.match(workspace,/General Ledger reading path/);
+  assert.match(detail,/authoritative-evidence-page/);assert.match(detail,/Ledger line evidence reading path/);
+  assert.doesNotMatch(`${workspace}\n${detail}`,/localStorage|seed\.js|repo\.js|legacy-demo-app/);
+});
