@@ -112,7 +112,21 @@ export function validateWbsReadEnvelope({toolName,envelope}={}){
   return Object.freeze({tool_name:toolName,contract_version:envelope.contract_version,environment:envelope.environment,captured_at:envelope.captured_at,source:Object.freeze(structuredClone(envelope.source)),scope:Object.freeze(structuredClone(envelope.scope)),record_count:envelope.record_count,content_sha256:envelope.content_sha256,cursor_next:envelope.cursor_next,etl_notice:envelope.etl_notice,rows:Object.freeze(structuredClone(envelope.rows)),requires_snapshot_diff:true,has_revision_contract:false,has_cdc_contract:false,has_tombstone_contract:false});
 }
 
-export function createReadOnlyWbsMcpClient({endpoint,getAuthHeaders,allowedReadTools=[],fetcher=globalThis.fetch,timeoutMs=15000}={}){
+// A live pilot observation is deliberately weaker than an admissible WBS
+// snapshot.  The current provider does not publish/echo a snapshot_token, so
+// REFS may show one bounded page as UNSIGNED_PILOT evidence but must never feed
+// it to persistence, AutoRec, Draft, or posting.  Keep this validator separate
+// from validateWbsReadEnvelope so the production admission contract cannot be
+// relaxed accidentally.
+export function validateWbsPilotObservationEnvelope({toolName,envelope}={}){
+  if(!WBS_READONLY_TOOLS.includes(toolName)||!plainObject(envelope)||!Array.isArray(envelope.rows)||!/^[0-9a-f]{64}$/.test(envelope.content_sha256)||typeof envelope.contract_version!=='string'||!envelope.contract_version.trim()||envelope.tool!==toolName||typeof envelope.environment!=='string'||envelope.environment.toLowerCase()!=='production'||typeof envelope.captured_at!=='string'||Number.isNaN(Date.parse(envelope.captured_at))||!plainObject(envelope.source)||!plainObject(envelope.scope)||!Number.isSafeInteger(envelope.record_count)||envelope.record_count!==envelope.rows.length||(envelope.cursor_next!==null&&typeof envelope.cursor_next!=='string')||(envelope.etl_notice!==null&&typeof envelope.etl_notice!=='string'))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS production pilot envelope, scope, count, hash, or cursor is invalid.');
+  if(envelope.rows.length>WBS_MCP_PILOT_LIMIT)throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS pilot returned more than ten rows.');
+  const expectedHash=createHash('sha256').update(canonicalRequestBody(envelope.rows),'utf8').digest('hex');
+  if(!timingSafeEqual(Buffer.from(envelope.content_sha256,'hex'),Buffer.from(expectedHash,'hex')))throw new WbsMcpError('WBS_MCP_CONTENT_HASH_MISMATCH','WBS content_sha256 does not match canonical sorted compact rows.');
+  return Object.freeze({tool_name:toolName,contract_version:envelope.contract_version,environment:envelope.environment,captured_at:envelope.captured_at,source:Object.freeze(structuredClone(envelope.source)),scope:Object.freeze(structuredClone(envelope.scope)),record_count:envelope.record_count,content_sha256:envelope.content_sha256,cursor_next:envelope.cursor_next,etl_notice:envelope.etl_notice,rows:Object.freeze(structuredClone(envelope.rows)),admission_status:'NOT_ADMITTED',signature_verified:false,requires_snapshot_token:true,can_persist:false,can_allocate:false,can_create_draft:false,can_post:false});
+}
+
+export function createReadOnlyWbsMcpClient({endpoint,getAuthHeaders,allowedReadTools=[],fetcher=globalThis.fetch,timeoutMs=15000,pilotObservationMode=false}={}){
   const url=endpointUrl(endpoint);
   if(typeof getAuthHeaders!=='function'||typeof fetcher!=='function')throw new WbsMcpError('WBS_MCP_CONFIG_INVALID','WBS MCP requires an injected credential-header provider and fetch implementation.');
   if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1000||timeoutMs>60000)throw new WbsMcpError('WBS_MCP_CONFIG_INVALID','WBS MCP timeout is invalid.');
@@ -164,7 +178,7 @@ export function createReadOnlyWbsMcpClient({endpoint,getAuthHeaders,allowedReadT
       // Every data view must therefore advertise the opaque token that REFS
       // echoes on cursor reads; otherwise a provider could return page one but
       // reject the safe completion request after a partial view was accepted.
-      if(tools.some(tool=>{
+      if(!pilotObservationMode&&tools.some(tool=>{
         if(!WBS_CURSOR_READ_TOOLS.has(tool.name))return false;
         const properties=plainObject(tool.inputSchema?.properties)?tool.inputSchema.properties:{};
         return !plainObject(properties.cursor)||properties.cursor.type!=='string'||!plainObject(properties.snapshot_token)||properties.snapshot_token.type!=='string';
@@ -182,7 +196,7 @@ export function createReadOnlyWbsMcpClient({endpoint,getAuthHeaders,allowedReadT
       if(!plainObject(result)||!Array.isArray(result.content)||result.isError===true)throw new WbsMcpError('WBS_MCP_REMOTE_REJECTED','WBS read-only tool rejected the request.');
       const text=result.content.find(item=>plainObject(item)&&item.type==='text'&&typeof item.text==='string')?.text;
       let payload;try{payload=text?JSON.parse(text):result.structuredContent;}catch{throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS tool returned invalid envelope JSON.');}
-      return validateWbsReadEnvelope({toolName,envelope:payload});
+      return pilotObservationMode?validateWbsPilotObservationEnvelope({toolName,envelope:payload}):validateWbsReadEnvelope({toolName,envelope:payload});
     }
   });
 }

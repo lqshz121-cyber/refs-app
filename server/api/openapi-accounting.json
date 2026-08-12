@@ -15,6 +15,27 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/wbs/live-pilot": {
+      "get": {
+        "operationId": "getWbsLivePilotObservation",
+        "summary": "Observe a bounded unsigned production WBS read",
+        "description": "Requires WBS.AUTOREC.VIEW. This disabled-by-default pilot returns NOT_ADMITTED observations only; it never persists data, writes WBS, creates transactions or allocations, dispatches work, creates a Draft, approves, or posts.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name":"tool","in":"query","required":true,"schema":{"type":"string","enum":["list_payables","list_bank_transactions","list_autorec_details","list_autorec_banks","list_journal_entries"]}},
+          {"name":"limit","in":"query","required":true,"schema":{"type":"integer","minimum":1,"maximum":10}}
+        ],
+        "responses": {
+          "200": {"$ref":"#/components/responses/ReadOk"},
+          "400": {"$ref":"#/components/responses/Problem"},
+          "401": {"$ref":"#/components/responses/Problem"},
+          "403": {"$ref":"#/components/responses/Problem"},
+          "404": {"$ref":"#/components/responses/Problem"},
+          "503": {"$ref":"#/components/responses/Problem"},
+          "default": {"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/wbs/snapshots": {
       "post": {
         "operationId": "recordWbsSnapshot",
