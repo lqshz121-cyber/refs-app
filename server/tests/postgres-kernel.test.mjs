@@ -13,7 +13,7 @@ import {STAGE1_READ_PERMISSIONS,grantStage1ReadAccess,provisionStage1Scope,stage
 import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {createWbsSnapshotSignatureVerifier} from '../runtime/wbs-snapshot-signature.mjs';
+import {createWbsManifestSignatureVerifier,createWbsSnapshotSignatureVerifier} from '../runtime/wbs-snapshot-signature.mjs';
 import {createWbsAutoRecTransitionContractVerifier} from '../runtime/wbs-autorec-transition-contract.mjs';
 import {createWbsTraceRelationOrchestrator} from '../runtime/wbs-mcp-inbound-service.mjs';
 import {buildWbsAutoRecExecutionIntent} from '../runtime/wbs-autorec-execution-contract.mjs';
@@ -189,6 +189,37 @@ pgTest('admitted signed Payable composition persists receipt Raw Normalized Stag
   const stored=(await adminPool.query("SELECT r.receipt_hash,i.source_record_id,i.source_version,i.raw,i.normalized,i.outcome_kind FROM wbs_inbound_receipt r JOIN wbs_inbound_row i USING(receipt_id) WHERE r.tenant_id=$1 AND r.entity_id=$2 AND i.source_record_id=$3",[ids.tenantId,ids.entityId,sourceId])).rows[0];
   assert.equal(stored.source_record_id,sourceId);assert.match(stored.source_version,/^snapshot:/);assert.equal(stored.raw.amount,-89.125);assert.equal(stored.normalized.amount_money4,'-89.1250');assert.equal(stored.normalized.company_key,ids.sourceEntityId);assert.equal(stored.normalized.currency,'USD');assert.equal(stored.outcome_kind,'STAGING');assert.match(stored.receipt_hash,/^sha256:[0-9a-f]{64}$/);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
+});
+
+pgTest('signed admitted WBS bank statement atomically creates exact bank sources with replay and conflict guards',async()=>{
+  const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),capturedAt=new Date().toISOString(),{privateKey,publicKey}=generateKeyPairSync('ed25519');
+  const bankRow={bankTransactionId:'BANK-TXN-1',bank_account_ref:'BANK-1',transaction_date:'2026-07-15',currency:'USD',amount:'25.0000'};
+  const view={name:'BGDATA.bank_transaction',company_key:ids.sourceEntityId,rows:[bankRow],row_count:1,first_primary_key:'BANK-TXN-1',last_primary_key:'BANK-TXN-1',content_hash:canonicalRequestHash([bankRow])};
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:snapshotId,captured_at:capturedAt,environment:'PRODUCTION',source_system:'WBS',dictionary_version:'WBS-DICT-TEST',views:[view],delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',extract_started_at:capturedAt,extract_completed_at:capturedAt,consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'},detached_signature:{key_id:'wbs-bank-test',algorithm:'Ed25519',value:''}};
+  const {detached_signature,...snapshotManifest}=snapshot;snapshot.package_hash=canonicalRequestHash(snapshotManifest);snapshot.detached_signature.value=sign(null,Buffer.from(snapshot.package_hash),privateKey).toString('base64');
+  const publicKeys={'wbs-bank-test':publicKey.export({type:'spki',format:'pem'})},snapshotVerifier=createWbsSnapshotSignatureVerifier({publicKeys}),manifestVerifier=createWbsManifestSignatureVerifier({publicKeys});
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'signed-bank-importer',['WBS.SNAPSHOT.IMPORT','WBS.BANK.ADMIT']),wbsSnapshotVerifier:snapshotVerifier,wbsSignedBankAdmissionVerifier:value=>manifestVerifier({manifest_hash:value.admission_hash,detached_signature:value.detached_signature})});
+  await importer.recordWbsSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'signed-bank-snapshot-0001'});
+  const receipt=(await adminPool.query("SELECT source_record_id,source_version,payload_hash,payload_ref FROM wbs_snapshot_receipt WHERE tenant_id=$1 AND entity_id=$2 AND source_module='BGDATA.bank_transaction'",[ids.tenantId,ids.entityId])).rows[0];
+  const makeAdmission=(statementChanges={},transactionChanges={})=>{
+    const admission={schema_version:'WBS_SIGNED_BANK_ADMISSION_V1',environment:'PRODUCTION',source_system:'WBS',admission_status:'ADMITTED',snapshot_id:snapshotId,package_hash:snapshot.package_hash,source_entity_id:ids.sourceEntityId,statement:{statement_id:'STMT-2026-07',bank_account_ref:'BANK-1',statement_start_date:'2026-07-01',statement_end_date:'2026-07-31',currency:'USD',opening_balance:'100.0000',ending_balance:'125.0000',payload_hash:hash('statement-2026-07'),payload_ref:'object://wbs-bank-statements/STMT-2026-07',...statementChanges},transactions:[{...receipt,external_bank_line_id:'EXT-1',transaction_date:'2026-07-15',currency:'USD',bank_account_ref:'BANK-1',amount:'25.0000',...transactionChanges}],detached_signature:{key_id:'wbs-bank-test',algorithm:'Ed25519',value:''}};
+    const {detached_signature,...manifest}=admission;admission.admission_hash=canonicalRequestHash(manifest);admission.detached_signature.value=sign(null,Buffer.from(admission.admission_hash),privateKey).toString('base64');return admission;
+  };
+  const admission=makeAdmission(),journalsBefore=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n;
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'signed-bank-reader',['WBS.SNAPSHOT.IMPORT']),wbsSignedBankAdmissionVerifier:value=>manifestVerifier({manifest_hash:value.admission_hash,detached_signature:value.detached_signature})});
+  await assert.rejects(denied.admitWbsSignedBankStatement({tenantId:ids.tenantId,entityId:ids.entityId,admission,idempotencyKey:'signed-bank-admission-denied'}),error=>error.code==='42501');
+  const created=await importer.admitWbsSignedBankStatement({tenantId:ids.tenantId,entityId:ids.entityId,admission,idempotencyKey:'signed-bank-admission-0001'});
+  assert.deepEqual({count:created.transaction_count,idempotent:created.idempotent},{count:1,idempotent:false});
+  const replay=await importer.admitWbsSignedBankStatement({tenantId:ids.tenantId,entityId:ids.entityId,admission,idempotencyKey:'signed-bank-admission-0001'});
+  assert.equal(replay.idempotent,true);assert.equal(replay.statement_receipt_id,created.statement_receipt_id);
+  const changed=makeAdmission({ending_balance:'126.0000'});
+  await assert.rejects(importer.admitWbsSignedBankStatement({tenantId:ids.tenantId,entityId:ids.entityId,admission:changed,idempotencyKey:'signed-bank-admission-0001'}),error=>error.code==='23505');
+  const tampered=makeAdmission({statement_id:'STMT-2026-07-BAD'},{payload_hash:hash('not-the-receipt')});
+  await assert.rejects(importer.admitWbsSignedBankStatement({tenantId:ids.tenantId,entityId:ids.entityId,admission:tampered,idempotencyKey:'signed-bank-admission-0002'}),error=>error.code==='23514');
+  const counts=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_bank_statement_receipt WHERE tenant_id=$1) statements,(SELECT count(*)::int FROM source_document WHERE tenant_id=$1 AND document_type='BANK_TRANSACTION') documents,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank_sources,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_BANK_STATEMENT_ADMITTED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type='WBS_BANK_STATEMENT_ADMITTED') outbox",[ids.tenantId])).rows[0];
+  assert.deepEqual(counts,{statements:1,documents:1,bank_sources:1,audits:1,outbox:1});
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
+  await assert.rejects(adminPool.query('UPDATE wbs_bank_statement_receipt SET ending_balance=999 WHERE tenant_id=$1',[ids.tenantId]),error=>error.code==='55000');
 });
 
 pgTest('signed WBS transition-contract verification is view-scoped and produces no accounting write',async()=>{
