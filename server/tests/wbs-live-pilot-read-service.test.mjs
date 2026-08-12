@@ -4,7 +4,7 @@ import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {assertWbsLivePilotResult,createWbsLivePilotReadService,parseWbsLivePilotSelection,WBS_LIVE_PILOT_TOOLS} from '../runtime/wbs-live-pilot-read-service.mjs';
 
 const tenantId='6fb25daf-0799-4805-bede-be54230da33c',entityId='ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3';
-const observed=({tool='list_payables',rows=[{ap_guid:'private-ap-id',posting_date:'2026-08-11',amount:'12.3',pay_status:'OPEN'}],scope={company_codes:[],date_range:['2026-08-01','2026-08-11']}}={})=>({tool_name:tool,contract_version:'WBS-REFS-MCP-V1',environment:'production',captured_at:'2026-08-11T10:00:00.000Z',scope,record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,rows});
+const observed=({tool='list_payables',rows=[{ap_guid:'private-ap-id',posting_date:'2026-08-11',amount:'12.3',pay_status:'Clear'}],scope={company_codes:[],date_range:['2026-08-01','2026-08-11']}}={})=>({tool_name:tool,contract_version:'WBS-REFS-MCP-V1',environment:'production',captured_at:'2026-08-11T10:00:00.000Z',scope,record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,rows});
 
 test('pilot query requires one fixed tool and one bounded limit',()=>{
   assert.deepEqual(parseWbsLivePilotSelection(new URLSearchParams('tool=list_payables&limit=10')),{tool:'list_payables',limit:10});
@@ -18,7 +18,7 @@ test('live pilot authorizes exact scope and returns sanitized non-admitted obser
   const result=await service.readObservation({tenantId,entityId,tool:'list_payables',limit:1});
   assert.deepEqual(calls.slice(0,3),[{tenantId,entityId},'initialize','listTools']);assert.deepEqual(calls[3],{toolName:'list_payables',args:{limit:1}});
   assert.equal(result.status,'NOT_ADMITTED');assert.equal(result.observation_mode,'UNSIGNED_PILOT');assert.equal(result.signature_verified,false);
-  assert.deepEqual(result.scope,{company_codes:[],date_range:['2026-08-01','2026-08-11']});assert.equal(result.rows[0].amount,'12.3000');assert.equal(result.rows[0].accounting_date,'2026-08-11');assert.equal(result.rows[0].currency,'USD');assert.match(result.rows[0].source_record_hash,/^sha256:[0-9a-f]{64}$/);assert.equal(JSON.stringify(result).includes('private-ap-id'),false);
+  assert.deepEqual(result.scope,{company_codes:[],date_range:['2026-08-01','2026-08-11']});assert.equal(result.rows[0].amount,'12.3000');assert.equal(result.rows[0].accounting_date,'2026-08-11');assert.equal(result.rows[0].status,'CLEAR');assert.equal(result.rows[0].currency,'USD');assert.match(result.rows[0].source_record_hash,/^sha256:[0-9a-f]{64}$/);assert.equal(JSON.stringify(result).includes('private-ap-id'),false);
   for(const flag of ['can_import','can_create_transaction','can_match','can_allocate','can_create_draft','can_approve','can_post','can_reverse'])assert.equal(result[flag],false);
   assert.equal(assertWbsLivePilotResult(result,{entityId,tool:'list_payables',limit:1}),result);
 });
@@ -41,4 +41,14 @@ test('unsafe provider observations fail closed and cannot be asserted as API res
   const client={initialize:async()=>{},listTools:async()=>{},readView:async()=>observed({rows:[{amount:'1.0'}]})};
   await assert.rejects(createWbsLivePilotReadService({client,authorize:async()=>{}}).readObservation({tenantId,entityId,tool:'list_payables',limit:1}),error=>error.code==='WBS_LIVE_PILOT_ROW_KEY_INVALID');
   assert.throws(()=>assertWbsLivePilotResult({},{entityId,tool:'list_payables',limit:1}),error=>error.code==='WBS_LIVE_PILOT_RESULT_INVALID');
+});
+
+test('provider initialization and catalog failures map to stable unavailable errors after authorization',async()=>{
+  for(const method of ['initialize','listTools']){
+    let authorized=0;
+    const client={initialize:async()=>{if(method==='initialize')throw new Error('credential detail');},listTools:async()=>{if(method==='listTools')throw new Error('catalog detail');},readView:async()=>observed()};
+    const service=createWbsLivePilotReadService({client,authorize:async()=>{authorized++;}});
+    await assert.rejects(service.readObservation({tenantId,entityId,tool:'list_payables',limit:1}),error=>error.code==='WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE'&&!error.message.includes('detail'));
+    assert.equal(authorized,1);
+  }
 });
