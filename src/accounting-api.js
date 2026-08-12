@@ -698,12 +698,53 @@ const wbsTransitionEvidence=value=>{
 
 const WBS_SCOPE_TEXT=/^[^\u0000-\u001f\u007f]{1,512}$/;
 const wbsScopeText=(value,max=512)=>typeof value==='string'&&value===value.trim()&&value.length>0&&value.length<=max&&WBS_SCOPE_TEXT.test(value);
+const BARE_SHA256=/^[0-9a-f]{64}$/;
+const exactObjectKeys=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join('\u0000')===[...keys].sort().join('\u0000');
 const wbsEvidenceIsReadOnly=value=>{
   if(value===null||value===undefined)return true;
   if(Array.isArray(value))return value.every(wbsEvidenceIsReadOnly);
   if(typeof value!=='object')return true;
   return Object.entries(value).every(([key,item])=>(!/^can_[a-z0-9_]+$/.test(key)||item===false)&&wbsEvidenceIsReadOnly(item));
 };
+
+export const WBS_LIVE_PILOT_VIEWS=Object.freeze({
+  list_payables:Object.freeze({label:'Payables',fields:Object.freeze(['source_record_hash','accounting_date','currency','amount','status'])}),
+  list_bank_transactions:Object.freeze({label:'Bank transactions',fields:Object.freeze(['source_record_hash','accounting_date','currency','amount','direction','status'])}),
+  list_autorec_details:Object.freeze({label:'AutoRec details',fields:Object.freeze(['source_record_hash','accounting_date','currency','payment_amount','deposit_amount','status','match_status'])}),
+  list_autorec_banks:Object.freeze({label:'AutoRec banks',fields:Object.freeze(['source_record_hash','currency','pay_amount','debit_amount','quantity','released_amount','released_quantity','incurred_amount','status'])}),
+  list_journal_entries:Object.freeze({label:'Journal entries',fields:Object.freeze(['source_record_hash','accounting_date','currency','debit_amount','credit_amount','review_status'])})
+});
+const WBS_LIVE_PILOT_ENVELOPE_FIELDS=Object.freeze(['schema_version','status','observation_mode','source_system','tool','environment','entity_id','captured_at','provider_content_sha256','observation_hash','record_count','signature_verified','scope','rows','can_import','can_create_transaction','can_match','can_allocate','can_create_draft','can_approve','can_post','can_reverse']);
+const WBS_LIVE_PILOT_ACTION_FIELDS=Object.freeze(['can_import','can_create_transaction','can_match','can_allocate','can_create_draft','can_approve','can_post','can_reverse']);
+const wbsLivePilotMoneyFields=new Set(['amount','payment_amount','deposit_amount','pay_amount','debit_amount','quantity','released_amount','released_quantity','incurred_amount','credit_amount']);
+const wbsLivePilotDateFields=new Set(['accounting_date']);
+const wbsLivePilotStatusFields=new Set(['status','match_status','review_status']);
+const wbsLivePilotRow=(tool,row)=>{
+  const contract=WBS_LIVE_PILOT_VIEWS[tool];
+  if(!contract||!exactObjectKeys(row,contract.fields)||!SHA256.test(row.source_record_hash||''))return false;
+  for(const field of contract.fields){
+    if(field==='source_record_hash')continue;
+    if(field==='currency'){if(row[field]!=='USD')return false;continue;}
+    if(wbsLivePilotMoneyFields.has(field)){if(!MONEY4.test(row[field]||''))return false;continue;}
+    if(wbsLivePilotDateFields.has(field)){if(!validDate(row[field]))return false;continue;}
+    if(field==='direction'){if(!['DEBIT','CREDIT','UNKNOWN'].includes(row[field]))return false;continue;}
+    if(wbsLivePilotStatusFields.has(field)){if(!STATUS_TOKEN.test(row[field]||''))return false;continue;}
+    return false;
+  }
+  return true;
+};
+const wbsLivePilotObservation=(value,{entityId,tool,limit})=>{
+  if(!exactObjectKeys(value,WBS_LIVE_PILOT_ENVELOPE_FIELDS)||value.schema_version!=='WBS_LIVE_PILOT_OBSERVATION_V1'||value.status!=='NOT_ADMITTED'||value.observation_mode!=='UNSIGNED_PILOT'||value.source_system!=='WBS'||value.tool!==tool||value.environment!=='PRODUCTION'||value.entity_id!==entityId||!validTimestamp(value.captured_at)||!BARE_SHA256.test(value.provider_content_sha256||'')||!SHA256.test(value.observation_hash||'')||value.signature_verified!==false||!Number.isSafeInteger(value.record_count)||value.record_count<0||value.record_count>limit||!Array.isArray(value.rows)||value.rows.length!==value.record_count||WBS_LIVE_PILOT_ACTION_FIELDS.some(field=>value[field]!==false)||!wbsEvidenceIsReadOnly(value))return false;
+  if(!exactObjectKeys(value.scope,['company_codes','date_range'])||!Array.isArray(value.scope.company_codes)||value.scope.company_codes.length>50||value.scope.company_codes.some(code=>!wbsScopeText(code,128))||new Set(value.scope.company_codes).size!==value.scope.company_codes.length||!Array.isArray(value.scope.date_range)||value.scope.date_range.length!==2||value.scope.date_range.some(date=>date!==null&&!validDate(date))||value.scope.date_range[0]&&value.scope.date_range[1]&&value.scope.date_range[0]>value.scope.date_range[1])return false;
+  return value.rows.every(row=>wbsLivePilotRow(tool,row))&&new Set(value.rows.map(row=>row.source_record_hash)).size===value.rows.length;
+};
+
+export async function refreshAuthoritativeWbsLivePilot({config,tool,limit=10,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!Object.hasOwn(WBS_LIVE_PILOT_VIEWS,tool)||!Number.isSafeInteger(limit)||limit<1||limit>10)return {ok:false,code:'WBS_LIVE_PILOT_SCOPE_INVALID',message:'Production WBS observation requires one approved read-only view and a limit from one to ten.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const params=new URLSearchParams({tool,limit:String(limit)});
+  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/wbs/live-pilot?${params}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});if(!response.ok)return await failure(response,'WBS_LIVE_PILOT_OBSERVATION');const body=await response.json();if(body?.ok!==true||!wbsLivePilotObservation(body.data,{entityId:config.entityId,tool,limit}))return {ok:false,code:'WBS_LIVE_PILOT_PROTOCOL',message:'The accounting API returned invalid, identifying, admitted, signed, or action-enabled WBS pilot evidence.'};return {ok:true,data:body.data,scope:{entityId:config.entityId,tool,limit}};}catch{return unreachable('The browser could not read the production WBS pilot observation; no HTTP response was produced.');}
+}
 const wbsReviewCandidate=(row,{entityId,companyKey,sourceRecordIds})=>row&&typeof row==='object'&&SHA256.test(row.review_candidate_id||'')&&row.stage==='STAGING_REVIEWED'&&['BANK_SIDE','BUSINESS_SIDE'].includes(row.side)&&wbsScopeText(row.source_type,128)&&row.entity_id===entityId&&row.company_key===companyKey&&sourceRecordIds.includes(row.source_record_id)&&/^[A-Z]{3}$/.test(row.currency||'')&&REPORT_MONEY4.test(row.amount||'')&&validDate(row.business_date)&&validDate(row.accounting_date)&&wbsScopeText(row.bank_account_ref,128)&&wbsScopeText(row.source_record_id)&&wbsScopeText(row.source_version)&&wbsScopeText(row.raw_event_id)&&wbsScopeText(row.source_document_id)&&wbsScopeText(row.staging_item_id)&&row.mapping&&wbsScopeText(row.mapping.mapping_id)&&wbsScopeText(row.mapping.version)&&SHA256.test(row.mapping.snapshot_hash||'')&&wbsEvidenceIsReadOnly(row);
 const wbsReviewEvidence=(value,scope)=>{
   if(!value||typeof value!=='object'||Array.isArray(value)||value.can_dispatch!==false||value.can_create_draft!==false||value.can_post!==false||!Array.isArray(value.candidates)||!Array.isArray(value.exceptions)||!wbsEvidenceIsReadOnly(value))return false;

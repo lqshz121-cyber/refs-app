@@ -37,6 +37,8 @@ services:
         value: DISABLED
       - key: REFS_WBS_INGEST_MODE
         value: DISABLED
+      - key: REFS_WBS_LIVE_PILOT_MODE
+        value: DISABLED
       - key: DATABASE_URL
         sync: false
       - key: MIGRATION_DATABASE_URL
