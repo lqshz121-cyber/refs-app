@@ -4,7 +4,7 @@ const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.pos
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
-  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','finalizeAttachment','postJournal','recordWbsSnapshot','reserveAttachment','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','transitionJournal','transitionReconciliation','unmatchBankPayment','verifyWbsAutoRecTransitionContract']);
+  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','recordWbsSnapshot','reserveAttachment','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','transitionJournal','transitionReconciliation','unmatchBankPayment','verifyWbsAutoRecTransitionContract']);
 });
 
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{
@@ -55,6 +55,13 @@ test('WBS snapshot observations are scoped idempotent evidence only and producti
   assert.match(operation.description,/never writes WBS, source documents, journal entries or ledger lines/i);assert.match(operation.description,/detached Ed25519 signature/i);
   const body=contract.components.requestBodies.WbsSnapshot.content['application/json'].schema;
   assert.equal(body.additionalProperties,false);assert.deepEqual(body.required,['snapshot']);
+});
+
+test('admitted Payable import requires signed explicit scope and exposes no accounting action',()=>{
+  const operation=contract.paths['/entities/{entityId}/wbs/inbound/payables'].post;
+  assert.equal(operation.operationId,'ingestAdmittedWbsPayables');assert.equal(operation.requestBody.$ref,'#/components/requestBodies/WbsSnapshot');
+  assert.deepEqual(operation.parameters.map(parameter=>parameter.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);
+  assert.match(operation.description,/production V2 Payable snapshot/i);assert.match(operation.description,/company, currency and snapshot-token/i);assert.match(operation.description,/never writes WBS.*Draft.*posts/i);
 });
 
 test('WBS AutoRec review is a bounded authenticated read with no accounting action contract',()=>{

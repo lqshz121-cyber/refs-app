@@ -19,6 +19,8 @@ import {createWbsTraceRelationOrchestrator} from '../runtime/wbs-mcp-inbound-ser
 import {buildWbsAutoRecExecutionIntent} from '../runtime/wbs-autorec-execution-contract.mjs';
 import {createProductionAccountingServer} from '../runtime/accounting-server.mjs';
 import {OidcJwtAuthenticator,REFS_TENANT_CLAIM} from '../api/oidc-authenticator.mjs';
+import {buildWbsMcpReadonlySnapshot} from '../runtime/wbs-mcp-inbound-lineage.mjs';
+import {createWbsAdmittedPayableIngestion} from '../runtime/wbs-admitted-payable-ingestion.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -171,6 +173,22 @@ pgTest('authorized WBS snapshot import persists immutable observations without c
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_SNAPSHOT_OBSERVED'",[ids.tenantId])).rows[0].n,2);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_SNAPSHOT_DELIVERY_ATTESTED'",[ids.tenantId])).rows[0].n,1);
   await assert.rejects(adminPool.query("UPDATE wbs_snapshot_receipt SET source_record_id='tampered' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
+});
+
+pgTest('admitted signed Payable composition persists receipt Raw Normalized Staging and replays with zero journal writes',async()=>{
+  const ids=await seed({status:'DRAFT'}),{privateKey,publicKey}=generateKeyPairSync('ed25519'),keyId='wbs-payable-composition-pg',capturedAt='2026-08-11T03:00:00.000Z',snapshotToken=`pg-payable-${randomUUID()}`,sourceId=randomUUID();
+  const rows=[{ap_guid:sourceId,ap_type:'AUTOC',company_code:ids.sourceEntityId,currency:'USD',amount:'89.1250',incurred_date:'2026-08-10',posting_date:'2026-08-11',vendor_no:'VENDOR-PG'}];
+  const envelope={contract_version:'WBS-REFS-MCP-V1',tool:'list_payables',environment:'production',captured_at:capturedAt,source:{system:'WBS'},scope:{company:ids.sourceEntityId,currency:'USD',snapshot_token:snapshotToken},record_count:1,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:'Snapshot comparison required',rows};
+  const conventions=[{scope:{company_key:ids.sourceEntityId,currency:'USD'},receipt:{hash:`sha256:${envelope.content_sha256}`,ref:'object://wbs/payable/pg-direction',version:'1',verification_id:'pg-verify-1',key_id:keyId,algorithm:'Ed25519',verified_on:capturedAt},rule_id:'WBS-PAYABLE-PG-DIRECTION',version:'1',ap_type:'AUTOC',direction:'DEBIT'}];
+  const unsigned=buildWbsMcpReadonlySnapshot({envelopes:[envelope],snapshotId:randomUUID(),dictionaryVersion:'WBS-MCP-V1',environment:'PRODUCTION',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',snapshot_token:snapshotToken,extract_started_at:'2026-08-11T02:59:00.000Z',extract_completed_at:capturedAt,consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'},detachedSignature:{key_id:keyId,algorithm:'Ed25519',value:'placeholder'},payableDirectionConventions:conventions});
+  const snapshot={...unsigned,detached_signature:{...unsigned.detached_signature,value:sign(null,Buffer.from(unsigned.package_hash),privateKey).toString('base64')}},verifier=createWbsSnapshotSignatureVerifier({publicKeys:{[keyId]:publicKey.export({type:'spki',format:'pem'})}});
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'admitted-payable-importer',['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:verifier}),service=createWbsAdmittedPayableIngestion({kernel,signatureVerifier:verifier});
+  const journalsBefore=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,idempotencyKey=`wbs-payable-pg-${randomUUID()}`;
+  const created=await service.ingest({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey}),replayed=await service.ingest({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey});
+  assert.deepEqual({status:created.status,replay:replayed.idempotent,normalized:created.normalized_count,staging:created.staging_count,draft:created.can_create_draft,post:created.can_post},{status:'PERSISTED_PAYABLE_STAGING_REVIEW_REQUIRED',replay:true,normalized:1,staging:1,draft:false,post:false});
+  const stored=(await adminPool.query("SELECT r.receipt_hash,i.source_record_id,i.source_version,i.raw,i.normalized,i.outcome_kind FROM wbs_inbound_receipt r JOIN wbs_inbound_row i USING(receipt_id) WHERE r.tenant_id=$1 AND r.entity_id=$2 AND i.source_record_id=$3",[ids.tenantId,ids.entityId,sourceId])).rows[0];
+  assert.equal(stored.source_record_id,sourceId);assert.match(stored.source_version,/^snapshot:/);assert.equal(stored.raw.amount,-89.125);assert.equal(stored.normalized.amount_money4,'-89.1250');assert.equal(stored.normalized.company_key,ids.sourceEntityId);assert.equal(stored.normalized.currency,'USD');assert.equal(stored.outcome_kind,'STAGING');assert.match(stored.receipt_hash,/^sha256:[0-9a-f]{64}$/);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
 });
 
 pgTest('signed WBS transition-contract verification is view-scoped and produces no accounting write',async()=>{
