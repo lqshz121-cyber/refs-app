@@ -1,14 +1,14 @@
-BEGIN;
+﻿BEGIN;
 
 -- PostgreSQL DATE values are parsed by node-postgres as local-time Date
 -- objects. JSON serialization can therefore change the calendar day and does
 -- not satisfy the API's YYYY-MM-DD contract. Recreate the read functions with
 -- explicit date-only text at the database boundary.
 
-DROP FUNCTION refs_list_account_register(uuid,uuid,uuid,text);
-DROP FUNCTION refs_list_chart_of_accounts(uuid,uuid,uuid);
+DROP FUNCTION public.refs_list_account_register(uuid,uuid,uuid,text);
+DROP FUNCTION public.refs_list_chart_of_accounts(uuid,uuid,uuid);
 
-CREATE FUNCTION refs_list_chart_of_accounts(p_tenant uuid,p_entity uuid,p_period uuid)
+CREATE FUNCTION public.refs_list_chart_of_accounts(p_tenant uuid,p_entity uuid,p_period uuid)
 RETURNS TABLE(
   period_id uuid,
   period_code text,
@@ -67,7 +67,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION refs_list_account_register(p_tenant uuid,p_entity uuid,p_period uuid,p_account_code text)
+CREATE FUNCTION public.refs_list_account_register(p_tenant uuid,p_entity uuid,p_period uuid,p_account_code text)
 RETURNS TABLE(
   period_id uuid,
   period_code text,
@@ -139,9 +139,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION refs_list_chart_of_accounts(uuid,uuid,uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION refs_list_account_register(uuid,uuid,uuid,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION refs_list_chart_of_accounts(uuid,uuid,uuid) TO refs_app;
-GRANT EXECUTE ON FUNCTION refs_list_account_register(uuid,uuid,uuid,text) TO refs_app;
+REVOKE ALL ON FUNCTION public.refs_list_chart_of_accounts(uuid,uuid,uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.refs_list_account_register(uuid,uuid,uuid,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.refs_list_chart_of_accounts(uuid,uuid,uuid) TO refs_app;
+GRANT EXECUTE ON FUNCTION public.refs_list_account_register(uuid,uuid,uuid,text) TO refs_app;
 
 COMMIT;
