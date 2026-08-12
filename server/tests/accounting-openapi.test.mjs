@@ -72,6 +72,15 @@ test('WBS Payable review is an evidence-only CAS command with frozen server-side
   const body=contract.components.requestBodies.WbsPayableReview.content['application/json'].schema;assert.equal(body.additionalProperties,false);assert.ok(body.required.includes('expectedEvidenceHash'));assert.ok(body.required.includes('mappingSnapshotId'));assert.ok(body.required.includes('attachmentIds'));
 });
 
+test('admitted WBS Payable review candidates are dual-permission closed GET contracts',()=>{
+  const list=contract.paths['/entities/{entityId}/wbs/inbound/payables/review-candidates'].get;
+  const detail=contract.paths['/entities/{entityId}/wbs/inbound/payables/review-candidates/{wbsInboundRowId}'].get;
+  assert.equal(list.operationId,'listAdmittedWbsPayableReviewCandidates');assert.equal(detail.operationId,'getAdmittedWbsPayableReviewCandidate');
+  for(const operation of [list,detail]){assert.match(operation.description,/WBS\.PAYABLE\.REVIEW/);assert.match(operation.description,/AP\.VIEW/);assert.match(operation.description,/no Draft|creates no Draft/i);}
+  const row=contract.components.schemas.WbsPayableReviewCandidateRow;assert.equal(row.additionalProperties,false);assert.ok(row.required.includes('review_readiness'));assert.ok(row.required.includes('can_review'));
+  for(const forbidden of ['raw','normalized','payload_ref','source_record_id','provider_secret','signature','access_token'])assert.equal(row.properties[forbidden],undefined);
+});
+
 test('reviewed WBS Payable evidence is a dual-permission closed GET contract',()=>{
   const list=contract.paths['/entities/{entityId}/wbs/inbound/payables/reviews'].get;
   const detail=contract.paths['/entities/{entityId}/wbs/inbound/payables/reviews/{reviewEvidenceId}'].get;

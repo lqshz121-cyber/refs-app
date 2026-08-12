@@ -185,6 +185,18 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async listWbsPayableReviewCandidates({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_wbs_payable_review_candidates($1,$2,NULL,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async getWbsPayableReviewCandidate({tenantId,entityId,wbsInboundRowId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_wbs_payable_review_candidates($1,$2,$3,1)',[tenantId,entityId,wbsInboundRowId]
+    )).rows);
+  }
+
   async createWbsPayableApDraft({tenantId,entityId,wbsInboundRowId,reviewEvidenceId,expectedRevision,expectedEvidenceHash,mappingSnapshotId,attachmentIds,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

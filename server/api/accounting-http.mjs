@@ -104,6 +104,22 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await kernel.listWbsPayableReviewEvidence({tenantId:principal.tenantId,entityId,limit:optionalAdmittedStatementLimit(parsedUrl.searchParams.get('limit'))});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[7]==='review-candidates'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS Payable review-candidate reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listWbsPayableReviewCandidates!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_REVIEW_CANDIDATE_READ_UNAVAILABLE','WBS Payable review-candidate read is unavailable');
+        result=await kernel.listWbsPayableReviewCandidates({tenantId:principal.tenantId,entityId,limit:optionalAdmittedStatementLimit(parsedUrl.searchParams.get('limit'))});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===9&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[7]==='review-candidates'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS Payable review-candidate reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.getWbsPayableReviewCandidate!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_REVIEW_CANDIDATE_READ_UNAVAILABLE','WBS Payable review-candidate read is unavailable');
+        result=await kernel.getWbsPayableReviewCandidate({tenantId:principal.tenantId,entityId,wbsInboundRowId:requireUuid(parts[8],'wbsInboundRowId')});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result[0]}};
+      }
       if(method==='GET'&&parts.length===9&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[7]==='reviews'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS Payable evidence reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
