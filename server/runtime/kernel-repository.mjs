@@ -482,6 +482,19 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async startReconciliationFromAdmittedWbsStatement(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_statement_reconciliation_start_hash($1,$2,$3,$4) AS request_hash',
+        [args.tenantId,args.entityId,args.statementReceiptId,args.reason]
+      ),'WBS_STATEMENT_RECONCILIATION_START_HASH_FAILED','Admitted WBS statement reconciliation hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_start_reconciliation_from_wbs_statement($1,$2,$3,$4,$5,$6) AS result',
+        [args.tenantId,args.entityId,args.statementReceiptId,args.reason,args.idempotencyKey,requestHash]
+      ),'WBS_STATEMENT_RECONCILIATION_START_FAILED','Admitted WBS statement reconciliation did not return a result').result;
+    });
+  }
+
   async setReconciliationClearance(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

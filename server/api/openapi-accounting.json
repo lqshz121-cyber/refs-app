@@ -1346,6 +1346,26 @@
         }
       }
     },
+    "/entities/{entityId}/bank/reconciliations/from-admitted-statement": {
+      "post": {
+        "operationId": "startReconciliationFromAdmittedWbsStatement",
+        "summary": "Start one reconciliation from an admitted signed WBS statement receipt",
+        "description": "Requires BANK.RECONCILIATION.START. The server derives the bank account, currency, statement dates, opening and ending balances, and exact worksheet population from one immutable signature-verified ADMITTED statement receipt. The client cannot override those facts. This starts only a Draft reconciliation; it never matches, clears, reviews, signs off, creates a Journal Entry, or posts.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {"$ref": "#/components/requestBodies/AdmittedWbsStatementReconciliationStart"},
+        "responses": {
+          "200": {"$ref": "#/components/responses/CommandReplay"},
+          "201": {"$ref": "#/components/responses/CommandCreated"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/SerializationRetryExhausted"},
+          "default": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/bank/reconciliations/{reconciliationId}/items/{bankSourceId}/clearance": {
       "post": {
         "operationId": "setReconciliationClearance",
@@ -4143,6 +4163,22 @@
                   "minLength": 8,
                   "maxLength": 2000
                 }
+              }
+            }
+          }
+        }
+      },
+      "AdmittedWbsStatementReconciliationStart": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["statementReceiptId", "reason"],
+              "properties": {
+                "statementReceiptId": {"$ref": "#/components/schemas/Uuid"},
+                "reason": {"type": "string", "minLength": 8, "maxLength": 2000}
               }
             }
           }
