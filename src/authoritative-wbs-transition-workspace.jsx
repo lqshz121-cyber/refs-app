@@ -1,5 +1,5 @@
 import React,{useState} from 'react';
-import {refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,verifyAuthoritativeWbsTransitionContract} from './accounting-api.js';
+import {activateAuthoritativeWbsReadAccess,refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,verifyAuthoritativeWbsTransitionContract} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeDemoView,AuthoritativeDemoWorkspaceHeader} from './authoritative-demo-view.jsx';
 
@@ -12,6 +12,7 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
   const [reviewState,setReviewState]=useState({phase:'IDLE',data:null,error:null});
   const [controlInput,setControlInput]=useState({sourceType:'COST_GENERAL_LEDGER',companyKey:'',period:'',currency:'USD',propertyRef:'',periodStart:'',periodEnd:'',bankAccountRef:''});
   const [controlState,setControlState]=useState({phase:'IDLE',data:null,error:null});
+  const [accessState,setAccessState]=useState({phase:'IDLE',error:null});
   const verify=async event=>{
     event.preventDefault();
     let contract;
@@ -34,6 +35,12 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     const result=await refreshAuthoritativeWbsControlReconciliation({config,...controlInput,fetcher});
     setControlState(current=>result.ok&&result.data.status!=='BLOCKED'?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result.ok?{code:result.data.code,message:'Receipt-backed WBS and REFS control evidence is incomplete for this exact scope.'}:result});
   };
+  const activateWbsRead=async()=>{
+    setAccessState({phase:'LOADING',error:null});
+    const idempotencyKey=`wbs-read-${globalThis.crypto?.randomUUID?.()||Date.now().toString(36)}`;
+    const result=await activateAuthoritativeWbsReadAccess({config,fetcher,idempotencyKey});
+    setAccessState(result.ok?{phase:'READY',error:null}:{phase:'BLOCKED',error:result});
+  };
   const data=state.data;
   const review=reviewState.data,control=controlState.data;
   return <AuthoritativeDemoView area="WBS transition evidence" className="stack authoritative-wbs-transition-workspace">
@@ -44,6 +51,12 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     <section className="report-workbench" aria-label="Current WBS evidence scope">
       <div className="report-workbench-head"><div><b>Provider evidence scope</b><div className="page-subtitle">The provider contract must be verified by the accounting API before any transition facts are displayed.</div></div><span className="badge badge-muted">READ ONLY</span></div>
       <div className="qbo-toolgrid"><span><i>Entity scope</i><b>{scopeValue(config?.entityId)}</b></span><span><i>Accounting period</i><b>{scopeValue(config?.periodId)}</b></span><span><i>Authority</i><b>Evidence only</b></span></div>
+    </section>
+
+    <section className="report-workbench" aria-label="WBS evidence read access">
+      <div className="report-workbench-head"><div><b>WBS evidence read access</b><div className="page-subtitle">Add only the dedicated WBS AutoRec evidence-read permission to this already-authorized Stage 1 account. This cannot import WBS data or grant accounting commands.</div></div><button type="button" className="btn" disabled={accessState.phase==='LOADING'} onClick={activateWbsRead}>{accessState.phase==='LOADING'?'Enabling WBS evidence read...':'Enable WBS evidence read'}</button></div>
+      {accessState.phase==='READY'&&<StateBlock tone="success" title="WBS evidence read enabled">This session can now request persisted AutoRec and control evidence. No WBS import or accounting write permission was added.</StateBlock>}
+      {accessState.phase==='BLOCKED'&&<StateBlock tone="blocked" title={accessState.error?.code||'WBS_READ_ACCESS_BLOCKED'}>{accessState.error?.message}</StateBlock>}
     </section>
 
     <section className="qbo-grid" aria-label="WBS evidence boundaries">

@@ -13,7 +13,7 @@ const observedState={tenant_id:'t1',entity_id:'e1',company_key:'COMPANY-A',sourc
 function repository({badScope=false,fail=false}={}){return {readPersistedWbsInboundRows:async()=>{if(fail)throw Error('unavailable');return badScope?[{...bank,company_key:'COMPANY-B'}]:[bank,payable]},readPersistedWbsControlRows:async()=>({companyRows:[control],detailRows:[],persistedRows:[control]}),readApprovedWbsAutoRecMappings:async()=>[map(bank),map(payable)],readApprovedWbsAutoRecMatchingPolicies:async()=>[],readWbsAutoRecObservedStateEvidence:async()=>[observedState]};}
 
 test('composes only scoped persisted receipt-backed rows and returns stable replay',async()=>{
-  const reader=createWbsInboundAutoRecReadComposition({repository:repository()});const first=await reader.read(scope);assert.equal(first.status,'READ_ONLY_PROJECTED');assert.equal(first.candidates.length,2);assert.equal(first.review_plans.length,0);assert.deepEqual({count:first.observed_state_evidence.length,state:first.observed_state_evidence[0].observed_state,release:first.observed_state_evidence[0].can_release},{count:1,state:'RELEASED',release:false});assert.equal(first.can_post,false);
+  const reader=createWbsInboundAutoRecReadComposition({repository:repository()});const first=await reader.read(scope);assert.equal(first.status,'READ_ONLY_PROJECTED');assert.equal(first.candidates.length,2);assert.deepEqual(first.candidates.map(row=>row.amount).sort(),['-100.0000','100.0000']);assert.equal(first.review_plans.length,0);assert.deepEqual({count:first.observed_state_evidence.length,state:first.observed_state_evidence[0].observed_state,release:first.observed_state_evidence[0].can_release},{count:1,state:'RELEASED',release:false});assert.equal(first.can_post,false);
   const replay=await reader.read(scope);assert.equal(replay.replayed,true);assert.equal(replay.request_hash,first.request_hash);
   const changed=await reader.read({...scope,companyKey:'COMPANY-B'});assert.equal(changed.code,'WBS_AUTOREC_READ_REPLAY_CONFLICT');assert.equal(changed.candidates.length,0);
 });
@@ -22,7 +22,7 @@ test('an approved matching-policy snapshot alone can create a read-only proposal
   const reader=createWbsInboundAutoRecReadComposition({repository:{...repository(),readApprovedWbsAutoRecMatchingPolicies:async()=>[policy]}});
   const result=await reader.read({...scope,replayKey:'policy-plan'});
   assert.equal(result.review_plans.length,1);assert.equal(result.review_plans[0].status,'REVIEW_REQUIRED');
-  assert.deepEqual({allocated:result.review_plans[0].control_totals.allocated_total,allocate:result.review_plans[0].can_allocate,post:result.review_plans[0].can_post},{allocated:100,allocate:false,post:false});
+  assert.deepEqual({allocated:result.review_plans[0].control_totals.allocated_total,edgeAmount:result.review_plans[0].allocation_plan[0].amount,allocate:result.review_plans[0].can_allocate,post:result.review_plans[0].can_post},{allocated:'100.0000',edgeAmount:'100.0000',allocate:false,post:false});
 });
 
 test('duplicate matching policies for one company/currency/bank scope are fail-closed',async()=>{

@@ -15,6 +15,8 @@ assert.match(markup,/never operates WBS or accounting/);
 assert.match(markup,/Signed contract required/);
 assert.match(markup,/Pinned provider verification/);
 assert.match(markup,/Zero REFS action authority/);
+assert.match(markup,/Enable WBS evidence read/);
+assert.match(markup,/cannot import WBS data or grant accounting commands/);
 assert.match(markup,/Persisted AutoRec review evidence/);
 assert.match(markup,/Load AutoRec review evidence/);
 assert.match(markup,/WBS \/ REFS control reconciliation/);
@@ -30,6 +32,7 @@ const source=fs.readFileSync('src/authoritative-wbs-transition-workspace.jsx','u
 assert.match(source,/verifyAuthoritativeWbsTransitionContract/);
 assert.match(source,/refreshAuthoritativeWbsAutoRecReview/);
 assert.match(source,/refreshAuthoritativeWbsControlReconciliation/);
+assert.match(source,/activateAuthoritativeWbsReadAccess/);
 assert.match(source,/status!=='BLOCKED'\?\{phase:'READY',data:result\.data,error:null\}:\{phase:'BLOCKED',data:current\.data/);
 assert.match(source,/no-action guard/);
 assert.match(source,/AuthoritativeDemoView/);

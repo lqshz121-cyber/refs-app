@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {STAGE1_READ_PERMISSIONS,grantStage1AuthenticatedReadAccess,grantStage1ReadAccess,stage1AuthenticatedGrantConfig,stage1GrantConfig,stage1ProvisionConfig,stage1SelfGrantConfig} from '../runtime/stage1-bootstrap.mjs';
+import {STAGE1_READ_PERMISSIONS,STAGE1_WBS_READ_PERMISSIONS,grantStage1AuthenticatedReadAccess,grantStage1ReadAccess,stage1AuthenticatedGrantConfig,stage1GrantConfig,stage1ProvisionConfig,stage1SelfGrantConfig,stage1SelfWbsReadUpgradeConfig,upgradeStage1WbsReadAccess} from '../runtime/stage1-bootstrap.mjs';
 
 const serverRoot=fileURLToPath(new URL('..',import.meta.url));
 
@@ -42,9 +42,23 @@ test('self-service reader activation is disabled unless the explicit staging-onl
   assert.throws(()=>stage1SelfGrantConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY',REFS_DEPLOYMENT_ENV:'production'}),error=>error.code==='STAGE1_BOOTSTRAP_ENV_DENIED');
 });
 
+test('self-service WBS reader upgrade is a version-1 add-only read scope',()=>{
+  assert.equal(stage1SelfWbsReadUpgradeConfig(base),null);
+  const config=stage1SelfWbsReadUpgradeConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY'});
+  assert.equal(config.expectedVersion,1);
+  assert.deepEqual(config.permissions,STAGE1_WBS_READ_PERMISSIONS);
+  assert.deepEqual(config.permissions.filter(value=>/IMPORT|POST|CREATE|APPROVE|WRITE/.test(value)),[]);
+});
+
 test('Stage 1 grant wrapper refuses an altered permission set before reaching PostgreSQL',async()=>{
   const config={...stage1GrantConfig(base),permissions:['AP.VIEW']};
   await assert.rejects(grantStage1ReadAccess({},config),error=>error.code==='STAGE1_GRANT_SCOPE_DENIED');
+});
+
+test('Stage 1 WBS upgrade wrapper refuses altered versions and permission sets before PostgreSQL',async()=>{
+  const config={...stage1SelfWbsReadUpgradeConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY'}),actorId:'auth0|reader',idempotencyKey:'wbs-read-upgrade-0001'};
+  await assert.rejects(upgradeStage1WbsReadAccess({}, {...config,expectedVersion:0}),error=>error.code==='STAGE1_WBS_READ_UPGRADE_SCOPE_DENIED');
+  await assert.rejects(upgradeStage1WbsReadAccess({}, {...config,permissions:[...STAGE1_READ_PERMISSIONS,'WBS.SNAPSHOT.IMPORT']}),error=>error.code==='STAGE1_WBS_READ_UPGRADE_SCOPE_DENIED');
 });
 
 test('authenticated Stage 1 grants derive only the verified access-token subject and reject tenant swaps before PostgreSQL',async()=>{

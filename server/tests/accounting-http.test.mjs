@@ -20,6 +20,19 @@ test('self-service Stage 1 activation derives only the signed-in principal and f
   assert.equal(disabled.status,404);
 });
 
+test('self-service WBS reader upgrade derives only the signed-in principal and carries no write input',async()=>{
+  const upgradeCalls=[];
+  const selfService=createAccountingApi({
+    authenticate:async()=>({trusted:true,tenantId,actorId:'oidc|reader'}),kernelFactory:async()=>kernel,
+    stage1SelfWbsReadUpgradeServiceFactory:async principal=>({upgrade:async input=>{upgradeCalls.push([principal,input]);return {idempotent:false,permissionCount:6};}})
+  });
+  const response=await selfService({method:'POST',url:`/api/v1/entities/${entityId}/access/self-service-wbs-read-grant/upgrade`,body:{},headers:{'Idempotency-Key':'wbs-upgrade-0001'}});
+  assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body.data,{upgraded:true,idempotent:false,permission_count:6});
+  assert.deepEqual(upgradeCalls,[[{trusted:true,tenantId,actorId:'oidc|reader'},{entityId,idempotencyKey:'wbs-upgrade-0001'}]]);
+  const forbidden=await selfService({method:'POST',url:`/api/v1/entities/${entityId}/access/self-service-wbs-read-grant/upgrade`,body:{permission:'WBS.SNAPSHOT.IMPORT'},headers:{'Idempotency-Key':'wbs-upgrade-0002'}});
+  assert.equal(forbidden.status,400);
+});
+
 test('manual command derives tenant/entity/actor boundary from authenticated context',async()=>{
   calls.length=0;const body={periodId,journalNumber:'JE-1',journalDate:'2026-08-02',currency:'USD',attachmentIds:[],lines:[]};
   const response=await command(`/api/v1/entities/${entityId}/journal-entries/manual`,body);

@@ -732,6 +732,17 @@ export async function refreshAuthoritativeWbsAutoRecReview({config,companyKey,so
   try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/wbs/auto-reconciliation/review-candidates?${params}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});if(!response.ok)return await failure(response,'WBS_AUTOREC_REVIEW_EVIDENCE');const body=await response.json();const scope={entityId:config.entityId,companyKey:company,sourceRecordIds:sources};if(body?.ok!==true||!wbsReviewEvidence(body.data,scope))return {ok:false,code:'WBS_AUTOREC_REVIEW_PROTOCOL',message:'The accounting API returned invalid, cross-scope, or action-enabled WBS AutoRec review evidence.'};return {ok:true,data:body.data,scope};}catch{return unreachable('The browser could not read persisted WBS AutoRec review evidence; no HTTP response was produced.');}
 }
 
+export async function activateAuthoritativeWbsReadAccess({config,fetcher=globalThis.fetch,idempotencyKey}={}){
+  if(!config||typeof fetcher!=='function'||typeof idempotencyKey!=='string'||idempotencyKey.length<8)return {ok:false,code:'WBS_READ_ACCESS_SCOPE_INVALID',message:'WBS evidence reader activation requires an authoritative scope.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/access/self-service-wbs-read-grant/upgrade`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:'{}'});
+    if(!response.ok)return await failure(response,'WBS_READ_ACCESS');
+    const body=await response.json();
+    return body?.ok===true&&body?.data?.upgraded===true&&body.data.permission_count===6?{ok:true,idempotent:body.data.idempotent===true}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'WBS evidence reader activation returned an invalid response.'};
+  }catch{return unreachable('The browser could not complete the WBS evidence reader activation; no HTTP response was produced.');}
+}
+
 export async function refreshAuthoritativeWbsControlReconciliation({config,sourceType,companyKey,period=null,currency,propertyRef=null,periodStart=null,periodEnd=null,bankAccountRef=null,fetcher=globalThis.fetch}={}){
   const type=String(sourceType||''),company=typeof companyKey==='string'?companyKey.trim():'',unit=String(currency||'').trim().toUpperCase(),propertyKey=typeof propertyRef==='string'?propertyRef.trim():'',bankKey=typeof bankAccountRef==='string'?bankAccountRef.trim():'';
   const cost=type==='COST_GENERAL_LEDGER',property=type==='PROPERTY_COMPARISON';
