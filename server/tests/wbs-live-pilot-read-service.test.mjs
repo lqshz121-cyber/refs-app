@@ -28,12 +28,26 @@ test('each tool exposes only its frozen row contract and never a provider stable
     list_bank_transactions:{row:{cb_id:'bank-private',posting_date:'2026-08-10',debtor:'4',lender:'0',review:'READY'},keys:['source_record_hash','currency','accounting_date','amount','direction','status']},
     list_autorec_details:{row:{pd_guid:'detail-private',incurred_date:'2026-08-09',payment:'2',deposit:'3.25',status:'OPEN',match_status:'UNMATCHED'},keys:['source_record_hash','currency','accounting_date','payment_amount','deposit_amount','status','match_status']},
     list_autorec_banks:{row:{pb_guid:'autorec-private',pay_amount:'1',debit_amount:'2',quantity:'3',released:'4',released_quantity:'5',incurred:'6',status:'READY'},keys:['source_record_hash','currency','pay_amount','debit_amount','quantity','released_amount','released_quantity','incurred_amount','status']},
-    list_journal_entries:{row:{id:7,posting_date:'2026-08-08',debtor:'9',lender:'10',review:'PENDING'},keys:['source_record_hash','currency','accounting_date','debit_amount','credit_amount','review_status']}
+    list_journal_entries:{row:{id:7,posting_date:'2026-08-08 04:05:06',debtor:'9.25',lender:'10.00',review:'0'},keys:['source_record_hash','currency','accounting_date','debit_amount','credit_amount','review_status']}
   };
   for(const [tool,{row,keys}] of Object.entries(fixtures)){
     const client={initialize:async()=>{},listTools:async()=>{},readView:async()=>observed({tool,rows:[row]})};
     const result=await createWbsLivePilotReadService({client,authorize:async()=>{}}).readObservation({tenantId,entityId,tool,limit:1});
     assert.deepEqual(Object.keys(result.rows[0]),keys);assert.equal(JSON.stringify(result.rows[0]).includes('private'),false);
+    if(tool==='list_journal_entries')assert.deepEqual(result.rows[0],{source_record_hash:result.rows[0].source_record_hash,currency:'USD',accounting_date:'2026-08-08',debit_amount:'9.2500',credit_amount:'10.0000',review_status:'CODE_0'});
+  }
+});
+
+test('live journal dates are timezone-independent and invalid SQL timestamps remain blocked',async()=>{
+  for(const posting_date of ['2026-08-08','2026-08-08 04:05:06','2026-08-08T04:05:06','2026-08-08T04:05:06Z','2026-08-08T04:05:06+08:00']){
+    const client={initialize:async()=>{},listTools:async()=>{},readView:async()=>observed({tool:'list_journal_entries',rows:[{id:7,posting_date,debtor:'9.25',lender:'0.00',review:'0'}]})};
+    const result=await createWbsLivePilotReadService({client,authorize:async()=>{}}).readObservation({tenantId,entityId,tool:'list_journal_entries',limit:1});
+    assert.equal(result.rows[0].accounting_date,'2026-08-08',posting_date);
+  }
+  for(const posting_date of ['2026-02-30 04:05:06','2026-08-08 24:00:00','2026-08-08 04:60:00','2026-08-08 04:05']){
+    const client={initialize:async()=>{},listTools:async()=>{},readView:async()=>observed({tool:'list_journal_entries',rows:[{id:7,posting_date,debtor:'9.25',lender:'0.00',review:'0'}]})};
+    const result=await createWbsLivePilotReadService({client,authorize:async()=>{}}).readObservation({tenantId,entityId,tool:'list_journal_entries',limit:1});
+    assert.equal(Object.hasOwn(result.rows[0],'accounting_date'),false,posting_date);
   }
 });
 

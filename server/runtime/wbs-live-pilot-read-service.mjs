@@ -11,12 +11,23 @@ const token=value=>{
   const normalized=value.trim().toUpperCase();
   return /^[A-Z0-9][A-Z0-9_:-]{0,63}$/.test(normalized)?normalized:null;
 };
+const journalReviewStatus=value=>{
+  const normalized=token(value);
+  if(normalized===null)return null;
+  const candidate=/^\d/.test(normalized)?`CODE_${normalized}`:normalized;
+  return /^[A-Z][A-Z0-9_]{0,63}$/.test(candidate)?candidate:null;
+};
 const date=value=>{
   if(typeof value!=='string')return null;
-  const raw=value.trim(),prefix=/^\d{4}-\d{2}-\d{2}/.test(raw)?raw.slice(0,10):'';
-  if(!prefix)return null;
-  const parsed=new Date(raw.length===10?`${raw}T00:00:00.000Z`:raw);
-  return !Number.isNaN(parsed.valueOf())&&parsed.toISOString().slice(0,10)===prefix?prefix:null;
+  const raw=value.trim();
+  // The production v0.1 provider emits SQL-style timestamps without a zone.
+  // Accounting date is the declared calendar prefix, never a browser/server
+  // timezone conversion. Accept only a bounded ISO/SQL datetime shape and
+  // independently validate the calendar date before discarding the time.
+  if(!/^\d{4}-\d{2}-\d{2}(?:[ T](?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,9})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?)?$/.test(raw))return null;
+  const prefix=raw.slice(0,10),[year,month,day]=prefix.split('-').map(Number);
+  const parsed=new Date(Date.UTC(year,month-1,day));
+  return parsed.getUTCFullYear()===year&&parsed.getUTCMonth()===month-1&&parsed.getUTCDate()===day?prefix:null;
 };
 // The live v0.1 provider emits scale-5 decimal strings. REFS may reduce them
 // to MONEY4 only when the fifth and later digits are all zero; no rounding is
@@ -38,7 +49,7 @@ const rowShape=(tool,row)=>{
   }
   if(tool==='list_autorec_details')return {accounting_date:first(row,['incurred_date','clear_date'],date),payment_amount:money(row.payment),deposit_amount:money(row.deposit),status:token(row.status)||'UNKNOWN',match_status:token(row.match_status)||'UNKNOWN'};
   if(tool==='list_autorec_banks')return {pay_amount:money(row.pay_amount),debit_amount:money(row.debit_amount),quantity:money(row.quantity),released_amount:money(row.released),released_quantity:money(row.released_quantity),incurred_amount:money(row.incurred),status:token(row.status)||'UNKNOWN'};
-  return {accounting_date:first(row,['posting_date','set_date'],date),debit_amount:money(row.debtor),credit_amount:money(row.lender),review_status:token(row.review)||'UNKNOWN'};
+  return {accounting_date:first(row,['posting_date','set_date'],date),debit_amount:money(row.debtor),credit_amount:money(row.lender),review_status:journalReviewStatus(row.review)||'UNKNOWN'};
 };
 const sanitizeRow=(tool,row)=>{
   const key=row[STABLE_KEY[tool]],keyText=typeof key==='string'?key:Number.isSafeInteger(key)?String(key):'';
