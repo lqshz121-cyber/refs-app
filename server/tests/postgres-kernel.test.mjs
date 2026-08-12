@@ -193,9 +193,20 @@ pgTest('admitted signed Payable composition persists receipt Raw Normalized Stag
   assert.equal(stored.source_record_id,sourceId);assert.match(stored.source_version,/^snapshot:/);assert.equal(stored.raw.amount,-89.125);assert.equal(stored.normalized.amount_money4,'-89.1250');assert.equal(stored.normalized.company_key,ids.sourceEntityId);assert.equal(stored.normalized.currency,'USD');assert.equal(stored.outcome_kind,'STAGING');assert.match(stored.receipt_hash,/^sha256:[0-9a-f]{64}$/);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
 
-  const attachmentId=randomUUID(),attachmentHash=hash('exact payable attachment');
-  await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at)
-    VALUES($1,$2,$3,'payable.pdf','application/pdf',10,$4,$5,'object-version-1','exact-uploader',now(),now(),'CLEAN','VERIFIED_CLEAN',now())`,[attachmentId,ids.tenantId,ids.entityId,attachmentHash,`object://attachments/${attachmentId}`]);
+  const attachmentHash=hash('exact payable attachment'),uploadArgs={...ids,wbsInboundRowId:stored.wbs_inbound_row_id,
+    name:'payable.pdf',mediaType:'application/pdf',sizeBytes:10,contentHash:attachmentHash,
+    storageRef:`object://attachments/${randomUUID()}`,storageVersion:`pending:${randomUUID()}`,idempotencyKey:'wbs-payable-row-upload-pg-0001'};
+  const exactUploader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'exact-uploader',['ATTACHMENT.CREATE','AP.VIEW'])});
+  const reserved=await exactUploader.reserveWbsPayableAttachment(uploadArgs),reserveReplay=await exactUploader.reserveWbsPayableAttachment(uploadArgs),attachmentId=reserved.attachment_id;
+  assert.deepEqual({purpose:reserved.purpose,row:reserved.wbs_inbound_row_id,replay:reserveReplay.idempotent},{purpose:'WBS_PAYABLE_SUPPORT_EVIDENCE',row:stored.wbs_inbound_row_id,replay:true});
+  await assert.rejects(exactUploader.reserveWbsPayableAttachment({...uploadArgs,wbsInboundRowId:badStored.wbs_inbound_row_id}),error=>error.code==='23505');
+  await assert.rejects(exactUploader.reserveWbsPayableAttachment({...uploadArgs,entityId:randomUUID(),idempotencyKey:'wbs-payable-row-upload-cross-entity'}),error=>error.code==='42501');
+  await exactUploader.requestAttachmentFinalize({tenantId:ids.tenantId,entityId:ids.entityId,attachmentId,idempotencyKey:'wbs-payable-row-upload-finalize-request'});
+  const exactScanner=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'exact-scanner-1',['ATTACHMENT.FINALIZE'])});
+  const finalized=await exactScanner.finalizeAttachment({...ids,attachmentId,storageRef:uploadArgs.storageRef,observedSizeBytes:10,
+    observedContentHash:attachmentHash,observedMediaType:'application/pdf',storageVersion:'object-version-1',scanClean:true,
+    scanRef:'scanner://wbs-payable/exact-1',idempotencyKey:'wbs-payable-row-upload-finalize'});
+  assert.equal(finalized.status,'VERIFIED_CLEAN');
   await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'VENDOR-PG','VENDOR','Signed WBS vendor')",[ids.tenantId,ids.entityId]);
   await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member) VALUES($1,$2,'610000','WBS payable expense',false)",[ids.tenantId,ids.entityId]);
   const settingId=randomUUID(),mappingId=randomUUID(),lowerMappingId=randomUUID(),mappingInput={company_key:ids.sourceEntityId,currency:'USD',vendor_ref:'VENDOR-PG',cost_code_ref:null},mappingOutput={vendor_ref:'VENDOR-PG',offset_account_code:'610000',amount_multiplier:'-1',source_direction:'DEBIT',rule_code:'WBS_PAYABLE_AP_MAP',rule_version:'1'};
@@ -212,6 +223,12 @@ pgTest('admitted signed Payable composition persists receipt Raw Normalized Stag
   const reviewReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-reviewer',['WBS.PAYABLE.REVIEW','AP.VIEW'])});
   const candidates=await reviewReader.listWbsPayableReviewCandidates({tenantId:ids.tenantId,entityId:ids.entityId,limit:10}),candidate=candidates.find(item=>item.wbs_inbound_row_id===stored.wbs_inbound_row_id);
   assert.ok(candidate);assert.deepEqual({version:candidate.source_version,receipt:candidate.receipt_hash,evidence:candidate.evidence_hash,revision:candidate.revision,period:candidate.period_id,number:candidate.document_number,invoice:candidate.invoice_date,due:candidate.due_date,date:candidate.accounting_date,currency:candidate.currency,amount:candidate.gross_amount,vendor:candidate.vendor_name,offset:candidate.offset_account_code,setting:candidate.setting_snapshot_id,mapping:candidate.mapping_snapshot_id,attachments:candidate.attachment_choices,readiness:candidate.review_readiness,canReview:candidate.can_review},{version:stored.source_version,receipt:stored.receipt_hash,evidence:stored.evidence_hash,revision:'0',period:ids.periodId,number:'WBS-INV-PG-001',invoice:'2026-07-01',due:'2026-07-05',date:'2026-07-11',currency:'USD',amount:'89.1250',vendor:'Signed WBS vendor',offset:'610000',setting:settingId,mapping:mappingId,attachments:[],readiness:'VERIFIED_ATTACHMENT_REQUIRED',canReview:false});
+  const binderUploads=await reviewReader.listWbsPayableAttachmentUploads({tenantId:ids.tenantId,entityId:ids.entityId,wbsInboundRowId:stored.wbs_inbound_row_id});
+  assert.deepEqual({upload:binderUploads.can_upload,bind:binderUploads.can_bind,count:binderUploads.attachments.length,item:binderUploads.attachments[0]},{upload:false,bind:true,count:1,item:{attachment_id:attachmentId,name:'payable.pdf',media_type:'application/pdf',status:'VERIFIED_CLEAN',verified_at:binderUploads.attachments[0].verified_at,can_bind:true}});
+  const uploaderUploads=await exactUploader.listWbsPayableAttachmentUploads({tenantId:ids.tenantId,entityId:ids.entityId,wbsInboundRowId:stored.wbs_inbound_row_id});
+  assert.deepEqual({upload:uploaderUploads.can_upload,bind:uploaderUploads.can_bind,item:uploaderUploads.attachments[0].can_bind},{upload:true,bind:false,item:false});
+  for(const forbidden of ['content_hash','storage_ref','storage_version','receipt_hash','provider_receipt_hash','evidence_hash'])assert.equal(Object.hasOwn(binderUploads.attachments[0],forbidden),false);
+  await assert.rejects(reviewReader.listWbsPayableAttachmentUploads({tenantId:ids.tenantId,entityId:ids.entityId,wbsInboundRowId:randomUUID()}),error=>error.code==='P0002');
   for(const forbidden of ['raw','normalized','payload_ref','source_record_id','provider_request','provider_response','signature','access_token'])assert.equal(Object.hasOwn(candidate,forbidden),false);
   assert.deepEqual((await reviewReader.getWbsPayableReviewCandidate({tenantId:ids.tenantId,entityId:ids.entityId,wbsInboundRowId:stored.wbs_inbound_row_id}))[0],candidate);
   const reviewOnlyReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-review-only',['WBS.PAYABLE.REVIEW'])});
@@ -226,7 +243,7 @@ pgTest('admitted signed Payable composition persists receipt Raw Normalized Stag
   const secondAttachmentId=randomUUID(),secondAttachmentHash=hash('second exact payable attachment');
   await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at)
     VALUES($1,$2,$3,'second-payable.pdf','application/pdf',11,$4,$5,'object-version-2','second-uploader',now(),now(),'CLEAN','VERIFIED_CLEAN',now())`,[secondAttachmentId,ids.tenantId,ids.entityId,secondAttachmentHash,`object://attachments/${secondAttachmentId}`]);
-  for(const [id,scanner] of [[attachmentId,'exact-scanner-1'],[secondAttachmentId,'exact-scanner-2']])await adminPool.query(`INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,after_hash,metadata)
+  for(const [id,scanner] of [[secondAttachmentId,'exact-scanner-2']])await adminPool.query(`INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,after_hash,metadata)
     VALUES($1::uuid,$2::uuid,'ATTACHMENT_FINALIZED','ATTACHMENT',$3::uuid,'FINALIZE',$4::text,'SERVICE_ACCOUNT','ATTACHMENT.FINALIZE',$3::uuid::text,$3::uuid::text,$5::text,'{"accepted":true}')`,[ids.tenantId,ids.entityId,id,scanner,hash(`scanner-${id}`)]);
   const providerReceiptHashBad=(await adminPool.query('SELECT receipt_hash FROM wbs_snapshot_receipt WHERE tenant_id=$1 AND entity_id=$2 AND source_record_id=$3 AND source_version=$4',[ids.tenantId,ids.entityId,badStored.source_record_id,badStored.source_version])).rows[0].receipt_hash;
   const bindBase={...ids,wbsInboundRowId:stored.wbs_inbound_row_id,attachmentId,expectedRevision:0,expectedSourceVersion:stored.source_version,expectedReceiptHash:stored.receipt_hash,expectedProviderReceiptHash:providerReceiptHash,expectedEvidenceHash:stored.evidence_hash,expectedAttachmentContentHash:attachmentMeta.content_hash,expectedAttachmentStorageVersion:attachmentMeta.storage_version,reason:'Bind exact clean invoice evidence to one signed payable row',idempotencyKey:'wbs-payable-bind-pg-0001'};
@@ -246,12 +263,13 @@ pgTest('admitted signed Payable composition persists receipt Raw Normalized Stag
   }
   await assert.rejects(binder.bindWbsPayableAttachment({...bindBase,entityId:randomUUID(),idempotencyKey:'wbs-bind-cross-entity'}),error=>error.code==='42501');
   await assert.rejects(binder.bindWbsPayableAttachment({...bindBase,tenantId:randomUUID(),idempotencyKey:'wbs-bind-cross-tenant'}),error=>error.code==='42501');
-  const bound=await binder.bindWbsPayableAttachment(bindBase),boundReplay=await binder.bindWbsPayableAttachment(bindBase);
+  const safeBind={...ids,wbsInboundRowId:stored.wbs_inbound_row_id,attachmentId,expectedRevision:0,reason:bindBase.reason,idempotencyKey:bindBase.idempotencyKey};
+  const bound=await binder.bindWbsPayableUploadedAttachment(safeBind),boundReplay=await binder.bindWbsPayableUploadedAttachment(safeBind);
   assert.deepEqual({status:bound.status,replay:boundReplay.idempotent,review:bound.can_review,draft:bound.can_create_draft,post:bound.can_post},{status:'BOUND_EVIDENCE_ONLY',replay:true,review:false,draft:false,post:false});
   const boundCandidate=(await reviewReader.getWbsPayableReviewCandidate({tenantId:ids.tenantId,entityId:ids.entityId,wbsInboundRowId:stored.wbs_inbound_row_id}))[0];
   assert.deepEqual({choices:boundCandidate.attachment_choices.map(choice=>choice.attachment_id),readiness:boundCandidate.review_readiness,canReview:boundCandidate.can_review},{choices:[attachmentId],readiness:'READY_FOR_REVIEW',canReview:true});
   assert.deepEqual(Object.keys(boundCandidate.attachment_choices[0]).sort(),['attachment_id','media_type','name','verified_at']);
-  await assert.rejects(binder.bindWbsPayableAttachment({...bindBase,reason:'Changed reason must conflict under the same idempotency key'}),error=>error.code==='23505');
+  await assert.rejects(binder.bindWbsPayableUploadedAttachment({...safeBind,reason:'Changed reason must conflict under the same idempotency key'}),error=>error.code==='23505');
   await binder.bindWbsPayableAttachment(bindBad);
   await assert.rejects(binder.bindWbsPayableAttachment({...bindBad,attachmentId,expectedAttachmentContentHash:attachmentMeta.content_hash,expectedAttachmentStorageVersion:attachmentMeta.storage_version,idempotencyKey:'wbs-bind-cross-row-one'}),error=>error.code==='23505');
   await assert.rejects(binder.bindWbsPayableAttachment({...bindBase,attachmentId:secondAttachmentId,expectedAttachmentContentHash:secondAttachmentHash,expectedAttachmentStorageVersion:'object-version-2',idempotencyKey:'wbs-bind-cross-row-two'}),error=>error.code==='23505');

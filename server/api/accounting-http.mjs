@@ -372,6 +372,14 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=assertWbsReadOnlyResult(await service.readAutoRecReview({tenantId:principal.tenantId,entityId,companyKey:selection.companyKey,sourceRecordIds:selection.sourceRecordIds}));
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===10&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[8]==='attachments'&&parts[9]==='uploads'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Attachment upload reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.listWbsPayableAttachmentUploads!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_ATTACHMENT_UPLOAD_READ_UNAVAILABLE','Row-bound attachment status is unavailable');
+        result=await kernel.listWbsPayableAttachmentUploads({tenantId:principal.tenantId,entityId,wbsInboundRowId:requireUuid(parts[7],'wbsInboundRowId')});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='control-reconciliation'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
@@ -412,6 +420,11 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       if(parts.length===6&&parts[4]==='attachments'&&parts[5]==='reservations'){
         if(typeof attachmentServiceFactory!=='function')throw new AccountingApiError(503,'ATTACHMENT_SERVICE_UNAVAILABLE','Attachment service is unavailable');
         allowOnly(payload,['name','mediaType','sizeBytes','contentHash']);const service=await attachmentServiceFactory(principal);result=await service.reserve(principal,{...payload,tenantId:principal.tenantId,entityId,idempotencyKey});
+      }else if(parts.length===10&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[8]==='attachments'&&parts[9]==='reservations'){
+        if(typeof attachmentServiceFactory!=='function')throw new AccountingApiError(503,'ATTACHMENT_SERVICE_UNAVAILABLE','Attachment service is unavailable');
+        allowOnly(payload,['name','mediaType','sizeBytes','contentHash']);const service=await attachmentServiceFactory(principal);
+        if(!service||typeof service.reserveWbsPayable!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_ATTACHMENT_RESERVE_UNAVAILABLE','Row-bound attachment reservation is unavailable');
+        result=await service.reserveWbsPayable(principal,{...payload,tenantId:principal.tenantId,entityId,wbsInboundRowId:requireUuid(parts[7],'wbsInboundRowId'),idempotencyKey});
       }else if(parts.length===7&&parts[4]==='attachments'&&parts[6]==='finalize'){
         if(typeof attachmentServiceFactory!=='function')throw new AccountingApiError(503,'ATTACHMENT_SERVICE_UNAVAILABLE','Attachment service is unavailable');
         allowOnly(payload,[]);const service=await attachmentServiceFactory(principal);
@@ -430,6 +443,14 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['attachmentId','expectedSourceVersion','expectedReceiptHash','expectedProviderReceiptHash','expectedEvidenceHash','expectedAttachmentContentHash','expectedAttachmentStorageVersion','reason']);
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.bindWbsPayableAttachment!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_ATTACHMENT_BIND_UNAVAILABLE','WBS Payable attachment binding is unavailable');
         const bound=await kernel.bindWbsPayableAttachment({tenantId:principal.tenantId,entityId,wbsInboundRowId:requireUuid(parts[7],'wbsInboundRowId'),attachmentId:requireUuid(payload.attachmentId,'attachmentId'),expectedRevision:requireRevision(headers),expectedSourceVersion:requireSourceVersion(payload.expectedSourceVersion,'expectedSourceVersion'),expectedReceiptHash:requireSha256(payload.expectedReceiptHash,'expectedReceiptHash'),expectedProviderReceiptHash:requireSha256(payload.expectedProviderReceiptHash,'expectedProviderReceiptHash'),expectedEvidenceHash:requireSha256(payload.expectedEvidenceHash,'expectedEvidenceHash'),expectedAttachmentContentHash:requireSha256(payload.expectedAttachmentContentHash,'expectedAttachmentContentHash'),expectedAttachmentStorageVersion:requireStorageVersion(payload.expectedAttachmentStorageVersion,'expectedAttachmentStorageVersion'),reason:requireReviewReason(payload.reason),idempotencyKey});
+        if(!bound||bound.status!=='BOUND_EVIDENCE_ONLY'||bound.can_review!==false||bound.can_create_draft!==false||bound.can_approve!==false||bound.can_post!==false)throw new AccountingApiError(500,'WBS_PAYABLE_ATTACHMENT_BIND_RESULT_INVALID','WBS Payable attachment binding must remain evidence-only');
+        result=bound;
+      }else if(parts.length===11&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[8]==='attachments'&&parts[9]==='bindings'&&parts[10]==='from-upload'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['attachmentId','reason']);const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.bindWbsPayableUploadedAttachment!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_ATTACHMENT_BIND_UNAVAILABLE','Safe row-bound attachment binding is unavailable');
+        const bound=await kernel.bindWbsPayableUploadedAttachment({tenantId:principal.tenantId,entityId,
+          wbsInboundRowId:requireUuid(parts[7],'wbsInboundRowId'),attachmentId:requireUuid(payload.attachmentId,'attachmentId'),
+          expectedRevision:requireRevision(headers),reason:requireReviewReason(payload.reason),idempotencyKey});
         if(!bound||bound.status!=='BOUND_EVIDENCE_ONLY'||bound.can_review!==false||bound.can_create_draft!==false||bound.can_approve!==false||bound.can_post!==false)throw new AccountingApiError(500,'WBS_PAYABLE_ATTACHMENT_BIND_RESULT_INVALID','WBS Payable attachment binding must remain evidence-only');
         result=bound;
       }else if(parts.length===9&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[8]==='reviews'){

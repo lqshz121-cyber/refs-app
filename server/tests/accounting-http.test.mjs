@@ -184,6 +184,18 @@ test('admitted WBS Payable review-candidate list and detail are closed no-store 
   assert.equal((await readApi({method:'GET',url:detailPath,body:null,headers:{'Idempotency-Key':'forbidden'}})).body.code,'READ_COMMAND_HEADERS_FORBIDDEN');
 });
 
+test('row-bound WBS Payable attachment routes expose display status and server-derived evidence-only binding',async()=>{
+  const wbsInboundRowId=randomUUID(),attachmentId=randomUUID(),seen=[];
+  const state={entity_id:entityId,wbs_inbound_row_id:wbsInboundRowId,can_upload:false,can_bind:true,attachments:[{attachment_id:attachmentId,name:'invoice.pdf',media_type:'application/pdf',status:'VERIFIED_CLEAN',verified_at:'2026-08-12T00:00:00.000Z',can_bind:true}]};
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'independent-binder'}),kernelFactory:async()=>({listWbsPayableAttachmentUploads:async request=>(seen.push(['read',request]),state),bindWbsPayableUploadedAttachment:async request=>(seen.push(['bind',request]),{wbs_payable_attachment_binding_id:randomUUID(),wbs_inbound_row_id:wbsInboundRowId,attachment_id:attachmentId,status:'BOUND_EVIDENCE_ONLY',revision:0,idempotent:false,can_review:false,can_create_draft:false,can_approve:false,can_post:false})})});
+  const base=`/api/v1/entities/${entityId}/wbs/inbound/payables/${wbsInboundRowId}/attachments`;
+  const read=await api({method:'GET',url:`${base}/uploads`,body:null,headers:{}});assert.equal(read.status,200);assert.deepEqual(read.body.data,state);
+  const bound=await api({method:'POST',url:`${base}/bindings/from-upload`,headers:{'Idempotency-Key':'wbs-row-bind-http-1','If-Match':'"0"'},body:{attachmentId,reason:'Bind exact clean support evidence'}});
+  assert.equal(bound.status,201);assert.deepEqual(seen,[['read',{tenantId,entityId,wbsInboundRowId}],['bind',{tenantId,entityId,wbsInboundRowId,attachmentId,expectedRevision:0,reason:'Bind exact clean support evidence',idempotencyKey:'wbs-row-bind-http-1'}]]);
+  assert.equal((await api({method:'POST',url:`${base}/bindings/from-upload`,headers:{'Idempotency-Key':'wbs-row-bind-http-2','If-Match':'"0"'},body:{attachmentId,reason:'Bind exact clean support evidence',expectedProviderReceiptHash:`sha256:${'a'.repeat(64)}`}})).body.code,'UNEXPECTED_FIELD');
+  assert.equal((await api({method:'GET',url:`${base}/uploads`,body:null,headers:{'If-Match':'"0"'}})).body.code,'READ_COMMAND_HEADERS_FORBIDDEN');
+});
+
 test('reviewed WBS payable evidence list and detail are closed no-store reads',async()=>{
   const reviewEvidenceId=randomUUID(),wbsInboundRowId=randomUUID(),sourceDocumentId=randomUUID(),stagingItemId=randomUUID(),mappingSnapshotId=randomUUID(),attachmentId=randomUUID(),seen=[];
   const row={wbs_payable_review_evidence_id:reviewEvidenceId,wbs_inbound_row_id:wbsInboundRowId,source_document_id:sourceDocumentId,staging_item_id:stagingItemId,period_id:periodId,document_number:'WBS-INV-001',invoice_date:'2026-07-01',due_date:'2026-07-31',accounting_date:'2026-07-02',currency:'USD',gross_amount:'10.0000',vendor_ref:'VENDOR-1',vendor_name:'Reviewed vendor',offset_account_code:'610000',mapping_snapshot_id:mappingSnapshotId,attachment_ids:[attachmentId],evidence_hash:`sha256:${'a'.repeat(64)}`,review_reason:'Independent review',reviewed_by:'reviewer',reviewed_at:'2026-08-12T00:00:00.000Z',revision:'0',evidence_status:'READY_FOR_DRAFT_EVIDENCE_ONLY',draft_readiness:'READY_FOR_AP_DRAFT',can_create_draft:true,business_document_id:null,journal_entry_id:null};
