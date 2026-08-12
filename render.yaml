@@ -17,6 +17,20 @@ services:
         value: 0.0.0.0
       - key: REFS_PG_REQUIRED
         value: "1"
+      # Non-secret Stage 1 scope coordinates. Keeping these in the Blueprint
+      # prevents a later sync from silently disabling the authenticated
+      # one-click reader grant. Identity is still derived only from the
+      # caller's verified OIDC token; database credentials remain secrets.
+      - key: REFS_DEPLOYMENT_ENV
+        value: staging
+      - key: REFS_STAGE1_BOOTSTRAP_CONFIRM
+        value: STAGE1_AUTHORITATIVE_ONLY
+      - key: REFS_STAGE1_SELF_GRANT_ENABLED
+        value: STAGE1_AUTHORITATIVE_ONLY
+      - key: REFS_STAGE1_TENANT_ID
+        value: 6fb25daf-0799-4805-bede-be54230da33c
+      - key: REFS_STAGE1_ENTITY_ID
+        value: ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3
       # Stage 1 publishes PostgreSQL/OIDC read authority first. Integrations are
       # explicit fail-closed 503 surfaces until their separate provider release.
       - key: REFS_ATTACHMENT_MODE
