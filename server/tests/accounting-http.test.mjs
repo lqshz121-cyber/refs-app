@@ -122,6 +122,18 @@ test('admitted WBS payable ingestion derives identity from authentication and fa
   assert.equal(blocked.status,503);assert.equal(blocked.body.code,'WBS_PAYABLE_ADMISSION_UNAVAILABLE');
 });
 
+test('signed WBS bank admission binds authenticated scope, requires idempotency, and grants no action authority',async()=>{
+  const observed=[];const kernel={admitWbsSignedBankStatement:async request=>(observed.push(request),{statement_receipt_id:'44444444-4444-4444-8444-444444444444',snapshot_id:'55555555-5555-4555-8555-555555555555',transaction_count:2,idempotent:false})};
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-bank-importer'}),kernelFactory:async()=>kernel});
+  const admission={schema_version:'WBS_SIGNED_BANK_ADMISSION_V1'};
+  const created=await api({method:'POST',url:`/api/v1/entities/${entityId}/wbs/inbound/bank-statements`,headers:{'Idempotency-Key':'wbs-bank-http-0001'},body:{admission}});
+  assert.equal(created.status,201);assert.deepEqual(observed,[{tenantId,entityId,admission,idempotencyKey:'wbs-bank-http-0001'}]);
+  assert.deepEqual({match:created.body.data.can_match,reconcile:created.body.data.can_reconcile,draft:created.body.data.can_create_draft,post:created.body.data.can_post},{match:false,reconcile:false,draft:false,post:false});
+  assert.equal((await api({method:'POST',url:`/api/v1/entities/${entityId}/wbs/inbound/bank-statements?company=x`,headers:{'Idempotency-Key':'wbs-bank-http-0002'},body:{admission}})).body.code,'UNEXPECTED_QUERY_PARAMETER');
+  assert.equal((await api({method:'POST',url:`/api/v1/entities/${entityId}/wbs/inbound/bank-statements`,headers:{'Idempotency-Key':'wbs-bank-http-0003','If-Match':'"1"'},body:{admission}})).body.code,'IF_MATCH_NOT_ALLOWED');
+  assert.equal((await api({method:'POST',url:`/api/v1/entities/${entityId}/wbs/inbound/bank-statements`,headers:{'Idempotency-Key':'wbs-bank-http-0004'},body:{admission,tenantId}})).body.code,'IDENTITY_FIELD_FORBIDDEN');
+});
+
 test('WBS production snapshot signature failures are fail-closed and do not leak verifier internals',async()=>{
   const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:randomUUID(),views:[]};
   const unavailable=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'snapshot-importer'}),kernelFactory:async()=>({...kernel,recordWbsSnapshot:async()=>{const error=new Error('missing public key from secure config');error.code='WBS_SNAPSHOT_SIGNATURE_REQUIRED';throw error;}})});

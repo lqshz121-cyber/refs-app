@@ -4,7 +4,7 @@ const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.pos
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
-  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','recordWbsSnapshot','reserveAttachment','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','transitionJournal','transitionReconciliation','unmatchBankPayment','verifyWbsAutoRecTransitionContract']);
+  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','recordWbsSnapshot','reserveAttachment','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','transitionJournal','transitionReconciliation','unmatchBankPayment','verifyWbsAutoRecTransitionContract']);
 });
 
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{
@@ -62,6 +62,14 @@ test('admitted Payable import requires signed explicit scope and exposes no acco
   assert.equal(operation.operationId,'ingestAdmittedWbsPayables');assert.equal(operation.requestBody.$ref,'#/components/requestBodies/WbsSnapshot');
   assert.deepEqual(operation.parameters.map(parameter=>parameter.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);
   assert.match(operation.description,/production V2 Payable snapshot/i);assert.match(operation.description,/company, currency and snapshot-token/i);assert.match(operation.description,/never writes WBS.*Draft.*posts/i);
+});
+
+test('signed Bank admission is a scoped evidence command that exposes no matching or reconciliation authority',()=>{
+  const operation=contract.paths['/entities/{entityId}/wbs/inbound/bank-statements'].post;
+  assert.equal(operation.operationId,'admitSignedWbsBankStatement');
+  assert.deepEqual(operation.parameters.map(parameter=>parameter.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);
+  const body=operation.requestBody.content['application/json'].schema;assert.equal(body.additionalProperties,false);assert.deepEqual(body.required,['admission']);
+  assert.match(operation.description,/WBS\.BANK\.ADMIT/i);assert.match(operation.description,/never matches, reconciles, creates a Draft, or posts/i);
 });
 
 test('WBS AutoRec review is a bounded authenticated read with no accounting action contract',()=>{

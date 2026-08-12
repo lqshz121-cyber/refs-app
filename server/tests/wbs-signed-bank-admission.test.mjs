@@ -27,6 +27,8 @@ test('unsigned pilot, tampered, cross-account, and zero-value observations canno
     fixture({transactions:[{...fixture().transactions[0],bank_account_ref:'BANK-2'}]}),
     fixture({transactions:[{...fixture().transactions[0],amount:'0.0000'}]})
   ])assert.throws(()=>validateWbsSignedBankAdmission(invalid));
+  assert.throws(()=>validateWbsSignedBankAdmission(fixture({actorId:'forged'})),error=>error.code==='WBS_BANK_ADMISSION_INVALID');
+  assert.throws(()=>validateWbsSignedBankAdmission(fixture({transactions:[{...fixture().transactions[0],unexpected:'raw'}]})),error=>error.code==='WBS_BANK_TRANSACTION_INVALID');
 });
 
 test('kernel verifies detached signature before any database session or persistence',async()=>{
