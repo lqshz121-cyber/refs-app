@@ -174,6 +174,21 @@ test('WBS payable review binds immutable evidence, CAS, approved configuration a
   assert.equal((await unsafe({method:'POST',url:path,headers:{'Idempotency-Key':'wbs-payable-review-http-0005','If-Match':'"0"'},body})).body.code,'WBS_PAYABLE_REVIEW_RESULT_INVALID');
 });
 
+test('reviewed WBS payable Draft route accepts only frozen evidence selectors and stops at AUTO Draft',async()=>{
+  const wbsInboundRowId=randomUUID(),reviewEvidenceId=randomUUID(),mappingSnapshotId=randomUUID(),attachmentId=randomUUID(),observed=[];
+  const draftResult={business_document_id:randomUUID(),journal_entry_id:randomUUID(),journal_type:'AUTO',status:'DRAFT',revision:0,idempotent:false,can_create_draft:false,can_submit:false,can_review:false,can_approve:false,can_post:false};
+  const draftApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-payable-maker'}),kernelFactory:async()=>({createWbsPayableApDraft:async request=>(observed.push(request),draftResult)})});
+  const body={reviewEvidenceId,expectedEvidenceHash:`sha256:${'c'.repeat(64)}`,mappingSnapshotId,attachmentIds:[attachmentId],reason:'Create one Draft from independently reviewed evidence'};
+  const path=`/api/v1/entities/${entityId}/wbs/inbound/payables/${wbsInboundRowId}/drafts`;
+  const created=await draftApi({method:'POST',url:path,headers:{'Idempotency-Key':'wbs-payable-draft-http-0001','If-Match':'"0"'},body});
+  assert.equal(created.status,201);assert.equal(created.headers.etag,'"0"');assert.deepEqual(observed,[{tenantId,entityId,wbsInboundRowId,reviewEvidenceId,expectedRevision:0,expectedEvidenceHash:body.expectedEvidenceHash,mappingSnapshotId,attachmentIds:[attachmentId],reason:body.reason,idempotencyKey:'wbs-payable-draft-http-0001'}]);
+  assert.deepEqual({type:created.body.data.journal_type,status:created.body.data.status,submit:created.body.data.can_submit,review:created.body.data.can_review,approve:created.body.data.can_approve,post:created.body.data.can_post},{type:'AUTO',status:'DRAFT',submit:false,review:false,approve:false,post:false});
+  assert.equal((await draftApi({method:'POST',url:path,headers:{'Idempotency-Key':'wbs-payable-draft-http-0002'},body})).status,428);
+  assert.equal((await draftApi({method:'POST',url:path,headers:{'Idempotency-Key':'wbs-payable-draft-http-0003','If-Match':'"0"'},body:{...body,amount:'99.0000'}})).body.code,'UNEXPECTED_FIELD');
+  const unsafe=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-payable-maker'}),kernelFactory:async()=>({createWbsPayableApDraft:async()=>({...draftResult,can_submit:true})})});
+  assert.equal((await unsafe({method:'POST',url:path,headers:{'Idempotency-Key':'wbs-payable-draft-http-0004','If-Match':'"0"'},body})).body.code,'WBS_PAYABLE_AP_DRAFT_RESULT_INVALID');
+});
+
 test('signed WBS bank admission binds authenticated scope, requires idempotency, and grants no action authority',async()=>{
   const observed=[];const kernel={admitWbsSignedBankStatement:async request=>(observed.push(request),{statement_receipt_id:'44444444-4444-4444-8444-444444444444',snapshot_id:'55555555-5555-4555-8555-555555555555',transaction_count:2,idempotent:false})};
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-bank-importer'}),kernelFactory:async()=>kernel});

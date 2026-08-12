@@ -107,6 +107,32 @@
         }
       }
     },
+    "/entities/{entityId}/wbs/inbound/payables/{wbsInboundRowId}/drafts": {
+      "post": {
+        "operationId": "createReviewedWbsPayableApDraft",
+        "summary": "Create one source-linked AP Bill and AUTO Journal Draft from reviewed WBS Payable evidence",
+        "description": "Requires AP.BILL.CREATE and exact immutable 094 review evidence. The authenticated maker must differ from the reviewer. All Bill, journal, mapping and attachment facts are server-derived from the frozen review. This atomically creates an AP Bill Draft, balanced AUTO Journal Draft, SOURCE_TO_JE and JE_ATTACHMENT lineage only; it never submits, reviews, approves, posts, or writes a ledger line.",
+        "parameters": [
+          {"$ref":"#/components/parameters/EntityId"},
+          {"name":"wbsInboundRowId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},
+          {"$ref":"#/components/parameters/IdempotencyKey"},
+          {"$ref":"#/components/parameters/IfMatch"}
+        ],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsPayableApDraft"},
+        "responses": {
+          "200":{"$ref":"#/components/responses/CommandReplay"},
+          "201":{"$ref":"#/components/responses/CommandCreated"},
+          "400":{"$ref":"#/components/responses/Problem"},
+          "401":{"$ref":"#/components/responses/Problem"},
+          "403":{"$ref":"#/components/responses/Problem"},
+          "409":{"$ref":"#/components/responses/Problem"},
+          "412":{"$ref":"#/components/responses/PreconditionFailed"},
+          "422":{"$ref":"#/components/responses/Problem"},
+          "503":{"$ref":"#/components/responses/SerializationRetryExhausted"},
+          "default":{"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/wbs/inbound/bank-statements": {
       "post": {
         "operationId": "admitSignedWbsBankStatement",
@@ -3606,6 +3632,25 @@
                 "expectedReceiptHash": {"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
                 "expectedEvidenceHash": {"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
                 "settingSnapshotId": {"$ref":"#/components/schemas/Uuid"},
+                "mappingSnapshotId": {"$ref":"#/components/schemas/Uuid"},
+                "attachmentIds": {"type":"array","minItems":1,"maxItems":25,"uniqueItems":true,"items":{"$ref":"#/components/schemas/Uuid"}},
+                "reason": {"type":"string","minLength":8,"maxLength":2000}
+              }
+            }
+          }
+        }
+      },
+      "WbsPayableApDraft": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reviewEvidenceId","expectedEvidenceHash","mappingSnapshotId","attachmentIds","reason"],
+              "properties": {
+                "reviewEvidenceId": {"$ref":"#/components/schemas/Uuid"},
+                "expectedEvidenceHash": {"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
                 "mappingSnapshotId": {"$ref":"#/components/schemas/Uuid"},
                 "attachmentIds": {"type":"array","minItems":1,"maxItems":25,"uniqueItems":true,"items":{"$ref":"#/components/schemas/Uuid"}},
                 "reason": {"type":"string","minLength":8,"maxLength":2000}
