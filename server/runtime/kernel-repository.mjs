@@ -462,6 +462,20 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listAdmittedWbsBankStatementReceipts({tenantId,entityId,bankAccountRef,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_admitted_wbs_bank_statement_receipts($1,$2,$3,$4)',
+      [tenantId,entityId,bankAccountRef,limit]
+    )).rows);
+  }
+
+  async getAdmittedWbsBankStatementReceipt({tenantId,entityId,statementReceiptId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_admitted_wbs_bank_statement_receipt($1,$2,$3)',
+      [tenantId,entityId,statementReceiptId]
+    )).rows);
+  }
+
   async listReconciliationWorksheet({tenantId,entityId,reconciliationId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_reconciliation_worksheet($1,$2,$3)',
