@@ -2035,10 +2035,15 @@ pgTest('chart of accounts and account register read only same-entity POSTED fixe
   const register=await reader.listAccountRegister({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'610000'});
   assert.equal(register.length,1);assert.deepEqual({debit:register[0].debit_amount,credit:register[0].credit_amount,opening:register[0].opening_balance,running:register[0].running_balance},{debit:'10.1010',credit:'0.0000',opening:'0.0000',running:'10.1010'});
   assert.deepEqual(register[0].source_document_ids,[trace.documentId]);
+  const generalLedger=await reader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'610000',query:null,limit:50,offset:0});
+  assert.equal(generalLedger.length,1);
+  assert.deepEqual({period:generalLedger[0].period_id,debit:generalLedger[0].debit_amount,credit:generalLedger[0].credit_amount,total:generalLedger[0].total_count},{period:ids.periodId,debit:'10.1010',credit:'0.0000',total:'1'});
+  assert.deepEqual(generalLedger[0].source_document_ids,[trace.documentId]);
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'coa-register-reader'}),kernelFactory:async()=>reader});
   const coaResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/general-ledger/chart-of-accounts?periodId=${ids.periodId}`,body:null,headers:{}});
   const registerResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/general-ledger/account-register?periodId=${ids.periodId}&accountCode=610000`,body:null,headers:{}});
-  assert.equal(coaResponse.status,200);assert.equal(registerResponse.status,200);assert.equal(coaResponse.headers['cache-control'],'no-store');assert.equal(registerResponse.body.data[0].running_balance,'10.1010');
+  const generalLedgerResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/general-ledger/entries?periodId=${ids.periodId}&accountCode=610000&limit=50&offset=0`,body:null,headers:{}});
+  assert.equal(coaResponse.status,200);assert.equal(registerResponse.status,200);assert.equal(generalLedgerResponse.status,200);assert.equal(coaResponse.headers['cache-control'],'no-store');assert.equal(registerResponse.body.data[0].running_balance,'10.1010');assert.equal(generalLedgerResponse.body.data[0].debit_amount,'10.1010');
 });
 
 pgTest('financial statement period comparison reads two ordered periods and marks a missing prior side rather than deriving zero',async()=>{
