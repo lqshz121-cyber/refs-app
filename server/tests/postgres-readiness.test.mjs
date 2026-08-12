@@ -4,6 +4,8 @@ import {isTransientPostgresStartupError,waitForPostgresReadiness} from '../runti
 
 test('PostgreSQL readiness retries only transient startup and unavailable connection errors',()=>{
   for(const code of ['57P03','ECONNREFUSED','ECONNRESET','ECONNABORTED','EPIPE','ETIMEDOUT'])assert.equal(isTransientPostgresStartupError({code}),true,code);
+  assert.equal(isTransientPostgresStartupError(new Error('Connection terminated unexpectedly')),true,'pg startup socket terminated without an error code');
+  assert.equal(isTransientPostgresStartupError(new Error('password authentication failed')),false,'message-only errors stay fail closed unless exactly allowlisted');
   for(const code of ['28P01','3D000','42P01','XX000'])assert.equal(isTransientPostgresStartupError({code}),false,code);
 });
 
@@ -14,6 +16,15 @@ test('PostgreSQL readiness retries a startup race until the probe succeeds',asyn
     timeoutMs:100,intervalMs:10,now:()=>clock,sleep:async delay=>{clock+=delay;}
   });
   assert.deepEqual(result,{attempts:3,elapsedMs:20});
+});
+
+test('PostgreSQL readiness retries the exact pg startup disconnect without an error code',async()=>{
+  let calls=0,clock=0;
+  const result=await waitForPostgresReadiness({
+    probe:async()=>{calls+=1;if(calls===1)throw new Error('Connection terminated unexpectedly');},
+    timeoutMs:100,intervalMs:10,now:()=>clock,sleep:async delay=>{clock+=delay;}
+  });
+  assert.deepEqual(result,{attempts:2,elapsedMs:10});
 });
 
 test('PostgreSQL readiness fails immediately for a non-transient error',async()=>{
