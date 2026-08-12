@@ -35,6 +35,7 @@ const requireReviewReason=value=>{if(typeof value!=='string'||value!==value.trim
 const requireDecimalAmount=(value,name)=>{if(typeof value!=='string'||!/^-?(?:0|[1-9]\d{0,15})(?:\.\d{1,4})?$/.test(value))throw new AccountingApiError(400,'INVALID_AMOUNT',`${name} must be a canonical decimal string with at most four fractional digits`);return value;};
 const requireSha256=(value,name)=>{if(typeof value!=='string'||!/^sha256:[0-9a-f]{64}$/.test(value))throw new AccountingApiError(400,'INVALID_EVIDENCE_HASH',`${name} must be a canonical sha256 evidence hash`);return value;};
 const requireSourceVersion=(value,name)=>{if(typeof value!=='string'||value!==value.trim()||value.length<1||value.length>128||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_SOURCE_VERSION',`${name} must be a canonical 1-128 character source version`);return value;};
+const requireStorageVersion=(value,name)=>{if(typeof value!=='string'||value!==value.trim()||value.length<1||value.length>512||value.startsWith('pending:')||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_STORAGE_VERSION',`${name} must be a canonical finalized storage version of 1-512 printable characters`);return value;};
 const requireAttachmentIds=value=>{if(!Array.isArray(value)||value.length<1||value.length>25||value.some(item=>!UUID.test(item||''))||new Set(value).size!==value.length)throw new AccountingApiError(400,'INVALID_ATTACHMENT_IDS','attachmentIds must contain 1-25 unique UUIDs');return value;};
 const validateBody=body=>{if(!body||typeof body!=='object'||Array.isArray(body))throw new AccountingApiError(400,'JSON_OBJECT_REQUIRED','Request body must be a JSON object');for(const key of Object.keys(body))if(FORBIDDEN_BODY_KEYS.has(key))throw new AccountingApiError(400,'IDENTITY_FIELD_FORBIDDEN',`${key} must come from authenticated context`);return body;};
 const allowOnly=(body,allowed)=>{const unexpected=Object.keys(body).filter(key=>!allowed.includes(key));if(unexpected.length)throw new AccountingApiError(400,'UNEXPECTED_FIELD',`Unexpected request field: ${unexpected[0]}`);return body;};
@@ -103,6 +104,22 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listWbsPayableReviewEvidence!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_EVIDENCE_READ_UNAVAILABLE','WBS Payable evidence read is unavailable');
         result=await kernel.listWbsPayableReviewEvidence({tenantId:principal.tenantId,entityId,limit:optionalAdmittedStatementLimit(parsedUrl.searchParams.get('limit'))});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[7]==='review-candidates'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS Payable review-candidate reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listWbsPayableReviewCandidates!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_REVIEW_CANDIDATE_READ_UNAVAILABLE','WBS Payable review-candidate read is unavailable');
+        result=await kernel.listWbsPayableReviewCandidates({tenantId:principal.tenantId,entityId,limit:optionalAdmittedStatementLimit(parsedUrl.searchParams.get('limit'))});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===9&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[7]==='review-candidates'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS Payable review-candidate reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.getWbsPayableReviewCandidate!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_REVIEW_CANDIDATE_READ_UNAVAILABLE','WBS Payable review-candidate read is unavailable');
+        result=await kernel.getWbsPayableReviewCandidate({tenantId:principal.tenantId,entityId,wbsInboundRowId:requireUuid(parts[8],'wbsInboundRowId')});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result[0]}};
       }
       if(method==='GET'&&parts.length===9&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[7]==='reviews'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS Payable evidence reads do not accept command headers');
@@ -409,6 +426,12 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         allowOnly(payload,['snapshot']);const service=await wbsAdmittedPayableServiceFactory(principal);
         if(!service||typeof service.ingest!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_ADMISSION_UNAVAILABLE','Admitted WBS payable ingestion is unavailable');
         result=await service.ingest({tenantId:principal.tenantId,entityId,snapshot:payload.snapshot,idempotencyKey});
+      }else if(parts.length===10&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[8]==='attachments'&&parts[9]==='bindings'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['attachmentId','expectedSourceVersion','expectedReceiptHash','expectedProviderReceiptHash','expectedEvidenceHash','expectedAttachmentContentHash','expectedAttachmentStorageVersion','reason']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.bindWbsPayableAttachment!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_ATTACHMENT_BIND_UNAVAILABLE','WBS Payable attachment binding is unavailable');
+        const bound=await kernel.bindWbsPayableAttachment({tenantId:principal.tenantId,entityId,wbsInboundRowId:requireUuid(parts[7],'wbsInboundRowId'),attachmentId:requireUuid(payload.attachmentId,'attachmentId'),expectedRevision:requireRevision(headers),expectedSourceVersion:requireSourceVersion(payload.expectedSourceVersion,'expectedSourceVersion'),expectedReceiptHash:requireSha256(payload.expectedReceiptHash,'expectedReceiptHash'),expectedProviderReceiptHash:requireSha256(payload.expectedProviderReceiptHash,'expectedProviderReceiptHash'),expectedEvidenceHash:requireSha256(payload.expectedEvidenceHash,'expectedEvidenceHash'),expectedAttachmentContentHash:requireSha256(payload.expectedAttachmentContentHash,'expectedAttachmentContentHash'),expectedAttachmentStorageVersion:requireStorageVersion(payload.expectedAttachmentStorageVersion,'expectedAttachmentStorageVersion'),reason:requireReviewReason(payload.reason),idempotencyKey});
+        if(!bound||bound.status!=='BOUND_EVIDENCE_ONLY'||bound.can_review!==false||bound.can_create_draft!==false||bound.can_approve!==false||bound.can_post!==false)throw new AccountingApiError(500,'WBS_PAYABLE_ATTACHMENT_BIND_RESULT_INVALID','WBS Payable attachment binding must remain evidence-only');
+        result=bound;
       }else if(parts.length===9&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[8]==='reviews'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['periodId','expectedSourceVersion','expectedReceiptHash','expectedEvidenceHash','settingSnapshotId','mappingSnapshotId','attachmentIds','reason']);
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.reviewWbsPayable!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_REVIEW_UNAVAILABLE','WBS payable review is unavailable');

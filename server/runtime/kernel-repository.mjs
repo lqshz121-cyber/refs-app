@@ -185,6 +185,31 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async listWbsPayableReviewCandidates({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_wbs_payable_review_candidates($1,$2,NULL,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async getWbsPayableReviewCandidate({tenantId,entityId,wbsInboundRowId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_wbs_payable_review_candidates($1,$2,$3,1)',[tenantId,entityId,wbsInboundRowId]
+    )).rows);
+  }
+
+  async bindWbsPayableAttachment({tenantId,entityId,wbsInboundRowId,attachmentId,expectedRevision,expectedSourceVersion,expectedReceiptHash,expectedProviderReceiptHash,expectedEvidenceHash,expectedAttachmentContentHash,expectedAttachmentStorageVersion,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_bind_wbs_payable_attachment_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) AS request_hash',
+        [tenantId,entityId,wbsInboundRowId,attachmentId,expectedRevision,expectedSourceVersion,expectedReceiptHash,expectedProviderReceiptHash,expectedEvidenceHash,expectedAttachmentContentHash,expectedAttachmentStorageVersion,reason]
+      ),'WBS_PAYABLE_ATTACHMENT_BIND_HASH_FAILED','WBS Payable attachment binding hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_bind_wbs_payable_attachment($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) AS result',
+        [tenantId,entityId,wbsInboundRowId,attachmentId,expectedRevision,expectedSourceVersion,expectedReceiptHash,expectedProviderReceiptHash,expectedEvidenceHash,expectedAttachmentContentHash,expectedAttachmentStorageVersion,reason,idempotencyKey,requestHash]
+      ),'WBS_PAYABLE_ATTACHMENT_BIND_FAILED','WBS Payable attachment binding did not return a result').result;
+    });
+  }
+
   async createWbsPayableApDraft({tenantId,entityId,wbsInboundRowId,reviewEvidenceId,expectedRevision,expectedEvidenceHash,mappingSnapshotId,attachmentIds,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

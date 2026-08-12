@@ -174,6 +174,16 @@ test('WBS payable review binds immutable evidence, CAS, approved configuration a
   assert.equal((await unsafe({method:'POST',url:path,headers:{'Idempotency-Key':'wbs-payable-review-http-0005','If-Match':'"0"'},body})).body.code,'WBS_PAYABLE_REVIEW_RESULT_INVALID');
 });
 
+test('admitted WBS Payable review-candidate list and detail are closed no-store reads',async()=>{
+  const wbsInboundRowId=randomUUID(),seen=[],row={wbs_inbound_row_id:wbsInboundRowId,source_version:'v1',receipt_hash:`sha256:${'a'.repeat(64)}`,evidence_hash:`sha256:${'b'.repeat(64)}`,revision:'0',period_id:periodId,document_number:'WBS-INV-001',invoice_date:'2026-07-01',due_date:'2026-07-31',accounting_date:'2026-07-02',currency:'USD',gross_amount:'10.0000',vendor_ref:'VENDOR-1',vendor_name:'Vendor One',offset_account_code:'610000',setting_snapshot_id:randomUUID(),mapping_snapshot_id:randomUUID(),attachment_choices:[],review_readiness:'VERIFIED_ATTACHMENT_REQUIRED',can_review:false};
+  const readApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-payable-reviewer'}),kernelFactory:async()=>({listWbsPayableReviewCandidates:async request=>(seen.push(['list',request]),[row]),getWbsPayableReviewCandidate:async request=>(seen.push(['detail',request]),[row])})});
+  const listPath=`/api/v1/entities/${entityId}/wbs/inbound/payables/review-candidates?limit=7`,detailPath=`/api/v1/entities/${entityId}/wbs/inbound/payables/review-candidates/${wbsInboundRowId}`;
+  const listed=await readApi({method:'GET',url:listPath,body:null,headers:{}}),detail=await readApi({method:'GET',url:detailPath,body:null,headers:{}});
+  assert.equal(listed.status,200);assert.equal(detail.status,200);assert.equal(listed.headers['cache-control'],'no-store');assert.equal(detail.headers['cache-control'],'no-store');assert.deepEqual(seen,[['list',{tenantId,entityId,limit:7}],['detail',{tenantId,entityId,wbsInboundRowId}]]);assert.deepEqual(detail.body.data,row);
+  assert.equal((await readApi({method:'GET',url:`${listPath}&providerId=secret`,body:null,headers:{}})).body.code,'UNEXPECTED_QUERY_PARAMETER');
+  assert.equal((await readApi({method:'GET',url:detailPath,body:null,headers:{'Idempotency-Key':'forbidden'}})).body.code,'READ_COMMAND_HEADERS_FORBIDDEN');
+});
+
 test('reviewed WBS payable evidence list and detail are closed no-store reads',async()=>{
   const reviewEvidenceId=randomUUID(),wbsInboundRowId=randomUUID(),sourceDocumentId=randomUUID(),stagingItemId=randomUUID(),mappingSnapshotId=randomUUID(),attachmentId=randomUUID(),seen=[];
   const row={wbs_payable_review_evidence_id:reviewEvidenceId,wbs_inbound_row_id:wbsInboundRowId,source_document_id:sourceDocumentId,staging_item_id:stagingItemId,period_id:periodId,document_number:'WBS-INV-001',invoice_date:'2026-07-01',due_date:'2026-07-31',accounting_date:'2026-07-02',currency:'USD',gross_amount:'10.0000',vendor_ref:'VENDOR-1',vendor_name:'Reviewed vendor',offset_account_code:'610000',mapping_snapshot_id:mappingSnapshotId,attachment_ids:[attachmentId],evidence_hash:`sha256:${'a'.repeat(64)}`,review_reason:'Independent review',reviewed_by:'reviewer',reviewed_at:'2026-08-12T00:00:00.000Z',revision:'0',evidence_status:'READY_FOR_DRAFT_EVIDENCE_ONLY',draft_readiness:'READY_FOR_AP_DRAFT',can_create_draft:true,business_document_id:null,journal_entry_id:null};
