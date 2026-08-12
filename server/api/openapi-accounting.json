@@ -199,6 +199,22 @@
         }
       }
     },
+    "/entities/{entityId}/journal-entries/{journalEntryId}": {
+      "get": {
+        "operationId": "getJournalEntryDetail",
+        "summary": "Read exact Journal Entry line evidence for one accounting period",
+        "description": "Requires OIDC GL.JE.VIEW for the path entity and an exact entity-scoped periodId. Returns retained Journal Lines in line order. A ledger_line_id is present only for an actual POSTED ledger row; Draft and other unposted entries return null. This GET cannot create, transition, approve, post, reverse, import, or otherwise mutate a Journal Entry.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"$ref": "#/components/parameters/JournalEntryId"},
+          {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/JournalEntryDetailReadOk"},
+          "default": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/source-documents": {
       "get": {
         "operationId": "listSourceDocuments",
@@ -2356,6 +2372,52 @@
               "$ref": "#/components/schemas/JournalEntryReadRow"
             }
           }
+        }
+      },
+      "JournalEntryDetailLine": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["line_no", "journal_line_id", "ledger_line_id", "account_code", "debit_amount", "credit_amount", "member_ref", "description", "dimensions", "source_document_ids"],
+        "properties": {
+          "line_no": {"type": "integer", "minimum": 1},
+          "journal_line_id": {"$ref": "#/components/schemas/Uuid"},
+          "ledger_line_id": {"oneOf": [{"$ref": "#/components/schemas/Uuid"}, {"type": "null"}]},
+          "account_code": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$"},
+          "debit_amount": {"type": "string", "pattern": "^(?:0|[1-9][0-9]{0,15})\\.[0-9]{4}$"},
+          "credit_amount": {"type": "string", "pattern": "^(?:0|[1-9][0-9]{0,15})\\.[0-9]{4}$"},
+          "member_ref": {"type": ["string", "null"]},
+          "description": {"type": ["string", "null"]},
+          "dimensions": {"type": "object"},
+          "source_document_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/components/schemas/Uuid"}}
+        }
+      },
+      "JournalEntryDetailReadRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entity_id", "period_id", "journal_entry_id", "journal_number", "journal_type", "status", "journal_date", "currency", "description", "revision", "created_at", "posted_at", "lines"],
+        "properties": {
+          "entity_id": {"$ref": "#/components/schemas/Uuid"},
+          "period_id": {"$ref": "#/components/schemas/Uuid"},
+          "journal_entry_id": {"$ref": "#/components/schemas/Uuid"},
+          "journal_number": {"type": "string", "minLength": 1, "maxLength": 255},
+          "journal_type": {"enum": ["MANUAL", "AUTO", "REVERSAL", "RECLASS"]},
+          "status": {"enum": ["DRAFT", "PENDING_REVIEW", "PENDING_APPROVAL", "APPROVED", "POSTED"]},
+          "journal_date": {"type": "string", "format": "date"},
+          "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+          "description": {"type": ["string", "null"]},
+          "revision": {"type": "integer", "minimum": 0},
+          "created_at": {"type": "string", "format": "date-time"},
+          "posted_at": {"type": ["string", "null"], "format": "date-time"},
+          "lines": {"type": "array", "minItems": 1, "items": {"$ref": "#/components/schemas/JournalEntryDetailLine"}}
+        }
+      },
+      "JournalEntryDetailReadEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {"$ref": "#/components/schemas/JournalEntryDetailReadRow"}
         }
       },
       "SourceDocumentReadRow": {
@@ -4608,6 +4670,11 @@
             }
           }
         }
+      },
+      "JournalEntryDetailReadOk": {
+        "description": "Authenticated entity-and-period-scoped Journal Entry line evidence read",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JournalEntryDetailReadEnvelope"}}}
       },
       "SourceDocumentReadOk": {
         "description": "Authenticated entity-scoped immutable source-document metadata read",
