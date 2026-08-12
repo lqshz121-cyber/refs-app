@@ -1346,6 +1346,39 @@
         }
       }
     },
+    "/entities/{entityId}/bank/reconciliations/admitted-statements": {
+      "get": {
+        "operationId": "listAdmittedWbsBankStatementReceipts",
+        "summary": "List admitted signed WBS statements eligible for reconciliation review",
+        "description": "Requires both BANK.VIEW and BANK.RECONCILIATION.START. Returns only closed, signature-verified ADMITTED statement facts whose immutable receipt rows still match the account, currency, dates, and MONEY4 control total. Selection state is advisory; the start command revalidates every fact. No provider payload reference, provider statement identifier, signing key identifier, raw row, match, clearance, Journal Entry, or posting action is exposed.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name":"bankAccountRef","in":"query","required":true,"schema":{"type":"string","minLength":1,"maxLength":128,"pattern":"^(?:\\S|\\S.*\\S)$"}},
+          {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":50,"default":50}}
+        ],
+        "responses": {
+          "200": {"$ref":"#/components/responses/AdmittedWbsBankStatementListOk"},
+          "default": {"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
+    "/entities/{entityId}/bank/reconciliations/admitted-statements/{statementReceiptId}": {
+      "get": {
+        "operationId": "getAdmittedWbsBankStatementReceipt",
+        "summary": "Read one admitted signed WBS statement receipt for reconciliation review",
+        "description": "Requires both BANK.VIEW and BANK.RECONCILIATION.START. Authorization failure for either permission or the requested entity returns 403 before receipt lookup. After that scope is established, an unknown or out-of-entity receipt identifier returns a non-disclosing 404. Returns the same closed safe receipt facts as the list and cannot start or transition a reconciliation.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name":"statementReceiptId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}
+        ],
+        "responses": {
+          "200": {"$ref":"#/components/responses/AdmittedWbsBankStatementDetailOk"},
+          "403": {"$ref":"#/components/responses/Problem"},
+          "404": {"$ref":"#/components/responses/Problem"},
+          "default": {"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/bank/reconciliations/from-admitted-statement": {
       "post": {
         "operationId": "startReconciliationFromAdmittedWbsStatement",
@@ -2789,6 +2822,38 @@
             }
           }
         }
+      },
+      "AdmittedWbsBankStatementReadRow": {
+        "type":"object",
+        "additionalProperties":false,
+        "required":["wbs_bank_statement_receipt_id","bank_account_ref","statement_start_date","statement_end_date","currency","opening_balance","ending_balance","transaction_count","statement_activity_amount","admission_hash","signature_verified","admission_status","admitted_at","reconciliation_id","reconciliation_status","reconciliation_version","selection_state"],
+        "properties": {
+          "wbs_bank_statement_receipt_id":{"$ref":"#/components/schemas/Uuid"},
+          "bank_account_ref":{"type":"string","minLength":1,"maxLength":128},
+          "statement_start_date":{"type":"string","format":"date"},
+          "statement_end_date":{"type":"string","format":"date"},
+          "currency":{"type":"string","pattern":"^[A-Z]{3}$"},
+          "opening_balance":{"$ref":"#/components/schemas/Money"},
+          "ending_balance":{"$ref":"#/components/schemas/Money"},
+          "transaction_count":{"type":"string","pattern":"^[1-9][0-9]*$"},
+          "statement_activity_amount":{"$ref":"#/components/schemas/Money"},
+          "admission_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+          "signature_verified":{"const":true},
+          "admission_status":{"const":"ADMITTED"},
+          "admitted_at":{"type":"string","format":"date-time"},
+          "reconciliation_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},
+          "reconciliation_status":{"type":["string","null"],"enum":["DRAFT","IN_REVIEW","RECONCILED","REOPENED",null]},
+          "reconciliation_version":{"type":["string","null"],"pattern":"^[0-9]+$"},
+          "selection_state":{"type":"string","enum":["ALREADY_STARTED","BLOCKED_OPEN_RECONCILIATION","AVAILABLE_FOR_SERVER_VALIDATION"]}
+        }
+      },
+      "AdmittedWbsBankStatementListEnvelope": {
+        "type":"object","additionalProperties":false,"required":["ok","data"],
+        "properties":{"ok":{"const":true},"data":{"type":"array","maxItems":50,"items":{"$ref":"#/components/schemas/AdmittedWbsBankStatementReadRow"}}}
+      },
+      "AdmittedWbsBankStatementDetailEnvelope": {
+        "type":"object","additionalProperties":false,"required":["ok","data"],
+        "properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/AdmittedWbsBankStatementReadRow"}}
       },
       "ChartOfAccountsReadRow": {
         "type": "object", "additionalProperties": false,
@@ -4614,6 +4679,16 @@
             }
           }
         }
+      },
+      "AdmittedWbsBankStatementListOk": {
+        "description":"Closed admitted signed WBS statement selections for one bank account",
+        "headers":{"Cache-Control":{"schema":{"const":"no-store"}}},
+        "content":{"application/json":{"schema":{"$ref":"#/components/schemas/AdmittedWbsBankStatementListEnvelope"}}}
+      },
+      "AdmittedWbsBankStatementDetailOk": {
+        "description":"One closed entity-scoped admitted signed WBS statement receipt",
+        "headers":{"Cache-Control":{"schema":{"const":"no-store"}}},
+        "content":{"application/json":{"schema":{"$ref":"#/components/schemas/AdmittedWbsBankStatementDetailEnvelope"}}}
       },
       "FinancialStatementReadOk": {
         "description": "Scoped POSTED-ledger financial statement evidence",
