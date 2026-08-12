@@ -1,5 +1,5 @@
 import React,{useState} from 'react';
-import {verifyAuthoritativeWbsTransitionContract} from './accounting-api.js';
+import {refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,verifyAuthoritativeWbsTransitionContract} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeDemoView,AuthoritativeDemoWorkspaceHeader} from './authoritative-demo-view.jsx';
 
@@ -8,6 +8,10 @@ const scopeValue=value=>value||'Configured authoritative scope';
 export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.fetch}){
   const [rawContract,setRawContract]=useState('');
   const [state,setState]=useState({phase:'IDLE',data:null,error:null});
+  const [reviewInput,setReviewInput]=useState({companyKey:'',sourceRecordIds:''});
+  const [reviewState,setReviewState]=useState({phase:'IDLE',data:null,error:null});
+  const [controlInput,setControlInput]=useState({sourceType:'COST_GENERAL_LEDGER',companyKey:'',period:'',currency:'USD',propertyRef:'',periodStart:'',periodEnd:'',bankAccountRef:''});
+  const [controlState,setControlState]=useState({phase:'IDLE',data:null,error:null});
   const verify=async event=>{
     event.preventDefault();
     let contract;
@@ -19,7 +23,19 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     const result=await verifyAuthoritativeWbsTransitionContract({config,contract,fetcher});
     setState(current=>result.ok?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result});
   };
+  const readReview=async event=>{
+    event.preventDefault();setReviewState(current=>({...current,phase:'LOADING',error:null}));
+    const sourceRecordIds=reviewInput.sourceRecordIds.split(/[\n,]+/).map(value=>value.trim()).filter(Boolean);
+    const result=await refreshAuthoritativeWbsAutoRecReview({config,companyKey:reviewInput.companyKey,sourceRecordIds,fetcher});
+    setReviewState(current=>result.ok&&result.data.status!=='BLOCKED'?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result.ok?{code:result.data.code,message:'Persisted WBS evidence is not complete for this exact selection.'}:result});
+  };
+  const readControl=async event=>{
+    event.preventDefault();setControlState(current=>({...current,phase:'LOADING',error:null}));
+    const result=await refreshAuthoritativeWbsControlReconciliation({config,...controlInput,fetcher});
+    setControlState(current=>result.ok&&result.data.status!=='BLOCKED'?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result.ok?{code:result.data.code,message:'Receipt-backed WBS and REFS control evidence is incomplete for this exact scope.'}:result});
+  };
   const data=state.data;
+  const review=reviewState.data,control=controlState.data;
   return <AuthoritativeDemoView area="WBS transition evidence" className="stack authoritative-wbs-transition-workspace">
     <AuthoritativeDemoWorkspaceHeader eyebrow="AUTO RECONCILIATION / PROVIDER EVIDENCE" title="WBS AutoRec transition evidence" description="Review a provider-signed cancellation and reopen contract for the configured accounting scope. This page verifies evidence; it never operates WBS or accounting." status="EVIDENCE ONLY"/>
 
@@ -34,6 +50,45 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
       <div className="qbo-card"><h4>Signed contract required</h4><div className="qbo-sub">Unsigned, inferred, or browser-created transition facts are not admitted.</div></div>
       <div className="qbo-card"><h4>Pinned provider verification</h4><div className="qbo-sub">The API validates the supplied contract and its declared provider signature.</div></div>
       <div className="qbo-card"><h4>Zero REFS action authority</h4><div className="qbo-sub">Every reserve, release, incur, Draft, approve, post, reverse, and write flag must be false.</div></div>
+    </section>
+
+    <section className="report-workbench" aria-label="Persisted WBS AutoRec review evidence">
+      <div className="report-workbench-head"><div><b>Persisted AutoRec review evidence</b><div className="page-subtitle">Read a bounded company/source selection already retained in PostgreSQL. This request never calls WBS and cannot match, allocate, dispatch a Draft, or post.</div></div><span className="badge badge-muted">GET ONLY</span></div>
+      <form className="filterbar" onSubmit={readReview}>
+        <label htmlFor="wbs-review-company">WBS company key<input id="wbs-review-company" required maxLength="128" value={reviewInput.companyKey} onChange={event=>setReviewInput(current=>({...current,companyKey:event.target.value}))} placeholder="Exact retained company key"/></label>
+        <label htmlFor="wbs-review-sources">Immutable source record IDs<textarea id="wbs-review-sources" required rows="4" maxLength="25600" value={reviewInput.sourceRecordIds} onChange={event=>setReviewInput(current=>({...current,sourceRecordIds:event.target.value}))} placeholder="One to 50 IDs, separated by lines or commas"/></label>
+        <button type="submit" className="btn" disabled={reviewState.phase==='LOADING'}>{reviewState.phase==='LOADING'?'Reading retained evidence...':'Load AutoRec review evidence'}</button>
+      </form>
+      {reviewState.phase==='LOADING'&&<StateBlock tone="loading" title="Reading persisted AutoRec evidence">Loading only receipt-backed rows for the exact company and source IDs.</StateBlock>}
+      {reviewState.phase==='BLOCKED'&&<StateBlock tone="blocked" title={reviewState.error?.code||'WBS_AUTOREC_REVIEW_BLOCKED'}>{reviewState.error?.message}{review&&' Previously retained review evidence remains below.'}</StateBlock>}
+      {reviewState.phase==='IDLE'&&<StateBlock tone="empty" title="No AutoRec selection loaded">Enter the exact WBS company key and persisted source IDs. REFS will not list, search, or infer external WBS records.</StateBlock>}
+      {review?.status==='READ_ONLY_PROJECTED'&&<>
+        <div className="qbo-toolgrid"><span><i>Status</i><b>{review.status}</b></span><span><i>Review candidates</i><b>{review.candidates.length}</b></span><span><i>Exceptions</i><b>{review.exceptions.length}</b></span><span><i>Action authority</i><b>None</b></span></div>
+        {review.candidates.length===0?<StateBlock tone="empty" title="No retained review candidates">The authenticated API returned a valid empty result for this exact selection.</StateBlock>:<div className="table-wrap authoritative-wbs-review-table" role="region" tabIndex={0} aria-label="WBS AutoRec review candidates; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Candidate</th><th>Side</th><th>Source type</th><th>Source record</th><th>Version</th><th>Date</th><th>Currency</th><th>Amount</th><th>Bank scope</th><th>Mapping</th></tr></thead><tbody>{review.candidates.map(row=><tr key={row.review_candidate_id}><td>{row.review_candidate_id}</td><td>{row.side}</td><td>{row.source_type}</td><td>{row.source_record_id}</td><td>{row.source_version}</td><td>{row.accounting_date}</td><td>{row.currency}</td><td>{row.amount}</td><td>{row.bank_account_ref}</td><td>{row.mapping.mapping_id} / {row.mapping.version}</td></tr>)}</tbody></table></div>}
+      </>}
+    </section>
+
+    <section className="report-workbench" aria-label="WBS and REFS control reconciliation evidence">
+      <div className="report-workbench-head"><div><b>WBS / REFS control reconciliation</b><div className="page-subtitle">Compare persisted signed WBS metrics with an immutable REFS metric snapshot through one approved mapping. Differences remain evidence only.</div></div><span className="badge badge-muted">GET ONLY</span></div>
+      <form className="filterbar" onSubmit={readControl}>
+        <label htmlFor="wbs-control-type">Control source<select id="wbs-control-type" value={controlInput.sourceType} onChange={event=>setControlInput(current=>({...current,sourceType:event.target.value}))}><option value="COST_GENERAL_LEDGER">Cost General Ledger</option><option value="PROPERTY_COMPARISON">Property comparison</option></select></label>
+        <label htmlFor="wbs-control-company">WBS company key<input id="wbs-control-company" required maxLength="128" value={controlInput.companyKey} onChange={event=>setControlInput(current=>({...current,companyKey:event.target.value}))}/></label>
+        <label htmlFor="wbs-control-currency">Currency<input id="wbs-control-currency" required maxLength="3" pattern="[A-Z]{3}" value={controlInput.currency} onChange={event=>setControlInput(current=>({...current,currency:event.target.value.toUpperCase()}))}/></label>
+        {controlInput.sourceType==='COST_GENERAL_LEDGER'?<label htmlFor="wbs-control-period">Accounting period<input id="wbs-control-period" required type="month" value={controlInput.period} onChange={event=>setControlInput(current=>({...current,period:event.target.value}))}/></label>:<>
+          <label htmlFor="wbs-control-property">Property reference<input id="wbs-control-property" required maxLength="128" value={controlInput.propertyRef} onChange={event=>setControlInput(current=>({...current,propertyRef:event.target.value}))}/></label>
+          <label htmlFor="wbs-control-start">Period start<input id="wbs-control-start" required type="date" value={controlInput.periodStart} onChange={event=>setControlInput(current=>({...current,periodStart:event.target.value}))}/></label>
+          <label htmlFor="wbs-control-end">Period end<input id="wbs-control-end" required type="date" value={controlInput.periodEnd} onChange={event=>setControlInput(current=>({...current,periodEnd:event.target.value}))}/></label>
+          <label htmlFor="wbs-control-bank">Bank account reference<input id="wbs-control-bank" required maxLength="128" value={controlInput.bankAccountRef} onChange={event=>setControlInput(current=>({...current,bankAccountRef:event.target.value}))}/></label>
+        </>}
+        <button type="submit" className="btn" disabled={controlState.phase==='LOADING'}>{controlState.phase==='LOADING'?'Reading control evidence...':'Load control reconciliation'}</button>
+      </form>
+      {controlState.phase==='LOADING'&&<StateBlock tone="loading" title="Reading immutable control snapshots">Checking the exact WBS receipt, approved mapping, and REFS metric snapshot.</StateBlock>}
+      {controlState.phase==='BLOCKED'&&<StateBlock tone="blocked" title={controlState.error?.code||'WBS_CONTROL_RECONCILIATION_BLOCKED'}>{controlState.error?.message}{control&&' Previously retained control evidence remains below.'}</StateBlock>}
+      {controlState.phase==='IDLE'&&<StateBlock tone="empty" title="No control scope loaded">Choose an exact Cost GL or Property control scope. Missing receipts or mappings remain BLOCKED, never zero.</StateBlock>}
+      {control&&control.status!=='BLOCKED'&&<>
+        <div className="qbo-toolgrid"><span><i>Status</i><b>{control.reconciliation.status}</b></span><span><i>Metrics</i><b>{control.reconciliation.control_totals.metric_count}</b></span><span><i>Differences</i><b>{control.reconciliation.control_totals.difference_count}</b></span><span><i>Action authority</i><b>None</b></span></div>
+        <div className="table-wrap authoritative-wbs-control-table" role="region" tabIndex={0} aria-label="WBS control reconciliation; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Metric</th><th>WBS source</th><th>REFS target</th><th>Difference</th><th>Result</th></tr></thead><tbody>{control.reconciliation.comparisons.map(row=><tr key={row.metric_key}><td>{row.metric_key}</td><td>{row.source_amount}</td><td>{row.target_amount}</td><td>{row.difference}</td><td>{row.matched?'MATCHED':'DIFFERENCE'}</td></tr>)}</tbody></table></div>
+      </>}
     </section>
 
     <section className="report-workbench" aria-label="Signed WBS transition contract verification">
