@@ -3,6 +3,7 @@ import { StateBlock } from './ui.jsx';
 import {readAuthoritativeJournalEntryDetail} from './accounting-api.js';
 import {AuthoritativeDemoJournalView} from './authoritative-demo-journal-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
+import {AuthoritativeLineageDrill} from './authoritative-lineage-drill.jsx';
 import {
   DEFAULT_AUTHORITATIVE_LIST_VIEW,
   createAuthoritativeReturnContext,
@@ -95,8 +96,8 @@ export function AuthoritativeJournalDetail({journal,entityId,returnContext,onBac
   </section>;
 }
 
-const JournalDetailReadState=({detail,entityId,onBack})=>{
-  if(detail.phase==='READY')return <AuthoritativeJournalDetail journal={detail.evidence} entityId={entityId} returnContext={detail.returnContext} onBack={onBack}/>;
+const JournalDetailReadState=({detail,entityId,config,fetcher,onBack})=>{
+  if(detail.phase==='READY')return <AuthoritativeLineageDrill config={config} fetcher={fetcher} initial={{kind:'JOURNAL',journal:detail.evidence,context:{entityId:config.entityId,periodId:config.periodId,journalId:detail.evidence.journal_entry_id,journalRevision:detail.evidence.revision,journalCurrency:detail.evidence.currency}}} onExit={onBack}/>;
   return <section className="full-bleed qbo-transaction-report authoritative-evidence-page authoritative-journal-detail" aria-label="Journal entry evidence"><div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>{journalReturnScope(entityId,detail.journal,detail.returnContext)}</span></div><StateBlock tone={detail.phase==='LOADING'?'loading':'blocked'} title={detail.phase==='LOADING'?'Loading exact Journal evidence':'Authoritative Journal detail unavailable'}>{detail.phase==='LOADING'?'Reading the exact entity, period, and Journal Entry scope.':detail.error?.message||'The exact read failed closed; no list facts are promoted to line evidence.'}</StateBlock></section>;
 };
 
@@ -111,6 +112,6 @@ export function AuthoritativeJournalWorkspace({ journals, config, fetcher=global
     const result=await readAuthoritativeJournalEntryDetail({config,journalEntryId:journal.journal_entry_id,fetcher});
     setDetail(result.ok?{phase:'READY',journal,evidence:result.journal,returnContext:frozenContext}:{phase:'ERROR',journal,error:result,returnContext:frozenContext});
   };
-  if (detail) return <JournalDetailReadState detail={detail} entityId={config.entityId} onBack={() => { setView(detail.returnContext.view); setDetail(null); restoreAuthoritativeReturnContext(environment,config,detail.returnContext); }}/>;
+  if (detail) return <JournalDetailReadState detail={detail} entityId={config.entityId} config={config} fetcher={fetcher} onBack={() => { setView(detail.returnContext.view); setDetail(null); restoreAuthoritativeReturnContext(environment,config,detail.returnContext); }}/>;
   return <div className="stack authoritative-journal-workspace"><AuthoritativeJournalTable journals={journals} view={view} onViewChange={setView} onOpen={openEvidence}/><AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.journal} title="External WBS journal observations"/></div>;
 }

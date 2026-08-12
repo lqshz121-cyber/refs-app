@@ -2,6 +2,7 @@ import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {refreshAuthoritativeGeneralLedger} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeDemoGeneralLedgerDetailView,AuthoritativeDemoGeneralLedgerView} from './authoritative-demo-general-ledger-view.jsx';
+import {AuthoritativeLineageDrill} from './authoritative-lineage-drill.jsx';
 
 const PAGE_SIZE=50;
 const money=value=>typeof value==='string'&&/^-?\d+\.\d{4}$/.test(value)?value:'Not returned';
@@ -45,7 +46,7 @@ export function AuthoritativeGeneralLedgerWorkspace({config,fetcher=globalThis.f
   const openDetail=(row,index)=>{opener.current=`authoritative-gl-line-${row.ledger_line_id}-${index}`;scrollY.current=globalThis.window?.scrollY||0;setDetail({row,returnContext:{query,accountCode,page}});};
   const closeDetail=()=>{setDetail(null);setTimeout(()=>{globalThis.document?.getElementById(opener.current)?.focus();globalThis.window?.scrollTo?.({top:scrollY.current,behavior:'auto'});},0);};
   const rows=useMemo(()=>state.rows,[state.rows]);
-  if(detail)return <AuthoritativeGeneralLedgerDetail row={detail.row} returnContext={detail.returnContext} onBack={closeDetail}/>;
+  if(detail)return <AuthoritativeLineageDrill config={config} fetcher={fetcher} initial={{kind:'GL',row:detail.row,context:{entityId:config.entityId,periodId:config.periodId,journalEntryId:detail.row.journal_entry_id,journalLineId:detail.row.journal_line_id,ledgerLineId:detail.row.ledger_line_id}}} onExit={closeDetail}/>;
   return <AuthoritativeDemoGeneralLedgerView eyebrow="GENERAL LEDGER · POSTED EVIDENCE" title="General Ledger" subtitle="Entity and accounting-period scoped POSTED ledger lines only. No export, posting, adjustment, or provider action is available.">
     <ReadingRail label="General Ledger reading path" items={['Scoped ledger','POSTED evidence','Immutable line detail']}/>
     <p className="authoritative-coa-scope">{scopeText(state.scope||config)}. The configured period is the immutable date scope; ad-hoc date overrides are not supplied by this API. Amounts are fixed four-decimal strings and currencies are never combined.</p>
