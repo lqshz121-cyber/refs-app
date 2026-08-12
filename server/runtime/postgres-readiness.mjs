@@ -1,7 +1,8 @@
 const TRANSIENT_CONNECTION_CODES=new Set(['57P03','ECONNREFUSED','ECONNRESET','ECONNABORTED','EPIPE','ETIMEDOUT']);
+const TRANSIENT_CONNECTION_MESSAGES=new Set(['Connection terminated unexpectedly']);
 
 export function isTransientPostgresStartupError(error){
-  return TRANSIENT_CONNECTION_CODES.has(error?.code);
+  return TRANSIENT_CONNECTION_CODES.has(error?.code)||(!error?.code&&TRANSIENT_CONNECTION_MESSAGES.has(error?.message));
 }
 
 export async function waitForPostgresReadiness({probe,timeoutMs=30_000,intervalMs=250,sleep=delay=>new Promise(resolve=>setTimeout(resolve,delay)),now=Date.now}={}){

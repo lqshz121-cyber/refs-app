@@ -317,6 +317,37 @@ pgTest('admitted signed Payable composition persists receipt Raw Normalized Stag
   assert.deepEqual({status:draftedEvidence.evidence_status,readiness:draftedEvidence.draft_readiness,canDraft:draftedEvidence.can_create_draft,bill:draftedEvidence.business_document_id,journal:draftedEvidence.journal_entry_id},{status:'DRAFT_CREATED',readiness:'ALREADY_DRAFTED',canDraft:false,bill:drafted.business_document_id,journal:drafted.journal_entry_id});
   await assert.rejects(maker.createWbsPayableApDraft({...draftArgs,expectedEvidenceHash:hash('stale-draft-evidence'),idempotencyKey:'wbs-payable-draft-pg-stale'}),error=>error.code==='40001');
   await assert.rejects(adminPool.query("UPDATE wbs_payable_draft_evidence SET maker_reason='tampered Draft evidence' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
+
+  // Advance this exact signed WBS payable through the ordinary journal workflow.
+  // Each step has a distinct actor and no import/review/maker actor is allowed to
+  // auto-approve or auto-post the resulting accounting entry.
+  const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-submitter',['GL.JE.SUBMIT'])});
+  const journalReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-journal-reviewer',['GL.JE.REVIEW'])});
+  const journalApprover=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-journal-approver',['GL.JE.APPROVE'])});
+  const journalPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-journal-poster',['GL.JE.POST'])});
+  await assert.rejects(maker.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'wbs-payable-maker-cannot-submit'}),error=>error.code==='42501');
+  assert.equal((await submitter.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'wbs-payable-submit-pg-0001'})).status,'PENDING_REVIEW');
+  assert.equal((await journalReviewer.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'wbs-payable-journal-review-pg-0001'})).status,'PENDING_APPROVAL');
+  assert.equal((await journalApprover.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'wbs-payable-approve-pg-0001'})).status,'APPROVED');
+  const posted=await journalPoster.postJournal({...ids,journalEntryId:drafted.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'wbs-payable-post-pg-0001'});
+  assert.equal(posted.idempotent,false);
+
+  const postedState=(await adminPool.query(`SELECT d.status document_status,d.open_balance::text,d.draft_journal_entry_id,d.posted_journal_entry_id,j.status::text journal_status,s.status::text staging_status,s.version::text staging_version,
+      (SELECT count(DISTINCT l.posting_batch_id)::int FROM ledger_line l WHERE l.tenant_id=d.tenant_id AND l.entity_id=d.entity_id AND l.journal_entry_id=j.journal_entry_id) posting_batches,
+      (SELECT count(*)::int FROM ledger_line l WHERE l.tenant_id=d.tenant_id AND l.entity_id=d.entity_id AND l.journal_entry_id=j.journal_entry_id) ledger_lines
+    FROM business_document d JOIN journal_entry j ON j.journal_entry_id=d.posted_journal_entry_id JOIN wbs_payable_draft_evidence w ON w.business_document_id=d.business_document_id JOIN staging_item s ON s.staging_item_id=w.staging_item_id
+    WHERE d.tenant_id=$1 AND d.entity_id=$2 AND d.business_document_id=$3`,[ids.tenantId,ids.entityId,drafted.business_document_id])).rows[0];
+  assert.deepEqual(postedState,{document_status:'OPEN',open_balance:'89.1250',draft_journal_entry_id:null,posted_journal_entry_id:drafted.journal_entry_id,journal_status:'POSTED',staging_status:'POSTED',staging_version:'5',posting_batches:1,ledger_lines:2});
+
+  const authorityReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-authority-reader',['GL.REPORT.VIEW','GL.JE.VIEW','AP.VIEW'])});
+  const gl=await authorityReader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'610000',query:'WBS-INV-PG-001',limit:50,offset:0});
+  assert.equal(gl.length,1);assert.deepEqual({journal:gl[0].journal_entry_id,debit:gl[0].debit_amount,credit:gl[0].credit_amount,sources:gl[0].source_document_ids},{journal:drafted.journal_entry_id,debit:'89.1250',credit:'0.0000',sources:[reviewed.source_document_id]});
+  const statements=await authorityReader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  const trialExpense=statements.find(row=>row.statement_type==='TRIAL_BALANCE'&&row.account_code==='610000');
+  const trialPayable=statements.find(row=>row.statement_type==='TRIAL_BALANCE'&&row.account_code==='291001');
+  assert.deepEqual({debit:trialExpense.period_debit,credit:trialExpense.period_credit,balance:trialExpense.display_balance},{debit:'89.1250',credit:'0.0000',balance:'89.1250'});
+  assert.deepEqual({debit:trialPayable.period_debit,credit:trialPayable.period_credit,balance:trialPayable.display_balance},{debit:'0.0000',credit:'89.1250',balance:'-89.1250'});
+  assert.deepEqual(await authorityReader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'89.1250',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'89.1250'}]);
 });
 
 pgTest('signed admitted WBS bank statement atomically creates exact bank sources with replay and conflict guards',async()=>{
