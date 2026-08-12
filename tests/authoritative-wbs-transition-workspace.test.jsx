@@ -46,6 +46,7 @@ assert.match(source,/refreshAuthoritativeWbsAutoRecReview/);
 assert.match(source,/refreshAuthoritativeWbsControlReconciliation/);
 assert.match(source,/refreshAuthoritativeWbsLivePilot/);
 assert.match(source,/WBS_LIVE_PILOT_VIEWS/);
+assert.match(source,/row\[field\]===null\?'Unavailable':row\[field\]/);
 assert.match(source,/activateAuthoritativeWbsReadAccess/);
 assert.match(source,/status!=='BLOCKED'\?\{phase:'READY',data:result\.data,error:null\}:\{phase:'BLOCKED',data:current\.data/);
 assert.match(source,/no-action guard/);

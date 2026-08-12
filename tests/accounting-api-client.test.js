@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import {WBS_LIVE_PILOT_VIEWS} from '../src/accounting-api.js';
 import {accountingApiConfig,activateAuthoritativeWbsReadAccess,applyAuthoritativeCredit,createAuthoritativeAdjustment,createAuthoritativeBankPaymentMatch,createAuthoritativeBusinessDocument,createAuthoritativeReconciliationAdjustmentDraft,createAuthoritativeSettlement,refreshAuthoritativeBankTransactions,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBudgetVsActual,refreshAuthoritativeConsolidation,refreshAuthoritativeDocuments,refreshAuthoritativeJournalEntries,refreshAuthoritativeReconciliation,refreshAuthoritativeReconciliationWorksheet,setAuthoritativeReconciliationAdjustmentClearance,setAuthoritativeReconciliationClearance,startAuthoritativeReconciliation,transitionAuthoritativeReconciliation,transitionAuthoritativeJournal,unmatchAuthoritativeBankPayment,refreshAuthoritativeAging,refreshAuthoritativeCashFlowClassification,refreshAuthoritativeConstructionLoanRollforward,refreshAuthoritativeCwipRollforward,refreshAuthoritativeControlTotals,refreshAuthoritativeDimensionProfitability,refreshAuthoritativeIntercompanyReconciliation,refreshAuthoritativePrepaidRollforward,refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,refreshAuthoritativeWbsLivePilot,verifyAuthoritativeWbsTransitionContract} from '../src/accounting-api.js';
 import {bindAuthoritativeFetcher} from '../src/authoritative-app.jsx';
+import {createWbsLivePilotReadService} from '../server/runtime/wbs-live-pilot-read-service.mjs';
+import {canonicalRequestHash} from '../server/runtime/request-hash.mjs';
 const entityId='11111111-1111-4111-8111-111111111111';
 const periodId='33333333-3333-4333-8333-333333333333';
 assert.equal(accountingApiConfig({__REFS_ACCOUNTING_API__:{baseUrl:'http://unsafe.example',entityId,periodId}}),null);
@@ -268,6 +271,12 @@ const config=configured;
     const withUnexpected={...row,description:'must never reach browser'};
     assert.equal((await refreshAuthoritativeWbsLivePilot({config,tool,fetcher:async()=>respond(200,{ok:true,data:pilotEvidence(tool,withUnexpected)})})).code,'WBS_LIVE_PILOT_PROTOCOL');
   }
+  const providerBankRow={pb_guid:'provider-row-redacted',pay_amount:'100.00000',debit_amount:'0.00000',quantity:'2.00000',released:'50.00000',released_quantity:null,incurred:'25.00000',status:'N'};
+  const providerEnvelope={tool_name:'list_autorec_banks',contract_version:'WBS-REFS-MCP-V1',environment:'production',captured_at:'2026-08-12T00:00:00.000Z',scope:{company_codes:[],date_range:[]},record_count:1,content_sha256:canonicalRequestHash([providerBankRow]).slice(7),cursor_next:null,rows:[providerBankRow]};
+  const providerService=createWbsLivePilotReadService({client:{initialize:async()=>{},listTools:async()=>{},readView:async()=>providerEnvelope},authorize:async()=>true});
+  const sanitizedProviderBank=await providerService.readObservation({tenantId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',entityId,tool:'list_autorec_banks',limit:10});
+  const providerBankRead=await refreshAuthoritativeWbsLivePilot({config,tool:'list_autorec_banks',fetcher:async()=>respond(200,{ok:true,data:sanitizedProviderBank})});
+  assert.equal(providerBankRead.ok,true);assert.equal(providerBankRead.data.rows[0].released_quantity,null);assert.deepEqual(Object.keys(providerBankRead.data.rows[0]),WBS_LIVE_PILOT_VIEWS.list_autorec_banks.fields);assert.equal(JSON.stringify(providerBankRead.data).includes('provider-row-redacted'),false);
   assert.equal((await refreshAuthoritativeWbsLivePilot({config,tool:'trace_by_key',fetcher:async()=>{throw new Error('must not call');}})).code,'WBS_LIVE_PILOT_SCOPE_INVALID');
   assert.equal((await refreshAuthoritativeWbsLivePilot({config,tool:'list_autorec_details',limit:11,fetcher:async()=>{throw new Error('must not call');}})).code,'WBS_LIVE_PILOT_SCOPE_INVALID');
   assert.equal((await refreshAuthoritativeWbsLivePilot({config,tool:'list_autorec_details',fetcher:async()=>respond(200,{ok:true,data:{...pilotEvidence('list_autorec_details'),signature_verified:true}})})).code,'WBS_LIVE_PILOT_PROTOCOL');

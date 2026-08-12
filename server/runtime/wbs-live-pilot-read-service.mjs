@@ -44,7 +44,7 @@ const sanitizeRow=(tool,row)=>{
   const key=row[STABLE_KEY[tool]],keyText=typeof key==='string'?key:Number.isSafeInteger(key)?String(key):'';
   if(!keyText||CONTROL.test(keyText))fail('WBS_LIVE_PILOT_ROW_KEY_INVALID','WBS pilot row has no safe source observation key.');
   const out={source_record_hash:hash(`${tool}\u0000${keyText}`),currency:'USD'};
-  for(const [field,value] of Object.entries(rowShape(tool,row)))if(value!==null)out[field]=value;
+  for(const [field,value] of Object.entries(rowShape(tool,row)))if(value!==null||tool==='list_autorec_banks')out[field]=value;
   return Object.freeze(out);
 };
 

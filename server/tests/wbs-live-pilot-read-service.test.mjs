@@ -37,6 +37,14 @@ test('each tool exposes only its frozen row contract and never a provider stable
   }
 });
 
+test('AutoRec bank rows retain a closed schema when the provider omits a numeric observation',async()=>{
+  const row={pb_guid:'provider-row-redacted',pay_amount:'100.00000',debit_amount:'0.00000',quantity:'2.00000',released:'50.00000',released_quantity:null,incurred:'25.00000',status:'N'};
+  const client={initialize:async()=>{},listTools:async()=>{},readView:async()=>observed({tool:'list_autorec_banks',rows:[row]})};
+  const result=await createWbsLivePilotReadService({client,authorize:async()=>{}}).readObservation({tenantId,entityId,tool:'list_autorec_banks',limit:1});
+  assert.deepEqual(Object.keys(result.rows[0]),['source_record_hash','currency','pay_amount','debit_amount','quantity','released_amount','released_quantity','incurred_amount','status']);
+  assert.equal(result.rows[0].released_quantity,null);assert.equal(result.rows[0].pay_amount,'100.0000');assert.equal(result.rows[0].status,'N');assert.equal(JSON.stringify(result).includes('provider-row-redacted'),false);
+});
+
 test('unsafe provider observations fail closed and cannot be asserted as API results',async()=>{
   const client={initialize:async()=>{},listTools:async()=>{},readView:async()=>observed({rows:[{amount:'1.0'}]})};
   await assert.rejects(createWbsLivePilotReadService({client,authorize:async()=>{}}).readObservation({tenantId,entityId,tool:'list_payables',limit:1}),error=>error.code==='WBS_LIVE_PILOT_ROW_KEY_INVALID');
