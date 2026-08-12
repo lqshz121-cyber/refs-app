@@ -2031,8 +2031,10 @@ pgTest('chart of accounts and account register read only same-entity POSTED fixe
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'coa-register-reader',['GL.REPORT.VIEW','GL.JE.VIEW'])});
   const coa=await reader.listChartOfAccounts({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
   const expense=coa.find(row=>row.account_code==='610000'&&row.currency==='USD');
+  assert.deepEqual({start:expense.period_start,end:expense.period_end},{start:'2026-07-01',end:'2026-07-31'});
   assert.deepEqual({opening:expense.opening_balance,debit:expense.period_debit,credit:expense.period_credit,ending:expense.ending_balance,lines:expense.posted_ledger_line_count},{opening:'0.0000',debit:'10.1010',credit:'0.0000',ending:'10.1010',lines:'1'});
   const register=await reader.listAccountRegister({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'610000'});
+  assert.deepEqual({start:register[0].period_start,end:register[0].period_end,journalDate:register[0].journal_date},{start:'2026-07-01',end:'2026-07-31',journalDate:'2026-07-15'});
   assert.equal(register.length,1);assert.deepEqual({debit:register[0].debit_amount,credit:register[0].credit_amount,opening:register[0].opening_balance,running:register[0].running_balance},{debit:'10.1010',credit:'0.0000',opening:'0.0000',running:'10.1010'});
   assert.deepEqual(register[0].source_document_ids,[trace.documentId]);
   const generalLedger=await reader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'610000',query:null,limit:50,offset:0});
@@ -2043,7 +2045,9 @@ pgTest('chart of accounts and account register read only same-entity POSTED fixe
   const coaResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/general-ledger/chart-of-accounts?periodId=${ids.periodId}`,body:null,headers:{}});
   const registerResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/general-ledger/account-register?periodId=${ids.periodId}&accountCode=610000`,body:null,headers:{}});
   const generalLedgerResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/general-ledger/entries?periodId=${ids.periodId}&accountCode=610000&limit=50&offset=0`,body:null,headers:{}});
-  assert.equal(coaResponse.status,200);assert.equal(registerResponse.status,200);assert.equal(generalLedgerResponse.status,200);assert.equal(coaResponse.headers['cache-control'],'no-store');assert.equal(registerResponse.body.data[0].running_balance,'10.1010');assert.equal(generalLedgerResponse.body.data[0].debit_amount,'10.1010');
+  assert.equal(coaResponse.status,200);assert.equal(registerResponse.status,200);assert.equal(generalLedgerResponse.status,200);assert.equal(coaResponse.headers['cache-control'],'no-store');
+  assert.deepEqual({start:coaResponse.body.data.find(row=>row.account_code==='610000'&&row.currency==='USD').period_start,end:coaResponse.body.data.find(row=>row.account_code==='610000'&&row.currency==='USD').period_end},{start:'2026-07-01',end:'2026-07-31'});
+  assert.deepEqual({start:registerResponse.body.data[0].period_start,end:registerResponse.body.data[0].period_end,journalDate:registerResponse.body.data[0].journal_date,running:registerResponse.body.data[0].running_balance},{start:'2026-07-01',end:'2026-07-31',journalDate:'2026-07-15',running:'10.1010'});assert.equal(generalLedgerResponse.body.data[0].debit_amount,'10.1010');
 });
 
 pgTest('financial statement period comparison reads two ordered periods and marks a missing prior side rather than deriving zero',async()=>{
