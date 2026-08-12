@@ -368,11 +368,33 @@ pgTest('signed admitted WBS bank statement atomically creates exact bank sources
   const clearer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-adjustment-clearer',['BANK.RECONCILIATION.CLEAR'])});
   const cleared=await clearer.setReconciliationAdjustmentClearance({...ids,reconciliationId:started.reconciliation_id,bankSourceId:admittedSource.bank_source_id,expectedReconciliationVersion:1,expectedBankVersion:0,clear:true,reason:'Clear only the exact signed statement receipt row',idempotencyKey:'wbs-statement-adjustment-clear-001'});
   assert.equal(cleared.revision,2);assert.equal(Number(cleared.difference),0);
+  const rotatedStarterReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-recon-starter',['BANK.RECONCILIATION.REVIEW'])});
+  await assert.rejects(rotatedStarterReviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:2,reason:'A rotated starter identity must remain separated from review',idempotencyKey:'wbs-statement-starter-review-sod-001'}),error=>error.code==='42501'&&/independent from prior maker/i.test(error.message));
+  const statementMatchId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_match(bank_match_id,tenant_id,entity_id,bank_source_id,business_source_document_id,candidate_rule_code,amount_delta,currency_match,date_delta_days,status,matched_by)
+    VALUES($1,$2,$3,$4,$5,'EXACT_POSTED_PAYMENT',0,true,0,'ACTIVE','wbs-statement-match-maker')`,[statementMatchId,ids.tenantId,ids.entityId,admittedSource.bank_source_id,admittedSource.source_document_id]);
   const reviewed=await reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:2,reason:'Review exact receipt evidence despite unrelated same-date row',idempotencyKey:'wbs-statement-adjustment-review-001'});
   assert.equal(reviewed.status,'IN_REVIEW');
+  const rotatedClearerSigner=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-adjustment-clearer',['BANK.RECONCILIATION.SIGN_OFF'])});
+  await assert.rejects(rotatedClearerSigner.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:3,reason:'A rotated clearance identity must remain separated from sign off',idempotencyKey:'wbs-statement-clearer-signoff-sod-001'}),error=>error.code==='42501'&&/independent from prior maker/i.test(error.message));
   const signer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-adjustment-signer',['BANK.RECONCILIATION.SIGN_OFF'])});
   const signed=await signer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:3,reason:'Sign off only the exact admitted statement receipt evidence',idempotencyKey:'wbs-statement-adjustment-signoff-001'});
   assert.equal(signed.status,'RECONCILED');assert.ok(signed.snapshot_id);
+  const rotatedMatcherReopener=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-match-maker',['BANK.RECONCILIATION.REOPEN'])});
+  await assert.rejects(rotatedMatcherReopener.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REOPEN',expectedVersion:4,reason:'A rotated match identity must remain separated from reopen',idempotencyKey:'wbs-statement-matcher-reopen-sod-001'}),error=>error.code==='42501'&&/independent from prior maker/i.test(error.message));
+  const independentReopener=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-independent-reopener',['BANK.RECONCILIATION.REOPEN'])});
+  const reopened=await independentReopener.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REOPEN',expectedVersion:4,reason:'Independent controller reopens the latest signed statement',idempotencyKey:'wbs-statement-independent-reopen-001'});
+  assert.equal(reopened.status,'REOPENED');
+  await assert.rejects(
+    adminPool.query("UPDATE reconciliation SET status='IN_REVIEW',reviewed_by='maintenance',reviewed_at=clock_timestamp(),review_reason='Maintenance cannot bypass a signed receipt actor boundary' WHERE tenant_id=$1 AND entity_id=$2 AND reconciliation_id=$3",[ids.tenantId,ids.entityId,started.reconciliation_id]),
+    error=>error.code==='42501'&&/Authenticated actor missing/i.test(error.message)
+  );
+  const legacyReconciliationId=randomUUID();
+  await adminPool.query(`INSERT INTO reconciliation(reconciliation_id,tenant_id,entity_id,bank_account_ref,statement_ending_date,statement_opening_balance,statement_ending_balance,book_ending_balance,currency,difference,status)
+    VALUES($1,$2,$3,'LEGACY-MAINTENANCE-COMPATIBILITY','2026-07-30',0,0,0,'USD',0,'DRAFT')`,[legacyReconciliationId,ids.tenantId,ids.entityId]);
+  const legacyMaintenance=await adminPool.query("UPDATE reconciliation SET status='IN_REVIEW',reviewed_by='maintenance',reviewed_at=clock_timestamp(),review_reason='Legacy non-receipt maintenance compatibility' WHERE tenant_id=$1 AND entity_id=$2 AND reconciliation_id=$3 RETURNING status",[ids.tenantId,ids.entityId,legacyReconciliationId]);
+  assert.equal(legacyMaintenance.rows[0].status,'IN_REVIEW');
+  await adminPool.query('DELETE FROM reconciliation WHERE reconciliation_id=$1',[legacyReconciliationId]);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM reconciliation_item WHERE reconciliation_id=$1 AND bank_source_id=$2 AND state=\'CLEARED\'',[started.reconciliation_id,admittedSource.bank_source_id])).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND object_id=$2 AND event_type='RECONCILIATION_STARTED' AND permission_used='BANK.RECONCILIATION.START' AND metadata->>'wbs_bank_statement_receipt_id'=$3",[ids.tenantId,started.reconciliation_id,created.statement_receipt_id])).rows[0].n,1);
 });
