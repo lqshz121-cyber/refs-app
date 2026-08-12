@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { accountingApiConfig, activateAuthoritativeReadAccess, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries } from './accounting-api.js';
+import { accountingApiConfig, activateAuthoritativeReadAccess, refreshAuthoritativeChartOfAccounts, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries } from './accounting-api.js';
 import { AuthoritativeSourceDocumentsWorkspace } from './authoritative-source-documents-workspace.jsx';
 import { BrowserOidcClient, RENEWAL_MIN_INTERVAL_MS, oidcRuntimeConfig, silentRenewalSchedule } from './oidc-client.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
@@ -29,6 +29,7 @@ import { AuthoritativeOverview } from './authoritative-overview.jsx';
 import { AuthoritativeNavigationShell } from './authoritative-navigation-shell.jsx';
 import { AuthoritativeDemoTopbar } from './authoritative-demo-shell.jsx';
 import { AuthoritativeUnavailableWorkspace } from './authoritative-unavailable-workspace.jsx';
+import {authoritativeScopePresentation} from './authoritative-scope-presentation.js';
 
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
@@ -140,6 +141,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   // evidence while the header claims that the reader refreshed the system.
   const [workspaceRefreshVersion, setWorkspaceRefreshVersion] = useState(0);
   const [sharedAccountingLoaded, setSharedAccountingLoaded] = useState(false);
+  const [scopeRows,setScopeRows]=useState([]);
   // A direct selection of Reports is an explicit catalog entry, not a
   // continuation of the last report drill. React preserves a mounted route
   // when a user selects its already-active navigation item, so keep a small
@@ -400,6 +402,9 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       extraActions={<button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button>}/>;
   }
 
+  useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
+  const scopePresentation=useMemo(()=>authoritativeScopePresentation(config,scopeRows),[config,scopeRows]);
+  const displayConfig=useMemo(()=>({...config,scopePresentation}),[config,scopePresentation]);
   const counts = { bills:data.ap.bills.length, invoices:data.ar.invoices.length, adjustments:data.ap.adjustments.length + data.ar.adjustments.length, journals:data.journals.length };
   return <div className="app authoritative-app">
     <AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route={route} expandedGroup={expandedNavigationGroup}
@@ -407,7 +412,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       navDrawerRef={navDrawerRef} drawerAttributes={navDrawerAttributes(navOffCanvas, navOpen)} onClose={() => setNavOpen(false)}/>
     {false && <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar ${navOpen ? 'mobile-open' : ''}`}
       {...navDrawerAttributes(navOffCanvas, navOpen)}>
-      <div className="brand"><span className="logo">◇</span> REFS<span className="brand-sub">Authoritative</span></div>
+      <div className="brand"><span className="logo">REFS</span><span className="brand-sub">Authoritative</span></div>
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={() => setNavOpen(false)}>Close</button>}
       <nav aria-label="Authoritative accounting navigation">
         {AUTHORITATIVE_NAVIGATION.map((group, index) => {
@@ -418,7 +423,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           return <div className={`nav-group authoritative-nav-group nav-tone-${index} ${active ? 'nav-group-active' : ''}`} key={group.label}>
             <button type="button" className="nav-group-h" aria-current={!multiple && active ? 'page' : undefined}
               aria-expanded={multiple ? expanded : undefined} aria-controls={multiple ? panelId : undefined}
-              onClick={() => selectNavigationGroup(group)}><span className="nav-ic">●</span>{group.label}</button>
+              onClick={() => selectNavigationGroup(group)}><span className="nav-ic" aria-hidden="true">-</span>{group.label}</button>
             {multiple && expanded && <div id={panelId} className="nav-group-items">{group.items.map(({ route: item, label }) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => { setRoute(item); setNavOpen(false); }}>{label}</button>)}</div>}
           </div>;
         })}
@@ -427,35 +432,35 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
     <div className="main">
       {false && <header className="topbar authoritative-topbar">
-        <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>☰</button>
+        <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>Menu</button>
         <div className="authoritative-entity-chip" aria-label={`Authoritative entity ${config.entityId}`}>
-          <span className="authoritative-top-label">Entity</span><strong>{config.entityId}</strong><span aria-hidden="true">⌄</span>
+          <span className="authoritative-top-label">Entity</span><strong>{config.entityId}</strong>
         </div>
         <div className="period-chip authoritative-period-chip" aria-label={`Authoritative period ${config.periodId}`}>
           <span className="period-label">Period</span><b>{config.periodId}</b><span className="badge badge-ok">API read</span>
         </div>
         <div className="top-right authoritative-top-actions">
-          <button type="button" className="icon-btn" aria-label="Refresh authoritative accounting evidence" title="Refresh authoritative accounting evidence" onClick={refresh}>↻</button>
-          <button type="button" className="icon-btn" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} aria-pressed={theme === 'dark'} title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>{theme === 'dark' ? '☀' : '◐'}</button>
-          <span className="authoritative-mode-chip"><span aria-hidden="true">●</span> Authoritative</span>
+          <button type="button" className="icon-btn" aria-label="Refresh authoritative accounting evidence" title="Refresh authoritative accounting evidence" onClick={refresh}>Refresh</button>
+          <button type="button" className="icon-btn" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} aria-pressed={theme === 'dark'} title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
+          <span className="authoritative-mode-chip">Authoritative</span>
           <span className="user-chip authoritative-user-chip" aria-label="Authenticated OIDC session"><span className="user-av" aria-hidden="true">A</span><span className="user-nm">Authenticated</span></span>
           <button type="button" className="btn btn-sm btn-ghost authoritative-signout" onClick={logout}>Sign out</button>
         </div>
       </header>}
-      <AuthoritativeDemoTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={config.entityId} periodLabel={config.periodId} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout}/>
+      <AuthoritativeDemoTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={scopePresentation.entityLabel} periodLabel={scopePresentation.periodLabel} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout}/>
       <main className="content">
         <section className="authoritative-scope-bar" aria-label="Authoritative accounting scope">
-          <span><b>Entity</b> {config.entityId}</span>
-          <span><b>Period</b> {config.periodId}</span>
-          {config.cashAccountCode&&<span><b>Cash account</b> {config.cashAccountCode}</span>}
-          {(documentDetail?.returnContext||adjustmentDetail?.returnContext)&&<span><b>Return context</b> Query {(documentDetail?.returnContext||adjustmentDetail?.returnContext).view.query||'All'} · Page {(documentDetail?.returnContext||adjustmentDetail?.returnContext).view.page}</span>}
+          <span title={`Entity ID: ${scopePresentation.entityDetail}`}><b>Entity</b> {scopePresentation.entityLabel}</span>
+          <span title={scopePresentation.periodDetail}><b>Period</b> {scopePresentation.periodLabel}</span>
+          {config.cashAccountCode&&<span><b>Cash account</b> {scopePresentation.cashAccountLabel}</span>}
+          {(documentDetail?.returnContext||adjustmentDetail?.returnContext)&&<span><b>Return context</b> Query {(documentDetail?.returnContext||adjustmentDetail?.returnContext).view.query||'All'} | Page {(documentDetail?.returnContext||adjustmentDetail?.returnContext).view.page}</span>}
         </section>
         {(sessionExpired || renewalFailure) && <RuntimeErrorPanel
           code={sessionExpired ? 'OIDC_SESSION_EXPIRED' : 'OIDC_SESSION_EXPIRING'}
           detail={renewalFailure ? `${renewalFailure.code}: ${renewalFailure.message}` : undefined}
           onSignIn={startLogin}/>}
         {error && <RuntimeErrorPanel code={error.code} detail={error.message} onRetry={refresh} onSignIn={startLogin}/>}
-        {phase === 'LOADING_ACCOUNTING' && <StateBlock tone="loading">Loading authoritative accounting records…</StateBlock>}
+        {phase === 'LOADING_ACCOUNTING' && <StateBlock tone="loading">Loading authoritative accounting records...</StateBlock>}
         {phase === 'READY' && route === 'overview' && <AuthoritativeOverview counts={counts} onNavigate={setRoute} scope={{entityId:config.entityId,periodId:config.periodId}} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'payables' && (documentDetail?.kind==='AP'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AP" entityId={config.entityId} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AP'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AP" entityId={config.entityId} onBack={closeAdjustmentEvidence}/>:<><AuthoritativeDocumentWorkspace kind="AP" documents={data.ap.bills} adjustments={data.ap.adjustments} view={listViews.AP} onViewChange={view=>updateListView('AP',view)} onOpenDocument={(row,focusId)=>openDocumentEvidence('AP',row,focusId)} onOpenAdjustment={(row,focusId)=>openAdjustmentEvidence('AP',row,focusId)} config={config} fetcher={boundFetcher}/><AuthoritativeAgingWorkspace config={config} side="ap" fetcher={boundFetcher}/></>)}
         {phase === 'READY' && route === 'receivables' && (reportAgingDetail?<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={boundFetcher} onBack={closeReportAgingEvidence} backLabel="Back to Reports" returnContext={reportAgingDetail.returnContext} expectedOrigin="REPORTS"/>:agingDetail?.side==='AR'?<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={boundFetcher} onBack={closeAgingEvidence} returnContext={agingDetail.returnContext} expectedOrigin="RECEIVABLES"/>:documentDetail?.kind==='AR'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AR" entityId={config.entityId} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AR'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AR" entityId={config.entityId} onBack={closeAdjustmentEvidence}/>:<><AuthoritativeDocumentWorkspace kind="AR" documents={data.ar.invoices} adjustments={data.ar.adjustments} view={listViews.AR} onViewChange={view=>updateListView('AR',view)} onOpenDocument={(row,focusId)=>openDocumentEvidence('AR',row,focusId)} onOpenAdjustment={(row,focusId)=>openAdjustmentEvidence('AR',row,focusId)}/><section className="card authoritative-aging-launch" aria-label="Accounts receivable aging report"><div className="card-head"><div><h2>Accounts receivable aging</h2><p className="muted sm">Open a full-page, authenticated aging report. The report preserves this invoices-and-receipts context on Back.</p></div><span className="badge badge-muted">READ ONLY</span></div><button id="authoritative-ar-aging-launch" type="button" className="btn" onClick={()=>openAgingEvidence('AR','authoritative-ar-aging-launch')}>Open AR aging report</button></section></>)}
@@ -463,12 +468,12 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace key={`reconciliation-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'wbs-autorec-evidence' && <AuthoritativeWbsTransitionWorkspace key={`wbs-autorec-evidence-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} onAccountingRefresh={async()=>{const [documents,journals]=await Promise.all([refreshAuthoritativeDocuments({config,fetcher:boundFetcher}),refreshAuthoritativeJournalEntries({config,fetcher:boundFetcher})]);if(documents.ok&&journals.ok){setData({ap:documents.ap,ar:documents.ar,journals:journals.journals});setSharedAccountingLoaded(true);}}}/>}
         {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace key={`reports-${workspaceRefreshVersion}-${reportsNavigationVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={reportCatalogReturn||DEFAULT_AUTHORITATIVE_REPORTS_CATALOG} onOpenArAging={openReportAgingEvidence}/>}
-        {phase === 'READY' && route === 'project-cost-cwip' && <AuthoritativeReportsWorkspace key={`project-cost-cwip-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="PROJECT" workspaceEyebrow="AUTHORITATIVE · ACCOUNTING OPERATIONS" workspaceTitle="Project Cost & CWIP" workspaceDescription="Project profitability, CWIP rollforward, construction-loan, prepaid, and budget evidence are read from existing OIDC-authenticated accounting APIs. Cost-code, vendor, and project transaction registers remain unavailable until their own server read contracts exist."/>}
-        {phase === 'READY' && route === 'construction-loan' && <AuthoritativeReportsWorkspace key={`construction-loan-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'CASH_AND_CAPITAL',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE · ACCOUNTING OPERATIONS" workspaceTitle="Construction Loan" workspaceDescription="Construction-loan rollforward evidence is read from the existing OIDC-authenticated accounting API and requires approved mappings plus POSTED ledger evidence. Loan register, lender, commitment, and draw-management workflows remain unavailable until server contracts exist."/>}
-        {phase === 'READY' && route === 'amortization' && <AuthoritativeReportsWorkspace key={`amortization-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'CASH_AND_CAPITAL',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE · ACCOUNTING OPERATIONS" workspaceTitle="Amortization Center" workspaceDescription="Prepaid rollforward evidence is read from the existing OIDC-authenticated accounting API and requires approved mappings plus POSTED ledger evidence. Schedule authoring, posting, and browser-local amortization calculations remain unavailable until server contracts exist."/>}
-        {phase === 'READY' && route === 'intercompany' && <AuthoritativeReportsWorkspace key={`intercompany-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE · ACCOUNTING OPERATIONS" workspaceTitle="Intercompany" workspaceDescription="Intercompany reconciliation reads existing OIDC-authenticated, aligned-period evidence for two explicitly scoped entities. Elimination, adjustment, and intercompany posting workflows remain unavailable until server contracts exist."/>}
-        {phase === 'READY' && route === 'consolidation' && <AuthoritativeReportsWorkspace key={`consolidation-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE · GENERAL LEDGER" workspaceTitle="Consolidation" workspaceDescription="Consolidation evidence is read from existing OIDC-authenticated approved group snapshots and POSTED ledger evidence. Elimination creation, group maintenance, and browser-side consolidation workbooks remain unavailable until server contracts exist."/>}
-        {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={config} fetcher={boundFetcher} environment={environment}/>}
+        {phase === 'READY' && route === 'project-cost-cwip' && <AuthoritativeReportsWorkspace key={`project-cost-cwip-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="PROJECT" workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Project Cost & CWIP" workspaceDescription="Project profitability, CWIP rollforward, construction-loan, prepaid, and budget evidence are read from existing OIDC-authenticated accounting APIs. Cost-code, vendor, and project transaction registers remain unavailable until their own server read contracts exist."/>}
+        {phase === 'READY' && route === 'construction-loan' && <AuthoritativeReportsWorkspace key={`construction-loan-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'CASH_AND_CAPITAL',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Construction Loan" workspaceDescription="Construction-loan rollforward evidence is read from the existing OIDC-authenticated accounting API and requires approved mappings plus POSTED ledger evidence. Loan register, lender, commitment, and draw-management workflows remain unavailable until server contracts exist."/>}
+        {phase === 'READY' && route === 'amortization' && <AuthoritativeReportsWorkspace key={`amortization-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'CASH_AND_CAPITAL',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Amortization Center" workspaceDescription="Prepaid rollforward evidence is read from the existing OIDC-authenticated accounting API and requires approved mappings plus POSTED ledger evidence. Schedule authoring, posting, and browser-local amortization calculations remain unavailable until server contracts exist."/>}
+        {phase === 'READY' && route === 'intercompany' && <AuthoritativeReportsWorkspace key={`intercompany-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Intercompany" workspaceDescription="Intercompany reconciliation reads existing OIDC-authenticated, aligned-period evidence for two explicitly scoped entities. Elimination, adjustment, and intercompany posting workflows remain unavailable until server contracts exist."/>}
+        {phase === 'READY' && route === 'consolidation' && <AuthoritativeReportsWorkspace key={`consolidation-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - GENERAL LEDGER" workspaceTitle="Consolidation" workspaceDescription="Consolidation evidence is read from existing OIDC-authenticated approved group snapshots and POSTED ledger evidence. Elimination creation, group maintenance, and browser-side consolidation workbooks remain unavailable until server contracts exist."/>}
+        {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'source-documents' && <AuthoritativeSourceDocumentsWorkspace key={`source-documents-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && ['chart-of-accounts','account-inquiry'].includes(route) && <AuthoritativeChartOfAccountsWorkspace key={`coa-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'general-ledger' && <AuthoritativeGeneralLedgerWorkspace key={`general-ledger-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}

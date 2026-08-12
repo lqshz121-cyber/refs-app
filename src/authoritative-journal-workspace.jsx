@@ -4,6 +4,7 @@ import {readAuthoritativeJournalEntryDetail,readAuthoritativeJournalWorkflowCapa
 import {AuthoritativeDemoJournalView} from './authoritative-demo-journal-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 import {AuthoritativeLineageDrill} from './authoritative-lineage-drill.jsx';
+import {formatAuthoritativeDate} from './authoritative-scope-presentation.js';
 import {
   DEFAULT_AUTHORITATIVE_LIST_VIEW,
   createAuthoritativeReturnContext,
@@ -48,13 +49,13 @@ export async function runAuthoritativeJournalWorkflow({journal,config,fetcher=gl
 // Captured presentation context only; never reconstruct scope from the
 // rendered journal row.
 const journalReturnScope = (entityId, journal, context) => [
-  `Entity ${entityId}`,
-  `detail period ${context?.periodId || 'Unavailable'}`,
+  'Configured entity',
+  `detail period ${context?.periodLabel || 'Unavailable'}`,
   `authoritative list revision ${journal.revision}`,
   `search ${context?.view?.query || 'All'}`,
   `status ${context?.view?.status === 'ALL' || !context?.view?.status ? 'All statuses' : context.view.status}`,
-  `from ${context?.view?.from || 'Any date'}`,
-  `through ${context?.view?.through || 'Any date'}`,
+  `from ${context?.view?.from ? formatAuthoritativeDate(context.view.from) : 'Any date'}`,
+  `through ${context?.view?.through ? formatAuthoritativeDate(context.view.through) : 'Any date'}`,
   `page ${context?.view?.page || 1}`,
 ].join(' | ');
 
@@ -98,7 +99,7 @@ export function AuthoritativeJournalTable({ journals = [], entityId=null, view =
     </StateBlock> : <div className="table-wrap authoritative-journal-table" tabIndex={0} aria-label="Journal entry list; scroll horizontally to view every column"><table className="tbl">
       <thead><tr><th>Journal</th><th>Date</th><th>Memo / description</th><th>Type</th><th>Currency</th><th>Status</th><th>Ledger lines</th><th>Evidence</th><th>Workflow</th></tr></thead>
       <tbody>{page.rows.map(row => {const next=nextAuthoritativeJournalWorkflowAction(row,capabilities,entityId),busy=workflowState?.journalEntryId===row.journal_entry_id&&workflowState.phase==='RUNNING';return <tr key={row.journal_entry_id}>
-        <td><b>{row.journal_number}</b><small className="journal-row-revision">Revision {row.revision}</small></td><td>{row.journal_date}</td><td className="journal-row-description">{row.description||'No description returned'}</td><td>{row.journal_type}</td><td>{row.currency}</td><td><span className="badge">{row.status}</span></td>
+        <td><b>{row.journal_number}</b><small className="journal-row-revision">Revision {row.revision}</small></td><td>{formatAuthoritativeDate(row.journal_date)}</td><td className="journal-row-description">{row.description||'No description returned'}</td><td>{row.journal_type}</td><td>{row.currency}</td><td><span className="badge">{row.status}</span></td>
         <td>{row.ledger_line_count}</td><td><button id={`authoritative-journal-${row.journal_entry_id}`} type="button" className="btn btn-sm" onClick={() => onOpen(row,`authoritative-journal-${row.journal_entry_id}`)}>Open evidence</button></td>
         <td>{next?<button type="button" className="btn btn-sm" disabled={busy} aria-disabled={busy} onClick={()=>onWorkflowAction?.(row,next)}>{busy?`${next.label}...`:next.label}</button>:<span className="muted sm">Not available</span>}</td>
       </tr>;})}</tbody>
@@ -113,9 +114,9 @@ export function AuthoritativeJournalDetail({journal,entityId,returnContext,onBac
   return <section className="full-bleed qbo-transaction-report authoritative-evidence-page authoritative-journal-detail" aria-label="Journal entry evidence">
     <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>{journalReturnScope(entityId,journal,returnContext)}</span></div>
     <header className="journal-evidence-header"><div><div className="authoritative-eyebrow">GENERAL LEDGER | EXACT READ EVIDENCE</div><h1>Journal entry {journal.journal_number}</h1><p className="page-subtitle">GET-only facts returned for the frozen entity, period, Journal Entry identity, revision, and currency.</p></div><span className={`badge ${scopeMatches?'journal-detail-status':'badge-danger'}`}>{scopeMatches?journal.status:'BLOCKED'}</span></header>
-    {!scopeMatches?<StateBlock tone="blocked" title="BLOCKED — immutable Journal scope mismatch">The detail does not match the entity, period, Journal ID, revision, and currency frozen in its parent return context. No line, ledger, or source evidence is asserted.</StateBlock>:<>
-      <section className="journal-evidence-scope" aria-label="Journal evidence scope"><span><b>Entity</b>{entityId}</span><span><b>Period</b>{journal.period_id}</span><span><b>Currency</b>{journal.currency}</span><span><b>Revision</b>{journal.revision}</span><span><b>Journal date</b>{journal.journal_date}</span></section>
-      <dl className="evidence-grid journal-evidence-grid"><div><dt>Journal</dt><dd>{journal.journal_number}</dd></div><div><dt>Journal ID</dt><dd>{journal.journal_entry_id}</dd></div><div><dt>Date</dt><dd>{journal.journal_date}</dd></div><div><dt>Type</dt><dd>{journal.journal_type}</dd></div><div><dt>Status</dt><dd>{journal.status}</dd></div><div><dt>Revision</dt><dd>{journal.revision}</dd></div><div><dt>Journal line count</dt><dd>{lines.length}</dd></div><div><dt>Created</dt><dd>{journal.created_at}</dd></div><div><dt>Posted</dt><dd>{journal.posted_at||'Not posted'}</dd></div><div><dt>Description</dt><dd>{journal.description||'No description returned'}</dd></div></dl>
+    {!scopeMatches?<StateBlock tone="blocked" title="BLOCKED - immutable Journal scope mismatch">The detail does not match the entity, period, Journal ID, revision, and currency frozen in its parent return context. No line, ledger, or source evidence is asserted.</StateBlock>:<>
+      <section className="journal-evidence-scope" aria-label="Journal evidence scope"><span><b>Entity</b>Configured entity</span><span><b>Period</b>{returnContext?.periodLabel||'Period unavailable'}</span><span><b>Currency</b>{journal.currency}</span><span><b>Revision</b>{journal.revision}</span><span><b>Journal date</b>{formatAuthoritativeDate(journal.journal_date)}</span></section><details className="authoritative-scope-identifiers"><summary>Scope identifiers</summary><dl><div><dt>Entity ID</dt><dd>{entityId}</dd></div><div><dt>Period ID</dt><dd>{journal.period_id}</dd></div></dl></details>
+      <dl className="evidence-grid journal-evidence-grid"><div><dt>Journal</dt><dd>{journal.journal_number}</dd></div><div><dt>Journal ID</dt><dd>{journal.journal_entry_id}</dd></div><div><dt>Date</dt><dd>{formatAuthoritativeDate(journal.journal_date)}</dd></div><div><dt>Type</dt><dd>{journal.journal_type}</dd></div><div><dt>Status</dt><dd>{journal.status}</dd></div><div><dt>Revision</dt><dd>{journal.revision}</dd></div><div><dt>Journal line count</dt><dd>{lines.length}</dd></div><div><dt>Created</dt><dd>{formatAuthoritativeDate(journal.created_at)}</dd></div><div><dt>Posted</dt><dd>{journal.posted_at?formatAuthoritativeDate(journal.posted_at):'Not posted'}</dd></div><div><dt>Description</dt><dd>{journal.description||'No description returned'}</dd></div></dl>
       <section className="authoritative-journal-line-evidence" aria-label="Authoritative journal line evidence"><div className="authoritative-section-heading"><div><div className="authoritative-eyebrow">EXACT API LINE FACTS</div><h2>Journal lines</h2><p className="page-subtitle">Ordered Journal Line facts. Ledger Line IDs appear only for actually posted lines.</p></div><span className="badge">{lines.length} retained lines</span></div>
         <div className="table-wrap authoritative-journal-line-table" tabIndex={0} aria-label="Journal line evidence; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Line</th><th>Account</th><th>Debit</th><th>Credit</th><th>Member</th><th>Dimensions</th><th>Description</th><th>Journal line ID</th><th>Ledger line ID</th><th>Source document IDs</th></tr></thead><tbody>{lines.map(line=><tr key={line.journal_line_id}><td>{line.line_no}</td><td>{line.account_code}</td><td>{line.debit_amount}</td><td>{line.credit_amount}</td><td>{line.member_ref||'None returned'}</td><td>{Object.keys(line.dimensions).length?JSON.stringify(line.dimensions):'None returned'}</td><td>{line.description||'None returned'}</td><td>{line.journal_line_id}</td><td>{line.ledger_line_id||'Not posted'}</td><td>{line.source_document_ids.length?line.source_document_ids.join(', '):'None returned'}</td></tr>)}</tbody></table></div>
       </section><StateBlock tone="blocked" title="No write or inferred drill authority">This evidence view cannot create, edit, submit, review, approve, post, reverse, or reconstruct a source link.</StateBlock>
@@ -146,7 +147,7 @@ export function AuthoritativeJournalWorkspace({ journals, config, fetcher=global
   const openEvidence=async(journal,focusId)=>{
     const returnContext=createAuthoritativeReturnContext({config,view,focusId,scrollY:Number(environment?.scrollY)||0});
     if(!returnContext)return;
-    const frozenContext={...returnContext,journalId:journal.journal_entry_id,journalRevision:journal.revision,journalCurrency:journal.currency};
+    const frozenContext={...returnContext,periodLabel:config?.scopePresentation?.periodLabel||'Period unavailable',journalId:journal.journal_entry_id,journalRevision:journal.revision,journalCurrency:journal.currency};
     setDetail({phase:'LOADING',journal,returnContext:frozenContext});
     const result=await readAuthoritativeJournalEntryDetail({config,journalEntryId:journal.journal_entry_id,fetcher});
     setDetail(result.ok?{phase:'READY',journal,evidence:result.journal,returnContext:frozenContext}:{phase:'ERROR',journal,error:result,returnContext:frozenContext});
