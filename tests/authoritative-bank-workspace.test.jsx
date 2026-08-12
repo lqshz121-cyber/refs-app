@@ -20,6 +20,7 @@ const bankTable=renderToStaticMarkup(<AuthoritativeBankTable rows={[bankRow]}/>)
 assert.match(bankTable,/BANK-LINE-1/);assert.match(bankTable,/SOURCE-1/);assert.match(bankTable,/UNMATCHED/);assert.match(bankTable,/READ ONLY/);assert.match(bankTable,/Open detail/);assert.doesNotMatch(bankTable,/>\s*(Match|Clear|Post|Delete|Create)\s*</);
 assert.match(bankTable,/SOURCE → MATCH → JOURNAL/);assert.match(bankTable,/Queue status never implies reconciliation/);assert.match(bankTable,/Direction/);assert.match(bankTable,/OUTFLOW/);assert.match(bankTable,/v3/);
 assert.match(bankTable,/Bank queue read summary/);assert.match(bankTable,/Returned sources/);assert.match(bankTable,/Active Matches/);assert.match(bankTable,/Unmatched sources/);assert.match(bankTable,/Journal references/);assert.doesNotMatch(bankTable,/Create reviewed Match|Unmatch evidence/);
+assert.equal((bankTable.match(/class="qbo-card"/g)||[]).length,4,'Bank summary must use the shared demonstration card presentation');
 const emptyBank=renderToStaticMarkup(<AuthoritativeBankTable rows={[]}/>);assert.match(emptyBank,/No bank transactions were returned/);assert.match(emptyBank,/not evidence of zero cash activity/);assert.doesNotMatch(emptyBank,/<table/);
 
 const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
@@ -117,7 +118,8 @@ assert.doesNotMatch(source,/[\u4E00-\u9FFF\uFFFD]/,'authoritative Bank/Reconcile
 const css=readFileSync('index.html','utf8');
 assert.match(css,/\.authoritative-bank-scope-strip/,'Bank/Reconcile detail scope must have a dedicated responsive hierarchy');
 assert.match(css,/\.authoritative-evidence-stage/,'Bank/Reconcile must render a text-labelled lifecycle hierarchy rather than infer state from colour');
-assert.match(css,/\.authoritative-bank-summary-cards/,'Bank queue summary must provide an API-derived visual hierarchy above the responsive evidence table');
+assert.match(source,/className="qbo-grid authoritative-bank-demo-grid"/,'Bank queue summary must use the shared demonstration card grid');
+assert.match(source,/report-workbench recon-summary authoritative-reconciliation-summary/,'Reconciliation summary must use the shared demonstration reconciliation workbench');
 assert.match(readFileSync('src/ui.jsx','utf8'),/blocked: 'empty empty-state state-block state-blocked'/,'The shared state system must represent an authoritative BLOCKED result distinctly from an ordinary empty result');
 assert.match(css,/\.state-blocked\{border-color:var\(--qb-warn-line\)/,'The BLOCKED state must have a visible warning treatment without becoming a disabled action');
 

@@ -320,43 +320,12 @@ input,select,textarea{
   position:sticky; top:0; height:100vh; overflow:hidden; padding:0;
   background:var(--qb-surface); border-right:var(--qb-hair) solid var(--qb-divider);
 }
-/* The authoritative shell intentionally has one drawer, not the demonstration
-   shell's icon rail + detail panel pair.  Its direct children must stack: if
-   they inherit the shared horizontal rail layout, the navigation receives only
-   the space left after the brand and page controls, which truncates names at
-   every breakpoint. */
-.authoritative-app .sidebar{flex-direction:column; align-items:stretch;}
-.authoritative-app .sidebar>nav{width:100%;}
-.authoritative-app .sidebar>nav>.nav-group{display:flex; flex-direction:column; align-items:stretch; width:100%;}
-.authoritative-app .sidebar .nav-group-h{
-  flex:0 0 auto; flex-direction:row; justify-content:flex-start; gap:8px;
-  width:100%; height:auto; min-height:44px; margin:0; padding:0 16px;
-  border-radius:0; text-align:left;
-}
-.authoritative-app .sidebar .nav-item{flex:0 0 auto; min-width:0; justify-content:flex-start; white-space:normal;}
-/* Each production workflow family has a compact circular marker.  It provides
-   visual scanning only: the text label and button semantics remain authoritative. */
-.authoritative-app .authoritative-nav-group .nav-group-h{gap:9px; padding:9px 10px; margin-top:4px; color:var(--qb-text-strong);}
-.authoritative-app .authoritative-nav-group .nav-ic{display:none;}
-.authoritative-app .authoritative-nav-group .nav-group-h::before{display:inline-grid; place-items:center; flex:0 0 auto; width:26px; height:26px; border-radius:50%; background:var(--qb-brand); color:var(--qb-brand-fg); font:700 11px/1 var(--qb-sans);}
-.authoritative-app .authoritative-nav-group.nav-tone-0 .nav-group-h::before{content:'C';}
-.authoritative-app .authoritative-nav-group.nav-tone-1 .nav-group-h::before{content:'E'; background:var(--qb-link);}
-.authoritative-app .authoritative-nav-group.nav-tone-2 .nav-group-h::before{content:'R'; background:var(--qb-ok);}
-.authoritative-app .authoritative-nav-group.nav-tone-3 .nav-group-h::before{content:'A'; background:var(--qb-info);}
-.authoritative-app .authoritative-nav-group.nav-tone-4 .nav-group-h::before{content:'G'; background:var(--qb-brand);}
-.authoritative-app .authoritative-nav-group.nav-tone-5 .nav-group-h::before{content:'P'; background:var(--qb-warn);}
-.authoritative-app .authoritative-nav-group .nav-item{margin-left:35px; width:calc(100% - 35px);}
-.authoritative-app .authoritative-nav-group.nav-group-active>.nav-group-h{background:var(--qb-accent-tint); color:var(--qb-accent); font-weight:700;}
-.authoritative-app .authoritative-nav-group .nav-group-items{display:flex; flex-direction:column; align-items:stretch; width:100%;}
-.authoritative-app .authoritative-nav-group .nav-item{display:flex; align-items:center; gap:8px;}
-.authoritative-app .authoritative-nav-group .nav-item>span:first-child{min-width:0; overflow-wrap:anywhere;}
 .authoritative-nav-status{margin-left:auto; flex:0 0 auto; padding:2px 5px; border:1px solid var(--qb-border-soft); border-radius:var(--qb-r-pill); font-size:10px; font-weight:700; line-height:1.2;}
 .authoritative-nav-status-ready{border-color:var(--qb-ok-line); background:var(--qb-ok-bg); color:var(--qb-ok);}
 .authoritative-nav-status-blocked{border-color:var(--qb-border-soft); background:var(--qb-inset); color:var(--qb-text-faint);}
 
-/* Production uses the same two-level workspace shell as the complete REFS
-   interface: a compact workflow rail plus a readable page panel.  The content
-   remains API-owned; this is presentation and route selection only. */
+/* Production adopts the complete REFS shell's two-panel geometry verbatim:
+   a 74px rail and 236px page panel. Data stays API/OIDC-owned. */
 .authoritative-app .authoritative-sidebar{flex-direction:row; align-items:stretch;}
 .authoritative-app .authoritative-sidebar .nav-rail{display:flex; flex:0 0 var(--qb-rail-w); width:var(--qb-rail-w);}
 .authoritative-app .authoritative-sidebar .nav-rail .nav-group-h{
@@ -364,19 +333,16 @@ input,select,textarea{
   width:var(--qb-rail-item-w); height:var(--qb-rail-item-h); min-height:0;
   margin:0 auto; padding:2px 2px 0; border-radius:var(--qb-r-card); text-align:center;
 }
-.authoritative-app .authoritative-sidebar .nav-rail .rail-glyph{display:grid; width:var(--qb-rail-glyph); height:var(--qb-rail-glyph); font:700 10px/1 var(--qb-sans); letter-spacing:.03em;}
+.authoritative-app .authoritative-sidebar .nav-rail .rail-glyph{display:grid; width:var(--qb-rail-glyph); height:var(--qb-rail-glyph);}
 .authoritative-app .authoritative-sidebar .nav-rail .rail-label{display:block;}
 .authoritative-app .authoritative-sidebar .nav-panel{display:flex; flex:1 1 auto; min-width:0;}
 .authoritative-app .authoritative-sidebar .nav-panel nav{width:100%;}
-.authoritative-nav-heading{display:flex; align-items:center; gap:10px; flex:0 0 auto; min-width:0; padding:14px 16px 10px; border-bottom:var(--qb-hair) solid var(--qb-divider);}
-.authoritative-nav-heading-mark{display:grid; place-items:center; flex:0 0 auto; width:30px; height:30px; border-radius:50%; background:var(--qb-brand); color:var(--qb-brand-fg); font:700 10px/1 var(--qb-sans);}
-.authoritative-nav-eyebrow{display:block; margin:0 0 2px; color:var(--qb-text-muted); font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;}
-.authoritative-nav-heading strong{display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--qb-text-strong); font-size:13px;}
-.authoritative-app .authoritative-sidebar .nav-panel .nav-group-items{display:flex; flex-direction:column; width:100%; padding:6px 0 16px;}
-.authoritative-app .authoritative-sidebar .nav-panel .nav-item{width:100%; min-height:42px; margin:0; padding:0 14px;}
-.authoritative-app .authoritative-sidebar .nav-panel .nav-item-label{white-space:normal; overflow:visible; text-overflow:clip; line-height:1.25;}
+.authoritative-app .authoritative-sidebar .nav-panel .nav-group-items{display:block; width:100%; padding:0 0 4px;}
+.authoritative-app .authoritative-sidebar .nav-panel .nav-item{width:100%; min-height:var(--qb-navrow-h); margin:0; padding:0 14px;}
+.authoritative-app .authoritative-sidebar .nav-panel .nav-item-label{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.35;}
 .authoritative-app .authoritative-sidebar .nav-panel .authoritative-nav-status{margin-left:auto;}
 .authoritative-app .authoritative-sidebar .nav-panel .nav-chev{display:block;}
+.authoritative-new-disabled{opacity:.6; cursor:not-allowed;}
 /* Exact presentation structure from the complete REFS shell: scope control,
    period chip, actions and user chip stay in one topbar.  Move navigation off
    canvas before a narrow desktop can compress accounting evidence. */

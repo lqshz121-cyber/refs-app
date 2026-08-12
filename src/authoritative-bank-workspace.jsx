@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
 import {createAuthoritativeBankPaymentMatch,createAuthoritativeReconciliationAdjustmentDraft,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation,refreshAuthoritativeReconciliationWorksheet,setAuthoritativeReconciliationClearance,transitionAuthoritativeReconciliation,unmatchAuthoritativeBankPayment} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
+import {AuthoritativeDemoView,AuthoritativeDemoWorkspaceHeader} from './authoritative-demo-view.jsx';
 import {DEFAULT_AUTHORITATIVE_LIST_VIEW,createAuthoritativeReturnContext,restoreAuthoritativeReturnContext} from './authoritative-list-context.js';
 
 const fixed4Units=value=>{
@@ -72,15 +73,15 @@ const BankQueueSummary=({rows=[]})=>{
   const matched=rows.filter(row=>row.match_status==='ACTIVE').length;
   const journaled=rows.filter(row=>Boolean(row.journal_entry_id)).length;
   const unmatched=Math.max(0,rows.length-matched);
-  return <section className="authoritative-bank-summary-cards" aria-label="Bank queue read summary">
-    <div className="authoritative-bank-summary-card"><i>Returned sources</i><b>{rows.length}</b><span>Current API response</span></div>
-    <div className="authoritative-bank-summary-card"><i>Active Matches</i><b>{matched}</b><span>Retained evidence only</span></div>
-    <div className="authoritative-bank-summary-card"><i>Unmatched sources</i><b>{unmatched}</b><span>Not a reconciliation state</span></div>
-    <div className="authoritative-bank-summary-card"><i>Journal references</i><b>{journaled}</b><span>When supplied by the API</span></div>
+  return <section className="qbo-grid authoritative-bank-demo-grid" aria-label="Bank queue read summary">
+    <div className="qbo-card"><h4>Returned sources</h4><div className="qbo-big">{rows.length}</div><div className="qbo-sub">Current API response</div></div>
+    <div className="qbo-card"><h4>Active Matches</h4><div className="qbo-big">{matched}</div><div className="qbo-sub">Retained evidence only</div></div>
+    <div className="qbo-card"><h4>Unmatched sources</h4><div className="qbo-big">{unmatched}</div><div className="qbo-sub">Not a reconciliation state</div></div>
+    <div className="qbo-card"><h4>Journal references</h4><div className="qbo-big">{journaled}</div><div className="qbo-sub">When supplied by the API</div></div>
   </section>;
 };
 
-export const AuthoritativeBankTable=({rows=[],onOpen=()=>{}})=><section className="card authoritative-bank-queue" aria-label="Authoritative bank transaction evidence">
+export const AuthoritativeBankTable=({rows=[],onOpen=()=>{}})=><section className="bank-queue-card authoritative-bank-queue" aria-label="Authoritative bank transaction evidence">
   <div className="card-head"><div><p className="eyebrow">SOURCE → MATCH → JOURNAL</p><h2>Bank transactions</h2><p className="muted sm">Read-only source and retained match evidence from the accounting API. Match review happens only after you open one scoped source item.</p></div><span className="badge badge-muted">READ ONLY</span></div>
   <div className="authoritative-bank-queue-note"><b>{rows.length}</b> retained source item{rows.length===1?'':'s'} in this response. Queue status never implies reconciliation, clearance, or posting.</div>
   {!!rows.length&&<BankQueueSummary rows={rows}/>}
@@ -135,13 +136,13 @@ export const AuthoritativeBankDetail=({row,scope,onBack,config,fetcher,onMatchCh
 </section>;
 };
 
-export const AuthoritativeReconciliationSummary=({row=null,scope=null,onOpen=()=>{}})=><section className="card authoritative-reconciliation-summary" aria-label="Authoritative reconciliation evidence">
+export const AuthoritativeReconciliationSummary=({row=null,scope=null,onOpen=()=>{}})=><section className="report-workbench recon-summary authoritative-reconciliation-summary" aria-label="Authoritative reconciliation evidence">
   <div className="card-head"><div><p className="eyebrow">STATEMENT → REVIEW → SIGN-OFF</p><h2>Reconciliation statement</h2><p className="muted sm">Statement-scoped evidence only. This page cannot match, clear, reopen, sign off, or post.</p></div><span className="badge badge-muted">READ ONLY</span></div>
   {!row?<StateBlock tone="blocked" title="Reconciliation evidence blocked">BLOCKED — The accounting API returned no authorized reconciliation statement for this account and cutoff. Reconciliation controls are unavailable until retained statement evidence is returned. This scoped result is not evidence of zero statement activity, zero difference, review, or sign-off.</StateBlock>:<>
     <ScopeStrip items={[{label:'Entity',value:scope?.entityId},{label:'Bank account',value:row.bank_account_ref},{label:'Statement cutoff',value:row.statement_ending_date},{label:'Statement version',value:`v${row.version}`}]}/>
     <ReconciliationLifecycle status={row.status}/>
-    <div className="qbo-toolgrid"><span><i>Status</i><b>{row.status}</b></span><span><i>Statement ending balance</i><b>{money(row.statement_ending_balance)}</b></span><span><i>Statement activity</i><b>{money(row.statement_activity_amount)}</b></span><span><i>Difference</i><b>{money(row.difference)}</b></span></div>
-    <div className="qbo-toolgrid"><span><i>Bank transactions</i><b>{row.bank_transaction_count}</b></span><span><i>Active matches</i><b>{row.active_match_count}</b></span><span><i>Unmatched</i><b>{row.unmatched_transaction_count}</b></span><span><i>Version</i><b>{row.version}</b></span></div>
+    <div className="recon-summary-grid"><span className="recon-summary-cell"><i>Statement ending</i><b>{money(row.statement_ending_balance)}</b></span><span className="recon-summary-cell"><i>Statement activity</i><b>{money(row.statement_activity_amount)}</b></span><span className="recon-summary-cell"><i>Difference</i><b>{money(row.difference)}</b></span><span className="recon-summary-cell"><i>Bank transactions</i><b>{row.bank_transaction_count}</b></span><span className="recon-summary-cell"><i>Active matches</i><b>{row.active_match_count}</b></span><span className="recon-summary-cell"><i>Unmatched</i><b>{row.unmatched_transaction_count}</b></span></div>
+    <p className="muted sm">Status {row.status} · statement revision {row.version}. These facts are returned by the authoritative API and do not imply a reconciliation action.</p>
     <button id={`authoritative-reconciliation-${row.reconciliation_id}`} type="button" className="btn btn-sm" onClick={()=>onOpen(row,`authoritative-reconciliation-${row.reconciliation_id}`)}>Open statement detail</button>
   </>}
 </section>;
@@ -211,7 +212,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     restoreAuthoritativeReturnContext(environment,config,context);
   };
   if(selected)return <AuthoritativeBankDetail row={selected.row} scope={{...scope,entityId:config.entityId}} onBack={closeEvidence} config={config} fetcher={fetcher} onMatchChanged={()=>load(null,{preserveDetail:true})}/>;
-  return <div className="stack"><div><h1>Bank transaction evidence</h1><p className="page-subtitle">Entity-scoped, OIDC-authenticated records only. Browser seeds and local storage are never used.</p></div>
+  return <AuthoritativeDemoView area="Bank transaction evidence" className="stack authoritative-bank-workspace"><AuthoritativeDemoWorkspaceHeader eyebrow="BANKING | SOURCE EVIDENCE" title="Bank transaction evidence" description="Entity-scoped, OIDC-authenticated records only. Browser seeds and local storage are never used."/>
     <form className="filterbar" onSubmit={load} aria-label="Bank transaction scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>
       <label>From<input type="date" value={scope.from} onChange={event=>setScope(current=>({...current,from:event.target.value}))}/></label>
@@ -223,7 +224,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative bank transaction evidence...</StateBlock>}
     {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
     {state.phase==='READY'&&<AuthoritativeBankTable rows={state.rows} onOpen={openEvidence}/>}
-  </div>;
+  </AuthoritativeDemoView>;
 }
 
 export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
@@ -242,7 +243,7 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     restoreAuthoritativeReturnContext(environment,config,context);
   };
   if(selected)return <AuthoritativeReconciliationDetail row={selected.row} scope={{...scope,entityId:config.entityId}} onBack={closeEvidence} config={config} fetcher={fetcher} onChanged={()=>load(null,{preserveDetail:true})}/>;
-  return <div className="stack"><div><h1>Reconciliation evidence</h1><p className="page-subtitle">One authoritative statement cutoff for one entity and bank account. Lifecycle commands are controller-gated, revision-bound, idempotent, and audited by the accounting API.</p></div>
+  return <AuthoritativeDemoView area="Reconciliation evidence" className="stack authoritative-reconciliation-workspace"><AuthoritativeDemoWorkspaceHeader eyebrow="BANKING | RECONCILIATION" title="Reconciliation evidence" description="One authoritative statement cutoff for one entity and bank account. Lifecycle commands are controller-gated, revision-bound, idempotent, and audited by the accounting API."/>
     <form className="filterbar" onSubmit={load} aria-label="Reconciliation statement scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>
       <label>Statement ending date<input required type="date" value={scope.statementEndingDate} onChange={event=>setScope(current=>({...current,statementEndingDate:event.target.value}))}/></label>
@@ -253,5 +254,5 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative reconciliation evidence...</StateBlock>}
     {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
     {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} scope={{...scope,entityId:config.entityId}} onOpen={openEvidence}/>}
-  </div>;
+  </AuthoritativeDemoView>;
 }

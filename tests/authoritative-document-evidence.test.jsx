@@ -39,6 +39,13 @@ assert.match(workspaceMarkup,/Review authenticated API list facts/);
 assert.match(workspaceMarkup,/Retained bills/);
 assert.match(workspaceMarkup,/Visible after filters/);
 assert.match(workspaceMarkup,/READ ONLY/);
+assert.match(workspaceMarkup,/demo-ap-ar-presentation/);
+assert.match(workspaceMarkup,/Vendor credits/);
+assert.match(workspaceMarkup,/AP Aging/);
+assert.match(workspaceMarkup,/disabled/);
+const demoApArSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-demo-ap-ar-view.jsx'),'utf8');
+assert.doesNotMatch(demoApArSource,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,
+  'the AP/AR presentation extraction must receive authority facts as slots and never load demo state or API itself');
 assert.match(workspaceMarkup,/Document and adjustment evidence/);
 assert.match(workspaceMarkup,/Filter retained API list facts, then open an independent read-only evidence page/);
 assert.match(workspaceMarkup,/Query, filters, page, focus, and scroll are preserved/);

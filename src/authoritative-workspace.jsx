@@ -1,6 +1,7 @@
 import React from 'react';
 import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 import { StateBlock } from './ui.jsx';
+import {AuthoritativeDemoApArView} from './authoritative-demo-ap-ar-view.jsx';
 import {
   DEFAULT_AUTHORITATIVE_LIST_VIEW,
   authoritativeEvidenceKey,
@@ -105,11 +106,17 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     bill&&state.transactionType!=='ALL'?`Transaction type: ${state.transactionType==='BILLS'?'Bills':'Vendor credits'}`:null,
   ].filter(Boolean);
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
-  return <div className="authoritative-document-workspace stack">
-    <section className="accounting-page-head authoritative-document-page-head" aria-label={`${workspaceLabel} authoritative evidence header`}>
-      <div><div className="page-eyebrow">{eyebrow}</div><h1 className="page-h">{workspaceLabel}</h1><p className="page-subtitle">Review authenticated API list facts, retained revisions, and evidence details for {counterpartyLabel}. No browser seed or local accounting state is used.</p></div>
-      <span className="badge badge-muted">READ ONLY</span>
-    </section>
+  const tabs=bill?[
+    {id:'BILLS',label:'Bills'}, {id:'VENDOR_CREDITS',label:'Vendor credits'}, {id:'AGING',label:'AP Aging',disabled:true}, {id:'VENDORS',label:'Vendors',disabled:true},
+  ]:[{id:'INVOICES',label:'Invoices'}, {id:'RECEIPTS',label:'Receipts',disabled:true}, {id:'AGING',label:'AR Aging',disabled:true}, {id:'COUNTERPARTIES',label:'Counterparties',disabled:true}];
+  const activeTab=bill?(state.transactionType==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'):'INVOICES';
+  const selectTab=next=>bill&&change({transactionType:next==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'});
+  const metrics=bill?[
+    {label:'Retained bills',value:documents.length,sub:'Returned by this API scope'}, {label:'Visible after filters',value:page.total,sub:'Current presentation view'}, {label:'Retained adjustments',value:adjustments.length,sub:'Returned by this API scope'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'Current presentation view'},
+  ]:[
+    {label:'Retained invoices',value:documents.length,sub:'Returned by this API scope'}, {label:'Visible after filters',value:page.total,sub:'Current presentation view'}, {label:'Retained adjustments',value:adjustments.length,sub:'Returned by this API scope'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'Current presentation view'},
+  ];
+  return <AuthoritativeDemoApArView kind={kind} className="authoritative-document-workspace stack" headerClassName="authoritative-document-page-head" metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={<p className="muted sm authoritative-api-scope">Authenticated API list facts only. Filtered views never change accounting records; unavailable demo tabs have no browser fallback.</p>}>
     <section className="qbo-toolgrid authoritative-document-summary" aria-label={`${workspaceLabel} list-fact summary`}>
       <span><i>Retained {documentLabel}</i><b>{documents.length}</b><small>Returned by this API scope</small></span>
       <span><i>Visible after filters</i><b>{page.total}</b><small>Current presentation view</small></span>
@@ -142,7 +149,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     <section className="card" aria-label={`${workspaceLabel} adjustment list facts`}>
     {visibleAdjustments.length?<AuthoritativeAdjustmentSummary title={bill&&state.transactionType==='VENDOR_CREDITS'?'Vendor credits':bill?'AP adjustments':'AR adjustments'} adjustments={visibleAdjustments} onOpen={onOpenAdjustment}/>:<StateBlock tone="empty" title={adjustments.length?'No adjustments match these presentation filters':'No authoritative adjustments in this scope'}>{adjustments.length?'Change a presentation filter to see retained adjustment facts. A local no-match is not evidence of zero balance.':'This scoped empty result is not evidence of a zero balance.'}</StateBlock>}
     </section>
-  </div>;
+  </AuthoritativeDemoApArView>;
 }
 export function AuthoritativeWorkflowTable({title,documents=[],kind,onWorkflow,workingJournalIds=new Set()}){const bill=kind==='AP';return <section aria-label={title}><h2>{title}</h2>{documents.map(row=>{const action=nextAuthoritativeWorkflowAction(row.journal_status);return <div key={row.journal_entry_id}>{row[bill?'bill_no':'inv_no']} {action?<button disabled={workingJournalIds.has(row.journal_entry_id)} onClick={()=>onWorkflow(row,action)}>{action}</button>:row.journal_status}</div>;})}</section>;}
 export function AuthoritativeWorkflowAdjustmentTable({title,adjustments=[],onWorkflow,workingJournalIds=new Set()}){return <section aria-label={title}><h2>{title}</h2>{adjustments.map(row=>{const action=nextAuthoritativeWorkflowAction(row.journal_status);return <div key={row.business_adjustment_id}>{row.adjustment_kind} {action?<button disabled={workingJournalIds.has(row.journal_entry_id)} onClick={()=>onWorkflow(row,action)}>{action}</button>:row.journal_status}</div>;})}</section>;}
