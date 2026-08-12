@@ -116,7 +116,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   ]:[
     {label:'Retained invoices',value:documents.length,sub:'Returned by this API scope'}, {label:'Visible after filters',value:page.total,sub:'Current presentation view'}, {label:'Retained adjustments',value:adjustments.length,sub:'Returned by this API scope'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'Current presentation view'},
   ];
-  return <AuthoritativeDemoApArView kind={kind} className="authoritative-document-workspace stack" headerClassName="authoritative-document-page-head" metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={<p className="muted sm authoritative-api-scope">Authenticated API list facts only. Filtered views never change accounting records; unavailable demo tabs have no browser fallback.</p>}>
+  return <AuthoritativeDemoApArView kind={kind} className="authoritative-document-workspace stack" headerClassName="authoritative-document-page-head" metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={<p className="muted sm authoritative-api-scope">Authenticated API list facts only. Filtered views never change accounting records; unavailable categories have no browser-data fallback.</p>}>
     <section className="qbo-toolgrid authoritative-document-summary" aria-label={`${workspaceLabel} list-fact summary`}>
       <span><i>Retained {documentLabel}</i><b>{documents.length}</b><small>Returned by this API scope</small></span>
       <span><i>Visible after filters</i><b>{page.total}</b><small>Current presentation view</small></span>

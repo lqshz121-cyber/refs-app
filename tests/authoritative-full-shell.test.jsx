@@ -40,7 +40,7 @@ assert.doesNotMatch(demoViewSource, /seed\.js|repo\.js|localStorage|legacy-demo-
   'the reusable demo presentation frame must not import or persist demonstration accounting state');
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.match(unavailableMarkup, /Source Documents is not available/);
-assert.match(unavailableMarkup, /No browser or demonstration data is shown/);
+assert.match(unavailableMarkup, /No browser-stored or substitute data is shown/);
 assert.match(unavailableMarkup, /Required authoritative read contract/);
 assert.match(unavailableMarkup, /attachment-read contract/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
