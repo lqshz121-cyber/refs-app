@@ -6,6 +6,7 @@ REVOKE EXECUTE ON FUNCTION refs_wbs_payable_review_evidence_hash(uuid,text,text,
 DROP FUNCTION refs_review_wbs_payable(uuid,uuid,uuid,uuid,bigint,text,text,text,uuid,uuid,uuid[],text,text,text);
 DROP FUNCTION refs_review_wbs_payable_hash(uuid,uuid,uuid,uuid,bigint,text,text,text,uuid,uuid,uuid[],text);
 DROP FUNCTION refs_wbs_payable_review_evidence_hash(uuid,text,text,text,jsonb,jsonb,jsonb,text);
+DROP FUNCTION refs_wbs_payable_iso_date(text);
 DROP TABLE wbs_payable_review_attachment;
 DROP TABLE wbs_payable_review_evidence;
 DROP INDEX attachment_tenant_entity_id_uq;
