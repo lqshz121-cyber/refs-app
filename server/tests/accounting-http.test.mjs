@@ -110,6 +110,18 @@ test('WBS snapshot route derives the immutable observation scope solely from aut
   assert.equal((await command(`/api/v1/entities/${entityId}/wbs/snapshots`,{snapshot,sourceEntityId:'attacker'})).status,400);
 });
 
+test('admitted WBS payable ingestion derives identity from authentication and fails closed when unavailable',async()=>{
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V2'},observed=[];
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-payable-importer'}),kernelFactory:async()=>kernel,wbsAdmittedPayableServiceFactory:async()=>({ingest:async request=>(observed.push(request),{status:'PERSISTED_PAYABLE_STAGING_REVIEW_REQUIRED',idempotent:false,can_write_wbs:false,can_create_draft:false,can_approve:false,can_post:false})})});
+  const response=await api({method:'POST',url:`/api/v1/entities/${entityId}/wbs/inbound/payables`,headers:{'idempotency-key':'wbs-payable-http-0001'},body:{snapshot}});
+  assert.equal(response.status,201);assert.deepEqual(observed,[{tenantId,entityId,snapshot,idempotencyKey:'wbs-payable-http-0001'}]);assert.equal(response.body.data.can_create_draft,false);assert.equal(response.body.data.can_post,false);
+  const forged=await api({method:'POST',url:`/api/v1/entities/${entityId}/wbs/inbound/payables`,headers:{'idempotency-key':'wbs-payable-http-0002'},body:{snapshot,tenantId:'33333333-3333-4333-8333-333333333333'}});
+  assert.equal(forged.status,400);assert.equal(forged.body.code,'IDENTITY_FIELD_FORBIDDEN');assert.equal(observed.length,1);
+  const unavailable=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-payable-importer'}),kernelFactory:async()=>kernel});
+  const blocked=await unavailable({method:'POST',url:`/api/v1/entities/${entityId}/wbs/inbound/payables`,headers:{'idempotency-key':'wbs-payable-http-0003'},body:{snapshot}});
+  assert.equal(blocked.status,503);assert.equal(blocked.body.code,'WBS_PAYABLE_ADMISSION_UNAVAILABLE');
+});
+
 test('WBS production snapshot signature failures are fail-closed and do not leak verifier internals',async()=>{
   const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V1',snapshot_id:randomUUID(),views:[]};
   const unavailable=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'snapshot-importer'}),kernelFactory:async()=>({...kernel,recordWbsSnapshot:async()=>{const error=new Error('missing public key from secure config');error.code='WBS_SNAPSHOT_SIGNATURE_REQUIRED';throw error;}})});

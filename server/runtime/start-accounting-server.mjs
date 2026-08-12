@@ -4,7 +4,7 @@ import {createPool} from './db.mjs';import {runtimeConfig} from './config.mjs';
 import {OidcJwtAuthenticator,RemoteJwksResolver} from '../api/oidc-authenticator.mjs';
 import {createProductionAccountingServer} from './accounting-server.mjs';
 import {S3AttachmentStorage,HttpVirusScanner} from './attachment-storage.mjs';
-import {createWbsSnapshotSignatureVerifier} from './wbs-snapshot-signature.mjs';
+import {createWbsManifestSignatureVerifier,createWbsSnapshotSignatureVerifier} from './wbs-snapshot-signature.mjs';
 import {createWbsAutoRecTransitionContractVerifier} from './wbs-autorec-transition-contract.mjs';
 import {stage1SelfGrantConfig,stage1SelfWbsReadUpgradeConfig} from './stage1-bootstrap.mjs';
 import {createWbsLivePilotClient} from './wbs-live-pilot-read-service.mjs';
@@ -52,11 +52,13 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
   const resolver=new RemoteJwksResolver({jwksUri:config.jwksUri,fetcher});
   const authenticator=new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:resolver});
   const wbsSnapshotVerifier=config.wbsIngestMode==='REQUIRED'?createWbsSnapshotSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
+  const wbsManifestVerifier=config.wbsIngestMode==='REQUIRED'?createWbsManifestSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
+  const wbsSignedBankAdmissionVerifier=wbsManifestVerifier?admission=>wbsManifestVerifier({manifest_hash:admission?.admission_hash,detached_signature:admission?.detached_signature}):null;
   const wbsAutoRecTransitionContractVerifier=config.wbsIngestMode==='REQUIRED'?createWbsAutoRecTransitionContractVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
   const attachmentStorage=config.attachmentMode==='REQUIRED'?new S3AttachmentStorage({...config.s3,fetcher}):null;
   const virusScanner=config.attachmentMode==='REQUIRED'?new HttpVirusScanner({...config.scanner,ca:await readFile(config.scanner.caFile)}):null;
   const wbsLivePilotClient=config.wbsLivePilotMode==='ENABLED'?createWbsLivePilotClient({credentials:config.wbsLivePilotCredentials,fetcher}):null;
-  const server=createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant:config.stage1SelfGrant,stage1SelfWbsReadUpgrade:config.stage1SelfWbsReadUpgrade,authenticator,attachmentStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,maxBodyBytes:config.maxBodyBytes,allowedOrigins:config.allowedOrigins});
+  const server=createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant:config.stage1SelfGrant,stage1SelfWbsReadUpgrade:config.stage1SelfWbsReadUpgrade,authenticator,attachmentStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,maxBodyBytes:config.maxBodyBytes,allowedOrigins:config.allowedOrigins});
   try{await Promise.all([runtimePool.query('SELECT 1'),issuerPool.query('SELECT 1'),...(grantSyncPool?[grantSyncPool.query('SELECT 1')]:[])]);await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(config.port,config.host,resolve);});}
   catch(error){await Promise.allSettled([runtimePool.end(),issuerPool.end(),grantSyncPool?.end()]);throw error;}
   let stopping=false;const stop=async signal=>{if(stopping)return;stopping=true;logger.info?.(JSON.stringify({event:'accounting_server_stopping',signal}));await new Promise(resolve=>server.close(resolve));await Promise.allSettled([runtimePool.end(),issuerPool.end(),grantSyncPool?.end()]);};

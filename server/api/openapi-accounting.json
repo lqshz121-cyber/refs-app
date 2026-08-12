@@ -71,6 +71,16 @@
         }
       }
     },
+    "/entities/{entityId}/wbs/inbound/payables": {
+      "post": {
+        "operationId": "ingestAdmittedWbsPayables",
+        "summary": "Persist an admitted signed WBS Payable snapshot as review evidence",
+        "description": "Accepts exactly one production V2 Payable snapshot whose detached Ed25519 signature, company, currency and snapshot-token scope pass the configured pinned-key verifier. Persists immutable snapshot receipt plus Raw, Normalized and Staging or Exception evidence only. It never writes WBS, creates or approves a Draft, or posts.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsSnapshot"},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/attachments/reservations": {
       "post": {
         "operationId": "reserveAttachment",

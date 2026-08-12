@@ -2,6 +2,7 @@ import {KernelError,requireRow,withSerializableRetry} from './db.mjs';
 import {canonicalRequestHash} from './request-hash.mjs';
 import {validateWbsSnapshotPackage} from './wbs-snapshot-package.mjs';
 import {validateWbsAutoRecTransitionContract} from './wbs-autorec-transition-contract.mjs';
+import {validateWbsSignedBankAdmission} from './wbs-signed-bank-admission.mjs';
 
 function assertTrustedSession(session){
   if(!session||session.trusted!==true||typeof session.contextToken!=='string'||session.contextToken.length<32)throw new KernelError('TRUSTED_SESSION_REQUIRED','Kernel session requires an opaque DB-issued context token from authenticated middleware');
@@ -9,10 +10,10 @@ function assertTrustedSession(session){
 }
 
 export class PostgresAccountingKernel{
-  constructor(pool,{sessionProvider,runtimeLoginAllowlist=['refs_runtime'],wbsSnapshotVerifier=null,wbsAutoRecTransitionContractVerifier=null}={}){
+  constructor(pool,{sessionProvider,runtimeLoginAllowlist=['refs_runtime'],wbsSnapshotVerifier=null,wbsAutoRecTransitionContractVerifier=null,wbsSignedBankAdmissionVerifier=null}={}){
     if(typeof sessionProvider!=='function')throw new KernelError('SESSION_PROVIDER_REQUIRED','A trusted session provider is required');
     this.pool=pool;this.sessionProvider=sessionProvider;this.runtimeLoginAllowlist=new Set(runtimeLoginAllowlist);
-    this.wbsSnapshotVerifier=wbsSnapshotVerifier;this.wbsAutoRecTransitionContractVerifier=wbsAutoRecTransitionContractVerifier;
+    this.wbsSnapshotVerifier=wbsSnapshotVerifier;this.wbsAutoRecTransitionContractVerifier=wbsAutoRecTransitionContractVerifier;this.wbsSignedBankAdmissionVerifier=wbsSignedBankAdmissionVerifier;
   }
 
   async inSession(work){
@@ -122,6 +123,26 @@ export class PostgresAccountingKernel{
         'SELECT refs_record_wbs_snapshot_receipts($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS result',
         [tenantId,entityId,validated.snapshot_id,validated.captured_at,validated.environment,validated.dictionary_version,validated.package_hash,JSON.stringify(validated.receipts),deliveryAttestation,idempotencyKey,requestHash]
       ),'WBS_SNAPSHOT_IMPORT_FAILED','WBS snapshot import did not return a result').result;
+    });
+  }
+
+  async admitWbsSignedBankStatement({tenantId,entityId,admission,idempotencyKey}){
+    const validated=validateWbsSignedBankAdmission(admission);
+    if(typeof this.wbsSignedBankAdmissionVerifier!=='function')throw new KernelError('WBS_BANK_ADMISSION_SIGNATURE_REQUIRED','WBS bank admission requires a configured detached-signature verifier');
+    let verified=false;
+    try{verified=await this.wbsSignedBankAdmissionVerifier(admission);}
+    catch{throw new KernelError('WBS_BANK_ADMISSION_SIGNATURE_INVALID','WBS bank admission signature verification failed');}
+    if(verified!==true)throw new KernelError('WBS_BANK_ADMISSION_SIGNATURE_INVALID','WBS bank admission signature verification failed');
+    return this.inSession(async client=>{
+      const statement=validated.statement;
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_signed_bank_admission_hash($1,$2,$3,$4,$5,$6,$7,$8,$9) AS request_hash',
+        [tenantId,entityId,validated.snapshot_id,validated.package_hash,validated.admission_hash,validated.detached_signature.key_id,validated.detached_signature.algorithm,JSON.stringify(statement),JSON.stringify(validated.transactions)]
+      ),'WBS_BANK_ADMISSION_HASH_FAILED','WBS bank admission hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_admit_wbs_signed_bank_statement($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS result',
+        [tenantId,entityId,validated.snapshot_id,validated.package_hash,validated.admission_hash,validated.detached_signature.key_id,validated.detached_signature.algorithm,JSON.stringify(statement),JSON.stringify(validated.transactions),idempotencyKey,requestHash]
+      ),'WBS_BANK_ADMISSION_FAILED','WBS bank admission did not return a result').result;
     });
   }
 

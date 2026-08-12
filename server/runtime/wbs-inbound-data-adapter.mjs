@@ -59,6 +59,10 @@ const amount=value=>{
   const parsed=Number(candidate),scaled=parsed*10000;
   return Number.isFinite(parsed)&&Number.isSafeInteger(Math.round(scaled))?Number(parsed.toFixed(4)):null;
 };
+const money4=value=>{
+  const parsed=amount(value);
+  return parsed===null?null:parsed.toFixed(4);
+};
 // A formatting-only check would admit impossible posting dates such as
 // 2026-02-30 into staging. WBS dates are evidence, so an invalid calendar day
 // must become an Exception before any review or accounting request.
@@ -97,7 +101,7 @@ function normalize(type,companyKey,row,receipt){
     source_system:'WBS',source_type:type,company_key:companyKey,
     source_record_id:receipt.source_record_id,source_version:receipt.source_version,
     receipt_ref:receipt.payload_ref,receipt_hash:receipt.payload_hash,
-    currency:text(row.currency).toUpperCase(),amount:amount(row.amount),
+    currency:text(row.currency).toUpperCase(),amount:amount(row.amount),amount_money4:money4(row.amount),
     business_date:businessDate,accounting_date:accountingDate,posting_date:accountingDate,
     direction:text(row.direction).toUpperCase()||null,source_label:text(row.source??row.source_name)||null,come_from:text(row.come_from??row.comeFrom)||null,
     bank_account_ref:text(row.bank_account_ref)||null,

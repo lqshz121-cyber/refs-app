@@ -96,4 +96,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"087_wbs_autorec_read_scope.sql",up:"32e99d617955025ebdd5ef44fa0ab3c6227a720d7fe29cf27b44e505e348caaa",down:"b9db8bb0d0533cdb9beeadbb2a3aa588b9a593cc9fb7c7b3d314a5c7ac3505ba"}),
   Object.freeze({name:"088_general_ledger_period_scope_fix.sql",up:"ff86b24c1665d01182b92037b3f56ec2972f04d06f70960b66da8a43117ce837",down:"a6110e9a4437cb2eab4cc5712bc54f09b523329b9f7de9046df3bd99f9c775de"}),
   Object.freeze({name:"089_coa_register_date_contract.sql",up:"695e14975740eb216cdcc8526bf4eeefa0281eee59d70d476650b697117015ba",down:"c26fd74c0fbc0d5dfbf4e6ce9892e0c2c44ea74a9106d6954afc33760bb280e3"}),
+  Object.freeze({name:"091_wbs_signed_bank_statement_admission.sql",up:"3f1b4a39bc98e0d429f6e7319d6f52901298aafdd2b8e7802c3a64f7d3d4af5c",down:"b29843f92726397d0b11e7af5a66088707df0e55cb82df20d29e4490606b1a38"}),
 ]);
