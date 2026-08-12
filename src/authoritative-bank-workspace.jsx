@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {createAuthoritativeBankPaymentMatch,createAuthoritativeReconciliationAdjustmentDraft,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation,refreshAuthoritativeReconciliationWorksheet,setAuthoritativeReconciliationClearance,transitionAuthoritativeReconciliation,unmatchAuthoritativeBankPayment} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeDemoView,AuthoritativeDemoWorkspaceHeader} from './authoritative-demo-view.jsx';
+import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 import {DEFAULT_AUTHORITATIVE_LIST_VIEW,createAuthoritativeReturnContext,restoreAuthoritativeReturnContext} from './authoritative-list-context.js';
 
 const fixed4Units=value=>{
@@ -224,6 +225,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative bank transaction evidence...</StateBlock>}
     {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
     {state.phase==='READY'&&<AuthoritativeBankTable rows={state.rows} onOpen={openEvidence}/>}
+    <AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.bank} title="External WBS bank observations"/>
   </AuthoritativeDemoView>;
 }
 
