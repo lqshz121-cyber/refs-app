@@ -14,8 +14,8 @@ const GROUP_ICONS = Object.freeze([
 ]);
 
 export function AuthoritativeNavigationShell({ navigation, route, expandedGroup, onSelectGroup, onSelectItem, navOpen, navDrawerRef, drawerAttributes, onClose }) {
-  const activeGroup = navigation.find(group => group.label === expandedGroup)
-    || navigation.find(group => group.items.some(item => item.route === route))
+  const activeGroup = navigation.find(group => group.items.some(item => item.route === route))
+    || navigation.find(group => group.label === expandedGroup)
     || navigation[0];
   const activeGroupIndex = navigation.indexOf(activeGroup);
 

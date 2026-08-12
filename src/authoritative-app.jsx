@@ -73,6 +73,21 @@ export const readRetainedRoute = (environment = globalThis) => {
   return 'overview';
 };
 
+const readHashRoute = environment => {
+  const fragment = String((environment && environment.location && environment.location.hash) || '').replace(/^#\/?/, '');
+  return ROUTES.includes(fragment) ? fragment : null;
+};
+
+export const watchRetainedRoute = (environment, onRoute) => {
+  if (typeof environment?.addEventListener !== 'function' || typeof onRoute !== 'function') return () => {};
+  const onHashChange = () => {
+    const next = readHashRoute(environment);
+    if (next) onRoute(next);
+  };
+  environment.addEventListener('hashchange', onHashChange);
+  return () => environment?.removeEventListener?.('hashchange', onHashChange);
+};
+
 export const retainRoute = (environment, route) => {
   if (!ROUTES.includes(route)) return;
   try { environment?.sessionStorage?.setItem(ROUTE_KEY, route); } catch { /* non-fatal */ }
@@ -242,6 +257,14 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     if (next === 'reports') setReportsNavigationVersion(current => current + 1);
     setRouteState(next); retainRoute(environment, next);
   }, [environment]);
+  useEffect(() => watchRetainedRoute(environment, next => {
+    setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setReportAgingDetail(null); setReportCatalogReturn(null);
+    if (next === 'reports') setReportsNavigationVersion(current => current + 1);
+    setRouteState(next);
+    retainRoute(environment, next);
+    setExpandedNavigationGroup(AUTHORITATIVE_NAVIGATION.find(group => group.items.some(item => item.route === next))?.label || null);
+    setNavOpen(false);
+  }), [environment]);
   const selectNavigationGroup = useCallback(group => {
     const multiple = group.items.length > 1;
     setExpandedNavigationGroup(current => multiple && current === group.label ? null : group.label);
