@@ -27,6 +27,7 @@ CREATE TABLE wbs_payable_review_evidence (
   mapping_snapshot_id uuid NOT NULL,
   period_id uuid NOT NULL,
   document_number text CHECK(document_number IS NULL OR length(document_number) BETWEEN 1 AND 128),
+  invoice_date date NOT NULL,
   due_date date,
   source_version text NOT NULL,
   receipt_hash text NOT NULL CHECK(receipt_hash ~ '^sha256:[0-9a-f]{64}$'),
@@ -129,7 +130,7 @@ DECLARE actor text:=refs_current_actor(); idem idempotency_receipt; row_record w
 DECLARE snapshot_import wbs_snapshot_import; snapshot_receipt wbs_snapshot_receipt; entity_row entity; period_row accounting_period;
 DECLARE setting_row setting_snapshot; mapping_row mapping_snapshot; mapping_input jsonb; normalized jsonb; outcome jsonb;
 DECLARE evidence_hash text; computed_hash text; vendor_ref text; vendor_name text; offset_account text; source_direction text;
-DECLARE document_number text; due_date date; due_date_text text;
+DECLARE document_number text; invoice_date date; invoice_date_text text; due_date date; due_date_text text;
 DECLARE amount_multiplier numeric; source_amount numeric(20,4); reviewed_amount numeric(20,4); accounting_date date; business_date date; currency text; company_key text;
 DECLARE rule_code text; rule_version bigint; raw_id uuid:=gen_random_uuid(); document_id uuid:=gen_random_uuid(); rule_id uuid:=gen_random_uuid(); staging_id uuid:=gen_random_uuid(); review_id uuid:=gen_random_uuid();
 DECLARE matched_facts jsonb; rule_result jsonb; input_digest text; evaluation_digest text; response jsonb; event_payload jsonb;
@@ -207,13 +208,18 @@ BEGIN
   IF document_number IS NOT NULL AND (length(document_number)>128 OR document_number~'[\x00-\x1f\x7f]') THEN
     RAISE EXCEPTION 'WBS payable invoice number is outside the reviewed evidence contract' USING ERRCODE='23514';
   END IF;
+  invoice_date_text:=NULLIF(btrim(row_record.raw->'external_trace'->>'invoice_date'),'');
+  invoice_date:=refs_wbs_payable_iso_date(invoice_date_text);
+  IF invoice_date IS NULL THEN
+    RAISE EXCEPTION 'WBS payable invoice date must be canonical YYYY-MM-DD' USING ERRCODE='23514';
+  END IF;
   due_date_text:=NULLIF(btrim(row_record.raw->'external_trace'->>'pay_due_date'),'');
   due_date:=refs_wbs_payable_iso_date(due_date_text);
   IF due_date_text IS NOT NULL AND due_date IS NULL THEN
     RAISE EXCEPTION 'WBS payable due date must be canonical YYYY-MM-DD' USING ERRCODE='23514';
   END IF;
-  IF due_date IS NOT NULL AND due_date<accounting_date THEN
-    RAISE EXCEPTION 'WBS payable due date cannot precede accounting date' USING ERRCODE='23514';
+  IF due_date IS NOT NULL AND due_date<invoice_date THEN
+    RAISE EXCEPTION 'WBS payable due date cannot precede invoice date' USING ERRCODE='23514';
   END IF;
   SELECT * INTO period_row FROM accounting_period
     WHERE tenant_id=p_tenant AND entity_id=p_entity AND period_id=p_period AND status='OPEN'
@@ -300,8 +306,8 @@ BEGIN
     VALUES(raw_id,p_tenant,p_entity,snapshot_import.import_batch_id,'WBS','payable',snapshot_receipt.source_entity_id,row_record.source_record_id,row_record.source_version,'UPSERT',accounting_date::timestamptz,inbound_receipt.receipt_hash,inbound_receipt.payload_ref,p_idempotency_key);
   INSERT INTO source_document(source_document_id,tenant_id,entity_id,raw_event_id,source_system,source_module,source_entity_id,source_record_id,source_version,document_type,document_no,business_date,accounting_date,currency,gross_amount,status,source_ref,payload_hash)
     VALUES(document_id,p_tenant,p_entity,raw_id,'WBS','payable',snapshot_receipt.source_entity_id,row_record.source_record_id,row_record.source_version,'WBS_PAYABLE',document_number,business_date,accounting_date,currency,reviewed_amount,'READY_FOR_DRAFT',inbound_receipt.payload_ref,inbound_receipt.receipt_hash);
-  matched_facts:=jsonb_build_object('wbs_inbound_row_id',p_row,'company_key',company_key,'currency',currency,'vendor_ref',vendor_ref,'cost_code_ref',normalized->'cost_code_ref','document_number',document_number,'due_date',due_date,'source_amount',normalized->>'amount_money4','source_direction',source_direction,'source_version',row_record.source_version,'receipt_hash',inbound_receipt.receipt_hash);
-  rule_result:=jsonb_build_object('vendor_ref',vendor_ref,'vendor_name',vendor_name,'offset_account_code',offset_account,'document_number',document_number,'due_date',due_date,'gross_amount',to_char(reviewed_amount,'FM9999999999999990.0000'),'currency',currency,'period_id',p_period,'can_create_draft',false,'can_approve',false,'can_post',false);
+  matched_facts:=jsonb_build_object('wbs_inbound_row_id',p_row,'company_key',company_key,'currency',currency,'vendor_ref',vendor_ref,'cost_code_ref',normalized->'cost_code_ref','document_number',document_number,'invoice_date',invoice_date,'due_date',due_date,'source_amount',normalized->>'amount_money4','source_direction',source_direction,'source_version',row_record.source_version,'receipt_hash',inbound_receipt.receipt_hash);
+  rule_result:=jsonb_build_object('vendor_ref',vendor_ref,'vendor_name',vendor_name,'offset_account_code',offset_account,'document_number',document_number,'invoice_date',invoice_date,'due_date',due_date,'gross_amount',to_char(reviewed_amount,'FM9999999999999990.0000'),'currency',currency,'period_id',p_period,'can_create_draft',false,'can_approve',false,'can_post',false);
   input_digest:=evidence_hash;evaluation_digest:=refs_rule_evaluation_hash(document_id,p_setting,p_mapping,rule_code,rule_version,matched_facts,rule_result,input_digest);
   INSERT INTO rule_evaluation(rule_evaluation_id,tenant_id,source_document_id,setting_snapshot_id,mapping_snapshot_id,rule_code,rule_version,matched_facts,result,confidence,reason,input_digest,evaluation_digest,evaluated_at)
     VALUES(rule_id,p_tenant,document_id,p_setting,p_mapping,rule_code,rule_version,matched_facts,rule_result,1,btrim(p_reason),input_digest,evaluation_digest,clock_timestamp());
@@ -311,8 +317,8 @@ BEGIN
     VALUES(p_tenant,p_entity,'WBS_PAYABLE_REVIEW',raw_id,document_id,staging_id,actor);
   INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,staging_item_id,attachment_id,created_by)
     SELECT p_tenant,p_entity,'SOURCE_ATTACHMENT',document_id,staging_id,value,actor FROM unnest(p_attachment_ids) value;
-  INSERT INTO wbs_payable_review_evidence(wbs_payable_review_evidence_id,tenant_id,entity_id,wbs_inbound_row_id,receipt_id,wbs_snapshot_import_id,wbs_snapshot_receipt_id,raw_event_id,source_document_id,rule_evaluation_id,staging_item_id,setting_snapshot_id,mapping_snapshot_id,period_id,document_number,due_date,source_version,receipt_hash,evidence_hash,review_reason,reviewed_by,request_hash)
-    VALUES(review_id,p_tenant,p_entity,p_row,inbound_receipt.receipt_id,snapshot_import.wbs_snapshot_import_id,snapshot_receipt.wbs_snapshot_receipt_id,raw_id,document_id,rule_id,staging_id,p_setting,p_mapping,p_period,document_number,due_date,row_record.source_version,inbound_receipt.receipt_hash,evidence_hash,btrim(p_reason),actor,p_request_hash);
+  INSERT INTO wbs_payable_review_evidence(wbs_payable_review_evidence_id,tenant_id,entity_id,wbs_inbound_row_id,receipt_id,wbs_snapshot_import_id,wbs_snapshot_receipt_id,raw_event_id,source_document_id,rule_evaluation_id,staging_item_id,setting_snapshot_id,mapping_snapshot_id,period_id,document_number,invoice_date,due_date,source_version,receipt_hash,evidence_hash,review_reason,reviewed_by,request_hash)
+    VALUES(review_id,p_tenant,p_entity,p_row,inbound_receipt.receipt_id,snapshot_import.wbs_snapshot_import_id,snapshot_receipt.wbs_snapshot_receipt_id,raw_id,document_id,rule_id,staging_id,p_setting,p_mapping,p_period,document_number,invoice_date,due_date,row_record.source_version,inbound_receipt.receipt_hash,evidence_hash,btrim(p_reason),actor,p_request_hash);
   INSERT INTO wbs_payable_review_attachment(tenant_id,entity_id,wbs_payable_review_evidence_id,attachment_id)
     SELECT p_tenant,p_entity,review_id,value FROM unnest(p_attachment_ids) value;
 

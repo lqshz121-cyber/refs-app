@@ -20,7 +20,8 @@ test('review command is a dedicated evidence-only WBS Payable control',()=>{
 test('review evidence is immutable, idempotent, CAS-bound and fully reversible',()=>{
   assert.match(up,/INSERT INTO idempotency_receipt/);assert.match(up,/FOR UPDATE/);assert.match(up,/p_expected_revision<>0/);assert.match(up,/expected_evidence_hash/);
   assert.match(up,/WBS payable evidence revision conflict/);assert.match(up,/reviewer SoD violation/);
-  assert.match(up,/document_number/);assert.match(up,/due_date/);assert.match(up,/external_trace_hash/);assert.match(up,/external_trace'->>'invoice_no'/);assert.match(up,/external_trace'->>'pay_due_date'/);
+  assert.match(up,/document_number/);assert.match(up,/invoice_date date NOT NULL/);assert.match(up,/due_date/);assert.match(up,/external_trace_hash/);assert.match(up,/external_trace'->>'invoice_no'/);assert.match(up,/external_trace'->>'invoice_date'/);assert.match(up,/external_trace'->>'pay_due_date'/);
+  assert.match(up,/due_date<invoice_date/);assert.doesNotMatch(up,/due_date<accounting_date/);
   assert.match(up,/wbs_payable_review_evidence_append_only/);assert.match(up,/wbs_payable_review_attachment_append_only/);
   assert.match(up,/UNIQUE\(tenant_id,entity_id,wbs_inbound_row_id\)/);
   assert.match(down,/DROP FUNCTION refs_review_wbs_payable/);assert.match(down,/DROP TABLE wbs_payable_review_attachment/);assert.match(down,/DELETE FROM permission_catalog/);
