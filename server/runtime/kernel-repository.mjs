@@ -450,6 +450,19 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getJournalWorkflowCapabilities({tenantId,entityId}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'GL.JE.VIEW')",[tenantId,entityId]);
+      return requireRow(await client.query(`SELECT
+        $1::uuid AS entity_id,
+        refs_entity_has_permission($1,'GL.JE.SUBMIT') AS can_submit,
+        refs_entity_has_permission($1,'GL.JE.REVIEW') AS can_review,
+        refs_entity_has_permission($1,'GL.JE.APPROVE') AS can_approve,
+        refs_entity_has_permission($1,'GL.JE.POST') AS can_post`,[entityId]),
+      'JOURNAL_WORKFLOW_CAPABILITIES_MISSING','Journal workflow capabilities were not returned');
+    });
+  }
+
   async getJournalEntryDetail({tenantId,entityId,periodId,journalEntryId}){
     return this.inSession(async client=>{
       const rows=(await client.query(

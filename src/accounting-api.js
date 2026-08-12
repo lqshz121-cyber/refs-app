@@ -169,6 +169,23 @@ export async function refreshAuthoritativeJournalEntries({config,fetcher=globalT
   }catch{return unreachable('The browser could not complete the authoritative Journal Entry read; no HTTP response was produced.');}
 }
 
+const JOURNAL_WORKFLOW_CAPABILITY_FIELDS=new Set(['entity_id','can_submit','can_review','can_approve','can_post']);
+const journalWorkflowCapabilities=(row,entityId)=>{
+  if(!row||Object.keys(row).length!==JOURNAL_WORKFLOW_CAPABILITY_FIELDS.size||Object.keys(row).some(field=>!JOURNAL_WORKFLOW_CAPABILITY_FIELDS.has(field))||row.entity_id!==entityId||['can_submit','can_review','can_approve','can_post'].some(field=>typeof row[field]!=='boolean'))return null;
+  return {...row};
+};
+
+export async function readAuthoritativeJournalWorkflowCapabilities({config,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function')return notConfigured();
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/journal-workflow/capabilities`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'JOURNAL_WORKFLOW_CAPABILITIES');
+    const body=await response.json(),capabilities=body?.ok===true?journalWorkflowCapabilities(body.data,config.entityId):null;
+    return capabilities?{ok:true,capabilities}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal workflow capability envelope.'};
+  }catch{return unreachable('The browser could not read Journal workflow capabilities; no HTTP response was produced.');}
+}
+
 const journalDetailLine=row=>{
   if(!row||!Number.isSafeInteger(row.line_no)||row.line_no<1||!UUID.test(row.journal_line_id||'')||!nullableUuid(row.ledger_line_id)||!ACCOUNT_CODE.test(row.account_code||'')||!MONEY4.test(String(row.debit_amount??''))||!MONEY4.test(String(row.credit_amount??''))||row.member_ref!==null&&row.member_ref!==undefined&&!TEXT_TOKEN.test(row.member_ref)||row.description!==null&&row.description!==undefined&&typeof row.description!=='string'||!row.dimensions||typeof row.dimensions!=='object'||Array.isArray(row.dimensions)||!Array.isArray(row.source_document_ids)||row.source_document_ids.some(id=>!UUID.test(id||''))||new Set(row.source_document_ids).size!==row.source_document_ids.length)return null;
   const debit=String(row.debit_amount),credit=String(row.credit_amount);

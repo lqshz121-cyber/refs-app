@@ -243,6 +243,20 @@
         }
       }
     },
+    "/entities/{entityId}/journal-workflow/capabilities": {
+      "get": {
+        "operationId": "getJournalWorkflowCapabilities",
+        "summary": "Read the current authenticated actor's fixed Journal workflow capabilities",
+        "description": "Requires OIDC and GL.JE.VIEW for the path entity. The server checks only the fixed GL.JE.SUBMIT, GL.JE.REVIEW, GL.JE.APPROVE, and GL.JE.POST permissions; callers cannot submit a permission name. These booleans are presentation hints only. Every command independently revalidates permission, entity scope, segregation of duties, idempotency, and optimistic concurrency.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/JournalWorkflowCapabilitiesOk"},
+          "default": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/journal-entries/{journalEntryId}": {
       "get": {
         "operationId": "getJournalEntryDetail",
@@ -2428,6 +2442,27 @@
               "$ref": "#/components/schemas/JournalEntryReadRow"
             }
           }
+        }
+      },
+      "JournalWorkflowCapabilities": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entity_id", "can_submit", "can_review", "can_approve", "can_post"],
+        "properties": {
+          "entity_id": {"$ref": "#/components/schemas/Uuid"},
+          "can_submit": {"type": "boolean"},
+          "can_review": {"type": "boolean"},
+          "can_approve": {"type": "boolean"},
+          "can_post": {"type": "boolean"}
+        }
+      },
+      "JournalWorkflowCapabilitiesEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {"$ref": "#/components/schemas/JournalWorkflowCapabilities"}
         }
       },
       "JournalEntryDetailLine": {
@@ -4747,6 +4782,11 @@
             }
           }
         }
+      },
+      "JournalWorkflowCapabilitiesOk": {
+        "description": "Authenticated entity-scoped current-actor Journal workflow capability read",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JournalWorkflowCapabilitiesEnvelope"}}}
       },
       "JournalEntryDetailReadOk": {
         "description": "Authenticated entity-and-period-scoped Journal Entry line evidence read",

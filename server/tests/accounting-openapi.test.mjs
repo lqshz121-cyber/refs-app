@@ -153,6 +153,15 @@ test('Journal Entry list read is authenticated, scoped and no-store',()=>{
   assert.equal(contract.components.responses.JournalEntryReadOk.headers['Cache-Control'].schema.const,'no-store');
 });
 
+test('Journal workflow capabilities are a closed fixed-permission current-actor read',()=>{
+  const operation=contract.paths['/entities/{entityId}/journal-workflow/capabilities'].get;
+  assert.equal(operation.operationId,'getJournalWorkflowCapabilities');assert.deepEqual(operation.parameters,[{$ref:'#/components/parameters/EntityId'}]);
+  assert.match(operation.description,/GL\.JE\.SUBMIT/);assert.match(operation.description,/callers cannot submit a permission name/i);assert.match(operation.description,/segregation of duties/i);
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/JournalWorkflowCapabilitiesOk');assert.equal(contract.components.responses.JournalWorkflowCapabilitiesOk.headers['Cache-Control'].schema.const,'no-store');
+  const shape=contract.components.schemas.JournalWorkflowCapabilities;assert.equal(shape.additionalProperties,false);assert.deepEqual(shape.required,['entity_id','can_submit','can_review','can_approve','can_post']);
+  for(const field of ['can_submit','can_review','can_approve','can_post'])assert.equal(shape.properties[field].type,'boolean');
+});
+
 test('Source Document reads are OIDC-authenticated entity evidence only and match the no-query runtime contract',()=>{
   assert.deepEqual(contract.security,[{bearerAuth:[]}]);
   const list=contract.paths['/entities/{entityId}/source-documents'].get;

@@ -1268,6 +1268,15 @@ pgTest('authenticated HTTP lists entity-scoped Journal Entries through the exact
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/journal-entries`,headers:{},body:null})).status,403);
 });
 
+pgTest('Journal workflow capability read requires GL.JE.VIEW and returns only fixed entity permissions',async()=>{
+  const ids=await seed({status:'DRAFT'}),other=await seed({status:'DRAFT',tenantId:ids.tenantId});
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'journal-capability-reader',['GL.JE.VIEW','GL.JE.SUBMIT','GL.JE.APPROVE'])});
+  assert.deepEqual(await kernel.getJournalWorkflowCapabilities({tenantId:ids.tenantId,entityId:ids.entityId}),{entity_id:ids.entityId,can_submit:true,can_review:false,can_approve:true,can_post:false});
+  await assert.rejects(kernel.getJournalWorkflowCapabilities({tenantId:ids.tenantId,entityId:other.entityId}),error=>error.code==='42501');
+  const noView=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'journal-capability-no-view',['GL.JE.SUBMIT'])});
+  await assert.rejects(noView.getJournalWorkflowCapabilities({tenantId:ids.tenantId,entityId:ids.entityId}),error=>error.code==='42501');
+});
+
 pgTest('authenticated HTTP reads exact-period ordered Draft Journal lines without fabricated ledger identities',async()=>{
   const ids=await seed({status:'DRAFT'}),other=await seed({status:'DRAFT',tenantId:ids.tenantId});
   const api=createAccountingApi({
