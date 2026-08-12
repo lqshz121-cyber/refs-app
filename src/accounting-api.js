@@ -155,6 +155,34 @@ export async function refreshAuthoritativeJournalEntries({config,fetcher=globalT
   }catch{return unreachable('The browser could not complete the authoritative Journal Entry read; no HTTP response was produced.');}
 }
 
+const journalDetailLine=row=>{
+  if(!row||!Number.isSafeInteger(row.line_no)||row.line_no<1||!UUID.test(row.journal_line_id||'')||!nullableUuid(row.ledger_line_id)||!ACCOUNT_CODE.test(row.account_code||'')||!MONEY4.test(String(row.debit_amount??''))||!MONEY4.test(String(row.credit_amount??''))||row.member_ref!==null&&row.member_ref!==undefined&&!TEXT_TOKEN.test(row.member_ref)||row.description!==null&&row.description!==undefined&&typeof row.description!=='string'||!row.dimensions||typeof row.dimensions!=='object'||Array.isArray(row.dimensions)||!Array.isArray(row.source_document_ids)||row.source_document_ids.some(id=>!UUID.test(id||''))||new Set(row.source_document_ids).size!==row.source_document_ids.length)return null;
+  const debit=String(row.debit_amount),credit=String(row.credit_amount);
+  if((debit==='0.0000')===(credit==='0.0000'))return null;
+  return {line_no:row.line_no,journal_line_id:row.journal_line_id,ledger_line_id:row.ledger_line_id??null,account_code:row.account_code,debit_amount:debit,credit_amount:credit,member_ref:row.member_ref??null,description:row.description??null,dimensions:{...row.dimensions},source_document_ids:[...row.source_document_ids]};
+};
+
+const journalDetailRow=(row,config,journalEntryId)=>{
+  if(!row||row.entity_id!==config.entityId||row.period_id!==config.periodId||row.journal_entry_id!==journalEntryId||!TEXT_TOKEN.test(row.journal_number||'')||!JOURNAL_TYPES.has(row.journal_type)||!JOURNAL_STATUSES.has(row.status)||!validDate(row.journal_date)||!/^[A-Z]{3}$/.test(row.currency||'')||row.description!==null&&row.description!==undefined&&(typeof row.description!=='string'||row.description.length>2000)||!UNSIGNED_INTEGER.test(String(row.revision??''))||!validTimestamp(row.created_at)||row.posted_at!==null&&row.posted_at!==undefined&&!validTimestamp(row.posted_at)||!Array.isArray(row.lines)||row.lines.length===0)return null;
+  const revision=Number(row.revision),lines=row.lines.map(journalDetailLine);
+  if(!Number.isSafeInteger(revision)||revision<0||lines.some(line=>line===null)||(row.status==='POSTED')!==(row.posted_at!==null&&row.posted_at!==undefined)||lines.some(line=>row.status==='POSTED'?!line.ledger_line_id:line.ledger_line_id!==null))return null;
+  const lineNos=lines.map(line=>line.line_no),lineIds=lines.map(line=>line.journal_line_id),ledgerIds=lines.map(line=>line.ledger_line_id).filter(Boolean);
+  if(new Set(lineNos).size!==lineNos.length||new Set(lineIds).size!==lineIds.length||new Set(ledgerIds).size!==ledgerIds.length||lineNos.some((lineNo,index)=>index>0&&lineNo<=lineNos[index-1]))return null;
+  return {entity_id:row.entity_id,period_id:row.period_id,journal_entry_id:row.journal_entry_id,journal_number:row.journal_number,journal_type:row.journal_type,status:row.status,journal_date:row.journal_date,currency:row.currency,description:row.description??null,revision,created_at:row.created_at,posted_at:row.posted_at??null,lines};
+};
+
+export async function readAuthoritativeJournalEntryDetail({config,journalEntryId,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!UUID.test(journalEntryId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Journal Entry detail requires an exact entity, period, and Journal Entry identity.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const query=new URLSearchParams({periodId:config.periodId});
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/journal-entries/${journalEntryId}?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'JOURNAL_ENTRY_DETAIL');
+    const body=await response.json(),journal=body?.ok===true?journalDetailRow(body.data,config,journalEntryId):null;
+    return journal?{ok:true,journal}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal Entry detail envelope.'};
+  }catch{return unreachable('The browser could not complete the authoritative Journal Entry detail read; no HTTP response was produced.');}
+}
+
 export async function refreshAuthoritativeBankTransactions({config,bankAccountRef,from=null,through=null,limit=100,fetcher=globalThis.fetch}={}){
   const account=String(bankAccountRef||'').trim();
   if(!config||typeof fetcher!=='function'||!BANK_ACCOUNT_REF.test(account)||from!==null&&!validDate(from)||through!==null&&!validDate(through)||from&&through&&from>through||!Number.isSafeInteger(limit)||limit<1||limit>200)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Bank transaction scope requires a valid account, date range, and row limit.'};

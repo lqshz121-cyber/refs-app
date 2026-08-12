@@ -425,6 +425,34 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getJournalEntryDetail({tenantId,entityId,periodId,journalEntryId}){
+    return this.inSession(async client=>{
+      const rows=(await client.query(
+        'SELECT * FROM refs_get_journal_entry_detail($1,$2,$3,$4)',
+        [tenantId,entityId,periodId,journalEntryId]
+      )).rows;
+      if(!rows.length)throw new KernelError('P0002','Journal entry was not found');
+      const header=rows[0];
+      const revision=Number(header.revision);
+      if(!Number.isSafeInteger(revision)||revision<0)throw new KernelError('JOURNAL_ENTRY_DETAIL_INVALID','Journal Entry detail revision is outside the public read contract');
+      const journalDate=header.journal_date instanceof Date
+        ? `${header.journal_date.getFullYear()}-${String(header.journal_date.getMonth()+1).padStart(2,'0')}-${String(header.journal_date.getDate()).padStart(2,'0')}`
+        : String(header.journal_date);
+      return {
+        entity_id:header.entity_id,period_id:header.period_id,journal_entry_id:header.journal_entry_id,
+        journal_number:header.journal_number,journal_type:header.journal_type,status:header.status,
+        journal_date:journalDate,currency:header.currency,description:header.journal_description??null,
+        revision,created_at:header.created_at,posted_at:header.posted_at??null,
+        lines:rows.map(row=>({
+          line_no:row.line_no,journal_line_id:row.journal_line_id,ledger_line_id:row.ledger_line_id??null,
+          account_code:row.account_code,debit_amount:row.debit_amount,credit_amount:row.credit_amount,
+          member_ref:row.member_ref??null,description:row.line_description??null,dimensions:row.dimensions,
+          source_document_ids:row.source_document_ids,
+        })),
+      };
+    });
+  }
+
   async listChartOfAccounts({tenantId,entityId,periodId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_chart_of_accounts($1,$2,$3)',[tenantId,entityId,periodId]

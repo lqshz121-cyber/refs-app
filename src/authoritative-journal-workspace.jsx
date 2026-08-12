@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { StateBlock } from './ui.jsx';
+import {readAuthoritativeJournalEntryDetail} from './accounting-api.js';
 import {AuthoritativeDemoJournalView} from './authoritative-demo-journal-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 import {
@@ -19,14 +20,15 @@ const journalQueueCounts = journals => ({
 
 // Captured presentation context only; never reconstruct scope from the
 // rendered journal row.
-const journalReturnScope = (entityId, journal, view) => [
+const journalReturnScope = (entityId, journal, context) => [
   `Entity ${entityId}`,
+  `detail period ${context?.periodId || 'Unavailable'}`,
   `authoritative list revision ${journal.revision}`,
-  `search ${view?.query || 'All'}`,
-  `status ${view?.status === 'ALL' || !view?.status ? 'All statuses' : view.status}`,
-  `from ${view?.from || 'Any date'}`,
-  `through ${view?.through || 'Any date'}`,
-  `page ${view?.page || 1}`,
+  `search ${context?.view?.query || 'All'}`,
+  `status ${context?.view?.status === 'ALL' || !context?.view?.status ? 'All statuses' : context.view.status}`,
+  `from ${context?.view?.from || 'Any date'}`,
+  `through ${context?.view?.through || 'Any date'}`,
+  `page ${context?.view?.page || 1}`,
 ].join(' | ');
 
 const journalMatchesReturnContext = (journal, entityId, context) => Boolean(
@@ -34,7 +36,9 @@ const journalMatchesReturnContext = (journal, entityId, context) => Boolean(
   && Number.isSafeInteger(journal?.revision)
   && context?.entityId === entityId
   && context?.journalId === journal.journal_entry_id
-  && context?.journalRevision === journal.revision,
+  && context?.journalRevision === journal.revision
+  && context?.periodId === journal.period_id
+  && context?.journalCurrency === journal.currency
 );
 
 export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHORITATIVE_LIST_VIEW, onViewChange, onOpen }) {
@@ -49,7 +53,7 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
       <span><b>1</b> Register</span><span><b>2</b> Scoped evidence</span><span><b>3</b> Exact Back</span>
     </div>
     <section className="authoritative-journal-summary" aria-label="Journal entry queue summary">
-      <button type="button" className={`journal-summary-card ${view.status==='ALL'?'journal-summary-card-on':''}`} aria-pressed={view.status==='ALL'} onClick={()=>setQueue('ALL')}><span>In scope</span><b>{queueCounts.all}</b><small>All retained journals</small></button>
+      <button type="button" className={`journal-summary-card ${view.status==='ALL'?'journal-summary-card-on':''}`} aria-pressed={view.status==='ALL'} onClick={()=>setQueue('ALL')}><span>Entity register</span><b>{queueCounts.all}</b><small>All retained journals for this entity</small></button>
       <button type="button" className={`journal-summary-card ${view.status==='DRAFT'?'journal-summary-card-on':''}`} aria-pressed={view.status==='DRAFT'} onClick={()=>setQueue('DRAFT')}><span>Draft</span><b>{queueCounts.draft}</b><small>Not posted</small></button>
       <button type="button" className={`journal-summary-card ${view.status==='REVIEW_REQUIRED'?'journal-summary-card-on':''}`} aria-pressed={view.status==='REVIEW_REQUIRED'} onClick={()=>setQueue('REVIEW_REQUIRED')}><span>Needs review</span><b>{queueCounts.review}</b><small>Retained status only</small></button>
       <button type="button" className={`journal-summary-card ${view.status==='POSTED'?'journal-summary-card-on':''}`} aria-pressed={view.status==='POSTED'} onClick={()=>setQueue('POSTED')}><span>Posted</span><b>{queueCounts.posted}</b><small>API list status</small></button>
@@ -62,7 +66,7 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
       <span className="result-count" aria-live="polite">{page.total} matching journal entries</span>
       <button type="button" className="btn btn-sm btn-ghost" onClick={()=>onViewChange?.({...DEFAULT_AUTHORITATIVE_LIST_VIEW})}>Clear filters</button>
     </div>
-    {!page.total ? <StateBlock tone="empty" title={journals.length?'No journal entries match these presentation filters':'No authoritative journal entries in this scope'}>
+    {!page.total ? <StateBlock tone="empty" title={journals.length?'No journal entries match these presentation filters':'No authoritative journal entries in this entity register'}>
       {journals.length?'Change a presentation filter to see retained list facts. A local no-match is not evidence of zero ledger activity.':'No journal entries were returned for this entity. A scoped empty list is not evidence of zero ledger activity.'}
     </StateBlock> : <div className="table-wrap authoritative-journal-table" tabIndex={0} aria-label="Journal entry list; scroll horizontally to view every column"><table className="tbl">
       <thead><tr><th>Journal</th><th>Date</th><th>Memo / description</th><th>Type</th><th>Currency</th><th>Status</th><th>Ledger lines</th><th>Evidence</th></tr></thead>
@@ -75,50 +79,38 @@ export function AuthoritativeJournalTable({ journals = [], view = DEFAULT_AUTHOR
   </AuthoritativeDemoJournalView>;
 }
 
-export function AuthoritativeJournalDetail({ journal, entityId, returnContext, onBack }) {
-  const scopeMatches = journalMatchesReturnContext(journal, entityId, returnContext);
-  const lineEvidence=Array.isArray(journal.line_evidence)?journal.line_evidence:null;
-  if (!scopeMatches) return <section className="full-bleed qbo-transaction-report authoritative-evidence-page authoritative-journal-detail" aria-label="Journal entry evidence">
-    <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>{journalReturnScope(entityId, journal, returnContext?.view)}</span></div>
-    <header className="journal-evidence-header"><div><div className="authoritative-eyebrow">GENERAL LEDGER | RETAINED EVIDENCE</div><h1>Journal entry {journal.journal_number}</h1><p className="page-subtitle">Read-only facts returned by the authoritative Journal Entry list API.</p></div><span className="badge badge-danger">BLOCKED</span></header>
-    <StateBlock tone="blocked" title="BLOCKED — immutable Journal scope mismatch">The journal row does not match the entity, Journal ID, and revision retained in its parent return context. It remains visible for review, but cannot support a line, ledger, source, or workflow drill.</StateBlock>
-  </section>;
+export function AuthoritativeJournalDetail({journal,entityId,returnContext,onBack}) {
+  const scopeMatches=journalMatchesReturnContext(journal,entityId,returnContext);
+  const lines=Array.isArray(journal?.lines)?journal.lines:[];
   return <section className="full-bleed qbo-transaction-report authoritative-evidence-page authoritative-journal-detail" aria-label="Journal entry evidence">
-    <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>{journalReturnScope(entityId, journal, returnContext?.view)}</span></div>
-    <header className="journal-evidence-header">
-      <div><div className="authoritative-eyebrow">GENERAL LEDGER | RETAINED EVIDENCE</div><h1>Journal entry {journal.journal_number}</h1><p className="page-subtitle">Read-only facts returned by the authoritative Journal Entry list API.</p></div>
-      <span className="badge journal-detail-status">{journal.status}</span>
-    </header>
-    <section className="journal-evidence-scope" aria-label="Journal evidence scope"><span><b>Entity</b>{entityId}</span><span><b>Currency</b>{journal.currency}</span><span><b>List revision</b>{journal.revision}</span><span><b>Scope date</b>{journal.journal_date}</span></section>
-    <dl className="evidence-grid journal-evidence-grid">
-      <div><dt>Journal</dt><dd>{journal.journal_number}</dd></div><div><dt>Journal ID</dt><dd>{journal.journal_entry_id}</dd></div><div><dt>Date</dt><dd>{journal.journal_date}</dd></div>
-      <div><dt>Type</dt><dd>{journal.journal_type}</dd></div><div><dt>Currency</dt><dd>{journal.currency}</dd></div>
-      <div><dt>Status</dt><dd>{journal.status}</dd></div><div><dt>Revision</dt><dd>{journal.revision}</dd></div>
-      <div><dt>Ledger line count</dt><dd>{journal.ledger_line_count}</dd></div><div><dt>Created</dt><dd>{journal.created_at}</dd></div>
-      <div><dt>Posted</dt><dd>{journal.posted_at || 'Not posted'}</dd></div><div><dt>Description</dt><dd>{journal.description || 'No description returned'}</dd></div>
-    </dl>
-    {lineEvidence ? <section className="authoritative-journal-line-evidence" aria-label="Authoritative journal line evidence">
-      <div className="authoritative-section-heading"><div><div className="authoritative-eyebrow">EXACT API LINE FACTS</div><h2>Journal lines</h2><p className="page-subtitle">Only immutable line and ledger identifiers returned by the same authoritative Journal Entry read are shown.</p></div><span className="badge">{lineEvidence.length} retained lines</span></div>
-      <div className="table-wrap authoritative-journal-line-table" tabIndex={0} aria-label="Journal line evidence; scroll horizontally to view every column"><table className="tbl">
-        <thead><tr><th>Line</th><th>Account</th><th>Debit</th><th>Credit</th><th>Member reference</th><th>Description</th><th>Journal line ID</th><th>Ledger line ID</th><th>Source documents</th></tr></thead>
-        <tbody>{lineEvidence.map(line=><tr key={line.journal_line_id}><td>{line.line_no}</td><td>{line.account_code}</td><td>{line.debit_amount}</td><td>{line.credit_amount}</td><td>{line.member_ref||'—'}</td><td>{line.description||'—'}</td><td>{line.journal_line_id}</td><td>{line.ledger_line_id}</td><td>{line.source_document_ids.length?line.source_document_ids.join(', '):'None returned'}</td></tr>)}</tbody>
-      </table></div>
-    </section> : <StateBlock tone="blocked" title="Authoritative journal line evidence unavailable">
-      This Journal Entry list response does not carry exact Journal Lines, Ledger Line IDs, or Source Document IDs. No line values, account mappings, or source links are reconstructed from browser state.
-    </StateBlock>}
-    <StateBlock tone="blocked" title="Authoritative lineage unavailable">
-      This read model does not return mapping decisions or audit events. It cannot create, edit, submit, review, approve, post, reverse, attach, print, export, or synchronize a journal.
-    </StateBlock>
+    <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>{journalReturnScope(entityId,journal,returnContext)}</span></div>
+    <header className="journal-evidence-header"><div><div className="authoritative-eyebrow">GENERAL LEDGER | EXACT READ EVIDENCE</div><h1>Journal entry {journal.journal_number}</h1><p className="page-subtitle">GET-only facts returned for the frozen entity, period, Journal Entry identity, revision, and currency.</p></div><span className={`badge ${scopeMatches?'journal-detail-status':'badge-danger'}`}>{scopeMatches?journal.status:'BLOCKED'}</span></header>
+    {!scopeMatches?<StateBlock tone="blocked" title="BLOCKED — immutable Journal scope mismatch">The detail does not match the entity, period, Journal ID, revision, and currency frozen in its parent return context. No line, ledger, or source evidence is asserted.</StateBlock>:<>
+      <section className="journal-evidence-scope" aria-label="Journal evidence scope"><span><b>Entity</b>{entityId}</span><span><b>Period</b>{journal.period_id}</span><span><b>Currency</b>{journal.currency}</span><span><b>Revision</b>{journal.revision}</span><span><b>Journal date</b>{journal.journal_date}</span></section>
+      <dl className="evidence-grid journal-evidence-grid"><div><dt>Journal</dt><dd>{journal.journal_number}</dd></div><div><dt>Journal ID</dt><dd>{journal.journal_entry_id}</dd></div><div><dt>Date</dt><dd>{journal.journal_date}</dd></div><div><dt>Type</dt><dd>{journal.journal_type}</dd></div><div><dt>Status</dt><dd>{journal.status}</dd></div><div><dt>Revision</dt><dd>{journal.revision}</dd></div><div><dt>Journal line count</dt><dd>{lines.length}</dd></div><div><dt>Created</dt><dd>{journal.created_at}</dd></div><div><dt>Posted</dt><dd>{journal.posted_at||'Not posted'}</dd></div><div><dt>Description</dt><dd>{journal.description||'No description returned'}</dd></div></dl>
+      <section className="authoritative-journal-line-evidence" aria-label="Authoritative journal line evidence"><div className="authoritative-section-heading"><div><div className="authoritative-eyebrow">EXACT API LINE FACTS</div><h2>Journal lines</h2><p className="page-subtitle">Ordered Journal Line facts. Ledger Line IDs appear only for actually posted lines.</p></div><span className="badge">{lines.length} retained lines</span></div>
+        <div className="table-wrap authoritative-journal-line-table" tabIndex={0} aria-label="Journal line evidence; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Line</th><th>Account</th><th>Debit</th><th>Credit</th><th>Member</th><th>Dimensions</th><th>Description</th><th>Journal line ID</th><th>Ledger line ID</th><th>Source document IDs</th></tr></thead><tbody>{lines.map(line=><tr key={line.journal_line_id}><td>{line.line_no}</td><td>{line.account_code}</td><td>{line.debit_amount}</td><td>{line.credit_amount}</td><td>{line.member_ref||'None returned'}</td><td>{Object.keys(line.dimensions).length?JSON.stringify(line.dimensions):'None returned'}</td><td>{line.description||'None returned'}</td><td>{line.journal_line_id}</td><td>{line.ledger_line_id||'Not posted'}</td><td>{line.source_document_ids.length?line.source_document_ids.join(', '):'None returned'}</td></tr>)}</tbody></table></div>
+      </section><StateBlock tone="blocked" title="No write or inferred drill authority">This evidence view cannot create, edit, submit, review, approve, post, reverse, or reconstruct a source link.</StateBlock>
+    </>}
   </section>;
 }
+
+const JournalDetailReadState=({detail,entityId,onBack})=>{
+  if(detail.phase==='READY')return <AuthoritativeJournalDetail journal={detail.evidence} entityId={entityId} returnContext={detail.returnContext} onBack={onBack}/>;
+  return <section className="full-bleed qbo-transaction-report authoritative-evidence-page authoritative-journal-detail" aria-label="Journal entry evidence"><div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Journal entries</button><span>{journalReturnScope(entityId,detail.journal,detail.returnContext)}</span></div><StateBlock tone={detail.phase==='LOADING'?'loading':'blocked'} title={detail.phase==='LOADING'?'Loading exact Journal evidence':'Authoritative Journal detail unavailable'}>{detail.phase==='LOADING'?'Reading the exact entity, period, and Journal Entry scope.':detail.error?.message||'The exact read failed closed; no list facts are promoted to line evidence.'}</StateBlock></section>;
+};
 
 export function AuthoritativeJournalWorkspace({ journals, config, fetcher=globalThis.fetch, environment=globalThis }) {
   const [detail, setDetail] = useState(null);
   const [view,setView] = useState({...DEFAULT_AUTHORITATIVE_LIST_VIEW});
-  const openEvidence=(journal,focusId)=>{
+  const openEvidence=async(journal,focusId)=>{
     const returnContext=createAuthoritativeReturnContext({config,view,focusId,scrollY:Number(environment?.scrollY)||0});
-    if(returnContext)setDetail({journal,returnContext:{...returnContext,journalId:journal.journal_entry_id,journalRevision:journal.revision}});
+    if(!returnContext)return;
+    const frozenContext={...returnContext,journalId:journal.journal_entry_id,journalRevision:journal.revision,journalCurrency:journal.currency};
+    setDetail({phase:'LOADING',journal,returnContext:frozenContext});
+    const result=await readAuthoritativeJournalEntryDetail({config,journalEntryId:journal.journal_entry_id,fetcher});
+    setDetail(result.ok?{phase:'READY',journal,evidence:result.journal,returnContext:frozenContext}:{phase:'ERROR',journal,error:result,returnContext:frozenContext});
   };
-  if (detail) return <AuthoritativeJournalDetail journal={detail.journal} entityId={config.entityId} returnContext={detail.returnContext} onBack={() => { setView(detail.returnContext.view); setDetail(null); restoreAuthoritativeReturnContext(environment,config,detail.returnContext); }}/>;
+  if (detail) return <JournalDetailReadState detail={detail} entityId={config.entityId} onBack={() => { setView(detail.returnContext.view); setDetail(null); restoreAuthoritativeReturnContext(environment,config,detail.returnContext); }}/>;
   return <div className="stack authoritative-journal-workspace"><AuthoritativeJournalTable journals={journals} view={view} onViewChange={setView} onOpen={openEvidence}/><AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.journal} title="External WBS journal observations"/></div>;
 }

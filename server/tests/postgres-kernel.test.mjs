@@ -1221,6 +1221,23 @@ pgTest('authenticated HTTP lists entity-scoped Journal Entries through the exact
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/journal-entries`,headers:{},body:null})).status,403);
 });
 
+pgTest('authenticated HTTP reads exact-period ordered Draft Journal lines without fabricated ledger identities',async()=>{
+  const ids=await seed({status:'DRAFT'}),other=await seed({status:'DRAFT',tenantId:ids.tenantId});
+  const api=createAccountingApi({
+    authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'http-journal-detail-reader'}),
+    kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'http-journal-detail-reader',['GL.JE.VIEW'])})
+  });
+  const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries/${ids.journalId}?periodId=${ids.periodId}`,headers:{},body:null});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
+  assert.deepEqual({entity:response.body.data.entity_id,period:response.body.data.period_id,journal:response.body.data.journal_entry_id,status:response.body.data.status,date:response.body.data.journal_date,revision:response.body.data.revision},{entity:ids.entityId,period:ids.periodId,journal:ids.journalId,status:'DRAFT',date:'2026-07-15',revision:0});
+  assert.deepEqual(response.body.data.lines.map(line=>({line_no:line.line_no,account_code:line.account_code,debit_amount:line.debit_amount,credit_amount:line.credit_amount,ledger_line_id:line.ledger_line_id})),[
+    {line_no:1,account_code:'111000',debit_amount:'100.0000',credit_amount:'0.0000',ledger_line_id:null},
+    {line_no:2,account_code:'291001',debit_amount:'0.0000',credit_amount:'100.0000',ledger_line_id:null},
+  ]);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries/${ids.journalId}?periodId=${other.periodId}`,headers:{},body:null})).status,404);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/journal-entries/${other.journalId}?periodId=${other.periodId}`,headers:{},body:null})).status,403);
+});
+
 pgTest('authenticated HTTP AR aging reads only the entity authorized by its DB context',async()=>{
   const ids=await seed({status:'APPROVED'}),invoiceId=randomUUID(),other=await seed({status:'APPROVED',tenantId:ids.tenantId});
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
