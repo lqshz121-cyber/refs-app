@@ -1123,6 +1123,17 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-bank-scope-strip>span{display:flex;flex-direction:column;gap:3px;min-width:0;padding:2px 4px;}
 .authoritative-bank-scope-strip i{font-style:normal;color:var(--qb-text-muted);font-size:11px;font-weight:600;letter-spacing:.035em;text-transform:uppercase;}
 .authoritative-bank-scope-strip b{color:var(--qb-text-strong);font-size:13px;overflow-wrap:anywhere;}
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important;}
+.authoritative-admitted-statements{border-left:4px solid var(--qb-ok);min-width:0;}
+.authoritative-admitted-statements-head,.authoritative-admitted-badges,.authoritative-admitted-actions{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.authoritative-admitted-badges{justify-content:flex-end;}
+.authoritative-admitted-actions{align-items:center;justify-content:flex-start;margin:12px 0;}
+.authoritative-admitted-actions .btn,.authoritative-admitted-statements-table .btn,.authoritative-admitted-start .btn{min-height:44px;}
+.authoritative-admitted-statements-table .tbl{min-width:900px;table-layout:fixed;}
+.authoritative-admitted-statements-table th:first-child,.authoritative-admitted-statements-table td:first-child{width:150px;}
+.authoritative-admitted-statements-table th:nth-child(7),.authoritative-admitted-statements-table td:nth-child(7){width:190px;}
+.authoritative-admitted-statements-table th:last-child,.authoritative-admitted-statements-table td:last-child{width:190px;}
+.authoritative-admitted-detail{margin-top:16px;padding-top:16px;border-top:var(--qb-hair) solid var(--qb-divider);}
 .authoritative-aging-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
 .authoritative-aging-heading h2{margin:3px 0 5px;}
 .authoritative-aging-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;}
@@ -2160,6 +2171,7 @@ select{padding-right:28px; cursor:pointer;}
   .table-wrap{max-height:none;}
 }
 @media (max-width:430px){.authoritative-bank-summary-cards{grid-template-columns:minmax(0,1fr);}.authoritative-bank-summary-card{padding:11px 12px;}}
+@media (max-width:430px){.authoritative-admitted-statements{padding:16px;}.authoritative-admitted-statements-head,.authoritative-admitted-badges,.authoritative-admitted-actions{align-items:stretch;flex-direction:column;}.authoritative-admitted-badges{justify-content:flex-start;}.authoritative-admitted-actions .btn,.authoritative-admitted-start .btn{width:100%;}.authoritative-admitted-detail .card-head{align-items:flex-start;flex-direction:column;}}
 @media(max-width:720px){.report-workbench-head{flex-direction:column;}.report-preview-meta{justify-content:flex-start;}.authoritative-report-shortcuts{grid-template-columns:1fr;}.authoritative-report-shortcut-grid{grid-template-columns:1fr;}}
 @media(max-width:600px){
   .qbo-home-actions{grid-template-columns:1fr;}

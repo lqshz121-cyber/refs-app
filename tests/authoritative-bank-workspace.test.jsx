@@ -2,9 +2,14 @@ import React from 'react';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeBankDetail,AuthoritativeBankTable,AuthoritativeBankWorkspace,AuthoritativeReconciliationDetail,AuthoritativeReconciliationSummary,AuthoritativeReconciliationWorkspace} from '../src/authoritative-bank-workspace.jsx';
+import {AuthoritativeAdmittedStatements,AuthoritativeBankDetail,AuthoritativeBankTable,AuthoritativeBankWorkspace,AuthoritativeReconciliationDetail,AuthoritativeReconciliationSummary,AuthoritativeReconciliationWorkspace} from '../src/authoritative-bank-workspace.jsx';
+import {routeRequiresSharedAccountingBootstrap} from '../src/authoritative-app.jsx';
 
 const config={entityId:'11111111-1111-4111-8111-111111111111'};
+assert.equal(routeRequiresSharedAccountingBootstrap('reconciliation'),false,'a direct Reconciliation reload must mount its scoped reader without waiting for unrelated AP/AR or Journal requests');
+assert.equal(routeRequiresSharedAccountingBootstrap('bank'),false);
+assert.equal(routeRequiresSharedAccountingBootstrap('overview'),true);
+assert.equal(routeRequiresSharedAccountingBootstrap('payables'),true);
 const bankRow={bank_source_id:'11111111-1111-4111-8111-111111111111',bank_account_ref:'BANK-1',external_bank_line_id:'BANK-LINE-1',transaction_date:'2026-07-15',currency:'USD',amount:'-125.2500',version:3,source_ref:'SOURCE-1',document_type:'BANK_TRANSACTION',match_status:null,journal_entry_id:null};
 const activeMatchRow={...bankRow,bank_match_id:'22222222-2222-4222-8222-222222222222',match_status:'ACTIVE',business_source_document_id:'33333333-3333-4333-8333-333333333333',journal_entry_id:'44444444-4444-4444-8444-444444444444',journal_line_id:'55555555-5555-4555-8555-555555555555',candidate_rule_code:'EXACT_POSTED_CASH',amount_delta:'0.0000',currency_match:true,date_delta_days:0,match_version:4,matched_by:'controller@example.test',matched_at:'2026-07-16T10:00:00.000Z'};
 const historicalMatchRow={...activeMatchRow,match_status:'REVERSED'};
@@ -15,6 +20,9 @@ assert.match(bankInitial,/Bank transaction evidence/);assert.match(bankInitial,/
 
 const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/One authoritative statement cutoff/);
+assert.match(reconciliationInitial,/Signed admitted statements/);assert.match(reconciliationInitial,/SIGNED \+ ADMITTED/);assert.match(reconciliationInitial,/separate from UNSIGNED PILOT/);assert.match(reconciliationInitial,/Load signed statements/);
+const admittedInitial=renderToStaticMarkup(<AuthoritativeAdmittedStatements config={config} bankAccountRef="BANK-1" fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
+assert.match(admittedInitial,/Signed statement read not requested/);assert.match(admittedInitial,/Bank account BANK-1/);assert.match(admittedInitial,/SERVER REVALIDATED/);assert.doesNotMatch(admittedInitial,/Start Draft from signed statement/);
 
 const bankTable=renderToStaticMarkup(<AuthoritativeBankTable rows={[bankRow]}/>);
 assert.match(bankTable,/BANK-LINE-1/);assert.match(bankTable,/SOURCE-1/);assert.match(bankTable,/UNMATCHED/);assert.match(bankTable,/READ ONLY/);assert.match(bankTable,/Open detail/);assert.doesNotMatch(bankTable,/>\s*(Match|Clear|Post|Delete|Create)\s*</);
@@ -89,6 +97,16 @@ assert.match(source,/unmatchAuthoritativeBankPayment/,'an active match must use 
 assert.match(source,/row\.bank_match_id&&row\.match_status!=='ACTIVE'/,'a historical non-ACTIVE Match must not imply an Unmatch command is available');
 assert.match(source,/Match correction blocked/,'historical Match evidence must be explicit BLOCKED/read-only history');
 assert.match(source,/refreshAuthoritativeReconciliationWorksheet/,'Reconciliation must load server-owned worksheet evidence before a clearance command');
+assert.match(source,/refreshAuthoritativeAdmittedBankStatements/,'Signed statement selection must start from the closed authenticated list reader');
+assert.match(source,/readAuthoritativeAdmittedBankStatement\(\{config,statementReceiptId:row\.wbs_bank_statement_receipt_id,bankAccountRef:account,fetcher\}\)/,'Selecting a signed receipt must re-read its exact UUID and retained account before exposing a command');
+assert.match(source,/\['wbs_bank_statement_receipt_id','bank_account_ref','statement_start_date','statement_end_date','currency','opening_balance','ending_balance','transaction_count','statement_activity_amount','admission_hash','signature_verified','admission_status','admitted_at','reconciliation_id','reconciliation_status','reconciliation_version','selection_state'\]\.every/,'The re-read detail must retain the complete closed list identity and state before exposing a command');
+assert.match(source,/row\?\.signature_verified===true&&row\?\.admission_status==='ADMITTED'&&row\?\.selection_state==='AVAILABLE_FOR_SERVER_VALIDATION'/,'Start Draft must require fresh signed, admitted, available detail evidence');
+assert.match(source,/startAuthoritativeReconciliationFromAdmittedStatement\(\{config,statement:row,reason,fetcher\}\)/,'The UI must use the receipt-only server-derived start command client');
+assert.match(source,/const nextScope=\{bankAccountRef:row\.bank_account_ref,statementEndingDate:row\.statement_end_date\}/,'Successful start must switch to the exact server receipt scope');
+assert.match(source,/await readSummary\(nextScope,false\)/,'Successful start must re-read the authoritative reconciliation summary');
+assert.match(source,/aria-label="Signed admitted statements; scroll horizontally to view every column"/,'Signed statement rows must remain in a named keyboard-focusable contained table');
+assert.match(source,/This is separate from UNSIGNED PILOT observations/,'Signed admitted evidence must remain visually and semantically separate from pilot observations');
+assert.doesNotMatch(source,/statementOpeningBalance|statementEndingBalance/,'The signed statement UI must never submit client-provided balances');
 assert.match(source,/setAuthoritativeReconciliationClearance/,'Clear and Unclear must use the authoritative command client');
 assert.doesNotMatch(source,/Start DRAFT reconciliation|Start controlled reconciliation/,'A missing scoped statement must fail closed instead of presenting a false Start Draft affordance');
 assert.match(source,/transitionAuthoritativeReconciliation/,'Review, sign-off, and reopen must use the authoritative lifecycle command client');
@@ -122,5 +140,12 @@ assert.match(source,/className="qbo-grid authoritative-bank-demo-grid"/,'Bank qu
 assert.match(source,/report-workbench recon-summary authoritative-reconciliation-summary/,'Reconciliation summary must use the shared demonstration reconciliation workbench');
 assert.match(readFileSync('src/ui.jsx','utf8'),/blocked: 'empty empty-state state-block state-blocked'/,'The shared state system must represent an authoritative BLOCKED result distinctly from an ordinary empty result');
 assert.match(css,/\.state-blocked\{border-color:var\(--qb-warn-line\)/,'The BLOCKED state must have a visible warning treatment without becoming a disabled action');
+assert.match(css,/\.authoritative-admitted-statements\{border-left:4px solid var\(--qb-ok\)/,'Signed admitted evidence must have a distinct retained-evidence boundary');
+assert.match(css,/\.authoritative-admitted-statements-table \.tbl\{min-width:900px/,'Signed statement columns must remain inside a contained table on narrow screens');
+assert.match(css,/@media \(max-width:430px\)\{\.authoritative-admitted-statements\{padding:16px;/,'Signed statement controls must stack at phone widths');
+assert.match(css,/\.authoritative-admitted-actions \.btn,[^\n]*min-height:44px/,'Signed statement controls must keep WCAG-sized touch targets');
+const appSource=readFileSync('src/authoritative-app.jsx','utf8');
+assert.match(appSource,/if \(!routeRequiresSharedAccountingBootstrap\(route\)\) \{[\s\S]*setPhase\('READY'\);[\s\S]*return;/,'self-loading routes must enter READY without awaiting the shared accounting bundle');
+assert.match(appSource,/phase === 'READY' && routeRequiresSharedAccountingBootstrap\(route\) && !sharedAccountingLoaded/,'later navigation to a shared-data page must still load AP\/AR and Journal evidence exactly when needed');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');
