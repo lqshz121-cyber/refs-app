@@ -4,13 +4,13 @@ import {StateBlock} from './ui.jsx';
 
 const compact=value=>value||'Unavailable';
 
-export function AuthoritativeWbsPayableWorkspace({config,fetcher=globalThis.fetch,onAccountingRefresh=()=>{}}){
+export function AuthoritativeWbsPayableWorkspace({config,fetcher=globalThis.fetch,refreshToken=0,onAccountingRefresh=()=>{}}){
   const [state,setState]=useState({phase:'LOADING',rows:[],error:null});
   const [selected,setSelected]=useState(null);
   const [reason,setReason]=useState('Create an AP Bill Draft from the exact reviewed WBS Payable evidence');
   const [command,setCommand]=useState({phase:'IDLE',error:null,data:null});
   const load=async()=>{setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeWbsPayableReviewEvidence({config,fetcher});setState(result.ok?{phase:'READY',rows:result.rows,error:null}:{phase:'BLOCKED',rows:[],error:result});if(result.ok&&selected){const current=result.rows.find(row=>row.wbs_payable_review_evidence_id===selected.wbs_payable_review_evidence_id)||null;setSelected(current);}};
-  useEffect(()=>{void load();},[config?.entityId]);
+  useEffect(()=>{void load();},[config?.entityId,refreshToken]);
   const open=async row=>{setCommand({phase:'IDLE',error:null,data:null});const result=await refreshAuthoritativeWbsPayableReviewEvidence({config,reviewEvidenceId:row.wbs_payable_review_evidence_id,fetcher});if(result.ok)setSelected(result.row);else setState(current=>({...current,phase:'BLOCKED',error:result}));};
   const createDraft=async event=>{event.preventDefault();if(!selected)return;setCommand({phase:'LOADING',error:null,data:null});const idempotencyKey=`WBS-AP-DRAFT-${selected.wbs_payable_review_evidence_id}-${selected.revision}`;const result=await createAuthoritativeWbsPayableApDraft({config,evidence:selected,reason,idempotencyKey,fetcher});if(!result.ok){setCommand({phase:'BLOCKED',error:result,data:null});return;}setCommand({phase:'READY',error:null,data:result.data});await Promise.resolve(onAccountingRefresh());await load();};
   if(selected)return <section className="report-workbench authoritative-wbs-payable-detail" aria-label="Reviewed WBS Payable evidence detail">

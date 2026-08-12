@@ -90,6 +90,24 @@
         "responses":{"200":{"$ref":"#/components/responses/WbsPayableEvidenceListOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/inbound/payables/review-candidates": {
+      "get": {
+        "operationId":"listAdmittedWbsPayableReviewCandidates",
+        "summary":"List admitted WBS Payables and server-derived review readiness",
+        "description":"Requires both WBS.PAYABLE.REVIEW and AP.VIEW. Returns only signed, admitted production Payables and closed local review facts. Unsigned pilot rows, raw provider payload, credentials, signatures and action authority are excluded. This GET creates no Draft.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":50,"default":50}}],
+        "responses":{"200":{"$ref":"#/components/responses/WbsPayableReviewCandidateListOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/inbound/payables/review-candidates/{wbsInboundRowId}": {
+      "get": {
+        "operationId":"getAdmittedWbsPayableReviewCandidate",
+        "summary":"Read one admitted WBS Payable review candidate",
+        "description":"Requires both WBS.PAYABLE.REVIEW and AP.VIEW. Re-derives the exact review inputs and readiness from retained signed evidence and local controls. This GET performs no review and creates no Draft.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"wbsInboundRowId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses":{"200":{"$ref":"#/components/responses/WbsPayableReviewCandidateDetailOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/inbound/payables/reviews/{reviewEvidenceId}": {
       "get": {
         "operationId":"getReviewedWbsPayableEvidence",
@@ -123,6 +141,21 @@
           "503":{"$ref":"#/components/responses/SerializationRetryExhausted"},
           "default":{"$ref":"#/components/responses/Problem"}
         }
+      }
+    },
+    "/entities/{entityId}/wbs/inbound/payables/{wbsInboundRowId}/attachments/bindings": {
+      "post": {
+        "operationId":"bindExactWbsPayableAttachment",
+        "summary":"Bind one verified-clean attachment version to one admitted WBS Payable row",
+        "description":"Requires WBS.PAYABLE.REVIEW and AP.VIEW. Freezes the exact tenant, entity, inbound row, source version, inbound and provider receipt hashes, evidence hash, attachment content hash, and storage version. The binder must differ from the snapshot importer, uploader, and scanner. This evidence-only command cannot Review, create Raw/Source/Staging, create a Bill or Journal, or write a ledger.",
+        "parameters":[
+          {"$ref":"#/components/parameters/EntityId"},
+          {"name":"wbsInboundRowId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},
+          {"$ref":"#/components/parameters/IdempotencyKey"},
+          {"$ref":"#/components/parameters/IfMatch"}
+        ],
+        "requestBody":{"$ref":"#/components/requestBodies/WbsPayableAttachmentBinding"},
+        "responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/PreconditionFailed"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
     "/entities/{entityId}/wbs/inbound/payables/{wbsInboundRowId}/drafts": {
@@ -1911,6 +1944,23 @@
       }
     },
     "schemas": {
+      "WbsPayableReviewAttachmentChoice": {
+        "type":"object","additionalProperties":false,
+        "required":["attachment_id","name","media_type","verified_at"],
+        "properties":{"attachment_id":{"$ref":"#/components/schemas/Uuid"},"name":{"type":"string","minLength":1,"maxLength":255},"media_type":{"type":"string","minLength":1,"maxLength":255},"verified_at":{"type":"string","format":"date-time"}}
+      },
+      "WbsPayableReviewCandidateRow": {
+        "type":"object","additionalProperties":false,
+        "required":["wbs_inbound_row_id","source_version","receipt_hash","evidence_hash","revision","period_id","document_number","invoice_date","due_date","accounting_date","currency","gross_amount","vendor_name","offset_account_code","setting_snapshot_id","mapping_snapshot_id","attachment_choices","review_readiness","can_review"],
+        "properties":{
+          "wbs_inbound_row_id":{"$ref":"#/components/schemas/Uuid"},"source_version":{"type":"string","minLength":1,"maxLength":128},"receipt_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"evidence_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"revision":{"type":"integer","minimum":0},
+          "period_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"document_number":{"type":["string","null"],"minLength":1,"maxLength":128},"invoice_date":{"type":["string","null"],"format":"date"},"due_date":{"type":["string","null"],"format":"date"},"accounting_date":{"type":["string","null"],"format":"date"},"currency":{"type":["string","null"],"pattern":"^[A-Z]{3}$"},"gross_amount":{"type":["string","null"],"pattern":"^-?[0-9]+\\.[0-9]{4}$"},
+          "vendor_name":{"type":["string","null"],"maxLength":255},"offset_account_code":{"type":["string","null"],"maxLength":64},"setting_snapshot_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"mapping_snapshot_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"attachment_choices":{"type":"array","maxItems":25,"uniqueItems":true,"items":{"$ref":"#/components/schemas/WbsPayableReviewAttachmentChoice"}},
+          "review_readiness":{"type":"string","enum":["ALREADY_REVIEWED","ENTITY_SCOPE_MISMATCH","PAYABLE_FACTS_INCOMPLETE","OPEN_PERIOD_REQUIRED","APPROVED_SETTING_REQUIRED","APPROVED_MAPPING_REQUIRED","MAPPING_SCOPE_MISMATCH","LOCAL_MASTER_DATA_REQUIRED","REVIEWER_SOD_BLOCKED","VERIFIED_ATTACHMENT_REQUIRED","READY_FOR_REVIEW"]},"can_review":{"type":"boolean"}
+        }
+      },
+      "WbsPayableReviewCandidateListEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","maxItems":50,"items":{"$ref":"#/components/schemas/WbsPayableReviewCandidateRow"}}}},
+      "WbsPayableReviewCandidateDetailEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/WbsPayableReviewCandidateRow"}}},
       "WbsPayableEvidenceReadRow": {
         "type":"object","additionalProperties":false,
         "required":["wbs_payable_review_evidence_id","wbs_inbound_row_id","source_document_id","staging_item_id","period_id","document_number","invoice_date","due_date","accounting_date","currency","gross_amount","vendor_ref","vendor_name","offset_account_code","mapping_snapshot_id","attachment_ids","evidence_hash","review_reason","reviewed_by","reviewed_at","revision","evidence_status","draft_readiness","can_create_draft","business_document_id","journal_entry_id"],
@@ -3705,6 +3755,22 @@
           }
         }
       },
+      "WbsPayableAttachmentBinding": {
+        "required":true,
+        "content":{"application/json":{"schema":{"type":"object","additionalProperties":false,
+          "required":["attachmentId","expectedSourceVersion","expectedReceiptHash","expectedProviderReceiptHash","expectedEvidenceHash","expectedAttachmentContentHash","expectedAttachmentStorageVersion","reason"],
+          "properties":{
+            "attachmentId":{"$ref":"#/components/schemas/Uuid"},
+            "expectedSourceVersion":{"type":"string","minLength":1,"maxLength":128},
+            "expectedReceiptHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+            "expectedProviderReceiptHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+            "expectedEvidenceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+            "expectedAttachmentContentHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+            "expectedAttachmentStorageVersion":{"type":"string","minLength":1,"maxLength":512,"pattern":"^(?!pending:)[^\\u0000-\\u001f\\u007f]+$"},
+            "reason":{"type":"string","minLength":8,"maxLength":2000}
+          }
+        }}}
+      },
       "WbsPayableApDraft": {
         "required": true,
         "content": {
@@ -4590,6 +4656,8 @@
       }
     },
     "responses": {
+      "WbsPayableReviewCandidateListOk":{"description":"Admitted WBS Payable review-candidate list.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableReviewCandidateListEnvelope"}}}},
+      "WbsPayableReviewCandidateDetailOk":{"description":"Admitted WBS Payable review-candidate detail.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableReviewCandidateDetailEnvelope"}}}},
       "WbsPayableEvidenceListOk":{"description":"Reviewed WBS Payable evidence list.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableEvidenceListEnvelope"}}}},
       "WbsPayableEvidenceDetailOk":{"description":"Reviewed WBS Payable evidence detail.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableEvidenceDetailEnvelope"}}}},
       "CommandCreated": {
