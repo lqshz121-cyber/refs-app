@@ -26,18 +26,17 @@ const safeObservation=(overrides={})=>Object.freeze({
   captured_at:'2026-08-12T04:00:00.000Z',
   provider_content_sha256:'a'.repeat(64),
   observation_hash:`sha256:${'b'.repeat(64)}`,
-  scope:Object.freeze({company_codes:Object.freeze([]),date_range:Object.freeze({}),currency:'USD'}),
+  scope:Object.freeze({company_codes:Object.freeze([]),date_range:Object.freeze([null,null])}),
   record_count:0,
   rows:Object.freeze([]),
-  can_write_wbs:false,
-  can_persist:false,
+  can_import:false,
   can_create_transaction:false,
   can_match:false,
   can_allocate:false,
-  can_dispatch:false,
   can_create_draft:false,
   can_approve:false,
   can_post:false,
+  can_reverse:false,
   ...overrides,
 });
 
@@ -76,7 +75,7 @@ test('WBS live pilot is an authenticated, entity-scoped GET with zero import, pe
   assert.equal(response.body.data.status,'NOT_ADMITTED');
   assert.equal(response.body.data.observation_mode,'UNSIGNED_PILOT');
   assert.equal(response.body.data.signature_verified,false);
-  for(const flag of ['can_write_wbs','can_persist','can_create_transaction','can_match','can_allocate','can_dispatch','can_create_draft','can_approve','can_post'])assert.equal(response.body.data[flag],false,flag);
+  for(const flag of ['can_import','can_create_transaction','can_match','can_allocate','can_create_draft','can_approve','can_post','can_reverse'])assert.equal(response.body.data[flag],false,flag);
   assert.deepEqual(kernel.calls,[],'live pilot must not call any kernel import, persistence, AutoRec, or JE method');
 });
 
@@ -158,7 +157,7 @@ test('WBS live pilot is bodyless and refuses command or concurrency headers',asy
 });
 
 test('WBS live pilot rejects any result that is admitted, signature-verified, or grants an action',async()=>{
-  const flags=['can_write_wbs','can_persist','can_create_transaction','can_match','can_allocate','can_dispatch','can_create_draft','can_approve','can_post'];
+  const flags=['can_import','can_create_transaction','can_match','can_allocate','can_create_draft','can_approve','can_post','can_reverse'];
   const without=(value,key)=>{const copy={...value};delete copy[key];return copy;};
   const unsafeResults=[
     safeObservation({status:'ADMITTED'}),
