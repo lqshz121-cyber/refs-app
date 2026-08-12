@@ -25,4 +25,7 @@ assert.match(source, /AuthoritativeNavigationShell/, 'the production app must re
 assert.match(source, /AuthoritativeUnavailableWorkspace/, 'unsupported modules must render an explicit fail-closed workspace');
 assert.doesNotMatch(source, /legacy-demo-app|\.\/repo\.js|\.\/seed\.js|module-wbs|module-aiaudit|module-ai-je-workbench/,
   'the authoritative shell may not import demo, mock, or browser-state workspaces');
+const shellSource = readFileSync(new URL('../src/authoritative-navigation-shell.jsx', import.meta.url), 'utf8');
+assert.match(shellSource, /compactLabel\(item\.label\)/, 'secondary navigation must use compact letter marks');
+assert.doesNotMatch(shellSource, /String\(index \+ 1\)\.padStart/, 'secondary navigation must not use numeric-only badges');
 console.log('authoritative navigation model: complete catalog retains only API-backed reads and fails closed elsewhere');

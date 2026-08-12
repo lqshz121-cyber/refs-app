@@ -108,6 +108,8 @@ assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-rail \.na
   'the production workflow rail must keep compact, stable group controls');
 assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:nowrap/,
   'the production page panel must keep the demo shell’s stable single-line rows');
+assert.match(styles,/\.authoritative-app \.sidebar\{position:sticky; top:0; left:auto; transform:none; width:var\(--nav-w\); flex:0 0 var\(--nav-w\); box-shadow:none;\}/,
+  'the QBO-like rail and panel must remain anchored through wider tablet layouts');
 assert.match(authoritativeShell,/className="nav-rail"/,
   'the reusable production shell must render a workflow rail');
 assert.match(authoritativeShell,/className="nav-panel"/,
