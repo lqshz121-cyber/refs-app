@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { StateBlock } from './ui.jsx';
 import {AuthoritativeDemoJournalView} from './authoritative-demo-journal-view.jsx';
+import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 import {
   DEFAULT_AUTHORITATIVE_LIST_VIEW,
   createAuthoritativeReturnContext,
@@ -111,7 +112,7 @@ export function AuthoritativeJournalDetail({ journal, entityId, returnContext, o
   </section>;
 }
 
-export function AuthoritativeJournalWorkspace({ journals, config, environment=globalThis }) {
+export function AuthoritativeJournalWorkspace({ journals, config, fetcher=globalThis.fetch, environment=globalThis }) {
   const [detail, setDetail] = useState(null);
   const [view,setView] = useState({...DEFAULT_AUTHORITATIVE_LIST_VIEW});
   const openEvidence=(journal,focusId)=>{
@@ -119,5 +120,5 @@ export function AuthoritativeJournalWorkspace({ journals, config, environment=gl
     if(returnContext)setDetail({journal,returnContext:{...returnContext,journalId:journal.journal_entry_id,journalRevision:journal.revision}});
   };
   if (detail) return <AuthoritativeJournalDetail journal={detail.journal} entityId={config.entityId} returnContext={detail.returnContext} onBack={() => { setView(detail.returnContext.view); setDetail(null); restoreAuthoritativeReturnContext(environment,config,detail.returnContext); }}/>;
-  return <AuthoritativeJournalTable journals={journals} view={view} onViewChange={setView} onOpen={openEvidence}/>;
+  return <div className="stack authoritative-journal-workspace"><AuthoritativeJournalTable journals={journals} view={view} onViewChange={setView} onOpen={openEvidence}/><AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.journal} title="External WBS journal observations"/></div>;
 }

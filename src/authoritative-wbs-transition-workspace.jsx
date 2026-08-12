@@ -1,10 +1,10 @@
 import React,{useState} from 'react';
-import {WBS_LIVE_PILOT_VIEWS,activateAuthoritativeWbsReadAccess,refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,refreshAuthoritativeWbsLivePilot,verifyAuthoritativeWbsTransitionContract} from './accounting-api.js';
+import {activateAuthoritativeWbsReadAccess,refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,verifyAuthoritativeWbsTransitionContract} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeDemoView,AuthoritativeDemoWorkspaceHeader} from './authoritative-demo-view.jsx';
+import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 
 const scopeValue=value=>value||'Configured authoritative scope';
-const livePilotColumnLabels=Object.freeze({source_record_hash:'Sanitized source hash',accounting_date:'Accounting date',currency:'Currency',amount:'Amount',direction:'Direction',status:'Status',payment_amount:'Payment',deposit_amount:'Deposit',match_status:'Match status',pay_amount:'Pay amount',debit_amount:'Debit amount',quantity:'Quantity',released_amount:'Released',released_quantity:'Released quantity',incurred_amount:'Incurred',credit_amount:'Credit amount',review_status:'Review status'});
 
 export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.fetch}){
   const [rawContract,setRawContract]=useState('');
@@ -14,8 +14,6 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
   const [controlInput,setControlInput]=useState({sourceType:'COST_GENERAL_LEDGER',companyKey:'',period:'',currency:'USD',propertyRef:'',periodStart:'',periodEnd:'',bankAccountRef:''});
   const [controlState,setControlState]=useState({phase:'IDLE',data:null,error:null});
   const [accessState,setAccessState]=useState({phase:'IDLE',error:null});
-  const [liveTool,setLiveTool]=useState('list_autorec_details');
-  const [liveState,setLiveState]=useState({phase:'IDLE',data:null,error:null});
   const verify=async event=>{
     event.preventDefault();
     let contract;
@@ -44,13 +42,8 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     const result=await activateAuthoritativeWbsReadAccess({config,fetcher,idempotencyKey});
     setAccessState(result.ok?{phase:'READY',error:null}:{phase:'BLOCKED',error:result});
   };
-  const readLivePilot=async event=>{
-    event.preventDefault();setLiveState(current=>({...current,phase:'LOADING',error:null}));
-    const result=await refreshAuthoritativeWbsLivePilot({config,tool:liveTool,limit:10,fetcher});
-    setLiveState(current=>result.ok?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result});
-  };
   const data=state.data;
-  const review=reviewState.data,control=controlState.data,liveObservation=liveState.data,liveView=WBS_LIVE_PILOT_VIEWS[liveTool];
+  const review=reviewState.data,control=controlState.data;
   return <AuthoritativeDemoView area="WBS transition evidence" className="stack authoritative-wbs-transition-workspace">
     <AuthoritativeDemoWorkspaceHeader eyebrow="AUTO RECONCILIATION / PROVIDER EVIDENCE" title="WBS AutoRec transition evidence" description="Review a provider-signed cancellation and reopen contract for the configured accounting scope. This page verifies evidence; it never operates WBS or accounting." status="EVIDENCE ONLY"/>
 
@@ -73,20 +66,7 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
       <div className="qbo-card"><h4>Zero REFS action authority</h4><div className="qbo-sub">Every reserve, release, incur, Draft, approve, post, reverse, and write flag must be false.</div></div>
     </section>
 
-    <section className="report-workbench" aria-label="Production WBS provider observation">
-      <div className="report-workbench-head"><div><b>Production WBS provider observation</b><div className="page-subtitle">Read one bounded, sanitized production view through the accounting API. The observation is unsigned and NOT ADMITTED: it cannot import, match, allocate, create a Draft, approve, post, or reverse.</div></div><div className="authoritative-wbs-live-pilot-status" aria-label="Production WBS observation boundary"><span className="badge badge-warn">UNSIGNED PILOT</span><span className="badge badge-muted">GET ONLY</span><span className="badge badge-muted">NOT POSTABLE</span></div></div>
-      <form className="filterbar authoritative-wbs-live-pilot-controls" onSubmit={readLivePilot}>
-        <label htmlFor="wbs-live-pilot-view">WBS read-only view<select id="wbs-live-pilot-view" value={liveTool} onChange={event=>{setLiveTool(event.target.value);setLiveState({phase:'IDLE',data:null,error:null});}}>{Object.entries(WBS_LIVE_PILOT_VIEWS).map(([tool,view])=><option key={tool} value={tool}>{view.label}</option>)}</select></label>
-        <button type="submit" className="btn" disabled={liveState.phase==='LOADING'}>{liveState.phase==='LOADING'?'Reading production observation...':'Load production WBS observation'}</button>
-      </form>
-      {liveState.phase==='LOADING'&&<StateBlock tone="loading" title="Reading production WBS evidence">The accounting API is requesting at most ten sanitized rows from the selected read-only provider view.</StateBlock>}
-      {liveState.phase==='BLOCKED'&&<StateBlock tone="blocked" title={liveState.error?.code||'WBS_LIVE_PILOT_BLOCKED'}>{liveState.error?.message}{liveObservation&&' The previously validated observation remains below.'}</StateBlock>}
-      {liveState.phase==='IDLE'&&<StateBlock tone="empty" title="No production observation loaded">Choose one fixed WBS view and use the GET-only reader. No provider credential or raw business identifier is exposed to this browser.</StateBlock>}
-      {liveObservation&&<>
-        <div className="qbo-toolgrid"><span><i>Admission</i><b>{liveObservation.status}</b></span><span><i>Provider signature</i><b>Not supplied</b></span><span><i>Captured at</i><b>{liveObservation.captured_at}</b></span><span><i>Sanitized rows</i><b>{liveObservation.record_count}</b></span><span><i>Provider content hash</i><b>{liveObservation.provider_content_sha256}</b></span><span><i>Action authority</i><b>None</b></span></div>
-        {liveObservation.rows.length===0?<StateBlock tone="empty" title="No production WBS rows observed">The authenticated GET returned a valid, scoped empty observation. Empty is not a zero accounting balance.</StateBlock>:<div className="table-wrap authoritative-wbs-live-pilot-table" role="region" tabIndex={0} aria-label={`${liveView.label} unsigned production observation; scroll horizontally to view every column`}><table className="tbl"><thead><tr>{liveView.fields.map(field=><th key={field}>{livePilotColumnLabels[field]}</th>)}</tr></thead><tbody>{liveObservation.rows.map(row=><tr key={row.source_record_hash}>{liveView.fields.map(field=><td key={field}>{row[field]===null?'Unavailable':row[field]}</td>)}</tr>)}</tbody></table></div>}
-      </>}
-    </section>
+    <AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.wbs}/>
 
     <section className="report-workbench" aria-label="Persisted WBS AutoRec review evidence">
       <div className="report-workbench-head"><div><b>Persisted AutoRec review evidence</b><div className="page-subtitle">Read a bounded company/source selection already retained in PostgreSQL. This request never calls WBS and cannot match, allocate, dispatch a Draft, or post.</div></div><span className="badge badge-muted">GET ONLY</span></div>

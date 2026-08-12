@@ -2,6 +2,7 @@ import React from 'react';
 import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 import { StateBlock } from './ui.jsx';
 import {AuthoritativeDemoApArView} from './authoritative-demo-ap-ar-view.jsx';
+import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 import {
   DEFAULT_AUTHORITATIVE_LIST_VIEW,
   authoritativeEvidenceKey,
@@ -74,7 +75,7 @@ export function AuthoritativeAdjustmentSummary({title,adjustments=[],onOpen}) {
 
 export function AuthoritativeAdjustmentDetail({adjustment,side,entityId,onBack}){const label=side==='AP'?'AP adjustment evidence':'AR adjustment evidence';return <section className="full-bleed qbo-transaction-report" aria-label={label}><div className="qbo-report-back"><button type="button" onClick={onBack}>Back to {side==='AP'?'AP adjustments':'AR adjustments'}</button><span>Entity {entityId} · authoritative adjustment revision {adjustment.version}</span></div><div className="gl-drill-head"><div><div className="gl-drill-crumb">{side==='AP'?'Payables':'Receivables'} / read-only adjustment evidence</div><h1>{adjustment.adjustment_kind}</h1><div className="gl-drill-account">{adjustment.accounting_date} · {adjustment.business_adjustment_id}</div></div><span className="badge badge-muted">{adjustment.status}</span></div><p className="report-drill-hint">This page contains only fields returned by the authenticated adjustment read model. It cannot create, edit, apply, refund, approve, post, reverse, print, export, or synchronize an adjustment.</p><AuthoritativeLineageBlock record={adjustment} entityId={entityId} subject="Adjustment"/><div className="table-wrap authoritative-document-detail-table" role="region" tabIndex={0} aria-label={`${label} fields; scroll horizontally to view every column`}><table className="tbl"><tbody><tr><th scope="row">Entity</th><td>{entityId}</td><th scope="row">Period ID</th><td>{adjustment.period_id}</td></tr><tr><th scope="row">Currency</th><td>{adjustment.currency}</td><th scope="row">Amount</th><td>{money(adjustment.amount,adjustment.currency)}</td></tr><tr><th scope="row">Status</th><td>{adjustment.status}</td><th scope="row">Revision</th><td>{adjustment.version}</td></tr><tr><th scope="row">Document ID</th><td>{adjustment.business_document_id||'Not retained'}</td><th scope="row">Source adjustment</th><td>{adjustment.source_adjustment_id||'Not retained'}</td></tr><tr><th scope="row">Journal entry</th><td>{adjustment.journal_entry_id||'Not retained'}</td><th scope="row">Journal status</th><td>{adjustment.journal_status||'Not retained'}</td></tr><tr><th scope="row">Created at</th><td>{adjustment.created_at}</td><th scope="row">Reason</th><td>{adjustment.reason||'Not retained'}</td></tr></tbody></table></div></section>;}
 
-export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[],view,onViewChange,onOpenDocument,onOpenAdjustment}) {
+export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[],view,onViewChange,onOpenDocument,onOpenAdjustment,config,fetcher=globalThis.fetch}) {
   const bill=kind==='AP';
   const workspaceLabel=bill?'Payables':'Receivables';
   const eyebrow=bill?'EXPENSES / ACCOUNTS PAYABLE':'REVENUE / ACCOUNTS RECEIVABLE';
@@ -149,6 +150,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     <section className="card" aria-label={`${workspaceLabel} adjustment list facts`}>
     {visibleAdjustments.length?<AuthoritativeAdjustmentSummary title={bill&&state.transactionType==='VENDOR_CREDITS'?'Vendor credits':bill?'AP adjustments':'AR adjustments'} adjustments={visibleAdjustments} onOpen={onOpenAdjustment}/>:<StateBlock tone="empty" title={adjustments.length?'No adjustments match these presentation filters':'No authoritative adjustments in this scope'}>{adjustments.length?'Change a presentation filter to see retained adjustment facts. A local no-match is not evidence of zero balance.':'This scoped empty result is not evidence of a zero balance.'}</StateBlock>}
     </section>
+    {bill&&<AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.payables} title="External WBS payables observation"/>}
   </AuthoritativeDemoApArView>;
 }
 export function AuthoritativeWorkflowTable({title,documents=[],kind,onWorkflow,workingJournalIds=new Set()}){const bill=kind==='AP';return <section aria-label={title}><h2>{title}</h2>{documents.map(row=>{const action=nextAuthoritativeWorkflowAction(row.journal_status);return <div key={row.journal_entry_id}>{row[bill?'bill_no':'inv_no']} {action?<button disabled={workingJournalIds.has(row.journal_entry_id)} onClick={()=>onWorkflow(row,action)}>{action}</button>:row.journal_status}</div>;})}</section>;}

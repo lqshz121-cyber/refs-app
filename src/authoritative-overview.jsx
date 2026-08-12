@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from './ui.jsx';
+import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 
 const number = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
 
@@ -21,7 +22,7 @@ const quickLinks = [
 // Uses the existing product-home presentation classes verbatim. Only the
 // data/controller boundary differs: all facts arrive from the parent OIDC/API
 // read model, and every affordance below is a real route navigation.
-export function AuthoritativeOverview({ counts = {}, onNavigate, state = 'ready', detail, scope = {} }) {
+export function AuthoritativeOverview({ counts = {}, onNavigate, state = 'ready', detail, scope = {}, config, fetcher=globalThis.fetch }) {
   const cards = overviewCards(counts);
   const navigate = route => { if (typeof onNavigate === 'function') onNavigate(route); };
   const entity = scope.entityId || 'Configured entity';
@@ -70,6 +71,8 @@ export function AuthoritativeOverview({ counts = {}, onNavigate, state = 'ready'
       </button>
     </div>
     {allEmpty && <div className="authoritative-overview-empty" role="status"><strong>No retained records were returned for this scope.</strong><span>Use a workspace to inspect an authoritative empty result or access boundary.</span></div>}
+
+    <AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.dashboard} title="External WBS observations" showRows={false}/>
 
     <p className="authoritative-page-note">No creation, approval, posting, payment, provider, or browser-stored accounting control is present here. Missing API data is shown as loading, blocked, or empty rather than being replaced.</p>
   </section>;
