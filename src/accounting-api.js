@@ -725,7 +725,7 @@ const wbsLivePilotRow=(tool,row)=>{
   for(const field of contract.fields){
     if(field==='source_record_hash')continue;
     if(field==='currency'){if(row[field]!=='USD')return false;continue;}
-    if(wbsLivePilotMoneyFields.has(field)){if(!MONEY4.test(row[field]||''))return false;continue;}
+    if(wbsLivePilotMoneyFields.has(field)){if(tool==='list_autorec_banks'&&row[field]===null)continue;if(!MONEY4.test(row[field]||''))return false;continue;}
     if(wbsLivePilotDateFields.has(field)){if(!validDate(row[field]))return false;continue;}
     if(field==='direction'){if(!['DEBIT','CREDIT','UNKNOWN'].includes(row[field]))return false;continue;}
     if(wbsLivePilotStatusFields.has(field)){if(!STATUS_TOKEN.test(row[field]||''))return false;continue;}
