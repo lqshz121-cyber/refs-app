@@ -696,6 +696,66 @@ const wbsTransitionEvidence=value=>{
   return value&&typeof value==='object'&&!Array.isArray(value)&&value.schema_version==='WBS_AUTOREC_TRANSITION_CONTRACT_V1'&&value.source_system==='WBS'&&value.environment==='PRODUCTION'&&UUID.test(value.contract_id||'')&&SHA256.test(value.contract_hash||'')&&validTimestamp(value.issued_at)&&validTimestamp(value.valid_from)&&validTimestamp(value.valid_until)&&Date.parse(value.valid_from)<=Date.parse(value.valid_until)&&value.scope&&Array.isArray(value.scope.company_keys)&&value.scope.company_keys.length>0&&value.scope.company_keys.every(text)&&text(value.scope.dictionary_version)&&Array.isArray(value.transitions)&&value.transitions.length>0&&value.transitions.every(transition)&&value.signature&&text(value.signature.key_id)&&value.signature.algorithm==='Ed25519'&&value.signature_verified===true&&value.transition_authority==='WBS_SIGNED_EXTERNAL_EVIDENCE_ONLY'&&value.can_transition_refs===false&&value.can_release===false&&value.can_incur===false&&value.can_reverse===false&&value.can_create_draft===false&&value.can_post===false;
 };
 
+const WBS_SCOPE_TEXT=/^[^\u0000-\u001f\u007f]{1,512}$/;
+const wbsScopeText=(value,max=512)=>typeof value==='string'&&value===value.trim()&&value.length>0&&value.length<=max&&WBS_SCOPE_TEXT.test(value);
+const wbsEvidenceIsReadOnly=value=>{
+  if(value===null||value===undefined)return true;
+  if(Array.isArray(value))return value.every(wbsEvidenceIsReadOnly);
+  if(typeof value!=='object')return true;
+  return Object.entries(value).every(([key,item])=>(!/^can_[a-z0-9_]+$/.test(key)||item===false)&&wbsEvidenceIsReadOnly(item));
+};
+const wbsReviewCandidate=(row,{entityId,companyKey,sourceRecordIds})=>row&&typeof row==='object'&&SHA256.test(row.review_candidate_id||'')&&row.stage==='STAGING_REVIEWED'&&['BANK_SIDE','BUSINESS_SIDE'].includes(row.side)&&wbsScopeText(row.source_type,128)&&row.entity_id===entityId&&row.company_key===companyKey&&sourceRecordIds.includes(row.source_record_id)&&/^[A-Z]{3}$/.test(row.currency||'')&&REPORT_MONEY4.test(row.amount||'')&&validDate(row.business_date)&&validDate(row.accounting_date)&&wbsScopeText(row.bank_account_ref,128)&&wbsScopeText(row.source_record_id)&&wbsScopeText(row.source_version)&&wbsScopeText(row.raw_event_id)&&wbsScopeText(row.source_document_id)&&wbsScopeText(row.staging_item_id)&&row.mapping&&wbsScopeText(row.mapping.mapping_id)&&wbsScopeText(row.mapping.version)&&SHA256.test(row.mapping.snapshot_hash||'')&&wbsEvidenceIsReadOnly(row);
+const wbsReviewEvidence=(value,scope)=>{
+  if(!value||typeof value!=='object'||Array.isArray(value)||value.can_dispatch!==false||value.can_create_draft!==false||value.can_post!==false||!Array.isArray(value.candidates)||!Array.isArray(value.exceptions)||!wbsEvidenceIsReadOnly(value))return false;
+  if(value.status==='BLOCKED')return wbsScopeText(value.code,128)&&value.candidates.length===0;
+  return value.status==='READ_ONLY_PROJECTED'&&SHA256.test(value.request_hash||'')&&typeof value.replayed==='boolean'&&value.candidates.every(row=>wbsReviewCandidate(row,scope))&&new Set(value.candidates.map(row=>row.review_candidate_id)).size===value.candidates.length&&Array.isArray(value.review_plans)&&Array.isArray(value.observed_state_evidence);
+};
+// The authenticated API binds tenant scope from the verified OIDC principal.
+// The browser can independently bind every configured/entity/business key and
+// reject extra scope fields, but it must not learn or invent another tenant.
+const exactWbsControlScope=(actual,expected)=>actual&&UUID.test(actual.tenant_id||'')&&Object.keys(actual).sort().join('\u0000')===['tenant_id',...Object.keys(expected)].sort().join('\u0000')&&Object.keys(expected).every(key=>actual[key]===expected[key]);
+const wbsControlEvidence=(value,{sourceType,scope})=>{
+  if(!value||typeof value!=='object'||Array.isArray(value)||value.can_create_transaction!==false||value.can_allocate!==false||value.can_create_draft!==false||value.can_post!==false||!wbsEvidenceIsReadOnly(value))return false;
+  if(value.status==='BLOCKED')return wbsScopeText(value.code,128)&&Array.isArray(value.comparisons)&&value.comparisons.length===0;
+  const reconciliation=value.reconciliation;
+  if(!['READ_ONLY_CONTROL_RECONCILED','READ_ONLY_CONTROL_DIFFERENCE'].includes(value.status)||!SHA256.test(value.request_hash||'')||typeof value.replayed!=='boolean'||!reconciliation||reconciliation.source_type!==sourceType||!exactWbsControlScope(reconciliation.scope,scope)||!Array.isArray(reconciliation.comparisons)||!reconciliation.control_totals||!wbsEvidenceIsReadOnly(reconciliation)||!value.trace)return false;
+  const totals=reconciliation.control_totals;
+  return Number.isSafeInteger(totals.metric_count)&&totals.metric_count===reconciliation.comparisons.length&&Number.isSafeInteger(totals.difference_count)&&totals.difference_count>=0&&totals.difference_count<=totals.metric_count&&['source_total','target_total','difference_total'].every(field=>REPORT_MONEY4.test(totals[field]||''))&&reconciliation.comparisons.every(row=>row&&wbsScopeText(row.metric_key,96)&&['source_amount','target_amount','difference'].every(field=>REPORT_MONEY4.test(row[field]||''))&&typeof row.matched==='boolean');
+};
+
+export async function refreshAuthoritativeWbsAutoRecReview({config,companyKey,sourceRecordIds,fetcher=globalThis.fetch}={}){
+  const company=typeof companyKey==='string'?companyKey.trim():'';
+  const sources=Array.isArray(sourceRecordIds)?[...new Set(sourceRecordIds.map(value=>typeof value==='string'?value.trim():'').filter(Boolean))]:[];
+  if(!config||typeof fetcher!=='function'||!wbsScopeText(company,128)||sources.length<1||sources.length>50||sources.some(value=>!wbsScopeText(value)))return {ok:false,code:'WBS_AUTOREC_SCOPE_INVALID',message:'WBS AutoRec review requires one company key and one to 50 immutable source record IDs.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const params=new URLSearchParams({companyKey:company});for(const source of sources)params.append('sourceRecordId',source);
+  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/wbs/auto-reconciliation/review-candidates?${params}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});if(!response.ok)return await failure(response,'WBS_AUTOREC_REVIEW_EVIDENCE');const body=await response.json();const scope={entityId:config.entityId,companyKey:company,sourceRecordIds:sources};if(body?.ok!==true||!wbsReviewEvidence(body.data,scope))return {ok:false,code:'WBS_AUTOREC_REVIEW_PROTOCOL',message:'The accounting API returned invalid, cross-scope, or action-enabled WBS AutoRec review evidence.'};return {ok:true,data:body.data,scope};}catch{return unreachable('The browser could not read persisted WBS AutoRec review evidence; no HTTP response was produced.');}
+}
+
+export async function activateAuthoritativeWbsReadAccess({config,fetcher=globalThis.fetch,idempotencyKey}={}){
+  if(!config||typeof fetcher!=='function'||typeof idempotencyKey!=='string'||idempotencyKey.length<8)return {ok:false,code:'WBS_READ_ACCESS_SCOPE_INVALID',message:'WBS evidence reader activation requires an authoritative scope.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/access/self-service-wbs-read-grant/upgrade`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:'{}'});
+    if(!response.ok)return await failure(response,'WBS_READ_ACCESS');
+    const body=await response.json();
+    return body?.ok===true&&body?.data?.upgraded===true&&body.data.permission_count===6?{ok:true,idempotent:body.data.idempotent===true}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'WBS evidence reader activation returned an invalid response.'};
+  }catch{return unreachable('The browser could not complete the WBS evidence reader activation; no HTTP response was produced.');}
+}
+
+export async function refreshAuthoritativeWbsControlReconciliation({config,sourceType,companyKey,period=null,currency,propertyRef=null,periodStart=null,periodEnd=null,bankAccountRef=null,fetcher=globalThis.fetch}={}){
+  const type=String(sourceType||''),company=typeof companyKey==='string'?companyKey.trim():'',unit=String(currency||'').trim().toUpperCase(),propertyKey=typeof propertyRef==='string'?propertyRef.trim():'',bankKey=typeof bankAccountRef==='string'?bankAccountRef.trim():'';
+  const cost=type==='COST_GENERAL_LEDGER',property=type==='PROPERTY_COMPARISON';
+  const costScope=cost&&PERIOD_CODE.test(String(period||''));
+  const propertyScope=property&&wbsScopeText(propertyKey,128)&&validDate(periodStart)&&validDate(periodEnd)&&periodStart<=periodEnd&&wbsScopeText(bankKey,128);
+  if(!config||typeof fetcher!=='function'||!wbsScopeText(company,128)||!/^[A-Z]{3}$/.test(unit)||!costScope&&!propertyScope)return {ok:false,code:'WBS_CONTROL_SCOPE_INVALID',message:'WBS control reconciliation requires an exact Cost GL period or Property/date/bank scope.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const params=new URLSearchParams({sourceType:type,companyKey:company,currency:unit});
+  const scope={company_key:company,currency:unit};
+  if(cost){params.set('period',period);scope.period=period;}else{params.set('propertyRef',propertyKey);params.set('periodStart',periodStart);params.set('periodEnd',periodEnd);params.set('bankAccountRef',bankKey);Object.assign(scope,{property_ref:propertyKey,period_start:periodStart,period_end:periodEnd,bank_account_ref:bankKey});}
+  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/wbs/control-reconciliation?${params}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});if(!response.ok)return await failure(response,'WBS_CONTROL_RECONCILIATION');const body=await response.json();if(body?.ok!==true||!wbsControlEvidence(body.data,{sourceType:type,scope:{entity_id:config.entityId,...scope}}))return {ok:false,code:'WBS_CONTROL_RECONCILIATION_PROTOCOL',message:'The accounting API returned invalid, entity/business-scope-mismatched, or action-enabled WBS control evidence.'};return {ok:true,data:body.data,scope:{entityId:config.entityId,sourceType:type,...scope}};}catch{return unreachable('The browser could not read persisted WBS control reconciliation evidence; no HTTP response was produced.');}
+}
+
 export async function verifyAuthoritativeWbsTransitionContract({config,contract,fetcher=globalThis.fetch}={}){
   if(!config||typeof fetcher!=='function')return notConfigured();
   if(!contract||typeof contract!=='object'||Array.isArray(contract))return {ok:false,code:'WBS_TRANSITION_CONTRACT_INVALID',message:'A signed WBS transition-contract JSON object is required.'};

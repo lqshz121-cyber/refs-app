@@ -4,6 +4,21 @@ import {buildReceiptBoundWbsAutoReconciliationReviewPlan,validateWbsAutoRecG11Po
 
 const text=value=>value==null?'':String(value).trim();
 const freeze=value=>Object.freeze(value);
+// The API boundary never leaks a JavaScript Number for money.  Planning may
+// use scaled values internally, but browser consumers receive MONEY4 tokens
+// only; this prevents a client from reinterpreting a binary float as an
+// accounting amount.
+const money4=value=>{
+  if(typeof value!=='number'||!Number.isFinite(value)||!Number.isSafeInteger(Math.round(value*10000)))throw new TypeError('WBS read composition received a non-canonical monetary value');
+  return (Object.is(value,-0)?0:value).toFixed(4);
+};
+const readonlyPlan=plan=>freeze({...plan,
+  allocation_plan:freeze(plan.allocation_plan.map(item=>freeze({...item,amount:money4(item.amount)}))),
+  control_totals:freeze({...plan.control_totals,
+    bank_total:money4(plan.control_totals.bank_total),business_total:money4(plan.control_totals.business_total),allocated_total:money4(plan.control_totals.allocated_total),bank_unallocated:money4(plan.control_totals.bank_unallocated),business_unallocated:money4(plan.control_totals.business_unallocated),difference:money4(plan.control_totals.difference),tolerance:money4(plan.control_totals.tolerance)
+  })
+});
+const readonlyProjection=projection=>freeze({...projection,candidates:freeze(projection.candidates.map(candidate=>freeze({...candidate,amount:money4(candidate.amount)})))});
 const empty=(code,replayed=false)=>freeze({status:'BLOCKED',code,replayed,candidates:freeze([]),exceptions:freeze([freeze({stage:'EXCEPTION',code,can_dispatch:false,can_post:false})]),controls:freeze({candidate_count:0,can_dispatch:false,can_post:false}),can_dispatch:false,can_create_draft:false,can_post:false});
 const selectionFor=input=>{
   const tenantId=text(input?.tenantId),entityId=text(input?.entityId),companyKey=text(input?.companyKey),replayKey=text(input?.replayKey);
@@ -55,7 +70,7 @@ export function createWbsInboundAutoRecReadComposition({repository}={}){
       if(!scoped(inbound,selection)||!control||!scoped(control.companyRows,selection)||!scoped(control.detailRows,selection)||!scoped(control.persistedRows,selection)||!scoped(observedStateEvidence,selection)||!Array.isArray(mappings)||!mappings.every(row=>row&&text(row.entity_id)===selection.entityId&&text(row.company_key)===selection.companyKey)||!Array.isArray(matchingPolicies)||!matchingPolicies.every(row=>row&&text(row.entity_id)===selection.entityId&&text(row.company_key)===selection.companyKey))return empty('WBS_AUTOREC_READ_SCOPE_INVALID');
       const projection=projectPersistedWbsInboundAutoRec({rows:inbound,mappings,companyControlRows:control.companyRows,detailControlRows:control.detailRows,persistedControlRows:control.persistedRows,scope:{tenant_id:selection.tenantId,entity_id:selection.entityId,company_key:selection.companyKey}});
       const policyPlans=plansFor(projection.candidates,matchingPolicies);
-      const result=freeze({status:'READ_ONLY_PROJECTED',request_hash:requestHash,replayed:false,...projection,matching_policy_evidence:freeze(matchingPolicies.map(matchingPolicy)),matching_policy_exceptions:policyPlans.exceptions,review_plans:policyPlans.plans,observed_state_evidence:freeze(observedStateEvidence.map(row=>freeze({...row,can_transition_refs:false,can_release:false,can_incur:false,can_create_draft:false,can_post:false}))),can_dispatch:false,can_create_draft:false,can_post:false});
+      const result=freeze({status:'READ_ONLY_PROJECTED',request_hash:requestHash,replayed:false,...readonlyProjection(projection),matching_policy_evidence:freeze(matchingPolicies.map(matchingPolicy)),matching_policy_exceptions:policyPlans.exceptions,review_plans:freeze(policyPlans.plans.map(readonlyPlan)),observed_state_evidence:freeze(observedStateEvidence.map(row=>freeze({...row,can_transition_refs:false,can_release:false,can_incur:false,can_create_draft:false,can_post:false}))),can_dispatch:false,can_create_draft:false,can_post:false});
       replays.set(selection.replayKey,freeze({request_hash:requestHash,result}));return result;
     }
   });

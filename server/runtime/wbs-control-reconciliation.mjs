@@ -27,6 +27,16 @@ const sourceFor=type=>type==='COST_GENERAL_LEDGER'?'WBS_COST_GL_CONTROL_RECONCIL
 const COST_GENERAL_LEDGER_METRIC_COUNT=14;
 const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const scopeKeysFor=sourceType=>sourceType==='COST_GENERAL_LEDGER'?['tenant_id','entity_id','company_key','period','currency']:['tenant_id','entity_id','company_key','property_ref','period_start','period_end','currency','bank_account_ref'];
+// Internal reconciliation arithmetic remains server-side.  Only canonical
+// MONEY4 strings cross the public read-composition boundary.
+const money4=value=>{
+  if(typeof value!=='number'||!Number.isFinite(value)||!Number.isSafeInteger(Math.round(value*10000)))throw new WbsControlReconciliationError('WBS_CONTROL_MONEY_INVALID','Control reconciliation produced a non-canonical monetary value.');
+  return (Object.is(value,-0)?0:value).toFixed(4);
+};
+const readonlyReconciliation=reconciliation=>freeze({...reconciliation,
+  comparisons:freeze(reconciliation.comparisons.map(row=>freeze({...row,source_amount:money4(row.source_amount),target_amount:money4(row.target_amount),difference:money4(row.difference)}))),
+  control_totals:freeze({...reconciliation.control_totals,source_total:money4(reconciliation.control_totals.source_total),target_total:money4(reconciliation.control_totals.target_total),difference_total:money4(reconciliation.control_totals.difference_total)})
+});
 
 function validateReceipt(receipt,label,scope,scopeKeys){
   if(!receipt||typeof receipt!=='object'||!/^sha256:[0-9a-f]{64}$/.test(text(receipt.hash))||!/^sha256:[0-9a-f]{64}$/.test(text(receipt.metrics_hash))||!text(receipt.ref)||!text(receipt.version))fail('WBS_CONTROL_RECEIPT_REQUIRED',`${label} requires immutable receipt hash, metrics hash, reference, and version.`);
@@ -105,7 +115,7 @@ export function createWbsControlReconciliationReadComposition({repository}={}){
       let reconciliation,sourceTrace,targetTrace;
       try{reconciliation=reconcileWbsControlEvidence({sourceType:selection.sourceType,scope:selection.scope,sourceReceipt:source.receipt,targetReceipt:target.receipt,approvedMapping:mapping,sourceMetrics:source.metrics,targetMetrics:target.metrics});sourceTrace=signedWbsSourceTrace(source);targetTrace=snapshotTrace(target,'REFS metric snapshot');}catch(error){return blocked(error?.code||'WBS_CONTROL_EVIDENCE_INVALID');}
       const trace=freeze({forward_trace:freeze({wbs_control_snapshot:sourceTrace,mapping_id:reconciliation.mapping_trace.mapping_id,mapping_version:reconciliation.mapping_trace.version,mapping_snapshot_hash:reconciliation.mapping_trace.snapshot_hash,refs_metric_snapshot:targetTrace}),reverse_trace:freeze({refs_metric_snapshot:targetTrace,mapping_id:reconciliation.mapping_trace.mapping_id,mapping_version:reconciliation.mapping_trace.version,mapping_snapshot_hash:reconciliation.mapping_trace.snapshot_hash,wbs_control_snapshot:sourceTrace})});
-      const result=freeze({status:reconciliation.status==='RECONCILED'?'READ_ONLY_CONTROL_RECONCILED':'READ_ONLY_CONTROL_DIFFERENCE',request_hash:requestHash,replayed:false,reconciliation,trace,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
+      const result=freeze({status:reconciliation.status==='RECONCILED'?'READ_ONLY_CONTROL_RECONCILED':'READ_ONLY_CONTROL_DIFFERENCE',request_hash:requestHash,replayed:false,reconciliation:readonlyReconciliation(reconciliation),trace,can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
       replays.set(selection.replayKey,freeze({request_hash:requestHash,result}));return result;
     }
   });

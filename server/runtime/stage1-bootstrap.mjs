@@ -12,6 +12,10 @@ const SUBJECT=/^[^\u0000-\u001f\u007f]{1,200}$/;
 const ISO_DATE=/^\d{4}-\d{2}-\d{2}$/;
 
 export const STAGE1_READ_PERMISSIONS=Object.freeze(['AP.VIEW','AR.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW']);
+// This is an upgrade of the fixed Stage 1 reader set, not a general WBS
+// permission bundle.  It adds one evidence-only capability and deliberately
+// excludes WBS.SNAPSHOT.IMPORT and every REFS command permission.
+export const STAGE1_WBS_READ_PERMISSIONS=Object.freeze([...STAGE1_READ_PERMISSIONS,'WBS.AUTOREC.VIEW']);
 export const STAGE1_ACCOUNTING_CODES=Object.freeze({payable:'291001',receivable:'120200'});
 
 const required=(environment,key)=>{
@@ -123,6 +127,21 @@ export function stage1SelfGrantConfig(environment=process.env){
   });
 }
 
+// A user can reach this configuration only after the original self-service
+// grant has produced version 1.  The database upgrade function additionally
+// verifies that the prior active set is exactly the five Stage 1 read grants,
+// so this cannot overwrite an operator's broader or different grant set.
+export function stage1SelfWbsReadUpgradeConfig(environment=process.env){
+  if(String(environment.REFS_STAGE1_SELF_GRANT_ENABLED||'')!=='STAGE1_AUTHORITATIVE_ONLY')return null;
+  exactStaging(environment);
+  return Object.freeze({
+    tenantId:uuid(required(environment,'REFS_STAGE1_TENANT_ID'),'REFS_STAGE1_TENANT_ID'),
+    entityId:uuid(required(environment,'REFS_STAGE1_ENTITY_ID'),'REFS_STAGE1_ENTITY_ID'),
+    expectedVersion:1,
+    permissions:[...STAGE1_WBS_READ_PERMISSIONS],
+  });
+}
+
 const normalizedRow=row=>Object.fromEntries(Object.entries(row).map(([key,value])=>[key,value instanceof Date?value.toISOString().slice(0,10):value]));
 const same=(actual,expected)=>canonicalRequestHash(normalizedRow(actual))===canonicalRequestHash(expected);
 const conflict=(label)=>{throw new KernelError('STAGE1_BOOTSTRAP_STATE_CONFLICT',`${label} conflicts with the requested immutable staging scope`);};
@@ -177,6 +196,24 @@ export async function grantStage1ReadAccess(pool,config,{principalProvider=async
   const returned=[...(result.permissions||[])].sort();
   if(returned.length!==STAGE1_READ_PERMISSIONS.length||returned.some((value,index)=>value!==STAGE1_READ_PERMISSIONS[index]))throw new KernelError('STAGE1_GRANT_RESULT_INVALID','Grant sync returned an unexpected permission set');
   return {idempotent:result.idempotent===true,version:result.version,permissionCount:returned.length};
+}
+
+export async function upgradeStage1WbsReadAccess(pool,config,{principalProvider=async()=>({trusted:true,serviceId:'platform-iam-sync'})}={}){
+  if(config.expectedVersion!==1||config.permissions.length!==STAGE1_WBS_READ_PERMISSIONS.length||config.permissions.some((value,index)=>value!==STAGE1_WBS_READ_PERMISSIONS[index])){
+    throw new KernelError('STAGE1_WBS_READ_UPGRADE_SCOPE_DENIED','Stage 1 WBS upgrade must contain exactly the approved evidence-only read permissions');
+  }
+  const principal=await principalProvider();
+  if(!principal||principal.trusted!==true||principal.serviceId!=='platform-iam-sync')throw new KernelError('GRANT_SYNC_PRINCIPAL_DENIED','Only the authenticated platform IAM sync service may reconcile grants');
+  return withSerializableRetry(pool,async client=>{
+    const identity=requireRow(await client.query('SELECT session_user,current_user'),'GRANT_SYNC_IDENTITY_MISSING','Grant sync DB identity missing');
+    if(identity.session_user!=='refs_grant_sync'||identity.current_user!=='refs_grant_sync')throw new KernelError('GRANT_SYNC_DB_IDENTITY_DENIED','Grant sync requires its isolated database login');
+    const requestHash=requireRow(await client.query('SELECT refs_grant_request_hash($1,$2,$3,$4,$5) AS request_hash',[config.tenantId,config.actorId,config.entityId,config.permissions,config.expectedVersion]),'GRANT_SYNC_HASH_FAILED','Canonical grant hash was not returned').request_hash;
+    const result=requireRow(await client.query('SELECT refs_upgrade_stage1_wbs_autorec_read($1,$2,$3,$4,$5,$6) AS result',[config.tenantId,config.actorId,config.entityId,config.idempotencyKey,requestHash,config.expectedVersion]),'STAGE1_WBS_READ_UPGRADE_FAILED','Stage 1 WBS read upgrade did not return a result').result;
+    const returned=[...(result.permissions||[])].sort();
+    const expected=[...STAGE1_WBS_READ_PERMISSIONS].sort();
+    if(returned.length!==expected.length||returned.some((value,index)=>value!==expected[index]))throw new KernelError('STAGE1_WBS_READ_UPGRADE_RESULT_INVALID','Stage 1 WBS read upgrade returned an unexpected permission set');
+    return {idempotent:result.idempotent===true,version:result.version,permissionCount:returned.length};
+  });
 }
 
 export async function grantStage1AuthenticatedReadAccess(pool,config,{authenticator}={}){
