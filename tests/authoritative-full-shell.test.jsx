@@ -45,6 +45,15 @@ assert.match(unavailableMarkup, /Required authoritative read contract/);
 assert.match(unavailableMarkup, /attachment-read contract/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
+assert.match(appSource, /Accounting records are read only from the authenticated API in this mode/,
+  'the sign-in surface must describe the sole authoritative source of accounting records');
+assert.doesNotMatch(appSource, /No demo identity/,
+  'the authoritative sign-in surface must not expose retired product terminology');
+const runtimeErrorSource = fs.readFileSync('src/runtime-error-page.jsx', 'utf8');
+assert.match(runtimeErrorSource, /No browser-stored or substitute data is shown in place of accounting data/,
+  'runtime errors must describe the fail-closed data boundary without a second product label');
+assert.doesNotMatch(runtimeErrorSource, /public demonstration build|demonstration data set|No demonstration or browser-stored data/,
+  'runtime errors must not present a retired product surface to authoritative users');
 assert.match(appSource, /const \[reportsNavigationVersion, setReportsNavigationVersion\] = useState\(0\)/,
   'a direct Reports navigation needs a route-local revision when React would otherwise retain an already-mounted catalog');
 assert.match(appSource, /if \(next === 'reports'\) setReportsNavigationVersion\(current => current \+ 1\)/,
