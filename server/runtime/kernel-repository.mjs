@@ -81,6 +81,20 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async reserveWbsPayableAttachment(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_reserve_wbs_payable_attachment_hash($1,$2,$3,$4,$5,$6,$7,$8,$9) AS request_hash',
+        [args.tenantId,args.entityId,args.wbsInboundRowId,args.name,args.mediaType,args.sizeBytes,args.contentHash,args.storageRef,args.storageVersion]
+      ),'WBS_PAYABLE_ATTACHMENT_RESERVE_HASH_FAILED','Row-bound attachment reservation hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_reserve_wbs_payable_attachment($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS result',
+        [args.tenantId,args.entityId,args.wbsInboundRowId,args.name,args.mediaType,args.sizeBytes,args.contentHash,
+          args.storageRef,args.storageVersion,args.idempotencyKey,requestHash]
+      ),'WBS_PAYABLE_ATTACHMENT_RESERVE_FAILED','Row-bound WBS Payable attachment reservation did not return a result').result;
+    });
+  }
+
   async finalizeAttachment(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
@@ -207,6 +221,25 @@ export class PostgresAccountingKernel{
         'SELECT refs_bind_wbs_payable_attachment($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) AS result',
         [tenantId,entityId,wbsInboundRowId,attachmentId,expectedRevision,expectedSourceVersion,expectedReceiptHash,expectedProviderReceiptHash,expectedEvidenceHash,expectedAttachmentContentHash,expectedAttachmentStorageVersion,reason,idempotencyKey,requestHash]
       ),'WBS_PAYABLE_ATTACHMENT_BIND_FAILED','WBS Payable attachment binding did not return a result').result;
+    });
+  }
+
+  async listWbsPayableAttachmentUploads({tenantId,entityId,wbsInboundRowId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_payable_attachment_uploads($1,$2,$3) AS result',[tenantId,entityId,wbsInboundRowId]
+    ),'WBS_PAYABLE_ATTACHMENT_UPLOAD_READ_FAILED','Row-bound attachment status did not return a result').result);
+  }
+
+  async bindWbsPayableUploadedAttachment({tenantId,entityId,wbsInboundRowId,attachmentId,expectedRevision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_bind_wbs_payable_uploaded_attachment_hash($1,$2,$3,$4,$5,$6) AS request_hash',
+        [tenantId,entityId,wbsInboundRowId,attachmentId,expectedRevision,reason]
+      ),'WBS_PAYABLE_ATTACHMENT_BIND_HASH_FAILED','Safe row-bound attachment binding hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_bind_wbs_payable_uploaded_attachment($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+        [tenantId,entityId,wbsInboundRowId,attachmentId,expectedRevision,reason,idempotencyKey,requestHash]
+      ),'WBS_PAYABLE_ATTACHMENT_BIND_FAILED','Safe row-bound WBS Payable attachment binding did not return a result').result;
     });
   }
 

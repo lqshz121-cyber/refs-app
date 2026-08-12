@@ -41,8 +41,10 @@ export class S3AttachmentStorage{
     const signature=hmac(this.deriveKey(date),`AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${sha256(canonical)}`,'hex');
     return {...headers,authorization:`AWS4-HMAC-SHA256 Credential=${this.accessKeyId}/${scope}, SignedHeaders=${names.join(';')}, Signature=${signature}`};
   }
-  async reserveUpload({tenantId,entityId,mediaType,contentHash}){
-    const key=`${this.prefix}/${safeSegment(tenantId)}/${safeSegment(entityId)}/${randomUUID()}`;const reservationId=randomUUID();
+  async reserveUpload({tenantId,entityId,mediaType,contentHash,idempotencyKey=null}){
+    const deterministic=idempotencyKey?sha256(`${tenantId}\u0000${entityId}\u0000${idempotencyKey}`):null;
+    const objectId=deterministic?`${deterministic.slice(0,8)}-${deterministic.slice(8,12)}-4${deterministic.slice(13,16)}-8${deterministic.slice(17,20)}-${deterministic.slice(20,32)}`:randomUUID();
+    const key=`${this.prefix}/${safeSegment(tenantId)}/${safeSegment(entityId)}/${objectId}`;const reservationId=objectId;
     return {storageRef:this.storageRef(key),storageVersion:`pending:${reservationId}`,uploadUrl:this.presignPut(key,{mediaType,contentHash}),requiredHeaders:{'content-type':mediaType.toLowerCase(),'x-amz-meta-sha256':contentHash.toLowerCase()},expiresAt:new Date(this.clock().getTime()+this.uploadTtlSeconds*1000).toISOString()};
   }
   async probe(){const url=this.bucketUrl();url.searchParams.set('location','');const response=await this.fetcher(url,{method:'GET',headers:this.signedHeaders('GET',url),redirect:'error'});if(!response.ok)throw storageFailure('STORAGE_READINESS_FAILED','STORAGE',response.status);return true;}
@@ -68,7 +70,14 @@ export class HttpVirusScanner{
 
 export class AttachmentEvidenceService{
   constructor({storage,scanner,uploaderKernelFactory,scannerKernelFactory}={}){if(!storage||!scanner||typeof uploaderKernelFactory!=='function'||typeof scannerKernelFactory!=='function')throw new Error('Attachment service dependencies are required');this.storage=storage;this.scanner=scanner;this.uploaderKernelFactory=uploaderKernelFactory;this.scannerKernelFactory=scannerKernelFactory;}
-  async reserve(principal,args){const reservation=await this.storage.reserveUpload(args);try{const kernel=await this.uploaderKernelFactory(principal);const record=await kernel.reserveAttachment({...args,storageRef:reservation.storageRef,storageVersion:reservation.storageVersion});return {...record,upload_url:reservation.uploadUrl,required_headers:reservation.requiredHeaders,upload_expires_at:reservation.expiresAt};}catch(error){await this.storage.deleteReservation(reservation.storageRef).catch(()=>{});throw error;}}
+  async reserve(principal,args){const reservation=await this.storage.reserveUpload({...args,idempotencyKey:null});try{const kernel=await this.uploaderKernelFactory(principal);const record=await kernel.reserveAttachment({...args,storageRef:reservation.storageRef,storageVersion:reservation.storageVersion});return {...record,upload_url:reservation.uploadUrl,required_headers:reservation.requiredHeaders,upload_expires_at:reservation.expiresAt};}catch(error){await this.storage.deleteReservation(reservation.storageRef).catch(()=>{});throw error;}}
+  async reserveWbsPayable(principal,args){const reservation=await this.storage.reserveUpload(args);try{const kernel=await this.uploaderKernelFactory(principal);const record=await kernel.reserveWbsPayableAttachment({...args,storageRef:reservation.storageRef,storageVersion:reservation.storageVersion});return {...record,upload_url:reservation.uploadUrl,required_headers:reservation.requiredHeaders,upload_expires_at:reservation.expiresAt};}catch(error){
+    // A row-bound retry intentionally resolves to the same object key. Reserve
+    // only creates a presigned contract; deleting here could erase a valid
+    // object from an earlier successful replay when a later cross-row or
+    // changed-payload attempt is correctly rejected by PostgreSQL.
+    throw error;
+  }}
   async finalize(principal,args){const uploaderKernel=await this.uploaderKernelFactory(principal);const record=await uploaderKernel.requestAttachmentFinalize(args);if(record.finalization_status!=='PENDING')return {attachment_id:record.attachment_id,entity_id:record.entity_id,status:record.finalization_status,idempotent:true};const observed=await this.storage.inspect(record.storage_ref);const scan=await this.scanner.scan({tenantId:record.tenant_id||args.tenantId,entityId:record.entity_id||args.entityId,attachmentId:record.attachment_id||args.attachmentId,storageRef:record.storage_ref,storageVersion:observed.storageVersion,sizeBytes:observed.sizeBytes,contentHash:observed.contentHash,mediaType:observed.mediaType});const kernel=await this.scannerKernelFactory(principal);return kernel.finalizeAttachment({...args,storageRef:record.storage_ref,observedSizeBytes:observed.sizeBytes,observedContentHash:observed.contentHash,observedMediaType:observed.mediaType,storageVersion:observed.storageVersion,scanClean:scan.clean,scanRef:scan.scanRef});}
 }
 

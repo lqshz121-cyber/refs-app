@@ -158,6 +158,35 @@
         "responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/PreconditionFailed"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/inbound/payables/{wbsInboundRowId}/attachments/reservations": {
+      "post": {
+        "operationId":"reserveWbsPayableAttachment",
+        "summary":"Reserve an upload for one exact admitted WBS Payable",
+        "description":"Requires ATTACHMENT.CREATE and AP.VIEW. The server freezes a row-specific upload intent backed by the admitted signed production receipt. It never lists entity-wide attachments and cannot Bind, Review, create a Draft, Journal, or posting.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"wbsInboundRowId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody":{"$ref":"#/components/requestBodies/AttachmentReservation"},
+        "responses":{"200":{"$ref":"#/components/responses/AttachmentReplay"},"201":{"$ref":"#/components/responses/AttachmentCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/inbound/payables/{wbsInboundRowId}/attachments/uploads": {
+      "get": {
+        "operationId":"getWbsPayableAttachmentUploads",
+        "summary":"Read attachment status for one exact admitted WBS Payable",
+        "description":"Requires AP.VIEW and either ATTACHMENT.CREATE or WBS.PAYABLE.REVIEW. Returns only row-bound display metadata and server-derived capabilities; never hashes, storage versions, provider receipts, object URLs, or entity-wide attachments.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"wbsInboundRowId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses":{"200":{"$ref":"#/components/responses/ReadOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/inbound/payables/{wbsInboundRowId}/attachments/bindings/from-upload": {
+      "post": {
+        "operationId":"bindWbsPayableUploadedAttachment",
+        "summary":"Bind a row-reserved verified-clean attachment without exposing CAS facts",
+        "description":"Requires WBS.PAYABLE.REVIEW and AP.VIEW. The browser submits only attachment ID and reason; the server re-derives exact source, receipt, provider receipt, evidence, content and storage-version CAS. Binder remains distinct from importer, uploader and scanner. The command cannot Review, create a Draft, Journal, or posting.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"wbsInboundRowId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],
+        "requestBody":{"$ref":"#/components/requestBodies/WbsPayableUploadedAttachmentBinding"},
+        "responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/PreconditionFailed"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/inbound/payables/{wbsInboundRowId}/drafts": {
       "post": {
         "operationId": "createReviewedWbsPayableApDraft",
@@ -3770,6 +3799,10 @@
             "reason":{"type":"string","minLength":8,"maxLength":2000}
           }
         }}}
+      },
+      "WbsPayableUploadedAttachmentBinding": {
+        "required":true,
+        "content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["attachmentId","reason"],"properties":{"attachmentId":{"$ref":"#/components/schemas/Uuid"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}
       },
       "WbsPayableApDraft": {
         "required": true,
