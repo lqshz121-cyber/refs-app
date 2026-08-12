@@ -53,6 +53,15 @@ export const bindAuthoritativeFetcher = (environment, fetcher) =>
 // ---------------------------------------------------------------------------
 const ROUTES = AUTHORITATIVE_ROUTES;
 const ROUTE_KEY = 'refs_authoritative_route';
+const SHARED_ACCOUNTING_BOOTSTRAP_ROUTES = new Set(['overview', 'payables', 'receivables', 'journals']);
+
+// These four workspaces consume the shared AP/AR/Journal bundle held by this
+// component. Every other authoritative workspace owns a smaller scoped reader
+// and must be allowed to mount before that unrelated bundle is requested. In
+// particular, a slow AP or Journal request must never hold a direct Bank or
+// Reconciliation reload in a global Loading screen.
+export const routeRequiresSharedAccountingBootstrap = route =>
+  SHARED_ACCOUNTING_BOOTSTRAP_ROUTES.has(route);
 
 export const readRetainedRoute = (environment = globalThis) => {
   const fragment = String((environment && environment.location && environment.location.hash) || '').replace(/^#\/?/, '');
@@ -115,6 +124,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   // and journal reads complete, so the visible workspace never keeps stale
   // evidence while the header claims that the reader refreshed the system.
   const [workspaceRefreshVersion, setWorkspaceRefreshVersion] = useState(0);
+  const [sharedAccountingLoaded, setSharedAccountingLoaded] = useState(false);
   // A direct selection of Reports is an explicit catalog entry, not a
   // continuation of the last report drill. React preserves a mounted route
   // when a user selects its already-active navigation item, so keep a small
@@ -242,6 +252,12 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const refresh = useCallback(async () => {
     if (!config) return;
     setDocumentDetail(null); setAdjustmentDetail(null);
+    if (!routeRequiresSharedAccountingBootstrap(route)) {
+      setError(null);
+      setWorkspaceRefreshVersion(current => current + 1);
+      setPhase('READY');
+      return;
+    }
     setPhase('LOADING_ACCOUNTING'); setError(null);
     const [documents, journals] = await Promise.all([
       refreshAuthoritativeDocuments({ config, fetcher:boundFetcher }),
@@ -253,9 +269,10 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       return;
     }
     setData({ ap:documents.ap, ar:documents.ar, journals:journals.journals });
+    setSharedAccountingLoaded(true);
     setWorkspaceRefreshVersion(current => current + 1);
     setPhase('READY');
-  }, [config, boundFetcher]);
+  }, [config, boundFetcher, route]);
 
   useEffect(() => {
     if (!configured || !oidcClient || typeof environment?.document === 'undefined') return;
@@ -291,6 +308,13 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   }, [configured, environment, oidcClient]);
 
   useEffect(() => { if (phase === 'AUTHENTICATED') refresh(); }, [phase, refresh]);
+
+  // A session can first open a self-loading workspace and navigate to a shared
+  // AP/AR/Journal page later. Fetch that bundle exactly when it becomes needed;
+  // the loaded flag prevents READY from retriggering the same read forever.
+  useEffect(() => {
+    if (phase === 'READY' && routeRequiresSharedAccountingBootstrap(route) && !sharedAccountingLoaded) void refresh();
+  }, [phase, route, sharedAccountingLoaded, refresh]);
 
   useEffect(() => {
     if (!oidcClient || typeof environment?.document === 'undefined' || typeof environment?.setTimeout !== 'function') return;

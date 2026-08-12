@@ -51,6 +51,8 @@ const JOURNAL_TYPES=new Set(['MANUAL','AUTO','REVERSAL','RECLASS']);
 const JOURNAL_STATUSES=new Set(['DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED']);
 const BANK_MATCH_STATUSES=new Set(['ACTIVE','UNMATCHED','REVERSED']);
 const RECONCILIATION_STATUSES=new Set(['DRAFT','IN_REVIEW','RECONCILED','REOPENED']);
+const ADMITTED_STATEMENT_SELECTION_STATES=new Set(['ALREADY_STARTED','BLOCKED_OPEN_RECONCILIATION','AVAILABLE_FOR_SERVER_VALIDATION']);
+const ADMITTED_STATEMENT_FIELDS=new Set(['wbs_bank_statement_receipt_id','bank_account_ref','statement_start_date','statement_end_date','currency','opening_balance','ending_balance','transaction_count','statement_activity_amount','admission_hash','signature_verified','admission_status','admitted_at','reconciliation_id','reconciliation_status','reconciliation_version','selection_state']);
 
 // Journal entry list evidence is deliberately a separate, optional extension
 // of the current list contract.  The deployed reader does not return it yet.
@@ -122,6 +124,18 @@ const reconciliationRow=(row,account,statementEndingDate)=>{
   const version=Number(row.version),bankTransactionCount=Number(row.bank_transaction_count),activeMatchCount=Number(row.active_match_count),unmatchedTransactionCount=Number(row.unmatched_transaction_count);
   if(![version,bankTransactionCount,activeMatchCount,unmatchedTransactionCount].every(value=>Number.isSafeInteger(value)&&value>=0)||activeMatchCount+unmatchedTransactionCount!==bankTransactionCount)return null;
   return {reconciliation_id:row.reconciliation_id,bank_account_ref:row.bank_account_ref,statement_ending_date:row.statement_ending_date,statement_ending_balance:Number(row.statement_ending_balance),difference:Number(row.difference),status:row.status,version,reconciled_by:reconciledBy,reconciled_at:reconciledAt,reopened_by:reopenedBy,reopened_at:reopenedAt,bank_transaction_count:bankTransactionCount,active_match_count:activeMatchCount,unmatched_transaction_count:unmatchedTransactionCount,statement_activity_amount:Number(row.statement_activity_amount)};
+};
+
+const admittedStatementRow=(row,{account=null,receiptId=null}={})=>{
+  if(!row||Object.keys(row).length!==ADMITTED_STATEMENT_FIELDS.size||Object.keys(row).some(field=>!ADMITTED_STATEMENT_FIELDS.has(field))||!UUID.test(row.wbs_bank_statement_receipt_id||'')||receiptId!==null&&row.wbs_bank_statement_receipt_id!==receiptId||!BANK_ACCOUNT_REF.test(row.bank_account_ref||'')||account!==null&&row.bank_account_ref!==account||!validDate(row.statement_start_date)||!validDate(row.statement_end_date)||row.statement_start_date>row.statement_end_date||!/^[A-Z]{3}$/.test(row.currency||'')||!REPORT_MONEY4.test(String(row.opening_balance??''))||!REPORT_MONEY4.test(String(row.ending_balance??''))||!UNSIGNED_INTEGER.test(String(row.transaction_count??''))||Number(row.transaction_count)<1||!REPORT_MONEY4.test(String(row.statement_activity_amount??''))||!/^sha256:[0-9a-f]{64}$/.test(row.admission_hash||'')||row.signature_verified!==true||row.admission_status!=='ADMITTED'||!validTimestamp(row.admitted_at)||!ADMITTED_STATEMENT_SELECTION_STATES.has(row.selection_state))return null;
+  const units=value=>{const match=/^(-?)([0-9]{1,16})\.([0-9]{4})$/.exec(String(value));return match?BigInt(`${match[1]}${match[2]}${match[3]}`):null;};
+  const opening=units(row.opening_balance),activity=units(row.statement_activity_amount),ending=units(row.ending_balance);
+  if(opening===null||activity===null||ending===null||opening+activity!==ending)return null;
+  const linked=row.reconciliation_id!==null&&row.reconciliation_id!==undefined;
+  if(linked!==UUID.test(row.reconciliation_id||'')||linked!==RECONCILIATION_STATUSES.has(row.reconciliation_status)||linked!==UNSIGNED_INTEGER.test(String(row.reconciliation_version??''))||linked!==(row.selection_state==='ALREADY_STARTED'))return null;
+  const transactionCount=Number(row.transaction_count),reconciliationVersion=linked?Number(row.reconciliation_version):null;
+  if(!Number.isSafeInteger(transactionCount)||transactionCount<1||linked&&(!Number.isSafeInteger(reconciliationVersion)||reconciliationVersion<0))return null;
+  return {...row,opening_balance:String(row.opening_balance),ending_balance:String(row.ending_balance),transaction_count:transactionCount,statement_activity_amount:String(row.statement_activity_amount),reconciliation_id:linked?row.reconciliation_id:null,reconciliation_status:linked?row.reconciliation_status:null,reconciliation_version:reconciliationVersion};
 };
 
 export async function refreshAuthoritativeDocuments({config,fetcher=globalThis.fetch}={}){
@@ -267,6 +281,46 @@ export async function unmatchAuthoritativeBankPayment({config,bankSourceId,bankM
   if(!UUID.test(bankSourceId||'')||!UUID.test(bankMatchId||'')||!Number.isSafeInteger(bankMatchRevision)||bankMatchRevision<0||!approvedReason)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Bank Unmatch requires one active match, current match revision, and review reason.'};
   const idempotencyKey=`UI-BANK-UNMATCH-${bankSourceId}-${bankMatchId}-${bankMatchRevision}`;
   return bankCommandResult({config,path:`/bank/transactions/${bankSourceId}/matches/${bankMatchId}/unmatch`,revision:bankMatchRevision,idempotencyKey,body:{reason:approvedReason},fetcher,operation:'BANK_UNMATCH'});
+}
+
+export async function refreshAuthoritativeAdmittedBankStatements({config,bankAccountRef,limit=10,fetcher=globalThis.fetch}={}){
+  const account=String(bankAccountRef||'').trim();
+  if(!config||typeof fetcher!=='function'||!BANK_ACCOUNT_REF.test(account)||!Number.isSafeInteger(limit)||limit<1||limit>50)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Signed statement selection requires one valid bank account and a bounded result limit.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({bankAccountRef:account,limit:String(limit)});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/bank/reconciliations/admitted-statements?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'ADMITTED_WBS_STATEMENTS');
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data)||body.data.length>limit)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid admitted statement list envelope.'};
+    const rows=body.data.map(row=>admittedStatementRow(row,{account})),ids=rows.map(row=>row?.wbs_bank_statement_receipt_id);
+    if(rows.some(row=>row===null)||new Set(ids).size!==ids.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate admitted statement row.'};
+    return {ok:true,rows,scope:{entityId:config.entityId,bankAccountRef:account}};
+  }catch{return unreachable('The browser could not complete the admitted signed statement read; no HTTP response was produced.');}
+}
+
+export async function readAuthoritativeAdmittedBankStatement({config,statementReceiptId,bankAccountRef=null,fetcher=globalThis.fetch}={}){
+  const account=bankAccountRef===null?null:String(bankAccountRef||'').trim();
+  if(!config||typeof fetcher!=='function'||!UUID.test(statementReceiptId||'')||account!==null&&!BANK_ACCOUNT_REF.test(account))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Signed statement detail requires one immutable receipt identifier and optional retained bank account scope.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/bank/reconciliations/admitted-statements/${statementReceiptId}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'ADMITTED_WBS_STATEMENT_DETAIL');
+    const body=await response.json(),row=body?.ok===true?admittedStatementRow(body.data,{receiptId:statementReceiptId,account}):null;
+    if(!row)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid admitted statement detail envelope.'};
+    return {ok:true,row};
+  }catch{return unreachable('The browser could not complete the admitted signed statement detail read; no HTTP response was produced.');}
+}
+
+export async function startAuthoritativeReconciliationFromAdmittedStatement({config,statement,reason,fetcher=globalThis.fetch}={}){
+  const approvedReason=bankCommandReason(reason),row=admittedStatementRow(statement,{receiptId:statement?.wbs_bank_statement_receipt_id||null});
+  if(!row||row.signature_verified!==true||row.admission_status!=='ADMITTED'||row.selection_state!=='AVAILABLE_FOR_SERVER_VALIDATION'||!approvedReason)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'Starting from WBS requires one freshly read signature-verified ADMITTED statement that is available for server validation, plus a controller reason.'};
+  const statementReceiptId=row.wbs_bank_statement_receipt_id;
+  const idempotencyKey=await reconciliationCommandKey('START_ADMITTED_STATEMENT',{statementReceiptId,reason:approvedReason});
+  if(!idempotencyKey)return {ok:false,code:'ACCOUNTING_API_COMMAND_INVALID',message:'The browser could not create an admitted statement command identity.'};
+  const result=await bankCreateCommandResult({config,path:'/bank/reconciliations/from-admitted-statement',idempotencyKey,body:{statementReceiptId,reason:approvedReason},fetcher,operation:'ADMITTED_STATEMENT_RECONCILIATION_START'});
+  if(!result.ok)return result;
+  if(!UUID.test(result.data.reconciliation_id||'')||result.data.status!=='DRAFT'||result.data.wbs_bank_statement_receipt_id!==statementReceiptId)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid admitted statement reconciliation result.'};
+  return result;
 }
 
 export async function refreshAuthoritativeReconciliation({config,bankAccountRef,statementEndingDate,fetcher=globalThis.fetch}={}){
