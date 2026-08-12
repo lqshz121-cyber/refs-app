@@ -375,6 +375,12 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['bankAccountRef','statementEndingDate','statementOpeningBalance','statementEndingBalance','reason']);
         result=await kernel.startReconciliation({tenantId:principal.tenantId,entityId,bankAccountRef:requireBankAccountRef(payload.bankAccountRef),statementEndingDate:requireIsoDate(payload.statementEndingDate,'statementEndingDate'),statementOpeningBalance:requireDecimalAmount(payload.statementOpeningBalance,'statementOpeningBalance'),statementEndingBalance:requireDecimalAmount(payload.statementEndingBalance,'statementEndingBalance'),reason:requireReviewReason(payload.reason),idempotencyKey});
+      }else if(parts.length===7&&parts[4]==='bank'&&parts[5]==='reconciliations'&&parts[6]==='from-admitted-statement'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used when starting from an immutable admitted statement');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.startReconciliationFromAdmittedWbsStatement!=='function')throw new AccountingApiError(503,'WBS_STATEMENT_RECONCILIATION_UNAVAILABLE','Admitted statement reconciliation is unavailable');
+        allowOnly(payload,['statementReceiptId','reason']);
+        result=await kernel.startReconciliationFromAdmittedWbsStatement({tenantId:principal.tenantId,entityId,statementReceiptId:requireUuid(payload.statementReceiptId,'statementReceiptId'),reason:requireReviewReason(payload.reason),idempotencyKey});
       }else if(parts.length===10&&parts[4]==='bank'&&parts[5]==='reconciliations'&&parts[7]==='items'&&parts[9]==='clearance'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['clear','expectedBankRevision','reason']);
