@@ -3,10 +3,11 @@ import {activateAuthoritativeWbsReadAccess,refreshAuthoritativeWbsAutoRecReview,
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeDemoView,AuthoritativeDemoWorkspaceHeader} from './authoritative-demo-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
+import {AuthoritativeWbsPayableWorkspace} from './authoritative-wbs-payable-workspace.jsx';
 
 const scopeValue=value=>value||'Configured authoritative scope';
 
-export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.fetch}){
+export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.fetch,onAccountingRefresh=()=>{}}){
   const [rawContract,setRawContract]=useState('');
   const [state,setState]=useState({phase:'IDLE',data:null,error:null});
   const [reviewInput,setReviewInput]=useState({companyKey:'',sourceRecordIds:''});
@@ -67,6 +68,8 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     </section>
 
     <AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.wbs}/>
+
+    <AuthoritativeWbsPayableWorkspace config={config} fetcher={fetcher} onAccountingRefresh={onAccountingRefresh}/>
 
     <section className="report-workbench" aria-label="Persisted WBS AutoRec review evidence">
       <div className="report-workbench-head"><div><b>Persisted AutoRec review evidence</b><div className="page-subtitle">Read a bounded company/source selection already retained in PostgreSQL. This request never calls WBS and cannot match, allocate, dispatch a Draft, or post.</div></div><span className="badge badge-muted">GET ONLY</span></div>

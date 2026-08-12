@@ -222,6 +222,19 @@ pgTest('admitted signed Payable composition persists receipt Raw Normalized Stag
   assert.deepEqual((await adminPool.query("SELECT refs_wbs_payable_iso_date('2026-02-29') invalid_date,refs_wbs_payable_iso_date('2026-02-28')::text valid_date")).rows[0],{invalid_date:null,valid_date:'2026-02-28'});
   await assert.rejects(adminPool.query("UPDATE wbs_payable_review_evidence SET review_reason='tampered evidence' WHERE wbs_payable_review_evidence_id=$1",[reviewed.wbs_payable_review_evidence_id]),error=>error.code==='55000');
 
+  const evidenceMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-maker',['WBS.AUTOREC.VIEW','AP.VIEW','AP.BILL.CREATE'])});
+  const listedEvidence=await evidenceMaker.listWbsPayableReviewEvidence({tenantId:ids.tenantId,entityId:ids.entityId,limit:10});
+  assert.equal(listedEvidence.length,1);assert.deepEqual({id:listedEvidence[0].wbs_payable_review_evidence_id,row:listedEvidence[0].wbs_inbound_row_id,number:listedEvidence[0].document_number,invoice:listedEvidence[0].invoice_date,due:listedEvidence[0].due_date,date:listedEvidence[0].accounting_date,currency:listedEvidence[0].currency,amount:listedEvidence[0].gross_amount,readiness:listedEvidence[0].draft_readiness,canDraft:listedEvidence[0].can_create_draft},{id:reviewed.wbs_payable_review_evidence_id,row:stored.wbs_inbound_row_id,number:'WBS-INV-PG-001',invoice:'2026-07-01',due:'2026-07-05',date:'2026-07-11',currency:'USD',amount:'89.1250',readiness:'READY_FOR_AP_DRAFT',canDraft:true});
+  for(const forbidden of ['raw_payload','normalized_payload','provider_request','provider_response','signature','access_token'])assert.equal(Object.hasOwn(listedEvidence[0],forbidden),false);
+  assert.deepEqual((await evidenceMaker.getWbsPayableReviewEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}))[0],listedEvidence[0]);
+  const wbsOnlyReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-only-reader',['WBS.AUTOREC.VIEW'])});
+  const apOnlyReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ap-only-reader',['AP.VIEW'])});
+  await assert.rejects(wbsOnlyReader.listWbsPayableReviewEvidence({tenantId:ids.tenantId,entityId:ids.entityId,limit:10}),error=>error.code==='42501');
+  await assert.rejects(apOnlyReader.listWbsPayableReviewEvidence({tenantId:ids.tenantId,entityId:ids.entityId,limit:10}),error=>error.code==='42501');
+  const reviewerEvidenceReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-reviewer',['WBS.AUTOREC.VIEW','AP.VIEW','AP.BILL.CREATE'])});
+  const reviewerRead=(await reviewerEvidenceReader.getWbsPayableReviewEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}))[0];
+  assert.deepEqual({readiness:reviewerRead.draft_readiness,canDraft:reviewerRead.can_create_draft},{readiness:'MAKER_REVIEWER_SOD',canDraft:false});
+
   const draftArgs={...ids,wbsInboundRowId:stored.wbs_inbound_row_id,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id,expectedRevision:0,expectedEvidenceHash:stored.evidence_hash,mappingSnapshotId:mappingId,attachmentIds:[attachmentId],reason:'Create the AP Bill Draft from frozen reviewed WBS evidence',idempotencyKey:'wbs-payable-draft-pg-0001'};
   const reviewerAsMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-reviewer',['AP.BILL.CREATE'])});
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-maker',['AP.BILL.CREATE'])});
@@ -251,6 +264,8 @@ pgTest('admitted signed Payable composition persists receipt Raw Normalized Stag
   const afterSuccessfulDraft=await draftMutationCounts();
   assert.deepEqual({businessDocuments:afterSuccessfulDraft.business_documents-beforeFailedDrafts.business_documents,journalEntries:afterSuccessfulDraft.journal_entries-beforeFailedDrafts.journal_entries,journalLines:afterSuccessfulDraft.journal_lines-beforeFailedDrafts.journal_lines,draftEvidence:afterSuccessfulDraft.draft_evidence-beforeFailedDrafts.draft_evidence,draftLinks:afterSuccessfulDraft.draft_links-beforeFailedDrafts.draft_links,postingBatches:afterSuccessfulDraft.posting_batches-beforeFailedDrafts.posting_batches,ledgerLines:afterSuccessfulDraft.ledger_lines-beforeFailedDrafts.ledger_lines},{businessDocuments:1,journalEntries:1,journalLines:2,draftEvidence:1,draftLinks:2,postingBatches:0,ledgerLines:0});
   assert.deepEqual(await draftMutationCounts(),afterSuccessfulDraft);
+  const draftedEvidence=(await evidenceMaker.getWbsPayableReviewEvidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id}))[0];
+  assert.deepEqual({status:draftedEvidence.evidence_status,readiness:draftedEvidence.draft_readiness,canDraft:draftedEvidence.can_create_draft,bill:draftedEvidence.business_document_id,journal:draftedEvidence.journal_entry_id},{status:'DRAFT_CREATED',readiness:'ALREADY_DRAFTED',canDraft:false,bill:drafted.business_document_id,journal:drafted.journal_entry_id});
   await assert.rejects(maker.createWbsPayableApDraft({...draftArgs,expectedEvidenceHash:hash('stale-draft-evidence'),idempotencyKey:'wbs-payable-draft-pg-stale'}),error=>error.code==='40001');
   await assert.rejects(adminPool.query("UPDATE wbs_payable_draft_evidence SET maker_reason='tampered Draft evidence' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
 });

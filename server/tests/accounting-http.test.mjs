@@ -174,6 +174,19 @@ test('WBS payable review binds immutable evidence, CAS, approved configuration a
   assert.equal((await unsafe({method:'POST',url:path,headers:{'Idempotency-Key':'wbs-payable-review-http-0005','If-Match':'"0"'},body})).body.code,'WBS_PAYABLE_REVIEW_RESULT_INVALID');
 });
 
+test('reviewed WBS payable evidence list and detail are closed no-store reads',async()=>{
+  const reviewEvidenceId=randomUUID(),wbsInboundRowId=randomUUID(),sourceDocumentId=randomUUID(),stagingItemId=randomUUID(),mappingSnapshotId=randomUUID(),attachmentId=randomUUID(),seen=[];
+  const row={wbs_payable_review_evidence_id:reviewEvidenceId,wbs_inbound_row_id:wbsInboundRowId,source_document_id:sourceDocumentId,staging_item_id:stagingItemId,period_id:periodId,document_number:'WBS-INV-001',invoice_date:'2026-07-01',due_date:'2026-07-31',accounting_date:'2026-07-02',currency:'USD',gross_amount:'10.0000',vendor_ref:'VENDOR-1',vendor_name:'Reviewed vendor',offset_account_code:'610000',mapping_snapshot_id:mappingSnapshotId,attachment_ids:[attachmentId],evidence_hash:`sha256:${'a'.repeat(64)}`,review_reason:'Independent review',reviewed_by:'reviewer',reviewed_at:'2026-08-12T00:00:00.000Z',revision:'0',evidence_status:'READY_FOR_DRAFT_EVIDENCE_ONLY',draft_readiness:'READY_FOR_AP_DRAFT',can_create_draft:true,business_document_id:null,journal_entry_id:null};
+  const readApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-payable-maker'}),kernelFactory:async()=>({listWbsPayableReviewEvidence:async request=>(seen.push(['list',request]),[row]),getWbsPayableReviewEvidence:async request=>(seen.push(['detail',request]),[row])})});
+  const listPath=`/api/v1/entities/${entityId}/wbs/inbound/payables/reviews?limit=7`,detailPath=`/api/v1/entities/${entityId}/wbs/inbound/payables/reviews/${reviewEvidenceId}`;
+  const listed=await readApi({method:'GET',url:listPath,body:null,headers:{}}),detail=await readApi({method:'GET',url:detailPath,body:null,headers:{}});
+  assert.equal(listed.status,200);assert.equal(detail.status,200);assert.equal(listed.headers['cache-control'],'no-store');assert.equal(detail.headers['cache-control'],'no-store');
+  assert.deepEqual(seen,[['list',{tenantId,entityId,limit:7}],['detail',{tenantId,entityId,reviewEvidenceId}]]);assert.deepEqual(listed.body.data,[row]);assert.deepEqual(detail.body.data,row);
+  assert.equal((await readApi({method:'GET',url:`${listPath}&providerId=secret`,body:null,headers:{}})).body.code,'UNEXPECTED_QUERY_PARAMETER');
+  assert.equal((await readApi({method:'GET',url:listPath,body:{limit:1},headers:{}})).body.code,'READ_BODY_FORBIDDEN');
+  assert.equal((await readApi({method:'GET',url:detailPath,body:null,headers:{'If-Match':'"0"'}})).body.code,'READ_COMMAND_HEADERS_FORBIDDEN');
+});
+
 test('reviewed WBS payable Draft route accepts only frozen evidence selectors and stops at AUTO Draft',async()=>{
   const wbsInboundRowId=randomUUID(),reviewEvidenceId=randomUUID(),mappingSnapshotId=randomUUID(),attachmentId=randomUUID(),observed=[];
   const draftResult={business_document_id:randomUUID(),journal_entry_id:randomUUID(),journal_type:'AUTO',status:'DRAFT',revision:0,idempotent:false,can_create_draft:false,can_submit:false,can_review:false,can_approve:false,can_post:false};
