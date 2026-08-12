@@ -7,6 +7,7 @@ import { AuthoritativeNavigationShell } from '../src/authoritative-navigation-sh
 import { AuthoritativeDemoTopbar } from '../src/authoritative-demo-shell.jsx';
 import { AuthoritativeDemoView, AuthoritativeDemoWorkspaceHeader } from '../src/authoritative-demo-view.jsx';
 import { AuthoritativeUnavailableWorkspace } from '../src/authoritative-unavailable-workspace.jsx';
+import { watchRetainedRoute } from '../src/authoritative-app.jsx';
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the production catalog keeps the complete major workspace taxonomy discoverable');
 assert.ok(AUTHORITATIVE_ROUTES.includes('project-cost-cwip'));
@@ -15,12 +16,31 @@ assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'amor
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroup="Auto Reconciliation" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroup="Reports" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroup="General Ledger" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.match(navMarkup, /API/); assert.match(navMarkup, /Unavailable/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.match(navMarkup, /No authorised create action is available in this workspace/);
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
+assert.match(routeWinsMarkup, /<div class="nav-panel-title">Auto Reconciliation<\/div>/,
+  'the current route must select its navigation group even when an old expanded group remains');
+
+const routeListeners = new Map();
+const routeEnvironment = {
+  location:{hash:'#/bank'},
+  addEventListener:(name,listener)=>routeListeners.set(name,listener),
+  removeEventListener:(name,listener)=>{ if(routeListeners.get(name)===listener) routeListeners.delete(name); },
+};
+let mountedRoute='bank';
+const stopWatchingRoute=watchRetainedRoute(routeEnvironment,next=>{ mountedRoute=next; });
+assert.equal(routeListeners.has('hashchange'),true,'a mounted authoritative app must subscribe to browser hash navigation');
+routeEnvironment.location.hash='#/wbs-autorec-evidence';routeListeners.get('hashchange')();
+assert.equal(mountedRoute,'wbs-autorec-evidence','mounted Bank must switch to WBS when the known hash changes');
+routeEnvironment.location.hash='#/unknown-authoritative-route';routeListeners.get('hashchange')();
+assert.equal(mountedRoute,'wbs-autorec-evidence','an unknown hash must fail closed without changing the mounted workspace');
+stopWatchingRoute();
+assert.equal(routeListeners.has('hashchange'),false,'the authoritative app must remove its hash listener on unmount');
 const topbarMarkup = renderToStaticMarkup(<AuthoritativeDemoTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
 assert.match(topbarMarkup, /WBHO WB Home LLC/);
 assert.match(topbarMarkup, /Search or jump/, 'the authoritative topbar must retain the demo command-slot geometry');
