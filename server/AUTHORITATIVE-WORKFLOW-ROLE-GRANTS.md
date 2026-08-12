@@ -11,7 +11,8 @@ The approved roles are:
 - `WBS_PAYABLE_MAKER`: create an AP Bill Draft from reviewed WBS evidence and
   submit its Journal Draft. It cannot review, approve, or post.
 - `JE_REVIEWER`, `JE_APPROVER`, `JE_POSTER`: one Journal workflow stage each.
-- `BANK_MATCH_MAKER`: create or undo an exact posted-payment match.
+- `BANK_MATCH_MAKER`: create an exact posted-payment match.
+- `BANK_MATCH_REVIEWER`: undo an exact match; it cannot create one.
 - `BANK_RECONCILIATION_MAKER`: start, clear, and prepare Draft adjustments.
 - `BANK_RECONCILIATION_REVIEWER`, `BANK_RECONCILIATION_APPROVER`, and
   `BANK_RECONCILIATION_REOPENER`: one reconciliation control stage each.

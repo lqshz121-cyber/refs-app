@@ -15,6 +15,8 @@ test('workflow roles are complete mutually exclusive grant sets with no provider
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.WBS_PAYABLE_REVIEWER.includes('AP.BILL.CREATE'),false);
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.JE_REVIEWER.includes('GL.JE.APPROVE'),false);
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.JE_APPROVER.includes('GL.JE.POST'),false);
+  assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.BANK_MATCH_MAKER.includes('BANK.MATCH.UNMATCH'),false);
+  assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.BANK_MATCH_REVIEWER.includes('BANK.MATCH.CREATE'),false);
 });
 
 test('workflow role config fails closed outside staging and for unknown or malformed values',()=>{
