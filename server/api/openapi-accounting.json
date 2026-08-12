@@ -81,6 +81,32 @@
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/inbound/payables/{wbsInboundRowId}/reviews": {
+      "post": {
+        "operationId": "reviewAdmittedWbsPayable",
+        "summary": "Review one immutable admitted WBS Payable into standard staging evidence",
+        "description": "Requires WBS.PAYABLE.REVIEW and an exact immutable production Payable row, approved setting and unique approved WBS_PAYABLE_AP mapping, active local vendor and accounts, OPEN period, and verified-clean attachments. The reviewer must be distinct from ingestion and configuration actors. This materializes Raw, Source, Rule and READY_FOR_DRAFT staging evidence only; it never creates a Bill, Journal Entry, approval, posting batch, or ledger line.",
+        "parameters": [
+          {"$ref":"#/components/parameters/EntityId"},
+          {"name":"wbsInboundRowId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},
+          {"$ref":"#/components/parameters/IdempotencyKey"},
+          {"$ref":"#/components/parameters/IfMatch"}
+        ],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsPayableReview"},
+        "responses": {
+          "200":{"$ref":"#/components/responses/CommandReplay"},
+          "201":{"$ref":"#/components/responses/CommandCreated"},
+          "400":{"$ref":"#/components/responses/Problem"},
+          "401":{"$ref":"#/components/responses/Problem"},
+          "403":{"$ref":"#/components/responses/Problem"},
+          "409":{"$ref":"#/components/responses/Problem"},
+          "412":{"$ref":"#/components/responses/PreconditionFailed"},
+          "422":{"$ref":"#/components/responses/Problem"},
+          "503":{"$ref":"#/components/responses/SerializationRetryExhausted"},
+          "default":{"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/wbs/inbound/bank-statements": {
       "post": {
         "operationId": "admitSignedWbsBankStatement",
@@ -3499,6 +3525,28 @@
                   "additionalProperties": true,
                   "description": "WBS_READONLY_SNAPSHOT_V1 package. The runtime validates package hashes, one WBS company scope, stable GuId keys, and production detached-signature requirements."
                 }
+              }
+            }
+          }
+        }
+      },
+      "WbsPayableReview": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["periodId","expectedSourceVersion","expectedReceiptHash","expectedEvidenceHash","settingSnapshotId","mappingSnapshotId","attachmentIds","reason"],
+              "properties": {
+                "periodId": {"$ref":"#/components/schemas/Uuid"},
+                "expectedSourceVersion": {"type":"string","minLength":1,"maxLength":128},
+                "expectedReceiptHash": {"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+                "expectedEvidenceHash": {"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+                "settingSnapshotId": {"$ref":"#/components/schemas/Uuid"},
+                "mappingSnapshotId": {"$ref":"#/components/schemas/Uuid"},
+                "attachmentIds": {"type":"array","minItems":1,"maxItems":25,"uniqueItems":true,"items":{"$ref":"#/components/schemas/Uuid"}},
+                "reason": {"type":"string","minLength":8,"maxLength":2000}
               }
             }
           }

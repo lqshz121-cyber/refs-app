@@ -158,6 +158,22 @@ test('admitted WBS payable ingestion derives identity from authentication and fa
   assert.equal(blocked.status,503);assert.equal(blocked.body.code,'WBS_PAYABLE_ADMISSION_UNAVAILABLE');
 });
 
+test('WBS payable review binds immutable evidence, CAS, approved configuration and clean attachments without action authority',async()=>{
+  const wbsInboundRowId=randomUUID(),settingSnapshotId=randomUUID(),mappingSnapshotId=randomUUID(),attachmentId=randomUUID(),observed=[];
+  const reviewKernel={reviewWbsPayable:async request=>(observed.push(request),{wbs_payable_review_evidence_id:randomUUID(),wbs_inbound_row_id:wbsInboundRowId,source_document_id:randomUUID(),staging_item_id:randomUUID(),status:'READY_FOR_DRAFT_EVIDENCE_ONLY',revision:0,idempotent:false,can_create_draft:false,can_approve:false,can_post:false})};
+  const reviewApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-payable-reviewer'}),kernelFactory:async()=>reviewKernel});
+  const body={periodId,expectedSourceVersion:'snapshot:exact-source-version',expectedReceiptHash:`sha256:${'a'.repeat(64)}`,expectedEvidenceHash:`sha256:${'b'.repeat(64)}`,settingSnapshotId,mappingSnapshotId,attachmentIds:[attachmentId],reason:'Independent review of signed payable evidence'};
+  const path=`/api/v1/entities/${entityId}/wbs/inbound/payables/${wbsInboundRowId}/reviews`;
+  const created=await reviewApi({method:'POST',url:path,headers:{'Idempotency-Key':'wbs-payable-review-http-0001','If-Match':'"0"'},body});
+  assert.equal(created.status,201);assert.equal(created.headers.etag,'"0"');assert.deepEqual(observed,[{tenantId,entityId,wbsInboundRowId,periodId,expectedRevision:0,expectedSourceVersion:body.expectedSourceVersion,expectedReceiptHash:body.expectedReceiptHash,expectedEvidenceHash:body.expectedEvidenceHash,settingSnapshotId,mappingSnapshotId,attachmentIds:[attachmentId],reason:body.reason,idempotencyKey:'wbs-payable-review-http-0001'}]);
+  assert.deepEqual({draft:created.body.data.can_create_draft,approve:created.body.data.can_approve,post:created.body.data.can_post},{draft:false,approve:false,post:false});
+  assert.equal((await reviewApi({method:'POST',url:path,headers:{'Idempotency-Key':'wbs-payable-review-http-0002'},body})).status,428);
+  assert.equal((await reviewApi({method:'POST',url:path,headers:{'Idempotency-Key':'wbs-payable-review-http-0003','If-Match':'"0"'},body:{...body,actorId:'forged'}})).body.code,'IDENTITY_FIELD_FORBIDDEN');
+  assert.equal((await reviewApi({method:'POST',url:path,headers:{'Idempotency-Key':'wbs-payable-review-http-0004','If-Match':'"0"'},body:{...body,attachmentIds:[attachmentId,attachmentId]}})).body.code,'INVALID_ATTACHMENT_IDS');
+  const unsafe=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-payable-reviewer'}),kernelFactory:async()=>({reviewWbsPayable:async()=>({can_create_draft:true,can_approve:false,can_post:false})})});
+  assert.equal((await unsafe({method:'POST',url:path,headers:{'Idempotency-Key':'wbs-payable-review-http-0005','If-Match':'"0"'},body})).body.code,'WBS_PAYABLE_REVIEW_RESULT_INVALID');
+});
+
 test('signed WBS bank admission binds authenticated scope, requires idempotency, and grants no action authority',async()=>{
   const observed=[];const kernel={admitWbsSignedBankStatement:async request=>(observed.push(request),{statement_receipt_id:'44444444-4444-4444-8444-444444444444',snapshot_id:'55555555-5555-4555-8555-555555555555',transaction_count:2,idempotent:false})};
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'wbs-bank-importer'}),kernelFactory:async()=>kernel});

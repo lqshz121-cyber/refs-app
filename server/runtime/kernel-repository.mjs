@@ -172,6 +172,19 @@ export class PostgresAccountingKernel{
     ),'WBS_INBOUND_PERSIST_FAILED','WBS inbound persistence did not return a result').result);
   }
 
+  async reviewWbsPayable({tenantId,entityId,wbsInboundRowId,periodId,expectedRevision,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,settingSnapshotId,mappingSnapshotId,attachmentIds,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_review_wbs_payable_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) AS request_hash',
+        [tenantId,entityId,wbsInboundRowId,periodId,expectedRevision,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,settingSnapshotId,mappingSnapshotId,attachmentIds,reason]
+      ),'WBS_PAYABLE_REVIEW_HASH_FAILED','WBS payable review hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_review_wbs_payable($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) AS result',
+        [tenantId,entityId,wbsInboundRowId,periodId,expectedRevision,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,settingSnapshotId,mappingSnapshotId,attachmentIds,reason,idempotencyKey,requestHash]
+      ),'WBS_PAYABLE_REVIEW_FAILED','WBS payable review did not return a result').result;
+    });
+  }
+
   // The database function is REFS-owned and verifies receipt-backed WBS
   // sources under locks. It never invokes WBS and never creates or posts JE.
   async executeWbsAutoRecIntent({tenantId,entityId,intent}){

@@ -4,12 +4,12 @@ const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.pos
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
-  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','recordWbsSnapshot','reserveAttachment','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','verifyWbsAutoRecTransitionContract']);
+  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','recordWbsSnapshot','reserveAttachment','reviewAdmittedWbsPayable','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','verifyWbsAutoRecTransitionContract']);
 });
 
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{
   for(const operation of operations.filter(operation=>operation.operationId!=='verifyWbsAutoRecTransitionContract'))assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IdempotencyKey'));
-  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment','setReconciliationClearance','setReconciliationAdjustmentClearance','transitionReconciliation','createReconciliationAdjustmentDraft'].includes(item.operationId)))assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IfMatch'));
+  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment','setReconciliationClearance','setReconciliationAdjustmentClearance','transitionReconciliation','createReconciliationAdjustmentDraft','reviewAdmittedWbsPayable'].includes(item.operationId)))assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IfMatch'));
   assert.equal(contract.components.parameters.IfMatch.schema.pattern,'^\\\"[0-9]+\\\"$');
 });
 
@@ -27,7 +27,7 @@ test('all responses are no-store and use a structured success or problem envelop
   assert.match(contract.components.responses.Problem.description,/412/);
   assert.match(contract.components.responses.Problem.description,/503/);
   for(const operation of operations){assert.ok(operation.responses['200']);assert.ok(operation.responses['503']);assert.ok(operation.responses.default);if(operation.operationId!=='verifyWbsAutoRecTransitionContract')assert.ok(operation.responses['201']);}
-  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment','setReconciliationClearance','setReconciliationAdjustmentClearance','transitionReconciliation','createReconciliationAdjustmentDraft'].includes(item.operationId)))assert.equal(operation.responses['412'].$ref,'#/components/responses/PreconditionFailed');
+  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment','setReconciliationClearance','setReconciliationAdjustmentClearance','transitionReconciliation','createReconciliationAdjustmentDraft','reviewAdmittedWbsPayable'].includes(item.operationId)))assert.equal(operation.responses['412'].$ref,'#/components/responses/PreconditionFailed');
   assert.equal(contract.components.responses.SerializationRetryExhausted.headers['Retry-After'].schema.minimum,0);
 });
 
@@ -62,6 +62,14 @@ test('admitted Payable import requires signed explicit scope and exposes no acco
   assert.equal(operation.operationId,'ingestAdmittedWbsPayables');assert.equal(operation.requestBody.$ref,'#/components/requestBodies/WbsSnapshot');
   assert.deepEqual(operation.parameters.map(parameter=>parameter.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);
   assert.match(operation.description,/production V2 Payable snapshot/i);assert.match(operation.description,/company, currency and snapshot-token/i);assert.match(operation.description,/never writes WBS.*Draft.*posts/i);
+});
+
+test('WBS Payable review is an evidence-only CAS command with frozen server-side scope',()=>{
+  const operation=contract.paths['/entities/{entityId}/wbs/inbound/payables/{wbsInboundRowId}/reviews'].post;
+  assert.equal(operation.operationId,'reviewAdmittedWbsPayable');assert.equal(operation.requestBody.$ref,'#/components/requestBodies/WbsPayableReview');
+  assert.deepEqual(operation.parameters.filter(item=>item.$ref).map(item=>item.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey','#/components/parameters/IfMatch']);
+  assert.match(operation.description,/WBS\.PAYABLE\.REVIEW/);assert.match(operation.description,/never creates a Bill, Journal Entry, approval, posting batch, or ledger line/);
+  const body=contract.components.requestBodies.WbsPayableReview.content['application/json'].schema;assert.equal(body.additionalProperties,false);assert.ok(body.required.includes('expectedEvidenceHash'));assert.ok(body.required.includes('mappingSnapshotId'));assert.ok(body.required.includes('attachmentIds'));
 });
 
 test('signed Bank admission is a scoped evidence command that exposes no matching or reconciliation authority',()=>{
