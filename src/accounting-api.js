@@ -604,9 +604,10 @@ export async function refreshAuthoritativeChartOfAccounts({config,fetcher=global
     const code=accountCode(row?.account_code),currency=row?.currency===null?null:(/^[A-Z]{3}$/.test(row?.currency||'')?row.currency:null);
     const periodId=UUID.test(row?.period_id||'')?row.period_id:null;
     const allBalances=['opening_balance','period_debit','period_credit','ending_balance'].map(field=>row?.[field]===null?null:decimalText(row?.[field]));
-    if(!code||typeof row?.account_name!=='string'||!row.account_name||typeof row.requires_member!=='boolean'||typeof row.active!=='boolean'||periodId!==config.periodId||!PERIOD_CODE.test(row.period_code||'')||!validDate(row.period_start)||!validDate(row.period_end)||!Number.isSafeInteger(row.posted_ledger_line_count)||row.posted_ledger_line_count<0||currency!==null&&allBalances.some(value=>value===null)||currency===null&&!(allBalances.every(value=>value===null)&&row.posted_ledger_line_count===0))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Chart of Accounts row.'};
+    const postedLedgerLineCount=UNSIGNED_INTEGER.test(String(row?.posted_ledger_line_count??''))&&Number.isSafeInteger(Number(row.posted_ledger_line_count))?Number(row.posted_ledger_line_count):null;
+    if(!code||typeof row?.account_name!=='string'||!row.account_name||typeof row.requires_member!=='boolean'||typeof row.active!=='boolean'||periodId!==config.periodId||!PERIOD_CODE.test(row.period_code||'')||!validDate(row.period_start)||!validDate(row.period_end)||postedLedgerLineCount===null||currency!==null&&allBalances.some(value=>value===null)||currency===null&&!(allBalances.every(value=>value===null)&&postedLedgerLineCount===0))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Chart of Accounts row.'};
     const key=`${code}\u001f${currency||'NO_POSTED_CURRENCY'}`;if(keys.has(key))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate Chart of Accounts evidence.'};keys.add(key);
-    rows.push({...row,account_code:code,currency,opening_balance:allBalances[0],period_debit:allBalances[1],period_credit:allBalances[2],ending_balance:allBalances[3]});
+    rows.push({...row,account_code:code,currency,opening_balance:allBalances[0],period_debit:allBalances[1],period_credit:allBalances[2],ending_balance:allBalances[3],posted_ledger_line_count:postedLedgerLineCount});
   }
   return {ok:true,rows,scope:{entityId:config.entityId,periodId:config.periodId}};
 }
