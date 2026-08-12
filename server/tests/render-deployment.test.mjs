@@ -20,6 +20,13 @@ test('Render staging manifest declares every production startup secret and uses 
   assert.equal(api.type,'web');assert.equal(worker.type,'worker');assert.equal(web.type,'web');
   for(const section of [api.body,worker.body,web.body])assert.doesNotMatch(section,/buildCommand: npm install/);
   assert.match(api.body,/rootDir: server/);assert.match(api.body,/buildCommand: npm ci/);assert.match(api.body,/preDeployCommand: npm run db:up/);assert.match(api.body,/startCommand: npm start/);assert.match(api.body,/healthCheckPath: \/health\/ready/);assert.ok(hasFixed(api.body,'REFS_PG_REQUIRED','"1"'));
+  for(const [key,value] of [
+    ['REFS_DEPLOYMENT_ENV','staging'],
+    ['REFS_STAGE1_BOOTSTRAP_CONFIRM','STAGE1_AUTHORITATIVE_ONLY'],
+    ['REFS_STAGE1_SELF_GRANT_ENABLED','STAGE1_AUTHORITATIVE_ONLY'],
+    ['REFS_STAGE1_TENANT_ID','6fb25daf-0799-4805-bede-be54230da33c'],
+    ['REFS_STAGE1_ENTITY_ID','ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3'],
+  ])assert.ok(hasFixed(api.body,key,value),`API is missing durable Stage 1 setting ${key}`);
   assert.match(worker.body,/rootDir: server/);assert.match(worker.body,/buildCommand: npm ci/);assert.match(worker.body,/startCommand: npm run start:attachment-cleanup/);assert.ok(hasFixed(worker.body,'REFS_PG_REQUIRED','"1"'));
   assert.match(web.body,/runtime: static/);assert.match(web.body,/buildCommand: npm ci && npm run build/);assert.match(web.body,/staticPublishPath: \.\/dist/);assert.match(web.body,/source: \/\*/);assert.match(web.body,/destination: \/index\.html/);
   for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','OIDC_ISSUER','OIDC_AUDIENCE','OIDC_JWKS_URI','REFS_HTTP_ALLOWED_ORIGINS'])assert.ok(hasSecret(api.body,key),`API is missing ${key}`);
