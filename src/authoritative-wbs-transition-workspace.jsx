@@ -74,8 +74,8 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     </section>
 
     <section className="report-workbench" aria-label="Production WBS provider observation">
-      <div className="report-workbench-head"><div><b>Production WBS provider observation</b><div className="page-subtitle">Read one bounded, sanitized production view through the accounting API. The observation is unsigned and NOT ADMITTED: it cannot import, match, allocate, create a Draft, approve, post, or reverse.</div></div><span className="badge badge-warn">UNSIGNED PILOT</span></div>
-      <form className="filterbar" onSubmit={readLivePilot}>
+      <div className="report-workbench-head"><div><b>Production WBS provider observation</b><div className="page-subtitle">Read one bounded, sanitized production view through the accounting API. The observation is unsigned and NOT ADMITTED: it cannot import, match, allocate, create a Draft, approve, post, or reverse.</div></div><div className="authoritative-wbs-live-pilot-status" aria-label="Production WBS observation boundary"><span className="badge badge-warn">UNSIGNED PILOT</span><span className="badge badge-muted">GET ONLY</span><span className="badge badge-muted">NOT POSTABLE</span></div></div>
+      <form className="filterbar authoritative-wbs-live-pilot-controls" onSubmit={readLivePilot}>
         <label htmlFor="wbs-live-pilot-view">WBS read-only view<select id="wbs-live-pilot-view" value={liveTool} onChange={event=>{setLiveTool(event.target.value);setLiveState({phase:'IDLE',data:null,error:null});}}>{Object.entries(WBS_LIVE_PILOT_VIEWS).map(([tool,view])=><option key={tool} value={tool}>{view.label}</option>)}</select></label>
         <button type="submit" className="btn" disabled={liveState.phase==='LOADING'}>{liveState.phase==='LOADING'?'Reading production observation...':'Load production WBS observation'}</button>
       </form>

@@ -958,8 +958,12 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-wbs-review-table th:nth-child(4),.authoritative-wbs-review-table td:nth-child(4){width:150px;}
 .authoritative-wbs-review-table th:nth-child(8),.authoritative-wbs-review-table td:nth-child(8){width:110px;}
 .authoritative-wbs-control-table .tbl{min-width:760px;table-layout:fixed;}
+.authoritative-wbs-live-pilot-status{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;}
+.authoritative-wbs-live-pilot-controls select,.authoritative-wbs-live-pilot-controls .btn{min-height:44px;}
+.authoritative-wbs-live-pilot-table .tbl{min-width:1040px;table-layout:fixed;}
+.authoritative-wbs-live-pilot-table th:first-child,.authoritative-wbs-live-pilot-table td:first-child{width:260px;}
 @media (max-width:900px){.authoritative-wbs-transition-scope{grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);}.authoritative-wbs-transition-scope p{grid-column:2/-1;}.authoritative-wbs-transition-boundaries{grid-template-columns:1fr;}.authoritative-wbs-transition-verifier{grid-template-columns:1fr;}.authoritative-wbs-transition-evidence-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
-@media (max-width:600px){.authoritative-wbs-transition-header{flex-direction:column;gap:10px;}.authoritative-wbs-transition-status{justify-content:flex-start;}.authoritative-wbs-transition-scope{grid-template-columns:auto minmax(0,1fr);padding:14px;}.authoritative-wbs-transition-scope p{grid-column:1/-1;}.authoritative-wbs-transition-verifier,.authoritative-wbs-transition-verified{padding:16px;}.authoritative-wbs-transition-evidence-grid{grid-template-columns:1fr;}.authoritative-wbs-transition-form-actions .btn{width:100%;}}
+@media (max-width:600px){.authoritative-wbs-transition-header{flex-direction:column;gap:10px;}.authoritative-wbs-transition-status,.authoritative-wbs-live-pilot-status{justify-content:flex-start;}.authoritative-wbs-transition-scope{grid-template-columns:auto minmax(0,1fr);padding:14px;}.authoritative-wbs-transition-scope p{grid-column:1/-1;}.authoritative-wbs-transition-verifier,.authoritative-wbs-transition-verified{padding:16px;}.authoritative-wbs-transition-evidence-grid{grid-template-columns:1fr;}.authoritative-wbs-transition-form-actions .btn{width:100%;}}
 
 /* Authoritative Journal register.  This deliberately mirrors the hierarchy of
    the established Journal workspace without inheriting its local queue, draft,
