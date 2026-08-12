@@ -6,7 +6,11 @@ export const WBS_LIVE_PILOT_TOOLS=Object.freeze(['list_payables','list_bank_tran
 const STABLE_KEY=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
 const CONTROL=/[\u0000-\u001f\u007f]/;
 const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
-const token=value=>typeof value==='string'&&/^[A-Z][A-Z0-9_:-]{0,63}$/.test(value)?value:null;
+const token=value=>{
+  if(typeof value!=='string')return null;
+  const normalized=value.trim().toUpperCase();
+  return /^[A-Z0-9][A-Z0-9_:-]{0,63}$/.test(normalized)?normalized:null;
+};
 const date=value=>{
   if(typeof value!=='string')return null;
   const raw=value.trim(),prefix=/^\d{4}-\d{2}-\d{2}/.test(raw)?raw.slice(0,10):'';
@@ -73,8 +77,8 @@ export function createWbsLivePilotReadService({client,authorize}={}){
     read_only:true,
     async readObservation({tenantId,entityId,tool,limit}={}){
       if(!tenantId||!entityId||!WBS_LIVE_PILOT_TOOLS.includes(tool)||!Number.isSafeInteger(limit)||limit<1||limit>10)fail('WBS_LIVE_PILOT_SELECTION_INVALID','A scoped approved WBS pilot selection is required.');
-      await authorize({tenantId,entityId});await prepare();
-      let observed;try{observed=await client.readView({toolName:tool,args:{limit}});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider response was unavailable or unsafe.');}
+      await authorize({tenantId,entityId});
+      let observed;try{await prepare();observed=await client.readView({toolName:tool,args:{limit}});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider response was unavailable or unsafe.');}
       const companyCodes=Array.isArray(observed.scope?.company_codes)&&observed.scope.company_codes.every(value=>typeof value==='string'&&value.length<=128&&!CONTROL.test(value))?[...observed.scope.company_codes]:[];
       const rows=observed.rows.map(row=>sanitizeRow(tool,plain(row)?row:{}));
       const sourceDateRange=Array.isArray(observed.scope?.date_range)?observed.scope.date_range:[];
