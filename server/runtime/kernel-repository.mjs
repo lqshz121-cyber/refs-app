@@ -198,6 +198,18 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async listWbsPayableReviewEvidence({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_wbs_payable_review_evidence($1,$2,NULL,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async getWbsPayableReviewEvidence({tenantId,entityId,reviewEvidenceId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_wbs_payable_review_evidence($1,$2,$3,1)',[tenantId,entityId,reviewEvidenceId]
+    )).rows);
+  }
+
   // The database function is REFS-owned and verifies receipt-backed WBS
   // sources under locks. It never invokes WBS and never creates or posts JE.
   async executeWbsAutoRecIntent({tenantId,entityId,intent}){

@@ -1,0 +1,33 @@
+import React,{useEffect,useState} from 'react';
+import {createAuthoritativeWbsPayableApDraft,refreshAuthoritativeWbsPayableReviewEvidence} from './accounting-api.js';
+import {StateBlock} from './ui.jsx';
+
+const compact=value=>value||'Unavailable';
+
+export function AuthoritativeWbsPayableWorkspace({config,fetcher=globalThis.fetch,onAccountingRefresh=()=>{}}){
+  const [state,setState]=useState({phase:'LOADING',rows:[],error:null});
+  const [selected,setSelected]=useState(null);
+  const [reason,setReason]=useState('Create an AP Bill Draft from the exact reviewed WBS Payable evidence');
+  const [command,setCommand]=useState({phase:'IDLE',error:null,data:null});
+  const load=async()=>{setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeWbsPayableReviewEvidence({config,fetcher});setState(result.ok?{phase:'READY',rows:result.rows,error:null}:{phase:'BLOCKED',rows:[],error:result});if(result.ok&&selected){const current=result.rows.find(row=>row.wbs_payable_review_evidence_id===selected.wbs_payable_review_evidence_id)||null;setSelected(current);}};
+  useEffect(()=>{void load();},[config?.entityId]);
+  const open=async row=>{setCommand({phase:'IDLE',error:null,data:null});const result=await refreshAuthoritativeWbsPayableReviewEvidence({config,reviewEvidenceId:row.wbs_payable_review_evidence_id,fetcher});if(result.ok)setSelected(result.row);else setState(current=>({...current,phase:'BLOCKED',error:result}));};
+  const createDraft=async event=>{event.preventDefault();if(!selected)return;setCommand({phase:'LOADING',error:null,data:null});const idempotencyKey=`WBS-AP-DRAFT-${selected.wbs_payable_review_evidence_id}-${selected.revision}`;const result=await createAuthoritativeWbsPayableApDraft({config,evidence:selected,reason,idempotencyKey,fetcher});if(!result.ok){setCommand({phase:'BLOCKED',error:result,data:null});return;}setCommand({phase:'READY',error:null,data:result.data});await Promise.resolve(onAccountingRefresh());await load();};
+  if(selected)return <section className="report-workbench authoritative-wbs-payable-detail" aria-label="Reviewed WBS Payable evidence detail">
+    <button type="button" className="btn btn-ghost" onClick={()=>{setSelected(null);setCommand({phase:'IDLE',error:null,data:null});}}>Back to reviewed WBS Payables</button>
+    <div className="report-workbench-head"><div><b>Reviewed WBS Payable evidence</b><div className="page-subtitle">Exact retained review facts. Provider raw payloads, credentials, and signatures are not exposed.</div></div><span className={`badge ${selected.can_create_draft?'badge-ok':'badge-muted'}`}>{selected.draft_readiness}</span></div>
+    <div className="qbo-toolgrid"><span><i>Invoice</i><b>{compact(selected.document_number)}</b></span><span><i>Vendor</i><b>{selected.vendor_name} / {selected.vendor_ref}</b></span><span><i>Accounting date</i><b>{selected.accounting_date}</b></span><span><i>Due date</i><b>{compact(selected.due_date)}</b></span><span><i>Amount</i><b>{selected.currency} {selected.gross_amount}</b></span><span><i>Offset account</i><b>{selected.offset_account_code}</b></span><span><i>Reviewer</i><b>{selected.reviewed_by}</b></span><span><i>Attachments</i><b>{selected.attachment_ids.length} verified IDs retained</b></span></div>
+    <div className="report-shelf"><span className="report-shelf-chip">Evidence {selected.wbs_payable_review_evidence_id}</span><span className="report-shelf-chip">Revision {selected.revision}</span><span className="report-shelf-chip">Period {selected.period_id}</span><span className="report-shelf-chip">Mapping {selected.mapping_snapshot_id}</span></div>
+    <p className="muted sm">Review reason: {selected.review_reason}</p>
+    {selected.can_create_draft?<form className="filterbar" onSubmit={createDraft}><label htmlFor="wbs-payable-maker-reason">Maker reason<textarea id="wbs-payable-maker-reason" required minLength="8" maxLength="2000" rows="3" value={reason} onChange={event=>setReason(event.target.value)}/></label><button type="submit" className="btn btn-primary" disabled={command.phase==='LOADING'}>{command.phase==='LOADING'?'Creating AP Draft...':'Create AP Bill Draft'}</button></form>:<StateBlock tone="blocked" title="AP Draft unavailable">The server revalidated this evidence as {selected.draft_readiness}. No Draft command is enabled.</StateBlock>}
+    {command.phase==='BLOCKED'&&<StateBlock tone="blocked" title={command.error?.code||'WBS_PAYABLE_AP_DRAFT_BLOCKED'}>{command.error?.message}</StateBlock>}
+    {command.phase==='READY'&&<StateBlock tone="success" title="AP Bill and AUTO Journal Draft created">Bill {command.data.business_document_id} and Journal {command.data.journal_entry_id} were created as Drafts. Nothing was submitted, reviewed, approved, or posted.</StateBlock>}
+  </section>;
+  return <section className="report-workbench authoritative-wbs-payable-list" aria-label="Reviewed WBS Payable evidence">
+    <div className="report-workbench-head"><div><b>Reviewed WBS Payables</b><div className="page-subtitle">Read exact 094 review evidence and create only a server-revalidated AP Bill/AUTO Journal Draft.</div></div><button type="button" className="btn" disabled={state.phase==='LOADING'} onClick={load}>{state.phase==='LOADING'?'Refreshing...':'Refresh evidence'}</button></div>
+    {state.phase==='LOADING'&&<StateBlock tone="loading" title="Loading reviewed WBS Payables">Reading retained PostgreSQL evidence only.</StateBlock>}
+    {state.phase==='BLOCKED'&&<StateBlock tone="blocked" title={state.error?.code||'WBS_PAYABLE_EVIDENCE_BLOCKED'}>{state.error?.message}</StateBlock>}
+    {state.phase==='READY'&&state.rows.length===0&&<StateBlock tone="empty" title="No reviewed WBS Payables">No immutable READY_FOR_DRAFT review evidence exists for this entity.</StateBlock>}
+    {state.rows.length>0&&<div className="table-wrap" role="region" tabIndex={0} aria-label="Reviewed WBS Payables; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Invoice</th><th>Vendor</th><th>Date</th><th>Due</th><th>Amount</th><th>Reviewer</th><th>Readiness</th><th>Action</th></tr></thead><tbody>{state.rows.map(row=><tr key={row.wbs_payable_review_evidence_id}><td>{row.document_number}</td><td>{row.vendor_name}</td><td>{row.accounting_date}</td><td>{compact(row.due_date)}</td><td>{row.currency} {row.gross_amount}</td><td>{row.reviewed_by}</td><td>{row.draft_readiness}</td><td><button type="button" className="btn btn-sm" onClick={()=>open(row)}>Open evidence</button></td></tr>)}</tbody></table></div>}
+  </section>;
+}

@@ -72,6 +72,16 @@ test('WBS Payable review is an evidence-only CAS command with frozen server-side
   const body=contract.components.requestBodies.WbsPayableReview.content['application/json'].schema;assert.equal(body.additionalProperties,false);assert.ok(body.required.includes('expectedEvidenceHash'));assert.ok(body.required.includes('mappingSnapshotId'));assert.ok(body.required.includes('attachmentIds'));
 });
 
+test('reviewed WBS Payable evidence is a dual-permission closed GET contract',()=>{
+  const list=contract.paths['/entities/{entityId}/wbs/inbound/payables/reviews'].get;
+  const detail=contract.paths['/entities/{entityId}/wbs/inbound/payables/reviews/{reviewEvidenceId}'].get;
+  assert.equal(list.operationId,'listReviewedWbsPayableEvidence');assert.equal(detail.operationId,'getReviewedWbsPayableEvidence');
+  assert.match(list.description,/WBS\.AUTOREC\.VIEW/);assert.match(list.description,/AP\.VIEW/);assert.match(detail.description,/WBS\.AUTOREC\.VIEW/);assert.match(detail.description,/AP\.VIEW/);
+  assert.equal(list.responses['200'].$ref,'#/components/responses/WbsPayableEvidenceListOk');assert.equal(detail.responses['200'].$ref,'#/components/responses/WbsPayableEvidenceDetailOk');
+  const row=contract.components.schemas.WbsPayableEvidenceReadRow;assert.equal(row.additionalProperties,false);assert.ok(row.required.includes('draft_readiness'));assert.ok(row.required.includes('can_create_draft'));
+  for(const forbidden of ['raw_payload','provider_request','provider_response','provider_secret','signature','access_token'])assert.equal(row.properties[forbidden],undefined);
+});
+
 test('reviewed WBS Payable AP Draft derives every accounting fact from immutable review evidence',()=>{
   const operation=contract.paths['/entities/{entityId}/wbs/inbound/payables/{wbsInboundRowId}/drafts'].post;
   assert.equal(operation.operationId,'createReviewedWbsPayableApDraft');assert.equal(operation.requestBody.$ref,'#/components/requestBodies/WbsPayableApDraft');

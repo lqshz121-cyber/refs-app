@@ -81,6 +81,24 @@
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/inbound/payables/reviews": {
+      "get": {
+        "operationId":"listReviewedWbsPayableEvidence",
+        "summary":"List reviewed WBS Payable evidence and current AP Draft readiness",
+        "description":"Requires both WBS.AUTOREC.VIEW and AP.VIEW. Returns only closed retained 094 review facts plus server-revalidated readiness. It exposes no raw provider payload, credential, signature, or command authority.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":50,"default":50}}],
+        "responses":{"200":{"$ref":"#/components/responses/WbsPayableEvidenceListOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/inbound/payables/reviews/{reviewEvidenceId}": {
+      "get": {
+        "operationId":"getReviewedWbsPayableEvidence",
+        "summary":"Read one reviewed WBS Payable evidence record",
+        "description":"Requires both WBS.AUTOREC.VIEW and AP.VIEW. Returns one exact retained review and current server readiness; this GET cannot create a Draft or perform an accounting transition.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"reviewEvidenceId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses":{"200":{"$ref":"#/components/responses/WbsPayableEvidenceDetailOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/inbound/payables/{wbsInboundRowId}/reviews": {
       "post": {
         "operationId": "reviewAdmittedWbsPayable",
@@ -1879,6 +1897,18 @@
       }
     },
     "schemas": {
+      "WbsPayableEvidenceReadRow": {
+        "type":"object","additionalProperties":false,
+        "required":["wbs_payable_review_evidence_id","wbs_inbound_row_id","source_document_id","staging_item_id","period_id","document_number","invoice_date","due_date","accounting_date","currency","gross_amount","vendor_ref","vendor_name","offset_account_code","mapping_snapshot_id","attachment_ids","evidence_hash","review_reason","reviewed_by","reviewed_at","revision","evidence_status","draft_readiness","can_create_draft","business_document_id","journal_entry_id"],
+        "properties":{
+          "wbs_payable_review_evidence_id":{"$ref":"#/components/schemas/Uuid"},"wbs_inbound_row_id":{"$ref":"#/components/schemas/Uuid"},"source_document_id":{"$ref":"#/components/schemas/Uuid"},"staging_item_id":{"$ref":"#/components/schemas/Uuid"},"period_id":{"$ref":"#/components/schemas/Uuid"},
+          "document_number":{"type":"string","minLength":1,"maxLength":128},"invoice_date":{"type":"string","format":"date"},"due_date":{"type":["string","null"],"format":"date"},"accounting_date":{"type":"string","format":"date"},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"gross_amount":{"$ref":"#/components/schemas/Money"},
+          "vendor_ref":{"type":"string","minLength":1,"maxLength":255},"vendor_name":{"type":"string","minLength":1,"maxLength":255},"offset_account_code":{"type":"string","minLength":1,"maxLength":64},"mapping_snapshot_id":{"$ref":"#/components/schemas/Uuid"},"attachment_ids":{"type":"array","minItems":1,"maxItems":25,"uniqueItems":true,"items":{"$ref":"#/components/schemas/Uuid"}},"evidence_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"review_reason":{"type":"string","minLength":8,"maxLength":2000},"reviewed_by":{"type":"string","minLength":1,"maxLength":255},"reviewed_at":{"type":"string","format":"date-time"},"revision":{"type":"integer","minimum":0},
+          "evidence_status":{"type":"string","enum":["READY_FOR_DRAFT_EVIDENCE_ONLY","DRAFT_CREATED"]},"draft_readiness":{"type":"string","enum":["READY_FOR_AP_DRAFT","ALREADY_DRAFTED","MAKER_PERMISSION_REQUIRED","MAKER_REVIEWER_SOD","PERIOD_NOT_OPEN","ATTACHMENT_EVIDENCE_CHANGED","EVIDENCE_REVALIDATION_FAILED"]},"can_create_draft":{"type":"boolean"},"business_document_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"journal_entry_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]}
+        }
+      },
+      "WbsPayableEvidenceListEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","maxItems":50,"items":{"$ref":"#/components/schemas/WbsPayableEvidenceReadRow"}}}},
+      "WbsPayableEvidenceDetailEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/WbsPayableEvidenceReadRow"}}},
       "Uuid": {
         "type": "string",
         "format": "uuid"
@@ -4525,6 +4555,8 @@
       }
     },
     "responses": {
+      "WbsPayableEvidenceListOk":{"description":"Reviewed WBS Payable evidence list.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableEvidenceListEnvelope"}}}},
+      "WbsPayableEvidenceDetailOk":{"description":"Reviewed WBS Payable evidence detail.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableEvidenceDetailEnvelope"}}}},
       "CommandCreated": {
         "description": "New command accepted",
         "headers": {
