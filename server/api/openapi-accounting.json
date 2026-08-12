@@ -81,6 +81,16 @@
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/inbound/bank-statements": {
+      "post": {
+        "operationId": "admitSignedWbsBankStatement",
+        "summary": "Admit one signed WBS bank statement without starting reconciliation",
+        "description": "Accepts one closed WBS_SIGNED_BANK_ADMISSION_V1 manifest. The authenticated tenant and path entity are authoritative; the database requires WBS.BANK.ADMIT and an exact previously admitted production snapshot. It creates immutable statement/source evidence only and never matches, reconciles, creates a Draft, or posts.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["admission"],"properties":{"admission":{"type":"object","additionalProperties":true,"description":"Exact signed WBS_SIGNED_BANK_ADMISSION_V1 manifest; validated fail-closed by the runtime."}}}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/attachments/reservations": {
       "post": {
         "operationId": "reserveAttachment",
