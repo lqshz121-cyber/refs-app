@@ -62,11 +62,8 @@ const STATES = {
   RUNTIME_CHANNEL_MISMATCH: {
     title: 'Deployment assets disagree',
     happened:
-      'The build stamp and the deployment adapter describe different kinds of ' +
-      'deployment. One says this is the public demonstration build; the other says ' +
-      'it is an authoritative deployment. REFS will not run a demonstration ' +
-      'data set under an authoritative build, and will not present a demonstration ' +
-      'build as authoritative.',
+      'The build stamp and deployment adapter describe incompatible release modes. ' +
+      'REFS refuses to load accounting data until the deployment identity is consistent.',
     next:
       'Republish the site so that refs-build.js and refs-runtime-config.js are ' +
       'produced by the same build step. Until then no data of either kind is shown.',
@@ -318,7 +315,7 @@ export function RuntimeErrorPanel({ code, detail, onRetry, onSignIn, extraAction
     <p>{state.next}</p>
     {detail ? <p className="muted sm">Reported detail: {detail}</p> : null}
     <p className="muted sm">Error code: {label}</p>
-    <p className="muted sm">No demonstration or browser-stored data is shown in place of accounting data.</p>
+    <p className="muted sm">No browser-stored or substitute data is shown in place of accounting data.</p>
   </StateBlock>;
 }
 

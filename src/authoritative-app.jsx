@@ -331,7 +331,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   if (typeof environment?.document === 'undefined') return <main className="login-shell"><section className="login-card"><h1>Authoritative accounting</h1><p>Secure OIDC session verification is in progress.</p></section></main>;
   if (phase === 'CHECKING_IDENTITY') return <main className="login-shell"><section className="login-card"><h1>Verifying identity</h1><p>Checking the configured OIDC session before loading accounting data.</p></section></main>;
   if (phase === 'LOGIN_REQUIRED' || phase === 'IDENTITY_FAILED') return <main className="login-shell"><section className="login-card">
-    <h1>Sign in to authoritative accounting</h1><p>Use the configured OIDC provider. No demo identity or browser accounting state is available in this mode.</p>
+    <h1>Sign in to authoritative accounting</h1><p>Use the configured OIDC provider. Accounting records are read only from the authenticated API in this mode.</p>
     <RuntimeErrorPanel code={error?.code || 'OIDC_LOGIN_REQUIRED'} detail={error?.message} onSignIn={startLogin}/>
     <button type="button" className="btn btn-primary login-btn" onClick={startLogin}>Continue with secure sign-in</button>
   </section></main>;
