@@ -109,6 +109,20 @@ export function stage1AuthenticatedGrantConfig(environment=process.env){
   });
 }
 
+// Opt-in configuration for the authoritative site's one-click Stage 1 reader
+// activation.  It intentionally contains no user identity: the API derives
+// that exclusively from the OIDC-authenticated request.
+export function stage1SelfGrantConfig(environment=process.env){
+  if(String(environment.REFS_STAGE1_SELF_GRANT_ENABLED||'')!=='STAGE1_AUTHORITATIVE_ONLY')return null;
+  exactStaging(environment);
+  return Object.freeze({
+    tenantId:uuid(required(environment,'REFS_STAGE1_TENANT_ID'),'REFS_STAGE1_TENANT_ID'),
+    entityId:uuid(required(environment,'REFS_STAGE1_ENTITY_ID'),'REFS_STAGE1_ENTITY_ID'),
+    expectedVersion:0,
+    permissions:[...STAGE1_READ_PERMISSIONS],
+  });
+}
+
 const normalizedRow=row=>Object.fromEntries(Object.entries(row).map(([key,value])=>[key,value instanceof Date?value.toISOString().slice(0,10):value]));
 const same=(actual,expected)=>canonicalRequestHash(normalizedRow(actual))===canonicalRequestHash(expected);
 const conflict=(label)=>{throw new KernelError('STAGE1_BOOTSTRAP_STATE_CONFLICT',`${label} conflicts with the requested immutable staging scope`);};

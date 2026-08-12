@@ -7,6 +7,19 @@ const kernel={createManualJournal:invoke('createManualJournal'),createAutoJourna
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
+test('self-service Stage 1 activation derives only the signed-in principal and fixed entity scope',async()=>{
+  const activationCalls=[];
+  const selfService=createAccountingApi({
+    authenticate:async()=>({trusted:true,tenantId,actorId:'oidc|reader'}),kernelFactory:async()=>kernel,
+    stage1SelfGrantServiceFactory:async principal=>({grant:async input=>{activationCalls.push([principal,input]);return {idempotent:false,permissionCount:5};}})
+  });
+  const response=await selfService({method:'POST',url:`/api/v1/entities/${entityId}/access/self-service-read-grant/activate`,body:{},headers:{'Idempotency-Key':'reader-activation-0001'}});
+  assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');
+  assert.deepEqual(activationCalls,[[{trusted:true,tenantId,actorId:'oidc|reader'},{entityId,idempotencyKey:'reader-activation-0001'}]]);
+  const disabled=await api({method:'POST',url:`/api/v1/entities/${entityId}/access/self-service-read-grant/activate`,body:{},headers:{'Idempotency-Key':'reader-activation-0001'}});
+  assert.equal(disabled.status,404);
+});
+
 test('manual command derives tenant/entity/actor boundary from authenticated context',async()=>{
   calls.length=0;const body={periodId,journalNumber:'JE-1',journalDate:'2026-08-02',currency:'USD',attachmentIds:[],lines:[]};
   const response=await command(`/api/v1/entities/${entityId}/journal-entries/manual`,body);

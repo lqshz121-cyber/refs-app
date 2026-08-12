@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { accountingApiConfig, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries } from './accounting-api.js';
+import { accountingApiConfig, activateAuthoritativeReadAccess, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries } from './accounting-api.js';
 import { AuthoritativeSourceDocumentsWorkspace } from './authoritative-source-documents-workspace.jsx';
 import { BrowserOidcClient, RENEWAL_MIN_INTERVAL_MS, oidcRuntimeConfig, silentRenewalSchedule } from './oidc-client.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
@@ -326,6 +326,14 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     try { await oidcClient.startLogin(); }
     catch { setError({ code:'OIDC_CONFIGURATION_REQUIRED', message:'The configured OIDC provider could not start a secure PKCE login.' }); setPhase('IDENTITY_FAILED'); }
   };
+  const activateReadAccess = async () => {
+    if(!config) return;
+    setError(null);
+    const idempotencyKey=`reader-activation-${globalThis.crypto?.randomUUID?.()||Date.now().toString(36)}`;
+    const result=await activateAuthoritativeReadAccess({config,fetcher:boundFetcher,idempotencyKey});
+    if(result.ok){ setPhase('AUTHENTICATED'); return; }
+    setError(result);
+  };
   const logout = () => { oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED'); };
   if (!configured) return <RuntimeErrorPage code="CONFIGURATION_REQUIRED"/>;
   if (typeof environment?.document === 'undefined') return <main className="login-shell"><section className="login-card"><h1>Authoritative accounting</h1><p>Secure OIDC session verification is in progress.</p></section></main>;
@@ -339,7 +347,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   // problem, so it does not offer a sign-in retry. Switching identity is the
   // only action that could change the outcome, and it is offered as itself.
   if (phase === 'ACCESS_DENIED') return <RuntimeErrorPage code="AUTHORIZATION_DENIED" detail={error?.message}
-    extraActions={<button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button>}/>;
+    extraActions={<><button type="button" className="btn btn-sm btn-primary" onClick={activateReadAccess}>Activate read access</button><button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button></>}/>;
   if (phase === 'LOAD_FAILED' && !data.journals.length && !data.ap.bills.length && !data.ar.invoices.length) {
     return <RuntimeErrorPage code={error?.code} detail={error?.message} onRetry={refresh} onSignIn={startLogin}
       extraActions={<button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button>}/>;
