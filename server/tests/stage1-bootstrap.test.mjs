@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {STAGE1_READ_PERMISSIONS,grantStage1AuthenticatedReadAccess,grantStage1ReadAccess,stage1AuthenticatedGrantConfig,stage1GrantConfig,stage1ProvisionConfig} from '../runtime/stage1-bootstrap.mjs';
+import {STAGE1_READ_PERMISSIONS,grantStage1AuthenticatedReadAccess,grantStage1ReadAccess,stage1AuthenticatedGrantConfig,stage1GrantConfig,stage1ProvisionConfig,stage1SelfGrantConfig} from '../runtime/stage1-bootstrap.mjs';
 
 const serverRoot=fileURLToPath(new URL('..',import.meta.url));
 
@@ -32,6 +32,14 @@ test('Stage 1 bootstrap refuses non-staging execution, invalid scope, incomplete
     {...base,REFS_STAGE1_CASH_ACCOUNT_CODE:'291001'},
   ])assert.throws(()=>stage1ProvisionConfig(environment),error=>error.code==='STAGE1_BOOTSTRAP_ENV_DENIED'||error.code==='STAGE1_BOOTSTRAP_CONFIG_INVALID');
   assert.throws(()=>stage1GrantConfig({...base,REFS_STAGE1_OIDC_SUBJECT:' '}),error=>error.code==='STAGE1_BOOTSTRAP_CONFIG_MISSING');
+});
+
+test('self-service reader activation is disabled unless the explicit staging-only flag is present',()=>{
+  assert.equal(stage1SelfGrantConfig(base),null);
+  const config=stage1SelfGrantConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY'});
+  assert.deepEqual(config.permissions,STAGE1_READ_PERMISSIONS);
+  assert.equal(config.expectedVersion,0);
+  assert.throws(()=>stage1SelfGrantConfig({...base,REFS_STAGE1_SELF_GRANT_ENABLED:'STAGE1_AUTHORITATIVE_ONLY',REFS_DEPLOYMENT_ENV:'production'}),error=>error.code==='STAGE1_BOOTSTRAP_ENV_DENIED');
 });
 
 test('Stage 1 grant wrapper refuses an altered permission set before reaching PostgreSQL',async()=>{

@@ -131,6 +131,17 @@ export async function refreshAuthoritativeDocuments({config,fetcher=globalThis.f
   try{const [bills,invoices,apAdjustments,arAdjustments]=await Promise.all([read('/ap/bills','AP_BILLS'),read('/ar/invoices','AR_INVOICES'),read('/ap/adjustments','AP_ADJUSTMENTS'),read('/ar/adjustments','AR_ADJUSTMENTS')]);const refused=[bills,invoices,apAdjustments,arAdjustments].find(result=>!result.ok);if(refused)return refused;const apBills=bills.data.map(row=>documentRow(row,'AP_BILL')),arInvoices=invoices.data.map(row=>documentRow(row,'AR_INVOICE')),apRows=apAdjustments.data.map(row=>adjustmentRow(row,'AP')),arRows=arAdjustments.data.map(row=>adjustmentRow(row,'AR')),documentIds=[...apBills,...arInvoices].map(row=>row?.business_document_id),adjustmentIds=[...apRows,...arRows].map(row=>row?.business_adjustment_id);if([...apBills,...arInvoices,...apRows,...arRows].some(row=>row===null)||new Set(documentIds).size!==documentIds.length||new Set(adjustmentIds).size!==adjustmentIds.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate AP/AR evidence row.'};return {ok:true,ap:{bills:apBills,adjustments:apRows,dupBlocked:0},ar:{invoices:arInvoices,adjustments:arRows}};}catch{return unreachable('The browser could not complete the authoritative accounting read; no HTTP response was produced.');}
 }
 
+export async function activateAuthoritativeReadAccess({config,fetcher=globalThis.fetch,idempotencyKey}={}){
+  if(!config||typeof fetcher!=='function'||typeof idempotencyKey!=='string'||idempotencyKey.length<8)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Reader activation requires an authoritative scope.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/access/self-service-read-grant/activate`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:'{}'});
+    if(!response.ok)return await failure(response,'AUTHORITATIVE_READ_ACCESS');
+    const body=await response.json();
+    return body?.ok===true&&body?.data?.activated===true&&body.data.permission_count===5?{ok:true}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Reader activation returned an invalid response.'};
+  }catch{return unreachable('The browser could not complete the authoritative reader activation; no HTTP response was produced.');}
+}
+
 export async function refreshAuthoritativeJournalEntries({config,fetcher=globalThis.fetch}={}){
   if(!config||typeof fetcher!=='function')return notConfigured();
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
