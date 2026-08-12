@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { AuthoritativeJournalDetail, AuthoritativeJournalWorkspace, AuthoritativeJournalTable } from '../src/authoritative-journal-workspace.jsx';
+import { AuthoritativeJournalDetail, AuthoritativeJournalWorkspace, AuthoritativeJournalTable, nextAuthoritativeJournalWorkflowAction, runAuthoritativeJournalWorkflow } from '../src/authoritative-journal-workspace.jsx';
 
 const entityId='11111111-1111-4111-8111-111111111111';
 const periodId='33333333-3333-4333-8333-333333333333';
@@ -23,6 +23,12 @@ assert.match(list,/Journal entry presentation filters/); assert.match(list,/id="
 assert.match(list,/class="table-wrap authoritative-journal-table" tabindex="0" aria-label="Journal entry list; scroll horizontally to view every column"/,
   'the eight-column Journal list must be keyboard-focusable and contained by its own horizontal scroller');
 assert.doesNotMatch(list,/>Submit<|>Review<|>Approve<|>Post<|>Reverse</i);
+const permissions={entity_id:entityId,can_submit:true,can_review:false,can_approve:false,can_post:false};
+const actionableList=renderToStaticMarkup(<AuthoritativeJournalTable journals={[journal]} entityId={entityId} capabilities={permissions} onOpen={()=>{}} onWorkflowAction={()=>{}}/>);
+assert.match(actionableList,/>Submit</);assert.doesNotMatch(actionableList,/>Review<|>Approve<|>Post</);
+assert.equal(nextAuthoritativeJournalWorkflowAction(journal,permissions,entityId).action,'SUBMIT');
+assert.equal(nextAuthoritativeJournalWorkflowAction({...journal,status:'PENDING_REVIEW'},permissions,entityId),null,'a status without the exact fixed server capability must have no action');
+assert.equal(nextAuthoritativeJournalWorkflowAction(journal,permissions,'99999999-9999-4999-8999-999999999999'),null,'a capability response from another entity must have no action');
 
 const returnContext={entityId,periodId,journalId:journal.journal_entry_id,journalRevision:journal.revision,journalCurrency:'USD',view:{query:'JE-100',status:'POSTED',from:'2026-08-01',through:'2026-08-31',page:2}};
 const detail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journal} entityId={entityId} returnContext={returnContext} onBack={()=>{}}/>);
@@ -78,4 +84,15 @@ assert.match(styles,/\.authoritative-journal-table \.tbl\{min-width:1060px;table
 assert.match(styles,/\.authoritative-journal-line-table \.tbl\{min-width:1420px;table-layout:fixed;\}/,
   'exact Journal line evidence must remain in a keyboard-focusable local table scroller');
 
-console.log('authoritative-journal-evidence: API-only journal register, full-page evidence, Back/focus, lineage block, and empty-state contracts verified');
+async function verifyJournalWorkflow(){
+  let workflowCalls=[];
+  const workflowFetcher=async(url,options)=>{workflowCalls.push({url,options});if(url.endsWith('/journal-workflow/capabilities'))return {ok:true,json:async()=>({ok:true,data:permissions})};if(url.includes('/transitions/submit'))return {ok:true,status:201,json:async()=>({ok:true,data:{status:'PENDING_REVIEW',revision:4}})};return {ok:true,json:async()=>({ok:true,data:[{...journal,status:'PENDING_REVIEW',revision:'4'}]})};};
+  const cancelled=await runAuthoritativeJournalWorkflow({journal,config:{baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>('x'.repeat(24))},fetcher:workflowFetcher,environment:{confirm:()=>false}});
+  assert.equal(cancelled.cancelled,true);assert.equal(workflowCalls.length,1,'cancelling after a fresh capability read must not dispatch a workflow command');
+  workflowCalls=[];const completed=await runAuthoritativeJournalWorkflow({journal,config:{baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>('x'.repeat(24))},fetcher:workflowFetcher,environment:{confirm:()=>true}});
+  assert.equal(completed.ok,true);assert.equal(completed.action,'SUBMIT');assert.equal(workflowCalls.length,3);assert.match(workflowCalls[1].url,/\/transitions\/submit$/);assert.equal(workflowCalls[1].options.headers['if-match'],'"3"');assert.equal(workflowCalls[1].options.headers['idempotency-key'],`UI-JE-${journal.journal_entry_id}-3-SUBMIT`);assert.match(workflowCalls[2].url,/\/journal-entries$/);
+  const refreshFailed=await runAuthoritativeJournalWorkflow({journal,config:{baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>('x'.repeat(24))},fetcher:async(url)=>{if(url.endsWith('/journal-workflow/capabilities'))return {ok:true,json:async()=>({ok:true,data:permissions})};if(url.includes('/transitions/submit'))return {ok:true,status:201,json:async()=>({ok:true,data:{status:'PENDING_REVIEW',revision:4}})};return {ok:false,status:503,json:async()=>({ok:false})};},environment:{confirm:()=>true}});
+  assert.equal(refreshFailed.commandCommitted,true);assert.equal(refreshFailed.code,'JOURNAL_WORKFLOW_REFRESH_REQUIRED');
+  console.log('authoritative-journal-evidence: API-only journal register, full-page evidence, Back/focus, lineage block, and workflow capability contracts verified');
+}
+verifyJournalWorkflow().catch(error=>{console.error(error);process.exitCode=1;});
