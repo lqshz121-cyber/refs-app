@@ -10,7 +10,7 @@ the authoritative web build stamp must all match `REFS_RELEASE_SHA`.  It then
 reads one isolated scenario and proves the retained identifiers are visible
 through this chain:
 
-`bank source -> bank match -> cleared worksheet -> reconciled bank close -> posted JE -> GL -> TB / BS / cash flow`
+`bank source -> bank match -> immutable cleared signed snapshot -> reconciled bank close -> posted JE -> GL -> TB / BS / cash flow`
 
 ## Inputs
 

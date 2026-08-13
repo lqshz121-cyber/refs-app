@@ -54,3 +54,16 @@ test('reconciliation worksheet is an open scoped evidence read and cannot synthe
   assert.deepEqual(calls[0].args,['tenant','entity','reconciliation']);
   assert.match(calls[0].sql,/^SELECT \* FROM refs_list_reconciliation_worksheet/);
 });
+
+test('signed reconciliation snapshot is a scoped immutable evidence read',async()=>{
+  const up=await readFile(new URL('../db/migrations/110_signed_reconciliation_snapshot_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/110_signed_reconciliation_snapshot_read.sql',import.meta.url),'utf8');
+  for(const token of ["'BANK.VIEW'",'refs_assert_scope','reconciliation_snapshot','s.snapshot_body','s.snapshot_hash','s.tenant_id=p_tenant','s.entity_id=p_entity','LIMIT 1','REVOKE ALL','GRANT EXECUTE'])assert.ok(up.includes(token),`signed snapshot migration must contain ${token}`);
+  assert.doesNotMatch(up,/\b(?:INSERT INTO|UPDATE |DELETE FROM|refs_transition_reconciliation|refs_post_journal)\b/i);
+  assert.match(down,/DROP FUNCTION refs_get_signed_reconciliation_snapshot/);
+  const calls=[],kernel=Object.create(PostgresAccountingKernel.prototype);
+  kernel.inSession=async work=>work({query:async(sql,args)=>{calls.push({sql,args});return {rows:[]};}});
+  assert.deepEqual(await kernel.getSignedReconciliationSnapshot({tenantId:'tenant',entityId:'entity',reconciliationId:'reconciliation'}),[]);
+  assert.deepEqual(calls[0].args,['tenant','entity','reconciliation']);
+  assert.match(calls[0].sql,/^SELECT \* FROM refs_get_signed_reconciliation_snapshot/);
+});

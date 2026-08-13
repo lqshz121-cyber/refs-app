@@ -644,6 +644,13 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getSignedReconciliationSnapshot({tenantId,entityId,reconciliationId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_signed_reconciliation_snapshot($1,$2,$3)',
+      [tenantId,entityId,reconciliationId]
+    )).rows);
+  }
+
   async startReconciliation(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
