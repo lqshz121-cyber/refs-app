@@ -400,6 +400,17 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await kernel.listWbsOperatorPayableAttestations({tenantId:principal.tenantId,entityId,limit});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===9&&parts[4]==='wbs'&&parts[5]==='operator-attested'&&parts[6]==='payables'&&parts[8]==='rows'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Operator-attested exception-row reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);
+        const rawLimit=parsedUrl.searchParams.get('limit'),limit=rawLimit==null?10:Number(rawLimit);
+        if(!Number.isSafeInteger(limit)||limit<1||limit>10)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be an integer from 1 to 10');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.listWbsOperatorPayableExceptionRows!=='function')throw new AccountingApiError(503,'WBS_OPERATOR_EXCEPTION_ROWS_UNAVAILABLE','Retained WBS Payable exception rows are unavailable');
+        result=await kernel.listWbsOperatorPayableExceptionRows({tenantId:principal.tenantId,entityId,wbsOperatorPayableAttestationId:requireUuid(parts[7],'wbsOperatorPayableAttestationId'),limit});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===10&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[8]==='attachments'&&parts[9]==='uploads'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Attachment upload reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');

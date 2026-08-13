@@ -216,6 +216,13 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async listWbsOperatorPayableExceptionRows({tenantId,entityId,wbsOperatorPayableAttestationId,limit=10}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_wbs_operator_payable_exception_rows($1,$2,$3,$4)',
+      [tenantId,entityId,wbsOperatorPayableAttestationId,limit]
+    )).rows);
+  }
+
   async persistWbsInboundRows({tenantId,entityId,importBatchId,receipt,rows,idempotencyKey,requestHash}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_persist_wbs_inbound_rows($1,$2,$3,$4,$5,$6,$7,$8) AS result',
