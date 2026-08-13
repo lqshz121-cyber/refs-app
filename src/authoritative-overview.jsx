@@ -25,8 +25,11 @@ const quickLinks = [
 export function AuthoritativeOverview({ counts = {}, onNavigate, state = 'ready', detail, scope = {}, config, fetcher=globalThis.fetch }) {
   const cards = overviewCards(counts);
   const navigate = route => { if (typeof onNavigate === 'function') onNavigate(route); };
-  const entity = scope.entityId || 'Configured entity';
-  const period = scope.periodId || 'Configured period';
+  const scopePresentation=config?.scopePresentation||{};
+  const entity=scopePresentation.entityLabel||'Configured entity';
+  const period=scopePresentation.periodLabel||'Configured period';
+  const entityDetail=scopePresentation.entityDetail||scope.entityId||'';
+  const periodDetail=scopePresentation.periodDetail||scope.periodId||'';
 
   if (state === 'loading') return <section className="authoritative-page authoritative-overview qb-home" aria-labelledby="authoritative-overview-title" aria-busy="true">
     <div className="qbo-home-hero"><div className="qb-greet-spacer" aria-hidden="true"/><div className="qb-greet"><h1 className="qb-greeting" id="authoritative-overview-title">Loading accounting overview</h1><p className="qb-greet-sub">Authoritative evidence is loading for the current signed-in scope.</p></div></div>
@@ -58,7 +61,7 @@ export function AuthoritativeOverview({ counts = {}, onNavigate, state = 'ready'
       {quickLinks.map(link => <button key={link.route} type="button" onClick={() => navigate(link.route)}><i aria-hidden="true"><Icon name={link.glyph} size={18}/></i><span>{link.label}</span></button>)}
     </div>
 
-    <div className="qb-actionhead"><h2 className="qb-sec">Business at a glance</h2><span className="muted sm">{total} retained records returned by the authenticated API for {entity}, {period}</span></div>
+    <div className="qb-actionhead"><h2 className="qb-sec">Business at a glance</h2><span className="muted sm"><span title={entityDetail||undefined}>{total} retained records returned by the authenticated API for {entity}</span><span aria-hidden="true">, </span><span title={periodDetail||undefined}>{period}</span></span></div>
     <div className="qbo-grid" aria-label="Authoritative accounting totals">
       {cards.map(card => <button type="button" className="qbo-card authoritative-overview-card" key={card.label} onClick={() => navigate(card.route)}>
         <h4>{card.eyebrow}</h4><strong className="qbo-big">{card.value}</strong><span className="qbo-sub">{card.label} - {card.hint}</span>
