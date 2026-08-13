@@ -33,7 +33,10 @@
         "parameters": [
           {"$ref": "#/components/parameters/EntityId"},
           {"name":"tool","in":"query","required":true,"schema":{"type":"string","enum":["list_payables","list_bank_transactions","list_autorec_details","list_autorec_banks","list_journal_entries"]}},
-          {"name":"limit","in":"query","required":true,"schema":{"type":"integer","minimum":1,"maximum":10}}
+          {"name":"limit","in":"query","required":true,"schema":{"type":"integer","minimum":1,"maximum":10}},
+          {"name":"company_code","in":"query","required":false,"schema":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_:-]{0,63}$"}},
+          {"name":"date_from","in":"query","required":false,"schema":{"type":"string","format":"date"}},
+          {"name":"date_to","in":"query","required":false,"schema":{"type":"string","format":"date"}}
         ],
         "responses": {
           "200": {"$ref":"#/components/responses/ReadOk"},

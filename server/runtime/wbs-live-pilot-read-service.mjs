@@ -59,12 +59,14 @@ const sanitizeRow=(tool,row)=>{
   return Object.freeze(out);
 };
 
-export function buildWbsLivePilotObservation({observed,entityId,tool}={}){
+export function buildWbsLivePilotObservation({observed,entityId,tool,requestedScope=null}={}){
   if(!plain(observed)||!entityId||!WBS_LIVE_PILOT_TOOLS.includes(tool)||!Array.isArray(observed.rows))fail('WBS_LIVE_PILOT_RESULT_INVALID','WBS pilot provider observation is invalid.');
   const companyCodes=Array.isArray(observed.scope?.company_codes)&&observed.scope.company_codes.every(value=>typeof value==='string'&&value.length<=128&&!CONTROL.test(value))?[...observed.scope.company_codes]:[];
   const rows=observed.rows.map(row=>sanitizeRow(tool,plain(row)?row:{}));
   const sourceDateRange=Array.isArray(observed.scope?.date_range)?observed.scope.date_range:[];
   const dateRange=Object.freeze([date(sourceDateRange[0])||null,date(sourceDateRange[1])||null]);
+  if(requestedScope?.company_code&&(!companyCodes.length||companyCodes.length!==1||companyCodes[0]!==requestedScope.company_code))fail('WBS_LIVE_PILOT_SCOPE_MISMATCH','WBS provider did not return the requested company scope.');
+  if(requestedScope?.date_from&&(!dateRange[0]||dateRange[0]!==requestedScope.date_from||dateRange[1]!==requestedScope.date_to))fail('WBS_LIVE_PILOT_SCOPE_MISMATCH','WBS provider did not return the requested date scope.');
   const core={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool,environment:'PRODUCTION',entity_id:entityId,captured_at:observed.captured_at,provider_content_sha256:observed.content_sha256,scope:Object.freeze({company_codes:Object.freeze(companyCodes),date_range:dateRange}),record_count:rows.length,rows:Object.freeze(rows),signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false};
   // `captured_at` describes when this read occurred, but it is not a stable
   // identity for the observed business facts.  The provider may legitimately
@@ -80,11 +82,16 @@ export class WbsLivePilotError extends Error{constructor(code,message){super(mes
 const fail=(code,message)=>{throw new WbsLivePilotError(code,message);};
 
 export function parseWbsLivePilotSelection(searchParams){
-  const allowed=new Set(['tool','limit']);for(const key of searchParams.keys())if(!allowed.has(key))fail('WBS_LIVE_PILOT_QUERY_INVALID',`Unexpected query parameter: ${key}`);
+  const allowed=new Set(['tool','limit','company_code','date_from','date_to']);for(const key of searchParams.keys())if(!allowed.has(key))fail('WBS_LIVE_PILOT_QUERY_INVALID',`Unexpected query parameter: ${key}`);
   if(searchParams.getAll('tool').length!==1||!WBS_LIVE_PILOT_TOOLS.includes(searchParams.get('tool')))fail('WBS_LIVE_PILOT_TOOL_INVALID','tool must be one approved live observation tool.');
   if(searchParams.getAll('limit').length!==1)fail('WBS_LIVE_PILOT_LIMIT_INVALID','limit must occur exactly once.');
   const raw=searchParams.get('limit');if(!/^(?:[1-9]|10)$/.test(raw))fail('WBS_LIVE_PILOT_LIMIT_INVALID','limit must be an integer from 1 to 10.');
-  return Object.freeze({tool:searchParams.get('tool'),limit:Number(raw)});
+  const companyValues=searchParams.getAll('company_code'),fromValues=searchParams.getAll('date_from'),toValues=searchParams.getAll('date_to');
+  if(companyValues.length>1||fromValues.length>1||toValues.length>1)fail('WBS_LIVE_PILOT_SCOPE_INVALID','Each WBS company/date scope parameter may occur at most once.');
+  const company=companyValues[0]?.trim()||null,from=fromValues[0]?.trim()||null,to=toValues[0]?.trim()||null;
+  if(company!==null&&(!/^[A-Za-z0-9][A-Za-z0-9_:-]{0,63}$/.test(company)||CONTROL.test(company)))fail('WBS_LIVE_PILOT_SCOPE_INVALID','company_code must be a bounded WBS company key.');
+  if((from===null)!==(to===null)||from!==null&&!date(from)||to!==null&&!date(to)||from!==null&&from>to)fail('WBS_LIVE_PILOT_SCOPE_INVALID','date_from and date_to must be a valid ordered date range.');
+  return Object.freeze({tool:searchParams.get('tool'),limit:Number(raw),company_code:company,date_from:from,date_to:to});
 }
 
 export function createWbsLivePilotClient({credentials,fetcher=globalThis.fetch}={}){
@@ -103,11 +110,11 @@ export function createWbsLivePilotReadService({client,authorize}={}){
   let ready=null;const prepare=()=>ready??=(async()=>{await client.initialize();await client.listTools();return true;})().catch(error=>{ready=null;throw error;});
   return Object.freeze({
     read_only:true,
-    async readObservation({tenantId,entityId,tool,limit}={}){
+    async readObservation({tenantId,entityId,tool,limit,company_code,date_from,date_to}={}){
       if(!tenantId||!entityId||!WBS_LIVE_PILOT_TOOLS.includes(tool)||!Number.isSafeInteger(limit)||limit<1||limit>10)fail('WBS_LIVE_PILOT_SELECTION_INVALID','A scoped approved WBS pilot selection is required.');
       await authorize({tenantId,entityId});
-      let observed;try{await prepare();observed=await client.readView({toolName:tool,args:{limit}});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider response was unavailable or unsafe.');}
-      return buildWbsLivePilotObservation({observed,entityId,tool});
+      let observed;try{await prepare();const args={limit};if(company_code)args.company_code=company_code;if(date_from){args.date_from=date_from;args.date_to=date_to;}observed=await client.readView({toolName:tool,args});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider response was unavailable or unsafe.');}
+      return buildWbsLivePilotObservation({observed,entityId,tool,requestedScope:{company_code:company_code||null,date_from:date_from||null,date_to:date_to||null}});
     }
   });
 }

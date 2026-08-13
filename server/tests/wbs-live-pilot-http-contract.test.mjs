@@ -136,6 +136,18 @@ test('WBS live pilot accepts only one approved list tool and one integer limit f
   }
 });
 
+test('WBS live pilot forwards explicit company and calendar scope without accepting client-side row filtering',async()=>{
+  let seen;
+  const api=createAccountingApi({
+    authenticate:async()=>principal,
+    kernelFactory:async()=>dangerousKernel().value,
+    wbsLivePilotServiceFactory:async()=>({readObservation:async input=>{seen=input;return safeObservation({scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']}});}}),
+  });
+  const response=await api({method:'GET',url:path('tool=list_payables&limit=10&company_code=WBPA&date_from=2026-01-01&date_to=2026-12-31'),body:null,headers:{}});
+  assert.equal(response.status,200);
+  assert.deepEqual(seen,{tenantId:principal.tenantId,entityId,tool:'list_payables',limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-12-31'});
+});
+
 test('WBS live pilot is bodyless and refuses command or concurrency headers',async()=>{
   let reads=0;
   const api=createAccountingApi({
