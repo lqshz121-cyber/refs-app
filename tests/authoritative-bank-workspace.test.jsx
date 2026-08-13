@@ -154,3 +154,9 @@ assert.match(appSource,/if \(!routeRequiresSharedAccountingBootstrap\(route\)\) 
 assert.match(appSource,/phase === 'READY' && routeRequiresSharedAccountingBootstrap\(route\) && !sharedAccountingLoaded/,'later navigation to a shared-data page must still load AP\/AR and Journal evidence exactly when needed');
 
 console.log('authoritative-bank-workspace: scoped full-page read-only SSR contract passed');
+
+
+const bankInitialVisible=bankInitial.replace(/<[^>]*>/g,'');
+assert.match(bankInitial,/Configured entity\\. Account and date scope are required/);assert.doesNotMatch(bankInitialVisible,new RegExp(config.entityId));
+const reconciliationInitialVisible=reconciliationInitial.replace(/<[^>]*>/g,'');
+assert.match(reconciliationInitial,/Configured entity\\. The API rejects missing or cross-scope statement evidence/);assert.doesNotMatch(reconciliationInitialVisible,new RegExp(config.entityId));
