@@ -283,7 +283,7 @@ test('a payable envelope flows Receipt -> Raw -> Normalized -> Staging -> Mappin
   const normalized = result.normalized[0];
   assert.equal(normalized.company_key, 'CO-A');
   assert.equal(normalized.currency, 'USD');
-  assert.equal(normalized.amount, 1250.5);
+  assert.equal(normalized.amount, '1250.5000');
   assert.equal(normalized.direction, 'CREDIT');
   assert.equal(normalized.vendor_ref, 'V-0001');
   assert.equal(normalized.cost_code_ref, '03-100');
