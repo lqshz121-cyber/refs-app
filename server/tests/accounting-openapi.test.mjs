@@ -219,6 +219,13 @@ test('bank transaction and reconciliation reads are scoped no-store evidence onl
   assert.equal(contract.components.schemas.ReconciliationSummaryRow.additionalProperties,false);
 });
 
+test('signed reconciliation snapshot is a documented immutable historical readback',()=>{
+  const operation=contract.paths['/entities/{entityId}/bank/reconciliations/{reconciliationId}/signed-snapshot'].get;
+  assert.equal(operation.operationId,'getSignedReconciliationSnapshot');assert.equal(operation.responses['200'].$ref,'#/components/responses/ReadOk');
+  assert.deepEqual(operation.parameters,[{$ref:'#/components/parameters/EntityId'},{$ref:'#/components/parameters/ReconciliationId'}]);
+  assert.match(operation.description,/immutable/i);assert.match(operation.description,/historical Bank-to-Journal readback/i);assert.match(operation.description,/cannot match.*clear.*review.*reopen.*sign off.*Draft.*post/i);
+});
+
 test('financial statements are an authenticated period-scoped POSTED evidence read',()=>{
   const operation=contract.paths['/entities/{entityId}/reports/financial-statements'].get;
   assert.equal(operation.operationId,'getFinancialStatements');
