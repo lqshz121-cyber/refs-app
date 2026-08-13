@@ -1863,6 +1863,21 @@
         }
       }
     },
+    "/entities/{entityId}/bank/reconciliations/{reconciliationId}/signed-snapshot": {
+      "get": {
+        "operationId": "getSignedReconciliationSnapshot",
+        "summary": "Read one immutable signed reconciliation snapshot",
+        "description": "Returns the exact immutable snapshot captured at reconciliation sign-off in the authenticated entity. It is the historical Bank-to-Journal readback path after an operational worksheet has closed; it cannot match, clear, review, reopen, sign off, create a Draft, or post.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"$ref": "#/components/parameters/ReconciliationId"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/ReadOk"},
+          "default": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/wbs/auto-reconciliation/review-candidates": {
       "get": {
         "operationId": "getWbsAutoRecReviewCandidates",
