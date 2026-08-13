@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {refreshAuthoritativeConsolidation,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatements} from '../src/accounting-api.js';
+import {refreshAuthoritativeConsolidation,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatementSnapshot,refreshAuthoritativeFinancialStatements} from '../src/accounting-api.js';
 import {AuthoritativeFullStatementReport,AuthoritativeReportDetail,AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,findAuthoritativePropertyReportShortcuts,findAuthoritativeReportShortcuts,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
 
 const entityId='00000000-0000-4000-8000-000000000101',periodId='00000000-0000-4000-8000-000000000102';
@@ -18,6 +18,11 @@ async function main(){
   assert.equal(requests[0].init.method,'GET');assert.equal(requests[0].init.cache,'no-store');assert.equal(requests[0].init.headers.authorization,'Bearer oidc.token.value-123456789');assert.equal(requests[0].init.body,undefined);
   const malformed=await refreshAuthoritativeFinancialStatements({config,fetcher:async()=>new Response(JSON.stringify({ok:true,data:[{...row,source_document_ids:['not-a-uuid']}]}),{status:200})});
   assert.equal(malformed.ok,false);assert.equal(malformed.code,'ACCOUNTING_API_PROTOCOL');
+  const snapshotRow={financial_statement_snapshot_id:'00000000-0000-4000-8000-000000000205',version:'2',currency:'USD',snapshot_hash:`sha256:${'a'.repeat(64)}`,ledger_evidence_hash:`sha256:${'b'.repeat(64)}`,prepared_by:'snapshot-maker',approved_by:'snapshot-approver',approved_at:'2026-07-31T23:59:00.000Z',captured_at:'2026-08-01T00:01:00.000Z',statement_type:'TRIAL_BALANCE',statement_section:'ALL_ACCOUNTS',classification_basis:'ACCOUNT_CODE_PREFIX_AND_BANK_MEMBER',account_code:'111000',account_name:'Operating Cash',opening_debit:'100.0000',opening_credit:'0.0000',period_debit:'25.0000',period_credit:'5.0000',ending_debit:'125.0000',ending_credit:'5.0000',display_balance:'120.0000',journal_entry_ids:row.journal_entry_ids,journal_line_ids:row.journal_line_ids,ledger_line_ids:row.ledger_line_ids,source_document_ids:row.source_document_ids,row_hash:`sha256:${'c'.repeat(64)}`};
+  const snapshot=await refreshAuthoritativeFinancialStatementSnapshot({config,fetcher:async(url,init)=>{assert.match(url,/reports\/financial-statement-snapshot\?periodId=/);assert.equal(init.method,'GET');assert.equal(init.cache,'no-store');return new Response(JSON.stringify({ok:true,data:[snapshotRow]}),{status:200});}});
+  assert.equal(snapshot.ok,true);assert.equal(snapshot.version,'2');assert.equal(snapshot.rows[0].display_balance,'120.0000');
+  const mixedSnapshot=await refreshAuthoritativeFinancialStatementSnapshot({config,fetcher:async()=>new Response(JSON.stringify({ok:true,data:[snapshotRow,{...snapshotRow,financial_statement_snapshot_id:'00000000-0000-4000-8000-000000000206',account_code:'610000'}]}),{status:200})});
+  assert.equal(mixedSnapshot.ok,false);assert.equal(mixedSnapshot.code,'ACCOUNTING_API_PROTOCOL');
   for(const invalid of [
     {...row,period_code:'July 2026'},
     {...row,period_start:'2026-02-30'},
@@ -50,6 +55,7 @@ async function main(){
   assert.match(markup,/authoritative-workbench-shell/);assert.match(markup,/Reports workspace structure/);assert.match(markup,/Read API evidence/);
   assert.match(markup,/PROPERTY &amp; PROJECT REPORTS/);assert.match(markup,/Property P&amp;L/);assert.match(markup,/Project P&amp;L/);assert.match(markup,/Unit profitability/);assert.match(markup,/CWIP rollforward/);assert.match(markup,/Construction loan rollforward/);assert.match(markup,/Prepaid rollforward/);assert.match(markup,/Budget versus actual/);
   assert.match(markup,/Refresh statement evidence/);
+  assert.match(markup,/Statement snapshot \/ version/);assert.match(markup,/Load statement snapshot/);assert.match(markup,/latest approved immutable statement version/);
   assert.match(markup,/Accounts receivable aging summary/);assert.match(markup,/id="authoritative-report-ar-aging"/);assert.match(markup,/Open aging report/);
   const projectCostMarkup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="PROJECT" workspaceEyebrow="AUTHORITATIVE ? ACCOUNTING OPERATIONS" workspaceTitle="Project Cost & CWIP" workspaceDescription="Existing API readers only."/>);
   assert.match(projectCostMarkup,/Project Cost &amp; CWIP/);assert.match(projectCostMarkup,/AUTHORITATIVE[\s\S]*ACCOUNTING OPERATIONS/);assert.match(projectCostMarkup,/Project P&amp;L/);assert.match(projectCostMarkup,/CWIP rollforward/);assert.match(projectCostMarkup,/Dimension type/);assert.match(projectCostMarkup,/value="PROJECT" selected=""/);
@@ -105,6 +111,8 @@ async function main(){
   assert.match(workspace,/Back to Reports/,'the full report must provide an explicit catalog Back action');
   assert.match(workspace,/restoreAuthoritativeReturnContext/,'report detail Back must restore its evidence opener and scroll position');
   assert.match(workspace,/authoritative-report-\$\{row\.statement_type\}/,'report evidence controls need stable focus targets');
+  assert.match(workspace,/refreshAuthoritativeFinancialStatementSnapshot/,'statement snapshots must use a separate authoritative API reader, not a live-ledger browser copy');
+  assert.match(workspace,/authoritative-statement-snapshot/,'the statement version reader must be discoverable from the reports workspace');
   assert.match(workspace,/reportsCatalog:normalizeAuthoritativeReportsCatalog/,'full-page report evidence must retain exact catalog context for Back');
   assert.match(workspace,/reportRowMatchesReturnContext/,'report rows must fail closed when the immutable return identity differs');
   assert.match(workspace,/row\.account_code===context\.reportAccountCode/);

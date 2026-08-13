@@ -446,6 +446,23 @@ export async function refreshAuthoritativeFinancialStatements({config,fetcher=gl
   }catch{return unreachable('The browser could not complete the authoritative financial statement read; no HTTP response was produced.');}
 }
 
+export async function refreshAuthoritativeFinancialStatementSnapshot({config,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!UUID.test(config.entityId||'')||!UUID.test(config.periodId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Financial-statement snapshots require one authoritative entity and accounting period.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({periodId:config.periodId});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/reports/financial-statement-snapshot?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid financial-statement snapshot envelope.'};
+    const statementTypes=new Set(['TRIAL_BALANCE','BALANCE_SHEET','INCOME_STATEMENT','CASH_FLOW']),numericFields=['opening_debit','opening_credit','period_debit','period_credit','ending_debit','ending_credit','display_balance'],idFields=['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'];
+    const invalid=row=>!UUID.test(row?.financial_statement_snapshot_id||'')||!/^[1-9][0-9]*$/.test(String(row?.version??''))||!CURRENCY3.test(row?.currency||'')||!SHA256.test(row?.snapshot_hash||'')||!SHA256.test(row?.ledger_evidence_hash||'')||typeof row?.prepared_by!=='string'||!row.prepared_by.trim()||typeof row?.approved_by!=='string'||!row.approved_by.trim()||row.prepared_by===row.approved_by||!validTimestamp(row?.approved_at)||!validTimestamp(row?.captured_at)||!statementTypes.has(row?.statement_type)||typeof row?.statement_section!=='string'||!row.statement_section.trim()||typeof row?.classification_basis!=='string'||!row.classification_basis.trim()||!ACCOUNT_CODE.test(row?.account_code||'')||typeof row?.account_name!=='string'||!row.account_name.trim()||numericFields.some(field=>!REPORT_MONEY4.test(String(row?.[field]??'')))||idFields.some(field=>!Array.isArray(row?.[field])||row[field].some(id=>!UUID.test(id||'')))||!SHA256.test(row?.row_hash||'');
+    if(body.data.some(invalid)||new Set(body.data.map(row=>`${row.financial_statement_snapshot_id}:${row.statement_type}:${row.account_code}`)).size!==body.data.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate financial-statement snapshot row.'};
+    const snapshotIds=new Set(body.data.map(row=>row.financial_statement_snapshot_id)),versions=new Set(body.data.map(row=>String(row.version)));
+    if(snapshotIds.size>1||versions.size>1)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned mixed financial-statement snapshot versions.'};
+    return {ok:true,rows:body.data.map(row=>({...row,...Object.fromEntries(numericFields.map(field=>[field,String(row[field])]))})),scope:{entityId:config.entityId,periodId:config.periodId},snapshotId:body.data[0]?.financial_statement_snapshot_id||null,version:body.data[0]?String(body.data[0].version):null};
+  }catch{return unreachable('The browser could not complete the authoritative financial-statement snapshot read; no HTTP response was produced.');}
+}
+
 export async function refreshAuthoritativeFinancialStatementPeriodComparison({config,priorPeriodId,fetcher=globalThis.fetch}={}){
   const prior=String(priorPeriodId||'');
   if(!config||typeof fetcher!=='function'||!UUID.test(config.periodId||'')||!UUID.test(prior)||prior===config.periodId)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Period comparison requires two distinct authoritative accounting-period identifiers.'};
