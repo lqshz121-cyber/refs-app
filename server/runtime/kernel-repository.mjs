@@ -610,6 +610,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getBankTransactionDetail({tenantId,entityId,bankSourceId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_bank_transaction_detail($1,$2,$3)',[tenantId,entityId,bankSourceId]
+    )).rows);
+  }
+
   async listBankMatchCandidates({tenantId,entityId,bankSourceId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_bank_match_candidates($1,$2,$3)',[tenantId,entityId,bankSourceId]
@@ -641,6 +647,19 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_reconciliation_worksheet($1,$2,$3)',
       [tenantId,entityId,reconciliationId]
+    )).rows);
+  }
+
+  async getReconciledSnapshot({tenantId,entityId,reconciliationId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_reconciled_snapshot($1,$2,$3)',[tenantId,entityId,reconciliationId]
+    )).rows);
+  }
+
+  async getReconciliationPostedLineage({tenantId,entityId,reconciliationId,bankSourceId,journalEntryId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_reconciliation_posted_lineage($1,$2,$3,$4,$5)',
+      [tenantId,entityId,reconciliationId,bankSourceId,journalEntryId]
     )).rows);
   }
 

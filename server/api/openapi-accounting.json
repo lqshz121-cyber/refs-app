@@ -1215,11 +1215,10 @@
           {
             "name": "offset",
             "in": "query",
-            "description": "Zero-based offset within the exact authenticated account and date scope.",
             "schema": {
               "type": "integer",
               "minimum": 0,
-              "maximum": 10000,
+                "maximum": 10000,
               "default": 0
             }
           }
@@ -1799,6 +1798,21 @@
         }
       }
     },
+    "/entities/{entityId}/bank/transactions/{bankSourceId}": {
+      "get": {
+        "operationId": "getBankTransactionDetail",
+        "summary": "Read one authoritative bank transaction and retained match history",
+        "description": "Returns only the authenticated tenant and entity scoped bank source, immutable source version, and retained match history. This operation cannot match, clear, sign off, or post.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"$ref": "#/components/parameters/BankSourceId"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/BankTransactionDetailReadOk"},
+          "default": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/bank/reconciliations/{reconciliationId}/adjustment-drafts": {
       "post": {
         "operationId": "createReconciliationAdjustmentDraft",
@@ -1861,6 +1875,24 @@
             "$ref": "#/components/responses/Problem"
           }
         }
+      }
+    },
+    "/entities/{entityId}/bank/reconciliations/{reconciliationId}/snapshot": {
+      "get": {
+        "operationId": "getReconciledSnapshot",
+        "summary": "Read one immutable signed-off reconciliation snapshot",
+        "description": "Returns retained immutable evidence only while the exact reconciliation remains RECONCILED. It cannot reopen, clear, match, create an adjustment, or post a Journal Entry.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/ReconciliationId"}],
+        "responses": {"200":{"$ref":"#/components/responses/ReconciledSnapshotOk"},"404":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/bank/reconciliations/{reconciliationId}/posted-lineage": {
+      "get": {
+        "operationId": "getReconciliationPostedLineage",
+        "summary": "Read one exact posted reconciliation-to-Journal lineage link",
+        "description": "Returns one retained adjustment link only while the exact reconciliation remains RECONCILED and the exact linked Journal Entry is POSTED. It cannot enumerate bank items, reopen, clear, match, create an adjustment, or post.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/ReconciliationId"},{"name":"bankSourceId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"journalEntryId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses": {"200":{"$ref":"#/components/responses/ReconciliationPostedLineageOk"},"404":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
     "/entities/{entityId}/wbs/auto-reconciliation/review-candidates": {
@@ -3153,6 +3185,18 @@
           }
         }
       },
+      "BankTransactionDetailReadRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["bank_source_id","bank_account_ref","external_bank_line_id","transaction_date","currency","amount","bank_source_version","source_document_id","source_system","source_module","source_entity_id","source_record_id","source_version","source_ref","document_type","payload_hash","source_document_revision","source_created_at","source_updated_at"],
+        "properties": {
+          "bank_source_id":{"$ref":"#/components/schemas/Uuid"},"bank_account_ref":{"type":"string"},"external_bank_line_id":{"type":"string"},"transaction_date":{"type":"string","format":"date"},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"amount":{"$ref":"#/components/schemas/Money"},"bank_source_version":{"type":"string","pattern":"^[0-9]+$"},"source_document_id":{"$ref":"#/components/schemas/Uuid"},"source_system":{"type":"string"},"source_module":{"type":"string"},"source_entity_id":{"type":"string"},"source_record_id":{"type":"string"},"source_version":{"type":"string"},"source_ref":{"type":"string"},"document_type":{"type":"string"},"payload_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"source_document_revision":{"type":"string","pattern":"^[0-9]+$"},"source_created_at":{"type":"string","format":"date-time"},"source_updated_at":{"type":"string","format":"date-time"},"bank_match_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"match_status":{"type":["string","null"]},"business_source_document_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"journal_entry_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"journal_line_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"candidate_rule_code":{"type":["string","null"]},"amount_delta":{"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]},"currency_match":{"type":["boolean","null"]},"date_delta_days":{"type":["integer","null"]},"matched_by":{"type":["string","null"]},"matched_at":{"type":["string","null"],"format":"date-time"},"unmatched_by":{"type":["string","null"]},"unmatched_at":{"type":["string","null"],"format":"date-time"},"match_version":{"type":["string","null"],"pattern":"^[0-9]+$"}
+        }
+      },
+      "BankTransactionDetailReadEnvelope": {
+        "type":"object","additionalProperties":false,"required":["ok","data"],
+        "properties":{"ok":{"const":true},"data":{"type":"array","maxItems":1000,"items":{"$ref":"#/components/schemas/BankTransactionDetailReadRow"}}}
+      },
       "ReconciliationSummaryEnvelope": {
         "type": "object",
         "additionalProperties": false,
@@ -3671,7 +3715,11 @@
             }
           }
         }
-      }
+      },
+      "ReconciledSnapshot": {"type":"object","additionalProperties":false,"required":["reconciliation_snapshot_id","reconciliation_id","reconciliation_version","statement_ending_date","snapshot_hash","signed_off_by","signed_off_at","snapshot_body"],"properties":{"reconciliation_snapshot_id":{"$ref":"#/components/schemas/Uuid"},"reconciliation_id":{"$ref":"#/components/schemas/Uuid"},"reconciliation_version":{"type":"integer","minimum":0},"statement_ending_date":{"type":"string","format":"date"},"snapshot_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"signed_off_by":{"type":"string","minLength":1},"signed_off_at":{"type":"string","format":"date-time"},"snapshot_body":{"type":"object"}}},
+      "ReconciledSnapshotEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/ReconciledSnapshot"}}},
+      "ReconciliationPostedLineage": {"type":"object","additionalProperties":false,"required":["reconciliation_id","bank_source_id","journal_entry_id","link_type"],"properties":{"reconciliation_id":{"$ref":"#/components/schemas/Uuid"},"bank_source_id":{"$ref":"#/components/schemas/Uuid"},"journal_entry_id":{"$ref":"#/components/schemas/Uuid"},"source_document_id":{"anyOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"link_type":{"const":"RECONCILIATION_ADJUSTMENT_DRAFT"}}},
+      "ReconciliationPostedLineageEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/ReconciliationPostedLineage"}}}
     },
     "parameters": {
       "EntityId": {
@@ -5121,6 +5169,11 @@
           }
         }
       },
+      "BankTransactionDetailReadOk": {
+        "description":"Exact scoped read-only bank transaction source and retained match history",
+        "headers":{"Cache-Control":{"schema":{"const":"no-store"}}},
+        "content":{"application/json":{"schema":{"$ref":"#/components/schemas/BankTransactionDetailReadEnvelope"}}}
+      },
       "ReconciliationSummaryOk": {
         "description": "Scoped read-only reconciliation statement evidence",
         "headers": {
@@ -5322,7 +5375,9 @@
             }
           }
         }
-      }
+      },
+      "ReconciledSnapshotOk": {"description":"Authenticated immutable signed-off reconciliation evidence.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/ReconciledSnapshotEnvelope"}}}},
+      "ReconciliationPostedLineageOk": {"description":"Authenticated exact posted reconciliation lineage evidence.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/ReconciliationPostedLineageEnvelope"}}}}
     }
   }
 }

@@ -25,6 +25,7 @@ const requireAccountCode=value=>{if(typeof value!=='string'||!/^[A-Za-z0-9._-]{1
 const optionalAccountCode=value=>value==null||value===''?null:requireAccountCode(value);
 const optionalLedgerQuery=value=>{if(value==null||value==='')return null;if(typeof value!=='string'||value!==value.trim()||value.length>160||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','query must be a canonical trimmed value of 1-160 printable characters');return value;};
 const optionalReadOffset=value=>{if(value==null||value==='')return 0;if(!/^\d{1,7}$/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','offset must be a non-negative integer');return Number(value);};
+const optionalBankTransactionOffset=value=>{const offset=optionalReadOffset(value);if(offset>10000)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','offset must not exceed 10000');return offset;};
 const requireDimensionType=value=>{if(!['PROPERTY','PROJECT','UNIT'].includes(value||''))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','dimensionType must be PROPERTY, PROJECT, or UNIT');return value;};
 const requireDimensionRef=value=>{if(typeof value!=='string'||!value||value!==value.trim()||value.length>160||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','dimensionRef must be a canonical trimmed value of 1-160 printable characters');return value;};
 const optionalReadLimit=value=>{if(value==null||value==='')return 100;if(!/^[1-9]\d{0,2}$/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 200');const limit=Number(value);if(limit>200)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 200');return limit;};
@@ -232,7 +233,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const throughDate=optionalIsoDate(parsedUrl.searchParams.get('through'),'through');
         if(fromDate&&throughDate&&fromDate>throughDate)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','from must not be later than through');
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
-        result=await kernel.listBankTransactions({tenantId:principal.tenantId,entityId,bankAccountRef,fromDate,throughDate,limit:optionalReadLimit(parsedUrl.searchParams.get('limit')),offset:optionalReadOffset(parsedUrl.searchParams.get('offset'))});
+        result=await kernel.listBankTransactions({tenantId:principal.tenantId,entityId,bankAccountRef,fromDate,throughDate,limit:optionalReadLimit(parsedUrl.searchParams.get('limit')),offset:optionalBankTransactionOffset(parsedUrl.searchParams.get('offset'))});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===7&&parts[4]==='bank'&&parts[5]==='transactions'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        result=await kernel.getBankTransactionDetail({tenantId:principal.tenantId,entityId,bankSourceId:requireUuid(parts[6],'bankSourceId')});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===8&&parts[4]==='bank'&&parts[5]==='transactions'&&parts[7]==='match-candidates'){
@@ -279,6 +288,27 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.listReconciliationWorksheet({tenantId:principal.tenantId,entityId,reconciliationId:requireUuid(parts[6],'reconciliationId')});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===8&&parts[4]==='bank'&&parts[5]==='reconciliations'&&parts[7]==='snapshot'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.getReconciledSnapshot!=='function')throw new AccountingApiError(503,'RECONCILED_SNAPSHOT_READ_UNAVAILABLE','Reconciled snapshot read service is unavailable');
+        result=await kernel.getReconciledSnapshot({tenantId:principal.tenantId,entityId,reconciliationId:requireUuid(parts[6],'reconciliationId')});
+        if(!Array.isArray(result)||result.length!==1)throw new AccountingApiError(404,'RECONCILED_SNAPSHOT_NOT_FOUND','Reconciled snapshot was not found in this entity');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result[0]}};
+      }
+      if(method==='GET'&&parts.length===8&&parts[4]==='bank'&&parts[5]==='reconciliations'&&parts[7]==='posted-lineage'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['bankSourceId','journalEntryId']);
+        const reconciliationId=requireUuid(parts[6],'reconciliationId'),bankSourceId=requireUuid(parsedUrl.searchParams.get('bankSourceId'),'bankSourceId'),journalEntryId=requireUuid(parsedUrl.searchParams.get('journalEntryId'),'journalEntryId');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.getReconciliationPostedLineage!=='function')throw new AccountingApiError(503,'RECONCILIATION_LINEAGE_READ_UNAVAILABLE','Reconciliation posted-lineage read service is unavailable');
+        result=await kernel.getReconciliationPostedLineage({tenantId:principal.tenantId,entityId,reconciliationId,bankSourceId,journalEntryId});
+        if(!Array.isArray(result)||result.length!==1)throw new AccountingApiError(404,'RECONCILIATION_LINEAGE_NOT_FOUND','Posted reconciliation lineage was not found in this entity');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result[0]}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='reports'&&parts[5]==='financial-statements'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
