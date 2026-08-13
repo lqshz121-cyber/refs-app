@@ -11,6 +11,9 @@ test('workflow roles are complete mutually exclusive grant sets with no provider
     assert.equal(new Set(permissions).size,permissions.length);
     assert.equal(permissions.some(permission=>/WBS\.SNAPSHOT\.IMPORT|WBS\.BANK\.ADMIT/.test(permission)),false);
   }
+  assert.deepEqual(AUTHORITATIVE_WORKFLOW_ROLES.WBS_OPERATOR_ATTESTER,['WBS.AUTOREC.VIEW','WBS.PAYABLE.OPERATOR_ATTEST']);
+  assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.WBS_OPERATOR_ATTESTER.some(permission=>/^(AP\.|AR\.|BANK\.|GL\.)/.test(permission)),false);
+  assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.WBS_OPERATOR_ATTESTER.some(permission=>/REVIEW|CREATE|SUBMIT|APPROVE|POST|IMPORT|ADMIT/.test(permission)),false);
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.WBS_PAYABLE_MAKER.includes('GL.JE.REVIEW'),false);
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.WBS_PAYABLE_REVIEWER.includes('AP.BILL.CREATE'),false);
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.JE_REVIEWER.includes('GL.JE.APPROVE'),false);
