@@ -39,6 +39,13 @@ test('live pilot rejects a provider response that ignores requested company/date
   await assert.rejects(()=>service.readObservation({tenantId:'tenant',entityId:'entity',tool:'list_payables',limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-12-31'}),error=>error.code==='WBS_LIVE_PILOT_SCOPE_MISMATCH');
 });
 
+test('live pilot strips binary JSON money instead of normalizing it into future accounting evidence',async()=>{
+  const client={initialize:async()=>{},listTools:async()=>{},readView:async()=>observed({rows:[{ap_guid:'private-ap-id',posting_date:'2026-08-11',amount:12.3,pay_status:'Clear'}]})};
+  const service=createWbsLivePilotReadService({client,authorize:async()=>{}});
+  const result=await service.readObservation({tenantId:'tenant-a',entityId:'entity-a',tool:'list_payables',limit:1});
+  assert.equal(result.status,'NOT_ADMITTED');assert.equal(Object.hasOwn(result.rows[0],'amount'),false);
+});
+
 test('observation hash remains stable when the same provider facts are captured at different instants',()=>{
   const first=observed({});
   const second={...first,captured_at:'2026-08-11T10:00:02.000Z'};
