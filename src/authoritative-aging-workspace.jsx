@@ -2,6 +2,7 @@ import React,{useEffect,useState} from 'react';
 import {refreshAuthoritativeAging,refreshAuthoritativeControlTotals} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeReadFailure,authoritativeReadFailurePhase} from './authoritative-read-state.jsx';
+import {authoritativeScopePresentation} from './authoritative-scope-presentation.js';
 
 // This is a read-only reporting surface.  The configured entity and period are
 // accounting scope supplied by the authoritative runtime; the only reader
@@ -20,6 +21,8 @@ const agingContextMatches=(config,side,returnContext,expectedOrigin)=>!returnCon
 export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetch,onBack,backLabel='Back to invoices & receipts',returnContext,expectedOrigin}){
   const label=side==='ap'?'AP':'AR';
   const businessLabel=side==='ap'?'Accounts payable':'Accounts receivable';
+  const scopePresentation=authoritativeScopePresentation(config);
+  const periodLabel=scopePresentation.periodLabel==='Period unavailable'?'Configured period':scopePresentation.periodLabel;
   const scopeMatches=agingContextMatches(config,side,returnContext,expectedOrigin);
   const [asOf,setAsOf]=useState(defaultAsOf());
   const [state,setState]=useState({phase:'LOADING',aging:[],control:[],error:null});
@@ -47,13 +50,13 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
       </div>
     </header>
     <form className="authoritative-aging-controls" aria-label={`${label} aging report scope`} onSubmit={submit}>
-      <output className="authoritative-aging-scope"><i>Entity reporting scope</i><b>{config.entityId}</b></output>
-      <output className="authoritative-aging-scope"><i>Configured period</i><b>{config.periodId}</b></output>
+      <output className="authoritative-aging-scope" title={`Entity ID: ${scopePresentation.entityDetail}`}><i>Entity reporting scope</i><b>{scopePresentation.entityLabel}</b></output>
+      <output className="authoritative-aging-scope" title={`Period ID: ${scopePresentation.periodDetail}`}><i>Configured period</i><b>{periodLabel}</b></output>
       <label><span>As-of date</span><input type="date" aria-label={`${label} aging as-of date`} value={asOf} onChange={event=>setAsOf(event.target.value)}/></label>
       <button type="submit" className="btn btn-sm">Refresh evidence</button>
     </form>
     <section className="authoritative-aging-context" aria-label="Immutable evidence scope">
-      <b>Evidence scope</b><span>Entity {config.entityId} · configured period {config.periodId} · as of {asOf}</span><span>GET-only refresh; no accounting record can be changed from this report.</span>
+      <b>Evidence scope</b><span>{scopePresentation.entityLabel} · {periodLabel} · as of {asOf}</span><span>GET-only refresh; no accounting record can be changed from this report.</span>
     </section>
     {!scopeMatches&&<StateBlock tone="blocked" title="BLOCKED — immutable aging scope mismatch">The full-page aging report no longer matches the entity, configured period, AP/AR side, or parent route retained by its return context. Return to the parent report; no aging result is asserted from this mismatched scope.</StateBlock>}
     {scopeMatches&&<>
