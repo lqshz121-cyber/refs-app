@@ -8,7 +8,7 @@ const backendRequired=[
   'OIDC_ISSUER','OIDC_AUDIENCE','OIDC_JWKS_URI','REFS_HTTP_ALLOWED_ORIGINS',
   'REFS_ATTACHMENT_MODE','REFS_WBS_INGEST_MODE','REFS_STAGING_API_BASE_URL','REFS_STAGING_WEB_ORIGIN'
 ];
-const attachmentRequired=['S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_CA_FILE','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID'];
+const attachmentRequired=['S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID'];
 const publicKeys=[
   'REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE',
   'REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT',
@@ -46,6 +46,9 @@ export function validateStagingEnvironment(environment=process.env){
   if(attachmentMode==='REQUIRED'){
     const attachmentMissing=attachmentRequired.filter(key=>!present(environment[key]));
     if(attachmentMissing.length)throw new Error(`staging-env: attachment integration missing ${attachmentMissing.join(', ')}`);
+    const caPem=String(environment.VIRUS_SCANNER_CA_PEM||'').trim(),caFile=String(environment.VIRUS_SCANNER_CA_FILE||'').trim();
+    if(!caPem&&!caFile)throw new Error('staging-env: attachment integration requires VIRUS_SCANNER_CA_PEM or VIRUS_SCANNER_CA_FILE');
+    if(caPem&&!caPem.includes('-----BEGIN CERTIFICATE-----'))throw new Error('staging-env: VIRUS_SCANNER_CA_PEM must contain a PEM certificate');
   }
   if(wbsIngestMode==='REQUIRED'&&!present(environment.WBS_SNAPSHOT_ED25519_PUBLIC_KEYS))throw new Error('staging-env: WBS ingest integration missing WBS_SNAPSHOT_ED25519_PUBLIC_KEYS');
   const {apiBaseUrl,webOrigin}=stagingSmokeConfig(environment);
