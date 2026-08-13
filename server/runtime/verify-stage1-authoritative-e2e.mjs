@@ -66,7 +66,7 @@ async function getJson(fetcher,url,token,label){
   return body.data;
 }
 
-const sameRelease=(value,expected)=>typeof value==='string'&&/^[0-9a-f]{7,40}$/i.test(value)&&expected.startsWith(value.toLowerCase());
+const sameRelease=(value,expected)=>typeof value==='string'&&/^[0-9a-f]{40}$/i.test(value)&&value.toLowerCase()===expected;
 
 async function verifyReleaseStamp({apiBaseUrl,webOrigin,releaseSha,fetcher}){
   const get=async(url,label)=>{

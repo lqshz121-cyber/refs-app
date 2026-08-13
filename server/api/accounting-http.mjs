@@ -645,7 +645,7 @@ const corsHeaders=(origin,allowedOrigins)=>origin&&allowedOrigins.has(origin)?{'
 
 export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory,maxBodyBytes=1024*1024,healthCheck,releaseSha=null,allowedOrigins=[]}={}){
   const allowed=new Set(allowedOrigins);
-  const release=typeof releaseSha==='string'&&/^[0-9a-f]{7,40}$/i.test(releaseSha)?releaseSha.slice(0,7).toLowerCase():'unversioned';
+  const release=typeof releaseSha==='string'&&/^[0-9a-f]{40}$/i.test(releaseSha)?releaseSha.toLowerCase():'unversioned';
   const dispatch=createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory});
   return createServer(async(req,res)=>{
     const chunks=[];let size=0;

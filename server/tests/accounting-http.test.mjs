@@ -570,9 +570,9 @@ test('HTTP CORS permits only configured browser origins and preflights without a
 });
 
 test('liveness and readiness expose a non-secret release stamp while readiness fails closed',async()=>{
-  let ready=false;const server=createAccountingHttpServer({authenticate:async()=>null,kernelFactory:async()=>kernel,healthCheck:async()=>ready,releaseSha:'abcdef1234567890'});
+  let ready=false;const server=createAccountingHttpServer({authenticate:async()=>null,kernelFactory:async()=>kernel,healthCheck:async()=>ready,releaseSha:'abcdef1234567890abcdef1234567890abcdef12'});
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));try{
-    const base=`http://127.0.0.1:${server.address().port}`;let response=await fetch(`${base}/health/live`);assert.equal(response.status,200);assert.deepEqual(await response.json(),{ok:true,status:'live',release:'abcdef1'});
-    response=await fetch(`${base}/health/ready`);assert.equal(response.status,503);assert.deepEqual(await response.json(),{ok:false,status:'not_ready',release:'abcdef1'});ready=true;response=await fetch(`${base}/health/ready`);assert.equal(response.status,200);assert.deepEqual(await response.json(),{ok:true,status:'ready',release:'abcdef1'});
+    const base=`http://127.0.0.1:${server.address().port}`,release='abcdef1234567890abcdef1234567890abcdef12';let response=await fetch(`${base}/health/live`);assert.equal(response.status,200);assert.deepEqual(await response.json(),{ok:true,status:'live',release});
+    response=await fetch(`${base}/health/ready`);assert.equal(response.status,503);assert.deepEqual(await response.json(),{ok:false,status:'not_ready',release});ready=true;response=await fetch(`${base}/health/ready`);assert.equal(response.status,200);assert.deepEqual(await response.json(),{ok:true,status:'ready',release});
   }finally{await new Promise(resolve=>server.close(resolve));}
 });
