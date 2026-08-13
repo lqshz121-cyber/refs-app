@@ -33,7 +33,10 @@ const date=value=>{
 // to MONEY4 only when the fifth and later digits are all zero; no rounding is
 // permitted in an accounting observation.
 const money=value=>{
-  const raw=typeof value==='number'&&Number.isFinite(value)?String(value):typeof value==='string'?value.trim():'';
+  // Preserve provider money as text.  An unsigned Pilot never has authority
+  // to book, but it can later be compared against a signed receipt; accepting
+  // binary JSON numbers here would make that evidence ambiguous.
+  const raw=typeof value==='string'?value.trim():'';
   if(!/^-?(?:0|[1-9]\d{0,15})(?:\.\d{1,})?$/.test(raw))return null;
   const [whole,fraction='']=raw.split('.');
   if(fraction.length>4&&!/^0+$/.test(fraction.slice(4)))return null;

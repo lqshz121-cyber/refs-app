@@ -56,4 +56,7 @@ test('report identity, receipt binding, metric cardinality, and Property scope f
   assert.equal(buildWbsControlReportEvidence({sourceType:'PROPERTY_COMPARISON',envelope:property,receipt:receipt(property),tenantId:'tenant-a',entityId:'entity-a'}).scope.property_ref,'PROPERTY-A');
   assert.throws(()=>buildWbsControlReportEvidence({sourceType:'PROPERTY_COMPARISON',envelope:{...property,scope:{...propertyScope,bank_account_ref:''}},receipt:receipt(property),tenantId:'tenant-a',entityId:'entity-a'}),error=>error.code==='WBS_CONTROL_REPORT_SCOPE_REQUIRED');
   assert.throws(()=>buildWbsControlReportEvidence({sourceType:'PROPERTY_COMPARISON',envelope:{...property,scope:{...propertyScope,period_start:'2026-99-99'}},receipt:receipt(property),tenantId:'tenant-a',entityId:'entity-a'}),error=>error.code==='WBS_CONTROL_REPORT_SCOPE_REQUIRED');
+  const numericRows=costRows.map((row,index)=>index===0?{...row,amount:10}:row);
+  const numeric=envelope(numericRows);
+  assert.throws(()=>buildWbsControlReportEvidence({sourceType:'COST_GENERAL_LEDGER',envelope:numeric,receipt:receipt(numeric),tenantId:'tenant-a',entityId:'entity-a'}),error=>error.code==='WBS_CONTROL_REPORT_METRICS_INVALID');
 });
