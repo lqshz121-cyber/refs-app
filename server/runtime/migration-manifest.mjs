@@ -113,4 +113,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"105_wbs_operator_exception_row_hash.sql",up:"cf97517bf4063d0f4c38bbc55f9a606547462b7f513efac57b1b2b1a45a740a2",down:"79390b89e0b4ce8b45a8a6844bc52c07fa109474779cfb310ae7d80cbc5fb389"}),
   Object.freeze({name:"106_wbs_statement_adjustment_source_document_lineage.sql",up:"bb5e1a4154e164a3cb5d17c0b265d17fa652f25850aebb59c049ffbbf63f2ef7",down:"bf6bfd8ecc96c872d595b640c23690fc954bd8a306dae64c107e1ad548a13bf4"}),
   Object.freeze({name:"107_financial_statement_snapshot_read.sql",up:"51171be9ff5d5ee82ba198114d28528cb0047ff73cbc5ffc3fd7c03a1e33ea1c",down:"f8f4db654646df65a5710bae4e3e00d73b6e6ded2693a4f0a7ab79daebc58733"}),
+  Object.freeze({name:"108_reconciled_snapshot_read.sql",up:"834d52d00f8dfb9156605c691d431591baac00f9fff89287bbe04a8e4283fe51",down:"5d1cb10ff031d0035c62b7ec2dd82492840f157e7a8d16e038fd337670e57199"}),
+  Object.freeze({name:"109_reconciliation_posted_lineage_read.sql",up:"022bcfd88f65ee14b1cd9c0e7380b1cc51829d48889aca048088b4f3cd82b2ab",down:"f71b5311f0d6b584f920cafc1c5c964c324680b0a9865efb88f3cdc0a120491a"}),
 ]);
