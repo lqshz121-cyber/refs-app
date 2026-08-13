@@ -119,25 +119,25 @@ provider configuration; the provider itself is proved in step 5.
 
 ## 3. Deploy `server/`
 
-Deploy the API service and static client from `render.yaml`. Stage 1 explicitly
-sets `REFS_ATTACHMENT_MODE=DISABLED` and `REFS_WBS_INGEST_MODE=DISABLED`.
-Attachment commands return `503 ATTACHMENT_SERVICE_UNAVAILABLE`; WBS snapshot
-intake rejects every import because no signature verifier is configured. Core
-PostgreSQL/OIDC reads remain available and readiness depends only on the two
-database connections used by the API.
+Deploy the API service, static client, and attachment cleanup worker from the
+Render Blueprints. Phase 1 explicitly sets `REFS_ATTACHMENT_MODE=REQUIRED` and
+`REFS_WBS_INGEST_MODE=REQUIRED`. It accepts only a verified provider receipt,
+exact immutable attachment version, and accepted scanner finalization. Missing
+storage, scanner, cleanup, or public-key trust configuration fails closed.
 
 Additional Stage 1 configuration the API needs, all by name only:
 
 - `REFS_HTTP_ALLOWED_ORIGINS` - the exact origin the static client is served
   from. Anything else is refused with a CORS failure.
-- `REFS_ATTACHMENT_MODE=DISABLED` - explicit Stage 1 feature boundary.
-- `REFS_WBS_INGEST_MODE=DISABLED` - explicit Stage 1 feature boundary.
+- `REFS_ATTACHMENT_MODE=REQUIRED` - exact attachment binding and scanner
+  evidence are mandatory.
+- `REFS_WBS_INGEST_MODE=REQUIRED` - a trusted WBS public-key keyring is
+  mandatory.
+- `WBS_SNAPSHOT_ED25519_PUBLIC_KEYS` - non-empty trusted provider keyring.
 
-Do not create the paid attachment cleanup worker as part of Stage 1. It is
-declared separately in `render.integrations.yaml` and is deployed only after
-provider-backed S3/scanner evidence is accepted. At that later release, change
-the API modes to `REQUIRED` and provide the corresponding storage/scanner/WBS
-keyring variables; startup then fails closed if any required value is absent.
+Deploy the cleanup worker declared in `render.integrations.yaml` with the API.
+Provider-backed S3/scanner evidence and every required WBS trust variable must
+be configured before promotion; startup fails closed if any is absent.
 
 **Verification**
 

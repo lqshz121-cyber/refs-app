@@ -14,16 +14,16 @@ This blueprint is a deployment contract, not evidence of a live deployment.
    Render serves that file and `/index.html` with `Cache-Control: no-store` so
    the adapter is replaced atomically with the UI deployment rather than read
    from a browser cache.
-3. Stage 1 sets `REFS_ATTACHMENT_MODE=DISABLED` and
-   `REFS_WBS_INGEST_MODE=DISABLED`; these integrations are not permitted to
-   delay the authoritative PostgreSQL/OIDC read deployment. Their endpoints
-   remain fail-closed. In the later integration release, provision versioned
-   object storage, a TLS scanner bridge, its CA file, and a
-   least-privileged cleanup worker identity plus DB-authorized entity scopes.
+3. Phase 1 sets `REFS_ATTACHMENT_MODE=REQUIRED` and
+   `REFS_WBS_INGEST_MODE=REQUIRED`. Provision versioned object storage, a TLS
+   scanner bridge and CA file, a least-privileged cleanup worker identity with
+   DB-authorized entity scopes, and the WBS public-key keyring before deploy.
+   The API fails closed if any dependency or trust material is missing; it
+   never accepts an unsigned or unbound WBS Payable for accounting admission.
    The API storage identity must also have `s3:GetBucketLocation` on the configured
    bucket; `/health/ready` probes that permission and the scanner bridge's TLS
    `/health` endpoint before accepting traffic.
-   Also provision `WBS_SNAPSHOT_ED25519_PUBLIC_KEYS` as a JSON keyring of
+   Provision `WBS_SNAPSHOT_ED25519_PUBLIC_KEYS` as a JSON keyring of
    trusted WBS public keys (`key_id` to PEM); do not put a private key in Render.
 4. Set the exact static frontend URL as `REFS_HTTP_ALLOWED_ORIGINS`.  The API
    allows only explicit HTTPS origins and requires the OIDC bearer token on all
@@ -52,7 +52,7 @@ a separately recorded staging drill with the platform owner.
 
 The Stage 1 API and static service intentionally use `autoDeployTrigger: off`;
 promote a tested commit manually. The cleanup worker lives in
-`render.integrations.yaml` and is not created in Stage 1. The API's
+`render.integrations.yaml` and is promoted with Phase 1. The API's
 `preDeployCommand` needs a Render plan that supports pre-deploy commands.
 
 The static-site response policy is deliberately conservative: `X-Frame-Options`
