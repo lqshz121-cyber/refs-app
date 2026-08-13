@@ -203,6 +203,19 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async linkWbsOperatorEvidenceToSignedSource({tenantId,entityId,wbsOperatorPayableEvidenceRowId,wbsInboundRowId,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_operator_signed_source_link_hash($1,$2,$3,$4) AS request_hash',
+        [tenantId,entityId,wbsOperatorPayableEvidenceRowId,wbsInboundRowId]
+      ),'WBS_OPERATOR_SIGNED_SOURCE_LINK_HASH_FAILED','WBS operator signed-source link hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_link_wbs_operator_evidence_to_signed_source($1,$2,$3,$4,$5,$6) AS result',
+        [tenantId,entityId,wbsOperatorPayableEvidenceRowId,wbsInboundRowId,idempotencyKey,requestHash]
+      ),'WBS_OPERATOR_SIGNED_SOURCE_LINK_FAILED','WBS operator signed-source link did not return a result').result;
+    });
+  }
+
   async persistWbsInboundRows({tenantId,entityId,importBatchId,receipt,rows,idempotencyKey,requestHash}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_persist_wbs_inbound_rows($1,$2,$3,$4,$5,$6,$7,$8) AS result',

@@ -9,7 +9,7 @@
     "test:wbs-signed-admission": "node --test tests/wbs-signed-delivery-admission.test.mjs",
     "test:wbs-provider-signed-payable": "node --test tests/wbs-provider-signed-payable-admission.test.mjs tests/wbs-provider-signed-payable-contract.test.mjs",
     "test:wbs-live-pilot": "node --test tests/wbs-live-pilot-read-service.test.mjs tests/wbs-live-pilot-http-contract.test.mjs",
-    "test:wbs-operator-attested-payable": "node --test tests/wbs-operator-attested-payable.test.mjs tests/wbs-operator-attested-payable-contract.test.mjs tests/wbs-operator-attested-payable-http-contract.test.mjs tests/wbs-operator-exception-intake-contract.test.mjs",
+    "test:wbs-operator-attested-payable": "node --test tests/wbs-operator-attested-payable.test.mjs tests/wbs-operator-attested-payable-contract.test.mjs tests/wbs-operator-attested-payable-http-contract.test.mjs tests/wbs-operator-exception-intake-contract.test.mjs tests/wbs-operator-signed-source-bridge-contract.test.mjs",
     "test:wbs-signed-bank-admission": "node --test tests/wbs-signed-bank-admission.test.mjs",
     "test:wbs-payable-review": "node --test tests/wbs-payable-review-contract.test.mjs",
     "test:wbs-payable-draft": "node --test tests/wbs-payable-draft-contract.test.mjs",
