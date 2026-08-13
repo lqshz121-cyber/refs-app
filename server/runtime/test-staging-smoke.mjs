@@ -22,7 +22,7 @@ export const stagingSmokeConfig=(environment=process.env)=>{
 };
 
 const expect=(condition,message)=>{if(!condition)throw new Error(message);};
-const sameRelease=(actual,expected)=>typeof actual==='string'&&/^[0-9a-f]{7,40}$/i.test(actual)&&expected.startsWith(actual.toLowerCase());
+const sameRelease=(actual,expected)=>typeof actual==='string'&&/^[0-9a-f]{40}$/i.test(actual)&&actual.toLowerCase()===expected;
 const noStore=response=>String(response.headers.get('cache-control')||'').toLowerCase().split(',').map(value=>value.trim()).includes('no-store');
 const header=(response,name)=>String(response.headers.get(name)||'').toLowerCase();
 const exactRuntimeAssignment=(source,name)=>{

@@ -13,7 +13,7 @@ const integer=(value,name,{min,max})=>{const parsed=Number(value);if(!Number.isS
 const releaseSha=(value,production)=>{
   const sha=String(value||'').trim().toLowerCase();
   if(!sha&&!production)return null;
-  if(!/^[0-9a-f]{7,40}$/.test(sha))throw new Error('RENDER_GIT_COMMIT or GITHUB_SHA must be a Git SHA in production');
+  if(!/^[0-9a-f]{40}$/.test(sha))throw new Error('RENDER_GIT_COMMIT or GITHUB_SHA must be a full 40-character Git SHA in production');
   return sha;
 };
 const integrationMode=(value,name,production)=>{
