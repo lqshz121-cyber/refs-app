@@ -1832,6 +1832,24 @@
         }
       }
     },
+    "/entities/{entityId}/bank/reconciliations/{reconciliationId}/snapshot": {
+      "get": {
+        "operationId": "getReconciledSnapshot",
+        "summary": "Read one immutable signed-off reconciliation snapshot",
+        "description": "Returns retained immutable evidence only while the exact reconciliation remains RECONCILED. It cannot reopen, clear, match, create an adjustment, or post a Journal Entry.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/ReconciliationId"}],
+        "responses": {"200":{"$ref":"#/components/responses/ReconciledSnapshotOk"},"404":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/bank/reconciliations/{reconciliationId}/posted-lineage": {
+      "get": {
+        "operationId": "getReconciliationPostedLineage",
+        "summary": "Read one exact posted reconciliation-to-Journal lineage link",
+        "description": "Returns one retained adjustment link only while the exact reconciliation remains RECONCILED and the exact linked Journal Entry is POSTED. It cannot enumerate bank items, reopen, clear, match, create an adjustment, or post.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/ReconciliationId"},{"name":"bankSourceId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"journalEntryId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses": {"200":{"$ref":"#/components/responses/ReconciliationPostedLineageOk"},"404":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/auto-reconciliation/review-candidates": {
       "get": {
         "operationId": "getWbsAutoRecReviewCandidates",
@@ -3640,7 +3658,11 @@
             }
           }
         }
-      }
+      },
+      "ReconciledSnapshot": {"type":"object","additionalProperties":false,"required":["reconciliation_snapshot_id","reconciliation_id","reconciliation_version","statement_ending_date","snapshot_hash","signed_off_by","signed_off_at","snapshot_body"],"properties":{"reconciliation_snapshot_id":{"$ref":"#/components/schemas/Uuid"},"reconciliation_id":{"$ref":"#/components/schemas/Uuid"},"reconciliation_version":{"type":"integer","minimum":0},"statement_ending_date":{"type":"string","format":"date"},"snapshot_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"signed_off_by":{"type":"string","minLength":1},"signed_off_at":{"type":"string","format":"date-time"},"snapshot_body":{"type":"object"}}},
+      "ReconciledSnapshotEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/ReconciledSnapshot"}}},
+      "ReconciliationPostedLineage": {"type":"object","additionalProperties":false,"required":["reconciliation_id","bank_source_id","journal_entry_id","link_type"],"properties":{"reconciliation_id":{"$ref":"#/components/schemas/Uuid"},"bank_source_id":{"$ref":"#/components/schemas/Uuid"},"journal_entry_id":{"$ref":"#/components/schemas/Uuid"},"source_document_id":{"anyOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"link_type":{"const":"RECONCILIATION_ADJUSTMENT_DRAFT"}}},
+      "ReconciliationPostedLineageEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/ReconciliationPostedLineage"}}}
     },
     "parameters": {
       "EntityId": {
@@ -5291,7 +5313,9 @@
             }
           }
         }
-      }
+      },
+      "ReconciledSnapshotOk": {"description":"Authenticated immutable signed-off reconciliation evidence.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/ReconciledSnapshotEnvelope"}}}},
+      "ReconciliationPostedLineageOk": {"description":"Authenticated exact posted reconciliation lineage evidence.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/ReconciliationPostedLineageEnvelope"}}}}
     }
   }
 }
