@@ -109,7 +109,18 @@ export async function verifyStage1AuthoritativeE2e({config,fetcher=globalThis.fe
     ['WBS inbound row',scenario.wbsInboundRowId],['attachment',scenario.attachmentId],['attachment object version',scenario.attachmentObjectVersionId],['attachment SHA-256',scenario.attachmentSha256],['journal',scenario.journalEntryId],['period',scenario.periodId],
   ])expect(contains(proof,value),`${label} is absent from retained Stage 1 evidence`);
   expect(contains(journal,'POSTED'), 'journal detail is not POSTED');
-  for(const account of [scenario.expected?.debitAccountCode,scenario.expected?.creditAccountCode].filter(Boolean))expect(contains(proof,account),`expected account ${account} is absent from retained evidence`);
+  const sourceDocumentIds=[...new Set(review?.source_document_id?[review.source_document_id]:[])];
+  expect(sourceDocumentIds.length===1,'WBS review evidence must identify exactly one source document');
+  const [sourceDocumentId]=sourceDocumentIds;
+  expect(review?.journal_entry_id===scenario.journalEntryId,'WBS review evidence is not bound to the posted journal');
+  expect((journal?.lines||[]).some(line=>contains(line?.source_document_ids,sourceDocumentId)),'review source document is absent from the posted journal lines');
+  expect((ledger||[]).some(line=>contains(line?.journal_entry_id,scenario.journalEntryId)&&contains(line?.source_document_ids,sourceDocumentId)),'review source document is absent from the posted journal ledger evidence');
+  const postedJournalLines=(journal?.lines||[]);
+  const postedLedgerLines=(ledger||[]).filter(line=>contains(line?.journal_entry_id,scenario.journalEntryId));
+  for(const account of [scenario.expected?.debitAccountCode,scenario.expected?.creditAccountCode].filter(Boolean)){
+    expect(postedJournalLines.some(line=>line?.account_code===account),`expected account ${account} is absent from the posted journal lines`);
+    expect(postedLedgerLines.some(line=>line?.account_code===account),`expected account ${account} is absent from the posted journal ledger evidence`);
+  }
   return Object.freeze({ok:true,mode:'READ_ONLY_RETAINED_EVIDENCE',release,checks:['same-release-stamps','signed-wbs-review','posted-journal','ledger','ap-aging','financial-statements','cross-source-identifiers'],journalEntryId:scenario.journalEntryId});
 }
 
