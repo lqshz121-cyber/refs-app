@@ -2104,9 +2104,11 @@ select{padding-right:28px; cursor:pointer;}
   .qb-greet-spacer{display:none;}
   .qbo-home-actions{justify-self:center;}
 }
-/* Keep the authoritative two-level navigation anchored through wider tablet
-   layouts. Only the <=1024px layout becomes an off-canvas drawer. */
-@media(max-width:1180px) and (min-width:1025px){
+/* The authoritative drawer state machine enters off-canvas mode only at
+   <=1024px. Keep the production rail anchored at every wider breakpoint so a
+   generic 1280px demo rule can never visually hide an otherwise focusable
+   navigation tree. */
+@media(min-width:1025px){
   .authoritative-app .sidebar{position:sticky; top:0; left:auto; transform:none; width:var(--nav-w); flex:0 0 var(--nav-w); box-shadow:none;}
   .authoritative-app .mobile-nav-btn,.authoritative-app .mobile-nav-scrim{display:none;}
   .authoritative-app .main{margin-left:0;}

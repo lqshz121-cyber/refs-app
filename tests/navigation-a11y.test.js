@@ -110,6 +110,10 @@ assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.n
   'the production page panel must keep the demo shell’s stable single-line rows');
 assert.match(styles,/\.authoritative-app \.sidebar\{position:sticky; top:0; left:auto; transform:none; width:var\(--nav-w\); flex:0 0 var\(--nav-w\); box-shadow:none;\}/,
   'the QBO-like rail and panel must remain anchored through wider tablet layouts');
+assert.match(styles,/@media\(min-width:1025px\)\{\s*\.authoritative-app \.sidebar\{position:sticky/,
+  'the authoritative rail must stay visible at 1025–1280px, where the drawer state machine is not off-canvas');
+assert.doesNotMatch(styles,/@media\(max-width:1180px\) and \(min-width:1025px\)\{\s*\.authoritative-app \.sidebar/,
+  'a partial tablet override must not leave the 1181–1280px range visually hidden but keyboard-reachable');
 assert.match(authoritativeShell,/className="nav-rail"/,
   'the reusable production shell must render a workflow rail');
 assert.match(authoritativeShell,/className="nav-panel"/,
@@ -128,5 +132,28 @@ assert.match(authoritativeShell,/authoritative-nav-status/,
   'each visible catalog entry must disclose whether an API read model exists');
 assert.doesNotMatch(authoritativeShell,/legacy-demo-app|from ['"]\.\/data|from ['"]\.\/seed|from ['"]\.\/repo|localStorage/,
   'the full production shell must not import or persist demonstration business state');
+
+// Stage 5 responsive matrix. Every supported operational width has an
+// explicit layout boundary, and evidence tables remain keyboard-focusable
+// regions with a contained horizontal overflow instead of forcing the page
+// itself to scroll sideways.
+for (const width of [1440,1280,1024,768,430,360]) {
+  assert.match(styles,new RegExp(`@media\\(max-width:${width}px\\)|@media \\(max-width:${width}px\\)`),
+    `responsive layout must retain an explicit ${width}px boundary`);
+}
+assert.match(styles,/\.table-wrap\{[\s\S]*?overflow:auto;/,
+  'wide accounting evidence must scroll inside its own table region');
+assert.match(styles,/\.table-wrap:focus-visible\{outline:2px solid var\(--qb-accent\)/,
+  'the keyboard-focusable evidence region must keep a visible focus indicator');
+for (const file of [
+  'src/authoritative-bank-workspace.jsx',
+  'src/authoritative-aging-workspace.jsx',
+  'src/authoritative-general-ledger-workspace.jsx',
+  'src/authoritative-reports-workspace.jsx'
+]) {
+  const surface=readFileSync(file,'utf8');
+  assert.match(surface,/className="table-wrap[^"]*"[^>]*tabIndex=\{0\}[^>]*aria-label=/,
+    `${file}: evidence tables must remain keyboard reachable and explain horizontal scrolling`);
+}
 
 console.log('navigation-a11y: mobile drawer is inert while off-canvas and closed, returns focus to its opener, and exposes accessible English controls');
