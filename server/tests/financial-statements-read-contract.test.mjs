@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
+import './financial-statement-snapshot-contract.test.mjs';
 
 test('financial statement SQL is POSTED-only, scoped, traceable, reversible, and read-only',async()=>{
   const up=await readFile(new URL('../db/migrations/062_financial_statement_read.sql',import.meta.url),'utf8');

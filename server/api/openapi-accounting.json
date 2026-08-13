@@ -1426,6 +1426,32 @@
         }
       }
     },
+    "/entities/{entityId}/reports/financial-statement-snapshots": {
+      "get": {
+        "operationId": "listFinancialStatementSnapshots",
+        "summary": "List immutable retained financial-statement snapshots for an entity period",
+        "description": "Returns only append-only snapshots captured from the authoritative POSTED-ledger financial statement. This read cannot alter a report, journal, ledger line, or period.",
+        "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}],
+        "responses": {"200": {"description": "Retained snapshot metadata", "content": {"application/json": {"schema": {"type": "object"}}}}, "default": {"$ref": "#/components/responses/Problem"}}
+      },
+      "post": {
+        "operationId": "createFinancialStatementSnapshot",
+        "summary": "Capture an immutable version of the current POSTED-ledger financial statement",
+        "description": "Requires GL.REPORT.SNAPSHOT.CREATE and GL.REPORT.VIEW. The capture is idempotent, append-only, audit logged, and creates no accounting entry or ledger line.",
+        "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["periodId", "reason"], "properties": {"periodId": {"$ref": "#/components/schemas/Uuid"}, "reason": {"type": "string", "minLength": 8, "maxLength": 2000}}}}}},
+        "responses": {"201": {"$ref": "#/components/responses/CommandCreated"}, "200": {"$ref": "#/components/responses/CommandReplay"}, "503": {"$ref": "#/components/responses/SerializationRetryExhausted"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/reports/financial-statement-snapshots/{financialStatementSnapshotId}": {
+      "get": {
+        "operationId": "getFinancialStatementSnapshot",
+        "summary": "Read one immutable retained financial-statement snapshot",
+        "description": "Returns exactly one entity-scoped append-only report version including its canonical hash and retained statement rows.",
+        "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"name": "financialStatementSnapshotId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}],
+        "responses": {"200": {"description": "Retained snapshot", "content": {"application/json": {"schema": {"type": "object"}}}}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/reports/dimension-profitability": {
       "get": {
         "operationId": "getDimensionProfitability",
@@ -1801,7 +1827,7 @@
       "get": {
         "operationId": "listReconciliationWorksheet",
         "summary": "Read one open reconciliation worksheet",
-        "description": "Returns only the authenticated entity鈥檚 current DRAFT, IN_REVIEW, or REOPENED worksheet. It exposes bank evidence, the exact ACTIVE match when present, and clearance audit state; it cannot create a match, clear an item, review, sign off, reopen, or post.",
+        "description": "Returns only the authenticated entity?? current DRAFT, IN_REVIEW, or REOPENED worksheet. It exposes bank evidence, the exact ACTIVE match when present, and clearance audit state; it cannot create a match, clear an item, review, sign off, reopen, or post.",
         "parameters": [
           {
             "$ref": "#/components/parameters/EntityId"
@@ -1817,6 +1843,40 @@
           "default": {
             "$ref": "#/components/responses/Problem"
           }
+        }
+      }
+    },
+    "/entities/{entityId}/bank/reconciliations/{reconciliationId}/snapshot": {
+      "get": {
+        "operationId": "getReconciledSnapshot",
+        "summary": "Read one immutable signed-off reconciliation snapshot",
+        "description": "Returns the retained immutable snapshot only when the exact reconciliation remains RECONCILED in the authenticated entity. It cannot reopen, clear, match, create an adjustment, or post a Journal Entry.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"$ref": "#/components/parameters/ReconciliationId"}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/ReconciledSnapshotOk"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "default": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/entities/{entityId}/bank/reconciliations/{reconciliationId}/posted-lineage": {
+      "get": {
+        "operationId": "getReconciliationPostedLineage",
+        "summary": "Read one exact posted reconciliation-to-Journal lineage link",
+        "description": "Returns one retained reconciliation adjustment link only when the exact reconciliation remains RECONCILED and the exact linked Journal Entry is POSTED. It cannot enumerate bank items, reopen, clear, match, create an adjustment, or post a Journal Entry.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"$ref": "#/components/parameters/ReconciliationId"},
+          {"name": "bankSourceId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}},
+          {"name": "journalEntryId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/ReconciliationPostedLineageOk"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "default": {"$ref": "#/components/responses/Problem"}
         }
       }
     },
@@ -3617,6 +3677,45 @@
             }
           }
         }
+      },
+      "ReconciledSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reconciliation_snapshot_id","reconciliation_id","reconciliation_version","statement_ending_date","snapshot_hash","signed_off_by","signed_off_at","snapshot_body"],
+        "properties": {
+          "reconciliation_snapshot_id": {"$ref": "#/components/schemas/Uuid"},
+          "reconciliation_id": {"$ref": "#/components/schemas/Uuid"},
+          "reconciliation_version": {"type": "integer", "minimum": 0},
+          "statement_ending_date": {"type": "string", "format": "date"},
+          "snapshot_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "signed_off_by": {"type": "string", "minLength": 1, "maxLength": 320},
+          "signed_off_at": {"type": "string", "format": "date-time"},
+          "snapshot_body": {"type": "object"}
+        }
+      },
+      "ReconciledSnapshotEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok","data"],
+        "properties": {"ok": {"const": true}, "data": {"$ref": "#/components/schemas/ReconciledSnapshot"}}
+      },
+      "ReconciliationPostedLineage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reconciliation_id","bank_source_id","journal_entry_id","link_type"],
+        "properties": {
+          "reconciliation_id": {"$ref": "#/components/schemas/Uuid"},
+          "bank_source_id": {"$ref": "#/components/schemas/Uuid"},
+          "journal_entry_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_document_id": {"anyOf": [{"$ref": "#/components/schemas/Uuid"},{"type": "null"}]},
+          "link_type": {"const": "RECONCILIATION_ADJUSTMENT_DRAFT"}
+        }
+      },
+      "ReconciliationPostedLineageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok","data"],
+        "properties": {"ok": {"const": true}, "data": {"$ref": "#/components/schemas/ReconciliationPostedLineage"}}
       }
     },
     "parameters": {
@@ -5263,6 +5362,16 @@
             }
           }
         }
+      },
+      "ReconciledSnapshotOk": {
+        "description": "Authenticated immutable signed-off reconciliation evidence.",
+        "headers": {"Cache-Control": {"$ref": "#/components/headers/NoStore"}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReconciledSnapshotEnvelope"}}}
+      },
+      "ReconciliationPostedLineageOk": {
+        "description": "Authenticated exact posted reconciliation lineage evidence.",
+        "headers": {"Cache-Control": {"$ref": "#/components/headers/NoStore"}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReconciliationPostedLineageEnvelope"}}}
       }
     }
   }

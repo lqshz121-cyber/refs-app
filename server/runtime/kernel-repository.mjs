@@ -644,6 +644,19 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getReconciledSnapshot({tenantId,entityId,reconciliationId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_reconciled_snapshot($1,$2,$3)',[tenantId,entityId,reconciliationId]
+    )).rows);
+  }
+
+  async getReconciliationPostedLineage({tenantId,entityId,reconciliationId,bankSourceId,journalEntryId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_reconciliation_posted_lineage($1,$2,$3,$4,$5)',
+      [tenantId,entityId,reconciliationId,bankSourceId,journalEntryId]
+    )).rows);
+  }
+
   async startReconciliation(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
@@ -752,6 +765,31 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_financial_statements($1,$2,$3)',
       [tenantId,entityId,periodId]
+    )).rows);
+  }
+
+  async createFinancialStatementSnapshot({tenantId,entityId,periodId,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_financial_statement_snapshot_request_hash($1,$2,$3,$4) AS request_hash',
+        [tenantId,entityId,periodId,reason]
+      ),'FINANCIAL_STATEMENT_SNAPSHOT_HASH_FAILED','Financial statement snapshot request hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_financial_statement_snapshot($1,$2,$3,$4,$5,$6) AS result',
+        [tenantId,entityId,periodId,reason,idempotencyKey,requestHash]
+      ),'FINANCIAL_STATEMENT_SNAPSHOT_FAILED','Financial statement snapshot did not return a result').result;
+    });
+  }
+
+  async listFinancialStatementSnapshots({tenantId,entityId,periodId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_financial_statement_snapshots($1,$2,$3)',[tenantId,entityId,periodId]
+    )).rows);
+  }
+
+  async getFinancialStatementSnapshot({tenantId,entityId,financialStatementSnapshotId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_financial_statement_snapshot($1,$2,$3)',[tenantId,entityId,financialStatementSnapshotId]
     )).rows);
   }
 

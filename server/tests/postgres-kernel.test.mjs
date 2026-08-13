@@ -2438,7 +2438,6 @@ pgTest('Stage 2 test-data chain traces one reconciled bank payment through its p
   await reviewer.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'stage2-payment-review-001'});
   await approver.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'stage2-payment-approve-001'});
   await poster.postJournal({...ids,journalEntryId:payment.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'stage2-payment-post-001'});
-
   const bankSourceId=randomUUID();
   await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
     VALUES($1,$2,$3,$4,'BANK-1','BANK-STAGE2-100','2026-07-16','USD',-100)`,[bankSourceId,ids.tenantId,ids.entityId,source.documentId]);
@@ -2449,7 +2448,6 @@ pgTest('Stage 2 test-data chain traces one reconciled bank payment through its p
   const evidence=(await adminPool.query('SELECT journal_entry_id,journal_line_id,ledger_line_id FROM bank_match WHERE bank_match_id=$1',[match.bank_match_id])).rows[0];
   assert.equal(evidence.journal_entry_id,payment.journal_entry_id);assert.ok(evidence.journal_line_id);assert.ok(evidence.ledger_line_id);
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-report-reader',['BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'])});
-
   const starter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-recon-starter',['BANK.RECONCILIATION.START'])});
   const clearer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-recon-clearer',['BANK.RECONCILIATION.CLEAR'])});
   const reconReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-recon-reviewer',['BANK.RECONCILIATION.REVIEW'])});
@@ -2462,7 +2460,6 @@ pgTest('Stage 2 test-data chain traces one reconciled bank payment through its p
   const reviewed=await reconReviewer.transitionReconciliation({...ids,reconciliationId:reconciliation.reconciliation_id,action:'REVIEW',expectedVersion:1,reason:'Review exact bank to JE evidence',idempotencyKey:'stage2-reconciliation-review-001'});
   const signed=await signer.transitionReconciliation({...ids,reconciliationId:reconciliation.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Sign off stage 2 test statement',idempotencyKey:'stage2-reconciliation-signoff-001'});
   assert.equal(reviewed.status,'IN_REVIEW');assert.equal(signed.status,'RECONCILED');assert.match(signed.snapshot_hash,/^sha256:[0-9a-f]{64}$/);
-
   const ledger=await reader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'111000',query:null,limit:50,offset:0});
   const cashLedger=ledger.find(row=>row.journal_entry_id===payment.journal_entry_id);
   assert.ok(cashLedger);assert.deepEqual(cashLedger.source_document_ids,[source.documentId]);
@@ -2499,6 +2496,31 @@ pgTest('financial statements read only POSTED ledger evidence with entity, perio
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'report-reader'}),kernelFactory:async()=>reader});
   const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/financial-statements?periodId=${ids.periodId}`,body:null,headers:{}});
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.length,rows.length);
+});
+
+pgTest('financial statement snapshots retain a canonical append-only POSTED-ledger version with audit and exact scope reads',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'610000',accountName:'Operating Expense'}],
+    journalLines:[{lineNo:1,accountCode:'610000',debit:100,credit:0},{lineNo:2,accountCode:'111000',debit:0,credit:100,memberRef:'BANK-1'}]});
+  await attachAutoSource(ids);
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'report-snapshot-poster',['GL.JE.POST'])});
+  await poster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'report-snapshot-post-001'});
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'report-snapshot-denied',['GL.REPORT.VIEW'])});
+  await assert.rejects(denied.createFinancialStatementSnapshot({...ids,reason:'Capture retained close evidence',idempotencyKey:'report-snapshot-denied-001'}),error=>error.code==='42501');
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'report-snapshot-maker',['GL.REPORT.VIEW','GL.REPORT.SNAPSHOT.CREATE'])});
+  const args={...ids,reason:'Capture retained close evidence',idempotencyKey:'report-snapshot-create-001'};
+  const created=await maker.createFinancialStatementSnapshot(args),replayed=await maker.createFinancialStatementSnapshot(args);
+  assert.equal(created.status,'CAPTURED');assert.equal(created.idempotent,false);assert.equal(Number(created.version),1);assert.equal(Number(created.row_count),6);assert.match(created.statement_hash,/^sha256:[0-9a-f]{64}$/);
+  assert.equal(replayed.idempotent,true);assert.equal(replayed.financial_statement_snapshot_id,created.financial_statement_snapshot_id);
+  const listed=await maker.listFinancialStatementSnapshots({...ids,periodId:ids.periodId});assert.equal(listed.length,1);assert.equal(listed[0].financial_statement_snapshot_id,created.financial_statement_snapshot_id);
+  const retained=await maker.getFinancialStatementSnapshot({...ids,financialStatementSnapshotId:created.financial_statement_snapshot_id});assert.equal(retained.length,1);assert.equal(retained[0].statement_hash,created.statement_hash);assert.equal(retained[0].statement_rows.length,6);assert.ok(retained[0].statement_rows.every(row=>row.journal_entry_ids.includes(ids.journalId)));
+  await assert.rejects(adminPool.query('UPDATE financial_statement_snapshot SET row_count=0 WHERE financial_statement_snapshot_id=$1',[created.financial_statement_snapshot_id]),error=>error.code==='55000');
+  const counts=(await adminPool.query("SELECT (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='FINANCIAL_STATEMENT_SNAPSHOT_CAPTURED') audits,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type='FINANCIAL_STATEMENT_SNAPSHOT_CAPTURED') outbox",[ids.tenantId])).rows[0];assert.deepEqual(counts,{audits:1,outbox:1});
+  const other=await seed({status:'DRAFT',attachmentStatus:null,tenantId:ids.tenantId});
+  await assert.rejects(maker.getFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:other.entityId,financialStatementSnapshotId:created.financial_statement_snapshot_id}),error=>error.code==='42501');
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'report-snapshot-maker'}),kernelFactory:async()=>maker});
+  const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/financial-statement-snapshots/${created.financial_statement_snapshot_id}`,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.financial_statement_snapshot_id,created.financial_statement_snapshot_id);
 });
 
 pgTest('chart of accounts and account register read only same-entity POSTED fixed-decimal ledger evidence',async()=>{

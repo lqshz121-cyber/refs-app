@@ -1,0 +1,14 @@
+BEGIN;
+REVOKE EXECUTE ON FUNCTION refs_get_financial_statement_snapshot(uuid,uuid,uuid) FROM refs_app;
+REVOKE EXECUTE ON FUNCTION refs_list_financial_statement_snapshots(uuid,uuid,uuid) FROM refs_app;
+REVOKE EXECUTE ON FUNCTION refs_create_financial_statement_snapshot(uuid,uuid,uuid,text,text,text) FROM refs_app;
+DROP FUNCTION refs_get_financial_statement_snapshot(uuid,uuid,uuid);
+DROP FUNCTION refs_list_financial_statement_snapshots(uuid,uuid,uuid);
+DROP FUNCTION refs_create_financial_statement_snapshot(uuid,uuid,uuid,text,text,text);
+DROP FUNCTION refs_financial_statement_snapshot_request_hash(uuid,uuid,uuid,text);
+DROP FUNCTION refs_financial_statement_snapshot_hash(uuid,jsonb);
+DROP TRIGGER financial_statement_snapshot_append_only ON financial_statement_snapshot;
+DROP POLICY financial_statement_snapshot_scope_policy ON financial_statement_snapshot;
+DROP TABLE financial_statement_snapshot;
+UPDATE permission_catalog SET active=false,effective_to=COALESCE(effective_to,clock_timestamp()),version=version+1 WHERE permission_code='GL.REPORT.SNAPSHOT.CREATE';
+COMMIT;
