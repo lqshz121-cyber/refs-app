@@ -1438,6 +1438,26 @@
         }
       }
     },
+    "/entities/{entityId}/reports/financial-statement-snapshot-proposals": {
+      "post": {
+        "operationId": "prepareFinancialStatementSnapshot",
+        "summary": "Prepare a frozen statement snapshot from POSTED ledger evidence",
+        "description": "Requires the report-snapshot preparer permission and report-view permission. Creates only an immutable pending proposal; it cannot approve itself or alter the ledger.",
+        "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["periodId"], "properties": {"periodId": {"$ref": "#/components/schemas/Uuid"}}}}}},
+        "responses": {"200": {"$ref": "#/components/responses/CommandReplay"}, "201": {"$ref": "#/components/responses/CommandCreated"}, "503": {"$ref": "#/components/responses/SerializationRetryExhausted"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/reports/financial-statement-snapshot-proposals/{proposalId}/approve": {
+      "post": {
+        "operationId": "approveFinancialStatementSnapshot",
+        "summary": "Independently approve a prepared immutable statement snapshot",
+        "description": "Requires the report-snapshot approver permission. The preparer is explicitly prohibited from approval; approval creates the next immutable statement version without changing GL evidence.",
+        "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"name": "proposalId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}, {"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false}}}},
+        "responses": {"200": {"$ref": "#/components/responses/CommandReplay"}, "201": {"$ref": "#/components/responses/CommandCreated"}, "503": {"$ref": "#/components/responses/SerializationRetryExhausted"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/reports/dimension-profitability": {
       "get": {
         "operationId": "getDimensionProfitability",

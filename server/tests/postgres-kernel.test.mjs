@@ -2572,17 +2572,20 @@ pgTest('isolated financial-statement snapshots retain immutable versioned GL and
   const liveReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-reader',['GL.REPORT.VIEW'])});
   const live=(await liveReader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId})).find(row=>row.statement_type==='INCOME_STATEMENT'&&row.account_code==='610000');
   assert.ok(live);assert.deepEqual(live.source_document_ids,[trace.documentId]);
-  const first=randomUUID(),latest=randomUUID();
-  for(const [snapshotId,version] of [[first,1],[latest,2]]){
-    await adminPool.query(`INSERT INTO financial_statement_snapshot(financial_statement_snapshot_id,tenant_id,entity_id,period_id,version,currency,snapshot_hash,ledger_evidence_hash,prepared_by,approved_by,approved_at)
-      VALUES($1,$2,$3,$4,$5,'USD',$6,$7,'snapshot-maker','snapshot-approver',now())`,[snapshotId,ids.tenantId,ids.entityId,ids.periodId,version,hash('statement-snapshot-'+version),hash('statement-ledger-'+version)]);
-    await adminPool.query(`INSERT INTO financial_statement_snapshot_row(financial_statement_snapshot_id,tenant_id,entity_id,period_id,statement_type,statement_section,classification_basis,account_code,account_name,opening_debit,opening_credit,period_debit,period_credit,ending_debit,ending_credit,display_balance,journal_entry_ids,journal_line_ids,ledger_line_ids,source_document_ids,row_hash)
-      VALUES($1,$2,$3,$4,'INCOME_STATEMENT','EXPENSES',$5,'610000','Snapshot Expense',$6,$6,$7,$6,$7,$6,$7,$8,$9,$10,$11,$12)`,[snapshotId,ids.tenantId,ids.entityId,ids.periodId,'ACCOUNT_CODE_PREFIX_AND_BANK_MEMBER','0.0000','75.0000',[ids.journalId],live.journal_line_ids,live.ledger_line_ids,[trace.documentId],hash('statement-row-'+version)]);
-  }
+  const preparer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-maker',['GL.REPORT.VIEW','GL.REPORT.SNAPSHOT.PREPARE'])});
+  const proposal=await preparer.prepareFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,idempotencyKey:'statement-snapshot-prepare-001'});
+  assert.equal(proposal.status,'PENDING_APPROVAL');assert.equal(proposal.prepared_by,'snapshot-maker');
+  await assert.rejects(preparer.approveFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,proposalId:proposal.financial_statement_snapshot_proposal_id,idempotencyKey:'statement-snapshot-self-approve-001'}),error=>error.code==='42501');
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'snapshot-approver',['GL.REPORT.SNAPSHOT.APPROVE'])});
+  const first=await approver.approveFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,proposalId:proposal.financial_statement_snapshot_proposal_id,idempotencyKey:'statement-snapshot-approve-001'});
+  assert.deepEqual({version:first.version,status:first.status,prepared:first.prepared_by,approved:first.approved_by},{version:'1',status:'APPROVED',prepared:'snapshot-maker',approved:'snapshot-approver'});
+  const secondProposal=await preparer.prepareFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,idempotencyKey:'statement-snapshot-prepare-002'});
+  const latest=await approver.approveFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,proposalId:secondProposal.financial_statement_snapshot_proposal_id,idempotencyKey:'statement-snapshot-approve-002'});
+  assert.equal(latest.version,'2');
   const snapshotRows=await liveReader.getFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
-  assert.equal(snapshotRows.length,1);assert.deepEqual({snapshot:snapshotRows[0].financial_statement_snapshot_id,version:snapshotRows[0].version,balance:snapshotRows[0].display_balance,sources:snapshotRows[0].source_document_ids},{snapshot:latest,version:'2',balance:'75.0000',sources:[trace.documentId]});
-  await assert.rejects(adminPool.query('UPDATE financial_statement_snapshot SET version=3 WHERE financial_statement_snapshot_id=$1',[latest]),error=>error.code==='55000');
-  await assert.rejects(adminPool.query('DELETE FROM financial_statement_snapshot_row WHERE financial_statement_snapshot_id=$1',[latest]),error=>error.code==='55000');
+  assert.ok(snapshotRows.length>=1);assert.deepEqual({snapshot:snapshotRows[0].financial_statement_snapshot_id,version:snapshotRows[0].version,balance:snapshotRows.find(row=>row.statement_type==='INCOME_STATEMENT'&&row.account_code==='610000').display_balance,sources:snapshotRows.find(row=>row.statement_type==='INCOME_STATEMENT'&&row.account_code==='610000').source_document_ids},{snapshot:latest.financial_statement_snapshot_id,version:'2',balance:'75.0000',sources:[trace.documentId]});
+  await assert.rejects(adminPool.query('UPDATE financial_statement_snapshot SET version=3 WHERE financial_statement_snapshot_id=$1',[latest.financial_statement_snapshot_id]),error=>error.code==='55000');
+  await assert.rejects(adminPool.query('DELETE FROM financial_statement_snapshot_row WHERE financial_statement_snapshot_id=$1',[latest.financial_statement_snapshot_id]),error=>error.code==='55000');
   const other=await seed({status:'DRAFT',attachmentStatus:null,tenantId:ids.tenantId});
   await assert.rejects(liveReader.getFinancialStatementSnapshot({tenantId:ids.tenantId,entityId:other.entityId,periodId:other.periodId}),error=>error.code==='42501');
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'snapshot-reader'}),kernelFactory:async()=>liveReader});

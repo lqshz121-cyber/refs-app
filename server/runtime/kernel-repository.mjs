@@ -762,6 +762,32 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async prepareFinancialStatementSnapshot({tenantId,entityId,periodId,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        "SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'period_id',$3::uuid)) AS request_hash",
+        [tenantId,entityId,periodId]
+      ),'STATEMENT_SNAPSHOT_PREPARE_HASH_FAILED','Statement snapshot prepare hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_prepare_financial_statement_snapshot($1,$2,$3,$4,$5) AS result',
+        [tenantId,entityId,periodId,idempotencyKey,requestHash]
+      ),'STATEMENT_SNAPSHOT_PREPARE_FAILED','Statement snapshot proposal was not prepared').result;
+    });
+  }
+
+  async approveFinancialStatementSnapshot({tenantId,entityId,proposalId,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        "SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'proposal_id',$3::uuid)) AS request_hash",
+        [tenantId,entityId,proposalId]
+      ),'STATEMENT_SNAPSHOT_APPROVE_HASH_FAILED','Statement snapshot approval hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_approve_financial_statement_snapshot($1,$2,$3,$4,$5) AS result',
+        [tenantId,entityId,proposalId,idempotencyKey,requestHash]
+      ),'STATEMENT_SNAPSHOT_APPROVE_FAILED','Statement snapshot proposal was not approved').result;
+    });
+  }
+
   async getFinancialStatementPeriodComparison({tenantId,entityId,currentPeriodId,priorPeriodId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_financial_statement_period_comparison($1,$2,$3,$4)',

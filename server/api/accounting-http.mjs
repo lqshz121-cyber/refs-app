@@ -452,7 +452,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       }
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');
       const idempotencyKey=requireIdempotency(headers);
-      if(parts.length===6&&parts[4]==='attachments'&&parts[5]==='reservations'){
+      if(parts.length===6&&parts[4]==='reports'&&parts[5]==='financial-statement-snapshot-proposals'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['periodId']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.prepareFinancialStatementSnapshot!=='function')throw new AccountingApiError(503,'STATEMENT_SNAPSHOT_PREPARE_UNAVAILABLE','Statement snapshot preparation is unavailable');
+        result=await kernel.prepareFinancialStatementSnapshot({tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),idempotencyKey});
+      }else if(parts.length===8&&parts[4]==='reports'&&parts[5]==='financial-statement-snapshot-proposals'&&parts[7]==='approve'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,[]);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.approveFinancialStatementSnapshot!=='function')throw new AccountingApiError(503,'STATEMENT_SNAPSHOT_APPROVE_UNAVAILABLE','Statement snapshot approval is unavailable');
+        result=await kernel.approveFinancialStatementSnapshot({tenantId:principal.tenantId,entityId,proposalId:requireUuid(parts[6],'proposalId'),idempotencyKey});
+      }else if(parts.length===6&&parts[4]==='attachments'&&parts[5]==='reservations'){
         if(typeof attachmentServiceFactory!=='function')throw new AccountingApiError(503,'ATTACHMENT_SERVICE_UNAVAILABLE','Attachment service is unavailable');
         allowOnly(payload,['name','mediaType','sizeBytes','contentHash']);const service=await attachmentServiceFactory(principal);result=await service.reserve(principal,{...payload,tenantId:principal.tenantId,entityId,idempotencyKey});
       }else if(parts.length===10&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[8]==='attachments'&&parts[9]==='reservations'){
