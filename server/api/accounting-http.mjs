@@ -626,8 +626,9 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
 
 const corsHeaders=(origin,allowedOrigins)=>origin&&allowedOrigins.has(origin)?{'access-control-allow-origin':origin,'access-control-allow-credentials':'true','access-control-allow-methods':'GET, POST, OPTIONS','access-control-allow-headers':'authorization, content-type, idempotency-key, if-match','access-control-max-age':'600','vary':'Origin'}:{};
 
-export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory,maxBodyBytes=1024*1024,healthCheck,allowedOrigins=[]}={}){
+export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory,maxBodyBytes=1024*1024,healthCheck,releaseSha=null,allowedOrigins=[]}={}){
   const allowed=new Set(allowedOrigins);
+  const release=typeof releaseSha==='string'&&/^[0-9a-f]{7,40}$/i.test(releaseSha)?releaseSha.slice(0,7).toLowerCase():'unversioned';
   const dispatch=createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory});
   return createServer(async(req,res)=>{
     const chunks=[];let size=0;
@@ -641,11 +642,11 @@ export function createAccountingHttpServer({authenticate,kernelFactory,attachmen
         res.writeHead(204,cors);res.end();return;
       }
       if(req.method==='GET'&&pathname==='/health/live'){
-        res.writeHead(200,{'content-type':'application/json','cache-control':'no-store',...cors});res.end('{"ok":true,"status":"live"}');return;
+        res.writeHead(200,{'content-type':'application/json','cache-control':'no-store',...cors});res.end(JSON.stringify({ok:true,status:'live',release}));return;
       }
       if(req.method==='GET'&&pathname==='/health/ready'){
         let ready=false;try{ready=typeof healthCheck==='function'&&await healthCheck()===true;}catch{}
-        res.writeHead(ready?200:503,{'content-type':'application/json','cache-control':'no-store',...cors});res.end(JSON.stringify({ok:ready,status:ready?'ready':'not_ready'}));return;
+        res.writeHead(ready?200:503,{'content-type':'application/json','cache-control':'no-store',...cors});res.end(JSON.stringify({ok:ready,status:ready?'ready':'not_ready',release}));return;
       }
       for await(const chunk of req){size+=chunk.length;if(size>maxBodyBytes)throw new AccountingApiError(413,'BODY_TOO_LARGE','Request body exceeds limit');chunks.push(chunk);}
       let body=null;if(chunks.length){try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new AccountingApiError(400,'INVALID_JSON','Request body is not valid JSON');}}

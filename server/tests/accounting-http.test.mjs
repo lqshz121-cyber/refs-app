@@ -557,10 +557,10 @@ test('HTTP CORS permits only configured browser origins and preflights without a
   }finally{await new Promise(resolve=>server.close(resolve));}
 });
 
-test('liveness is process-local while readiness fails closed and reflects dependency checks',async()=>{
-  let ready=false;const server=createAccountingHttpServer({authenticate:async()=>null,kernelFactory:async()=>kernel,healthCheck:async()=>ready});
+test('liveness and readiness expose a non-secret release stamp while readiness fails closed',async()=>{
+  let ready=false;const server=createAccountingHttpServer({authenticate:async()=>null,kernelFactory:async()=>kernel,healthCheck:async()=>ready,releaseSha:'abcdef1234567890'});
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));try{
-    const base=`http://127.0.0.1:${server.address().port}`;let response=await fetch(`${base}/health/live`);assert.equal(response.status,200);
-    response=await fetch(`${base}/health/ready`);assert.equal(response.status,503);ready=true;response=await fetch(`${base}/health/ready`);assert.equal(response.status,200);
+    const base=`http://127.0.0.1:${server.address().port}`;let response=await fetch(`${base}/health/live`);assert.equal(response.status,200);assert.deepEqual(await response.json(),{ok:true,status:'live',release:'abcdef1'});
+    response=await fetch(`${base}/health/ready`);assert.equal(response.status,503);assert.deepEqual(await response.json(),{ok:false,status:'not_ready',release:'abcdef1'});ready=true;response=await fetch(`${base}/health/ready`);assert.equal(response.status,200);assert.deepEqual(await response.json(),{ok:true,status:'ready',release:'abcdef1'});
   }finally{await new Promise(resolve=>server.close(resolve));}
 });
