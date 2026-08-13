@@ -4,7 +4,7 @@ const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.pos
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
-  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsPayableApDraft','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','reviewAdmittedWbsPayable','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','verifyWbsAutoRecTransitionContract']);
+  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsPayableApDraft','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','reviewAdmittedWbsPayable','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
 });
 
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{
@@ -277,4 +277,11 @@ test('AP Bill and AR Invoice create commands are Draft-only and require a canoni
   }
   const schema=contract.components.requestBodies.BusinessDocument.content['application/json'].schema;
   assert.equal(schema.additionalProperties,false);assert.deepEqual(schema.required,['periodId','documentNumber','counterpartyRef','counterpartyName','currency','accountingDate','amount','offsetAccountCode','attachmentIds']);
+});
+
+test('Stage 1 WBS operator self-upgrade is a closed exact-scope command',()=>{
+  const operation=contract.paths['/entities/{entityId}/access/self-service-wbs-operator-grant/upgrade'].post;
+  assert.equal(operation.operationId,'upgradeStage1WbsOperatorAccess');assert.deepEqual(operation.parameters.map(item=>item.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);
+  assert.equal(operation.requestBody.content['application/json'].schema.additionalProperties,false);assert.equal(operation.requestBody.content['application/json'].schema.maxProperties,0);
+  assert.match(operation.description,/only WBS\.PAYABLE\.OPERATOR_ATTEST/);assert.match(operation.description,/no import, review, Draft, approval, posting, ledger, or WBS write authority/i);
 });

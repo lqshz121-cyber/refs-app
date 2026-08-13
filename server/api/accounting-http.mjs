@@ -61,7 +61,7 @@ function statusFor(error){
 }
 const problemFor=error=>{const status=statusFor(error);const code=isRevisionPrecondition(error)?'PRECONDITION_FAILED':error?.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED'?'WBS_SNAPSHOT_SIGNATURE_REQUIRED':error?.code==='WBS_BANK_ADMISSION_SIGNATURE_REQUIRED'?'WBS_BANK_ADMISSION_SIGNATURE_REQUIRED':error?.code==='WBS_READ_SERVICE_UNAVAILABLE'?'WBS_READ_SERVICE_UNAVAILABLE':error?.code==='WBS_PAYABLE_ADMISSION_UNAVAILABLE'?'WBS_PAYABLE_ADMISSION_UNAVAILABLE':error?.code==='WBS_OPERATOR_ATTEST_UNAVAILABLE'?'WBS_OPERATOR_ATTEST_UNAVAILABLE':error instanceof WbsOperatorAttestedPayableError?error.code:error instanceof WbsSignedBankAdmissionError?error.code:error instanceof WbsAdmittedPayableIngestionError?error.code:error instanceof WbsLivePilotError?error.code:error instanceof WbsReadContractError?error.code:status===503?'SERIALIZATION_RETRY_EXHAUSTED':error.code||'INTERNAL_ERROR';const message=status>=500?'Internal server error':status===403?'Forbidden':error.message;const headers={'content-type':'application/problem+json','cache-control':'no-store'};if(status===503)headers['retry-after']='1';return {status,headers,body:{ok:false,code,message}};};
 
-export function createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory}={}){
+export function createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory}={}){
   if(typeof authenticate!=='function'||typeof kernelFactory!=='function')throw new Error('Accounting API requires authenticate and kernelFactory');
   return async function dispatch({method,url,headers={},body=null}){
     try{
@@ -88,6 +88,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         if(!service||typeof service.upgrade!=='function')throw new Error('Self-service WBS reader upgrade is unavailable');
         result=await service.upgrade({entityId,idempotencyKey:requireIdempotency(headers)});
         return {status:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:{upgraded:true,idempotent:result.idempotent===true,permission_count:result.permissionCount}}};
+      }
+      if(method==='POST'&&parts.length===7&&parts[4]==='access'&&parts[5]==='self-service-wbs-operator-grant'&&parts[6]==='upgrade'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        if(Object.keys(payload).length)throw new AccountingApiError(400,'UNEXPECTED_FIELD','Self-service WBS operator upgrade accepts no request fields');
+        if(typeof stage1SelfWbsOperatorUpgradeServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
+        const service=await stage1SelfWbsOperatorUpgradeServiceFactory(principal);
+        if(!service||typeof service.upgrade!=='function')throw new Error('Self-service WBS operator upgrade is unavailable');
+        result=await service.upgrade({entityId,idempotencyKey:requireIdempotency(headers)});
+        return {status:result.idempotent===true?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:{upgraded:true,idempotent:result.idempotent===true,permission_count:result.permissionCount}}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='live-pilot'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
@@ -611,9 +620,9 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
 
 const corsHeaders=(origin,allowedOrigins)=>origin&&allowedOrigins.has(origin)?{'access-control-allow-origin':origin,'access-control-allow-credentials':'true','access-control-allow-methods':'GET, POST, OPTIONS','access-control-allow-headers':'authorization, content-type, idempotency-key, if-match','access-control-max-age':'600','vary':'Origin'}:{};
 
-export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,maxBodyBytes=1024*1024,healthCheck,allowedOrigins=[]}={}){
+export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory,maxBodyBytes=1024*1024,healthCheck,allowedOrigins=[]}={}){
   const allowed=new Set(allowedOrigins);
-  const dispatch=createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory});
+  const dispatch=createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory});
   return createServer(async(req,res)=>{
     const chunks=[];let size=0;
     try{

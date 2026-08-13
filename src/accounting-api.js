@@ -973,6 +973,17 @@ export async function activateAuthoritativeWbsReadAccess({config,fetcher=globalT
   }catch{return unreachable('The browser could not complete the WBS evidence reader activation; no HTTP response was produced.');}
 }
 
+export async function activateAuthoritativeWbsOperatorAccess({config,fetcher=globalThis.fetch,idempotencyKey}={}){
+  if(!config||typeof fetcher!=='function'||typeof idempotencyKey!=='string'||idempotencyKey.length<8)return {ok:false,code:'WBS_OPERATOR_ACCESS_SCOPE_INVALID',message:'WBS exception-evidence activation requires an authoritative scope.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/access/self-service-wbs-operator-grant/upgrade`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:'{}'});
+    if(!response.ok)return await failure(response,'WBS_OPERATOR_ACCESS');
+    const body=await response.json();
+    return body?.ok===true&&body?.data?.upgraded===true&&body.data.permission_count===7?{ok:true,idempotent:body.data.idempotent===true}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'WBS exception-evidence activation returned an invalid response.'};
+  }catch{return unreachable('The browser could not complete WBS exception-evidence activation; no HTTP response was produced.');}
+}
+
 export async function refreshAuthoritativeWbsControlReconciliation({config,sourceType,companyKey,period=null,currency,propertyRef=null,periodStart=null,periodEnd=null,bankAccountRef=null,fetcher=globalThis.fetch}={}){
   const type=String(sourceType||''),company=typeof companyKey==='string'?companyKey.trim():'',unit=String(currency||'').trim().toUpperCase(),propertyKey=typeof propertyRef==='string'?propertyRef.trim():'',bankKey=typeof bankAccountRef==='string'?bankAccountRef.trim():'';
   const cost=type==='COST_GENERAL_LEDGER',property=type==='PROPERTY_COMPARISON';
