@@ -11,6 +11,10 @@ function fixture(){
   receipt.detached_signature={key_id:receipt.kid,algorithm:'Ed25519',value:sign(null,Buffer.from(canonicalWbsLiveReceiptSigningPayload(receipt),'utf8'),pair.privateKey).toString('base64')};
   const row=randomUUID(),attachment=randomUUID(),review=randomUUID(),journal=randomUUID(),source=randomUUID(),hash=digest('evidence');
   const chain={scope:{...scope,package_hash:receipt.package_hash},payable:{wbs_inbound_row_id:row,source_record_id:'WBS-INV-001',source_version:'snapshot:1',receipt_hash:digest('receipt'),evidence_hash:hash},attachment:{attachment_id:attachment,wbs_inbound_row_id:row,source_version:'snapshot:1',receipt_hash:digest('receipt'),status:'VERIFIED_CLEAN',object_version:'v1',content_hash:digest('attachment')},review:{review_evidence_id:review,wbs_inbound_row_id:row,expected_evidence_hash:hash,attachment_id:attachment,status:'READY_FOR_DRAFT',reviewer_actor_id:'payable-reviewer'},draft:{wbs_inbound_row_id:row,review_evidence_id:review,attachment_id:attachment,status:'DRAFT',journal_entry_id:journal,maker_actor_id:'payable-maker',source_document_id:source,gross_amount:'89.1250',currency:'USD'},workflow:[{journal_entry_id:journal,action:'SUBMIT',status:'PENDING_REVIEW',submitter_actor_id:'journal-submitter'},{journal_entry_id:journal,action:'REVIEW',status:'PENDING_APPROVAL',journal_reviewer_actor_id:'journal-reviewer'},{journal_entry_id:journal,action:'APPROVE',status:'APPROVED',approver_actor_id:'journal-approver'},{journal_entry_id:journal,action:'POST',status:'POSTED',poster_actor_id:'journal-poster'}],posted:{journal_entry_id:journal,status:'POSTED',source_document_id:source},gl:{journal_entry_id:journal,source_document_id:source,debit_amount:'89.1250',credit_amount:'0.0000'},trial_balance:[{account_code:'610000',period_debit:'89.1250',period_credit:'0.0000'},{account_code:'291001',period_debit:'0.0000',period_credit:'89.1250'}],ap_aging:{currency:'USD',total_open_balance:'89.1250'}};
+  const providerReceiptHash=digest('provider-receipt');
+  chain.payable.provider_receipt_hash=providerReceiptHash;
+  chain.attachment.provider_receipt_hash=providerReceiptHash;
+  chain.review.expected_provider_receipt_hash=providerReceiptHash;
   return {providerTrust:{issuer:receipt.issuer,key_id:receipt.kid,public_key:pair.publicKey.export({type:'spki',format:'pem'})},receipt,raw,chain};
 }
 
@@ -22,5 +26,6 @@ test('validates one real-shaped signed Payable chain through attachment, four-ro
 test('rejects a reused actor, attachment/source mismatch, and AP Aging mismatch',()=>{
   const sod=fixture();sod.chain.workflow[3].poster_actor_id='payable-maker';assert.throws(()=>verifyStage1PayableLiveAcceptance({...sod,now}),error=>error.code==='STAGE1_PAYABLE_SOD_INVALID');
   const attachment=fixture();attachment.chain.attachment.receipt_hash=digest('other');assert.throws(()=>verifyStage1PayableLiveAcceptance({...attachment,now}),error=>error.code==='STAGE1_PAYABLE_ATTACHMENT_INVALID');
+  const providerReceipt=fixture();providerReceipt.chain.review.expected_provider_receipt_hash=digest('other');assert.throws(()=>verifyStage1PayableLiveAcceptance({...providerReceipt,now}),error=>error.code==='STAGE1_PAYABLE_REVIEW_INVALID');
   const aging=fixture();aging.chain.ap_aging.total_open_balance='89.1251';assert.throws(()=>verifyStage1PayableLiveAcceptance({...aging,now}),error=>error.code==='STAGE1_PAYABLE_AGING_INVALID');
 });
