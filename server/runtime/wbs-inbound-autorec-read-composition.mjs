@@ -9,6 +9,7 @@ const freeze=value=>Object.freeze(value);
 // only; this prevents a client from reinterpreting a binary float as an
 // accounting amount.
 const money4=value=>{
+  if(typeof value==='string'&&/^-?(?:0|[1-9]\d*)\.\d{4}$/.test(value))return value==='-0.0000'?'0.0000':value;
   if(typeof value!=='number'||!Number.isFinite(value)||!Number.isSafeInteger(Math.round(value*10000)))throw new TypeError('WBS read composition received a non-canonical monetary value');
   return (Object.is(value,-0)?0:value).toFixed(4);
 };
