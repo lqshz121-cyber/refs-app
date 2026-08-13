@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,sign} from 'node:crypto';
+import {readFileSync} from 'node:fs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,buildWbsInboundPersistencePlan,createWbsInboundDataAdapter,createWbsInboundDataAdapterWithKeyring,createWbsInboundOrchestrator,evaluateWbsAutoReconciliationEligibility,validatePostedJournalTrace,validateWbsAutoRecG11PostedTrace,WBS_AUTOREC_OBSERVED_CONTRACT,WbsInboundDataError} from '../runtime/wbs-inbound-data-adapter.mjs';
 
@@ -119,6 +120,10 @@ test('G11 accepts only both posted AutoRec legs with exact source trace and per-
   const autoc=journal('AUTOC',[{ledger_line_id:'auto-ap',account_code:'291001',member_ref:'VENDOR-1',debit_amount:100,credit_amount:0},{ledger_line_id:'auto-bank',account_code:'111000',member_ref:'BANK-1',debit_amount:0,credit_amount:100}]);
   const accepted=validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,autoc]});
   assert.deepEqual({status:accepted.status,net:accepted.control_totals.ap_291001_member_nets['VENDOR-1'],transition:accepted.can_transition_case,post:accepted.can_post},{status:'POSTED_TRACE_VERIFIED',net:0,transition:false,post:false});
+  const g11Runtime=readFileSync(new URL('../runtime/wbs-inbound-data-adapter.mjs',import.meta.url),'utf8');
+  assert.match(g11Runtime,/let totalDebit=0n,totalCredit=0n/);
+  assert.match(g11Runtime,/const payableClearing=\[\.\.\.payableAp\.values\(\)\]\.reduce\(\(sum,net\)=>sum\+absoluteUnits\(net\),0n\)/);
+  assert.doesNotMatch(g11Runtime,/Number\(\(\(leg\.get\(member\)\?\?0\)\+debit-credit\)\.toFixed\(4\)\)/);
   const relationTrace={...review.trace,bank_external_relation_trace_hash:'sha256:'+'1'.repeat(64),business_external_relation_trace_hash:'sha256:'+'2'.repeat(64)},relationReview={...review,trace:relationTrace},relationPayable={...payable,source_trace:relationTrace},relationAutoc={...autoc,source_trace:relationTrace};
   assert.equal(validateWbsAutoRecG11PostedTrace({reviewRequest:relationReview,postedJournals:[relationPayable,relationAutoc]}).status,'POSTED_TRACE_VERIFIED');
   assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:relationReview,postedJournals:[relationPayable,{...relationAutoc,source_trace:{...relationTrace,business_external_relation_trace_hash:'sha256:'+'3'.repeat(64)}}]}),error=>error.code==='WBS_AUTOREC_G11_SOURCE_TRACE_MISMATCH');

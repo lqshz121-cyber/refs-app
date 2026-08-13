@@ -616,8 +616,8 @@ export function validateWbsAutoRecG11PostedTrace({reviewRequest,postedJournals}=
   if(text(reviewRequest?.request_type)!=='AUTOREC_REVIEW_REQUEST'||text(reviewRequest?.status)!=='REVIEW_REQUIRED')fail('WBS_AUTOREC_G11_REVIEW_REQUIRED','A read-only reviewed AutoRec request is required.');
   const expected=reviewRequest.trace;
   const traceFields=['company_key','currency','bank_account_ref','bank_business_date','bank_accounting_date','business_business_date','business_accounting_date','bank_receipt_id','bank_receipt_ref','bank_receipt_hash','business_receipt_id','business_receipt_ref','business_receipt_hash','bank_raw_event_id','business_raw_event_id','bank_source_document_id','business_source_document_id','bank_source_record_id','bank_source_version','business_source_record_id','business_source_version','bank_staging_item_id','business_staging_item_id'];
-  const allocatedAmount=amount(expected?.allocated_amount);
-  if(!expected||traceFields.some(field=>!text(expected[field]))||allocatedAmount===null||allocatedAmount<=0||amount(reviewRequest.allocated_amount)!==allocatedAmount||text(reviewRequest.company_key)!==text(expected.company_key)||text(reviewRequest.currency)!==text(expected.currency)||text(reviewRequest.bank_account_ref)!==text(expected.bank_account_ref)||!/^sha256:[0-9a-f]{64}$/.test(text(expected.bank_receipt_hash))||!/^sha256:[0-9a-f]{64}$/.test(text(expected.business_receipt_hash))||!validIsoDate(expected.bank_business_date)||!validIsoDate(expected.bank_accounting_date)||!validIsoDate(expected.business_business_date)||!validIsoDate(expected.business_accounting_date))fail('WBS_AUTOREC_G11_TRACE_REQUIRED','AutoRec review trace is incomplete or outside its exact company, currency, bank, allocation amount, and accounting-date scope.');
+  const allocatedAmount=moneyUnits(expected?.allocated_amount);
+  if(!expected||traceFields.some(field=>!text(expected[field]))||allocatedAmount===null||allocatedAmount<=0n||moneyUnits(reviewRequest.allocated_amount)!==allocatedAmount||text(reviewRequest.company_key)!==text(expected.company_key)||text(reviewRequest.currency)!==text(expected.currency)||text(reviewRequest.bank_account_ref)!==text(expected.bank_account_ref)||!/^sha256:[0-9a-f]{64}$/.test(text(expected.bank_receipt_hash))||!/^sha256:[0-9a-f]{64}$/.test(text(expected.business_receipt_hash))||!validIsoDate(expected.bank_business_date)||!validIsoDate(expected.bank_accounting_date)||!validIsoDate(expected.business_business_date)||!validIsoDate(expected.business_accounting_date))fail('WBS_AUTOREC_G11_TRACE_REQUIRED','AutoRec review trace is incomplete or outside its exact company, currency, bank, allocation amount, and accounting-date scope.');
   const relationHashesPresent=text(expected.bank_external_relation_trace_hash)||text(expected.business_external_relation_trace_hash);
   if(relationHashesPresent&&(!/^sha256:[0-9a-f]{64}$/.test(text(expected.bank_external_relation_trace_hash))||!/^sha256:[0-9a-f]{64}$/.test(text(expected.business_external_relation_trace_hash))))fail('WBS_AUTOREC_G11_RELATION_TRACE_REQUIRED','AutoRec relation evidence must retain exact immutable hashes for both source legs.');
   const companyControlHash=text(expected.company_control_snapshot_hash);
@@ -640,13 +640,13 @@ export function validateWbsAutoRecG11PostedTrace({reviewRequest,postedJournals}=
     if(journalIds.has(text(journal.journal_entry_id))||auditIds.has(text(journal.audit_event_id)))fail('WBS_AUTOREC_G11_JOURNAL_DUPLICATE','PAYABLE_INCUR and AUTOC require distinct posted journals and distinct audit evidence.');
     const lineIds=journal.ledger_lines.map(line=>text(line?.ledger_line_id));
     if(lineIds.some(id=>!id)||new Set(lineIds).size!==lineIds.length||lineIds.some(id=>ledgerLineIds.has(id)))fail('WBS_AUTOREC_G11_LEDGER_DUPLICATE','Posted AutoRec journal legs require distinct immutable ledger line evidence.');
-    let totalDebit=0,totalCredit=0;
+    let totalDebit=0n,totalCredit=0n;
     for(const line of journal.ledger_lines){
-      const debit=amount(line?.debit_amount),credit=amount(line?.credit_amount);
-      if(!text(line?.account_code)||debit===null||credit===null||debit<0||credit<0||(debit===0&&credit===0)||(debit!==0&&credit!==0))fail('WBS_AUTOREC_G11_LEDGER_INVALID','Each posted ledger line needs an account and one-sided nonzero debit or credit amount.');
+      const debit=moneyUnits(line?.debit_amount),credit=moneyUnits(line?.credit_amount);
+      if(!text(line?.account_code)||debit===null||credit===null||debit<0n||credit<0n||(debit===0n&&credit===0n)||(debit!==0n&&credit!==0n))fail('WBS_AUTOREC_G11_LEDGER_INVALID','Each posted ledger line needs an account and one-sided nonzero debit or credit amount.');
       totalDebit+=debit;totalCredit+=credit;
     }
-    if(Math.abs(totalDebit-totalCredit)>0.0001)fail('WBS_AUTOREC_G11_JOURNAL_UNBALANCED','Each posted AutoRec journal leg must balance before it can satisfy G11 trace evidence.');
+    if(totalDebit!==totalCredit)fail('WBS_AUTOREC_G11_JOURNAL_UNBALANCED','Each posted AutoRec journal leg must balance before it can satisfy G11 trace evidence.');
     const policyTraceMismatch=policyBound&&(
       text(journal.source_trace?.review_plan_id)!==text(expected.review_plan_id)||
       text(journal.source_trace?.allocation_edge_id)!==text(expected.allocation_edge_id)||
@@ -659,16 +659,16 @@ export function validateWbsAutoRecG11PostedTrace({reviewRequest,postedJournals}=
   const apByMember=new Map(),apByJournal=new Map([...byType.keys()].map(type=>[type,new Map()]));
   for(const [accountingType,journal] of byType.entries())for(const line of journal.ledger_lines){
     if(text(line?.account_code)!=='291001')continue;
-    const member=text(line?.member_ref),debit=amount(line?.debit_amount),credit=amount(line?.credit_amount);
-    if(!member||debit===null||credit===null||debit<0||credit<0||(debit!==0&&credit!==0))fail('WBS_AUTOREC_G11_291001_INVALID','291001 ledger evidence requires one-sided nonnegative amounts and a member.');
+    const member=text(line?.member_ref),debit=moneyUnits(line?.debit_amount),credit=moneyUnits(line?.credit_amount);
+    if(!member||debit===null||credit===null||debit<0n||credit<0n||(debit!==0n&&credit!==0n))fail('WBS_AUTOREC_G11_291001_INVALID','291001 ledger evidence requires one-sided nonnegative amounts and a member.');
     const leg=apByJournal.get(accountingType);
-    leg.set(member,Number(((leg.get(member)??0)+debit-credit).toFixed(4)));
-    apByMember.set(member,Number(((apByMember.get(member)??0)+debit-credit).toFixed(4)));
+    leg.set(member,(leg.get(member)??0n)+debit-credit);
+    apByMember.set(member,(apByMember.get(member)??0n)+debit-credit);
   }
   const payableAp=apByJournal.get('PAYABLE_INCUR'),autocAp=apByJournal.get('AUTOC');
-  if(payableAp.size===0||autocAp.size===0||[...payableAp.entries()].some(([member,net])=>Math.abs(net)<=0.0001||!autocAp.has(member)||Math.abs((autocAp.get(member)??0))<=0.0001)||[...autocAp.keys()].some(member=>!payableAp.has(member)))fail('WBS_AUTOREC_G11_291001_LEG_REQUIRED','PAYABLE_INCUR and AUTOC must each carry matching nonzero 291001 member clearing evidence.');
-  if(apByMember.size===0||[...apByMember.values()].some(net=>Math.abs(net)>0.0001))fail('WBS_AUTOREC_G11_291001_UNCLEARED','Every 291001 member must net to zero across PAYABLE_INCUR and AUTOC.');
-  const payableClearing=[...payableAp.values()].reduce((sum,net)=>sum+Math.abs(net),0),autocClearing=[...autocAp.values()].reduce((sum,net)=>sum+Math.abs(net),0);
-  if(Math.abs(payableClearing-allocatedAmount)>0.0001||Math.abs(autocClearing-allocatedAmount)>0.0001)fail('WBS_AUTOREC_G11_ALLOCATION_AMOUNT_MISMATCH','Each posted 291001 clearing leg must total the immutable reviewed allocation amount.');
-  return Object.freeze({ok:true,status:'POSTED_TRACE_VERIFIED',journals:Object.freeze([...byType.entries()].sort(([left],[right])=>left.localeCompare(right)).map(([accounting_type,journal])=>Object.freeze({accounting_type,journal_entry_id:text(journal.journal_entry_id),audit_event_id:text(journal.audit_event_id),ledger_line_ids:Object.freeze(journal.ledger_lines.map(line=>text(line.ledger_line_id)).filter(Boolean))}))),control_totals:Object.freeze({ap_291001_member_nets:Object.freeze(Object.fromEntries([...apByMember.entries()].sort(([left],[right])=>left.localeCompare(right))))}),trace:Object.freeze(structuredClone(expected)),can_transition_case:false,can_create_draft:false,can_post:false});
+  if(payableAp.size===0||autocAp.size===0||[...payableAp.entries()].some(([member,net])=>net===0n||!autocAp.has(member)||(autocAp.get(member)??0n)===0n)||[...autocAp.keys()].some(member=>!payableAp.has(member)))fail('WBS_AUTOREC_G11_291001_LEG_REQUIRED','PAYABLE_INCUR and AUTOC must each carry matching nonzero 291001 member clearing evidence.');
+  if(apByMember.size===0||[...apByMember.values()].some(net=>net!==0n))fail('WBS_AUTOREC_G11_291001_UNCLEARED','Every 291001 member must net to zero across PAYABLE_INCUR and AUTOC.');
+  const payableClearing=[...payableAp.values()].reduce((sum,net)=>sum+absoluteUnits(net),0n),autocClearing=[...autocAp.values()].reduce((sum,net)=>sum+absoluteUnits(net),0n);
+  if(payableClearing!==allocatedAmount||autocClearing!==allocatedAmount)fail('WBS_AUTOREC_G11_ALLOCATION_AMOUNT_MISMATCH','Each posted 291001 clearing leg must total the immutable reviewed allocation amount.');
+  return Object.freeze({ok:true,status:'POSTED_TRACE_VERIFIED',journals:Object.freeze([...byType.entries()].sort(([left],[right])=>left.localeCompare(right)).map(([accounting_type,journal])=>Object.freeze({accounting_type,journal_entry_id:text(journal.journal_entry_id),audit_event_id:text(journal.audit_event_id),ledger_line_ids:Object.freeze(journal.ledger_lines.map(line=>text(line.ledger_line_id)).filter(Boolean))}))),control_totals:Object.freeze({ap_291001_member_nets:Object.freeze(Object.fromEntries([...apByMember.entries()].sort(([left],[right])=>left.localeCompare(right)).map(([member,net])=>[member,publicMoney(net)])))}),trace:Object.freeze(structuredClone(expected)),can_transition_case:false,can_create_draft:false,can_post:false});
 }
