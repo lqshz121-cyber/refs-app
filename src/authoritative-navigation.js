@@ -40,7 +40,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     ]),
   ]),
   group('Auto Reconciliation', [
-    item('bank-batch-pipeline', 'Bank Batch Pipeline'),
+    item('bank-batch-pipeline', 'Bank Batch Pipeline', 'API_READ'),
     item('wbs-autorec-evidence', 'WBS AutoRec evidence', 'API_READ'),
     item('bank', 'Bank transaction matching', 'API_READ'),
     item('reconciliation', 'Reconciliation worksheet', 'API_READ'),
