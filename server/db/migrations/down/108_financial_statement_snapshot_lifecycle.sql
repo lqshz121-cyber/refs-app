@@ -1,0 +1,15 @@
+BEGIN;
+REVOKE EXECUTE ON FUNCTION refs_prepare_financial_statement_snapshot(uuid,uuid,uuid,text,text),refs_approve_financial_statement_snapshot(uuid,uuid,uuid,text,text) FROM refs_app;
+DROP FUNCTION refs_approve_financial_statement_snapshot(uuid,uuid,uuid,text,text);
+DROP FUNCTION refs_prepare_financial_statement_snapshot(uuid,uuid,uuid,text,text);
+DROP TRIGGER financial_statement_snapshot_approval_append_only ON financial_statement_snapshot_approval;
+DROP TRIGGER financial_statement_snapshot_proposal_row_append_only ON financial_statement_snapshot_proposal_row;
+DROP TRIGGER financial_statement_snapshot_proposal_append_only ON financial_statement_snapshot_proposal;
+DROP POLICY financial_statement_snapshot_approval_scope ON financial_statement_snapshot_approval;
+DROP POLICY financial_statement_snapshot_proposal_row_scope ON financial_statement_snapshot_proposal_row;
+DROP POLICY financial_statement_snapshot_proposal_scope ON financial_statement_snapshot_proposal;
+DROP TABLE financial_statement_snapshot_approval;
+DROP TABLE financial_statement_snapshot_proposal_row;
+DROP TABLE financial_statement_snapshot_proposal;
+DELETE FROM permission_catalog WHERE permission_code IN ('GL.REPORT.SNAPSHOT.PREPARE','GL.REPORT.SNAPSHOT.APPROVE');
+COMMIT;
