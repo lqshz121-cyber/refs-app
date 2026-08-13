@@ -80,7 +80,11 @@ assert.match(arWorkspaceMarkup,/1 invoices \| 0 adjustments/,'a stale AP-only ac
 
 const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);
-assert.match(detail,/Entity 11111111-1111-4111-8111-111111111111/);
+assert.match(detail,/Configured entity/);
+assert.match(detail,/title="Entity ID: 11111111-1111-4111-8111-111111111111"/,'the full entity identifier remains an audit tooltip, not visible page text');
+assert.match(detail,/Configured period/);
+assert.match(detail,/title="Period ID: 33333333-3333-4333-8333-333333333333"/,'the full period identifier remains an audit tooltip, not visible page text');
+assert.doesNotMatch(detail,/Entity 11111111-1111-4111-8111-111111111111/,'the Back context must not expose a raw entity UUID');
 assert.match(detail,/authoritative list revision 3/);
 assert.match(detail,/search Evidence/);
 assert.match(detail,/vendor Evidence Vendor/);
@@ -102,17 +106,20 @@ assert.equal(completeLineage?.audit_event_ids.length,2);
 const completeDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={completeBill} kind="AP" entityId={entityId} onBack={()=>{}}/>);
 assert.match(completeDetail,/Immutable authoritative lineage/);
 assert.match(completeDetail,/Mapping snapshot/);
-assert.doesNotMatch(completeDetail,/BLOCKED — authoritative lineage unavailable/,'a complete same-revision API lineage response must not be unconditionally blocked');
+assert.doesNotMatch(completeDetail,/BLOCKED ? authoritative lineage unavailable/,'a complete same-revision API lineage response must not be unconditionally blocked');
 const mismatchedLineage={...completeBill,lineage:{...completeBill.lineage,record_revision:2}};
 assert.equal(authoritativeLineageFor(mismatchedLineage,entityId),null,'a stale or mismatched record revision must fail closed');
 const mismatchedDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={mismatchedLineage} kind="AP" entityId={entityId} onBack={()=>{}}/>);
-assert.match(mismatchedDetail,/BLOCKED — authoritative lineage unavailable/);
+assert.match(mismatchedDetail,/BLOCKED ? authoritative lineage unavailable/);
 
 const adjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={[adjustment]} onOpen={()=>{}}/>);
 assert.match(adjustmentList,/AP_VENDOR_CREDIT/);
 assert.match(adjustmentList,/Open evidence/);
 const adjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={adjustment} side="AP" entityId={entityId} onBack={()=>{}}/>);
 assert.match(adjustmentDetail,/Back to AP adjustments/);
+assert.match(adjustmentDetail,/Configured entity/);
+assert.match(adjustmentDetail,/Configured period/);
+assert.doesNotMatch(adjustmentDetail,/Entity 11111111-1111-4111-8111-111111111111/,'adjustment evidence must keep the entity UUID out of visible text');
 assert.match(adjustmentDetail,/authoritative adjustment revision 2/);
 assert.match(adjustmentDetail,/cannot create, edit, apply, refund, approve, post, reverse, print, export, or synchronize/);
 assert.match(adjustmentList,/class="table-wrap authoritative-adjustment-table" role="region" tabindex="0" aria-label="AP adjustments; scroll horizontally to view every column"/,'the adjustment list must own a keyboard-focusable table scroller instead of inheriting document-table widths');
@@ -122,7 +129,7 @@ const completeAdjustment={...adjustment,status:'POSTED',journal_entry_id:postedJ
 assert.equal(authoritativeLineageFor(completeAdjustment,entityId)?.posted_journal_revision,5,'adjustment lineage must also bind to its own exact immutable revision');
 const completeAdjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={completeAdjustment} side="AP" entityId={entityId} onBack={()=>{}}/>);
 assert.match(completeAdjustmentDetail,/Immutable authoritative lineage/);
-assert.doesNotMatch(completeAdjustmentDetail,/BLOCKED — authoritative lineage unavailable/);
+assert.doesNotMatch(completeAdjustmentDetail,/BLOCKED ? authoritative lineage unavailable/);
 
 const empty=renderToStaticMarkup(<AuthoritativeDocumentTable title="AR invoices" documents={[]} kind="AR"/>);
 assert.match(empty,/not evidence of a zero balance/);
