@@ -59,7 +59,8 @@ export function verifyUiEvidence(environment = process.env) {
 }
 
 export function verifyS3ScannerEvidence(environment = process.env) {
-  if (!requireEnv(environment, ['S3_ENDPOINT', 'S3_BUCKET', 'S3_REGION', 'VIRUS_SCANNER_ENDPOINT', 'VIRUS_SCANNER_CA_FILE', 'VIRUS_SCANNER_SERVER_NAME', 'REFS_S3_SCANNER_LIFECYCLE_RECEIPT'])) return false;
+  if (!requireEnv(environment, ['S3_ENDPOINT', 'S3_BUCKET', 'S3_REGION', 'VIRUS_SCANNER_ENDPOINT', 'VIRUS_SCANNER_SERVER_NAME', 'REFS_S3_SCANNER_LIFECYCLE_RECEIPT'])) return false;
+  if (!String(environment.VIRUS_SCANNER_CA_PEM || environment.VIRUS_SCANNER_CA_FILE || '').trim()) return fail('RELEASE_GATE_CONFIG_MISSING', 'VIRUS_SCANNER_CA_PEM or VIRUS_SCANNER_CA_FILE');
   const receipt = jsonFile(resolve(environment.REFS_S3_SCANNER_LIFECYCLE_RECEIPT), 'REFS_S3_SCANNER_LIFECYCLE_RECEIPT');
   if (!receipt) return false;
   const required = ['upload', 'scan_clean', 'head_versioned', 'delete', 'delete_verified'];

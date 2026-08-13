@@ -30,7 +30,7 @@ API mode is changed to `REQUIRED`.
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION` | Versioned object storage location | TLS endpoint and one staging bucket. |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Runtime storage identity | Object read/write only for the staging prefix plus `GetBucketLocation`; no bucket administration. |
 | `VIRUS_SCANNER_ENDPOINT`, `VIRUS_SCANNER_TOKEN` | Scanner bridge | TLS health and scan capability only. |
-| `VIRUS_SCANNER_CA_FILE`, `VIRUS_SCANNER_SERVER_NAME` | Scanner TLS verification | Trust only the scanner CA/name. |
+| `VIRUS_SCANNER_CA_PEM` (or `VIRUS_SCANNER_CA_FILE`), `VIRUS_SCANNER_SERVER_NAME` | Scanner TLS verification | Render should inject the CA as the encrypted PEM secret; use a file only where the platform provides a secret mount. Trust only the scanner CA/name. |
 | `ATTACHMENT_SCANNER_ACTOR_ID` | Scanner audit principal | Dedicated non-human actor with attachment scan scope only. |
 | `ATTACHMENT_CLEANUP_ACTOR_ID`, `ATTACHMENT_CLEANUP_SCOPES` | Cleanup worker identity | Delete only expired objects already authorized by REFS policy. |
 | `WBS_SNAPSHOT_ED25519_PUBLIC_KEYS` | Trusted WBS receipt keyring | JSON key-id to public PEM map; public keys only. |
