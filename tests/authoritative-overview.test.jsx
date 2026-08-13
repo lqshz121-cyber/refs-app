@@ -19,6 +19,9 @@ assert.equal((ready.match(/class="qbo-quicklinks"/g) || []).length, 1);
 assert.match(ready, /class="qbo-home-hero"/);
 assert.match(ready, /class="qb-greet-spacer"/);
 
+const readableScope=renderToStaticMarkup(<AuthoritativeOverview counts={{bills:0,invoices:0,adjustments:0,journals:0}} onNavigate={()=>{}} scope={{entityId:'ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3',periodId:'4e0b2744-2366-46d5-8b34-6ccf49deaabf'}} config={{scopePresentation:{entityLabel:'Configured entity',entityDetail:'ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3',periodLabel:'2026-07',periodDetail:'Jul 1, 2026 - Jul 31, 2026'}}}/>);
+assert.match(readableScope,/returned by the authenticated API for Configured entity/);assert.match(readableScope,/2026-07/);assert.doesNotMatch(readableScope,/>[^<]*ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3[^<]*</);
+
 const empty = renderToStaticMarkup(<AuthoritativeOverview counts={{ bills: 0, invoices: 0, adjustments: 0, journals: 0 }} onNavigate={() => {}}/>);
 assert.match(empty, /No retained records were returned for this scope/);
 assert.match(empty, /authoritative empty result/);
