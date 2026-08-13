@@ -10,6 +10,12 @@ import {stage1SelfGrantConfig,stage1SelfWbsOperatorUpgradeConfig,stage1SelfWbsRe
 import {createWbsLivePilotClient} from './wbs-live-pilot-read-service.mjs';
 
 const integer=(value,name,{min,max})=>{const parsed=Number(value);if(!Number.isSafeInteger(parsed)||parsed<min||parsed>max)throw new Error(`${name} must be an integer between ${min} and ${max}`);return parsed;};
+const releaseSha=(value,production)=>{
+  const sha=String(value||'').trim().toLowerCase();
+  if(!sha&&!production)return null;
+  if(!/^[0-9a-f]{7,40}$/.test(sha))throw new Error('RENDER_GIT_COMMIT or GITHUB_SHA must be a Git SHA in production');
+  return sha;
+};
 const integrationMode=(value,name,production)=>{
   const mode=String(value||(production?'REQUIRED':'DISABLED')).trim().toUpperCase();
   if(!['REQUIRED','DISABLED'].includes(mode))throw new Error(`${name} must be REQUIRED or DISABLED`);
@@ -48,8 +54,9 @@ export function accountingServerConfig(env=process.env){
   const wbsLivePilotKeys=['WBS_CF_ACCESS_CLIENT_ID','WBS_CF_ACCESS_CLIENT_SECRET','WBS_REFS_AUTH'];
   if(wbsLivePilotMode==='ENABLED')requireAll(env,wbsLivePilotKeys);
   const origins=allowedOrigins(env.REFS_HTTP_ALLOWED_ORIGINS||'',production);if(production&&!origins.length)throw new Error('REFS_HTTP_ALLOWED_ORIGINS is required in production');
+  const deploymentRelease=releaseSha(env.RENDER_GIT_COMMIT||env.GITHUB_SHA,production);
   return {database,issuer,audience,jwksUri,host:env.REFS_HTTP_HOST||'127.0.0.1',port:integer(env.PORT||8080,'PORT',{min:1,max:65535}),maxBodyBytes:integer(env.REFS_HTTP_MAX_BODY_BYTES||1048576,'REFS_HTTP_MAX_BODY_BYTES',{min:1024,max:10*1024*1024}),runtimePoolMax:integer(env.REFS_PG_RUNTIME_POOL_MAX||4,'REFS_PG_RUNTIME_POOL_MAX',{min:1,max:20}),issuerPoolMax:integer(env.REFS_PG_ISSUER_POOL_MAX||2,'REFS_PG_ISSUER_POOL_MAX',{min:1,max:10}),allowedOrigins:origins,
-    attachmentMode,wbsIngestMode,wbsSnapshotPublicKeys,wbsLivePilotMode,wbsLivePilotCredentials:wbsLivePilotMode==='ENABLED'?{'CF-Access-Client-Id':env.WBS_CF_ACCESS_CLIENT_ID,'CF-Access-Client-Secret':env.WBS_CF_ACCESS_CLIENT_SECRET,'X-REFS-Auth':env.WBS_REFS_AUTH}:null,stage1SelfGrant:stage1SelfGrantConfig(env),stage1SelfWbsReadUpgrade:stage1SelfWbsReadUpgradeConfig(env),stage1SelfWbsOperatorUpgrade:stage1SelfWbsOperatorUpgradeConfig(env),releaseSha:env.RENDER_GIT_COMMIT||env.GITHUB_SHA||null,s3:attachmentMode==='REQUIRED'?{endpoint:env.S3_ENDPOINT,bucket:env.S3_BUCKET,region:env.S3_REGION,accessKeyId:env.S3_ACCESS_KEY_ID,secretAccessKey:env.S3_SECRET_ACCESS_KEY,sessionToken:env.S3_SESSION_TOKEN||null}:null,scanner:attachmentMode==='REQUIRED'?{endpoint:env.VIRUS_SCANNER_ENDPOINT,bearerToken:env.VIRUS_SCANNER_TOKEN,caFile:scannerCaConfig.file,caPem:scannerCaConfig.pem,serverName:env.VIRUS_SCANNER_SERVER_NAME,actorId:env.ATTACHMENT_SCANNER_ACTOR_ID,timeoutMs:integer(env.VIRUS_SCANNER_TIMEOUT_MS||30000,'VIRUS_SCANNER_TIMEOUT_MS',{min:100,max:120000}),maxAttempts:integer(env.VIRUS_SCANNER_MAX_ATTEMPTS||3,'VIRUS_SCANNER_MAX_ATTEMPTS',{min:1,max:5}),retryBaseMs:integer(env.VIRUS_SCANNER_RETRY_BASE_MS||100,'VIRUS_SCANNER_RETRY_BASE_MS',{min:1,max:10000})}:null};
+    attachmentMode,wbsIngestMode,wbsSnapshotPublicKeys,wbsLivePilotMode,wbsLivePilotCredentials:wbsLivePilotMode==='ENABLED'?{'CF-Access-Client-Id':env.WBS_CF_ACCESS_CLIENT_ID,'CF-Access-Client-Secret':env.WBS_CF_ACCESS_CLIENT_SECRET,'X-REFS-Auth':env.WBS_REFS_AUTH}:null,stage1SelfGrant:stage1SelfGrantConfig(env),stage1SelfWbsReadUpgrade:stage1SelfWbsReadUpgradeConfig(env),stage1SelfWbsOperatorUpgrade:stage1SelfWbsOperatorUpgradeConfig(env),releaseSha:deploymentRelease,s3:attachmentMode==='REQUIRED'?{endpoint:env.S3_ENDPOINT,bucket:env.S3_BUCKET,region:env.S3_REGION,accessKeyId:env.S3_ACCESS_KEY_ID,secretAccessKey:env.S3_SECRET_ACCESS_KEY,sessionToken:env.S3_SESSION_TOKEN||null}:null,scanner:attachmentMode==='REQUIRED'?{endpoint:env.VIRUS_SCANNER_ENDPOINT,bearerToken:env.VIRUS_SCANNER_TOKEN,caFile:scannerCaConfig.file,caPem:scannerCaConfig.pem,serverName:env.VIRUS_SCANNER_SERVER_NAME,actorId:env.ATTACHMENT_SCANNER_ACTOR_ID,timeoutMs:integer(env.VIRUS_SCANNER_TIMEOUT_MS||30000,'VIRUS_SCANNER_TIMEOUT_MS',{min:100,max:120000}),maxAttempts:integer(env.VIRUS_SCANNER_MAX_ATTEMPTS||3,'VIRUS_SCANNER_MAX_ATTEMPTS',{min:1,max:5}),retryBaseMs:integer(env.VIRUS_SCANNER_RETRY_BASE_MS||100,'VIRUS_SCANNER_RETRY_BASE_MS',{min:1,max:10000})}:null};
 }
 
 export async function startAccountingServer({env=process.env,fetcher=globalThis.fetch,logger=console}={}){
