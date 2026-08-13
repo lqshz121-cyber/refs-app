@@ -7,6 +7,15 @@ const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const MONEY=/^-?(?:0|[1-9]\d{0,15})\.\d{4}$/;
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype;
 const text=(value,max)=>typeof value==='string'&&value.trim()===value&&value.length>0&&value.length<=max;
+// Signed admission is an integrity boundary.  Never route a signed monetary
+// field through IEEE-754 merely to determine whether it is zero.
+const nonZeroMoney=value=>{
+  if(!MONEY.test(value||''))return false;
+  const negative=value.startsWith('-');
+  const canonical=negative?value.slice(1):value;
+  const [whole,fraction]=canonical.split('.');
+  return BigInt(`${whole}${fraction}`)!==0n;
+};
 const without=(value,...keys)=>Object.fromEntries(Object.entries(value).filter(([key])=>!keys.includes(key)));
 const exact=(value,keys,code)=>{const allowed=new Set(keys);if(Object.keys(value).some(key=>!allowed.has(key)))fail(code,'The signed admission contains an unexpected field.');};
 
@@ -26,7 +35,7 @@ export function validateWbsSignedBankAdmission(admission){
   if(!Array.isArray(admission.transactions)||admission.transactions.length<1||admission.transactions.length>1000)fail('WBS_BANK_TRANSACTION_INVALID','The signed admission must contain between 1 and 1000 bank transactions.');
   const seen=new Set();
   const transactions=admission.transactions.map(item=>{
-    if(!object(item)||!text(item.source_record_id,128)||!text(item.source_version,128)||!text(item.external_bank_line_id,128)||!HASH.test(item.payload_hash||'')||!REF.test(item.payload_ref||'')||!DATE.test(item.transaction_date||'')||item.transaction_date<statement.statement_start_date||item.transaction_date>statement.statement_end_date||item.currency!==statement.currency||item.bank_account_ref!==statement.bank_account_ref||!MONEY.test(item.amount||'')||Number(item.amount)===0)fail('WBS_BANK_TRANSACTION_INVALID','A bank transaction is invalid or outside the signed statement scope.');
+    if(!object(item)||!text(item.source_record_id,128)||!text(item.source_version,128)||!text(item.external_bank_line_id,128)||!HASH.test(item.payload_hash||'')||!REF.test(item.payload_ref||'')||!DATE.test(item.transaction_date||'')||item.transaction_date<statement.statement_start_date||item.transaction_date>statement.statement_end_date||item.currency!==statement.currency||item.bank_account_ref!==statement.bank_account_ref||!nonZeroMoney(item.amount))fail('WBS_BANK_TRANSACTION_INVALID','A bank transaction is invalid or outside the signed statement scope.');
     exact(item,['source_record_id','source_version','external_bank_line_id','payload_hash','payload_ref','transaction_date','currency','bank_account_ref','amount'],'WBS_BANK_TRANSACTION_INVALID');
     if(seen.has(item.external_bank_line_id)||seen.has(`record:${item.source_record_id}`))fail('WBS_BANK_TRANSACTION_DUPLICATE','The signed admission contains duplicate transaction identities.');
     seen.add(item.external_bank_line_id);seen.add(`record:${item.source_record_id}`);

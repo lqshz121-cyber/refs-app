@@ -16,6 +16,14 @@ test('verified Cost GL report metrics become evidence-only input for exact REFS 
   assert.deepEqual({transaction:result.can_create_transaction,draft:result.can_create_draft,post:result.can_post},{transaction:false,draft:false,post:false});
 });
 
+test('receipt-bound report metrics retain canonical four-decimal fixed-point text',()=>{
+  const rows=costRows.map((row,index)=>index===0?{...row,amount:'0.0001'}:row);
+  const source=envelope(rows);
+  const result=buildWbsControlReportEvidence({sourceType:'COST_GENERAL_LEDGER',envelope:source,receipt:receipt(source),tenantId:'tenant-a',entityId:'entity-a'});
+  assert.equal(result.metrics[0].amount,'0.0001');
+  assert.equal(typeof result.metrics[0].amount,'string');
+});
+
 test('receipt-bound Cost GL evidence bridges to exact REFS controls without creating an accounting action',()=>{
   const source=envelope();
   const evidence=buildWbsControlReportEvidence({sourceType:'COST_GENERAL_LEDGER',envelope:source,receipt:receipt(source),tenantId:'tenant-a',entityId:'entity-a'});

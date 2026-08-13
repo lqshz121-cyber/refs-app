@@ -31,6 +31,13 @@ test('unsigned pilot, tampered, cross-account, and zero-value observations canno
   assert.throws(()=>validateWbsSignedBankAdmission(fixture({transactions:[{...fixture().transactions[0],unexpected:'raw'}]})),error=>error.code==='WBS_BANK_TRANSACTION_INVALID');
 });
 
+test('signed bank admission evaluates the four-decimal amount as fixed point',()=>{
+  const tiny=fixture({transactions:[{...fixture().transactions[0],amount:'0.0001'}]});
+  assert.equal(validateWbsSignedBankAdmission(tiny).transactions[0].amount,'0.0001');
+  const negativeZero=fixture({transactions:[{...fixture().transactions[0],amount:'-0.0000'}]});
+  assert.throws(()=>validateWbsSignedBankAdmission(negativeZero),error=>error.code==='WBS_BANK_TRANSACTION_INVALID');
+});
+
 test('kernel verifies detached signature before any database session or persistence',async()=>{
   let sessions=0;
   const kernel=new PostgresAccountingKernel({}, {sessionProvider:async()=>{sessions++;throw new Error('must not reach DB');},wbsSignedBankAdmissionVerifier:async()=>false});
