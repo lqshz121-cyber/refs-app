@@ -94,6 +94,7 @@ async function main(){
   const fullReport=renderToStaticMarkup(<AuthoritativeFullStatementReport report="TRIAL_BALANCE" rows={[row]} returnContext={{entityId,periodId,report:'TRIAL_BALANCE'}} onBack={()=>{}} onRefresh={()=>{}} onOpenEvidence={()=>{}}/>);
   assert.match(fullReport,/Trial Balance/);assert.match(fullReport,/Back to Reports/);assert.match(fullReport,/Refresh statement evidence/);assert.match(fullReport,/GET ONLY/);assert.match(fullReport,/report-section-row/);assert.match(fullReport,/scope="rowgroup"/);assert.match(fullReport,/authoritative-full-report-TRIAL_BALANCE-111000/);assert.match(fullReport,/authoritative-evidence-page/);
   const workspace=fs.readFileSync('src/authoritative-reports-workspace.jsx','utf8');
+  const lineage=fs.readFileSync('src/authoritative-lineage-drill.jsx','utf8');
   const demoReportsView=fs.readFileSync('src/authoritative-demo-reports-view.jsx','utf8');
   assert.doesNotMatch(demoReportsView,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,'the Reports presentation extraction must receive authoritative facts as slots');
   assert.match(markup,/demo-reports-presentation/);
@@ -113,6 +114,9 @@ async function main(){
   assert.match(workspace,/CWIP_ROLLFORWARD/,'CWIP evidence controls must select the dedicated API-backed workbench');
   assert.match(workspace,/authoritative-cwip-table/,'CWIP rows must use a contained table region rather than scrolling the page');
   assert.match(workspace,/mapping_snapshot_hash/,'CWIP evidence must retain the immutable mapping hash in its full-page scope');
+  assert.match(workspace,/Open GL \/ Journal \/ source drill/,'CWIP, prepaid, construction-loan, and exact-dimension evidence must expose the same server-backed GL-to-Journal-to-source drill instead of presenting identifiers as a dead end');
+  assert.match(workspace,/kind:'EVIDENCE_LINEAGE'/,'non-statement report evidence must enter the shared immutable lineage reader rather than a browser-side reconstruction');
+  assert.match(lineage,/readLedgerFromEvidence/,'the shared lineage reader must re-read GL for rollforward and profitability evidence before opening Journal or source details');
   assert.match(workspace,/DimensionProfitabilityDetail/,'property, project, and unit P&L rows must open a dedicated authoritative evidence page');
   assert.match(workspace,/DIMENSION_PROFITABILITY/,'dimension rows must select the dedicated API-backed workbench instead of a generic statement detail');
   assert.match(workspace,/authoritative-profitability-table/,'dimension rows must use a contained table region rather than scrolling the page');

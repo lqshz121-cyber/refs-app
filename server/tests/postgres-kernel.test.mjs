@@ -1984,6 +1984,67 @@ pgTest('AR receipt and reversal keep aging and the 120200 control balance in loc
   assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'100.0000',control_balance:'100.0000',in_balance:true}]);
 });
 
+pgTest('isolated property rent pickup carries invoice and bank receipt evidence through AR, JE, GL, trial balance, and reports',async()=>{
+  // This is intentionally REFS-owned fixture data: it proves the accounting
+  // chain that a future signed Property Operations feed must populate, without
+  // treating test data as WBS evidence or making any external WBS call.
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
+    extraAccounts:[{accountCode:'400100',accountName:'Property Rental Revenue'}],
+    extraMembers:[{memberRef:'TENANT-UNIT-101',memberType:'CUSTOMER',displayName:'Unit 101 tenant'}],
+    journalLines:[
+      {lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'TENANT-UNIT-101',dimensions:{property_ref:'PROP-1',project_ref:'PROJECT-1',unit_ref:'UNIT-101'}},
+      {lineNo:2,accountCode:'400100',debit:0,credit:100,dimensions:{property_ref:'PROP-1',project_ref:'PROJECT-1',unit_ref:'UNIT-101'}}
+    ]});
+  const invoiceSource=await attachAutoSource(ids);
+  const invoicePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'rent-invoice-poster',['GL.JE.POST'])});
+  await invoicePoster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'rent-pickup-invoice-post'});
+  const invoiceId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,posted_journal_entry_id,created_by)
+    VALUES($1,$2,$3,$4,'AR_INVOICE','RENT-PROP-1-UNIT-101','TENANT-UNIT-101','Unit 101 tenant','USD','2026-07-15','2026-07-31',100,100,'OPEN',$5,'isolated-rent-pickup')`,[invoiceId,ids.tenantId,ids.entityId,invoiceSource.documentId,ids.journalId]);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'rent-receipt-maker',['AR.RECEIPT.CREATE','GL.JE.SUBMIT'])});
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'rent-receipt-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'rent-receipt-approver',['GL.JE.APPROVE'])});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'rent-receipt-poster',['GL.JE.POST'])});
+  const receipt=await maker.createArReceipt({...ids,businessDocumentId:invoiceId,receiptNumber:'RENT-REC-PROP-1-40',receiptDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:40,reason:'Isolated Property Operations rent pickup',idempotencyKey:'rent-pickup-receipt-create'});
+  const receiptSource=await attachAutoSource({...ids,journalId:receipt.journal_entry_id},{reuseApprovedSnapshots:true});
+  await maker.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'rent-pickup-receipt-submit'});
+  await reviewer.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'rent-pickup-receipt-review'});
+  await approver.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'rent-pickup-receipt-approve'});
+  await poster.postJournal({...ids,journalEntryId:receipt.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'rent-pickup-receipt-post'});
+
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'rent-pickup-reader',['AR.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'])});
+  assert.deepEqual(await reader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'60.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'60.0000'}]);
+  assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'60.0000',control_balance:'60.0000',in_balance:true}]);
+
+  const invoiceDetail=await reader.getJournalEntryDetail({...ids,journalEntryId:ids.journalId});
+  const receiptDetail=await reader.getJournalEntryDetail({...ids,journalEntryId:receipt.journal_entry_id});
+  assert(invoiceDetail.lines.every(line=>line.source_document_ids.includes(invoiceSource.documentId)));
+  assert(receiptDetail.lines.every(line=>line.source_document_ids.includes(receiptSource.documentId)));
+  const revenueLedger=(await reader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'400100',query:null,limit:10,offset:0})).filter(row=>row.journal_entry_id===ids.journalId);
+  assert.equal(revenueLedger.length,1);assert.equal(revenueLedger[0].credit_amount,'100.0000');assert.deepEqual(revenueLedger[0].source_document_ids,[invoiceSource.documentId]);
+  const cashLedger=(await reader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'111000',query:null,limit:10,offset:0})).filter(row=>row.journal_entry_id===receipt.journal_entry_id);
+  assert.equal(cashLedger.length,1);assert.equal(cashLedger[0].debit_amount,'40.0000');assert.deepEqual(cashLedger[0].source_document_ids,[receiptSource.documentId]);
+  const statements=await reader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  for(const [statementType,accountCode,journalEntryId,sourceDocumentId,amount] of [
+    ['TRIAL_BALANCE','120200',ids.journalId,invoiceSource.documentId,'60.0000'],
+    ['BALANCE_SHEET','120200',ids.journalId,invoiceSource.documentId,'60.0000'],
+    ['TRIAL_BALANCE','400100',ids.journalId,invoiceSource.documentId,'-100.0000'],
+    ['INCOME_STATEMENT','400100',ids.journalId,invoiceSource.documentId,'100.0000'],
+    ['TRIAL_BALANCE','111000',receipt.journal_entry_id,receiptSource.documentId,'40.0000'],
+    ['BALANCE_SHEET','111000',receipt.journal_entry_id,receiptSource.documentId,'40.0000'],
+    ['CASH_FLOW','111000',receipt.journal_entry_id,receiptSource.documentId,'40.0000']
+  ]){
+    const row=statements.find(candidate=>candidate.statement_type===statementType&&candidate.account_code===accountCode);
+    assert.ok(row,`${statementType} must expose ${accountCode} rent pickup evidence`);
+    assert.equal(row.display_balance,amount);assert.ok(row.journal_entry_ids.includes(journalEntryId));assert.ok(row.source_document_ids.includes(sourceDocumentId));
+  }
+  for(const [dimensionType,dimensionRef,statementType] of [['PROPERTY','PROP-1','PROPERTY_PNL'],['PROJECT','PROJECT-1','PROJECT_PNL'],['UNIT','UNIT-101','UNIT_PROFITABILITY']]){
+    const rows=await reader.getDimensionProfitability({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,dimensionType,dimensionRef});
+    const revenue=rows.find(row=>row.account_code==='400100');
+    assert.ok(revenue,`${dimensionType} must retain the rent-revenue row`);assert.equal(revenue.statement_type,statementType);assert.equal(revenue.display_balance,'100.0000');assert.ok(revenue.journal_entry_ids.includes(ids.journalId));assert.ok(revenue.source_document_ids.includes(invoiceSource.documentId));
+  }
+});
+
 pgTest('AP payment and reversal keep aging and the 291001 control balance in lockstep',async()=>{
   const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
     extraAccounts:[{accountCode:'610000',accountName:'Expense'}],
