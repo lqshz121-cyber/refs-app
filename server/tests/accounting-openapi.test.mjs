@@ -270,6 +270,18 @@ test('dimension profitability is an exact, read-only Property, Project, or Unit 
   assert.equal(contract.components.responses.DimensionProfitabilityReadOk.headers['Cache-Control'].schema.const,'no-store');
 });
 
+test('Lot profitability is a separate exact, read-only POSTED-ledger view',()=>{
+  const operation=contract.paths['/entities/{entityId}/reports/lot-profitability'].get;
+  assert.equal(operation.operationId,'getLotProfitability');assert.equal(operation.parameters.find(parameter=>parameter.name==='periodId').required,true);
+  assert.equal(operation.parameters.find(parameter=>parameter.name==='lotRef').schema.maxLength,160);
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/LotProfitabilityReadOk');
+  assert.match(operation.description,/exact requested lot_ref/i);assert.match(operation.description,/not inferred/i);
+  const row=contract.components.schemas.LotProfitabilityReadRow;
+  assert.equal(row.additionalProperties,false);assert.equal(row.properties.statement_type.const,'LOT_PROFITABILITY');assert.equal(row.properties.classification_basis.const,'POSTED_LEDGER_DIMENSION_EXACT');
+  for(const key of ['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'])assert.equal(row.properties[key].items.$ref,'#/components/schemas/Uuid');
+  assert.equal(contract.components.responses.LotProfitabilityReadOk.headers['Cache-Control'].schema.const,'no-store');
+});
+
 test('cash flow classification requires a mapping snapshot and carries blocked evidence rather than inferred totals',()=>{
   const operation=contract.paths['/entities/{entityId}/reports/cash-flow-classification'].get;
   assert.equal(operation.operationId,'getCashFlowClassification');assert.equal(operation.parameters.find(parameter=>parameter.name==='periodId').required,true);

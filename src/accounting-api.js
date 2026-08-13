@@ -511,6 +511,22 @@ export async function refreshAuthoritativeDimensionProfitability({config,dimensi
   }catch{return unreachable('The browser could not complete the authoritative dimension profitability read; no HTTP response was produced.');}
 }
 
+export async function refreshAuthoritativeLotProfitability({config,lotRef,fetcher=globalThis.fetch}={}){
+  const ref=String(lotRef||'');
+  if(!config||typeof fetcher!=='function'||!UUID.test(config.periodId||'')||!ref||ref!==ref.trim()||ref.length>160||/[\u0000-\u001f\u007f]/.test(ref))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Lot profitability requires one authoritative entity and period plus a canonical Lot reference.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const query=new URLSearchParams({periodId:config.periodId,lotRef:ref});
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/reports/lot-profitability?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response);
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Lot profitability envelope.'};
+    const numericFields=['period_debit','period_credit','display_balance'],idFields=['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'];
+    if(body.data.some(row=>row?.period_id!==config.periodId||!PERIOD_CODE.test(row.period_code||'')||!validDate(row.period_start)||!validDate(row.period_end)||row.period_start>row.period_end||row.period_start.slice(0,7)!==row.period_code||row.period_end.slice(0,7)!==row.period_code||row.lot_ref!==ref||row.statement_type!=='LOT_PROFITABILITY'||!['REVENUE','EXPENSES'].includes(row.statement_section)||row.classification_basis!=='POSTED_LEDGER_DIMENSION_EXACT'||!ACCOUNT_CODE.test(row.account_code||'')||typeof row.account_name!=='string'||!row.account_name.trim()||numericFields.some(field=>!REPORT_MONEY4.test(String(row[field]??'')))||idFields.some(field=>!Array.isArray(row[field])||row[field].some(id=>!UUID.test(id||'')))))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Lot profitability row.'};
+    if(new Set(body.data.map(row=>`${row.statement_section}:${row.account_code}`)).size!==body.data.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate Lot profitability rows.'};
+    return {ok:true,rows:body.data.map(row=>({...row,...Object.fromEntries(numericFields.map(field=>[field,String(row[field])]))})),scope:{entityId:config.entityId,periodId:config.periodId,lotRef:ref}};
+  }catch{return unreachable('The browser could not complete the authoritative Lot profitability read; no HTTP response was produced.');}
+}
+
 export async function refreshAuthoritativeCashFlowClassification({config,fetcher=globalThis.fetch}={}){
   if(!config||typeof fetcher!=='function'||!UUID.test(config.periodId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'The cash flow statement requires one authoritative entity and accounting period.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
