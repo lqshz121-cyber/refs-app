@@ -36,7 +36,7 @@ const source=fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx',
 assert.match(source,/limit:10/);
 assert.match(source,/refreshAuthoritativeWbsLivePilot/);
 assert.doesNotMatch(source,/localStorage|sessionStorage|seed\.js|repo\.js|method:\s*['"](?:PUT|PATCH|DELETE)['"]|vendor_name|vendor_no|payee/);
-assert.match(source,/attestAuthoritativeWbsPayableObservation/);assert.match(source,/globalThis\.confirm/);assert.match(source,/It will not create a Draft or post anything/);
+assert.match(source,/attestAuthoritativeWbsPayableObservation/);assert.match(source,/Confirm exception retain/);assert.match(source,/attestationConfirmation\?attest\(\):setAttestationConfirmation\(true\)/);assert.match(source,/It will not create a Draft or post anything/);assert.doesNotMatch(source,/globalThis\.confirm/);
 for(const host of ['authoritative-overview.jsx','authoritative-workspace.jsx','authoritative-bank-workspace.jsx','authoritative-journal-workspace.jsx','authoritative-wbs-transition-workspace.jsx']){
   assert.match(fs.readFileSync(`src/${host}`,'utf8'),/AuthoritativeWbsLivePilotObservation/,`${host} must use the shared read-only WBS observation`);
 }
