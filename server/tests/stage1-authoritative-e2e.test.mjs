@@ -16,6 +16,7 @@ test('Stage 1 verifier reads retained signed evidence only and checks every cros
   const calls=[];const config=stage1AuthoritativeE2eConfig(environment,scenario);
   const result=await verifyStage1AuthoritativeE2e({config,fetcher:async(url,options)=>{calls.push({url,options});return ok({status:'POSTED',wbsInboundRowId:scenario.wbsInboundRowId,attachmentId:scenario.attachmentId,objectVersionId:scenario.attachmentObjectVersionId,content_sha256:scenario.attachmentSha256,journalEntryId:scenario.journalEntryId,periodId:scenario.periodId,accounts:['610000','220100']});}});
   assert.equal(result.ok,true);assert.equal(calls.length,5);assert.ok(calls.every(call=>call.options.method==='GET'));assert.ok(calls.every(call=>call.options.headers.authorization==='Bearer header.payload.signature'));
+  assert.ok(calls.some(call=>call.url.endsWith(`/journal-entries/${scenario.journalEntryId}?periodId=${scenario.periodId}`)),'journal evidence must be period-scoped');
 });
 
 test('Stage 1 verifier fails closed when a retained evidence link is missing',async()=>{

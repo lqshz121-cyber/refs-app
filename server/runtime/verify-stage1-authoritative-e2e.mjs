@@ -70,7 +70,7 @@ export async function verifyStage1AuthoritativeE2e({config,fetcher=globalThis.fe
   const base=`${apiBaseUrl}/api/v1/entities/${scenario.entityId}`;
   const [review,journal,ledger,aging,statements]=await Promise.all([
     getJson(fetcher,`${base}/wbs/inbound/payables/reviews/${scenario.reviewEvidenceId}`,accessToken,'WBS review evidence'),
-    getJson(fetcher,`${base}/journal-entries/${scenario.journalEntryId}`,accessToken,'journal detail'),
+    getJson(fetcher,`${base}/journal-entries/${scenario.journalEntryId}?periodId=${encodeURIComponent(scenario.periodId)}`,accessToken,'journal detail'),
     getJson(fetcher,`${base}/general-ledger/entries?periodId=${encodeURIComponent(scenario.periodId)}`,accessToken,'general ledger'),
     getJson(fetcher,`${base}/ap/aging?asOf=${encodeURIComponent(scenario.asOf)}`,accessToken,'AP aging'),
     getJson(fetcher,`${base}/reports/financial-statements?periodId=${encodeURIComponent(scenario.periodId)}`,accessToken,'financial statements'),
