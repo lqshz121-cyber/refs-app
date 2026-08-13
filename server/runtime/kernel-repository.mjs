@@ -210,6 +210,19 @@ export class PostgresAccountingKernel{
     ),'WBS_INBOUND_PERSIST_FAILED','WBS inbound persistence did not return a result').result);
   }
 
+  async admitWbsProviderSignedPayables({tenantId,entityId,delivery,snapshot,groups,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_provider_signed_payable_admission_hash($1,$2,$3,$4,$5) AS request_hash',
+        [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(snapshot),JSON.stringify(groups)]
+      ),'WBS_PROVIDER_SIGNED_ADMISSION_HASH_FAILED','Provider signed Payable admission hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_admit_wbs_provider_signed_payables($1,$2,$3,$4,$5,$6,$7) AS result',
+        [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(snapshot),JSON.stringify(groups),idempotencyKey,requestHash]
+      ),'WBS_PROVIDER_SIGNED_ADMISSION_FAILED','Provider signed Payable admission did not return a result').result;
+    });
+  }
+
   async reviewWbsPayable({tenantId,entityId,wbsInboundRowId,periodId,expectedRevision,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,settingSnapshotId,mappingSnapshotId,attachmentIds,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

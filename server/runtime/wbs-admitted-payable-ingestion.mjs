@@ -13,7 +13,7 @@ export class WbsAdmittedPayableIngestionError extends Error{
 
 const fail=(code,message)=>{throw new WbsAdmittedPayableIngestionError(code,message);};
 
-function assertPayableBoundary(snapshot){
+export function assertPayableBoundary(snapshot){
   if(snapshot?.status==='NOT_ADMITTED'||snapshot?.signature_verified===false||snapshot?.can_persist===false)fail('WBS_PAYABLE_ADMISSION_UNSIGNED_PILOT_FORBIDDEN','Unsigned pilot observations can never enter WBS payable ingestion.');
   let validated;
   try{validated=validateWbsSnapshotPackage(snapshot);}catch{fail('WBS_PAYABLE_ADMISSION_PACKAGE_INVALID','A valid immutable WBS snapshot package is required.');}
@@ -26,7 +26,7 @@ function assertPayableBoundary(snapshot){
   return freeze({validated,currency:[...currencies][0]});
 }
 
-function assertPreparedBoundary(prepared,boundary){
+export function assertPreparedBoundary(prepared,boundary){
   if(!prepared||prepared.company_key!==boundary.validated.company_key||prepared.snapshot_id!==boundary.validated.snapshot_id||prepared.package_hash!==boundary.validated.package_hash)fail('WBS_PAYABLE_ADMISSION_LINEAGE_INVALID','Prepared payable evidence must retain the exact signed snapshot, company, and package hash.');
   if(prepared.controls.length!==0||prepared.normalized.length!==boundary.validated.receipt_count||prepared.normalized.some(row=>row.source_type!=='PAYABLE'||row.company_key!==boundary.validated.company_key||row.currency!==boundary.currency))fail('WBS_PAYABLE_ADMISSION_SCOPE_INVALID','Prepared payable evidence crossed its signed company, currency, or source-type scope.');
   if(prepared.staging.length+prepared.exceptions.length!==prepared.normalized.length)fail('WBS_PAYABLE_ADMISSION_OUTCOME_INVALID','Every normalized payable requires exactly one Staging or Exception outcome.');

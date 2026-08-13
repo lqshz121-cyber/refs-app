@@ -94,6 +94,16 @@
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/provider-signed/payables/admissions": {
+      "post": {
+        "operationId": "admitProviderSignedWbsPayables",
+        "summary": "Verify and atomically persist one provider-signed WBS Payable delivery",
+        "description": "Service-only OIDC command. The service derives tenant and entity from authenticated context and uses only server-pinned provider trust. It verifies issuer, kid, Ed25519 signatures, raw request/response/package hashes, exact company scope, nonce and 15-minute TTL before one serializable transaction persists the append-only delivery receipt, immutable snapshot receipts, and Raw/Normalized/Staging or Exception rows. It never creates, approves, or posts a Journal.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsProviderSignedPayableAdmission"},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/operator-attested/payables": {
       "get": {
         "operationId": "listOperatorAttestedWbsPayableEvidence",
@@ -3721,6 +3731,10 @@
       }
     },
     "requestBodies": {
+      "WbsProviderSignedPayableAdmission": {
+        "required": true,
+        "content": {"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["receipt","requestRawBase64","responseRawBase64","packageRawBase64"],"properties":{"receipt":{"type":"object","additionalProperties":true,"description":"Provider-signed receipt. Trust material, tenant, entity, actor and request hashes are forbidden body authority."},"requestRawBase64":{"type":"string","format":"byte","minLength":4,"maxLength":13981016},"responseRawBase64":{"type":"string","format":"byte","minLength":4,"maxLength":13981016},"packageRawBase64":{"type":"string","format":"byte","minLength":4,"maxLength":13981016}}}}}
+      },
       "WbsOperatorPayableAttestation": {
         "required": true,
         "content": {
