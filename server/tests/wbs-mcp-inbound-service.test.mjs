@@ -66,7 +66,7 @@ test('AutoRec Bank control pull requires an exact provider formula and stays evi
   const service=createWbsMcpInboundService({client:{readView:async()=>structuredClone(control)}});
   const attestation={scope:{company_key:'COMPANY-A',currency:'USD',period:'2026-08',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${control.content_sha256}`,ref:'object://wbs/pb/1',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},formula:{formula_id:'WBS-PB-ROW-SUM',version:'1',aggregation:'ROW_SUM'},totals:{quantity:10,released_quantity:8,pay_amount:100,released_amount:80,incurred_amount:60,debit_amount:40}};
   const result=await service.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:attestation});
-  assert.deepEqual({status:result.status,amount:result.evidence.control_totals.pay_amount,release:result.can_release,post:result.can_post},{status:'WBS_MCP_AUTOREC_BANK_CONTROL_READY',amount:100,release:false,post:false});
+  assert.deepEqual({status:result.status,amount:result.evidence.control_totals.pay_amount,release:result.can_release,post:result.can_post},{status:'WBS_MCP_AUTOREC_BANK_CONTROL_READY',amount:'100.0000',release:false,post:false});
   await assert.rejects(()=>service.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:{...attestation,scope:{...attestation.scope,period:'2026-13'}}}),error=>error.code==='WBS_MCP_CONTROL_SCOPE_INVALID');
   const first={...control,scope:{company:'COMPANY-A',currency:'USD',snapshot_token:'control-snapshot-1'},cursor_next:'cursor-2'};
   const secondRows=[{pb_guid:'PB-2',company_code:'COMPANY-A',ah_id:'BANK-1',quantity:2,released_quantity:2,pay_amount:20,released:20,incurred:20,debit_amount:8}];
@@ -76,7 +76,7 @@ test('AutoRec Bank control pull requires an exact provider formula and stays evi
   const pagedAttestation={...attestation,receipt:{...attestation.receipt,hash:`sha256:${combined.content_sha256}`},totals:{quantity:12,released_quantity:10,pay_amount:120,released_amount:100,incurred_amount:80,debit_amount:48}};
   const calls=[],paged=createWbsMcpInboundService({client:{readView:async request=>(calls.push(request),structuredClone(request.args.cursor?second:first))}});
   const pagedResult=await paged.pullAutoRecBankControlEvidence({companyKey:'COMPANY-A',args:{company:'COMPANY-A'},control:pagedAttestation});
-  assert.equal(pagedResult.evidence.control_totals.pay_amount,120);
+  assert.equal(pagedResult.evidence.control_totals.pay_amount,'120.0000');
   assert.deepEqual(calls,[{toolName:'list_autorec_banks',args:{company:'COMPANY-A'}},{toolName:'list_autorec_banks',args:{company:'COMPANY-A',cursor:'cursor-2',snapshot_token:'control-snapshot-1'}}]);
   const mismatchedPage={...second,scope:{...second.scope,snapshot_token:'control-snapshot-other'}};
   const mismatched=createWbsMcpInboundService({client:{readView:async request=>structuredClone(request.args.cursor?mismatchedPage:first)}});

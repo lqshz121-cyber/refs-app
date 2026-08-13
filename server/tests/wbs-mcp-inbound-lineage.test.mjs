@@ -22,7 +22,7 @@ test('formal WBS Payable, Bank Journal, and AutoRec detail envelopes map to read
   assert.deepEqual({admission:blockedPayable.rows[0].admission,code:blockedPayable.rows[0].exception_code,direction:blockedPayable.rows[0].direction},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_PAYABLE_DIRECTION_CONVENTION_REQUIRED',direction:null});
   const bankEnvelope=envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',account_name:'Operating Cash',debtor:'100',lender:'0',set_date:'2026-08-01',posting_date:'2026-08-01',payee:'Vendor A',payee_no:'V-1',description:'Bank memo',ref_no:'REF-1',deposit:'0',payment:'100',pj_code:'PROJECT',department:'DEPT',cost_code:'COST',brief_description:'Brief',invoice_receipt_evidence:'ATTACHMENT-1',user_ref:'USER-1',review:'REVIEWED',reviewer:'REVIEWER-1',comments_log_ref:'LOG-1',come_from:'AUTOC',child_come_from:'PAYABLE'}]);
   const bank=mapWbsMcpEnvelopeToInbound({envelope:bankEnvelope,bankDirectionConventions:bankDirectionConventions(bankEnvelope)});
-  assert.deepEqual({direction:bank.rows[0].direction,amount:bank.rows[0].amount,post:bank.rows[0].can_post},{direction:'DEBIT',amount:-100,post:false});
+  assert.deepEqual({direction:bank.rows[0].direction,amount:bank.rows[0].amount,post:bank.rows[0].can_post},{direction:'DEBIT',amount:'-100.0000',post:false});
   const blockedBank=mapWbsMcpEnvelopeToInbound({envelope:bankEnvelope});
   assert.deepEqual({admission:blockedBank.rows[0].admission,code:blockedBank.rows[0].exception_code,direction:blockedBank.rows[0].direction},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED',direction:null});
   assert.deepEqual(bank.rows[0].bank_trace,{transaction_date:'2026-08-01',posting_date:'2026-08-01',account_code:'BANK-1',account_name:'Operating Cash',payee:'Vendor A',payee_no:'V-1',memo:'Bank memo',ref_no:'REF-1',deposit:'0',payment:'100',project_code:'PROJECT',department:'DEPT',cost_code:'COST',brief_description:'Brief',invoice_receipt_evidence:'ATTACHMENT-1',user_ref:'USER-1',review_status:'REVIEWED',reviewer_ref:'REVIEWER-1',comments_log_ref:'LOG-1',come_from:'AUTOC',child_come_from:'PAYABLE'});assert.equal(bank.rows[0].can_use_trace_as_key,false);
@@ -152,7 +152,7 @@ test('a validated scoped currency can supply a missing row currency but never ov
 test('AutoRec Bank summary remains receipt-bound observed control evidence',()=>{
   const summary=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_autorec_banks',[{pb_guid:'PB-1',company_code:'COMPANY-A',ah_id:'BANK-1',ah_name:'Operating',quantity:'10',released_quantity:'8',pay_amount:'100',released:'80',incurred:'60',debit_amount:'40',reconciliation_start_date:'2026-08-01',status:'OPEN'}])});
   const row=summary.rows[0];
-  assert.deepEqual({admission:row.admission,controlType:row.control_type,semantics:row.control_semantics,quantity:row.quantity,released:row.released_amount,incurred:row.incurred_amount,reconcile:row.can_reconcile,post:row.can_post},{admission:'CONTROL_EVIDENCE_ONLY',controlType:'WBS_AUTOREC_BANK_SUMMARY',semantics:'OBSERVED_UNVERIFIED',quantity:10,released:80,incurred:60,reconcile:false,post:false});
+  assert.deepEqual({admission:row.admission,controlType:row.control_type,semantics:row.control_semantics,quantity:row.quantity,released:row.released_amount,incurred:row.incurred_amount,reconcile:row.can_reconcile,post:row.can_post},{admission:'CONTROL_EVIDENCE_ONLY',controlType:'WBS_AUTOREC_BANK_SUMMARY',semantics:'OBSERVED_UNVERIFIED',quantity:'10.0000',released:'80.0000',incurred:'60.0000',reconcile:false,post:false});
   assert.match(row.receipt_hash,/^sha256:/);
 });
 
@@ -163,7 +163,7 @@ test('AutoRec Bank control totals require a receipt-bound provider ROW_SUM formu
   ],{company:'COMPANY-A',currency:'USD'});
   const control={scope:{company_key:'COMPANY-A',currency:'USD',period:'2026-08',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${bankEnvelope.content_sha256}`,ref:'object://wbs/autorec/PB',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},formula:{formula_id:'WBS-PB-ROW-SUM',version:'1',aggregation:'ROW_SUM'},totals:{quantity:'3',released_quantity:'2',pay_amount:'150',released_amount:'150',incurred_amount:'110',debit_amount:'30'}};
   const result=buildWbsAutoRecBankControlEvidence({envelope:bankEnvelope,control});
-  assert.deepEqual({status:result.status,pay:result.control_totals.pay_amount,post:result.can_post},{status:'CONTROL_EVIDENCE_READY',pay:150,post:false});
+  assert.deepEqual({status:result.status,pay:result.control_totals.pay_amount,post:result.can_post},{status:'CONTROL_EVIDENCE_READY',pay:'150.0000',post:false});
   assert.equal(result.reverse_trace.source_row_keys.length,2);
   assert.throws(()=>buildWbsAutoRecBankControlEvidence({envelope:bankEnvelope,control:{...control,formula:{...control.formula,aggregation:'UNSPECIFIED'}}}),error=>error.code==='WBS_MCP_CONTROL_FORMULA_REQUIRED');
   assert.throws(()=>buildWbsAutoRecBankControlEvidence({envelope:bankEnvelope,control:{...control,totals:{...control.totals,incurred_amount:'111'}}}),error=>error.code==='WBS_MCP_CONTROL_TOTALS_INVALID');
@@ -178,7 +178,7 @@ test('AutoRec Bank ROW_SUM controls retain exact ten-thousandth totals across is
   const bankEnvelope=envelope('list_autorec_banks',rows);
   const control={scope:{company_key:'COMPANY-A',currency:'USD',period:'2026-08',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${bankEnvelope.content_sha256}`,ref:'object://wbs/autorec/PB-decimal',version:'v1',verification_id:'verify-decimal',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},formula:{formula_id:'WBS-PB-ROW-SUM',version:'1',aggregation:'ROW_SUM'},totals:{quantity:'1.0000',released_quantity:'1.0000',pay_amount:'1.0000',released_amount:'1.0000',incurred_amount:'1.0000',debit_amount:'1.0000'}};
   const result=buildWbsAutoRecBankControlEvidence({envelope:bankEnvelope,control});
-  assert.deepEqual(result.control_totals,{quantity:1,released_quantity:1,pay_amount:1,released_amount:1,incurred_amount:1,debit_amount:1});
+  assert.deepEqual(result.control_totals,{quantity:'1.0000',released_quantity:'1.0000',pay_amount:'1.0000',released_amount:'1.0000',incurred_amount:'1.0000',debit_amount:'1.0000'});
 });
 
 test('MCP blank, null, boolean, and display-style amounts never become zero control totals',()=>{
@@ -203,7 +203,7 @@ test('MCP monetary rows reject implicit JavaScript and over-precision amounts be
 test('WBS journal entries supply trace evidence but cannot create accounting transactions',()=>{
   const journals=mapWbsMcpEnvelopeToInbound({envelope:envelope('list_journal_entries',[{id:91,company:'COMPANY-A',journal_no:'JE-100',posting_date:'2026-08-01',account:'291001',lender:'0',debtor:'100',cb_id:'BANK-1',bill_no:'AP-1',pj_code:'PROJECT-1',cost_code:'COST-1',come_from:'AUTOC',review:'REVIEWED',reviewer:'USER-MASKED'}])});
   const row=journals.rows[0];
-  assert.deepEqual({admission:row.admission,type:row.trace_type,complete:row.trace_completeness,direction:row.direction,amount:row.amount,bank:row.bank_source_ref,payable:row.payable_ref,draft:row.can_create_draft,post:row.can_post},{admission:'TRACE_EVIDENCE_ONLY',type:'WBS_JOURNAL_LEDGER_EVIDENCE',complete:'TRACE_COMPLETE',direction:'DEBIT',amount:-100,bank:'BANK-1',payable:'AP-1',draft:false,post:false});
+  assert.deepEqual({admission:row.admission,type:row.trace_type,complete:row.trace_completeness,direction:row.direction,amount:row.amount,bank:row.bank_source_ref,payable:row.payable_ref,draft:row.can_create_draft,post:row.can_post},{admission:'TRACE_EVIDENCE_ONLY',type:'WBS_JOURNAL_LEDGER_EVIDENCE',complete:'TRACE_COMPLETE',direction:'DEBIT',amount:'-100.0000',bank:'BANK-1',payable:'AP-1',draft:false,post:false});
   assert.match(row.receipt_hash,/^sha256:/);
 });
 

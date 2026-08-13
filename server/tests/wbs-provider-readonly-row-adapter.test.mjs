@@ -52,7 +52,7 @@ test('a receipt-supplied immutable Bank Transaction key reaches staging, while j
   const snapshot=buildWbsMcpReadonlySnapshot({envelopes:[envelope],snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',bankDirectionConventions:conventions});
   const prepared=await createWbsInboundDataAdapter({snapshotReader:{readOnly:true,readSnapshot:async()=>snapshot}}).pull();
   assert.deepEqual({raw:prepared.raw.length,normalized:prepared.normalized.length,staging:prepared.staging.length,exceptions:prepared.exceptions.length},{raw:1,normalized:1,staging:1,exceptions:0});
-  assert.deepEqual({source:prepared.staging[0].raw_trace.source_type,key:prepared.staging[0].raw_trace.source_record_id,bank:prepared.staging[0].raw_trace.bank_account_ref,amount:prepared.staging[0].raw_trace.amount,direction:prepared.staging[0].raw_trace.direction},{source:'BANK_TRANSACTION',key:'BANK-TX-001',bank:'BANK-OP',amount:100,direction:'CREDIT'});
+  assert.deepEqual({source:prepared.staging[0].raw_trace.source_type,key:prepared.staging[0].raw_trace.source_record_id,bank:prepared.staging[0].raw_trace.bank_account_ref,amount:prepared.staging[0].raw_trace.amount,direction:prepared.staging[0].raw_trace.direction},{source:'BANK_TRANSACTION',key:'BANK-TX-001',bank:'BANK-OP',amount:-100,direction:'CREDIT'});
   assert.deepEqual(prepared.staging[0].raw_trace.external_trace,{transaction_date:'2026-08-01',posting_date:'2026-08-02',account_code:'BANK-OP',ref_no:'DISPLAY-ONLY'});
   assert.equal(prepared.staging[0].raw_trace.source_record_id,'BANK-TX-001');
 });
