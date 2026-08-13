@@ -8,11 +8,16 @@ import {canonicalRequestHash} from './request-hash.mjs';
 import {validateWbsReadEnvelope} from './wbs-readonly-mcp.mjs';
 
 const text=value=>value==null?'':String(value).trim();
+// A receipt-bound report metric is evidence, so preserve its decimal token
+// exactly. Reconciliation converts these canonical strings to scaled BigInt;
+// converting through Number here would mutate a signed four-decimal value.
 const decimal=value=>{
   const candidate=typeof value==='number'?(Number.isFinite(value)?String(value):''):typeof value==='string'?value.trim():'';
-  if(!/^-?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(candidate))return null;
-  const parsed=Number(candidate),scaled=parsed*10000;
-  return Number.isFinite(parsed)&&Number.isSafeInteger(Math.round(scaled))?Number(parsed.toFixed(4)):null;
+  const match=/^(-?)(0|[1-9]\d*)(?:\.(\d{1,4}))?$/.exec(candidate);
+  if(!match)return null;
+  const units=BigInt(`${match[2]}${(match[3]||'').padEnd(4,'0')}`)*(match[1]==='-'?-1n:1n);
+  const absolute=units<0n?-units:units;
+  return `${units<0n?'-':''}${absolute/10000n}.${(absolute%10000n).toString().padStart(4,'0')}`;
 };
 const isHash=value=>/^sha256:[0-9a-f]{64}$/.test(text(value));
 const isCurrency=value=>/^[A-Z]{3}$/.test(text(value));
@@ -21,7 +26,10 @@ const isDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(
 const freeze=value=>Object.freeze(value);
 const reportKind=sourceType=>sourceType==='COST_GENERAL_LEDGER'?'COST_GENERAL_LEDGER':sourceType==='PROPERTY_COMPARISON'?'PROPERTY_COMPARISON':null;
 const requiredScope=sourceType=>sourceType==='COST_GENERAL_LEDGER'?['tenant_id','entity_id','company_key','period','currency']:['tenant_id','entity_id','company_key','property_ref','period_start','period_end','currency','bank_account_ref'];
-const metricsHash=metrics=>canonicalRequestHash([...metrics].sort((left,right)=>left.metric_key.localeCompare(right.metric_key)));
+// The receipt protocol's historical metrics fingerprint uses JSON numbers.
+// This is serialization only: `canonicalMetrics` retains the exact MONEY4
+// string and all reconciliation arithmetic remains scaled BigInt.
+const metricsHash=metrics=>canonicalRequestHash([...metrics].sort((left,right)=>left.metric_key.localeCompare(right.metric_key)).map(metric=>({metric_key:metric.metric_key,amount:Number(metric.amount)})));
 
 export class WbsControlReportInboundError extends Error {
   constructor(code,message){super(message);this.name='WbsControlReportInboundError';this.code=code;}

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,sign} from 'node:crypto';
+import {readFileSync} from 'node:fs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {buildAutoReconciliationReviewRequest,buildStandardDraftRequest,buildWbsInboundPersistencePlan,createWbsInboundDataAdapter,createWbsInboundDataAdapterWithKeyring,createWbsInboundOrchestrator,evaluateWbsAutoReconciliationEligibility,validatePostedJournalTrace,validateWbsAutoRecG11PostedTrace,WBS_AUTOREC_OBSERVED_CONTRACT,WbsInboundDataError} from '../runtime/wbs-inbound-data-adapter.mjs';
 
@@ -84,6 +85,8 @@ test('Draft and AutoRec requests are review-only seams with immutable source tra
   const draftMapping={mapping_id:'map-1',version:'4',snapshot_hash:'sha256:'+'1'.repeat(64),status:'APPROVED',source_type:'PAYABLE',company_key:'COMPANY-A',currency:'USD',effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
   const draft=buildStandardDraftRequest({stagingItem:reviewedPayable,mapping:draftMapping,journal:{period_id:'period-1',journal_number:'AUTO-1',company_key:'COMPANY-A',currency:'USD',accounting_date:'2026-08-01',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:100}]}});
   assert.equal(draft.kernel_method,'createAutoJournal');assert.equal(draft.can_dispatch,false);assert.equal(draft.can_post,false);assert.equal(draft.trace.mapping_snapshot_hash,draftMapping.snapshot_hash);
+  const exactSplitDraft=buildStandardDraftRequest({stagingItem:reviewedPayable,mapping:draftMapping,journal:{period_id:'period-1',journal_number:'AUTO-EXACT-SPLIT',company_key:'COMPANY-A',currency:'USD',accounting_date:'2026-08-01',lines:[{debit_amount:'0.1001',credit_amount:'0.0000'},{debit_amount:'0.8999',credit_amount:'0.0000'},{debit_amount:'0.0000',credit_amount:'0.3333'},{debit_amount:'0.0000',credit_amount:'0.6667'}]}});
+  assert.equal(exactSplitDraft.journal_number,'AUTO-EXACT-SPLIT');
   assert.throws(()=>buildStandardDraftRequest({stagingItem:reviewedPayable,mapping:{...draftMapping,snapshot_hash:'sha256:forged'},journal:{period_id:'period-1',journal_number:'AUTO-1',company_key:'COMPANY-A',currency:'USD',accounting_date:'2026-08-01',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:100}]}}),error=>error.code==='WBS_MAPPING_APPROVED_REQUIRED');
   assert.throws(()=>buildStandardDraftRequest({stagingItem:reviewedPayable,mapping:{...draftMapping,effective_from:'2027-01-01T00:00:00.000Z'},journal:{period_id:'period-1',journal_number:'AUTO-NOT-EFFECTIVE',company_key:'COMPANY-A',currency:'USD',accounting_date:'2026-08-01',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:100}]}}),error=>error.code==='WBS_MAPPING_APPROVED_REQUIRED');
   const postedEvidence={source_system:'REFS_STANDARD_JE',status:'POSTED',journal_entry_id:'je-1',ledger_line_ids:['ll-1','ll-2'],review_audit_id:'audit-r',approval_audit_id:'audit-a',post_audit_id:'audit-p',source_trace:{...draft.trace}};
@@ -117,6 +120,10 @@ test('G11 accepts only both posted AutoRec legs with exact source trace and per-
   const autoc=journal('AUTOC',[{ledger_line_id:'auto-ap',account_code:'291001',member_ref:'VENDOR-1',debit_amount:100,credit_amount:0},{ledger_line_id:'auto-bank',account_code:'111000',member_ref:'BANK-1',debit_amount:0,credit_amount:100}]);
   const accepted=validateWbsAutoRecG11PostedTrace({reviewRequest:review,postedJournals:[payable,autoc]});
   assert.deepEqual({status:accepted.status,net:accepted.control_totals.ap_291001_member_nets['VENDOR-1'],transition:accepted.can_transition_case,post:accepted.can_post},{status:'POSTED_TRACE_VERIFIED',net:0,transition:false,post:false});
+  const g11Runtime=readFileSync(new URL('../runtime/wbs-inbound-data-adapter.mjs',import.meta.url),'utf8');
+  assert.match(g11Runtime,/let totalDebit=0n,totalCredit=0n/);
+  assert.match(g11Runtime,/const payableClearing=\[\.\.\.payableAp\.values\(\)\]\.reduce\(\(sum,net\)=>sum\+absoluteUnits\(net\),0n\)/);
+  assert.doesNotMatch(g11Runtime,/Number\(\(\(leg\.get\(member\)\?\?0\)\+debit-credit\)\.toFixed\(4\)\)/);
   const relationTrace={...review.trace,bank_external_relation_trace_hash:'sha256:'+'1'.repeat(64),business_external_relation_trace_hash:'sha256:'+'2'.repeat(64)},relationReview={...review,trace:relationTrace},relationPayable={...payable,source_trace:relationTrace},relationAutoc={...autoc,source_trace:relationTrace};
   assert.equal(validateWbsAutoRecG11PostedTrace({reviewRequest:relationReview,postedJournals:[relationPayable,relationAutoc]}).status,'POSTED_TRACE_VERIFIED');
   assert.throws(()=>validateWbsAutoRecG11PostedTrace({reviewRequest:relationReview,postedJournals:[relationPayable,{...relationAutoc,source_trace:{...relationTrace,business_external_relation_trace_hash:'sha256:'+'3'.repeat(64)}}]}),error=>error.code==='WBS_AUTOREC_G11_SOURCE_TRACE_MISMATCH');
@@ -253,5 +260,6 @@ test('adapter rejects a mutable reader, cross-currency AutoRec pair, and unbalan
   const scopedMapping={mapping_id:'m',version:'1',snapshot_hash:'sha256:'+'3'.repeat(64),status:'APPROVED',source_type:'PAYABLE',company_key:'C',currency:'USD',effective_from:'2026-01-01T00:00:00.000Z',effective_to:null};
   const scopedJournal={period_id:'p',journal_number:'j',company_key:'C',currency:'USD',accounting_date:'2026-08-01',lines:[{debit_amount:100,credit_amount:0},{debit_amount:0,credit_amount:99}]};
   assert.throws(()=>buildStandardDraftRequest({stagingItem:scopedStaging,mapping:scopedMapping,journal:scopedJournal}),error=>error.code==='WBS_DRAFT_REQUEST_UNBALANCED');
+  assert.throws(()=>buildStandardDraftRequest({stagingItem:scopedStaging,mapping:scopedMapping,journal:{...scopedJournal,journal_number:'j-decimal',lines:[{debit_amount:'0.1001',credit_amount:'0.0000'},{debit_amount:'0.8999',credit_amount:'0.0000'},{debit_amount:'0.0000',credit_amount:'0.3333'},{debit_amount:'0.0000',credit_amount:'0.6666'}]}}),error=>error.code==='WBS_DRAFT_REQUEST_UNBALANCED');
   assert.throws(()=>buildStandardDraftRequest({stagingItem:scopedStaging,mapping:scopedMapping,journal:{...scopedJournal,currency:'CAD'}}),error=>error.code==='WBS_DRAFT_REQUEST_SCOPE_INVALID');
 });

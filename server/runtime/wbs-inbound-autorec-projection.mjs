@@ -22,6 +22,18 @@ const decimal=value=>{
   return Number.isFinite(parsed)&&Number.isSafeInteger(Math.round(scaled))?Number(parsed.toFixed(4)):null;
 };
 const decimalText=value=>{const parsed=decimal(value);return parsed===null?null:parsed.toFixed(4);};
+// Company Screening controls are receipt-backed accounting amounts. Keep the
+// conservation checks in scaled units even though the legacy candidate read
+// model continues to expose numeric amounts elsewhere.
+const moneyUnits=value=>{
+  const candidate=typeof value==='number'&&Number.isFinite(value)?String(value):typeof value==='string'?value.trim():'';
+  const match=/^(-?)(0|[1-9]\d*)(?:\.(\d{1,4}))?$/.exec(candidate);
+  return match?BigInt(`${match[2]}${(match[3]||'').padEnd(4,'0')}`)*(match[1]==='-'?-1n:1n):null;
+};
+const moneyText=units=>{
+  const absolute=units<0n?-units:units;
+  return `${units<0n?'-':''}${absolute/10000n}.${(absolute%10000n).toString().padStart(4,'0')}`;
+};
 const validDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const date=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(date.getTime())&&date.toISOString().slice(0,10)===candidate;};
 const validInstant=value=>{const candidate=text(value);return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(candidate)&&!Number.isNaN(Date.parse(candidate));};
 const freeze=value=>Object.freeze(value);
@@ -73,9 +85,9 @@ export function wbsAutoRecObservedWorkflowContract(){
 
 function missingFields(row){
   const required=['receipt_id','receipt_ref','receipt_hash','raw_event_id','source_document_id','staging_item_id','source_record_id','source_version','entity_id','company_key','currency','amount','business_date','accounting_date','source_type'];
-  const missing=required.filter(key=>key==='amount'?decimal(row?.amount)===null:text(row?.[key])==='');
+  const missing=required.filter(key=>key==='amount'?moneyUnits(row?.amount)===null:text(row?.[key])==='');
   if(!/^[A-Z]{3}$/.test(text(row?.currency)))missing.push('currency');
-  if(decimal(row?.amount)===0)missing.push('nonzero_amount');
+  if(moneyUnits(row?.amount)===0n)missing.push('nonzero_amount');
   if(!validDate(row?.business_date)||!validDate(row?.accounting_date))missing.push('business_or_accounting_date');
   if(row?.source_type==='BANK_TRANSACTION'&&!text(row?.bank_account_ref))missing.push('bank_account_ref');
   return [...new Set(missing)];
@@ -106,12 +118,13 @@ function mappingFor(row,mappings){
 function companyControl(row){
   if(!row||typeof row!=='object'||sensitiveInput(row))return {error:exception(row,'WBS_AUTOREC_CONTROL_INPUT_INVALID','Observed WBS control evidence contains an unsafe or invalid locator')};
   const quantities={quantity:decimal(row.quantity),released_quantity:decimal(row.released_quantity),incurred_quantity:decimal(row.incurred_quantity)};
-  const amounts={amount:decimal(row.amount),released_amount:decimal(row.released_amount),incurred_amount:decimal(row.incurred_amount),reconciliation_balance:decimal(row.reconciliation_balance),new_balance:decimal(row.new_balance)};
+  const amounts={amount:moneyUnits(row.amount),released_amount:moneyUnits(row.released_amount),incurred_amount:moneyUnits(row.incurred_amount),reconciliation_balance:moneyUnits(row.reconciliation_balance),new_balance:moneyUnits(row.new_balance)};
   const periods={match:period(row.completed_match_period),release:period(row.completed_release_period),incur:period(row.completed_incur_period)};
-  const signedStages=[amounts.released_amount,amounts.incurred_amount].filter(value=>value!==0);
-  const invalid=text(row.company_key)===''||text(row.user_ref)===''||Object.values(periods).some(value=>value===null)||!validDate(row.balance_date)||Object.values(quantities).some(value=>value===null||value<0)||Object.values(amounts).some(value=>value===null)||quantities.released_quantity>quantities.quantity||quantities.incurred_quantity>quantities.quantity||signedStages.some(value=>Math.sign(value)!==Math.sign(amounts.amount))||Math.abs(amounts.released_amount)>Math.abs(amounts.amount)||Math.abs(amounts.incurred_amount)>Math.abs(amounts.amount);
+  const signedStages=[amounts.released_amount,amounts.incurred_amount].filter(value=>value!==0n);
+  const absolute=value=>value<0n?-value:value;
+  const invalid=text(row.company_key)===''||text(row.user_ref)===''||Object.values(periods).some(value=>value===null)||!validDate(row.balance_date)||Object.values(quantities).some(value=>value===null||value<0)||Object.values(amounts).some(value=>value===null)||quantities.released_quantity>quantities.quantity||quantities.incurred_quantity>quantities.quantity||signedStages.some(value=>(value<0n)!==(amounts.amount<0n))||absolute(amounts.released_amount)>absolute(amounts.amount)||absolute(amounts.incurred_amount)>absolute(amounts.amount);
   if(invalid)return {error:exception(row,'WBS_AUTOREC_CONTROL_INVALID','Observed WBS M/R/C quantity, amount, or balance controls are incomplete or do not conserve')};
-  return {control:freeze({company_key:text(row.company_key),user_ref:text(row.user_ref),completed_periods:freeze(periods),quantity:quantities.quantity,released_quantity:quantities.released_quantity,incurred_quantity:quantities.incurred_quantity,amount:decimalText(amounts.amount),released_amount:decimalText(amounts.released_amount),incurred_amount:decimalText(amounts.incurred_amount),reconciliation_balance:decimalText(amounts.reconciliation_balance),new_balance:decimalText(amounts.new_balance),balance_date:text(row.balance_date),can_dispatch:false,can_post:false})};
+  return {control:freeze({company_key:text(row.company_key),user_ref:text(row.user_ref),completed_periods:freeze(periods),quantity:quantities.quantity,released_quantity:quantities.released_quantity,incurred_quantity:quantities.incurred_quantity,amount:moneyText(amounts.amount),released_amount:moneyText(amounts.released_amount),incurred_amount:moneyText(amounts.incurred_amount),reconciliation_balance:moneyText(amounts.reconciliation_balance),new_balance:moneyText(amounts.new_balance),balance_date:text(row.balance_date),can_dispatch:false,can_post:false})};
 }
 
 function detailControl(row){
@@ -127,14 +140,14 @@ function detailControl(row){
   if((text(rawStatus)!==''&&statusCode(rawStatus)===null)||(text(rawMatchStatus)!==''&&statusCode(rawMatchStatus)===null))return {error:exception(row,'WBS_AUTOREC_STATUS_CODE_INVALID','Observed WBS status evidence is malformed and cannot be retained safely')};
   if(text(row.detail_kind)==='NOT_MATCH_PAYMENT'){
     const unmatchedRequired=['bank_source_record_id','bank_source_version','transaction_date','posting_date','account_code','ref_no','direction','amount'];
-    const unmatchedMissing=unmatchedRequired.filter(key=>key==='amount'?decimal(row[key])===null:text(row[key])==='');
+    const unmatchedMissing=unmatchedRequired.filter(key=>key==='amount'?moneyUnits(row[key])===null:text(row[key])==='');
     const assignments=['vendor','project_department','cost_code','user_ref'];
     const workflow=text(row.workflow_status).toUpperCase();
     if(unmatchedMissing.length||assignments.some(key=>text(row[key])==='')||workflow===''||workflow==='NO_WORKFLOW'||workflow==='ADD')return {error:exception(row,'WBS_AUTOREC_UNMATCHED_REVIEW_REQUIRED','Unmatched WBS payment requires source identity, dimensions, and human review before any REFS candidate')};
   }
   if(text(row.detail_kind)==='INCURRED_PAYMENT'){
     const incurredRequired=['bank_source_record_id','bank_source_version','bank_source_receipt_id','bank_source_receipt_ref','bank_source_receipt_hash','autoc_payable_long_id','match_status','transaction_date','posting_date','bank_account_code','ref_no','memo','direction','amount'];
-    const incurredMissing=incurredRequired.filter(key=>key==='amount'?decimal(row[key])===null:text(row[key])==='');
+    const incurredMissing=incurredRequired.filter(key=>key==='amount'?moneyUnits(row[key])===null:text(row[key])==='');
     const dimensions=['project_department','cost_code'];
     const humanTrace=['user_ref','reviewer','comments_log'];
     if(incurredMissing.length||dimensions.some(key=>text(row[key])==='')||humanTrace.some(key=>text(row[key])==='')||(text(row.vendor)===''&&text(row.payee)==='')||text(row.invoice_receipt_evidence)==='')return {error:exception(row,'WBS_AUTOREC_INCURRED_RELATION_REQUIRED','Incurred WBS payment requires immutable bank-to-AUTOC relation, dimensions, attachment evidence, and human review trace')};
@@ -144,8 +157,9 @@ function detailControl(row){
     if(auditRequired.some(key=>text(row[key])==='')||!validInstant(row.observed_at))return {error:exception(row,'WBS_AUTOREC_AUDIT_TRACE_REQUIRED','WBS accounting audit evidence requires an immutable event identifier, operation label, and exact UTC observation time')};
   }
   const fields=['seq_no','transaction_date','posting_date','create_date','source','journal_no','check_no','payee','vendor','memo','ref_no','account_code','bank_account_code','cost_code','cost_class','project_department','brief_description','payable_ref','unit_ref','invoice_receipt_evidence','comments_log','direction','amount','deposit','payment','debit','credit','originator','reviewer','approver','user_ref','workflow_status','review_status','approval_status','posting_status','bank_source_record_id','bank_source_version','external_event_id','operation_type','observed_at'];
-  const observed_fields=Object.fromEntries(fields.filter(key=>row[key]!=null&&text(row[key])!=='').map(key=>[key,(key==='debit'||key==='credit')?decimalText(row[key]):text(row[key])]));
-  if(('transaction_date' in observed_fields&&!validDate(observed_fields.transaction_date))||('posting_date' in observed_fields&&!validDate(observed_fields.posting_date))||('create_date' in observed_fields&&!validDate(observed_fields.create_date))||['amount','deposit','payment','debit','credit'].some(key=>key in observed_fields&&decimal(observed_fields[key])===null))return {error:exception(row,'WBS_AUTOREC_CONTROL_TRACE_INVALID','Observed WBS detail has an invalid transaction, posting, creation, or monetary value')};
+  const monetary=new Set(['amount','deposit','payment','debit','credit']);
+  const observed_fields=Object.fromEntries(fields.filter(key=>row[key]!=null&&text(row[key])!=='').map(key=>[key,monetary.has(key)?(moneyUnits(row[key])===null?null:moneyText(moneyUnits(row[key]))):text(row[key])]));
+  if(('transaction_date' in observed_fields&&!validDate(observed_fields.transaction_date))||('posting_date' in observed_fields&&!validDate(observed_fields.posting_date))||('create_date' in observed_fields&&!validDate(observed_fields.create_date))||[...monetary].some(key=>key in observed_fields&&observed_fields[key]===null))return {error:exception(row,'WBS_AUTOREC_CONTROL_TRACE_INVALID','Observed WBS detail has an invalid transaction, posting, creation, or monetary value')};
   const retained_relation=text(row.detail_kind)==='INCURRED_PAYMENT'?freeze({bank_record:freeze({source_record_id:text(row.bank_source_record_id),source_version:text(row.bank_source_version),bank_account_code:text(row.bank_account_code)}),autoc_payable:freeze({long_id:text(row.autoc_payable_long_id)}),match_status:text(row.match_status),dimensions:freeze({project_department:text(row.project_department),cost_code:text(row.cost_code)}),attachment_invoice_evidence:text(row.invoice_receipt_evidence),human_review_trace:freeze({user_ref:text(row.user_ref),reviewer:text(row.reviewer),comments_log:text(row.comments_log)}),can_create_transaction:false,can_approve:false,can_post:false}):null;
   const retained_audit_trace=text(row.detail_kind)==='ACCOUNTING_AUDIT_LOG'?freeze({external_event_id:text(row.external_event_id),operation_type:text(row.operation_type),observed_at:text(row.observed_at),event_authority:'WBS_OBSERVED_EVIDENCE_ONLY',can_transition_state:false,can_create_draft:false,can_approve:false,can_post:false}):null;
   const observedState=OBSERVED_AUTOREC_STATE[text(row.detail_kind)]??null;
@@ -306,7 +320,7 @@ export function projectPersistedWbsInboundAutoRec({rows,mappings=[],companyContr
     // visible as null, never replaced by a nearby month.
     const controlTrace=scopedControlTrace&&text(scopedControlTrace.balance_date).slice(0,7)===text(row.accounting_date).slice(0,7)?scopedControlTrace:null;
     const trace=freeze({receipt_id:row.receipt_id,receipt_ref:row.receipt_ref,receipt_hash:row.receipt_hash,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,source_record_id:row.source_record_id,source_version:row.source_version,mapping_id:resolution.mapping.mapping_id,mapping_version:resolution.mapping.version,mapping_snapshot_hash:resolution.mapping.snapshot_hash,mapping_bank_account_ref:text(resolution.mapping.bank_account_ref),mapping_effective_from:text(resolution.mapping.effective_from),mapping_effective_to:text(resolution.mapping.effective_to)||null,external_relation_evidence:relationTrace,auto_rec_case_binding:detailCase.binding,company_control_trace:controlTrace});
-    candidates.push(freeze({review_candidate_id:canonicalRequestHash({side,trace}),stage:'STAGING_REVIEWED',side,source_type:row.source_type,entity_id:row.entity_id,company_key:row.company_key,currency:row.currency,amount:decimal(row.amount),business_date:row.business_date,accounting_date:row.accounting_date,direction:text(row.direction).toUpperCase()||null,review_event_id:text(row.review_event_id)||null,bank_account_ref:bankAccountRef,source_record_id:row.source_record_id,source_version:row.source_version,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,mapping:freeze({mapping_id:resolution.mapping.mapping_id,version:resolution.mapping.version,snapshot_hash:resolution.mapping.snapshot_hash,bank_account_ref:text(resolution.mapping.bank_account_ref),effective_from:text(resolution.mapping.effective_from),effective_to:text(resolution.mapping.effective_to)||null}),external_relation_evidence:relationTrace,auto_rec_case_binding:detailCase.binding,company_control_trace:controlTrace,trace,can_dispatch:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false}));
+    candidates.push(freeze({review_candidate_id:canonicalRequestHash({side,trace}),stage:'STAGING_REVIEWED',side,source_type:row.source_type,entity_id:row.entity_id,company_key:row.company_key,currency:row.currency,amount:moneyText(moneyUnits(row.amount)),business_date:row.business_date,accounting_date:row.accounting_date,direction:text(row.direction).toUpperCase()||null,review_event_id:text(row.review_event_id)||null,bank_account_ref:bankAccountRef,source_record_id:row.source_record_id,source_version:row.source_version,raw_event_id:row.raw_event_id,source_document_id:row.source_document_id,staging_item_id:row.staging_item_id,mapping:freeze({mapping_id:resolution.mapping.mapping_id,version:resolution.mapping.version,snapshot_hash:resolution.mapping.snapshot_hash,bank_account_ref:text(resolution.mapping.bank_account_ref),effective_from:text(resolution.mapping.effective_from),effective_to:text(resolution.mapping.effective_to)||null}),external_relation_evidence:relationTrace,auto_rec_case_binding:detailCase.binding,company_control_trace:controlTrace,trace,can_dispatch:false,can_allocate:false,can_release:false,can_create_draft:false,can_post:false}));
   }
   return freeze({projection:'WBS_PERSISTED_INBOUND_AUTOREC_REVIEW_V1',candidates:freeze(candidates),exceptions:freeze(exceptions),control_evidence,controls:freeze({candidate_count:candidates.length,exception_count:exceptions.length,can_dispatch:false,can_post:false}),required_next_controls:freeze(['human Auto Reconciliation review','separate authoritative allocation/release command','standard Draft JE workflow'])});
 }

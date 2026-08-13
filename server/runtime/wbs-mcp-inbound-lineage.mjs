@@ -14,12 +14,21 @@ const providerCode=value=>{const candidate=text(value);return candidate.length>0
 // WBS MCP row values are canonical decimal payloads, never display strings.
 // Reject missing values explicitly: Number('') and Number(null) are zero in
 // JavaScript and would otherwise create false control-total evidence.
-const money=value=>{
+const moneyUnits=value=>{
   const candidate=typeof value==='number'?(Number.isFinite(value)?String(value):''):typeof value==='string'?value.trim():'';
-  if(!/^-?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(candidate))return null;
-  const parsed=Number(candidate),scaled=parsed*10000;
-  return Number.isFinite(parsed)&&Number.isSafeInteger(Math.round(scaled))?Number(parsed.toFixed(4)):null;
+  const match=/^(-?)(0|[1-9]\d*)(?:\.(\d{1,4}))?$/.exec(candidate);
+  if(!match)return null;
+  try{
+    const units=BigInt(match[2])*10000n+BigInt((match[3]??'').padEnd(4,'0'));
+    return match[1]==='-'?-units:units;
+  }catch{return null;}
 };
+const moneyText=units=>{const negative=units<0n,absolute=negative?-units:units;return `${negative?'-':''}${absolute/10000n}.${String(absolute%10000n).padStart(4,'0')}`;};
+// Monetary values leave this admission boundary as canonical fixed-point text.
+// Downstream accounting code accepts MONEY4 strings, so never round-trip a WBS
+// amount through IEEE-754 simply to make a public object convenient to read.
+const money=value=>{const units=moneyUnits(value);return units===null?null:moneyText(units);};
+const signedMoneyText=(units,direction)=>moneyText(direction==='CREDIT'?units<0n?units:-units:units>0n?-units:units);
 const freeze=value=>Object.freeze(value);
 const hash=row=>canonicalRequestHash(row);
 const isoDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const parsed=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(parsed.getTime())&&parsed.toISOString().slice(0,10)===candidate;};
@@ -88,20 +97,21 @@ export function buildWbsAutoRecBankControlEvidence({envelope,control}={}){
   const fields=Object.freeze({quantity:'quantity',released_quantity:'released_quantity',pay_amount:'pay_amount',released_amount:'released',incurred_amount:'incurred',debit_amount:'debit_amount'});
   const calculated={};
   for(const [target,field] of Object.entries(fields)){
-    const values=accepted.rows.map(row=>money(row[field]));
+    const values=accepted.rows.map(row=>moneyUnits(row[field]));
     if(values.some(value=>value===null))throw new WbsMcpLineageError('WBS_MCP_CONTROL_TOTALS_INVALID',`AutoRec Bank ${field} must be a finite decimal for ROW_SUM controls.`);
-    calculated[target]=Number(values.reduce((sum,value)=>sum+value,0).toFixed(4));
-    if(money(control.totals[target])===null||money(control.totals[target])!==calculated[target])throw new WbsMcpLineageError('WBS_MCP_CONTROL_TOTALS_INVALID',`Provider AutoRec Bank ${target} does not equal the attested ROW_SUM population.`);
+    const total=values.reduce((sum,value)=>sum+value,0n),attested=moneyUnits(control.totals[target]);
+    calculated[target]=moneyText(total);
+    if(attested===null||attested!==total)throw new WbsMcpLineageError('WBS_MCP_CONTROL_TOTALS_INVALID',`Provider AutoRec Bank ${target} does not equal the attested ROW_SUM population.`);
   }
   return freeze({source_type:'AUTOREC_BANK_CONTROL',status:'CONTROL_EVIDENCE_READY',scope:freeze(scope),formula:freeze(formula),receipt,control_totals:freeze(calculated),row_count:accepted.rows.length,forward_trace:freeze({mcp_tool:accepted.tool_name,receipt_hash:receipt.hash,receipt_ref:receipt.ref,receipt_version:receipt.version,formula_id:formula.formula_id,formula_version:formula.version}),reverse_trace:freeze({company_key:scope.company_key,currency:scope.currency,period:scope.period,bank_account_ref:scope.bank_account_ref,source_row_keys:freeze(accepted.rows.map(row=>text(row.pb_guid)))}),can_create_transaction:false,can_allocate:false,can_release:false,can_incur:false,can_create_draft:false,can_post:false});
 }
 
 function sorted(rows,key){return rows.every((row,index)=>index===0||text(rows[index-1][key])<text(row[key]));}
 function signedMovement(row,credit,debit,creditDirection='CREDIT',debitDirection='DEBIT'){
-  const credited=money(row[credit]),debited=money(row[debit]);
-  if((credited!==null&&credited!==0)&&(debited!==null&&debited!==0))return null;
-  if(credited!==null&&credited!==0)return freeze({amount:creditDirection==='CREDIT'?Math.abs(credited):-Math.abs(credited),direction:creditDirection});
-  if(debited!==null&&debited!==0)return freeze({amount:debitDirection==='CREDIT'?Math.abs(debited):-Math.abs(debited),direction:debitDirection});
+  const credited=moneyUnits(row[credit]),debited=moneyUnits(row[debit]);
+  if((credited!==null&&credited!==0n)&&(debited!==null&&debited!==0n))return null;
+  if(credited!==null&&credited!==0n)return freeze({amount:signedMoneyText(credited,creditDirection),direction:creditDirection});
+  if(debited!==null&&debited!==0n)return freeze({amount:signedMoneyText(debited,debitDirection),direction:debitDirection});
   return null;
 }
 
@@ -187,7 +197,8 @@ function transactionAdmission({common,amountValue,currency,dateValue,bankAccount
   const missing=[];
   if(!text(common.source_record_id))missing.push('immutable_source_key');
   if(!text(common.company_key))missing.push('company');
-  if(money(amountValue)===null||money(amountValue)===0)missing.push('nonzero_amount');
+  const amountUnits=moneyUnits(amountValue);
+  if(amountUnits===null||amountUnits===0n)missing.push('nonzero_amount');
   if(!validCurrency(currency))missing.push('currency');
   if(!isoDate(dateValue))missing.push('business_date');
   if(bankAccountRequired&&!text(common.bank_account_ref))missing.push('bank_account_ref');
@@ -201,7 +212,7 @@ export function mapWbsMcpEnvelopeToInbound({envelope,bankDirectionConventions=nu
   for(const row of accepted.rows){
     const common=commonRow({tool,accepted,row});
     if(tool==='list_payables'){
-      const invalidPayableType=!providerCode(row.ap_type),directionRule=invalidPayableType?null:payableRules.get(text(row.ap_type)),rawAmount=money(row.amount),movement=directionRule&&rawAmount!==null?freeze({amount:directionRule.direction==='CREDIT'?Math.abs(rawAmount):-Math.abs(rawAmount),direction:directionRule.direction}):null;
+      const invalidPayableType=!providerCode(row.ap_type),directionRule=invalidPayableType?null:payableRules.get(text(row.ap_type)),rawAmount=moneyUnits(row.amount),movement=directionRule&&rawAmount!==null?freeze({amount:signedMoneyText(rawAmount,directionRule.direction),direction:directionRule.direction}):null;
       const currency=scopedCurrency(accepted,row),businessDate=row.incurred_date||null,baseAdmission=transactionAdmission({common,amountValue:movement?.amount,currency,dateValue:businessDate,movementRequired:true,movement});
       // A Payable Report's posting date is the observed accounting-date
       // evidence. Incurred date independently establishes the business date;
@@ -294,7 +305,7 @@ function mcpProvenance(accepted,row){return freeze({mcp_tool:accepted.tool_name,
 function snapshotRow(accepted,row,bankRules,payableRules,detailRules){
   const provenance=mcpProvenance(accepted,row);
   if(accepted.tool_name==='list_payables'){
-    const directionRule=payableRules?.get(text(row.ap_type)),rawAmount=money(row.amount),movement=directionRule&&rawAmount!==null?freeze({amount:directionRule.direction==='CREDIT'?Math.abs(rawAmount):-Math.abs(rawAmount),direction:directionRule.direction}):null;
+    const directionRule=payableRules?.get(text(row.ap_type)),rawAmount=moneyUnits(row.amount),movement=directionRule&&rawAmount!==null?freeze({amount:signedMoneyText(rawAmount,directionRule.direction),direction:directionRule.direction}):null;
     // The canonical snapshot must preserve the same independent business and
     // accounting-date evidence as admission.  Posting Date is never a
     // substitute for a missing Payable Incurred Date.

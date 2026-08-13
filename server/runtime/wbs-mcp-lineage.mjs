@@ -105,13 +105,25 @@ function isCalendarDate(value) {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+// Normalize monetary source fields as canonical strings.  This mapper is the
+// Raw -> Normalized boundary; converting signed provider amounts to Number
+// here would reintroduce floating point before staging, mapping and Draft JE
+// construction have a chance to retain the exact evidence.
 function toAmount(value) {
-  if (typeof value === 'number') return Number.isFinite(value) ? Number(value.toFixed(4)) : null;
-  if (typeof value === 'string' && AMOUNT_RE.test(value.trim())) {
-    return Number(Number(value.trim()).toFixed(4));
-  }
-  return null;
+  const candidate = typeof value === 'number' && Number.isFinite(value)
+    ? String(value)
+    : typeof value === 'string' ? value.trim() : '';
+  const match = /^(-?)(0|[1-9]\d*)(?:\.(\d{1,4}))?$/.exec(candidate);
+  if (!match) return null;
+  const units = BigInt(`${match[2]}${(match[3] || '').padEnd(4, '0')}`) * (match[1] === '-' ? -1n : 1n);
+  const absolute = units < 0n ? -units : units;
+  return `${units < 0n ? '-' : ''}${absolute / 10000n}.${(absolute % 10000n).toString().padStart(4, '0')}`;
 }
+
+const amountUnits = value => {
+  const canonical = toAmount(value);
+  return canonical === null ? null : BigInt(canonical.replace('.', ''));
+};
 
 /* ------------------------------------------------------------------ */
 /* The eight-source catalog                                            */
@@ -684,10 +696,10 @@ function normalizeValue(spec, value) {
 
 function deriveDirection(toolName, normalized) {
   if (toolName === 'list_payables') return 'CREDIT';
-  const debit = toAmount(normalized.debit_amount ?? normalized.deposit_amount ?? 0) || 0;
-  const credit = toAmount(normalized.credit_amount ?? normalized.payment_amount ?? 0) || 0;
-  if (debit > 0 && credit === 0) return 'DEBIT';
-  if (credit > 0 && debit === 0) return 'CREDIT';
+  const debit = amountUnits(normalized.debit_amount ?? normalized.deposit_amount ?? 0) ?? 0n;
+  const credit = amountUnits(normalized.credit_amount ?? normalized.payment_amount ?? 0) ?? 0n;
+  if (debit > 0n && credit === 0n) return 'DEBIT';
+  if (credit > 0n && debit === 0n) return 'CREDIT';
   return null;
 }
 
@@ -695,8 +707,8 @@ function deriveAmount(toolName, normalized, row) {
   if (toolName === 'list_payables') return toAmount(row.amount);
   const debit = toAmount(normalized.debit_amount ?? normalized.deposit_amount ?? null);
   const credit = toAmount(normalized.credit_amount ?? normalized.payment_amount ?? null);
-  if (debit !== null && debit !== 0) return debit;
-  if (credit !== null && credit !== 0) return credit;
+  if (debit !== null && amountUnits(debit) !== 0n) return debit;
+  if (credit !== null && amountUnits(credit) !== 0n) return credit;
   return null;
 }
 
@@ -1260,7 +1272,7 @@ export function mapWbsSourceEnvelope({
 
     // ---- Staging / exception for transaction producers. ----
     const stagingMissing = [];
-    if (normalized.amount === null || normalized.amount === 0) stagingMissing.push('nonzero_amount');
+    if (normalized.amount === null || amountUnits(normalized.amount) === 0n) stagingMissing.push('nonzero_amount');
     if (!normalized.direction) stagingMissing.push('direction');
     if (!normalized.business_date) stagingMissing.push('business_date');
     if (stagingMissing.length) {

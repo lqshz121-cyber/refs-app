@@ -18,6 +18,7 @@ test('REFS execution intent separates WBS observation from reservation, release,
   assert.deepEqual({state:reserved.next_state,dispatch:reserved.can_dispatch,post:reserved.can_post},{state:'RESERVED',dispatch:false,post:false});
   assert.throws(()=>execute({command:'RELEASE',currentState:'RESERVED',reviewCandidate:review}),error=>error instanceof WbsAutoRecExecutionContractError&&error.code==='WBS_AUTOREC_EXECUTION_RESERVATION_REQUIRED');
   assert.throws(()=>execute({command:'RELEASE',currentState:'RESERVED',reviewCandidate:review,reservationReceipt:{...reservationReceipt,review_candidate_id:'candidate-other'}}),error=>error.code==='WBS_AUTOREC_EXECUTION_RESERVATION_REQUIRED');
+  assert.throws(()=>execute({command:'RELEASE',currentState:'RESERVED',reviewCandidate:{...review,allocated_amount:'0.0001'},reservationReceipt:{...reservationReceipt,allocated_amount:'0.0002'}}),error=>error.code==='WBS_AUTOREC_EXECUTION_RESERVATION_REQUIRED');
   const released=execute({command:'RELEASE',currentState:'RESERVED',reviewCandidate:review,reservationReceipt});
   assert.equal(released.next_state,'RELEASED');
   assert.throws(()=>execute({command:'INCUR',currentState:'RELEASED',reviewCandidate:review,postedJournals:[{...posted[0],status:'DRAFT'},posted[1]]}),error=>error.code==='WBS_AUTOREC_G11_POSTED_EVIDENCE_REQUIRED');
