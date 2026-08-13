@@ -16,7 +16,8 @@ This blueprint is a deployment contract, not evidence of a live deployment.
    from a browser cache.
 3. Phase 1 sets `REFS_ATTACHMENT_MODE=REQUIRED` and
    `REFS_WBS_INGEST_MODE=REQUIRED`. Provision versioned object storage, a TLS
-   scanner bridge and CA file, a least-privileged cleanup worker identity with
+   scanner bridge and CA trust material (`VIRUS_SCANNER_CA_PEM` on Render, or
+   `VIRUS_SCANNER_CA_FILE` for platforms with a secret mount), a least-privileged cleanup worker identity with
    DB-authorized entity scopes, and the WBS public-key keyring before deploy.
    The API fails closed if any dependency or trust material is missing; it
    never accepts an unsigned or unbound WBS Payable for accounting admission.
