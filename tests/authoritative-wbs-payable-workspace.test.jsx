@@ -11,6 +11,8 @@ assert.match(markup,/Reviewed WBS Payables/);assert.match(markup,/Loading review
 const reviewMarkup=renderToStaticMarkup(<AuthoritativeWbsPayableReviewWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 for(const token of ['Admitted WBS Payables awaiting review','SIGNED \\+ ADMITTED','SERVER DERIVED','REVIEW ONLY','NO DRAFT','Loading admitted WBS Payables'])assert.match(reviewMarkup,new RegExp(token,'i'));
 const source=fs.readFileSync('src/authoritative-wbs-payable-workspace.jsx','utf8');
+assert.match(source,/Configured period/,'Reviewed WBS Payable details must not expose the raw period ID as primary text');
+assert.match(source,/Period ID:/,'Reviewed WBS Payable details must retain the exact period ID as an audit tooltip');
 for(const token of ['refreshAuthoritativeWbsPayableReviewEvidence','createAuthoritativeWbsPayableApDraft','Create AP Bill Draft','maker reason','Nothing was submitted, reviewed, approved, or posted'])assert.match(source,new RegExp(token,'i'));
 assert.doesNotMatch(source,/localStorage|seed\.js|Submit Bill|Approve Bill|Post Journal/);
 const reviewSource=fs.readFileSync('src/authoritative-wbs-payable-review-workspace.jsx','utf8');
