@@ -15,5 +15,7 @@ for(const token of ['refreshAuthoritativeWbsPayableReviewEvidence','createAuthor
 assert.doesNotMatch(source,/localStorage|seed\.js|Submit Bill|Approve Bill|Post Journal/);
 const reviewSource=fs.readFileSync('src/authoritative-wbs-payable-review-workspace.jsx','utf8');
 for(const token of ['refreshAuthoritativeWbsPayableReviewCandidates','reviewAuthoritativeWbsPayable','refreshAuthoritativeWbsPayableAttachmentUploads','uploadVerifiedAttachment','bindAuthoritativeWbsPayableUploadedAttachment','Add support evidence','Independent binder required','No Bill or Journal Draft was created','Nothing was submitted, approved, or posted'])assert.match(reviewSource,new RegExp(token,'i'));
+assert.match(reviewSource,/authoritativeScopePresentation/,'Review details must use the shared readable scope presentation.');
+assert.doesNotMatch(reviewSource,/<i>Period<\/i><b>\{selected\.period_id\}<\/b>/,'Review details must not render a raw period UUID as visible text.');
 assert.doesNotMatch(reviewSource,/localStorage|seed\.js|createAuthoritativeWbsPayableApDraft|Submit Bill|Approve Bill|Post Journal/);
 console.log('authoritative WBS Payable workspace: admitted review and separate reviewed-evidence Draft boundaries');
