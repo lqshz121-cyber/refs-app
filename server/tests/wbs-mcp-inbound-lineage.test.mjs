@@ -170,6 +170,17 @@ test('AutoRec Bank control totals require a receipt-bound provider ROW_SUM formu
   assert.throws(()=>buildWbsAutoRecBankControlEvidence({envelope:bankEnvelope,control:{...control,receipt:{...control.receipt,hash:'sha256:'+'0'.repeat(64)}}}),error=>error.code==='WBS_MCP_CONTROL_RECEIPT_REQUIRED');
 });
 
+test('AutoRec Bank ROW_SUM controls retain exact ten-thousandth totals across isolated rows',()=>{
+  const rows=[
+    {company_code:'COMPANY-A',ah_id:'BANK-1',pb_guid:'pb-decimal-1',quantity:'0.1001',released_quantity:'0.1001',pay_amount:'0.1001',released:'0.1001',incurred:'0.1001',debit_amount:'0.1001'},
+    {company_code:'COMPANY-A',ah_id:'BANK-1',pb_guid:'pb-decimal-2',quantity:'0.8999',released_quantity:'0.8999',pay_amount:'0.8999',released:'0.8999',incurred:'0.8999',debit_amount:'0.8999'}
+  ];
+  const bankEnvelope=envelope('list_autorec_banks',rows);
+  const control={scope:{company_key:'COMPANY-A',currency:'USD',period:'2026-08',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${bankEnvelope.content_sha256}`,ref:'object://wbs/autorec/PB-decimal',version:'v1',verification_id:'verify-decimal',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},formula:{formula_id:'WBS-PB-ROW-SUM',version:'1',aggregation:'ROW_SUM'},totals:{quantity:'1.0000',released_quantity:'1.0000',pay_amount:'1.0000',released_amount:'1.0000',incurred_amount:'1.0000',debit_amount:'1.0000'}};
+  const result=buildWbsAutoRecBankControlEvidence({envelope:bankEnvelope,control});
+  assert.deepEqual(result.control_totals,{quantity:1,released_quantity:1,pay_amount:1,released_amount:1,incurred_amount:1,debit_amount:1});
+});
+
 test('MCP blank, null, boolean, and display-style amounts never become zero control totals',()=>{
   const malformedValues=['', '  ', null, true, '0x10'];
   for(const invalidValue of malformedValues){
