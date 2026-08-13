@@ -66,7 +66,7 @@ services:
         sync: false
       - key: VIRUS_SCANNER_TOKEN
         sync: false
-      - key: VIRUS_SCANNER_CA_FILE
+      - key: VIRUS_SCANNER_CA_PEM
         sync: false
       - key: VIRUS_SCANNER_SERVER_NAME
         sync: false
