@@ -105,7 +105,10 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         if(typeof wbsLivePilotServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
         const selection=parseWbsLivePilotSelection(parsedUrl.searchParams),service=await wbsLivePilotServiceFactory(principal);
         if(!service||typeof service.readObservation!=='function')throw new WbsLivePilotError('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','WBS live pilot service is unavailable.');
-        result=await service.readObservation({tenantId:principal.tenantId,entityId,...selection});
+        const scopedSelection={tenantId:principal.tenantId,entityId,tool:selection.tool,limit:selection.limit};
+        if(selection.company_code)scopedSelection.company_code=selection.company_code;
+        if(selection.date_from){scopedSelection.date_from=selection.date_from;scopedSelection.date_to=selection.date_to;}
+        result=await service.readObservation(scopedSelection);
         assertWbsLivePilotResult(result,{entityId,tool:selection.tool,limit:selection.limit});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }

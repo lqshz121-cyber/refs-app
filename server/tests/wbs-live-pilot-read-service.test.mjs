@@ -7,7 +7,9 @@ const tenantId='6fb25daf-0799-4805-bede-be54230da33c',entityId='ca8d23c7-0ea6-48
 const observed=({tool='list_payables',rows=[{ap_guid:'private-ap-id',posting_date:'2026-08-11',amount:'12.3',pay_status:'Clear'}],scope={company_codes:[],date_range:['2026-08-01','2026-08-11']}}={})=>({tool_name:tool,contract_version:'WBS-REFS-MCP-V1',environment:'production',captured_at:'2026-08-11T10:00:00.000Z',scope,record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,rows});
 
 test('pilot query requires one fixed tool and one bounded limit',()=>{
-  assert.deepEqual(parseWbsLivePilotSelection(new URLSearchParams('tool=list_payables&limit=10')),{tool:'list_payables',limit:10});
+  assert.deepEqual(parseWbsLivePilotSelection(new URLSearchParams('tool=list_payables&limit=10')),{tool:'list_payables',limit:10,company_code:null,date_from:null,date_to:null});
+  assert.deepEqual(parseWbsLivePilotSelection(new URLSearchParams('tool=list_payables&limit=10&company_code=WBPA&date_from=2026-01-01&date_to=2026-12-31')),{tool:'list_payables',limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-12-31'});
+  for(const query of ['tool=list_payables&limit=1&company_code=WBPA&company_code=WBPA','tool=list_payables&limit=1&date_from=2026-01-01','tool=list_payables&limit=1&date_from=2026-02-31&date_to=2026-12-31','tool=list_payables&limit=1&date_from=2026-12-31&date_to=2026-01-01'])assert.throws(()=>parseWbsLivePilotSelection(new URLSearchParams(query)));
   for(const query of ['tool=list_payables','limit=1','tool=get_meta&limit=1','tool=list_payables&limit=0','tool=list_payables&limit=11','tool=list_payables&limit=1&x=1','tool=list_payables&tool=list_payables&limit=1'])assert.throws(()=>parseWbsLivePilotSelection(new URLSearchParams(query)));
   assert.deepEqual(WBS_LIVE_PILOT_TOOLS,['list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries']);
 });
@@ -21,6 +23,20 @@ test('live pilot authorizes exact scope and returns sanitized non-admitted obser
   assert.deepEqual(result.scope,{company_codes:[],date_range:['2026-08-01','2026-08-11']});assert.equal(result.rows[0].amount,'12.3000');assert.equal(result.rows[0].accounting_date,'2026-08-11');assert.equal(result.rows[0].status,'CLEAR');assert.equal(result.rows[0].currency,'USD');assert.match(result.rows[0].source_record_hash,/^sha256:[0-9a-f]{64}$/);assert.equal(JSON.stringify(result).includes('private-ap-id'),false);
   for(const flag of ['can_import','can_create_transaction','can_match','can_allocate','can_create_draft','can_approve','can_post','can_reverse'])assert.equal(result[flag],false);
   assert.equal(assertWbsLivePilotResult(result,{entityId,tool:'list_payables',limit:1}),result);
+});
+
+test('live pilot passes server-requested company/date scope to the provider unchanged',async()=>{
+  const calls=[];
+  const client={initialize:async()=>{},listTools:async()=>{},readView:async request=>{calls.push(request);return observed({scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']}});}};
+  const service=createWbsLivePilotReadService({client,authorize:async()=>{}});
+  await service.readObservation({tenantId:'tenant',entityId:'entity',tool:'list_payables',limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-12-31'});
+  assert.deepEqual(calls,[{toolName:'list_payables',args:{limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-12-31'}}]);
+});
+
+test('live pilot rejects a provider response that ignores requested company/date scope',async()=>{
+  const client={initialize:async()=>{},listTools:async()=>{},readView:async()=>observed({scope:{company_codes:['OTHER'],date_range:['2026-01-01','2026-12-31']}})};
+  const service=createWbsLivePilotReadService({client,authorize:async()=>{}});
+  await assert.rejects(()=>service.readObservation({tenantId:'tenant',entityId:'entity',tool:'list_payables',limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-12-31'}),error=>error.code==='WBS_LIVE_PILOT_SCOPE_MISMATCH');
 });
 
 test('observation hash remains stable when the same provider facts are captured at different instants',()=>{
