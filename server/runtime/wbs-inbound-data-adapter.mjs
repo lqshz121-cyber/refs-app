@@ -50,15 +50,6 @@ export const WBS_AUTOREC_OBSERVED_CONTRACT=Object.freeze({
   forbidden_wbs_operations:Object.freeze(['Create','Copy','Delete','Release','Incur','Revocation','Post','Post All','Cancel Post','Upload','Refresh'])
 });
 const text=value=>value==null?'':String(value).trim();
-// Monetary evidence must be canonical decimal data. Number('') and
-// Number('0x64') are both valid JavaScript conversions, but neither is a
-// trustworthy accounting amount from an external read receipt.
-const amount=value=>{
-  const candidate=typeof value==='number'?(Number.isFinite(value)?String(value):''):typeof value==='string'?value.trim():'';
-  if(!/^-?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(candidate))return null;
-  const parsed=Number(candidate),scaled=parsed*10000;
-  return Number.isFinite(parsed)&&Number.isSafeInteger(Math.round(scaled))?Number(parsed.toFixed(4)):null;
-};
 // Keep every reconciliation calculation in integer ten-thousandths.  The
 // public v1 read model remains numeric for compatibility, but it is now only
 // a presentation boundary: no proposal capacity, residual, or comparison is
@@ -80,9 +71,18 @@ const moneyUnitsText=units=>{
 };
 const publicMoney=units=>Number(moneyUnitsText(units));
 const absoluteUnits=units=>units<0n?-units:units;
+// Monetary evidence must be canonical decimal data. Number('') and
+// Number('0x64') are both valid JavaScript conversions, but neither is a
+// trustworthy accounting amount from an external read receipt. Parse once as
+// fixed-point; the legacy numeric field is only a read-model compatibility
+// boundary, never the source for accounting arithmetic.
+const amount=value=>{
+  const units=moneyUnits(value);
+  return units===null?null:publicMoney(units);
+};
 const money4=value=>{
-  const parsed=amount(value);
-  return parsed===null?null:parsed.toFixed(4);
+  const units=moneyUnits(value);
+  return units===null?null:moneyUnitsText(units);
 };
 // A formatting-only check would admit impossible posting dates such as
 // 2026-02-30 into staging. WBS dates are evidence, so an invalid calendar day
