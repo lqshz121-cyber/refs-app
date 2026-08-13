@@ -1410,6 +1410,18 @@
         }
       }
     },
+    "/entities/{entityId}/reports/financial-statement-snapshot": {
+      "get": {
+        "operationId": "getFinancialStatementSnapshot",
+        "summary": "Read the latest approved immutable financial statement snapshot",
+        "description": "Returns the latest approved immutable entity-and-period-scoped frozen statement version with its ledger evidence hash and per-row journal, ledger, and source drill identifiers. This operation cannot create, adjust, post, approve, or persist a report.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}
+        ],
+        "responses": {"200": {"$ref": "#/components/responses/FinancialStatementSnapshotReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/reports/financial-statement-period-comparison": {
       "get": {
         "operationId": "getFinancialStatementPeriodComparison",
@@ -3324,6 +3336,17 @@
           }
         }
       },
+      "FinancialStatementSnapshotReadRow": {
+        "type": "object", "additionalProperties": false,
+        "required": ["financial_statement_snapshot_id","version","currency","snapshot_hash","ledger_evidence_hash","prepared_by","approved_by","approved_at","captured_at","statement_type","statement_section","classification_basis","account_code","account_name","opening_debit","opening_credit","period_debit","period_credit","ending_debit","ending_credit","display_balance","journal_entry_ids","journal_line_ids","ledger_line_ids","source_document_ids","row_hash"],
+        "properties": {
+          "financial_statement_snapshot_id":{"$ref":"#/components/schemas/Uuid"},"version":{"type":"string","pattern":"^[1-9][0-9]*$"},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"snapshot_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"ledger_evidence_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"prepared_by":{"type":"string","minLength":1},"approved_by":{"type":"string","minLength":1},"approved_at":{"type":"string","format":"date-time"},"captured_at":{"type":"string","format":"date-time"},
+          "statement_type":{"type":"string","enum":["TRIAL_BALANCE","BALANCE_SHEET","INCOME_STATEMENT","CASH_FLOW"]},"statement_section":{"type":"string","minLength":1},"classification_basis":{"type":"string","minLength":1},"account_code":{"type":"string","minLength":1},"account_name":{"type":"string","minLength":1},
+          "opening_debit":{"$ref":"#/components/schemas/Money"},"opening_credit":{"$ref":"#/components/schemas/Money"},"period_debit":{"$ref":"#/components/schemas/Money"},"period_credit":{"$ref":"#/components/schemas/Money"},"ending_debit":{"$ref":"#/components/schemas/Money"},"ending_credit":{"$ref":"#/components/schemas/Money"},"display_balance":{"$ref":"#/components/schemas/Money"},
+          "journal_entry_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}},"journal_line_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}},"ledger_line_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}},"source_document_ids":{"type":"array","items":{"$ref":"#/components/schemas/Uuid"}},"row_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}
+        }
+      },
+      "FinancialStatementSnapshotReadEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/FinancialStatementSnapshotReadRow"}}}},
       "FinancialStatementPeriodComparisonReadRow": {
         "type": "object",
         "additionalProperties": false,
@@ -5110,6 +5133,11 @@
             }
           }
         }
+      },
+      "FinancialStatementSnapshotReadOk": {
+        "description": "Scoped immutable financial-statement snapshot evidence",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FinancialStatementSnapshotReadEnvelope"}}}
       },
       "FinancialStatementPeriodComparisonReadOk": {
         "description": "Scoped two-period POSTED financial-statement comparison evidence",

@@ -1,0 +1,10 @@
+BEGIN;
+REVOKE EXECUTE ON FUNCTION refs_get_financial_statement_snapshot(uuid,uuid,uuid) FROM refs_app;
+DROP FUNCTION refs_get_financial_statement_snapshot(uuid,uuid,uuid);
+DROP TRIGGER financial_statement_snapshot_row_append_only ON financial_statement_snapshot_row;
+DROP TRIGGER financial_statement_snapshot_append_only ON financial_statement_snapshot;
+DROP POLICY financial_statement_snapshot_row_scope_policy ON financial_statement_snapshot_row;
+DROP POLICY financial_statement_snapshot_scope_policy ON financial_statement_snapshot;
+DROP TABLE financial_statement_snapshot_row;
+DROP TABLE financial_statement_snapshot;
+COMMIT;

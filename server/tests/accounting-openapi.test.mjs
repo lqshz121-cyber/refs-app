@@ -232,6 +232,16 @@ test('financial statements are an authenticated period-scoped POSTED evidence re
   assert.equal(contract.components.responses.FinancialStatementReadOk.headers['Cache-Control'].schema.const,'no-store');
 });
 
+test('financial statement snapshot read exposes a versioned immutable evidence contract',()=>{
+  const operation=contract.paths['/entities/{entityId}/reports/financial-statement-snapshot'].get;
+  assert.equal(operation.operationId,'getFinancialStatementSnapshot');
+  assert.equal(operation.parameters.find(parameter=>parameter.name==='periodId').required,true);
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/FinancialStatementSnapshotReadOk');
+  assert.match(operation.description,/latest.*immutable|immutable.*snapshot/i);
+  const row=contract.components.schemas.FinancialStatementSnapshotReadRow;
+  for(const field of ['financial_statement_snapshot_id','version','snapshot_hash','ledger_evidence_hash','prepared_by','approved_by','journal_entry_ids','ledger_line_ids','source_document_ids','row_hash'])assert.ok(row.required.includes(field));
+});
+
 test('dimension profitability is an exact, read-only Property, Project, or Unit ledger view',()=>{
   const operation=contract.paths['/entities/{entityId}/reports/dimension-profitability'].get;
   assert.equal(operation.operationId,'getDimensionProfitability');

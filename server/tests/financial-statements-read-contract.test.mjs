@@ -33,6 +33,26 @@ test('repository and HTTP expose one authenticated entity-period no-store read',
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/reports/financial-statements?periodId=${periodId}`,headers:{},body:{}})).body.code,'READ_BODY_FORBIDDEN');
 });
 
+test('financial statement snapshot is an immutable, scoped version read rather than a live-ledger substitute',async()=>{
+  const up=await readFile(new URL('../db/migrations/107_financial_statement_snapshot_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/107_financial_statement_snapshot_read.sql',import.meta.url),'utf8');
+  for(const token of ['CREATE TABLE financial_statement_snapshot','CREATE TABLE financial_statement_snapshot_row','UNIQUE\\(tenant_id,entity_id,period_id,version\\)','CHECK\\(prepared_by<>approved_by\\)','financial_statement_snapshot_append_only','financial_statement_snapshot_row_append_only','refs_get_financial_statement_snapshot',"'GL.REPORT.VIEW'",'refs_assert_scope','ledger_evidence_hash','row_hash','REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token));
+  assert.doesNotMatch(up,/INSERT INTO journal_entry|UPDATE journal_entry|DELETE FROM journal_entry|INSERT INTO ledger_line|UPDATE ledger_line|DELETE FROM ledger_line|refs_post_journal/i);
+  for(const token of ['DROP FUNCTION refs_get_financial_statement_snapshot','DROP TRIGGER financial_statement_snapshot_row_append_only','DROP TABLE financial_statement_snapshot_row','DROP TABLE financial_statement_snapshot'])assert.match(down,new RegExp(token));
+  const calls=[],kernel=Object.create(PostgresAccountingKernel.prototype);
+  kernel.inSession=async work=>work({query:async(sql,args)=>{calls.push({sql,args});return {rows:[{version:'1'}]};}});
+  assert.deepEqual(await kernel.getFinancialStatementSnapshot({tenantId:'tenant',entityId:'entity',periodId:'period'}),[{version:'1'}]);
+  assert.deepEqual(calls,[{sql:'SELECT * FROM refs_get_financial_statement_snapshot($1,$2,$3)',args:['tenant','entity','period']}]);
+  const tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID(),httpCalls=[];
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({getFinancialStatementSnapshot:async scope=>{httpCalls.push(scope);return [];}})});
+  const base=`/api/v1/entities/${entityId}/reports/financial-statement-snapshot?periodId=${periodId}`;
+  const response=await api({method:'GET',url:base,headers:{},body:null});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body,{ok:true,data:[]});assert.deepEqual(httpCalls,[{tenantId,entityId,periodId}]);
+  assert.equal((await api({method:'GET',url:`${base}&extra=1`,headers:{},body:null})).body.code,'UNEXPECTED_QUERY_PARAMETER');
+  assert.equal((await api({method:'GET',url:base,headers:{'idempotency-key':'forbidden'},body:null})).body.code,'IDEMPOTENCY_KEY_NOT_ALLOWED');
+  assert.equal((await api({method:'GET',url:base,headers:{},body:{}})).body.code,'READ_BODY_FORBIDDEN');
+});
+
 test('financial statement period comparison is a two-period POSTED evidence read that marks missing evidence rather than zero',async()=>{
   const up=await readFile(new URL('../db/migrations/076_financial_statement_period_comparison_read.sql',import.meta.url),'utf8');
   const down=await readFile(new URL('../db/migrations/down/076_financial_statement_period_comparison_read.sql',import.meta.url),'utf8');
