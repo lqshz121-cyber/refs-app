@@ -54,7 +54,7 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
 
     <section className="report-workbench" aria-label="Current WBS evidence scope">
       <div className="report-workbench-head"><div><b>Provider evidence scope</b><div className="page-subtitle">The provider contract must be verified by the accounting API before any transition facts are displayed.</div></div><span className="badge badge-muted">READ ONLY</span></div>
-      <div className="qbo-toolgrid"><span><i>Entity scope</i><b>{scopeValue(config?.entityId)}</b></span><span><i>Accounting period</i><b>{scopeValue(config?.periodId)}</b></span><span><i>Authority</i><b>Evidence only</b></span></div>
+      <div className="qbo-toolgrid"><span><i>Entity scope</i><b title={config?.entityId ? `Entity ID: ${config.entityId}` : undefined}>{config?.entityId ? 'Configured entity' : scopeValue(config?.entityId)}</b></span><span><i>Accounting period</i><b title={config?.periodId ? `Period ID: ${config.periodId}` : undefined}>{config?.periodId ? 'Configured period' : scopeValue(config?.periodId)}</b></span><span><i>Authority</i><b>Evidence only</b></span></div>
     </section>
 
     <section className="report-workbench" aria-label="WBS evidence read access">
