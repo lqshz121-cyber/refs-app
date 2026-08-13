@@ -16,14 +16,20 @@ test('Stage 1 verifier refuses incomplete coordinates before it can call a deplo
 
 test('Stage 1 verifier reads retained signed evidence only and checks every cross-source identifier',async()=>{
   const calls=[];const config=stage1AuthoritativeE2eConfig(environment,scenario);
-  const result=await verifyStage1AuthoritativeE2e({config,fetcher:async(url,options)=>{calls.push({url,options});if(url.endsWith('/health/live'))return releaseOk('live');if(url.endsWith('/health/ready'))return releaseOk('ready');if(url.endsWith('/refs-build.js'))return releaseOk('live');return ok({status:'POSTED',wbsInboundRowId:scenario.wbsInboundRowId,attachmentId:scenario.attachmentId,objectVersionId:scenario.attachmentObjectVersionId,content_sha256:scenario.attachmentSha256,journalEntryId:scenario.journalEntryId,periodId:scenario.periodId,accounts:['610000','220100']});}});
+  const result=await verifyStage1AuthoritativeE2e({config,fetcher:async(url,options)=>{calls.push({url,options});if(url.endsWith('/health/live'))return releaseOk('live');if(url.endsWith('/health/ready'))return releaseOk('ready');if(url.endsWith('/refs-build.js'))return releaseOk('live');return ok({tenantId:scenario.tenantId,status:'POSTED',wbsInboundRowId:scenario.wbsInboundRowId,attachmentId:scenario.attachmentId,objectVersionId:scenario.attachmentObjectVersionId,content_sha256:scenario.attachmentSha256,journalEntryId:scenario.journalEntryId,periodId:scenario.periodId,accounts:['610000','220100']});}});
   assert.equal(result.ok,true);assert.equal(result.release.apiRelease,'aaaaaaa');assert.equal(calls.length,8);assert.ok(calls.every(call=>call.options.method==='GET'));assert.ok(calls.filter(call=>call.url.includes('/api/v1/')).every(call=>call.options.headers.authorization==='Bearer header.payload.signature'));
   assert.ok(calls.some(call=>call.url.endsWith(`/journal-entries/${scenario.journalEntryId}?periodId=${scenario.periodId}`)),'journal evidence must be period-scoped');
 });
 
 test('Stage 1 verifier fails closed when a retained evidence link is missing',async()=>{
   const config=stage1AuthoritativeE2eConfig(environment,scenario);
-  await assert.rejects(()=>verifyStage1AuthoritativeE2e({config,fetcher:async(url)=>url.endsWith('/health/live')?releaseOk('live'):url.endsWith('/health/ready')?releaseOk('ready'):url.endsWith('/refs-build.js')?releaseOk('live'):ok({status:'POSTED'})}),/WBS inbound row is absent/);
+  await assert.rejects(()=>verifyStage1AuthoritativeE2e({config,fetcher:async(url)=>url.endsWith('/health/live')?releaseOk('live'):url.endsWith('/health/ready')?releaseOk('ready'):url.endsWith('/refs-build.js')?releaseOk('live'):ok({tenantId:scenario.tenantId,status:'POSTED'})}),/WBS inbound row is absent/);
+});
+
+test('Stage 1 verifier fails closed when retained evidence is not tenant-bound',async()=>{
+  const config=stage1AuthoritativeE2eConfig(environment,scenario);
+  const evidence={tenantId:id(9),status:'POSTED',wbsInboundRowId:scenario.wbsInboundRowId,attachmentId:scenario.attachmentId,objectVersionId:scenario.attachmentObjectVersionId,content_sha256:scenario.attachmentSha256,journalEntryId:scenario.journalEntryId,periodId:scenario.periodId,accounts:['610000','220100']};
+  await assert.rejects(()=>verifyStage1AuthoritativeE2e({config,fetcher:async(url)=>url.endsWith('/health/live')?releaseOk('live'):url.endsWith('/health/ready')?releaseOk('ready'):url.endsWith('/refs-build.js')?releaseOk('live'):ok(evidence)}),/tenant is absent from retained Stage 1 evidence/);
 });
 
 test('Stage 1 verifier fails before business reads when static and API releases differ',async()=>{

@@ -106,6 +106,7 @@ export async function verifyStage1AuthoritativeE2e({config,fetcher=globalThis.fe
   ]);
   const proof={review,journal,ledger,aging,statements};
   for(const [label,value] of [
+    ['tenant',scenario.tenantId],
     ['WBS inbound row',scenario.wbsInboundRowId],['attachment',scenario.attachmentId],['attachment object version',scenario.attachmentObjectVersionId],['attachment SHA-256',scenario.attachmentSha256],['journal',scenario.journalEntryId],['period',scenario.periodId],
   ])expect(contains(proof,value),`${label} is absent from retained Stage 1 evidence`);
   expect(contains(journal,'POSTED'), 'journal detail is not POSTED');
