@@ -2,11 +2,14 @@ import React,{useEffect,useRef,useState} from 'react';
 import {bindAuthoritativeWbsPayableUploadedAttachment,refreshAuthoritativeWbsPayableAttachmentUploads,refreshAuthoritativeWbsPayableReviewCandidates,reviewAuthoritativeWbsPayable} from './accounting-api.js';
 import {uploadVerifiedAttachment} from './attachment-api.js';
 import {StateBlock} from './ui.jsx';
+import {authoritativeScopePresentation} from './authoritative-scope-presentation.js';
 
 const compact=value=>value??'Unavailable';
 const immutableCandidate=row=>JSON.stringify(row);
 
 export function AuthoritativeWbsPayableReviewWorkspace({config,fetcher=globalThis.fetch,onReviewed=()=>{}}){
+  const scopePresentation=authoritativeScopePresentation(config);
+  const periodLabel=scopePresentation.periodLabel==='Period unavailable'?'Configured period':scopePresentation.periodLabel;
   const [state,setState]=useState({phase:'LOADING',rows:[],error:null});
   const [selected,setSelected]=useState(null);
   const [attachmentIds,setAttachmentIds]=useState([]);
@@ -46,7 +49,7 @@ export function AuthoritativeWbsPayableReviewWorkspace({config,fetcher=globalThi
     {state.phase==='READY'&&state.rows.length===0&&<StateBlock tone="empty" title="No admitted Payables awaiting review">The authenticated API returned a valid empty result. Unsigned pilot rows are never included.</StateBlock>}
     {state.phase==='READY'&&state.rows.length>0&&<div className="table-wrap" role="region" tabIndex={0} aria-label="Admitted WBS Payables awaiting review; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Document</th><th>Accounting date</th><th>Vendor</th><th>Currency</th><th>Gross amount</th><th>Readiness</th><th>Evidence</th></tr></thead><tbody>{state.rows.map(row=><tr key={row.wbs_inbound_row_id}><td>{compact(row.document_number)}</td><td>{compact(row.accounting_date)}</td><td>{compact(row.vendor_name)}</td><td>{compact(row.currency)}</td><td>{compact(row.gross_amount)}</td><td><span className={`badge ${row.can_review?'badge-success':'badge-muted'}`}>{row.review_readiness}</span></td><td><button type="button" className="linklike" disabled={!row.can_review&&row.review_readiness!=='VERIFIED_ATTACHMENT_REQUIRED'||command.phase==='LOADING'} onClick={()=>open(row)}>{row.can_review?'Inspect review evidence':row.review_readiness==='VERIFIED_ATTACHMENT_REQUIRED'?'Add support evidence':'Unavailable'}</button></td></tr>)}</tbody></table></div>}
     {selected&&<div className="filterbar" aria-label="Exact WBS Payable support evidence">
-      <div className="qbo-toolgrid"><span><i>Document</i><b>{compact(selected.document_number)}</b></span><span><i>Invoice date</i><b>{selected.invoice_date}</b></span><span><i>Period</i><b>{selected.period_id}</b></span><span><i>Evidence</i><b>{selected.evidence_hash}</b></span></div>
+      <div className="qbo-toolgrid"><span><i>Document</i><b>{compact(selected.document_number)}</b></span><span><i>Invoice date</i><b>{selected.invoice_date}</b></span><span><i>Period</i><b title={`Period ID: ${selected.period_id||scopePresentation.periodDetail}`}>{periodLabel}</b></span><span><i>Evidence</i><b>{selected.evidence_hash}</b></span></div>
       {uploads.phase==='LOADING'&&<StateBlock tone="loading" title="Loading row-bound attachments">Only support evidence reserved for this exact Payable is read.</StateBlock>}
       {uploads.phase==='BLOCKED'&&<StateBlock tone="blocked" title={uploads.error?.code||'ATTACHMENT_ACCESS_BLOCKED'}>{uploads.error?.message}</StateBlock>}
       {uploads.phase==='READY'&&<>
