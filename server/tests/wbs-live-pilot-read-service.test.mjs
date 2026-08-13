@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {assertWbsLivePilotResult,createWbsLivePilotReadService,parseWbsLivePilotSelection,WBS_LIVE_PILOT_TOOLS} from '../runtime/wbs-live-pilot-read-service.mjs';
+import {assertWbsLivePilotResult,buildWbsLivePilotObservation,createWbsLivePilotReadService,parseWbsLivePilotSelection,WBS_LIVE_PILOT_TOOLS} from '../runtime/wbs-live-pilot-read-service.mjs';
 
 const tenantId='6fb25daf-0799-4805-bede-be54230da33c',entityId='ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3';
 const observed=({tool='list_payables',rows=[{ap_guid:'private-ap-id',posting_date:'2026-08-11',amount:'12.3',pay_status:'Clear'}],scope={company_codes:[],date_range:['2026-08-01','2026-08-11']}}={})=>({tool_name:tool,contract_version:'WBS-REFS-MCP-V1',environment:'production',captured_at:'2026-08-11T10:00:00.000Z',scope,record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,rows});
@@ -21,6 +21,16 @@ test('live pilot authorizes exact scope and returns sanitized non-admitted obser
   assert.deepEqual(result.scope,{company_codes:[],date_range:['2026-08-01','2026-08-11']});assert.equal(result.rows[0].amount,'12.3000');assert.equal(result.rows[0].accounting_date,'2026-08-11');assert.equal(result.rows[0].status,'CLEAR');assert.equal(result.rows[0].currency,'USD');assert.match(result.rows[0].source_record_hash,/^sha256:[0-9a-f]{64}$/);assert.equal(JSON.stringify(result).includes('private-ap-id'),false);
   for(const flag of ['can_import','can_create_transaction','can_match','can_allocate','can_create_draft','can_approve','can_post','can_reverse'])assert.equal(result[flag],false);
   assert.equal(assertWbsLivePilotResult(result,{entityId,tool:'list_payables',limit:1}),result);
+});
+
+test('observation hash remains stable when the same provider facts are captured at different instants',()=>{
+  const first=observed({});
+  const second={...first,captured_at:'2026-08-11T10:00:02.000Z'};
+  const firstObservation=buildWbsLivePilotObservation({observed:first,entityId,tool:'list_payables'});
+  const secondObservation=buildWbsLivePilotObservation({observed:second,entityId,tool:'list_payables'});
+  assert.notEqual(firstObservation.captured_at,secondObservation.captured_at);
+  assert.equal(firstObservation.provider_content_sha256,secondObservation.provider_content_sha256);
+  assert.equal(firstObservation.observation_hash,secondObservation.observation_hash);
 });
 
 test('each tool exposes only its frozen row contract and never a provider stable identifier',async()=>{

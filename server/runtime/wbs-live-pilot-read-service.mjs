@@ -66,7 +66,14 @@ export function buildWbsLivePilotObservation({observed,entityId,tool}={}){
   const sourceDateRange=Array.isArray(observed.scope?.date_range)?observed.scope.date_range:[];
   const dateRange=Object.freeze([date(sourceDateRange[0])||null,date(sourceDateRange[1])||null]);
   const core={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool,environment:'PRODUCTION',entity_id:entityId,captured_at:observed.captured_at,provider_content_sha256:observed.content_sha256,scope:Object.freeze({company_codes:Object.freeze(companyCodes),date_range:dateRange}),record_count:rows.length,rows:Object.freeze(rows),signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false};
-  return Object.freeze({...core,observation_hash:hash(canonicalRequestBody(core))});
+  // `captured_at` describes when this read occurred, but it is not a stable
+  // identity for the observed business facts.  The provider may legitimately
+  // emit a new capture timestamp when the server re-reads the same snapshot
+  // during an operator attestation.  Bind the hash to the immutable scope,
+  // provider content digest, sanitized rows, and read-only action flags while
+  // retaining captured_at as display/audit metadata outside the hash.
+  const hashCore={...core};delete hashCore.captured_at;
+  return Object.freeze({...core,observation_hash:hash(canonicalRequestBody(hashCore))});
 }
 
 export class WbsLivePilotError extends Error{constructor(code,message){super(message);this.name='WbsLivePilotError';this.code=code;}}
