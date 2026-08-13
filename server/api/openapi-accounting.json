@@ -15,6 +15,16 @@
     }
   ],
   "paths": {
+    "/entities/{entityId}/access/self-service-wbs-operator-grant/upgrade": {
+      "post": {
+        "operationId": "upgradeStage1WbsOperatorAccess",
+        "summary": "Add unsigned WBS Payable exception-evidence retain to the fixed Stage 1 reader",
+        "description": "OIDC actor and configured tenant/entity are server-derived. PostgreSQL accepts only version 2 with exactly the six Stage 1 evidence-read permissions and adds only WBS.PAYABLE.OPERATOR_ATTEST. This grants no import, review, Draft, approval, posting, ledger, or WBS write authority.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"maxProperties":0}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/live-pilot": {
       "get": {
         "operationId": "getWbsLivePilotObservation",
@@ -1788,7 +1798,7 @@
       "get": {
         "operationId": "listReconciliationWorksheet",
         "summary": "Read one open reconciliation worksheet",
-        "description": "Returns only the authenticated entity’s current DRAFT, IN_REVIEW, or REOPENED worksheet. It exposes bank evidence, the exact ACTIVE match when present, and clearance audit state; it cannot create a match, clear an item, review, sign off, reopen, or post.",
+        "description": "Returns only the authenticated entity鈥檚 current DRAFT, IN_REVIEW, or REOPENED worksheet. It exposes bank evidence, the exact ACTIVE match when present, and clearance audit state; it cannot create a match, clear an item, review, sign off, reopen, or post.",
         "parameters": [
           {
             "$ref": "#/components/parameters/EntityId"

@@ -17,6 +17,8 @@ const payables=render(WBS_LIVE_PILOT_SURFACE_TOOLS.payables);
 assert.match(payables,/WBS read-only view:<\/b> Payables/);
 for(const boundary of ['OPERATOR ATTESTED','UNSIGNED','EXCEPTION REVIEW REQUIRED','NOT POSTED','outside Raw, Staging, AP Bills, Journals, GL, and Posted totals'])assert.match(payables,new RegExp(boundary,'i'));
 assert.match(payables,/Retain as exception evidence/);assert.match(payables,/Refresh retained evidence/);
+assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/refreshAuthoritativeWbsOperatorPayableAttestations\(\{config,fetcher\}\).*canAttest:true/s,'the existing protected retained-evidence GET must drive operator button capability');
+assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/disabled=\{capabilityState\.phase!==\'READY\'\|\|!capabilityState\.canAttest/,'operator actions must remain disabled until the protected server read succeeds');
 assert.doesNotMatch(payables,/<select/);
 assert.doesNotMatch(payables,/Bank transactions|AutoRec details|Journal entries/);
 

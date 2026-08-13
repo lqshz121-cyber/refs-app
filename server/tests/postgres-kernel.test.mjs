@@ -9,7 +9,7 @@ import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
-import {STAGE1_READ_PERMISSIONS,grantStage1ReadAccess,provisionStage1Scope,stage1GrantConfig,stage1ProvisionConfig} from '../runtime/stage1-bootstrap.mjs';
+import {STAGE1_READ_PERMISSIONS,STAGE1_WBS_OPERATOR_PERMISSIONS,grantStage1ReadAccess,provisionStage1Scope,stage1GrantConfig,stage1ProvisionConfig,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from '../runtime/stage1-bootstrap.mjs';
 import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
@@ -970,6 +970,22 @@ pgTest('Stage 1 provisioning creates only minimal read scope, replays exactly an
   const permissions=(await adminPool.query('SELECT permission FROM runtime_actor_grant WHERE tenant_id=$1 AND entity_id=$2 AND actor_id=$3 AND revoked_at IS NULL ORDER BY permission',[tenantId,entityId,grant.actorId])).rows.map(row=>row.permission);
   assert.deepEqual(permissions,STAGE1_READ_PERMISSIONS);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type IN ('STAGE1_SCOPE_PROVISIONED','ACTOR_GRANTS_RECONCILED')",[tenantId,entityId])).rows[0].n,2);
+});
+
+pgTest('Stage 1 WBS operator self-upgrade adds only exception retain and replays concurrently without widening grants',async()=>{
+  const ids=await seed(),actor='auth0|stage1-operator-reader';
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  await sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:ids.entityId,permissions:STAGE1_READ_PERMISSIONS,expectedVersion:0,idempotencyKey:'operator-seed-read-0001'});
+  await upgradeStage1WbsReadAccess(grantSyncPool,{tenantId:ids.tenantId,entityId:ids.entityId,actorId:actor,expectedVersion:1,permissions:[...STAGE1_READ_PERMISSIONS,'WBS.AUTOREC.VIEW'],idempotencyKey:'operator-seed-wbs-0001'});
+  const input={tenantId:ids.tenantId,entityId:ids.entityId,actorId:actor,expectedVersion:2,permissions:STAGE1_WBS_OPERATOR_PERMISSIONS,idempotencyKey:'operator-upgrade-0001'};
+  const [first,replay]=await Promise.all([upgradeStage1WbsOperatorAccess(grantSyncPool,input),upgradeStage1WbsOperatorAccess(grantSyncPool,input)]);
+  assert.equal(first.version,3);assert.equal([first.idempotent,replay.idempotent].filter(Boolean).length,1);
+  const permissions=(await adminPool.query('SELECT permission FROM runtime_actor_grant WHERE tenant_id=$1 AND entity_id=$2 AND actor_id=$3 AND revoked_at IS NULL ORDER BY permission',[ids.tenantId,ids.entityId,actor])).rows.map(row=>row.permission);
+  assert.deepEqual(permissions,[...STAGE1_WBS_OPERATOR_PERMISSIONS].sort());
+  await assert.rejects(upgradeStage1WbsOperatorAccess(grantSyncPool,{...input,idempotencyKey:'operator-upgrade-0002'}),error=>error.code==='40001');
+  await assert.rejects(upgradeStage1WbsOperatorAccess(adminPool,{...input,idempotencyKey:'operator-upgrade-0003'}),error=>error.code==='GRANT_SYNC_DB_IDENTITY_DENIED');
+  await adminPool.query("UPDATE runtime_actor_grant SET revoked_at=now() WHERE tenant_id=$1 AND entity_id=$2 AND actor_id=$3 AND permission='WBS.PAYABLE.OPERATOR_ATTEST'",[ids.tenantId,ids.entityId,actor]);
+  await assert.rejects(upgradeStage1WbsOperatorAccess(grantSyncPool,input),error=>error.code==='42501');
 });
 
 pgTest('two connections enforce duplicate canonical raw source and atomic idempotency compare/replay',async()=>{
