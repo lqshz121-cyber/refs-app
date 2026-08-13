@@ -61,6 +61,7 @@
     "verify:release-ui-e2e": "node tools/verify-external-release-gate.mjs ui",
     "verify:release-s3-scanner": "node tools/verify-external-release-gate.mjs s3",
     "verify:release-wbs-receipt": "node tools/verify-external-release-gate.mjs wbs",
+    "verify:stage1-payable-live-acceptance": "node server/tools/verify-stage1-payable-live-acceptance.mjs",
     "verify:runtime-deployment-assets": "node scripts/verify-runtime-deployment-assets.mjs",
     "test:authoritative-runtime-evidence": "node tools/verify-authoritative-runtime-evidence.test.mjs",
     "verify:authoritative-runtime-evidence": "node tools/verify-authoritative-runtime-evidence.mjs"

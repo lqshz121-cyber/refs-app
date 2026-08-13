@@ -75,10 +75,11 @@ const requiredCommands = [
   { name: 'live-ui-8-page', command: 'npm.cmd run verify:release-ui-e2e', requiredExit: 0, scope: 'real authenticated 8-page browser evidence; not satisfied by local simulation' },
   { name: 'provider-s3-scanner', command: 'npm.cmd run verify:release-s3-scanner', requiredExit: 0, scope: 'real provider S3/scanner lifecycle; not satisfied by local simulation' },
   { name: 'provider-wbs-receipt', command: 'npm.cmd run verify:release-wbs-receipt', requiredExit: 0, scope: 'real WBS signed nonempty receipt; not satisfied by local simulation' },
+  { name: 'stage1-payable-live-chain', command: 'npm.cmd run verify:stage1-payable-live-acceptance -- --provider-trust <pinned-trust.json> --receipt <receipt.json> --request-raw <request.raw> --response-raw <response.raw> --package-raw <package.json> --chain <stage1-chain.json>', requiredExit: 0, scope: 'real signed Payable attachment → separated roles → same posted JE → GL/TB/AP Aging; not satisfied by local simulation' },
 ];
 
 const scriptCoverage = Object.fromEntries(
-  ['test', 'build', 'test:release-harness', 'test:release-simulation', 'verify:external-release-gate', 'verify:release-ui-e2e', 'verify:release-s3-scanner', 'verify:release-wbs-receipt']
+  ['test', 'build', 'test:release-harness', 'test:release-simulation', 'verify:external-release-gate', 'verify:release-ui-e2e', 'verify:release-s3-scanner', 'verify:release-wbs-receipt', 'verify:stage1-payable-live-acceptance']
     .map(name => [name, packageJson.scripts?.[name] || null]),
 );
 
@@ -118,7 +119,7 @@ const manifest = {
   required_commands: requiredCommands,
   release_acceptance: {
     local_candidate_gate: 'PASS only after required local commands exit 0 on a clean frozen SHA',
-    global_release_gate: 'PARTIAL/FAIL until real HTTPS/OIDC, authenticated 8-page live E2E, provider S3/scanner lifecycle, and WBS signed nonempty receipt raw logs/exits exist',
+    global_release_gate: 'PARTIAL/FAIL until real HTTPS/OIDC, authenticated 8-page live E2E, provider S3/scanner lifecycle, and signed WBS Payable attachment-to-GL/TB/AP Aging evidence exist',
   },
   pr_7: prEvidence,
 };
@@ -144,7 +145,7 @@ writeText(resolve(outRoot, 'README.md'), [
   '## Release boundary',
   '',
   '- Local candidate gates can pass with deterministic local simulation.',
-  '- Global release remains blocked until real HTTPS/OIDC, live authenticated browser evidence, provider S3/scanner, and WBS signed receipt evidence are present.',
+  '- Global release remains blocked until real HTTPS/OIDC, live authenticated browser evidence, provider S3/scanner, and the signed WBS Payable attachment-to-GL/TB/AP Aging chain are present.',
   '',
 ].join('\n'));
 
