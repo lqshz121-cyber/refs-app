@@ -7,6 +7,11 @@ import {AuthoritativeWbsTransitionWorkspace} from '../src/authoritative-wbs-tran
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'33333333-3333-4333-8333-333333333333',baseUrl:'https://accounting.example',getAccessToken:async()=> 'a'.repeat(48)};
 const markup=renderToStaticMarkup(<AuthoritativeWbsTransitionWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not verify a contract');}}/>);
 assert.match(markup,/WBS AutoRec transition evidence/);
+assert.match(markup,/Configured entity/);
+assert.match(markup,/Configured period/);
+assert.match(markup,/title="Entity ID: 11111111-1111-4111-8111-111111111111"/);
+assert.match(markup,/title="Period ID: 33333333-3333-4333-8333-333333333333"/);
+assert.doesNotMatch(markup,/>11111111-1111-4111-8111-111111111111<|>33333333-3333-4333-8333-333333333333</);
 assert.match(markup,/EVIDENCE ONLY/);
 assert.match(markup,/Signed provider contract JSON/);
 assert.match(markup,/Verify signed contract evidence/);
