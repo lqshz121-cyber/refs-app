@@ -89,6 +89,7 @@ export function parseWbsLivePilotSelection(searchParams){
   const companyValues=searchParams.getAll('company_code'),fromValues=searchParams.getAll('date_from'),toValues=searchParams.getAll('date_to');
   if(companyValues.length>1||fromValues.length>1||toValues.length>1)fail('WBS_LIVE_PILOT_SCOPE_INVALID','Each WBS company/date scope parameter may occur at most once.');
   const company=companyValues[0]?.trim()||null,from=fromValues[0]?.trim()||null,to=toValues[0]?.trim()||null;
+  if(searchParams.get('tool')!=='list_payables'&&(company!==null||from!==null||to!==null))fail('WBS_LIVE_PILOT_SCOPE_INVALID','company/date scope is available only for list_payables.');
   if(company!==null&&(!/^[A-Za-z0-9][A-Za-z0-9_:-]{0,63}$/.test(company)||CONTROL.test(company)))fail('WBS_LIVE_PILOT_SCOPE_INVALID','company_code must be a bounded WBS company key.');
   if((from===null)!==(to===null)||from!==null&&!date(from)||to!==null&&!date(to)||from!==null&&from>to)fail('WBS_LIVE_PILOT_SCOPE_INVALID','date_from and date_to must be a valid ordered date range.');
   return Object.freeze({tool:searchParams.get('tool'),limit:Number(raw),company_code:company,date_from:from,date_to:to});

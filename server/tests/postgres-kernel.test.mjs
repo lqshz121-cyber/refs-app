@@ -189,15 +189,23 @@ pgTest('operator-attested WBS Payables persist unsigned exception evidence only 
     (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journal_count,
     (SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger_count`,[ids.tenantId])).rows[0];
   const created=await kernel.attestWbsOperatorPayables(args);
-  assert.deepEqual({...created,wbs_operator_payable_attestation_id:undefined},{status:'EXCEPTION_REVIEW_REQUIRED',provenance_mode:'OPERATOR_ATTESTED',signature_verified:false,row_count:1,idempotent:false,can_import_to_staging:false,can_create_draft:false,can_approve:false,can_post:false,wbs_operator_payable_attestation_id:undefined});
+  assert.deepEqual({...created,wbs_operator_payable_attestation_id:undefined},{status:'EXCEPTION_REVIEW_REQUIRED',provenance_mode:'OPERATOR_ATTESTED',signature_verified:false,company_scope_status:'ENTITY_SCOPE_MATCHED',row_count:1,idempotent:false,can_import_to_staging:false,can_review:false,can_create_draft:false,can_approve:false,can_post:false,wbs_operator_payable_attestation_id:undefined});
   const replay=await kernel.attestWbsOperatorPayables(args);assert.equal(replay.idempotent,true);assert.equal(replay.wbs_operator_payable_attestation_id,created.wbs_operator_payable_attestation_id);
   const retained=await kernel.listWbsOperatorPayableAttestations({tenantId:ids.tenantId,entityId:ids.entityId,limit:10});
-  assert.deepEqual(retained.map(row=>({...row,captured_at:new Date(row.captured_at).toISOString(),attested_at:new Date(row.attested_at).toISOString()})),[{wbs_operator_payable_attestation_id:created.wbs_operator_payable_attestation_id,captured_at:capturedAt,company_code:ids.sourceEntityId,row_count:1,provenance_mode:'OPERATOR_ATTESTED',signature_verified:false,evidence_status:'EXCEPTION_REVIEW_REQUIRED',can_create_draft:false,can_post:false,attested_at:new Date(retained[0].attested_at).toISOString()}]);
+  assert.deepEqual(retained.map(row=>({...row,captured_at:new Date(row.captured_at).toISOString(),attested_at:new Date(row.attested_at).toISOString()})),[{wbs_operator_payable_attestation_id:created.wbs_operator_payable_attestation_id,captured_at:capturedAt,company_code:ids.sourceEntityId,company_codes:[ids.sourceEntityId],company_scope_status:'ENTITY_SCOPE_MATCHED',row_count:1,provenance_mode:'OPERATOR_ATTESTED',signature_verified:false,evidence_status:'EXCEPTION_REVIEW_REQUIRED',can_create_draft:false,can_post:false,attested_at:new Date(retained[0].attested_at).toISOString()}]);
   await assert.rejects(kernel.attestWbsOperatorPayables({...args,reason:'A different controller reason conflicts with the same key.'}),error=>error.code==='23505');
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-read-only',['WBS.AUTOREC.VIEW'])});
   await assert.rejects(denied.attestWbsOperatorPayables({...args,idempotencyKey:'operator-pg-denied-0001'}),error=>error.code==='42501');
   await assert.rejects(denied.listWbsOperatorPayableAttestations({tenantId:ids.tenantId,entityId:ids.entityId,limit:10}),error=>error.code==='42501');
-  await assert.rejects(kernel.attestWbsOperatorPayables({...args,companyCodes:['WRONG-COMPANY'],idempotencyKey:'operator-pg-scope-0001'}),error=>error.code==='42501');
+  await assert.rejects(kernel.attestWbsOperatorPayables({...args,providerContentHash:hash('operator-provider-wrong-company'),observationHash:hash('operator-observation-wrong-company'),companyCodes:['WRONG-COMPANY'],idempotencyKey:'operator-pg-scope-0001'}),error=>error.code==='22023');
+  const unassignedRaw={ap_guid:'ap-operator-2026-unassigned',amount:'12.50000',posting_date:'2026-07-16'};
+  const unassignedHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(unassignedRaw)])).rows[0].hash;
+  const unassigned=await kernel.attestWbsOperatorPayables({...args,providerContentHash:hash('operator-provider-unassigned'),observationHash:hash('operator-observation-unassigned'),companyCodes:[],rows:[{source_record_id:unassignedRaw.ap_guid,source_version:`operator:${capturedAt}:${unassignedHash.slice(7,39)}`,row_hash:unassignedHash,raw:unassignedRaw}],reason:'Retain a real row without company assignment as exception evidence.',idempotencyKey:'operator-pg-unassigned-0001'});
+  assert.equal(unassigned.company_scope_status,'UNASSIGNED_COMPANY');assert.equal(unassigned.can_review,false);
+  const mixedRaw=[{ap_guid:'ap-operator-2026-mixed-a',amount:'4.00000',company_code:'COMP-A',posting_date:'2026-07-17'},{ap_guid:'ap-operator-2026-mixed-b',amount:'5.00000',company_code:'COMP-B',posting_date:'2026-07-17'}];
+  const mixedRows=[];for(const item of mixedRaw){const itemHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(item)])).rows[0].hash;mixedRows.push({source_record_id:item.ap_guid,source_version:`operator:${capturedAt}:${itemHash.slice(7,39)}`,row_hash:itemHash,raw:item});}
+  const mixed=await kernel.attestWbsOperatorPayables({...args,providerContentHash:hash('operator-provider-mixed'),observationHash:hash('operator-observation-mixed'),companyCodes:['COMP-A','COMP-B'],rows:mixedRows,reason:'Retain mixed-company real rows as exception evidence.',idempotencyKey:'operator-pg-mixed-0001'});
+  assert.equal(mixed.company_scope_status,'MIXED_COMPANY');assert.equal(mixed.can_import_to_staging,false);assert.equal(mixed.can_create_draft,false);assert.equal(mixed.can_post,false);
   const after=(await adminPool.query(`SELECT
     (SELECT count(*) FROM raw_event WHERE tenant_id=$1) raw_count,
     (SELECT count(*) FROM source_document WHERE tenant_id=$1) source_count,
@@ -206,10 +214,11 @@ pgTest('operator-attested WBS Payables persist unsigned exception evidence only 
     (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journal_count,
     (SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger_count`,[ids.tenantId])).rows[0];
   assert.deepEqual(after,before);
-  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_operator_payable_attestation WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);
-  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_operator_payable_evidence_row WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);
-  const audit=(await adminPool.query("SELECT metadata FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_PAYABLE_OPERATOR_ATTESTED'",[ids.tenantId])).rows[0].metadata;
-  assert.equal(audit.provenance_mode,'OPERATOR_ATTESTED');assert.equal(audit.signature_verified,false);assert.equal(audit.can_create_draft,false);assert.equal(audit.can_post,false);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_operator_payable_attestation WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,3);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_operator_payable_evidence_row WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,4);
+  const audits=(await adminPool.query("SELECT metadata FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_PAYABLE_OPERATOR_ATTESTED'",[ids.tenantId])).rows.map(row=>row.metadata);
+  assert.deepEqual(new Set(audits.map(audit=>audit.company_scope_status)),new Set(['ENTITY_SCOPE_MATCHED','UNASSIGNED_COMPANY','MIXED_COMPANY']));
+  for(const audit of audits){assert.equal(audit.provenance_mode,'OPERATOR_ATTESTED');assert.equal(audit.signature_verified,false);assert.equal(audit.can_import_to_staging,false);assert.equal(audit.can_review,false);assert.equal(audit.can_create_draft,false);assert.equal(audit.can_post,false);}
   await assert.rejects(adminPool.query("UPDATE wbs_operator_payable_evidence_row SET evidence_status='EXCEPTION_REVIEW_REQUIRED' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
 });
 
