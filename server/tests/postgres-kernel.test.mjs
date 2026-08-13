@@ -175,6 +175,44 @@ pgTest('authorized WBS snapshot import persists immutable observations without c
   await assert.rejects(adminPool.query("UPDATE wbs_snapshot_receipt SET source_record_id='tampered' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
 });
 
+pgTest('operator-attested WBS Payables persist unsigned exception evidence only with replay, scope, and zero-accounting guards',async()=>{
+  const ids=await seed({status:'DRAFT'}),actor='wbs-operator-attester';
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actor,['WBS.PAYABLE.OPERATOR_ATTEST'])});
+  const capturedAt='2026-07-31T23:00:00.000Z',raw={ap_guid:'ap-operator-2026-1',amount:'89.12500',company_code:ids.sourceEntityId,posting_date:'2026-07-15'};
+  const rowHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(raw)])).rows[0].hash;
+  const args={tenantId:ids.tenantId,entityId:ids.entityId,capturedAt,providerContentHash:hash('operator-provider-content'),observationHash:hash('operator-observation'),companyCodes:[ids.sourceEntityId],rows:[{source_record_id:raw.ap_guid,source_version:`operator:${capturedAt}:${rowHash.slice(7,39)}`,row_hash:rowHash,raw}],reason:'Controller attests this exact WBS read for exception review.',idempotencyKey:'operator-pg-attest-0001'};
+  const before=(await adminPool.query(`SELECT
+    (SELECT count(*) FROM raw_event WHERE tenant_id=$1) raw_count,
+    (SELECT count(*) FROM source_document WHERE tenant_id=$1) source_count,
+    (SELECT count(*) FROM staging_item WHERE tenant_id=$1) staging_count,
+    (SELECT count(*) FROM business_document WHERE tenant_id=$1) document_count,
+    (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journal_count,
+    (SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger_count`,[ids.tenantId])).rows[0];
+  const created=await kernel.attestWbsOperatorPayables(args);
+  assert.deepEqual({...created,wbs_operator_payable_attestation_id:undefined},{status:'EXCEPTION_REVIEW_REQUIRED',provenance_mode:'OPERATOR_ATTESTED',signature_verified:false,row_count:1,idempotent:false,can_import_to_staging:false,can_create_draft:false,can_approve:false,can_post:false,wbs_operator_payable_attestation_id:undefined});
+  const replay=await kernel.attestWbsOperatorPayables(args);assert.equal(replay.idempotent,true);assert.equal(replay.wbs_operator_payable_attestation_id,created.wbs_operator_payable_attestation_id);
+  const retained=await kernel.listWbsOperatorPayableAttestations({tenantId:ids.tenantId,entityId:ids.entityId,limit:10});
+  assert.deepEqual(retained.map(row=>({...row,captured_at:new Date(row.captured_at).toISOString(),attested_at:new Date(row.attested_at).toISOString()})),[{wbs_operator_payable_attestation_id:created.wbs_operator_payable_attestation_id,captured_at:capturedAt,company_code:ids.sourceEntityId,row_count:1,provenance_mode:'OPERATOR_ATTESTED',signature_verified:false,evidence_status:'EXCEPTION_REVIEW_REQUIRED',can_create_draft:false,can_post:false,attested_at:new Date(retained[0].attested_at).toISOString()}]);
+  await assert.rejects(kernel.attestWbsOperatorPayables({...args,reason:'A different controller reason conflicts with the same key.'}),error=>error.code==='23505');
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-read-only',['WBS.AUTOREC.VIEW'])});
+  await assert.rejects(denied.attestWbsOperatorPayables({...args,idempotencyKey:'operator-pg-denied-0001'}),error=>error.code==='42501');
+  await assert.rejects(denied.listWbsOperatorPayableAttestations({tenantId:ids.tenantId,entityId:ids.entityId,limit:10}),error=>error.code==='42501');
+  await assert.rejects(kernel.attestWbsOperatorPayables({...args,companyCodes:['WRONG-COMPANY'],idempotencyKey:'operator-pg-scope-0001'}),error=>error.code==='42501');
+  const after=(await adminPool.query(`SELECT
+    (SELECT count(*) FROM raw_event WHERE tenant_id=$1) raw_count,
+    (SELECT count(*) FROM source_document WHERE tenant_id=$1) source_count,
+    (SELECT count(*) FROM staging_item WHERE tenant_id=$1) staging_count,
+    (SELECT count(*) FROM business_document WHERE tenant_id=$1) document_count,
+    (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journal_count,
+    (SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger_count`,[ids.tenantId])).rows[0];
+  assert.deepEqual(after,before);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_operator_payable_attestation WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_operator_payable_evidence_row WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);
+  const audit=(await adminPool.query("SELECT metadata FROM audit_event WHERE tenant_id=$1 AND event_type='WBS_PAYABLE_OPERATOR_ATTESTED'",[ids.tenantId])).rows[0].metadata;
+  assert.equal(audit.provenance_mode,'OPERATOR_ATTESTED');assert.equal(audit.signature_verified,false);assert.equal(audit.can_create_draft,false);assert.equal(audit.can_post,false);
+  await assert.rejects(adminPool.query("UPDATE wbs_operator_payable_evidence_row SET evidence_status='EXCEPTION_REVIEW_REQUIRED' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
+});
+
 pgTest('admitted signed Payable composition persists receipt Raw Normalized Staging and replays with zero journal writes',async()=>{
   const ids=await seed({status:'DRAFT'}),{privateKey,publicKey}=generateKeyPairSync('ed25519'),keyId='wbs-payable-composition-pg',capturedAt='2026-07-11T03:00:00.000Z',snapshotToken=`pg-payable-${randomUUID()}`,sourceId=randomUUID(),badSourceId=randomUUID();
   const rows=[

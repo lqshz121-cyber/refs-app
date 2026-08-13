@@ -179,6 +179,30 @@ export class PostgresAccountingKernel{
     return true;
   }
 
+  async assertWbsOperatorPayableAttest({tenantId,entityId}){
+    await this.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'WBS.PAYABLE.OPERATOR_ATTEST')",[tenantId,entityId]));
+    return true;
+  }
+
+  async attestWbsOperatorPayables({tenantId,entityId,capturedAt,providerContentHash,observationHash,companyCodes,rows,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_operator_payable_attest_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',
+        [tenantId,entityId,capturedAt,providerContentHash,observationHash,JSON.stringify(companyCodes),JSON.stringify(rows),reason]
+      ),'WBS_OPERATOR_ATTEST_HASH_FAILED','WBS operator attestation hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_attest_wbs_operator_payables($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+        [tenantId,entityId,capturedAt,providerContentHash,observationHash,JSON.stringify(companyCodes),JSON.stringify(rows),reason,idempotencyKey,requestHash]
+      ),'WBS_OPERATOR_ATTEST_FAILED','WBS operator attestation did not return a result').result;
+    });
+  }
+
+  async listWbsOperatorPayableAttestations({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_wbs_operator_payable_attestations($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
   async persistWbsInboundRows({tenantId,entityId,importBatchId,receipt,rows,idempotencyKey,requestHash}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_persist_wbs_inbound_rows($1,$2,$3,$4,$5,$6,$7,$8) AS result',

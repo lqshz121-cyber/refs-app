@@ -81,6 +81,23 @@
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/operator-attested/payables": {
+      "get": {
+        "operationId": "listOperatorAttestedWbsPayableEvidence",
+        "summary": "List retained operator-attested WBS Payable exception evidence",
+        "description": "Requires WBS.PAYABLE.OPERATOR_ATTEST. Unsigned exception evidence only: every row is OPERATOR_ATTESTED, signature_verified=false, EXCEPTION_REVIEW_REQUIRED, cannot create a Draft, and is not Posted. The response excludes provider rows, raw payloads, hashes, credentials, and accounting action authority.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":50,"default":50}}],
+        "responses": {"200":{"$ref":"#/components/responses/WbsOperatorPayableAttestationListOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      },
+      "post": {
+        "operationId": "attestObservedWbsPayables",
+        "summary": "Freeze a fresh server-reread WBS Payable page as unsigned exception evidence",
+        "description": "Requires WBS.PAYABLE.OPERATOR_ATTEST. The server rereads list_payables and requires exact observation/content hashes from the prior GET-only view. It stores append-only OPERATOR_ATTESTED evidence with signature_verified=false and EXCEPTION_REVIEW_REQUIRED. It never creates Raw/Source/Staging, a Bill, Draft, Journal, ledger line, approval, or posting.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsOperatorPayableAttestation"},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/PreconditionFailed"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/inbound/payables/reviews": {
       "get": {
         "operationId":"listReviewedWbsPayableEvidence",
@@ -1989,6 +2006,23 @@
         }
       },
       "WbsPayableReviewCandidateListEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","maxItems":50,"items":{"$ref":"#/components/schemas/WbsPayableReviewCandidateRow"}}}},
+      "WbsOperatorPayableAttestationReadRow": {
+        "type":"object","additionalProperties":false,
+        "required":["wbs_operator_payable_attestation_id","captured_at","company_code","row_count","provenance_mode","signature_verified","evidence_status","can_create_draft","can_post","attested_at"],
+        "properties":{
+          "wbs_operator_payable_attestation_id":{"$ref":"#/components/schemas/Uuid"},
+          "captured_at":{"type":"string","format":"date-time"},
+          "company_code":{"type":"string","minLength":1,"maxLength":128},
+          "row_count":{"type":"integer","minimum":1,"maximum":10},
+          "provenance_mode":{"const":"OPERATOR_ATTESTED"},
+          "signature_verified":{"const":false},
+          "evidence_status":{"const":"EXCEPTION_REVIEW_REQUIRED"},
+          "can_create_draft":{"const":false},
+          "can_post":{"const":false},
+          "attested_at":{"type":"string","format":"date-time"}
+        }
+      },
+      "WbsOperatorPayableAttestationListEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","maxItems":50,"items":{"$ref":"#/components/schemas/WbsOperatorPayableAttestationReadRow"}}}},
       "WbsPayableReviewCandidateDetailEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/WbsPayableReviewCandidateRow"}}},
       "WbsPayableEvidenceReadRow": {
         "type":"object","additionalProperties":false,
@@ -3672,6 +3706,24 @@
       }
     },
     "requestBodies": {
+      "WbsOperatorPayableAttestation": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["expectedObservationHash","expectedProviderContentSha256","reason","limit"],
+              "properties": {
+                "expectedObservationHash": {"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+                "expectedProviderContentSha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+                "reason": {"type":"string","minLength":8,"maxLength":2000},
+                "limit": {"type":"integer","minimum":1,"maximum":10}
+              }
+            }
+          }
+        }
+      },
       "WbsAutoRecTransitionContractVerify": {
         "required": true,
         "content": {
@@ -4689,6 +4741,7 @@
       }
     },
     "responses": {
+      "WbsOperatorPayableAttestationListOk":{"description":"Operator-attested unsigned WBS Payable exception evidence list.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsOperatorPayableAttestationListEnvelope"}}}},
       "WbsPayableReviewCandidateListOk":{"description":"Admitted WBS Payable review-candidate list.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableReviewCandidateListEnvelope"}}}},
       "WbsPayableReviewCandidateDetailOk":{"description":"Admitted WBS Payable review-candidate detail.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableReviewCandidateDetailEnvelope"}}}},
       "WbsPayableEvidenceListOk":{"description":"Reviewed WBS Payable evidence list.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableEvidenceListEnvelope"}}}},

@@ -59,6 +59,16 @@ const sanitizeRow=(tool,row)=>{
   return Object.freeze(out);
 };
 
+export function buildWbsLivePilotObservation({observed,entityId,tool}={}){
+  if(!plain(observed)||!entityId||!WBS_LIVE_PILOT_TOOLS.includes(tool)||!Array.isArray(observed.rows))fail('WBS_LIVE_PILOT_RESULT_INVALID','WBS pilot provider observation is invalid.');
+  const companyCodes=Array.isArray(observed.scope?.company_codes)&&observed.scope.company_codes.every(value=>typeof value==='string'&&value.length<=128&&!CONTROL.test(value))?[...observed.scope.company_codes]:[];
+  const rows=observed.rows.map(row=>sanitizeRow(tool,plain(row)?row:{}));
+  const sourceDateRange=Array.isArray(observed.scope?.date_range)?observed.scope.date_range:[];
+  const dateRange=Object.freeze([date(sourceDateRange[0])||null,date(sourceDateRange[1])||null]);
+  const core={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool,environment:'PRODUCTION',entity_id:entityId,captured_at:observed.captured_at,provider_content_sha256:observed.content_sha256,scope:Object.freeze({company_codes:Object.freeze(companyCodes),date_range:dateRange}),record_count:rows.length,rows:Object.freeze(rows),signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false};
+  return Object.freeze({...core,observation_hash:hash(canonicalRequestBody(core))});
+}
+
 export class WbsLivePilotError extends Error{constructor(code,message){super(message);this.name='WbsLivePilotError';this.code=code;}}
 const fail=(code,message)=>{throw new WbsLivePilotError(code,message);};
 
@@ -90,12 +100,7 @@ export function createWbsLivePilotReadService({client,authorize}={}){
       if(!tenantId||!entityId||!WBS_LIVE_PILOT_TOOLS.includes(tool)||!Number.isSafeInteger(limit)||limit<1||limit>10)fail('WBS_LIVE_PILOT_SELECTION_INVALID','A scoped approved WBS pilot selection is required.');
       await authorize({tenantId,entityId});
       let observed;try{await prepare();observed=await client.readView({toolName:tool,args:{limit}});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider response was unavailable or unsafe.');}
-      const companyCodes=Array.isArray(observed.scope?.company_codes)&&observed.scope.company_codes.every(value=>typeof value==='string'&&value.length<=128&&!CONTROL.test(value))?[...observed.scope.company_codes]:[];
-      const rows=observed.rows.map(row=>sanitizeRow(tool,plain(row)?row:{}));
-      const sourceDateRange=Array.isArray(observed.scope?.date_range)?observed.scope.date_range:[];
-      const dateRange=Object.freeze([date(sourceDateRange[0])||null,date(sourceDateRange[1])||null]);
-      const core={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool,environment:'PRODUCTION',entity_id:entityId,captured_at:observed.captured_at,provider_content_sha256:observed.content_sha256,scope:Object.freeze({company_codes:Object.freeze(companyCodes),date_range:dateRange}),record_count:rows.length,rows:Object.freeze(rows),signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false};
-      return Object.freeze({...core,observation_hash:hash(canonicalRequestBody(core))});
+      return buildWbsLivePilotObservation({observed,entityId,tool});
     }
   });
 }

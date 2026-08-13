@@ -1,0 +1,11 @@
+BEGIN;
+REVOKE EXECUTE ON FUNCTION refs_read_wbs_operator_payable_attestations(uuid,uuid,integer) FROM refs_app;
+REVOKE EXECUTE ON FUNCTION refs_attest_wbs_operator_payables(uuid,uuid,timestamptz,text,text,jsonb,jsonb,text,text,text) FROM refs_app;
+REVOKE EXECUTE ON FUNCTION refs_wbs_operator_payable_attest_hash(uuid,uuid,timestamptz,text,text,jsonb,jsonb,text) FROM refs_app;
+DROP FUNCTION refs_attest_wbs_operator_payables(uuid,uuid,timestamptz,text,text,jsonb,jsonb,text,text,text);
+DROP FUNCTION refs_read_wbs_operator_payable_attestations(uuid,uuid,integer);
+DROP FUNCTION refs_wbs_operator_payable_attest_hash(uuid,uuid,timestamptz,text,text,jsonb,jsonb,text);
+DROP TABLE wbs_operator_payable_evidence_row;
+DROP TABLE wbs_operator_payable_attestation;
+DELETE FROM permission_catalog WHERE permission_code='WBS.PAYABLE.OPERATOR_ATTEST';
+COMMIT;
