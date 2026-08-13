@@ -22,6 +22,7 @@ import {OidcJwtAuthenticator,REFS_TENANT_CLAIM} from '../api/oidc-authenticator.
 import {buildWbsMcpReadonlySnapshot} from '../runtime/wbs-mcp-inbound-lineage.mjs';
 import {createWbsSignedDelivery} from '../runtime/wbs-signed-delivery-admission.mjs';
 import {createWbsProviderSignedPayableAdmission} from '../runtime/wbs-provider-signed-payable-admission.mjs';
+import {createWbsAdmittedPayableIngestion} from '../runtime/wbs-admitted-payable-ingestion.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -223,6 +224,35 @@ pgTest('operator-attested WBS Payables persist unsigned exception evidence only 
   assert.deepEqual(new Set(audits.map(audit=>audit.company_scope_status)),new Set(['ENTITY_SCOPE_MATCHED','UNASSIGNED_COMPANY','MIXED_COMPANY']));
   for(const audit of audits){assert.equal(audit.provenance_mode,'OPERATOR_ATTESTED');assert.equal(audit.signature_verified,false);assert.equal(audit.can_import_to_staging,false);assert.equal(audit.can_review,false);assert.equal(audit.can_create_draft,false);assert.equal(audit.can_post,false);}
   await assert.rejects(adminPool.query("UPDATE wbs_operator_payable_evidence_row SET evidence_status='EXCEPTION_REVIEW_REQUIRED' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
+});
+
+pgTest('operator exception row links append-only to the later exact signed Payable source without becoming Review authority',async()=>{
+  const ids=await seed({status:'DRAFT'}),{privateKey,publicKey}=generateKeyPairSync('ed25519');
+  const sourceId=randomUUID(),capturedAt='2026-07-20T03:00:00.000Z',snapshotToken=`operator-bridge-${randomUUID()}`,keyId='wbs-operator-bridge-pg';
+  const sourceRow={ap_guid:sourceId,ap_type:'AUTOC',company_code:ids.sourceEntityId,currency:'USD',amount:'41.2500',invoice_date:'2026-07-15',incurred_date:'2026-07-18',posting_date:'2026-07-20',pay_due_date:'2026-07-25',invoice_no:'WBS-BRIDGE-001',vendor_no:'VENDOR-PG'};
+  const rows=[sourceRow],providerContentHash=canonicalRequestHash(rows);
+  const operator=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bridge-operator',['WBS.PAYABLE.OPERATOR_ATTEST'])});
+  const retained=await operator.attestWbsOperatorPayables({...ids,capturedAt,providerContentHash,observationHash:hash('operator-bridge-observation'),companyCodes:[ids.sourceEntityId],rows:[{source_record_id:sourceId,source_version:`operator:${capturedAt}:${providerContentHash.slice(7,39)}`,row_hash:canonicalRequestHash(sourceRow),raw:sourceRow}],reason:'Retain the exact provider Payable row as unsigned exception evidence.',idempotencyKey:'operator-signed-bridge-attest-0001'});
+  const operatorEvidenceRowId=(await adminPool.query('SELECT wbs_operator_payable_evidence_row_id FROM wbs_operator_payable_evidence_row WHERE tenant_id=$1 AND entity_id=$2 AND wbs_operator_payable_attestation_id=$3 AND source_record_id=$4',[ids.tenantId,ids.entityId,retained.wbs_operator_payable_attestation_id,sourceId])).rows[0].wbs_operator_payable_evidence_row_id;
+  const envelope={contract_version:'WBS-REFS-MCP-V1',tool:'list_payables',environment:'production',captured_at:capturedAt,source:{system:'WBS'},scope:{company:ids.sourceEntityId,currency:'USD',snapshot_token:snapshotToken},record_count:1,content_sha256:providerContentHash.slice(7),cursor_next:null,etl_notice:'Snapshot comparison required',rows};
+  const conventions=[{scope:{company_key:ids.sourceEntityId,currency:'USD'},receipt:{hash:providerContentHash,ref:'object://wbs/payable/operator-bridge',version:'1',verification_id:'operator-bridge-verify',key_id:keyId,algorithm:'Ed25519',verified_on:capturedAt},rule_id:'WBS-PAYABLE-OPERATOR-BRIDGE-DIRECTION',version:'1',ap_type:'AUTOC',direction:'DEBIT'}];
+  const unsigned=buildWbsMcpReadonlySnapshot({envelopes:[envelope],snapshotId:randomUUID(),dictionaryVersion:'WBS-MCP-V1',environment:'PRODUCTION',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',snapshot_token:snapshotToken,extract_started_at:'2026-07-20T02:59:00.000Z',extract_completed_at:capturedAt,consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'},detachedSignature:{key_id:keyId,algorithm:'Ed25519',value:'placeholder'},payableDirectionConventions:conventions});
+  const snapshot={...unsigned,detached_signature:{...unsigned.detached_signature,value:sign(null,Buffer.from(unsigned.package_hash),privateKey).toString('base64')}},verifier=createWbsSnapshotSignatureVerifier({publicKeys:{[keyId]:publicKey.export({type:'spki',format:'pem'})}});
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bridge-signed-importer',['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:verifier}),ingestion=createWbsAdmittedPayableIngestion({kernel:importer,signatureVerifier:verifier});
+  await ingestion.ingest({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'operator-signed-bridge-ingest-0001'});
+  const signed=(await adminPool.query('SELECT wbs_inbound_row_id,source_version,raw,normalized FROM wbs_inbound_row WHERE tenant_id=$1 AND entity_id=$2 AND source_record_id=$3 ORDER BY created_at DESC LIMIT 1',[ids.tenantId,ids.entityId,sourceId])).rows[0];
+  assert.equal(signed.raw.mcp_row_hash,canonicalRequestHash(sourceRow));assert.equal(signed.normalized.upstream_mcp_content_hash,providerContentHash);
+  const before=(await adminPool.query('SELECT (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journal_count,(SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger_count',[ids.tenantId])).rows[0];
+  const linked=await importer.linkWbsOperatorEvidenceToSignedSource({...ids,wbsOperatorPayableEvidenceRowId:operatorEvidenceRowId,wbsInboundRowId:signed.wbs_inbound_row_id,idempotencyKey:'operator-signed-source-link-0001'});
+  assert.deepEqual({status:linked.status,operatorStatus:linked.operator_evidence_status,signedRowId:linked.wbs_inbound_row_id,review:linked.can_review,draft:linked.can_create_draft,post:linked.can_post},{status:'SIGNED_SOURCE_EQUIVALENCE_RECORDED',operatorStatus:'EXCEPTION_REVIEW_REQUIRED',signedRowId:signed.wbs_inbound_row_id,review:false,draft:false,post:false});
+  const replay=await importer.linkWbsOperatorEvidenceToSignedSource({...ids,wbsOperatorPayableEvidenceRowId:operatorEvidenceRowId,wbsInboundRowId:signed.wbs_inbound_row_id,idempotencyKey:'operator-signed-source-link-0001'});assert.equal(replay.idempotent,true);
+  const after=(await adminPool.query('SELECT (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journal_count,(SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger_count',[ids.tenantId])).rows[0];assert.deepEqual(after,before);
+  const operatorOnly=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bridge-operator',['WBS.PAYABLE.OPERATOR_ATTEST'])});
+  await assert.rejects(operatorOnly.linkWbsOperatorEvidenceToSignedSource({...ids,wbsOperatorPayableEvidenceRowId:operatorEvidenceRowId,wbsInboundRowId:signed.wbs_inbound_row_id,idempotencyKey:'operator-signed-source-link-denied'}),error=>error.code==='42501');
+  const reviewReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bridge-review-reader',['WBS.PAYABLE.REVIEW','AP.VIEW'])});
+  const reviewCandidate=await reviewReader.getWbsPayableReviewCandidate({tenantId:ids.tenantId,entityId:ids.entityId,wbsInboundRowId:signed.wbs_inbound_row_id});assert.equal(reviewCandidate[0].wbs_inbound_row_id,signed.wbs_inbound_row_id);
+  await assert.rejects(reviewReader.getWbsPayableReviewCandidate({tenantId:ids.tenantId,entityId:ids.entityId,wbsInboundRowId:operatorEvidenceRowId}),error=>error.code==='P0002');
+  await assert.rejects(adminPool.query('UPDATE wbs_operator_signed_source_link SET company_code=company_code WHERE wbs_operator_signed_source_link_id=$1',[linked.wbs_operator_signed_source_link_id]),error=>error.code==='55000');
 });
 
 pgTest('provider-signed Payable admission atomically reaches Review Draft four-role Post and same-JE reports',async()=>{
