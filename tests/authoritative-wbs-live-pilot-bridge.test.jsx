@@ -21,7 +21,7 @@ assert.match(payables,/Retain as exception evidence/);assert.match(payables,/Ref
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/refreshAuthoritativeWbsOperatorPayableAttestations\(\{config,fetcher\}\).*canAttest:true/s,'the existing protected retained-evidence GET must drive operator button capability');
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/requestedCompanyCode\?dateFrom:null,dateTo:requestedCompanyCode\?dateTo:null/,'the browser may read an unscoped diagnostic sample, but must send dates only with one explicit Provider-native company scope');
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/Approved WBS company code.*WBS observation date from.*WBS observation date to/s,'the authoritative UI must expose the exact Provider-native company and date scope');
-assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/!hasExactAttestationScope.*INGESTION_BLOCKED - approved company scope required/s,'mixed or unresolved company results must remain visible but impossible to retain');
+assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/!hasExactAttestationScope.*UNASSIGNED COMPANY - exception intake available/s,'mixed or unresolved company results must remain visible and retainable only as exception evidence');
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/disabled=\{!retainPathReady\|\|capabilityState\.phase!==\'READY\'\|\|!capabilityState\.canAttest/,'operator actions must remain disabled until the protected persistence path is live');
 assert.doesNotMatch(payables,/<select/);
 assert.doesNotMatch(payables,/Bank transactions|AutoRec details|Journal entries/);
@@ -41,7 +41,7 @@ assert.match(source,/limit:10/);
 assert.match(source,/refreshAuthoritativeWbsLivePilot/);
 assert.doesNotMatch(source,/localStorage|sessionStorage|seed\.js|repo\.js|method:\s*['"](?:PUT|PATCH|DELETE)['"]|vendor_name|vendor_no|payee/);
 assert.match(source,/attestAuthoritativeWbsPayableObservation/);assert.match(source,/Confirm exception retain/);assert.match(source,/attestationConfirmation\?attest\(\):setAttestationConfirmation\(true\)/);assert.match(source,/It will not create a Draft or post anything/);assert.doesNotMatch(source,/globalThis\.confirm/);
-assert.match(source,/const retainPathReady=false/);assert.match(source,/disabled=\{!retainPathReady\|\|capabilityState/);
+assert.match(source,/const retainPathReady=true/);assert.match(source,/disabled=\{!retainPathReady\|\|capabilityState/);assert.doesNotMatch(source,/!hasExactAttestationScope\|\|attestationState/);
 for(const host of ['authoritative-overview.jsx','authoritative-workspace.jsx','authoritative-bank-workspace.jsx','authoritative-journal-workspace.jsx','authoritative-wbs-transition-workspace.jsx']){
   assert.match(fs.readFileSync(`src/${host}`,'utf8'),/AuthoritativeWbsLivePilotObservation/,`${host} must use the shared read-only WBS observation`);
 }

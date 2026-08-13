@@ -105,7 +105,7 @@
       "post": {
         "operationId": "attestObservedWbsPayables",
         "summary": "Freeze a fresh server-reread WBS Payable page as unsigned exception evidence",
-        "description": "Requires WBS.PAYABLE.OPERATOR_ATTEST. The server rereads list_payables and requires exact observation/content hashes from the prior GET-only view. It stores append-only OPERATOR_ATTESTED evidence with signature_verified=false and EXCEPTION_REVIEW_REQUIRED. It never creates Raw/Source/Staging, a Bill, Draft, Journal, ledger line, approval, or posting.",
+        "description": "Requires WBS.PAYABLE.OPERATOR_ATTEST. The server rereads list_payables and requires exact observation/content hashes from the prior GET-only view. It stores append-only OPERATOR_ATTESTED evidence with signature_verified=false and EXCEPTION_REVIEW_REQUIRED, including unassigned or mixed-company observations. Company assignment is not inferred. It never creates Raw/Source/Staging, a Bill, Draft, Journal, ledger line, approval, or posting.",
         "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
         "requestBody": {"$ref":"#/components/requestBodies/WbsOperatorPayableAttestation"},
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/PreconditionFailed"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
@@ -2021,11 +2021,13 @@
       "WbsPayableReviewCandidateListEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","maxItems":50,"items":{"$ref":"#/components/schemas/WbsPayableReviewCandidateRow"}}}},
       "WbsOperatorPayableAttestationReadRow": {
         "type":"object","additionalProperties":false,
-        "required":["wbs_operator_payable_attestation_id","captured_at","company_code","row_count","provenance_mode","signature_verified","evidence_status","can_create_draft","can_post","attested_at"],
+        "required":["wbs_operator_payable_attestation_id","captured_at","company_code","company_codes","company_scope_status","row_count","provenance_mode","signature_verified","evidence_status","can_create_draft","can_post","attested_at"],
         "properties":{
           "wbs_operator_payable_attestation_id":{"$ref":"#/components/schemas/Uuid"},
           "captured_at":{"type":"string","format":"date-time"},
-          "company_code":{"type":"string","minLength":1,"maxLength":128},
+          "company_code":{"type":["string","null"],"minLength":1,"maxLength":64},
+          "company_codes":{"type":"array","maxItems":10,"uniqueItems":true,"items":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_:-]{0,63}$"}},
+          "company_scope_status":{"type":"string","enum":["UNASSIGNED_COMPANY","MIXED_COMPANY","SINGLE_COMPANY_UNASSIGNED","ENTITY_SCOPE_MATCHED"]},
           "row_count":{"type":"integer","minimum":1,"maximum":10},
           "provenance_mode":{"const":"OPERATOR_ATTESTED"},
           "signature_verified":{"const":false},
@@ -3730,6 +3732,9 @@
               "properties": {
                 "expectedObservationHash": {"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
                 "expectedProviderContentSha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+                "expectedCompanyCode": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_:-]{0,63}$"},
+                "dateFrom": {"type":"string","format":"date"},
+                "dateTo": {"type":"string","format":"date"},
                 "reason": {"type":"string","minLength":8,"maxLength":2000},
                 "limit": {"type":"integer","minimum":1,"maximum":10}
               }
