@@ -2529,6 +2529,9 @@ pgTest('Stage 2 test-data chain traces one reconciled bank payment through its p
   const reviewed=await reconReviewer.transitionReconciliation({...ids,reconciliationId:reconciliation.reconciliation_id,action:'REVIEW',expectedVersion:1,reason:'Review exact bank to JE evidence',idempotencyKey:'stage2-reconciliation-review-001'});
   const signed=await signer.transitionReconciliation({...ids,reconciliationId:reconciliation.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Sign off stage 2 test statement',idempotencyKey:'stage2-reconciliation-signoff-001'});
   assert.equal(reviewed.status,'IN_REVIEW');assert.equal(signed.status,'RECONCILED');assert.match(signed.snapshot_hash,/^sha256:[0-9a-f]{64}$/);
+  const signedSnapshot=await reader.getSignedReconciliationSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,reconciliationId:reconciliation.reconciliation_id});
+  assert.equal(signedSnapshot.length,1);assert.equal(signedSnapshot[0].snapshot_hash,signed.snapshot_hash);
+  assert.match(JSON.stringify(signedSnapshot[0].snapshot_body),new RegExp(bankSourceId));assert.match(JSON.stringify(signedSnapshot[0].snapshot_body),new RegExp(match.bank_match_id));assert.match(JSON.stringify(signedSnapshot[0].snapshot_body),/CLEARED/);
 
   const ledger=await reader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'111000',query:null,limit:50,offset:0});
   const cashLedger=ledger.find(row=>row.journal_entry_id===payment.journal_entry_id);

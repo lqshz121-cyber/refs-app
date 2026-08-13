@@ -35,20 +35,23 @@ async function release({apiBaseUrl,webOrigin,releaseSha,fetcher}){const read=asy
 
 export async function verifyStage2AuthoritativeE2e({config,fetcher=globalThis.fetch}={}){
   expect(config&&typeof fetcher==='function','config and fetcher are required');const {apiBaseUrl,webOrigin,releaseSha,accessToken,scenario}=config;const stamps=await release({apiBaseUrl,webOrigin,releaseSha,fetcher});const base=`${apiBaseUrl}/api/v1/entities/${scenario.entityId}`;const query=new URLSearchParams({bankAccountRef:scenario.bankAccountRef,from:scenario.statementEndingDate.slice(0,8)+'01',through:scenario.statementEndingDate,limit:'200',offset:'0'});
-  const [bank,reconciliation,worksheet,journal,ledger,statements]=await Promise.all([
+  const [bank,reconciliation,signedSnapshot,journal,ledger,statements]=await Promise.all([
     getJson(fetcher,`${base}/bank/transactions?${query}`,accessToken,'bank transactions'),
     getJson(fetcher,`${base}/bank/reconciliation?${new URLSearchParams({bankAccountRef:scenario.bankAccountRef,statementEndingDate:scenario.statementEndingDate})}`,accessToken,'reconciliation summary'),
-    getJson(fetcher,`${base}/bank/reconciliations/${scenario.reconciliationId}/worksheet`,accessToken,'reconciliation worksheet'),
+    getJson(fetcher,`${base}/bank/reconciliations/${scenario.reconciliationId}/signed-snapshot`,accessToken,'signed reconciliation snapshot'),
     getJson(fetcher,`${base}/journal-entries/${scenario.journalEntryId}?periodId=${encodeURIComponent(scenario.periodId)}`,accessToken,'journal detail'),
     getJson(fetcher,`${base}/general-ledger/entries?${new URLSearchParams({periodId:scenario.periodId,accountCode:scenario.cashAccountCode,limit:'200',offset:'0'})}`,accessToken,'general ledger'),
     getJson(fetcher,`${base}/reports/financial-statements?periodId=${encodeURIComponent(scenario.periodId)}`,accessToken,'financial statements'),
   ]);
-  const proof={bank,reconciliation,worksheet,journal,ledger,statements};
-  for(const [label,value] of [['reconciliation',scenario.reconciliationId],['bank source',scenario.bankSourceId],['bank match',scenario.bankMatchId],['journal',scenario.journalEntryId],['journal line',scenario.journalLineId],['ledger line',scenario.ledgerLineId],['source document',scenario.sourceDocumentId],['period',scenario.periodId]])expect(contains(proof,value),`${label} is absent from retained Stage 2 evidence`);
-  expect(contains(reconciliation,'RECONCILED'),'reconciliation is not signed off');expect(contains(worksheet,'CLEARED'),'worksheet does not retain cleared evidence');expect(contains(journal,'POSTED'),'journal detail is not POSTED');
-  if(scenario.expectedAmount!==undefined)expect(contains(proof,scenario.expectedAmount),`expected fixed-point amount ${scenario.expectedAmount} is absent from retained evidence`);
-  for(const type of ['TRIAL_BALANCE','BALANCE_SHEET','CASH_FLOW'])expect(Array.isArray(statements)&&statements.some(row=>row?.statement_type===type&&row?.account_code===scenario.cashAccountCode&&contains(row,scenario.ledgerLineId)&&contains(row,scenario.sourceDocumentId)),`${type} is missing the reconciled cash evidence`);
-  return Object.freeze({ok:true,mode:'READ_ONLY_RECONCILIATION_EVIDENCE',release:stamps,checks:['same-release-stamps','bank-source','match','worksheet','signed-off-reconciliation','posted-journal','ledger','trial-balance','balance-sheet','cash-flow','cross-source-identifiers'],reconciliationId:scenario.reconciliationId});
+  expect(Array.isArray(bank)&&bank.some(row=>row?.bank_source_id===scenario.bankSourceId&&row?.bank_match_id===scenario.bankMatchId&&row?.journal_entry_id===scenario.journalEntryId&&row?.journal_line_id===scenario.journalLineId&&row?.source_document_id===scenario.sourceDocumentId),'bank transaction does not retain the exact match and journal evidence');
+  expect(Array.isArray(reconciliation)&&reconciliation.some(row=>row?.reconciliation_id===scenario.reconciliationId&&row?.status==='RECONCILED'),'reconciliation summary is not signed off');
+  expect(signedSnapshot?.reconciliation_id===scenario.reconciliationId&&typeof signedSnapshot.snapshot_hash==='string'&&/^sha256:[0-9a-f]{64}$/.test(signedSnapshot.snapshot_hash),'signed reconciliation snapshot is invalid');
+  expect(contains(signedSnapshot.snapshot_body,scenario.bankSourceId)&&contains(signedSnapshot.snapshot_body,scenario.bankMatchId)&&contains(signedSnapshot.snapshot_body,'CLEARED'),'signed snapshot does not retain the cleared bank evidence');
+  expect(journal?.journal_entry_id===scenario.journalEntryId&&contains(journal,'POSTED')&&contains(journal,scenario.journalLineId)&&contains(journal,scenario.sourceDocumentId),'journal detail does not retain the posted source evidence');
+  expect(Array.isArray(ledger)&&ledger.some(row=>row?.ledger_line_id===scenario.ledgerLineId&&row?.journal_entry_id===scenario.journalEntryId&&contains(row,scenario.journalLineId)&&contains(row,scenario.sourceDocumentId)),'general ledger does not retain the exact posted line');
+  if(scenario.expectedAmount!==undefined)expect([bank,signedSnapshot,journal,ledger,statements].some(value=>contains(value,scenario.expectedAmount)),`expected fixed-point amount ${scenario.expectedAmount} is absent from retained evidence`);
+  for(const type of ['TRIAL_BALANCE','BALANCE_SHEET','CASH_FLOW'])expect(Array.isArray(statements)&&statements.some(row=>row?.statement_type===type&&row?.account_code===scenario.cashAccountCode&&contains(row,scenario.journalEntryId)&&contains(row,scenario.journalLineId)&&contains(row,scenario.ledgerLineId)&&contains(row,scenario.sourceDocumentId)),`${type} is missing the reconciled cash evidence`);
+  return Object.freeze({ok:true,mode:'READ_ONLY_SIGNED_RECONCILIATION_EVIDENCE',release:stamps,checks:['same-release-stamps','bank-source-and-match','immutable-signed-snapshot','posted-journal','ledger','trial-balance','balance-sheet','cash-flow','cross-source-identifiers'],reconciliationId:scenario.reconciliationId});
 }
 
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){try{const scenario=await readStage2Scenario();console.log(JSON.stringify(await verifyStage2AuthoritativeE2e({config:stage2AuthoritativeE2eConfig(process.env,scenario)})));}catch(error){console.error(error.message);process.exitCode=1;}}
