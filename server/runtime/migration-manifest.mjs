@@ -114,4 +114,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"106_wbs_statement_adjustment_source_document_lineage.sql",up:"bb5e1a4154e164a3cb5d17c0b265d17fa652f25850aebb59c049ffbbf63f2ef7",down:"bf6bfd8ecc96c872d595b640c23690fc954bd8a306dae64c107e1ad548a13bf4"}),
   Object.freeze({name:"107_financial_statement_snapshot_read.sql",up:"51171be9ff5d5ee82ba198114d28528cb0047ff73cbc5ffc3fd7c03a1e33ea1c",down:"f8f4db654646df65a5710bae4e3e00d73b6e6ded2693a4f0a7ab79daebc58733"}),
   Object.freeze({name:"108_financial_statement_snapshot_lifecycle.sql",up:"12de69ab88d87994ad9e8afcd77a319478fb0f632628aef6e775edfd605abd27",down:"ba5fc62e3d6e200110a6ae7a12e713fcb7cac7c293941445d490c2a18e3ad53c"}),
+  Object.freeze({name:"109_bank_transaction_offset_pagination.sql",up:"842d8d9546d65f52930471105d75774a95c591efa6d475d2f991b56705136571",down:"bfed002b04ee3fe4bea26487a975a95a4e68ab0b98bcafd2b4ae5d6fb495cc15"}),
 ]);

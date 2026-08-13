@@ -224,16 +224,17 @@ export function AuthoritativeReconciliationDetail({row,scope,onBack,config,fetch
 
 export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
   const [scope,setScope]=useState({bankAccountRef:'',from:'',through:''});
-  const [state,setState]=useState({phase:'IDLE',rows:[],error:null});
+  const [state,setState]=useState({phase:'IDLE',rows:[],error:null,offset:0});
   const [selected,setSelected]=useState(null);
-  const load=async(event,{preserveDetail=false}={})=>{event?.preventDefault?.();if(!preserveDetail)setSelected(null);setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeBankTransactions({config,bankAccountRef:scope.bankAccountRef,from:scope.from||null,through:scope.through||null,limit:100,fetcher});setState(result.ok?{phase:'READY',rows:result.rows,error:null}:{phase:'ERROR',rows:[],error:result});if(preserveDetail&&result.ok)setSelected(current=>{if(!current)return current;const refreshed=result.rows.find(row=>row.bank_source_id===current.row.bank_source_id);return refreshed?{...current,row:refreshed}:null;});return result;};
+  const load=async(event,{preserveDetail=false,offset=0}={})=>{event?.preventDefault?.();if(!preserveDetail)setSelected(null);setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeBankTransactions({config,bankAccountRef:scope.bankAccountRef,from:scope.from||null,through:scope.through||null,limit:100,offset,fetcher});setState(result.ok?{phase:'READY',rows:result.rows,error:null,offset}:{phase:'ERROR',rows:[],error:result,offset});if(preserveDetail&&result.ok)setSelected(current=>{if(!current)return current;const refreshed=result.rows.find(row=>row.bank_source_id===current.row.bank_source_id);return refreshed?{...current,row:refreshed}:null;});return result;};
   const openEvidence=(row,focusId)=>{
-    const base=createAuthoritativeReturnContext({config,view:{...DEFAULT_AUTHORITATIVE_LIST_VIEW,from:scope.from,through:scope.through},focusId,scrollY:Number(environment?.scrollY)||0});
+    const base=createAuthoritativeReturnContext({config,view:{...DEFAULT_AUTHORITATIVE_LIST_VIEW,from:scope.from,through:scope.through,offset:state.offset},focusId,scrollY:Number(environment?.scrollY)||0});
     if(base)setSelected({row,returnContext:{...base,bankAccountRef:scope.bankAccountRef}});
   };
   const closeEvidence=()=>{
     const context=selected?.returnContext;
     if(context?.bankAccountRef)setScope({bankAccountRef:context.bankAccountRef,from:context.view.from,through:context.view.through});
+    if(Number.isSafeInteger(context?.view?.offset)&&context.view.offset>=0)setState(current=>({...current,offset:context.view.offset}));
     setSelected(null);
     restoreAuthoritativeReturnContext(environment,config,context);
   };
@@ -249,7 +250,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and an optional date range to read authoritative evidence.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative bank transaction evidence...</StateBlock>}
     {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
-    {state.phase==='READY'&&<AuthoritativeBankTable rows={state.rows} onOpen={openEvidence}/>}
+    {state.phase==='READY'&&<><AuthoritativeBankTable rows={state.rows} onOpen={openEvidence}/><div className="button-row authoritative-bank-pagination" aria-label="Bank transaction pagination"><button type="button" className="btn btn-sm" disabled={state.phase==='LOADING'||state.offset===0} onClick={()=>load(null,{offset:Math.max(0,state.offset-100)})}>Previous page</button><span className="muted sm">Offset {state.offset}</span><button type="button" className="btn btn-sm" disabled={state.phase==='LOADING'||state.rows.length<100} onClick={()=>load(null,{offset:state.offset+100})}>Next page</button></div></>}
     <AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.bank} title="External WBS bank observations"/>
   </AuthoritativeDemoView>;
 }

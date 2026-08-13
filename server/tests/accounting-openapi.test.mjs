@@ -200,10 +200,11 @@ test('bank transaction and reconciliation reads are scoped no-store evidence onl
   const transactions=contract.paths['/entities/{entityId}/bank/transactions'].get;
   assert.equal(transactions.operationId,'listBankTransactions');
   assert.equal(transactions.responses['200'].$ref,'#/components/responses/BankTransactionReadOk');
-  assert.deepEqual(transactions.parameters.slice(1).map(parameter=>parameter.name),['bankAccountRef','from','through','limit']);
+  assert.deepEqual(transactions.parameters.slice(1).map(parameter=>parameter.name),['bankAccountRef','from','through','limit','offset']);
   assert.equal(transactions.parameters.find(parameter=>parameter.name==='bankAccountRef').required,true);
   assert.equal(transactions.parameters.find(parameter=>parameter.name==='bankAccountRef').schema.pattern,'^(?:\\S|\\S.*\\S)$');
   assert.equal(transactions.parameters.find(parameter=>parameter.name==='limit').schema.maximum,200);
+  assert.deepEqual(transactions.parameters.find(parameter=>parameter.name==='offset').schema,{type:'integer',minimum:0,maximum:10000,default:0});
   assert.match(transactions.description,/cannot match, clear, sign off, or post/i);
   const reconciliation=contract.paths['/entities/{entityId}/bank/reconciliation'].get;
   assert.equal(reconciliation.operationId,'getReconciliationSummary');

@@ -226,13 +226,13 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       if(method==='GET'&&parts.length===6&&parts[4]==='bank'&&parts[5]==='transactions'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
-        requireExactQuery(parsedUrl.searchParams,['bankAccountRef','from','through','limit']);
+        requireExactQuery(parsedUrl.searchParams,['bankAccountRef','from','through','limit','offset']);
         const bankAccountRef=requireBankAccountRef(parsedUrl.searchParams.get('bankAccountRef'));
         const fromDate=optionalIsoDate(parsedUrl.searchParams.get('from'),'from');
         const throughDate=optionalIsoDate(parsedUrl.searchParams.get('through'),'through');
         if(fromDate&&throughDate&&fromDate>throughDate)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','from must not be later than through');
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
-        result=await kernel.listBankTransactions({tenantId:principal.tenantId,entityId,bankAccountRef,fromDate,throughDate,limit:optionalReadLimit(parsedUrl.searchParams.get('limit'))});
+        result=await kernel.listBankTransactions({tenantId:principal.tenantId,entityId,bankAccountRef,fromDate,throughDate,limit:optionalReadLimit(parsedUrl.searchParams.get('limit')),offset:optionalReadOffset(parsedUrl.searchParams.get('offset'))});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===8&&parts[4]==='bank'&&parts[5]==='transactions'&&parts[7]==='match-candidates'){

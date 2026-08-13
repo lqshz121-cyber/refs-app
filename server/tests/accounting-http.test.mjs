@@ -413,12 +413,13 @@ test('Journal workflow capabilities are a fixed current-actor read with no permi
 });
 
 test('Bank transactions are a bounded authenticated entity and account scoped read',async()=>{
-  calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1&from=2026-07-01&through=2026-07-31&limit=25`,body:null,headers:{}});
+  calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1&from=2026-07-01&through=2026-07-31&limit=25&offset=50`,body:null,headers:{}});
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
-  assert.deepEqual(calls[0],['listBankTransactions',{tenantId,entityId,bankAccountRef:'BANK-1',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:25}]);
+  assert.deepEqual(calls[0],['listBankTransactions',{tenantId,entityId,bankAccountRef:'BANK-1',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:25,offset:50}]);
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions`,body:null,headers:{}})).status,400);
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1&from=2026-08-01&through=2026-07-31`,body:null,headers:{}})).status,400);
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1&limit=201`,body:null,headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1&limit=25&offset=-1`,body:null,headers:{}})).status,400);
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1`,body:{tenantId},headers:{}})).status,400);
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=BANK-1`,body:{},headers:{}})).body.code,'READ_BODY_FORBIDDEN');
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/bank/transactions?bankAccountRef=%20BANK-1%20`,body:null,headers:{}})).status,400);

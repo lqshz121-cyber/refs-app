@@ -603,10 +603,10 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
-  async listBankTransactions({tenantId,entityId,bankAccountRef,fromDate=null,throughDate=null,limit=100}){
+  async listBankTransactions({tenantId,entityId,bankAccountRef,fromDate=null,throughDate=null,limit=100,offset=0}){
     return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_list_bank_transactions($1,$2,$3,$4::date,$5::date,$6)',
-      [tenantId,entityId,bankAccountRef,fromDate,throughDate,limit]
+      'SELECT * FROM refs_list_bank_transactions($1,$2,$3,$4::date,$5::date,$6,$7)',
+      [tenantId,entityId,bankAccountRef,fromDate,throughDate,limit,offset]
     )).rows);
   }
 

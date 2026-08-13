@@ -2253,6 +2253,11 @@ pgTest('bank and reconciliation reads enforce permission, tenant, entity, accoun
     VALUES($1,$2,$3,$4,'BANK-1','BANK-LINE-OLD','2026-07-05','USD',25)`,[oldBankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
   await adminPool.query(`INSERT INTO reconciliation(reconciliation_id,tenant_id,entity_id,bank_account_ref,statement_ending_date,statement_ending_balance,difference,status,reconciled_by,reconciled_at)
     VALUES($1,$2,$3,'BANK-1','2026-07-10',25,0,'RECONCILED','bank-reviewer',now())`,[priorReconciliationId,ids.tenantId,ids.entityId]);
+  const firstPage=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:1,offset:0});
+  const secondPage=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:1,offset:1});
+  assert.deepEqual(firstPage.map(row=>row.bank_source_id),[bankSourceId]);
+  assert.deepEqual(secondPage.map(row=>row.bank_source_id),[oldBankSourceId]);
+  await assert.rejects(reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',limit:1,offset:10001}),error=>error.code==='22023');
   const summaries=await reader.getReconciliationSummary({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'});
   assert.equal(summaries.length,1);assert.equal(summaries[0].reconciliation_id,reconciliationId);
   assert.equal(summaries[0].bank_transaction_count,'1');assert.equal(summaries[0].active_match_count,'1');assert.equal(summaries[0].unmatched_transaction_count,'0');

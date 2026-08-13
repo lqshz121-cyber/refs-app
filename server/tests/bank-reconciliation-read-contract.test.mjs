@@ -21,7 +21,7 @@ test('bank and reconciliation reads require exact scope and expose no mutation a
   assert.deepEqual(await kernel.listBankTransactions({tenantId:'tenant',entityId:'entity',bankAccountRef:'BANK-1',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:25}),[]);
   assert.deepEqual(await kernel.getReconciliationSummary({tenantId:'tenant',entityId:'entity',bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}),[]);
   assert.equal(calls.length,2);
-  assert.deepEqual(calls[0].args,['tenant','entity','BANK-1','2026-07-01','2026-07-31',25]);
+  assert.deepEqual(calls[0].args,['tenant','entity','BANK-1','2026-07-01','2026-07-31',25,0]);
   assert.deepEqual(calls[1].args,['tenant','entity','BANK-1','2026-07-31']);
   assert.ok(calls.every(call=>/^SELECT \* FROM refs_(?:list_bank_transactions|get_reconciliation_summary)/.test(call.sql)));
 });
