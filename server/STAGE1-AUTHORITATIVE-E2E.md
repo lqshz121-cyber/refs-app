@@ -9,6 +9,8 @@ Run it only against the configured HTTPS staging or production accounting API:
 
 ```powershell
 $env:REFS_STAGING_API_BASE_URL = 'https://api.example'
+$env:REFS_STAGING_WEB_ORIGIN = 'https://web.example'
+$env:REFS_RELEASE_SHA = '<full 40-character promoted main SHA>'
 $env:REFS_STAGE1_E2E_READ_ACCESS_TOKEN = '<OIDC reader token>'
 $env:REFS_STAGE1_E2E_SCENARIO_PATH = 'C:\secure\stage1-posted-payable.json'
 npm.cmd run test:stage1:authoritative-e2e
@@ -40,3 +42,9 @@ placeholder tokens, HTTP errors, cacheable reads, missing identifiers or a
 non-posted journal fail closed. A pass is evidence of readback only; the signed
 admission and workflow commands must be executed and separately retained before
 this command is run.
+
+Before it issues any retained-business read, the gate also requires the API
+`/health/live` and `/health/ready` release stamps, and the authoritative web
+`/refs-build.js` stamp, to match `REFS_RELEASE_SHA`. This prevents a successful
+readback from an older API/static pairing being accepted as evidence for the
+promoted release.
