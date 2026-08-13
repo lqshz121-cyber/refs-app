@@ -9,10 +9,16 @@ import {validateWbsReadEnvelope} from './wbs-readonly-mcp.mjs';
 
 const text=value=>value==null?'':String(value).trim();
 const decimal=value=>{
-  const candidate=typeof value==='number'?(Number.isFinite(value)?String(value):''):typeof value==='string'?value.trim():'';
+  // Provider monetary evidence must arrive as canonical decimal text.  A JSON
+  // number has already crossed a binary floating-point boundary before this
+  // adapter can verify its receipt/hash relationship.
+  const candidate=typeof value==='string'?value.trim():'';
   if(!/^-?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(candidate))return null;
-  const parsed=Number(candidate),scaled=parsed*10000;
-  return Number.isFinite(parsed)&&Number.isSafeInteger(Math.round(scaled))?Number(parsed.toFixed(4)):null;
+  const negative=candidate.startsWith('-'),unsigned=negative?candidate.slice(1):candidate;
+  const [whole,fraction='']=unsigned.split('.');
+  const scaled=BigInt(whole)*10000n+BigInt(fraction.padEnd(4,'0'));
+  const absolute=negative?-scaled:scaled;
+  return `${negative?'-':''}${absolute/10000n}.${String(absolute%10000n).padStart(4,'0')}`;
 };
 const isHash=value=>/^sha256:[0-9a-f]{64}$/.test(text(value));
 const isCurrency=value=>/^[A-Z]{3}$/.test(text(value));

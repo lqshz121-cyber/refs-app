@@ -8,7 +8,7 @@ const text=value=>value==null?'':String(value).trim();
 // rather than allowing JavaScript's Number('')/Number(null) coercion to turn
 // it into a false zero control total.
 const decimal=value=>{
-  const candidate=typeof value==='number'?(Number.isFinite(value)?String(value):''):typeof value==='string'?value.trim():'';
+  const candidate=typeof value==='string'?value.trim():'';
   if(!/^-?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(candidate))return null;
   const negative=candidate.startsWith('-'),unsigned=negative?candidate.slice(1):candidate;
   const [whole,fraction='']=unsigned.split('.');
@@ -55,10 +55,7 @@ function metricMap(rows,label){
   return result;
 }
 function metricsFingerprint(metrics){
-  // Receipt hashes predate this reader and encode canonical JSON numbers.
-  // This conversion is for a per-value hash representation only; no monetary
-  // comparison or aggregation is performed with Number.
-  return canonicalRequestHash([...metrics.entries()].sort(([left],[right])=>left.localeCompare(right)).map(([metric_key,amount])=>({metric_key,amount:Number(money4(amount))})));
+  return canonicalRequestHash([...metrics.entries()].sort(([left],[right])=>left.localeCompare(right)).map(([metric_key,amount])=>({metric_key,amount:money4(amount)})));
 }
 
 export function reconcileWbsControlEvidence({sourceType,scope,sourceReceipt,targetReceipt,approvedMapping,sourceMetrics,targetMetrics}={}){
