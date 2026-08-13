@@ -76,6 +76,10 @@ assert.match(source,/className="table-wrap" role="region" tabIndex=\{0\} aria-la
 assert.match(source,/className="table-wrap" role="region" tabIndex=\{0\} aria-label="Reconciliation worksheet; scroll horizontally to view every column"/,'Reconciliation worksheet table must be keyboard-focusable and named when it overflows at narrow widths');
 assert.match(source,/restoreAuthoritativeReturnContext\(environment,config,context\)/,'Bank and reconciliation Back must restore scope, scroll position and focus');
 assert.match(source,/bankAccountRef:scope\.bankAccountRef/,'Bank Back must retain the exact account scope');
+assert.match(source,/view:\{\.\.\.DEFAULT_AUTHORITATIVE_LIST_VIEW,from:scope\.from,through:scope\.through,offset:state\.offset\}/,'Bank detail return context must retain the exact authoritative page offset');
+assert.match(source,/Number\.isSafeInteger\(context\?\.view\?\.offset\).*offset:context\.view\.offset/s,'Bank Back must restore the exact validated page offset');
+assert.match(source,/offset:Math\.max\(0,state\.offset-100\)/,'Bank Previous page must retain the scoped authoritative pagination contract');
+assert.match(source,/offset:state\.offset\+100/,'Bank Next page must retain the scoped authoritative pagination contract');
 assert.match(source,/const bankRowMatchesScope=/,'Bank detail must reject a row outside the immutable parent account scope');
 assert.match(source,/scopeMatches&&config&&<AuthoritativeBankMatchReview/,'Bank match controls require a matching immutable account scope');
 assert.match(source,/BLOCKED — immutable bank scope mismatch/,'Bank scope mismatches must remain evidence-only');

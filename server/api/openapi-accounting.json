@@ -1211,6 +1211,17 @@
               "maximum": 200,
               "default": 100
             }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Zero-based offset within the exact authenticated account and date scope.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "default": 0
+            }
           }
         ],
         "responses": {

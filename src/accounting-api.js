@@ -214,18 +214,18 @@ export async function readAuthoritativeJournalEntryDetail({config,journalEntryId
   }catch{return unreachable('The browser could not complete the authoritative Journal Entry detail read; no HTTP response was produced.');}
 }
 
-export async function refreshAuthoritativeBankTransactions({config,bankAccountRef,from=null,through=null,limit=100,fetcher=globalThis.fetch}={}){
+export async function refreshAuthoritativeBankTransactions({config,bankAccountRef,from=null,through=null,limit=100,offset=0,fetcher=globalThis.fetch}={}){
   const account=String(bankAccountRef||'').trim();
-  if(!config||typeof fetcher!=='function'||!BANK_ACCOUNT_REF.test(account)||from!==null&&!validDate(from)||through!==null&&!validDate(through)||from&&through&&from>through||!Number.isSafeInteger(limit)||limit<1||limit>200)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Bank transaction scope requires a valid account, date range, and row limit.'};
+  if(!config||typeof fetcher!=='function'||!BANK_ACCOUNT_REF.test(account)||from!==null&&!validDate(from)||through!==null&&!validDate(through)||from&&through&&from>through||!Number.isSafeInteger(limit)||limit<1||limit>200||!Number.isSafeInteger(offset)||offset<0||offset>10000)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Bank transaction scope requires a valid account, date range, page size, and offset.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
-  const query=new URLSearchParams({bankAccountRef:account,limit:String(limit)});if(from)query.set('from',from);if(through)query.set('through',through);
+  const query=new URLSearchParams({bankAccountRef:account,limit:String(limit),offset:String(offset)});if(from)query.set('from',from);if(through)query.set('through',through);
   try{
     const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/bank/transactions?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
     if(!response.ok)return await failure(response);
     const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid bank transaction envelope.'};
     const rows=body.data.map(row=>bankTransactionRow(row,account)),bankSourceIds=rows.map(row=>row?.bank_source_id),externalLineIds=rows.map(row=>row?.external_bank_line_id);
     if(rows.some(row=>row===null)||new Set(bankSourceIds).size!==bankSourceIds.length||new Set(externalLineIds).size!==externalLineIds.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate bank transaction row.'};
-    return {ok:true,rows,scope:{entityId:config.entityId,bankAccountRef:account,from,through,limit}};
+    return {ok:true,rows,scope:{entityId:config.entityId,bankAccountRef:account,from,through,limit,offset}};
   }catch{return unreachable('The browser could not complete the authoritative bank transaction read; no HTTP response was produced.');}
 }
 
