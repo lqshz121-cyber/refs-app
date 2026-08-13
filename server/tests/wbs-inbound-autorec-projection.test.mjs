@@ -122,6 +122,15 @@ test('invalid conservation, missing detail trace, or sensitive locators block al
   const unsafe=projectObservedWbsAutoRecControlEvidence({companyRows:[{...companyControl,token:'redacted'}]});assert.equal(unsafe.exceptions[0].code,'WBS_AUTOREC_CONTROL_INPUT_INVALID');
 });
 
+test('Company Screening compares Released and Incurred amounts in exact four-decimal units',()=>{
+  const exact=projectObservedWbsAutoRecControlEvidence({companyRows:[{...companyControl,amount:'0.3000',released_amount:'0.3000',incurred_amount:'0.0001'}]});
+  assert.equal(exact.exceptions.length,0);
+  assert.equal(exact.controls[0].amount,'0.3000');
+  const overflow=projectObservedWbsAutoRecControlEvidence({companyRows:[{...companyControl,amount:'0.3000',released_amount:'0.3001'}]});
+  assert.equal(overflow.controls.length,0);
+  assert.equal(overflow.exceptions[0].code,'WBS_AUTOREC_CONTROL_INVALID');
+});
+
 test('a released WBS detail is retained as observed state, never a REFS transition authority',()=>{
   const released={detail_kind:'RELEASED_PAYMENT',company_key:'COMPANY-A',receipt_id:'receipt-release',receipt_ref:'object://wbs/receipt/release',receipt_hash:common.receipt_hash,source_record_id:'released-detail-1',source_version:'v1',posting_date:'2026-08-05',payment:'100.0000',reviewer:'Reviewer A',pd_status:'R',pd_match_status:'Match'};
   const evidence=projectObservedWbsAutoRecControlEvidence({companyRows:[companyControl],detailRows:[released]});

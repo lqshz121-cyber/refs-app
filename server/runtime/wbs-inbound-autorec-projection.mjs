@@ -22,6 +22,18 @@ const decimal=value=>{
   return Number.isFinite(parsed)&&Number.isSafeInteger(Math.round(scaled))?Number(parsed.toFixed(4)):null;
 };
 const decimalText=value=>{const parsed=decimal(value);return parsed===null?null:parsed.toFixed(4);};
+// Company Screening controls are receipt-backed accounting amounts. Keep the
+// conservation checks in scaled units even though the legacy candidate read
+// model continues to expose numeric amounts elsewhere.
+const moneyUnits=value=>{
+  const candidate=typeof value==='number'&&Number.isFinite(value)?String(value):typeof value==='string'?value.trim():'';
+  const match=/^(-?)(0|[1-9]\d*)(?:\.(\d{1,4}))?$/.exec(candidate);
+  return match?BigInt(`${match[2]}${(match[3]||'').padEnd(4,'0')}`)*(match[1]==='-'?-1n:1n):null;
+};
+const moneyText=units=>{
+  const absolute=units<0n?-units:units;
+  return `${units<0n?'-':''}${absolute/10000n}.${(absolute%10000n).toString().padStart(4,'0')}`;
+};
 const validDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(candidate))return false;const date=new Date(`${candidate}T00:00:00.000Z`);return !Number.isNaN(date.getTime())&&date.toISOString().slice(0,10)===candidate;};
 const validInstant=value=>{const candidate=text(value);return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(candidate)&&!Number.isNaN(Date.parse(candidate));};
 const freeze=value=>Object.freeze(value);
@@ -106,12 +118,13 @@ function mappingFor(row,mappings){
 function companyControl(row){
   if(!row||typeof row!=='object'||sensitiveInput(row))return {error:exception(row,'WBS_AUTOREC_CONTROL_INPUT_INVALID','Observed WBS control evidence contains an unsafe or invalid locator')};
   const quantities={quantity:decimal(row.quantity),released_quantity:decimal(row.released_quantity),incurred_quantity:decimal(row.incurred_quantity)};
-  const amounts={amount:decimal(row.amount),released_amount:decimal(row.released_amount),incurred_amount:decimal(row.incurred_amount),reconciliation_balance:decimal(row.reconciliation_balance),new_balance:decimal(row.new_balance)};
+  const amounts={amount:moneyUnits(row.amount),released_amount:moneyUnits(row.released_amount),incurred_amount:moneyUnits(row.incurred_amount),reconciliation_balance:moneyUnits(row.reconciliation_balance),new_balance:moneyUnits(row.new_balance)};
   const periods={match:period(row.completed_match_period),release:period(row.completed_release_period),incur:period(row.completed_incur_period)};
-  const signedStages=[amounts.released_amount,amounts.incurred_amount].filter(value=>value!==0);
-  const invalid=text(row.company_key)===''||text(row.user_ref)===''||Object.values(periods).some(value=>value===null)||!validDate(row.balance_date)||Object.values(quantities).some(value=>value===null||value<0)||Object.values(amounts).some(value=>value===null)||quantities.released_quantity>quantities.quantity||quantities.incurred_quantity>quantities.quantity||signedStages.some(value=>Math.sign(value)!==Math.sign(amounts.amount))||Math.abs(amounts.released_amount)>Math.abs(amounts.amount)||Math.abs(amounts.incurred_amount)>Math.abs(amounts.amount);
+  const signedStages=[amounts.released_amount,amounts.incurred_amount].filter(value=>value!==0n);
+  const absolute=value=>value<0n?-value:value;
+  const invalid=text(row.company_key)===''||text(row.user_ref)===''||Object.values(periods).some(value=>value===null)||!validDate(row.balance_date)||Object.values(quantities).some(value=>value===null||value<0)||Object.values(amounts).some(value=>value===null)||quantities.released_quantity>quantities.quantity||quantities.incurred_quantity>quantities.quantity||signedStages.some(value=>(value<0n)!==(amounts.amount<0n))||absolute(amounts.released_amount)>absolute(amounts.amount)||absolute(amounts.incurred_amount)>absolute(amounts.amount);
   if(invalid)return {error:exception(row,'WBS_AUTOREC_CONTROL_INVALID','Observed WBS M/R/C quantity, amount, or balance controls are incomplete or do not conserve')};
-  return {control:freeze({company_key:text(row.company_key),user_ref:text(row.user_ref),completed_periods:freeze(periods),quantity:quantities.quantity,released_quantity:quantities.released_quantity,incurred_quantity:quantities.incurred_quantity,amount:decimalText(amounts.amount),released_amount:decimalText(amounts.released_amount),incurred_amount:decimalText(amounts.incurred_amount),reconciliation_balance:decimalText(amounts.reconciliation_balance),new_balance:decimalText(amounts.new_balance),balance_date:text(row.balance_date),can_dispatch:false,can_post:false})};
+  return {control:freeze({company_key:text(row.company_key),user_ref:text(row.user_ref),completed_periods:freeze(periods),quantity:quantities.quantity,released_quantity:quantities.released_quantity,incurred_quantity:quantities.incurred_quantity,amount:moneyText(amounts.amount),released_amount:moneyText(amounts.released_amount),incurred_amount:moneyText(amounts.incurred_amount),reconciliation_balance:moneyText(amounts.reconciliation_balance),new_balance:moneyText(amounts.new_balance),balance_date:text(row.balance_date),can_dispatch:false,can_post:false})};
 }
 
 function detailControl(row){
