@@ -1,5 +1,5 @@
 import React,{useState} from 'react';
-import {WBS_LIVE_PILOT_VIEWS,refreshAuthoritativeWbsLivePilot} from './accounting-api.js';
+import {WBS_LIVE_PILOT_VIEWS,attestAuthoritativeWbsPayableObservation,refreshAuthoritativeWbsLivePilot,refreshAuthoritativeWbsOperatorPayableAttestations} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 
 export const WBS_LIVE_PILOT_SURFACE_TOOLS=Object.freeze({
@@ -21,6 +21,8 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
   const availableTools=approvedTools(tools);
   const [tool,setTool]=useState(availableTools[0]||'');
   const [state,setState]=useState({phase:'IDLE',data:null,error:null});
+  const [attestationState,setAttestationState]=useState({phase:'IDLE',rows:[],error:null,result:null});
+  const [attestationReason,setAttestationReason]=useState('Retain this exact production WBS Payable read as unsigned exception evidence');
   const view=WBS_LIVE_PILOT_VIEWS[tool];
   const observation=state.data;
   if(!view)return null;
@@ -30,6 +32,8 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
     const result=await refreshAuthoritativeWbsLivePilot({config,tool,limit:10,fetcher});
     setState(current=>result.ok?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result});
   };
+  const readAttestations=async()=>{setAttestationState(current=>({...current,phase:'LOADING',error:null,result:null}));const result=await refreshAuthoritativeWbsOperatorPayableAttestations({config,fetcher});setAttestationState(result.ok?{phase:'READY',rows:result.rows,error:null,result:null}:{phase:'BLOCKED',rows:[],error:result,result:null});};
+  const attest=async()=>{if(tool!=='list_payables'||!observation||observation.record_count<1||!globalThis.confirm?.('Retain this exact WBS Payable read as unsigned exception evidence? It will not create a Draft or post anything.'))return;setAttestationState(current=>({...current,phase:'LOADING',error:null,result:null}));const result=await attestAuthoritativeWbsPayableObservation({config,observation,reason:attestationReason,idempotencyKey:`wbs-operator-attest-${globalThis.crypto?.randomUUID?.()||Date.now().toString(36)}`,fetcher});if(!result.ok){setAttestationState(current=>({...current,phase:'BLOCKED',error:result,result:null}));return;}const refreshed=await refreshAuthoritativeWbsOperatorPayableAttestations({config,fetcher});setAttestationState(refreshed.ok?{phase:'READY',rows:refreshed.rows,error:null,result:result.data}:{phase:'BLOCKED',rows:[],error:refreshed,result:result.data});};
   return <section className="report-workbench authoritative-wbs-live-pilot-observation" aria-label={title}>
     <div className="report-workbench-head"><div><b>{title}</b><div className="page-subtitle">Sanitized provider observations only. These rows are not REFS accounting records and are excluded from every accounting total, queue, Match, Reconcile, Draft, approval, and posting workflow.</div></div><div className="authoritative-wbs-live-pilot-status" aria-label="Production WBS observation boundary"><span className="badge badge-warn">UNSIGNED PILOT</span><span className="badge badge-muted">GET ONLY</span><span className="badge badge-muted">NOT ADMITTED</span><span className="badge badge-muted">NOT POSTABLE</span></div></div>
     <form className="filterbar authoritative-wbs-live-pilot-controls" onSubmit={read}>
@@ -43,5 +47,16 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
       <div className="qbo-toolgrid"><span><i>Admission</i><b>{observation.status}</b></span><span><i>Provider signature</i><b>Not supplied</b></span><span><i>Provider captured at</i><b>{observation.captured_at}</b></span><span><i>Observed provider rows</i><b>{observation.record_count}</b></span><span><i>Provider content hash</i><b>{observation.provider_content_sha256}</b></span><span><i>Action authority</i><b>None</b></span></div>
       {showRows&&(observation.rows.length===0?<StateBlock tone="empty" title="No WBS rows were observed in this bounded read">This does not mean zero accounting activity or zero WBS activity.</StateBlock>:<div className="table-wrap authoritative-wbs-live-pilot-table" role="region" tabIndex={0} aria-label={`${view.label} unsigned production observation; scroll horizontally to view every column`}><table className="tbl"><thead><tr>{view.fields.map(field=><th scope="col" key={field}>{columnLabels[field]}</th>)}</tr></thead><tbody>{observation.rows.map(row=><tr key={row.source_record_hash}>{view.fields.map(field=><td key={field}>{row[field]===null?'Unavailable':row[field]}</td>)}</tr>)}</tbody></table></div>)}
     </>}
+    {tool==='list_payables'&&<section className="filterbar" aria-label="Operator-attested WBS Payable exception evidence">
+      <div><b>Retained exception evidence</b><div className="page-subtitle">Operator-attested and unsigned. It stays outside Raw, Staging, AP Bills, Journals, GL, and Posted totals.</div></div>
+      <div className="report-shelf" aria-label="Operator attestation boundary"><span className="report-shelf-chip report-shelf-chip-on">OPERATOR ATTESTED</span><span className="report-shelf-chip">UNSIGNED</span><span className="report-shelf-chip">EXCEPTION REVIEW REQUIRED</span><span className="report-shelf-chip">NOT POSTED</span></div>
+      <label htmlFor="wbs-operator-attestation-reason">Attestation reason<textarea id="wbs-operator-attestation-reason" minLength="8" maxLength="2000" rows="3" value={attestationReason} onChange={event=>setAttestationReason(event.target.value)}/></label>
+      <div><button type="button" className="btn" disabled={!observation||observation.record_count<1||attestationState.phase==='LOADING'} onClick={attest}>Retain as exception evidence</button> <button type="button" className="btn" disabled={attestationState.phase==='LOADING'} onClick={readAttestations}>Refresh retained evidence</button></div>
+      {attestationState.phase==='LOADING'&&<StateBlock tone="loading" title="Refreshing operator-attested evidence">The server revalidates scope and retained evidence. No accounting records are created.</StateBlock>}
+      {attestationState.phase==='BLOCKED'&&<StateBlock tone="blocked" title={attestationState.error?.code||'WBS_OPERATOR_ATTESTATION_BLOCKED'}>{attestationState.error?.message}</StateBlock>}
+      {attestationState.result&&<StateBlock tone="success" title="Unsigned exception evidence retained">The fresh WBS read was retained for controlled exception review. It is not provider-signed, not admitted, not a Draft, and not Posted.</StateBlock>}
+      {attestationState.phase==='READY'&&attestationState.rows.length===0&&<StateBlock tone="empty" title="No retained operator-attested evidence">No unsigned exception evidence has been retained for this entity.</StateBlock>}
+      {attestationState.rows.length>0&&<div className="table-wrap" role="region" tabIndex={0} aria-label="Operator-attested unsigned WBS Payable exception evidence"><table className="tbl"><thead><tr><th>Captured</th><th>Company</th><th>Rows</th><th>Provenance</th><th>Signature</th><th>Status</th><th>Draft</th><th>Posted</th></tr></thead><tbody>{attestationState.rows.map(row=><tr key={row.wbs_operator_payable_attestation_id}><td>{row.captured_at}</td><td>{row.company_code}</td><td>{row.row_count}</td><td>{row.provenance_mode}</td><td>Not supplied</td><td>{row.evidence_status}</td><td>Blocked</td><td>No</td></tr>)}</tbody></table></div>}
+    </section>}
   </section>;
 }

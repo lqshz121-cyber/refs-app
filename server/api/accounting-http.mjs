@@ -2,6 +2,7 @@ import {createServer} from 'node:http';
 import {WbsReadContractError,assertWbsControlReadOnlyResult,assertWbsReadOnlyResult,parseWbsAutoRecReviewSelection,parseWbsControlReconciliationSelection} from './wbs-read-contract.mjs';
 import {WbsLivePilotError,assertWbsLivePilotResult,parseWbsLivePilotSelection} from '../runtime/wbs-live-pilot-read-service.mjs';
 import {WbsAdmittedPayableIngestionError} from '../runtime/wbs-admitted-payable-ingestion.mjs';
+import {WbsOperatorAttestedPayableError} from '../runtime/wbs-operator-attested-payable.mjs';
 import {WbsSignedBankAdmissionError} from '../runtime/wbs-signed-bank-admission.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -34,6 +35,7 @@ const requireRevision=headers=>{const raw=header(headers,'if-match');if(raw==nul
 const requireReviewReason=value=>{if(typeof value!=='string'||value!==value.trim()||value.length<8||value.length>2000||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_REASON','reason must be a canonical 8-2000 character review explanation');return value;};
 const requireDecimalAmount=(value,name)=>{if(typeof value!=='string'||!/^-?(?:0|[1-9]\d{0,15})(?:\.\d{1,4})?$/.test(value))throw new AccountingApiError(400,'INVALID_AMOUNT',`${name} must be a canonical decimal string with at most four fractional digits`);return value;};
 const requireSha256=(value,name)=>{if(typeof value!=='string'||!/^sha256:[0-9a-f]{64}$/.test(value))throw new AccountingApiError(400,'INVALID_EVIDENCE_HASH',`${name} must be a canonical sha256 evidence hash`);return value;};
+const requireBareSha256=(value,name)=>{if(typeof value!=='string'||!/^[0-9a-f]{64}$/.test(value))throw new AccountingApiError(400,'INVALID_EVIDENCE_HASH',`${name} must be a canonical provider sha256 digest`);return value;};
 const requireSourceVersion=(value,name)=>{if(typeof value!=='string'||value!==value.trim()||value.length<1||value.length>128||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_SOURCE_VERSION',`${name} must be a canonical 1-128 character source version`);return value;};
 const requireStorageVersion=(value,name)=>{if(typeof value!=='string'||value!==value.trim()||value.length<1||value.length>512||value.startsWith('pending:')||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_STORAGE_VERSION',`${name} must be a canonical finalized storage version of 1-512 printable characters`);return value;};
 const requireAttachmentIds=value=>{if(!Array.isArray(value)||value.length<1||value.length>25||value.some(item=>!UUID.test(item||''))||new Set(value).size!==value.length)throw new AccountingApiError(400,'INVALID_ATTACHMENT_IDS','attachmentIds must contain 1-25 unique UUIDs');return value;};
@@ -42,6 +44,7 @@ const allowOnly=(body,allowed)=>{const unexpected=Object.keys(body).filter(key=>
 
 const isRevisionPrecondition=error=>error?.code==='40001'&&/(revision conflict|version conflict|period changed during transition|staging source changed during journal creation|lease is absent, stale, or owned)/i.test(String(error.message||''));
 function statusFor(error){
+  if(error instanceof WbsOperatorAttestedPayableError)return error.code==='WBS_OPERATOR_ATTEST_PROVIDER_UNAVAILABLE'?503:error.code==='WBS_OPERATOR_ATTEST_STALE_OBSERVATION'?412:error.code==='WBS_OPERATOR_ATTEST_RESULT_INVALID'?500:422;
   if(error instanceof WbsAdmittedPayableIngestionError)return /PERSISTENCE_REQUIRED|VERIFIER_REQUIRED|PERSISTENCE_FAILED/.test(error.code)?503:error.code==='WBS_PAYABLE_ADMISSION_IDEMPOTENCY_CONFLICT'?409:422;
   if(error instanceof WbsSignedBankAdmissionError)return 422;
   if(error instanceof WbsLivePilotError)return error.code==='WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE'?503:error.code==='WBS_LIVE_PILOT_RESULT_INVALID'?500:400;
@@ -56,9 +59,9 @@ function statusFor(error){
   if(error?.code==='23505')return 409;if(error?.code==='55000')return 423;
   if(['22023','23503','23514'].includes(error?.code))return 422;return 500;
 }
-const problemFor=error=>{const status=statusFor(error);const code=isRevisionPrecondition(error)?'PRECONDITION_FAILED':error?.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED'?'WBS_SNAPSHOT_SIGNATURE_REQUIRED':error?.code==='WBS_BANK_ADMISSION_SIGNATURE_REQUIRED'?'WBS_BANK_ADMISSION_SIGNATURE_REQUIRED':error?.code==='WBS_READ_SERVICE_UNAVAILABLE'?'WBS_READ_SERVICE_UNAVAILABLE':error?.code==='WBS_PAYABLE_ADMISSION_UNAVAILABLE'?'WBS_PAYABLE_ADMISSION_UNAVAILABLE':error instanceof WbsSignedBankAdmissionError?error.code:error instanceof WbsAdmittedPayableIngestionError?error.code:error instanceof WbsLivePilotError?error.code:error instanceof WbsReadContractError?error.code:status===503?'SERIALIZATION_RETRY_EXHAUSTED':error.code||'INTERNAL_ERROR';const message=status>=500?'Internal server error':status===403?'Forbidden':error.message;const headers={'content-type':'application/problem+json','cache-control':'no-store'};if(status===503)headers['retry-after']='1';return {status,headers,body:{ok:false,code,message}};};
+const problemFor=error=>{const status=statusFor(error);const code=isRevisionPrecondition(error)?'PRECONDITION_FAILED':error?.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED'?'WBS_SNAPSHOT_SIGNATURE_REQUIRED':error?.code==='WBS_BANK_ADMISSION_SIGNATURE_REQUIRED'?'WBS_BANK_ADMISSION_SIGNATURE_REQUIRED':error?.code==='WBS_READ_SERVICE_UNAVAILABLE'?'WBS_READ_SERVICE_UNAVAILABLE':error?.code==='WBS_PAYABLE_ADMISSION_UNAVAILABLE'?'WBS_PAYABLE_ADMISSION_UNAVAILABLE':error?.code==='WBS_OPERATOR_ATTEST_UNAVAILABLE'?'WBS_OPERATOR_ATTEST_UNAVAILABLE':error instanceof WbsOperatorAttestedPayableError?error.code:error instanceof WbsSignedBankAdmissionError?error.code:error instanceof WbsAdmittedPayableIngestionError?error.code:error instanceof WbsLivePilotError?error.code:error instanceof WbsReadContractError?error.code:status===503?'SERIALIZATION_RETRY_EXHAUSTED':error.code||'INTERNAL_ERROR';const message=status>=500?'Internal server error':status===403?'Forbidden':error.message;const headers={'content-type':'application/problem+json','cache-control':'no-store'};if(status===503)headers['retry-after']='1';return {status,headers,body:{ok:false,code,message}};};
 
-export function createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory}={}){
+export function createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory}={}){
   if(typeof authenticate!=='function'||typeof kernelFactory!=='function')throw new Error('Accounting API requires authenticate and kernelFactory');
   return async function dispatch({method,url,headers={},body=null}){
     try{
@@ -372,6 +375,17 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=assertWbsReadOnlyResult(await service.readAutoRecReview({tenantId:principal.tenantId,entityId,companyKey:selection.companyKey,sourceRecordIds:selection.sourceRecordIds}));
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='operator-attested'&&parts[6]==='payables'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Operator-attested evidence reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);
+        const rawLimit=parsedUrl.searchParams.get('limit'),limit=rawLimit==null?50:Number(rawLimit);
+        if(!Number.isSafeInteger(limit)||limit<1||limit>50)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be an integer from 1 to 50');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.listWbsOperatorPayableAttestations!=='function')throw new AccountingApiError(503,'WBS_OPERATOR_ATTEST_UNAVAILABLE','Operator-attested WBS Payable evidence is unavailable');
+        result=await kernel.listWbsOperatorPayableAttestations({tenantId:principal.tenantId,entityId,limit});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===10&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[8]==='attachments'&&parts[9]==='uploads'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Attachment upload reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
@@ -439,6 +453,13 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         allowOnly(payload,['snapshot']);const service=await wbsAdmittedPayableServiceFactory(principal);
         if(!service||typeof service.ingest!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_ADMISSION_UNAVAILABLE','Admitted WBS payable ingestion is unavailable');
         result=await service.ingest({tenantId:principal.tenantId,entityId,snapshot:payload.snapshot,idempotencyKey});
+      }else if(parts.length===7&&parts[4]==='wbs'&&parts[5]==='operator-attested'&&parts[6]==='payables'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['expectedObservationHash','expectedProviderContentSha256','reason','limit']);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Operator attestation uses exact observation hashes, not If-Match');
+        if(typeof wbsOperatorAttestedPayableServiceFactory!=='function')throw new AccountingApiError(503,'WBS_OPERATOR_ATTEST_UNAVAILABLE','Operator-attested WBS Payable persistence is unavailable');
+        const service=await wbsOperatorAttestedPayableServiceFactory(principal);
+        if(!service||typeof service.attest!=='function')throw new AccountingApiError(503,'WBS_OPERATOR_ATTEST_UNAVAILABLE','Operator-attested WBS Payable persistence is unavailable');
+        result=await service.attest({tenantId:principal.tenantId,entityId,expectedObservationHash:requireSha256(payload.expectedObservationHash,'expectedObservationHash'),expectedProviderContentSha256:requireBareSha256(payload.expectedProviderContentSha256,'expectedProviderContentSha256'),reason:requireReviewReason(payload.reason),limit:Number.isSafeInteger(payload.limit)&&payload.limit>=1&&payload.limit<=10?payload.limit:(()=>{throw new AccountingApiError(400,'INVALID_LIMIT','limit must be an integer from 1 to 10');})(),idempotencyKey});
       }else if(parts.length===10&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[8]==='attachments'&&parts[9]==='bindings'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['attachmentId','expectedSourceVersion','expectedReceiptHash','expectedProviderReceiptHash','expectedEvidenceHash','expectedAttachmentContentHash','expectedAttachmentStorageVersion','reason']);
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.bindWbsPayableAttachment!=='function')throw new AccountingApiError(503,'WBS_PAYABLE_ATTACHMENT_BIND_UNAVAILABLE','WBS Payable attachment binding is unavailable');
@@ -590,9 +611,9 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
 
 const corsHeaders=(origin,allowedOrigins)=>origin&&allowedOrigins.has(origin)?{'access-control-allow-origin':origin,'access-control-allow-credentials':'true','access-control-allow-methods':'GET, POST, OPTIONS','access-control-allow-headers':'authorization, content-type, idempotency-key, if-match','access-control-max-age':'600','vary':'Origin'}:{};
 
-export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,maxBodyBytes=1024*1024,healthCheck,allowedOrigins=[]}={}){
+export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,maxBodyBytes=1024*1024,healthCheck,allowedOrigins=[]}={}){
   const allowed=new Set(allowedOrigins);
-  const dispatch=createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory});
+  const dispatch=createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory});
   return createServer(async(req,res)=>{
     const chunks=[];let size=0;
     try{
