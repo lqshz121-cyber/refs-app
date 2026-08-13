@@ -22,6 +22,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('settings', 'Core settings'), item('rules', 'Rule Center'), item('mapping', 'Mapping Center'),
   ]),
   group('Source & Staging', [
+    item('wbs-payable-review', 'WBS Payable Review', 'API_READ', [
+      'Only server-derived, signed and admitted WBS Payables may enter the review queue.',
+      'Attachment binding, independent review and the separate AP Draft step preserve exact receipt and object-version evidence.',
+    ]),
     item('staging', 'Accounting Staging', 'API_UNAVAILABLE', [
       'Entity-scoped persisted staging items with immutable receipt, source version, mapping version, and review state.',
       'Read-only list and detail endpoints before any controller workflow can be exposed.',
