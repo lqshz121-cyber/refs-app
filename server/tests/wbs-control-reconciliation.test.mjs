@@ -14,7 +14,7 @@ const costArgs={sourceType:'COST_GENERAL_LEDGER',scope:costScope,sourceReceipt:r
 
 test('Cost GL reconciles only exact receipt-bound approved metrics and has forward/reverse trace',()=>{
   const result=reconcileWbsControlEvidence(costArgs);
-  assert.deepEqual({status:result.status,count:result.control_totals.metric_count,diff:result.control_totals.difference_total,draft:result.can_create_draft,post:result.can_post},{status:'RECONCILED',count:14,diff:0,draft:false,post:false});
+  assert.deepEqual({status:result.status,count:result.control_totals.metric_count,diff:result.control_totals.difference_total,draft:result.can_create_draft,post:result.can_post},{status:'RECONCILED',count:14,diff:'0.0000',draft:false,post:false});
   assert.deepEqual({basis:result.control_totals.reconciliation_basis,aggregate:result.control_totals.aggregate_semantics,proves:result.control_totals.aggregate_can_prove_reconciled},{basis:'EXACT_PER_APPROVED_METRIC',aggregate:'DIAGNOSTIC_ONLY',proves:false});
   assert.equal(result.comparisons[0].forward_trace.mapping_id,'map-cost');assert.equal(result.comparisons[0].forward_trace.mapping_snapshot_hash,costMapping.snapshot_hash);assert.equal(result.comparisons[0].reverse_trace.target_receipt_version,'v1');assert.equal(result.mapping_trace.snapshot_hash,costMapping.snapshot_hash);
 });
@@ -22,7 +22,7 @@ test('Cost GL reconciles only exact receipt-bound approved metrics and has forwa
 test('Control differences remain evidence-only and Property needs its exact mapping and date/bank scope',()=>{
   const changedMetrics=costMetrics.map(row=>row.metric_key==='COST_METRIC_01'?{...row,amount:26}:row);
   const difference=reconcileWbsControlEvidence({...costArgs,targetReceipt:receipt('b',costScope,changedMetrics),targetMetrics:changedMetrics});
-  assert.equal(difference.status,'DIFFERENCE');assert.equal(difference.control_totals.difference_total,1);assert.equal(difference.can_allocate,false);
+  assert.equal(difference.status,'DIFFERENCE');assert.equal(difference.control_totals.difference_total,'1.0000');assert.equal(difference.can_allocate,false);
   const propertyScope={tenant_id:'tenant-a',entity_id:'entity-a',company_key:'COMPANY-A',property_ref:'PROPERTY-A',period_start:'2026-08-01',period_end:'2026-08-31',currency:'USD',bank_account_ref:'BANK-1'};
   const propertyMetrics=[{metric_key:'PROPERTY_VALUE',amount:10}];
   const property={sourceType:'PROPERTY_COMPARISON',scope:propertyScope,sourceReceipt:receipt('c',propertyScope,propertyMetrics),targetReceipt:receipt('d',propertyScope,propertyMetrics),approvedMapping:{status:'APPROVED',mapping_type:'WBS_PROPERTY_CONTROL_RECONCILIATION',mapping_id:'map-property',version:'1',snapshot_hash:'sha256:'+'d'.repeat(64),scope:propertyScope,metric_keys:['PROPERTY_VALUE']},sourceMetrics:propertyMetrics,targetMetrics:propertyMetrics};
@@ -68,7 +68,17 @@ test('control metrics cannot be substituted after a receipt has been captured',(
 test('offsetting control differences remain a difference even when their diagnostic aggregate is zero',()=>{
   const offsetting=costMetrics.map(row=>row.metric_key==='COST_METRIC_01'?{...row,amount:26}:row.metric_key==='COST_METRIC_02'?{...row,amount:49}:row);
   const result=reconcileWbsControlEvidence({...costArgs,targetReceipt:receipt('b',costScope,offsetting),targetMetrics:offsetting});
-  assert.equal(result.status,'DIFFERENCE');assert.equal(result.control_totals.difference_count,2);assert.equal(result.control_totals.difference_total,0);assert.equal(result.control_totals.aggregate_can_prove_reconciled,false);
+  assert.equal(result.status,'DIFFERENCE');assert.equal(result.control_totals.difference_count,2);assert.equal(result.control_totals.difference_total,'0.0000');assert.equal(result.control_totals.aggregate_can_prove_reconciled,false);
+});
+
+test('control aggregation uses exact four-decimal units and never JavaScript floating-point sums',()=>{
+  const metricKeys=costMetricKeys;
+  const sourceMetrics=metricKeys.map((metric_key,index)=>({metric_key,amount:index===0?'0.1000':index===1?'0.2000':'0.0000'}));
+  const targetMetrics=metricKeys.map((metric_key,index)=>({metric_key,amount:index===0?'0.3000':'0.0000'}));
+  const result=reconcileWbsControlEvidence({...costArgs,sourceReceipt:receipt('a',costScope,sourceMetrics),targetReceipt:receipt('b',costScope,targetMetrics),sourceMetrics,targetMetrics});
+  assert.deepEqual({source:result.control_totals.source_total,target:result.control_totals.target_total,difference:result.control_totals.difference_total,status:result.status},{source:'0.3000',target:'0.3000',difference:'0.0000',status:'DIFFERENCE'});
+  assert.equal(result.control_totals.difference_count,2,'offsetting per-metric differences must remain visible');
+  assert.ok(result.comparisons.every(row=>typeof row.source_amount==='string'&&/^-[0-9]+\.[0-9]{4}$|^[0-9]+\.[0-9]{4}$/.test(row.source_amount)));
 });
 
 test('control reconciliation reads only exact persisted WBS/REFS evidence and approved mappings',async()=>{

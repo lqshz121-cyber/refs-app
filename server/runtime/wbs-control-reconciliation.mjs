@@ -10,8 +10,10 @@ const text=value=>value==null?'':String(value).trim();
 const decimal=value=>{
   const candidate=typeof value==='number'?(Number.isFinite(value)?String(value):''):typeof value==='string'?value.trim():'';
   if(!/^-?(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(candidate))return null;
-  const parsed=Number(candidate),scaled=parsed*10000;
-  return Number.isFinite(parsed)&&Number.isSafeInteger(Math.round(scaled))?Number(parsed.toFixed(4)):null;
+  const negative=candidate.startsWith('-'),unsigned=negative?candidate.slice(1):candidate;
+  const [whole,fraction='']=unsigned.split('.');
+  const scaled=BigInt(whole)*10000n+BigInt(fraction.padEnd(4,'0'));
+  return negative?-scaled:scaled;
 };
 const freeze=value=>Object.freeze(value);
 const validDate=value=>{const normalized=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(normalized))return false;const parsed=new Date(`${normalized}T00:00:00.000Z`);return !Number.isNaN(parsed.getTime())&&parsed.toISOString().slice(0,10)===normalized;};
@@ -27,15 +29,17 @@ const sourceFor=type=>type==='COST_GENERAL_LEDGER'?'WBS_COST_GL_CONTROL_RECONCIL
 const COST_GENERAL_LEDGER_METRIC_COUNT=14;
 const plain=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const scopeKeysFor=sourceType=>sourceType==='COST_GENERAL_LEDGER'?['tenant_id','entity_id','company_key','period','currency']:['tenant_id','entity_id','company_key','property_ref','period_start','period_end','currency','bank_account_ref'];
-// Internal reconciliation arithmetic remains server-side.  Only canonical
-// MONEY4 strings cross the public read-composition boundary.
+// Control totals are monetary evidence.  Keep every subtraction and
+// aggregation in scaled integer units; JavaScript Number must never carry a
+// control total, even before it crosses the public read-composition boundary.
 const money4=value=>{
-  if(typeof value!=='number'||!Number.isFinite(value)||!Number.isSafeInteger(Math.round(value*10000)))throw new WbsControlReconciliationError('WBS_CONTROL_MONEY_INVALID','Control reconciliation produced a non-canonical monetary value.');
-  return (Object.is(value,-0)?0:value).toFixed(4);
+  if(typeof value!=='bigint')throw new WbsControlReconciliationError('WBS_CONTROL_MONEY_INVALID','Control reconciliation produced a non-canonical monetary value.');
+  const negative=value<0n,absolute=negative?-value:value;
+  return `${negative?'-':''}${absolute/10000n}.${String(absolute%10000n).padStart(4,'0')}`;
 };
 const readonlyReconciliation=reconciliation=>freeze({...reconciliation,
-  comparisons:freeze(reconciliation.comparisons.map(row=>freeze({...row,source_amount:money4(row.source_amount),target_amount:money4(row.target_amount),difference:money4(row.difference)}))),
-  control_totals:freeze({...reconciliation.control_totals,source_total:money4(reconciliation.control_totals.source_total),target_total:money4(reconciliation.control_totals.target_total),difference_total:money4(reconciliation.control_totals.difference_total)})
+  comparisons:freeze(reconciliation.comparisons.map(row=>freeze({...row}))),
+  control_totals:freeze({...reconciliation.control_totals})
 });
 
 function validateReceipt(receipt,label,scope,scopeKeys){
@@ -50,7 +54,12 @@ function metricMap(rows,label){
   for(const row of rows){const key=text(row?.metric_key),value=decimal(row?.amount);if(!/^[A-Z][A-Z0-9_]{1,95}$/.test(key)||value===null||result.has(key))fail('WBS_CONTROL_METRICS_INVALID',`${label} control metrics need unique keys and four-decimal amounts.`);result.set(key,value);}
   return result;
 }
-function metricsFingerprint(metrics){return canonicalRequestHash([...metrics.entries()].sort(([left],[right])=>left.localeCompare(right)).map(([metric_key,amount])=>({metric_key,amount})));}
+function metricsFingerprint(metrics){
+  // Receipt hashes predate this reader and encode canonical JSON numbers.
+  // This conversion is for a per-value hash representation only; no monetary
+  // comparison or aggregation is performed with Number.
+  return canonicalRequestHash([...metrics.entries()].sort(([left],[right])=>left.localeCompare(right)).map(([metric_key,amount])=>({metric_key,amount:Number(money4(amount))})));
+}
 
 export function reconcileWbsControlEvidence({sourceType,scope,sourceReceipt,targetReceipt,approvedMapping,sourceMetrics,targetMetrics}={}){
   if(!['COST_GENERAL_LEDGER','PROPERTY_COMPARISON'].includes(sourceType))fail('WBS_CONTROL_SOURCE_TYPE_INVALID','Only Cost General Ledger and Property Comparison control sources are supported.');
@@ -67,15 +76,16 @@ export function reconcileWbsControlEvidence({sourceType,scope,sourceReceipt,targ
   const expected=Array.isArray(approvedMapping.metric_keys)?approvedMapping.metric_keys.map(text):[];
   if((sourceType==='COST_GENERAL_LEDGER'&&expected.length!==COST_GENERAL_LEDGER_METRIC_COUNT)||!expected.length||new Set(expected).size!==expected.length||expected.some(key=>!sourceByKey.has(key)||!targetByKey.has(key))||sourceByKey.size!==expected.length||targetByKey.size!==expected.length)fail('WBS_CONTROL_MAPPING_INCOMPLETE','Approved mapping must name every and only source and target control metric. Cost General Ledger requires exactly fourteen approved metrics.');
   const comparisons=expected.sort().map(metricKey=>{
-    const sourceAmount=sourceByKey.get(metricKey),targetAmount=targetByKey.get(metricKey),difference=Number((targetAmount-sourceAmount).toFixed(4));
-    return freeze({metric_key:metricKey,source_amount:sourceAmount,target_amount:targetAmount,difference,matched:difference===0,forward_trace:freeze({source_receipt_hash:source.hash,source_receipt_version:source.version,mapping_id:text(approvedMapping.mapping_id),mapping_version:text(approvedMapping.version),mapping_snapshot_hash:text(approvedMapping.snapshot_hash)}),reverse_trace:freeze({target_receipt_hash:target.hash,target_receipt_version:target.version,mapping_id:text(approvedMapping.mapping_id),mapping_version:text(approvedMapping.version),mapping_snapshot_hash:text(approvedMapping.snapshot_hash)})});
+    const sourceAmount=sourceByKey.get(metricKey),targetAmount=targetByKey.get(metricKey),difference=targetAmount-sourceAmount;
+    return freeze({metric_key:metricKey,source_amount:money4(sourceAmount),target_amount:money4(targetAmount),difference:money4(difference),matched:difference===0n,forward_trace:freeze({source_receipt_hash:source.hash,source_receipt_version:source.version,mapping_id:text(approvedMapping.mapping_id),mapping_version:text(approvedMapping.version),mapping_snapshot_hash:text(approvedMapping.snapshot_hash)}),reverse_trace:freeze({target_receipt_hash:target.hash,target_receipt_version:target.version,mapping_id:text(approvedMapping.mapping_id),mapping_version:text(approvedMapping.version),mapping_snapshot_hash:text(approvedMapping.snapshot_hash)})});
   });
   const differenceCount=comparisons.filter(row=>!row.matched).length;
   // Cost GL / Property metric sets can mix balances, flows, and counts. The
   // aggregate is diagnostic only: reconciliation status is determined by each
   // approved metric's exact four-decimal difference, never by an offsetting
   // aggregate total.
-  return freeze({source_type:sourceType,status:differenceCount===0?'RECONCILED':'DIFFERENCE',scope:canonicalScope,comparisons:freeze(comparisons),control_totals:freeze({metric_count:comparisons.length,difference_count:differenceCount,source_total:Number(comparisons.reduce((sum,row)=>sum+row.source_amount,0).toFixed(4)),target_total:Number(comparisons.reduce((sum,row)=>sum+row.target_amount,0).toFixed(4)),difference_total:Number(comparisons.reduce((sum,row)=>sum+row.difference,0).toFixed(4)),aggregate_semantics:'DIAGNOSTIC_ONLY',aggregate_can_prove_reconciled:false,reconciliation_basis:'EXACT_PER_APPROVED_METRIC'}),receipt_trace:freeze({source,target}),mapping_trace:freeze({mapping_id:text(approvedMapping.mapping_id),version:text(approvedMapping.version),mapping_type:text(approvedMapping.mapping_type),snapshot_hash:text(approvedMapping.snapshot_hash)}),can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
+  const sumMetric=field=>comparisons.reduce((sum,row)=>sum+decimal(row[field]),0n);
+  return freeze({source_type:sourceType,status:differenceCount===0?'RECONCILED':'DIFFERENCE',scope:canonicalScope,comparisons:freeze(comparisons),control_totals:freeze({metric_count:comparisons.length,difference_count:differenceCount,source_total:money4(sumMetric('source_amount')),target_total:money4(sumMetric('target_amount')),difference_total:money4(sumMetric('difference')),aggregate_semantics:'DIAGNOSTIC_ONLY',aggregate_can_prove_reconciled:false,reconciliation_basis:'EXACT_PER_APPROVED_METRIC'}),receipt_trace:freeze({source,target}),mapping_trace:freeze({mapping_id:text(approvedMapping.mapping_id),version:text(approvedMapping.version),mapping_type:text(approvedMapping.mapping_type),snapshot_hash:text(approvedMapping.snapshot_hash)}),can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
 }
 
 const blocked=(code,replayed=false)=>freeze({status:'BLOCKED',code,replayed,comparisons:freeze([]),can_create_transaction:false,can_allocate:false,can_create_draft:false,can_post:false});
