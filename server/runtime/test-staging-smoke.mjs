@@ -2,6 +2,7 @@ import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
 
 const UUID='00000000-0000-4000-8000-000000000000';
+const GIT_SHA=/^[0-9a-f]{40}$/i;
 
 const httpsOrigin=(value,name)=>{
   if(typeof value!=='string'||!value.trim())throw new Error(`${name} is required`);
@@ -10,12 +11,18 @@ const httpsOrigin=(value,name)=>{
   return url.origin;
 };
 
-export const stagingSmokeConfig=(environment=process.env)=>({
-  apiBaseUrl:httpsOrigin(environment.REFS_STAGING_API_BASE_URL,'REFS_STAGING_API_BASE_URL'),
-  webOrigin:httpsOrigin(environment.REFS_STAGING_WEB_ORIGIN,'REFS_STAGING_WEB_ORIGIN'),
-});
+export const stagingSmokeConfig=(environment=process.env)=>{
+  const releaseSha=String(environment.REFS_RELEASE_SHA||'').trim().toLowerCase();
+  if(releaseSha&&!GIT_SHA.test(releaseSha))throw new Error('REFS_RELEASE_SHA must be a full 40-character Git SHA when supplied');
+  return {
+    apiBaseUrl:httpsOrigin(environment.REFS_STAGING_API_BASE_URL,'REFS_STAGING_API_BASE_URL'),
+    webOrigin:httpsOrigin(environment.REFS_STAGING_WEB_ORIGIN,'REFS_STAGING_WEB_ORIGIN'),
+    releaseSha:releaseSha||null,
+  };
+};
 
 const expect=(condition,message)=>{if(!condition)throw new Error(message);};
+const sameRelease=(actual,expected)=>typeof actual==='string'&&/^[0-9a-f]{7,40}$/i.test(actual)&&expected.startsWith(actual.toLowerCase());
 const noStore=response=>String(response.headers.get('cache-control')||'').toLowerCase().split(',').map(value=>value.trim()).includes('no-store');
 const header=(response,name)=>String(response.headers.get(name)||'').toLowerCase();
 const exactRuntimeAssignment=(source,name)=>{
@@ -73,6 +80,14 @@ export async function runStagingSmoke({config=stagingSmokeConfig(),fetcher=globa
   expect(ready.status===200,'Staging readiness endpoint did not return HTTP 200');
   expect(noStore(ready),'Staging readiness response must be no-store');
   const readyBody=await ready.json();expect(readyBody?.ok===true&&readyBody?.status==='ready','Staging readiness response is invalid');
+  if(config.releaseSha){
+    expect(sameRelease(readyBody.release,config.releaseSha),'Staging readiness release does not match REFS_RELEASE_SHA');
+    const live=await fetcher(`${config.apiBaseUrl}/health/live`,{method:'GET',redirect:'error',cache:'no-store'});
+    expect(live.status===200,'Staging liveness endpoint did not return HTTP 200');
+    expect(noStore(live),'Staging liveness response must be no-store');
+    const liveBody=await live.json();
+    expect(liveBody?.ok===true&&liveBody?.status==='live'&&sameRelease(liveBody.release,config.releaseSha),'Staging liveness release does not match REFS_RELEASE_SHA');
+  }
   const web=await fetcher(`${config.webOrigin}/`,{method:'GET',redirect:'error',cache:'no-store',headers:{accept:'text/html'}});
   expect(web.status===200,'Staging web root did not return HTTP 200');
   expect(noStore(web),'Staging web root must be no-store');
@@ -95,7 +110,14 @@ export async function runStagingSmoke({config=stagingSmokeConfig(),fetcher=globa
     readRuntimeAsset('refs-runtime-lock.js'),
     readRuntimeAsset('refs-runtime-config.js'),
   ]);
-  assertBuildStamp(await buildSource);assertRuntimeLock(await lockSource);assertAuthoritativeRuntime(await runtimeSource,config);
+  const build=await buildSource;
+  assertBuildStamp(build);assertRuntimeLock(await lockSource);assertAuthoritativeRuntime(await runtimeSource,config);
+  if(config.releaseSha){
+    const match=build.match(/window\.__BUILD\s*=\s*(\{[^\n;]+\})/);
+    expect(match,'Staging build stamp is missing metadata');
+    let metadata;try{metadata=JSON.parse(match[1]);}catch{throw new Error('Staging build stamp metadata is invalid JSON');}
+    expect(sameRelease(metadata?.sha,config.releaseSha),'Staging web release does not match REFS_RELEASE_SHA');
+  }
   const preflight=await fetcher(endpoint,{method:'OPTIONS',redirect:'error',headers:{origin:config.webOrigin,'access-control-request-method':'GET','access-control-request-headers':'authorization'}});
   expect(preflight.status===204,'Staging CORS preflight did not return HTTP 204');
   expect(preflight.headers.get('access-control-allow-origin')===config.webOrigin,'Staging CORS does not allow the configured web origin');
@@ -105,7 +127,7 @@ export async function runStagingSmoke({config=stagingSmokeConfig(),fetcher=globa
   expect(anonymous.status===401,'Staging accounting reads must reject anonymous callers with HTTP 401');
   expect(noStore(anonymous),'Staging anonymous problem response must be no-store');
   const anonymousBody=await anonymous.json();expect(anonymousBody?.ok===false&&anonymousBody?.code==='AUTHENTICATION_REQUIRED','Staging anonymous response is not the expected fail-closed problem');
-  return {ok:true,checks:['ready','web-security','runtime-assets','cors','anonymous-read-rejected']};
+  return {ok:true,checks:[...(config.releaseSha?['same-release-stamps']:[]),'ready','web-security','runtime-assets','cors','anonymous-read-rejected']};
 }
 
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
