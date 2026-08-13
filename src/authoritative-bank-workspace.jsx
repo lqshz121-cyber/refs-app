@@ -246,7 +246,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
       <label>Through<input type="date" value={scope.through} onChange={event=>setScope(current=>({...current,through:event.target.value}))}/></label>
       <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Load evidence</button>
     </form>
-    <p className="muted sm">Entity {config.entityId}. Account and date scope are required at the API boundary.</p>
+    <p className="muted sm" title={`Entity ID: ${config.entityId}`}>Configured entity. Account and date scope are required at the API boundary.</p>
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and an optional date range to read authoritative evidence.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative bank transaction evidence...</StateBlock>}
     {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
@@ -279,7 +279,7 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
       <label>Statement ending date<input required type="date" value={scope.statementEndingDate} onChange={event=>setScope(current=>({...current,statementEndingDate:event.target.value}))}/></label>
       <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Load statement</button>
     </form>
-    <p className="muted sm">Entity {config.entityId}. The API rejects missing or cross-scope statement evidence.</p>
+    <p className="muted sm" title={`Entity ID: ${config.entityId}`}>Configured entity. The API rejects missing or cross-scope statement evidence.</p>
     <AuthoritativeAdmittedStatements config={config} bankAccountRef={scope.bankAccountRef} fetcher={fetcher} onStarted={handleAdmittedStarted}/>
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and statement ending date to read reconciliation evidence.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative reconciliation evidence...</StateBlock>}
