@@ -1992,8 +1992,8 @@ pgTest('isolated property rent pickup carries invoice and bank receipt evidence 
     extraAccounts:[{accountCode:'400100',accountName:'Property Rental Revenue'}],
     extraMembers:[{memberRef:'TENANT-UNIT-101',memberType:'CUSTOMER',displayName:'Unit 101 tenant'}],
     journalLines:[
-      {lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'TENANT-UNIT-101',dimensions:{property:'PROP-1',project:'PROJECT-1',unit:'UNIT-101'}},
-      {lineNo:2,accountCode:'400100',debit:0,credit:100,dimensions:{property:'PROP-1',project:'PROJECT-1',unit:'UNIT-101'}}
+      {lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'TENANT-UNIT-101',dimensions:{property_ref:'PROP-1',project_ref:'PROJECT-1',unit_ref:'UNIT-101'}},
+      {lineNo:2,accountCode:'400100',debit:0,credit:100,dimensions:{property_ref:'PROP-1',project_ref:'PROJECT-1',unit_ref:'UNIT-101'}}
     ]});
   const invoiceSource=await attachAutoSource(ids);
   const invoicePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'rent-invoice-poster',['GL.JE.POST'])});
@@ -2037,6 +2037,11 @@ pgTest('isolated property rent pickup carries invoice and bank receipt evidence 
     const row=statements.find(candidate=>candidate.statement_type===statementType&&candidate.account_code===accountCode);
     assert.ok(row,`${statementType} must expose ${accountCode} rent pickup evidence`);
     assert.equal(row.display_balance,amount);assert.ok(row.journal_entry_ids.includes(journalEntryId));assert.ok(row.source_document_ids.includes(sourceDocumentId));
+  }
+  for(const [dimensionType,dimensionRef,statementType] of [['PROPERTY','PROP-1','PROPERTY_PNL'],['PROJECT','PROJECT-1','PROJECT_PNL'],['UNIT','UNIT-101','UNIT_PROFITABILITY']]){
+    const rows=await reader.getDimensionProfitability({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,dimensionType,dimensionRef});
+    const revenue=rows.find(row=>row.account_code==='400100');
+    assert.ok(revenue,`${dimensionType} must retain the rent-revenue row`);assert.equal(revenue.statement_type,statementType);assert.equal(revenue.display_balance,'100.0000');assert.ok(revenue.journal_entry_ids.includes(ids.journalId));assert.ok(revenue.source_document_ids.includes(invoiceSource.documentId));
   }
 });
 
