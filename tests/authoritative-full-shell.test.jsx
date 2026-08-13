@@ -65,6 +65,12 @@ assert.match(unavailableMarkup, /Required authoritative read contract/);
 assert.match(unavailableMarkup, /attachment-read contract/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
+const firstConditionalRender=appSource.indexOf("if (!configured) return");
+for(const scopeHook of [
+  'useEffect(()=>{let current=true;if(phase!==\'READY\')',
+  'const scopePresentation=useMemo(',
+  'const displayConfig=useMemo('
+])assert.ok(appSource.indexOf(scopeHook)>0&&appSource.indexOf(scopeHook)<firstConditionalRender,`${scopeHook} must execute before every conditional render so OIDC phase changes cannot alter the React hook order`);
 assert.match(appSource, /Accounting records are read only from the authenticated API in this mode/,
   'the sign-in surface must describe the sole authoritative source of accounting records');
 assert.doesNotMatch(appSource, /No demo identity/,

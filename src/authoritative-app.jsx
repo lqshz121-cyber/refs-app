@@ -384,6 +384,9 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     setError(result);
   };
   const logout = () => { oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED'); };
+  useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
+  const scopePresentation=useMemo(()=>authoritativeScopePresentation(config,scopeRows),[config,scopeRows]);
+  const displayConfig=useMemo(()=>({...config,scopePresentation}),[config,scopePresentation]);
   if (!configured) return <RuntimeErrorPage code="CONFIGURATION_REQUIRED"/>;
   if (typeof environment?.document === 'undefined') return <main className="login-shell"><section className="login-card"><h1>Authoritative accounting</h1><p>Secure OIDC session verification is in progress.</p></section></main>;
   if (phase === 'CHECKING_IDENTITY') return <main className="login-shell"><section className="login-card"><h1>Verifying identity</h1><p>Checking the configured OIDC session before loading accounting data.</p></section></main>;
@@ -401,10 +404,6 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     return <RuntimeErrorPage code={error?.code} detail={error?.message} onRetry={refresh} onSignIn={startLogin}
       extraActions={<button type="button" className="btn btn-sm btn-ghost" onClick={logout}>Sign out</button>}/>;
   }
-
-  useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
-  const scopePresentation=useMemo(()=>authoritativeScopePresentation(config,scopeRows),[config,scopeRows]);
-  const displayConfig=useMemo(()=>({...config,scopePresentation}),[config,scopePresentation]);
   const counts = { bills:data.ap.bills.length, invoices:data.ar.invoices.length, adjustments:data.ap.adjustments.length + data.ar.adjustments.length, journals:data.journals.length };
   return <div className="app authoritative-app">
     <AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route={route} expandedGroup={expandedNavigationGroup}
