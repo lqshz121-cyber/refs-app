@@ -238,7 +238,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     setSelected(null);
     restoreAuthoritativeReturnContext(environment,config,context);
   };
-  if(selected)return <AuthoritativeBankDetail row={selected.row} scope={{...scope,entityId:config.entityId}} onBack={closeEvidence} config={config} fetcher={fetcher} onMatchChanged={()=>load(null,{preserveDetail:true})}/>;
+  if(selected)return <AuthoritativeBankDetail row={selected.row} scope={{...scope,entityId:config.entityId}} onBack={closeEvidence} config={config} fetcher={fetcher} onMatchChanged={()=>load(null,{preserveDetail:true,offset:state.offset})}/>;
   return <AuthoritativeDemoView area="Bank transaction evidence" className="stack authoritative-bank-workspace"><AuthoritativeDemoWorkspaceHeader eyebrow="BANKING | SOURCE EVIDENCE" title="Bank transaction evidence" description="Entity-scoped, OIDC-authenticated records only. Browser seeds and local storage are never used."/>
     <form className="filterbar" onSubmit={load} aria-label="Bank transaction scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>

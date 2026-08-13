@@ -80,6 +80,7 @@ assert.match(source,/view:\{\.\.\.DEFAULT_AUTHORITATIVE_LIST_VIEW,from:scope\.fr
 assert.match(source,/Number\.isSafeInteger\(context\?\.view\?\.offset\).*offset:context\.view\.offset/s,'Bank Back must restore the exact validated page offset');
 assert.match(source,/offset:Math\.max\(0,state\.offset-100\)/,'Bank Previous page must retain the scoped authoritative pagination contract');
 assert.match(source,/offset:state\.offset\+100/,'Bank Next page must retain the scoped authoritative pagination contract');
+assert.match(source,/onMatchChanged=\{\(\)=>load\(null,\{preserveDetail:true,offset:state\.offset\}\)\}/,'A successful Match refresh must retain the current authoritative page instead of silently returning to page zero');
 assert.match(source,/const bankRowMatchesScope=/,'Bank detail must reject a row outside the immutable parent account scope');
 assert.match(source,/scopeMatches&&config&&<AuthoritativeBankMatchReview/,'Bank match controls require a matching immutable account scope');
 assert.match(source,/BLOCKED — immutable bank scope mismatch/,'Bank scope mismatches must remain evidence-only');
