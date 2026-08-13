@@ -106,11 +106,11 @@ assert.equal(completeLineage?.audit_event_ids.length,2);
 const completeDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={completeBill} kind="AP" entityId={entityId} onBack={()=>{}}/>);
 assert.match(completeDetail,/Immutable authoritative lineage/);
 assert.match(completeDetail,/Mapping snapshot/);
-assert.doesNotMatch(completeDetail,/BLOCKED ? authoritative lineage unavailable/,'a complete same-revision API lineage response must not be unconditionally blocked');
+assert.doesNotMatch(completeDetail,/authoritative lineage unavailable/,'a complete same-revision API lineage response must not be unconditionally blocked');
 const mismatchedLineage={...completeBill,lineage:{...completeBill.lineage,record_revision:2}};
 assert.equal(authoritativeLineageFor(mismatchedLineage,entityId),null,'a stale or mismatched record revision must fail closed');
 const mismatchedDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={mismatchedLineage} kind="AP" entityId={entityId} onBack={()=>{}}/>);
-assert.match(mismatchedDetail,/BLOCKED ? authoritative lineage unavailable/);
+assert.match(mismatchedDetail,/BLOCKED[\s\S]*authoritative lineage unavailable/);
 
 const adjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={[adjustment]} onOpen={()=>{}}/>);
 assert.match(adjustmentList,/AP_VENDOR_CREDIT/);
@@ -129,7 +129,7 @@ const completeAdjustment={...adjustment,status:'POSTED',journal_entry_id:postedJ
 assert.equal(authoritativeLineageFor(completeAdjustment,entityId)?.posted_journal_revision,5,'adjustment lineage must also bind to its own exact immutable revision');
 const completeAdjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={completeAdjustment} side="AP" entityId={entityId} onBack={()=>{}}/>);
 assert.match(completeAdjustmentDetail,/Immutable authoritative lineage/);
-assert.doesNotMatch(completeAdjustmentDetail,/BLOCKED ? authoritative lineage unavailable/);
+assert.doesNotMatch(completeAdjustmentDetail,/authoritative lineage unavailable/);
 
 const empty=renderToStaticMarkup(<AuthoritativeDocumentTable title="AR invoices" documents={[]} kind="AR"/>);
 assert.match(empty,/not evidence of a zero balance/);

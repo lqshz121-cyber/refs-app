@@ -512,6 +512,20 @@ pgTest('signed admitted WBS bank statement atomically creates exact bank sources
   await approver.transitionJournal({...ids,journalEntryId:adjustment.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'wbs-statement-adjustment-approve-001'});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-adjustment-poster',['GL.JE.POST'])});
   await poster.postJournal({...ids,journalEntryId:adjustment.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'wbs-statement-adjustment-post-001'});
+  const sourceLineage=(await adminPool.query("SELECT source_document_id,bank_source_id,reconciliation_id,journal_entry_id FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND link_type='RECONCILIATION_ADJUSTMENT_SOURCE_DOCUMENT' AND journal_entry_id=$3",[ids.tenantId,ids.entityId,adjustment.journal_entry_id])).rows;
+  assert.deepEqual(sourceLineage,[{source_document_id:admittedSource.source_document_id,bank_source_id:admittedSource.bank_source_id,reconciliation_id:started.reconciliation_id,journal_entry_id:adjustment.journal_entry_id}]);
+  const reportReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-adjustment-report-reader',['GL.JE.VIEW','GL.REPORT.VIEW'])});
+  const adjustmentDetail=await reportReader.getJournalEntryDetail({...ids,journalEntryId:adjustment.journal_entry_id});
+  assert.equal(adjustmentDetail.lines.length,2);assert(adjustmentDetail.lines.every(line=>line.source_document_ids.includes(admittedSource.source_document_id)));
+  const adjustmentLedger=await reportReader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'111000',query:'JE-WBS-RECEIPT-ADJUSTMENT',limit:10,offset:0});
+  const adjustmentCash=adjustmentLedger.find(row=>row.journal_entry_id===adjustment.journal_entry_id);
+  assert.ok(adjustmentCash);assert.ok(adjustmentCash.source_document_ids.includes(admittedSource.source_document_id));
+  const adjustmentStatements=await reportReader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  for(const statementType of ['TRIAL_BALANCE','BALANCE_SHEET','CASH_FLOW']){
+    const row=adjustmentStatements.find(candidate=>candidate.statement_type===statementType&&candidate.account_code==='111000');
+    assert.ok(row,`${statementType} must expose the admitted WBS statement adjustment`);
+    assert.ok(row.journal_entry_ids.includes(adjustment.journal_entry_id));assert.ok(row.source_document_ids.includes(admittedSource.source_document_id));
+  }
   const clearer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-adjustment-clearer',['BANK.RECONCILIATION.CLEAR'])});
   const cleared=await clearer.setReconciliationAdjustmentClearance({...ids,reconciliationId:started.reconciliation_id,bankSourceId:admittedSource.bank_source_id,expectedReconciliationVersion:1,expectedBankVersion:0,clear:true,reason:'Clear only the exact signed statement receipt row',idempotencyKey:'wbs-statement-adjustment-clear-001'});
   assert.equal(cleared.revision,2);assert.equal(Number(cleared.difference),0);
