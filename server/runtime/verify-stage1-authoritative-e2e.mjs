@@ -14,6 +14,7 @@ import {resolve} from 'node:path';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256=/^[0-9a-f]{64}$/i;
+const GIT_SHA=/^[0-9a-f]{40}$/i;
 const requiredScenario=['tenantId','entityId','periodId','wbsInboundRowId','reviewEvidenceId','attachmentId','attachmentObjectVersionId','attachmentSha256','journalEntryId','asOf'];
 const expect=(condition,message)=>{if(!condition)throw new Error(`stage1-authoritative-e2e: ${message}`);};
 const uuid=(value,key)=>expect(typeof value==='string'&&UUID.test(value),`${key} must be a UUID`);
@@ -46,7 +47,9 @@ export function stage1AuthoritativeE2eConfig(environment=process.env,scenario){
     expect(scenario.expected&&typeof scenario.expected==='object'&&!Array.isArray(scenario.expected),'scenario.expected must be an object');
     for(const key of ['debitAccountCode','creditAccountCode'])if(scenario.expected[key]!==undefined)expect(/^\d{6}$/.test(String(scenario.expected[key])),`scenario.expected.${key} must be a six-digit account code`);
   }
-  return Object.freeze({apiBaseUrl:httpsOrigin(environment.REFS_STAGING_API_BASE_URL,'REFS_STAGING_API_BASE_URL'),accessToken:bearer(environment.REFS_STAGE1_E2E_READ_ACCESS_TOKEN,'REFS_STAGE1_E2E_READ_ACCESS_TOKEN'),scenario:Object.freeze({...scenario})});
+  const releaseSha=String(environment.REFS_RELEASE_SHA||'').trim().toLowerCase();
+  expect(GIT_SHA.test(releaseSha),'REFS_RELEASE_SHA must be a full 40-character Git SHA');
+  return Object.freeze({apiBaseUrl:httpsOrigin(environment.REFS_STAGING_API_BASE_URL,'REFS_STAGING_API_BASE_URL'),webOrigin:httpsOrigin(environment.REFS_STAGING_WEB_ORIGIN,'REFS_STAGING_WEB_ORIGIN'),releaseSha,accessToken:bearer(environment.REFS_STAGE1_E2E_READ_ACCESS_TOKEN,'REFS_STAGE1_E2E_READ_ACCESS_TOKEN'),scenario:Object.freeze({...scenario})});
 }
 
 export async function readStage1Scenario(pathname=process.env.REFS_STAGE1_E2E_SCENARIO_PATH){
@@ -63,10 +66,36 @@ async function getJson(fetcher,url,token,label){
   return body.data;
 }
 
+const sameRelease=(value,expected)=>typeof value==='string'&&/^[0-9a-f]{7,40}$/i.test(value)&&expected.startsWith(value.toLowerCase());
+
+async function verifyReleaseStamp({apiBaseUrl,webOrigin,releaseSha,fetcher}){
+  const get=async(url,label)=>{
+    const response=await fetcher(url,{method:'GET',redirect:'error',cache:'no-store',headers:{accept:'application/json'}});
+    expect(response.status===200,`${label} returned HTTP ${response.status}`);
+    expect(String(response.headers.get('cache-control')||'').toLowerCase().includes('no-store'),`${label} must be no-store`);
+    return response;
+  };
+  const [live,ready,build]=await Promise.all([
+    get(`${apiBaseUrl}/health/live`,'API liveness'),
+    get(`${apiBaseUrl}/health/ready`,'API readiness'),
+    get(`${webOrigin}/refs-build.js`,'authoritative web build stamp'),
+  ]);
+  const [liveBody,readyBody,buildText]=await Promise.all([live.json(),ready.json(),build.text()]);
+  expect(liveBody?.ok===true&&liveBody.status==='live'&&sameRelease(liveBody.release,releaseSha),'API liveness release does not match REFS_RELEASE_SHA');
+  expect(readyBody?.ok===true&&readyBody.status==='ready'&&sameRelease(readyBody.release,releaseSha),'API readiness release does not match REFS_RELEASE_SHA');
+  const matched=buildText.match(/window\.__BUILD\s*=\s*(\{[^\n;]+\})/);
+  expect(matched,'authoritative web build stamp is missing window.__BUILD');
+  let buildMetadata;try{buildMetadata=JSON.parse(matched[1]);}catch{throw new Error('stage1-authoritative-e2e: authoritative web build stamp is invalid JSON');}
+  expect(buildMetadata?.channel==='AUTHORITATIVE'&&buildMetadata?.authoritative===true,'authoritative web build stamp is not AUTHORITATIVE');
+  expect(sameRelease(buildMetadata?.sha,releaseSha),'authoritative web build release does not match REFS_RELEASE_SHA');
+  return Object.freeze({release:releaseSha,apiRelease:liveBody.release,webRelease:buildMetadata.sha});
+}
+
 export async function verifyStage1AuthoritativeE2e({config,fetcher=globalThis.fetch}={}){
   expect(config&&typeof config==='object','config is required');
   expect(typeof fetcher==='function','a fetch implementation is required');
-  const {apiBaseUrl,accessToken,scenario}=config;
+  const {apiBaseUrl,webOrigin,releaseSha,accessToken,scenario}=config;
+  const release=await verifyReleaseStamp({apiBaseUrl,webOrigin,releaseSha,fetcher});
   const base=`${apiBaseUrl}/api/v1/entities/${scenario.entityId}`;
   const [review,journal,ledger,aging,statements]=await Promise.all([
     getJson(fetcher,`${base}/wbs/inbound/payables/reviews/${scenario.reviewEvidenceId}`,accessToken,'WBS review evidence'),
@@ -81,7 +110,7 @@ export async function verifyStage1AuthoritativeE2e({config,fetcher=globalThis.fe
   ])expect(contains(proof,value),`${label} is absent from retained Stage 1 evidence`);
   expect(contains(journal,'POSTED'), 'journal detail is not POSTED');
   for(const account of [scenario.expected?.debitAccountCode,scenario.expected?.creditAccountCode].filter(Boolean))expect(contains(proof,account),`expected account ${account} is absent from retained evidence`);
-  return Object.freeze({ok:true,mode:'READ_ONLY_RETAINED_EVIDENCE',checks:['signed-wbs-review','posted-journal','ledger','ap-aging','financial-statements','cross-source-identifiers'],journalEntryId:scenario.journalEntryId});
+  return Object.freeze({ok:true,mode:'READ_ONLY_RETAINED_EVIDENCE',release,checks:['same-release-stamps','signed-wbs-review','posted-journal','ledger','ap-aging','financial-statements','cross-source-identifiers'],journalEntryId:scenario.journalEntryId});
 }
 
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
