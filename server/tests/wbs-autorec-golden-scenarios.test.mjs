@@ -159,6 +159,19 @@ test('review tolerance is a canonical accounting decimal, never an implicit Java
   }
 });
 
+test('AutoRec split allocation keeps ten-thousandth residuals exact across isolated rows',()=>{
+  const bankRows=[bank('b-exact-small','0.1001'),bank('b-exact-large','0.8999')];
+  const businessRows=[payable('p-exact-1','0.3333'),payable('p-exact-2','0.6667')];
+  const plan=run(bankRows,businessRows,{tolerance:'0.0000'});
+  assert.equal(plan.status,'REVIEW_REQUIRED');
+  assert.deepEqual(plan.control_totals,{...plan.control_totals,bank_total:1,business_total:1,allocated_total:1,bank_unallocated:0,business_unallocated:0,difference:0,tolerance:0});
+  assert.equal(plan.allocation_plan.length,3);
+  const runtime=readFileSync(new URL('../runtime/wbs-inbound-data-adapter.mjs',import.meta.url),'utf8');
+  assert.match(runtime,/const moneyUnits=value=>/);
+  assert.match(runtime,/banks\.reduce\(\(sum,item\)=>sum\+item\.capacity,0n\)/);
+  assert.doesNotMatch(runtime,/Math\.round\(Math\.abs\(amount\(row\.amount\)\)\*10000\)/);
+});
+
 test('required WBS golden matrix retains the twelve accounting-boundary scenarios',()=>{
   const control={company_key:'COMPANY-A',user_ref:'MASKED',completed_match_period:'M:08/2026',completed_release_period:'R:08/2026',completed_incur_period:'C:08/2026',quantity:1,released_quantity:0,incurred_quantity:0,amount:'100.0000',released_amount:'0.0000',incurred_amount:'0.0000',reconciliation_balance:'100.0000',new_balance:'100.0000',balance_date:'2026-08-09'};
   const receipt={receipt_id:'receipt-control',receipt_ref:'object://receipt/control',receipt_hash:hash,source_record_id:'control-1',source_version:'v1'};

@@ -59,6 +59,27 @@ const amount=value=>{
   const parsed=Number(candidate),scaled=parsed*10000;
   return Number.isFinite(parsed)&&Number.isSafeInteger(Math.round(scaled))?Number(parsed.toFixed(4)):null;
 };
+// Keep every reconciliation calculation in integer ten-thousandths.  The
+// public v1 read model remains numeric for compatibility, but it is now only
+// a presentation boundary: no proposal capacity, residual, or comparison is
+// calculated with IEEE-754 amounts.
+const moneyUnits=value=>{
+  const candidate=typeof value==='number'?(Number.isFinite(value)?String(value):''):typeof value==='string'?value.trim():'';
+  const match=/^(-?)(0|[1-9]\d*)(?:\.(\d{1,4}))?$/.exec(candidate);
+  if(!match)return null;
+  const fraction=(match[3]??'').padEnd(4,'0');
+  try{
+    const units=BigInt(match[2])*10000n+BigInt(fraction);
+    return match[1]==='-'?-units:units;
+  }catch{return null;}
+};
+const moneyUnitsText=units=>{
+  if(typeof units!=='bigint')return null;
+  const negative=units<0n,absolute=negative?-units:units;
+  return `${negative?'-':''}${absolute/10000n}.${String(absolute%10000n).padStart(4,'0')}`;
+};
+const publicMoney=units=>Number(moneyUnitsText(units));
+const absoluteUnits=units=>units<0n?-units:units;
 const money4=value=>{
   const parsed=amount(value);
   return parsed===null?null:parsed.toFixed(4);
@@ -234,7 +255,10 @@ export function evaluateWbsAutoReconciliationEligibility({bankStaging,businessSt
   if(text(bankStaging.company_key)!==text(businessStaging.company_key)||text(bankStaging.currency)!==text(businessStaging.currency))exceptions.push(eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_SCOPE_MISMATCH','Auto Reconciliation sources must share exact company and currency'));
   if(text(bankStaging.direction).toUpperCase()===text(businessStaging.direction).toUpperCase())exceptions.push(eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_DIRECTION_MISMATCH','Bank and business evidence must have opposite directions'));
   if(text(bankStaging.bank_account_ref)!==text(businessStaging.bank_account_ref))exceptions.push(eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_BANK_ACCOUNT_MISMATCH','Bank and business evidence must reference the exact same bank account'));
-  const difference=Math.abs(Math.abs(amount(bankStaging.amount))-Math.abs(amount(businessStaging.amount)));
+  const bankUnits=moneyUnits(bankStaging.amount),businessUnits=moneyUnits(businessStaging.amount);
+  const differenceUnits=absoluteUnits(absoluteUnits(bankUnits)-absoluteUnits(businessUnits));
+  const toleranceUnits=moneyUnits(tolerance);
+  const difference=publicMoney(differenceUnits);
   // An approved provider policy owns the matching windows and tolerances. Do
   // not pre-filter with UI/caller values: that could block a valid policy
   // match or make its audit record disagree with the presented candidate.
@@ -243,7 +267,7 @@ export function evaluateWbsAutoReconciliationEligibility({bankStaging,businessSt
     const accountingDateMatches=validIsoDate(bankStaging?.accounting_date)&&validIsoDate(businessStaging?.accounting_date)&&dayDistance(bankStaging.accounting_date,businessStaging.accounting_date)<=Number(dateWindowDays);
     const datesMatch=dateBasis==='BUSINESS_ONLY'?businessDateMatches:dateBasis==='ACCOUNTING_ONLY'?accountingDateMatches:dateBasis==='BUSINESS_AND_ACCOUNTING'&&businessDateMatches&&accountingDateMatches;
     if(!Number.isSafeInteger(Number(dateWindowDays))||Number(dateWindowDays)<0||!datesMatch)exceptions.push(eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_DATE_WINDOW_MISMATCH','Bank and business dates exceed the approved review window for the selected date-match basis'));
-    if(!Number.isFinite(Number(tolerance))||Number(tolerance)<0||difference>Number(tolerance))exceptions.push(eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_AMOUNT_MISMATCH','Auto Reconciliation source amounts exceed the approved capacity'));
+    if(toleranceUnits===null||toleranceUnits<0n||differenceUnits>toleranceUnits)exceptions.push(eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_AMOUNT_MISMATCH','Auto Reconciliation source amounts exceed the approved capacity'));
   }
   if(exceptions.length)return Object.freeze({status:'BLOCKED',candidates:Object.freeze([]),exceptions:Object.freeze(exceptions),can_allocate:false,can_dispatch:false,can_create_draft:false,can_post:false});
   // A caller may choose a generic local-fixture proposal, but any supplied
@@ -254,7 +278,7 @@ export function evaluateWbsAutoReconciliationEligibility({bankStaging,businessSt
   const policyEdge=policyPlan?.allocation_plan[0]??null;
   if(policyPlan&&!policyEdge)return Object.freeze({status:'BLOCKED',candidates:Object.freeze([]),exceptions:freeze([eligibilityException('PAIR',businessStaging,'WBS_AUTOREC_POLICY_EDGE_REQUIRED','The approved matching policy did not yield one immutable review edge.')]),can_allocate:false,can_dispatch:false,can_create_draft:false,can_post:false});
   const effectiveDateBasis=policyPlan?.control_totals.date_match_basis??dateBasis,effectiveDateWindow=policyPlan?.control_totals.date_window_days??Number(dateWindowDays),effectiveDifference=policyPlan?.control_totals.difference??difference;
-  const allocatedAmount=policyEdge?.amount??Number(Math.min(Math.abs(amount(bankStaging.amount)),Math.abs(amount(businessStaging.amount))).toFixed(4));
+  const allocatedAmount=policyEdge?.amount??publicMoney(absoluteUnits(bankUnits)<absoluteUnits(businessUnits)?absoluteUnits(bankUnits):absoluteUnits(businessUnits));
   const companyControlTrace=policyPlan?.company_control_trace??null;
   const candidate=Object.freeze({request_type:'AUTOREC_REVIEW_REQUEST',status:'REVIEW_REQUIRED',can_allocate:false,can_release:false,can_dispatch:false,can_create_draft:false,can_post:false,bank_source_record_id:bankStaging.source_record_id,business_source_record_id:businessStaging.source_record_id,company_key:bankStaging.company_key,bank_account_ref:bankStaging.bank_account_ref,currency:bankStaging.currency,allocated_amount:allocatedAmount,amount_difference:effectiveDifference,date_window_days:effectiveDateWindow,date_match_basis:effectiveDateBasis,review_plan_id:policyPlan?.review_plan_id??null,allocation_edge_id:policyEdge?.allocation_edge_id??null,proposal_allocation_edge_id:policyEdge?.proposal_allocation_edge_id??null,matching_policy:policyPlan?.matching_policy??null,company_control_trace:companyControlTrace,trace:Object.freeze({company_key:bankStaging.company_key,currency:bankStaging.currency,bank_account_ref:bankStaging.bank_account_ref,allocated_amount:allocatedAmount,date_match_basis:effectiveDateBasis,review_plan_id:policyPlan?.review_plan_id??null,company_control_snapshot_hash:companyControlTrace?.control_snapshot_hash??null,bank_business_date:bankStaging.business_date,bank_accounting_date:bankStaging.accounting_date,business_business_date:businessStaging.business_date,business_accounting_date:businessStaging.accounting_date,bank_receipt_id:bankStaging.receipt_id,bank_receipt_ref:bankStaging.receipt_ref,bank_receipt_hash:bankStaging.receipt_hash,business_receipt_id:businessStaging.receipt_id,business_receipt_ref:businessStaging.receipt_ref,business_receipt_hash:businessStaging.receipt_hash,bank_external_relation_trace_hash:relationHashes.BANK_SIDE??null,business_external_relation_trace_hash:relationHashes.BUSINESS_SIDE??null,bank_provider_snapshot_token:text(bankStaging.upstream_mcp_snapshot_token)||null,business_provider_snapshot_token:text(businessStaging.upstream_mcp_snapshot_token)||null,bank_raw_event_id:bankStaging.raw_event_id,business_raw_event_id:businessStaging.raw_event_id,bank_source_document_id:bankStaging.source_document_id,business_source_document_id:businessStaging.source_document_id,bank_source_record_id:bankStaging.source_record_id,bank_source_version:bankStaging.source_version,business_source_record_id:businessStaging.source_record_id,business_source_version:businessStaging.source_version,bank_staging_item_id:bankStaging.staging_item_id,business_staging_item_id:businessStaging.staging_item_id,bill_no:businessStaging.bill_no,journal_no:bankStaging.journal_no,payee_no:bankStaging.payee_no,project_ref:businessStaging.project_ref,project_code:businessStaging.project_code,bank_account_before:bankStaging.account_before,bank_account_after:bankStaging.account_after,business_account_before:businessStaging.account_before,business_account_after:businessStaging.account_after,bank_review_event_id:bankStaging.review_event_id,business_review_event_id:businessStaging.review_event_id,allocation_edge_id:policyEdge?.allocation_edge_id??null,proposal_allocation_edge_id:policyEdge?.proposal_allocation_edge_id??null,matching_policy:policyPlan?.matching_policy??null})});
   return Object.freeze({status:'REVIEW_REQUIRED',candidates:Object.freeze([candidate]),exceptions:Object.freeze([]),can_allocate:false,can_dispatch:false,can_create_draft:false,can_post:false});
@@ -272,9 +296,9 @@ export function buildAutoReconciliationReviewRequest(args={}){
 // command separate prevents a UI or import job from silently consuming value.
 export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tolerance=0,dateWindowDays=3,dateMatchBasis='BUSINESS_AND_ACCOUNTING'}={}){
   if(!Array.isArray(bankRows)||!Array.isArray(businessRows)||bankRows.length===0||businessRows.length===0)fail('WBS_AUTOREC_PLAN_ROWS_REQUIRED','At least one bank row and one business row are required.');
-  const toleranceValue=amount(tolerance),dateWindow=Number(dateWindowDays);
+  const toleranceUnits=moneyUnits(tolerance),dateWindow=Number(dateWindowDays);
   const dateBasis=text(dateMatchBasis).toUpperCase();
-  if(toleranceValue===null||toleranceValue<0||!Number.isSafeInteger(dateWindow)||dateWindow<0||!['BUSINESS_ONLY','ACCOUNTING_ONLY','BUSINESS_AND_ACCOUNTING'].includes(dateBasis))fail('WBS_AUTOREC_PLAN_OPTIONS_INVALID','Auto Reconciliation tolerance, date window, or date-match basis is invalid.');
+  if(toleranceUnits===null||toleranceUnits<0n||!Number.isSafeInteger(dateWindow)||dateWindow<0||!['BUSINESS_ONLY','ACCOUNTING_ONLY','BUSINESS_AND_ACCOUNTING'].includes(dateBasis))fail('WBS_AUTOREC_PLAN_OPTIONS_INVALID','Auto Reconciliation tolerance, date window, or date-match basis is invalid.');
   const exceptions=[],required=['receipt_id','receipt_ref','receipt_hash','raw_event_id','source_document_id','staging_item_id','source_record_id','source_version','company_key','currency','amount','business_date','accounting_date','bank_account_ref','direction','review_event_id'];
   const inspect=(side,row,allowed)=>{
     const missing=required.filter(field=>field==='amount'?amount(row?.amount)===null||amount(row?.amount)===0:text(row?.[field])==='');
@@ -344,7 +368,7 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
     const rightKey=[text(right.row.source_type),text(right.row.source_record_id),text(right.row.source_version)].join('\u0000');
     return leftKey.localeCompare(rightKey);
   };
-  const remaining=rows=>rows.map(row=>({row,capacity:Math.round(Math.abs(amount(row.amount))*10000),remaining:0})).sort(compareSourceIdentity);
+  const remaining=rows=>rows.map(row=>({row,capacity:absoluteUnits(moneyUnits(row.amount)),remaining:0n})).sort(compareSourceIdentity);
   const banks=remaining(bankRows),businesses=remaining(businessRows),allocation=[];
   // Allocate over the date-compatible bipartite graph, rather than greedily
   // consuming the first compatible business row. A greedy ordering can strand
@@ -352,14 +376,14 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
   // allocation exists. Capacities are canonical accounting decimals scaled to
   // four places, so all residual calculations are exact integers.
   const source=0,bankOffset=1,businessOffset=bankOffset+banks.length,sink=businessOffset+businesses.length,graph=Array.from({length:sink+1},()=>[]),arcs=[];
-  const addEdge=(from,to,capacity)=>{const forward={to,reverse:graph[to].length,capacity,initial:capacity},reverse={to:from,reverse:graph[from].length,capacity:0,initial:0};graph[from].push(forward);graph[to].push(reverse);return forward;};
+  const addEdge=(from,to,capacity)=>{const forward={to,reverse:graph[to].length,capacity,initial:capacity},reverse={to:from,reverse:graph[from].length,capacity:0n,initial:0n};graph[from].push(forward);graph[to].push(reverse);return forward;};
   banks.forEach((bank,index)=>addEdge(source,bankOffset+index,bank.capacity));
   businesses.forEach((business,index)=>addEdge(businessOffset+index,sink,business.capacity));
   banks.forEach((bank,bankIndex)=>businesses.forEach((business,businessIndex)=>{
     // Date compatibility is an allocation-edge constraint, not a requirement
     // that every bank row match every business row in a split proposal.
     if(!dateMatches(bank.row,business.row))return;
-    arcs.push({bank,business,edge:addEdge(bankOffset+bankIndex,businessOffset+businessIndex,Math.min(bank.capacity,business.capacity))});
+    arcs.push({bank,business,edge:addEdge(bankOffset+bankIndex,businessOffset+businessIndex,bank.capacity<business.capacity?bank.capacity:business.capacity)});
   }));
   while(true){
     const previous=Array(sink+1).fill(null),queue=[source];previous[source]={node:source};
@@ -367,20 +391,20 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
       const node=queue[cursor];
       for(let edgeIndex=0;edgeIndex<graph[node].length;edgeIndex++){
         const edge=graph[node][edgeIndex];
-        if(edge.capacity<=0||previous[edge.to]!==null)continue;
+        if(edge.capacity<=0n||previous[edge.to]!==null)continue;
         previous[edge.to]={node,edgeIndex};queue.push(edge.to);
         if(edge.to===sink)break;
       }
     }
     if(previous[sink]===null)break;
-    let pushed=Number.MAX_SAFE_INTEGER;
-    for(let node=sink;node!==source;node=previous[node].node)pushed=Math.min(pushed,graph[previous[node].node][previous[node].edgeIndex].capacity);
+    let pushed=null;
+    for(let node=sink;node!==source;node=previous[node].node){const capacity=graph[previous[node].node][previous[node].edgeIndex].capacity;pushed=pushed===null||capacity<pushed?capacity:pushed;}
     for(let node=sink;node!==source;node=previous[node].node){const step=previous[node],edge=graph[step.node][step.edgeIndex];edge.capacity-=pushed;graph[edge.to][edge.reverse].capacity+=pushed;}
   }
   for(const arc of arcs){
     const allocatedUnits=arc.edge.initial-arc.edge.capacity;
-    if(allocatedUnits<=0)continue;
-    const bank=arc.bank,business=arc.business,allocated=Number((allocatedUnits/10000).toFixed(4));
+    if(allocatedUnits<=0n)continue;
+    const bank=arc.bank,business=arc.business,allocated=publicMoney(allocatedUnits);
     bank.remaining+=allocatedUnits;business.remaining+=allocatedUnits;
     // This is a proposal identity, never an allocation command identity.  It
     // lets a later reservation service prove precisely which immutable source
@@ -393,11 +417,12 @@ export function buildWbsAutoReconciliationReviewPlan({bankRows,businessRows,tole
     };
     allocation.push(freeze({allocation_edge_id:canonicalRequestHash(edgeTrace),bank_source_type:edgeTrace.bank_source_type,bank_source_record_id:bank.row.source_record_id,bank_source_version:bank.row.source_version,business_source_type:edgeTrace.business_source_type,business_source_record_id:business.row.source_record_id,business_source_version:business.row.source_version,amount:allocated,currency:anchor.currency,date_match_basis:dateBasis,bank_receipt_hash:bank.row.receipt_hash,business_receipt_hash:business.row.receipt_hash,bank_external_relation_trace_hash:edgeTrace.bank_external_relation_trace_hash,business_external_relation_trace_hash:edgeTrace.business_external_relation_trace_hash,company_control_snapshot_hash:edgeTrace.company_control_snapshot_hash,can_allocate:false,can_release:false,can_post:false}));
   }
-  const bankTotal=Number(banks.reduce((sum,item)=>sum+Math.abs(amount(item.row.amount)),0).toFixed(4));
-  const businessTotal=Number(businesses.reduce((sum,item)=>sum+Math.abs(amount(item.row.amount)),0).toFixed(4));
-  const allocatedTotal=Number(allocation.reduce((sum,item)=>sum+item.amount,0).toFixed(4));
-  const bankRemaining=Number(banks.reduce((sum,item)=>sum+(item.capacity-item.remaining)/10000,0).toFixed(4)),businessRemaining=Number(businesses.reduce((sum,item)=>sum+(item.capacity-item.remaining)/10000,0).toFixed(4));
-  const difference=Number(Math.abs(bankTotal-businessTotal).toFixed(4)),amountsBalanced=difference<=toleranceValue,fullyAllocated=bankRemaining<=toleranceValue&&businessRemaining<=toleranceValue;
+  const bankTotalUnits=banks.reduce((sum,item)=>sum+item.capacity,0n);
+  const businessTotalUnits=businesses.reduce((sum,item)=>sum+item.capacity,0n);
+  const allocatedTotalUnits=allocation.reduce((sum,item)=>sum+moneyUnits(item.amount),0n);
+  const bankRemainingUnits=banks.reduce((sum,item)=>sum+(item.capacity-item.remaining),0n),businessRemainingUnits=businesses.reduce((sum,item)=>sum+(item.capacity-item.remaining),0n);
+  const differenceUnits=absoluteUnits(bankTotalUnits-businessTotalUnits),amountsBalanced=differenceUnits<=toleranceUnits,fullyAllocated=bankRemainingUnits<=toleranceUnits&&businessRemainingUnits<=toleranceUnits;
+  const bankTotal=publicMoney(bankTotalUnits),businessTotal=publicMoney(businessTotalUnits),allocatedTotal=publicMoney(allocatedTotalUnits),bankRemaining=publicMoney(bankRemainingUnits),businessRemaining=publicMoney(businessRemainingUnits),difference=publicMoney(differenceUnits),toleranceValue=publicMoney(toleranceUnits);
   if(allocation.length===0)return freeze({status:'BLOCKED',allocation_plan:freeze([]),exceptions:freeze([eligibilityException('PAIR',anchor,'WBS_AUTOREC_PLAN_DATE_WINDOW_MISMATCH','No proposed bank/business allocation edge is within the approved date window for the selected date-match basis.')]),controls:freeze({can_allocate:false,can_release:false,can_post:false})});
   const balanced=amountsBalanced&&fullyAllocated;
   const trace=allocation.map(item=>({allocation_edge_id:item.allocation_edge_id,date_match_basis:item.date_match_basis,bank_source_type:item.bank_source_type,bank_source_record_id:item.bank_source_record_id,bank_source_version:item.bank_source_version,business_source_type:item.business_source_type,business_source_record_id:item.business_source_record_id,business_source_version:item.business_source_version,bank_receipt_hash:item.bank_receipt_hash,business_receipt_hash:item.business_receipt_hash,company_control_snapshot_hash:item.company_control_snapshot_hash}));
