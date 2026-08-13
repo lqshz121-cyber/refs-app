@@ -115,4 +115,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"107_financial_statement_snapshot_read.sql",up:"51171be9ff5d5ee82ba198114d28528cb0047ff73cbc5ffc3fd7c03a1e33ea1c",down:"f8f4db654646df65a5710bae4e3e00d73b6e6ded2693a4f0a7ab79daebc58733"}),
   Object.freeze({name:"108_reconciled_snapshot_read.sql",up:"834d52d00f8dfb9156605c691d431591baac00f9fff89287bbe04a8e4283fe51",down:"5d1cb10ff031d0035c62b7ec2dd82492840f157e7a8d16e038fd337670e57199"}),
   Object.freeze({name:"109_reconciliation_posted_lineage_read.sql",up:"022bcfd88f65ee14b1cd9c0e7380b1cc51829d48889aca048088b4f3cd82b2ab",down:"f71b5311f0d6b584f920cafc1c5c964c324680b0a9865efb88f3cdc0a120491a"}),
+  Object.freeze({name:"110_lot_profitability_read.sql",up:"1ff49793e4aaecdb18a5c549360dc75d8559e1ac8c8dfbb1aa555c11f74cbd84",down:"4ccc8d2fa94854ddb25f0359d2d75de5c1987065d94d6ddc05158e3bd1e88d75"}),
 ]);

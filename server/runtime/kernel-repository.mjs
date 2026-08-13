@@ -789,6 +789,13 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getLotProfitability({tenantId,entityId,periodId,lotRef}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_lot_profitability($1,$2,$3,$4)',
+      [tenantId,entityId,periodId,lotRef]
+    )).rows);
+  }
+
   async getCashFlowClassification({tenantId,entityId,periodId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_cash_flow_classification($1,$2,$3)',
