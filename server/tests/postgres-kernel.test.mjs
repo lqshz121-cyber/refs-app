@@ -2491,14 +2491,15 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
 
 pgTest('Stage 2 test-data chain traces one reconciled bank payment through its posted JE, GL, TB and report rows',async()=>{
   const ids=await seed({status:'APPROVED',attachmentStatus:null});
+  const amount='100.1234';
   const billId=randomUUID();
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
-    VALUES($1,$2,$3,'AP_BILL','BILL-STAGE2-CHAIN-1','VENDOR-1','Stage 2 test vendor','USD','2026-07-15','2026-08-15',100,100,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId]);
+    VALUES($1,$2,$3,'AP_BILL','BILL-STAGE2-CHAIN-1','VENDOR-1','Stage 2 test vendor','USD','2026-07-15','2026-08-15',$4,$4,'APPROVED','fixture')`,[billId,ids.tenantId,ids.entityId,amount]);
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-maker',['AP.PAYMENT.CREATE','GL.JE.SUBMIT'])});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-je-reviewer',['GL.JE.REVIEW'])});
   const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-je-approver',['GL.JE.APPROVE'])});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-je-poster',['GL.JE.POST'])});
-  const payment=await maker.createApPayment({...ids,businessDocumentId:billId,paymentNumber:'PAY-STAGE2-100',paymentDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:100,reason:'Stage 2 exact bank payment',idempotencyKey:'stage2-payment-create-001'});
+  const payment=await maker.createApPayment({...ids,businessDocumentId:billId,paymentNumber:'PAY-STAGE2-100',paymentDate:'2026-07-16',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount,reason:'Stage 2 exact bank payment',idempotencyKey:'stage2-payment-create-001'});
   const source=await attachAutoSource({...ids,journalId:payment.journal_entry_id});
   await maker.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'stage2-payment-submit-001'});
   await reviewer.transitionJournal({...ids,journalEntryId:payment.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'stage2-payment-review-001'});
@@ -2507,7 +2508,7 @@ pgTest('Stage 2 test-data chain traces one reconciled bank payment through its p
 
   const bankSourceId=randomUUID();
   await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
-    VALUES($1,$2,$3,$4,'BANK-1','BANK-STAGE2-100','2026-07-16','USD',-100)`,[bankSourceId,ids.tenantId,ids.entityId,source.documentId]);
+    VALUES($1,$2,$3,$4,'BANK-1','BANK-STAGE2-100','2026-07-16','USD',-$5::numeric)`,[bankSourceId,ids.tenantId,ids.entityId,source.documentId,amount]);
   const matcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-matcher',['BANK.MATCH.CREATE'])});
   const candidates=await matcher.listBankMatchCandidates({...ids,bankSourceId});
   assert.equal(candidates.length,1);assert.equal(candidates[0].payment_occurrence_id,payment.payment_occurrence_id);assert.equal(candidates[0].journal_entry_id,payment.journal_entry_id);
@@ -2520,7 +2521,7 @@ pgTest('Stage 2 test-data chain traces one reconciled bank payment through its p
   const clearer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-recon-clearer',['BANK.RECONCILIATION.CLEAR'])});
   const reconReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-recon-reviewer',['BANK.RECONCILIATION.REVIEW'])});
   const signer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-recon-signer',['BANK.RECONCILIATION.SIGN_OFF'])});
-  const reconciliation=await starter.startReconciliation({...ids,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'-100.0000',reason:'Stage 2 test statement',idempotencyKey:'stage2-reconciliation-start-001'});
+  const reconciliation=await starter.startReconciliation({...ids,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'-100.1234',reason:'Stage 2 test statement',idempotencyKey:'stage2-reconciliation-start-001'});
   const cleared=await clearer.setReconciliationClearance({...ids,reconciliationId:reconciliation.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Clear exact posted stage 2 payment',idempotencyKey:'stage2-reconciliation-clear-001'});
   assert.equal(Number(cleared.difference),0);
   const worksheet=await reader.listReconciliationWorksheet({...ids,reconciliationId:reconciliation.reconciliation_id});
@@ -2531,11 +2532,12 @@ pgTest('Stage 2 test-data chain traces one reconciled bank payment through its p
 
   const ledger=await reader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'111000',query:null,limit:50,offset:0});
   const cashLedger=ledger.find(row=>row.journal_entry_id===payment.journal_entry_id);
-  assert.ok(cashLedger);assert.deepEqual(cashLedger.source_document_ids,[source.documentId]);
+  assert.ok(cashLedger);assert.equal(cashLedger.credit_amount,amount);assert.deepEqual(cashLedger.source_document_ids,[source.documentId]);
   const statements=await reader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
   for(const statementType of ['TRIAL_BALANCE','BALANCE_SHEET','CASH_FLOW']){
     const row=statements.find(candidate=>candidate.statement_type===statementType&&candidate.account_code==='111000');
     assert.ok(row,`${statementType} must include the reconciled cash ledger row`);
+    assert.equal(row.display_balance,'-100.1234');
     assert.ok(row.journal_entry_ids.includes(payment.journal_entry_id));assert.ok(row.ledger_line_ids.includes(evidence.ledger_line_id));assert.ok(row.source_document_ids.includes(source.documentId));
   }
   const snapshot=(await adminPool.query('SELECT snapshot_body,snapshot_hash FROM reconciliation_snapshot WHERE reconciliation_id=$1',[reconciliation.reconciliation_id])).rows[0];
