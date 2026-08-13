@@ -7,6 +7,10 @@ accounting API service shell with the isolated `refs_grant_sync` connection.
 
 The approved roles are:
 
+- `WBS_OPERATOR_ATTESTER`: read the sanitized WBS AutoRec pilot and retain its
+  exact Payable observation as unsigned exception evidence. It has no AP, AR,
+  Bank, Journal, GL, Draft, review, approval, posting, import, or admission
+  permission.
 - `WBS_PAYABLE_REVIEWER`: review signed, persisted WBS Payable evidence only.
 - `WBS_PAYABLE_MAKER`: create an AP Bill Draft from reviewed WBS evidence and
   submit its Journal Draft. It cannot review, approve, or post.
