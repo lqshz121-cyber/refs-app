@@ -22,6 +22,9 @@ assert.equal(authoritativeScopePresentation(
   {entityId,periodId,cashAccountCode:'111000'},
   [{entity_id:entityId,period_id:periodId,period_code:'2026-08',period_start:'2026-08-01',period_end:'2026-08-31',account_code:'111000',account_name:'Operating cash',entity_name:'Wan Pacific Real Estate Development LLC'}],
 ).entityLabel,'Wan Pacific Real Estate Development LLC');
+const persistedScope=authoritativeScopePresentation({entityId,periodId,cashAccountCode:'111000'},[],{entity_id:entityId,entity_name:'Wan Pacific Real Estate Development LLC',period_id:periodId,period_code:'2026-08',period_start:'2026-08-01',period_end:'2026-08-31'});
+assert.equal(persistedScope.entityLabel,'Wan Pacific Real Estate Development LLC');
+assert.equal(persistedScope.periodDetail,'Aug 1, 2026 - Aug 31, 2026');
 assert.equal(authoritativeScopePresentation(
   {entityId,periodId,cashAccountCode:'111000'},
   [{entity_id:'99999999-9999-4999-8999-999999999999',account_code:'111000',account_name:'Wrong company cash',entity_name:'Wrong company'}],

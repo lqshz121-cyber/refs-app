@@ -586,3 +586,13 @@ test('liveness and readiness expose a non-secret release stamp while readiness f
     response=await fetch(`${base}/health/ready`);assert.equal(response.status,503);assert.deepEqual(await response.json(),{ok:false,status:'not_ready',release});ready=true;response=await fetch(`${base}/health/ready`);assert.equal(response.status,200);assert.deepEqual(await response.json(),{ok:true,status:'ready',release});
   }finally{await new Promise(resolve=>server.close(resolve));}
 });
+
+test('authoritative scope read returns only persisted entity and exact period metadata',async()=>{
+  const scope={entity_id:entityId,entity_name:'Wan Pacific Real Estate Development LLC',entity_code:'WBPA',base_currency:'USD',period_id:periodId,period_code:'2026-06',period_start:'2026-06-01',period_end:'2026-06-30',period_status:'OPEN'};
+  const reads=[];const scopeApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reader'}),kernelFactory:async()=>({readAuthoritativeScope:async input=>{reads.push(input);return scope;}})});
+  const path=`/api/v1/entities/${entityId}/scope?periodId=${periodId}`;
+  let response=await scopeApi({method:'GET',url:path,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body,{ok:true,data:scope});assert.deepEqual(reads,[{tenantId,entityId,periodId}]);
+  response=await scopeApi({method:'GET',url:`${path}&unused=1`,body:null,headers:{}});assert.equal(response.status,400);assert.equal(response.body.code,'UNEXPECTED_QUERY_PARAMETER');
+  response=await scopeApi({method:'GET',url:path,body:null,headers:{'If-Match':'"0"'}});assert.equal(response.status,400);assert.equal(response.body.code,'IF_MATCH_NOT_ALLOWED');
+});

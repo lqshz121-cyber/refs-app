@@ -624,6 +624,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async readAuthoritativeScope({tenantId,entityId,periodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT * FROM refs_read_authoritative_scope($1,$2,$3)',[tenantId,entityId,periodId]
+    ),'AUTHORITATIVE_SCOPE_NOT_FOUND','Authoritative entity and period scope is unavailable'));
+  }
+
   async listAccountRegister({tenantId,entityId,periodId,accountCode}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_account_register($1,$2,$3,$4)',[tenantId,entityId,periodId,accountCode]

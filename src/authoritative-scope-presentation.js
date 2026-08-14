@@ -8,14 +8,18 @@ export const formatAuthoritativeDate=value=>{
   return new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'}).format(parsed);
 };
 
-export function authoritativeScopePresentation(config,coaRows=[]){
+export function authoritativeScopePresentation(config,coaRows=[],scopeMetadata=null){
   const rows=Array.isArray(coaRows)?coaRows:[];
+  const metadataEntityMatches=Boolean(scopeMetadata&&scopeMetadata.entity_id===config?.entityId);
+  const metadataPeriodMatches=Boolean(scopeMetadata&&scopeMetadata.period_id===config?.periodId);
   const period=rows.find(row=>row?.period_id===config?.periodId&&/^\d{4}-(0[1-9]|1[0-2])$/.test(row?.period_code||''));
   const inEntity=row=>!row?.entity_id||row.entity_id===config?.entityId;
   const scopedRows=rows.filter(row=>inEntity(row));
   const cash=scopedRows.find(row=>row?.account_code===config?.cashAccountCode&&typeof row?.account_name==='string'&&row.account_name.trim());
   const namedEntityRows=scopedRows.filter(row=>row?.entity_id===config?.entityId);
-  const entityName=namedEntityRows.find(row=>typeof row?.entity_name==='string'&&row.entity_name.trim())?.entity_name?.trim()
+  const entityName=metadataEntityMatches&&typeof scopeMetadata?.entity_name==='string'&&scopeMetadata.entity_name.trim()
+    ?scopeMetadata.entity_name.trim()
+    :namedEntityRows.find(row=>typeof row?.entity_name==='string'&&row.entity_name.trim())?.entity_name?.trim()
     || namedEntityRows.find(row=>typeof row?.entity_display_name==='string'&&row.entity_display_name.trim())?.entity_display_name?.trim();
   const entityNameReturned=Boolean(entityName);
   const periodReturned=Boolean(period?.period_code);
@@ -24,9 +28,9 @@ export function authoritativeScopePresentation(config,coaRows=[]){
     entityDetail:UUID.test(config?.entityId||'')?config.entityId:'Identifier unavailable',
     entityNameReturned,
     entityHint:entityNameReturned?'':'The authenticated API did not return an entity display name.',
-    periodLabel:period?.period_code||'Configured period',
-    periodDetail:period?`${formatAuthoritativeDate(period.period_start)} - ${formatAuthoritativeDate(period.period_end)}`:(UUID.test(config?.periodId||'')?config.periodId:'Identifier unavailable'),
-    periodReturned,
+    periodLabel:metadataPeriodMatches&&/^\d{4}-(0[1-9]|1[0-2])$/.test(scopeMetadata?.period_code||'')?scopeMetadata.period_code:(period?.period_code||'Configured period'),
+    periodDetail:metadataPeriodMatches?`${formatAuthoritativeDate(scopeMetadata.period_start)} - ${formatAuthoritativeDate(scopeMetadata.period_end)}`:(period?`${formatAuthoritativeDate(period.period_start)} - ${formatAuthoritativeDate(period.period_end)}`:(UUID.test(config?.periodId||'')?config.periodId:'Identifier unavailable')),
+    periodReturned:metadataPeriodMatches||periodReturned,
     periodHint:periodReturned?'':'The authenticated API did not return a period code or date range.',
     cashAccountLabel:cash?`${cash.account_code} - ${cash.account_name}`:(config?.cashAccountCode?`${config.cashAccountCode} - Name unavailable`:'Not configured'),
   };

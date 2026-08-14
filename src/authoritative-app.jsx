@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { accountingApiConfig, activateAuthoritativeReadAccess, refreshAuthoritativeChartOfAccounts, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries } from './accounting-api.js';
+import { accountingApiConfig, activateAuthoritativeReadAccess, refreshAuthoritativeChartOfAccounts, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, refreshAuthoritativeScope } from './accounting-api.js';
 import { AuthoritativeSourceDocumentsWorkspace } from './authoritative-source-documents-workspace.jsx';
 import { BrowserOidcClient, RENEWAL_MIN_INTERVAL_MS, oidcRuntimeConfig, silentRenewalSchedule } from './oidc-client.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
@@ -146,6 +146,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [workspaceRefreshVersion, setWorkspaceRefreshVersion] = useState(0);
   const [sharedAccountingLoaded, setSharedAccountingLoaded] = useState(false);
   const [scopeRows,setScopeRows]=useState([]);
+  const [scopeMetadata,setScopeMetadata]=useState(null);
   // A direct selection of Reports is an explicit catalog entry, not a
   // continuation of the last report drill. React preserves a mounted route
   // when a user selects its already-active navigation item, so keep a small
@@ -403,7 +404,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   };
   const logout = () => { oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED'); };
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
-  const scopePresentation=useMemo(()=>authoritativeScopePresentation(config,scopeRows),[config,scopeRows]);
+  useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeScope({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeMetadata(result.ok?result.row:null);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
+  const scopePresentation=useMemo(()=>authoritativeScopePresentation(config,scopeRows,scopeMetadata),[config,scopeRows,scopeMetadata]);
   const displayConfig=useMemo(()=>({...config,scopePresentation}),[config,scopePresentation]);
   if (!configured) return <RuntimeErrorPage code="CONFIGURATION_REQUIRED"/>;
   if (typeof environment?.document === 'undefined') return <main className="login-shell"><section className="login-card"><h1>Authoritative accounting</h1><p>Secure OIDC session verification is in progress.</p></section></main>;
