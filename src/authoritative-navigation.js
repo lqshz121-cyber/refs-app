@@ -15,7 +15,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
   group('Control Center', [
     item('overview', 'Dashboard', 'API_READ'),
     item('approvals', 'Action required'),
-    item('ai-audit', 'AI Audit Center'),
+    item('ai-audit', 'AI Audit Center', 'API_READ'),
     item('ai-je-workbench', 'AI JE Workbench'),
   ]),
   group('Accounting Settings', [
