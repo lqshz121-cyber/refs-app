@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash,generateKeyPairSync,randomUUID,sign} from 'node:crypto';
+import {createHash,createPublicKey,generateKeyPairSync,randomUUID,sign} from 'node:crypto';
 import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {canonicalRequestBody,canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {canonicalWbsLiveReceiptSigningPayload} from '../runtime/wbs-live-receipt-signing.mjs';
-import {captureWbsSignedDelivery,createWbsSignedDelivery,verifyWbsSignedDelivery,WbsSignedDeliveryAdmissionError} from '../runtime/wbs-signed-delivery-admission.mjs';
+import {captureWbsSignedDelivery,createWbsSignedDelivery,normalizeWbsProviderTrust,verifyWbsSignedDelivery,WbsSignedDeliveryAdmissionError} from '../runtime/wbs-signed-delivery-admission.mjs';
 
 const NOW=Date.parse('2026-08-12T08:05:00.000Z');
 const rawHash=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -25,6 +25,16 @@ test('provider creates one deterministic dual-signed package that verifies again
   const verified=await verifyWbsSignedDelivery({providerTrust:input.providerTrust,receipt:input.receipt,requestRaw:input.requestRaw,responseRaw:input.responseRaw,packageRaw:input.packageRaw,expectedScope:input.scope,now:NOW});
   assert.equal(verified.status,'VERIFIED_NOT_ADMITTED');assert.equal(verified.signature_verified,true);assert.equal(verified.snapshot_id,input.package.snapshot_id);
   for(const field of ['can_import','can_create_transaction','can_allocate','can_create_draft','can_approve','can_post'])assert.equal(verified[field],false);
+});
+
+test('provider trust accepts the standard SPKI DER fingerprint with or without the sha256 prefix and rejects substitution',async()=>{
+  const input=await fixture(),key=createPublicKey(input.providerTrust.public_key);
+  const hex=createHash('sha256').update(key.export({type:'spki',format:'der'})).digest('hex');
+  const bare=normalizeWbsProviderTrust({...input.providerTrust,fingerprint_sha256:hex});
+  const prefixed=normalizeWbsProviderTrust({...input.providerTrust,fingerprint_sha256:`sha256:${hex}`});
+  assert.equal(bare.fingerprint_sha256,`sha256:${hex}`);
+  assert.equal(prefixed.fingerprint_sha256,`sha256:${hex}`);
+  assert.throws(()=>normalizeWbsProviderTrust({...input.providerTrust,fingerprint_sha256:`sha256:${'0'.repeat(64)}`}),rejected('WBS_SIGNED_DELIVERY_PROVIDER_TRUST_INVALID'));
 });
 
 test('capture is write-once by provider nonce and prepares only the existing authoritative snapshot endpoint request',async()=>{

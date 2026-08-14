@@ -26,6 +26,11 @@ const safeRaw=(value,label)=>{
 const exactUtc=value=>typeof value==='string'&&value.endsWith('Z')&&Number.isFinite(Date.parse(value))&&new Date(Date.parse(value)).toISOString()===value;
 const exactScope=scope=>object(scope)&&UUID.test(scope.tenant_id||'')&&UUID.test(scope.entity_id||'')&&TOKEN.test(scope.company_code||'');
 const without=(value,...keys)=>Object.fromEntries(Object.entries(value).filter(([key])=>!keys.includes(key)));
+const declaredFingerprint=value=>{
+  if(typeof value!=='string')return null;
+  const match=/^(?:sha256:)?([0-9a-f]{64})$/i.exec(value.trim());
+  return match?`sha256:${match[1].toLowerCase()}`:null;
+};
 
 function keyPair(privateKeyPem){
   let privateKey;try{privateKey=createPrivateKey(String(privateKeyPem||'').replace(/\\n/g,'\n'));}catch{fail('WBS_SIGNED_DELIVERY_PRIVATE_KEY_INVALID','An Ed25519 provider private key is required.');}
@@ -38,8 +43,15 @@ export function normalizeWbsProviderTrust(value){
   let publicKey;try{publicKey=createPublicKey(value.public_key.replace(/\\n/g,'\n'));}catch{fail('WBS_SIGNED_DELIVERY_PROVIDER_TRUST_INVALID','Pinned provider public key is invalid.');}
   if(publicKey.asymmetricKeyType!=='ed25519')fail('WBS_SIGNED_DELIVERY_PROVIDER_TRUST_INVALID','Pinned provider public key must be Ed25519.');
   const publicKeyPem=publicKey.export({type:'spki',format:'pem'}).toString();
-  const fingerprint=sha256(Buffer.from(publicKeyPem,'utf8'));
-  if(value.fingerprint_sha256!==undefined&&value.fingerprint_sha256!==fingerprint)fail('WBS_SIGNED_DELIVERY_PROVIDER_TRUST_INVALID','Pinned provider public-key fingerprint does not match.');
+  const fingerprint=sha256(publicKey.export({type:'spki',format:'der'}));
+  // SPKI DER is the canonical public-key fingerprint representation. Accept the
+  // previous normalized-PEM digest only for existing pinned configurations; the
+  // returned trust record is always normalized to the canonical DER digest.
+  const legacyFingerprint=sha256(Buffer.from(publicKeyPem,'utf8'));
+  if(value.fingerprint_sha256!==undefined){
+    const declared=declaredFingerprint(value.fingerprint_sha256);
+    if(declared===null||![fingerprint,legacyFingerprint].includes(declared))fail('WBS_SIGNED_DELIVERY_PROVIDER_TRUST_INVALID','Pinned provider public-key fingerprint does not match.');
+  }
   return Object.freeze({issuer:value.issuer,key_id:value.key_id,public_key:publicKeyPem,fingerprint_sha256:fingerprint,publicKey});
 }
 
@@ -62,7 +74,7 @@ export async function createWbsSignedDelivery({unsignedSnapshot,requestRaw,respo
   validReceiptWindow(receipt,now);
   receipt.detached_signature={key_id:keyId,algorithm:'Ed25519',value:sign(null,Buffer.from(canonicalWbsLiveReceiptSigningPayload(receipt),'utf8'),keys.privateKey).toString('base64')};
   const publicKey=keys.publicKey.export({type:'spki',format:'pem'}).toString();
-  const providerTrust=Object.freeze({issuer,key_id:keyId,public_key:publicKey,fingerprint_sha256:sha256(Buffer.from(publicKey,'utf8'))});
+  const providerTrust=Object.freeze({issuer,key_id:keyId,public_key:publicKey,fingerprint_sha256:sha256(keys.publicKey.export({type:'spki',format:'der'}))});
   return Object.freeze({providerTrust,receipt:Object.freeze(receipt),package:Object.freeze(snapshot),packageRaw});
 }
 
