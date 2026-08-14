@@ -6,6 +6,7 @@ import {AuthoritativeAdmittedStatements,AuthoritativeBankDetail,AuthoritativeBan
 import {routeRequiresSharedAccountingBootstrap} from '../src/authoritative-app.jsx';
 
 const config={entityId:'11111111-1111-4111-8111-111111111111'};
+const displayConfig={...config,scopePresentation:{entityLabel:'Wan Pacific Real Estate Development LLC'}};
 assert.equal(routeRequiresSharedAccountingBootstrap('reconciliation'),false,'a direct Reconciliation reload must mount its scoped reader without waiting for unrelated AP/AR or Journal requests');
 assert.equal(routeRequiresSharedAccountingBootstrap('bank'),false);
 assert.equal(routeRequiresSharedAccountingBootstrap('overview'),true);
@@ -17,6 +18,8 @@ const reconciliationRow={reconciliation_id:'11111111-1111-4111-8111-111111111111
 
 const bankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(bankInitial,/Bank transaction evidence/);assert.match(bankInitial,/Bank account/);assert.match(bankInitial,/From/);assert.match(bankInitial,/Through/);assert.match(bankInitial,/Choose one bank account/);assert.doesNotMatch(bankInitial,/localStorage|seed row/i);
+const namedBankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={displayConfig} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
+assert.match(namedBankInitial,/Wan Pacific Real Estate Development LLC/);assert.doesNotMatch(namedBankInitial,/Entity 11111111-1111-4111-8111-111111111111/);
 
 const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/One authoritative statement cutoff/);
@@ -52,7 +55,7 @@ assert.match(reconciliation,/Authoritative evidence scope/);assert.match(reconci
 const emptyReconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={null}/>);assert.match(emptyReconciliation,/Reconciliation evidence blocked/);assert.match(emptyReconciliation,/BLOCKED — The accounting API returned no authorized reconciliation statement/);assert.match(emptyReconciliation,/not evidence of zero statement activity/);assert.doesNotMatch(emptyReconciliation,/Open statement detail|Start DRAFT|Connect now|Get started/);
 
 const reconciliationDetail=renderToStaticMarkup(<AuthoritativeReconciliationDetail row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}} onBack={()=>{}}/>);
-assert.match(reconciliationDetail,/Back to reconciliation evidence/);assert.match(reconciliationDetail,/Statement ending 2026-07-31/);assert.match(reconciliationDetail,/\$1,000\.00/);assert.match(reconciliationDetail,/11111111-1111-4111-8111-111111111111/);
+assert.match(reconciliationDetail,/Back to reconciliation evidence/);assert.match(reconciliationDetail,/Statement ending 2026-07-31/);assert.match(reconciliationDetail,/\$1,000\.00/);assert.match(reconciliationDetail,/Configured entity/);
 assert.match(reconciliationDetail,/full-bleed qbo-transaction-report/);assert.match(reconciliationDetail,/Reconciled by/);
 assert.match(reconciliationDetail,/Load reconciliation worksheet/);assert.match(reconciliationDetail,/CONTROLLER REVIEW/);
 assert.match(reconciliationDetail,/AUTHORITATIVE STATEMENT WORKSHEET/);assert.match(reconciliationDetail,/Reconciliation lifecycle/);assert.match(reconciliationDetail,/Authoritative evidence scope/);
@@ -91,7 +94,7 @@ assert.match(source,/const reconciliationRowMatchesScope=/,'Reconciliation detai
 assert.match(source,/scopeMatches&&worksheet\.phase==='IDLE'/,'A mismatched reconciliation cannot fetch worksheet evidence');
 assert.match(source,/scopeMatches&&hasAuthorizedWorksheetEvidence&&<section className="card" aria-label="Reconciliation lifecycle command"/,'Lifecycle controls require matching immutable scope and server worksheet evidence');
 assert.match(source,/BLOCKED — immutable reconciliation scope mismatch/,'Reconciliation scope mismatches must remain evidence-only');
-assert.match(source,/AuthoritativeReconciliationSummary row=\{state\.row\} scope=\{\{\.\.\.scope,entityId:config\.entityId\}\}/,'Reconciliation summary must retain its exact entity and statement scope after a successful authoritative read');
+assert.match(source,/AuthoritativeReconciliationSummary row=\{state\.row\} scope=\{\{\.\.\.scope,entityId:config\.entityId,entityLabel:entityLabel\(config\)\}\}/,'Reconciliation summary must retain its exact entity and statement scope after a successful authoritative read');
 assert.doesNotMatch(source,/localStorage|SEED_|bankRecord|bankSignoff/,'authoritative Bank/Reconcile UI must not depend on demo state or legacy mutation helpers');
 assert.match(source,/refreshAuthoritativeBankMatchCandidates/,'Bank Match must start from server-validated candidate evidence, not a caller-supplied occurrence ID');
 assert.match(source,/aria-label="Exact posted candidate evidence"/,'The candidate card must identify its server-returned evidence boundary');

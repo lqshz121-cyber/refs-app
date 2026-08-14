@@ -64,6 +64,7 @@ const BankReadMetadata=({count,readAt,subject})=><p className="muted sm" aria-la
 
 const statusTone=status=>/^(ACTIVE|RECONCILED|CLEARED)$/i.test(String(status||''))?'badge-ok':/^(UNMATCHED|DRAFT|IN_REVIEW|REOPENED)$/i.test(String(status||''))?'badge-warn':'badge-muted';
 const EvidenceBadge=({children})=><span className={`badge ${statusTone(children)}`}>{children||'UNMATCHED'}</span>;
+const entityLabel=config=>config?.scopePresentation?.entityLabel||'Configured entity';
 
 // A stale parent context or inconsistent response must never unlock a
 // controller command on a different account or statement.
@@ -146,7 +147,7 @@ export const AuthoritativeBankDetail=({row,scope,onBack,config,fetcher,onMatchCh
   const scopeMatches=bankRowMatchesScope(row,scope);
   return <section className="full-bleed qbo-transaction-report authoritative-bank-detail" aria-label="Bank transaction detail">
   <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to bank transactions</button><p className="eyebrow">AUTHORITATIVE SOURCE EVIDENCE</p><h1>{row.external_bank_line_id}</h1><p className="muted sm">Independent source evidence. Only a controller may create or correct a server-validated Match; clearing, categorizing, posting, and deletion are unavailable.</p></div><span className="badge badge-muted">READ ONLY</span></div>
-  <ScopeStrip items={[{label:'Entity',value:scope.entityId},{label:'Account',value:row.bank_account_ref},{label:'Source version',value:`v${row.version}`},{label:'Match state',value:row.match_status||'UNMATCHED'}]}/>
+  <ScopeStrip items={[{label:'Entity',value:scope.entityLabel||'Configured entity'},{label:'Account',value:row.bank_account_ref},{label:'Source version',value:`v${row.version}`},{label:'Match state',value:row.match_status||'UNMATCHED'}]}/>
   <BankEvidenceLifecycle row={row}/>
   <div className="qbo-toolgrid">
     <span><i>Bank account</i><b>{row.bank_account_ref}</b></span><span><i>Transaction date</i><b>{row.transaction_date}</b></span>
@@ -166,14 +167,14 @@ export const AuthoritativeBankDetail=({row,scope,onBack,config,fetcher,onMatchCh
   </div>}
   {!scopeMatches&&<StateBlock tone="blocked" title="BLOCKED — immutable bank scope mismatch">The returned bank record does not match the account retained in the parent evidence scope. Match review is unavailable; return to the scoped bank transaction list.</StateBlock>}
   {scopeMatches&&config&&<AuthoritativeBankMatchReview row={row} config={config} fetcher={fetcher} onChanged={onMatchChanged}/>}
-  <p className="muted sm">Scope: entity {scope.entityId}; account {scope.bankAccountRef}; from {scope.from||'opening'} through {scope.through||'latest'}.</p>
+  <p className="muted sm">Scope: {scope.entityLabel||'Configured entity'}; account {scope.bankAccountRef}; from {scope.from||'opening'} through {scope.through||'latest'}.</p>
 </section>;
 };
 
 export const AuthoritativeReconciliationSummary=({row=null,scope=null,readAt=null,onOpen=()=>{}})=><section className="report-workbench recon-summary authoritative-reconciliation-summary" aria-label="Authoritative reconciliation evidence">
   <div className="card-head"><div><p className="eyebrow">STATEMENT → REVIEW → SIGN-OFF</p><h2>Reconciliation statement</h2><p className="muted sm">Statement-scoped evidence only. This page cannot match, clear, reopen, sign off, or post.</p></div><span className="badge badge-muted">READ ONLY</span></div>
   {!row?<StateBlock tone="blocked" title="Reconciliation evidence blocked">BLOCKED — The accounting API returned no authorized reconciliation statement for this account and cutoff. Reconciliation controls are unavailable until retained statement evidence is returned. This scoped result is not evidence of zero statement activity, zero difference, review, or sign-off.</StateBlock>:<>
-    <ScopeStrip items={[{label:'Entity',value:scope?.entityId},{label:'Bank account',value:row.bank_account_ref},{label:'Statement cutoff',value:row.statement_ending_date},{label:'Statement version',value:`v${row.version}`}]}/>
+  <ScopeStrip items={[{label:'Entity',value:scope?.entityLabel||'Configured entity'},{label:'Bank account',value:row.bank_account_ref},{label:'Statement cutoff',value:row.statement_ending_date},{label:'Statement version',value:`v${row.version}`}]}/>
     <BankReadMetadata count={1} readAt={readAt} subject="Reconciliation statements"/>
     <ReconciliationLifecycle status={row.status}/>
     <div className="recon-summary-grid"><span className="recon-summary-cell"><i>Statement ending</i><b>{money(row.statement_ending_balance)}</b></span><span className="recon-summary-cell"><i>Statement activity</i><b>{money(row.statement_activity_amount)}</b></span><span className="recon-summary-cell"><i>Difference</i><b>{money(row.difference)}</b></span><span className="recon-summary-cell"><i>Bank transactions</i><b>{row.bank_transaction_count}</b></span><span className="recon-summary-cell"><i>Active matches</i><b>{row.active_match_count}</b></span><span className="recon-summary-cell"><i>Unmatched</i><b>{row.unmatched_transaction_count}</b></span></div>
@@ -252,7 +253,7 @@ export function AuthoritativeReconciliationDetail({row,scope,onBack,config,fetch
     {!transition?<StateBlock tone="empty" title="No lifecycle action available">The server returned a reconciliation state without a permitted controller transition.</StateBlock>:<><button type="button" className="btn btn-primary" disabled={commandInFlight||!reasonReady} onClick={runTransition}>{transition.label}</button>{!reasonReady&&<p className="muted sm">Enter a controller reason of at least eight characters before issuing a lifecycle command.</p>}</>}
     {transitionState.error&&<ReadError error={transitionState.error} onRetry={()=>{}}/>}
   </section>}
-  <p className="muted sm">Scope: entity {scope.entityId}; account {scope.bankAccountRef}; statement cutoff {scope.statementEndingDate}.</p>
+  <p className="muted sm">Scope: {scope.entityLabel||'Configured entity'}; account {scope.bankAccountRef}; statement cutoff {scope.statementEndingDate}.</p>
 </section>;
 }
 
@@ -272,7 +273,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     setSelected(null);
     restoreAuthoritativeReturnContext(environment,config,context);
   };
-  if(selected)return <AuthoritativeBankDetail row={selected.row} scope={{...scope,entityId:config.entityId}} onBack={closeEvidence} config={config} fetcher={fetcher} onMatchChanged={()=>load(null,{preserveDetail:true,offset:state.offset})}/>;
+  if(selected)return <AuthoritativeBankDetail row={selected.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} onBack={closeEvidence} config={config} fetcher={fetcher} onMatchChanged={()=>load(null,{preserveDetail:true,offset:state.offset})}/>;
   return <AuthoritativeDemoView area="Bank transaction evidence" className="stack authoritative-bank-workspace"><AuthoritativeDemoWorkspaceHeader eyebrow="BANKING | SOURCE EVIDENCE" title="Bank transaction evidence" description="Entity-scoped, OIDC-authenticated records only. Browser seeds and local storage are never used."/>
     <form className="filterbar" onSubmit={load} aria-label="Bank transaction scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>
@@ -280,7 +281,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
       <label>Through<input type="date" value={scope.through} onChange={event=>setScope(current=>({...current,through:event.target.value}))}/></label>
       <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Load evidence</button>
     </form>
-    <p className="muted sm">Entity {config.entityId}. Account and date scope are required at the API boundary.</p>
+    <p className="muted sm">{entityLabel(config)}. Account and date scope are required at the API boundary.</p>
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and an optional date range to read authoritative evidence.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative bank transaction evidence...</StateBlock>}
     {state.phase==='ERROR'&&<BankReadFailure error={state.error} onRetry={load} subject="bank transactions"/>}
@@ -306,18 +307,18 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     setSelected(null);
     restoreAuthoritativeReturnContext(environment,config,context);
   };
-  if(selected)return <AuthoritativeReconciliationDetail row={selected.row} scope={{...scope,entityId:config.entityId}} onBack={closeEvidence} config={config} fetcher={fetcher} onChanged={()=>load(null,{preserveDetail:true})}/>;
+  if(selected)return <AuthoritativeReconciliationDetail row={selected.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} onBack={closeEvidence} config={config} fetcher={fetcher} onChanged={()=>load(null,{preserveDetail:true})}/>;
   return <AuthoritativeDemoView area="Reconciliation evidence" className="stack authoritative-reconciliation-workspace"><AuthoritativeDemoWorkspaceHeader eyebrow="BANKING | RECONCILIATION" title="Reconciliation evidence" description="One authoritative statement cutoff for one entity and bank account. Lifecycle commands are controller-gated, revision-bound, idempotent, and audited by the accounting API."/>
     <form className="filterbar" onSubmit={load} aria-label="Reconciliation statement scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>
       <label>Statement ending date<input required type="date" value={scope.statementEndingDate} onChange={event=>setScope(current=>({...current,statementEndingDate:event.target.value}))}/></label>
       <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Load statement</button>
     </form>
-    <p className="muted sm">Entity {config.entityId}. The API rejects missing or cross-scope statement evidence.</p>
+    <p className="muted sm">{entityLabel(config)}. The API rejects missing or cross-scope statement evidence.</p>
     <AuthoritativeAdmittedStatements config={config} bankAccountRef={scope.bankAccountRef} fetcher={fetcher} onStarted={handleAdmittedStarted}/>
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and statement ending date to read reconciliation evidence.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative reconciliation evidence...</StateBlock>}
     {state.phase==='ERROR'&&<BankReadFailure error={state.error} onRetry={load} subject="reconciliation statements"/>}
-    {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} scope={{...scope,entityId:config.entityId}} readAt={state.readAt} onOpen={openEvidence}/>}
+    {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} readAt={state.readAt} onOpen={openEvidence}/>}
   </AuthoritativeDemoView>;
 }
