@@ -17,6 +17,10 @@ assert.match(presentation,/full-bleed.*demo-source-documents-presentation/,'Sour
 assert.match(presentation,/Source Documents Register/,'Source Documents must retain the demo register heading');
 assert.match(presentation,/kpi-row authoritative-source-summary/,'Source Documents must present API-returned scope counts in the demo KPI hierarchy');
 assert.match(source,/authoritative-source-scope/,'Source Documents must visibly retain the API entity and period scope above the evidence register');
+assert.match(source,/Configured entity/,'Source Documents must present a readable entity label instead of exposing its raw ID');
+assert.match(source,/Configured period/,'Source Documents must present a readable period label instead of exposing its raw ID');
+assert.match(source,/Entity ID:/,'Source Documents must retain the exact entity ID as an audit tooltip');
+assert.match(source,/Period ID:/,'Source Documents must retain the exact period ID as an audit tooltip');
 assert.match(source,/Journal-linked/,'Source Documents must distinguish retained journal references from unlinked list facts');
 assert.match(source,/authoritative-source-intro/,'Source Documents must disclose its evidence-only boundary before the list');
 assert.match(source,/authoritative-source-filters/,'Source Documents must provide presentation-only source evidence filters');
@@ -26,7 +30,7 @@ assert.match(source,/setQuery\(context\?\.query\|\|'\'\);setSourceSystem\(contex
 assert.match(source,/Retained source lines/,'Source Document detail must name its retained line evidence');
 assert.match(source,/This page exposes only immutable metadata and retained line evidence/,'Source Document detail must be explicit about the authority boundary');
 assert.match(source,/Not retained/,'Source Document detail must use an explicit API-field absence state');
-assert.doesNotMatch(source,/[\u4e00-\u9fff]|鈥|路|�/,'Source Document visible UI must remain English-only and free from known mojibake artifacts');
+assert.doesNotMatch(source,/[\u4e00-\u9fff]|\uFFFD|[\u0080-\u009F]/,'Source Document visible UI must remain English-only and free from known mojibake artifacts');
 assert.match(source,/listScrollRef\.current\?\.scrollTo\?\.\(\{left:context\?\.tableX\|\|0\}\)/,'Source Document Back must restore narrow-table horizontal position');
 assert.match(source,/getElementById\(context\?\.focusId\)\?\.focus\?\.\(\{preventScroll:true\}\)/,'Source Document Back must restore keyboard focus to the exact list opener');
 assert.match(source,/className="table-wrap authoritative-source-document-list" role="region" tabIndex=\{0\} aria-label="Source Documents; scroll horizontally to view every column"/,'Source Document list must be a named keyboard-focusable narrow-table scroll region');
