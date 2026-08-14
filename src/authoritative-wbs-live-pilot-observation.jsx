@@ -32,7 +32,10 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
   const [tool,setTool]=useState(availableTools[0]||'');
   const [companyCode,setCompanyCode]=useState('');
   const [dateFrom,setDateFrom]=useState('2026-01-01');
-  const [dateTo,setDateTo]=useState('2026-12-31');
+  // The approved first production read is WBPA for the first half of 2026.
+  // Keep that exact range as the rendered default; the provider must echo it
+  // back before the observation can be used for exception retention.
+  const [dateTo,setDateTo]=useState('2026-06-30');
   const [state,setState]=useState({phase:'IDLE',data:null,error:null});
   const [attestationState,setAttestationState]=useState({phase:'IDLE',rows:[],error:null,result:null});
   const [capabilityState,setCapabilityState]=useState({phase:'LOADING',canAttest:false,error:null});
