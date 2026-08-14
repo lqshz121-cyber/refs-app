@@ -4,7 +4,7 @@ const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.pos
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
-  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','approveFinancialStatementSnapshot','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsPayableApDraft','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','prepareFinancialStatementSnapshot','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','reviewAdmittedWbsPayable','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
+  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitProviderSignedWbsPayables','admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','approveFinancialStatementSnapshot','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsPayableApDraft','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','prepareFinancialStatementSnapshot','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','reviewAdmittedWbsPayable','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
 });
 
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{
@@ -14,8 +14,12 @@ test('every accounting command requires idempotency and every mutable existing r
 });
 
 test('identity and server-computed request hash are absent from all public request schemas',()=>{
-  const serialized=JSON.stringify(contract.components.requestBodies);
+  const {WbsProviderSignedPayableAdmission,...ordinaryBodies}=contract.components.requestBodies;
+  const serialized=JSON.stringify(ordinaryBodies);
   for(const forbidden of ['actorId','actor_id','tenantId','tenant_id','entityId','entity_id','requestHash','request_hash'])assert.equal(serialized.includes(`\"${forbidden}\"`),false);
+  const signedSchema=WbsProviderSignedPayableAdmission.content['application/json'].schema;
+  for(const forbidden of ['actorId','actor_id','tenantId','entityId','requestHash','request_hash','providerTrust'])assert.equal(Object.hasOwn(signedSchema.properties,forbidden),false);
+  assert.equal(signedSchema.properties.receipt.additionalProperties,false,'signed scope is evidence inside the verified receipt, never caller authority');
 });
 
 test('all responses are no-store and use a structured success or problem envelope',()=>{

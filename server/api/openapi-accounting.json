@@ -94,6 +94,16 @@
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/provider-signed/payables/admissions": {
+      "post": {
+        "operationId": "admitProviderSignedWbsPayables",
+        "summary": "Verify and atomically persist one provider-signed WBS Payable delivery",
+        "description": "Service-only OIDC command. The service derives tenant and entity from authenticated context and uses only server-pinned provider trust. It verifies issuer, kid, Ed25519 signatures, raw request/response/package hashes, exact company scope, nonce and 15-minute TTL before one serializable transaction persists the append-only delivery receipt, immutable snapshot receipts, and Raw/Normalized/Staging or Exception rows. It never creates, approves, or posts a Journal.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsProviderSignedPayableAdmission"},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/operator-attested/payables": {
       "get": {
         "operationId": "listOperatorAttestedWbsPayableEvidence",
@@ -109,6 +119,15 @@
         "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
         "requestBody": {"$ref":"#/components/requestBodies/WbsOperatorPayableAttestation"},
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/PreconditionFailed"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/operator-attested/payables/{wbsOperatorPayableAttestationId}/rows": {
+      "get": {
+        "operationId":"listOperatorAttestedWbsPayableExceptionRows",
+        "summary":"List real retained WBS Payable exception rows",
+        "description":"Requires WBS.PAYABLE.OPERATOR_ATTEST. Returns closed display facts and server-derived signed-link readiness for immutable OPERATOR_ATTESTED rows. A later signed link points to the separate signed review queue; this response never promotes the retained row or grants Review, Draft, approval, Post, GL, or report authority.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"wbsOperatorPayableAttestationId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":10,"default":10}}],
+        "responses":{"200":{"$ref":"#/components/responses/WbsOperatorPayableExceptionRowListOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
     "/entities/{entityId}/wbs/inbound/payables/reviews": {
@@ -1844,7 +1863,7 @@
       "get": {
         "operationId": "listReconciliationWorksheet",
         "summary": "Read one open reconciliation worksheet",
-        "description": "Returns only the authenticated entity鈥檚 current DRAFT, IN_REVIEW, or REOPENED worksheet. It exposes bank evidence, the exact ACTIVE match when present, and clearance audit state; it cannot create a match, clear an item, review, sign off, reopen, or post.",
+        "description": "Returns only the authenticated entity's current DRAFT, IN_REVIEW, or REOPENED worksheet. It exposes bank evidence, the exact ACTIVE match when present, and clearance audit state; it cannot create a match, clear an item, review, sign off, reopen, or post.",
         "parameters": [
           {
             "$ref": "#/components/parameters/EntityId"
@@ -2096,6 +2115,8 @@
         }
       },
       "WbsOperatorPayableAttestationListEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","maxItems":50,"items":{"$ref":"#/components/schemas/WbsOperatorPayableAttestationReadRow"}}}},
+      "WbsOperatorPayableExceptionRow":{"type":"object","additionalProperties":false,"required":["wbs_operator_payable_attestation_id","wbs_operator_payable_evidence_row_id","captured_at","provider_content_hash","observation_hash","company_code","company_scope_status","source_record_id","source_version","row_hash","document_number","accounting_date","currency","observed_amount","provider_status","signed_link_status","signed_wbs_inbound_row_id","next_owner","next_action","evidence_status","signature_verified","can_review","can_create_draft","can_post"],"properties":{"wbs_operator_payable_attestation_id":{"$ref":"#/components/schemas/Uuid"},"wbs_operator_payable_evidence_row_id":{"$ref":"#/components/schemas/Uuid"},"captured_at":{"type":"string","format":"date-time"},"provider_content_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"observation_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"company_code":{"type":["string","null"],"pattern":"^[A-Za-z0-9][A-Za-z0-9_:-]{0,63}$"},"company_scope_status":{"type":"string","enum":["UNASSIGNED_COMPANY","MIXED_COMPANY","SINGLE_COMPANY_UNASSIGNED","ENTITY_SCOPE_MATCHED"]},"source_record_id":{"type":"string","minLength":1,"maxLength":128},"source_version":{"type":"string","minLength":1,"maxLength":128},"row_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"document_number":{"type":["string","null"],"minLength":1,"maxLength":128},"accounting_date":{"type":["string","null"],"format":"date"},"currency":{"type":["string","null"],"pattern":"^[A-Z]{3}$"},"observed_amount":{"type":["string","null"],"pattern":"^-?(0|[1-9][0-9]{0,15})(\\.[0-9]{1,5})?$"},"provider_status":{"type":["string","null"],"minLength":1,"maxLength":64},"signed_link_status":{"type":"string","enum":["EXCEPTION_REVIEW_REQUIRED","ELIGIBLE_FOR_SIGNED_REVIEW"]},"signed_wbs_inbound_row_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"next_owner":{"type":"string","minLength":1,"maxLength":96},"next_action":{"type":"string","minLength":1,"maxLength":512},"evidence_status":{"const":"EXCEPTION_REVIEW_REQUIRED"},"signature_verified":{"const":false},"can_review":{"const":false},"can_create_draft":{"const":false},"can_post":{"const":false}}},
+      "WbsOperatorPayableExceptionRowListEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","maxItems":10,"items":{"$ref":"#/components/schemas/WbsOperatorPayableExceptionRow"}}}},
       "WbsPayableReviewCandidateDetailEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/WbsPayableReviewCandidateRow"}}},
       "WbsPayableEvidenceReadRow": {
         "type":"object","additionalProperties":false,
@@ -3790,6 +3811,10 @@
       }
     },
     "requestBodies": {
+      "WbsProviderSignedPayableAdmission": {
+        "required": true,
+        "content": {"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["receipt","requestRawBase64","responseRawBase64","packageRawBase64"],"properties":{"receipt":{"type":"object","additionalProperties":false,"required":["issuer","kid","algorithm","request_sha256","response_sha256","package_hash","nonce","signed_at","expires_at","tenant_id","entity_id","company_code","immutable_version","nonempty","detached_signature"],"properties":{"issuer":{"type":"string","minLength":1,"maxLength":128},"kid":{"type":"string","minLength":1,"maxLength":128},"algorithm":{"const":"Ed25519"},"request_sha256":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"response_sha256":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"package_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"nonce":{"type":"string","minLength":1,"maxLength":128},"signed_at":{"type":"string","format":"date-time"},"expires_at":{"type":"string","format":"date-time"},"tenant_id":{"$ref":"#/components/schemas/Uuid"},"entity_id":{"$ref":"#/components/schemas/Uuid"},"company_code":{"type":"string","minLength":1,"maxLength":128},"immutable_version":{"$ref":"#/components/schemas/Uuid"},"nonempty":{"const":true},"detached_signature":{"type":"object","additionalProperties":false,"required":["key_id","algorithm","value"],"properties":{"key_id":{"type":"string","minLength":1,"maxLength":128},"algorithm":{"const":"Ed25519"},"value":{"type":"string","minLength":4,"maxLength":512}}}}},"requestRawBase64":{"type":"string","format":"byte","minLength":4,"maxLength":2796204},"responseRawBase64":{"type":"string","format":"byte","minLength":4,"maxLength":2796204},"packageRawBase64":{"type":"string","format":"byte","minLength":4,"maxLength":2796204}}}}}
+      },
       "WbsOperatorPayableAttestation": {
         "required": true,
         "content": {
@@ -4829,6 +4854,7 @@
     },
     "responses": {
       "WbsOperatorPayableAttestationListOk":{"description":"Operator-attested unsigned WBS Payable exception evidence list.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsOperatorPayableAttestationListEnvelope"}}}},
+      "WbsOperatorPayableExceptionRowListOk":{"description":"Closed real retained WBS Payable exception rows and signed-link readiness.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsOperatorPayableExceptionRowListEnvelope"}}}},
       "WbsPayableReviewCandidateListOk":{"description":"Admitted WBS Payable review-candidate list.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableReviewCandidateListEnvelope"}}}},
       "WbsPayableReviewCandidateDetailOk":{"description":"Admitted WBS Payable review-candidate detail.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableReviewCandidateDetailEnvelope"}}}},
       "WbsPayableEvidenceListOk":{"description":"Reviewed WBS Payable evidence list.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableEvidenceListEnvelope"}}}},
