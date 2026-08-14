@@ -8,6 +8,9 @@ BEGIN
   END IF;
 END $$;
 
+DROP TRIGGER controlled_demo_tenant_namespace_guard ON controlled_demo_tenant;
+DROP TRIGGER controlled_demo_tenant_append_only ON controlled_demo_tenant;
+DROP TRIGGER controlled_demo_tenant_retirement_append_only ON controlled_demo_tenant_retirement;
 DROP FUNCTION refs_retire_controlled_demo_tenant(uuid,text,text);
 DROP FUNCTION refs_read_controlled_demo_tenant(uuid);
 DROP FUNCTION refs_validate_controlled_demo_tenant();

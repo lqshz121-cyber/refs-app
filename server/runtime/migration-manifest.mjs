@@ -121,5 +121,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"113_wbs_operator_exception_detail_read.sql",up:"aecbdcee9f6d62647c44ab2f0e32bc724395ccedad4f2b2c0ed53cc94921af56",down:"d36cd187bed6033d5031b92421c07648f6644576b3e1d807831ba695afd44391"}),
   Object.freeze({name:"114_wbs_provider_signed_payable_auto_bridge.sql",up:"1d34f1fd5d3eb62b9c101dc1c9fefe765c0ec0921e9a848322537f42df31dd25",down:"543439235dee0bbc1715760cd89fa789e05892d7e09eae906ce3f39c6d91d086"}),
   Object.freeze({name:"115_ai_wbs_exception_findings.sql",up:"2d678fe2899a1ee0c1826efe2bc8618624b9d48e7786748ffb47a6aae64ed99f",down:"755b35bc93817acfaf28d8d17e3aa8977d630b22a04ce947eb0cea607fdf3d59"}),
-  Object.freeze({name:"116_controlled_demo_tenant_isolation.sql",up:"0a07fd8dc1cdb653f0d4f3362d5b898fa447e0deee95028613efcff17d2aab9e",down:"409994d806e17aa52b8d0abf348d5b2a6b7a73ce5853468741b6edd2e44e18bd"}),
+  Object.freeze({name:"116_controlled_demo_tenant_isolation.sql",up:"0a07fd8dc1cdb653f0d4f3362d5b898fa447e0deee95028613efcff17d2aab9e",down:"656387f8ea028315d40b7a339470396bfe4b5bdf7708d0ef2bca8aa35335c60c"}),
 ]);
