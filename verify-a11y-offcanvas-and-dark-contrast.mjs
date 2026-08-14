@@ -144,14 +144,14 @@ assert.equal(typeof watchOffCanvas({}, () => {}), 'function', 'watchOffCanvas mu
 assert.equal(readOffCanvas({ matchMedia: (q) => ({ matches: q === NAV_DRAWER_MEDIA }) }), true);
 
 // A.3 STATIC. The stylesheet breakpoint and the module breakpoint are one number.
-const offCanvasBlock = cssNoComments.match(new RegExp(`@media\\(max-width:${NAV_DRAWER_BREAKPOINT}px\\)\\{([\\s\\S]*?)\\n\\}`));
+const offCanvasBlock = cssNoComments.match(new RegExp(`@media \\(max-width:${NAV_DRAWER_BREAKPOINT}px\\) and \\(min-width:769px\\)\\{([\\s\\S]*?)\\n\\}`));
 assert.ok(offCanvasBlock, 'the off-canvas media block must exist');
-assert.equal(NAV_DRAWER_BREAKPOINT, 1280,
-  'src/nav-drawer.js and the @media(max-width:1280px) block must agree, or the drawer is inert at the wrong widths');
+assert.equal(NAV_DRAWER_BREAKPOINT, 900,
+  'src/nav-drawer.js and the tablet-only @media(max-width:900px) block must agree, or the drawer is inert at the wrong widths');
 
 // A.4 STATIC. The hiding technique must stay transform-only, so the slide survives.
-const sidebarOffCanvas = offCanvasBlock[1].match(/\.sidebar\{([^}]*)\}/);
-assert.ok(sidebarOffCanvas, '.sidebar must be repositioned inside the off-canvas media block');
+const sidebarOffCanvas = offCanvasBlock[1].match(/\.authoritative-app \.sidebar\{([^}]*)\}/);
+assert.ok(sidebarOffCanvas, '.authoritative-app .sidebar must be repositioned inside the off-canvas media block');
 const offCanvasDecl = declarations(sidebarOffCanvas[1]);
 assert.equal(offCanvasDecl.position, 'fixed');
 assert.equal(offCanvasDecl.left, '0');
@@ -160,7 +160,7 @@ assert.ok(!/display\s*:\s*none/.test(sidebarOffCanvas[1]),
   'display:none would cancel the slide transition; inert is the mechanism, not display');
 assert.ok(!/visibility\s*:\s*hidden/.test(sidebarOffCanvas[1]),
   'visibility:hidden would cancel the slide transition; inert is the mechanism, not visibility');
-assert.ok(/\.sidebar\.mobile-open\{transform:translateX\(0\);?\}/.test(offCanvasBlock[1].replace(/\s/g, '')),
+assert.ok(/\.authoritative-app\.sidebar\.mobile-open\{transform:translateX\(0\);?\}/.test(offCanvasBlock[1].replace(/\s/g, '')),
   'the open drawer must slide back to x=0');
 
 // A.5 ARITHMETIC. Where the closed drawer actually sits, from the box model.

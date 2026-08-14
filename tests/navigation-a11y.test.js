@@ -110,10 +110,10 @@ assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.n
   'the production page panel must keep the demo shell’s stable single-line rows');
 assert.match(styles,/\.authoritative-app \.sidebar\{position:sticky; top:0; left:auto; transform:none; width:var\(--nav-w\); flex:0 0 var\(--nav-w\); box-shadow:none;\}/,
   'the QBO-like rail and panel must remain anchored through wider tablet layouts');
-assert.match(styles,/@media\(min-width:1281px\)\{\s*\.authoritative-app \.sidebar\{position:sticky/,
-  'the authoritative rail must stay visible above 1280px, where the drawer state machine is not off-canvas');
-assert.doesNotMatch(styles,/@media\(max-width:1180px\) and \(min-width:1025px\)\{\s*\.authoritative-app \.sidebar/,
-  'a partial tablet override must not leave the 1025-1280px range visually hidden but keyboard-reachable');
+assert.match(styles,/@media\(min-width:901px\)\{\s*\.authoritative-app \.sidebar\{position:sticky/,
+  'the authoritative rail must stay visible from 901px upward, where the drawer state machine is not off-canvas');
+assert.equal(NAV_DRAWER_MEDIA,'(max-width:900px)',
+  'the authoritative drawer state machine must not hide desktop navigation at zoomed 1024px layouts');
 assert.match(authoritativeShell,/className="nav-rail"/,
   'the reusable production shell must render a workflow rail');
 assert.match(authoritativeShell,/className="nav-panel"/,
