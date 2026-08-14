@@ -6,7 +6,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {AuthoritativeSourceDocumentsWorkspace} from '../src/authoritative-source-documents-workspace.jsx';
 import {AuthoritativeDemoSourceDocumentsView} from '../src/authoritative-demo-source-documents-view.jsx';
 
-const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',baseUrl:'https://api.example',getAccessToken:async()=> 'a'.repeat(48)};
+const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',baseUrl:'https://api.example',getAccessToken:async()=> 'a'.repeat(48),scopePresentation:{entityLabel:'Northwind Properties',entityDetail:'11111111-1111-4111-8111-111111111111',periodLabel:'July 2026',periodDetail:'2026-07'}};
 const markup=renderToStaticMarkup(<AuthoritativeSourceDocumentsWorkspace config={config} fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})}/>);
 assert.match(markup,/Loading authoritative Source Document evidence/);
 const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-source-documents-workspace.jsx'),'utf8');
@@ -17,6 +17,7 @@ assert.match(presentation,/full-bleed.*demo-source-documents-presentation/,'Sour
 assert.match(presentation,/Source Documents Register/,'Source Documents must retain the demo register heading');
 assert.match(presentation,/kpi-row authoritative-source-summary/,'Source Documents must present API-returned scope counts in the demo KPI hierarchy');
 assert.match(source,/authoritative-source-scope/,'Source Documents must visibly retain the API entity and period scope above the evidence register');
+assert.match(source,/Company reference:/);assert.match(source,/Configured company/);assert.match(source,/companyLabel\}\<\/b>/);assert.match(source,/periodLabel\}\<\/b>/);assert.doesNotMatch(source,/<b>\{config\.entityId\}<\/b>|<b>\{config\.periodId\}<\/b>/,'Source Documents must keep raw scope references in an audit tooltip, not visible copy');
 assert.match(source,/Journal-linked/,'Source Documents must distinguish retained journal references from unlinked list facts');
 assert.match(source,/authoritative-source-intro/,'Source Documents must disclose its evidence-only boundary before the list');
 assert.match(source,/authoritative-source-filters/,'Source Documents must provide presentation-only source evidence filters');
