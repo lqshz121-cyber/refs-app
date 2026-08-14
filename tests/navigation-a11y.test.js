@@ -70,7 +70,7 @@ assert.equal(restoreFocus(null),false,'a missing opener must not throw on close'
 
 // Both shells wire the same contract. The authoritative shell previously had no
 // opener at all, so below 1024px its navigation was off-screen with no way back.
-for (const [name,source,open] of [['src/legacy-demo-app.jsx',app,'mobileNav'],['src/authoritative-app.jsx',authoritative,'navOpen']]) {
+for (const [name,source,open] of [['src/legacy-demo-app.jsx',app,'mobileNav']]) {
   assert.ok(source.includes(`{...navDrawerAttributes(navOffCanvas, ${open})}`),`${name}: the sidebar must be inert exactly when it is off-canvas and closed`);
   assert.match(source,/readOffCanvas\(\)/,`${name}: the viewport class must be read at mount`);
   assert.match(source,/watchOffCanvas\(null, setNavOffCanvas\)/,`${name}: growing past the breakpoint must un-inert the drawer`);
@@ -80,6 +80,17 @@ for (const [name,source,open] of [['src/legacy-demo-app.jsx',app,'mobileNav'],['
   assert.match(source,/aria-controls="(primary|authoritative)-navigation" aria-expanded=\{(mobileNav|navOpen)\}/,`${name}: the opener must announce what it controls and whether it is open`);
   assert.match(source,/className="mobile-nav-close"/,`${name}: an off-canvas drawer needs a visible way out`);
 }
+assert.match(authoritative,/navDrawerRef=\{navDrawerRef\} drawerAttributes=\{navDrawerAttributes\(navOffCanvas, navOpen\)\}/,
+  'the authoritative app must pass the off-canvas inert contract to its reusable navigation shell');
+assert.match(authoritativeShell,/ref=\{navDrawerRef\}[\s\S]*?\{\.\.\.drawerAttributes\}/,
+  'the authoritative navigation shell must apply the off-canvas inert contract to its sidebar');
+assert.match(authoritative,/readOffCanvas\(\)/,'src/authoritative-app.jsx: the viewport class must be read at mount');
+assert.match(authoritative,/watchOffCanvas\(null, setNavOffCanvas\)/,'src/authoritative-app.jsx: growing past the breakpoint must un-inert the drawer');
+assert.match(authoritative,/focusFirstControl\(navDrawerRef\.current\)/,'src/authoritative-app.jsx: opening must move focus into the drawer');
+assert.match(authoritative,/restoreFocus\(navOpenerRef\.current\)/,'src/authoritative-app.jsx: closing must return focus to the opener');
+assert.match(authoritative,/(key === 'Escape'|key==='Escape')/,'src/authoritative-app.jsx: Escape must close the drawer');
+assert.match(authoritativeTopbar,/aria-controls="authoritative-navigation" aria-expanded=\{navOpen\}/,'the authoritative opener must announce what it controls and whether it is open');
+assert.match(authoritativeShell,/className="mobile-nav-close"/,'the authoritative off-canvas drawer needs a visible way out');
 
 // The authoritative surface must expose the same presentation-only theme
 // control as the legacy shell.  It is deliberately an explicit button rather
@@ -95,9 +106,9 @@ assert.match(authoritative, /watchOsTheme\(environment, next => setTheme\(next\)
   'the authoritative shell must follow OS changes until the reader chooses a theme');
 assert.match(authoritative, /writeStoredTheme\(next, environment\)/,
   'a reader-selected theme must use the audited presentation-preference store');
-assert.match(authoritative, /aria-pressed=\{theme === 'dark'\}/,
+assert.match(authoritativeTopbar, /aria-pressed=\{theme==='dark'\}/,
   'the theme toggle must announce its selected state');
-assert.match(authoritative, /Switch to (?:light|dark) theme/,
+assert.match(authoritativeTopbar, /Switch to (?:light|dark) theme/,
   'the theme toggle must have an understandable accessible name');
 
 // The authoritative shell deliberately reuses the complete two-level REFS

@@ -414,48 +414,13 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     <AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route={route} expandedGroups={expandedNavigationGroups}
       onSelectGroup={selectNavigationGroup} onSelectItem={next => { setRoute(next); setNavOpen(false); }} navOpen={navOpen}
       navDrawerRef={navDrawerRef} drawerAttributes={navDrawerAttributes(navOffCanvas, navOpen)} onClose={() => setNavOpen(false)}/>
-    {false && <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar ${navOpen ? 'mobile-open' : ''}`}
-      {...navDrawerAttributes(navOffCanvas, navOpen)}>
-      <div className="brand"><span className="logo">REFS</span><span className="brand-sub">Authoritative</span></div>
-      {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={() => setNavOpen(false)}>Close</button>}
-      <nav aria-label="Authoritative accounting navigation">
-        {AUTHORITATIVE_NAVIGATION.map((group, index) => {
-          const multiple = group.items.length > 1;
-          const expanded = multiple && expandedNavigationGroups.includes(group.label);
-          const active = group.items.some(item => route === item.route);
-          const panelId = `authoritative-navigation-group-${index}`;
-          return <div className={`nav-group authoritative-nav-group nav-tone-${index} ${active ? 'nav-group-active' : ''}`} key={group.label}>
-            <button type="button" className="nav-group-h" aria-current={!multiple && active ? 'page' : undefined}
-              aria-expanded={multiple ? expanded : undefined} aria-controls={multiple ? panelId : undefined}
-              onClick={() => selectNavigationGroup(group)}><span className="nav-ic" aria-hidden="true">-</span>{group.label}</button>
-            {multiple && expanded && <div id={panelId} className="nav-group-items">{group.items.map(({ route: item, label }) => <button type="button" key={item} aria-current={route===item?'page':undefined} className={`nav-item nav-sub ${route === item ? 'nav-on' : ''}`} onClick={() => { setRoute(item); setNavOpen(false); }}>{label}</button>)}</div>}
-          </div>;
-        })}
-      </nav>
-    </aside>}
     {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
     <div className="main">
-      {false && <header className="topbar authoritative-topbar">
-        <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>Menu</button>
-        <div className="authoritative-entity-chip" aria-label={`Authoritative entity ${config.entityId}`}>
-          <span className="authoritative-top-label">Entity</span><strong>{config.entityId}</strong>
-        </div>
-        <div className="period-chip authoritative-period-chip" aria-label={`Authoritative period ${config.periodId}`}>
-          <span className="period-label">Period</span><b>{config.periodId}</b><span className="badge badge-ok">API read</span>
-        </div>
-        <div className="top-right authoritative-top-actions">
-          <button type="button" className="icon-btn" aria-label="Refresh authoritative accounting evidence" title="Refresh authoritative accounting evidence" onClick={refresh}>Refresh</button>
-          <button type="button" className="icon-btn" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} aria-pressed={theme === 'dark'} title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
-          <span className="authoritative-mode-chip">Authoritative</span>
-          <span className="user-chip authoritative-user-chip" aria-label="Authenticated OIDC session"><span className="user-av" aria-hidden="true">A</span><span className="user-nm" title="Authenticated OIDC session">Signed</span></span>
-          <button type="button" className="btn btn-sm btn-ghost authoritative-signout" onClick={logout}>Sign out</button>
-        </div>
-      </header>}
       <AuthoritativeDemoTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={scopePresentation.entityLabel} periodLabel={scopePresentation.periodLabel} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout}/>
       <main className="content">
         <section className="authoritative-scope-bar" aria-label="Authoritative accounting scope">
-          <span title={`${scopePresentation.entityHint ? `${scopePresentation.entityHint} ` : ''}Reference: ${scopePresentation.entityDetail}`}><b>Company</b> {scopePresentation.entityLabel}{scopePresentation.entityHint&&<small className="muted sm"> — name not available</small>}</span>
-          <span title={`${scopePresentation.periodHint ? `${scopePresentation.periodHint} ` : ''}${scopePresentation.periodDetail}`}><b>Period</b> {scopePresentation.periodLabel}{scopePresentation.periodHint&&<small className="muted sm"> — details not available</small>}</span>
+          <span title={`${scopePresentation.entityHint ? `${scopePresentation.entityHint} ` : ''}Reference: ${scopePresentation.entityDetail}`}><b>Company</b> {scopePresentation.entityLabel}{scopePresentation.entityHint&&<small className="muted sm"> — company name pending</small>}</span>
+          <span title={`${scopePresentation.periodHint ? `${scopePresentation.periodHint} ` : ''}${scopePresentation.periodDetail}`}><b>Period</b> {scopePresentation.periodLabel}{scopePresentation.periodHint&&<small className="muted sm"> — dates pending</small>}</span>
           {config.cashAccountCode&&<span><b>Cash account</b> {scopePresentation.cashAccountLabel}</span>}
           {(documentDetail?.returnContext||adjustmentDetail?.returnContext)&&<span><b>Return context</b> Query {(documentDetail?.returnContext||adjustmentDetail?.returnContext).view.query||'All'} | Page {(documentDetail?.returnContext||adjustmentDetail?.returnContext).view.page}</span>}
         </section>

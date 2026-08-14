@@ -9,14 +9,16 @@ import { AuthoritativeDemoView, AuthoritativeDemoWorkspaceHeader } from '../src/
 import { AuthoritativeUnavailableWorkspace } from '../src/authoritative-unavailable-workspace.jsx';
 import { watchRetainedRoute } from '../src/authoritative-app.jsx';
 
+const authoritativeTopbarSource = fs.readFileSync('src/authoritative-demo-shell.jsx', 'utf8');
+
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the production catalog keeps the complete major workspace taxonomy discoverable');
 assert.ok(AUTHORITATIVE_ROUTES.includes('project-cost-cwip'));
 assert.ok(AUTHORITATIVE_ROUTES.includes('ai-audit'));
 assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'ai-audit', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'receivables', 'reconciliation', 'reports', 'source-documents', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
-const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroup="Auto Reconciliation" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
-const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroup="Reports" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
-const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroup="General Ledger" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroups={['General Ledger','Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.match(navMarkup, /Bank Batch Pipeline/); assert.match(navMarkup, /Reconciliation worksheet/);
@@ -26,8 +28,8 @@ assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.doesNotMatch(navMarkup, /No authorised create action is available in this workspace|\+ New/,
   'the authoritative navigation must not show a disabled create action with no available outcome');
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
-assert.match(routeWinsMarkup, /<div class="nav-panel-title">Auto Reconciliation<\/div>/,
-  'the current route must select its navigation group even when an old expanded group remains');
+assert.match(routeWinsMarkup, /nav-panel-group-active[\s\S]*?Auto Reconciliation/,
+  'the current route must select its navigation group even when other groups remain open');
 
 const routeListeners = new Map();
 const routeEnvironment = {
@@ -76,9 +78,9 @@ for(const scopeHook of [
 ])assert.ok(appSource.indexOf(scopeHook)>0&&appSource.indexOf(scopeHook)<firstConditionalRender,`${scopeHook} must execute before every conditional render so OIDC phase changes cannot alter the React hook order`);
 assert.match(appSource, /Accounting records are read only from the authenticated API in this mode/,
   'the sign-in surface must describe the sole authoritative source of accounting records');
-assert.match(appSource, /name not available/,
+assert.match(appSource, /company name pending/,
   'a missing company name must be explained without promoting its internal identifier to primary text');
-assert.match(appSource, /details not available/,
+assert.match(appSource, /dates pending/,
   'a missing period label must be explained without presenting an internal identifier as the period');
 assert.doesNotMatch(appSource, /No demo identity/,
   'the authoritative sign-in surface must not expose retired product terminology');
@@ -126,12 +128,11 @@ assert.match(appSource, /'ai-audit','wbs-autorec-evidence'/, 'AI Audit Center mu
 assert.match(appSource, /route === 'wbs-payable-review'/, 'the WBS Payable Review entry must have a stable authoritative route');
 assert.match(appSource, /AuthoritativeBankBatchPipelineWorkspace/, 'Bank Batch Pipeline must compose existing authoritative Bank and Reconciliation readers rather than fail closed as an unavailable route');
 assert.match(appSource, /route === 'bank-batch-pipeline'/, 'the API-backed Bank Batch Pipeline must mount at its stable navigation route');
-assert.match(appSource, /authoritative-topbar/, 'the formal app must use the complete workbench-style top bar rather than the old title-only header');
-assert.match(appSource, /AuthoritativeDemoTopbar/, 'the production app must reuse the complete demonstration topbar structure rather than reimplement a divergent header');
-assert.match(appSource, /Authoritative entity \$\{config\.entityId\}/, 'the top bar must expose the configured API entity as scope, not a local selector');
-assert.match(appSource, /Authoritative period \$\{config\.periodId\}/, 'the top bar must expose the configured API period as scope');
-assert.match(appSource, /Refresh authoritative accounting evidence/, 'the top-bar refresh control must name its real GET-only outcome');
-assert.match(appSource, /Authenticated OIDC session/, 'the user chip must describe an authenticated session without fabricating a demo user');
+assert.match(appSource, /AuthoritativeDemoTopbar/, 'the production app must reuse the complete workbench-style top bar rather than reimplement a divergent header');
+assert.match(authoritativeTopbarSource, /authoritative-topbar/, 'the formal top bar component must retain the complete workbench structure');
+assert.doesNotMatch(appSource, /\{false && <(?:aside|header)/, 'retired navigation and top-bar markup must not remain in the production source');
+assert.match(authoritativeTopbarSource, /Refresh financial information/, 'the top-bar refresh control must name its real outcome');
+assert.match(authoritativeTopbarSource, /aria-label="Signed-in user"/, 'the user chip must describe the signed-in session without technical identity jargon');
 assert.match(appSource, /onClick=\{logout\}>Sign out/, 'the visual shell keeps the real OIDC sign-out command');
 const styles = fs.readFileSync('index.html', 'utf8');
 assert.match(styles, /\.authoritative-entity-chip\{/, 'the authoritative entity scope needs the complete-shell selector treatment');

@@ -47,6 +47,7 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const html = read('./index.html');
 const appSource = read('./src/legacy-demo-app.jsx');
 const authoritativeSource = read('./src/authoritative-app.jsx');
+const authoritativeNavigationShellSource = read('./src/authoritative-navigation-shell.jsx');
 const preview = read('./docs/preview/shell-preview.html');
 const css = html.match(/<style>([\s\S]*?)<\/style>/)[1];
 const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -207,10 +208,7 @@ assert.ok(focusableInDrawer.length > 0,
 
 // A.8 STATIC. Both shells bind inert to the drawer-closed predicate, not to a
 // hand-written condition that can drift.
-for (const [name, source, openState] of [
-  ['src/legacy-demo-app.jsx', appSource, 'mobileNav'],
-  ['src/authoritative-app.jsx', authoritativeSource, 'navOpen'],
-]) {
+for (const [name, source, openState] of [['src/legacy-demo-app.jsx', appSource, 'mobileNav']]) {
   assert.ok(source.includes(`{...navDrawerAttributes(navOffCanvas, ${openState})}`),
     `${name}: the sidebar must take its inert state from navDrawerAttributes(navOffCanvas, ${openState})`);
   assert.match(source, /readOffCanvas\(\)/,
@@ -228,6 +226,19 @@ for (const [name, source, openState] of [
   assert.match(source, /className="mobile-nav-close"/,
     `${name}: an off-canvas drawer needs a visible way out`);
 }
+assert.match(authoritativeSource,/navDrawerRef=\{navDrawerRef\} drawerAttributes=\{navDrawerAttributes\(navOffCanvas, navOpen\)\}/,
+  'src/authoritative-app.jsx: the authoritative app must pass the inert drawer predicate to its navigation shell');
+assert.match(authoritativeNavigationShellSource,/ref=\{navDrawerRef\}[\s\S]*?\{\.\.\.drawerAttributes\}/,
+  'src/authoritative-navigation-shell.jsx: the sidebar must apply the supplied inert drawer attributes');
+for (const [name,source] of [['src/authoritative-app.jsx',authoritativeSource]]) {
+  assert.match(source,/readOffCanvas\(\)/,`${name}: the viewport class must be read synchronously at mount, not after an effect`);
+  assert.match(source,/watchOffCanvas\(null, setNavOffCanvas\)/,`${name}: the drawer must stop being inert when the viewport grows past the breakpoint`);
+  assert.match(source,/focusFirstControl\(navDrawerRef\.current\)/,`${name}: opening the drawer must move focus into it`);
+  assert.match(source,/restoreFocus\(navOpenerRef\.current\)/,`${name}: closing the drawer must return focus to the control that opened it`);
+  assert.match(source,/key === 'Escape'|key==='Escape'/,`${name}: Escape must close the drawer`);
+}
+assert.match(authoritativeNavigationShellSource,/className="mobile-nav-close"/,
+  'src/authoritative-navigation-shell.jsx: an off-canvas drawer needs a visible way out');
 
 // A.9 STATIC. inert cannot swallow clicks meant for the page behind it.
 assert.match(cssNoComments, /\[inert\]\{[^}]*pointer-events:none/,
