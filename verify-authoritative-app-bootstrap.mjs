@@ -11,7 +11,7 @@ assert.match(authoritative, /new BrowserOidcClient\(\{ environment, fetcher \}\)
 assert.match(authoritative, /refreshAuthoritativeDocuments/, 'authoritative AP and AR reads must be mounted');
 assert.match(authoritative, /refreshAuthoritativeJournalEntries/, 'authoritative Journal Entry reads must be mounted');
 assert.match(authoritative, /transitionAuthoritativeJournal/, 'authoritative workflow transitions must be mounted');
-assert.match(authoritative, /No demo identity or browser accounting state is available in this mode/, 'authoritative login must not fall back to a demo identity');
+assert.doesNotMatch(authoritative, /demo identity|browser accounting state/i, 'the customer-facing sign-in page must not expose demo or browser-state terminology');
 assert.doesNotMatch(authoritative, /localStorage\s*[.(]|JOURNAL_ENTRIES|SEED_BILLS|SEED_BANK|FY2026/, 'authoritative runtime must not use browser seed accounting state');
 assert.match(authoritative, /SUBMIT|nextAuthoritativeWorkflowAction/, 'workflow must begin with the server-derived next action');
 assert.match(authoritative, /revision:Number\(row\.journal_revision \?\? row\.revision\)/, 'workflow must send the authoritative revision for If-Match');
