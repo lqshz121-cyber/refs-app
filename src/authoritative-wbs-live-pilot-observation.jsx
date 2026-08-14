@@ -67,7 +67,7 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
     event.preventDefault();
     setState(current=>({...current,phase:'LOADING',error:null}));
     const requestedCompanyCode=scopeCompany?companyCode.trim():'';
-    const result=await refreshAuthoritativeWbsLivePilot({config,tool,limit:10,companyCode:requestedCompanyCode||null,dateFrom:scopeDates?dateFrom:null,dateTo:scopeDates?dateTo:null,fetcher});
+    const result=await refreshAuthoritativeWbsLivePilot({config,tool,limit:10,companyCode:requestedCompanyCode||null,dateFrom:requestedCompanyCode?dateFrom:null,dateTo:requestedCompanyCode?dateTo:null,fetcher});
     setAttestationConfirmation(false);
     setState(current=>result.ok?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result});
   };
