@@ -16,9 +16,9 @@ const hasFixed=(section,key,value)=>new RegExp(`- key: ${key}\\r?\\n\\s+value: $
 test('Render staging manifest declares every production startup secret and uses locked frontend installs',async()=>{
   const manifest=await readFile(resolve(root,'render.yaml'),'utf8');
   const integrations=await readFile(resolve(root,'render.integrations.yaml'),'utf8');
-  const api=serviceSection(manifest,'refs-accounting-api-staging'),worker=serviceSection(integrations,'refs-attachment-cleanup-staging'),web=serviceSection(manifest,'refs-app');
-  assert.equal(api.type,'web');assert.equal(worker.type,'worker');assert.equal(web.type,'web');
-  for(const section of [api.body,worker.body,web.body])assert.doesNotMatch(section,/buildCommand: npm install/);
+  const api=serviceSection(manifest,'refs-accounting-api-staging'),integrationApi=serviceSection(integrations,'refs-accounting-api-integrations-staging'),worker=serviceSection(integrations,'refs-attachment-cleanup-staging'),web=serviceSection(manifest,'refs-app');
+  assert.equal(api.type,'web');assert.equal(integrationApi.type,'web');assert.equal(worker.type,'worker');assert.equal(web.type,'web');
+  for(const section of [api.body,integrationApi.body,worker.body,web.body])assert.doesNotMatch(section,/buildCommand: npm install/);
   assert.match(api.body,/rootDir: server/);assert.match(api.body,/buildCommand: npm ci/);assert.match(api.body,/preDeployCommand: npm run db:up/);assert.match(api.body,/startCommand: npm start/);assert.match(api.body,/healthCheckPath: \/health\/ready/);assert.ok(hasFixed(api.body,'REFS_PG_REQUIRED','"1"'));assert.ok(hasFixed(api.body,'REFS_HTTP_MAX_BODY_BYTES','"10485760"'));
   for(const [key,value] of [
     ['REFS_DEPLOYMENT_ENV','staging'],
@@ -37,12 +37,17 @@ test('Render staging manifest declares every production startup secret and uses 
   assert.doesNotMatch(api.body,/- key: REFS_WBS_INGEST_MODE\r?\n\s+value: REQUIRED/);
   for(const key of ['WBS_CF_ACCESS_CLIENT_ID','WBS_CF_ACCESS_CLIENT_SECRET','WBS_REFS_AUTH'])assert.ok(hasSecret(api.body,key),`${key} must remain a server-side Render secret`);
   for(const key of ['S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_CA_PEM','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID','WBS_SNAPSHOT_ED25519_PUBLIC_KEYS','WBS_PROVIDER_SIGNED_TRUST','WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID'])assert.ok(hasSecret(api.body,key),`Phase 1 signed admission is missing ${key}`);
+  assert.match(integrationApi.body,/rootDir: server/);assert.match(integrationApi.body,/buildCommand: npm ci/);assert.match(integrationApi.body,/preDeployCommand: npm run db:up/);assert.match(integrationApi.body,/startCommand: npm start/);assert.match(integrationApi.body,/healthCheckPath: \/health\/ready/);
+  for(const [key,value] of [['NODE_ENV','production'],['REFS_HTTP_HOST','0.0.0.0'],['REFS_DEPLOYMENT_ENV','staging'],['REFS_STAGE1_BOOTSTRAP_CONFIRM','STAGE1_AUTHORITATIVE_ONLY'],['REFS_STAGE1_SELF_GRANT_ENABLED','STAGE1_AUTHORITATIVE_ONLY'],['REFS_PG_REQUIRED','"1"'],['REFS_HTTP_MAX_BODY_BYTES','"10485760"'],['REFS_ATTACHMENT_MODE','REQUIRED'],['REFS_WBS_INGEST_MODE','REQUIRED'],['REFS_WBS_LIVE_PILOT_MODE','DISABLED'],['REFS_STAGE1_TENANT_ID','6fb25daf-0799-4805-bede-be54230da33c'],['REFS_STAGE1_ENTITY_ID','ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3']])assert.ok(hasFixed(integrationApi.body,key,value),`integrations API is missing ${key}=${value}`);
+  for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','OIDC_ISSUER','OIDC_AUDIENCE','OIDC_JWKS_URI','REFS_HTTP_ALLOWED_ORIGINS','WBS_SNAPSHOT_ED25519_PUBLIC_KEYS','WBS_PROVIDER_SIGNED_TRUST','WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_CA_PEM','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID'])assert.ok(hasSecret(integrationApi.body,key),`integrations API is missing ${key}`);
+  for(const key of ['WBS_CF_ACCESS_CLIENT_ID','WBS_CF_ACCESS_CLIENT_SECRET','WBS_REFS_AUTH'])assert.equal(hasSecret(integrationApi.body,key),false,`integrations API must not depend on unsigned-pilot secret ${key}`);
+  assert.doesNotMatch(integrationApi.body,/REFS_PUBLIC_/,'browser configuration must remain on the static service');
   for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','ATTACHMENT_CLEANUP_ACTOR_ID','ATTACHMENT_CLEANUP_SCOPES','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY'])assert.ok(hasSecret(worker.body,key),`cleanup worker is missing ${key}`);
   const publicKeys=['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE','REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT','REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE'];
   for(const key of publicKeys)assert.ok(hasSecret(web.body,key),`static service is missing ${key}`);
   assert.doesNotMatch(api.body,/REFS_PUBLIC_/);assert.doesNotMatch(worker.body,/REFS_PUBLIC_/);assert.doesNotMatch(web.body,/REFS_PUBLIC_RUNTIME_MODE/,'authoritative static builds must not opt into LOCAL_MOCK');
   assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,2,'Stage 1 coordinates only API and static client');
-  assert.equal((integrations.match(/autoDeployTrigger: off/g)||[]).length,1,'attachment cleanup has a separate explicit provider release');
+  assert.equal((integrations.match(/autoDeployTrigger: off/g)||[]).length,2,'signed-ingest API and attachment cleanup require explicit coordinated releases');
   const pages=await readFile(resolve(root,'.github','workflows','deploy.yml'),'utf8');
   assert.match(pages,/run: npm ci/);assert.doesNotMatch(pages,/run: npm install/);
   assert.match(pages,/name: Run frontend gate\r?\n\s+run: npm test/);

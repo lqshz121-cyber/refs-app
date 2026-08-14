@@ -1,4 +1,88 @@
 services:
+  # Authoritative signed-ingest API. It uses the same PostgreSQL authority and
+  # OIDC issuer as Stage 1, but is released independently so missing provider,
+  # storage, or scanner configuration cannot take the read-only API down.
+  # After same-SHA smoke and authenticated acceptance, switch the static site's
+  # single REFS_PUBLIC_ACCOUNTING_API_BASE_URL to this service. Do not split
+  # browser reads and commands between the two API services.
+  - type: web
+    name: refs-accounting-api-integrations-staging
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    preDeployCommand: npm run db:up
+    startCommand: npm start
+    healthCheckPath: /health/ready
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REFS_HTTP_HOST
+        value: 0.0.0.0
+      - key: REFS_HTTP_MAX_BODY_BYTES
+        value: "10485760"
+      - key: REFS_PG_REQUIRED
+        value: "1"
+      - key: REFS_DEPLOYMENT_ENV
+        value: staging
+      - key: REFS_STAGE1_BOOTSTRAP_CONFIRM
+        value: STAGE1_AUTHORITATIVE_ONLY
+      - key: REFS_STAGE1_SELF_GRANT_ENABLED
+        value: STAGE1_AUTHORITATIVE_ONLY
+      - key: REFS_STAGE1_TENANT_ID
+        value: 6fb25daf-0799-4805-bede-be54230da33c
+      - key: REFS_STAGE1_ENTITY_ID
+        value: ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3
+      - key: REFS_ATTACHMENT_MODE
+        value: REQUIRED
+      - key: REFS_WBS_INGEST_MODE
+        value: REQUIRED
+      - key: REFS_WBS_LIVE_PILOT_MODE
+        value: DISABLED
+      - key: DATABASE_URL
+        sync: false
+      - key: MIGRATION_DATABASE_URL
+        sync: false
+      - key: CONTEXT_ISSUER_DATABASE_URL
+        sync: false
+      - key: GRANT_SYNC_DATABASE_URL
+        sync: false
+      - key: OIDC_ISSUER
+        sync: false
+      - key: OIDC_AUDIENCE
+        sync: false
+      - key: OIDC_JWKS_URI
+        sync: false
+      - key: REFS_HTTP_ALLOWED_ORIGINS
+        sync: false
+      - key: WBS_SNAPSHOT_ED25519_PUBLIC_KEYS
+        sync: false
+      - key: WBS_PROVIDER_SIGNED_TRUST
+        sync: false
+      - key: WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_SESSION_TOKEN
+        sync: false
+      - key: VIRUS_SCANNER_ENDPOINT
+        sync: false
+      - key: VIRUS_SCANNER_TOKEN
+        sync: false
+      - key: VIRUS_SCANNER_CA_PEM
+        sync: false
+      - key: VIRUS_SCANNER_SERVER_NAME
+        sync: false
+      - key: ATTACHMENT_SCANNER_ACTOR_ID
+        sync: false
   # Deploy this Blueprint only after the provider-backed attachment lifecycle is
   # accepted. It is intentionally separate from the Stage 1 accounting reads.
   - type: worker
