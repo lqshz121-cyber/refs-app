@@ -109,8 +109,8 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   ].filter(Boolean);
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
   const tabs=bill?[
-    {id:'BILLS',label:'Bills'}, {id:'VENDOR_CREDITS',label:'Vendor credits'}, {id:'AGING',label:'AP Aging',disabled:true}, {id:'VENDORS',label:'Vendors',disabled:true},
-  ]:[{id:'INVOICES',label:'Invoices'}, {id:'RECEIPTS',label:'Receipts',disabled:true}, {id:'AGING',label:'AR Aging',disabled:true}, {id:'COUNTERPARTIES',label:'Counterparties',disabled:true}];
+    {id:'BILLS',label:'Bills'}, {id:'VENDOR_CREDITS',label:'Vendor credits'}, {id:'AGING',label:'AP Aging',unavailable:true}, {id:'VENDORS',label:'Vendors',unavailable:true},
+  ]:[{id:'INVOICES',label:'Invoices'}, {id:'RECEIPTS',label:'Receipts',unavailable:true}, {id:'AGING',label:'AR Aging',unavailable:true}, {id:'COUNTERPARTIES',label:'Counterparties',unavailable:true}];
   const activeTab=bill?(state.transactionType==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'):'INVOICES';
   const selectTab=next=>bill&&change({transactionType:next==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'});
   const metrics=bill?[
