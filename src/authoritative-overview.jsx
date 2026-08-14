@@ -75,7 +75,7 @@ export function AuthoritativeOverview({ counts = {}, onNavigate, state = 'ready'
     </div>
     {allEmpty && <div className="authoritative-overview-empty" role="status"><strong>No retained records were returned for this scope.</strong><span>Use a workspace to inspect an authoritative empty result or access boundary.</span></div>}
 
-    <AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.dashboard} title="External WBS observations" showRows={false}/>
+    <AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.dashboard} title="External WBS observations" showRows={true}/>
 
     <p className="authoritative-page-note">No creation, approval, posting, payment, provider, or browser-stored accounting control is present here. Missing API data is shown as loading, blocked, or empty rather than being replaced.</p>
   </section>;
