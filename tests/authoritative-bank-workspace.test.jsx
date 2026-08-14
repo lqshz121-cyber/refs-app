@@ -29,7 +29,7 @@ assert.match(bankTable,/BANK-LINE-1/);assert.match(bankTable,/SOURCE-1/);assert.
 assert.match(bankTable,/SOURCE → MATCH → JOURNAL/);assert.match(bankTable,/Queue status never implies reconciliation/);assert.match(bankTable,/Direction/);assert.match(bankTable,/OUTFLOW/);assert.match(bankTable,/v3/);
 assert.match(bankTable,/Bank queue read summary/);assert.match(bankTable,/Returned sources/);assert.match(bankTable,/Active Matches/);assert.match(bankTable,/Unmatched sources/);assert.match(bankTable,/Journal references/);assert.doesNotMatch(bankTable,/Create reviewed Match|Unmatch evidence/);
 assert.equal((bankTable.match(/class="qbo-card"/g)||[]).length,4,'Bank summary must use the shared demonstration card presentation');
-const emptyBank=renderToStaticMarkup(<AuthoritativeBankTable rows={[]}/>);assert.match(emptyBank,/No bank transactions were returned/);assert.match(emptyBank,/not evidence of zero cash activity/);assert.doesNotMatch(emptyBank,/<table/);
+const emptyBank=renderToStaticMarkup(<AuthoritativeBankTable rows={[]}/>);assert.match(emptyBank,/SCOPE_EMPTY/);assert.match(emptyBank,/0 bank transactions/);assert.match(emptyBank,/does not prove that an upstream source is empty/);assert.doesNotMatch(emptyBank,/<table/);
 
 const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(bankDetail,/Back to bank transactions/);assert.match(bankDetail,/Bank transaction detail/);assert.match(bankDetail,/-\$125\.25/);assert.match(bankDetail,/2026-07-01/);assert.match(bankDetail,/2026-07-31/);
