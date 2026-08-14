@@ -618,6 +618,10 @@ export class PostgresAccountingKernel{
       )).rows;
       if(!rows.length)throw new KernelError('P0002','Journal entry was not found');
       const header=rows[0];
+      const aiReview=(await client.query(
+        'SELECT * FROM refs_get_ai_journal_review_evidence($1,$2,$3)',
+        [tenantId,entityId,journalEntryId]
+      )).rows[0]??null;
       const revision=Number(header.revision);
       if(!Number.isSafeInteger(revision)||revision<0)throw new KernelError('JOURNAL_ENTRY_DETAIL_INVALID','Journal Entry detail revision is outside the public read contract');
       const journalDate=header.journal_date instanceof Date
@@ -634,6 +638,13 @@ export class PostgresAccountingKernel{
           member_ref:row.member_ref??null,description:row.line_description??null,dimensions:row.dimensions,
           source_document_ids:row.source_document_ids,
         })),
+        ai_review:aiReview?{
+          ai_journal_review_evidence_id:aiReview.ai_journal_review_evidence_id,
+          proposal_id:aiReview.proposal_id,finding_id:aiReview.finding_id,
+          review_outcome_id:aiReview.review_outcome_id,proposal_hash:aiReview.proposal_hash,
+          reviewed_by:aiReview.reviewed_by,reviewed_at:aiReview.reviewed_at,
+          linked_by:aiReview.linked_by,linked_at:aiReview.linked_at,
+        }:null,
       };
     });
   }

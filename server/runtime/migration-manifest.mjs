@@ -122,4 +122,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"114_wbs_provider_signed_payable_auto_bridge.sql",up:"1d34f1fd5d3eb62b9c101dc1c9fefe765c0ec0921e9a848322537f42df31dd25",down:"543439235dee0bbc1715760cd89fa789e05892d7e09eae906ce3f39c6d91d086"}),
   Object.freeze({name:"115_ai_wbs_exception_findings.sql",up:"2d678fe2899a1ee0c1826efe2bc8618624b9d48e7786748ffb47a6aae64ed99f",down:"755b35bc93817acfaf28d8d17e3aa8977d630b22a04ce947eb0cea607fdf3d59"}),
   Object.freeze({name:"116_ai_reviewed_journal_evidence.sql",up:"db48f2b689fe7cfe87ba70038284b9f47bbe37b471262c42fd465e1ef72c764e",down:"e238c20ad07e3e376bebab16aed24a2016e2fdb1a02598c0838dd18567298641"}),
+  Object.freeze({name:"117_ai_reviewed_journal_evidence_read.sql",up:"f62666f8b5b08e36213bef6ca65dfdbaf8c8603fa2bc19fb277d25928d98b7dc",down:"cbe8f19bc224c9bf62d0e83b6c1eb0b75f4075af4bdfbad72fce9f058a1b605b"}),
 ]);

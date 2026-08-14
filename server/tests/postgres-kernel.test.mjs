@@ -1519,6 +1519,12 @@ pgTest('AI test-data recommendation requires retained human review before a stan
   await poster.postJournal({...ids,journalEntryId:created.journal_entry_id,expectedRevision:3,idempotencyKey:'ai-pg-je-post-0001'});
   const trace=(await adminPool.query("SELECT e.reviewed_by,l.linked_by,j.status::text status,(SELECT count(*)::int FROM ledger_line x WHERE x.journal_entry_id=j.journal_entry_id) ledger_lines FROM ai_journal_review_evidence e JOIN ai_journal_review_link l ON l.ai_journal_review_evidence_id=e.ai_journal_review_evidence_id JOIN journal_entry j ON j.journal_entry_id=l.journal_entry_id WHERE e.ai_journal_review_evidence_id=$1",[retained.ai_journal_review_evidence_id])).rows[0];
   assert.deepEqual(trace,{reviewed_by:'ai-controller',linked_by:'ai-maker',status:'POSTED',ledger_lines:2});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-audit-reader',['GL.JE.VIEW'])});
+  const detail=await reader.getJournalEntryDetail({...ids,journalEntryId:created.journal_entry_id});
+  assert.deepEqual({proposal:detail.ai_review?.proposal_id,reviewer:detail.ai_review?.reviewed_by,linker:detail.ai_review?.linked_by,hash:detail.ai_review?.proposal_hash},
+    {proposal:prepared.ai_proposal_id,reviewer:'ai-controller',linker:'ai-maker',hash:proposalHash});
+  const noReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-audit-denied',[])});
+  await assert.rejects(noReader.getJournalEntryDetail({...ids,journalEntryId:created.journal_entry_id}),error=>error.code==='42501');
 });
 
 pgTest('authenticated HTTP commands traverse context issuance and PostgreSQL into the immutable ledger',async()=>{
