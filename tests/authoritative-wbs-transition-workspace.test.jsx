@@ -54,8 +54,8 @@ assert.doesNotMatch(livePilotSource,/vendor_name|vendor_no|payee|localStorage|se
 assert.doesNotMatch(source,/activateAuthoritativeWbsReadAccess|activateWbsRead|accessState/);
 assert.match(source,/status!=='BLOCKED'\?\{phase:'READY',data:result\.data,error:null\}:\{phase:'BLOCKED',data:current\.data/);
 assert.match(source,/Advanced: verify a signed transition contract/);
-assert.match(source,/AuthoritativeDemoView/);
-assert.match(source,/AuthoritativeDemoWorkspaceHeader/);
+assert.match(source,/AuthoritativeWorkspaceView/);
+assert.match(source,/AuthoritativeWorkspaceHeader/);
 assert.doesNotMatch(source,/legacy-demo-app|\.\/seed|\.\/repo|localStorage/);
 assert.doesNotMatch(source,/Number\(row\.(?:amount|source_amount|target_amount|difference)\)|toFixed\(4\)/);
 assert.doesNotMatch(source,/vendor_name|vendor_no|payee/);

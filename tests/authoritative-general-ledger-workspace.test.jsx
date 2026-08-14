@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {AuthoritativeGeneralLedgerDetail,AuthoritativeGeneralLedgerWorkspace} from '../src/authoritative-general-ledger-workspace.jsx';
 import {refreshAuthoritativeGeneralLedger} from '../src/accounting-api.js';
-import {AuthoritativeDemoGeneralLedgerDetailView,AuthoritativeDemoGeneralLedgerView} from '../src/authoritative-demo-general-ledger-view.jsx';
+import {AuthoritativeGeneralLedgerDetailView,AuthoritativeGeneralLedgerView} from '../src/authoritative-general-ledger-view.jsx';
 
 const entityId='11111111-1111-4111-8111-111111111111',periodId='22222222-2222-4222-8222-222222222222',journalId='33333333-3333-4333-8333-333333333333',journalLineId='44444444-4444-4444-8444-444444444444',ledgerLineId='55555555-5555-4555-8555-555555555555',sourceId='66666666-6666-4666-8666-666666666666';
 const config={baseUrl:'https://api.example.test',entityId,periodId,getAccessToken:async()=> 'a'.repeat(32)};
@@ -32,10 +32,10 @@ test('General Ledger line evidence is a full-page immutable snapshot with exact 
 test('General Ledger keeps the demonstrated workbench hierarchy without importing demo state',()=>{
   const workspace=String(AuthoritativeGeneralLedgerWorkspace);
   const detail=String(AuthoritativeGeneralLedgerDetail);
-  const presentation=String(AuthoritativeDemoGeneralLedgerView);const detailPresentation=String(AuthoritativeDemoGeneralLedgerDetailView);
-  assert.match(workspace,/AuthoritativeDemoGeneralLedgerView/);assert.match(workspace,/General Ledger reading path/);
-  assert.match(detail,/AuthoritativeDemoGeneralLedgerDetailView/);assert.match(detail,/Ledger line evidence reading path/);
-  assert.match(presentation,/demo-general-ledger-presentation/);assert.match(detailPresentation,/demo-general-ledger-detail-presentation/);
+  const presentation=String(AuthoritativeGeneralLedgerView);const detailPresentation=String(AuthoritativeGeneralLedgerDetailView);
+  assert.match(workspace,/AuthoritativeGeneralLedgerView/);assert.match(workspace,/General Ledger reading path/);
+  assert.match(detail,/AuthoritativeGeneralLedgerDetailView/);assert.match(detail,/Ledger line evidence reading path/);
+  assert.match(presentation,/authoritative-general-ledger-presentation/);assert.match(detailPresentation,/authoritative-general-ledger-detail-presentation/);
   assert.doesNotMatch(`${workspace}\n${detail}`,/localStorage|seed\.js|repo\.js|legacy-demo-app/);
   assert.doesNotMatch(`${presentation}\n${detailPresentation}`,/localStorage|seed\.js|repo\.js|data\.js|accounting-api|legacy-demo-app/);
 });

@@ -59,7 +59,7 @@ contains(app, '<AuthoritativeOverview', 'overview route must mount the demo-deri
 contains(documents, "from './authoritative-ap-ar-view.jsx'", 'AP/AR must mount the authoritative workspace presentation');
 contains(documents, '<AuthoritativeApArView', 'AP/AR must use the authoritative KPI/tabs hierarchy');
 for (const [name, source] of Object.entries({bank, reports, journals, sourceDocuments, coa, ledger})) {
-  assert.ok(source.includes('AuthoritativeDemoView') || source.includes('table-wrap'), `${name} must keep the shared visual workspace or contained evidence table`);
+  assert.ok(source.includes('AuthoritativeWorkspaceView') || source.includes('table-wrap'), `${name} must keep the shared visual workspace or contained evidence table`);
 }
 
-console.log('demo visual parity: desktop rail/panel/topbar/dashboard and mobile drawer/filter/table contracts pass for primary API workspaces');
+console.log('authoritative visual parity: desktop rail/panel/topbar/dashboard and mobile drawer/filter/table contracts pass for primary API workspaces');

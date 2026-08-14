@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { StateBlock } from './ui.jsx';
 import {AuthoritativeScopeEmpty} from './authoritative-read-state.jsx';
 import {readAuthoritativeJournalEntryDetail,readAuthoritativeJournalWorkflowCapabilities,refreshAuthoritativeJournalEntries,transitionAuthoritativeJournal} from './accounting-api.js';
-import {AuthoritativeDemoJournalView} from './authoritative-demo-journal-view.jsx';
+import {AuthoritativeJournalView} from './authoritative-journal-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 import {AuthoritativeLineageDrill} from './authoritative-lineage-drill.jsx';
 import {formatAuthoritativeDate} from './authoritative-scope-presentation.js';
@@ -77,7 +77,7 @@ export function AuthoritativeJournalTable({ journals = [], entityId=null, view =
   const queueCounts=journalQueueCounts(journals);
   const change=patch=>onViewChange?.({...view,...patch,page:patch.page??1});
   const setQueue=status=>change({status});
-  return <AuthoritativeDemoJournalView>
+  return <AuthoritativeJournalView>
     <div className="authoritative-workbench-rail" aria-label="Journal workspace structure">
       <span><b>1</b> Register</span><span><b>2</b> Scoped evidence</span><span><b>3</b> Exact Back</span>
     </div>
@@ -104,7 +104,7 @@ export function AuthoritativeJournalTable({ journals = [], entityId=null, view =
       </tr>;})}</tbody>
     </table></div>}
     {page.pageCount>1&&<nav className="pagination" aria-label="Journal entry pages"><button type="button" disabled={page.page===1} onClick={()=>change({page:page.page-1})}>Previous</button><span>Page {page.page} of {page.pageCount}</span><button type="button" disabled={page.page===page.pageCount} onClick={()=>change({page:page.page+1})}>Next</button></nav>}
-  </AuthoritativeDemoJournalView>;
+  </AuthoritativeJournalView>;
 }
 
 export function AuthoritativeJournalDetail({journal,entityId,returnContext,onBack}) {
