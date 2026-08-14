@@ -4,12 +4,13 @@ import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTE
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the formal navigation must retain the full product taxonomy');
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'every formal route needs a stable unique identity');
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry','amortization','bank','bank-batch-pipeline','chart-of-accounts','consolidation','construction-loan','general-ledger','intercompany','journals','overview','payables','project-cost-cwip','receivables','reconciliation','reports','source-documents','wbs-autorec-evidence','wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry','ai-audit','amortization','bank','bank-batch-pipeline','chart-of-accounts','consolidation','construction-loan','general-ledger','intercompany','journals','overview','payables','project-cost-cwip','receivables','reconciliation','reports','source-documents','unit-cost-ledger','wbs-autorec-evidence','wbs-payable-review'].sort());
 for (const group of AUTHORITATIVE_NAVIGATION) {
   assert.ok(group.items.length > 0, `${group.label} may not be empty`);
   for (const item of group.items) assert.ok(AUTHORITATIVE_ROUTES.includes(item.route));
 }
 assert.equal(navigationItemForRoute('project-cost-cwip').availability, 'API_READ');
+assert.equal(navigationItemForRoute('unit-cost-ledger').availability, 'API_READ');
 assert.equal(navigationItemForRoute('construction-loan').availability, 'API_READ');
 assert.equal(navigationItemForRoute('amortization').availability, 'API_READ');
 assert.equal(navigationItemForRoute('intercompany').availability, 'API_READ');

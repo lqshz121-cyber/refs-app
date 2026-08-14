@@ -63,7 +63,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // This is an authenticated report-evidence workspace, not the legacy
     // project-cost register. Cost-code and vendor registers remain unavailable
     // until their own server read contracts exist.
-    item('project-cost-cwip', 'Project Cost & CWIP', 'API_READ'), item('unit-cost-ledger', 'Unit Cost Ledger'),
+    item('project-cost-cwip', 'Project Cost & CWIP', 'API_READ'), item('unit-cost-ledger', 'Unit Cost Ledger', 'API_READ'),
     item('unit-transfer', 'Unit Transfer'),
     // Existing OIDC report readers expose only mapping-backed rollforward
     // evidence. The loan register and lender workflow remain unavailable.
