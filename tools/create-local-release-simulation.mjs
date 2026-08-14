@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { canonicalWbsReceiptSigningPayload } from './verify-external-release-gate.mjs';
+import { AUTHORITATIVE_PAGES } from './verify-authoritative-runtime-evidence.mjs';
 
 const outRoot = resolve('outputs/local-release-simulation');
 const writeText = (path, text) => {
@@ -21,7 +22,7 @@ const scannerCaFile = resolve(outRoot, 'scanner-ca.pem');
 const objectKey = 'simulation/clean-document.pdf';
 const objectVersion = 'local-version-0001';
 const objectContentHash = `sha256:${'3'.repeat(64)}`;
-const pages = ['Dashboard', 'Reports', 'Reconcile', 'BankTx', 'Expenses', 'Accounting', 'Rule Center', 'Integration Hub'];
+const pages = Object.freeze(Object.keys(AUTHORITATIVE_PAGES));
 
 const pageEvidence = {};
 for (const page of pages) {

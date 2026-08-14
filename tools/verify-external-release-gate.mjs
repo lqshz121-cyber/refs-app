@@ -3,9 +3,10 @@ import { createHash, createPublicKey, verify } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonicalWbsLiveReceiptSigningPayload, isWbsLiveReceiptTimeWindowValid } from '../server/runtime/wbs-live-receipt-signing.mjs';
+import { AUTHORITATIVE_PAGES } from './verify-authoritative-runtime-evidence.mjs';
 
 const forbidden = /[\p{Script=Han}\uFFFD\u0080-\u009F]/u;
-const pages = ['Dashboard', 'Reports', 'Reconcile', 'BankTx', 'Expenses', 'Accounting', 'Rule Center', 'Integration Hub'];
+const pages = Object.freeze(Object.keys(AUTHORITATIVE_PAGES));
 
 const fail = (code, detail) => {
   console.error(`${code}: ${detail}`);
@@ -54,7 +55,7 @@ export function verifyUiEvidence(environment = process.env) {
     if (!row || row.webOrigin !== environment.REFS_STAGING_WEB_ORIGIN || row.apiBaseUrl !== environment.REFS_STAGING_API_BASE_URL || row.authenticated !== true || !existsSync(row.screenshot) || !existsSync(row.visibleText)) return fail('RELEASE_UI_E2E_INCOMPLETE', page);
     if (forbidden.test(readFileSync(row.visibleText, 'utf8'))) return fail('RELEASE_UI_VISIBLE_TEXT_INVALID', page);
   }
-  console.log(`release-ui-e2e: ${pages.length}/8 evidence artifacts verified`);
+  console.log(`release-ui-e2e: ${pages.length}/${pages.length} authoritative page evidence artifacts verified`);
   return true;
 }
 
