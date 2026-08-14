@@ -65,7 +65,7 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
     const requestedCompanyCode=scopeCompany?companyCode.trim():'';
     // Provider observation dates are meaningful only alongside one explicit
     // provider-native company scope.  Do not issue a date-only WBS read.
-    const result=await refreshAuthoritativeWbsLivePilot({config,tool,limit:10,companyCode:scopeCompany?requestedCompanyCode||null:null,dateFrom:scopeDates?dateFrom:null,dateTo:scopeDates?dateTo:null,fetcher});
+    const result=await refreshAuthoritativeWbsLivePilot({config,tool,limit:10,companyCode:scopeCompany?requestedCompanyCode||null:null,dateFrom:requestedCompanyCode?dateFrom:null,dateTo:requestedCompanyCode?dateTo:null,fetcher});
     setAttestationConfirmation(false);
     setState(current=>result.ok?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result});
   };
