@@ -9,10 +9,10 @@ A demo is a distinct `tenant` whose `tenant_code` begins with `DEMO_` and has an
 ## Consequences
 
 - OIDC context and PostgreSQL RLS continue to scope every read/write by `tenant_id`; a session for a real tenant cannot read the DEMO marker, and a DEMO session cannot read a real tenant.
-- The same Postgres workflow, audit and outbox are used when a later owner provisions the demo scenario. Browser mocks, `localStorage`, `seed.js`, and a separate demo site are prohibited.
+- The administrator-only `server/tools/controlled-demo-bootstrap.mjs provision` command uses the isolated migration-owner connection and one SERIALIZABLE transaction to create the tenant, immutable marker, entity, and open period, then writes audit/outbox. It grants no roles and has no HTTP or browser entry point. Browser mocks, `localStorage`, `seed.js`, and a separate demo site are prohibited.
 - Expiry makes the marker inactive. Retirement is append-only and emits an audit/outbox event. Neither path deletes journals, ledger rows, source evidence, or audit history.
 - This migration does not weaken WBS Pilot rules. Unsigned WBS data remains `UNSIGNED / GET ONLY / NOT POSTABLE` in every tenant, including DEMO.
 
 ## Deferred work
 
-The integration owner must add an administrator-authorized bootstrap command and an exact source-provenance convention before inserting any scenario data. The resulting end-to-end demo must be labeled `DEMO / NON-REAL EVIDENCE` in the authoritative UI.
+An integration owner must establish the exact source-provenance convention before inserting any scenario data. The resulting end-to-end demo must be labeled `DEMO / NON-REAL EVIDENCE` in the authoritative UI.
