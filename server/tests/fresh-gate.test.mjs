@@ -20,3 +20,10 @@ test('fresh PostgreSQL gate requires all isolated runtime identities and the req
   for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL'])assert.match(source,new RegExp(`${key}:`));
   assert.match(source,/\['run','test:postgres'\]/);
 });
+
+test('fresh PostgreSQL gate can bound a run to named kernel tests without changing its default full suite',()=>{
+  assert.match(source,/REFS_PG_TEST_NAME_PATTERN/);
+  assert.match(source,/--test-name-pattern/);
+  assert.match(source,/tests\/postgres-kernel\.test\.mjs/);
+  assert.match(source,/\? \['exec','--','node','--test'/);
+});

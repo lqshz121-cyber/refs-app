@@ -59,13 +59,19 @@ const testEnv={...composeEnv,
   CONTEXT_ISSUER_DATABASE_URL:`postgresql://refs_context_issuer:${passwords.issuer}@127.0.0.1:${port}/${database}`,
   GRANT_SYNC_DATABASE_URL:`postgresql://refs_grant_sync:${passwords.grantSync}@127.0.0.1:${port}/${database}`
 };
+const testNamePattern=String(process.env.REFS_PG_TEST_NAME_PATTERN||'').trim();
+const postgresTestCommand=process.platform==='win32'?'npm.cmd':'npm';
+const postgresTestArgs=testNamePattern
+  ? ['exec','--','node','--test','--test-name-pattern',testNamePattern,'tests/postgres-kernel.test.mjs']
+  : ['run','test:postgres'];
 
 console.log(`Fresh PostgreSQL gate project=${project} database=${database} port=${port} image=${composeEnv.POSTGRES_IMAGE||'postgres:16-alpine'}`);
 try{
   await run('docker',['compose','-p',project,'-f','compose.yaml','up','-d','--wait'],composeEnv);
   const readiness=await waitForPostgresReadiness({probe:()=>probePostgres(testEnv.MIGRATION_DATABASE_URL)});
   console.log(`Fresh PostgreSQL gate ready after ${readiness.attempts} probe(s) in ${readiness.elapsedMs}ms`);
-  await run(process.platform==='win32'?'npm.cmd':'npm',['run','test:postgres'],testEnv);
+  if(testNamePattern)console.log(`Fresh PostgreSQL gate running bounded test pattern=${JSON.stringify(testNamePattern)}`);
+  await run(postgresTestCommand,postgresTestArgs,testEnv);
 }finally{
   await run('docker',['compose','-p',project,'-f','compose.yaml','down','-v','--remove-orphans'],composeEnv).catch(error=>{
     console.error(`Fresh gate cleanup failed for owned project ${project}: ${error.message}`);
