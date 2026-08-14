@@ -2,6 +2,8 @@ import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
 import {renderRuntimeConfig} from '../../scripts/runtime-config-lib.mjs';
 import {stagingSmokeConfig} from './test-staging-smoke.mjs';
+import {normalizeWbsProviderTrust} from './wbs-signed-delivery-admission.mjs';
+import {createWbsSnapshotSignatureVerifier} from './wbs-snapshot-signature.mjs';
 
 const backendRequired=[
   'DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL',
@@ -9,6 +11,7 @@ const backendRequired=[
   'REFS_ATTACHMENT_MODE','REFS_WBS_INGEST_MODE','REFS_STAGING_API_BASE_URL','REFS_STAGING_WEB_ORIGIN'
 ];
 const attachmentRequired=['S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID'];
+const signedIngestRequired=['WBS_SNAPSHOT_ED25519_PUBLIC_KEYS','WBS_PROVIDER_SIGNED_TRUST','WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID'];
 const publicKeys=[
   'REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE',
   'REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT',
@@ -36,6 +39,11 @@ const validateWbsKeyring=value=>{
   for(const [keyId,key] of Object.entries(keyring)){
     if(!/^[A-Za-z0-9._-]{1,128}$/.test(keyId)||typeof key!=='string'||key.trim().length<32)throw new Error('staging-env: WBS_SNAPSHOT_ED25519_PUBLIC_KEYS contains an invalid public key entry');
   }
+  try{createWbsSnapshotSignatureVerifier({publicKeys:keyring});}catch{throw new Error('staging-env: WBS_SNAPSHOT_ED25519_PUBLIC_KEYS must contain Ed25519 public keys');}
+};
+const validateWbsProviderTrust=value=>{
+  let trust;try{trust=JSON.parse(value);}catch{throw new Error('staging-env: WBS_PROVIDER_SIGNED_TRUST must be JSON');}
+  try{normalizeWbsProviderTrust(trust);}catch{throw new Error('staging-env: WBS_PROVIDER_SIGNED_TRUST must contain the reviewed Ed25519 trust pin');}
 };
 
 export function validateStagingEnvironment(environment=process.env){
@@ -50,13 +58,20 @@ export function validateStagingEnvironment(environment=process.env){
     if(!caPem&&!caFile)throw new Error('staging-env: attachment integration requires VIRUS_SCANNER_CA_PEM or VIRUS_SCANNER_CA_FILE');
     if(caPem&&!caPem.includes('-----BEGIN CERTIFICATE-----'))throw new Error('staging-env: VIRUS_SCANNER_CA_PEM must contain a PEM certificate');
   }
-  if(wbsIngestMode==='REQUIRED'&&!present(environment.WBS_SNAPSHOT_ED25519_PUBLIC_KEYS))throw new Error('staging-env: WBS ingest integration missing WBS_SNAPSHOT_ED25519_PUBLIC_KEYS');
+  if(wbsIngestMode==='REQUIRED'){
+    const signedMissing=signedIngestRequired.filter(key=>!present(environment[key]));
+    if(signedMissing.length)throw new Error(`staging-env: WBS ingest integration missing ${signedMissing.join(', ')}`);
+    if(String(environment.REFS_HTTP_MAX_BODY_BYTES||'').trim()!=='10485760')throw new Error('staging-env: signed WBS ingest requires REFS_HTTP_MAX_BODY_BYTES=10485760');
+  }
   const {apiBaseUrl,webOrigin}=stagingSmokeConfig(environment);
   const allowedOrigins=exactOrigins(environment.REFS_HTTP_ALLOWED_ORIGINS);
   if(!allowedOrigins.includes(webOrigin))throw new Error('staging-env: REFS_HTTP_ALLOWED_ORIGINS must include REFS_STAGING_WEB_ORIGIN exactly');
   for(const key of ['OIDC_ISSUER','OIDC_JWKS_URI'])httpsUrl(environment[key],key);
   if(attachmentMode==='REQUIRED')for(const key of ['S3_ENDPOINT','VIRUS_SCANNER_ENDPOINT'])httpsUrl(environment[key],key);
-  if(wbsIngestMode==='REQUIRED')validateWbsKeyring(environment.WBS_SNAPSHOT_ED25519_PUBLIC_KEYS);
+  if(wbsIngestMode==='REQUIRED'){
+    validateWbsKeyring(environment.WBS_SNAPSHOT_ED25519_PUBLIC_KEYS);
+    validateWbsProviderTrust(environment.WBS_PROVIDER_SIGNED_TRUST);
+  }
   const suppliedPublic=publicKeys.filter(key=>present(environment[key]));
   if(suppliedPublic.length){
     if(suppliedPublic.length!==publicKeys.length)throw new Error(`staging-env: public runtime configuration is incomplete (${publicKeys.filter(key=>!present(environment[key])).join(', ')})`);

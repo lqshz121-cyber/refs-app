@@ -133,10 +133,20 @@ Additional Stage 1 configuration the API needs, all by name only:
 - `REFS_WBS_INGEST_MODE=DISABLED` - signed WBS admission is unavailable in the
   Stage 1 read deployment.
 
-Deploy the cleanup worker declared in `render.integrations.yaml` only as a
-separate integrations release. That release may set both modes to `REQUIRED`
-after provider-backed S3/scanner evidence and every required WBS trust variable
-are configured; startup fails closed if any is absent.
+Deploy the `refs-accounting-api-integrations-staging` API and cleanup worker
+declared in `render.integrations.yaml` only as a separate integrations release.
+The integrations API fixes both modes to `REQUIRED`, disables the unsigned WBS
+pilot, and fails startup closed if provider trust, the dedicated M2M subject,
+S3, or scanner configuration is absent. It uses the same isolated staging
+PostgreSQL authority and OIDC contract as Stage 1.
+
+Deploy and smoke-test the integrations API before changing the browser. After
+signed admission, attachment, Review/Draft, and authoritative readback pass,
+atomically change the static service's single
+`REFS_PUBLIC_ACCOUNTING_API_BASE_URL` to the integrations API and rebuild it.
+Never route reads to Stage 1 while routing commands to integrations. Preserve
+the Stage 1 API as the rollback target; a rollback changes the one browser API
+origin and does not roll back database migrations or delete retained evidence.
 
 **Verification**
 
@@ -215,8 +225,20 @@ these are distinguishable.
 
 Automated checks that back rows 1, 2 and the transport headers:
 
+PowerShell:
+
+```powershell
+cd server
+$env:REFS_STAGING_API_BASE_URL = '<api origin>'
+$env:REFS_STAGING_WEB_ORIGIN = '<web origin>'
+npm.cmd run test:staging:smoke
 ```
-cd server && REFS_STAGING_API_BASE_URL=<api origin> REFS_STAGING_WEB_ORIGIN=<web origin> npm run test:staging:smoke
+
+POSIX shell:
+
+```sh
+cd server
+REFS_STAGING_API_BASE_URL='<api origin>' REFS_STAGING_WEB_ORIGIN='<web origin>' npm run test:staging:smoke
 ```
 
 That smoke run asserts readiness returns 200, the web root ships the four
