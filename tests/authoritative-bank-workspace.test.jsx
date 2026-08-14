@@ -5,7 +5,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {AuthoritativeAdmittedStatements,AuthoritativeBankDetail,AuthoritativeBankTable,AuthoritativeBankWorkspace,AuthoritativeReconciliationDetail,AuthoritativeReconciliationSummary,AuthoritativeReconciliationWorkspace} from '../src/authoritative-bank-workspace.jsx';
 import {routeRequiresSharedAccountingBootstrap} from '../src/authoritative-app.jsx';
 
-const config={entityId:'11111111-1111-4111-8111-111111111111'};
+const config={entityId:'11111111-1111-4111-8111-111111111111',scopePresentation:{entityLabel:'Northwind Properties',entityDetail:'11111111-1111-4111-8111-111111111111'}};
 assert.equal(routeRequiresSharedAccountingBootstrap('reconciliation'),false,'a direct Reconciliation reload must mount its scoped reader without waiting for unrelated AP/AR or Journal requests');
 assert.equal(routeRequiresSharedAccountingBootstrap('bank'),false);
 assert.equal(routeRequiresSharedAccountingBootstrap('overview'),true);
@@ -31,31 +31,31 @@ assert.match(bankTable,/Bank queue read summary/);assert.match(bankTable,/Return
 assert.equal((bankTable.match(/class="qbo-card"/g)||[]).length,4,'Bank summary must use the shared demonstration card presentation');
 const emptyBank=renderToStaticMarkup(<AuthoritativeBankTable rows={[]}/>);assert.match(emptyBank,/No records to show/);assert.match(emptyBank,/No bank transactions are available/);assert.match(emptyBank,/does not confirm a zero balance/);assert.doesNotMatch(emptyBank,/<table/);
 
-const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
+const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}} config={config}/>);
 assert.match(bankDetail,/Back to bank transactions/);assert.match(bankDetail,/Bank transaction detail/);assert.match(bankDetail,/-\$125\.25/);assert.match(bankDetail,/2026-07-01/);assert.match(bankDetail,/2026-07-31/);
 assert.match(bankDetail,/full-bleed qbo-transaction-report/);
-assert.match(bankDetail,/AUTHORITATIVE SOURCE EVIDENCE/);assert.match(bankDetail,/Bank evidence lifecycle/);assert.match(bankDetail,/Reconciliation separate/);assert.match(bankDetail,/Authoritative evidence scope/);
+assert.match(bankDetail,/BANK TRANSACTION/);assert.match(bankDetail,/Bank evidence lifecycle/);assert.match(bankDetail,/Reconciliation separate/);assert.match(bankDetail,/Evidence scope/);assert.match(bankDetail,/Northwind Properties/);assert.doesNotMatch(bankDetail,/>11111111-1111-4111-8111-111111111111</);
 assert.match(bankDetail,/Match review/);assert.match(bankDetail,/Journal reference unavailable/);
 assert.match(bankDetail,/Direction/);assert.match(bankDetail,/OUTFLOW/);
 const mismatchedBankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-OTHER',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}} config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(mismatchedBankDetail,/BLOCKED — immutable bank scope mismatch/);assert.match(mismatchedBankDetail,/Back to bank transactions/);
 assert.doesNotMatch(mismatchedBankDetail,/Bank match candidate review|Active Match correction|Load exact candidate|Create reviewed Match|Unmatch evidence/);
 const activeMatchDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={activeMatchRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
-assert.match(activeMatchDetail,/Business source document/);assert.match(activeMatchDetail,/Journal entry/);assert.match(activeMatchDetail,/Journal line/);assert.match(activeMatchDetail,/Ledger line/);assert.match(activeMatchDetail,/Unavailable from the active-Match read/);assert.match(activeMatchDetail,/Matched by/);assert.match(activeMatchDetail,/Matched at/);assert.match(activeMatchDetail,/Match version/);assert.match(activeMatchDetail,/Active Match retained/);assert.match(activeMatchDetail,/Journal reference retained/);
+assert.match(activeMatchDetail,/Business source document/);assert.match(activeMatchDetail,/Journal entry/);assert.match(activeMatchDetail,/Journal line/);assert.match(activeMatchDetail,/Ledger line/);assert.match(activeMatchDetail,/Unavailable from the active-Match read/);assert.match(activeMatchDetail,/Matched by/);assert.match(activeMatchDetail,/Matched at/);assert.match(activeMatchDetail,/Match version/);assert.match(activeMatchDetail,/Active Match retained/);assert.match(activeMatchDetail,/Journal reference retained/);assert.match(activeMatchDetail,/Recorded transaction/);assert.match(activeMatchDetail,/Not yet linked/);assert.match(activeMatchDetail,/Linked journal/);
 const historicalMatchDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={historicalMatchRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}} config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(historicalMatchDetail,/Match correction blocked/);assert.match(historicalMatchDetail,/not ACTIVE/);assert.match(historicalMatchDetail,/READ ONLY HISTORY/);assert.doesNotMatch(historicalMatchDetail,/Unmatch evidence/);
 
 const reconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}}/>);
 assert.match(reconciliation,/RECONCILED/);assert.match(reconciliation,/\$1,000\.00/);assert.match(reconciliation,/Unmatched/);assert.match(reconciliation,/READ ONLY/);assert.match(reconciliation,/Open statement detail/);
 assert.match(reconciliation,/STATEMENT → REVIEW → SIGN-OFF/);assert.match(reconciliation,/Reconciliation lifecycle/);assert.match(reconciliation,/Immutable history/);assert.match(reconciliation,/Independent sign-off retained/);assert.match(reconciliation,/Immutable history retained/);
-assert.match(reconciliation,/Authoritative evidence scope/);assert.match(reconciliation,/Bank account/);assert.match(reconciliation,/Statement cutoff/);assert.match(reconciliation,/2026-07-31/);assert.match(reconciliation,/v4/);
+assert.match(reconciliation,/Evidence scope/);assert.match(reconciliation,/Bank account/);assert.match(reconciliation,/Statement cutoff/);assert.match(reconciliation,/2026-07-31/);assert.match(reconciliation,/v4/);
 const emptyReconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSummary row={null}/>);assert.match(emptyReconciliation,/Reconciliation evidence blocked/);assert.match(emptyReconciliation,/BLOCKED — The accounting API returned no authorized reconciliation statement/);assert.match(emptyReconciliation,/not evidence of zero statement activity/);assert.doesNotMatch(emptyReconciliation,/Open statement detail|Start DRAFT|Connect now|Get started/);
 
 const reconciliationDetail=renderToStaticMarkup(<AuthoritativeReconciliationDetail row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(reconciliationDetail,/Back to reconciliation evidence/);assert.match(reconciliationDetail,/Statement ending 2026-07-31/);assert.match(reconciliationDetail,/\$1,000\.00/);assert.match(reconciliationDetail,/11111111-1111-4111-8111-111111111111/);
 assert.match(reconciliationDetail,/full-bleed qbo-transaction-report/);assert.match(reconciliationDetail,/Reconciled by/);
 assert.match(reconciliationDetail,/Load reconciliation worksheet/);assert.match(reconciliationDetail,/CONTROLLER REVIEW/);
-assert.match(reconciliationDetail,/AUTHORITATIVE STATEMENT WORKSHEET/);assert.match(reconciliationDetail,/Reconciliation lifecycle/);assert.match(reconciliationDetail,/Authoritative evidence scope/);
+assert.match(reconciliationDetail,/AUTHORITATIVE STATEMENT WORKSHEET/);assert.match(reconciliationDetail,/Reconciliation lifecycle/);assert.match(reconciliationDetail,/Evidence scope/);
 const mismatchedReconciliationDetail=renderToStaticMarkup(<AuthoritativeReconciliationDetail row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-OTHER',statementEndingDate:'2026-07-30'}} onBack={()=>{}} config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(mismatchedReconciliationDetail,/BLOCKED — immutable reconciliation scope mismatch/);assert.match(mismatchedReconciliationDetail,/Back to reconciliation evidence/);
 assert.doesNotMatch(mismatchedReconciliationDetail,/Load reconciliation worksheet|Prepare adjustment Draft|Create adjustment Draft|Clear matched item|Send to independent review|Sign off reviewed statement|Reopen signed statement/);
