@@ -75,7 +75,7 @@ assert.match(exactDetail,/class="table-wrap authoritative-journal-line-table" ta
 assert.doesNotMatch(exactDetail,/immutable Journal scope mismatch/,'an exact API detail matching the frozen context must be shown');
 
 const empty=renderToStaticMarkup(<AuthoritativeJournalTable journals={[]} onOpen={()=>{}}/>);
-assert.match(empty,/SCOPE_EMPTY/);assert.match(empty,/signed source is admitted, reviewed, and posted/); assert.doesNotMatch(empty,/<table/);
+assert.match(empty,/INGESTION_BLOCKED/);assert.match(empty,/admit a signed source, complete review, and post/); assert.doesNotMatch(empty,/<table/);
 
 const app=fs.readFileSync(path.join(process.cwd(),'src','authoritative-app.jsx'),'utf8');
 assert.match(app,/AuthoritativeJournalWorkspace/);

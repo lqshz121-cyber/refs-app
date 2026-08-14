@@ -1,7 +1,6 @@
 import React, {useState} from 'react';
 import {createAuthoritativeBankPaymentMatch,createAuthoritativeReconciliationAdjustmentDraft,readAuthoritativeAdmittedBankStatement,refreshAuthoritativeAdmittedBankStatements,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation,refreshAuthoritativeReconciliationWorksheet,setAuthoritativeReconciliationClearance,startAuthoritativeReconciliationFromAdmittedStatement,transitionAuthoritativeReconciliation,unmatchAuthoritativeBankPayment} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
-import {AuthoritativeScopeEmpty} from './authoritative-read-state.jsx';
 import {AuthoritativeDemoView,AuthoritativeDemoWorkspaceHeader} from './authoritative-demo-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 import {DEFAULT_AUTHORITATIVE_LIST_VIEW,createAuthoritativeReturnContext,restoreAuthoritativeReturnContext} from './authoritative-list-context.js';
@@ -34,6 +33,34 @@ const ReadError=({error,onRetry})=><StateBlock tone="error" title={error?.code||
   actions={<button type="button" className="btn btn-sm" onClick={onRetry}>Retry read</button>}>
   <p>{error?.message||'The authoritative read could not be completed.'}</p>
 </StateBlock>;
+
+const bankReadFailure=(error,subject)=>{
+  if(['AUTHENTICATION_REQUIRED','AUTHORIZATION_DENIED'].includes(error?.code))return {
+    tone:'blocked',title:'NO_PERMISSION — authoritative read denied',
+    detail:`The current session cannot read ${subject} for this entity. Ask an administrator for read access, then retry the same scope.`,
+  };
+  if(['ACCOUNTING_API_SCOPE_INVALID','ACCOUNTING_API_SCOPE_NOT_FOUND'].includes(error?.code))return {
+    tone:'blocked',title:'SCOPE_EMPTY — configured scope unavailable',
+    detail:`The accounting API cannot resolve ${subject} for the selected entity, account, and date scope. Check the scope values; this is not evidence of a zero balance.`,
+  };
+  return {
+    tone:'error',title:'API_ERROR — authoritative read failed',
+    detail:'The accounting API did not return a usable response. Retry the same scope; do not treat this result as empty or zero.',
+  };
+};
+
+const BankReadFailure=({error,onRetry,subject})=>{
+  const diagnostic=bankReadFailure(error,subject);
+  return <StateBlock tone={diagnostic.tone} title={diagnostic.title}
+    actions={<button type="button" className="btn btn-sm" onClick={onRetry}>Retry authoritative read</button>}>
+    <p>{error?.code||'ACCOUNTING_API_UNAVAILABLE'}: {error?.message||diagnostic.detail}</p>
+    <p>{diagnostic.detail}</p>
+  </StateBlock>;
+};
+
+const BankReadMetadata=({count,readAt,subject})=><p className="muted sm" aria-label={`${subject} authoritative read diagnostics`}>
+  API records returned: {count}. Last authoritative API read: {readAt||'not completed'}. Source freshness: not supplied by this endpoint.
+</p>;
 
 const statusTone=status=>/^(ACTIVE|RECONCILED|CLEARED)$/i.test(String(status||''))?'badge-ok':/^(UNMATCHED|DRAFT|IN_REVIEW|REOPENED)$/i.test(String(status||''))?'badge-warn':'badge-muted';
 const EvidenceBadge=({children})=><span className={`badge ${statusTone(children)}`}>{children||'UNMATCHED'}</span>;
@@ -83,11 +110,16 @@ const BankQueueSummary=({rows=[]})=>{
   </section>;
 };
 
-export const AuthoritativeBankTable=({rows=[],onOpen=()=>{}})=><section className="bank-queue-card authoritative-bank-queue" aria-label="Authoritative bank transaction evidence">
+export const AuthoritativeBankTable=({rows=[],readAt=null,onOpen=()=>{}})=><section className="bank-queue-card authoritative-bank-queue" aria-label="Authoritative bank transaction evidence">
   <div className="card-head"><div><p className="eyebrow">SOURCE → MATCH → JOURNAL</p><h2>Bank transactions</h2><p className="muted sm">Read-only source and retained match evidence from the accounting API. Match review happens only after you open one scoped source item.</p></div><span className="badge badge-muted">READ ONLY</span></div>
   <div className="authoritative-bank-queue-note"><b>{rows.length}</b> retained source item{rows.length===1?'':'s'} in this response. Queue status never implies reconciliation, clearance, or posting.</div>
   {!!rows.length&&<BankQueueSummary rows={rows}/>}
-  {!rows.length?<AuthoritativeScopeEmpty subject="bank transactions"/>:<div className="table-wrap" role="region" tabIndex={0} aria-label="Bank transactions; scroll horizontally to view every column"><table className="tbl">
+  {!rows.length?<StateBlock tone="empty" title="SCOPE_EMPTY — no authoritative bank records returned">
+    <p>The authenticated API returned 0 bank transactions for the selected entity, account, and date scope.</p>
+    <p>This is not TRUE_EMPTY: this endpoint does not return a source-completeness control total, so it is not evidence of a zero cash balance.</p>
+    <p>Next step: verify the bank account and date range, then refresh the same authoritative scope.</p>
+    <BankReadMetadata count={0} readAt={readAt} subject="Bank transactions"/>
+  </StateBlock>:<div className="table-wrap" role="region" tabIndex={0} aria-label="Bank transactions; scroll horizontally to view every column"><table className="tbl">
     <thead><tr><th>Date</th><th>Source evidence</th><th>Direction</th><th>Amount</th><th>Match evidence</th><th>Source version</th><th>Evidence</th></tr></thead>
     <tbody>{rows.map(row=><tr key={row.bank_source_id}>
       <td>{row.transaction_date}</td><td><b>{row.external_bank_line_id}</b><div className="muted sm">{row.source_ref}</div></td>
@@ -138,10 +170,11 @@ export const AuthoritativeBankDetail=({row,scope,onBack,config,fetcher,onMatchCh
 </section>;
 };
 
-export const AuthoritativeReconciliationSummary=({row=null,scope=null,onOpen=()=>{}})=><section className="report-workbench recon-summary authoritative-reconciliation-summary" aria-label="Authoritative reconciliation evidence">
+export const AuthoritativeReconciliationSummary=({row=null,scope=null,readAt=null,onOpen=()=>{}})=><section className="report-workbench recon-summary authoritative-reconciliation-summary" aria-label="Authoritative reconciliation evidence">
   <div className="card-head"><div><p className="eyebrow">STATEMENT → REVIEW → SIGN-OFF</p><h2>Reconciliation statement</h2><p className="muted sm">Statement-scoped evidence only. This page cannot match, clear, reopen, sign off, or post.</p></div><span className="badge badge-muted">READ ONLY</span></div>
   {!row?<StateBlock tone="blocked" title="Reconciliation evidence blocked">BLOCKED — The accounting API returned no authorized reconciliation statement for this account and cutoff. Reconciliation controls are unavailable until retained statement evidence is returned. This scoped result is not evidence of zero statement activity, zero difference, review, or sign-off.</StateBlock>:<>
     <ScopeStrip items={[{label:'Entity',value:scope?.entityId},{label:'Bank account',value:row.bank_account_ref},{label:'Statement cutoff',value:row.statement_ending_date},{label:'Statement version',value:`v${row.version}`}]}/>
+    <BankReadMetadata count={1} readAt={readAt} subject="Reconciliation statements"/>
     <ReconciliationLifecycle status={row.status}/>
     <div className="recon-summary-grid"><span className="recon-summary-cell"><i>Statement ending</i><b>{money(row.statement_ending_balance)}</b></span><span className="recon-summary-cell"><i>Statement activity</i><b>{money(row.statement_activity_amount)}</b></span><span className="recon-summary-cell"><i>Difference</i><b>{money(row.difference)}</b></span><span className="recon-summary-cell"><i>Bank transactions</i><b>{row.bank_transaction_count}</b></span><span className="recon-summary-cell"><i>Active matches</i><b>{row.active_match_count}</b></span><span className="recon-summary-cell"><i>Unmatched</i><b>{row.unmatched_transaction_count}</b></span></div>
     <p className="muted sm">Status {row.status} · statement revision {row.version}. These facts are returned by the authoritative API and do not imply a reconciliation action.</p>
@@ -152,11 +185,11 @@ export const AuthoritativeReconciliationSummary=({row=null,scope=null,onOpen=()=
 const compactReceipt=value=>typeof value==='string'&&value.length>12?`...${value.slice(-8)}`:value;
 
 export function AuthoritativeAdmittedStatements({config,bankAccountRef,fetcher,onStarted=async()=>{}}){
-  const [list,setList]=useState({phase:'IDLE',rows:[],error:null});
+  const [list,setList]=useState({phase:'IDLE',rows:[],error:null,readAt:null});
   const [detail,setDetail]=useState({phase:'IDLE',row:null,error:null});
   const [reason,setReason]=useState('');
   const account=String(bankAccountRef||'').trim();
-  const load=async()=>{setDetail({phase:'IDLE',row:null,error:null});setReason('');setList({phase:'LOADING',rows:[],error:null});const result=await refreshAuthoritativeAdmittedBankStatements({config,bankAccountRef:account,limit:10,fetcher});setList(result.ok?{phase:'READY',rows:result.rows,error:null}:{phase:'ERROR',rows:[],error:result});};
+  const load=async()=>{setDetail({phase:'IDLE',row:null,error:null});setReason('');setList({phase:'LOADING',rows:[],error:null,readAt:null});const result=await refreshAuthoritativeAdmittedBankStatements({config,bankAccountRef:account,limit:10,fetcher});const readAt=new Date().toISOString();setList(result.ok?{phase:'READY',rows:result.rows,error:null,readAt}:{phase:'ERROR',rows:[],error:result,readAt});};
   const select=async row=>{setReason('');setDetail({phase:'LOADING',row:null,error:null});const result=await readAuthoritativeAdmittedBankStatement({config,statementReceiptId:row.wbs_bank_statement_receipt_id,bankAccountRef:account,fetcher});const immutableMatch=result.ok&&['wbs_bank_statement_receipt_id','bank_account_ref','statement_start_date','statement_end_date','currency','opening_balance','ending_balance','transaction_count','statement_activity_amount','admission_hash','signature_verified','admission_status','admitted_at','reconciliation_id','reconciliation_status','reconciliation_version','selection_state'].every(field=>result.row[field]===row[field]);setDetail(immutableMatch?{phase:'READY',row:result.row,error:null}:{phase:'ERROR',row:null,error:result.ok?{code:'ACCOUNTING_API_PROTOCOL',message:'The admitted statement detail did not match the immutable selected receipt.'}:result});};
   const start=async()=>{const row=detail.row;if(!row)return;setDetail(current=>({...current,phase:'COMMANDING',error:null}));const result=await startAuthoritativeReconciliationFromAdmittedStatement({config,statement:row,reason,fetcher});if(!result.ok){setDetail(current=>({...current,phase:'READY',error:result}));return;}await onStarted(row,result.data);setDetail(current=>({...current,phase:'STARTED',error:null}));await load();};
   const row=detail.row,eligible=row?.bank_account_ref===account&&row?.signature_verified===true&&row?.admission_status==='ADMITTED'&&row?.selection_state==='AVAILABLE_FOR_SERVER_VALIDATION';
@@ -165,8 +198,8 @@ export function AuthoritativeAdmittedStatements({config,bankAccountRef,fetcher,o
     <div className="authoritative-admitted-actions"><button type="button" className="btn btn-sm" disabled={list.phase==='LOADING'||!account} onClick={load}>Load signed statements</button><span className="muted sm">Bank account {account||'required above'}; up to 10 receipts.</span></div>
     {list.phase==='IDLE'&&<StateBlock tone="empty" title="Signed statement read not requested">Enter one bank account above, then load signature-verified admitted statements.</StateBlock>}
     {list.phase==='LOADING'&&<StateBlock tone="loading">Loading signed admitted statement evidence...</StateBlock>}
-    {list.phase==='ERROR'&&<ReadError error={list.error} onRetry={load}/>}
-    {list.phase==='READY'&&!list.rows.length&&<StateBlock tone="empty" title="No signed admitted statements returned">No signature-verified ADMITTED WBS statement was returned for this account. This does not imply a zero statement balance or completed reconciliation.</StateBlock>}
+    {list.phase==='ERROR'&&<BankReadFailure error={list.error} onRetry={load} subject="signed admitted bank statements"/>}
+    {list.phase==='READY'&&!list.rows.length&&<StateBlock tone="blocked" title="INGESTION_BLOCKED — no signed admitted statements returned">No signature-verified ADMITTED WBS statement was returned for this account. This is not TRUE_EMPTY and does not imply a zero statement balance or completed reconciliation.<p>Next step: retain and admit a signed statement for this bank account, then refresh.</p><BankReadMetadata count={0} readAt={list.readAt} subject="Signed admitted statements"/></StateBlock>}
     {list.phase==='READY'&&!!list.rows.length&&<div className="table-wrap authoritative-admitted-statements-table" role="region" tabIndex={0} aria-label="Signed admitted statements; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Statement period</th><th>Currency</th><th>Opening</th><th>Activity</th><th>Ending</th><th>Rows</th><th>State</th><th>Evidence</th></tr></thead><tbody>{list.rows.map(item=><tr key={item.wbs_bank_statement_receipt_id}><td><b>{item.statement_start_date}</b><div className="muted sm">through {item.statement_end_date}</div></td><td>{item.currency}</td><td className="num">{money(item.opening_balance)}</td><td className="num">{money(item.statement_activity_amount)}</td><td className="num">{money(item.ending_balance)}</td><td>{item.transaction_count}</td><td><EvidenceBadge>{item.selection_state}</EvidenceBadge></td><td><button type="button" className="btn btn-sm" onClick={()=>select(item)} disabled={detail.phase==='LOADING'||detail.phase==='COMMANDING'}>Review signed statement <span className="sr-only">receipt {compactReceipt(item.wbs_bank_statement_receipt_id)}</span></button></td></tr>)}</tbody></table></div>}
     {detail.phase==='LOADING'&&<StateBlock tone="loading">Re-reading the selected immutable receipt by ID...</StateBlock>}
     {detail.phase==='ERROR'&&<ReadError error={detail.error} onRetry={()=>{}}/>}
@@ -225,9 +258,9 @@ export function AuthoritativeReconciliationDetail({row,scope,onBack,config,fetch
 
 export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
   const [scope,setScope]=useState({bankAccountRef:'',from:'',through:''});
-  const [state,setState]=useState({phase:'IDLE',rows:[],error:null,offset:0});
+  const [state,setState]=useState({phase:'IDLE',rows:[],error:null,offset:0,readAt:null});
   const [selected,setSelected]=useState(null);
-  const load=async(event,{preserveDetail=false,offset=0}={})=>{event?.preventDefault?.();if(!preserveDetail)setSelected(null);setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeBankTransactions({config,bankAccountRef:scope.bankAccountRef,from:scope.from||null,through:scope.through||null,limit:100,offset,fetcher});setState(result.ok?{phase:'READY',rows:result.rows,error:null,offset}:{phase:'ERROR',rows:[],error:result,offset});if(preserveDetail&&result.ok)setSelected(current=>{if(!current)return current;const refreshed=result.rows.find(row=>row.bank_source_id===current.row.bank_source_id);return refreshed?{...current,row:refreshed}:null;});return result;};
+  const load=async(event,{preserveDetail=false,offset=0}={})=>{event?.preventDefault?.();if(!preserveDetail)setSelected(null);setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeBankTransactions({config,bankAccountRef:scope.bankAccountRef,from:scope.from||null,through:scope.through||null,limit:100,offset,fetcher});const readAt=new Date().toISOString();setState(result.ok?{phase:'READY',rows:result.rows,error:null,offset,readAt}:{phase:'ERROR',rows:[],error:result,offset,readAt});if(preserveDetail&&result.ok)setSelected(current=>{if(!current)return current;const refreshed=result.rows.find(row=>row.bank_source_id===current.row.bank_source_id);return refreshed?{...current,row:refreshed}:null;});return result;};
   const openEvidence=(row,focusId)=>{
     const base=createAuthoritativeReturnContext({config,view:{...DEFAULT_AUTHORITATIVE_LIST_VIEW,from:scope.from,through:scope.through,offset:state.offset},focusId,scrollY:Number(environment?.scrollY)||0});
     if(base)setSelected({row,returnContext:{...base,bankAccountRef:scope.bankAccountRef}});
@@ -250,17 +283,17 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     <p className="muted sm">Entity {config.entityId}. Account and date scope are required at the API boundary.</p>
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and an optional date range to read authoritative evidence.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative bank transaction evidence...</StateBlock>}
-    {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
-    {state.phase==='READY'&&<><AuthoritativeBankTable rows={state.rows} onOpen={openEvidence}/><div className="button-row authoritative-bank-pagination" aria-label="Bank transaction pagination"><button type="button" className="btn btn-sm" disabled={state.phase==='LOADING'||state.offset===0} onClick={()=>load(null,{offset:Math.max(0,state.offset-100)})}>Previous page</button><span className="muted sm">Offset {state.offset}</span><button type="button" className="btn btn-sm" disabled={state.phase==='LOADING'||state.rows.length<100} onClick={()=>load(null,{offset:state.offset+100})}>Next page</button></div></>}
+    {state.phase==='ERROR'&&<BankReadFailure error={state.error} onRetry={load} subject="bank transactions"/>}
+    {state.phase==='READY'&&<><AuthoritativeBankTable rows={state.rows} readAt={state.readAt} onOpen={openEvidence}/>{state.rows.length>0&&<BankReadMetadata count={state.rows.length} readAt={state.readAt} subject="Bank transactions"/>}<div className="button-row authoritative-bank-pagination" aria-label="Bank transaction pagination"><button type="button" className="btn btn-sm" disabled={state.phase==='LOADING'||state.offset===0} onClick={()=>load(null,{offset:Math.max(0,state.offset-100)})}>Previous page</button><span className="muted sm">Offset {state.offset}</span><button type="button" className="btn btn-sm" disabled={state.phase==='LOADING'||state.rows.length<100} onClick={()=>load(null,{offset:state.offset+100})}>Next page</button></div></>}
     <AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.bank} title="External WBS bank observations"/>
   </AuthoritativeDemoView>;
 }
 
 export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
   const [scope,setScope]=useState({bankAccountRef:'',statementEndingDate:''});
-  const [state,setState]=useState({phase:'IDLE',row:null,error:null});
+  const [state,setState]=useState({phase:'IDLE',row:null,error:null,readAt:null});
   const [selected,setSelected]=useState(null);
-  const readSummary=async({bankAccountRef,statementEndingDate},preserveDetail=false)=>{if(!preserveDetail)setSelected(null);setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeReconciliation({config,bankAccountRef,statementEndingDate,fetcher});setState(result.ok?{phase:'READY',row:result.row,error:null}:{phase:'ERROR',row:null,error:result});if(preserveDetail&&result.ok)setSelected(current=>current&&result.row?{...current,row:result.row}:current);return result;};
+  const readSummary=async({bankAccountRef,statementEndingDate},preserveDetail=false)=>{if(!preserveDetail)setSelected(null);setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeReconciliation({config,bankAccountRef,statementEndingDate,fetcher});const readAt=new Date().toISOString();setState(result.ok?{phase:'READY',row:result.row,error:null,readAt}:{phase:'ERROR',row:null,error:result,readAt});if(preserveDetail&&result.ok)setSelected(current=>current&&result.row?{...current,row:result.row}:current);return result;};
   const load=async(event,{preserveDetail=false}={})=>{event?.preventDefault?.();return readSummary(scope,preserveDetail);};
   const handleAdmittedStarted=async row=>{const nextScope={bankAccountRef:row.bank_account_ref,statementEndingDate:row.statement_end_date};setScope(nextScope);await readSummary(nextScope,false);};
   const openEvidence=(row,focusId)=>{
@@ -284,7 +317,7 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     <AuthoritativeAdmittedStatements config={config} bankAccountRef={scope.bankAccountRef} fetcher={fetcher} onStarted={handleAdmittedStarted}/>
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and statement ending date to read reconciliation evidence.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative reconciliation evidence...</StateBlock>}
-    {state.phase==='ERROR'&&<ReadError error={state.error} onRetry={load}/>} 
-    {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} scope={{...scope,entityId:config.entityId}} onOpen={openEvidence}/>}
+    {state.phase==='ERROR'&&<BankReadFailure error={state.error} onRetry={load} subject="reconciliation statements"/>}
+    {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} scope={{...scope,entityId:config.entityId}} readAt={state.readAt} onOpen={openEvidence}/>}
   </AuthoritativeDemoView>;
 }
