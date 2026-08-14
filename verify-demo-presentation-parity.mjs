@@ -6,7 +6,7 @@ const demoShell = read('src/legacy-demo-app.jsx');
 const demoDashboard = read('src/modules-core.jsx');
 const authorityApp = read('src/authoritative-app.jsx');
 const authorityShell = read('src/authoritative-navigation-shell.jsx');
-const authorityTopbar = read('src/authoritative-demo-shell.jsx');
+const authorityTopbar = read('src/authoritative-topbar.jsx');
 const authorityOverview = read('src/authoritative-overview.jsx');
 const authorityApAr = read('src/authoritative-demo-ap-ar-view.jsx');
 const authorityView = read('src/authoritative-demo-view.jsx');
@@ -18,9 +18,9 @@ const forbid = (source, pattern, message) => assert.doesNotMatch(source, pattern
 // The production root owns state and API/OIDC calls only.  Its visual shell
 // must be supplied by the extracted demo presentation boundaries.
 has(authorityApp, "from './authoritative-navigation-shell.jsx'", 'authoritative root must mount the shared demo-derived navigation shell');
-has(authorityApp, "from './authoritative-demo-shell.jsx'", 'authoritative root must mount the shared demo-derived topbar');
+has(authorityApp, "from './authoritative-topbar.jsx'", 'authoritative root must mount the authoritative topbar');
 has(authorityApp, '<AuthoritativeNavigationShell', 'authoritative root must use the shared navigation presentation');
-has(authorityApp, '<AuthoritativeDemoTopbar', 'authoritative root must use the shared topbar presentation');
+has(authorityApp, '<AuthoritativeTopbar', 'authoritative root must use the shared topbar presentation');
 forbid(authorityApp, /from ['"]\.\/legacy-demo-app/, 'the runtime must never import the demo controller');
 
 // These identifiers are the demo's actual shell hierarchy, not a separately
@@ -32,7 +32,7 @@ for (const token of ['className="app"', 'sidebar ${mobileNav', 'className="nav-r
 for (const token of ['sidebar authoritative-sidebar', 'className="nav-rail"', 'className="nav-panel"', 'className="brand"', 'className="new-btn authoritative-new-disabled"']) {
   has(authorityShell, token, `authority navigation must retain demo shell structure: ${token}`);
 }
-for (const token of ['className="topbar authoritative-topbar authoritative-demo-topbar"', 'className="cmdk"', 'className="top-right authoritative-top-actions"', 'className="period-chip authoritative-period-chip"', 'className="user-chip authoritative-user-chip"']) {
+for (const token of ['className="topbar authoritative-topbar"', 'className="top-right authoritative-top-actions"', 'className="period-chip authoritative-period-chip"', 'className="user-chip authoritative-user-chip"']) {
   has(authorityTopbar, token, `authority topbar must retain demo shell structure: ${token}`);
 }
 
@@ -51,6 +51,7 @@ for (const token of ['className={`accounting-page-head', 'className="page-eyebro
 for (const [name, source] of Object.entries({authorityShell, authorityTopbar, authorityOverview, authorityApAr, authorityView})) {
   forbid(source, /legacy-demo-app|seed\.js|repo\.js|data\.js|localStorage/, `${name} must remain presentation-only`);
 }
+forbid(authorityTopbar, /disabled|Search or jump|Help is unavailable|Notifications are unavailable/, 'the authoritative toolbar must not retain inert demo controls');
 
 // One CSS vocabulary supplies both products.  Each shared class must have its
 // canonical definition in the common stylesheet; authority-only variants may

@@ -4,7 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES } from '../src/authoritative-navigation.js';
 import { AuthoritativeNavigationShell } from '../src/authoritative-navigation-shell.jsx';
-import { AuthoritativeDemoTopbar } from '../src/authoritative-demo-shell.jsx';
+import { AuthoritativeTopbar } from '../src/authoritative-topbar.jsx';
 import { AuthoritativeDemoView, AuthoritativeDemoWorkspaceHeader } from '../src/authoritative-demo-view.jsx';
 import { AuthoritativeUnavailableWorkspace } from '../src/authoritative-unavailable-workspace.jsx';
 import { watchRetainedRoute } from '../src/authoritative-app.jsx';
@@ -41,16 +41,15 @@ routeEnvironment.location.hash='#/unknown-authoritative-route';routeListeners.ge
 assert.equal(mountedRoute,'wbs-autorec-evidence','an unknown hash must fail closed without changing the mounted workspace');
 stopWatchingRoute();
 assert.equal(routeListeners.has('hashchange'),false,'the authoritative app must remove its hash listener on unmount');
-const topbarMarkup = renderToStaticMarkup(<AuthoritativeDemoTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
+const topbarMarkup = renderToStaticMarkup(<AuthoritativeTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
 assert.match(topbarMarkup, /WBHO WB Home LLC/);
-assert.match(topbarMarkup, /Search or jump/, 'the authoritative topbar must retain the demo command-slot geometry');
-assert.match(topbarMarkup, /Search is unavailable until an authorised server-backed discovery contract exists/,
-  'the visually retained command slot must fail closed until an API contract exists');
+assert.doesNotMatch(topbarMarkup, /Search or jump|Help is unavailable|Notifications are unavailable|disabled=/,
+  'the authoritative topbar must not render inert product controls');
 assert.match(topbarMarkup, /Period/);
 assert.match(topbarMarkup, /Authoritative/);
 assert.match(topbarMarkup, /Authenticated/);
-assert.doesNotMatch(fs.readFileSync('src/authoritative-demo-shell.jsx', 'utf8'), /seed\.js|repo\.js|localStorage|legacy-demo-app/,
-  'the copied visual shell must accept authoritative slots only');
+assert.doesNotMatch(fs.readFileSync('src/authoritative-topbar.jsx', 'utf8'), /seed\.js|repo\.js|localStorage|legacy-demo-app|disabled/,
+  'the authoritative shell must accept API/OIDC slots only and expose no inert actions');
 const demoViewMarkup = renderToStaticMarkup(<AuthoritativeDemoView area="Reports"><AuthoritativeDemoWorkspaceHeader eyebrow="AUTHORITATIVE | REPORTING" title="Reports center" description="API-backed report facts only."/><div>API-owned report content</div></AuthoritativeDemoView>);
 assert.match(demoViewMarkup, /Reports workspace/);
 assert.match(demoViewMarkup, /AUTHORITATIVE \| REPORTING/);
@@ -119,7 +118,7 @@ assert.match(appSource, /route === 'wbs-payable-review'/, 'the WBS Payable Revie
 assert.match(appSource, /AuthoritativeBankBatchPipelineWorkspace/, 'Bank Batch Pipeline must compose existing authoritative Bank and Reconciliation readers rather than fail closed as an unavailable route');
 assert.match(appSource, /route === 'bank-batch-pipeline'/, 'the API-backed Bank Batch Pipeline must mount at its stable navigation route');
 assert.match(appSource, /authoritative-topbar/, 'the formal app must use the complete workbench-style top bar rather than the old title-only header');
-assert.match(appSource, /AuthoritativeDemoTopbar/, 'the production app must reuse the complete demonstration topbar structure rather than reimplement a divergent header');
+assert.match(appSource, /AuthoritativeTopbar/, 'the production app must use the dedicated authoritative topbar');
 assert.match(appSource, /Authoritative entity \$\{config\.entityId\}/, 'the top bar must expose the configured API entity as scope, not a local selector');
 assert.match(appSource, /Authoritative period \$\{config\.periodId\}/, 'the top bar must expose the configured API period as scope');
 assert.match(appSource, /Refresh authoritative accounting evidence/, 'the top-bar refresh control must name its real GET-only outcome');
