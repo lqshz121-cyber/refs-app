@@ -9,6 +9,7 @@ const VIEW_TYPES=Object.freeze({
   'BGDATA.payable':'PAYABLE',
   'BGDATA.bank_transaction':'BANK_TRANSACTION',
   'BGDATA.autoc_detail':'AUTOREC_PAYMENT_DETAIL',
+  'BGDATA.cost_general_ledger':'COST_CWIP',
   'BGDATA.autoc_bank':'AUTOREC_CASE_CONTROL',
   'accounting.accounting_info':'LEDGER_EVIDENCE',
   'accounting.balance_cell':'CONTROL_EVIDENCE',
@@ -18,11 +19,12 @@ const VIEW_TYPES=Object.freeze({
   'wbsdata.pjcat_property_relation':'CONTROL_EVIDENCE',
   'wbsdata.pjcat_unit_report':'CONTROL_EVIDENCE'
 });
-const TRANSACTION_TYPES=new Set(['PAYABLE','BANK_TRANSACTION','AUTOREC_PAYMENT_DETAIL']);
+const TRANSACTION_TYPES=new Set(['PAYABLE','BANK_TRANSACTION','AUTOREC_PAYMENT_DETAIL','COST_CWIP']);
 const VIEW_SOURCE_KEY=Object.freeze({
   'BGDATA.payable':'apGuId',
   'BGDATA.bank_transaction':'bankTransactionId',
   'BGDATA.autoc_detail':'pdGuId',
+  'BGDATA.cost_general_ledger':'costLedgerId',
   'BGDATA.autoc_bank':'pbGuId',
   'accounting.accounting_info':'accountingInfoId',
   'accounting.balance_cell':'controlCellId',
@@ -109,10 +111,11 @@ function requiredFields(type,row){
   const base=['currency','amount'];
   if(type==='PAYABLE')return [...base,'invoice_date','posting_date'];
   if(type==='BANK_TRANSACTION')return [...base,'transaction_date','posting_date','bank_account_ref'];
+  if(type==='COST_CWIP')return [...base,'cost_date','posting_date','project_ref','cost_code_ref','description'];
   return [...base,'payment_date','posting_date','pbGuId','vendor_ref','project_ref','cost_code_ref','description'];
 }
 function normalize(type,companyKey,row,receipt){
-  const businessDate=date(row.invoice_date??row.transaction_date??row.payment_date??row.business_date);
+  const businessDate=date(row.invoice_date??row.transaction_date??row.payment_date??row.cost_date??row.business_date);
   // A source transaction date is not accounting-date evidence. Keeping the
   // absent value null makes the existing staging gate emit an Exception
   // rather than silently deriving a posting date from the business date.
@@ -136,7 +139,7 @@ function normalize(type,companyKey,row,receipt){
 }
 function stageFor(normalized,row){
   const missing=requiredFields(normalized.source_type,row).filter(field=>{
-    const value=field==='amount'?normalized.amount:field==='currency'?normalized.currency:field==='invoice_date'||field==='transaction_date'||field==='payment_date'?normalized.business_date:field==='posting_date'?normalized.accounting_date:field==='pbGuId'?normalized.pb_guid:normalized[field];
+    const value=field==='amount'?normalized.amount:field==='currency'?normalized.currency:field==='invoice_date'||field==='transaction_date'||field==='payment_date'||field==='cost_date'?normalized.business_date:field==='posting_date'?normalized.accounting_date:field==='pbGuId'?normalized.pb_guid:normalized[field];
     return value===null||value===undefined||text(value)==='';
   });
   if(normalized.amount===0)missing.push('nonzero_amount');
@@ -196,7 +199,7 @@ export function createWbsInboundDataAdapterWithKeyring({snapshotReader,wbsPublic
 
 export function buildStandardDraftRequest({stagingItem,mapping,journal}={}){
   if(text(stagingItem?.stage)!=='STAGING_REVIEWED')fail('WBS_STAGING_REVIEW_REQUIRED','A reviewed persistent REFS staging item is required');
-  if(!TRANSACTION_TYPES.has(text(stagingItem?.source_type)))fail('WBS_DRAFT_SOURCE_TYPE_INVALID','Cost General Ledger, Property Comparison, and other WBS control evidence cannot request a standard Draft journal');
+  if(!TRANSACTION_TYPES.has(text(stagingItem?.source_type)))fail('WBS_DRAFT_SOURCE_TYPE_INVALID','Control-only WBS evidence cannot request a standard Draft journal');
   for(const field of ['receipt_id','receipt_ref','receipt_hash','staging_item_id','source_document_id','raw_event_id','source_record_id','source_version','company_key','currency','business_date','accounting_date','direction','source_type'])if(!text(stagingItem[field]))fail('WBS_STAGING_TRACE_REQUIRED',`Staging trace ${field} is required`);
   if(!/^[A-Z]{3}$/.test(text(stagingItem.currency))||!/^sha256:[0-9a-f]{64}$/.test(text(stagingItem.receipt_hash))||!validIsoDate(stagingItem.business_date)||!validIsoDate(stagingItem.accounting_date)||!['DEBIT','CREDIT'].includes(text(stagingItem.direction).toUpperCase()))fail('WBS_STAGING_TRACE_REQUIRED','Staging receipt, currency, business/accounting date, and direction must be canonical before a Draft request');
   if(text(mapping?.status)!=='APPROVED'||!text(mapping?.mapping_id)||!text(mapping?.version)||!/^sha256:[0-9a-f]{64}$/.test(text(mapping?.snapshot_hash))||!mappingEffectiveOn(mapping,stagingItem.accounting_date)||text(mapping?.source_type)!==text(stagingItem.source_type)||text(mapping?.company_key)!==text(stagingItem.company_key)||text(mapping?.currency)!==text(stagingItem.currency)||(text(stagingItem.source_type)==='BANK_TRANSACTION'&&text(mapping?.bank_account_ref)!==text(stagingItem.bank_account_ref)))fail('WBS_MAPPING_APPROVED_REQUIRED','An approved immutable mapping snapshot effective on the WBS accounting date with the exact source type, company, currency, and required bank-account scope is required');
