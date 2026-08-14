@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from '../src/authoritative-wbs-live-pilot-observation.jsx';
+import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS,wbsLivePilotErrorGuidance} from '../src/authoritative-wbs-live-pilot-observation.jsx';
 
 const config={entityId:'11111111-1111-4111-8111-111111111111',baseUrl:'https://accounting.example',getAccessToken:async()=> 'a'.repeat(48),scopePresentation:{entityLabel:'Test entity'}};
 const render=tools=>renderToStaticMarkup(<AuthoritativeWbsLivePilotObservation config={config} tools={tools} fetcher={async()=>{throw new Error('SSR must not call WBS');}}/>);
@@ -26,6 +26,9 @@ assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx',
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/requestedCompanyCode\?dateFrom:null,dateTo:requestedCompanyCode\?dateTo:null/,'the browser may read an unscoped diagnostic sample, but must send dates only with one explicit Provider-native company scope');
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/Approved WBS company code.*WBS observation date from.*WBS observation date to/s,'the authoritative UI must expose the exact Provider-native company and date scope');
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/!hasExactAttestationScope.*UNASSIGNED COMPANY - exception intake available/s,'mixed or unresolved company results must remain visible and retainable only as exception evidence');
+assert.match(wbsLivePilotErrorGuidance('ACCOUNTING_API_SERVER_ERROR'),/retry after the production WBS service is available/);
+assert.match(wbsLivePilotErrorGuidance('WBS_LIVE_PILOT_PROTOCOL'),/immutable company, accounting-date, currency, and source-record evidence/);
+assert.match(wbsLivePilotErrorGuidance('WBS_LIVE_PILOT_SCOPE_INVALID'),/exact Provider company code/);
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/disabled=\{!retainPathReady\|\|capabilityState\.phase!==\'READY\'\|\|!capabilityState\.canAttest/,'operator actions must remain disabled until the protected persistence path is live');
 assert.doesNotMatch(payables,/<select/);
 assert.doesNotMatch(payables,/Bank transactions|AutoRec details|Journal entries/);

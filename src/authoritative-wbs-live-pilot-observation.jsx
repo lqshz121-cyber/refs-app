@@ -19,6 +19,14 @@ const approvedTools=tools=>{
   return unique.filter(tool=>Object.hasOwn(WBS_LIVE_PILOT_VIEWS,tool));
 };
 
+export const wbsLivePilotErrorGuidance=code=>{
+  if(code==='ACCOUNTING_API_SERVER_ERROR')return 'Next step: retry after the production WBS service is available; do not use retained observations as accounting input.';
+  if(code==='WBS_LIVE_PILOT_SCOPE_INVALID'||code==='WBS_LIVE_PILOT_SCOPE_MISMATCH')return 'Next step: enter the exact Provider company code and matching 2026 dates, then refresh the read-only observation.';
+  if(code==='WBS_LIVE_PILOT_PROTOCOL')return 'Next step: ask the WBS operator for immutable company, accounting-date, currency, and source-record evidence; no accounting action is available.';
+  if(code==='AUTHENTICATION_REQUIRED'||code==='AUTHORIZATION_DENIED')return 'Next step: sign in with an authorized accounting identity, then retry the read-only request.';
+  return 'Next step: retry the read-only request or contact the operator; no accounting record was created.';
+};
+
 export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.fetch,tools=WBS_LIVE_PILOT_SURFACE_TOOLS.wbs,title='Production WBS provider observation',showRows=true}){
   const availableTools=approvedTools(tools);
   const [tool,setTool]=useState(availableTools[0]||'');
@@ -69,7 +77,7 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
     </form>
     {scopedPayables&&<p className="muted sm">The accounting API sends an entered scope to WBS unchanged and requires an exact Provider echo. Unassigned or mixed-company results may be retained only as immutable exception evidence; they cannot be reviewed, drafted, or posted.</p>}
     {state.phase==='LOADING'&&<StateBlock tone="loading" title="Reading production WBS observation">The accounting API is requesting at most ten sanitized rows from this fixed GET-only view.</StateBlock>}
-    {state.phase==='BLOCKED'&&<StateBlock tone="blocked" title={state.error?.code||'WBS_LIVE_PILOT_BLOCKED'}>{state.error?.message||'WBS observation unavailable.'} Authoritative accounting data and workflows are unchanged.{observation&&' The previous validated WBS observation remains below.'}</StateBlock>}
+    {state.phase==='BLOCKED'&&<StateBlock tone="blocked" title={state.error?.code||'WBS_LIVE_PILOT_BLOCKED'}>{state.error?.message||'WBS observation unavailable.'}<div>{wbsLivePilotErrorGuidance(state.error?.code)}</div><div>Authoritative accounting data and workflows are unchanged.{observation&&' The previous validated WBS observation remains below.'}</div></StateBlock>}
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No WBS observation loaded">Live connection not checked. Enter an exact scope when available, or refresh now to retain unassigned or mixed-company rows as Exception evidence. No credential, raw business identifier, accounting record, or action is exposed.</StateBlock>}
     {observation&&<>
       <div className="qbo-toolgrid"><span><i>Admission</i><b>{observation.status}</b></span><span><i>Provider signature</i><b>Not supplied</b></span><span><i>Provider captured at</i><b>{observation.captured_at}</b></span><span><i>Provider company scope</i><b>{observation.scope.company_codes.join(', ')||'Unresolved'}</b></span><span><i>Provider date scope</i><b>{observation.scope.date_range.filter(Boolean).join(' to ')||'Unresolved'}</b></span><span><i>Observed provider rows</i><b>{observation.record_count}</b></span><span><i>Provider content hash</i><b>{observation.provider_content_sha256}</b></span><span><i>Action authority</i><b>None</b></span></div>
