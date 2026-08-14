@@ -3,6 +3,8 @@ import {canonicalRequestBody} from './request-hash.mjs';
 import {WBS_MCP_APPROVED_ENDPOINT,createReadOnlyWbsMcpClient} from './wbs-readonly-mcp.mjs';
 
 export const WBS_LIVE_PILOT_TOOLS=Object.freeze(['list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries']);
+const COMPANY_SCOPED_TOOLS=new Set(['list_payables','list_bank_transactions','list_autorec_banks','list_journal_entries']);
+const DATE_SCOPED_TOOLS=new Set(['list_payables','list_bank_transactions','list_autorec_details','list_journal_entries']);
 const STABLE_KEY=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
 function providerScopeArgs(tool,{company_code,date_from,date_to}={}){
   const args={};
@@ -108,10 +110,12 @@ export function parseWbsLivePilotSelection(searchParams){
   const companyValues=searchParams.getAll('company_code'),fromValues=searchParams.getAll('date_from'),toValues=searchParams.getAll('date_to');
   if(companyValues.length>1||fromValues.length>1||toValues.length>1)fail('WBS_LIVE_PILOT_SCOPE_INVALID','Each WBS company/date scope parameter may occur at most once.');
   const company=companyValues[0]?.trim()||null,from=fromValues[0]?.trim()||null,to=toValues[0]?.trim()||null;
-  if(searchParams.get('tool')!=='list_payables'&&(company!==null||from!==null||to!==null))fail('WBS_LIVE_PILOT_SCOPE_INVALID','company/date scope is available only for list_payables.');
+  const tool=searchParams.get('tool');
+  if(company!==null&&!COMPANY_SCOPED_TOOLS.has(tool))fail('WBS_LIVE_PILOT_SCOPE_INVALID','company scope is unavailable for this WBS read tool.');
+  if((from!==null||to!==null)&&!DATE_SCOPED_TOOLS.has(tool))fail('WBS_LIVE_PILOT_SCOPE_INVALID','date scope is unavailable for this WBS read tool.');
   if(company!==null&&(!/^[A-Za-z0-9][A-Za-z0-9_:-]{0,63}$/.test(company)||CONTROL.test(company)))fail('WBS_LIVE_PILOT_SCOPE_INVALID','company_code must be a bounded WBS company key.');
   if((from===null)!==(to===null)||from!==null&&!date(from)||to!==null&&!date(to)||from!==null&&from>to)fail('WBS_LIVE_PILOT_SCOPE_INVALID','date_from and date_to must be a valid ordered date range.');
-  return Object.freeze({tool:searchParams.get('tool'),limit:Number(raw),company_code:company,date_from:from,date_to:to});
+  return Object.freeze({tool,limit:Number(raw),company_code:company,date_from:from,date_to:to});
 }
 
 export function createWbsLivePilotClient({credentials,fetcher=globalThis.fetch}={}){
