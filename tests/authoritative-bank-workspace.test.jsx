@@ -16,20 +16,20 @@ const historicalMatchRow={...activeMatchRow,match_status:'REVERSED'};
 const reconciliationRow={reconciliation_id:'11111111-1111-4111-8111-111111111111',bank_account_ref:'BANK-1',statement_ending_date:'2026-07-31',statement_ending_balance:'1000.0000',difference:'0.0000',status:'RECONCILED',version:4,bank_transaction_count:6,active_match_count:5,unmatched_transaction_count:1,statement_activity_amount:'250.0000'};
 
 const bankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
-assert.match(bankInitial,/Bank transaction evidence/);assert.match(bankInitial,/Bank account/);assert.match(bankInitial,/From/);assert.match(bankInitial,/Through/);assert.match(bankInitial,/Choose one bank account/);assert.doesNotMatch(bankInitial,/localStorage|seed row/i);
+assert.match(bankInitial,/Bank transactions/);assert.match(bankInitial,/Bank account/);assert.match(bankInitial,/From/);assert.match(bankInitial,/Through/);assert.match(bankInitial,/Choose a bank account/);assert.doesNotMatch(bankInitial,/localStorage|seed row/i);
 
 const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
-assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/One authoritative statement cutoff/);
+assert.match(reconciliationInitial,/Reconciliation/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/Review a bank statement/);
 assert.match(reconciliationInitial,/Signed admitted statements/);assert.match(reconciliationInitial,/SIGNED \+ ADMITTED/);assert.match(reconciliationInitial,/separate from UNSIGNED PILOT/);assert.match(reconciliationInitial,/Load signed statements/);
 const admittedInitial=renderToStaticMarkup(<AuthoritativeAdmittedStatements config={config} bankAccountRef="BANK-1" fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(admittedInitial,/Signed statement read not requested/);assert.match(admittedInitial,/Bank account BANK-1/);assert.match(admittedInitial,/SERVER REVALIDATED/);assert.doesNotMatch(admittedInitial,/Start Draft from signed statement/);
 
 const bankTable=renderToStaticMarkup(<AuthoritativeBankTable rows={[bankRow]}/>);
 assert.match(bankTable,/BANK-LINE-1/);assert.match(bankTable,/SOURCE-1/);assert.match(bankTable,/UNMATCHED/);assert.match(bankTable,/READ ONLY/);assert.match(bankTable,/Open detail/);assert.doesNotMatch(bankTable,/>\s*(Match|Clear|Post|Delete|Create)\s*</);
-assert.match(bankTable,/SOURCE → MATCH → JOURNAL/);assert.match(bankTable,/Queue status never implies reconciliation/);assert.match(bankTable,/Direction/);assert.match(bankTable,/OUTFLOW/);assert.match(bankTable,/v3/);
+assert.match(bankTable,/BANK ACTIVITY/);assert.match(bankTable,/Queue status never implies reconciliation/);assert.match(bankTable,/Direction/);assert.match(bankTable,/OUTFLOW/);assert.match(bankTable,/v3/);
 assert.match(bankTable,/Bank queue read summary/);assert.match(bankTable,/Returned sources/);assert.match(bankTable,/Active Matches/);assert.match(bankTable,/Unmatched sources/);assert.match(bankTable,/Journal references/);assert.doesNotMatch(bankTable,/Create reviewed Match|Unmatch evidence/);
 assert.equal((bankTable.match(/class="qbo-card"/g)||[]).length,4,'Bank summary must use the shared demonstration card presentation');
-const emptyBank=renderToStaticMarkup(<AuthoritativeBankTable rows={[]}/>);assert.match(emptyBank,/SCOPE_EMPTY/);assert.match(emptyBank,/0 bank transactions/);assert.match(emptyBank,/does not prove that an upstream source is empty/);assert.doesNotMatch(emptyBank,/<table/);
+const emptyBank=renderToStaticMarkup(<AuthoritativeBankTable rows={[]}/>);assert.match(emptyBank,/No records to show/);assert.match(emptyBank,/No bank transactions are available/);assert.match(emptyBank,/does not confirm a zero balance/);assert.doesNotMatch(emptyBank,/<table/);
 
 const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(bankDetail,/Back to bank transactions/);assert.match(bankDetail,/Bank transaction detail/);assert.match(bankDetail,/-\$125\.25/);assert.match(bankDetail,/2026-07-01/);assert.match(bankDetail,/2026-07-31/);
@@ -135,7 +135,7 @@ assert.doesNotMatch(source,/legacy-demo-app|module-banktx|module-bankrec/,'autho
 // Keep the authoritative Bank/Reconcile surface English-readable. These are
 // deliberate punctuation characters, not mojibake; the source must never gain
 // a replacement glyph or CJK/mis-decoded text in a visible label.
-for(const label of ['SOURCE → MATCH → JOURNAL','STATEMENT → REVIEW → SIGN-OFF','BLOCKED — The accounting API returned no authorized reconciliation statement','BLOCKED — The accounting API returned no authorized worksheet evidence','Selected bank source'])assert.match(source,new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),`authoritative Bank/Reconcile UI must retain readable ${label}`);
+for(const label of ['BANK ACTIVITY','STATEMENT → REVIEW → SIGN-OFF','BLOCKED — The accounting API returned no authorized reconciliation statement','BLOCKED — The accounting API returned no authorized worksheet evidence','Selected bank source'])assert.match(source,new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),`authoritative Bank/Reconcile UI must retain readable ${label}`);
 assert.match(source,/\{adjustment\.item\.external_bank_line_id\} · \{money\(adjustment\.item\.amount\)\}/,'Adjustment evidence must use the canonical middle-dot separator');
 assert.doesNotMatch(source,/[\u4E00-\u9FFF\uFFFD]/,'authoritative Bank/Reconcile visible source must not contain CJK or replacement-character mojibake');
 const css=readFileSync('index.html','utf8');
