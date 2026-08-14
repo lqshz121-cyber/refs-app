@@ -42,6 +42,7 @@
     "test:postgres:fixture:wbs-payable-post": "node runtime/test-postgres-fresh.mjs --pattern \"provider-signed Payable admission atomically reaches Review Draft four-role Post and same-JE reports\"",
     "test:postgres:fixture:ai-exception-lineage": "node runtime/test-postgres-fresh.mjs --pattern \"operator exception row links append-only to the later exact signed Payable source without becoming Review authority\"",
     "test:postgres:fixture:controlled-ap-close": "node runtime/test-postgres-fresh.mjs --pattern \"controlled DEMO tenant runs one AP Bill through HTTP Draft, four-role Post, GL, TB and AP aging without affecting another tenant\"",
+    "test:postgres:fixture:ar-rent-pickup-close": "node runtime/test-postgres-fresh.mjs --pattern \"isolated property rent pickup carries invoice and bank receipt evidence through AR, JE, GL, trial balance, and reports\"",
     "test:backup:restore": "node runtime/test-backup-restore-drill.mjs",
     "test:attachments:containers": "node runtime/test-attachment-containers.mjs",
     "test:staging:smoke": "node runtime/test-staging-smoke.mjs",
