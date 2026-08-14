@@ -2889,6 +2889,65 @@ pgTest('prepaid rollforward admits a debit-normal asset only through one exact i
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'prepaid-reader'}),kernelFactory:async()=>reader});const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/prepaid-rollforward?periodId=${ids.periodId}`,body:null,headers:{}});assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data[0].mapping_status,'MAPPED_PREPAID_ACCOUNT');
 });
 
+pgTest('AI amortization proposal creates a source-bound twelve-month schedule with audit evidence but never creates a journal',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null,extraAccounts:[{accountCode:'141500',accountName:'Prepaid insurance'},{accountCode:'610100',accountName:'Insurance expense'}]});
+  const trace=await attachAutoSource(ids,{linkJournal:false});
+  await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT' WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
+  await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,project_ref,property_ref) VALUES($1,$2,$3,'insurance-line-1',1,100,'DEBIT','PROJECT-1','PROPERTY-1')",[ids.tenantId,ids.entityId,trace.documentId]);
+  const proposer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-preparer',['AI.AMORTIZATION.PROPOSE'])});
+  const args=[ids.tenantId,ids.entityId,trace.documentId,hash('auto-doc'),'2026-01-01','2026-12-31','141500','610100',JSON.stringify({project_ref:'PROJECT-1',property_ref:'PROPERTY-1',allocation_basis:'SOURCE_DIMENSIONED'}),'0.9500','Insurance policy coverage evidenced by source document'];
+  const proposal=await proposer.inSession(async client=>{
+    const requestHash=(await client.query('SELECT refs_propose_ai_amortization_schedule_hash($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) AS request_hash',args)).rows[0].request_hash;
+    return (await client.query('SELECT refs_propose_ai_amortization_schedule($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13) AS result',[...args,'ai-amortization-12-month-001',requestHash])).rows[0].result;
+  });
+  assert.deepEqual({status:proposal.status,lines:proposal.line_count,draft:proposal.can_create_draft,review:proposal.can_review,approve:proposal.can_approve,post:proposal.can_post},{status:'PROPOSED',lines:12,draft:false,review:false,approve:false,post:false});
+  const rows=await adminPool.query("SELECT line_no,to_char(amortization_month,'YYYY-MM-DD') AS amortization_month,amount FROM ai_amortization_schedule_line WHERE tenant_id=$1 AND entity_id=$2 AND ai_amortization_schedule_id=$3 ORDER BY line_no",[ids.tenantId,ids.entityId,proposal.ai_amortization_schedule_id]);
+  assert.equal(rows.rowCount,12);assert.equal(rows.rows[0].amortization_month,'2026-01-01');assert.equal(rows.rows[11].amortization_month,'2026-12-01');
+  assert.equal((await adminPool.query('SELECT sum(amount)::text total FROM ai_amortization_schedule_line WHERE ai_amortization_schedule_id=$1',[proposal.ai_amortization_schedule_id])).rows[0].total,'100.0000');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1",[ids.tenantId])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='AI_AMORTIZATION_PROPOSED'",[ids.tenantId])).rows[0].n,1);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-schedule-reader',['AI.AMORTIZATION.VIEW'])});
+  const visible=await reader.listAiAmortizationSchedules({tenantId:ids.tenantId,entityId:ids.entityId,limit:50});
+  assert.equal(visible.length,1);assert.equal(visible[0].ai_amortization_schedule_id,proposal.ai_amortization_schedule_id);assert.equal(visible[0].schedule_lines.length,12);assert.deepEqual({draft:visible[0].can_create_draft,review:visible[0].can_review,approve:visible[0].can_approve,post:visible[0].can_post},{draft:false,review:false,approve:false,post:false});
+  const replay=await proposer.inSession(async client=>{
+    const requestHash=(await client.query('SELECT refs_propose_ai_amortization_schedule_hash($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) AS request_hash',args)).rows[0].request_hash;
+    return (await client.query('SELECT refs_propose_ai_amortization_schedule($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13) AS result',[...args,'ai-amortization-12-month-001',requestHash])).rows[0].result;
+  });
+  assert.equal(replay.idempotent,true);
+  await assert.rejects(proposer.inSession(async client=>{
+    const changed=[...args];changed[10]='Different reason with the same idempotency key';const requestHash=(await client.query('SELECT refs_propose_ai_amortization_schedule_hash($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) AS request_hash',changed)).rows[0].request_hash;
+    return client.query('SELECT refs_propose_ai_amortization_schedule($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13) AS result',[...changed,'ai-amortization-12-month-001',requestHash]);
+  }),error=>error.code==='23505');
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-reader',['GL.REPORT.VIEW'])});
+  await assert.rejects(denied.inSession(client=>client.query('SELECT refs_propose_ai_amortization_schedule($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13)',[...args,'ai-amortization-denied-001',hash('not-reached')])),error=>error.code==='42501');
+});
+
+pgTest('AI exact duplicate payable finding retains paired source evidence without changing either source or creating a journal',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const first=await attachAutoSource(ids,{linkJournal:false,sourceModule:'payable',sourceRecordPrefix:'DUP-A'});
+  const second=await attachAutoSource({...ids,journalId:randomUUID()},{linkJournal:false,sourceModule:'payable',sourceRecordPrefix:'DUP-B',reuseApprovedSnapshots:true});
+  for(const documentId of [first.documentId,second.documentId])await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT',document_no='INV-EXACT-42' WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,documentId]);
+  await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,party_ref) VALUES($1,$2,$3,'duplicate-line-a',1,100,'DEBIT','VENDOR-1'),($1,$2,$4,'duplicate-line-b',1,100,'DEBIT','VENDOR-1')",[ids.tenantId,ids.entityId,first.documentId,second.documentId]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-duplicate-reader',['AI.AMORTIZATION.PROPOSE'])});
+  const retained=await reader.listAiDuplicatePayableFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50});
+  assert.equal(retained.length,1);assert.deepEqual({rule:retained[0].rule_id,risk:retained[0].risk_level,confidence:retained[0].confidence,status:retained[0].status,draft:retained[0].can_create_draft,review:retained[0].can_review,approve:retained[0].can_approve,post:retained[0].can_post},{rule:'DUPLICATE_PAYABLE_EXACT',risk:'HIGH',confidence:'1.0000',status:'OPEN',draft:false,review:false,approve:false,post:false});
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1",[ids.tenantId])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='AI_DUPLICATE_PAYABLE_FINDING_MATERIALIZED'",[ids.tenantId])).rows[0].n,1);
+  const documents=(await adminPool.query("SELECT status FROM source_document WHERE tenant_id=$1 AND entity_id=$2 ORDER BY source_document_id",[ids.tenantId,ids.entityId])).rows;assert.deepEqual(documents.map(row=>row.status),['READY_FOR_DRAFT','READY_FOR_DRAFT']);
+});
+
+pgTest('AI unmatched bank payment finding retains bank evidence, never changes the bank record, and reflects a later human match',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});const trace=await attachAutoSource(ids,{linkJournal:false});const bankSourceId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'BANK-1','UNMATCHED-PAYMENT-1','2026-07-15','USD',-100)`,[bankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-bank-reader',['AI.AMORTIZATION.PROPOSE'])});
+  let retained=await reader.listAiUnmatchedBankPaymentFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50});assert.equal(retained.length,1);assert.deepEqual({rule:retained[0].rule_id,risk:retained[0].risk_level,state:retained[0].current_match_state,draft:retained[0].can_create_draft,review:retained[0].can_review,approve:retained[0].can_approve,post:retained[0].can_post},{rule:'BANK_PAYMENT_UNMATCHED',risk:'MEDIUM',state:'OPEN',draft:false,review:false,approve:false,post:false});
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1",[ids.tenantId])).rows[0].n,1);assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='AI_UNMATCHED_BANK_PAYMENT_FINDING_MATERIALIZED'",[ids.tenantId])).rows[0].n,1);
+  await adminPool.query(`INSERT INTO bank_match(bank_match_id,tenant_id,entity_id,bank_source_id,business_source_document_id,candidate_rule_code,amount_delta,currency_match,date_delta_days,status,matched_by)
+    VALUES($1,$2,$3,$4,$5,'CONTROLLER_RETAINED_MATCH',0,true,0,'ACTIVE','controller')`,[randomUUID(),ids.tenantId,ids.entityId,bankSourceId,trace.documentId]);
+  retained=await reader.listAiUnmatchedBankPaymentFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50});assert.equal(retained[0].current_match_state,'MATCHED_AFTER_FINDING');assert.equal((await adminPool.query('SELECT amount FROM bank_source WHERE bank_source_id=$1',[bankSourceId])).rows[0].amount,'-100.0000');
+});
+
 pgTest('intercompany reconciliation requires two authorized entity scopes, reciprocal exact mappings, and POSTED ledger evidence without creating an elimination',async()=>{
   const current=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN'});
   const counterparty=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',tenantId:current.tenantId,extraMembers:[{memberRef:'AFFILIATE-1',memberType:'CUSTOMER_OR_AFFILIATE',displayName:'Counterparty entity'}],journalLines:[{lineNo:1,accountCode:'111000',debit:0,credit:100,memberRef:'BANK-1'},{lineNo:2,accountCode:'120200',debit:100,credit:0,memberRef:'AFFILIATE-1'}]});

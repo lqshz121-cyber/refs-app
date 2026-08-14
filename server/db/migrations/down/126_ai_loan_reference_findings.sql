@@ -1,0 +1,10 @@
+BEGIN;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM ai_loan_reference_finding) THEN RAISE EXCEPTION 'Cannot remove retained AI loan reference findings' USING ERRCODE='55000'; END IF; END $$;
+DROP TRIGGER materialize_ai_loan_reference_finding_from_document ON source_document;
+DROP TRIGGER materialize_ai_loan_reference_finding_from_line ON source_document_line;
+DROP FUNCTION refs_materialize_ai_loan_reference_finding_from_document_trigger();
+DROP FUNCTION refs_materialize_ai_loan_reference_finding_from_line_trigger();
+DROP FUNCTION refs_read_ai_loan_reference_findings(uuid,uuid,integer);
+DROP FUNCTION refs_materialize_ai_loan_reference_finding(uuid);
+DROP TABLE ai_loan_reference_finding;
+COMMIT;

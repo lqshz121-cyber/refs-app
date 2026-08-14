@@ -1,0 +1,13 @@
+BEGIN;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM ai_duplicate_payable_finding) THEN RAISE EXCEPTION 'Cannot remove retained AI duplicate payable findings' USING ERRCODE='55000'; END IF; END $$;
+DROP TRIGGER materialize_ai_duplicate_payable_findings_from_rule ON rule_evaluation;
+DROP TRIGGER materialize_ai_duplicate_payable_findings_from_line ON source_document_line;
+DROP TRIGGER materialize_ai_duplicate_payable_findings_from_document ON source_document;
+DROP FUNCTION refs_materialize_ai_duplicate_payable_findings_from_rule_trigger();
+DROP FUNCTION refs_materialize_ai_duplicate_payable_findings_from_line_trigger();
+DROP FUNCTION refs_materialize_ai_duplicate_payable_findings_from_document_trigger();
+DROP FUNCTION refs_materialize_ai_duplicate_payable_findings(uuid);
+DROP FUNCTION refs_ai_payable_counterparty(uuid,uuid,uuid);
+DROP FUNCTION refs_read_ai_duplicate_payable_findings(uuid,uuid,integer);
+DROP TABLE ai_duplicate_payable_finding;
+COMMIT;
