@@ -22,18 +22,20 @@ assert.equal(manifest.local_simulation_artifacts.envFile, 'outputs/local-release
 assert.equal(manifest.scripts['verify:external-release-gate'], 'node tools/verify-external-release-gate.mjs all');
 
 const commandNames = new Set(manifest.required_commands.map(row => row.name));
-for (const name of ['root-test', 'release-simulation', 'external-release-gate-local-sim', 'live-ui-7-page', 'provider-s3-scanner', 'provider-wbs-receipt', 'stage1-payable-live-chain', 'stage2-bank-live-chain', 'stage3-wbs-live-chain']) {
+for (const name of ['root-test', 'release-simulation', 'external-release-gate-local-sim', 'live-ui-7-page', 'provider-s3-scanner', 'provider-wbs-receipt', 'stage1-payable-live-chain', 'stage2-bank-live-chain', 'stage3-wbs-live-chain', 'stage4-report-live-chain']) {
   assert.equal(commandNames.has(name), true, `missing required command ${name}`);
 }
 assert.match(manifest.release_acceptance.global_release_gate, /PARTIAL\/FAIL/);
 assert.equal(manifest.scripts['verify:stage1-payable-live-acceptance'], 'node server/tools/verify-stage1-payable-live-acceptance.mjs');
 assert.equal(manifest.scripts['verify:stage2-bank-live-chain'], 'node server/runtime/verify-stage2-authoritative-e2e.mjs');
 assert.equal(manifest.scripts['verify:stage3-wbs-live-chain'], 'npm.cmd --prefix server run verify:wbs-live-acceptance');
+assert.equal(manifest.scripts['verify:stage4-report-live-chain'], 'node server/runtime/verify-stage4-authoritative-e2e.mjs');
 
 const readme = readFileSync(readmePath, 'utf8');
 assert.match(readme, /Global release remains blocked/);
 assert.match(readme, /provider S3\/scanner/);
 assert.match(readme, /signed-off Bank-to-GL\/TB\/BS\/Cash Flow chain/);
 assert.match(readme, /signed WBS multi-source ingress-to-GL\/report evidence/);
+assert.match(readme, /immutable report-snapshot-to-source evidence/);
 
 console.log('release-evidence-bundle: manifest, command matrix and release boundary verified');
