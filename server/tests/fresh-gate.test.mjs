@@ -11,6 +11,7 @@ test('fresh PostgreSQL gate owns a unique test-only compose project and cleanup 
   assert.match(source,/\['compose','-p',project,'-f','compose\.yaml','up','-d','--wait'\]/);
   assert.match(source,/waitForPostgresReadiness\(\{probe:\(\)=>probePostgres\(testEnv\.MIGRATION_DATABASE_URL\)\}\)/);
   assert.match(source,/applicationName:'refs-fresh-gate-readiness'/);
+  assert.match(source,/shell:process\.platform==='win32'&&command==='docker'/);
   assert.match(source,/\['compose','-p',project,'-f','compose\.yaml','down','-v','--remove-orphans'\]/);
   assert.doesNotMatch(source,/docker\s+(volume|system)\s+(prune|rm)/i);
 });
@@ -18,5 +19,8 @@ test('fresh PostgreSQL gate owns a unique test-only compose project and cleanup 
 test('fresh PostgreSQL gate requires all isolated runtime identities and the required PG suite',()=>{
   assert.match(source,/REFS_PG_REQUIRED:'1'/);
   for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL'])assert.match(source,new RegExp(`${key}:`));
-  assert.match(source,/\['run','test:postgres'\]/);
+  assert.match(source,/const postgresTestArgs=\['--test'\]/);
+  assert.match(source,/process\.env\.PG_TEST_NAME_PATTERN/);
+  assert.match(source,/postgresTestArgs\.push\('--test-name-pattern',process\.env\.PG_TEST_NAME_PATTERN\)/);
+  assert.match(source,/await run\(process\.execPath,postgresTestArgs,testEnv\)/);
 });

@@ -32,7 +32,7 @@ function freePort(){
 
 function run(command,args,env){
   return new Promise((resolveRun,reject)=>{
-    const child=spawn(command,args,{cwd:serverRoot,env,stdio:'inherit',shell:process.platform==='win32'});
+    const child=spawn(command,args,{cwd:serverRoot,env,stdio:'inherit',shell:process.platform==='win32'&&command==='docker'});
     child.once('error',reject);
     child.once('exit',(code,signal)=>code===0?resolveRun():reject(new Error(`${command} exited ${code??signal}`)));
   });
@@ -59,13 +59,16 @@ const testEnv={...composeEnv,
   CONTEXT_ISSUER_DATABASE_URL:`postgresql://refs_context_issuer:${passwords.issuer}@127.0.0.1:${port}/${database}`,
   GRANT_SYNC_DATABASE_URL:`postgresql://refs_grant_sync:${passwords.grantSync}@127.0.0.1:${port}/${database}`
 };
+const postgresTestArgs=['--test'];
+if(process.env.PG_TEST_NAME_PATTERN)postgresTestArgs.push('--test-name-pattern',process.env.PG_TEST_NAME_PATTERN);
+postgresTestArgs.push('tests/postgres-kernel.test.mjs');
 
 console.log(`Fresh PostgreSQL gate project=${project} database=${database} port=${port} image=${composeEnv.POSTGRES_IMAGE||'postgres:16-alpine'}`);
 try{
   await run('docker',['compose','-p',project,'-f','compose.yaml','up','-d','--wait'],composeEnv);
   const readiness=await waitForPostgresReadiness({probe:()=>probePostgres(testEnv.MIGRATION_DATABASE_URL)});
   console.log(`Fresh PostgreSQL gate ready after ${readiness.attempts} probe(s) in ${readiness.elapsedMs}ms`);
-  await run(process.platform==='win32'?'npm.cmd':'npm',['run','test:postgres'],testEnv);
+  await run(process.execPath,postgresTestArgs,testEnv);
 }finally{
   await run('docker',['compose','-p',project,'-f','compose.yaml','down','-v','--remove-orphans'],composeEnv).catch(error=>{
     console.error(`Fresh gate cleanup failed for owned project ${project}: ${error.message}`);

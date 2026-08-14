@@ -1641,7 +1641,7 @@ pgTest('authenticated HTTP creates AP Bills and AR Invoices only as evidence-bac
   const permissions={
     'document-maker':['AP.BILL.CREATE','AR.INVOICE.CREATE','GL.JE.SUBMIT'],
     'document-reviewer':['GL.JE.REVIEW'],'document-approver':['GL.JE.APPROVE'],'document-poster':['GL.JE.POST'],
-    'document-reader':['AP.VIEW','AR.VIEW']
+    'document-reader':['AP.VIEW','AR.VIEW','GL.JE.VIEW','GL.REPORT.VIEW']
   };
   const api=createAccountingApi({
     authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
@@ -1671,6 +1671,20 @@ pgTest('authenticated HTTP creates AP Bills and AR Invoices only as evidence-bac
   assert.deepEqual({business_document_id:readBill.business_document_id,status:readBill.status,offset_account_code:readBill.offset_account_code,description:readBill.description,journal_entry_id:readBill.journal_entry_id,journal_status:readBill.journal_status,journal_revision:readBill.journal_revision,period_id:readBill.period_id},{business_document_id:bill.business_document_id,status:'OPEN',offset_account_code:'610000',description:'Native AP bill',journal_entry_id:bill.journal_entry_id,journal_status:'POSTED',journal_revision:'4',period_id:ids.periodId});
   const readInvoice=(await api({method:'GET',url:`${root}/ar/invoices`,headers:{'x-test-actor':'document-reader'},body:null})).body.data[0];
   assert.deepEqual({business_document_id:readInvoice.business_document_id,status:readInvoice.status,offset_account_code:readInvoice.offset_account_code,description:readInvoice.description,journal_entry_id:readInvoice.journal_entry_id,journal_status:readInvoice.journal_status,journal_revision:readInvoice.journal_revision,period_id:readInvoice.period_id},{business_document_id:invoice.business_document_id,status:'OPEN',offset_account_code:'400000',description:'Native AR invoice',journal_entry_id:invoice.journal_entry_id,journal_status:'POSTED',journal_revision:'4',period_id:ids.periodId});
+  const journals=await api({method:'GET',url:`${root}/journal-entries`,headers:{'x-test-actor':'document-reader'},body:null});
+  assert.equal(journals.status,200,JSON.stringify(journals.body));assert.equal(journals.headers['cache-control'],'no-store');
+  const journalIds=new Set(journals.body.data.map(row=>row.journal_entry_id));
+  assert.ok(journalIds.has(bill.journal_entry_id));assert.ok(journalIds.has(invoice.journal_entry_id));
+  const postedDocuments=journals.body.data.filter(row=>[bill.journal_entry_id,invoice.journal_entry_id].includes(row.journal_entry_id));
+  assert.equal(postedDocuments.length,2);assert.ok(postedDocuments.every(row=>row.status==='POSTED'));
+  const reports=await api({method:'GET',url:`${root}/reports/financial-statements?periodId=${ids.periodId}`,headers:{'x-test-actor':'document-reader'},body:null});
+  assert.equal(reports.status,200);assert.equal(reports.headers['cache-control'],'no-store');
+  const reportedJournalIds=new Set(reports.body.data.flatMap(row=>row.journal_entry_ids||[]));
+  assert.ok(reportedJournalIds.has(bill.journal_entry_id));assert.ok(reportedJournalIds.has(invoice.journal_entry_id));
+  const apControl=await api({method:'GET',url:`${root}/ap/control-totals`,headers:{'x-test-actor':'document-reader'},body:null});
+  const arControl=await api({method:'GET',url:`${root}/ar/control-totals`,headers:{'x-test-actor':'document-reader'},body:null});
+  assert.equal(apControl.status,200);assert.equal(arControl.status,200);assert.equal(apControl.headers['cache-control'],'no-store');assert.equal(arControl.headers['cache-control'],'no-store');
+  assert.equal(apControl.body.data[0].open_balance,'100.0000');assert.equal(arControl.body.data[0].open_balance,'100.0000');
   const spoof=await send('document-maker',`${root}/ap/bills`,{periodId:ids.periodId,documentNumber:'BILL-NO-EVIDENCE',counterpartyRef:'VENDOR-1',counterpartyName:'Vendor',currency:'USD',accountingDate:'2026-07-18',amount:100,offsetAccountCode:'610000',attachmentIds:[]},'native-ap-bill-no-evidence');
   assert.equal(spoof.status,422);
 });
