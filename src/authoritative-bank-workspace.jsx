@@ -186,6 +186,8 @@ export function AuthoritativeReconciliationDetail({row,scope,onBack,config,fetch
   const transition=transitionByStatus[row.status]||null;
   const canChangeItems=['DRAFT','REOPENED'].includes(row.status);
   const scopeMatches=reconciliationRowMatchesScope(row,scope);
+  const companyLabel=config?.scopePresentation?.entityLabel||'Configured company';
+  const companyReference=config?.scopePresentation?.entityDetail||scope.entityId;
   const hasAuthorizedWorksheetEvidence=scopeMatches&&worksheet.rows.length>0;
   const loadWorksheet=async()=>{setWorksheet({phase:'LOADING',rows:[],error:null});const result=await refreshAuthoritativeReconciliationWorksheet({config,reconciliationId:row.reconciliation_id,fetcher});setWorksheet(result.ok?{phase:'READY',rows:result.rows,error:null}:{phase:'ERROR',rows:[],error:result});};
   const setClearance=async(item,clear)=>{setWorksheet(current=>({...current,phase:'COMMANDING',error:null}));const result=await setAuthoritativeReconciliationClearance({config,reconciliationId:row.reconciliation_id,reconciliationRevision:row.version,row:item,clear,reason,fetcher});if(result.ok){onChanged();await loadWorksheet();return;}setWorksheet(current=>({...current,phase:'READY',error:result}));};
@@ -194,18 +196,18 @@ export function AuthoritativeReconciliationDetail({row,scope,onBack,config,fetch
   const runTransition=async()=>{if(!transition||!reasonReady)return;setTransitionState({phase:'COMMANDING',error:null});const result=await transitionAuthoritativeReconciliation({config,reconciliationId:row.reconciliation_id,revision:row.version,action:transition.action,reason,fetcher});if(result.ok){onChanged();return;}setTransitionState({phase:'READY',error:result});};
   const commandInFlight=worksheet.phase==='COMMANDING'||transitionState.phase==='COMMANDING';
   return <section className="full-bleed qbo-transaction-report" aria-label="Reconciliation statement detail">
-  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to reconciliation evidence</button><p className="eyebrow">AUTHORITATIVE STATEMENT WORKSHEET</p><h1>Statement ending {row.statement_ending_date}</h1><p className="muted sm">The worksheet is authoritative evidence. A controller may clear or unclear only a server-returned bank line; review, sign-off, and reopen are separately audited commands. An adjustment may create only a Draft Journal Entry; independent workflow approval and posting remain outside this screen.</p></div><span className="badge badge-muted">CONTROLLER REVIEW</span></div>
-  <ScopeStrip items={[{label:'Entity',value:scope.entityId},{label:'Bank account',value:row.bank_account_ref},{label:'Cutoff',value:row.statement_ending_date},{label:'Statement version',value:`v${row.version}`}]}/>
+  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to reconciliation</button><p className="eyebrow">BANK RECONCILIATION</p><h1>Statement ending {row.statement_ending_date}</h1><p className="muted sm">Review the statement, matching progress, and sign-off history. A controller can clear reviewed items; any adjustment starts as a Draft and follows the normal independent approval process.</p></div><span className="badge badge-muted">CONTROLLER REVIEW</span></div>
+  <ScopeStrip items={[{label:'Company',value:companyLabel,reference:`Company reference: ${companyReference}`},{label:'Bank account',value:row.bank_account_ref},{label:'Cutoff',value:row.statement_ending_date},{label:'Statement version',value:`v${row.version}`}]}/>
   <ReconciliationLifecycle status={row.status}/>
   <div className="qbo-toolgrid">
     <span><i>Bank account</i><b>{row.bank_account_ref}</b></span><span><i>Status</i><b>{row.status}</b></span><span><i>Ending balance</i><b>{money(row.statement_ending_balance)}</b></span>
     <span><i>Activity</i><b>{money(row.statement_activity_amount)}</b></span><span><i>Difference</i><b>{money(row.difference)}</b></span><span><i>Version</i><b>{row.version}</b></span>
   </div>
   <div className="qbo-toolgrid">
-    <span><i>Reconciliation ID</i><b>{row.reconciliation_id}</b></span><span><i>Bank transactions</i><b>{row.bank_transaction_count}</b></span>
+    <span title={`Reconciliation reference: ${row.reconciliation_id}`}><i>Reconciliation record</i><b>Current statement</b></span><span><i>Bank transactions</i><b>{row.bank_transaction_count}</b></span>
     <span><i>Active matches</i><b>{row.active_match_count}</b></span><span><i>Unmatched</i><b>{row.unmatched_transaction_count}</b></span>
-    <span><i>Reconciled by</i><b>{row.reconciled_by||'Unavailable'}</b></span><span><i>Reconciled at</i><b>{row.reconciled_at||'Unavailable'}</b></span>
-    <span><i>Reopened by</i><b>{row.reopened_by||'Unavailable'}</b></span><span><i>Reopened at</i><b>{row.reopened_at||'Unavailable'}</b></span>
+    <span><i>Reconciled by</i><b>{row.reconciled_by||'Not yet signed off'}</b></span><span><i>Reconciled at</i><b>{row.reconciled_at||'Not yet signed off'}</b></span>
+    <span><i>Reopened by</i><b>{row.reopened_by||'Not reopened'}</b></span><span><i>Reopened at</i><b>{row.reopened_at||'Not reopened'}</b></span>
   </div>
   {!scopeMatches&&<StateBlock tone="blocked" title="BLOCKED — immutable reconciliation scope mismatch">The returned statement does not match the retained bank account and statement cutoff. Worksheet reads and Controller commands are unavailable; return to the scoped reconciliation evidence.</StateBlock>}
   <section className="card" aria-label="Reconciliation worksheet">
@@ -221,7 +223,7 @@ export function AuthoritativeReconciliationDetail({row,scope,onBack,config,fetch
     {!transition?<StateBlock tone="empty" title="No lifecycle action available">The server returned a reconciliation state without a permitted controller transition.</StateBlock>:<><button type="button" className="btn btn-primary" disabled={commandInFlight||!reasonReady} onClick={runTransition}>{transition.label}</button>{!reasonReady&&<p className="muted sm">Enter a controller reason of at least eight characters before issuing a lifecycle command.</p>}</>}
     {transitionState.error&&<ReadError error={transitionState.error} onRetry={()=>{}}/>}
   </section>}
-  <p className="muted sm">Scope: entity {scope.entityId}; account {scope.bankAccountRef}; statement cutoff {scope.statementEndingDate}.</p>
+  <p className="muted sm" title={`Company reference: ${companyReference}`}>Scope: {companyLabel}; account {scope.bankAccountRef}; statement cutoff {scope.statementEndingDate}.</p>
 </section>;
 }
 
