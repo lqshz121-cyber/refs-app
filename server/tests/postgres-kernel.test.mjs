@@ -2623,6 +2623,9 @@ pgTest('061 bank match creates exact posted AP evidence once and fails closed fo
 
 pgTest('Stage 2 test-data chain traces one reconciled bank payment through its posted JE, GL, TB and report rows',async()=>{
   const ids=await seed({status:'APPROVED',attachmentStatus:null});
+  await adminPool.query("UPDATE tenant SET tenant_code='DEMO_STAGE2_BANK_2026',name='DEMO isolated Stage 2 Bank acceptance' WHERE tenant_id=$1",[ids.tenantId]);
+  await adminPool.query(`INSERT INTO controlled_demo_tenant(tenant_id,scenario_code,display_label,created_by,expires_at)
+    VALUES($1,'STAGE2_BANK_RECONCILIATION','DEMO isolated Bank to report acceptance','demo-admin',clock_timestamp()+interval '1 day')`,[ids.tenantId]);
   const amount='100.1234';
   const billId=randomUUID();
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
@@ -2648,6 +2651,10 @@ pgTest('Stage 2 test-data chain traces one reconciled bank payment through its p
   const evidence=(await adminPool.query('SELECT journal_entry_id,journal_line_id,ledger_line_id FROM bank_match WHERE bank_match_id=$1',[match.bank_match_id])).rows[0];
   assert.equal(evidence.journal_entry_id,payment.journal_entry_id);assert.ok(evidence.journal_line_id);assert.ok(evidence.ledger_line_id);
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-report-reader',['BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'])});
+  const demoStatus=await reader.readControlledDemoTenant({tenantId:ids.tenantId});
+  assert.deepEqual({is_demo:demoStatus.is_demo,lifecycle_status:demoStatus.lifecycle_status,scenario_code:demoStatus.scenario_code},{is_demo:true,lifecycle_status:'ACTIVE_DEMO',scenario_code:'STAGE2_BANK_RECONCILIATION'});
+  const otherTenant=await seed({status:'DRAFT',attachmentStatus:null,tenantId:randomUUID(),entityId:randomUUID(),periodId:randomUUID(),journalId:randomUUID()});
+  await assert.rejects(reader.listBankTransactions({tenantId:otherTenant.tenantId,entityId:otherTenant.entityId,bankAccountRef:'BANK-1'}),error=>error.code==='42501');
 
   const starter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-recon-starter',['BANK.RECONCILIATION.START'])});
   const clearer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-recon-clearer',['BANK.RECONCILIATION.CLEAR'])});
