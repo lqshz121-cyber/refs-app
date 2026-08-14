@@ -97,13 +97,27 @@ const localArtifacts = {
   envFile: rel(envPath),
 };
 
-const pr = run('gh', ['pr', 'view', '7', '--json', 'headRefOid,mergeStateStatus,statusCheckRollup']);
-let prEvidence = { available: false, error: pr.stderr || pr.stdout || 'gh pr view unavailable' };
-if (pr.status === 0) {
-  try {
-    prEvidence = { available: true, ...JSON.parse(pr.stdout) };
-  } catch {
-    prEvidence = { available: false, error: 'gh pr view returned invalid JSON' };
+const origin = git('config', '--get', 'remote.origin.url');
+const repositoryMatch = origin.stdout.trim().match(/github\.com[/:]([^/\s]+)\/([^/\s]+?)(?:\.git)?$/);
+const repository = repositoryMatch ? `${repositoryMatch[1]}/${repositoryMatch[2]}` : null;
+let headCi = { available: false, head_sha: head.stdout.trim(), error: 'GitHub repository unavailable from remote.origin.url' };
+if (repository) {
+  const checks = run('gh', ['api', `repos/${repository}/commits/${head.stdout.trim()}/check-runs`]);
+  if (checks.status === 0) {
+    try {
+      const payload = JSON.parse(checks.stdout);
+      headCi = {
+        available: true,
+        repository,
+        head_sha: head.stdout.trim(),
+        total_count: payload.total_count,
+        check_runs: (payload.check_runs || []).map(row => ({ name: row.name, status: row.status, conclusion: row.conclusion, details_url: row.details_url })),
+      };
+    } catch {
+      headCi = { available: false, repository, head_sha: head.stdout.trim(), error: 'GitHub check-runs response was invalid JSON' };
+    }
+  } else {
+    headCi = { available: false, repository, head_sha: head.stdout.trim(), error: checks.stderr || checks.stdout || 'GitHub check-runs unavailable' };
   }
 }
 
@@ -124,7 +138,7 @@ const manifest = {
     local_candidate_gate: 'PASS only after required local commands exit 0 on a clean frozen SHA',
     global_release_gate: 'PARTIAL/FAIL until real HTTPS/OIDC, authenticated 22-page authoritative live E2E, provider S3/scanner lifecycle, signed WBS Payable attachment-to-GL/TB/AP Aging evidence, the signed-off Bank-to-GL/TB/BS/Cash Flow chain, signed WBS multi-source ingress-to-GL/report evidence, and immutable report-snapshot-to-source evidence exist',
   },
-  pr_7: prEvidence,
+  head_ci: headCi,
 };
 
 writeJson(resolve(outRoot, 'manifest.json'), manifest);
