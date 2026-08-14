@@ -29,7 +29,11 @@ assert.match(app, /boundary\.surface !== SURFACE_AUTHORITATIVE/,
   'a missing or non-authoritative runtime configuration must fail closed');
 assert.match(app, /<AuthoritativeApp environment=\{globalThis\}\s*\/>/,
   'only the authoritative shell may be mounted by the production entry');
-assert.doesNotMatch(authoritative, /['"]aireview['"]|AI Audit Center|AIAudit/,
-  'the authoritative navigation must not expose the demonstration AI Audit route');
+assert.match(authoritative, /AuthoritativeAiAuditWorkspace/,
+  'the authoritative shell may expose only the server-backed AI Audit workspace');
+assert.match(authoritative, /route === 'ai-audit'/,
+  'the server-backed AI Audit workspace must have a stable authoritative route');
+assert.doesNotMatch(authoritative, /['"]aireview['"]|module-aiaudit|\bAIAudit\b/,
+  'the authoritative AI route must not import the browser-state demonstration AI Audit component');
 
 console.log('authoritative-ai-boundary: AI mock/review UI remains demonstration-only; production mounts no browser-state AI evidence.');
