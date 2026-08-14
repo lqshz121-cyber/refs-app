@@ -29,9 +29,13 @@ forbid(authorityApp, /from ['"]\.\/legacy-demo-app/, 'the runtime must never imp
 for (const token of ['className="app"', 'sidebar ${mobileNav', 'className="nav-rail"', 'className="nav-panel"', 'className="brand"', 'className="new-btn', 'className="topbar"', 'className="content"']) {
   has(demoShell, token, `demo shell baseline must retain ${token}`);
 }
-for (const token of ['sidebar authoritative-sidebar', 'className="nav-rail"', 'className="nav-panel"', 'className="brand"', 'className="new-btn authoritative-new-disabled"']) {
+for (const token of ['sidebar authoritative-sidebar', 'className="nav-rail"', 'className="nav-panel"', 'className="brand"']) {
   has(authorityShell, token, `authority navigation must retain demo shell structure: ${token}`);
 }
+// The authoritative shell reuses the demo geometry, not its fake creation
+// affordance. A disabled New button has no authoritative action and is
+// intentionally absent rather than retained as decorative parity.
+forbid(authorityShell, /authoritative-new-disabled|\+ New/, 'authority navigation must not retain an inert New control');
 for (const token of ['className="topbar authoritative-topbar"', 'className="top-right authoritative-top-actions"', 'className="period-chip authoritative-period-chip"', 'className="user-chip authoritative-user-chip"']) {
   has(authorityTopbar, token, `authority topbar must retain demo shell structure: ${token}`);
 }

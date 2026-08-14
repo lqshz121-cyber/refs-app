@@ -69,6 +69,14 @@ const STATES = {
       'produced by the same build step. Until then no data of either kind is shown.',
     offer: null,
   },
+  RUNTIME_BUILD_STAMP_MISSING: {
+    title: 'Client release stamp is missing',
+    happened:
+      'This client cannot attest which release it was built from. REFS therefore cannot compare it with the accounting API release.',
+    next:
+      'Republish the static site with its refs-build.js asset. No accounting data is shown until both services can be identified.',
+    offer: null,
+  },
   CONFIGURATION_REQUIRED: {
     title: 'Authoritative API required',
     happened:
@@ -112,6 +120,22 @@ const STATES = {
     next:
       'Retry. If it keeps failing, the API endpoint has to be checked from outside ' +
       'the browser. No cached or local accounting data is substituted.',
+    offer: RETRY,
+  },
+  ACCOUNTING_API_RELEASE_UNSTAMPED: {
+    title: 'Accounting API release is not attested',
+    happened:
+      'The public readiness response did not provide a valid ready release stamp, so REFS cannot establish that this API matches the client.',
+    next:
+      'Republish the accounting API with its release stamp, then retry. No accounting records are requested until the two releases can be compared.',
+    offer: RETRY,
+  },
+  ACCOUNTING_API_RELEASE_MISMATCH: {
+    title: 'Client and accounting API releases differ',
+    happened:
+      'The public readiness response identifies a different API release from the one that produced this client. REFS stops before identity or accounting reads rather than mixing contracts.',
+    next:
+      'Promote the static site and accounting API from the same commit, then retry. No cached or local accounting data is substituted.',
     offer: RETRY,
   },
   ACCOUNTING_API_SERVER_ERROR: {

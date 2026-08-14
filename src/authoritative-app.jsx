@@ -7,6 +7,7 @@ import { AuthoritativeBankBatchPipelineWorkspace } from './authoritative-bank-ba
 import { StateBlock } from './ui.jsx';
 import { focusFirstControl, navDrawerAttributes, readOffCanvas, restoreFocus, watchOffCanvas } from './nav-drawer.js';
 import { RuntimeErrorPage, RuntimeErrorPanel } from './runtime-error-page.jsx';
+import { verifyAuthoritativeApiRelease } from './authoritative-release-gate.js';
 import { AuthoritativeReportsWorkspace, DEFAULT_AUTHORITATIVE_REPORTS_CATALOG } from './authoritative-reports-workspace.jsx';
 import { AuthoritativeAgingWorkspace } from './authoritative-aging-workspace.jsx';
 import { AuthoritativeJournalWorkspace } from './authoritative-journal-workspace.jsx';
@@ -118,7 +119,7 @@ const RENEWAL_MAX_SLEEP_MS = 300000;
 export function AuthoritativeApp({ environment = globalThis, fetcher = globalThis.fetch }) {
   const configured = authoritativeRuntimeConfigured(environment);
   const boundFetcher = useMemo(() => bindAuthoritativeFetcher(environment, fetcher), [environment, fetcher]);
-  const [phase, setPhase] = useState(configured ? 'CHECKING_IDENTITY' : 'CONFIGURATION_REQUIRED');
+  const [phase, setPhase] = useState(configured ? 'CHECKING_RELEASE' : 'CONFIGURATION_REQUIRED');
   const [route, setRouteState] = useState(() => readRetainedRoute(environment));
   const [data, setData] = useState({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] });
   const [documentDetail, setDocumentDetail] = useState(null);
@@ -186,6 +187,20 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   }, [navOpen]);
   const oidcClient = useMemo(() => configured ? new BrowserOidcClient({ environment, fetcher:boundFetcher }) : null, [configured, environment, boundFetcher]);
   const config = useMemo(() => configured ? accountingApiConfig(environment) : null, [configured, environment, phase]);
+
+  // This public, credential-free call is deliberately ahead of OIDC and every
+  // accounting reader. A green readiness response alone is not evidence that
+  // the independent API Render service was promoted with this static build.
+  useEffect(() => {
+    if (!configured || !config || phase !== 'CHECKING_RELEASE' || typeof environment?.document === 'undefined') return undefined;
+    let active = true;
+    void verifyAuthoritativeApiRelease({ environment, config, fetcher:boundFetcher }).then(result => {
+      if (!active) return;
+      if (result.ok) { setError(null); setPhase('CHECKING_IDENTITY'); return; }
+      setError(result); setPhase('LOAD_FAILED');
+    });
+    return () => { active = false; };
+  }, [configured, config, environment, boundFetcher, phase]);
 
   const updateListView = useCallback((kind, view) => {
     setListViews(current => ({...current,[kind]:view}));
@@ -303,7 +318,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   }, [config, boundFetcher, route]);
 
   useEffect(() => {
-    if (!configured || !oidcClient || typeof environment?.document === 'undefined') return;
+    if (!configured || !oidcClient || phase !== 'CHECKING_IDENTITY' || typeof environment?.document === 'undefined') return;
     let active = true;
     environment.refsOidcClient = oidcClient;
     const finishIdentity = result => {
@@ -333,7 +348,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     };
     void restoreOrCompleteIdentity();
     return () => { active = false; };
-  }, [configured, environment, oidcClient]);
+  }, [configured, environment, oidcClient, phase]);
 
   useEffect(() => { if (phase === 'AUTHENTICATED') refresh(); }, [phase, refresh]);
 
@@ -392,6 +407,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const displayConfig=useMemo(()=>({...config,scopePresentation}),[config,scopePresentation]);
   if (!configured) return <RuntimeErrorPage code="CONFIGURATION_REQUIRED"/>;
   if (typeof environment?.document === 'undefined') return <main className="login-shell"><section className="login-card"><h1>Authoritative accounting</h1><p>Secure OIDC session verification is in progress.</p></section></main>;
+  if (phase === 'CHECKING_RELEASE') return <main className="login-shell"><section className="login-card"><h1>Verifying deployment</h1><p>Checking that the authoritative API and this client carry the same release stamp before loading accounting data.</p></section></main>;
   if (phase === 'CHECKING_IDENTITY') return <main className="login-shell"><section className="login-card"><h1>Verifying identity</h1><p>Checking the configured OIDC session before loading accounting data.</p></section></main>;
   if (phase === 'LOGIN_REQUIRED' || phase === 'IDENTITY_FAILED') return <main className="login-shell"><section className="login-card">
     <h1>Sign in to authoritative accounting</h1><p>Use the configured OIDC provider. Accounting records are read only from the authenticated API in this mode.</p>
