@@ -32,10 +32,10 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
   const [tool,setTool]=useState(availableTools[0]||'');
   const [companyCode,setCompanyCode]=useState('');
   const [dateFrom,setDateFrom]=useState('2026-01-01');
-  // The approved first production read is WBPA for the first half of 2026.
+  // The approved production read targets WBPA for the complete 2026 year.
   // Keep that exact range as the rendered default; the provider must echo it
   // back before the observation can be used for exception retention.
-  const [dateTo,setDateTo]=useState('2026-06-30');
+  const [dateTo,setDateTo]=useState('2026-12-31');
   const [state,setState]=useState({phase:'IDLE',data:null,error:null});
   const [attestationState,setAttestationState]=useState({phase:'IDLE',rows:[],error:null,result:null});
   const [capabilityState,setCapabilityState]=useState({phase:'LOADING',canAttest:false,error:null});
@@ -65,7 +65,7 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
     const requestedCompanyCode=scopeCompany?companyCode.trim():'';
     // Provider observation dates are meaningful only alongside one explicit
     // provider-native company scope.  Do not issue a date-only WBS read.
-    const result=await refreshAuthoritativeWbsLivePilot({config,tool,limit:10,companyCode:requestedCompanyCode||null,dateFrom:requestedCompanyCode?dateFrom:null,dateTo:requestedCompanyCode?dateTo:null,fetcher});
+    const result=await refreshAuthoritativeWbsLivePilot({config,tool,limit:10,companyCode:scopeCompany?requestedCompanyCode||null:null,dateFrom:scopeDates?dateFrom:null,dateTo:scopeDates?dateTo:null,fetcher});
     setAttestationConfirmation(false);
     setState(current=>result.ok?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result});
   };
