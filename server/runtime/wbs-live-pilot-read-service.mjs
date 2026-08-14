@@ -114,7 +114,15 @@ export function createWbsLivePilotReadService({client,authorize}={}){
     async readObservation({tenantId,entityId,tool,limit,company_code,date_from,date_to}={}){
       if(!tenantId||!entityId||!WBS_LIVE_PILOT_TOOLS.includes(tool)||!Number.isSafeInteger(limit)||limit<1||limit>10)fail('WBS_LIVE_PILOT_SELECTION_INVALID','A scoped approved WBS pilot selection is required.');
       await authorize({tenantId,entityId});
-      let observed;try{await prepare();const args={limit};if(company_code)args.company_code=company_code;if(date_from){args.date_from=date_from;args.date_to=date_to;}observed=await client.readView({toolName:tool,args});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider response was unavailable or unsafe.');}
+      let observed;try{await prepare();const args={limit};if(company_code)args.company_code=company_code;if(date_from){
+        // The public REFS read contract exposes one accounting-date range, while
+        // the provider's list_payables tool publishes separate incurred/posting
+        // ranges. Apply the same bounded range to both dimensions so a returned
+        // row is inside the requested 2026 accounting window regardless of which
+        // provider date is populated; never filter rows in the browser.
+        args.incurred_date_from=date_from;args.incurred_date_to=date_to;
+        args.posting_date_from=date_from;args.posting_date_to=date_to;
+      }observed=await client.readView({toolName:tool,args});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider response was unavailable or unsafe.');}
       return buildWbsLivePilotObservation({observed,entityId,tool,requestedScope:{company_code:company_code||null,date_from:date_from||null,date_to:date_to||null}});
     }
   });
