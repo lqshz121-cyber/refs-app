@@ -23,8 +23,8 @@ const readableScope=renderToStaticMarkup(<AuthoritativeOverview counts={{bills:0
 assert.match(readableScope,/returned by the authenticated API for Configured entity/);assert.match(readableScope,/2026-07/);assert.doesNotMatch(readableScope,/>[^<]*ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3[^<]*</);
 
 const empty = renderToStaticMarkup(<AuthoritativeOverview counts={{ bills: 0, invoices: 0, adjustments: 0, journals: 0 }} onNavigate={() => {}}/>);
-assert.match(empty, /No retained records were returned for this scope/);
-assert.match(empty, /authoritative empty result/);
+assert.match(empty, /SCOPE_EMPTY/);
+assert.match(empty, /Reports and GL remain empty until a signed source is admitted, reviewed, and posted/);
 
 const loading = renderToStaticMarkup(<AuthoritativeOverview state="loading"/>);
 assert.match(loading, /Loading authoritative accounting evidence/);

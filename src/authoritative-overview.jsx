@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from './ui.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
+import {AuthoritativeScopeEmpty} from './authoritative-read-state.jsx';
 
 const number = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
 
@@ -73,7 +74,7 @@ export function AuthoritativeOverview({ counts = {}, onNavigate, state = 'ready'
         <h4>Reconciliation evidence</h4><strong className="qbo-big">{allEmpty ? '--' : 'Read'}</strong><span className="qbo-sub">Open the authorised statement workspace</span>
       </button>
     </div>
-    {allEmpty && <div className="authoritative-overview-empty" role="status"><strong>No retained records were returned for this scope.</strong><span>Use a workspace to inspect an authoritative empty result or access boundary.</span></div>}
+    {allEmpty && <div className="authoritative-overview-empty" role="status"><AuthoritativeScopeEmpty subject="AP, AR, adjustment, and Journal records" requiresPosted/></div>}
 
     <AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.dashboard} title="External WBS observations" showRows={false}/>
 

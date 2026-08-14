@@ -1,6 +1,7 @@
 import React from 'react';
 import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 import { StateBlock } from './ui.jsx';
+import {AuthoritativeScopeEmpty} from './authoritative-read-state.jsx';
 import {AuthoritativeDemoApArView} from './authoritative-demo-ap-ar-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 import {
@@ -48,7 +49,7 @@ export function AuthoritativeDocumentTable({title,documents=[],kind,onOpen}) {
     const key=authoritativeEvidenceKey('document',row)||row.journal_entry_id||row[bill?'bill_id':'inv_id']||row[number];
     const focusId=authoritativeEvidenceKey('document',row)?`authoritative-document-${row.business_document_id}`:undefined;
     return <tr key={key}><td>{row[number]}</td><td>{row[counterparty]}</td><td>{row[dateKey]}</td><td>{row.due_date||'Not retained'}</td><td className="ta-r">{money(row.amount,row.currency)}</td><td className="ta-r">{money(row.open_balance,row.currency)}</td><td><span className="badge badge-muted authoritative-row-status">{row.status}</span></td><td><button id={focusId} type="button" className="btn btn-sm btn-ghost" onClick={()=>onOpen?.(row,focusId)}>Open evidence</button></td></tr>;
-  })}</tbody></table></div>:<StateBlock tone="empty" title={`No authoritative ${bill?'bills':'invoices'} in this scope`}>This scoped empty result is not evidence of a zero balance.</StateBlock>}</section>;
+  })}</tbody></table></div>:<AuthoritativeScopeEmpty subject={bill?'AP bills':'AR invoices'}/>}</section>;
 }
 
 const documentReturnScope = (entityId, view, revision, includeVendor) => [
@@ -144,7 +145,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     <p className="muted sm authoritative-applied-scope" aria-live="polite">{appliedScope.length?`Applied presentation scope: ${appliedScope.join(' | ')}. It narrows retained API rows only.`:'Applied presentation scope: all retained API rows.'} {bill?'Category is derived only from the retained AP Bill offset-account field. Delivery method is unavailable because this authenticated list response does not retain it.':'Category and delivery-method filters are unavailable because this authenticated list response does not retain those facts.'}</p>
     </section>
     <section className="card" aria-label={`${workspaceLabel} document list facts`}>
-    {page.total?<AuthoritativeDocumentTable title={bill?'AP bills':'AR invoices'} documents={page.rows} kind={kind} onOpen={onOpenDocument}/>:<StateBlock tone="empty" title={documents.length?`No ${bill?'bills':'invoices'} match these presentation filters`:`No authoritative ${bill?'bills':'invoices'} in this scope`}>{documents.length?'Change a presentation filter to see retained list facts. A local no-match is not evidence of zero balance.':'This scoped empty result is not evidence of a zero balance.'}</StateBlock>}
+    {page.total?<AuthoritativeDocumentTable title={bill?'AP bills':'AR invoices'} documents={page.rows} kind={kind} onOpen={onOpenDocument}/>:documents.length?<StateBlock tone="empty" title={`No ${bill?'bills':'invoices'} match these presentation filters`}>Change a presentation filter to see retained list facts. A local no-match is not evidence of zero balance.</StateBlock>:<AuthoritativeScopeEmpty subject={bill?'AP bills':'AR invoices'}/>}
     {page.pageCount>1&&<nav className="pagination" aria-label={`${bill?'AP bills':'AR invoices'} pages`}><button type="button" disabled={page.page===1} onClick={()=>change({page:page.page-1})}>Previous</button><span>Page {page.page} of {page.pageCount}</span><button type="button" disabled={page.page===page.pageCount} onClick={()=>change({page:page.page+1})}>Next</button></nav>}
     </section>
     <section className="card" aria-label={`${workspaceLabel} adjustment list facts`}>

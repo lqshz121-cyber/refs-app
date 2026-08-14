@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StateBlock } from './ui.jsx';
+import {AuthoritativeScopeEmpty} from './authoritative-read-state.jsx';
 import {readAuthoritativeJournalEntryDetail,readAuthoritativeJournalWorkflowCapabilities,refreshAuthoritativeJournalEntries,transitionAuthoritativeJournal} from './accounting-api.js';
 import {AuthoritativeDemoJournalView} from './authoritative-demo-journal-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
@@ -94,9 +95,7 @@ export function AuthoritativeJournalTable({ journals = [], entityId=null, view =
       <span className="result-count" aria-live="polite">{page.total} matching journal entries</span>
       <button type="button" className="btn btn-sm btn-ghost" onClick={()=>onViewChange?.({...DEFAULT_AUTHORITATIVE_LIST_VIEW})}>Clear filters</button>
     </div>
-    {!page.total ? <StateBlock tone="empty" title={journals.length?'No journal entries match these presentation filters':'No authoritative journal entries in this entity register'}>
-      {journals.length?'Change a presentation filter to see retained list facts. A local no-match is not evidence of zero ledger activity.':'No journal entries were returned for this entity. A scoped empty list is not evidence of zero ledger activity.'}
-    </StateBlock> : <div className="table-wrap authoritative-journal-table" tabIndex={0} aria-label="Journal entry list; scroll horizontally to view every column"><table className="tbl">
+    {!page.total ? journals.length?<StateBlock tone="empty" title="No journal entries match these presentation filters">Change a presentation filter to see retained list facts. A local no-match is not evidence of zero ledger activity.</StateBlock>:<AuthoritativeScopeEmpty subject="Journal entries" requiresPosted/> : <div className="table-wrap authoritative-journal-table" tabIndex={0} aria-label="Journal entry list; scroll horizontally to view every column"><table className="tbl">
       <thead><tr><th>Journal</th><th>Date</th><th>Memo / description</th><th>Type</th><th>Currency</th><th>Status</th><th>Ledger lines</th><th>Evidence</th><th>Workflow</th></tr></thead>
       <tbody>{page.rows.map(row => {const next=nextAuthoritativeJournalWorkflowAction(row,capabilities,entityId),busy=workflowState?.journalEntryId===row.journal_entry_id&&workflowState.phase==='RUNNING';return <tr key={row.journal_entry_id}>
         <td><b>{row.journal_number}</b><small className="journal-row-revision">Revision {row.revision}</small></td><td>{formatAuthoritativeDate(row.journal_date)}</td><td className="journal-row-description">{row.description||'No description returned'}</td><td>{row.journal_type}</td><td>{row.currency}</td><td><span className="badge">{row.status}</span></td>

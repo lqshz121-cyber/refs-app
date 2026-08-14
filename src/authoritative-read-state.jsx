@@ -23,3 +23,16 @@ export function AuthoritativeReadFailure({state,onRetry,retryLabel='Retry report
     {blocked&&<p>Keep the current report scope and resolve the authoritative access, configuration, scope, or protocol issue before treating this view as accounting evidence.</p>}
   </StateBlock>;
 }
+
+// A successful empty API response is a scope result, not a financial
+// conclusion.  Keeping this component separate from failures prevents a zero
+// count from being presented as either an access error or a zero balance.
+export function AuthoritativeScopeEmpty({subject='records',requiresPosted=false}){
+  const prerequisite=requiresPosted
+    ? 'Reports and GL remain empty until a signed source is admitted, reviewed, and posted as a Journal entry.'
+    : 'This does not prove that an upstream source is empty or that the balance is zero.';
+  return <StateBlock tone="empty" title="SCOPE_EMPTY — no authoritative records returned">
+    <p>The authenticated API returned 0 {subject} for the current entity and period scope.</p>
+    <p>{prerequisite}</p>
+  </StateBlock>;
+}
