@@ -18,6 +18,8 @@ const apVendorCreditAllocationDown=await readFile(new URL('../db/migrations/down
 const arCreditMemoAllocationSql=await readFile(new URL('../db/migrations/018_ar_credit_memo_allocation.sql',import.meta.url),'utf8');
 const arCreditMemoAllocationDown=await readFile(new URL('../db/migrations/down/018_ar_credit_memo_allocation.sql',import.meta.url),'utf8');
 const arCreditMemoPostSql=await readFile(new URL('../db/migrations/019_ar_credit_memo_post_reducer.sql',import.meta.url),'utf8');
+const costCwipReviewSql=await readFile(new URL('../db/migrations/120_wbs_cost_cwip_review.sql',import.meta.url),'utf8');
+const costCwipDraftSql=await readFile(new URL('../db/migrations/121_wbs_cost_cwip_draft.sql',import.meta.url),'utf8');
 const arCreditMemoPostDown=await readFile(new URL('../db/migrations/down/019_ar_credit_memo_post_reducer.sql',import.meta.url),'utf8');
 const arRefundSql=await readFile(new URL('../db/migrations/020_ar_refund_command.sql',import.meta.url),'utf8');
 const arRefundDown=await readFile(new URL('../db/migrations/down/020_ar_refund_command.sql',import.meta.url),'utf8');
@@ -613,4 +615,16 @@ test('outbox is entity-scoped and its entity ownership is immutable',()=>{
   assert.match(sql,/refs_entity_has_permission\(entity_id,'OUTBOX\.DISPATCH'\)/);
   assert.match(sql,/NEW\.tenant_id,NEW\.entity_id,NEW\.aggregate_type/);
   assert.doesNotMatch(sql,/GRANT SELECT ON ALL TABLES/);
+});
+
+test('Cost-to-CWIP creates a Draft only from immutable reviewed evidence and approved mapping facts',()=>{
+  assert.match(costCwipReviewSql,/WBS\.COST\.CWIP\.REVIEW/);
+  assert.match(costCwipReviewSql,/STAGING_REVIEW_REQUIRED/);
+  assert.match(costCwipReviewSql,/wbs_cost_cwip_review_evidence_append_only/);
+  assert.match(costCwipDraftSql,/WBS\.COST\.CWIP\.DRAFT/);
+  assert.match(costCwipDraftSql,/mapping\.output_rules->>'cwip_account_code'/);
+  assert.match(costCwipDraftSql,/mapping\.output_rules->>'offset_account_code'/);
+  assert.match(costCwipDraftSql,/refs_create_auto_journal\(/);
+  assert.match(costCwipDraftSql,/actor=evidence\.reviewed_by/);
+  assert.doesNotMatch(costCwipDraftSql,/p_lines jsonb/);
 });
