@@ -4,7 +4,7 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from '../src/authoritative-wbs-live-pilot-observation.jsx';
 
-const config={entityId:'11111111-1111-4111-8111-111111111111',baseUrl:'https://accounting.example',getAccessToken:async()=> 'a'.repeat(48)};
+const config={entityId:'11111111-1111-4111-8111-111111111111',baseUrl:'https://accounting.example',getAccessToken:async()=> 'a'.repeat(48),scopePresentation:{entityLabel:'Test entity'}};
 const render=tools=>renderToStaticMarkup(<AuthoritativeWbsLivePilotObservation config={config} tools={tools} fetcher={async()=>{throw new Error('SSR must not call WBS');}}/>);
 
 const dashboard=render(WBS_LIVE_PILOT_SURFACE_TOOLS.dashboard);
@@ -12,7 +12,7 @@ for(const label of ['Payables','Bank transactions','AutoRec details','AutoRec ba
 for(const boundary of ['READ ONLY','No demo or browser-stored data'])assert.match(dashboard,new RegExp(boundary,'i'));
 assert.match(dashboard,/Live connection not checked/);
 assert.match(dashboard,/Refresh live WBS data/);
-for(const liveFact of ['Live WBS connection status','Last successful API read','Record count','Current signed-in company','Production WBS API'])assert.match(dashboard,new RegExp(liveFact));
+for(const liveFact of ['Live WBS connection status','Last successful API read','Record count','Test entity','Production WBS API'])assert.match(dashboard,new RegExp(liveFact));
 
 const payables=render(WBS_LIVE_PILOT_SURFACE_TOOLS.payables);
 assert.match(payables,/WBS read-only view:<\/b> Payables/);
