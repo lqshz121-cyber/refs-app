@@ -4,6 +4,7 @@ import {generateKeyPairSync,sign} from 'node:crypto';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {createWbsSnapshotSignatureVerifier} from '../runtime/wbs-snapshot-signature.mjs';
 import {createWbsAdmittedCostCwipIngestion,WbsAdmittedCostCwipIngestionError} from '../runtime/wbs-admitted-cost-cwip-ingestion.mjs';
+import {buildStandardDraftRequest} from '../runtime/wbs-inbound-data-adapter.mjs';
 
 const tenantId='11111111-1111-4111-8111-111111111111',entityId='22222222-2222-4222-8222-222222222222';
 const pair=generateKeyPairSync('ed25519'),keyId='wbs-admitted-cost-cwip-test';
@@ -49,4 +50,13 @@ test('signed malformed Cost-to-CWIP evidence is retained as an Exception, not a 
   const {calls,service}=harness(),snapshot=resign(signedSnapshot(),value=>{value.views[0].rows[0].amount='125.50000';});
   const result=await service.ingest({tenantId,entityId,snapshot,idempotencyKey:'wbs-cost-cwip-exception-0001'});
   const row=calls[1][1].rows[0];assert.equal(row.raw.amount,'125.50000');assert.equal(row.normalized.amount_money4,null);assert.equal(row.outcome_kind,'EXCEPTION');assert.equal(result.exception_count,1);assert.equal(result.can_create_draft,false);
+});
+test('a reviewed Cost-to-CWIP row requires an exact approved CWIP mapping and produces only a standard Draft request',()=>{
+  const externalTrace={provider_snapshot:'provider-snapshot-cost-1',project_ref:'PROJECT-01',cost_code_ref:'CWIP-LAND'};
+  const staging={stage:'STAGING_REVIEWED',receipt_id:'receipt-cost-1',receipt_ref:'object://wbs-snapshot/cost-1/BGDATA.cost_general_ledger/COST-LEDGER-001',receipt_hash:canonicalRequestHash({receipt:'cost-1'}),staging_item_id:'staging-cost-1',source_document_id:'document-cost-1',raw_event_id:'raw-cost-1',source_record_id:'COST-LEDGER-001',source_version:'snapshot:cost-1:row-1',company_key:'COMPANY-A',currency:'USD',business_date:'2026-08-10',accounting_date:'2026-08-11',direction:'DEBIT',source_type:'COST_CWIP',external_trace:externalTrace,external_trace_hash:canonicalRequestHash(externalTrace)};
+  const mapping={status:'APPROVED',mapping_id:'cwip-map-1',version:'1',snapshot_hash:canonicalRequestHash({mapping:'cwip-map-1'}),source_type:'COST_CWIP',company_key:'COMPANY-A',currency:'USD',effective_from:'2026-01-01T00:00:00Z',effective_to:null};
+  const journal={period_id:'period-1',journal_number:'CWIP-2026-08-001',company_key:'COMPANY-A',currency:'USD',accounting_date:'2026-08-11',description:'Capitalized land cost',lines:[{account_code:'164100',debit_amount:'125.5000',credit_amount:'0.0000'},{account_code:'610000',debit_amount:'0.0000',credit_amount:'125.5000'}]};
+  const request=buildStandardDraftRequest({stagingItem:staging,mapping,journal});
+  assert.deepEqual({status:request.status,dispatch:request.can_dispatch,post:request.can_post,type:request.trace.source_type,mapping:request.mapping.mapping_id,lines:request.lines.length},{status:'READY_FOR_STANDARD_JE_COMMAND',dispatch:false,post:false,type:'COST_CWIP',mapping:'cwip-map-1',lines:2});
+  assert.throws(()=>buildStandardDraftRequest({stagingItem:staging,mapping:{...mapping,status:'DRAFT'},journal}),error=>error.code==='WBS_MAPPING_APPROVED_REQUIRED');
 });
