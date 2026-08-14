@@ -68,7 +68,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     // Existing OIDC report readers expose only mapping-backed rollforward
     // evidence. The loan register and lender workflow remain unavailable.
     item('construction-loan', 'Construction Loan', 'API_READ'),
-    item('loan-register', 'Loan Register'), item('property-ops-pickup', 'Property Ops Pickup'),
+    item('loan-register', 'Loan Register'), item('property-ops-pickup', 'Property Ops Pickup', 'API_READ'),
     item('closing-accounting', 'Closing Accounting'),
     // The available scope is the existing two-entity reconciliation reader;
     // it does not expose an uncontracted intercompany posting workflow.
