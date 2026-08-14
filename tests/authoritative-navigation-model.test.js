@@ -4,7 +4,7 @@ import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTE
 
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the formal navigation must retain the full product taxonomy');
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'every formal route needs a stable unique identity');
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry','amortization','bank','bank-batch-pipeline','chart-of-accounts','consolidation','construction-loan','general-ledger','intercompany','journals','overview','payables','project-cost-cwip','receivables','reconciliation','reports','source-documents','wbs-autorec-evidence','wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry','ai-audit','amortization','bank','bank-batch-pipeline','chart-of-accounts','consolidation','construction-loan','general-ledger','intercompany','journals','overview','payables','project-cost-cwip','receivables','reconciliation','reports','source-documents','wbs-autorec-evidence','wbs-payable-review'].sort());
 for (const group of AUTHORITATIVE_NAVIGATION) {
   assert.ok(group.items.length > 0, `${group.label} may not be empty`);
   for (const item of group.items) assert.ok(AUTHORITATIVE_ROUTES.includes(item.route));
@@ -28,6 +28,9 @@ assert.match(source, /AuthoritativeUnavailableWorkspace/, 'unsupported modules m
 assert.doesNotMatch(source, /legacy-demo-app|\.\/repo\.js|\.\/seed\.js|module-wbs|module-aiaudit|module-ai-je-workbench/,
   'the authoritative shell may not import demo, mock, or browser-state workspaces');
 const shellSource = readFileSync(new URL('../src/authoritative-navigation-shell.jsx', import.meta.url), 'utf8');
-assert.match(shellSource, /compactLabel\(item\.label\)/, 'secondary navigation must use compact letter marks');
+assert.match(shellSource, /const ITEM_ICONS = Object\.freeze\(/, 'secondary navigation must map every workspace to a recognisable icon');
+assert.match(shellSource, /<Icon name=\{ITEM_ICONS\[item\.route\] \|\| 'document'\} size=\{18\} \/>/,
+  'secondary navigation must render its small SVG icon instead of an initial-letter badge');
+assert.doesNotMatch(shellSource, /compactLabel\(/, 'secondary navigation must not regress to initial-letter badges');
 assert.doesNotMatch(shellSource, /String\(index \+ 1\)\.padStart/, 'secondary navigation must not use numeric-only badges');
 console.log('authoritative navigation model: complete catalog retains only API-backed reads and fails closed elsewhere');

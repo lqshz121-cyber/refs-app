@@ -7,16 +7,6 @@ function railLabel(label) {
   return RAIL_LABELS[label] || label.split(/\s+/)[0] || label;
 }
 
-function compactLabel(label) {
-  return label
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(word => word[0])
-    .join('')
-    .slice(0, 3)
-    .toUpperCase();
-}
-
 // These are deliberately a presentation map, copied from the complete REFS
 // shell's icon vocabulary.  They do not decide route availability or carry
 // any accounting state: `navigation` remains the authoritative API catalog.
@@ -24,6 +14,26 @@ const GROUP_ICONS = Object.freeze([
   'gauge', 'gear', 'document', 'cycle', 'document', 'book',
   'layers', 'calendar', 'wallet', 'bars', 'shield',
 ]);
+
+// Secondary navigation uses the same self-authored SVG vocabulary as the
+// workflow rail.  Initial-letter badges made entries such as WBS Payable
+// Review read as unexplained acronyms rather than recognisable workspaces.
+const ITEM_ICONS = Object.freeze({
+  overview: 'gauge', approvals: 'check', 'ai-audit': 'shield', 'ai-je-workbench': 'lines',
+  settings: 'gear', rules: 'check', mapping: 'layers',
+  'wbs-payable-review': 'document', staging: 'layers', 'source-documents': 'document',
+  'integration-hub': 'exchange', 'mapping-exceptions': 'shield',
+  'bank-batch-pipeline': 'inbox', 'wbs-autorec-evidence': 'cycle', bank: 'bank',
+  reconciliation: 'check', 'checks-payments': 'wallet', journals: 'document',
+  'general-ledger': 'book', consolidation: 'layers', 'account-inquiry': 'lines',
+  'subsidiary-ledger': 'book', 'chart-of-accounts': 'book', 'project-cost-cwip': 'bars',
+  'unit-cost-ledger': 'lines', 'unit-transfer': 'exchange', 'construction-loan': 'bank',
+  'loan-register': 'book', 'property-ops-pickup': 'wallet', 'closing-accounting': 'calendar',
+  intercompany: 'exchange', 'fixed-assets': 'layers', amortization: 'cycle', accruals: 'document',
+  'month-end-close': 'calendar', 'period-management': 'calendar', payables: 'wallet',
+  receivables: 'inbox', reports: 'bars', 'master-data': 'layers', 'bank-accounts': 'bank',
+  'audit-log': 'shield', 'users-settings': 'gear',
+});
 
 export function AuthoritativeNavigationShell({ navigation, route, expandedGroup, onSelectGroup, onSelectItem, navOpen, navDrawerRef, drawerAttributes, onClose }) {
   const activeGroup = navigation.find(group => group.items.some(item => item.route === route))
@@ -59,12 +69,8 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroup,
           <div className="nav-group-items" id={`authoritative-navigation-group-${activeGroupIndex}`}>
           {activeGroup.items.map(item => <button type="button" key={item.route} aria-current={route === item.route ? 'page' : undefined}
             className={`nav-item nav-sub ${route === item.route ? 'nav-on' : ''}`} onClick={() => onSelectItem(item.route)}>
-            <span className="nav-badge" aria-hidden="true">{compactLabel(item.label)}</span>
+            <span className="nav-badge" aria-hidden="true"><Icon name={ITEM_ICONS[item.route] || 'document'} size={18} /></span>
             <span className="nav-item-label">{item.label}</span>
-            <span className={`authoritative-nav-status authoritative-nav-status-${item.availability === 'API_READ' ? 'ready' : 'blocked'}`}
-              title={item.availability === 'API_READ' ? 'Authoritative API read available' : 'This workspace is unavailable for the current authority'}>
-              {item.availability === 'API_READ' ? 'API' : 'Unavailable'}
-            </span>
             <span className="nav-chev" aria-hidden="true">›</span>
           </button>)}
           </div>
