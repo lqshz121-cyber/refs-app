@@ -476,6 +476,31 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   assert.deepEqual({debit:trialExpense.period_debit,credit:trialExpense.period_credit,balance:trialExpense.display_balance},{debit:'89.1250',credit:'0.0000',balance:'89.1250'});
   assert.deepEqual({debit:trialPayable.period_debit,credit:trialPayable.period_credit,balance:trialPayable.display_balance},{debit:'0.0000',credit:'89.1250',balance:'-89.1250'});
   assert.deepEqual(await authorityReader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'89.1250',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'89.1250'}]);
+
+  // Read the same retained test-data chain through the authoritative HTTP
+  // boundary. These are all bodyless, no-store reads; the test adds no second
+  // write path after the controlled four-role posting workflow above.
+  const httpReaderPermissions=['WBS.PAYABLE.REVIEW','WBS.AUTOREC.VIEW','AP.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'];
+  const httpApi=createAccountingApi({
+    authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'wbs-payable-http-reader'}),
+    kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-http-reader',httpReaderPermissions)})
+  });
+  const get=path=>httpApi({method:'GET',url:path,headers:{},body:null});
+  const base=`/api/v1/entities/${ids.entityId}`;
+  const [reviewRead,journalRead,ledgerRead,agingRead,statementRead]=await Promise.all([
+    get(`${base}/wbs/inbound/payables/reviews/${reviewed.wbs_payable_review_evidence_id}`),
+    get(`${base}/journal-entries/${drafted.journal_entry_id}?periodId=${ids.periodId}`),
+    get(`${base}/general-ledger/entries?periodId=${ids.periodId}`),
+    get(`${base}/ap/aging?asOf=2026-08-31`),
+    get(`${base}/reports/financial-statements?periodId=${ids.periodId}`),
+  ]);
+  for(const response of [reviewRead,journalRead,ledgerRead,agingRead,statementRead]){assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');}
+  assert.equal(reviewRead.body.data.journal_entry_id,drafted.journal_entry_id);
+  assert.equal(journalRead.body.data.status,'POSTED');
+  assert.ok(journalRead.body.data.lines.some(line=>line.account_code==='610000'&&line.source_document_ids.includes(reviewed.source_document_id)));
+  assert.ok(ledgerRead.body.data.some(line=>line.journal_entry_id===drafted.journal_entry_id&&line.source_document_ids.includes(reviewed.source_document_id)));
+  assert.equal(agingRead.body.data[0].total_open_balance,'89.1250');
+  assert.ok(statementRead.body.data.some(line=>line.statement_type==='TRIAL_BALANCE'&&line.account_code==='610000'&&line.journal_entry_ids.includes(drafted.journal_entry_id)));
 });
 
 pgTest('signed admitted WBS bank statement atomically creates exact bank sources with replay and conflict guards',async()=>{
