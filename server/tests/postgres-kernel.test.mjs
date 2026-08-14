@@ -2803,13 +2803,13 @@ pgTest('financial statement period comparison reads two ordered periods and mark
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.find(row=>row.account_code==='610000').comparison_status,'MISSING_PRIOR_EVIDENCE');
 });
 
-pgTest('dimension profitability reads only exact POSTED ledger dimensions and never fills a missing property, project, or unit',async()=>{
+pgTest('dimension profitability reads only exact POSTED ledger dimensions and never fills a missing property, project, unit, or lot',async()=>{
   const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,
     extraAccounts:[{accountCode:'400000',accountName:'Rental Revenue'},{accountCode:'610000',accountName:'Property Expense'}],
     journalLines:[
-      {lineNo:1,accountCode:'111000',debit:75,credit:0,memberRef:'BANK-1',dimensions:{property_ref:'PROPERTY-01',project_ref:'PROJECT-01',unit_ref:'UNIT-01'}},
-      {lineNo:2,accountCode:'400000',debit:0,credit:100,dimensions:{property_ref:'PROPERTY-01',project_ref:'PROJECT-01',unit_ref:'UNIT-01'}},
-      {lineNo:3,accountCode:'610000',debit:25,credit:0,dimensions:{property_ref:'PROPERTY-01',project_ref:'PROJECT-01',unit_ref:'UNIT-01'}}
+      {lineNo:1,accountCode:'111000',debit:75,credit:0,memberRef:'BANK-1',dimensions:{property_ref:'PROPERTY-01',project_ref:'PROJECT-01',unit_ref:'UNIT-01',lot_ref:'LOT-01'}},
+      {lineNo:2,accountCode:'400000',debit:0,credit:100,dimensions:{property_ref:'PROPERTY-01',project_ref:'PROJECT-01',unit_ref:'UNIT-01',lot_ref:'LOT-01'}},
+      {lineNo:3,accountCode:'610000',debit:25,credit:0,dimensions:{property_ref:'PROPERTY-01',project_ref:'PROJECT-01',unit_ref:'UNIT-01',lot_ref:'LOT-01'}}
     ]});
   const trace=await attachAutoSource(ids);
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'dimension-poster',['GL.JE.POST'])});
@@ -2823,11 +2823,16 @@ pgTest('dimension profitability reads only exact POSTED ledger dimensions and ne
   assert.equal(projectRows.length,2);assert.ok(projectRows.every(row=>row.statement_type==='PROJECT_PNL'));
   const unitRows=await reader.getDimensionProfitability({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,dimensionType:'UNIT',dimensionRef:'UNIT-01'});
   assert.equal(unitRows.length,2);assert.ok(unitRows.every(row=>row.statement_type==='UNIT_PROFITABILITY'));
+  const lotRows=await reader.getDimensionProfitability({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,dimensionType:'LOT',dimensionRef:'LOT-01'});
+  assert.deepEqual(lotRows.map(row=>[row.statement_type,row.statement_section,row.account_code,row.display_balance]),[['LOT_PROFITABILITY','EXPENSES','610000','25.0000'],['LOT_PROFITABILITY','REVENUE','400000','100.0000']]);
+  assert.ok(lotRows.every(row=>row.classification_basis==='POSTED_LEDGER_DIMENSION_EXACT'&&row.journal_entry_ids.includes(ids.journalId)&&row.source_document_ids.includes(trace.documentId)));
   assert.deepEqual(await reader.getDimensionProfitability({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,dimensionType:'PROPERTY',dimensionRef:'PROPERTY-MISSING'}),[]);
   await assert.rejects(reader.getDimensionProfitability({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,dimensionType:'ACCOUNT',dimensionRef:'PROPERTY-01'}),error=>error.code==='22023');
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'dimension-reader'}),kernelFactory:async()=>reader});
   const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/dimension-profitability?periodId=${ids.periodId}&dimensionType=PROPERTY&dimensionRef=PROPERTY-01`,body:null,headers:{}});
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.length,2);
+  const lotResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/reports/dimension-profitability?periodId=${ids.periodId}&dimensionType=LOT&dimensionRef=LOT-01`,body:null,headers:{}});
+  assert.equal(lotResponse.status,200);assert.equal(lotResponse.headers['cache-control'],'no-store');assert.deepEqual(lotResponse.body.data.map(row=>row.statement_type),['LOT_PROFITABILITY','LOT_PROFITABILITY']);
 });
 
 pgTest('cash flow statement classifies POSTED cash only through one exact approved mapping snapshot',async()=>{
