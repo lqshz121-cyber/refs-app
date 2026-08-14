@@ -24,14 +24,17 @@ export function authoritativeScopePresentation(config,coaRows=[],scopeMetadata=n
   const entityNameReturned=Boolean(entityName);
   const periodReturned=Boolean(period?.period_code);
   return {
-    entityLabel:entityName||'Configured entity',
+    // A UUID is useful for an auditor, but it is not a company name. Keep the
+    // identifier in the tooltip (`entityDetail`) and give everyday readers a
+    // plain, stable label until the display name is returned.
+    entityLabel:entityName||'Current company',
     entityDetail:UUID.test(config?.entityId||'')?config.entityId:'Identifier unavailable',
     entityNameReturned,
-    entityHint:entityNameReturned?'':'The authenticated API did not return an entity display name.',
-    periodLabel:metadataPeriodMatches&&/^\d{4}-(0[1-9]|1[0-2])$/.test(scopeMetadata?.period_code||'')?scopeMetadata.period_code:(period?.period_code||'Configured period'),
+    entityHint:'',
+    periodLabel:metadataPeriodMatches&&/^\d{4}-(0[1-9]|1[0-2])$/.test(scopeMetadata?.period_code||'')?scopeMetadata.period_code:(period?.period_code||'Current period'),
     periodDetail:metadataPeriodMatches?`${formatAuthoritativeDate(scopeMetadata.period_start)} - ${formatAuthoritativeDate(scopeMetadata.period_end)}`:(period?`${formatAuthoritativeDate(period.period_start)} - ${formatAuthoritativeDate(period.period_end)}`:(UUID.test(config?.periodId||'')?config.periodId:'Identifier unavailable')),
     periodReturned:metadataPeriodMatches||periodReturned,
-    periodHint:periodReturned?'':'The authenticated API did not return a period code or date range.',
-    cashAccountLabel:cash?`${cash.account_code} - ${cash.account_name}`:(config?.cashAccountCode?`${config.cashAccountCode} - Name unavailable`:'Not configured'),
+    periodHint:'',
+    cashAccountLabel:cash?`${cash.account_code} - ${cash.account_name}`:(config?.cashAccountCode?`Cash account ${config.cashAccountCode}`:'Cash account not set'),
   };
 }

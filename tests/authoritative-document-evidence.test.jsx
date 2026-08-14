@@ -18,7 +18,7 @@ const bill={business_document_id:'22222222-2222-4222-8222-222222222222',bill_no:
 const adjustment={business_adjustment_id:'44444444-4444-4444-8444-444444444444',adjustment_kind:'AP_VENDOR_CREDIT',business_document_id:null,source_adjustment_id:null,amount:10,currency:'USD',accounting_date:'2026-08-02',period_id:periodId,reason:'Retained credit evidence',status:'DRAFT',version:2,journal_entry_id:null,journal_status:null,journal_revision:null,created_at:'2026-08-02T00:00:00.000Z'};
 
 const list=renderToStaticMarkup(<AuthoritativeDocumentTable title="AP bills" documents={[bill]} kind="AP" onOpen={()=>{}}/>);
-assert.match(list,/Authoritative API rows only/);
+assert.match(list,/Financial records available for review/);
 assert.match(list,/Open evidence/);
 assert.match(list,/Open balance/);
 assert.match(list,/Evidence Vendor/);
@@ -35,37 +35,37 @@ assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/Category \(offset account\)/);
 assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/EXPENSES \/ ACCOUNTS PAYABLE/);
-assert.match(workspaceMarkup,/Review authenticated API list facts/);
-assert.match(workspaceMarkup,/Retained bills/);
+assert.match(workspaceMarkup,/Review bills, invoices, adjustments, aging, and control totals/);
+assert.match(workspaceMarkup,/Bills available/);
 assert.match(workspaceMarkup,/Visible after filters/);
-assert.match(workspaceMarkup,/READ ONLY/);
+assert.match(workspaceMarkup,/VIEW ONLY/);
 assert.match(workspaceMarkup,/authoritative-ap-ar-presentation/);
 assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/AP Aging/);
 assert.doesNotMatch(workspaceMarkup,/AP Aging unavailable/,'AP aging has an authenticated API contract and must be reachable');
 assert.match(workspaceMarkup,/id="authoritative-ap-aging-launch"/,'Back from AP aging must restore focus to the tab that opened it');
-assert.match(workspaceMarkup,/Vendors unavailable/);
+assert.match(workspaceMarkup,/Vendors coming soon/);
 assert.doesNotMatch(workspaceMarkup,/<button[^>]*disabled[^>]*>AP Aging<\/button>/);
 const apArPresentationSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-ap-ar-view.jsx'),'utf8');
 assert.doesNotMatch(apArPresentationSource,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,
   'the AP/AR presentation shell must receive authority facts as slots and never load local or API state itself');
-assert.match(workspaceMarkup,/Document and adjustment evidence/);
-assert.match(workspaceMarkup,/Filter retained API list facts, then open an independent read-only evidence page/);
+assert.match(workspaceMarkup,/Document and adjustment details/);
+assert.match(workspaceMarkup,/Use filters to find the records you need, then open a full detail page/);
 assert.match(workspaceMarkup,/Query, filters, page, focus, and scroll are preserved/);
-assert.match(workspaceMarkup,/No create, payment, collection, approval, posting, export, or synchronization/);
+assert.match(workspaceMarkup,/Use the appropriate workflow to create, pay, approve, or post/);
 assert.match(workspaceMarkup,/Search retained references/);
   assert.match(workspaceMarkup,/Vendor/);
 assert.match(workspaceMarkup,/Category \(offset account\)/);
 assert.match(workspaceMarkup,/Reset filters/);
-assert.match(workspaceMarkup,/Applied presentation scope: Status: PARTIALLY_PAID/);
-assert.match(workspaceMarkup,/Category is derived only from the retained AP Bill offset-account field/);
-assert.match(workspaceMarkup,/Delivery method is unavailable/);
+assert.match(workspaceMarkup,/Applied filters: Status: PARTIALLY_PAID/);
+assert.match(workspaceMarkup,/Category is based on the bill’s offset account/);
+assert.match(workspaceMarkup,/Delivery method is not shown in these records/);
 assert.match(workspaceMarkup,/2026-08-01/);
 assert.match(workspaceMarkup,/1 bills[\s\S]*0 adjustments/);
 assert.match(workspaceMarkup,/No adjustments match these presentation filters/);
 assert.match(workspaceMarkup,/class="qbo-toolgrid authoritative-document-summary"/,'AP/AR counts must use the authoritative summary-card hierarchy');
 assert.match(workspaceMarkup,/class="authoritative-document-intro"/,'AP/AR list/detail boundaries must be presented as a compact evidence guide');
-assert.match(workspaceMarkup,/Filter retained evidence/,'filters need a visible read-only heading rather than a bare control row');
+assert.match(workspaceMarkup,/Filter records/,'filters need a visible user-facing heading rather than a bare control row');
 
 const creditsOnlyMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'',status:'ALL',transactionType:'VENDOR_CREDITS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(creditsOnlyMarkup,/Vendor credits/);
@@ -77,7 +77,7 @@ const arWorkspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kin
 assert.match(arWorkspaceMarkup,/id="authoritative-ar-aging-launch"/,'Back from AR aging must restore focus to the tab that opened it');
 assert.match(arWorkspaceMarkup,/REVENUE \/ ACCOUNTS RECEIVABLE/);
 assert.match(arWorkspaceMarkup,/Receivables/);
-assert.match(arWorkspaceMarkup,/Retained invoices/);
+assert.match(arWorkspaceMarkup,/Invoices available/);
 assert.match(arWorkspaceMarkup,/Invoice, customer, account, or reference/);
 assert.doesNotMatch(arWorkspaceMarkup,/Category \(offset account\)/,'AR must not expose the AP-only category filter');
 assert.match(arWorkspaceMarkup,/1 invoices \| 0 adjustments/,'a stale AP-only account filter must not silently remove AR invoices');
@@ -162,6 +162,10 @@ assert.match(styles,/\.authoritative-adjustment-table \.tbl\{min-width:760px;tab
 assert.match(styles,/\.authoritative-document-detail-table \.tbl\{min-width:720px;table-layout:fixed;\}/,'four-column detail facts must retain readable columns without overflowing the page');
 assert.match(styles,/\.authoritative-document-summary>span\{position:relative;min-height:116px/,'summary cards must retain a stable visual hierarchy');
 assert.match(styles,/\.authoritative-list-filters\{display:grid;grid-template-columns:minmax\(220px,2fr\)/,'wide AP\/AR filters must align as a readable grid');
+assert.match(styles,/@media \(max-width:1200px\)\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,
+  'AP\/AR filters must reduce to two shrinkable columns before the accounting navigation panel crowds the Vendor selector');
+assert.match(styles,/@media \(max-width:960px\)\{\.authoritative-list-filters\{grid-template-columns:minmax\(0,1fr\)/,
+  'AP\/AR filters must become one column at the 900px high-zoom viewport instead of overflowing the page');
 assert.match(styles,/@media\s*\(max-width:720px\)\s*\{\.authoritative-document-intro(?:,\.authoritative-source-intro)?\{grid-template-columns:minmax\(0,1fr\)/,'narrow AP\/AR filters and evidence guidance must collapse before the page overflows');
 assert.doesNotMatch(styles,/repeat\(2,minmax\(0,1fr\);/,'a malformed narrow-layout grid declaration must never prevent later responsive rules from parsing');
 

@@ -106,7 +106,7 @@ assert.match(styles,/\.authoritative-app \.authoritative-sidebar\{flex-direction
   'the authoritative shell must use the readable rail-and-panel layout');
 assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-rail \.nav-group-h/,
   'the production workflow rail must keep compact, stable group controls');
-assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:nowrap/,
+assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{min-width:0; white-space:normal; overflow:visible/,
   'the production page panel must keep the demo shell’s stable single-line rows');
 assert.match(styles,/\.authoritative-app \.sidebar\{position:sticky; top:0; left:auto; transform:none; width:var\(--nav-w\); flex:0 0 var\(--nav-w\); box-shadow:none;\}/,
   'the QBO-like rail and panel must remain anchored through wider tablet layouts');
@@ -120,7 +120,7 @@ assert.match(authoritativeShell,/className="nav-panel"/,
   'the reusable production shell must render a full page navigation panel');
 assert.match(authoritativeShell,/aria-label="Accounting workspace groups"/,
   'the production workflow rail must expose an accessible landmark name');
-assert.match(authoritativeShell,/aria-label=\{`\$\{activeGroup\.label\} navigation`\}/,
+assert.match(authoritativeShell,/aria-label="Accounting workspace navigation"/,
   'the selected production group must expose a named page navigation landmark');
 assert.match(authoritativeShell,/className="nav-panel-title"/,
   'the production panel must retain the demo shell’s group title hierarchy');
@@ -128,8 +128,10 @@ assert.doesNotMatch(authoritativeShell,/authoritative-new-disabled|\+ New/,
   'the authoritative shell must not render an inert New control when no authorised API action exists');
 assert.match(authoritativeShell,/from '\.\/ui\.jsx'/,
   'the presentation shell must reuse the local, self-authored rail icon vocabulary');
-assert.match(authoritativeShell,/authoritative-nav-status/,
-  'each visible catalog entry must disclose whether an API read model exists');
+assert.doesNotMatch(authoritativeShell,/authoritative-nav-status|API read|Unavailable/,
+  'the page navigation must reserve its row for a complete business name, not a technical status chip');
+assert.match(authoritativeShell,/ITEM_ICONS\[item\.route\] \|\| 'document'/,
+  'each visible catalog entry must use a mapped small SVG icon instead of an initial-letter badge');
 assert.doesNotMatch(authoritativeShell,/legacy-demo-app|from ['"]\.\/data|from ['"]\.\/seed|from ['"]\.\/repo|localStorage/,
   'the full production shell must not import or persist demonstration business state');
 

@@ -12,9 +12,9 @@ const readableScope=authoritativeScopePresentation(
   {entityId,periodId,cashAccountCode:'111000'},
   [{period_id:periodId,period_code:'2026-08',period_start:'2026-08-01',period_end:'2026-08-31',account_code:'111000',account_name:'Operating cash'}],
 );
-assert.equal(readableScope.entityLabel,'Configured entity');
+assert.equal(readableScope.entityLabel,'Current company');
 assert.equal(readableScope.entityNameReturned,false);
-assert.equal(readableScope.entityHint,'The authenticated API did not return an entity display name.');
+assert.equal(readableScope.entityHint,'');
 assert.equal(readableScope.periodLabel,'2026-08');
 assert.equal(readableScope.periodDetail,'Aug 1, 2026 - Aug 31, 2026');
 assert.equal(readableScope.cashAccountLabel,'111000 - Operating cash');
@@ -28,11 +28,11 @@ assert.equal(persistedScope.periodDetail,'Aug 1, 2026 - Aug 31, 2026');
 assert.equal(authoritativeScopePresentation(
   {entityId,periodId,cashAccountCode:'111000'},
   [{entity_id:'99999999-9999-4999-8999-999999999999',account_code:'111000',account_name:'Wrong company cash',entity_name:'Wrong company'}],
-).entityLabel,'Configured entity','entity names must not cross company scope');
+).entityLabel,'Current company','entity names must not cross company scope');
 assert.equal(authoritativeScopePresentation(
   {entityId,periodId:'44444444-4444-4444-8444-444444444444'},
   [],
-).periodLabel,'Configured period');
+).periodLabel,'Current period');
 assert.equal(formatAuthoritativeDate('not-a-date'),'Date unavailable');
 const journal={entity_id:entityId,period_id:periodId,journal_entry_id:'22222222-2222-4222-8222-222222222222',journal_number:'JE-100',journal_type:'MANUAL',status:'DRAFT',journal_date:'2026-08-01',currency:'USD',description:'Read-only journal evidence',revision:3,created_at:'2026-08-01T00:00:00.000Z',posted_at:null,ledger_line_count:2,lines:[
   {journal_line_id:'33333333-3333-4333-8333-333333333333',ledger_line_id:null,line_no:1,account_code:'111000',debit_amount:'25.0000',credit_amount:'0.0000',member_ref:'BANK-1',description:'Exact cash line',dimensions:{property:'P-1'},source_document_ids:['55555555-5555-4555-8555-555555555555']},
