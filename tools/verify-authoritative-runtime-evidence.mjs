@@ -8,6 +8,7 @@ export const AUTHORITATIVE_PAGES=Object.freeze({
   AR:['/ar/invoices','/ar/adjustments'],
   JE:['/journal-entries'],
   Bank:['/bank/transactions'],
+  Reconciliation:['/bank/reconciliations','/bank/reconciliations/*/worksheet'],
   Reports:['/financial-statements'],
 });
 
@@ -17,6 +18,11 @@ const httpsOrigin=value=>{try{const url=new URL(value);return url.protocol==='ht
 const fail=(code,detail)=>{console.error(`${code}: ${detail}`);process.exitCode=2;return false;};
 const readJson=(path,label)=>{if(!existsSync(path))return fail('AUTHORITATIVE_EVIDENCE_MISSING',`${label}=${path}`);try{return JSON.parse(readFileSync(path,'utf8'));}catch{return fail('AUTHORITATIVE_EVIDENCE_INVALID',`${label} is not JSON`);}};
 const under=(candidate,root)=>{const file=resolve(candidate),base=resolve(root);return file===base||file.startsWith(`${base}\\`)||file.startsWith(`${base}/`);};
+const requiredPathMatches=(pathname,requiredPath)=>{
+  if(!requiredPath.includes('*'))return pathname.endsWith(requiredPath);
+  const escaped=requiredPath.split('*').map(part=>part.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('[^/]+');
+  return new RegExp(`${escaped}$`).test(pathname);
+};
 
 export function verifyAuthoritativeRuntimeEvidence(environment=process.env){
   const manifestPath=String(environment.REFS_AUTHORITATIVE_E2E_MANIFEST||'').trim();
@@ -52,9 +58,10 @@ export function verifyAuthoritativeRuntimeEvidence(environment=process.env){
     if(!text.trim()||forbidden.test(text)||/LOCAL_MOCK|DEMO_DATA_ONLY|Observed QBO/i.test(text))return fail('AUTHORITATIVE_VISIBLE_TEXT_INVALID',page);
     const network=readJson(networkFile,`${page}.network_log`);if(!Array.isArray(network))return false;
     const successfulGets=network.filter(entry=>entry?.method==='GET'&&entry?.status===200&&typeof entry.url==='string'&&entry.url.startsWith(`${apiOrigin}/api/v1/entities/`)&&entry.authenticated===true);
-    if(!requiredPaths.every(path=>successfulGets.some(entry=>new URL(entry.url).pathname.endsWith(path))))return fail('AUTHORITATIVE_PAGE_API_READ_MISSING',`${page}: ${requiredPaths.join(',')}`);
+    if(!requiredPaths.every(path=>successfulGets.some(entry=>requiredPathMatches(new URL(entry.url).pathname,path))))return fail('AUTHORITATIVE_PAGE_API_READ_MISSING',`${page}: ${requiredPaths.join(',')}`);
   }
-  console.log(`authoritative-runtime-e2e: ${Object.keys(AUTHORITATIVE_PAGES).length}/6 pages, OIDC renewal, API scope and refresh evidence verified at ${expectedSha}`);
+  const pageCount=Object.keys(AUTHORITATIVE_PAGES).length;
+  console.log(`authoritative-runtime-e2e: ${pageCount}/${pageCount} pages, OIDC renewal, API scope and refresh evidence verified at ${expectedSha}`);
   return true;
 }
 
