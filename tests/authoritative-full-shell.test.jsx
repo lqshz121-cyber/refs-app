@@ -19,7 +19,9 @@ const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navig
 const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroup="General Ledger" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
-assert.match(navMarkup, /API/); assert.match(navMarkup, /Unavailable/);
+assert.match(navMarkup, /Bank Batch Pipeline/); assert.match(navMarkup, /Reconciliation worksheet/);
+assert.doesNotMatch(navMarkup, /authoritative-nav-status|>API<|>Unavailable</,
+  'the navigation panel must keep its rows for full workspace names, not technical availability labels');
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.match(navMarkup, /No authorised create action is available in this workspace/);
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
@@ -59,11 +61,11 @@ const demoViewSource = fs.readFileSync('src/authoritative-demo-view.jsx', 'utf8'
 assert.doesNotMatch(demoViewSource, /seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js/,
   'the reusable demo presentation frame must not import or persist demonstration accounting state');
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
-assert.match(unavailableMarkup, /Source Documents is not available/);
-assert.match(unavailableMarkup, /No browser-stored or substitute data is shown/);
-assert.match(unavailableMarkup, /Required authoritative read contract/);
-assert.match(unavailableMarkup, /attachment-read contract/);
-assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
+assert.match(unavailableMarkup, /Source Documents is being prepared/);
+assert.match(unavailableMarkup, /This workspace is not ready to use yet/);
+assert.match(unavailableMarkup, /Your existing books, reports, and approvals are unchanged/);
+assert.match(unavailableMarkup, /What to expect/);
+assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create|API UNAVAILABLE|authoritative read contract|entity-1|period-1/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 const firstConditionalRender=appSource.indexOf("if (!configured) return");
 for(const scopeHook of [
