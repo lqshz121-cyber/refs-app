@@ -69,8 +69,14 @@ export async function migrateUp(pool){
   const client=await pool.connect();
   let locked=false;
   try{
+    // The runtime pool intentionally has a short DDL lock timeout.  The
+    // migration mutex is different: concurrent runners must wait for the
+    // currently active migration and then serialize, rather than fail halfway
+    // through a schema reset and leave the following reader on a partial DB.
+    await client.query('SET lock_timeout = 0');
     await client.query('SELECT pg_advisory_lock($1)',[lockKey]);
     locked=true;
+    await client.query('RESET lock_timeout');
     await assertMigrationConnection(client);
     await ensureMetadata(client);
     const files=await filesAt(migrationRoot);
@@ -97,8 +103,13 @@ export async function migrateDown(pool,{all=false}={}){
   const client=await pool.connect();
   let locked=false;
   try{
+    // See migrateUp: only waiting for the process-wide advisory mutex is
+    // unbounded.  Individual migration statements retain the configured
+    // lock timeout after the mutex has been acquired.
+    await client.query('SET lock_timeout = 0');
     await client.query('SELECT pg_advisory_lock($1)',[lockKey]);
     locked=true;
+    await client.query('RESET lock_timeout');
     await assertMigrationConnection(client,{destructive:true});
     await ensureMetadata(client);
     const applied=(await client.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name DESC')).rows.map(row=>row.migration_name);

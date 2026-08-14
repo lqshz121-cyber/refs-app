@@ -143,6 +143,8 @@ for (const width of [1440,1280,1024,768,430,360]) {
 }
 assert.match(styles,/\.table-wrap\{[\s\S]*?overflow:auto;/,
   'wide accounting evidence must scroll inside its own table region');
+assert.match(styles,/\.table-wrap\{[\s\S]*?overflow:auto;\s*min-width:0;\s*width:100%;[\s\S]*?box-sizing:border-box;/,
+  'wide evidence tables must stay shrinkable inside narrow workspace panels');
 assert.match(styles,/\.table-wrap:focus-visible\{outline:2px solid var\(--qb-accent\)/,
   'the keyboard-focusable evidence region must keep a visible focus indicator');
 for (const file of [
