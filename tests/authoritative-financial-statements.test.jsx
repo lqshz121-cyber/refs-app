@@ -102,9 +102,9 @@ async function main(){
   assert.match(fullReport,/Trial Balance/);assert.match(fullReport,/Back to Reports/);assert.match(fullReport,/Refresh statement evidence/);assert.match(fullReport,/GET ONLY/);assert.match(fullReport,/report-section-row/);assert.match(fullReport,/scope="rowgroup"/);assert.match(fullReport,/authoritative-full-report-TRIAL_BALANCE-111000/);assert.match(fullReport,/authoritative-evidence-page/);
   const workspace=fs.readFileSync('src/authoritative-reports-workspace.jsx','utf8');
   const lineage=fs.readFileSync('src/authoritative-lineage-drill.jsx','utf8');
-  const demoReportsView=fs.readFileSync('src/authoritative-demo-reports-view.jsx','utf8');
-  assert.doesNotMatch(demoReportsView,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,'the Reports presentation extraction must receive authoritative facts as slots');
-  assert.match(markup,/demo-reports-presentation/);
+  const reportsView=fs.readFileSync('src/authoritative-reports-view.jsx','utf8');
+  assert.doesNotMatch(reportsView,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,'the Reports presentation extraction must receive authoritative facts as slots');
+  assert.match(markup,/authoritative-reports-presentation/);
   assert.match(workspace,/full-bleed qbo-transaction-report/,'report detail must replace the full workspace rather than append a card');
   assert.match(workspace,/AuthoritativeFullStatementReport/,'each core statement needs an API-backed full-page report rather than only an account evidence view');
   assert.match(workspace,/Open full report/,'the catalog statement preview must expose a dedicated full-page report action');

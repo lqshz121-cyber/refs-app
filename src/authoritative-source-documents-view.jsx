@@ -1,10 +1,10 @@
 import React from 'react';
 
 // Mechanical presentation extraction from module-sourcedocs.jsx.  This owns
-// the demo register hierarchy only; the authoritative workspace supplies all
+// the register hierarchy only; the authoritative workspace supplies all
 // scoped API/OIDC facts as slots.
-export function AuthoritativeDemoSourceDocumentsView({scope,metrics,actions,children}){
-  return <section className="full-bleed authoritative-page authoritative-source-documents-workspace demo-source-documents-presentation" aria-labelledby="source-documents-title">
+export function AuthoritativeSourceDocumentsView({scope,metrics,actions,children}){
+  return <section className="full-bleed authoritative-page authoritative-source-documents-workspace authoritative-source-documents-presentation" aria-labelledby="source-documents-title">
     <div className="accounting-page-head">
       <div>
         <div className="page-eyebrow">SOURCE &amp; STAGING | RETAINED EVIDENCE</div>

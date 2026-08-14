@@ -9,15 +9,15 @@ const authorityShell = read('src/authoritative-navigation-shell.jsx');
 const authorityTopbar = read('src/authoritative-topbar.jsx');
 const authorityOverview = read('src/authoritative-overview.jsx');
 const authorityApAr = read('src/authoritative-ap-ar-view.jsx');
-const authorityView = read('src/authoritative-demo-view.jsx');
+const authorityView = read('src/authoritative-workbench-view.jsx');
 const styles = read('index.html');
 
 const has = (source, value, message) => assert.ok(source.includes(value), message || `missing ${value}`);
 const forbid = (source, pattern, message) => assert.doesNotMatch(source, pattern, message);
 
-// The production root owns state and API/OIDC calls only.  Its visual shell
-// must be supplied by the extracted demo presentation boundaries.
-has(authorityApp, "from './authoritative-navigation-shell.jsx'", 'authoritative root must mount the shared demo-derived navigation shell');
+// The production root owns state and API/OIDC calls only. Its visual shell
+// must be supplied by extracted authoritative presentation boundaries.
+has(authorityApp, "from './authoritative-navigation-shell.jsx'", 'authoritative root must mount the shared authoritative navigation shell');
 has(authorityApp, "from './authoritative-topbar.jsx'", 'authoritative root must mount the authoritative topbar');
 has(authorityApp, '<AuthoritativeNavigationShell', 'authoritative root must use the shared navigation presentation');
 has(authorityApp, '<AuthoritativeTopbar', 'authoritative root must use the shared topbar presentation');
@@ -67,4 +67,4 @@ for (const selector of ['app', 'sidebar', 'nav-rail', 'nav-panel', 'topbar', 'co
   assert.match(styles, new RegExp(`\\.${selector}(?:[\\s,:{>])`), `shared presentation stylesheet must define .${selector}`);
 }
 
-console.log('demo presentation parity: authority root uses the demo-derived shell, dashboard, and AP/AR class hierarchy without demo state');
+console.log('authoritative presentation parity: API/OIDC shell, dashboard, and AP/AR hierarchy contain no local accounting state');

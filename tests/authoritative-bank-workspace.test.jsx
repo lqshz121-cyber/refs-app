@@ -150,7 +150,7 @@ assert.doesNotMatch(source,/[\u4E00-\u9FFF\uFFFD]/,'authoritative Bank/Reconcile
 const css=readFileSync('index.html','utf8');
 assert.match(css,/\.authoritative-bank-scope-strip/,'Bank/Reconcile detail scope must have a dedicated responsive hierarchy');
 assert.match(css,/\.authoritative-evidence-stage/,'Bank/Reconcile must render a text-labelled lifecycle hierarchy rather than infer state from colour');
-assert.match(source,/className="qbo-grid authoritative-bank-demo-grid"/,'Bank queue summary must use the shared demonstration card grid');
+assert.match(source,/className="qbo-grid authoritative-bank-summary-grid"/,'Bank queue summary must use the shared authoritative card grid');
 assert.match(source,/report-workbench recon-summary authoritative-reconciliation-summary/,'Reconciliation summary must use the shared demonstration reconciliation workbench');
 assert.match(readFileSync('src/ui.jsx','utf8'),/blocked: 'empty empty-state state-block state-blocked'/,'The shared state system must represent an authoritative BLOCKED result distinctly from an ordinary empty result');
 assert.match(css,/\.state-blocked\{border-color:var\(--qb-warn-line\)/,'The BLOCKED state must have a visible warning treatment without becoming a disabled action');

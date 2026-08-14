@@ -1,7 +1,7 @@
 import React,{useState} from 'react';
 import {refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,verifyAuthoritativeWbsTransitionContract} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
-import {AuthoritativeDemoView,AuthoritativeDemoWorkspaceHeader} from './authoritative-demo-view.jsx';
+import {AuthoritativeWorkspaceView,AuthoritativeWorkspaceHeader} from './authoritative-workbench-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 import {AuthoritativeWbsPayableWorkspace} from './authoritative-wbs-payable-workspace.jsx';
 import {AuthoritativeWbsPayableReviewWorkspace} from './authoritative-wbs-payable-review-workspace.jsx';
@@ -38,8 +38,8 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
   };
   const data=state.data;
   const review=reviewState.data,control=controlState.data;
-  return <AuthoritativeDemoView area="WBS exception review" className="stack authoritative-wbs-transition-workspace">
-    <AuthoritativeDemoWorkspaceHeader eyebrow="AUTO RECONCILIATION / PRODUCTION WBS" title="WBS Payables and exception review" description="See the real Production WBS rows retained for this company, their readiness, and the owner of the next step." status="LIVE DATA"/>
+  return <AuthoritativeWorkspaceView area="WBS exception review" className="stack authoritative-wbs-transition-workspace">
+    <AuthoritativeWorkspaceHeader eyebrow="AUTO RECONCILIATION / PRODUCTION WBS" title="WBS Payables and exception review" description="See the real Production WBS rows retained for this company, their readiness, and the owner of the next step." status="LIVE DATA"/>
 
     <div className="report-shelf" aria-label="WBS Payable accounting path"><span className="report-shelf-chip report-shelf-chip-on">1 Exception</span><span className="report-shelf-chip">2 Signed redelivery</span><span className="report-shelf-chip">3 Signed review</span><span className="report-shelf-chip">4 Draft</span><span className="report-shelf-chip">5 Approval / Post</span><span className="report-shelf-chip">6 GL / Report</span></div>
 
@@ -107,5 +107,5 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
       <div className="table-wrap" role="region" tabIndex={0} aria-label="Verified WBS transition evidence; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Transition</th><th>Operation</th><th>Observed state path</th><th>Reason</th><th>Required roles</th><th>Accounting guard</th></tr></thead><tbody>{data.transitions.map(row=><tr key={row.transition_id}><td>{row.transition_id}</td><td>{row.operation}</td><td>{row.from_state} -&gt; {row.to_state}</td><td>{row.requires_reason?'Required':'Not admitted'}</td><td>{row.required_actor_roles.join(', ')}</td><td>Reviewed {row.accounting_guard.blocks_when_accounting_reviewed?'blocks':'not supplied'} / Approved {row.accounting_guard.blocks_when_accounting_approved?'blocks':'not supplied'} / Posted {row.accounting_guard.blocks_when_accounting_posted?'blocks':'not supplied'}</td></tr>)}</tbody></table></div>
     </section>}
     </details>
-  </AuthoritativeDemoView>;
+  </AuthoritativeWorkspaceView>;
 }
