@@ -33,6 +33,21 @@ test('live pilot passes server-requested company/date scope to the provider unch
   assert.deepEqual(calls,[{toolName:'list_payables',args:{limit:10,company_code:'WBPA',incurred_date_from:'2026-01-01',incurred_date_to:'2026-12-31',posting_date_from:'2026-01-01',posting_date_to:'2026-12-31'}}]);
 });
 
+test('live pilot maps each provider view to its published company/date fields',async()=>{
+  const calls=[];
+  const make=(tool,selection,providerScope)=>createWbsLivePilotReadService({client:{initialize:async()=>{},listTools:async()=>{},readView:async request=>{calls.push(request);return observed({tool,scope:providerScope,rows:[]});}},authorize:async()=>{}}).readObservation({tenantId:'tenant',entityId:'entity',tool,limit:1,...selection});
+  await make('list_bank_transactions',{company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-12-31'},{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']});
+  await make('list_journal_entries',{company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-12-31'},{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']});
+  await make('list_autorec_details',{date_from:'2026-01-01',date_to:'2026-12-31'},{company_codes:[],date_range:['2026-01-01','2026-12-31']});
+  await make('list_autorec_banks',{company_code:'WBPA'},{company_codes:['WBPA'],date_range:[null,null]});
+  assert.deepEqual(calls.map(call=>call.args),[
+    {limit:1,company_code:'WBPA',set_date_from:'2026-01-01',set_date_to:'2026-12-31'},
+    {limit:1,company:'WBPA',posting_date_from:'2026-01-01',posting_date_to:'2026-12-31'},
+    {limit:1,clear_date_from:'2026-01-01',clear_date_to:'2026-12-31'},
+    {limit:1,company_code:'WBPA'},
+  ]);
+});
+
 test('live pilot rejects a provider response that ignores requested company/date scope',async()=>{
   const client={initialize:async()=>{},listTools:async()=>{},readView:async()=>observed({scope:{company_codes:['OTHER'],date_range:['2026-01-01','2026-12-31']}})};
   const service=createWbsLivePilotReadService({client,authorize:async()=>{}});
