@@ -21,7 +21,7 @@ assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting O
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.match(navMarkup, /API/); assert.match(navMarkup, /Unavailable/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
-assert.match(navMarkup, /No authorised create action is available in this workspace/);
+assert.doesNotMatch(navMarkup, /authoritative-new-disabled|\+ New/);
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
 assert.match(routeWinsMarkup, /<div class="nav-panel-title">Auto Reconciliation<\/div>/,
   'the current route must select its navigation group even when an old expanded group remains');

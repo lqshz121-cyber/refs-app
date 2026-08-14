@@ -42,7 +42,9 @@ assert.match(workspaceMarkup,/READ ONLY/);
 assert.match(workspaceMarkup,/demo-ap-ar-presentation/);
 assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/AP Aging/);
-assert.match(workspaceMarkup,/disabled/);
+assert.match(workspaceMarkup,/AP Aging unavailable/);
+assert.match(workspaceMarkup,/Vendors unavailable/);
+assert.doesNotMatch(workspaceMarkup,/<button[^>]*disabled[^>]*>AP Aging<\/button>/);
 const demoApArSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-demo-ap-ar-view.jsx'),'utf8');
 assert.doesNotMatch(demoApArSource,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,
   'the AP/AR presentation extraction must receive authority facts as slots and never load demo state or API itself');
