@@ -4,6 +4,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const script = resolve('tools/create-release-evidence-bundle.mjs');
+const source = readFileSync(script, 'utf8');
+assert.match(source, /RELEASE_RECEIPT_MAX_BUFFER\s*=\s*64\s*\*\s*1024\s*\*\s*1024/,
+  'executed PostgreSQL receipt output must not be truncated at Node\'s 1 MiB default');
 const result = spawnSync(process.execPath, [script], { encoding: 'utf8' });
 
 assert.equal(result.status, 0, `bundle generator failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);

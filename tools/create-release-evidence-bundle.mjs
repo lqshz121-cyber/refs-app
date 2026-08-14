@@ -7,11 +7,17 @@ const outRoot = resolve('outputs/release-evidence-bundle');
 const strictClean = process.argv.includes('--strict-clean');
 const executeLocal = process.argv.includes('--execute-local');
 const requestedPostgresVersions = [15, 16, 18].filter(version => process.argv.includes(`--execute-pg${version}`));
+// PostgreSQL's TAP output is intentionally retained as a release receipt. The
+// Node default (1 MiB) truncates a healthy full kernel gate and makes
+// spawnSync report ENOBUFS / a false non-zero status. Keep a bounded but ample
+// limit so the receipt stays auditable without accepting unbounded output.
+const RELEASE_RECEIPT_MAX_BUFFER = 64 * 1024 * 1024;
 
 const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, {
     encoding: 'utf8',
     shell: false,
+    maxBuffer: RELEASE_RECEIPT_MAX_BUFFER,
     ...options,
   });
   return {
