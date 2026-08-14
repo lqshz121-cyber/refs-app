@@ -30,7 +30,7 @@ export function AuthoritativeReadFailure({state,onRetry,retryLabel='Retry report
 export function AuthoritativeScopeEmpty({subject='records',requiresPosted=false}){
   const prerequisite=requiresPosted
     ? 'Reports and GL remain empty until a signed source is admitted, reviewed, and posted as a Journal entry.'
-    : 'This does not prove that an upstream source is empty or that the balance is zero.';
+    : 'This does not prove that an upstream source is empty. It is not evidence of a zero balance.';
   return <StateBlock tone="empty" title="SCOPE_EMPTY — no authoritative records returned">
     <p>The authenticated API returned 0 {subject} for the current entity and period scope.</p>
     <p>{prerequisite}</p>
