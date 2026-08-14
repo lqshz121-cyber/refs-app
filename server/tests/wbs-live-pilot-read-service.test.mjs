@@ -30,7 +30,7 @@ test('live pilot passes server-requested company/date scope to the provider unch
   const client={initialize:async()=>{},listTools:async()=>{},readView:async request=>{calls.push(request);return observed({scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']}});}};
   const service=createWbsLivePilotReadService({client,authorize:async()=>{}});
   await service.readObservation({tenantId:'tenant',entityId:'entity',tool:'list_payables',limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-12-31'});
-  assert.deepEqual(calls,[{toolName:'list_payables',args:{limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-12-31'}}]);
+  assert.deepEqual(calls,[{toolName:'list_payables',args:{limit:10,company_code:'WBPA',incurred_date_from:'2026-01-01',incurred_date_to:'2026-12-31',posting_date_from:'2026-01-01',posting_date_to:'2026-12-31'}}]);
 });
 
 test('live pilot rejects a provider response that ignores requested company/date scope',async()=>{

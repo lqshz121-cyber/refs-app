@@ -25,7 +25,13 @@ export function createWbsOperatorAttestedPayableService({client,kernel}={}){
       if(!UUID.test(text(tenantId))||!UUID.test(text(entityId))||!HASH.test(text(expectedObservationHash))||!BARE_HASH.test(text(expectedProviderContentSha256))||!Number.isSafeInteger(limit)||limit<1||limit>10||text(reason).length<8||text(reason).length>2000||(company!==null&&!/^[A-Za-z0-9][A-Za-z0-9_:-]{0,63}$/.test(company))||(hasDates&&(!isoDate(dateFrom)||!isoDate(dateTo)||dateFrom>dateTo)))fail('WBS_OPERATOR_ATTEST_INPUT_INVALID','Exact observation hashes, reason, scope, and limit are required.');
       await kernel.assertWbsOperatorPayableAttest({tenantId,entityId});
       let observed;
-      const providerArgs={limit};if(company!==null)providerArgs.company_code=company;if(hasDates){providerArgs.date_from=dateFrom;providerArgs.date_to=dateTo;}
+      const providerArgs={limit};if(company!==null)providerArgs.company_code=company;if(hasDates){
+        // Match the live-pilot reader's provider contract: one public accounting
+        // range is sent to both payable date dimensions, with no client-side row
+        // filtering or scope inference.
+        providerArgs.incurred_date_from=dateFrom;providerArgs.incurred_date_to=dateTo;
+        providerArgs.posting_date_from=dateFrom;providerArgs.posting_date_to=dateTo;
+      }
       try{await prepare();observed=await client.readView({toolName:'list_payables',args:providerArgs});}catch{fail('WBS_OPERATOR_ATTEST_PROVIDER_UNAVAILABLE','The WBS Payable provider response was unavailable or unsafe.');}
       const publicObservation=buildWbsLivePilotObservation({observed,entityId,tool:'list_payables',requestedScope:{company_code:company,date_from:hasDates?dateFrom:null,date_to:hasDates?dateTo:null}});
       if(publicObservation.observation_hash!==expectedObservationHash||publicObservation.provider_content_sha256!==expectedProviderContentSha256)fail('WBS_OPERATOR_ATTEST_STALE_OBSERVATION','WBS Payable evidence changed; refresh the GET-only observation before attesting.');
