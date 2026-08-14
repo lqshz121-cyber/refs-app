@@ -94,6 +94,18 @@ test('dimension profitability is a bounded POSTED-ledger read and never infers a
   assert.equal((await api({method:'GET',url:base,headers:{},body:{}})).body.code,'READ_BODY_FORBIDDEN');
 });
 
+test('Lot profitability is a distinct POSTED-ledger read and cannot fall back to another dimension',async()=>{
+  const up=await readFile(new URL('../db/migrations/119_lot_profitability_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/119_lot_profitability_read.sql',import.meta.url),'utf8');
+  for(const token of ['refs_get_lot_profitability',"'lot_ref'",'LOT_PROFITABILITY',"'GL.REPORT.VIEW'",'j.status=\'POSTED\'','POSTED_LEDGER_DIMENSION_EXACT','REVOKE ALL','GRANT EXECUTE'])assert.match(up,new RegExp(token));
+  assert.doesNotMatch(up,/INSERT INTO journal_entry|UPDATE journal_entry|DELETE FROM journal_entry|INSERT INTO ledger_line|UPDATE ledger_line|DELETE FROM ledger_line|refs_post_journal/i);
+  assert.match(down,/DROP FUNCTION refs_get_lot_profitability/);
+  const calls=[],kernel=Object.create(PostgresAccountingKernel.prototype);
+  kernel.inSession=async work=>work({query:async(sql,args)=>{calls.push({sql,args});return {rows:[{dimension_type:'LOT'}]};}});
+  assert.deepEqual(await kernel.getDimensionProfitability({tenantId:'tenant',entityId:'entity',periodId:'period',dimensionType:'LOT',dimensionRef:'LOT-01'}),[{dimension_type:'LOT'}]);
+  assert.deepEqual(calls,[{sql:'SELECT * FROM refs_get_lot_profitability($1,$2,$3,$4)',args:['tenant','entity','period','LOT-01']}]);
+});
+
 test('cash flow classification is a read-only exact mapping-snapshot report that blocks rather than infers',async()=>{
   const up=await readFile(new URL('../db/migrations/075_cash_flow_classification_read.sql',import.meta.url),'utf8');
   const down=await readFile(new URL('../db/migrations/down/075_cash_flow_classification_read.sql',import.meta.url),'utf8');
