@@ -30,7 +30,7 @@ test('HTTP WBS control service injects only the immutable control reader and add
   const scoped={...scope,tenant_id:'t1',entity_id:'e1'};
   const metricKeys=Array.from({length:14},(_,index)=>`COST_METRIC_${String(index+1).padStart(2,'0')}`);
   const metrics=metricKeys.map(metric_key=>({metric_key,amount:'1.0000'}));
-  const metricsHash=canonicalRequestHash(metrics.map(({metric_key})=>({metric_key,amount:1})));
+  const metricsHash=canonicalRequestHash(metrics.map(({metric_key})=>({metric_key,amount:'1.0000'})));
   const kernel={
     readPersistedWbsControlSnapshot:async input=>(calls.push(['source',input]),{snapshot_id:'wbs-1',tenant_id:'t1',entity_id:'e1',source_type:'COST_GENERAL_LEDGER',scope:scoped,receipt:{hash:'sha256:'+'a'.repeat(64),metrics_hash:metricsHash,ref:'object://wbs/cost',version:'v1',scope:scoped,signature_verified:true,manifest_hash:'sha256:'+'c'.repeat(64),key_id:'wbs-key',algorithm:'Ed25519'},metrics}),
     readPersistedRefsControlMetricSnapshot:async input=>(calls.push(['target',input]),{snapshot_id:'refs-1',tenant_id:'t1',entity_id:'e1',scope:scoped,receipt:{hash:'sha256:'+'d'.repeat(64),metrics_hash:metricsHash,ref:'refs://ledger/cost',version:'v1',scope:scoped},metrics}),

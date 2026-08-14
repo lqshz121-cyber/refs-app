@@ -5,7 +5,14 @@ import {createPostgresWbsControlReconciliationReader} from '../runtime/wbs-contr
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {readFileSync} from 'node:fs';
 
-const metricHash=rows=>canonicalRequestHash([...rows].map(row=>({metric_key:row.metric_key,amount:Number(Number(row.amount).toFixed(4))})).sort((left,right)=>left.metric_key.localeCompare(right.metric_key)));
+const money4=value=>{
+  const candidate=typeof value==='number'&&Number.isFinite(value)?value.toFixed(4):typeof value==='string'?value.trim():'';
+  const match=/^(-?)(0|[1-9]\d*)(?:\.(\d{1,4}))?$/.exec(candidate);
+  if(!match)throw new Error('fixture amount must be canonicalizable MONEY4');
+  const units=BigInt(`${match[2]}${(match[3]||'').padEnd(4,'0')}`)*(match[1]==='-'?-1n:1n),absolute=units<0n?-units:units;
+  return `${units<0n?'-':''}${absolute/10000n}.${(absolute%10000n).toString().padStart(4,'0')}`;
+};
+const metricHash=rows=>canonicalRequestHash([...rows].map(row=>({metric_key:row.metric_key,amount:money4(row.amount)})).sort((left,right)=>left.metric_key.localeCompare(right.metric_key)));
 const receipt=(id,scope,metrics)=>({hash:'sha256:'+id.repeat(64).slice(0,64),metrics_hash:metricHash(metrics),ref:`object://receipt/${id}`,version:'v1',scope,signature_verified:true,manifest_hash:'sha256:'+`${id}f`.repeat(64).slice(0,64),key_id:'wbs-control-test',algorithm:'Ed25519'});
 const costScope={tenant_id:'tenant-a',entity_id:'entity-a',company_key:'COMPANY-A',period:'2026-08',currency:'USD'};
 const costMetricKeys=Array.from({length:14},(_,index)=>`COST_METRIC_${String(index+1).padStart(2,'0')}`);

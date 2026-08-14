@@ -105,15 +105,20 @@ const bankTransactionRow=(row,account)=>{
   const matchValues=['match_status','business_source_document_id','journal_entry_id','journal_line_id','candidate_rule_code','amount_delta','currency_match','date_delta_days','matched_by','matched_at','match_version'];
   if(matchId===null){if(matchValues.some(field=>row[field]!==null&&row[field]!==undefined))return null;}
   else if(!UUID.test(matchId)||!BANK_MATCH_STATUSES.has(row.match_status)||!UUID.test(row.business_source_document_id||'')||!nullableUuid(row.journal_entry_id)||!nullableUuid(row.journal_line_id)||row.journal_line_id&&!row.journal_entry_id||row.candidate_rule_code!==null&&row.candidate_rule_code!==undefined&&!STATUS_TOKEN.test(row.candidate_rule_code)||!MONEY4.test(String(row.amount_delta??''))||typeof row.currency_match!=='boolean'||row.date_delta_days!==null&&row.date_delta_days!==undefined&&(!Number.isSafeInteger(row.date_delta_days)||row.date_delta_days<0)||!TEXT_TOKEN.test(row.matched_by||'')||!validTimestamp(row.matched_at)||!UNSIGNED_INTEGER.test(String(row.match_version??'')))return null;
-  const version=Number(row.version),matchVersion=matchId===null?null:Number(row.match_version),amount=Number(row.amount),amountDelta=matchId===null?null:Number(row.amount_delta);
-  if(!Number.isSafeInteger(version)||version<0||matchVersion!==null&&(!Number.isSafeInteger(matchVersion)||matchVersion<0)||!Number.isFinite(amount)||amountDelta!==null&&!Number.isFinite(amountDelta))return null;
+  const version=Number(row.version),matchVersion=matchId===null?null:Number(row.match_version);
+  if(!Number.isSafeInteger(version)||version<0||matchVersion!==null&&(!Number.isSafeInteger(matchVersion)||matchVersion<0))return null;
+  // Bank evidence is a fixed-scale accounting fact. Keep the validated text
+  // intact for presentation and command readback; converting it to a browser
+  // Number would silently lose precision for otherwise valid NUMERIC values.
+  const amount=String(row.amount),amountDelta=matchId===null?null:String(row.amount_delta);
   return {bank_source_id:row.bank_source_id,bank_account_ref:row.bank_account_ref,external_bank_line_id:row.external_bank_line_id,transaction_date:row.transaction_date,currency:row.currency,amount,version,source_document_id:row.source_document_id,source_ref:row.source_ref,document_type:row.document_type,bank_match_id:matchId,match_status:row.match_status??null,business_source_document_id:row.business_source_document_id??null,journal_entry_id:row.journal_entry_id??null,journal_line_id:row.journal_line_id??null,candidate_rule_code:row.candidate_rule_code??null,amount_delta:amountDelta,currency_match:row.currency_match??null,date_delta_days:row.date_delta_days??null,matched_by:row.matched_by??null,matched_at:row.matched_at??null,match_version:matchVersion};
 };
 
 const bankMatchCandidateRow=row=>{
   if(!row||!UUID.test(row.payment_occurrence_id||'')||!UNSIGNED_INTEGER.test(String(row.occurrence_version??''))||!['AP_PAYMENT','AR_RECEIPT'].includes(row.occurrence_kind)||!UUID.test(row.business_source_document_id||'')||!validDate(row.accounting_date)||!/^[A-Z]{3}$/.test(row.currency||'')||!MONEY4.test(String(row.amount??''))||!UUID.test(row.journal_entry_id||'')||!UUID.test(row.journal_line_id||'')||!UUID.test(row.ledger_line_id||'')||!Number.isSafeInteger(row.date_delta_days)||row.date_delta_days<-31||row.date_delta_days>31)return null;
-  const occurrenceVersion=Number(row.occurrence_version),amount=Number(row.amount);
-  if(!Number.isSafeInteger(occurrenceVersion)||occurrenceVersion<0||!Number.isFinite(amount))return null;
+  const occurrenceVersion=Number(row.occurrence_version);
+  if(!Number.isSafeInteger(occurrenceVersion)||occurrenceVersion<0)return null;
+  const amount=String(row.amount);
   return {payment_occurrence_id:row.payment_occurrence_id,occurrence_version:occurrenceVersion,occurrence_kind:row.occurrence_kind,business_source_document_id:row.business_source_document_id,accounting_date:row.accounting_date,currency:row.currency,amount,amount_text:String(row.amount),journal_entry_id:row.journal_entry_id,journal_line_id:row.journal_line_id,ledger_line_id:row.ledger_line_id,date_delta_days:row.date_delta_days};
 };
 
@@ -123,7 +128,7 @@ const reconciliationRow=(row,account,statementEndingDate)=>{
   if((reconciledBy===null)!==(reconciledAt===null)||(reopenedBy===null)!==(reopenedAt===null)||reconciledBy!==null&&!TEXT_TOKEN.test(reconciledBy)||reconciledAt!==null&&!validTimestamp(reconciledAt)||reopenedBy!==null&&!TEXT_TOKEN.test(reopenedBy)||reopenedAt!==null&&!validTimestamp(reopenedAt)||row.status==='RECONCILED'&&(reconciledBy===null||row.difference!=='0.0000')||row.status==='REOPENED'&&reopenedBy===null)return null;
   const version=Number(row.version),bankTransactionCount=Number(row.bank_transaction_count),activeMatchCount=Number(row.active_match_count),unmatchedTransactionCount=Number(row.unmatched_transaction_count);
   if(![version,bankTransactionCount,activeMatchCount,unmatchedTransactionCount].every(value=>Number.isSafeInteger(value)&&value>=0)||activeMatchCount+unmatchedTransactionCount!==bankTransactionCount)return null;
-  return {reconciliation_id:row.reconciliation_id,bank_account_ref:row.bank_account_ref,statement_ending_date:row.statement_ending_date,statement_ending_balance:Number(row.statement_ending_balance),difference:Number(row.difference),status:row.status,version,reconciled_by:reconciledBy,reconciled_at:reconciledAt,reopened_by:reopenedBy,reopened_at:reopenedAt,bank_transaction_count:bankTransactionCount,active_match_count:activeMatchCount,unmatched_transaction_count:unmatchedTransactionCount,statement_activity_amount:Number(row.statement_activity_amount)};
+  return {reconciliation_id:row.reconciliation_id,bank_account_ref:row.bank_account_ref,statement_ending_date:row.statement_ending_date,statement_ending_balance:String(row.statement_ending_balance),difference:String(row.difference),status:row.status,version,reconciled_by:reconciledBy,reconciled_at:reconciledAt,reopened_by:reopenedBy,reopened_at:reopenedAt,bank_transaction_count:bankTransactionCount,active_match_count:activeMatchCount,unmatched_transaction_count:unmatchedTransactionCount,statement_activity_amount:String(row.statement_activity_amount)};
 };
 
 const admittedStatementRow=(row,{account=null,receiptId=null}={})=>{
@@ -274,8 +279,9 @@ const bankCommandResult=async({config,path,revision,idempotencyKey,body,fetcher,
 
 const reconciliationWorksheetRow=(row,reconciliationId)=>{
   if(!row||row.reconciliation_id!==reconciliationId||!UNSIGNED_INTEGER.test(String(row.reconciliation_version??''))||!UUID.test(row.bank_source_id||'')||!UNSIGNED_INTEGER.test(String(row.bank_version??''))||!BANK_ACCOUNT_REF.test(row.bank_account_ref||'')||!TEXT_TOKEN.test(row.external_bank_line_id||'')||!validDate(row.transaction_date)||!/^[A-Z]{3}$/.test(row.currency||'')||!MONEY4.test(String(row.amount??''))||!['NOT_CLEARED','CLEARED','UNCLEARED'].includes(row.clearance_state))return null;
-  const reconciliationVersion=Number(row.reconciliation_version),bankVersion=Number(row.bank_version),amount=Number(row.amount),matchId=row.bank_match_id??null,itemId=row.reconciliation_item_id??null;
-  if(![reconciliationVersion,bankVersion].every(value=>Number.isSafeInteger(value)&&value>=0)||!Number.isFinite(amount)||matchId!==null&&!UUID.test(matchId)||itemId!==null&&!UUID.test(itemId))return null;
+  const reconciliationVersion=Number(row.reconciliation_version),bankVersion=Number(row.bank_version),matchId=row.bank_match_id??null,itemId=row.reconciliation_item_id??null;
+  if(![reconciliationVersion,bankVersion].every(value=>Number.isSafeInteger(value)&&value>=0)||matchId!==null&&!UUID.test(matchId)||itemId!==null&&!UUID.test(itemId))return null;
+  const amount=String(row.amount);
   if(matchId===null&&['bank_match_version','match_status','business_source_document_id','journal_entry_id','journal_line_id'].some(field=>row[field]!==null&&row[field]!==undefined))return null;
   if(matchId!==null&&(!UNSIGNED_INTEGER.test(String(row.bank_match_version??''))||row.match_status!=='ACTIVE'||!UUID.test(row.business_source_document_id||'')||!UUID.test(row.journal_entry_id||'')||!UUID.test(row.journal_line_id||'')))return null;
   if(row.clearance_state==='NOT_CLEARED'&&itemId!==null)return null;
