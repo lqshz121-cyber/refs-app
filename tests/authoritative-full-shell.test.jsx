@@ -19,7 +19,8 @@ const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navig
 const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroup="General Ledger" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
-assert.match(navMarkup, /API/); assert.match(navMarkup, /Unavailable/);
+assert.match(navMarkup, /Bank transaction matching/); assert.match(navMarkup, /aria-label="Auto Reconciliation"/);
+assert.doesNotMatch(navMarkup, />API</); assert.doesNotMatch(navMarkup, />Unavailable</);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.doesNotMatch(navMarkup, /authoritative-new-disabled|\+ New/);
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
@@ -58,9 +59,13 @@ const workspaceViewSource = fs.readFileSync('src/authoritative-workbench-view.js
 assert.doesNotMatch(workspaceViewSource, /seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js/,
   'the reusable authoritative presentation frame must not import or persist local accounting state');
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
-assert.match(unavailableMarkup, /Source Documents is not available/);
-assert.match(unavailableMarkup, /No browser-stored or substitute data is shown/);
-assert.match(unavailableMarkup, /Required authoritative read contract/);
+assert.match(unavailableMarkup, /Entity-scoped source-document list and immutable detail endpoints\./);
+assert.match(unavailableMarkup, /Separate authorised attachment-read contract\./);
+assert.match(unavailableMarkup, /Who completes this:/);
+assert.match(unavailableMarkup, /Next step:/);
+assert.match(unavailableMarkup, /Source Documents is being prepared/);
+assert.match(unavailableMarkup, /No financial activity is shown until setup is complete/);
+assert.match(unavailableMarkup, /What needs to be in place/);
 assert.match(unavailableMarkup, /attachment-read contract/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
