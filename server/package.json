@@ -21,6 +21,7 @@
     "test:wbs-payable-attachment-binding": "node --test tests/wbs-payable-exact-attachment-binding-contract.test.mjs",
     "test:wbs-payable-row-bound-attachment": "node --test tests/wbs-payable-row-bound-attachment-contract.test.mjs",
     "test:ai-wbs-exception-findings": "node --test tests/ai-wbs-exception-finding-contract.test.mjs",
+    "test:ai-wbs-payable-draft-proposal": "node --test tests/ai-wbs-payable-draft-proposal-contract.test.mjs",
     "test:ai-wbs-exception-findings-http": "node --test tests/ai-wbs-exception-finding-http-contract.test.mjs",
     "test:controlled-demo-tenant": "node --test tests/controlled-demo-tenant-contract.test.mjs",
     "test:controlled-demo-bootstrap": "node --test tests/controlled-demo-bootstrap.test.mjs",
