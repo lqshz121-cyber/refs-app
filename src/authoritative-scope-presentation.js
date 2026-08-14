@@ -27,11 +27,11 @@ export function authoritativeScopePresentation(config,coaRows=[],scopeMetadata=n
     entityLabel:entityName||'Configured entity',
     entityDetail:UUID.test(config?.entityId||'')?config.entityId:'Identifier unavailable',
     entityNameReturned,
-    entityHint:entityNameReturned?'':'The authenticated API did not return an entity display name.',
+    entityHint:entityNameReturned?'':'Company name pending confirmation.',
     periodLabel:metadataPeriodMatches&&/^\d{4}-(0[1-9]|1[0-2])$/.test(scopeMetadata?.period_code||'')?scopeMetadata.period_code:(period?.period_code||'Configured period'),
     periodDetail:metadataPeriodMatches?`${formatAuthoritativeDate(scopeMetadata.period_start)} - ${formatAuthoritativeDate(scopeMetadata.period_end)}`:(period?`${formatAuthoritativeDate(period.period_start)} - ${formatAuthoritativeDate(period.period_end)}`:(UUID.test(config?.periodId||'')?config.periodId:'Identifier unavailable')),
     periodReturned:metadataPeriodMatches||periodReturned,
-    periodHint:periodReturned?'':'The authenticated API did not return a period code or date range.',
+    periodHint:periodReturned?'':'Reporting-period details pending confirmation.',
     cashAccountLabel:cash?`${cash.account_code} - ${cash.account_name}`:(config?.cashAccountCode?`${config.cashAccountCode} - Name unavailable`:'Not configured'),
   };
 }

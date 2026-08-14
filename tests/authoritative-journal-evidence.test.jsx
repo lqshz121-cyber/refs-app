@@ -14,7 +14,7 @@ const readableScope=authoritativeScopePresentation(
 );
 assert.equal(readableScope.entityLabel,'Configured entity');
 assert.equal(readableScope.entityNameReturned,false);
-assert.equal(readableScope.entityHint,'The authenticated API did not return an entity display name.');
+assert.equal(readableScope.entityHint,'Company name pending confirmation.');
 assert.equal(readableScope.periodLabel,'2026-08');
 assert.equal(readableScope.periodDetail,'Aug 1, 2026 - Aug 31, 2026');
 assert.equal(readableScope.cashAccountLabel,'111000 - Operating cash');
