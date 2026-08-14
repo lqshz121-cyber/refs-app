@@ -23,6 +23,8 @@ test('down safety uses the actual connected database rather than the runtime URL
   finally{if(prior===undefined)delete process.env.MIGRATION_DATABASE_URL;else process.env.MIGRATION_DATABASE_URL=prior;}
   assert.ok(pool.queries.some(query=>query.includes('pg_advisory_lock')));
   assert.ok(pool.queries.some(query=>query.includes('pg_advisory_unlock')));
+  assert.ok(pool.queries.some(query=>query==='SET lock_timeout = 0'));
+  assert.ok(pool.queries.some(query=>query==='RESET lock_timeout'));
   assert.ok(!pool.queries.some(query=>/\b(DROP|ALTER|DELETE|CREATE)\b/i.test(query)));
 });
 
