@@ -15,6 +15,10 @@ const passwords={
   issuer:'refs_issuer_test_P6m4s8V2q7Jc',
   grantSync:'refs_grant_sync_test_R9k5d3W8y2Fn'
 };
+const cliArgs=process.argv.slice(2);
+const patternIndex=cliArgs.indexOf('--pattern');
+if(cliArgs.length!==0&&(patternIndex!==0||cliArgs.length!==2||!cliArgs[1]))throw new Error('Usage: node runtime/test-postgres-fresh.mjs [--pattern <test name>]');
+const postgresTestNamePattern=cliArgs[1]||process.env.PG_TEST_NAME_PATTERN||null;
 
 if(!/^refs_kernel_gate_[a-z0-9_-]+$/.test(project))throw new Error('Unsafe compose project name');
 if(!database.endsWith('_test'))throw new Error('Fresh PostgreSQL gate requires a *_test database');
@@ -32,7 +36,7 @@ function freePort(){
 
 function run(command,args,env){
   return new Promise((resolveRun,reject)=>{
-    const child=spawn(command,args,{cwd:serverRoot,env,stdio:'inherit',shell:process.platform==='win32'});
+    const child=spawn(command,args,{cwd:serverRoot,env,stdio:'inherit',shell:process.platform==='win32'&&command==='docker'});
     child.once('error',reject);
     child.once('exit',(code,signal)=>code===0?resolveRun():reject(new Error(`${command} exited ${code??signal}`)));
   });
@@ -59,13 +63,16 @@ const testEnv={...composeEnv,
   CONTEXT_ISSUER_DATABASE_URL:`postgresql://refs_context_issuer:${passwords.issuer}@127.0.0.1:${port}/${database}`,
   GRANT_SYNC_DATABASE_URL:`postgresql://refs_grant_sync:${passwords.grantSync}@127.0.0.1:${port}/${database}`
 };
+const postgresTestArgs=['--test'];
+if(postgresTestNamePattern)postgresTestArgs.push('--test-name-pattern',postgresTestNamePattern);
+postgresTestArgs.push('tests/postgres-kernel.test.mjs');
 
 console.log(`Fresh PostgreSQL gate project=${project} database=${database} port=${port} image=${composeEnv.POSTGRES_IMAGE||'postgres:16-alpine'}`);
 try{
   await run('docker',['compose','-p',project,'-f','compose.yaml','up','-d','--wait'],composeEnv);
   const readiness=await waitForPostgresReadiness({probe:()=>probePostgres(testEnv.MIGRATION_DATABASE_URL)});
   console.log(`Fresh PostgreSQL gate ready after ${readiness.attempts} probe(s) in ${readiness.elapsedMs}ms`);
-  await run(process.platform==='win32'?'npm.cmd':'npm',['run','test:postgres'],testEnv);
+  await run(process.execPath,postgresTestArgs,testEnv);
 }finally{
   await run('docker',['compose','-p',project,'-f','compose.yaml','down','-v','--remove-orphans'],composeEnv).catch(error=>{
     console.error(`Fresh gate cleanup failed for owned project ${project}: ${error.message}`);

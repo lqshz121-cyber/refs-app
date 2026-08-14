@@ -18,5 +18,8 @@ test('fresh PostgreSQL gate owns a unique test-only compose project and cleanup 
 test('fresh PostgreSQL gate requires all isolated runtime identities and the required PG suite',()=>{
   assert.match(source,/REFS_PG_REQUIRED:'1'/);
   for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL'])assert.match(source,new RegExp(`${key}:`));
-  assert.match(source,/\['run','test:postgres'\]/);
+  assert.match(source,/--test-name-pattern/);
+  assert.match(source,/postgresTestArgs\.push\('tests\/postgres-kernel\.test\.mjs'\)/);
+  assert.match(source,/process\.execPath,postgresTestArgs/);
+  assert.match(source,/shell:process\.platform==='win32'&&command==='docker'/);
 });
