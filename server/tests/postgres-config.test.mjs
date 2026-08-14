@@ -8,6 +8,13 @@ test('local discovery has an explicit test-only default',()=>{
   assert.match(config.migrationDatabaseUrl,/refs_migrator/);
   assert.match(config.contextIssuerDatabaseUrl,/refs_context_issuer/);
   assert.equal(config.requirePostgres,false);
+  assert.equal(config.controlledDemoEnabled,false);
+});
+
+test('controlled DEMO runtime mode is disabled unless explicitly enabled',()=>{
+  assert.equal(runtimeConfig({}).controlledDemoEnabled,false);
+  assert.equal(runtimeConfig({REFS_CONTROLLED_DEMO_MODE:'ENABLED'}).controlledDemoEnabled,true);
+  for(const value of ['1','true','AUTO',''])assert.throws(()=>runtimeConfig({REFS_CONTROLLED_DEMO_MODE:value}),/REFS_CONTROLLED_DEMO_MODE must be ENABLED or DISABLED/);
 });
 
 test('production and required modes require an explicit database URL',()=>{

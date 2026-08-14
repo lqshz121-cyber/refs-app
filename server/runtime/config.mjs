@@ -11,6 +11,12 @@ function positiveInteger(env,name,fallback,{min=1,max=600000}={}){
   return value;
 }
 
+function disabledByDefaultFeature(env,name){
+  const value=String(env[name]??'DISABLED').trim().toUpperCase();
+  if(!['DISABLED','ENABLED'].includes(value))throw new Error(`${name} must be ENABLED or DISABLED`);
+  return value==='ENABLED';
+}
+
 function validatedUrl(raw,{strict}){
   let url;
   try{url=new URL(raw);}catch{throw new Error('DATABASE_URL must be a valid PostgreSQL URL');}
@@ -47,6 +53,7 @@ export function runtimeConfig(env=process.env){
     contextIssuerDatabaseUrl,
     grantSyncDatabaseUrl,
     requirePostgres:strict,
+    controlledDemoEnabled:disabledByDefaultFeature(env,'REFS_CONTROLLED_DEMO_MODE'),
     allowDown:env.REFS_ALLOW_DB_DOWN==='1',
     statementTimeoutMs:positiveInteger(env,'REFS_PG_STATEMENT_TIMEOUT_MS',10000,{min:100,max:600000}),
     lockTimeoutMs:positiveInteger(env,'REFS_PG_LOCK_TIMEOUT_MS',5000,{min:100,max:60000})

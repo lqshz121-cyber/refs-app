@@ -4,6 +4,8 @@ import {fileURLToPath} from 'node:url';
 import {dirname,resolve} from 'node:path';
 import {MIGRATION_MANIFEST} from './migration-manifest.mjs';
 import {postgresDataVolumeTarget} from './postgres-container.mjs';
+import {createPool} from './db.mjs';
+import {waitForPostgresReadiness} from './postgres-readiness.mjs';
 
 const serverRoot=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const project=`refs_backup_drill_${process.pid}_${Date.now().toString(36)}`.toLowerCase();
@@ -15,6 +17,11 @@ if(!/^refs_backup_drill_[a-z0-9_-]+$/.test(project))throw new Error('Unsafe back
 if(!database.endsWith('_test')||!restoredDatabase.endsWith('_test'))throw new Error('Backup drill requires *-test databases');
 function freePort(){return new Promise((resolvePort,reject)=>{const server=createServer();server.once('error',reject);server.listen(0,'127.0.0.1',()=>{const {port}=server.address();server.close(error=>error?reject(error):resolvePort(port));});});}
 function run(command,args,env){return new Promise((resolveRun,reject)=>{const child=spawn(command,args,{cwd:serverRoot,env,stdio:'inherit'});child.once('error',reject);child.once('exit',(code,signal)=>code===0?resolveRun():reject(new Error(`${command} exited ${code??signal}`)));});}
+async function probePostgres(databaseUrl){
+  const pool=await createPool({databaseUrl,applicationName:'refs-backup-restore-readiness',max:1});
+  try{await pool.query('SELECT 1');}
+  finally{await pool.end();}
+}
 
 const port=await freePort();
 const composeEnv={...process.env,POSTGRES_DB:database,POSTGRES_USER:'refs_migrator',POSTGRES_PASSWORD:password,POSTGRES_PORT:String(port)};
@@ -26,6 +33,8 @@ const shell=['set -eu',"pg_dump -U \"$POSTGRES_USER\" -Fc \"$POSTGRES_DB\" -f /t
 console.log(`Backup restore drill project=${project} source=${database} restored=${restoredDatabase} port=${port} image=${composeEnv.POSTGRES_IMAGE||'postgres:16-alpine'}`);
 try{
   await run('docker',['compose','-p',project,'-f','compose.yaml','up','-d','--wait'],composeEnv);
+  const readiness=await waitForPostgresReadiness({probe:()=>probePostgres(migrationUrl)});
+  console.log(`Backup restore drill ready after ${readiness.attempts} probe(s) in ${readiness.elapsedMs}ms`);
   await run(process.execPath,['runtime/migrate.mjs','up'],migrationEnv);
   await run('docker',['compose','-p',project,'-f','compose.yaml','exec','-T','postgres','psql','-v','ON_ERROR_STOP=1','-U','refs_migrator','-d',database,'-c',"INSERT INTO tenant(tenant_code,name) VALUES('BKDRILL','Backup Restore Drill')"],composeEnv);
   await run('docker',['compose','-p',project,'-f','compose.yaml','exec','-T','postgres','sh','-ceu',shell],composeEnv);
