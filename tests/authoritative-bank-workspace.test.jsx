@@ -29,7 +29,7 @@ assert.match(bankTable,/BANK-LINE-1/);assert.match(bankTable,/SOURCE-1/);assert.
 assert.match(bankTable,/SOURCE → MATCH → JOURNAL/);assert.match(bankTable,/Queue status never implies reconciliation/);assert.match(bankTable,/Direction/);assert.match(bankTable,/OUTFLOW/);assert.match(bankTable,/v3/);
 assert.match(bankTable,/Bank queue read summary/);assert.match(bankTable,/Returned sources/);assert.match(bankTable,/Active Matches/);assert.match(bankTable,/Unmatched sources/);assert.match(bankTable,/Journal references/);assert.doesNotMatch(bankTable,/Create reviewed Match|Unmatch evidence/);
 assert.equal((bankTable.match(/class="qbo-card"/g)||[]).length,4,'Bank summary must use the shared demonstration card presentation');
-const emptyBank=renderToStaticMarkup(<AuthoritativeBankTable rows={[]}/>);assert.match(emptyBank,/SCOPE_EMPTY/);assert.match(emptyBank,/0 bank transactions/);assert.match(emptyBank,/does not prove that an upstream source is empty/);assert.doesNotMatch(emptyBank,/<table/);
+const emptyBank=renderToStaticMarkup(<AuthoritativeBankTable rows={[]} readAt="2026-08-14T10:00:00.000Z"/>);assert.match(emptyBank,/SCOPE_EMPTY/);assert.match(emptyBank,/0 bank transactions/);assert.match(emptyBank,/not TRUE_EMPTY/);assert.match(emptyBank,/API records returned: 0/);assert.match(emptyBank,/Source freshness: not supplied by this endpoint/);assert.doesNotMatch(emptyBank,/<table/);
 
 const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(bankDetail,/Back to bank transactions/);assert.match(bankDetail,/Bank transaction detail/);assert.match(bankDetail,/-\$125\.25/);assert.match(bankDetail,/2026-07-01/);assert.match(bankDetail,/2026-07-31/);
@@ -132,6 +132,12 @@ assert.match(source,/hasAuthorizedWorksheetEvidence/,'Controller controls must b
 assert.match(source,/Reconciliation controls blocked/,'An empty authoritative worksheet must explicitly block controller actions');
 assert.match(source,/hasAuthorizedWorksheetEvidence&&<section className="card" aria-label="Reconciliation lifecycle command"/,'Review, sign-off, and reopen controls must not render without authorized worksheet evidence');
 assert.doesNotMatch(source,/legacy-demo-app|module-banktx|module-bankrec/,'authoritative Bank/Reconcile hierarchy must not import legacy demo UI modules');
+assert.match(source,/NO_PERMISSION — authoritative read denied/,'Bank/Reconcile must distinguish an authorization failure from an empty response');
+assert.match(source,/SCOPE_EMPTY — configured scope unavailable/,'Bank/Reconcile must distinguish an unavailable scope from a zero balance');
+assert.match(source,/API_ERROR — authoritative read failed/,'Bank/Reconcile must distinguish a service failure from an empty response');
+assert.match(source,/INGESTION_BLOCKED — no signed admitted statements returned/,'Missing signed bank admission must be explicit rather than a generic zero');
+assert.match(source,/Source freshness: not supplied by this endpoint/,'The UI must not invent source freshness when the API returns none');
+assert.match(source,/Last authoritative API read/,'Bank/Reconcile must expose the latest successful API read time');
 // Keep the authoritative Bank/Reconcile surface English-readable. These are
 // deliberate punctuation characters, not mojibake; the source must never gain
 // a replacement glyph or CJK/mis-decoded text in a visible label.
