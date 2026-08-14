@@ -1041,6 +1041,11 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-list-filters label{align-items:stretch;flex-direction:column;gap:5px;color:var(--qb-text-muted);font-size:12px;font-weight:600;}
 .authoritative-list-filters .btn{align-self:end;}
 .authoritative-list-filters .result-count{grid-column:1/-1;margin:0;padding-top:2px;color:var(--qb-text-muted);font-size:12px;}
+/* The 236px accounting navigation panel leaves a narrower working canvas at
+   900px/high zoom. Collapse filters before a vendor/customer select can push
+   past the page edge; tables keep their own contained scroll region. */
+@media (max-width:1200px){.authoritative-list-filters{grid-template-columns:repeat(2,minmax(0,1fr));}.authoritative-list-filters label:first-child{grid-column:1/-1;}.authoritative-list-filters input,.authoritative-list-filters select{width:100%;min-width:0;}}
+@media (max-width:960px){.authoritative-list-filters{grid-template-columns:minmax(0,1fr);}.authoritative-list-filters .btn{width:100%;}.authoritative-list-filters label:first-child{grid-column:auto;}}
 .authoritative-applied-scope{margin:14px 0 0;padding:10px 12px;border-left:3px solid var(--qb-accent);border-radius:0 var(--qb-r-control) var(--qb-r-control) 0;background:var(--qb-inset);line-height:1.5;}
 .authoritative-row-status{max-width:150px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;}
 /* AP/AR evidence is deliberately table-first. Keep every retained field
