@@ -735,6 +735,18 @@ export async function refreshAuthoritativeChartOfAccounts({config,fetcher=global
   return {ok:true,rows,scope:{entityId:config.entityId,periodId:config.periodId}};
 }
 
+export async function refreshAuthoritativeScope({config,fetcher=globalThis.fetch}={}){
+  if(!config||!UUID.test(config.entityId||'')||!UUID.test(config.periodId||''))return notConfigured();
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/scope?${new URLSearchParams({periodId:config.periodId})}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'AUTHORITATIVE_SCOPE');
+    const body=await response.json(),row=body?.data;
+    if(body?.ok!==true||!row||row.entity_id!==config.entityId||row.period_id!==config.periodId||typeof row.entity_name!=='string'||!row.entity_name.trim()||typeof row.entity_code!=='string'||!row.entity_code.trim()||!/^[A-Z]{3}$/.test(row.base_currency||'')||!exactMonthlyPeriod(row)||!['OPEN','CLOSED','LOCKED'].includes(row.period_status))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid authoritative scope.'};
+    return {ok:true,row:{...row,entity_name:row.entity_name.trim(),entity_code:row.entity_code.trim()}};
+  }catch{return unreachable('The browser could not complete the authoritative scope read; no HTTP response was produced.');}
+}
+
 export async function refreshAuthoritativeAccountRegister({config,accountCode:requestedAccountCode,fetcher=globalThis.fetch}={}){
   const code=accountCode(requestedAccountCode);if(!config||!code)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Account register requires one authoritative entity, period, and account code.'};
   const result=await readAuthoritativeRows({config,path:`/general-ledger/account-register?${new URLSearchParams({periodId:config.periodId,accountCode:code})}`,operation:'ACCOUNT_REGISTER',fetcher});
