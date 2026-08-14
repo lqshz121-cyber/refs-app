@@ -4,12 +4,12 @@ import {AuthoritativeWorkspaceView,AuthoritativeWorkspaceHeader} from './authori
 export function AuthoritativeUnavailableWorkspace({ item, config }) {
   const requirements = Array.isArray(item?.requirements) ? item.requirements : [];
   const label = item?.label || 'Workspace';
-  return <AuthoritativeWorkspaceView area={`${label} unavailable workspace`} className="stack authoritative-unavailable-workspace">
-    <AuthoritativeWorkspaceHeader eyebrow="AUTHORITATIVE WORKSPACE CATALOG" title={`${label} is not available in the authoritative API`} description="This product area remains visible so its scope is clear, but no signed-in read model has been configured for it." status="API UNAVAILABLE"/>
+  return <AuthoritativeWorkspaceView area={`${label} setup workspace`} className="stack authoritative-unavailable-workspace">
+    <AuthoritativeWorkspaceHeader eyebrow="WORKSPACE SETUP" title={`${label} is being prepared`} description="This workspace will become available when the required company connection and access are ready." status="SETUP REQUIRED"/>
     <section className="report-workbench" role="status">
-      <div className="report-workbench-head"><div><b>No browser-stored or substitute data is shown</b><div className="page-subtitle">REFS will not substitute seed data, local storage, or an inferred accounting balance for this workspace. It cannot offer create, approve, pay, match, post, export, or synchronization controls until an authoritative API contract exists.</div></div><span className="badge badge-warning">BLOCKED</span></div>
-      <div className="qbo-toolgrid"><span><i>Entity scope</i><b>{config?.entityId || 'Not configured'}</b></span><span><i>Period scope</i><b>{config?.periodId || 'Not configured'}</b></span><span><i>Requested workspace</i><b>{label}</b></span></div>
-      {requirements.length > 0 && <section aria-labelledby="authoritative-unavailable-requirements-title"><h2 id="authoritative-unavailable-requirements-title" className="qb-sec">Required authoritative read contract</h2><ul className="muted sm">{requirements.map(requirement => <li key={requirement}>{requirement}</li>)}</ul></section>}
+      <div className="report-workbench-head"><div><b>No financial activity is shown until setup is complete</b><div className="page-subtitle">To protect your books, this area does not show sample balances or enable accounting actions before the company connection and access are ready.</div></div><span className="badge badge-warning">SETUP NEEDED</span></div>
+      <div className="qbo-toolgrid"><span title={config?.entityId || undefined}><i>Company</i><b>Configured company</b></span><span title={config?.periodId || undefined}><i>Reporting period</i><b>Configured period</b></span><span><i>Workspace</i><b>{label}</b></span></div>
+      {requirements.length > 0 && <section aria-labelledby="authoritative-unavailable-requirements-title"><h2 id="authoritative-unavailable-requirements-title" className="qb-sec">What happens next</h2><p className="muted sm">Your finance administrator will connect the required financial data and confirm access. This workspace will then show the same verified information available to your team.</p></section>}
     </section>
   </AuthoritativeWorkspaceView>;
 }

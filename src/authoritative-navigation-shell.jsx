@@ -5,16 +5,6 @@ function railLabel(label) {
   return label.split(/\s+/)[0] || label;
 }
 
-function compactLabel(label) {
-  return label
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(word => word[0])
-    .join('')
-    .slice(0, 3)
-    .toUpperCase();
-}
-
 // These are deliberately a presentation map, copied from the complete REFS
 // shell's icon vocabulary.  They do not decide route availability or carry
 // any accounting state: `navigation` remains the authoritative API catalog.
@@ -22,6 +12,7 @@ const GROUP_ICONS = Object.freeze([
   'gauge', 'gear', 'document', 'cycle', 'document', 'book',
   'layers', 'calendar', 'wallet', 'bars', 'shield',
 ]);
+const ITEM_ICONS = Object.freeze(['document','cycle','book','layers','wallet','bank','check','bars']);
 
 export function AuthoritativeNavigationShell({ navigation, route, expandedGroup, onSelectGroup, onSelectItem, navOpen, navDrawerRef, drawerAttributes, onClose }) {
   const activeGroup = navigation.find(group => group.items.some(item => item.route === route))
@@ -53,11 +44,10 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroup,
         <div className={`nav-panel-group nav-tone-${activeGroupIndex % 6}`}>
           <div className="nav-panel-title">{activeGroup.label}</div>
           <div className="nav-group-items" id={`authoritative-navigation-group-${activeGroupIndex}`}>
-          {activeGroup.items.map(item => <button type="button" key={item.route} aria-current={route === item.route ? 'page' : undefined}
+          {activeGroup.items.map((item,itemIndex) => <button type="button" key={item.route} aria-current={route === item.route ? 'page' : undefined}
             className={`nav-item nav-sub ${route === item.route ? 'nav-on' : ''}`} onClick={() => onSelectItem(item.route)}>
-            <span className="nav-badge" aria-hidden="true">{compactLabel(item.label)}</span>
+            <span className="nav-badge" aria-hidden="true"><Icon name={ITEM_ICONS[itemIndex % ITEM_ICONS.length]} size={18}/></span>
             <span className="nav-item-label">{item.label}</span>
-            <span className={`authoritative-nav-status authoritative-nav-status-${item.availability === 'API_READ' ? 'ready' : 'blocked'}`}>{item.availability === 'API_READ' ? 'API' : 'Unavailable'}</span>
             <span className="nav-chev" aria-hidden="true">›</span>
           </button>)}
           </div>
