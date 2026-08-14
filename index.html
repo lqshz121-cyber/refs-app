@@ -338,10 +338,18 @@ input,select,textarea{
 .authoritative-app .authoritative-sidebar .nav-panel{display:flex; flex:1 1 auto; min-width:0;}
 .authoritative-app .authoritative-sidebar .nav-panel nav{width:100%;}
 .authoritative-app .authoritative-sidebar .nav-panel .nav-group-items{display:block; width:100%; padding:0 0 4px;}
-.authoritative-app .authoritative-sidebar .nav-panel .nav-item{width:100%; min-height:var(--qb-navrow-h); margin:0; padding:0 14px;}
-.authoritative-app .authoritative-sidebar .nav-panel .nav-item-label{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.35;}
-.authoritative-app .authoritative-sidebar .nav-panel .authoritative-nav-status{margin-left:auto;}
-.authoritative-app .authoritative-sidebar .nav-panel .nav-chev{display:block;}
+.authoritative-app .authoritative-sidebar .nav-panel .nav-item{
+  display:grid; grid-template-columns:28px minmax(0,1fr); column-gap:12px; row-gap:3px;
+  width:100%; min-height:var(--qb-navrow-h); margin:0; padding:8px 14px;
+}
+/* Keep each workspace name fully readable at the fixed 236px panel width.
+   Availability is explained inside the workspace, not repeated in this rail. */
+.authoritative-app .authoritative-sidebar .nav-panel .nav-badge{grid-column:1; grid-row:1; align-self:center;}
+.authoritative-app .authoritative-sidebar .nav-panel .nav-item-label{
+  grid-column:2; grid-row:1; min-width:0; white-space:normal; overflow:visible;
+  overflow-wrap:anywhere; text-overflow:clip; line-height:1.3;
+}
+.authoritative-app .authoritative-sidebar .nav-panel .nav-chev{display:none;}
 .authoritative-new-disabled{opacity:.6; cursor:not-allowed;}
 /* Exact presentation structure from the complete REFS shell: scope control,
    period chip, actions and user chip stay in one topbar.  Move navigation off
@@ -523,21 +531,20 @@ input,select,textarea{
 }
 .nav-item:hover{background:var(--qb-canvas);}
 .nav-item:focus-visible{outline:2px solid var(--qb-accent); outline-offset:-2px;}
-/* Coloured letter badges distinguish related workspace pages while retaining
-   the rail's line icons for primary navigation. */
-.nav-badge{display:grid;place-items:center;flex:0 0 auto;width:28px;height:28px;border:1px solid transparent;border-radius:8px;font:700 11px/1 var(--qb-sans);letter-spacing:.02em;background:var(--qb-divider);color:var(--qb-text-muted);transition:transform .16s ease,background-color .16s ease,border-color .16s ease;}
+/* Coloured icon tiles distinguish related workspace pages without relying on
+   unexplained initial-letter abbreviations. */
+.nav-badge{display:grid;place-items:center;flex:0 0 auto;width:28px;height:28px;border:1px solid transparent;border-radius:8px;background:var(--qb-divider);color:var(--qb-text-muted);transition:transform .16s ease,background-color .16s ease,border-color .16s ease;}
+.nav-badge svg{display:block;}
 .nav-item:hover .nav-badge{transform:translateY(-1px);}
 @media(prefers-reduced-motion:reduce){.nav-badge{transition:none;}.nav-item:hover .nav-badge{transform:none;}}
 .nav-item-label{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; letter-spacing:-.012em;}
-.nav-chev{flex:0 0 auto; color:var(--qb-text-faint); font-size:15px; line-height:1;}
 /* The current page is marked by a 3px accent bar, not only by a fill. The fill
    alone is 1.23:1 against the panel in light and 1.16:1 in dark - below the 3:1
    that WCAG 1.4.11 asks of a state indicator - and it also read the same as a
    hover. The bar is --qb-accent, 12.11:1 in light and 9.62:1 in dark. */
 .nav-item.nav-on{background:var(--qb-divider); color:var(--qb-text-strong); font-weight:500;
   box-shadow:inset 3px 0 0 0 var(--qb-accent);}
-.nav-item.nav-on .nav-chev{color:var(--qb-text-muted);}
-/* One hue per navigation group keeps the familiar letter markers readable. */
+/* One hue per navigation group keeps the related icon markers scannable. */
 .nav-tone-0 .nav-badge{background:#D2F0E4;border-color:#A5DCC6;color:#005A43;}
 .nav-tone-1 .nav-badge{background:#D9ECFF;border-color:#AFD0EF;color:#194F83;}
 .nav-tone-2 .nav-badge{background:#EAE1FF;border-color:#CBB8EC;color:#563B84;}

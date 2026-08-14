@@ -106,8 +106,12 @@ assert.match(styles,/\.authoritative-app \.authoritative-sidebar\{flex-direction
   'the authoritative shell must use the readable rail-and-panel layout');
 assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-rail \.nav-group-h/,
   'the production workflow rail must keep compact, stable group controls');
-assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:nowrap/,
-  'the production page panel must keep the demo shell’s stable single-line rows');
+assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item\{\s*display:grid; grid-template-columns:28px minmax\(0,1fr\)/,
+  'the production page panel must reserve a readable label column at its fixed width');
+assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{\s*grid-column:2; grid-row:1; min-width:0; white-space:normal; overflow:visible/,
+  'the production page panel must show long workspace names rather than ellipsising them');
+assert.doesNotMatch(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.authoritative-nav-status/,
+  'the page navigation must not consume label space with availability chips');
 assert.match(styles,/\.authoritative-app \.sidebar\{position:sticky; top:0; left:auto; transform:none; width:var\(--nav-w\); flex:0 0 var\(--nav-w\); box-shadow:none;\}/,
   'the QBO-like rail and panel must remain anchored through wider tablet layouts');
 assert.match(styles,/@media\(min-width:901px\)\{\s*\.authoritative-app \.sidebar\{position:sticky/,
@@ -116,8 +120,14 @@ assert.equal(NAV_DRAWER_MEDIA,'(max-width:900px)',
   'the authoritative drawer state machine must not hide desktop navigation at zoomed 1024px layouts');
 assert.match(authoritativeShell,/className="nav-rail"/,
   'the reusable production shell must render a workflow rail');
+assert.match(authoritativeShell,/RAIL_LABELS = Object\.freeze\(\{ Administration: 'Admin' \}\)/,
+  'the compact rail must use an explicit readable Administration label');
 assert.match(authoritativeShell,/className="nav-panel"/,
   'the reusable production shell must render a full page navigation panel');
+assert.doesNotMatch(authoritativeShell,/authoritative-nav-status|Authoritative API read available|This workspace is unavailable for the current authority/,
+  'the page navigation must reserve its row for the full workspace name');
+assert.match(authoritative,/user-nm" title="Authenticated OIDC session">Signed<\/span>/,
+  'the compact authenticated-session label must remain readable without hiding its OIDC meaning');
 assert.match(authoritativeShell,/aria-label="Accounting workspace groups"/,
   'the production workflow rail must expose an accessible landmark name');
 assert.match(authoritativeShell,/aria-label=\{`\$\{activeGroup\.label\} navigation`\}/,
@@ -128,8 +138,8 @@ assert.match(authoritativeShell,/className="new-btn authoritative-new-disabled"/
   'the familiar New control must stay visibly disabled until an authorised API action exists');
 assert.match(authoritativeShell,/from '\.\/ui\.jsx'/,
   'the presentation shell must reuse the local, self-authored rail icon vocabulary');
-assert.match(authoritativeShell,/authoritative-nav-status/,
-  'each visible catalog entry must disclose whether an API read model exists');
+assert.match(authoritativeShell,/ITEM_ICONS\[item\.route\] \|\| 'document'/,
+  'each visible catalog entry must use its mapped small SVG icon');
 assert.doesNotMatch(authoritativeShell,/legacy-demo-app|from ['"]\.\/data|from ['"]\.\/seed|from ['"]\.\/repo|localStorage/,
   'the full production shell must not import or persist demonstration business state');
 
