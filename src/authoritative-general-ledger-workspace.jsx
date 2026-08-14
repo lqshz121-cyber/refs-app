@@ -7,7 +7,12 @@ import {AuthoritativeLineageDrill} from './authoritative-lineage-drill.jsx';
 const PAGE_SIZE=50;
 const money=value=>typeof value==='string'&&/^-?\d+\.\d{4}$/.test(value)?value:'Not returned';
 const text=value=>value===null||value===undefined||value===''?'Not returned':value;
-const scopeText=scope=>`Entity ${scope.entityId} | period ${scope.periodId}`;
+const scopeText=(scope,config)=>{
+  const presentation=config?.scopePresentation||{};
+  const entity=presentation.entityLabel||'Configured entity';
+  const period=presentation.periodLabel||scope?.period_code||'Configured period';
+  return `Entity ${entity} | period ${period}`;
+};
 const returnText=context=>[
   context.accountCode&&`account ${context.accountCode}`,
   context.query&&`search “${context.query}”`,
@@ -49,7 +54,7 @@ export function AuthoritativeGeneralLedgerWorkspace({config,fetcher=globalThis.f
   if(detail)return <AuthoritativeLineageDrill config={config} fetcher={fetcher} initial={{kind:'GL',row:detail.row,context:{entityId:config.entityId,periodId:config.periodId,journalEntryId:detail.row.journal_entry_id,journalLineId:detail.row.journal_line_id,ledgerLineId:detail.row.ledger_line_id}}} onExit={closeDetail}/>;
   return <AuthoritativeDemoGeneralLedgerView eyebrow="GENERAL LEDGER · POSTED EVIDENCE" title="General Ledger" subtitle="Entity and accounting-period scoped POSTED ledger lines only. No export, posting, adjustment, or provider action is available.">
     <ReadingRail label="General Ledger reading path" items={['Scoped ledger','POSTED evidence','Immutable line detail']}/>
-    <p className="authoritative-coa-scope">{scopeText(state.scope||config)}. The configured period is the immutable date scope; ad-hoc date overrides are not supplied by this API. Amounts are fixed four-decimal strings and currencies are never combined.</p>
+    <p className="authoritative-coa-scope" title={`Entity ID: ${config.entityId}; Period ID: ${config.periodId}`}>{scopeText(state.scope||config,config)}. The configured period is the immutable date scope; ad-hoc date overrides are not supplied by this API. Amounts are fixed four-decimal strings and currencies are never combined.</p>
     <div className="authoritative-filter-bar" aria-label="General Ledger filters"><label><span>Account code</span><input value={accountCode} onChange={event=>setAccountCode(event.target.value)} placeholder="Optional exact account"/></label><label><span>Search posted evidence</span><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Account, journal, or description"/></label><button type="button" className="btn btn-sm" onClick={apply}>Apply</button>{(query||accountCode)&&<button type="button" className="btn btn-sm btn-ghost" onClick={reset}>Reset</button>}<button type="button" className="btn btn-sm btn-ghost" onClick={()=>void load()}>Refresh evidence</button><span className="result-count"><b>{state.phase==='READY'?state.total:'—'}</b> POSTED lines</span></div>
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative POSTED ledger evidence…</StateBlock>}
     {state.phase==='ERROR'&&<StateBlock tone="error" title={state.error?.code||'GENERAL_LEDGER_READ_FAILED'} actions={<button type="button" className="btn btn-sm" onClick={()=>void load()}>Retry read</button>}>{state.error?.message}</StateBlock>}
