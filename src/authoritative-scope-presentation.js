@@ -17,11 +17,17 @@ export function authoritativeScopePresentation(config,coaRows=[]){
   const namedEntityRows=scopedRows.filter(row=>row?.entity_id===config?.entityId);
   const entityName=namedEntityRows.find(row=>typeof row?.entity_name==='string'&&row.entity_name.trim())?.entity_name?.trim()
     || namedEntityRows.find(row=>typeof row?.entity_display_name==='string'&&row.entity_display_name.trim())?.entity_display_name?.trim();
+  const entityNameReturned=Boolean(entityName);
+  const periodReturned=Boolean(period?.period_code);
   return {
-    entityLabel:entityName||'Entity name unavailable',
+    entityLabel:entityName||'Configured entity',
     entityDetail:UUID.test(config?.entityId||'')?config.entityId:'Identifier unavailable',
-    periodLabel:period?.period_code||'Period unavailable',
+    entityNameReturned,
+    entityHint:entityNameReturned?'':'The authenticated API did not return an entity display name.',
+    periodLabel:period?.period_code||'Configured period',
     periodDetail:period?`${formatAuthoritativeDate(period.period_start)} - ${formatAuthoritativeDate(period.period_end)}`:(UUID.test(config?.periodId||'')?config.periodId:'Identifier unavailable'),
+    periodReturned,
+    periodHint:periodReturned?'':'The authenticated API did not return a period code or date range.',
     cashAccountLabel:cash?`${cash.account_code} - ${cash.account_name}`:(config?.cashAccountCode?`${config.cashAccountCode} - Name unavailable`:'Not configured'),
   };
 }
