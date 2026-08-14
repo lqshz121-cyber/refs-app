@@ -26,7 +26,10 @@ export async function verifyAuthoritativeApiRelease({ environment = globalThis, 
   try {
     response = await fetcher(`${config.baseUrl}/health/ready`, {
       method:'GET',
-      headers:{ accept:'application/json', 'cache-control':'no-cache' },
+      // `cache:'no-store'` is sufficient to bypass browser caches. Do not add
+      // Cache-Control here: it is a non-safelisted request header and would
+      // turn this credential-free release check into a CORS preflight.
+      headers:{ accept:'application/json' },
       cache:'no-store',
       credentials:'omit',
     });

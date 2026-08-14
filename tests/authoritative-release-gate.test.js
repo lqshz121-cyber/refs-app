@@ -20,6 +20,7 @@ async function run() {
   assert.equal(called.url, 'https://api.example.test/health/ready');
   assert.equal(called.options.credentials, 'omit', 'release attestation must not send an OIDC token or cookie');
   assert.equal(called.options.cache, 'no-store', 'release attestation must not accept a cached readiness result');
+  assert.equal(Object.hasOwn(called.options.headers, 'cache-control'), false, 'release attestation must not trigger a cross-origin preflight with a non-safelisted cache header');
 
   const mismatch = await verifyAuthoritativeApiRelease({ environment, config, fetcher:async () => ready('02d4e95f97232f6f5669b7efcd1ed0a5f9153ff0') });
   assert.equal(mismatch.code, 'ACCOUNTING_API_RELEASE_MISMATCH');
