@@ -286,6 +286,9 @@ pgTest('operator exception row links append-only to the later exact signed Payab
 
 pgTest('provider-signed Payable admission atomically reaches Review Draft four-role Post and same-JE reports',async()=>{
   const ids=await seed({status:'DRAFT'}),{privateKey,publicKey}=generateKeyPairSync('ed25519'),keyId='wbs-payable-composition-pg',capturedAt='2026-07-11T03:00:00.000Z',snapshotToken=`pg-payable-${randomUUID()}`,sourceId=randomUUID(),badSourceId=randomUUID();
+  await adminPool.query("UPDATE tenant SET tenant_code='DEMO_STAGE3_PAYABLE_2026',name='DEMO isolated Stage 3 WBS payable acceptance' WHERE tenant_id=$1",[ids.tenantId]);
+  await adminPool.query(`INSERT INTO controlled_demo_tenant(tenant_id,scenario_code,display_label,created_by,expires_at)
+    VALUES($1,'STAGE3_SIGNED_PAYABLE','DEMO test-key signed Payable to report acceptance','demo-admin',clock_timestamp()+interval '1 day')`,[ids.tenantId]);
   const rows=[
     {ap_guid:sourceId,ap_type:'AUTOC',company_code:ids.sourceEntityId,currency:'USD',amount:'89.1250',invoice_date:'2026-07-01',incurred_date:'2026-07-10',posting_date:'2026-07-11',pay_due_date:'2026-07-05',invoice_no:'WBS-INV-PG-001',vendor_no:'VENDOR-PG'},
     {ap_guid:badSourceId,ap_type:'AUTOC',company_code:ids.sourceEntityId,currency:'USD',amount:'10.0000',invoice_date:'2026-07-08',incurred_date:'2026-07-10',posting_date:'2026-07-11',pay_due_date:'2026-07-07',invoice_no:'WBS-INV-PG-BAD',vendor_no:'VENDOR-PG'}
@@ -306,6 +309,8 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   const signedDelivery=await createWbsSignedDelivery({unsignedSnapshot:unsigned,requestRaw,responseRaw,scope:{tenant_id:ids.tenantId,entity_id:ids.entityId,company_code:ids.sourceEntityId},issuer:'wbs-provider-pg',keyId,nonce:`nonce-${randomUUID()}`,signedAt,expiresAt,privateKeyPem:privateKey.export({type:'pkcs8',format:'pem'}).toString(),now:admissionNow});
   const verifier=createWbsSnapshotSignatureVerifier({publicKeys:{[keyId]:publicKey.export({type:'spki',format:'pem'})}}),serviceActor='admitted-payable-importer';
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,serviceActor,['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:verifier});
+  const demoStatus=await kernel.readControlledDemoTenant({tenantId:ids.tenantId});
+  assert.deepEqual({is_demo:demoStatus.is_demo,lifecycle_status:demoStatus.lifecycle_status,scenario_code:demoStatus.scenario_code},{is_demo:true,lifecycle_status:'ACTIVE_DEMO',scenario_code:'STAGE3_SIGNED_PAYABLE'});
   const service=createWbsProviderSignedPayableAdmission({kernel,providerTrust:signedDelivery.providerTrust,principal:{trusted:true,tenantId:ids.tenantId,actorId:serviceActor},serviceActorId:serviceActor,clock:()=>admissionNow});
   const body={receipt:signedDelivery.receipt,requestRawBase64:requestRaw.toString('base64'),responseRawBase64:responseRaw.toString('base64'),packageRawBase64:signedDelivery.packageRaw.toString('base64')};
   const journalsBefore=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,idempotencyKey=`wbs-payable-pg-${randomUUID()}`;
