@@ -4,6 +4,7 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { canonicalWbsReceiptSigningPayload } from './verify-external-release-gate.mjs';
+import { AUTHORITATIVE_PAGES } from './verify-authoritative-runtime-evidence.mjs';
 
 const node = process.execPath;
 const generator = resolve('tools/create-local-release-simulation.mjs');
@@ -23,6 +24,8 @@ for (const name of ['ui', 's3', 'wbs']) {
     `${name} local simulation gate failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`,
   );
 }
+const ui = spawnSync(node, [gate, 'ui'], { encoding: 'utf8', env });
+assert.match(ui.stdout, new RegExp(`release-ui-e2e: ${Object.keys(AUTHORITATIVE_PAGES).length}/${Object.keys(AUTHORITATIVE_PAGES).length} authoritative page evidence artifacts verified`));
 
 const aggregate = spawnSync(node, [gate, 'all'], { encoding: 'utf8', env });
 assert.equal(
@@ -38,6 +41,7 @@ assert.match(uiManifest.warning, /not production\/live evidence/i);
 assert.equal(uiManifest.authenticated, true);
 assert.equal(uiManifest.oidc?.token_refresh_verified, true);
 assert.equal(uiManifest.apiSmoke?.authenticated_status, 200);
+assert.deepEqual(Object.keys(uiManifest.pages).sort(), Object.keys(AUTHORITATIVE_PAGES).sort());
 
 const unauthenticatedManifest = resolve('outputs/local-release-simulation/ui-manifest-unauthenticated.json');
 writeFileSync(unauthenticatedManifest, `${JSON.stringify({ ...uiManifest, authenticated: false }, null, 2)}\n`, 'utf8');
