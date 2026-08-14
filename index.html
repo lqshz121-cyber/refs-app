@@ -1279,7 +1279,11 @@ select{padding-right:28px; cursor:pointer;}
 .table-wrap{
   background:var(--qb-surface); border:var(--qb-hair) solid var(--qb-divider);
   border-radius:var(--qb-r-card); box-shadow:none;
-  overflow:auto; max-width:100%; margin-bottom:8px; scrollbar-gutter:stable;
+  /* A table can be wider than its evidence panel.  Keep that width inside the
+     keyboard-scrollable region; flex/grid parents must never inherit it as
+     document-level horizontal overflow on a narrow operational viewport. */
+  overflow:auto; min-width:0; width:100%; max-width:100%; box-sizing:border-box;
+  margin-bottom:8px; scrollbar-gutter:stable;
   /* Table-local scrolling keeps the sticky header stable and stops the page
      from scrolling sideways. Short tables are unaffected by a max-height. */
   max-height:min(74vh,880px);
