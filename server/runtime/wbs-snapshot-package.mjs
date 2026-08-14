@@ -5,6 +5,10 @@ const VIEW_POLICY=Object.freeze({
   'BGDATA.payable':Object.freeze({id:'apGuId',kind:'TRANSACTION_CANDIDATE'}),
   'BGDATA.bank_transaction':Object.freeze({id:'bankTransactionId',kind:'TRANSACTION_CANDIDATE',scoped:true}),
   'BGDATA.autoc_detail':Object.freeze({id:'pdGuId',kind:'AUTOREC_CANDIDATE'}),
+  // A Cost-to-CWIP candidate is an explicit provider export.  It is not the
+  // existing Cost GL control view: that view remains evidence-only because
+  // its rows do not prove an individual accounting event.
+  'BGDATA.cost_general_ledger':Object.freeze({id:'costLedgerId',kind:'TRANSACTION_CANDIDATE'}),
   'BGDATA.autoc_bank':Object.freeze({id:'pbGuId',kind:'CONTROL_SOURCE'}),
   'accounting.accounting_info':Object.freeze({id:'accountingInfoId',kind:'LEDGER_EVIDENCE',scoped:true}),
   'accounting.balance_cell':Object.freeze({id:'controlCellId',kind:'CONTROL_EVIDENCE'}),
