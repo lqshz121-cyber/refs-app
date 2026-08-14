@@ -26,10 +26,10 @@ const isDate=value=>{const candidate=text(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(
 const freeze=value=>Object.freeze(value);
 const reportKind=sourceType=>sourceType==='COST_GENERAL_LEDGER'?'COST_GENERAL_LEDGER':sourceType==='PROPERTY_COMPARISON'?'PROPERTY_COMPARISON':null;
 const requiredScope=sourceType=>sourceType==='COST_GENERAL_LEDGER'?['tenant_id','entity_id','company_key','period','currency']:['tenant_id','entity_id','company_key','property_ref','period_start','period_end','currency','bank_account_ref'];
-// The receipt protocol's historical metrics fingerprint uses JSON numbers.
-// This is serialization only: `canonicalMetrics` retains the exact MONEY4
-// string and all reconciliation arithmetic remains scaled BigInt.
-const metricsHash=metrics=>canonicalRequestHash([...metrics].sort((left,right)=>left.metric_key.localeCompare(right.metric_key)).map(metric=>({metric_key:metric.metric_key,amount:Number(metric.amount)})));
+// A signature fingerprint is accounting evidence, not a display format.
+// Hash the canonical fixed-point token itself: JSON Number would collapse
+// distinct valid NUMERIC(20,4) values once it exceeds IEEE-754 precision.
+const metricsHash=metrics=>canonicalRequestHash([...metrics].sort((left,right)=>left.metric_key.localeCompare(right.metric_key)).map(metric=>({metric_key:metric.metric_key,amount:metric.amount})));
 
 export class WbsControlReportInboundError extends Error {
   constructor(code,message){super(message);this.name='WbsControlReportInboundError';this.code=code;}

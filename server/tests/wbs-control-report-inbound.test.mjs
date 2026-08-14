@@ -24,6 +24,17 @@ test('receipt-bound report metrics retain canonical four-decimal fixed-point tex
   assert.equal(typeof result.metrics[0].amount,'string');
 });
 
+test('control-report receipt fingerprints distinguish large fixed-point amounts without IEEE-754 coercion',()=>{
+  const firstRows=costRows.map((row,index)=>index===0?{...row,amount:'900719925474099.0000'}:row);
+  const secondRows=costRows.map((row,index)=>index===0?{...row,amount:'900719925474099.0001'}:row);
+  const first=envelope(firstRows),second=envelope(secondRows);
+  const firstEvidence=buildWbsControlReportEvidence({sourceType:'COST_GENERAL_LEDGER',envelope:first,receipt:receipt(first),tenantId:'tenant-a',entityId:'entity-a'});
+  const secondEvidence=buildWbsControlReportEvidence({sourceType:'COST_GENERAL_LEDGER',envelope:second,receipt:receipt(second),tenantId:'tenant-a',entityId:'entity-a'});
+  assert.notEqual(firstEvidence.source_receipt.metrics_hash,secondEvidence.source_receipt.metrics_hash);
+  assert.equal(firstEvidence.metrics[0].amount,'900719925474099.0000');
+  assert.equal(secondEvidence.metrics[0].amount,'900719925474099.0001');
+});
+
 test('receipt-bound Cost GL evidence bridges to exact REFS controls without creating an accounting action',()=>{
   const source=envelope();
   const evidence=buildWbsControlReportEvidence({sourceType:'COST_GENERAL_LEDGER',envelope:source,receipt:receipt(source),tenantId:'tenant-a',entityId:'entity-a'});

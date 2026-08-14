@@ -52,10 +52,9 @@ function metricMap(rows,label){
   for(const row of rows){const key=text(row?.metric_key),value=scaledDecimal(row?.amount);if(!/^[A-Z][A-Z0-9_]{1,95}$/.test(key)||value===null||result.has(key))fail('WBS_CONTROL_METRICS_INVALID',`${label} control metrics need unique keys and four-decimal amounts.`);result.set(key,value);}
   return result;
 }
-// The receipt protocol historically canonicalizes an individual exact metric
-// as a JSON number.  This conversion is never used for money arithmetic: all
-// comparison and total calculations below remain scaled BigInt values.
-function metricsFingerprint(metrics){return canonicalRequestHash([...metrics.entries()].sort(([left],[right])=>left.localeCompare(right)).map(([metric_key,value])=>({metric_key,amount:Number(value.canonical)})));}
+// Fingerprints retain the canonical MONEY4 token. Converting it to JSON Number
+// would make distinct PostgreSQL NUMERIC values share one signed identity.
+function metricsFingerprint(metrics){return canonicalRequestHash([...metrics.entries()].sort(([left],[right])=>left.localeCompare(right)).map(([metric_key,value])=>({metric_key,amount:value.canonical})));}
 
 export function reconcileWbsControlEvidence({sourceType,scope,sourceReceipt,targetReceipt,approvedMapping,sourceMetrics,targetMetrics}={}){
   if(!['COST_GENERAL_LEDGER','PROPERTY_COMPARISON'].includes(sourceType))fail('WBS_CONTROL_SOURCE_TYPE_INVALID','Only Cost General Ledger and Property Comparison control sources are supported.');
