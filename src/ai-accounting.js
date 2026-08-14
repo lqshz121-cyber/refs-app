@@ -415,6 +415,39 @@ export function applyAIReviewOutcome({draft,outcome,actor}={}) {
   return {draft:updated,event};
 }
 
+// This is the only seam from an AI review outcome into the ordinary JE maker
+// workflow. It deliberately returns a DRAFT payload: standard JE permissions,
+// review, approval and posting remain outside the AI subsystem.
+export function prepareAIReviewedStandardJEDraft({draft,jeId,jeNumber}={}) {
+  validateAIReviewDraft(draft);
+  if(draft.ai_review_state!=='APPROVE'||!draft.ai_reviewed_by||!draft.ai_reviewed_at||!draft.ai_review_outcome_id) throw new Error('AI Draft requires a recorded human approval before standard JE preparation');
+  if(!jeId||!jeNumber) throw new Error('Standard JE preparation requires a journal id and number');
+  const lines=(draft.lines||[]).map(line=>redactSecrets({...line}));
+  return Object.freeze({
+    je_id:jeId,
+    je_number:jeNumber,
+    entity_id:draft.entity_id,
+    period_code:draft.accounting_period,
+    je_date:draft.je_date,
+    je_type:draft.je_type||'AUTO',
+    source_system:draft.source_system||'AI_REVIEWED',
+    source_doc_id:draft.source_document_id,
+    rule_code:draft.ai_rule_id,
+    setting_used:{source:'AI_REVIEW',proposal_id:draft.ai_proposal_id,review_outcome_id:draft.ai_review_outcome_id},
+    mapping_used:{source:'AI_REVIEWED_DRAFT',rule_code:draft.ai_rule_id},
+    idempotency_key:`standard-je:${draft.idempotency_key}`,
+    description:draft.description,
+    posting_status:'DRAFT',
+    ai_proposed:true,
+    ai_proposal_id:draft.ai_proposal_id,
+    ai_finding_id:draft.ai_finding_id,
+    ai_reviewed_by:draft.ai_reviewed_by,
+    ai_reviewed_at:draft.ai_reviewed_at,
+    ai_review_outcome_id:draft.ai_review_outcome_id,
+    lines:Object.freeze(lines),
+  });
+}
+
 // The first write is a recoverable PREPARED intent; the second persists Draft state,
 // audit event and COMMITTED WAL together in one adapter document.
 export function createAIReviewOutcomeRepository(storage,{key='ai_accounting_review_outcomes'}={}) {

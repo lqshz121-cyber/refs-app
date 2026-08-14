@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {proposeDraftJE,applyAIReviewOutcome} from '../src/ai-accounting.js';
+import {proposeDraftJE,applyAIReviewOutcome,prepareAIReviewedStandardJEDraft} from '../src/ai-accounting.js';
 import {MemoryJEDatabase} from '../server/db/memory-je-db.mjs';
 import {JEService} from '../server/api/je-service.mjs';
 
@@ -18,13 +18,19 @@ test('test-data AI proposal needs human review and then follows the standard fou
 
   assert.equal(proposal.draft.posting_status,'DRAFT');
   assert.throws(()=>applyAIReviewOutcome({draft:proposal.draft,outcome:{decision:'POST',idempotency_key:'ai-test-post'},actor:'controller-approver'}),/APPROVE, REJECT or EDIT/);
+  assert.throws(()=>prepareAIReviewedStandardJEDraft({draft:proposal.draft,jeId:'AI-TEST-1001',jeNumber:'JE-AI-TEST-1001'}),/recorded human approval/);
   const reviewed=applyAIReviewOutcome({draft:proposal.draft,outcome:{decision:'APPROVE',idempotency_key:'ai-test-review-1001',reason:'Controller checked the retained test-data invoice support.'},actor:'controller-approver'});
   assert.equal(reviewed.draft.posting_status,'DRAFT');
   assert.equal(reviewed.draft.ai_review_state,'APPROVE');
+  const rejected=applyAIReviewOutcome({draft:proposal.draft,outcome:{decision:'REJECT',idempotency_key:'ai-test-reject-1001',reason:'Controller needs more source support.'},actor:'controller-rejecter'});
+  assert.throws(()=>prepareAIReviewedStandardJEDraft({draft:rejected.draft,jeId:'AI-TEST-REJECTED',jeNumber:'JE-AI-TEST-REJECTED'}),/recorded human approval/);
 
   const database=new MemoryJEDatabase({periods:[{entity_id:2,period_code:'2026-07',status:'OPEN'}]});
   const service=new JEService(database,{now:()=> '2026-07-31T12:00:00.000Z',isValidAccount:code=>['610000','210000'].includes(code)});
-  const standardDraft={je_id:'AI-TEST-1001',je_number:'JE-AI-TEST-1001',entity_id:2,period_code:'2026-07',je_date:'2026-07-31',je_type:'AUTO',source_system:'AI_TEST_DATA',source_doc_id:proposal.draft.source_document_id,rule_code:'R-AI-ACCRUAL',setting_used:{source:'AI_TEST_DATA',version:1},mapping_used:{debit_account:'610000',credit_account:'210000',version:1},idempotency_key:'ai-test-data/accrual/BILL-TEST-1001/2026-07',description:reviewed.draft.description,attachments:[],lines:proposal.draft.lines};
+  const standardDraft={...prepareAIReviewedStandardJEDraft({draft:reviewed.draft,jeId:'AI-TEST-1001',jeNumber:'JE-AI-TEST-1001'}),attachments:[]};
+  assert.equal(standardDraft.posting_status,'DRAFT');
+  assert.equal(standardDraft.ai_reviewed_by,actors.approver.user_id);
+  assert.equal(standardDraft.setting_used.review_outcome_id,'ai-test-review-1001');
   assert.equal(service.create({actor:actors.maker,je:standardDraft}).data.je.posting_status,'DRAFT');
   assert.equal(service.transition({actor:actors.maker,id:'AI-TEST-1001',action:'submit'}).data.je.posting_status,'PENDING_REVIEW');
   assert.equal(service.transition({actor:actors.reviewer,id:'AI-TEST-1001',action:'review'}).data.je.posting_status,'PENDING_APPROVAL');
