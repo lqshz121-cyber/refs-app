@@ -40,8 +40,8 @@ for (const token of ['className="nav-rail"', 'className="nav-panel"', 'className
 
 // Phone/tablet contract — no squeezed three-column shell, and accounting
 // tables stay inside their scroll region rather than widening the page.
-matches(css, /@media \(max-width:1180px\) and \(min-width:769px\)\{[\s\S]*?\.authoritative-app \.sidebar\{position:fixed;[\s\S]*?transform:translateX\(-100%\);/,
-  'tablet authority navigation must leave the canvas before it is squeezed');
+matches(css, /@media \(max-width:900px\) and \(min-width:769px\)\{[\s\S]*?\.authoritative-app \.sidebar\{position:fixed;[\s\S]*?transform:translateX\(-100%\);/,
+  'tablet authority navigation must leave the canvas before it is squeezed without hiding zoomed desktop navigation');
 matches(css, /@media\(max-width:1024px\)\{[\s\S]*?\.sidebar\{position:fixed;[\s\S]*?width:min\(88vw,320px\);/,
   'mobile demo-derived drawer must remain readable and off-canvas');
 contains(css, '@media(max-width:720px){', 'phone layout breakpoint must remain defined');

@@ -97,6 +97,8 @@ assert.match(appSource, /initialCatalog=\{reportCatalogReturn\|\|DEFAULT_AUTHORI
 assert.match(appSource, /backLabel="Back to Reports"/,
   'the A\/R aging full page must name its actual Reports parent on Back');
 assert.match(appSource, /AuthoritativeGeneralLedgerWorkspace/);
+assert.match(appSource, /AuthoritativeDocumentWorkspace[\s\S]*?kind="AP"[\s\S]*?config=\{displayConfig\}/,
+  'the embedded WBS Payables observation must receive the same readable scope presentation as the authoritative shell');
 assert.match(appSource, /route === 'project-cost-cwip'/, 'Project Cost & CWIP must mount existing authenticated report readers rather than an unavailable demo route');
 assert.match(appSource, /initialDimensionType="PROJECT"/, 'the direct Project Cost & CWIP entry must default only its existing API-backed profitability reader to Project');
 assert.match(appSource, /Cost-code, vendor, and project transaction registers remain unavailable/, 'the direct workspace may not pretend that the legacy transaction register has an API contract');
@@ -126,5 +128,5 @@ assert.match(appSource, /onClick=\{logout\}>Sign out/, 'the visual shell keeps t
 const styles = fs.readFileSync('index.html', 'utf8');
 assert.match(styles, /\.authoritative-entity-chip\{/, 'the authoritative entity scope needs the complete-shell selector treatment');
 assert.match(styles, /\.authoritative-mode-chip\{/, 'the top bar must disclose authoritative mode rather than demonstration mode');
-assert.match(styles, /@media \(max-width:1180px\) and \(min-width:769px\)/, 'the demo shell must release its rail before evidence is squeezed on narrow desktops');
+assert.match(styles, /@media \(max-width:900px\) and \(min-width:769px\)/, 'the authoritative shell must release its rail only at tablet widths');
 console.log('authoritative full shell: complete catalog renders API routes and unavailable workspaces fail closed');
