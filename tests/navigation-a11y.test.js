@@ -131,8 +131,10 @@ assert.match(authoritativeTopbar,/aria-label="Signed-in user"/,
   'the compact signed-in user label must remain understandable without technical session terminology');
 assert.match(authoritativeShell,/aria-label="Accounting workspace groups"/,
   'the production workflow rail must expose an accessible landmark name');
-assert.match(authoritativeShell,/aria-label=\{`\$\{activeGroup\.label\} navigation`\}/,
-  'the selected production group must expose a named page navigation landmark');
+assert.match(authoritativeShell,/aria-label="Accounting workspace navigation"/,
+  'the production navigation landmark must remain understandable while several groups are open');
+assert.match(authoritativeShell,/aria-expanded=\{isExpanded\}/,
+  'each production navigation heading must expose its independent disclosure state');
 assert.match(authoritativeShell,/className="nav-panel-title"/,
   'the production panel must retain the demo shell’s group title hierarchy');
 assert.doesNotMatch(authoritativeShell,/authoritative-new-disabled|No authorised create action/,

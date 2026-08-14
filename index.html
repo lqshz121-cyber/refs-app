@@ -335,7 +335,7 @@ input,select,textarea{
 }
 .authoritative-app .authoritative-sidebar .nav-rail .rail-glyph{display:grid; width:var(--qb-rail-glyph); height:var(--qb-rail-glyph);}
 .authoritative-app .authoritative-sidebar .nav-rail .rail-label{display:block;}
-.authoritative-app .authoritative-sidebar .nav-panel{display:flex; flex:1 1 auto; min-width:0;}
+.authoritative-app .authoritative-sidebar .nav-panel{display:flex; flex:1 1 auto; min-width:0; overflow:hidden;}
 .authoritative-app .authoritative-sidebar .nav-panel nav{width:100%;}
 .authoritative-app .authoritative-sidebar .nav-panel .nav-group-items{display:block; width:100%; padding:0 0 4px;}
 .authoritative-app .authoritative-sidebar .nav-panel .nav-item{
@@ -349,7 +349,6 @@ input,select,textarea{
   grid-column:2; grid-row:1; min-width:0; white-space:normal; overflow:visible;
   overflow-wrap:anywhere; text-overflow:clip; line-height:1.3;
 }
-.authoritative-app .authoritative-sidebar .nav-panel .nav-chev{display:none;}
 .authoritative-new-disabled{opacity:.6; cursor:not-allowed;}
 /* Exact presentation structure from the complete REFS shell: scope control,
    period chip, actions and user chip stay in one topbar.  Move navigation off
@@ -517,9 +516,13 @@ input,select,textarea{
 .new-btn:hover{background:var(--qb-brand-hover);}
 .sidebar nav{flex:1 1 auto; min-height:0; overflow:hidden auto; padding:2px 0 20px; scrollbar-gutter:stable;}
 .nav-panel-title{
-  padding:14px 16px 5px; color:var(--qb-text-muted);
-  font:600 11px/1.3 var(--qb-sans); letter-spacing:.06em; text-transform:uppercase;
+  display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%;
+  padding:14px 16px 7px; border:0; background:transparent; color:var(--qb-text-muted);
+  font:600 11px/1.3 var(--qb-sans); letter-spacing:.06em; text-align:left; text-transform:uppercase; cursor:pointer;
 }
+.nav-panel-title:hover{color:var(--qb-text-strong); background:var(--qb-canvas);}
+.nav-panel-title:focus-visible{outline:2px solid var(--qb-accent); outline-offset:-2px;}
+.nav-panel-title svg{flex:0 0 auto;}
 .nav-panel-empty{padding:14px 16px; color:var(--qb-text-muted); font-size:13px; line-height:1.5;}
 .nav-group-items{display:block; padding:0 0 4px;}
 /* panel row: 24px circular colored badge + 14/400 label + right chevron */

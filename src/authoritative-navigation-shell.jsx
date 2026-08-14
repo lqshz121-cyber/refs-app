@@ -35,11 +35,9 @@ const ITEM_ICONS = Object.freeze({
   'audit-log': 'shield', 'users-settings': 'gear',
 });
 
-export function AuthoritativeNavigationShell({ navigation, route, expandedGroup, onSelectGroup, onSelectItem, navOpen, navDrawerRef, drawerAttributes, onClose }) {
-  const activeGroup = navigation.find(group => group.items.some(item => item.route === route))
-    || navigation.find(group => group.label === expandedGroup)
-    || navigation[0];
-  const activeGroupIndex = navigation.indexOf(activeGroup);
+export function AuthoritativeNavigationShell({ navigation, route, expandedGroups, onSelectGroup, onSelectItem, navOpen, navDrawerRef, drawerAttributes, onClose }) {
+  const activeGroup = navigation.find(group => group.items.some(item => item.route === route)) || navigation[0];
+  const expanded = new Set(expandedGroups || []);
 
   return <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar authoritative-sidebar ${navOpen ? 'mobile-open' : ''}`} {...drawerAttributes}>
     <div className="nav-rail" aria-label="Accounting workspace groups">
@@ -61,18 +59,24 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroup,
     <div className="nav-panel">
       <div className="brand"><span className="logo" aria-hidden="true">R</span> REFS<span className="brand-sub">Authoritative</span></div>
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={onClose}>Close</button>}
-      <nav aria-label={`${activeGroup.label} navigation`}>
-        <div className={`nav-panel-group nav-tone-${activeGroupIndex % 6}`}>
-          <div className="nav-panel-title">{activeGroup.label}</div>
-          <div className="nav-group-items" id={`authoritative-navigation-group-${activeGroupIndex}`}>
-          {activeGroup.items.map(item => <button type="button" key={item.route} aria-current={route === item.route ? 'page' : undefined}
-            className={`nav-item nav-sub ${route === item.route ? 'nav-on' : ''}`} onClick={() => onSelectItem(item.route)}>
-            <span className="nav-badge" aria-hidden="true"><Icon name={ITEM_ICONS[item.route] || 'document'} size={18} /></span>
-            <span className="nav-item-label">{item.label}</span>
-            <span className="nav-chev" aria-hidden="true">›</span>
-          </button>)}
-          </div>
-        </div>
+      <nav aria-label="Accounting workspace navigation">
+        {navigation.map((group, index) => {
+          const isExpanded = expanded.has(group.label);
+          const isActive = group.label === activeGroup.label;
+          const panelId = `authoritative-navigation-group-${index}`;
+          return <section className={`nav-panel-group nav-tone-${index % 6} ${isActive ? 'nav-panel-group-active' : ''}`} key={group.label}>
+            <button type="button" className="nav-panel-title" aria-expanded={isExpanded} aria-controls={panelId} onClick={() => onSelectGroup(group)}>
+              <span>{group.label}</span><Icon name={isExpanded ? 'chevronDown' : 'chevronRight'} size={16} />
+            </button>
+            {isExpanded && <div className="nav-group-items" id={panelId}>
+              {group.items.map(item => <button type="button" key={item.route} aria-current={route === item.route ? 'page' : undefined}
+                className={`nav-item nav-sub ${route === item.route ? 'nav-on' : ''}`} onClick={() => onSelectItem(item.route)}>
+                <span className="nav-badge" aria-hidden="true"><Icon name={ITEM_ICONS[item.route] || 'document'} size={18} /></span>
+                <span className="nav-item-label">{item.label}</span>
+              </button>)}
+            </div>}
+          </section>;
+        })}
       </nav>
     </div>
   </aside>;
