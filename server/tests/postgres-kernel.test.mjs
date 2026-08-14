@@ -77,7 +77,7 @@ async function rejectsInTransaction(client,query,validator){
   }
 }
 
-async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VERIFIED_CLEAN',tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID(),journalId=randomUUID(),extraAccounts=[],extraMembers=[],journalLines=null}={}){
+async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VERIFIED_CLEAN',tenantId=randomUUID(),entityId=randomUUID(),periodId=randomUUID(),journalId=randomUUID(),extraAccounts=[],extraMembers=[],journalLines=null,attachmentName='support.pdf',attachmentStorageRef=null,attachmentStorageVersion='v1'}={}){
   const sourceEntityId=`E${entityId.replaceAll('-','').slice(0,8)}`.toUpperCase();
   await adminPool.query('INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,$2,$3) ON CONFLICT (tenant_id) DO NOTHING',[tenantId,`T${tenantId.replaceAll('-','').slice(0,8)}`.toUpperCase(),'Test tenant']);
   await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,$3,'WBS',$3,$3,'USD')",[entityId,tenantId,sourceEntityId]);
@@ -94,21 +94,21 @@ async function seed({status='APPROVED',journalType='MANUAL',attachmentStatus='VE
   if(attachmentStatus){
     const attachmentId=randomUUID();
     await adminPool.query(`INSERT INTO attachment(attachment_id,tenant_id,entity_id,name,media_type,size_bytes,content_hash,storage_ref,storage_version,uploaded_by,uploaded_at,verified_at,scan_status,finalization_status,finalized_at)
-      VALUES($1,$2,$3,'support.pdf','application/pdf',10,$4,$5,'v1','maker',now(),CASE WHEN $6='VERIFIED_CLEAN' THEN now() END,CASE WHEN $6='VERIFIED_CLEAN' THEN 'CLEAN' WHEN $6='REJECTED' THEN 'REJECTED' ELSE 'PENDING' END,$6,CASE WHEN $6='VERIFIED_CLEAN' THEN now() END)`,[attachmentId,tenantId,entityId,hash('attachment'),`object://attachments/${attachmentId}`,attachmentStatus]);
+      VALUES($1,$2,$3,$4,'application/pdf',10,$5,$6,$7,'maker',now(),CASE WHEN $8='VERIFIED_CLEAN' THEN now() END,CASE WHEN $8='VERIFIED_CLEAN' THEN 'CLEAN' WHEN $8='REJECTED' THEN 'REJECTED' ELSE 'PENDING' END,$8,CASE WHEN $8='VERIFIED_CLEAN' THEN now() END)`,[attachmentId,tenantId,entityId,attachmentName,hash('attachment'),attachmentStorageRef??`object://attachments/${attachmentId}`,attachmentStorageVersion,attachmentStatus]);
     await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,journal_entry_id,attachment_id,created_by) VALUES($1,$2,'JE_ATTACHMENT',$3,$4,'maker')",[tenantId,entityId,journalId,attachmentId]);
   }
   return {tenantId,entityId,sourceEntityId,periodId,journalId};
 }
 
-async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effectiveTo=null,mappingPriority=0,evaluatedAt=null,linkJournal=true,reuseApprovedSnapshots=false}={}){
-  const batchId=randomUUID(),rawId=randomUUID(),documentId=randomUUID(),ruleId=randomUUID(),stagingId=randomUUID(),recordId=`AUTO-${ids.journalId}`;let settingId=randomUUID(),mappingId=randomUUID();
+async function attachAutoSource(ids,{effectiveFrom='2026-01-01T00:00:00Z',effectiveTo=null,mappingPriority=0,evaluatedAt=null,linkJournal=true,reuseApprovedSnapshots=false,sourceSystem='WBS',sourceModule='bankFeed',sourceRecordPrefix='AUTO'}={}){
+  const batchId=randomUUID(),rawId=randomUUID(),documentId=randomUUID(),ruleId=randomUUID(),stagingId=randomUUID(),recordId=`${sourceRecordPrefix}-${ids.journalId}`;let settingId=randomUUID(),mappingId=randomUUID();
   const inputKeyHash=hash('mapping-key');
   const configHashes=(await adminPool.query("SELECT refs_jsonb_hash('{}'::jsonb) AS setting_hash,refs_jsonb_hash(jsonb_build_object('input_keys','{}'::jsonb,'output_rules','{}'::jsonb)) AS mapping_hash")).rows[0];
-  await adminPool.query("INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash) VALUES($1,$2,$3,'WBS_API','bankFeed',$4,$5,$6)",[batchId,ids.tenantId,ids.entityId,ids.sourceEntityId,'auto-import-'+ids.journalId,hash('auto-import')]);
+  await adminPool.query("INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash) VALUES($1,$2,$3,'WBS_API',$4,$5,$6,$7)",[batchId,ids.tenantId,ids.entityId,sourceModule,ids.sourceEntityId,'auto-import-'+ids.journalId,hash('auto-import')]);
   await adminPool.query(`INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id)
-    VALUES($1,$2,$3,$4,'WBS','bankFeed',$5,$6,'1','UPSERT',now(),$7,$8,$6)`,[rawId,ids.tenantId,ids.entityId,batchId,ids.sourceEntityId,recordId,hash('auto-raw'),`object://raw/${rawId}`]);
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'1','UPSERT',now(),$9,$10,$8)`,[rawId,ids.tenantId,ids.entityId,batchId,sourceSystem,sourceModule,ids.sourceEntityId,recordId,hash('auto-raw'),`object://raw/${rawId}`]);
   await adminPool.query(`INSERT INTO source_document(source_document_id,tenant_id,entity_id,raw_event_id,source_system,source_module,source_entity_id,source_record_id,source_version,document_type,business_date,accounting_date,currency,gross_amount,source_ref,payload_hash)
-    VALUES($1,$2,$3,$4,'WBS','bankFeed',$5,$6,'1','BANK_TRANSACTION','2026-07-15','2026-07-15','USD',100,$7,$8)`,[documentId,ids.tenantId,ids.entityId,rawId,ids.sourceEntityId,recordId,`WBS:${recordId}`,hash('auto-doc')]);
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'1','BANK_TRANSACTION','2026-07-15','2026-07-15','USD',100,$9,$10)`,[documentId,ids.tenantId,ids.entityId,rawId,sourceSystem,sourceModule,ids.sourceEntityId,recordId,`${sourceSystem}:${recordId}`,hash('auto-doc')]);
   if(reuseApprovedSnapshots){
     const existingSetting=(await adminPool.query(`SELECT setting_snapshot_id FROM setting_snapshot WHERE tenant_id=$1 AND entity_id=$2 AND family='BANK' AND scope_type='ENTITY' AND scope_key=$2::text AND status IN ('APPROVED','RETIRED') ORDER BY version DESC LIMIT 1`,[ids.tenantId,ids.entityId])).rows[0];
     const existingMapping=(await adminPool.query(`SELECT mapping_snapshot_id FROM mapping_snapshot WHERE tenant_id=$1 AND entity_id=$2 AND family='BANK' AND scope_type='ENTITY' AND scope_key=$2::text AND status IN ('APPROVED','RETIRED') ORDER BY version DESC LIMIT 1`,[ids.tenantId,ids.entityId])).rows[0];
@@ -1668,6 +1668,53 @@ pgTest('authenticated HTTP creates AP Bills and AR Invoices only as evidence-bac
   assert.deepEqual({business_document_id:readInvoice.business_document_id,status:readInvoice.status,offset_account_code:readInvoice.offset_account_code,description:readInvoice.description,journal_entry_id:readInvoice.journal_entry_id,journal_status:readInvoice.journal_status,journal_revision:readInvoice.journal_revision,period_id:readInvoice.period_id},{business_document_id:invoice.business_document_id,status:'OPEN',offset_account_code:'400000',description:'Native AR invoice',journal_entry_id:invoice.journal_entry_id,journal_status:'POSTED',journal_revision:'4',period_id:ids.periodId});
   const spoof=await send('document-maker',`${root}/ap/bills`,{periodId:ids.periodId,documentNumber:'BILL-NO-EVIDENCE',counterpartyRef:'VENDOR-1',counterpartyName:'Vendor',currency:'USD',accountingDate:'2026-07-18',amount:100,offsetAccountCode:'610000',attachmentIds:[]},'native-ap-bill-no-evidence');
   assert.equal(spoof.status,422);
+});
+
+pgTest('controlled DEMO tenant runs one AP Bill through HTTP Draft, four-role Post, GL, TB and AP aging without affecting another tenant',async()=>{
+  const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'610000',accountName:'DEMO operating expense'}],attachmentName:'DEMO-only-AP-support.pdf',attachmentStorageRef:'s3://refs-demo-isolated/AP-BILL-089125',attachmentStorageVersion:'demo-v1'});
+  await adminPool.query("UPDATE tenant SET tenant_code='DEMO_AP_E2E',name='DEMO tenant isolated AP acceptance' WHERE tenant_id=$1",[ids.tenantId]);
+  await adminPool.query("UPDATE entity SET entity_code='DEMO_AP_2026',source_system='REFS_DEMO',source_entity_id='DEMO_AP_2026',name='DEMO entity AP acceptance' WHERE tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO controlled_demo_tenant(tenant_id,scenario_code,display_label,created_by,expires_at)
+    VALUES($1,'AP_DEMO_E2E','DEMO isolated AP acceptance','demo-admin',clock_timestamp()+interval '1 day')`,[ids.tenantId]);
+  const protectedIds=await seed({status:'DRAFT',tenantId:randomUUID(),entityId:randomUUID(),periodId:randomUUID(),journalId:randomUUID()});
+  const protectedBefore=(await adminPool.query(`SELECT (SELECT count(*)::int FROM business_document WHERE tenant_id=$1) documents,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger_lines`,[protectedIds.tenantId])).rows[0];
+  const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE tenant_id=$1 AND journal_entry_id=$2 AND attachment_id IS NOT NULL',[ids.tenantId,ids.journalId])).rows[0].attachment_id;
+  const permissions={'demo-ap-maker':['AP.BILL.CREATE','GL.JE.SUBMIT'],'demo-ap-reviewer':['GL.JE.REVIEW'],'demo-ap-approver':['GL.JE.APPROVE'],'demo-ap-poster':['GL.JE.POST'],'demo-ap-reader':['AP.VIEW','GL.JE.VIEW','GL.REPORT.VIEW']};
+  const api=createAccountingApi({authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,permissions[principal.actorId]||[])})});
+  const demoReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'demo-ap-reader',permissions['demo-ap-reader'])});
+  const demoStatus=await demoReader.readControlledDemoTenant({tenantId:ids.tenantId});
+  assert.equal(demoStatus.lifecycle_status,'ACTIVE_DEMO');
+  const send=(actor,path,body,idempotencyKey,revision)=>api({method:'POST',url:path,body,headers:{'x-test-actor':actor,'idempotency-key':idempotencyKey,...(revision==null?{}:{'if-match':`"${revision}"`})}});
+  const read=(actor,path)=>api({method:'GET',url:path,body:null,headers:{'x-test-actor':actor}});
+  const root=`/api/v1/entities/${ids.entityId}`,billBody={periodId:ids.periodId,documentNumber:'DEMO-AP-BILL-089125',counterpartyRef:'VENDOR-1',counterpartyName:'DEMO supplier',currency:'USD',accountingDate:'2026-07-15',dueDate:'2026-07-31',amount:'89.1250',offsetAccountCode:'610000',description:'DEMO only: controlled AP acceptance scenario',attachmentIds:[attachmentId]};
+  const created=await send('demo-ap-maker',`${root}/ap/bills`,billBody,'demo-ap-bill-create-0001');
+  assert.equal(created.status,201,JSON.stringify(created.body));const draft=created.body.data;
+  assert.deepEqual({status:draft.status,kind:draft.document_kind,revision:draft.revision},{status:'DRAFT',kind:'AP_BILL',revision:0});
+  const replay=await send('demo-ap-maker',`${root}/ap/bills`,billBody,'demo-ap-bill-create-0001');
+  assert.equal(replay.status,200);assert.equal(replay.body.data.idempotent,true);assert.equal(replay.body.data.journal_entry_id,draft.journal_entry_id);
+  const source=await attachAutoSource({...ids,journalId:draft.journal_entry_id},{sourceSystem:'REFS_DEMO',sourceModule:'payable',sourceRecordPrefix:'DEMO-AP'});
+  assert.deepEqual((await adminPool.query('SELECT source_system,source_module,source_record_id FROM source_document WHERE tenant_id=$1 AND source_document_id=$2',[ids.tenantId,source.documentId])).rows[0],{source_system:'REFS_DEMO',source_module:'payable',source_record_id:`DEMO-AP-${draft.journal_entry_id}`});
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3 AND journal_entry_id=$4 AND link_type='SOURCE_TO_JE'",[ids.tenantId,ids.entityId,source.documentId,draft.journal_entry_id])).rows[0].n,1);
+  assert.deepEqual((await adminPool.query("SELECT a.name,a.storage_ref,a.storage_version,a.content_hash FROM attachment a JOIN source_link l ON l.attachment_id=a.attachment_id WHERE l.tenant_id=$1 AND l.entity_id=$2 AND l.journal_entry_id=$3 AND l.link_type='JE_ATTACHMENT'",[ids.tenantId,ids.entityId,draft.journal_entry_id])).rows[0],{name:'DEMO-only-AP-support.pdf',storage_ref:'s3://refs-demo-isolated/AP-BILL-089125',storage_version:'demo-v1',content_hash:hash('attachment')});
+  const journalPath=`${root}/journal-entries/${draft.journal_entry_id}`;
+  assert.equal((await send('demo-ap-maker',`${journalPath}/transitions/submit`,{},'demo-ap-submit-0001',0)).status,201);
+  assert.equal((await send('demo-ap-reviewer',`${journalPath}/transitions/review`,{},'demo-ap-review-0001',1)).status,201);
+  assert.equal((await send('demo-ap-approver',`${journalPath}/transitions/approve`,{},'demo-ap-approve-0001',2)).status,201);
+  assert.equal((await send('demo-ap-poster',`${journalPath}/post`,{periodId:ids.periodId},'demo-ap-post-0001',3)).status,201);
+  const journal=(await adminPool.query('SELECT status,created_by,reviewed_by,approved_by,posted_by,revision FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,draft.journal_entry_id])).rows[0];
+  assert.deepEqual(journal,{status:'POSTED',created_by:'demo-ap-maker',reviewed_by:'demo-ap-reviewer',approved_by:'demo-ap-approver',posted_by:'demo-ap-poster',revision:4});assert.equal(new Set([journal.created_by,journal.reviewed_by,journal.approved_by,journal.posted_by]).size,4);
+  const audit=(await adminPool.query("SELECT event_type,actor_id FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND (object_id=$3 OR object_id=$4) ORDER BY occurred_at",[ids.tenantId,ids.entityId,draft.business_document_id,draft.journal_entry_id])).rows;
+  assert.ok(audit.some(row=>row.event_type==='AP_BILL_DRAFT_CREATED'&&row.actor_id==='demo-ap-maker'));assert.ok(audit.some(row=>row.event_type==='AP_BILL_POSTED'&&row.actor_id==='demo-ap-poster'));assert.ok(audit.some(row=>row.event_type==='JOURNAL_POSTED'&&row.actor_id==='demo-ap-poster'));
+  const gl=await read('demo-ap-reader',`${root}/general-ledger/entries?periodId=${ids.periodId}&accountCode=610000&query=DEMO-AP-BILL-089125&limit=10&offset=0`);
+  assert.equal(gl.status,200);assert.equal(gl.headers['cache-control'],'no-store');const expense=gl.body.data.find(row=>row.journal_entry_id===draft.journal_entry_id);assert.ok(expense);assert.deepEqual({debit:expense.debit_amount,credit:expense.credit_amount,sources:expense.source_document_ids},{debit:'89.1250',credit:'0.0000',sources:[source.documentId]});
+  const reports=await read('demo-ap-reader',`${root}/reports/financial-statements?periodId=${ids.periodId}`);
+  assert.equal(reports.status,200);assert.equal(reports.headers['cache-control'],'no-store');
+  for(const [accountCode,debit,credit] of [['610000','89.1250','0.0000'],['291001','0.0000','89.1250']]){const row=reports.body.data.find(candidate=>candidate.statement_type==='TRIAL_BALANCE'&&candidate.account_code===accountCode);assert.ok(row,`trial balance must include DEMO ${accountCode}`);assert.equal(row.period_debit,debit);assert.equal(row.period_credit,credit);assert.ok(row.journal_entry_ids.includes(draft.journal_entry_id));assert.ok(row.source_document_ids.includes(source.documentId));}
+  const aging=await read('demo-ap-reader',`${root}/ap/aging?asOf=2026-08-31`);
+  assert.equal(aging.status,200);assert.equal(aging.headers['cache-control'],'no-store');assert.deepEqual(aging.body.data,[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'89.1250',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'89.1250'}]);
+  const crossTenant=await send('demo-ap-maker',`/api/v1/entities/${protectedIds.entityId}/ap/bills`,billBody,'demo-ap-cross-tenant-0001');assert.equal(crossTenant.status,403);
+  const protectedAfter=(await adminPool.query(`SELECT (SELECT count(*)::int FROM business_document WHERE tenant_id=$1) documents,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger_lines`,[protectedIds.tenantId])).rows[0];
+  assert.deepEqual(protectedAfter,protectedBefore);
 });
 
 pgTest('authenticated HTTP posts a vendor credit and atomically applies it to an AP bill',async()=>{
