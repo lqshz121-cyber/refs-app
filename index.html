@@ -889,7 +889,7 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-scope-bar b{color:var(--qb-text-strong);margin-right:4px;}
 .authoritative-list-filters{margin-bottom:16px;}
 .authoritative-list-filters label{display:flex;align-items:center;gap:6px;}
-.authoritative-list-filters input,.authoritative-list-filters select{min-width:0;}
+.authoritative-list-filters input,.authoritative-list-filters select{min-width:0;width:100%;max-width:100%;}
 .authoritative-list-filters .result-count{margin-left:auto;color:var(--qb-text-muted);font-size:12px;}
 
 /* Shared authoritative workbench frame.  It adopts the demonstrated product
@@ -1117,6 +1117,7 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-source-document-lines th:nth-child(5),.authoritative-source-document-lines td:nth-child(5){width:14%;}
 .authoritative-source-document-lines th:nth-child(6),.authoritative-source-document-lines td:nth-child(6){width:22%;}
 .authoritative-source-document-lines th:nth-child(7),.authoritative-source-document-lines td:nth-child(7){width:17%;}
+@media (max-width:1100px){.authoritative-list-filters{grid-template-columns:repeat(2,minmax(0,1fr));}.authoritative-list-filters .btn{width:100%;}}
 @media (max-width:720px){.authoritative-document-intro,.authoritative-source-intro{grid-template-columns:minmax(0,1fr);gap:14px;}.authoritative-document-intro ul,.authoritative-source-intro ul{grid-template-columns:minmax(0,1fr);}.authoritative-list-filters{grid-template-columns:minmax(0,1fr);}.authoritative-list-filters .btn{width:100%;}.authoritative-document-detail-summary{grid-template-columns:repeat(2,minmax(0,1fr));}.authoritative-source-trace{grid-template-columns:repeat(2,minmax(0,1fr));}.authoritative-source-scope{grid-template-columns:minmax(0,1fr);}.authoritative-source-scope>div{border-right:0;border-bottom:var(--qb-hair) solid var(--qb-divider);}.authoritative-source-scope>div:last-child{border-bottom:0;}.authoritative-overview-scope{grid-template-columns:auto minmax(0,1fr);gap:11px 14px;}.authoritative-overview-scope-mark{grid-row:span 2;}.authoritative-overview-scope p{grid-column:1/-1;}.authoritative-overview-actions{align-items:flex-start;flex-direction:column;}.authoritative-overview-action-list{justify-content:flex-start;}}
 @media (max-width:600px){.authoritative-filter-head{flex-direction:column;gap:8px;}.authoritative-filter-head .badge{align-self:flex-start;}.authoritative-document-detail-summary{grid-template-columns:minmax(0,1fr);}}
 .authoritative-bank-scope-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:14px 0;padding:10px 12px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);background:var(--qb-inset);}
@@ -2005,6 +2006,20 @@ select{padding-right:28px; cursor:pointer;}
 .expense-filter-evidence{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; margin-bottom:12px;}
 .expense-filter-evidence label{display:flex; align-items:center; gap:8px; min-width:0; color:var(--qb-text-muted); font-size:13px;}
 .expense-filter-evidence input[type=date],.expense-filter-evidence select{flex:1 1 auto; min-width:0;}
+/* At high zoom a Payables workspace can be about 600px wide even on a desktop.
+   Use explicit tracks here so the Payee selector never forces a page-level
+   horizontal scroll before the phone layout takes over. */
+@media(max-width:900px){
+  .expense-filter-evidence{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .expense-filter-evidence label,.expense-filter-evidence select,.expense-filter-evidence input{max-width:100%;}
+  .expense-toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:end;}
+  .expense-toolbar .expense-search{grid-column:1/-1;max-width:none;width:100%;}
+  .expense-toolbar .result-count{margin-left:0;min-width:0;white-space:normal;}
+}
+@media(max-width:600px){
+  .expense-filter-evidence,.expense-toolbar{grid-template-columns:minmax(0,1fr);}
+  .expense-toolbar .expense-search{grid-column:auto;}
+}
 .expense-shell-actions{display:flex; gap:8px; flex-wrap:wrap;}
 .expense-shell-actions>button{min-height:var(--qb-control-h); padding:0 12px;
   border:1px solid var(--qb-border); border-radius:var(--qb-r-control);

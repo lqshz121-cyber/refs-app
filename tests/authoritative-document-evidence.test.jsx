@@ -162,6 +162,8 @@ assert.match(styles,/\.authoritative-adjustment-table \.tbl\{min-width:760px;tab
 assert.match(styles,/\.authoritative-document-detail-table \.tbl\{min-width:720px;table-layout:fixed;\}/,'four-column detail facts must retain readable columns without overflowing the page');
 assert.match(styles,/\.authoritative-document-summary>span\{position:relative;min-height:116px/,'summary cards must retain a stable visual hierarchy');
 assert.match(styles,/\.authoritative-list-filters\{display:grid;grid-template-columns:minmax\(220px,2fr\)/,'wide AP\/AR filters must align as a readable grid');
+assert.match(styles,/@media\s*\(max-width:1100px\)\s*\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,'AP/AR filters must collapse to two shrinkable columns before a 900px viewport can overflow');
+assert.match(styles,/\.authoritative-list-filters input,\.authoritative-list-filters select\{min-width:0;width:100%;max-width:100%;\}/,'AP/AR controls must not exceed their responsive grid tracks');
 assert.match(styles,/@media\s*\(max-width:720px\)\s*\{\.authoritative-document-intro(?:,\.authoritative-source-intro)?\{grid-template-columns:minmax\(0,1fr\)/,'narrow AP\/AR filters and evidence guidance must collapse before the page overflows');
 assert.doesNotMatch(styles,/repeat\(2,minmax\(0,1fr\);/,'a malformed narrow-layout grid declaration must never prevent later responsive rules from parsing');
 
