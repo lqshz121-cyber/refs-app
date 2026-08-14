@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import {verifyWbsSignedDelivery} from './wbs-signed-delivery-admission.mjs';
+import {validateWbsSnapshotPackage} from './wbs-snapshot-package.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IDEMPOTENCY=/^[A-Za-z0-9][A-Za-z0-9._:-]{15,199}$/;
@@ -48,7 +49,7 @@ function assertAdmission(data,verified,rawArtifacts){
 }
 function assertReviewCandidates(data){
   if(!Array.isArray(data)||data.length>50)fail('WBS_PROVIDER_READBACK_RESPONSE_INVALID','REFS review-candidate readback was not a bounded array.');
-  for(const row of data)if(!exactObject(row)||!UUID.test(row.wbs_inbound_row_id||'')||typeof row.source_record_id!=='string'||!row.source_record_id||typeof row.source_version!=='string'||!row.source_version||!HASH.test(row.receipt_hash||'')||!HASH.test(row.evidence_hash||''))fail('WBS_PROVIDER_READBACK_RESPONSE_INVALID','REFS review-candidate readback contained malformed provenance.');
+  for(const row of data)if(!exactObject(row)||!UUID.test(row.wbs_inbound_row_id||'')||typeof row.source_version!=='string'||!row.source_version||!HASH.test(row.receipt_hash||'')||!HASH.test(row.evidence_hash||''))fail('WBS_PROVIDER_READBACK_RESPONSE_INVALID','REFS review-candidate readback contained malformed provenance.');
   return data;
 }
 
@@ -57,7 +58,8 @@ export async function admitWbsProviderSignedPayableDelivery({apiBaseUrl,admissio
   if(!UUID.test(text(tenantId))||!UUID.test(text(entityId))||!companyCode||text(companyCode)!==companyCode)fail('WBS_PROVIDER_SCOPE_INVALID','Exact tenant, entity, and company scope are required.');
   if(!Buffer.isBuffer(requestRaw)||!Buffer.isBuffer(responseRaw)||!Buffer.isBuffer(packageRaw))fail('WBS_PROVIDER_ARTIFACTS_REQUIRED','Exact request, response, and package bytes are required.');
   if(!Number.isInteger(timeoutMs)||timeoutMs<1000||timeoutMs>120000)fail('WBS_PROVIDER_TIMEOUT_INVALID','timeoutMs must be an integer from 1000 to 120000.');
-  const origin=apiOrigin(apiBaseUrl),admitToken=token(admissionAccessToken,'REFS provider M2M access token');
+  const origin=apiOrigin(apiBaseUrl),admitToken=token(admissionAccessToken,'REFS provider M2M access token'),reviewerToken=reviewAccessToken==null?null:token(reviewAccessToken,'REFS reviewer access token');
+  if(reviewerToken===admitToken)fail('WBS_PROVIDER_REVIEW_IDENTITY_NOT_SEPARATE','Admission and reviewer access tokens must not be identical; server-side grants remain authoritative.');
   const verified=await verifyWbsSignedDelivery({providerTrust,receipt,requestRaw,responseRaw,packageRaw,expectedScope:{tenant_id:tenantId,entity_id:entityId,company_code:companyCode},now});
   const stableKey=idempotencyKey??`wbs-provider-${verified.admission_id.slice(7)}`;
   if(!IDEMPOTENCY.test(stableKey))fail('WBS_PROVIDER_IDEMPOTENCY_INVALID','Idempotency key must be a stable 16-200 character canonical token.');
@@ -66,12 +68,13 @@ export async function admitWbsProviderSignedPayableDelivery({apiBaseUrl,admissio
   const admitted=await requestJson(fetchImpl,`${origin}${path}`,{method:'POST',accessToken:admitToken,headers:{'content-type':'application/json','idempotency-key':stableKey},body,timeoutMs});
   const admission=assertAdmission(admitted.data,verified,{requestRaw,responseRaw,packageRaw});
   let readback={status:'NOT_REQUESTED',http_status:null,record_count:null,rows:[]};
-  if(reviewAccessToken!=null){
-    const reviewerToken=token(reviewAccessToken,'REFS reviewer access token');
+  if(reviewerToken!=null){
     const readPath=`/api/v1/entities/${entityId}/wbs/inbound/payables/review-candidates?limit=50`;
     const read=await requestJson(fetchImpl,`${origin}${readPath}`,{accessToken:reviewerToken,timeoutMs});
     const rows=assertReviewCandidates(read.data);
-    readback={status:'READ_BACK',http_status:read.status,record_count:rows.length,rows:rows.map(row=>Object.freeze({wbs_inbound_row_id:row.wbs_inbound_row_id,source_record_id:row.source_record_id,source_version:row.source_version,receipt_hash:row.receipt_hash,evidence_hash:row.evidence_hash,review_readiness:row.review_readiness??null,can_review:row.can_review===true}))};
+    const validated=validateWbsSnapshotPackage(verified.snapshot),expected=new Set(validated.receipts.filter(item=>item.source_module==='BGDATA.payable'&&item.ingestion_kind==='TRANSACTION_CANDIDATE').map(item=>`${item.source_version}\u0000${item.payload_hash}`));
+    const matched=rows.filter(row=>expected.has(`${row.source_version}\u0000${row.receipt_hash}`));
+    readback={status:matched.length?'READ_BACK_MATCHED':'READ_BACK_NOT_OBSERVED',http_status:read.status,queue_record_count:rows.length,record_count:matched.length,rows:matched.map(row=>Object.freeze({wbs_inbound_row_id:row.wbs_inbound_row_id,source_version:row.source_version,receipt_hash:row.receipt_hash,evidence_hash:row.evidence_hash,review_readiness:row.review_readiness??null,can_review:row.can_review===true}))};
   }
   return Object.freeze({status:'ADMITTED_SIGNED_PAYABLE_EVIDENCE',offline_verification:'PASS',api_origin:origin,tenant_id:tenantId,entity_id:entityId,company_code:companyCode,snapshot_id:verified.snapshot_id,admission_id:admission.wbs_provider_signed_payable_admission_id,idempotency_key:stableKey,admission_http_status:admitted.status,row_count:admission.row_count,idempotent:admission.idempotent===true,request_raw_hash:admission.request_raw_hash,response_raw_hash:admission.response_raw_hash,package_raw_hash:admission.package_raw_hash,signature_verified:true,readback,can_create_draft:false,can_approve:false,can_post:false});
 }

@@ -4,12 +4,22 @@ This is the single production handoff and execution contract. It separates provi
 
 ## 1. One-time platform configuration
 
-The REFS release owner must configure the API service, never the static site, with:
+Before enabling ingestion, the REFS release owner must prove that the target is the intended authoritative environment:
+
+- all four role-specific database URLs are configured: `DATABASE_URL`, `MIGRATION_DATABASE_URL`, `CONTEXT_ISSUER_DATABASE_URL`, and `GRANT_SYNC_DATABASE_URL`;
+- `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI`, and `REFS_HTTP_ALLOWED_ORIGINS` are configured and the issuer/JWKS URLs use HTTPS;
+- `npm.cmd --prefix server run db:up` completed under the migration role and the deployed migration manifest includes the provider-signed admission migrations;
+- `/health/ready` returns HTTP 200 and its release SHA equals the intended Git commit; the static `refs-build.js` stamp must equal the same SHA before browser acceptance;
+- `REFS_HTTP_MAX_BODY_BYTES=10485760`. The three raw artifacts are base64 encoded into one JSON request; the default 1 MiB body limit is insufficient.
+
+Then configure the API service, never the static site, with:
 
 - `WBS_PROVIDER_SIGNED_TRUST`: pinned provider trust JSON containing `issuer`, `key_id`, Ed25519 `public_key`, and the verified SPKI DER SHA-256 fingerprint.
 - `WBS_SNAPSHOT_ED25519_PUBLIC_KEYS`: JSON keyring containing the same active `key_id` and public key. Keep retired public keys while historical packages remain verifiable.
 - `WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID`: exact OIDC M2M access-token `sub`, not a human user, client display name, or browser session.
 - `REFS_WBS_INGEST_MODE=REQUIRED`: enable only after all three settings above and the database grant below are verified.
+
+Record the independently calculated trust fingerprint and compare it with both the provider's out-of-band value and the approved Render secret change. A local `--provider-trust` file validates the package but does not prove that Render has the same pin.
 
 The IAM/DB owner must grant that exact service subject only the required `WBS.SNAPSHOT.IMPORT` capability for each authorized REFS tenant/entity. Its token must carry the configured issuer, audience, tenant UUID claim, and the same subject.
 
@@ -46,11 +56,15 @@ The provider trust pin is configuration only. It is not a data package and canno
 Place the M2M and optional human reviewer tokens in process environment variables. The command never accepts or prints tokens:
 
 ```powershell
+$apiBase='<authoritative API HTTPS origin>'
+$ready=Invoke-RestMethod "$apiBase/health/ready"
+if(-not $ready.ok -or $ready.status -ne 'ready'){ throw 'Target API is not ready' }
+
 $env:REFS_PROVIDER_M2M_ACCESS_TOKEN='<OIDC M2M access token>'
 $env:REFS_PAYABLE_REVIEW_ACCESS_TOKEN='<optional separate reviewer read token>'
 
 npm.cmd --prefix server run wbs:provider-signed-payables:admit -- `
-  --api-base-url https://refs-accounting-api-staging.onrender.com `
+  --api-base-url $apiBase `
   --provider-trust C:\secure\wbs-provider-trust.json `
   --receipt C:\secure\WBPA\receipt.json `
   --request-raw C:\secure\WBPA\request.raw `
@@ -61,13 +75,15 @@ npm.cmd --prefix server run wbs:provider-signed-payables:admit -- `
   --company-code WBPA
 ```
 
+Never substitute a staging URL into a production run or a production URL into a staging rehearsal. Record the ready response, release SHA, tenant, entity, and company before executing the command. The optional read token requires exactly the server-authorized `WBS.PAYABLE.REVIEW` and `AP.VIEW` reads; it must not be the same token as the importer token.
+
 Before any network request, the tool verifies trust, both signatures, raw hashes, nonce/TTL, canonical package bytes, production V2 schema, non-empty rows, and exact tenant/entity/company scope. A mismatch performs zero API calls.
 
 The tool then:
 
 1. sends one idempotent service-only admission request;
 2. requires `PERSISTED_PAYABLE_STAGING_REVIEW_REQUIRED`, `signature_verified=true`, a positive row count, and matching raw hashes;
-3. optionally reads the closed review-candidate queue with a separate reviewer token;
+3. optionally reads the closed review-candidate queue with a different reviewer token and attributes only rows whose source version and receipt hash match this signed package; server-side OIDC subjects and grants remain the authoritative separation-of-duties proof;
 4. prints only IDs, counts, hashes, HTTP statuses, and no-action flags.
 
 It never creates a Draft, approves, posts, or writes WBS.
@@ -77,11 +93,17 @@ It never creates a Draft, approves, posts, or writes WBS.
 Signed admission alone intentionally stops at immutable inbound evidence. To reach Draft and Posted accounting, configure all of these before executing the existing workflow:
 
 - `REFS_ATTACHMENT_MODE=REQUIRED` with approved S3-compatible storage, malware scanner, CA/server identity, and scanner actor configuration;
+- API storage variables: `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (and `S3_SESSION_TOKEN` when issued);
+- API scanner variables: `VIRUS_SCANNER_ENDPOINT`, `VIRUS_SCANNER_TOKEN`, `VIRUS_SCANNER_CA_PEM` or `VIRUS_SCANNER_CA_FILE`, `VIRUS_SCANNER_SERVER_NAME`, and `ATTACHMENT_SCANNER_ACTOR_ID`;
+- a healthy TLS scanner sidecar whose certificate chains to the configured CA, whose server name matches, and whose malware engine and object-storage access both pass the container readiness test;
+- cleanup worker variables `ATTACHMENT_CLEANUP_ACTOR_ID`, `ATTACHMENT_CLEANUP_SCOPES`, the same S3 location/credentials, and a healthy cleanup service; cleanup scopes must enumerate only approved tenant/entity pairs;
 - verified-clean row-bound source attachments;
 - an open accounting period;
 - approved WBS Payable accounting setting and mapping snapshots;
 - exact vendor/member, AP, expense/CWIP/prepaid, cash/clearing, and dimension master data;
-- separate Maker, Reviewer, Approver, and Poster OIDC subjects and grants.
+- separate importer, uploader, scanner, attachment binder, Maker, Reviewer, Approver, and Poster subjects/grants wherever the existing server policy assigns those responsibilities; one token name or UI session is never accepted as proof of separation.
+
+Run a read-only preflight before accounting commands and retain its results: migration version, M2M `WBS.SNAPSHOT.IMPORT` grant, exact entity WBS binding, open period, approved Payable setting/mapping, vendor and account master readiness, scanner health, and attachment storage health. The reviewer read itself requires `WBS.PAYABLE.REVIEW` plus `AP.VIEW`.
 
 The workflow remains:
 
