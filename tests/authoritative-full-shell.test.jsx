@@ -108,6 +108,7 @@ assert.match(appSource, /AuthoritativeWbsTransitionWorkspace/, 'WBS evidence mus
 assert.match(appSource, /AuthoritativeWbsPayableReviewWorkspace/, 'WBS Payable Review must mount the signed-and-admitted evidence queue rather than an unavailable or browser-backed route');
 assert.match(appSource, /AuthoritativeAiAuditWorkspace/, 'AI Audit Center must mount the authenticated server-backed finding reader rather than a browser-backed audit model');
 assert.match(appSource, /route === 'ai-audit'/, 'AI Audit Center must mount at its stable authoritative route');
+assert.match(appSource, /'ai-audit','wbs-autorec-evidence'/, 'AI Audit Center must not fall through to the unavailable workspace after mounting');
 assert.match(appSource, /route === 'wbs-payable-review'/, 'the WBS Payable Review entry must have a stable authoritative route');
 assert.match(appSource, /AuthoritativeBankBatchPipelineWorkspace/, 'Bank Batch Pipeline must compose existing authoritative Bank and Reconciliation readers rather than fail closed as an unavailable route');
 assert.match(appSource, /route === 'bank-batch-pipeline'/, 'the API-backed Bank Batch Pipeline must mount at its stable navigation route');
