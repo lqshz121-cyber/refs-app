@@ -1526,12 +1526,12 @@
     "/entities/{entityId}/reports/dimension-profitability": {
       "get": {
         "operationId": "getDimensionProfitability",
-        "summary": "Read Property, Project, or Unit profitability from exact POSTED ledger dimensions",
-        "description": "Returns only POSTED ledger lines carrying the exact requested property_ref, project_ref, or unit_ref dimension. Missing dimensions are excluded rather than inferred from a source header, memo, bank account, or display label. This operation cannot create, adjust, post, export, or persist a report.",
+        "summary": "Read Property, Project, Unit, or Lot profitability from exact POSTED ledger dimensions",
+        "description": "Returns only POSTED ledger lines carrying the exact requested property_ref, project_ref, unit_ref, or lot_ref dimension. Missing dimensions are excluded rather than inferred from a source header, memo, bank account, or display label. This operation cannot create, adjust, post, export, or persist a report.",
         "parameters": [
           {"$ref": "#/components/parameters/EntityId"},
           {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}},
-          {"name": "dimensionType", "in": "query", "required": true, "schema": {"type": "string", "enum": ["PROPERTY", "PROJECT", "UNIT"]}},
+          {"name": "dimensionType", "in": "query", "required": true, "schema": {"type": "string", "enum": ["PROPERTY", "PROJECT", "UNIT", "LOT"]}},
           {"name": "dimensionRef", "in": "query", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^(?:\\S|\\S.*\\S)$"}}
         ],
         "responses": {
@@ -3515,9 +3515,9 @@
           "period_code": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"},
           "period_start": {"type": "string", "format": "date"},
           "period_end": {"type": "string", "format": "date"},
-          "dimension_type": {"type": "string", "enum": ["PROPERTY", "PROJECT", "UNIT"]},
+          "dimension_type": {"type": "string", "enum": ["PROPERTY", "PROJECT", "UNIT", "LOT"]},
           "dimension_ref": {"type": "string", "minLength": 1, "maxLength": 160},
-          "statement_type": {"type": "string", "enum": ["PROPERTY_PNL", "PROJECT_PNL", "UNIT_PROFITABILITY"]},
+          "statement_type": {"type": "string", "enum": ["PROPERTY_PNL", "PROJECT_PNL", "UNIT_PROFITABILITY", "LOT_PROFITABILITY"]},
           "statement_section": {"type": "string", "enum": ["REVENUE", "EXPENSES"]},
           "classification_basis": {"const": "POSTED_LEDGER_DIMENSION_EXACT"},
           "account_code": {"type": "string", "minLength": 1},

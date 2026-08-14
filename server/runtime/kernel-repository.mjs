@@ -977,6 +977,10 @@ export class PostgresAccountingKernel{
   }
 
   async getDimensionProfitability({tenantId,entityId,periodId,dimensionType,dimensionRef}){
+    if(dimensionType==='LOT')return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_get_lot_profitability($1,$2,$3,$4)',
+      [tenantId,entityId,periodId,dimensionRef]
+    )).rows);
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_dimension_profitability($1,$2,$3,$4,$5)',
       [tenantId,entityId,periodId,dimensionType,dimensionRef]
