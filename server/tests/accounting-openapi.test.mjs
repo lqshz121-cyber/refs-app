@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
 const contract=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
+assert.deepEqual(contract.components.schemas.AuthoritativeScopeReadRow.properties.period_status.enum,['OPEN','SOFT_CLOSED','CLOSED'],'authoritative scope status must match the PostgreSQL period_status enum');
 const operations=Object.values(contract.paths).flatMap(path=>path.post?[path.post]:[]);
 const accountingCommands=operations.filter(operation=>operation.operationId!=='explainAiAccountingAnalysis');
 

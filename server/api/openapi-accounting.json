@@ -3291,7 +3291,7 @@
         "required":["entity_id","entity_name","entity_code","base_currency","period_id","period_code","period_start","period_end","period_status"],
         "properties":{
           "entity_id":{"$ref":"#/components/schemas/Uuid"},"entity_name":{"type":"string","minLength":1,"maxLength":255},"entity_code":{"type":"string","minLength":1,"maxLength":128},"base_currency":{"type":"string","pattern":"^[A-Z]{3}$"},
-          "period_id":{"$ref":"#/components/schemas/Uuid"},"period_code":{"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])$"},"period_start":{"type":"string","format":"date"},"period_end":{"type":"string","format":"date"},"period_status":{"type":"string","enum":["OPEN","CLOSED","LOCKED"]}
+          "period_id":{"$ref":"#/components/schemas/Uuid"},"period_code":{"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])$"},"period_start":{"type":"string","format":"date"},"period_end":{"type":"string","format":"date"},"period_status":{"type":"string","enum":["OPEN","SOFT_CLOSED","CLOSED"]}
         }
       },
       "AccountRegisterReadRow": {

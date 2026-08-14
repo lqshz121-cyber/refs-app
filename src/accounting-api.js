@@ -747,7 +747,7 @@ export async function refreshAuthoritativeScope({config,fetcher=globalThis.fetch
     const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/scope?${new URLSearchParams({periodId:config.periodId})}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
     if(!response.ok)return await failure(response,'AUTHORITATIVE_SCOPE');
     const body=await response.json(),row=body?.data;
-    if(body?.ok!==true||!row||row.entity_id!==config.entityId||row.period_id!==config.periodId||typeof row.entity_name!=='string'||!row.entity_name.trim()||typeof row.entity_code!=='string'||!row.entity_code.trim()||!/^[A-Z]{3}$/.test(row.base_currency||'')||!exactMonthlyPeriod(row)||!['OPEN','CLOSED','LOCKED'].includes(row.period_status))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid authoritative scope.'};
+    if(body?.ok!==true||!row||row.entity_id!==config.entityId||row.period_id!==config.periodId||typeof row.entity_name!=='string'||!row.entity_name.trim()||typeof row.entity_code!=='string'||!row.entity_code.trim()||!/^[A-Z]{3}$/.test(row.base_currency||'')||!exactMonthlyPeriod(row)||!['OPEN','SOFT_CLOSED','CLOSED'].includes(row.period_status))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid authoritative scope.'};
     return {ok:true,row:{...row,entity_name:row.entity_name.trim(),entity_code:row.entity_code.trim()}};
   }catch{return unreachable('The browser could not complete the authoritative scope read; no HTTP response was produced.');}
 }
