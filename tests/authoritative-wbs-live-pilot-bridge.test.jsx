@@ -20,6 +20,8 @@ for(const boundary of ['OPERATOR ATTESTED','UNSIGNED','EXCEPTION REVIEW REQUIRED
 assert.match(payables,/Retain as exception evidence/);assert.match(payables,/Refresh retained evidence/);
 const source=fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8');
 for(const retainedUi of ['Real retained WBS Payable exception rows','Company scope status','View retained rows','View details','AWAITING SIGNED REDELIVERY','GL / REPORT','Next owner'])assert.match(source,new RegExp(retainedUi));
+assert.match(source,/row\.document_number\|\|`Source \$\{row\.source_record_id\}`/,'retained immutable evidence must expose its server-provided source record when the Provider supplied no invoice number');
+assert.match(source,/row\.accounting_date\|\|'Not supplied by Provider'/,'a missing provider accounting date must be explicit rather than presented as a false zero or generic unavailable state');
 assert.match(source,/refreshAuthoritativeWbsOperatorPayableExceptionRows/);
 assert.match(payables,/title="Unavailable until authenticated exception-evidence access and a live WBS Payables observation with at least one row are available"/,'the disabled exception-retain button must explain its unavailable state');
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/refreshAuthoritativeWbsOperatorPayableAttestations\(\{config,fetcher\}\).*canAttest:true/s,'the existing protected retained-evidence GET must drive operator button capability');
