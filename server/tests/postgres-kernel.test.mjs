@@ -23,6 +23,7 @@ import {buildWbsMcpReadonlySnapshot} from '../runtime/wbs-mcp-inbound-lineage.mj
 import {createWbsSignedDelivery} from '../runtime/wbs-signed-delivery-admission.mjs';
 import {createWbsProviderSignedPayableAdmission} from '../runtime/wbs-provider-signed-payable-admission.mjs';
 import {createWbsAdmittedPayableIngestion} from '../runtime/wbs-admitted-payable-ingestion.mjs';
+import {createWbsAdmittedCostCwipIngestion} from '../runtime/wbs-admitted-cost-cwip-ingestion.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -33,7 +34,9 @@ let unavailable=null;
 
 before(async()=>{
   try{
-    adminPool=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-pg-integration-admin',max:8});
+    // Fresh-suite cleanup can cascade across the full fixture graph; keep the runtime
+    // connection at its production 10s budget while allowing the admin-only reset to finish.
+    adminPool=await createPool({databaseUrl:config.migrationDatabaseUrl,applicationName:'refs-pg-integration-admin',max:8,statementTimeoutMs:60000});
     await adminPool.query('SELECT 1');
     await migrateUp(adminPool);
     runtimePool=await createPool({databaseUrl:config.databaseUrl,applicationName:'refs-pg-integration-runtime',max:8});
@@ -504,6 +507,68 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   assert.deepEqual({debit:trialExpense.period_debit,credit:trialExpense.period_credit,balance:trialExpense.display_balance},{debit:'89.1250',credit:'0.0000',balance:'89.1250'});
   assert.deepEqual({debit:trialPayable.period_debit,credit:trialPayable.period_credit,balance:trialPayable.display_balance},{debit:'0.0000',credit:'89.1250',balance:'-89.1250'});
   assert.deepEqual(await authorityReader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'89.1250',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'89.1250'}]);
+});
+
+pgTest('signed Cost-to-CWIP admission reaches controlled Draft, four-role Post, GL, and Trial Balance',async()=>{
+  const ids=await seed({status:'DRAFT',extraAccounts:[
+    {accountCode:'164100',accountName:'Construction in progress'},
+    {accountCode:'610000',accountName:'Cost clearing'}
+  ]}),{privateKey,publicKey}=generateKeyPairSync('ed25519'),keyId='wbs-cost-cwip-pg',sourceId='COST-LEDGER-PG-001',capturedAt='2026-07-11T02:00:00.000Z';
+  const rows=[{costLedgerId:sourceId,currency:'USD',amount:'125.5000',cost_date:'2026-07-10',posting_date:'2026-07-11',project_ref:'PROJECT-01',cost_code_ref:'CWIP-LAND',description:'Land preparation',direction:'DEBIT'}];
+  const view={name:'BGDATA.cost_general_ledger',company_key:ids.sourceEntityId,rows,row_count:1,first_primary_key:sourceId,last_primary_key:sourceId,content_hash:canonicalRequestHash(rows)};
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:randomUUID(),captured_at:capturedAt,environment:'PRODUCTION',source_system:'WBS',dictionary_version:'WBS-COST-GL-V1',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',snapshot_token:`cost-cwip-${randomUUID()}`,extract_started_at:'2026-07-11T01:59:00.000Z',extract_completed_at:capturedAt,consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'},views:[view],detached_signature:{key_id:keyId,algorithm:'Ed25519',value:''}};
+  const {detached_signature,...manifest}=snapshot;snapshot.package_hash=canonicalRequestHash(manifest);snapshot.detached_signature.value=sign(null,Buffer.from(snapshot.package_hash),privateKey).toString('base64');
+  const verifier=createWbsSnapshotSignatureVerifier({publicKeys:{[keyId]:publicKey.export({type:'spki',format:'pem'})}});
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-importer',['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:verifier});
+  const ingester=createWbsAdmittedCostCwipIngestion({kernel:importer,signatureVerifier:verifier});
+  const admitted=await ingester.ingest({...ids,snapshot,idempotencyKey:'wbs-cost-cwip-pg-ingest-0001'});
+  assert.deepEqual({status:admitted.status,staging:admitted.staging_count,draft:admitted.can_create_draft,post:admitted.can_post},{status:'PERSISTED_COST_CWIP_STAGING_REVIEW_REQUIRED',staging:1,draft:false,post:false});
+  const stored=(await adminPool.query(`SELECT i.wbs_inbound_row_id,i.source_version,r.receipt_hash,i.raw,i.normalized,i.outcome,i.outcome_kind,
+    refs_wbs_cost_cwip_review_evidence_hash(i.wbs_inbound_row_id,i.source_record_id,i.source_version,r.receipt_hash,i.raw,i.normalized,i.outcome,i.outcome_kind) evidence_hash
+    FROM wbs_inbound_receipt r JOIN wbs_inbound_row i USING(receipt_id)
+    WHERE r.tenant_id=$1 AND r.entity_id=$2 AND i.source_record_id=$3`,[ids.tenantId,ids.entityId,sourceId])).rows[0];
+  assert.deepEqual({amount:stored.normalized.amount_money4,type:stored.normalized.source_type,kind:stored.outcome_kind,stage:stored.outcome.stage},{amount:'125.5000',type:'COST_CWIP',kind:'STAGING',stage:'STAGING_REVIEW_REQUIRED'});
+  const settingSnapshotId=randomUUID(),mappingSnapshotId=randomUUID(),setting={review:'human_required'},mappingInput={company_key:ids.sourceEntityId,currency:'USD',project_ref:'PROJECT-01',cost_code_ref:'CWIP-LAND'},mappingOutput={cwip_account_code:'164100',offset_account_code:'610000',rule_code:'WBS_COST_TO_CWIP',rule_version:1};
+  const hashes=(await adminPool.query(`SELECT refs_jsonb_hash($1::jsonb) setting_hash,refs_jsonb_hash($2::jsonb) input_hash,
+    refs_jsonb_hash(jsonb_build_object('input_keys',$2::jsonb,'output_rules',$3::jsonb)) mapping_hash`,[JSON.stringify(setting),JSON.stringify(mappingInput),JSON.stringify(mappingOutput)])).rows[0];
+  await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3::uuid,'WBS_COST_CWIP_REVIEW','ENTITY',($3::uuid)::text,1,'2026-01-01','APPROVED',$4::jsonb,$5,'cost-setting-maker','cost-setting-approver',now())`,[settingSnapshotId,ids.tenantId,ids.entityId,JSON.stringify(setting),hashes.setting_hash]);
+  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3::uuid,'WBS_COST_CWIP','ENTITY',($3::uuid)::text,$4,1,0,'2026-01-01','APPROVED',$5::jsonb,$6::jsonb,$7,'cost-mapping-maker','cost-mapping-approver',now())`,[mappingSnapshotId,ids.tenantId,ids.entityId,hashes.input_hash,JSON.stringify(mappingInput),JSON.stringify(mappingOutput),hashes.mapping_hash]);
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-reviewer',['WBS.COST.CWIP.REVIEW'])});
+  const reviewArgs={...ids,wbsInboundRowId:stored.wbs_inbound_row_id,periodId:ids.periodId,expectedSourceVersion:stored.source_version,expectedReceiptHash:stored.receipt_hash,expectedEvidenceHash:stored.evidence_hash,settingSnapshotId,mappingSnapshotId,reason:'Independently validate Cost-to-CWIP source and mapping',idempotencyKey:'wbs-cost-cwip-pg-review-0001'};
+  const reviewed=await reviewer.reviewWbsCostCwip(reviewArgs),reviewReplay=await reviewer.reviewWbsCostCwip(reviewArgs);
+  assert.deepEqual({status:reviewed.status,replay:reviewReplay.idempotent,draft:reviewed.can_create_draft,post:reviewed.can_post},{status:'READY_FOR_DRAFT',replay:true,draft:false,post:false});
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-maker',['WBS.COST.CWIP.DRAFT','GL.JE.AUTO.CREATE'])});
+  const draftArgs={...ids,reviewEvidenceId:reviewed.wbs_cost_cwip_review_evidence_id,expectedEvidenceHash:stored.evidence_hash,reason:'Create a controlled CWIP Draft from reviewed cost evidence',idempotencyKey:'wbs-cost-cwip-pg-draft-0001'};
+  await assert.rejects(reviewer.createWbsCostCwipDraft(draftArgs),error=>error.code==='42501');
+  const deniedAttempt=await adminPool.query(`SELECT s.status,s.version,count(sl.journal_entry_id)::int journal_count
+    FROM staging_item s LEFT JOIN source_link sl ON sl.tenant_id=s.tenant_id AND sl.entity_id=s.entity_id AND sl.staging_item_id=s.staging_item_id
+    WHERE s.tenant_id=$1 AND s.entity_id=$2 AND s.staging_item_id=$3 GROUP BY s.status,s.version`,[ids.tenantId,ids.entityId,reviewed.staging_item_id]);
+  assert.deepEqual(deniedAttempt.rows[0],{status:'READY_FOR_DRAFT',version:'0',journal_count:0});
+  const drafted=await maker.createWbsCostCwipDraft(draftArgs),draftReplay=await maker.createWbsCostCwipDraft(draftArgs);
+  assert.deepEqual({status:drafted.status,type:drafted.journal_type,replay:draftReplay.idempotent},{status:'DRAFT',type:'AUTO',replay:true});
+  const lines=(await adminPool.query(`SELECT line_no,account_code,debit_amount::text debit,credit_amount::text credit
+    FROM journal_line WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3 ORDER BY line_no`,[ids.tenantId,ids.entityId,drafted.journal_entry_id])).rows;
+  assert.deepEqual(lines,[{line_no:1,account_code:'164100',debit:'125.5000',credit:'0.0000'},{line_no:2,account_code:'610000',debit:'0.0000',credit:'125.5000'}]);
+  const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-submitter',['GL.JE.SUBMIT'])});
+  const journalReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-journal-reviewer',['GL.JE.REVIEW'])});
+  const journalApprover=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-journal-approver',['GL.JE.APPROVE'])});
+  const journalPoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-journal-poster',['GL.JE.POST'])});
+  assert.equal((await submitter.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'wbs-cost-cwip-pg-submit-0001'})).status,'PENDING_REVIEW');
+  assert.equal((await journalReviewer.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'wbs-cost-cwip-pg-journal-review-0001'})).status,'PENDING_APPROVAL');
+  assert.equal((await journalApprover.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'wbs-cost-cwip-pg-approve-0001'})).status,'APPROVED');
+  await journalPoster.postJournal({...ids,journalEntryId:drafted.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'wbs-cost-cwip-pg-post-0001'});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-report-reader',['GL.JE.VIEW','GL.REPORT.VIEW'])});
+  const gl=await reader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'164100',query:sourceId,limit:10,offset:0});
+  assert.deepEqual({count:gl.length,journal:gl[0]?.journal_entry_id,debit:gl[0]?.debit_amount,credit:gl[0]?.credit_amount,sources:gl[0]?.source_document_ids},{count:1,journal:drafted.journal_entry_id,debit:'125.5000',credit:'0.0000',sources:[reviewed.source_document_id]});
+  const trial=(await reader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId})).find(row=>row.statement_type==='TRIAL_BALANCE'&&row.account_code==='164100');
+  assert.deepEqual({debit:trial.period_debit,credit:trial.period_credit,balance:trial.display_balance},{debit:'125.5000',credit:'0.0000',balance:'125.5000'});
+  const posted=(await adminPool.query(`SELECT j.status::text journal_status,s.status::text staging_status,s.version::text staging_version,
+    (SELECT count(*)::int FROM ledger_line l WHERE l.tenant_id=j.tenant_id AND l.entity_id=j.entity_id AND l.journal_entry_id=j.journal_entry_id) ledger_lines
+    FROM journal_entry j JOIN wbs_cost_cwip_review_evidence e ON e.tenant_id=j.tenant_id AND e.entity_id=j.entity_id
+    JOIN staging_item s ON s.staging_item_id=e.staging_item_id WHERE j.journal_entry_id=$1`,[drafted.journal_entry_id])).rows[0];
+  assert.deepEqual(posted,{journal_status:'POSTED',staging_status:'POSTED',staging_version:'5',ledger_lines:2});
 });
 
 pgTest('signed admitted WBS bank statement atomically creates exact bank sources with replay and conflict guards',async()=>{
