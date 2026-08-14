@@ -77,10 +77,11 @@ const requiredCommands = [
   { name: 'provider-wbs-receipt', command: 'npm.cmd run verify:release-wbs-receipt', requiredExit: 0, scope: 'real WBS signed nonempty receipt; not satisfied by local simulation' },
   { name: 'stage1-payable-live-chain', command: 'npm.cmd run verify:stage1-payable-live-acceptance -- --provider-trust <pinned-trust.json> --receipt <receipt.json> --request-raw <request.raw> --response-raw <response.raw> --package-raw <package.json> --chain <stage1-chain.json>', requiredExit: 0, scope: 'real signed Payable attachment → separated roles → same posted JE → GL/TB/AP Aging; not satisfied by local simulation' },
   { name: 'stage2-bank-live-chain', command: 'npm.cmd run verify:stage2-bank-live-chain', requiredExit: 0, scope: 'real signed-off Bank match to immutable snapshot to posted JE to GL/TB/BS/Cash Flow readback; read-only and not satisfied by local simulation' },
+  { name: 'stage3-wbs-live-chain', command: 'npm.cmd run verify:stage3-wbs-live-chain -- --provider-trust <pinned-trust.json> --receipt <receipt.json> --request-raw <request.raw> --response-raw <response.raw> --package-raw <package.json> --ingress <ingress.json> --g11 <g11.json> --gl-report <gl-report.json>', requiredExit: 0, scope: 'real signed WBS multi-source ingress to reviewed staging to G11 posted journals to tied GL/report evidence; read-only and not satisfied by local simulation' },
 ];
 
 const scriptCoverage = Object.fromEntries(
-  ['test', 'build', 'test:release-harness', 'test:release-simulation', 'verify:external-release-gate', 'verify:authoritative-runtime-evidence', 'verify:release-s3-scanner', 'verify:release-wbs-receipt', 'verify:stage1-payable-live-acceptance', 'verify:stage2-bank-live-chain']
+  ['test', 'build', 'test:release-harness', 'test:release-simulation', 'verify:external-release-gate', 'verify:authoritative-runtime-evidence', 'verify:release-s3-scanner', 'verify:release-wbs-receipt', 'verify:stage1-payable-live-acceptance', 'verify:stage2-bank-live-chain', 'verify:stage3-wbs-live-chain']
     .map(name => [name, packageJson.scripts?.[name] || null]),
 );
 
@@ -120,7 +121,7 @@ const manifest = {
   required_commands: requiredCommands,
   release_acceptance: {
     local_candidate_gate: 'PASS only after required local commands exit 0 on a clean frozen SHA',
-    global_release_gate: 'PARTIAL/FAIL until real HTTPS/OIDC, authenticated 7-page live E2E, provider S3/scanner lifecycle, signed WBS Payable attachment-to-GL/TB/AP Aging evidence, and the signed-off Bank-to-GL/TB/BS/Cash Flow chain exist',
+    global_release_gate: 'PARTIAL/FAIL until real HTTPS/OIDC, authenticated 7-page live E2E, provider S3/scanner lifecycle, signed WBS Payable attachment-to-GL/TB/AP Aging evidence, the signed-off Bank-to-GL/TB/BS/Cash Flow chain, and signed WBS multi-source ingress-to-GL/report evidence exist',
   },
   pr_7: prEvidence,
 };
@@ -146,7 +147,7 @@ writeText(resolve(outRoot, 'README.md'), [
   '## Release boundary',
   '',
   '- Local candidate gates can pass with deterministic local simulation.',
-  '- Global release remains blocked until real HTTPS/OIDC, live authenticated browser evidence, provider S3/scanner, the signed WBS Payable attachment-to-GL/TB/AP Aging chain, and the signed-off Bank-to-GL/TB/BS/Cash Flow chain are present.',
+  '- Global release remains blocked until real HTTPS/OIDC, live authenticated browser evidence, provider S3/scanner, the signed WBS Payable attachment-to-GL/TB/AP Aging chain, the signed-off Bank-to-GL/TB/BS/Cash Flow chain, and signed WBS multi-source ingress-to-GL/report evidence are present.',
   '',
 ].join('\n'));
 
