@@ -5,6 +5,7 @@ import {focusFirstControl, navDrawerAttributes, navDrawerIsInert, readOffCanvas,
 const app=readFileSync('src/legacy-demo-app.jsx','utf8');
 const authoritative=readFileSync('src/authoritative-app.jsx','utf8');
 const authoritativeShell=readFileSync('src/authoritative-navigation-shell.jsx','utf8');
+const authoritativeTopbar=readFileSync('src/authoritative-demo-shell.jsx','utf8');
 const styles=readFileSync('index.html','utf8');
 assert.match(app,/<button className="mobile-nav-scrim" tabIndex=\{-1\} aria-label="Close navigation"/);
 assert.match(app,/<button className="mobile-nav-close" aria-label="Close navigation" onClick=\{\(\)=>setMobileNav\(false\)\}>Close<\/button>/);
@@ -126,8 +127,8 @@ assert.match(authoritativeShell,/className="nav-panel"/,
   'the reusable production shell must render a full page navigation panel');
 assert.doesNotMatch(authoritativeShell,/authoritative-nav-status|Authoritative API read available|This workspace is unavailable for the current authority/,
   'the page navigation must reserve its row for the full workspace name');
-assert.match(authoritative,/user-nm" title="Authenticated OIDC session">Signed<\/span>/,
-  'the compact authenticated-session label must remain readable without hiding its OIDC meaning');
+assert.match(authoritativeTopbar,/aria-label="Signed-in user"/,
+  'the compact signed-in user label must remain understandable without technical session terminology');
 assert.match(authoritativeShell,/aria-label="Accounting workspace groups"/,
   'the production workflow rail must expose an accessible landmark name');
 assert.match(authoritativeShell,/aria-label=\{`\$\{activeGroup\.label\} navigation`\}/,

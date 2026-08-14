@@ -46,11 +46,11 @@ assert.equal(routeListeners.has('hashchange'),false,'the authoritative app must 
 const topbarMarkup = renderToStaticMarkup(<AuthoritativeDemoTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
 assert.match(topbarMarkup, /WBHO WB Home LLC/);
 assert.match(topbarMarkup, /Search or jump/, 'the authoritative topbar must retain the demo command-slot geometry');
-assert.match(topbarMarkup, /Search is unavailable until an authorised server-backed discovery contract exists/,
-  'the visually retained command slot must fail closed until an API contract exists');
+assert.match(topbarMarkup, /Search will be available when company records can be searched/,
+  'the visually retained command slot must explain its next business outcome');
 assert.match(topbarMarkup, /Period/);
-assert.match(topbarMarkup, /Authoritative/);
-assert.match(topbarMarkup, /Authenticated/);
+assert.match(topbarMarkup, /Secure data/);
+assert.match(topbarMarkup, /Signed in/);
 assert.doesNotMatch(fs.readFileSync('src/authoritative-demo-shell.jsx', 'utf8'), /seed\.js|repo\.js|localStorage|legacy-demo-app/,
   'the copied visual shell must accept authoritative slots only');
 const demoViewMarkup = renderToStaticMarkup(<AuthoritativeDemoView area="Reports"><AuthoritativeDemoWorkspaceHeader eyebrow="AUTHORITATIVE | REPORTING" title="Reports center" description="API-backed report facts only."/><div>API-owned report content</div></AuthoritativeDemoView>);
@@ -75,10 +75,10 @@ for(const scopeHook of [
 ])assert.ok(appSource.indexOf(scopeHook)>0&&appSource.indexOf(scopeHook)<firstConditionalRender,`${scopeHook} must execute before every conditional render so OIDC phase changes cannot alter the React hook order`);
 assert.match(appSource, /Accounting records are read only from the authenticated API in this mode/,
   'the sign-in surface must describe the sole authoritative source of accounting records');
-assert.match(appSource, /display name not returned by API/,
-  'a missing entity display name must be explained without promoting its internal UUID to primary text');
-assert.match(appSource, /period details not returned by API/,
-  'a missing period label must be explained without presenting an internal ID as the period');
+assert.match(appSource, /name not available/,
+  'a missing company name must be explained without promoting its internal identifier to primary text');
+assert.match(appSource, /details not available/,
+  'a missing period label must be explained without presenting an internal identifier as the period');
 assert.doesNotMatch(appSource, /No demo identity/,
   'the authoritative sign-in surface must not expose retired product terminology');
 const runtimeErrorSource = fs.readFileSync('src/runtime-error-page.jsx', 'utf8');

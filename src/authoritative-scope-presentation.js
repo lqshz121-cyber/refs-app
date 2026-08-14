@@ -20,11 +20,11 @@ export function authoritativeScopePresentation(config,coaRows=[]){
   const entityNameReturned=Boolean(entityName);
   const periodReturned=Boolean(period?.period_code);
   return {
-    entityLabel:entityName||'Configured entity',
+    entityLabel:entityName||'Current company',
     entityDetail:UUID.test(config?.entityId||'')?config.entityId:'Identifier unavailable',
     entityNameReturned,
-    entityHint:entityNameReturned?'':'The authenticated API did not return an entity display name.',
-    periodLabel:period?.period_code||'Configured period',
+    entityHint:entityNameReturned?'':'A company display name is not available yet.',
+    periodLabel:period?.period_code||'Current period',
     periodDetail:period?`${formatAuthoritativeDate(period.period_start)} - ${formatAuthoritativeDate(period.period_end)}`:(UUID.test(config?.periodId||'')?config.periodId:'Identifier unavailable'),
     periodReturned,
     periodHint:periodReturned?'':'The authenticated API did not return a period code or date range.',
