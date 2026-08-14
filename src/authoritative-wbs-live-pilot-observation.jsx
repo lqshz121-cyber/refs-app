@@ -19,13 +19,16 @@ const approvedTools=tools=>{
   return unique.filter(tool=>Object.hasOwn(WBS_LIVE_PILOT_VIEWS,tool));
 };
 
-export const wbsLivePilotErrorGuidance=code=>{
-  if(code==='ACCOUNTING_API_SERVER_ERROR')return 'Next step: retry after the production WBS service is available; do not use retained observations as accounting input.';
-  if(code==='WBS_LIVE_PILOT_SCOPE_INVALID'||code==='WBS_LIVE_PILOT_SCOPE_MISMATCH')return 'Next step: enter the exact Provider company code and matching 2026 dates, then refresh the read-only observation.';
-  if(code==='WBS_LIVE_PILOT_PROTOCOL')return 'Next step: ask the WBS operator for immutable company, accounting-date, currency, and source-record evidence; no accounting action is available.';
-  if(code==='AUTHENTICATION_REQUIRED'||code==='AUTHORIZATION_DENIED')return 'Next step: sign in with an authorized accounting identity, then retry the read-only request.';
-  return 'Next step: retry the read-only request or contact the operator; no accounting record was created.';
+// This UI intentionally never renders a server-provided error message: a
+// provider outage may contain infrastructure detail that is not business UI.
+export const wbsObservationFailureCopy=error=>{
+  const code=error?.code;
+  if(code==='WBS_LIVE_PILOT_SCOPE_INVALID'||code==='WBS_LIVE_PILOT_SCOPE_MISMATCH')return {title:'WBS scope needs correction',message:'Enter the exact Provider company code and matching 2026 dates, then refresh this read-only observation. No accounting record was created.'};
+  if(code==='WBS_LIVE_PILOT_PROTOCOL')return {title:'WBS source evidence is incomplete',message:'Ask the WBS operator for immutable company, accounting-date, currency, and source-record evidence. No accounting action is available.'};
+  if(code==='AUTHENTICATION_REQUIRED'||code==='AUTHORIZATION_DENIED')return {title:'Authorized accounting access is required',message:'Sign in with an authorized accounting identity, then retry this read-only request.'};
+  return {title:'Production WBS read is temporarily unavailable',message:'Retry the read later. This read-only request did not create, change, review, draft, approve, or post any accounting record.'};
 };
+export const wbsLivePilotErrorGuidance=code=>wbsObservationFailureCopy({code}).message;
 
 export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.fetch,tools=WBS_LIVE_PILOT_SURFACE_TOOLS.wbs,title='Production WBS provider observation',showRows=true}){
   const availableTools=approvedTools(tools);
@@ -50,8 +53,10 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
   const scopeDates=['list_payables','list_bank_transactions','list_autorec_details','list_journal_entries'].includes(tool);
   const scopedPayables=tool==='list_payables';
   const requestedCompany=companyCode.trim();
+  const datesAllowed=scopeDates&&(!scopeCompany||requestedCompany.length>0);
   const hasExactAttestationScope=requestedCompany.length>0&&observation?.scope?.company_codes?.length===1&&observation.scope.company_codes[0]===requestedCompany&&observation.scope.date_range?.[0]===dateFrom&&observation.scope.date_range?.[1]===dateTo;
   const retainPathReady=true;
+  const failureCopy=wbsObservationFailureCopy(state.error);
   const liveStatus=state.phase==='LOADING'?'CONNECTING':state.phase==='BLOCKED'?(state.error?.code?.includes('SCOPE')?'SCOPE REQUIRED':'API ERROR'):observation?(observation.record_count>0?'CONNECTED':'NO RECORDS'):'NOT CHECKED';
   const liveStatusTone=liveStatus==='CONNECTED'?'badge-ok':liveStatus==='CONNECTING'?'badge-muted':'badge-warn';
   const selectedExceptionRow=exceptionRowsState.rows.find(row=>row.wbs_operator_payable_evidence_row_id===selectedExceptionRowId)||exceptionRowsState.rows[0]||null;
@@ -63,7 +68,7 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
     event.preventDefault();
     setState(current=>({...current,phase:'LOADING',error:null}));
     const requestedCompanyCode=scopeCompany?companyCode.trim():'';
-    const result=await refreshAuthoritativeWbsLivePilot({config,tool,limit:10,companyCode:requestedCompanyCode||null,dateFrom:scopeDates?dateFrom:null,dateTo:scopeDates?dateTo:null,fetcher});
+    const result=await refreshAuthoritativeWbsLivePilot({config,tool,limit:10,companyCode:requestedCompanyCode||null,dateFrom:datesAllowed?dateFrom:null,dateTo:datesAllowed?dateTo:null,fetcher});
     setAttestationConfirmation(false);
     setState(current=>result.ok?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result});
   };
@@ -74,16 +79,16 @@ export function AuthoritativeWbsLivePilotObservation({config,fetcher=globalThis.
   return <section className="report-workbench authoritative-wbs-live-pilot-observation" aria-label={title}>
     <div className="report-workbench-head"><div><b>Live WBS connection status</b><div className="page-subtitle">Authenticated Production WBS API read for the current signed-in company. No demo or browser-stored data is used.</div></div><div className="authoritative-wbs-live-pilot-status" aria-label="Live WBS connection status"><span className={`badge ${liveStatusTone}`}>{liveStatus}</span><span className="badge badge-muted">READ ONLY</span></div></div>
     <div className="report-shelf" aria-label="Production WBS observation boundary"><span className="report-shelf-chip report-shelf-chip-on">GET ONLY</span><span className="report-shelf-chip">UNSIGNED PILOT</span><span className="report-shelf-chip">NOT ADMITTED</span><span className="report-shelf-chip">NOT POSTABLE</span></div>
-    <div className="qbo-toolgrid" aria-label="Live WBS connection facts"><span><i>Status</i><b>{liveStatus}</b></span><span><i>Last successful API read</i><b>{observation?.captured_at||'Not yet read'}</b></span><span><i>Record count</i><b>{observation?.record_count??'Unavailable'}</b></span><span><i>Configured entity</i><b>{config?.scopePresentation?.entityLabel||'Entity name unavailable'}</b></span><span><i>Requested period</i><b>{scopeDates?`${dateFrom} to ${dateTo}`:'Provider current scope'}</b></span><span><i>Source</i><b>Production WBS API</b></span></div>
+    <div className="qbo-toolgrid" aria-label="Live WBS connection facts"><span><i>Status</i><b>{liveStatus}</b></span><span><i>Last successful API read</i><b>{observation?.captured_at||'Not yet read'}</b></span><span><i>Record count</i><b>{observation?.record_count??'Unavailable'}</b></span><span><i>Configured entity</i><b>{config?.scopePresentation?.entityLabel||'Entity name unavailable'}</b></span><span><i>Requested period</i><b>{scopeDates?(datesAllowed?`${dateFrom} to ${dateTo}`:'Enter a company code to request dates'):'Provider current scope'}</b></span><span><i>Source</i><b>Production WBS API</b></span></div>
     <form className="filterbar authoritative-wbs-live-pilot-controls" onSubmit={read}>
       {availableTools.length>1?<label>WBS read-only view<select aria-label="WBS read-only view" value={tool} onChange={event=>{setTool(event.target.value);setState({phase:'IDLE',data:null,error:null});}}>{availableTools.map(name=><option key={name} value={name}>{WBS_LIVE_PILOT_VIEWS[name].label}</option>)}</select></label>:<span className="muted sm"><b>WBS read-only view:</b> {view.label}</span>}
       {scopeCompany&&<label>WBS company code<input aria-label="WBS company code" maxLength="128" placeholder="Optional exact Provider scope" value={companyCode} onChange={event=>{setCompanyCode(event.target.value);setState({phase:'IDLE',data:null,error:null});setAttestationConfirmation(false);}}/></label>}
-      {scopeDates&&<><label>From<input aria-label="WBS observation date from" type="date" value={dateFrom} onChange={event=>{setDateFrom(event.target.value);setState({phase:'IDLE',data:null,error:null});setAttestationConfirmation(false);}}/></label><label>To<input aria-label="WBS observation date to" type="date" value={dateTo} onChange={event=>{setDateTo(event.target.value);setState({phase:'IDLE',data:null,error:null});setAttestationConfirmation(false);}}/></label></>}
+      {scopeDates&&<><label>From<input aria-label="WBS observation date from" type="date" value={dateFrom} disabled={!datesAllowed} title={!datesAllowed?'Enter an exact WBS company code before sending a date range.':undefined} onChange={event=>{setDateFrom(event.target.value);setState({phase:'IDLE',data:null,error:null});setAttestationConfirmation(false);}}/></label><label>To<input aria-label="WBS observation date to" type="date" value={dateTo} disabled={!datesAllowed} title={!datesAllowed?'Enter an exact WBS company code before sending a date range.':undefined} onChange={event=>{setDateTo(event.target.value);setState({phase:'IDLE',data:null,error:null});setAttestationConfirmation(false);}}/></label></>}
       <button type="submit" className="btn" aria-label="Load WBS observation" disabled={state.phase==='LOADING'}>{state.phase==='LOADING'?'Refreshing live WBS data...':'Refresh live WBS data'}</button>
     </form>
-    {(scopeCompany||scopeDates)&&<p className="muted sm">The accounting API sends the entered Provider-native scope to WBS unchanged and requires an exact echo where the selected tool publishes that dimension. Unresolved or mixed-company results remain observation-only and cannot be reviewed, drafted, or posted.</p>}
+    {(scopeCompany||scopeDates)&&<p className="muted sm">The accounting API sends the entered Provider-native scope to WBS unchanged and requires an exact echo where the selected tool publishes that dimension. Tools that require a company code do not send a date range until that code is supplied. Unresolved or mixed-company results remain observation-only and cannot be reviewed, drafted, or posted.</p>}
     {state.phase==='LOADING'&&<StateBlock tone="loading" title="Reading production WBS observation">The accounting API is requesting at most ten sanitized rows from this fixed GET-only view.</StateBlock>}
-    {state.phase==='BLOCKED'&&<StateBlock tone="blocked" title={state.error?.code||'WBS_LIVE_PILOT_BLOCKED'}>{state.error?.message||'WBS observation unavailable.'}<div>{wbsLivePilotErrorGuidance(state.error?.code)}</div><div>Authoritative accounting data and workflows are unchanged.{observation&&' The previous validated WBS observation remains below.'}</div></StateBlock>}
+    {state.phase==='BLOCKED'&&<StateBlock tone="blocked" title={failureCopy.title}>{failureCopy.message} Authoritative accounting data and workflows are unchanged.{observation&&' The previous validated WBS observation remains below.'}</StateBlock>}
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No WBS observation loaded">Live connection not checked. Enter an exact scope when available, or refresh now to retain unassigned or mixed-company rows as Exception evidence. No credential, raw business identifier, accounting record, or action is exposed.</StateBlock>}
     {observation&&<>
       <div className="qbo-toolgrid"><span><i>Admission</i><b>{observation.status}</b></span><span><i>Provider signature</i><b>Not supplied</b></span><span><i>Provider captured at</i><b>{observation.captured_at}</b></span><span><i>Provider company scope</i><b>{observation.scope.company_codes.join(', ')||'Unresolved'}</b></span><span><i>Provider date scope</i><b>{observation.scope.date_range.filter(Boolean).join(' to ')||'Unresolved'}</b></span><span><i>Observed provider rows</i><b>{observation.record_count}</b></span><span><i>Provider content hash</i><b>{observation.provider_content_sha256}</b></span><span><i>Action authority</i><b>None</b></span></div>

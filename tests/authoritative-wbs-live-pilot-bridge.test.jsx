@@ -2,10 +2,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS,wbsLivePilotErrorGuidance} from '../src/authoritative-wbs-live-pilot-observation.jsx';
+import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS,wbsLivePilotErrorGuidance,wbsObservationFailureCopy} from '../src/authoritative-wbs-live-pilot-observation.jsx';
 
 const config={entityId:'11111111-1111-4111-8111-111111111111',baseUrl:'https://accounting.example',getAccessToken:async()=> 'a'.repeat(48),scopePresentation:{entityLabel:'Test entity'}};
 const render=tools=>renderToStaticMarkup(<AuthoritativeWbsLivePilotObservation config={config} tools={tools} fetcher={async()=>{throw new Error('SSR must not call WBS');}}/>);
+
+const providerUnavailable=wbsObservationFailureCopy({code:'ACCOUNTING_API_SERVER_ERROR',message:'internal provider detail'});
+assert.equal(providerUnavailable.title,'Production WBS read is temporarily unavailable');
+assert.match(providerUnavailable.message,/Retry the read later/);
+assert.match(providerUnavailable.message,/did not create, change, review, draft, approve, or post/);
+assert.doesNotMatch(providerUnavailable.message,/internal provider detail/);
+assert.doesNotMatch(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/state\.error\?\.message/,'live WBS provider errors must not echo server detail into the UI');
 
 const dashboard=render(WBS_LIVE_PILOT_SURFACE_TOOLS.dashboard);
 for(const label of ['Payables','Bank transactions','AutoRec details','AutoRec banks','Journal entries'])assert.match(dashboard,new RegExp(`>${label}<`));
@@ -23,11 +30,13 @@ for(const retainedUi of ['Real retained WBS Payable exception rows','Company sco
 assert.match(source,/refreshAuthoritativeWbsOperatorPayableExceptionRows/);
 assert.match(payables,/title="Unavailable until authenticated exception-evidence access and a live WBS Payables observation with at least one row are available"/,'the disabled exception-retain button must explain its unavailable state');
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/refreshAuthoritativeWbsOperatorPayableAttestations\(\{config,fetcher\}\).*canAttest:true/s,'the existing protected retained-evidence GET must drive operator button capability');
-assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/companyCode:requestedCompanyCode\|\|null,dateFrom:scopeDates\?dateFrom:null,dateTo:scopeDates\?dateTo:null/,'each authoritative WBS view must forward only the native company/date scope that its server contract permits');
+assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/const datesAllowed=scopeDates&&\(!scopeCompany\|\|requestedCompany\.length>0\)/,'a tool that supports an unscoped diagnostic sample may send dates only when it does not require a company or an exact company code is present');
+assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/dateFrom:datesAllowed\?dateFrom:null,dateTo:datesAllowed\?dateTo:null/,'the browser must not send date scope for a company-scoped tool until an exact Provider-native company code is supplied');
+assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/disabled=\{!datesAllowed\}.*Enter an exact WBS company code before sending a date range/s,'disabled date fields must explain why a company-scoped range cannot yet be sent');
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/Approved WBS company code.*WBS observation date from.*WBS observation date to/s,'the authoritative UI must expose the exact Provider-native company and date scope');
 assert.match(source,/useState\('2026-01-01'\).*useState\('2026-06-30'\)/s,'the approved first authoritative WBS read must default to the 2026 first-half scope');
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/!hasExactAttestationScope.*UNASSIGNED COMPANY - exception intake available/s,'mixed or unresolved company results must remain visible and retainable only as exception evidence');
-assert.match(wbsLivePilotErrorGuidance('ACCOUNTING_API_SERVER_ERROR'),/retry after the production WBS service is available/);
+assert.match(wbsLivePilotErrorGuidance('ACCOUNTING_API_SERVER_ERROR'),/Retry the read later/);
 assert.match(wbsLivePilotErrorGuidance('WBS_LIVE_PILOT_PROTOCOL'),/immutable company, accounting-date, currency, and source-record evidence/);
 assert.match(wbsLivePilotErrorGuidance('WBS_LIVE_PILOT_SCOPE_INVALID'),/exact Provider company code/);
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/disabled=\{!retainPathReady\|\|capabilityState\.phase!==\'READY\'\|\|!capabilityState\.canAttest/,'operator actions must remain disabled until the protected persistence path is live');
