@@ -165,6 +165,25 @@ pgTest('controlled DEMO tenant is tenant-scoped, retired non-destructively, and 
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND event_type='CONTROLLED_DEMO_RETIRED'",[demo.tenantId])).rows[0].n,1);
 });
 
+pgTest('authoritative scope returns persisted entity metadata and period status through the text contract',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  await adminPool.query("UPDATE entity SET entity_code='WBPA',name='Wan Pacific Real Estate Development LLC' WHERE tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId]);
+  await adminPool.query("UPDATE accounting_period SET status='SOFT_CLOSED' WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3",[ids.tenantId,ids.entityId,ids.periodId]);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'scope-reader',['GL.REPORT.VIEW'])});
+  const scope=await kernel.readAuthoritativeScope({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  assert.deepEqual(scope,{
+    entity_id:ids.entityId,
+    entity_name:'Wan Pacific Real Estate Development LLC',
+    entity_code:'WBPA',
+    base_currency:'USD',
+    period_id:ids.periodId,
+    period_code:'2026-07',
+    period_start:'2026-07-01',
+    period_end:'2026-07-31',
+    period_status:'SOFT_CLOSED'
+  });
+});
+
 pgTest('migration clean down and up is reversible from the fixed manifest',async()=>{
   await migrateDown(adminPool,{all:true});
   const missing=await adminPool.query("SELECT to_regclass('public.tenant') AS tenant_table");
