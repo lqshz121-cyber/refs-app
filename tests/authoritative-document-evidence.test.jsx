@@ -43,6 +43,7 @@ assert.match(workspaceMarkup,/demo-ap-ar-presentation/);
 assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/AP Aging/);
 assert.doesNotMatch(workspaceMarkup,/AP Aging unavailable/,'AP aging has an authenticated API contract and must be reachable');
+assert.match(workspaceMarkup,/id="authoritative-ap-aging-launch"/,'Back from AP aging must restore focus to the tab that opened it');
 assert.match(workspaceMarkup,/Vendors unavailable/);
 assert.doesNotMatch(workspaceMarkup,/<button[^>]*disabled[^>]*>AP Aging<\/button>/);
 const demoApArSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-demo-ap-ar-view.jsx'),'utf8');
@@ -73,6 +74,7 @@ assert.doesNotMatch(creditsOnlyMarkup,/B-100/,'a Vendor credits presentation sco
 
 const invoice={...bill,business_document_id:'55555555-5555-4555-8555-555555555555',inv_no:'I-100',customer_name:'Evidence Customer',inv_date:'2026-08-01'};
 const arWorkspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AR" documents={[invoice]} adjustments={[]} view={{query:'',status:'ALL',from:'',through:'',accountCode:'999999',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.match(arWorkspaceMarkup,/id="authoritative-ar-aging-launch"/,'Back from AR aging must restore focus to the tab that opened it');
 assert.match(arWorkspaceMarkup,/REVENUE \/ ACCOUNTS RECEIVABLE/);
 assert.match(arWorkspaceMarkup,/Receivables/);
 assert.match(arWorkspaceMarkup,/Retained invoices/);
