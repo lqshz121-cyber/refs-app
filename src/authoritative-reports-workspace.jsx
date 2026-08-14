@@ -105,7 +105,7 @@ export const DimensionProfitabilitySummary=({rows,dimensionType,dimensionRef})=>
 
 const EvidenceIds=({label,ids=[]})=><div><b>{label}</b>{ids.length?<ul className="evidence-id-list">{ids.map(id=><li key={id}><code>{id}</code></li>)}</ul>:<p className="muted sm">No retained identifier.</p>}</div>;
 const ReadError=({state,onRetry,label='Retry read'})=><AuthoritativeReadFailure state={state} onRetry={onRetry} retryLabel={label}/>;
-const ScopeLabel=({context,extra=''})=><span title={`Entity ID: ${context?.entityId||'Unavailable'}; Period ID: ${context?.periodId||'Unavailable'}`}>Configured entity / Configured period{extra}</span>;
+const ScopeLabel=({context,extra=''})=><span title={`Entity ID: ${context?.entityId||'Unavailable'}; Period ID: ${context?.periodId||'Unavailable'}`}>{context?.entityLabel||'Configured entity'} / {context?.periodLabel||'Configured period'}{extra}</span>;
 
 const CashFlowDetail=({row,returnContext,onBack})=><section className="full-bleed qbo-transaction-report" aria-label="Cash flow classification evidence">
   <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to statement of cash flows</button><ScopeLabel context={returnContext}/></div>

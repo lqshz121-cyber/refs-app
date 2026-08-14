@@ -149,6 +149,8 @@ async function main(){
   assert.match(workspace,/AuthoritativeReadFailure/,'Reports must use the shared explicit authoritative read failure state.');
   assert.match(workspace,/authoritativeReadFailurePhase\(result\)/,'Reports must classify only authentication, configuration, scope, and protocol failures as BLOCKED.');
   assert.match(workspace,/const ScopeLabel=/,'all report details must reuse one readable scope presentation');
+  assert.match(workspace,/context\?\.entityLabel\|\|'Configured entity'/,'report details must preserve the authoritative entity display name in Back context');
+  assert.match(workspace,/context\?\.periodLabel\|\|'Configured period'/,'report details must preserve the authoritative period code in Back context');
   assert.doesNotMatch(workspace,/Entity \{returnContext\?\.entityId\}|Period \{returnContext\?\.periodId\}/,'report Back and evidence headers must not expose raw entity or period UUIDs as visible text');
   assert.match(workspace,/title=\{`Entity ID: \$\{context\?\.entityId/,'full identifiers remain available as audit tooltips instead of visible page copy');
   assert.doesNotMatch(workspace,/Save As|Customize|<button[^>]*>Email|<button[^>]*>Print|<button[^>]*>Export/,'authoritative reports must not expose QBO save, customize, email, print, or export controls');

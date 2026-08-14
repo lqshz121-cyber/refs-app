@@ -103,6 +103,12 @@ assert.match(appSource, /backLabel="Back to Reports"/,
 assert.match(appSource, /AuthoritativeGeneralLedgerWorkspace/);
 assert.match(appSource, /AuthoritativeDocumentWorkspace[\s\S]*?kind="AP"[\s\S]*?config=\{displayConfig\}/,
   'the embedded WBS Payables observation must receive the same readable scope presentation as the authoritative shell');
+assert.match(appSource, /route === 'ai-audit'[\s\S]*?AuthoritativeAiAuditWorkspace[\s\S]*?config=\{displayConfig\}/,
+  'AI Audit must receive the authoritative entity and period presentation rather than expose raw scope IDs');
+assert.match(appSource, /route === 'wbs-autorec-evidence'[\s\S]*?AuthoritativeWbsTransitionWorkspace[\s\S]*?config=\{displayConfig\}/,
+  'WBS evidence must receive the authoritative entity display name from the scope reader');
+assert.match(appSource, /route === 'reports'[\s\S]*?AuthoritativeReportsWorkspace[\s\S]*?config=\{displayConfig\}/,
+  'Reports and drill-back context must retain authoritative human-readable scope labels');
 assert.match(appSource, /route === 'project-cost-cwip'/, 'Project Cost & CWIP must mount existing authenticated report readers rather than an unavailable demo route');
 assert.match(appSource, /route === 'unit-cost-ledger'/, 'Unit Cost Ledger must mount the authenticated Unit profitability reader rather than an unavailable demo route');
 assert.match(appSource, /initialDimensionType="UNIT"/, 'Unit Cost Ledger must require exact Unit-scoped POSTED ledger evidence');
