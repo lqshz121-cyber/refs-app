@@ -72,6 +72,7 @@ const requiredCommands = [
   { name: 'diff-check', command: 'git diff --check', requiredExit: 0, scope: 'whitespace/conflict marker gate' },
   { name: 'release-harness', command: 'npm.cmd run test:release-harness', requiredExit: 0, scope: 'external gate fail-closed unit guard' },
   { name: 'release-simulation', command: 'npm.cmd run test:release-simulation', requiredExit: 0, scope: 'local UI/OIDC, S3/scanner, WBS signed-receipt simulation' },
+  { name: 'wbs-e2e-harness', command: 'npm.cmd run wbs:e2e', requiredExit: 0, scope: 'sanitized WBS contract fixture through raw/hash/version/scope, exceptions, balanced Suggested Draft, separated workflow, GL/TB/BS/IS and source return; never provider/live evidence' },
   { name: 'external-release-gate-local-sim', command: 'node tools/create-local-release-simulation.mjs; load outputs/local-release-simulation/env.json; npm.cmd run verify:external-release-gate', requiredExit: 0, scope: 'aggregate simulated provider evidence' },
   { name: 'server-test', command: 'npm.cmd --prefix server test', requiredExit: 0, scope: 'server unit/integration gate' },
   { name: 'server-pg15-fresh', command: 'POSTGRES_IMAGE=postgres:15-alpine npm.cmd --prefix server run test:postgres:fresh', requiredExit: 0, scope: 'fresh PostgreSQL 15 gate with cleanup evidence' },
@@ -99,6 +100,7 @@ const localExecutionCommands = [
   { name: 'diff-check', executable: 'git', args: ['diff', '--check'] },
   { name: 'release-harness', executable: npmCommand, args: ['run', 'test:release-harness'], options: npmExecutionOptions },
   { name: 'release-simulation', executable: npmCommand, args: ['run', 'test:release-simulation'], options: npmExecutionOptions },
+  { name: 'wbs-e2e-harness', executable: npmCommand, args: ['run', 'wbs:e2e'], options: npmExecutionOptions },
   { name: 'server-test', executable: npmCommand, args: ['--prefix', 'server', 'test'], options: npmExecutionOptions },
   ...requestedPostgresVersions.map(version => ({
     name: `server-pg${version}-fresh`,

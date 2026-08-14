@@ -30,7 +30,7 @@ assert.equal(manifest.local_simulation_artifacts.envFile, 'outputs/local-release
 assert.equal(manifest.scripts['verify:external-release-gate'], 'node tools/verify-external-release-gate.mjs all');
 
 const commandNames = new Set(manifest.required_commands.map(row => row.name));
-for (const name of ['root-test', 'release-simulation', 'external-release-gate-local-sim', 'live-ui-22-page', 'provider-s3-scanner', 'provider-wbs-receipt', 'stage1-payable-live-chain', 'stage2-bank-live-chain', 'stage3-wbs-live-chain', 'stage4-report-live-chain']) {
+for (const name of ['root-test', 'release-simulation', 'wbs-e2e-harness', 'external-release-gate-local-sim', 'live-ui-22-page', 'provider-s3-scanner', 'provider-wbs-receipt', 'stage1-payable-live-chain', 'stage2-bank-live-chain', 'stage3-wbs-live-chain', 'stage4-report-live-chain']) {
   assert.equal(commandNames.has(name), true, `missing required command ${name}`);
 }
 assert.match(manifest.release_acceptance.global_release_gate, /PARTIAL\/FAIL/);
