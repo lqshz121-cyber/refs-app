@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { AuthoritativeBankBatchPipelineWorkspace } from '../src/authoritative-bank-batch-pipeline-workspace.jsx';
 
 const markup=renderToStaticMarkup(<AuthoritativeBankBatchPipelineWorkspace config={{entityId:'entity-isolated',periodId:'period-isolated'}} fetcher={async()=>({})} environment={{}}/>);
-for(const text of ['Bank Batch Pipeline','Scoped bank source evidence','Exact Match review','Statement reconciliation','Immutable sign-off history','Bank transaction evidence','Reconciliation evidence'])assert.match(markup,new RegExp(text));
+for(const text of ['Bank Batch Pipeline','Scoped bank source evidence','Exact Match review','Statement reconciliation','Immutable sign-off history','Bank transactions','Reconciliation'])assert.match(markup,new RegExp(text));
 const source=fs.readFileSync('src/authoritative-bank-batch-pipeline-workspace.jsx','utf8');
 assert.match(source,/AuthoritativeBankWorkspace/);
 assert.match(source,/AuthoritativeReconciliationWorkspace/);
