@@ -27,6 +27,7 @@ assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx',
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/Approved WBS company code.*WBS observation date from.*WBS observation date to/s,'the authoritative UI must expose the exact Provider-native company and date scope');
 assert.match(source,/useState\('2026-01-01'\).*useState\('2026-12-31'\)/s,'the approved first authoritative WBS read must default to the complete 2026 scope');
 assert.match(fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8'),/!hasExactAttestationScope.*UNASSIGNED COMPANY - exception intake available/s,'mixed or unresolved company results must remain visible and retainable only as exception evidence');
+assert.match(fs.readFileSync('src/authoritative-overview.jsx','utf8'),/AuthoritativeWbsLivePilotObservation[\s\S]*showRows=\{true\}/,'the authoritative overview must expose real read-only observation rows with their NOT_ADMITTED boundary visible');
 assert.match(wbsLivePilotErrorGuidance('ACCOUNTING_API_SERVER_ERROR'),/retry after the production WBS service is available/);
 assert.match(wbsLivePilotErrorGuidance('WBS_LIVE_PILOT_PROTOCOL'),/immutable company, accounting-date, currency, and source-record evidence/);
 assert.match(wbsLivePilotErrorGuidance('WBS_LIVE_PILOT_SCOPE_INVALID'),/exact Provider company code/);
