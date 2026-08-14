@@ -9,6 +9,7 @@ END $$;
 
 DROP FUNCTION refs_review_ai_wbs_payable_draft_proposal(uuid,uuid,uuid,text,text,text,text);
 DROP FUNCTION refs_review_ai_wbs_payable_draft_proposal_hash(uuid,uuid,uuid,text,text);
+DROP FUNCTION refs_read_ai_wbs_payable_draft_proposals(uuid,uuid,integer);
 DROP FUNCTION refs_propose_ai_wbs_payable_draft(uuid,uuid,uuid,text,text,text,text);
 DROP FUNCTION refs_ai_wbs_payable_draft_proposal_hash(uuid,uuid,uuid,text,text);
 DROP TABLE ai_wbs_payable_draft_proposal_review;

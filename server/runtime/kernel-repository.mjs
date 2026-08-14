@@ -250,6 +250,12 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async listAiWbsPayableDraftProposals({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_wbs_payable_draft_proposals($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
   // A human AP maker records an immutable accept/reject decision.  Creating
   // the ordinary WBS AP Draft remains a separate, existing command.
   async reviewAiWbsPayableDraftProposal({tenantId,entityId,proposalId,decision,reason,idempotencyKey}){

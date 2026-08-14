@@ -450,6 +450,17 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await kernel.listAiWbsExceptionFindings({tenantId:principal.tenantId,entityId,limit});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===6&&parts[4]==='ai'&&parts[5]==='wbs-payable-draft-proposals'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI proposal reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);
+        const rawLimit=parsedUrl.searchParams.get('limit'),limit=rawLimit==null?50:Number(rawLimit);
+        if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be an integer from 1 to 100');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.listAiWbsPayableDraftProposals!=='function')throw new AccountingApiError(503,'AI_WBS_PAYABLE_PROPOSAL_READ_UNAVAILABLE','AI payable proposals are unavailable');
+        result=await kernel.listAiWbsPayableDraftProposals({tenantId:principal.tenantId,entityId,limit});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===10&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[8]==='attachments'&&parts[9]==='uploads'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Attachment upload reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
@@ -568,6 +579,12 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const drafted=await kernel.createWbsPayableApDraft({tenantId:principal.tenantId,entityId,wbsInboundRowId:requireUuid(parts[7],'wbsInboundRowId'),reviewEvidenceId:requireUuid(payload.reviewEvidenceId,'reviewEvidenceId'),expectedRevision:requireRevision(headers),expectedEvidenceHash:requireSha256(payload.expectedEvidenceHash,'expectedEvidenceHash'),mappingSnapshotId:requireUuid(payload.mappingSnapshotId,'mappingSnapshotId'),attachmentIds:requireAttachmentIds(payload.attachmentIds),reason:requireReviewReason(payload.reason),idempotencyKey});
         if(!drafted||drafted.status!=='DRAFT'||drafted.journal_type!=='AUTO'||drafted.can_create_draft!==false||drafted.can_submit!==false||drafted.can_review!==false||drafted.can_approve!==false||drafted.can_post!==false)throw new AccountingApiError(500,'WBS_PAYABLE_AP_DRAFT_RESULT_INVALID','WBS Payable AP Draft creation must stop at an unsubmitted AUTO Draft');
         result=drafted;
+      }else if(parts.length===8&&parts[4]==='ai'&&parts[5]==='wbs-payable-draft-proposals'&&parts[7]==='reviews'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['decision','reason']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.reviewAiWbsPayableDraftProposal!=='function')throw new AccountingApiError(503,'AI_WBS_PAYABLE_PROPOSAL_REVIEW_UNAVAILABLE','AI payable proposal review is unavailable');
+        const reviewed=await kernel.reviewAiWbsPayableDraftProposal({tenantId:principal.tenantId,entityId,proposalId:requireUuid(parts[6],'proposalId'),decision:typeof payload.decision==='string'?payload.decision:'',reason:requireReviewReason(payload.reason),idempotencyKey});
+        if(!reviewed||!['ACCEPTED','REJECTED'].includes(reviewed.decision)||reviewed.can_create_draft!==false||reviewed.can_submit!==false||reviewed.can_approve!==false||reviewed.can_post!==false)throw new AccountingApiError(500,'AI_WBS_PAYABLE_PROPOSAL_REVIEW_RESULT_INVALID','AI payable proposal review must not create or advance a journal');
+        result=reviewed;
       }else if(parts.length===7&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='bank-statements'){
         requireExactQuery(parsedUrl.searchParams,[]);
         if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by signed WBS bank admission');

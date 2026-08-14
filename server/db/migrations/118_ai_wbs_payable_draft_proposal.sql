@@ -178,9 +178,31 @@ BEGIN
 END;
 $$;
 
+CREATE FUNCTION refs_read_ai_wbs_payable_draft_proposals(p_tenant uuid,p_entity uuid,p_limit integer DEFAULT 50)
+RETURNS TABLE(ai_wbs_payable_draft_proposal_id uuid,wbs_payable_review_evidence_id uuid,source_document_id uuid,staging_item_id uuid,
+  mapping_snapshot_id uuid,model_id text,prompt_version text,proposal_lines jsonb,proposal_hash text,created_at timestamptz,
+  decision text,decision_reason text,reviewed_by text,reviewed_at timestamptz,
+  can_create_draft boolean,can_submit boolean,can_review boolean,can_approve boolean,can_post boolean)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  PERFORM refs_assert_scope(p_tenant,p_entity,'AP.BILL.CREATE');
+  IF p_limit IS NULL OR p_limit<1 OR p_limit>100 THEN RAISE EXCEPTION 'AI payable proposal limit must be between 1 and 100' USING ERRCODE='22023'; END IF;
+  RETURN QUERY SELECT p.ai_wbs_payable_draft_proposal_id,p.wbs_payable_review_evidence_id,p.source_document_id,p.staging_item_id,
+    p.mapping_snapshot_id,p.model_id,p.prompt_version,p.proposal_lines,p.proposal_hash,p.created_at,r.decision,r.decision_reason,
+    r.reviewed_by,r.reviewed_at,false,false,false,false,false
+  FROM ai_wbs_payable_draft_proposal p
+  LEFT JOIN ai_wbs_payable_draft_proposal_review r ON r.tenant_id=p.tenant_id AND r.entity_id=p.entity_id
+    AND r.ai_wbs_payable_draft_proposal_id=p.ai_wbs_payable_draft_proposal_id
+  WHERE p.tenant_id=p_tenant AND p.entity_id=p_entity
+  ORDER BY p.created_at DESC,p.ai_wbs_payable_draft_proposal_id DESC LIMIT p_limit;
+END;
+$$;
+
 REVOKE ALL ON ai_wbs_payable_draft_proposal,ai_wbs_payable_draft_proposal_review FROM PUBLIC,refs_app;
 GRANT SELECT ON ai_wbs_payable_draft_proposal,ai_wbs_payable_draft_proposal_review TO refs_app;
 REVOKE EXECUTE ON FUNCTION refs_ai_wbs_payable_draft_proposal_hash(uuid,uuid,uuid,text,text),refs_propose_ai_wbs_payable_draft(uuid,uuid,uuid,text,text,text,text),refs_review_ai_wbs_payable_draft_proposal_hash(uuid,uuid,uuid,text,text),refs_review_ai_wbs_payable_draft_proposal(uuid,uuid,uuid,text,text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION refs_ai_wbs_payable_draft_proposal_hash(uuid,uuid,uuid,text,text),refs_propose_ai_wbs_payable_draft(uuid,uuid,uuid,text,text,text,text),refs_review_ai_wbs_payable_draft_proposal_hash(uuid,uuid,uuid,text,text),refs_review_ai_wbs_payable_draft_proposal(uuid,uuid,uuid,text,text,text,text) TO refs_app;
+REVOKE ALL ON FUNCTION refs_read_ai_wbs_payable_draft_proposals(uuid,uuid,integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION refs_read_ai_wbs_payable_draft_proposals(uuid,uuid,integer) TO refs_app;
 
 COMMIT;
