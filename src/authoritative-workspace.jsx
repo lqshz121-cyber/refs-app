@@ -109,8 +109,8 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   ].filter(Boolean);
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
   const tabs=bill?[
-    {id:'BILLS',label:'Bills'}, {id:'VENDOR_CREDITS',label:'Vendor credits'}, {id:'AGING',label:'AP Aging'}, {id:'VENDORS',label:'Vendors',unavailable:true},
-  ]:[{id:'INVOICES',label:'Invoices'}, {id:'RECEIPTS',label:'Receipts',unavailable:true}, {id:'AGING',label:'AR Aging'}, {id:'COUNTERPARTIES',label:'Counterparties',unavailable:true}];
+    {id:'BILLS',label:'Bills'}, {id:'VENDOR_CREDITS',label:'Vendor credits'}, {id:'AGING',label:'AP Aging',focusId:'authoritative-ap-aging-launch'}, {id:'VENDORS',label:'Vendors',unavailable:true},
+  ]:[{id:'INVOICES',label:'Invoices'}, {id:'RECEIPTS',label:'Receipts',unavailable:true}, {id:'AGING',label:'AR Aging',focusId:'authoritative-ar-aging-launch'}, {id:'COUNTERPARTIES',label:'Counterparties',unavailable:true}];
   const activeTab=bill?(state.transactionType==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'):'INVOICES';
   const selectTab=next=>{
     if(next==='AGING'){onOpenAging?.();return;}
