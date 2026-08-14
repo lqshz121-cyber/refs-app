@@ -1,0 +1,10 @@
+BEGIN;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM ai_unmatched_bank_payment_finding) THEN RAISE EXCEPTION 'Cannot remove retained AI unmatched bank payment findings' USING ERRCODE='55000'; END IF; END $$;
+DROP TRIGGER materialize_ai_unmatched_bank_payment_finding_from_match ON bank_match;
+DROP TRIGGER materialize_ai_unmatched_bank_payment_finding_from_bank ON bank_source;
+DROP FUNCTION refs_materialize_ai_unmatched_bank_payment_finding_from_match_trigger();
+DROP FUNCTION refs_materialize_ai_unmatched_bank_payment_finding_from_bank_trigger();
+DROP FUNCTION refs_read_ai_unmatched_bank_payment_findings(uuid,uuid,integer);
+DROP FUNCTION refs_materialize_ai_unmatched_bank_payment_finding(uuid);
+DROP TABLE ai_unmatched_bank_payment_finding;
+COMMIT;

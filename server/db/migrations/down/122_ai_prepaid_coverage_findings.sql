@@ -1,0 +1,10 @@
+BEGIN;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM ai_prepaid_coverage_finding) THEN RAISE EXCEPTION 'Cannot remove retained AI prepaid coverage findings' USING ERRCODE='55000'; END IF; END $$;
+DROP TRIGGER materialize_ai_prepaid_coverage_findings_from_document ON source_document;
+DROP TRIGGER materialize_ai_prepaid_coverage_finding_from_line ON source_document_line;
+DROP FUNCTION refs_materialize_ai_prepaid_coverage_findings_from_document_trigger();
+DROP FUNCTION refs_materialize_ai_prepaid_coverage_finding_from_line_trigger();
+DROP FUNCTION refs_materialize_ai_prepaid_coverage_finding(uuid);
+DROP FUNCTION refs_read_ai_prepaid_coverage_findings(uuid,uuid,integer);
+DROP TABLE ai_prepaid_coverage_finding;
+COMMIT;

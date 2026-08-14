@@ -8,6 +8,7 @@ const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'33333333
 const markup=renderToStaticMarkup(<AuthoritativeAiAuditWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 for(const token of ['AI Audit Center','SERVER MATERIALIZED','IMMUTABLE TRACE','HUMAN ASSIGNMENT REQUIRED','NO DRAFT OR POST','Loading persisted AI findings'])assert.match(markup,new RegExp(token,'i'));
 const source=fs.readFileSync('src/authoritative-ai-audit-workspace.jsx','utf8');
-for(const token of ['refreshAuthoritativeAiWbsExceptionFindings','No substitute, browser-stored, or demonstration findings','Draft / review / approve / post: disabled','Due date requires human assignment'])assert.match(source,new RegExp(token,'i'));
-assert.doesNotMatch(source,/localStorage|seed\.js|module-aiaudit|<form|onSubmit|method=['"]POST/i);
-console.log('authoritative AI Audit workspace: server-backed immutable finding reader only');
+for(const token of ['explainAuthoritativeAiAccountingAnalysis','refreshAuthoritativeAiAccountingAnalysisSummary','refreshAuthoritativeAiWbsExceptionFindings','refreshAuthoritativeAiPrepaidCoverageFindings','refreshAuthoritativeAiDuplicatePayableFindings','refreshAuthoritativeAiUnmatchedBankPaymentFindings','refreshAuthoritativeAiCostDimensionFindings','refreshAuthoritativeAiLoanReferenceFindings','refreshAuthoritativeAiAmortizationSchedules','No substitute, browser-stored, or demonstration evidence','Controller analysis summary','AI controller explanation','Generate explanation','Prepaid coverage gaps','Exact duplicate payable risk','Unmatched bank payment risk','Construction cost dimension risk','Construction loan reference risk','Prepaid / amortization proposals','Draft / review / approve / post: disabled','Due date requires human assignment'])assert.match(source,new RegExp(token,'i'));
+assert.doesNotMatch(source,/[^\x00-\x7F]/,'authoritative AI-visible workspace copy must remain English-only');
+assert.doesNotMatch(source,/localStorage|seed\.js|module-aiaudit|<form|onSubmit/i);
+console.log('authoritative AI Audit workspace: server-backed evidence and explicit no-action analysis only');

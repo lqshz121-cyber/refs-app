@@ -235,6 +235,85 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listAiAmortizationSchedules({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_amortization_schedules($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async proposeAiAmortizationSchedule({tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,prepaidAccountCode,expenseAccountCode,memberTrace,confidence,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_propose_ai_amortization_schedule_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS request_hash',
+        [tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,prepaidAccountCode,expenseAccountCode,JSON.stringify(memberTrace),confidence,reason]
+      ),'AI_AMORTIZATION_PROPOSAL_HASH_FAILED','AI amortization proposal hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_propose_ai_amortization_schedule($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) AS result',
+        [tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,prepaidAccountCode,expenseAccountCode,JSON.stringify(memberTrace),confidence,reason,idempotencyKey,requestHash]
+      ),'AI_AMORTIZATION_PROPOSAL_FAILED','AI amortization proposal did not return a result').result;
+    });
+  }
+
+  async listAiPrepaidCoverageFindings({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_prepaid_coverage_findings($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async listAiDuplicatePayableFindings({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_duplicate_payable_findings($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async listAiUnmatchedBankPaymentFindings({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_unmatched_bank_payment_findings($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async listAiCostDimensionFindings({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_cost_dimension_findings($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async listAiLoanReferenceFindings({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_loan_reference_findings($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async readAiAccountingAnalysisSummary({tenantId,entityId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_accounting_analysis_summary($1,$2)',[tenantId,entityId]
+    )).rows);
+  }
+
+  async beginAiAccountingAnalysisExplanation({tenantId,entityId,summary,evidence,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_ai_accounting_analysis_evidence_hash($1,$2,$3::jsonb,$4::jsonb) AS request_hash',[tenantId,entityId,JSON.stringify(summary),JSON.stringify(evidence)]
+      ),'AI_ANALYSIS_EXPLANATION_HASH_FAILED','AI analysis explanation request hash was not produced').request_hash;
+      const result=requireRow(await client.query(
+        'SELECT refs_begin_ai_accounting_analysis_explanation($1,$2,$3::jsonb,$4::jsonb,$5,$6) AS result',[tenantId,entityId,JSON.stringify(summary),JSON.stringify(evidence),idempotencyKey,requestHash]
+      ),'AI_ANALYSIS_EXPLANATION_BEGIN_FAILED','AI analysis explanation receipt was not produced').result;
+      return {requestHash,result};
+    });
+  }
+
+  async completeAiAccountingAnalysisExplanation({tenantId,entityId,idempotencyKey,requestHash,output}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_complete_ai_accounting_analysis_explanation($1,$2,$3,$4,$5::jsonb) AS result',[tenantId,entityId,idempotencyKey,requestHash,JSON.stringify(output)]
+    ),'AI_ANALYSIS_EXPLANATION_COMPLETE_FAILED','AI analysis explanation completion was not produced').result);
+  }
+
+  async abandonAiAccountingAnalysisExplanation({tenantId,entityId,idempotencyKey,requestHash}){
+    return this.inSession(async client=>client.query(
+      'SELECT refs_abandon_ai_accounting_analysis_explanation($1,$2,$3,$4)',[tenantId,entityId,idempotencyKey,requestHash]
+    ));
+  }
+
   async persistWbsInboundRows({tenantId,entityId,importBatchId,receipt,rows,idempotencyKey,requestHash}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_persist_wbs_inbound_rows($1,$2,$3,$4,$5,$6,$7,$8) AS result',
