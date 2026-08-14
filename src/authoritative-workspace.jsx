@@ -1,0 +1,165 @@
+import React from 'react';
+import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
+import { StateBlock } from './ui.jsx';
+import {AuthoritativeScopeEmpty} from './authoritative-read-state.jsx';
+import {AuthoritativeApArView} from './authoritative-ap-ar-view.jsx';
+import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
+import {
+  DEFAULT_AUTHORITATIVE_LIST_VIEW,
+  authoritativeEvidenceKey,
+  filterAuthoritativeRows,
+  normalizeAuthoritativeListView,
+  paginateAuthoritativeRows,
+} from './authoritative-list-context.js';
+
+const money=(value,currency)=>new Intl.NumberFormat('en-US',{style:'currency',currency:/^[A-Z]{3}$/.test(currency||'')?currency:'USD'}).format(Number(value)||0);
+const date=/^\d{4}-\d{2}-\d{2}$/;
+const amount=/^(?:0|[1-9]\d{0,15})(?:\.\d{1,4})?$/;
+const account=/^[A-Za-z0-9._-]{1,64}$/;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const revision=value=>Number.isSafeInteger(Number(value))&&Number(value)>=0;
+
+// List rows are facts, not lineage.  A later API contract may attach a
+// complete immutable evidence object, but a browser must never assemble one
+// from unrelated list fields.  Every retained link below is therefore bound
+// back to the exact object id, object revision, entity, and posted journal
+// revision that the current list row reports.
+export const authoritativeLineageFor=(record,entityId)=>{
+  const lineage=record?.lineage;
+  const recordId=record?.business_document_id||record?.business_adjustment_id;
+  if(!lineage||typeof lineage!=='object'||Array.isArray(lineage)||!uuid.test(recordId||'')||lineage.entity_id!==entityId||lineage.record_id!==recordId||!revision(record?.revision??record?.version)||Number(lineage.record_revision)!==Number(record.revision??record.version))return null;
+  const ids=['source_document_id','receipt_id','mapping_snapshot_id','posted_journal_entry_id'];
+  const versions=['source_document_revision','receipt_revision','mapping_version','posted_journal_revision'];
+  if(ids.some(field=>!uuid.test(lineage[field]||''))||versions.some(field=>!revision(lineage[field]))||!Array.isArray(lineage.audit_event_ids)||!lineage.audit_event_ids.length||new Set(lineage.audit_event_ids).size!==lineage.audit_event_ids.length||lineage.audit_event_ids.some(id=>!uuid.test(id||''))||!Array.isArray(lineage.ledger_line_ids)||!lineage.ledger_line_ids.length||new Set(lineage.ledger_line_ids).size!==lineage.ledger_line_ids.length||lineage.ledger_line_ids.some(id=>!uuid.test(id||'')))return null;
+  const journalId=record?.journal_entry_id||record?.posted_journal_entry_id;
+  if(record?.journal_status!=='POSTED'||!uuid.test(journalId||'')||journalId!==lineage.posted_journal_entry_id||!revision(record?.journal_revision)||Number(record.journal_revision)!==Number(lineage.posted_journal_revision))return null;
+  if(record?.posted_journal_entry_id&&record.posted_journal_entry_id!==lineage.posted_journal_entry_id)return null;
+  return {source_document_id:lineage.source_document_id,source_document_revision:Number(lineage.source_document_revision),receipt_id:lineage.receipt_id,receipt_revision:Number(lineage.receipt_revision),mapping_snapshot_id:lineage.mapping_snapshot_id,mapping_version:Number(lineage.mapping_version),audit_event_ids:[...lineage.audit_event_ids],posted_journal_entry_id:lineage.posted_journal_entry_id,posted_journal_revision:Number(lineage.posted_journal_revision),ledger_line_ids:[...lineage.ledger_line_ids]};
+};
+const AuthoritativeLineageBlock=({record,entityId,subject})=>{const lineage=authoritativeLineageFor(record,entityId);return lineage?<section className="card authoritative-lineage" aria-label={`${subject} immutable lineage`}><h2>Immutable authoritative lineage</h2><p className="muted sm">Every retained link is bound to this exact object revision and its POSTED journal revision.</p><div className="table-wrap authoritative-document-detail-table" role="region" tabIndex={0} aria-label={`${subject} immutable lineage fields; scroll horizontally to view every column`}><table className="tbl"><tbody><tr><th scope="row">Source document</th><td>{lineage.source_document_id} ? rev {lineage.source_document_revision}</td><th scope="row">Receipt</th><td>{lineage.receipt_id} ? rev {lineage.receipt_revision}</td></tr><tr><th scope="row">Mapping snapshot</th><td>{lineage.mapping_snapshot_id} ? v{lineage.mapping_version}</td><th scope="row">POSTED journal</th><td>{lineage.posted_journal_entry_id} ? rev {lineage.posted_journal_revision}</td></tr><tr><th scope="row">Audit events</th><td>{lineage.audit_event_ids.join(', ')}</td><th scope="row">Ledger lines</th><td>{lineage.ledger_line_ids.join(', ')}</td></tr></tbody></table></div></section>:<StateBlock tone="warn" title="BLOCKED ? authoritative lineage unavailable">The list reader has not returned immutable source, receipt, mapping, audit, posted-journal, and ledger-line evidence for this exact {subject.toLowerCase()} revision. The retained list facts below are not source or journal authority.</StateBlock>;};
+export const validateAuthoritativeDocumentDraft=values=>{
+  const kind=['AP_BILL','AR_INVOICE'].includes(values?.kind)?values.kind:null;
+  const documentNumber=String(values?.documentNumber||'').trim(),counterpartyRef=String(values?.counterpartyRef||'').trim(),counterpartyName=String(values?.counterpartyName||'').trim(),currency=String(values?.currency||'').trim().toUpperCase(),accountingDate=String(values?.accountingDate||'').trim(),dueDate=String(values?.dueDate||'').trim(),value=String(values?.amount||'').trim(),offsetAccountCode=String(values?.offsetAccountCode||'').trim(),description=String(values?.description||'').trim();
+  if(!kind||!documentNumber||documentNumber.length>128||!counterpartyRef||counterpartyRef.length>128||!counterpartyName||counterpartyName.length>255||!/^[A-Z]{3}$/.test(currency)||!date.test(accountingDate)||!amount.test(value)||Number(value)<=0||!account.test(offsetAccountCode)||description.length>2000||(dueDate&&!date.test(dueDate)))return {ok:false,code:'AUTHORITATIVE_DOCUMENT_INVALID',message:'Complete the Draft fields with valid dates, a positive four-decimal amount, and an account code.'};
+  return {ok:true,kind,document:{documentNumber,counterpartyRef,counterpartyName,currency,accountingDate,dueDate:dueDate||null,amount:value,offsetAccountCode,description:description||null}};
+};
+export function AuthoritativeDocumentTable({title,documents=[],kind,onOpen}) {
+  const bill=kind==='AP',number=bill?'bill_no':'inv_no',counterparty=bill?'vendor_name':'customer_name',dateKey=bill?'bill_date':'inv_date';
+  return <section aria-label={title}><div className="card-head"><div><h2>{title}</h2><p className="muted sm">Financial records available for review. Open a row to see its supporting details.</p></div></div>{documents.length?<div className="table-wrap authoritative-document-table" role="region" tabIndex={0} aria-label={`${title}; scroll horizontally to view every column`}><table className="tbl"><thead><tr><th scope="col">{bill?'Bill':'Invoice'}</th><th scope="col">{bill?'Vendor':'Customer'}</th><th scope="col">Date</th><th scope="col">Due date</th><th scope="col" className="ta-r">Amount</th><th scope="col" className="ta-r">Open balance</th><th scope="col">Status</th><th scope="col">Evidence</th></tr></thead><tbody>{documents.map(row=>{
+    const key=authoritativeEvidenceKey('document',row)||row.journal_entry_id||row[bill?'bill_id':'inv_id']||row[number];
+    const focusId=authoritativeEvidenceKey('document',row)?`authoritative-document-${row.business_document_id}`:undefined;
+    return <tr key={key}><td>{row[number]}</td><td>{row[counterparty]}</td><td>{row[dateKey]}</td><td>{row.due_date||'Not retained'}</td><td className="ta-r">{money(row.amount,row.currency)}</td><td className="ta-r">{money(row.open_balance,row.currency)}</td><td><span className="badge badge-muted authoritative-row-status">{row.status}</span></td><td><button id={focusId} type="button" className="btn btn-sm btn-ghost" onClick={()=>onOpen?.(row,focusId)}>Open evidence</button></td></tr>;
+  })}</tbody></table></div>:<AuthoritativeScopeEmpty subject={bill?'AP bills':'AR invoices'}/>}</section>;
+}
+
+const documentReturnScope = (entityId, view, revision, includeVendor) => [
+  'Configured entity',
+  `authoritative list revision ${revision}`,
+  `search ${view?.query || 'All'}`,
+  `status ${view?.status === 'ALL' || !view?.status ? 'All statuses' : view.status}`,
+  `from ${view?.from || 'Any date'}`,
+  `through ${view?.through || 'Any date'}`,
+  ...(includeVendor ? [`vendor ${view?.counterparty || 'All vendors'}`] : []),
+  ...(includeVendor ? [`category ${view?.accountCode || 'All offset accounts'}`] : []),
+  ...(includeVendor ? [`transaction type ${view?.transactionType || 'ALL'}`] : []),
+  `page ${view?.page || 1}`,
+].join(' | ');
+
+export function AuthoritativeDocumentDetail({document,kind,entityId,returnContext,onBack}){const bill=kind==='AP',number=bill?'bill_no':'inv_no',counterparty=bill?'vendor_name':'customer_name',dateKey=bill?'bill_date':'inv_date',title=bill?'Bill evidence':'Invoice evidence';return <section className="full-bleed qbo-transaction-report authoritative-document-detail" aria-label={title}><div className="qbo-report-back"><button type="button" onClick={onBack}>Back to {bill?'AP bills':'AR invoices'}</button><span>{documentReturnScope(entityId,returnContext?.view,document.revision,bill)}</span></div><div className="gl-drill-head"><div><div className="gl-drill-crumb">{bill?'Payables':'Receivables'} / read-only evidence</div><h1>{document[number]}</h1><div className="gl-drill-account">{document[counterparty]} ? {document[dateKey]}</div></div><span className="badge badge-muted">{document.status}</span></div><div className="authoritative-document-detail-summary" aria-label={`${title} summary`}><span><i>{bill?'Vendor':'Customer'}</i><b>{document[counterparty]}</b></span><span><i>Original amount</i><b>{money(document.amount,document.currency)}</b></span><span><i>Open balance</i><b>{money(document.open_balance,document.currency)}</b></span><span><i>Due date</i><b>{document.due_date||'Not retained'}</b></span></div><p className="report-drill-hint">This page shows only fields retained by the authenticated AP/AR list read model. It cannot create, edit, approve, pay, allocate, post, print, export, or synchronize a document.</p><AuthoritativeLineageBlock record={document} entityId={entityId} subject={bill?'Bill':'Invoice'}/><div className="table-wrap authoritative-document-detail-table" role="region" tabIndex={0} aria-label={`${title} fields; scroll horizontally to view every column`}><table className="tbl"><tbody><tr><th scope="row">Entity</th><td title={`Entity ID: ${entityId}`}>Configured entity</td><th scope="row">{bill?'Vendor':'Customer'}</th><td>{document[counterparty]}</td></tr><tr><th scope="row">{bill?'Bill':'Invoice'} date</th><td>{document[dateKey]}</td><th scope="row">Due date</th><td>{document.due_date||'Not retained'}</td></tr><tr><th scope="row">Currency</th><td>{document.currency}</td><th scope="row">Status</th><td>{document.status}</td></tr><tr><th scope="row">Original amount</th><td>{money(document.amount,document.currency)}</td><th scope="row">Open balance</th><td>{money(document.open_balance,document.currency)}</td></tr><tr><th scope="row">Offset account</th><td>{document.account_code||'Not retained'}</td><th scope="row">Posted journal</th><td>{document.je_number||'Not retained'}</td></tr><tr><th scope="row">Period</th><td title={`Period ID: ${document.period_id||'Not retained'}`}>Configured period</td><th scope="row">Description</th><td>{document.description||'Not retained'}</td></tr></tbody></table></div></section>;}
+
+export function AuthoritativeAdjustmentSummary({title,adjustments=[],onOpen}) {
+  return <section aria-label={title}><div className="card-head"><div><h2>{title}</h2><p className="muted sm">Authoritative adjustment rows only. Open a row to inspect its retained evidence.</p></div></div>{adjustments.length?<div className="table-wrap authoritative-adjustment-table" role="region" tabIndex={0} aria-label={`${title}; scroll horizontally to view every column`}><table className="tbl"><thead><tr><th scope="col">Adjustment</th><th scope="col">Date</th><th scope="col">Reason</th><th scope="col" className="ta-r">Amount</th><th scope="col">Status</th><th scope="col">Evidence</th></tr></thead><tbody>{adjustments.map(row=>{
+    const focusId=authoritativeEvidenceKey('adjustment',row)?`authoritative-adjustment-${row.business_adjustment_id}`:undefined;
+    return <tr key={row.business_adjustment_id}><td>{row.adjustment_kind}</td><td>{row.accounting_date}</td><td>{row.reason||'Not retained'}</td><td className="ta-r">{money(row.amount,row.currency)}</td><td>{row.status}</td><td><button id={focusId} type="button" className="btn btn-sm btn-ghost" onClick={()=>onOpen?.(row,focusId)}>Open evidence</button></td></tr>;
+  })}</tbody></table></div>:<StateBlock tone="empty" title="No authoritative adjustments in this scope">This scoped empty result is not evidence of a zero balance.</StateBlock>}</section>;
+}
+
+export function AuthoritativeAdjustmentDetail({adjustment,side,entityId,onBack}){const label=side==='AP'?'AP adjustment evidence':'AR adjustment evidence';return <section className="full-bleed qbo-transaction-report" aria-label={label}><div className="qbo-report-back"><button type="button" onClick={onBack}>Back to {side==='AP'?'AP adjustments':'AR adjustments'}</button><span title={`Entity ID: ${entityId}`}>Configured entity ? authoritative adjustment revision {adjustment.version}</span></div><div className="gl-drill-head"><div><div className="gl-drill-crumb">{side==='AP'?'Payables':'Receivables'} / read-only adjustment evidence</div><h1>{adjustment.adjustment_kind}</h1><div className="gl-drill-account">{adjustment.accounting_date} ? {adjustment.business_adjustment_id}</div></div><span className="badge badge-muted">{adjustment.status}</span></div><p className="report-drill-hint">This page contains only fields returned by the authenticated adjustment read model. It cannot create, edit, apply, refund, approve, post, reverse, print, export, or synchronize an adjustment.</p><AuthoritativeLineageBlock record={adjustment} entityId={entityId} subject="Adjustment"/><div className="table-wrap authoritative-document-detail-table" role="region" tabIndex={0} aria-label={`${label} fields; scroll horizontally to view every column`}><table className="tbl"><tbody><tr><th scope="row">Entity</th><td title={`Entity ID: ${entityId}`}>Configured entity</td><th scope="row">Period</th><td title={`Period ID: ${adjustment.period_id||'Not retained'}`}>Configured period</td></tr><tr><th scope="row">Currency</th><td>{adjustment.currency}</td><th scope="row">Amount</th><td>{money(adjustment.amount,adjustment.currency)}</td></tr><tr><th scope="row">Status</th><td>{adjustment.status}</td><th scope="row">Revision</th><td>{adjustment.version}</td></tr><tr><th scope="row">Document ID</th><td>{adjustment.business_document_id||'Not retained'}</td><th scope="row">Source adjustment</th><td>{adjustment.source_adjustment_id||'Not retained'}</td></tr><tr><th scope="row">Journal entry</th><td>{adjustment.journal_entry_id||'Not retained'}</td><th scope="row">Journal status</th><td>{adjustment.journal_status||'Not retained'}</td></tr><tr><th scope="row">Created at</th><td>{adjustment.created_at}</td><th scope="row">Reason</th><td>{adjustment.reason||'Not retained'}</td></tr></tbody></table></div></section>;}
+
+export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[],view,onViewChange,onOpenDocument,onOpenAdjustment,onOpenAging,config,fetcher=globalThis.fetch}) {
+  const bill=kind==='AP';
+  const workspaceLabel=bill?'Payables':'Receivables';
+  const eyebrow=bill?'EXPENSES / ACCOUNTS PAYABLE':'REVENUE / ACCOUNTS RECEIVABLE';
+  const documentLabel=bill?'bills':'invoices';
+  const counterpartyLabel=bill?'suppliers':'customers';
+  const state=normalizeAuthoritativeListView(view);
+  const dateField=bill?'bill_date':'inv_date';
+  const counterpartyField=bill?'vendor_name':'customer_name';
+  // Offset-account is an AP Bill category presentation filter. An account code
+  // retained in a restored AP context must never narrow AR invoices because AR
+  // has no corresponding visible category contract.
+  const documentView=bill?state:{...state,accountCode:'ALL'};
+  const filteredDocuments=filterAuthoritativeRows(documents,documentView,dateField,{counterpartyField,accountField:bill?'account_code':null});
+  // AP Vendor credits are retained adjustment facts, not bill rows.  The
+  // presentation-only type selector must never synthesize an expense/payment.
+  const visibleDocuments=bill&&state.transactionType==='VENDOR_CREDITS'?[]:filteredDocuments;
+  const page=paginateAuthoritativeRows(visibleDocuments,state);
+  const filteredAdjustments=filterAuthoritativeRows(adjustments,{...state,accountCode:''},'accounting_date');
+  const visibleAdjustments=bill&&state.transactionType==='BILLS'?[]:filteredAdjustments.filter(row=>state.transactionType!=='VENDOR_CREDITS'||row.adjustment_kind==='AP_VENDOR_CREDIT');
+  const statuses=[...new Set([...documents,...adjustments].map(row=>row?.status).filter(Boolean))].sort();
+  const counterparties=[...new Set(documents.map(row=>row?.[counterpartyField]).filter(Boolean))].sort((left,right)=>left.localeCompare(right));
+  const accountCodes=[...new Set(documents.map(row=>row?.account_code).filter(Boolean))].sort((left,right)=>left.localeCompare(right));
+  const appliedScope=[
+    state.status!=='ALL'?`Status: ${state.status}`:null,
+    state.from?`From: ${state.from}`:null,
+    state.through?`Through: ${state.through}`:null,
+    state.counterparty!=='ALL'?`${bill?'Vendor':'Customer'}: ${state.counterparty}`:null,
+    bill&&state.accountCode!=='ALL'?`Category (offset account): ${state.accountCode}`:null,
+    bill&&state.transactionType!=='ALL'?`Transaction type: ${state.transactionType==='BILLS'?'Bills':'Vendor credits'}`:null,
+  ].filter(Boolean);
+  const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
+  const tabs=bill?[
+    {id:'BILLS',label:'Bills'}, {id:'VENDOR_CREDITS',label:'Vendor credits'}, {id:'AGING',label:'AP Aging',focusId:'authoritative-ap-aging-launch'}, {id:'VENDORS',label:'Vendors',unavailable:true},
+  ]:[{id:'INVOICES',label:'Invoices'}, {id:'RECEIPTS',label:'Receipts',unavailable:true}, {id:'AGING',label:'AR Aging',focusId:'authoritative-ar-aging-launch'}, {id:'COUNTERPARTIES',label:'Counterparties',unavailable:true}];
+  const activeTab=bill?(state.transactionType==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'):'INVOICES';
+  const selectTab=next=>{
+    if(next==='AGING'){onOpenAging?.();return;}
+    if(bill)change({transactionType:next==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'});
+  };
+  const metrics=bill?[
+    {label:'Bills available',value:documents.length,sub:'Current company and period'}, {label:'Visible after filters',value:page.total,sub:'Current view'}, {label:'Adjustments available',value:adjustments.length,sub:'Current company and period'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'Current view'},
+  ]:[
+    {label:'Invoices available',value:documents.length,sub:'Current company and period'}, {label:'Visible after filters',value:page.total,sub:'Current view'}, {label:'Adjustments available',value:adjustments.length,sub:'Current company and period'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'Current view'},
+  ];
+  return <AuthoritativeApArView kind={kind} className="authoritative-document-workspace stack" headerClassName="authoritative-document-page-head" metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={<p className="muted sm authoritative-api-scope">Review bills, invoices, adjustments, aging, and control totals for this company. Filters change only what you see; they never change your accounting records.</p>}>
+    <section className="qbo-toolgrid authoritative-document-summary" aria-label={`${workspaceLabel} list-fact summary`}>
+      <span><i>{documentLabel} available</i><b>{documents.length}</b><small>Current company and period</small></span>
+      <span><i>Visible after filters</i><b>{page.total}</b><small>Current presentation view</small></span>
+      <span><i>Adjustments available</i><b>{adjustments.length}</b><small>Current company and period</small></span>
+      <span><i>Visible adjustments</i><b>{visibleAdjustments.length}</b><small>Current presentation view</small></span>
+    </section>
+    <section className="authoritative-document-intro" aria-label={`${workspaceLabel} presentation contract`}>
+      <div><b>Document and adjustment details</b><p>Use filters to find the records you need, then open a full detail page. Back restores this exact view.</p></div>
+      <ul aria-label="Payables and receivables page guide"><li><b>Records shown</b><span>{documentLabel} and adjustments available for review</span></li><li><b>Your place is saved</b><span>Query, filters, page, focus, and scroll are preserved</span></li><li><b>View only</b><span>Use the appropriate workflow to create, pay, approve, or post</span></li></ul>
+    </section>
+    <section className="card" aria-label={`${workspaceLabel} filters`}>
+    <div className="authoritative-filter-head"><div><h2>Filter records</h2><p>Filters change only what you see; they do not change accounting records.</p></div><span className="badge badge-muted">VIEW ONLY</span></div>
+    <div className="filter-bar authoritative-list-filters" role="search" aria-label={`${bill?'Payables':'Receivables'} presentation filters`}>
+      <label>Search retained references <input value={state.query} onChange={event=>change({query:event.target.value})} placeholder={bill?'Bill, vendor, account, or reference':'Invoice, customer, account, or reference'}/></label>
+      <label>Status <select value={state.status} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
+      <label>From <input type="date" value={state.from} onChange={event=>change({from:event.target.value})}/></label>
+      <label>Through <input type="date" value={state.through} onChange={event=>change({through:event.target.value})}/></label>
+      {bill&&<label>Transaction type <select value={state.transactionType} onChange={event=>change({transactionType:event.target.value})}><option value="ALL">All retained transactions</option><option value="BILLS">Bills</option><option value="VENDOR_CREDITS">Vendor credits</option></select></label>}
+      <label>{bill?'Vendor':'Customer'} <select value={state.counterparty} onChange={event=>change({counterparty:event.target.value})}><option value="ALL">All retained {bill?'vendors':'customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+      {bill&&(accountCodes.length>0?<label>Category (offset account) <select value={state.accountCode} onChange={event=>change({accountCode:event.target.value})}><option value="ALL">All retained offset accounts</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category is not shown for the records currently available.</span>)}
+      <button type="button" className="btn btn-sm btn-ghost" disabled={!state.query&&!appliedScope.length} onClick={()=>change({query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset filters</button>
+      <span className="result-count" aria-live="polite">{page.total} {bill?'bills':'invoices'} | {visibleAdjustments.length} adjustments</span>
+    </div>
+    <p className="muted sm authoritative-applied-scope" aria-live="polite">{appliedScope.length?`Applied filters: ${appliedScope.join(' | ')}. They narrow only the records shown here.`:'All records for the current company and period are shown.'} {bill?'Category is based on the bill’s offset account. Delivery method is not shown in these records.':'Category and delivery method are not shown in these records.'}</p>
+    </section>
+    <section className="card" aria-label={`${workspaceLabel} document list facts`}>
+    {page.total?<AuthoritativeDocumentTable title={bill?'AP bills':'AR invoices'} documents={page.rows} kind={kind} onOpen={onOpenDocument}/>:documents.length?<StateBlock tone="empty" title={`No ${bill?'bills':'invoices'} match these presentation filters`}>Change a presentation filter to see retained list facts. A local no-match is not evidence of zero balance.</StateBlock>:<AuthoritativeScopeEmpty subject={bill?'AP bills':'AR invoices'}/>}
+    {page.pageCount>1&&<nav className="pagination" aria-label={`${bill?'AP bills':'AR invoices'} pages`}><button type="button" disabled={page.page===1} onClick={()=>change({page:page.page-1})}>Previous</button><span>Page {page.page} of {page.pageCount}</span><button type="button" disabled={page.page===page.pageCount} onClick={()=>change({page:page.page+1})}>Next</button></nav>}
+    </section>
+    <section className="card" aria-label={`${workspaceLabel} adjustment list facts`}>
+    {visibleAdjustments.length?<AuthoritativeAdjustmentSummary title={bill&&state.transactionType==='VENDOR_CREDITS'?'Vendor credits':bill?'AP adjustments':'AR adjustments'} adjustments={visibleAdjustments} onOpen={onOpenAdjustment}/>:<StateBlock tone="empty" title={adjustments.length?'No adjustments match these presentation filters':'No authoritative adjustments in this scope'}>{adjustments.length?'Change a presentation filter to see retained adjustment facts. A local no-match is not evidence of zero balance.':'This scoped empty result is not evidence of a zero balance.'}</StateBlock>}
+    </section>
+    {bill&&<AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.payables} title="External WBS payables observation"/>}
+  </AuthoritativeApArView>;
+}
+export function AuthoritativeWorkflowTable({title,documents=[],kind,onWorkflow,workingJournalIds=new Set()}){const bill=kind==='AP';return <section aria-label={title}><h2>{title}</h2>{documents.map(row=>{const action=nextAuthoritativeWorkflowAction(row.journal_status);return <div key={row.journal_entry_id}>{row[bill?'bill_no':'inv_no']} {action?<button disabled={workingJournalIds.has(row.journal_entry_id)} onClick={()=>onWorkflow(row,action)}>{action}</button>:row.journal_status}</div>;})}</section>;}
+export function AuthoritativeWorkflowAdjustmentTable({title,adjustments=[],onWorkflow,workingJournalIds=new Set()}){return <section aria-label={title}><h2>{title}</h2>{adjustments.map(row=>{const action=nextAuthoritativeWorkflowAction(row.journal_status);return <div key={row.business_adjustment_id}>{row.adjustment_kind} {action?<button disabled={workingJournalIds.has(row.journal_entry_id)} onClick={()=>onWorkflow(row,action)}>{action}</button>:row.journal_status}</div>;})}</section>;}
+export function AuthoritativeCreditApplicationForm({kind,credits=[],documents=[]}){const label=kind==='AR_CREDIT_MEMO'?'Credit memo':'Vendor credit';return <section aria-label={`Apply ${label}`}><h2>Apply {label}</h2><select>{credits.filter(x=>x.status==='POSTED').map(x=><option key={x.business_adjustment_id}>{x.business_adjustment_id}</option>)}</select><select>{documents.map(x=><option key={x.business_document_id}>{x.inv_no||x.bill_no}</option>)}</select></section>;}
+export function AuthoritativeRefundForm({credits=[]}){return <section aria-label="Create refund Draft"><h2>Create refund Draft</h2><label>Credit memo<select>{credits.filter(x=>x.status==='POSTED').map(x=><option key={x.business_adjustment_id}>{x.business_adjustment_id}</option>)}</select></label></section>;}
+export function AuthoritativeDraftForm(){return <section aria-label="Create Draft only"><h2>Create Draft only</h2><p>Drafts are sent to the authoritative API and require review and approval before any separate posting command.</p></section>;}
+export function AuthoritativeRuntimeLock(){return <main className="login-shell"><section className="login-card" role="alert"><h1>Authoritative API required</h1><p>The deployed REFS client is locked until its HTTPS accounting API and OIDC token provider are configured.</p></section></main>;}
