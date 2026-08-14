@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { dirname, resolve, relative } from 'node:path';
@@ -27,6 +27,30 @@ const run = (command, args, options = {}) => {
     stderr: result.stderr || '',
     error: result.error ? result.error.message : '',
   };
+};
+
+// Long-running PostgreSQL gates must stream directly to their receipt files.
+// Capturing TAP output in spawnSync memory is unreliable on Windows even with
+// a large maxBuffer, and can turn a healthy gate into a false `-1` result.
+const runToReceipt = (command, args, stdoutPath, stderrPath, options = {}) => {
+  mkdirSync(dirname(stdoutPath), { recursive: true });
+  const stdoutFd = openSync(stdoutPath, 'w');
+  const stderrFd = openSync(stderrPath, 'w');
+  try {
+    const result = spawnSync(command, args, {
+      shell: false,
+      stdio: ['ignore', stdoutFd, stderrFd],
+      ...options,
+    });
+    return {
+      command: [command, ...args].join(' '),
+      status: result.status,
+      error: result.error ? result.error.message : '',
+    };
+  } finally {
+    closeSync(stdoutFd);
+    closeSync(stderrFd);
+  }
 };
 
 const git = (...args) => run('git', args);
@@ -121,12 +145,12 @@ if (executeLocal) {
   const receiptRoot = resolve(outRoot, 'local-command-receipts');
   for (const command of localExecutionCommands) {
     const startedAt = new Date().toISOString();
-    const result = run(command.executable, command.args, command.options);
-    const completedAt = new Date().toISOString();
     const stdoutPath = resolve(receiptRoot, `${command.name}.stdout.log`);
     const stderrPath = resolve(receiptRoot, `${command.name}.stderr.log`);
-    writeText(stdoutPath, result.stdout);
-    writeText(stderrPath, result.stderr);
+    const result = runToReceipt(command.executable, command.args, stdoutPath, stderrPath, command.options);
+    const completedAt = new Date().toISOString();
+    const stdout = readFileSync(stdoutPath, 'utf8');
+    const stderr = readFileSync(stderrPath, 'utf8');
     executionReceipts.push({
       name: command.name,
       command: result.command,
@@ -136,8 +160,8 @@ if (executeLocal) {
       completed_at: completedAt,
       stdout: rel(stdoutPath),
       stderr: rel(stderrPath),
-      stdout_sha256: digest(result.stdout),
-      stderr_sha256: digest(result.stderr),
+      stdout_sha256: digest(stdout),
+      stderr_sha256: digest(stderr),
     });
   }
 }
