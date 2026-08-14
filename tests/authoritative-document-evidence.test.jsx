@@ -136,7 +136,7 @@ assert.match(completeAdjustmentDetail,/Immutable authoritative lineage/);
 assert.doesNotMatch(completeAdjustmentDetail,/authoritative lineage unavailable/);
 
 const empty=renderToStaticMarkup(<AuthoritativeDocumentTable title="AR invoices" documents={[]} kind="AR"/>);
-assert.match(empty,/not evidence of a zero balance/);
+assert.match(empty,/does not prove that an upstream source is empty\. It is not evidence of a zero balance\./);
 assert.doesNotMatch(empty,/<table/);
 
 const app=fs.readFileSync(path.join(process.cwd(),'src','authoritative-app.jsx'),'utf8');
