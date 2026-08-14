@@ -23,7 +23,8 @@ assert.match(navMarkup, /Bank Batch Pipeline/); assert.match(navMarkup, /Reconci
 assert.doesNotMatch(navMarkup, /authoritative-nav-status|>API<|>Unavailable</,
   'the navigation panel must keep its rows for full workspace names, not technical availability labels');
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
-assert.match(navMarkup, /No authorised create action is available in this workspace/);
+assert.doesNotMatch(navMarkup, /No authorised create action is available in this workspace|\+ New/,
+  'the authoritative navigation must not show a disabled create action with no available outcome');
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
 assert.match(routeWinsMarkup, /<div class="nav-panel-title">Auto Reconciliation<\/div>/,
   'the current route must select its navigation group even when an old expanded group remains');
@@ -45,9 +46,9 @@ stopWatchingRoute();
 assert.equal(routeListeners.has('hashchange'),false,'the authoritative app must remove its hash listener on unmount');
 const topbarMarkup = renderToStaticMarkup(<AuthoritativeDemoTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
 assert.match(topbarMarkup, /WBHO WB Home LLC/);
-assert.match(topbarMarkup, /Search or jump/, 'the authoritative topbar must retain the demo command-slot geometry');
-assert.match(topbarMarkup, /Search will be available when company records can be searched/,
-  'the visually retained command slot must explain its next business outcome');
+assert.doesNotMatch(topbarMarkup, /Search or jump|Help is unavailable|Notifications are unavailable/,
+  'the authoritative topbar must not retain no-op controls merely for visual parity');
+assert.match(topbarMarkup, /Refresh financial information/);
 assert.match(topbarMarkup, /Period/);
 assert.match(topbarMarkup, /Secure data/);
 assert.match(topbarMarkup, /Signed in/);

@@ -61,8 +61,6 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroup,
     <div className="nav-panel">
       <div className="brand"><span className="logo" aria-hidden="true">R</span> REFS<span className="brand-sub">Authoritative</span></div>
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={onClose}>Close</button>}
-      <button type="button" className="new-btn authoritative-new-disabled" disabled aria-disabled="true"
-        title="No authorised create action is available in this workspace">+ New</button>
       <nav aria-label={`${activeGroup.label} navigation`}>
         <div className={`nav-panel-group nav-tone-${activeGroupIndex % 6}`}>
           <div className="nav-panel-title">{activeGroup.label}</div>

@@ -135,8 +135,8 @@ assert.match(authoritativeShell,/aria-label=\{`\$\{activeGroup\.label\} navigati
   'the selected production group must expose a named page navigation landmark');
 assert.match(authoritativeShell,/className="nav-panel-title"/,
   'the production panel must retain the demo shell’s group title hierarchy');
-assert.match(authoritativeShell,/className="new-btn authoritative-new-disabled"/,
-  'the familiar New control must stay visibly disabled until an authorised API action exists');
+assert.doesNotMatch(authoritativeShell,/authoritative-new-disabled|No authorised create action/,
+  'the authoritative navigation must not expose a disabled create control with no outcome');
 assert.match(authoritativeShell,/from '\.\/ui\.jsx'/,
   'the presentation shell must reuse the local, self-authored rail icon vocabulary');
 assert.match(authoritativeShell,/ITEM_ICONS\[item\.route\] \|\| 'document'/,
