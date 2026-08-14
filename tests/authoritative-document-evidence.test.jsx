@@ -42,7 +42,7 @@ assert.match(workspaceMarkup,/READ ONLY/);
 assert.match(workspaceMarkup,/demo-ap-ar-presentation/);
 assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/AP Aging/);
-assert.match(workspaceMarkup,/AP Aging unavailable/);
+assert.doesNotMatch(workspaceMarkup,/AP Aging unavailable/,'AP aging has an authenticated API contract and must be reachable');
 assert.match(workspaceMarkup,/Vendors unavailable/);
 assert.doesNotMatch(workspaceMarkup,/<button[^>]*disabled[^>]*>AP Aging<\/button>/);
 const demoApArSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-demo-ap-ar-view.jsx'),'utf8');
