@@ -20,6 +20,12 @@ assert.match(manifest.warning, /not a production release claim/i);
 assert.match(manifest.head_sha, /^[0-9a-f]{40}$/);
 assert.equal(manifest.head_ci.head_sha, manifest.head_sha, 'CI evidence must bind to the same frozen SHA as the bundle');
 assert.equal(typeof manifest.head_ci.available, 'boolean');
+assert.deepEqual(manifest.local_execution, {
+  requested: false,
+  requested_postgres_versions: [],
+  status: 'NOT_RUN',
+  receipts: [],
+});
 assert.equal(manifest.local_simulation_artifacts.envFile, 'outputs/local-release-simulation/env.json');
 assert.equal(manifest.scripts['verify:external-release-gate'], 'node tools/verify-external-release-gate.mjs all');
 
@@ -40,5 +46,6 @@ assert.match(readme, /provider S3\/scanner/);
 assert.match(readme, /signed-off Bank-to-GL\/TB\/BS\/Cash Flow chain/);
 assert.match(readme, /signed WBS multi-source ingress-to-GL\/report evidence/);
 assert.match(readme, /immutable report-snapshot-to-source evidence/);
+assert.match(readme, /No commands were executed by this bundle invocation/);
 
 console.log('release-evidence-bundle: manifest, command matrix and release boundary verified');
