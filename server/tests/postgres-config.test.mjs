@@ -11,10 +11,9 @@ test('local discovery has an explicit test-only default',()=>{
   assert.equal(config.controlledDemoEnabled,false);
 });
 
-test('controlled DEMO runtime mode is disabled unless explicitly enabled',()=>{
+test('controlled DEMO runtime mode is permanently prohibited',()=>{
   assert.equal(runtimeConfig({}).controlledDemoEnabled,false);
-  assert.equal(runtimeConfig({REFS_CONTROLLED_DEMO_MODE:'ENABLED'}).controlledDemoEnabled,true);
-  for(const value of ['1','true','AUTO',''])assert.throws(()=>runtimeConfig({REFS_CONTROLLED_DEMO_MODE:value}),/REFS_CONTROLLED_DEMO_MODE must be ENABLED or DISABLED/);
+  for(const value of ['ENABLED','1','true','AUTO',''])assert.throws(()=>runtimeConfig({REFS_CONTROLLED_DEMO_MODE:value}),/REFS_CONTROLLED_DEMO_MODE/);
 });
 
 test('production and required modes require an explicit database URL',()=>{
