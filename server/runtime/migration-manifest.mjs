@@ -135,4 +135,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"127_ai_accounting_analysis_summary.sql",up:"626b5d6fa678aeab2338d5f20757c2280585f5df1ea3d8c697cd3ae159fb08c2",down:"70bb1ce3bdfad04b134c9ee3177e9c42445883a9274b0579d1ea19285b7a65b7"}),
   Object.freeze({name:"128_ai_analysis_explanation_receipt.sql",up:"2d23e96fe8991a3b42b7f3eb5b8a77e135708e566df42699aa3e8d8d9cdb7ff1",down:"818139eb2d66d0c1b792143caf52f88caab7cdd31ac31bc9f48177cca167d18d"}),
   Object.freeze({name:"129_ai_analysis_evidence_idempotency.sql",up:"6213c66c865963186fed6d79f826e7e53a4f12cbe4e7087f5cbafa2c7229440a",down:"bd6647ab025c5a14f4326fd4a3dff0bc8477bba52babaf7eb5a3f091043c132b"}),
+  Object.freeze({name:"130_wbs_cost_cwip_review.sql",up:"d7cca8a3bb8e39d5222fbd1a21a0f63e72e9bf186b06cc95ebce8ea65828d1e4",down:"9376bdfccb0e8826e054292082750b149ab92a46a6917662b85b69371a6b9514"}),
+  Object.freeze({name:"131_wbs_cost_cwip_draft.sql",up:"da3eda806636a4cdb0089449eaba1d7d5602e045b74ba5b661fdde9e1d31f670",down:"ca80112052aa9cb841f78f9ee4950be1c054cdba872b2fa9c281151d8d078d86"}),
 ]);

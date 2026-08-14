@@ -347,6 +347,34 @@ export class PostgresAccountingKernel{
     });
   }
 
+  // Cost-to-CWIP remains a controlled staging decision: this creates no journal
+  // and leaves standard Draft/approval/Post controls as separate commands.
+  async reviewWbsCostCwip({tenantId,entityId,wbsInboundRowId,periodId,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,settingSnapshotId,mappingSnapshotId,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_review_wbs_cost_cwip_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS request_hash',
+        [tenantId,entityId,wbsInboundRowId,periodId,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,settingSnapshotId,mappingSnapshotId,reason]
+      ),'WBS_COST_CWIP_REVIEW_HASH_FAILED','WBS Cost-to-CWIP review hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_review_wbs_cost_cwip($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) AS result',
+        [tenantId,entityId,wbsInboundRowId,periodId,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,settingSnapshotId,mappingSnapshotId,reason,idempotencyKey,requestHash]
+      ),'WBS_COST_CWIP_REVIEW_FAILED','WBS Cost-to-CWIP review did not return a result').result;
+    });
+  }
+
+  async createWbsCostCwipDraft({tenantId,entityId,reviewEvidenceId,expectedEvidenceHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_wbs_cost_cwip_draft_hash($1,$2,$3,$4,$5) AS request_hash',
+        [tenantId,entityId,reviewEvidenceId,expectedEvidenceHash,reason]
+      ),'WBS_COST_CWIP_DRAFT_HASH_FAILED','WBS Cost-to-CWIP Draft hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_wbs_cost_cwip_draft($1,$2,$3,$4,$5,$6,$7) AS result',
+        [tenantId,entityId,reviewEvidenceId,expectedEvidenceHash,reason,idempotencyKey,requestHash]
+      ),'WBS_COST_CWIP_DRAFT_FAILED','WBS Cost-to-CWIP Draft creation did not return a result').result;
+    });
+  }
+
   async listWbsPayableReviewCandidates({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_wbs_payable_review_candidates($1,$2,NULL,$3)',[tenantId,entityId,limit]
