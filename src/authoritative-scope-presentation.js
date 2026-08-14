@@ -11,9 +11,14 @@ export const formatAuthoritativeDate=value=>{
 export function authoritativeScopePresentation(config,coaRows=[]){
   const rows=Array.isArray(coaRows)?coaRows:[];
   const period=rows.find(row=>row?.period_id===config?.periodId&&/^\d{4}-(0[1-9]|1[0-2])$/.test(row?.period_code||''));
-  const cash=rows.find(row=>row?.account_code===config?.cashAccountCode&&typeof row?.account_name==='string'&&row.account_name.trim());
+  const inEntity=row=>!row?.entity_id||row.entity_id===config?.entityId;
+  const scopedRows=rows.filter(row=>inEntity(row));
+  const cash=scopedRows.find(row=>row?.account_code===config?.cashAccountCode&&typeof row?.account_name==='string'&&row.account_name.trim());
+  const namedEntityRows=scopedRows.filter(row=>row?.entity_id===config?.entityId);
+  const entityName=namedEntityRows.find(row=>typeof row?.entity_name==='string'&&row.entity_name.trim())?.entity_name?.trim()
+    || namedEntityRows.find(row=>typeof row?.entity_display_name==='string'&&row.entity_display_name.trim())?.entity_display_name?.trim();
   return {
-    entityLabel:'Configured entity',
+    entityLabel:entityName||'Entity name unavailable',
     entityDetail:UUID.test(config?.entityId||'')?config.entityId:'Identifier unavailable',
     periodLabel:period?.period_code||'Period unavailable',
     periodDetail:period?`${formatAuthoritativeDate(period.period_start)} - ${formatAuthoritativeDate(period.period_end)}`:(UUID.test(config?.periodId||'')?config.periodId:'Identifier unavailable'),
