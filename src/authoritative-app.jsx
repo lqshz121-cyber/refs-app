@@ -452,8 +452,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
       <AuthoritativeDemoTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={scopePresentation.entityLabel} periodLabel={scopePresentation.periodLabel} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout}/>
       <main className="content">
         <section className="authoritative-scope-bar" aria-label="Authoritative accounting scope">
-          <span title={`Entity ID: ${scopePresentation.entityDetail}`}><b>Entity</b> {scopePresentation.entityLabel}</span>
-          <span title={scopePresentation.periodDetail}><b>Period</b> {scopePresentation.periodLabel}</span>
+          <span title={`${scopePresentation.entityHint ? `${scopePresentation.entityHint} ` : ''}Entity ID: ${scopePresentation.entityDetail}`}><b>Entity</b> {scopePresentation.entityLabel}{scopePresentation.entityHint&&<small className="muted sm"> — display name not returned by API</small>}</span>
+          <span title={`${scopePresentation.periodHint ? `${scopePresentation.periodHint} ` : ''}${scopePresentation.periodDetail}`}><b>Period</b> {scopePresentation.periodLabel}{scopePresentation.periodHint&&<small className="muted sm"> — period details not returned by API</small>}</span>
           {config.cashAccountCode&&<span><b>Cash account</b> {scopePresentation.cashAccountLabel}</span>}
           {(documentDetail?.returnContext||adjustmentDetail?.returnContext)&&<span><b>Return context</b> Query {(documentDetail?.returnContext||adjustmentDetail?.returnContext).view.query||'All'} | Page {(documentDetail?.returnContext||adjustmentDetail?.returnContext).view.page}</span>}
         </section>
