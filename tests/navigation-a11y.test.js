@@ -128,8 +128,10 @@ assert.doesNotMatch(authoritativeShell,/authoritative-new-disabled|\+ New/,
   'the authoritative shell must not render an inert New control when no authorised API action exists');
 assert.match(authoritativeShell,/from '\.\/ui\.jsx'/,
   'the presentation shell must reuse the local, self-authored rail icon vocabulary');
-assert.match(authoritativeShell,/authoritative-nav-status/,
-  'each visible catalog entry must disclose whether an API read model exists');
+assert.match(authoritativeShell,/ITEM_ICON_BY_ROUTE/,
+  'each visible catalog entry must use a recognisable finance icon instead of a letter abbreviation');
+assert.doesNotMatch(authoritativeShell,/authoritative-nav-status|>API<|>Unavailable</,
+  'navigation must not expose technical API or unavailable status labels to finance users');
 assert.doesNotMatch(authoritativeShell,/legacy-demo-app|from ['"]\.\/data|from ['"]\.\/seed|from ['"]\.\/repo|localStorage/,
   'the full production shell must not import or persist demonstration business state');
 
