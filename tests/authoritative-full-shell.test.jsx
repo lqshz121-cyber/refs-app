@@ -64,10 +64,10 @@ const demoViewSource = fs.readFileSync('src/authoritative-demo-view.jsx', 'utf8'
 assert.doesNotMatch(demoViewSource, /seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js/,
   'the reusable demo presentation frame must not import or persist demonstration accounting state');
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
-assert.match(unavailableMarkup, /Source Documents is being prepared/);
-assert.match(unavailableMarkup, /This workspace is not ready to use yet/);
-assert.match(unavailableMarkup, /Your existing books, reports, and approvals are unchanged/);
-assert.match(unavailableMarkup, /What to expect/);
+assert.match(unavailableMarkup, /Source Documents is coming soon/);
+assert.match(unavailableMarkup, /This workspace is being prepared/);
+assert.match(unavailableMarkup, /Your current books, reports, and approvals are unchanged/);
+assert.match(unavailableMarkup, /When it&#x27;s ready/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create|API UNAVAILABLE|authoritative read contract|entity-1|period-1/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 const firstConditionalRender=appSource.indexOf("if (!configured) return");
