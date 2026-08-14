@@ -14,17 +14,17 @@ assert.ok(AUTHORITATIVE_ROUTES.includes('project-cost-cwip'));
 assert.ok(AUTHORITATIVE_ROUTES.includes('ai-audit'));
 assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'ai-audit', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
-const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroup="Auto Reconciliation" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
-const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroup="Reports" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
-const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroup="General Ledger" navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','General Ledger']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroups={['General Ledger','Auto Reconciliation']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
-assert.match(navMarkup, /API/); assert.match(navMarkup, /Unavailable/);
+assert.match(navMarkup, /<svg/); assert.match(navMarkup, /Bank transaction matching/);
+assert.doesNotMatch(navMarkup, />API</); assert.doesNotMatch(navMarkup, />Unavailable</);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.doesNotMatch(navMarkup, /authoritative-new-disabled|\+ New/);
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
-assert.match(routeWinsMarkup, /<div class="nav-panel-title">Auto Reconciliation<\/div>/,
-  'the current route must select its navigation group even when an old expanded group remains');
+assert.match(routeWinsMarkup, /Auto Reconciliation/, 'the current route must remain visible when several groups are expanded');
 
 const routeListeners = new Map();
 const routeEnvironment = {
@@ -46,8 +46,8 @@ assert.match(topbarMarkup, /WBHO WB Home LLC/);
 assert.doesNotMatch(topbarMarkup, /Search or jump|Help is unavailable|Notifications are unavailable|disabled=/,
   'the authoritative topbar must not render inert product controls');
 assert.match(topbarMarkup, /Period/);
-assert.match(topbarMarkup, /Authoritative/);
-assert.match(topbarMarkup, /Authenticated/);
+assert.match(topbarMarkup, /Secure workspace/);
+assert.match(topbarMarkup, /Signed in/);
 assert.doesNotMatch(fs.readFileSync('src/authoritative-topbar.jsx', 'utf8'), /seed\.js|repo\.js|localStorage|legacy-demo-app|disabled/,
   'the authoritative shell must accept API/OIDC slots only and expose no inert actions');
 const workspaceViewMarkup = renderToStaticMarkup(<AuthoritativeWorkspaceView area="Reports"><AuthoritativeWorkspaceHeader eyebrow="AUTHORITATIVE | REPORTING" title="Reports center" description="API-backed report facts only."/><div>API-owned report content</div></AuthoritativeWorkspaceView>);
@@ -58,11 +58,10 @@ const workspaceViewSource = fs.readFileSync('src/authoritative-workbench-view.js
 assert.doesNotMatch(workspaceViewSource, /seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js/,
   'the reusable authoritative presentation frame must not import or persist local accounting state');
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
-assert.match(unavailableMarkup, /Source Documents is not available/);
-assert.match(unavailableMarkup, /No browser-stored or substitute data is shown/);
-assert.match(unavailableMarkup, /Required authoritative read contract/);
-assert.match(unavailableMarkup, /attachment-read contract/);
-assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
+assert.match(unavailableMarkup, /Source Documents is coming soon/);
+assert.match(unavailableMarkup, /This workspace is being prepared/);
+assert.match(unavailableMarkup, /When it&#x27;s ready/);
+assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create|API UNAVAILABLE|authoritative read contract|entity-1|period-1/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 const firstConditionalRender=appSource.indexOf("if (!configured) return");
 for(const scopeHook of [

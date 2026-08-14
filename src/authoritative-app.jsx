@@ -159,8 +159,10 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   // previously had no opener at all, which made the navigation unreachable on a
   // tablet as well as untabbable - both are fixed by the same three pieces.
   const [navOpen, setNavOpen] = useState(false);
-  const [expandedNavigationGroup, setExpandedNavigationGroup] = useState(() =>
-    AUTHORITATIVE_NAVIGATION.find(group => group.items.some(item => item.route === readRetainedRoute(environment)))?.label || null);
+  const [expandedNavigationGroups, setExpandedNavigationGroups] = useState(() => {
+    const initial = AUTHORITATIVE_NAVIGATION.find(group => group.items.some(item => item.route === readRetainedRoute(environment)))?.label;
+    return initial ? [initial] : [];
+  });
   const [navOffCanvas, setNavOffCanvas] = useState(() => readOffCanvas());
   const navDrawerRef = useRef(null);
   const navOpenerRef = useRef(null);
@@ -283,15 +285,15 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     if (next === 'reports') setReportsNavigationVersion(current => current + 1);
     setRouteState(next);
     retainRoute(environment, next);
-    setExpandedNavigationGroup(AUTHORITATIVE_NAVIGATION.find(group => group.items.some(item => item.route === next))?.label || null);
+    const group = AUTHORITATIVE_NAVIGATION.find(entry => entry.items.some(item => item.route === next))?.label;
+    if (group) setExpandedNavigationGroups(current => current.includes(group) ? current : [...current, group]);
     setNavOpen(false);
   }), [environment]);
   const selectNavigationGroup = useCallback(group => {
-    const multiple = group.items.length > 1;
-    setExpandedNavigationGroup(current => multiple && current === group.label ? null : group.label);
-    setRoute(group.items[0].route);
-    setNavOpen(false);
-  }, [setRoute]);
+    setExpandedNavigationGroups(current => current.includes(group.label)
+      ? current.filter(label => label !== group.label)
+      : [...current, group.label]);
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!config) return;
@@ -427,7 +429,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   }
   const counts = { bills:data.ap.bills.length, invoices:data.ar.invoices.length, adjustments:data.ap.adjustments.length + data.ar.adjustments.length, journals:data.journals.length };
   return <div className="app authoritative-app">
-    <AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route={route} expandedGroup={expandedNavigationGroup}
+    <AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route={route} expandedGroups={expandedNavigationGroups}
       onSelectGroup={selectNavigationGroup} onSelectItem={next => { setRoute(next); setNavOpen(false); }} navOpen={navOpen}
       navDrawerRef={navDrawerRef} drawerAttributes={navDrawerAttributes(navOffCanvas, navOpen)} onClose={() => setNavOpen(false)}/>
     {false && <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar ${navOpen ? 'mobile-open' : ''}`}
