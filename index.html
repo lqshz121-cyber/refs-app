@@ -2104,11 +2104,10 @@ select{padding-right:28px; cursor:pointer;}
   .qb-greet-spacer{display:none;}
   .qbo-home-actions{justify-self:center;}
 }
-/* The authoritative drawer state machine enters off-canvas mode only at
-   <=1024px. Keep the production rail anchored at every wider breakpoint so a
-   generic 1280px demo rule can never visually hide an otherwise focusable
-   navigation tree. */
-@media(min-width:1025px){
+/* Keep the CSS breakpoint aligned with nav-drawer.js (<=1280px). At those
+   widths the drawer is inert while closed, so it must also be visually
+   off-canvas; otherwise users see a rail they cannot click or focus. */
+@media(min-width:1281px){
   .authoritative-app .sidebar{position:sticky; top:0; left:auto; transform:none; width:var(--nav-w); flex:0 0 var(--nav-w); box-shadow:none;}
   .authoritative-app .mobile-nav-btn,.authoritative-app .mobile-nav-scrim{display:none;}
   .authoritative-app .main{margin-left:0;}
