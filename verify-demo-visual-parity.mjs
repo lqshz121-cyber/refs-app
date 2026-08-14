@@ -5,7 +5,7 @@ const read = path => readFileSync(path, 'utf8');
 const css = read('index.html');
 const app = read('src/authoritative-app.jsx');
 const nav = read('src/authoritative-navigation-shell.jsx');
-const topbar = read('src/authoritative-demo-shell.jsx');
+const topbar = read('src/authoritative-topbar.jsx');
 const overview = read('src/authoritative-overview.jsx');
 const documents = read('src/authoritative-workspace.jsx');
 const bank = read('src/authoritative-bank-workspace.jsx');
@@ -34,7 +34,7 @@ matches(css, /\.topbar\{[\s\S]*?height:58px; padding:0 24px;/,
   'desktop topbar must retain the demo control rhythm');
 matches(css, /\.main\{[\s\S]*?flex:1; min-width:0;[\s\S]*?margin:6px 6px 6px 0;/,
   'desktop canvas must remain shrinkable beside navigation');
-for (const token of ['className="nav-rail"', 'className="nav-panel"', 'className="topbar authoritative-topbar authoritative-demo-topbar"', 'className="qbo-home-hero"', 'className="qbo-quicklinks"', 'className="qbo-grid"']) {
+for (const token of ['className="nav-rail"', 'className="nav-panel"', 'className="topbar authoritative-topbar"', 'className="qbo-home-hero"', 'className="qbo-quicklinks"', 'className="qbo-grid"']) {
   contains(`${nav}\n${topbar}\n${overview}`, token, `desktop visual adapter missing ${token}`);
 }
 

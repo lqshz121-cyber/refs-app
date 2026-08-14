@@ -30,7 +30,7 @@ import {
 import { AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES, navigationItemForRoute } from './authoritative-navigation.js';
 import { AuthoritativeOverview } from './authoritative-overview.jsx';
 import { AuthoritativeNavigationShell } from './authoritative-navigation-shell.jsx';
-import { AuthoritativeDemoTopbar } from './authoritative-demo-shell.jsx';
+import { AuthoritativeTopbar } from './authoritative-topbar.jsx';
 import { AuthoritativeUnavailableWorkspace } from './authoritative-unavailable-workspace.jsx';
 import {authoritativeScopePresentation} from './authoritative-scope-presentation.js';
 
@@ -449,7 +449,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           <button type="button" className="btn btn-sm btn-ghost authoritative-signout" onClick={logout}>Sign out</button>
         </div>
       </header>}
-      <AuthoritativeDemoTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={scopePresentation.entityLabel} periodLabel={scopePresentation.periodLabel} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout}/>
+      <AuthoritativeTopbar navOpenerRef={navOpenerRef} navOpen={navOpen} onOpenNavigation={() => setNavOpen(true)} entityLabel={scopePresentation.entityLabel} periodLabel={scopePresentation.periodLabel} theme={theme} onToggleTheme={toggleTheme} onRefresh={refresh} onSignOut={logout}/>
       <main className="content">
         <section className="authoritative-scope-bar" aria-label="Authoritative accounting scope">
           <span title={`${scopePresentation.entityHint ? `${scopePresentation.entityHint} ` : ''}Entity ID: ${scopePresentation.entityDetail}`}><b>Entity</b> {scopePresentation.entityLabel}{scopePresentation.entityHint&&<small className="muted sm"> — display name not returned by API</small>}</span>

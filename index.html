@@ -346,10 +346,10 @@ input,select,textarea{
 /* Exact presentation structure from the complete REFS shell: scope control,
    period chip, actions and user chip stay in one topbar.  Move navigation off
    canvas before a narrow desktop can compress accounting evidence. */
-.authoritative-demo-topbar .authoritative-shell-scope{display:flex; flex:1 1 340px; min-width:200px; max-width:420px;}
-.authoritative-demo-topbar .authoritative-shell-select{display:flex; align-items:center; width:100%; min-width:0; height:var(--qb-control-h); padding:0 34px 0 12px; overflow:hidden; border:1px solid var(--qb-border); border-radius:var(--qb-r-control); background:var(--qb-surface); color:var(--qb-text-strong); font-size:13px; font-weight:500; text-overflow:ellipsis; white-space:nowrap; position:relative;}
-.authoritative-demo-topbar .authoritative-shell-select::after{content:'⌄'; position:absolute; right:12px; color:var(--qb-text-muted); font-size:18px;}
-.authoritative-demo-topbar .authoritative-top-actions{margin-left:auto;}
+.authoritative-topbar .authoritative-shell-scope{display:flex; flex:1 1 340px; min-width:200px; max-width:420px;}
+.authoritative-topbar .authoritative-shell-select{display:flex; align-items:center; width:100%; min-width:0; height:var(--qb-control-h); padding:0 34px 0 12px; overflow:hidden; border:1px solid var(--qb-border); border-radius:var(--qb-r-control); background:var(--qb-surface); color:var(--qb-text-strong); font-size:13px; font-weight:500; text-overflow:ellipsis; white-space:nowrap; position:relative;}
+.authoritative-topbar .authoritative-shell-select::after{content:'⌄'; position:absolute; right:12px; color:var(--qb-text-muted); font-size:18px;}
+.authoritative-topbar .authoritative-top-actions{margin-left:auto;}
 @media (max-width:900px) and (min-width:769px){
   .authoritative-app .sidebar{position:fixed; top:0; left:0; z-index:32; transform:translateX(-100%); transition:transform var(--qb-dur-2) var(--qb-ease-out); box-shadow:var(--qb-shadow-strong);}
   .authoritative-app .sidebar.mobile-open{transform:translateX(0);}
