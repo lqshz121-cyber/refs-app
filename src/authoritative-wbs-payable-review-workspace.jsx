@@ -6,6 +6,18 @@ import {StateBlock} from './ui.jsx';
 const compact=value=>value??'Unavailable';
 const immutableCandidate=row=>JSON.stringify(row);
 
+const ReviewCandidateReadBlocked=({error,onRetry})=>{
+  const denied=error?.code==='AUTHORIZATION_DENIED';
+  return <StateBlock tone="blocked" title={denied?'NO_PERMISSION — WBS Payable reviewer access required':error?.code||'WBS_PAYABLE_REVIEW_CANDIDATES_BLOCKED'}
+    actions={<button type="button" className="btn btn-sm" onClick={onRetry}>Retry review readiness</button>}>
+    {denied?<>
+      <p>The current session cannot read signed WBS Payables for this entity.</p>
+      <p>Next step: an administrator must assign the <b>WBS_PAYABLE_REVIEWER</b> role for this entity. That role supplies <code>WBS.PAYABLE.REVIEW</code> and <code>AP.VIEW</code>; it does not grant import, Draft creation, approval, or posting.</p>
+      <p>Unsigned Pilot observations remain excluded even after this read permission is assigned.</p>
+    </>:<p>{error?.message||'The authoritative review-candidate read is unavailable for this entity.'}</p>}
+  </StateBlock>;
+};
+
 export function AuthoritativeWbsPayableReviewWorkspace({config,fetcher=globalThis.fetch,onReviewed=()=>{}}){
   const [state,setState]=useState({phase:'LOADING',rows:[],error:null});
   const [selected,setSelected]=useState(null);
@@ -42,7 +54,7 @@ export function AuthoritativeWbsPayableReviewWorkspace({config,fetcher=globalThi
     <div className="report-workbench-head"><div><b>Admitted WBS Payables awaiting review</b><div className="page-subtitle">Server-derived, signed production evidence only. Review retains immutable evidence; it never creates a Bill or Journal Draft.</div></div><button type="button" className="btn" disabled={state.phase==='LOADING'||command.phase==='LOADING'} onClick={load}>Refresh review readiness</button></div>
     <div className="report-shelf" aria-label="WBS Payable review boundary"><span className="report-shelf-chip report-shelf-chip-on">SIGNED + ADMITTED</span><span className="report-shelf-chip">SERVER DERIVED</span><span className="report-shelf-chip">REVIEW ONLY</span><span className="report-shelf-chip">NO DRAFT</span></div>
     {state.phase==='LOADING'&&<StateBlock tone="loading" title="Loading admitted WBS Payables">Checking exact production receipt, entity, currency, period, approved mapping, local master data, SoD, and verified attachments.</StateBlock>}
-    {state.phase==='BLOCKED'&&<StateBlock tone="blocked" title={state.error?.code||'WBS_PAYABLE_REVIEW_CANDIDATES_BLOCKED'}>{state.error?.message}</StateBlock>}
+    {state.phase==='BLOCKED'&&<ReviewCandidateReadBlocked error={state.error} onRetry={load}/>}
     {state.phase==='READY'&&state.rows.length===0&&<StateBlock tone="empty" title="No admitted Payables awaiting review">The authenticated API returned a valid empty result. Unsigned pilot rows are never included.</StateBlock>}
     {state.phase==='READY'&&state.rows.length>0&&<div className="table-wrap" role="region" tabIndex={0} aria-label="Admitted WBS Payables awaiting review; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Document</th><th>Accounting date</th><th>Vendor</th><th>Currency</th><th>Gross amount</th><th>Readiness</th><th>Evidence</th></tr></thead><tbody>{state.rows.map(row=><tr key={row.wbs_inbound_row_id}><td>{compact(row.document_number)}</td><td>{compact(row.accounting_date)}</td><td>{compact(row.vendor_name)}</td><td>{compact(row.currency)}</td><td>{compact(row.gross_amount)}</td><td><span className={`badge ${row.can_review?'badge-success':'badge-muted'}`}>{row.review_readiness}</span></td><td><button type="button" className="linklike" disabled={!row.can_review&&row.review_readiness!=='VERIFIED_ATTACHMENT_REQUIRED'||command.phase==='LOADING'} onClick={()=>open(row)}>{row.can_review?'Inspect review evidence':row.review_readiness==='VERIFIED_ATTACHMENT_REQUIRED'?'Add support evidence':'Unavailable'}</button></td></tr>)}</tbody></table></div>}
     {selected&&<div className="filterbar" aria-label="Exact WBS Payable support evidence">
