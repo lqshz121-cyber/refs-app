@@ -5,6 +5,7 @@ import {focusFirstControl, navDrawerAttributes, navDrawerIsInert, readOffCanvas,
 const app=readFileSync('src/legacy-demo-app.jsx','utf8');
 const authoritative=readFileSync('src/authoritative-app.jsx','utf8');
 const authoritativeShell=readFileSync('src/authoritative-navigation-shell.jsx','utf8');
+const unavailableWorkspace=readFileSync('src/authoritative-unavailable-workspace.jsx','utf8');
 const styles=readFileSync('index.html','utf8');
 assert.match(app,/<button className="mobile-nav-scrim" tabIndex=\{-1\} aria-label="Close navigation"/);
 assert.match(app,/<button className="mobile-nav-close" aria-label="Close navigation" onClick=\{\(\)=>setMobileNav\(false\)\}>Close<\/button>/);
@@ -128,8 +129,20 @@ assert.doesNotMatch(authoritativeShell,/authoritative-new-disabled|\+ New/,
   'the authoritative shell must not render an inert New control when no authorised API action exists');
 assert.match(authoritativeShell,/from '\.\/ui\.jsx'/,
   'the presentation shell must reuse the local, self-authored rail icon vocabulary');
-assert.match(authoritativeShell,/authoritative-nav-status/,
-  'each visible catalog entry must disclose whether an API read model exists');
+assert.match(authoritativeShell,/ITEM_ICONS/,
+  'each visible catalog entry must use a self-authored icon rather than an abbreviation badge');
+assert.match(authoritativeShell,/<Icon name=\{ITEM_ICONS\[itemIndex % ITEM_ICONS\.length\]\} size=\{18\}\/>/,
+  'the readable navigation row must render its icon at a compact, consistent size');
+assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|API_READ|Unavailable/,
+  'navigation rows must not expose implementation statuses or letter abbreviations to finance readers');
+assert.match(unavailableWorkspace,/WORKSPACE SETUP|SETUP REQUIRED|SETUP NEEDED/,
+  'an unconfigured workspace must explain setup in finance-reader language');
+assert.match(unavailableWorkspace,/requirements\.map\(requirement=><li key=\{requirement\}>\{requirement\}<\/li>\)/,
+  'a setup page must retain each route-specific prerequisite instead of hiding the actual connection or access gap');
+assert.match(unavailableWorkspace,/Who completes this:|Next step:/,
+  'a setup page must explain both the responsible party and the safe reader next step');
+assert.doesNotMatch(unavailableWorkspace,/config\?\.entityId \|\| 'Not configured'|config\?\.periodId \|\| 'Not configured'/,
+  'raw scope identifiers must not be rendered as the visible workspace value');
 assert.doesNotMatch(authoritativeShell,/legacy-demo-app|from ['"]\.\/data|from ['"]\.\/seed|from ['"]\.\/repo|localStorage/,
   'the full production shell must not import or persist demonstration business state');
 
