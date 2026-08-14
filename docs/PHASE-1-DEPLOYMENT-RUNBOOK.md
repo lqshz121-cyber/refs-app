@@ -119,25 +119,24 @@ provider configuration; the provider itself is proved in step 5.
 
 ## 3. Deploy `server/`
 
-Deploy the API service, static client, and attachment cleanup worker from the
-Render Blueprints. Phase 1 explicitly sets `REFS_ATTACHMENT_MODE=REQUIRED` and
-`REFS_WBS_INGEST_MODE=REQUIRED`. It accepts only a verified provider receipt,
-exact immutable attachment version, and accepted scanner finalization. Missing
-storage, scanner, cleanup, or public-key trust configuration fails closed.
+Deploy the Stage 1 API service and static client from `render.yaml`. It sets
+`REFS_ATTACHMENT_MODE=DISABLED` and `REFS_WBS_INGEST_MODE=DISABLED`, so
+authenticated reads and the unsigned WBS pilot remain available while every
+attachment or signed-ingest accounting action stays unavailable.
 
 Additional Stage 1 configuration the API needs, all by name only:
 
 - `REFS_HTTP_ALLOWED_ORIGINS` - the exact origin the static client is served
   from. Anything else is refused with a CORS failure.
-- `REFS_ATTACHMENT_MODE=REQUIRED` - exact attachment binding and scanner
-  evidence are mandatory.
-- `REFS_WBS_INGEST_MODE=REQUIRED` - a trusted WBS public-key keyring is
-  mandatory.
-- `WBS_SNAPSHOT_ED25519_PUBLIC_KEYS` - non-empty trusted provider keyring.
+- `REFS_ATTACHMENT_MODE=DISABLED` - attachment-dependent accounting actions
+  are unavailable in the Stage 1 read deployment.
+- `REFS_WBS_INGEST_MODE=DISABLED` - signed WBS admission is unavailable in the
+  Stage 1 read deployment.
 
-Deploy the cleanup worker declared in `render.integrations.yaml` with the API.
-Provider-backed S3/scanner evidence and every required WBS trust variable must
-be configured before promotion; startup fails closed if any is absent.
+Deploy the cleanup worker declared in `render.integrations.yaml` only as a
+separate integrations release. That release may set both modes to `REQUIRED`
+after provider-backed S3/scanner evidence and every required WBS trust variable
+are configured; startup fails closed if any is absent.
 
 **Verification**
 
