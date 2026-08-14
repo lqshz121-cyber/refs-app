@@ -34,7 +34,7 @@ function assertManifest(files){
 
 function assertChecksum(migration,direction){
   const manifest=MIGRATION_MANIFEST.find(item=>item.name===migration.name);
-  if(!manifest||manifest[direction]!==migration.checksum)throw new KernelError('MIGRATION_CHECKSUM_MISMATCH',`${direction} checksum mismatch: ${migration.name}`);
+  if(!manifest||manifest[direction]!==migration.checksum)throw new KernelError('MIGRATION_CHECKSUM_MISMATCH',`${direction} checksum mismatch: ${migration.name}`,{expected:manifest?.[direction]??null,actual:migration.checksum});
 }
 
 async function ensureMetadata(pool){

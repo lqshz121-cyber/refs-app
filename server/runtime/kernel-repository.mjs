@@ -55,6 +55,32 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async recordAIJournalReviewEvidence(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_record_ai_journal_review_evidence_hash($1,$2,$3,$4,$5,$6,$7) AS request_hash',
+        [args.tenantId,args.entityId,args.proposalId,args.findingId,args.reviewOutcomeId,args.proposalHash,args.reviewedAt]
+      ),'AI_JOURNAL_REVIEW_HASH_FAILED','AI journal review hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_record_ai_journal_review_evidence($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',
+        [args.tenantId,args.entityId,args.proposalId,args.findingId,args.reviewOutcomeId,args.proposalHash,args.reviewedAt,args.idempotencyKey,requestHash]
+      ),'AI_JOURNAL_REVIEW_FAILED','AI journal review evidence was not recorded').result;
+    });
+  }
+
+  async linkAIReviewedJournal(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        "SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'ai_journal_review_evidence_id',$3::uuid,'journal_entry_id',$4::uuid)) AS request_hash",
+        [args.tenantId,args.entityId,args.aiJournalReviewEvidenceId,args.journalEntryId]
+      ),'AI_JOURNAL_LINK_HASH_FAILED','AI journal link hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_link_ai_reviewed_journal($1,$2,$3,$4,$5,$6) AS result',
+        [args.tenantId,args.entityId,args.aiJournalReviewEvidenceId,args.journalEntryId,args.idempotencyKey,requestHash]
+      ),'AI_JOURNAL_LINK_FAILED','AI journal review evidence was not linked').result;
+    });
+  }
+
   async createBusinessDocument(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

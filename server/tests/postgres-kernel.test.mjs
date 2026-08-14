@@ -23,6 +23,7 @@ import {buildWbsMcpReadonlySnapshot} from '../runtime/wbs-mcp-inbound-lineage.mj
 import {createWbsSignedDelivery} from '../runtime/wbs-signed-delivery-admission.mjs';
 import {createWbsProviderSignedPayableAdmission} from '../runtime/wbs-provider-signed-payable-admission.mjs';
 import {createWbsAdmittedPayableIngestion} from '../runtime/wbs-admitted-payable-ingestion.mjs';
+import {applyAIReviewOutcome,prepareAIReviewedStandardJEDraft,proposeDraftJE} from '../../src/ai-accounting.js';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -1486,6 +1487,38 @@ pgTest('runtime roles create, submit, review, approve and post a manual journal 
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[created.journal_entry_id])).rows[0].n,2);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[created.journal_entry_id])).rows[0].n,5);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE aggregate_id=$1 AND event_type IN ('JOURNAL_CREATED','JOURNAL_SUBMIT','JOURNAL_REVIEW','JOURNAL_APPROVE','JOURNAL_POSTED')",[created.journal_entry_id])).rows[0].n,5);
+});
+
+pgTest('AI test-data recommendation requires retained human review before a standard Draft JE can post',async()=>{
+  const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'610000',accountName:'AI accrual expense'}]});
+  const attachmentId=(await adminPool.query('SELECT attachment_id FROM source_link WHERE journal_entry_id=$1 AND attachment_id IS NOT NULL',[ids.journalId])).rows[0].attachment_id;
+  const proposal=proposeDraftJE({
+    finding:{id:'AI:ACCRUAL:PG-TEST-2026-07',skill:'ACCRUAL_ACCOUNTING',rule:'MISSING_ACCRUAL',risk:'MEDIUM',object_type:'PAYABLE',object:'TEST-BILL-1001',review_owner:'CONTROLLER',confidence:0.94,source_refs:['TEST-BILL-1001'],dimensions:{entity_id:ids.entityId,period_code:'2026-07'}},
+    evidence:{schema:'AI_DECISION_EVIDENCE_V1',input_refs:['test-bill:TEST-BILL-1001'],policy_gates:['DRAFT_ONLY','HUMAN_REVIEW_REQUIRED','NO_AUTOMATIC_POSTING']},
+    jeSpec:{entity_id:ids.entityId,member_trace:{entity_id:ids.entityId,project_id:null,property_id:null},period_code:'2026-07',je_date:'2026-07-24',source_doc_id:'TEST-BILL-1001',je_type:'AUTO',source_system:'AI_TEST_DATA',rule_code:'AI_ACCRUAL_TEST',description:'Controller-reviewed test-data accrual',lines:[{account_code:'610000',debit_amount:1250,credit_amount:0},{account_code:'291001',debit_amount:0,credit_amount:1250}]}
+  });
+  const reviewed=applyAIReviewOutcome({draft:proposal.draft,outcome:{decision:'APPROVE',idempotency_key:'ai-pg-review-0001',reason:'Controller reviewed retained test-data support.'},actor:'ai-controller'});
+  const prepared=prepareAIReviewedStandardJEDraft({draft:reviewed.draft,jeId:randomUUID(),jeNumber:'JE-AI-PG-001'});
+  const proposalHash=hash(JSON.stringify({proposal_id:prepared.ai_proposal_id,finding_id:prepared.ai_finding_id,review_outcome_id:prepared.ai_review_outcome_id,lines:prepared.lines}));
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-controller',['AI.REVIEW'])});
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-maker',['GL.JE.CREATE','GL.JE.SUBMIT'])});
+  const badReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-maker',['AI.REVIEW','GL.JE.CREATE'])});
+  await assert.rejects(maker.recordAIJournalReviewEvidence({tenantId:ids.tenantId,entityId:ids.entityId,proposalId:prepared.ai_proposal_id,findingId:prepared.ai_finding_id,reviewOutcomeId:prepared.ai_review_outcome_id,proposalHash,reviewedAt:prepared.ai_reviewed_at,idempotencyKey:'ai-pg-review-denied'}),error=>error.code==='42501');
+  const retained=await reviewer.recordAIJournalReviewEvidence({tenantId:ids.tenantId,entityId:ids.entityId,proposalId:prepared.ai_proposal_id,findingId:prepared.ai_finding_id,reviewOutcomeId:prepared.ai_review_outcome_id,proposalHash,reviewedAt:prepared.ai_reviewed_at,idempotencyKey:'ai-pg-review-0001'});
+  const selfRetained=await badReviewer.recordAIJournalReviewEvidence({tenantId:ids.tenantId,entityId:ids.entityId,proposalId:'AI-PROPOSAL-SELF-0001',findingId:'AI:FINDING:SELF-0001',reviewOutcomeId:'AI-OUTCOME-SELF-0001',proposalHash:hash('self-review'),reviewedAt:prepared.ai_reviewed_at,idempotencyKey:'ai-pg-review-self-0001'});
+  const created=await maker.createManualJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalNumber:prepared.je_number,journalDate:prepared.je_date,currency:'USD',description:prepared.description,attachmentIds:[attachmentId],idempotencyKey:'ai-pg-create-0001',lines:prepared.lines.map((line,index)=>({line_no:index+1,account_code:line.account_code,debit_amount:line.debit_amount,credit_amount:line.credit_amount,member_ref:index===1?'VENDOR-1':null,description:'AI reviewed test-data line',dimensions:{}}))});
+  await assert.rejects(maker.linkAIReviewedJournal({tenantId:ids.tenantId,entityId:ids.entityId,aiJournalReviewEvidenceId:selfRetained.ai_journal_review_evidence_id,journalEntryId:created.journal_entry_id,idempotencyKey:'ai-pg-link-self-0001'}),error=>error.code==='42501');
+  const linked=await maker.linkAIReviewedJournal({tenantId:ids.tenantId,entityId:ids.entityId,aiJournalReviewEvidenceId:retained.ai_journal_review_evidence_id,journalEntryId:created.journal_entry_id,idempotencyKey:'ai-pg-link-0001'});
+  assert.deepEqual({status:linked.status,journal:linked.journal_entry_id},{status:'DRAFT_LINKED',journal:created.journal_entry_id});
+  assert.equal((await maker.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:created.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'ai-pg-submit-0001'})).status,'PENDING_REVIEW');
+  const workflowReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-je-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-je-approver',['GL.JE.APPROVE'])});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-je-poster',['GL.JE.POST'])});
+  assert.equal((await workflowReviewer.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:created.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'ai-pg-je-review-0001'})).status,'PENDING_APPROVAL');
+  assert.equal((await approver.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:created.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'ai-pg-je-approve-0001'})).status,'APPROVED');
+  await poster.postJournal({...ids,journalEntryId:created.journal_entry_id,expectedRevision:3,idempotencyKey:'ai-pg-je-post-0001'});
+  const trace=(await adminPool.query("SELECT e.reviewed_by,l.linked_by,j.status::text status,(SELECT count(*)::int FROM ledger_line x WHERE x.journal_entry_id=j.journal_entry_id) ledger_lines FROM ai_journal_review_evidence e JOIN ai_journal_review_link l ON l.ai_journal_review_evidence_id=e.ai_journal_review_evidence_id JOIN journal_entry j ON j.journal_entry_id=l.journal_entry_id WHERE e.ai_journal_review_evidence_id=$1",[retained.ai_journal_review_evidence_id])).rows[0];
+  assert.deepEqual(trace,{reviewed_by:'ai-controller',linked_by:'ai-maker',status:'POSTED',ledger_lines:2});
 });
 
 pgTest('authenticated HTTP commands traverse context issuance and PostgreSQL into the immutable ledger',async()=>{
