@@ -20,6 +20,8 @@ const agingContextMatches=(config,side,returnContext,expectedOrigin)=>!returnCon
 export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetch,onBack,backLabel='Back to invoices & receipts',returnContext,expectedOrigin}){
   const label=side==='ap'?'AP':'AR';
   const businessLabel=side==='ap'?'Accounts payable':'Accounts receivable';
+  const entityLabel=config?.scopePresentation?.entityLabel||'Configured entity';
+  const periodLabel=config?.scopePresentation?.periodLabel||'Configured period';
   const scopeMatches=agingContextMatches(config,side,returnContext,expectedOrigin);
   const [asOf,setAsOf]=useState(defaultAsOf());
   const [state,setState]=useState({phase:'LOADING',aging:[],control:[],error:null});
@@ -39,7 +41,7 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
       <div>
         <div className="authoritative-eyebrow">{businessLabel} / aging report</div>
         <h2>{label} aging &amp; control totals</h2>
-        <p className="page-subtitle">OIDC-authenticated, entity-scoped report facts from the accounting API. Browser seed data and local storage are not used.</p>
+        <p className="page-subtitle">Review open balances and control totals for the selected company. Figures come from retained accounting records.</p>
       </div>
       <div className="authoritative-aging-actions">
         {typeof onBack==='function'&&<button type="button" className="btn btn-sm" onClick={onBack}>{backLabel}</button>}
@@ -47,17 +49,17 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
       </div>
     </header>
     <form className="authoritative-aging-controls" aria-label={`${label} aging report scope`} onSubmit={submit}>
-      <output className="authoritative-aging-scope"><i>Entity reporting scope</i><b>{config.entityId}</b></output>
-      <output className="authoritative-aging-scope"><i>Configured period</i><b>{config.periodId}</b></output>
+      <output className="authoritative-aging-scope"><i>Company</i><b title={`Entity ID: ${config.entityId}`}>{entityLabel}</b></output>
+      <output className="authoritative-aging-scope"><i>Period</i><b title={`Period ID: ${config.periodId}`}>{periodLabel}</b></output>
       <label><span>As-of date</span><input type="date" aria-label={`${label} aging as-of date`} value={asOf} onChange={event=>setAsOf(event.target.value)}/></label>
-      <button type="submit" className="btn btn-sm">Refresh evidence</button>
+      <button type="submit" className="btn btn-sm">Refresh report</button>
     </form>
-    <section className="authoritative-aging-context" aria-label="Immutable evidence scope">
-      <b>Evidence scope</b><span>Entity {config.entityId} · configured period {config.periodId} · as of {asOf}</span><span>GET-only refresh; no accounting record can be changed from this report.</span>
+    <section className="authoritative-aging-context" aria-label="Report scope">
+      <b>Report scope</b><span title={`Entity ID: ${config.entityId}; Period ID: ${config.periodId}`}>{entityLabel} — {periodLabel} — as of {asOf}</span><span>This report is view only; it does not change accounting records.</span>
     </section>
-    {!scopeMatches&&<StateBlock tone="blocked" title="BLOCKED — immutable aging scope mismatch">The full-page aging report no longer matches the entity, configured period, AP/AR side, or parent route retained by its return context. Return to the parent report; no aging result is asserted from this mismatched scope.</StateBlock>}
+    {!scopeMatches&&<StateBlock tone="blocked" title="Report scope has changed">Return to the previous page and open the aging report again for the current company and period. No balances are shown until the report scope matches.</StateBlock>}
     {scopeMatches&&<>
-      {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative {label} aging…</StateBlock>}
+      {state.phase==='LOADING'&&<StateBlock tone="loading">Loading {businessLabel.toLowerCase()} aging…</StateBlock>}
       <AuthoritativeReadFailure state={state} onRetry={()=>void load(asOf)}/>
       {state.phase==='READY'&&<>
       <section className="card" aria-label={`${label} control totals`}>

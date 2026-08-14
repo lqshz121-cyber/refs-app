@@ -8,11 +8,14 @@ import {AuthoritativeAgingWorkspace} from '../src/authoritative-aging-workspace.
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222'};
 const markup=renderToStaticMarkup(<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})}/>);
 assert.match(markup,/Accounts receivable \/ aging report/);
-assert.match(markup,/Entity reporting scope/);
+assert.match(markup,/Review open balances and control totals for the selected company/);
+assert.match(markup,/Configured entity/);
 assert.match(markup,/Configured period/);
+assert.match(markup,/Company/);
+assert.match(markup,/Period/);
 assert.match(markup,/As-of date/);
-assert.match(markup,/Refresh evidence/);
-assert.match(markup,/Loading authoritative AR aging/);
+assert.match(markup,/Refresh report/);
+assert.match(markup,/Loading accounts receivable aging/);
 assert.doesNotMatch(markup,/>Customize<|>Save<|>Print<|>Export<|>Email<|>More</i);
 
 const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-aging-workspace.jsx'),'utf8');
@@ -22,7 +25,7 @@ assert.match(source,/authoritative-aging-table/);
 assert.match(source,/tabIndex=\{0\}/);
 assert.match(source,/1–30 days/);
 assert.match(source,/31–60 days/);
-assert.match(source,/GET-only refresh/);
+assert.match(source,/This report is view only/);
 assert.match(source,/backLabel='Back to invoices & receipts'/,'the existing Receivables-origin Back copy remains the default');
 const reportBackMarkup=renderToStaticMarkup(<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})} onBack={()=>{}} backLabel="Back to Reports"/>);
 assert.match(reportBackMarkup,/Back to Reports/,'the Reports shortcut must not imply that it returns to the Receivables list');
@@ -30,9 +33,9 @@ assert.match(source,/AuthoritativeReadFailure/,'Aging must use the shared author
 assert.match(source,/authoritativeReadFailurePhase\(failure\)/,'Aging must classify only trusted-read boundary failures as BLOCKED.');
 assert.doesNotMatch(source,/blockedReadCodes/,'Aging must not maintain a divergent local blocked-code list.');
 assert.match(source,/agingContextMatches/,'Aging must validate its immutable parent return scope.');
-assert.match(source,/BLOCKED — immutable aging scope mismatch/,'Aging scope mismatches must fail closed.');
+assert.match(source,/Report scope has changed/,'Aging scope mismatches must fail closed.');
 const mismatchedScopeMarkup=renderToStaticMarkup(<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})} onBack={()=>{}} expectedOrigin="REPORTS" returnContext={{entityId:config.entityId,periodId:config.periodId,agingSide:'AR',agingOrigin:'RECEIVABLES'}}/>);
-assert.match(mismatchedScopeMarkup,/BLOCKED — immutable aging scope mismatch/,'Aging must reject a Receivables parent scope for Reports evidence.');
+assert.match(mismatchedScopeMarkup,/Report scope has changed/,'Aging must reject a Receivables parent scope for Reports evidence.');
 assert.doesNotMatch(source,/鈥|路/);
 assert.doesNotMatch(source,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data/);
 console.log('authoritative-aging-workspace: API-only scope, as-of report control, full-page return, actionable empty and blocked states, and contained tables verified');
