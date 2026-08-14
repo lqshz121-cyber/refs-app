@@ -14,12 +14,16 @@ This blueprint is a deployment contract, not evidence of a live deployment.
    Render serves that file and `/index.html` with `Cache-Control: no-store` so
    the adapter is replaced atomically with the UI deployment rather than read
    from a browser cache.
-3. Phase 1 sets `REFS_ATTACHMENT_MODE=REQUIRED` and
-   `REFS_WBS_INGEST_MODE=REQUIRED`. Provision versioned object storage, a TLS
-   scanner bridge and CA trust material (`VIRUS_SCANNER_CA_PEM` on Render, or
-   `VIRUS_SCANNER_CA_FILE` for platforms with a secret mount), a least-privileged cleanup worker identity with
-   DB-authorized entity scopes, and the WBS public-key keyring before deploy.
-   The API fails closed if any dependency or trust material is missing; it
+3. Stage 1 sets `REFS_ATTACHMENT_MODE=DISABLED` and
+   `REFS_WBS_INGEST_MODE=DISABLED`; authenticated accounting reads and the
+   unsigned WBS pilot remain available, while attachment-required and signed
+   accounting admission remain unavailable. The separate integrations release
+   may set both modes to `REQUIRED` only after provisioning versioned object
+   storage, a TLS scanner bridge and CA trust material
+   (`VIRUS_SCANNER_CA_PEM` on Render, or `VIRUS_SCANNER_CA_FILE` for platforms
+   with a secret mount), a least-privileged cleanup worker identity with
+   DB-authorized entity scopes, and the WBS public-key keyring.
+   That release fails closed if any dependency or trust material is missing; it
    never accepts an unsigned or unbound WBS Payable for accounting admission.
    The API storage identity must also have `s3:GetBucketLocation` on the configured
    bucket; `/health/ready` probes that permission and the scanner bridge's TLS

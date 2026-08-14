@@ -30,7 +30,11 @@ test('Render staging manifest declares every production startup secret and uses 
   assert.match(worker.body,/rootDir: server/);assert.match(worker.body,/buildCommand: npm ci/);assert.match(worker.body,/startCommand: npm run start:attachment-cleanup/);assert.ok(hasFixed(worker.body,'REFS_PG_REQUIRED','"1"'));
   assert.match(web.body,/runtime: static/);assert.match(web.body,/buildCommand: npm ci && npm run build/);assert.match(web.body,/staticPublishPath: \.\/dist/);assert.match(web.body,/source: \/\*/);assert.match(web.body,/destination: \/index\.html/);
   for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','OIDC_ISSUER','OIDC_AUDIENCE','OIDC_JWKS_URI','REFS_HTTP_ALLOWED_ORIGINS'])assert.ok(hasSecret(api.body,key),`API is missing ${key}`);
-  assert.ok(hasFixed(api.body,'REFS_ATTACHMENT_MODE','REQUIRED'));assert.ok(hasFixed(api.body,'REFS_WBS_INGEST_MODE','REQUIRED'));assert.ok(hasFixed(api.body,'REFS_WBS_LIVE_PILOT_MODE','ENABLED'));
+  assert.ok(hasFixed(api.body,'REFS_ATTACHMENT_MODE','DISABLED'),'Stage 1 API must not require unreleased attachment infrastructure');
+  assert.ok(hasFixed(api.body,'REFS_WBS_INGEST_MODE','DISABLED'),'Stage 1 API must not require unreleased signed-ingest infrastructure');
+  assert.ok(hasFixed(api.body,'REFS_WBS_LIVE_PILOT_MODE','ENABLED'));
+  assert.doesNotMatch(api.body,/- key: REFS_ATTACHMENT_MODE\r?\n\s+value: REQUIRED/);
+  assert.doesNotMatch(api.body,/- key: REFS_WBS_INGEST_MODE\r?\n\s+value: REQUIRED/);
   for(const key of ['WBS_CF_ACCESS_CLIENT_ID','WBS_CF_ACCESS_CLIENT_SECRET','WBS_REFS_AUTH'])assert.ok(hasSecret(api.body,key),`${key} must remain a server-side Render secret`);
   for(const key of ['S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_CA_PEM','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID','WBS_SNAPSHOT_ED25519_PUBLIC_KEYS'])assert.ok(hasSecret(api.body,key),`Phase 1 signed admission is missing ${key}`);
   for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL','ATTACHMENT_CLEANUP_ACTOR_ID','ATTACHMENT_CLEANUP_SCOPES','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY'])assert.ok(hasSecret(worker.body,key),`cleanup worker is missing ${key}`);
