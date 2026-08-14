@@ -223,6 +223,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listAiWbsExceptionFindings({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_wbs_exception_findings($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
   async persistWbsInboundRows({tenantId,entityId,importBatchId,receipt,rows,idempotencyKey,requestHash}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_persist_wbs_inbound_rows($1,$2,$3,$4,$5,$6,$7,$8) AS result',
