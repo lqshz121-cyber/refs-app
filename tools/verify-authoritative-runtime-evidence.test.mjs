@@ -24,7 +24,7 @@ assert.equal(verify({...manifest,api_release:{status:200,release:'b'.repeat(40)}
 assert.equal(verify({...manifest,oidc:{...manifest.oidc,renewal:{...manifest.oidc.renewal,token_hash_after:'sha256:one'}}}),false);
 assert.equal(verify({...manifest,api_smoke:{...manifest.api_smoke,anonymous_status:200}}),false);
 assert.equal(verify({...manifest,refresh:{...manifest.refresh,route_after:'Reports'}}),false);
-assert.equal(verify({...manifest,pages:{...pages,Bank:{...pages.Bank,network_log:pages.JE.network_log}}}),false);
-writeFileSync(pages.AP.visible_text,'Observed QBO demo');
+assert.equal(verify({...manifest,pages:{...pages,Bank:{...pages.Bank,network_log:pages.Journals.network_log}}}),false);
+writeFileSync(pages.Payables.visible_text,'Observed QBO demo');
 assert.equal(verify(manifest),false);
 console.log('authoritative runtime evidence gate: positive and fail-closed assertions passed');
