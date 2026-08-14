@@ -1,9 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { dirname, resolve, relative } from 'node:path';
 
 const outRoot = resolve('outputs/release-evidence-bundle');
 const strictClean = process.argv.includes('--strict-clean');
+const executeLocal = process.argv.includes('--execute-local');
+const requestedPostgresVersions = [15, 16, 18].filter(version => process.argv.includes(`--execute-pg${version}`));
 
 const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, {
@@ -16,6 +19,7 @@ const run = (command, args, options = {}) => {
     status: result.status,
     stdout: result.stdout || '',
     stderr: result.stderr || '',
+    error: result.error ? result.error.message : '',
   };
 };
 
@@ -27,6 +31,7 @@ const writeText = (path, text) => {
 const writeJson = (path, value) => writeText(path, `${JSON.stringify(value, null, 2)}\n`);
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
 const rel = path => relative(process.cwd(), path).replaceAll('\\', '/');
+const digest = text => `sha256:${createHash('sha256').update(text, 'utf8').digest('hex')}`;
 
 const head = git('rev-parse', 'HEAD');
 if (head.status !== 0) {
@@ -81,6 +86,55 @@ const requiredCommands = [
   { name: 'stage4-report-live-chain', command: 'npm.cmd run verify:stage4-report-live-chain', requiredExit: 0, scope: 'real immutable financial-statement snapshot row to live statement to GL to posted JE to source-document readback; read-only and not satisfied by local simulation' },
 ];
 
+// These receipts are deliberately opt-in.  The default bundle records the
+// required matrix without claiming that a local command was run.  A release
+// operator can execute this exact frozen checkout and retain stdout/stderr
+// hashes alongside the manifest with --execute-local (and, where Docker is
+// available, one or more --execute-pg15/16/18 flags).
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npmExecutionOptions = process.platform === 'win32' ? { shell: true } : {};
+const localExecutionCommands = [
+  { name: 'root-test', executable: npmCommand, args: ['test'], options: npmExecutionOptions },
+  { name: 'root-build', executable: npmCommand, args: ['run', 'build'], options: npmExecutionOptions },
+  { name: 'diff-check', executable: 'git', args: ['diff', '--check'] },
+  { name: 'release-harness', executable: npmCommand, args: ['run', 'test:release-harness'], options: npmExecutionOptions },
+  { name: 'release-simulation', executable: npmCommand, args: ['run', 'test:release-simulation'], options: npmExecutionOptions },
+  { name: 'server-test', executable: npmCommand, args: ['--prefix', 'server', 'test'], options: npmExecutionOptions },
+  ...requestedPostgresVersions.map(version => ({
+    name: `server-pg${version}-fresh`,
+    executable: npmCommand,
+    args: ['--prefix', 'server', 'run', 'test:postgres:fresh'],
+    options: { ...npmExecutionOptions, env: { ...process.env, POSTGRES_IMAGE: `postgres:${version}-alpine` } },
+  })),
+];
+
+const executionReceipts = [];
+if (executeLocal) {
+  const receiptRoot = resolve(outRoot, 'local-command-receipts');
+  for (const command of localExecutionCommands) {
+    const startedAt = new Date().toISOString();
+    const result = run(command.executable, command.args, command.options);
+    const completedAt = new Date().toISOString();
+    const stdoutPath = resolve(receiptRoot, `${command.name}.stdout.log`);
+    const stderrPath = resolve(receiptRoot, `${command.name}.stderr.log`);
+    writeText(stdoutPath, result.stdout);
+    writeText(stderrPath, result.stderr);
+    executionReceipts.push({
+      name: command.name,
+      command: result.command,
+      status: result.status,
+      error: result.error || null,
+      started_at: startedAt,
+      completed_at: completedAt,
+      stdout: rel(stdoutPath),
+      stderr: rel(stderrPath),
+      stdout_sha256: digest(result.stdout),
+      stderr_sha256: digest(result.stderr),
+    });
+  }
+}
+const localExecutionPassed = executeLocal && executionReceipts.length === localExecutionCommands.length && executionReceipts.every(receipt => receipt.status === 0);
+
 const scriptCoverage = Object.fromEntries(
   ['test', 'build', 'test:release-harness', 'test:release-simulation', 'verify:external-release-gate', 'verify:authoritative-runtime-evidence', 'verify:release-s3-scanner', 'verify:release-wbs-receipt', 'verify:stage1-payable-live-acceptance', 'verify:stage2-bank-live-chain', 'verify:stage3-wbs-live-chain', 'verify:stage4-report-live-chain']
     .map(name => [name, packageJson.scripts?.[name] || null]),
@@ -133,9 +187,15 @@ const manifest = {
   strict_clean: strictClean,
   scripts: scriptCoverage,
   local_simulation_artifacts: localArtifacts,
+  local_execution: {
+    requested: executeLocal,
+    requested_postgres_versions: requestedPostgresVersions,
+    status: executeLocal ? (localExecutionPassed ? 'PASS' : 'FAIL') : 'NOT_RUN',
+    receipts: executionReceipts,
+  },
   required_commands: requiredCommands,
   release_acceptance: {
-    local_candidate_gate: 'PASS only after required local commands exit 0 on a clean frozen SHA',
+    local_candidate_gate: 'PASS only after recorded required local commands exit 0 on a clean frozen SHA',
     global_release_gate: 'PARTIAL/FAIL until real HTTPS/OIDC, authenticated 22-page authoritative live E2E, provider S3/scanner lifecycle, signed WBS Payable attachment-to-GL/TB/AP Aging evidence, the signed-off Bank-to-GL/TB/BS/Cash Flow chain, signed WBS multi-source ingress-to-GL/report evidence, and immutable report-snapshot-to-source evidence exist',
   },
   head_ci: headCi,
@@ -159,6 +219,11 @@ writeText(resolve(outRoot, 'README.md'), [
   '',
   ...requiredCommands.map(row => `- ${row.name}: \`${row.command}\` -> exit ${row.requiredExit} (${row.scope})`),
   '',
+  '## Recorded local execution',
+  '',
+  `- Status: ${manifest.local_execution.status}`,
+  ...(manifest.local_execution.receipts.length ? manifest.local_execution.receipts.map(row => `- ${row.name}: exit ${row.status}; stdout ${row.stdout_sha256}; stderr ${row.stderr_sha256}`) : ['- No commands were executed by this bundle invocation. Use --execute-local to record local evidence.']),
+  '',
   '## Release boundary',
   '',
   '- Local candidate gates can pass with deterministic local simulation.',
@@ -168,3 +233,7 @@ writeText(resolve(outRoot, 'README.md'), [
 
 console.log(`release-evidence-bundle: wrote ${outRoot}`);
 console.log(`release-evidence-bundle: clean=${clean} sha=${manifest.head_sha}`);
+if (executeLocal && !localExecutionPassed) {
+  console.error('RELEASE_EVIDENCE_LOCAL_COMMAND_FAILED: inspect local-command-receipts in the generated bundle');
+  process.exitCode = 2;
+}
