@@ -2501,6 +2501,10 @@ pgTest('reconciliation adjustment Draft binds one unresolved bank source through
   await approver.transitionJournal({...ids,journalEntryId:created.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'adjustment-approve-001'});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'adjustment-poster',['GL.JE.POST'])});
   await poster.postJournal({...ids,journalEntryId:created.journal_entry_id,expectedRevision:3,idempotencyKey:'adjustment-post-001'});
+  const worksheetReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'adjustment-worksheet-reader',['BANK.VIEW'])});
+  const postedWorksheet=(await worksheetReader.listReconciliationWorksheet({tenantId:ids.tenantId,entityId:ids.entityId,reconciliationId:started.reconciliation_id})).find(item=>item.bank_source_id===bankSourceId);
+  assert.deepEqual({journal_entry_id:postedWorksheet.adjustment_journal_entry_id,journal_status:postedWorksheet.adjustment_journal_status,clearance_eligible:postedWorksheet.adjustment_clearance_eligible},{journal_entry_id:created.journal_entry_id,journal_status:'POSTED',clearance_eligible:true});
+  assert.ok(Number.isSafeInteger(Number(postedWorksheet.adjustment_journal_version)));
   const cleared=await clearer.setReconciliationAdjustmentClearance(clearArgs),clearReplay=await clearer.setReconciliationAdjustmentClearance(clearArgs);
   assert.equal(Number(cleared.difference),0);assert.equal(cleared.revision,2);assert.equal(clearReplay.idempotent,true);
   await assert.rejects(maker.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:2,reason:'Maker must not review own adjustment reconciliation',idempotencyKey:'adjustment-maker-review-001'}),error=>error.code==='42501');

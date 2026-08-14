@@ -55,6 +55,15 @@ test('reconciliation worksheet is an open scoped evidence read and cannot synthe
   assert.match(calls[0].sql,/^SELECT \* FROM refs_list_reconciliation_worksheet/);
 });
 
+test('posted adjustment worksheet evidence is read-only and requires every bank-to-ledger proof before it can be displayed',async()=>{
+  const up=await readFile(new URL('../db/migrations/118_reconciliation_adjustment_clearance_evidence_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/118_reconciliation_adjustment_clearance_evidence_read.sql',import.meta.url),'utf8');
+  for(const token of ['refs_list_reconciliation_worksheet_117','adjustment_journal_entry_id','adjustment_clearance_eligible',"adjustment_je.status='POSTED'",'ledger_line adjustment_ledger',"sl.link_type='RECONCILIATION_ADJUSTMENT_DRAFT'","attachment.finalization_status='VERIFIED_CLEAN'",'FOR SHARE OF draft,adjustment_je','REVOKE ALL','GRANT EXECUTE'])assert.ok(up.includes(token),`posted adjustment evidence reader must contain ${token}`);
+  assert.doesNotMatch(up,/\b(?:INSERT INTO|UPDATE |DELETE FROM|refs_set_reconciliation_adjustment_clearance|refs_transition_reconciliation|refs_post_journal)\b/i);
+  assert.match(down,/DROP FUNCTION refs_list_reconciliation_worksheet/);
+  assert.match(down,/RENAME TO refs_list_reconciliation_worksheet/);
+});
+
 test('signed reconciliation snapshot is a scoped immutable evidence read',async()=>{
   const up=await readFile(new URL('../db/migrations/110_signed_reconciliation_snapshot_read.sql',import.meta.url),'utf8');
   const down=await readFile(new URL('../db/migrations/down/110_signed_reconciliation_snapshot_read.sql',import.meta.url),'utf8');
