@@ -76,7 +76,7 @@ export function AuthoritativeAdjustmentSummary({title,adjustments=[],onOpen}) {
 
 export function AuthoritativeAdjustmentDetail({adjustment,side,entityId,onBack}){const label=side==='AP'?'AP adjustment evidence':'AR adjustment evidence';return <section className="full-bleed qbo-transaction-report" aria-label={label}><div className="qbo-report-back"><button type="button" onClick={onBack}>Back to {side==='AP'?'AP adjustments':'AR adjustments'}</button><span title={`Entity ID: ${entityId}`}>Configured entity ? authoritative adjustment revision {adjustment.version}</span></div><div className="gl-drill-head"><div><div className="gl-drill-crumb">{side==='AP'?'Payables':'Receivables'} / read-only adjustment evidence</div><h1>{adjustment.adjustment_kind}</h1><div className="gl-drill-account">{adjustment.accounting_date} ? {adjustment.business_adjustment_id}</div></div><span className="badge badge-muted">{adjustment.status}</span></div><p className="report-drill-hint">This page contains only fields returned by the authenticated adjustment read model. It cannot create, edit, apply, refund, approve, post, reverse, print, export, or synchronize an adjustment.</p><AuthoritativeLineageBlock record={adjustment} entityId={entityId} subject="Adjustment"/><div className="table-wrap authoritative-document-detail-table" role="region" tabIndex={0} aria-label={`${label} fields; scroll horizontally to view every column`}><table className="tbl"><tbody><tr><th scope="row">Entity</th><td title={`Entity ID: ${entityId}`}>Configured entity</td><th scope="row">Period</th><td title={`Period ID: ${adjustment.period_id||'Not retained'}`}>Configured period</td></tr><tr><th scope="row">Currency</th><td>{adjustment.currency}</td><th scope="row">Amount</th><td>{money(adjustment.amount,adjustment.currency)}</td></tr><tr><th scope="row">Status</th><td>{adjustment.status}</td><th scope="row">Revision</th><td>{adjustment.version}</td></tr><tr><th scope="row">Document ID</th><td>{adjustment.business_document_id||'Not retained'}</td><th scope="row">Source adjustment</th><td>{adjustment.source_adjustment_id||'Not retained'}</td></tr><tr><th scope="row">Journal entry</th><td>{adjustment.journal_entry_id||'Not retained'}</td><th scope="row">Journal status</th><td>{adjustment.journal_status||'Not retained'}</td></tr><tr><th scope="row">Created at</th><td>{adjustment.created_at}</td><th scope="row">Reason</th><td>{adjustment.reason||'Not retained'}</td></tr></tbody></table></div></section>;}
 
-export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[],view,onViewChange,onOpenDocument,onOpenAdjustment,config,fetcher=globalThis.fetch}) {
+export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[],view,onViewChange,onOpenDocument,onOpenAdjustment,onOpenAging,config,fetcher=globalThis.fetch}) {
   const bill=kind==='AP';
   const workspaceLabel=bill?'Payables':'Receivables';
   const eyebrow=bill?'EXPENSES / ACCOUNTS PAYABLE':'REVENUE / ACCOUNTS RECEIVABLE';
@@ -109,16 +109,19 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   ].filter(Boolean);
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
   const tabs=bill?[
-    {id:'BILLS',label:'Bills'}, {id:'VENDOR_CREDITS',label:'Vendor credits'}, {id:'AGING',label:'AP Aging',unavailable:true}, {id:'VENDORS',label:'Vendors',unavailable:true},
-  ]:[{id:'INVOICES',label:'Invoices'}, {id:'RECEIPTS',label:'Receipts',unavailable:true}, {id:'AGING',label:'AR Aging',unavailable:true}, {id:'COUNTERPARTIES',label:'Counterparties',unavailable:true}];
+    {id:'BILLS',label:'Bills'}, {id:'VENDOR_CREDITS',label:'Vendor credits'}, {id:'AGING',label:'AP Aging'}, {id:'VENDORS',label:'Vendors',unavailable:true},
+  ]:[{id:'INVOICES',label:'Invoices'}, {id:'RECEIPTS',label:'Receipts',unavailable:true}, {id:'AGING',label:'AR Aging'}, {id:'COUNTERPARTIES',label:'Counterparties',unavailable:true}];
   const activeTab=bill?(state.transactionType==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'):'INVOICES';
-  const selectTab=next=>bill&&change({transactionType:next==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'});
+  const selectTab=next=>{
+    if(next==='AGING'){onOpenAging?.();return;}
+    if(bill)change({transactionType:next==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'});
+  };
   const metrics=bill?[
     {label:'Retained bills',value:documents.length,sub:'Returned by this API scope'}, {label:'Visible after filters',value:page.total,sub:'Current presentation view'}, {label:'Retained adjustments',value:adjustments.length,sub:'Returned by this API scope'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'Current presentation view'},
   ]:[
     {label:'Retained invoices',value:documents.length,sub:'Returned by this API scope'}, {label:'Visible after filters',value:page.total,sub:'Current presentation view'}, {label:'Retained adjustments',value:adjustments.length,sub:'Returned by this API scope'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'Current presentation view'},
   ];
-  return <AuthoritativeDemoApArView kind={kind} className="authoritative-document-workspace stack" headerClassName="authoritative-document-page-head" metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={<p className="muted sm authoritative-api-scope">Authenticated API list facts only. Filtered views never change accounting records; unavailable categories have no browser-data fallback.</p>}>
+  return <AuthoritativeDemoApArView kind={kind} className="authoritative-document-workspace stack" headerClassName="authoritative-document-page-head" metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={<p className="muted sm authoritative-api-scope">Authenticated API list facts and aging/control-total reports only. Filtered views never change accounting records; categories without a server contract have no browser-data fallback.</p>}>
     <section className="qbo-toolgrid authoritative-document-summary" aria-label={`${workspaceLabel} list-fact summary`}>
       <span><i>Retained {documentLabel}</i><b>{documents.length}</b><small>Returned by this API scope</small></span>
       <span><i>Visible after filters</i><b>{page.total}</b><small>Current presentation view</small></span>
