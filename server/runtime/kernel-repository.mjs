@@ -30,6 +30,12 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async readControlledDemoTenant({tenantId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT * FROM refs_read_controlled_demo_tenant($1)',[tenantId]
+    ),'CONTROLLED_DEMO_TENANT_NOT_FOUND','Controlled DEMO tenant status is unavailable'));
+  }
+
   async updateDraftDescription({tenantId,entityId,journalEntryId,expectedRevision,description,idempotencyKey,requestHash}){
     requestHash=canonicalRequestHash({tenantId,entityId,journalEntryId,expectedRevision,description});
     return this.inSession(async client=>{

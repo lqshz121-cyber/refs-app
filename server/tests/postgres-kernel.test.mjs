@@ -142,6 +142,29 @@ async function trustedSession(ids,actorId='poster',permissions=['GL.JE.POST']){
 
 const sessionProvider=(ids,actorId='poster',permissions=['GL.JE.POST'])=>()=>trustedSession(ids,actorId,permissions);
 
+pgTest('controlled DEMO tenant is tenant-scoped, retired non-destructively, and cannot cross real-tenant boundaries',async()=>{
+  const demo=await seed({status:'DRAFT',attachmentStatus:null}),production=await seed({status:'DRAFT',attachmentStatus:null});
+  await adminPool.query("UPDATE tenant SET tenant_code='DEMO_AP_BANK_2026' WHERE tenant_id=$1",[demo.tenantId]);
+  await adminPool.query(`INSERT INTO controlled_demo_tenant(tenant_id,scenario_code,display_label,created_by,expires_at)
+    VALUES($1,'AP_BANK_CLOSURE','DEMO — non-real evidence','demo-admin',clock_timestamp()+interval '1 day')`,[demo.tenantId]);
+  const demoReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(demo,'demo-reader')});
+  const productionReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(production,'production-reader')});
+  const demoStatus=await demoReader.readControlledDemoTenant({tenantId:demo.tenantId});
+  assert.equal(demoStatus.is_demo,true);assert.equal(demoStatus.lifecycle_status,'ACTIVE_DEMO');assert.equal(demoStatus.scenario_code,'AP_BANK_CLOSURE');
+  assert.equal((await productionReader.readControlledDemoTenant({tenantId:production.tenantId})).lifecycle_status,'PRODUCTION');
+  for(const [reader,other] of [[demoReader,production],[productionReader,demo]]){
+    await assert.rejects(()=>reader.readControlledDemoTenant({tenantId:other.tenantId}),error=>error.code==='42501');
+    await assert.rejects(()=>reader.inSession(client=>client.query(`INSERT INTO controlled_demo_tenant(tenant_id,scenario_code,display_label,created_by,expires_at)
+      VALUES($1,'AP_BANK_CLOSURE','DEMO — non-real evidence','runtime-attempt',clock_timestamp()+interval '1 day')`,[other.tenantId])),error=>error.code==='42501');
+  }
+  const retired=(await adminPool.query("SELECT refs_retire_controlled_demo_tenant($1,'Demo validation complete','demo-admin') result",[demo.tenantId])).rows[0].result;
+  assert.equal(retired.retired,true);assert.equal(retired.idempotent,false);
+  const retiredStatus=await demoReader.readControlledDemoTenant({tenantId:demo.tenantId});
+  assert.equal(retiredStatus.is_demo,false);assert.equal(retiredStatus.lifecycle_status,'RETIRED');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='CONTROLLED_DEMO_RETIRED'",[demo.tenantId])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND event_type='CONTROLLED_DEMO_RETIRED'",[demo.tenantId])).rows[0].n,1);
+});
+
 pgTest('migration clean down and up is reversible from the fixed manifest',async()=>{
   await migrateDown(adminPool,{all:true});
   const missing=await adminPool.query("SELECT to_regclass('public.tenant') AS tenant_table");
