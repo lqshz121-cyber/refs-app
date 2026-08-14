@@ -29,10 +29,11 @@ forbid(authorityApp, /from ['"]\.\/legacy-demo-app/, 'the runtime must never imp
 for (const token of ['className="app"', 'sidebar ${mobileNav', 'className="nav-rail"', 'className="nav-panel"', 'className="brand"', 'className="new-btn', 'className="topbar"', 'className="content"']) {
   has(demoShell, token, `demo shell baseline must retain ${token}`);
 }
-for (const token of ['sidebar authoritative-sidebar', 'className="nav-rail"', 'className="nav-panel"', 'className="brand"', 'className="new-btn authoritative-new-disabled"']) {
+for (const token of ['sidebar authoritative-sidebar', 'className="nav-rail"', 'className="nav-panel"', 'className="brand"']) {
   has(authorityShell, token, `authority navigation must retain demo shell structure: ${token}`);
 }
-for (const token of ['className="topbar authoritative-topbar authoritative-demo-topbar"', 'className="cmdk"', 'className="top-right authoritative-top-actions"', 'className="period-chip authoritative-period-chip"', 'className="user-chip authoritative-user-chip"']) {
+forbid(authorityShell, /authoritative-new-disabled/, 'authority navigation must not keep a disabled Create control without a usable action');
+for (const token of ['className="topbar authoritative-topbar authoritative-demo-topbar"', 'className="top-right authoritative-top-actions"', 'className="period-chip authoritative-period-chip"', 'className="user-chip authoritative-user-chip"']) {
   has(authorityTopbar, token, `authority topbar must retain demo shell structure: ${token}`);
 }
 

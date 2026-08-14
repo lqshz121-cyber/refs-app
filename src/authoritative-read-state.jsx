@@ -14,13 +14,12 @@ export const AUTHORITATIVE_READ_BLOCKED_CODES=Object.freeze([
 
 export const authoritativeReadFailurePhase=failure=>AUTHORITATIVE_READ_BLOCKED_CODES.includes(failure?.code)?'BLOCKED':'ERROR';
 
-export function AuthoritativeReadFailure({state,onRetry,retryLabel='Retry report read'}){
+export function AuthoritativeReadFailure({state,onRetry}){
   if(!['BLOCKED','ERROR'].includes(state?.phase))return null;
   const blocked=state.phase==='BLOCKED';
-  const code=state.error?.code||'AUTHORITATIVE_READ_FAILED';
-  return <StateBlock tone={blocked?'blocked':'error'} title={blocked?'BLOCKED — authoritative evidence unavailable':code} actions={<button type="button" className="btn btn-sm" onClick={onRetry}>{blocked?'Retry read-only evidence':retryLabel}</button>}>
-    <p>{blocked?`${code}: ${state.error?.message||'The authoritative read could not establish a trusted scope.'}`:state.error?.message}</p>
-    {blocked&&<p>Keep the current report scope and resolve the authoritative access, configuration, scope, or protocol issue before treating this view as accounting evidence.</p>}
+  return <StateBlock tone={blocked?'blocked':'error'} title={blocked?'Access needed':'Unable to load this information'} actions={<button type="button" className="btn btn-sm" onClick={onRetry}>Try again</button>}>
+    <p>{state.error?.message||(blocked?'This information is not available for the current company and period.':'Please try again in a moment.')}</p>
+    {blocked&&<p>Ask your administrator to confirm your access to this company and period, then try again.</p>}
   </StateBlock>;
 }
 
@@ -29,10 +28,10 @@ export function AuthoritativeReadFailure({state,onRetry,retryLabel='Retry report
 // count from being presented as either an access error or a zero balance.
 export function AuthoritativeScopeEmpty({subject='records',requiresPosted=false}){
   const prerequisite=requiresPosted
-    ? 'Reports and GL remain empty until a signed source is admitted, reviewed, and posted as a Journal entry.'
-    : 'This does not prove that an upstream source is empty. It is not evidence of a zero balance.';
-  return <StateBlock tone="empty" title="SCOPE_EMPTY — no authoritative records returned">
-    <p>The authenticated API returned 0 {subject} for the current entity and period scope.</p>
+    ? 'Related transactions must be reviewed and posted before they appear here.'
+    : 'This does not confirm a zero balance or that no activity has occurred.';
+  return <StateBlock tone="empty" title="No records to show">
+    <p>No {subject} are available for the current company and period.</p>
     <p>{prerequisite}</p>
   </StateBlock>;
 }
