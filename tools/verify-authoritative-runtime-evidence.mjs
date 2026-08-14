@@ -31,6 +31,8 @@ export function verifyAuthoritativeRuntimeEvidence(environment=process.env){
   if(stamp.sha!==expectedSha&&stamp.sha!==expectedSha.slice(0,7))return fail('AUTHORITATIVE_BUILD_STAMP_MISMATCH','live build stamp does not identify the frozen SHA');
   if(stamp.channel!=='AUTHORITATIVE'||stamp.authoritative!==true)return fail('AUTHORITATIVE_BUILD_CHANNEL_INVALID','build stamp must be authoritative');
   if(manifest.runtime_mode!=='REQUIRES_AUTHORITATIVE_API'||manifest.demo_fallback_possible!==false)return fail('AUTHORITATIVE_RUNTIME_MODE_INVALID','runtime must require the API and forbid demo fallback');
+  const apiRelease=manifest.api_release||{};
+  if(apiRelease.status!==200||apiRelease.release!==expectedSha)return fail('AUTHORITATIVE_API_RELEASE_MISMATCH','the API readiness receipt must identify the exact frozen SHA');
 
   const oidc=manifest.oidc||{},renewal=oidc.renewal||{};
   if(manifest.authenticated!==true||!httpsOrigin(oidc.issuer)||!oidc.audience||!oidc.subject)return fail('AUTHORITATIVE_OIDC_INCOMPLETE','authenticated issuer, audience and subject evidence are required');
