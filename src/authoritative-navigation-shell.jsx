@@ -5,23 +5,20 @@ function railLabel(label) {
   return label.split(/\s+/)[0] || label;
 }
 
-function compactLabel(label) {
-  return label
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(word => word[0])
-    .join('')
-    .slice(0, 3)
-    .toUpperCase();
-}
-
-// These are deliberately a presentation map, copied from the complete REFS
-// shell's icon vocabulary.  They do not decide route availability or carry
-// any accounting state: `navigation` remains the authoritative API catalog.
+// This presentation-only map keeps the full workspace names readable while
+// giving each row a recognisable, self-authored finance icon.
 const GROUP_ICONS = Object.freeze([
   'gauge', 'gear', 'document', 'cycle', 'document', 'book',
   'layers', 'calendar', 'wallet', 'bars', 'shield',
 ]);
+const ITEM_ICON_BY_ROUTE = Object.freeze({
+  overview: 'gauge', journals: 'book', 'general-ledger': 'lines',
+  'chart-of-accounts': 'layers', reports: 'bars', payables: 'wallet',
+  receivables: 'wallet', bank: 'bank', reconciliation: 'cycle',
+  'bank-batch-pipeline': 'inbox', 'source-documents': 'document',
+  'wbs-payable-review': 'check', 'wbs-autorec-evidence': 'cycle',
+  'ai-audit': 'shield', mapping: 'exchange',
+});
 
 export function AuthoritativeNavigationShell({ navigation, route, expandedGroup, onSelectGroup, onSelectItem, navOpen, navDrawerRef, drawerAttributes, onClose }) {
   const activeGroup = navigation.find(group => group.items.some(item => item.route === route))
@@ -35,10 +32,8 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroup,
       {navigation.map((group, index) => {
         const active = group.label === activeGroup.label;
         return <div key={group.label} className={`nav-group nav-tone-${index % 6}`}>
-          <button type="button"
-            className={`nav-group-h ${active ? 'rail-on' : ''}`}
-            aria-current={active ? 'page' : undefined}
-            aria-label={group.label}
+          <button type="button" className={`nav-group-h ${active ? 'rail-on' : ''}`}
+            aria-current={active ? 'page' : undefined} aria-label={group.label}
             onClick={() => onSelectGroup(group)}>
             <span className="rail-glyph" aria-hidden="true"><Icon name={GROUP_ICONS[index] || 'document'} /></span>
             <span className="rail-label" aria-hidden="true">{railLabel(group.label)}</span>
@@ -53,13 +48,12 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroup,
         <div className={`nav-panel-group nav-tone-${activeGroupIndex % 6}`}>
           <div className="nav-panel-title">{activeGroup.label}</div>
           <div className="nav-group-items" id={`authoritative-navigation-group-${activeGroupIndex}`}>
-          {activeGroup.items.map(item => <button type="button" key={item.route} aria-current={route === item.route ? 'page' : undefined}
-            className={`nav-item nav-sub ${route === item.route ? 'nav-on' : ''}`} onClick={() => onSelectItem(item.route)}>
-            <span className="nav-badge" aria-hidden="true">{compactLabel(item.label)}</span>
-            <span className="nav-item-label">{item.label}</span>
-            <span className={`authoritative-nav-status authoritative-nav-status-${item.availability === 'API_READ' ? 'ready' : 'blocked'}`}>{item.availability === 'API_READ' ? 'API' : 'Unavailable'}</span>
-            <span className="nav-chev" aria-hidden="true">›</span>
-          </button>)}
+            {activeGroup.items.map(item => <button type="button" key={item.route} aria-current={route === item.route ? 'page' : undefined}
+              className={`nav-item nav-sub ${route === item.route ? 'nav-on' : ''}`} onClick={() => onSelectItem(item.route)}>
+              <span className="nav-badge" aria-hidden="true"><Icon name={ITEM_ICON_BY_ROUTE[item.route] || 'document'} size={17}/></span>
+              <span className="nav-item-label">{item.label}</span>
+              <span className="nav-chev" aria-hidden="true">›</span>
+            </button>)}
           </div>
         </div>
       </nav>
