@@ -2,7 +2,7 @@ import React from 'react';
 import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 import { StateBlock } from './ui.jsx';
 import {AuthoritativeScopeEmpty} from './authoritative-read-state.jsx';
-import {AuthoritativeDemoApArView} from './authoritative-demo-ap-ar-view.jsx';
+import {AuthoritativeApArView} from './authoritative-ap-ar-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 import {
   DEFAULT_AUTHORITATIVE_LIST_VIEW,
@@ -121,7 +121,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   ]:[
     {label:'Retained invoices',value:documents.length,sub:'Returned by this API scope'}, {label:'Visible after filters',value:page.total,sub:'Current presentation view'}, {label:'Retained adjustments',value:adjustments.length,sub:'Returned by this API scope'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'Current presentation view'},
   ];
-  return <AuthoritativeDemoApArView kind={kind} className="authoritative-document-workspace stack" headerClassName="authoritative-document-page-head" metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={<p className="muted sm authoritative-api-scope">Authenticated API list facts and aging/control-total reports only. Filtered views never change accounting records; categories without a server contract have no browser-data fallback.</p>}>
+  return <AuthoritativeApArView kind={kind} className="authoritative-document-workspace stack" headerClassName="authoritative-document-page-head" metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={<p className="muted sm authoritative-api-scope">Authenticated API list facts and aging/control-total reports only. Filtered views never change accounting records; categories without a server contract have no browser-data fallback.</p>}>
     <section className="qbo-toolgrid authoritative-document-summary" aria-label={`${workspaceLabel} list-fact summary`}>
       <span><i>Retained {documentLabel}</i><b>{documents.length}</b><small>Returned by this API scope</small></span>
       <span><i>Visible after filters</i><b>{page.total}</b><small>Current presentation view</small></span>
@@ -155,7 +155,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     {visibleAdjustments.length?<AuthoritativeAdjustmentSummary title={bill&&state.transactionType==='VENDOR_CREDITS'?'Vendor credits':bill?'AP adjustments':'AR adjustments'} adjustments={visibleAdjustments} onOpen={onOpenAdjustment}/>:<StateBlock tone="empty" title={adjustments.length?'No adjustments match these presentation filters':'No authoritative adjustments in this scope'}>{adjustments.length?'Change a presentation filter to see retained adjustment facts. A local no-match is not evidence of zero balance.':'This scoped empty result is not evidence of a zero balance.'}</StateBlock>}
     </section>
     {bill&&<AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.payables} title="External WBS payables observation"/>}
-  </AuthoritativeDemoApArView>;
+  </AuthoritativeApArView>;
 }
 export function AuthoritativeWorkflowTable({title,documents=[],kind,onWorkflow,workingJournalIds=new Set()}){const bill=kind==='AP';return <section aria-label={title}><h2>{title}</h2>{documents.map(row=>{const action=nextAuthoritativeWorkflowAction(row.journal_status);return <div key={row.journal_entry_id}>{row[bill?'bill_no':'inv_no']} {action?<button disabled={workingJournalIds.has(row.journal_entry_id)} onClick={()=>onWorkflow(row,action)}>{action}</button>:row.journal_status}</div>;})}</section>;}
 export function AuthoritativeWorkflowAdjustmentTable({title,adjustments=[],onWorkflow,workingJournalIds=new Set()}){return <section aria-label={title}><h2>{title}</h2>{adjustments.map(row=>{const action=nextAuthoritativeWorkflowAction(row.journal_status);return <div key={row.business_adjustment_id}>{row.adjustment_kind} {action?<button disabled={workingJournalIds.has(row.journal_entry_id)} onClick={()=>onWorkflow(row,action)}>{action}</button>:row.journal_status}</div>;})}</section>;}

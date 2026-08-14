@@ -8,7 +8,7 @@ const authorityApp = read('src/authoritative-app.jsx');
 const authorityShell = read('src/authoritative-navigation-shell.jsx');
 const authorityTopbar = read('src/authoritative-topbar.jsx');
 const authorityOverview = read('src/authoritative-overview.jsx');
-const authorityApAr = read('src/authoritative-demo-ap-ar-view.jsx');
+const authorityApAr = read('src/authoritative-ap-ar-view.jsx');
 const authorityView = read('src/authoritative-demo-view.jsx');
 const styles = read('index.html');
 
