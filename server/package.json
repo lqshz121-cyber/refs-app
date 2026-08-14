@@ -37,6 +37,7 @@
     "test:postgres": "node --test tests/postgres-kernel.test.mjs",
     "test:postgres:readiness": "node --test tests/postgres-readiness.test.mjs tests/fresh-gate.test.mjs",
     "test:postgres:fresh": "node runtime/test-postgres-fresh.mjs",
+    "test:postgres:fixture:ap-ar": "node runtime/test-postgres-fresh.mjs --pattern \"authenticated HTTP creates AP Bills and AR Invoices only as evidence-backed Draft JEs\"",
     "test:backup:restore": "node runtime/test-backup-restore-drill.mjs",
     "test:attachments:containers": "node runtime/test-attachment-containers.mjs",
     "test:staging:smoke": "node runtime/test-staging-smoke.mjs",
