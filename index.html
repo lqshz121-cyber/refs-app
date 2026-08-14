@@ -2005,6 +2005,20 @@ select{padding-right:28px; cursor:pointer;}
 .expense-filter-evidence{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; margin-bottom:12px;}
 .expense-filter-evidence label{display:flex; align-items:center; gap:8px; min-width:0; color:var(--qb-text-muted); font-size:13px;}
 .expense-filter-evidence input[type=date],.expense-filter-evidence select{flex:1 1 auto; min-width:0;}
+/* At high zoom a Payables workspace can be about 600px wide even on a desktop.
+   Use explicit tracks here so the Payee selector never forces a page-level
+   horizontal scroll before the phone layout takes over. */
+@media(max-width:900px){
+  .expense-filter-evidence{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .expense-filter-evidence label,.expense-filter-evidence select,.expense-filter-evidence input{max-width:100%;}
+  .expense-toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:end;}
+  .expense-toolbar .expense-search{grid-column:1/-1;max-width:none;width:100%;}
+  .expense-toolbar .result-count{margin-left:0;min-width:0;white-space:normal;}
+}
+@media(max-width:600px){
+  .expense-filter-evidence,.expense-toolbar{grid-template-columns:minmax(0,1fr);}
+  .expense-toolbar .expense-search{grid-column:auto;}
+}
 .expense-shell-actions{display:flex; gap:8px; flex-wrap:wrap;}
 .expense-shell-actions>button{min-height:var(--qb-control-h); padding:0 12px;
   border:1px solid var(--qb-border); border-radius:var(--qb-r-control);
