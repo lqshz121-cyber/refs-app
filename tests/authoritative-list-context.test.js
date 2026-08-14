@@ -9,7 +9,7 @@ import {
   restoreAuthoritativeReturnContext,
 } from '../src/authoritative-list-context.js';
 
-const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222'};
+const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',scopePresentation:{entityLabel:'Wan Pacific Real Estate Development LLC',periodLabel:'2026-08'}};
 const rows=[
   {business_document_id:'33333333-3333-4333-8333-333333333333',bill_no:'B-100',vendor_name:'Alpha Vendor',account_code:'610000',bill_date:'2026-07-01',status:'OPEN'},
   {business_document_id:'44444444-4444-4444-8444-444444444444',bill_no:'B-200',vendor_name:'Beta Vendor',account_code:'220000',bill_date:'2026-08-01',status:'PAID'},
@@ -34,6 +34,8 @@ assert.equal(authoritativeEvidenceKey('document',{business_document_id:'display-
 const context=createAuthoritativeReturnContext({config,view:{query:'Alpha',page:2,pageSize:10},focusId:'open-333',scrollY:420});
 assert.equal(context.entityId,config.entityId);
 assert.equal(context.periodId,config.periodId);
+assert.equal(context.entityLabel,'Wan Pacific Real Estate Development LLC');
+assert.equal(context.periodLabel,'2026-08');
 assert.equal(context.view.query,'Alpha');
 assert.equal(context.view.counterparty,'ALL');
 assert.equal(context.scrollY,420);

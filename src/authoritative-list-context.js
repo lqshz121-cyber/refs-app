@@ -71,9 +71,17 @@ export const authoritativeEvidenceKey = (kind, row) => {
 
 export const createAuthoritativeReturnContext = ({ config, view, focusId, scrollY = 0 }) => {
   if (!config?.entityId || !config?.periodId || typeof focusId !== 'string' || !focusId) return null;
+  const entityLabel = typeof config?.scopePresentation?.entityLabel === 'string' && config.scopePresentation.entityLabel.trim()
+    ? config.scopePresentation.entityLabel.trim()
+    : 'Configured entity';
+  const periodLabel = typeof config?.scopePresentation?.periodLabel === 'string' && config.scopePresentation.periodLabel.trim()
+    ? config.scopePresentation.periodLabel.trim()
+    : 'Configured period';
   return Object.freeze({
     entityId: config.entityId,
     periodId: config.periodId,
+    entityLabel,
+    periodLabel,
     view: Object.freeze(normalizeAuthoritativeListView(view)),
     focusId,
     scrollY: Number.isFinite(scrollY) && scrollY >= 0 ? scrollY : 0,
