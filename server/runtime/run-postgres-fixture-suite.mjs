@@ -21,12 +21,39 @@ export function selectFixtures(args=[]){
   return [fixture];
 }
 
+export function readTapSummary(output){
+  const summary={};
+  for(const key of ['tests','pass','fail','skipped']){
+    const match=output.match(new RegExp(`^# ${key} (\\d+)$`,'m'));
+    if(!match)return null;
+    summary[key]=Number(match[1]);
+  }
+  return summary;
+}
+
+export function fixtureResult({id,exitCode,output,durationMs,signal=null,error=null}){
+  const tap=readTapSummary(output);
+  const verified=tap!==null&&tap.tests>0&&tap.pass>0&&tap.fail===0&&tap.skipped===0;
+  return Object.freeze({
+    id,
+    exitCode:verified&&exitCode===0?0:1,
+    durationMs,
+    signal,
+    error:error??(verified&&exitCode===0?null:'Fixture must execute at least one passing, non-skipped PostgreSQL test.'),
+    tap
+  });
+}
+
 function runFixture(fixture,env){
   return new Promise(resolveRun=>{
     const startedAt=Date.now();
-    const child=spawn(process.execPath,['runtime/test-postgres-fresh.mjs','--pattern',fixture.pattern],{cwd:serverRoot,env,stdio:'inherit'});
-    child.once('error',error=>resolveRun({id:fixture.id,exitCode:1,durationMs:Date.now()-startedAt,error:error.message}));
-    child.once('exit',(code,signal)=>resolveRun({id:fixture.id,exitCode:code??1,durationMs:Date.now()-startedAt,signal:signal??null}));
+    const child=spawn(process.execPath,['runtime/test-postgres-fresh.mjs','--pattern',fixture.pattern],{cwd:serverRoot,env,stdio:['ignore','pipe','pipe']});
+    let output='';
+    child.stdout.setEncoding('utf8');child.stderr.setEncoding('utf8');
+    child.stdout.on('data',chunk=>{output+=chunk;process.stdout.write(chunk);});
+    child.stderr.on('data',chunk=>{output+=chunk;process.stderr.write(chunk);});
+    child.once('error',error=>resolveRun(fixtureResult({id:fixture.id,exitCode:1,output,durationMs:Date.now()-startedAt,error:error.message})));
+    child.once('exit',(code,signal)=>resolveRun(fixtureResult({id:fixture.id,exitCode:code??1,output,durationMs:Date.now()-startedAt,signal:signal??null})));
   });
 }
 
