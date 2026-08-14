@@ -20,7 +20,8 @@ test('fresh PostgreSQL gate requires all isolated runtime identities and the req
   assert.match(source,/REFS_PG_REQUIRED:'1'/);
   for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL'])assert.match(source,new RegExp(`${key}:`));
   assert.match(source,/const postgresTestArgs=\['--test'\]/);
-  assert.match(source,/process\.env\.PG_TEST_NAME_PATTERN/);
-  assert.match(source,/postgresTestArgs\.push\('--test-name-pattern',process\.env\.PG_TEST_NAME_PATTERN\)/);
+  assert.match(source,/const postgresTestNamePattern=cliArgs\[1\]\|\|process\.env\.PG_TEST_NAME_PATTERN\|\|null/);
+  assert.match(source,/postgresTestArgs\.push\('--test-name-pattern',postgresTestNamePattern\)/);
+  assert.match(source,/Usage: node runtime\/test-postgres-fresh\.mjs \[--pattern <test name>\]/);
   assert.match(source,/await run\(process\.execPath,postgresTestArgs,testEnv\)/);
 });
