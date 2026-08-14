@@ -25,7 +25,7 @@ for (const name of ['ui', 's3', 'wbs']) {
   );
 }
 const ui = spawnSync(node, [gate, 'ui'], { encoding: 'utf8', env });
-assert.match(ui.stdout, new RegExp(`release-ui-e2e: ${Object.keys(AUTHORITATIVE_PAGES).length}/${Object.keys(AUTHORITATIVE_PAGES).length} authoritative page evidence artifacts verified`));
+assert.match(ui.stdout, new RegExp('release-ui-e2e: ' + Object.keys(AUTHORITATIVE_PAGES).length + '/' + Object.keys(AUTHORITATIVE_PAGES).length + ' authoritative page evidence artifacts verified'));
 
 const aggregate = spawnSync(node, [gate, 'all'], { encoding: 'utf8', env });
 assert.equal(
