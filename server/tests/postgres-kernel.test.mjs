@@ -2132,6 +2132,9 @@ pgTest('isolated property rent pickup carries invoice and bank receipt evidence 
       {lineNo:1,accountCode:'120200',debit:100,credit:0,memberRef:'TENANT-UNIT-101',dimensions:{property_ref:'PROP-1',project_ref:'PROJECT-1',unit_ref:'UNIT-101'}},
       {lineNo:2,accountCode:'400100',debit:0,credit:100,dimensions:{property_ref:'PROP-1',project_ref:'PROJECT-1',unit_ref:'UNIT-101'}}
     ]});
+  await adminPool.query("UPDATE tenant SET tenant_code='DEMO_STAGE4_PROPERTY_2026',name='DEMO isolated property report acceptance' WHERE tenant_id=$1",[ids.tenantId]);
+  await adminPool.query(`INSERT INTO controlled_demo_tenant(tenant_id,scenario_code,display_label,created_by,expires_at)
+    VALUES($1,'STAGE4_PROPERTY_REPORTING','DEMO property, project, and unit report acceptance','demo-admin',clock_timestamp()+interval '1 day')`,[ids.tenantId]);
   const invoiceSource=await attachAutoSource(ids);
   const invoicePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'rent-invoice-poster',['GL.JE.POST'])});
   await invoicePoster.postJournal({...ids,journalEntryId:ids.journalId,periodId:ids.periodId,expectedRevision:0,idempotencyKey:'rent-pickup-invoice-post'});
@@ -2150,6 +2153,8 @@ pgTest('isolated property rent pickup carries invoice and bank receipt evidence 
   await poster.postJournal({...ids,journalEntryId:receipt.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'rent-pickup-receipt-post'});
 
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'rent-pickup-reader',['AR.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'])});
+  const demoStatus=await reader.readControlledDemoTenant({tenantId:ids.tenantId});
+  assert.deepEqual({is_demo:demoStatus.is_demo,lifecycle_status:demoStatus.lifecycle_status,scenario_code:demoStatus.scenario_code},{is_demo:true,lifecycle_status:'ACTIVE_DEMO',scenario_code:'STAGE4_PROPERTY_REPORTING'});
   assert.deepEqual(await reader.getArAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'60.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'60.0000'}]);
   assert.deepEqual(await reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'60.0000',control_balance:'60.0000',in_balance:true}]);
 
