@@ -231,7 +231,7 @@ network logs together under one release-evidence directory. The manifest must
 bind the full frozen SHA, a clean worktree, the authoritative build stamp,
 subject-preserving PKCE renewal, authenticated `200`, anonymous `401`, denied
 cross-entity and cross-tenant reads, and a refresh that retains both subject and
-route. Each of Dashboard, AP, AR, JE, Bank and Reports must contain a successful
+route. Each of Dashboard, AP, AR, JE, Bank, Reconciliation and Reports must contain a successful
 authenticated API `GET` for its required endpoint; screenshots without network
 records do not pass.
 
@@ -242,7 +242,7 @@ npm.cmd run verify:authoritative-runtime-evidence
 ```
 
 Expected result is exit `0` and
-`authoritative-runtime-e2e: 6/6 pages ... verified`. The verifier rejects demo
+`authoritative-runtime-e2e: 7/7 pages ... verified`. The verifier rejects demo
 labels, CJK/mojibake, artifacts outside the manifest directory, same-token
 "renewal", missing scope denials and hand-authored page claims without matching
 network logs. The verifier validates captured evidence; it does not create a
