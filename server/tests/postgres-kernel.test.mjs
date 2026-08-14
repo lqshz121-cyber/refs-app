@@ -1674,6 +1674,7 @@ pgTest('controlled DEMO tenant runs one AP Bill through HTTP Draft, four-role Po
   const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'610000',accountName:'DEMO operating expense'}],attachmentName:'DEMO-only-AP-support.pdf',attachmentStorageRef:'s3://refs-demo-isolated/AP-BILL-089125',attachmentStorageVersion:'demo-v1'});
   await adminPool.query("UPDATE tenant SET tenant_code='DEMO_AP_E2E',name='DEMO tenant isolated AP acceptance' WHERE tenant_id=$1",[ids.tenantId]);
   await adminPool.query("UPDATE entity SET entity_code='DEMO_AP_2026',source_system='REFS_DEMO',source_entity_id='DEMO_AP_2026',name='DEMO entity AP acceptance' WHERE tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId]);
+  ids.sourceEntityId='DEMO_AP_2026';
   await adminPool.query(`INSERT INTO controlled_demo_tenant(tenant_id,scenario_code,display_label,created_by,expires_at)
     VALUES($1,'AP_DEMO_E2E','DEMO isolated AP acceptance','demo-admin',clock_timestamp()+interval '1 day')`,[ids.tenantId]);
   const protectedIds=await seed({status:'DRAFT',tenantId:randomUUID(),entityId:randomUUID(),periodId:randomUUID(),journalId:randomUUID()});
