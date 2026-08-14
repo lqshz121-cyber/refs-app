@@ -124,8 +124,11 @@ assert.match(source,/const reasonReady=reason\.trim\(\)\.length>=8/,'Clearance c
 assert.match(source,/disabled=\{commandInFlight\|\|!reasonReady\}/,'Clearance and lifecycle buttons must remain disabled until the controller reason is valid');
 assert.match(source,/createAuthoritativeReconciliationAdjustmentDraft/,'An adjustment Draft must use the authoritative reconciliation command client');
 assert.match(source,/Prepare adjustment Draft/,'Only a selected server worksheet source may initiate an adjustment Draft');
-assert.match(source,/Posted adjustment clearance is BLOCKED until the API returns separate posted adjustment evidence/,'A worksheet that lacks a posted-adjustment evidence field must not expose a clearance command for an unproven adjustment');
-assert.doesNotMatch(source,/setAuthoritativeReconciliationAdjustmentClearance|Clear Posted adjustment/,'The UI must not call the adjustment-clearance command until the worksheet contract exposes independent posted-adjustment evidence');
+assert.match(source,/Posted adjustment clearance is BLOCKED until the API returns separate posted adjustment evidence/,'The ordinary worksheet row must keep adjustment clearance blocked until separate verified evidence exists');
+assert.match(source,/setAuthoritativeReconciliationAdjustmentClearance/,'The UI must use the separate authoritative adjustment-clearance command only after the evidence contract is present');
+assert.match(source,/hasPostedAdjustmentEvidence/,'Posted adjustment controls must require server-verified Posted JE evidence instead of inferring it from a bank row');
+assert.match(source,/Posted adjustment clearance evidence/,'Verified adjustment evidence must be rendered separately from ordinary Match clearance');
+assert.match(source,/Clear posted adjustment/,'A verified Posted adjustment must have an explicit controller clearance action');
 assert.match(source,/item\.clearance_state==='CLEARED'&&item\.match_status==='ACTIVE'/,'Only an active server-returned Match can expose the ordinary Unclear command');
 assert.match(source,/configured cash account, exact four-decimal source amount/,'The UI must explain that it retains source amount and configured cash-account evidence instead of inferring a mapping');
 assert.match(source,/preserveDetail:true/,'A successful worksheet command must refresh the authoritative statement revision without losing the full-page detail context');
