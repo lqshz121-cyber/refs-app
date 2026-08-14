@@ -18,6 +18,8 @@ const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 assert.equal(manifest.mode, 'LOCAL_RELEASE_EVIDENCE_BUNDLE');
 assert.match(manifest.warning, /not a production release claim/i);
 assert.match(manifest.head_sha, /^[0-9a-f]{40}$/);
+assert.equal(manifest.head_ci.head_sha, manifest.head_sha, 'CI evidence must bind to the same frozen SHA as the bundle');
+assert.equal(typeof manifest.head_ci.available, 'boolean');
 assert.equal(manifest.local_simulation_artifacts.envFile, 'outputs/local-release-simulation/env.json');
 assert.equal(manifest.scripts['verify:external-release-gate'], 'node tools/verify-external-release-gate.mjs all');
 
