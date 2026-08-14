@@ -56,8 +56,8 @@ for (const [name, source] of Object.entries({documents, bank, reports, journals,
 // Primary API routes must use the extracted presentation boundaries, not a
 // second page chrome.  This is visual-only: it does not test API results.
 contains(app, '<AuthoritativeOverview', 'overview route must mount the demo-derived dashboard presentation');
-contains(documents, "from './authoritative-demo-ap-ar-view.jsx'", 'AP/AR must mount the extracted demo workspace presentation');
-contains(documents, '<AuthoritativeDemoApArView', 'AP/AR must use the demo KPI/tabs hierarchy');
+contains(documents, "from './authoritative-ap-ar-view.jsx'", 'AP/AR must mount the authoritative workspace presentation');
+contains(documents, '<AuthoritativeApArView', 'AP/AR must use the authoritative KPI/tabs hierarchy');
 for (const [name, source] of Object.entries({bank, reports, journals, sourceDocuments, coa, ledger})) {
   assert.ok(source.includes('AuthoritativeDemoView') || source.includes('table-wrap'), `${name} must keep the shared visual workspace or contained evidence table`);
 }

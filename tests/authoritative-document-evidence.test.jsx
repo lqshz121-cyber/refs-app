@@ -39,16 +39,16 @@ assert.match(workspaceMarkup,/Review authenticated API list facts/);
 assert.match(workspaceMarkup,/Retained bills/);
 assert.match(workspaceMarkup,/Visible after filters/);
 assert.match(workspaceMarkup,/READ ONLY/);
-assert.match(workspaceMarkup,/demo-ap-ar-presentation/);
+assert.match(workspaceMarkup,/authoritative-ap-ar-presentation/);
 assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/AP Aging/);
 assert.doesNotMatch(workspaceMarkup,/AP Aging unavailable/,'AP aging has an authenticated API contract and must be reachable');
 assert.match(workspaceMarkup,/id="authoritative-ap-aging-launch"/,'Back from AP aging must restore focus to the tab that opened it');
 assert.match(workspaceMarkup,/Vendors unavailable/);
 assert.doesNotMatch(workspaceMarkup,/<button[^>]*disabled[^>]*>AP Aging<\/button>/);
-const demoApArSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-demo-ap-ar-view.jsx'),'utf8');
-assert.doesNotMatch(demoApArSource,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,
-  'the AP/AR presentation extraction must receive authority facts as slots and never load demo state or API itself');
+const apArPresentationSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-ap-ar-view.jsx'),'utf8');
+assert.doesNotMatch(apArPresentationSource,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,
+  'the AP/AR presentation shell must receive authority facts as slots and never load local or API state itself');
 assert.match(workspaceMarkup,/Document and adjustment evidence/);
 assert.match(workspaceMarkup,/Filter retained API list facts, then open an independent read-only evidence page/);
 assert.match(workspaceMarkup,/Query, filters, page, focus, and scroll are preserved/);

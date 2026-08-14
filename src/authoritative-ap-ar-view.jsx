@@ -1,9 +1,8 @@
 import React from 'react';
 
-// Direct presentation extraction from module-ap.jsx / module-ar.jsx. It keeps
-// their page-header -> KPI row -> tabs -> content hierarchy, but deliberately
-// receives only API facts and callbacks from its authoritative parent.
-export function AuthoritativeDemoApArView({
+// Presentation-only shell for authoritative AP and AR API facts. It owns no
+// data, storage, identity, or accounting command; those stay with the parent.
+export function AuthoritativeApArView({
   kind,
   metrics = [],
   tabs = [],
@@ -20,7 +19,7 @@ export function AuthoritativeDemoApArView({
   const subtitle = payable
     ? 'Review authenticated API list facts, supplier bills, and retained evidence without initiating payments.'
     : 'Review authenticated API list facts, customer invoices, and retained evidence without collecting payments.';
-  return <section className={`demo-ap-ar-presentation demo-ap-ar-${payable ? 'ap' : 'ar'} ${className}`.trim()} aria-label={`${title} authoritative workspace`}>
+  return <section className={`authoritative-ap-ar-presentation authoritative-ap-ar-${payable ? 'ap' : 'ar'} ${className}`.trim()} aria-label={`${title} authoritative workspace`}>
     <div className={`accounting-page-head ${headerClassName}`.trim()}>
       <div><div className="page-eyebrow">{eyebrow}</div><h2 className="page-h">{title}</h2><div className="page-subtitle">{subtitle}</div></div>
       <span className="badge badge-muted">READ ONLY</span>
