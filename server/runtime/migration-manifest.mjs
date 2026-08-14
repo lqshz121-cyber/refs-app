@@ -116,4 +116,8 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"108_financial_statement_snapshot_lifecycle.sql",up:"12de69ab88d87994ad9e8afcd77a319478fb0f632628aef6e775edfd605abd27",down:"ba5fc62e3d6e200110a6ae7a12e713fcb7cac7c293941445d490c2a18e3ad53c"}),
   Object.freeze({name:"109_bank_transaction_offset_pagination.sql",up:"842d8d9546d65f52930471105d75774a95c591efa6d475d2f991b56705136571",down:"bfed002b04ee3fe4bea26487a975a95a4e68ab0b98bcafd2b4ae5d6fb495cc15"}),
   Object.freeze({name:"110_signed_reconciliation_snapshot_read.sql",up:"8b48c96db8087f756e5c965df31fbba5b05bf3470830e295594b16d33d046492",down:"c8efad91928de1661772cc8be9020bf2b0c06f8e8a6c41da5dd3c1747441df2f"}),
+  Object.freeze({name:"111_wbs_provider_signed_payable_admission.sql",up:"08e213b68d039622f8c63f145ad89e258a460d9732ecd84590fdd006e7931557",down:"5bd7b963a175b27c6ded167901e19efff317ed4c7bb7c4e5ff75788d344c805b"}),
+  Object.freeze({name:"112_wbs_operator_signed_source_bridge.sql",up:"20a6c5380e82dbe76e5f796062de573a36104fb4553d3667a4e83a60424bb216",down:"4a10f2ed528213f3a015a6c8e06c57108f9ca4b9821eb6d26a5f2e9427c344fd"}),
+  Object.freeze({name:"113_wbs_operator_exception_detail_read.sql",up:"aecbdcee9f6d62647c44ab2f0e32bc724395ccedad4f2b2c0ed53cc94921af56",down:"d36cd187bed6033d5031b92421c07648f6644576b3e1d807831ba695afd44391"}),
+  Object.freeze({name:"114_wbs_provider_signed_payable_auto_bridge.sql",up:"1d34f1fd5d3eb62b9c101dc1c9fefe765c0ec0921e9a848322537f42df31dd25",down:"543439235dee0bbc1715760cd89fa789e05892d7e09eae906ce3f39c6d91d086"}),
 ]);

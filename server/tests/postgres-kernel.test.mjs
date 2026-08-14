@@ -12,7 +12,7 @@ import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
 import {STAGE1_READ_PERMISSIONS,STAGE1_WBS_OPERATOR_PERMISSIONS,grantStage1ReadAccess,provisionStage1Scope,stage1GrantConfig,stage1ProvisionConfig,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from '../runtime/stage1-bootstrap.mjs';
 import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
-import {canonicalRequestHash} from '../runtime/request-hash.mjs';
+import {canonicalRequestBody,canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {createWbsManifestSignatureVerifier,createWbsSnapshotSignatureVerifier} from '../runtime/wbs-snapshot-signature.mjs';
 import {createWbsAutoRecTransitionContractVerifier} from '../runtime/wbs-autorec-transition-contract.mjs';
 import {createWbsTraceRelationOrchestrator} from '../runtime/wbs-mcp-inbound-service.mjs';
@@ -20,6 +20,8 @@ import {buildWbsAutoRecExecutionIntent} from '../runtime/wbs-autorec-execution-c
 import {createProductionAccountingServer} from '../runtime/accounting-server.mjs';
 import {OidcJwtAuthenticator,REFS_TENANT_CLAIM} from '../api/oidc-authenticator.mjs';
 import {buildWbsMcpReadonlySnapshot} from '../runtime/wbs-mcp-inbound-lineage.mjs';
+import {createWbsSignedDelivery} from '../runtime/wbs-signed-delivery-admission.mjs';
+import {createWbsProviderSignedPayableAdmission} from '../runtime/wbs-provider-signed-payable-admission.mjs';
 import {createWbsAdmittedPayableIngestion} from '../runtime/wbs-admitted-payable-ingestion.mjs';
 
 const config=runtimeConfig();
@@ -224,21 +226,74 @@ pgTest('operator-attested WBS Payables persist unsigned exception evidence only 
   await assert.rejects(adminPool.query("UPDATE wbs_operator_payable_evidence_row SET evidence_status='EXCEPTION_REVIEW_REQUIRED' WHERE tenant_id=$1",[ids.tenantId]),error=>error.code==='55000');
 });
 
-pgTest('admitted signed Payable composition persists receipt Raw Normalized Staging and replays with zero journal writes',async()=>{
+pgTest('operator exception row links append-only to the later exact signed Payable source without becoming Review authority',async()=>{
+  const ids=await seed({status:'DRAFT'}),{privateKey,publicKey}=generateKeyPairSync('ed25519');
+  const sourceId=randomUUID(),capturedAt='2026-07-20T03:00:00.000Z',snapshotToken=`operator-bridge-${randomUUID()}`,keyId='wbs-operator-bridge-pg';
+  const sourceRow={ap_guid:sourceId,ap_type:'AUTOC',company_code:ids.sourceEntityId,currency:'USD',amount:'41.2500',invoice_date:'2026-07-15',incurred_date:'2026-07-18',posting_date:'2026-07-20',pay_due_date:'2026-07-25',invoice_no:'WBS-BRIDGE-001',vendor_no:'VENDOR-PG'};
+  const rows=[sourceRow],providerContentHash=canonicalRequestHash(rows);
+  const operator=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bridge-operator',['WBS.PAYABLE.OPERATOR_ATTEST'])});
+  const retained=await operator.attestWbsOperatorPayables({...ids,capturedAt,providerContentHash,observationHash:hash('operator-bridge-observation'),companyCodes:[ids.sourceEntityId],rows:[{source_record_id:sourceId,source_version:`operator:${capturedAt}:${providerContentHash.slice(7,39)}`,row_hash:canonicalRequestHash(sourceRow),raw:sourceRow}],reason:'Retain the exact provider Payable row as unsigned exception evidence.',idempotencyKey:'operator-signed-bridge-attest-0001'});
+  const operatorEvidenceRowId=(await adminPool.query('SELECT wbs_operator_payable_evidence_row_id FROM wbs_operator_payable_evidence_row WHERE tenant_id=$1 AND entity_id=$2 AND wbs_operator_payable_attestation_id=$3 AND source_record_id=$4',[ids.tenantId,ids.entityId,retained.wbs_operator_payable_attestation_id,sourceId])).rows[0].wbs_operator_payable_evidence_row_id;
+  const envelope={contract_version:'WBS-REFS-MCP-V1',tool:'list_payables',environment:'production',captured_at:capturedAt,source:{system:'WBS'},scope:{company:ids.sourceEntityId,currency:'USD',snapshot_token:snapshotToken},record_count:1,content_sha256:providerContentHash.slice(7),cursor_next:null,etl_notice:'Snapshot comparison required',rows};
+  const conventions=[{scope:{company_key:ids.sourceEntityId,currency:'USD'},receipt:{hash:providerContentHash,ref:'object://wbs/payable/operator-bridge',version:'1',verification_id:'operator-bridge-verify',key_id:keyId,algorithm:'Ed25519',verified_on:capturedAt},rule_id:'WBS-PAYABLE-OPERATOR-BRIDGE-DIRECTION',version:'1',ap_type:'AUTOC',direction:'DEBIT'}];
+  const unsigned=buildWbsMcpReadonlySnapshot({envelopes:[envelope],snapshotId:randomUUID(),dictionaryVersion:'WBS-MCP-V1',environment:'PRODUCTION',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',snapshot_token:snapshotToken,extract_started_at:'2026-07-20T02:59:00.000Z',extract_completed_at:capturedAt,consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'},detachedSignature:{key_id:keyId,algorithm:'Ed25519',value:'placeholder'},payableDirectionConventions:conventions});
+  const snapshot={...unsigned,detached_signature:{...unsigned.detached_signature,value:sign(null,Buffer.from(unsigned.package_hash),privateKey).toString('base64')}},verifier=createWbsSnapshotSignatureVerifier({publicKeys:{[keyId]:publicKey.export({type:'spki',format:'pem'})}});
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bridge-signed-importer',['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:verifier}),ingestion=createWbsAdmittedPayableIngestion({kernel:importer,signatureVerifier:verifier});
+  await ingestion.ingest({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'operator-signed-bridge-ingest-0001'});
+  const signed=(await adminPool.query('SELECT wbs_inbound_row_id,source_version,raw,normalized FROM wbs_inbound_row WHERE tenant_id=$1 AND entity_id=$2 AND source_record_id=$3 ORDER BY created_at DESC LIMIT 1',[ids.tenantId,ids.entityId,sourceId])).rows[0];
+  assert.equal(signed.raw.mcp_row_hash,canonicalRequestHash(sourceRow));assert.equal(signed.normalized.upstream_mcp_content_hash,providerContentHash);
+  const before=(await adminPool.query('SELECT (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journal_count,(SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger_count',[ids.tenantId])).rows[0];
+  const linked=await importer.linkWbsOperatorEvidenceToSignedSource({...ids,wbsOperatorPayableEvidenceRowId:operatorEvidenceRowId,wbsInboundRowId:signed.wbs_inbound_row_id,idempotencyKey:'operator-signed-source-link-0001'});
+  assert.deepEqual({status:linked.status,operatorStatus:linked.operator_evidence_status,signedRowId:linked.wbs_inbound_row_id,review:linked.can_review,draft:linked.can_create_draft,post:linked.can_post},{status:'SIGNED_SOURCE_EQUIVALENCE_RECORDED',operatorStatus:'EXCEPTION_REVIEW_REQUIRED',signedRowId:signed.wbs_inbound_row_id,review:false,draft:false,post:false});
+  const replay=await importer.linkWbsOperatorEvidenceToSignedSource({...ids,wbsOperatorPayableEvidenceRowId:operatorEvidenceRowId,wbsInboundRowId:signed.wbs_inbound_row_id,idempotencyKey:'operator-signed-source-link-0001'});assert.equal(replay.idempotent,true);
+  const after=(await adminPool.query('SELECT (SELECT count(*) FROM journal_entry WHERE tenant_id=$1) journal_count,(SELECT count(*) FROM ledger_line WHERE tenant_id=$1) ledger_count',[ids.tenantId])).rows[0];assert.deepEqual(after,before);
+  const operatorOnly=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bridge-operator',['WBS.PAYABLE.OPERATOR_ATTEST'])});
+  await assert.rejects(operatorOnly.linkWbsOperatorEvidenceToSignedSource({...ids,wbsOperatorPayableEvidenceRowId:operatorEvidenceRowId,wbsInboundRowId:signed.wbs_inbound_row_id,idempotencyKey:'operator-signed-source-link-denied'}),error=>error.code==='42501');
+  const reviewReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bridge-review-reader',['WBS.PAYABLE.REVIEW','AP.VIEW'])});
+  const reviewCandidate=await reviewReader.getWbsPayableReviewCandidate({tenantId:ids.tenantId,entityId:ids.entityId,wbsInboundRowId:signed.wbs_inbound_row_id});assert.equal(reviewCandidate[0].wbs_inbound_row_id,signed.wbs_inbound_row_id);
+  await assert.rejects(reviewReader.getWbsPayableReviewCandidate({tenantId:ids.tenantId,entityId:ids.entityId,wbsInboundRowId:operatorEvidenceRowId}),error=>error.code==='P0002');
+  await assert.rejects(adminPool.query('UPDATE wbs_operator_signed_source_link SET company_code=company_code WHERE wbs_operator_signed_source_link_id=$1',[linked.wbs_operator_signed_source_link_id]),error=>error.code==='55000');
+});
+
+pgTest('provider-signed Payable admission atomically reaches Review Draft four-role Post and same-JE reports',async()=>{
   const ids=await seed({status:'DRAFT'}),{privateKey,publicKey}=generateKeyPairSync('ed25519'),keyId='wbs-payable-composition-pg',capturedAt='2026-07-11T03:00:00.000Z',snapshotToken=`pg-payable-${randomUUID()}`,sourceId=randomUUID(),badSourceId=randomUUID();
   const rows=[
     {ap_guid:sourceId,ap_type:'AUTOC',company_code:ids.sourceEntityId,currency:'USD',amount:'89.1250',invoice_date:'2026-07-01',incurred_date:'2026-07-10',posting_date:'2026-07-11',pay_due_date:'2026-07-05',invoice_no:'WBS-INV-PG-001',vendor_no:'VENDOR-PG'},
     {ap_guid:badSourceId,ap_type:'AUTOC',company_code:ids.sourceEntityId,currency:'USD',amount:'10.0000',invoice_date:'2026-07-08',incurred_date:'2026-07-10',posting_date:'2026-07-11',pay_due_date:'2026-07-07',invoice_no:'WBS-INV-PG-BAD',vendor_no:'VENDOR-PG'}
   ].sort((left,right)=>left.ap_guid.localeCompare(right.ap_guid));
+  const retainedSourceRow=rows.find(row=>row.ap_guid===sourceId),operatorContentHash=canonicalRequestHash(rows);
+  const operatorKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-operator',['WBS.PAYABLE.OPERATOR_ATTEST'])});
+  const retained=await operatorKernel.attestWbsOperatorPayables({...ids,capturedAt,providerContentHash:operatorContentHash,
+    observationHash:hash('provider-signed-full-chain-operator-observation'),companyCodes:[ids.sourceEntityId],
+    rows:[{source_record_id:sourceId,source_version:`operator:${capturedAt}:${canonicalRequestHash(retainedSourceRow).slice(7,39)}`,
+      row_hash:canonicalRequestHash(retainedSourceRow),raw:retainedSourceRow}],
+    reason:'Retain the exact live Payable row while awaiting independent provider-signed redelivery.',
+    idempotencyKey:'provider-signed-full-chain-operator-retain'});
   const envelope={contract_version:'WBS-REFS-MCP-V1',tool:'list_payables',environment:'production',captured_at:capturedAt,source:{system:'WBS'},scope:{company:ids.sourceEntityId,currency:'USD',snapshot_token:snapshotToken},record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:'Snapshot comparison required',rows};
   const conventions=[{scope:{company_key:ids.sourceEntityId,currency:'USD'},receipt:{hash:`sha256:${envelope.content_sha256}`,ref:'object://wbs/payable/pg-direction',version:'1',verification_id:'pg-verify-1',key_id:keyId,algorithm:'Ed25519',verified_on:capturedAt},rule_id:'WBS-PAYABLE-PG-DIRECTION',version:'1',ap_type:'AUTOC',direction:'DEBIT'}];
   const unsigned=buildWbsMcpReadonlySnapshot({envelopes:[envelope],snapshotId:randomUUID(),dictionaryVersion:'WBS-MCP-V1',environment:'PRODUCTION',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',snapshot_token:snapshotToken,extract_started_at:'2026-07-11T02:59:00.000Z',extract_completed_at:capturedAt,consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'},detachedSignature:{key_id:keyId,algorithm:'Ed25519',value:'placeholder'},payableDirectionConventions:conventions});
-  const snapshot={...unsigned,detached_signature:{...unsigned.detached_signature,value:sign(null,Buffer.from(unsigned.package_hash),privateKey).toString('base64')}},verifier=createWbsSnapshotSignatureVerifier({publicKeys:{[keyId]:publicKey.export({type:'spki',format:'pem'})}});
-  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'admitted-payable-importer',['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:verifier}),service=createWbsAdmittedPayableIngestion({kernel,signatureVerifier:verifier});
+  const requestRaw=Buffer.from('{"tool":"list_payables","company":"'+ids.sourceEntityId+'"}'),responseRaw=Buffer.from(JSON.stringify(envelope));
+  const admissionNow=Date.now(),signedAt=new Date(admissionNow-60_000).toISOString(),expiresAt=new Date(admissionNow+9*60_000).toISOString();
+  const signedDelivery=await createWbsSignedDelivery({unsignedSnapshot:unsigned,requestRaw,responseRaw,scope:{tenant_id:ids.tenantId,entity_id:ids.entityId,company_code:ids.sourceEntityId},issuer:'wbs-provider-pg',keyId,nonce:`nonce-${randomUUID()}`,signedAt,expiresAt,privateKeyPem:privateKey.export({type:'pkcs8',format:'pem'}).toString(),now:admissionNow});
+  const verifier=createWbsSnapshotSignatureVerifier({publicKeys:{[keyId]:publicKey.export({type:'spki',format:'pem'})}}),serviceActor='admitted-payable-importer';
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,serviceActor,['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:verifier});
+  const service=createWbsProviderSignedPayableAdmission({kernel,providerTrust:signedDelivery.providerTrust,principal:{trusted:true,tenantId:ids.tenantId,actorId:serviceActor},serviceActorId:serviceActor,clock:()=>admissionNow});
+  const body={receipt:signedDelivery.receipt,requestRawBase64:requestRaw.toString('base64'),responseRawBase64:responseRaw.toString('base64'),packageRawBase64:signedDelivery.packageRaw.toString('base64')};
   const journalsBefore=(await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,idempotencyKey=`wbs-payable-pg-${randomUUID()}`;
-  const created=await service.ingest({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey}),replayed=await service.ingest({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey});
-  assert.deepEqual({status:created.status,replay:replayed.idempotent,normalized:created.normalized_count,staging:created.staging_count,draft:created.can_create_draft,post:created.can_post},{status:'PERSISTED_PAYABLE_STAGING_REVIEW_REQUIRED',replay:true,normalized:2,staging:2,draft:false,post:false});
+  const zeroBefore=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_inbound_row WHERE tenant_id=$1) inbound,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger",[ids.tenantId])).rows[0];
+  for(const changed of [{...body,responseRawBase64:Buffer.from('{}').toString('base64')},{...body,receipt:{...body.receipt,entity_id:randomUUID()}}])await assert.rejects(service.admit({tenantId:ids.tenantId,entityId:ids.entityId,...changed,idempotencyKey:`wbs-provider-negative-${randomUUID()}`}),error=>error.code?.startsWith('WBS_'));
+  const expiredService=createWbsProviderSignedPayableAdmission({kernel,providerTrust:signedDelivery.providerTrust,principal:{trusted:true,tenantId:ids.tenantId,actorId:serviceActor},serviceActorId:serviceActor,clock:()=>admissionNow+20*60_000});
+  await assert.rejects(expiredService.admit({tenantId:ids.tenantId,entityId:ids.entityId,...body,idempotencyKey:`wbs-provider-expired-${randomUUID()}`}),error=>error.code==='WBS_SIGNED_DELIVERY_RECEIPT_EXPIRED');
+  const unsignedPackage=structuredClone(signedDelivery.package);delete unsignedPackage.detached_signature;
+  await assert.rejects(service.admit({tenantId:ids.tenantId,entityId:ids.entityId,...body,packageRawBase64:Buffer.from(canonicalRequestBody(unsignedPackage)).toString('base64'),idempotencyKey:`wbs-provider-unsigned-${randomUUID()}`}),error=>error.code?.startsWith('WBS_'));
+  assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_inbound_row WHERE tenant_id=$1) inbound,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger",[ids.tenantId])).rows[0],zeroBefore);
+  const created=await service.admit({tenantId:ids.tenantId,entityId:ids.entityId,...body,idempotencyKey}),replayed=await service.admit({tenantId:ids.tenantId,entityId:ids.entityId,...body,idempotencyKey});
+  assert.deepEqual({status:created.status,replay:replayed.idempotent,rows:created.row_count,linked:created.linked_operator_exception_count,draft:created.can_create_draft,post:created.can_post},{status:'PERSISTED_PAYABLE_STAGING_REVIEW_REQUIRED',replay:true,rows:2,linked:1,draft:false,post:false});
+  await assert.rejects(service.admit({tenantId:ids.tenantId,entityId:ids.entityId,...body,idempotencyKey:`wbs-payable-nonce-replay-${randomUUID()}`}),error=>error.code==='23505');
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_provider_signed_payable_admission WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,1);
   const storedRows=(await adminPool.query("SELECT i.wbs_inbound_row_id,r.receipt_hash,i.source_record_id,i.source_version,i.raw,i.normalized,i.outcome,i.outcome_kind,refs_wbs_payable_review_evidence_hash(i.wbs_inbound_row_id,i.source_record_id,i.source_version,r.receipt_hash,i.raw,i.normalized,i.outcome,i.outcome_kind) evidence_hash FROM wbs_inbound_receipt r JOIN wbs_inbound_row i USING(receipt_id) WHERE r.tenant_id=$1 AND r.entity_id=$2 AND i.source_record_id=ANY($3::text[])",[ids.tenantId,ids.entityId,[sourceId,badSourceId]])).rows,stored=storedRows.find(row=>row.source_record_id===sourceId),badStored=storedRows.find(row=>row.source_record_id===badSourceId);
+  const retainedRows=await operatorKernel.listWbsOperatorPayableExceptionRows({...ids,wbsOperatorPayableAttestationId:retained.wbs_operator_payable_attestation_id,limit:10});
+  assert.deepEqual({count:retainedRows.length,status:retainedRows[0].signed_link_status,signedRow:retainedRows[0].signed_wbs_inbound_row_id},{count:1,status:'ELIGIBLE_FOR_SIGNED_REVIEW',signedRow:stored.wbs_inbound_row_id});
   assert.equal(stored.source_record_id,sourceId);assert.match(stored.source_version,/^snapshot:/);assert.equal(stored.raw.amount,'-89.1250');assert.equal(stored.normalized.amount_money4,'-89.1250');assert.equal(stored.normalized.company_key,ids.sourceEntityId);assert.equal(stored.normalized.currency,'USD');assert.equal(stored.outcome_kind,'STAGING');assert.match(stored.receipt_hash,/^sha256:[0-9a-f]{64}$/);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1',[ids.tenantId])).rows[0].n,journalsBefore);
 

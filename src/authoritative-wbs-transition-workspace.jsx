@@ -1,12 +1,10 @@
 import React,{useState} from 'react';
-import {activateAuthoritativeWbsReadAccess,refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,verifyAuthoritativeWbsTransitionContract} from './accounting-api.js';
+import {refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,verifyAuthoritativeWbsTransitionContract} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeDemoView,AuthoritativeDemoWorkspaceHeader} from './authoritative-demo-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
 import {AuthoritativeWbsPayableWorkspace} from './authoritative-wbs-payable-workspace.jsx';
 import {AuthoritativeWbsPayableReviewWorkspace} from './authoritative-wbs-payable-review-workspace.jsx';
-
-const scopeValue=value=>value||'Configured authoritative scope';
 
 export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.fetch,onAccountingRefresh=()=>{}}){
   const [payableReviewRefresh,setPayableReviewRefresh]=useState(0);
@@ -16,7 +14,6 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
   const [reviewState,setReviewState]=useState({phase:'IDLE',data:null,error:null});
   const [controlInput,setControlInput]=useState({sourceType:'COST_GENERAL_LEDGER',companyKey:'',period:'',currency:'USD',propertyRef:'',periodStart:'',periodEnd:'',bankAccountRef:''});
   const [controlState,setControlState]=useState({phase:'IDLE',data:null,error:null});
-  const [accessState,setAccessState]=useState({phase:'IDLE',error:null});
   const verify=async event=>{
     event.preventDefault();
     let contract;
@@ -39,35 +36,12 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     const result=await refreshAuthoritativeWbsControlReconciliation({config,...controlInput,fetcher});
     setControlState(current=>result.ok&&result.data.status!=='BLOCKED'?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result.ok?{code:result.data.code,message:'Receipt-backed WBS and REFS control evidence is incomplete for this exact scope.'}:result});
   };
-  const activateWbsRead=async()=>{
-    setAccessState({phase:'LOADING',error:null});
-    const idempotencyKey=`wbs-read-${globalThis.crypto?.randomUUID?.()||Date.now().toString(36)}`;
-    const result=await activateAuthoritativeWbsReadAccess({config,fetcher,idempotencyKey});
-    setAccessState(result.ok?{phase:'READY',error:null}:{phase:'BLOCKED',error:result});
-  };
   const data=state.data;
   const review=reviewState.data,control=controlState.data;
-  return <AuthoritativeDemoView area="WBS transition evidence" className="stack authoritative-wbs-transition-workspace">
-    <AuthoritativeDemoWorkspaceHeader eyebrow="AUTO RECONCILIATION / PROVIDER EVIDENCE" title="WBS AutoRec transition evidence" description="Review a provider-signed cancellation and reopen contract for the configured accounting scope. This page verifies evidence; it never operates WBS or accounting." status="EVIDENCE ONLY"/>
+  return <AuthoritativeDemoView area="WBS exception review" className="stack authoritative-wbs-transition-workspace">
+    <AuthoritativeDemoWorkspaceHeader eyebrow="AUTO RECONCILIATION / PRODUCTION WBS" title="WBS Payables and exception review" description="See the real Production WBS rows retained for this company, their readiness, and the owner of the next step." status="LIVE DATA"/>
 
-    <div className="report-shelf" aria-label="WBS evidence reading path"><span className="report-shelf-chip report-shelf-chip-on">1 Signed provider contract</span><span className="report-shelf-chip">2 Pinned signature verification</span><span className="report-shelf-chip">3 No-action guard</span><span className="report-shelf-chip">4 Read-only evidence</span></div>
-
-    <section className="report-workbench" aria-label="Current WBS evidence scope">
-      <div className="report-workbench-head"><div><b>Provider evidence scope</b><div className="page-subtitle">The provider contract must be verified by the accounting API before any transition facts are displayed.</div></div><span className="badge badge-muted">READ ONLY</span></div>
-      <div className="qbo-toolgrid"><span><i>Entity scope</i><b>{scopeValue(config?.entityId)}</b></span><span><i>Accounting period</i><b>{scopeValue(config?.periodId)}</b></span><span><i>Authority</i><b>Evidence only</b></span></div>
-    </section>
-
-    <section className="report-workbench" aria-label="WBS evidence read access">
-      <div className="report-workbench-head"><div><b>WBS evidence read access</b><div className="page-subtitle">Add only the dedicated WBS AutoRec evidence-read permission to this already-authorized Stage 1 account. This cannot import WBS data or grant accounting commands.</div></div><button type="button" className="btn" disabled={accessState.phase==='LOADING'} onClick={activateWbsRead}>{accessState.phase==='LOADING'?'Enabling WBS evidence read...':'Enable WBS evidence read'}</button></div>
-      {accessState.phase==='READY'&&<StateBlock tone="success" title="WBS evidence read enabled">This session can now request persisted AutoRec and control evidence. No WBS import or accounting write permission was added.</StateBlock>}
-      {accessState.phase==='BLOCKED'&&<StateBlock tone="blocked" title={accessState.error?.code||'WBS_READ_ACCESS_BLOCKED'}>{accessState.error?.message}</StateBlock>}
-    </section>
-
-    <section className="qbo-grid" aria-label="WBS evidence boundaries">
-      <div className="qbo-card"><h4>Signed contract required</h4><div className="qbo-sub">Unsigned, inferred, or browser-created transition facts are not admitted.</div></div>
-      <div className="qbo-card"><h4>Pinned provider verification</h4><div className="qbo-sub">The API validates the supplied contract and its declared provider signature.</div></div>
-      <div className="qbo-card"><h4>Zero REFS action authority</h4><div className="qbo-sub">Every reserve, release, incur, Draft, approve, post, reverse, and write flag must be false.</div></div>
-    </section>
+    <div className="report-shelf" aria-label="WBS Payable accounting path"><span className="report-shelf-chip report-shelf-chip-on">1 Exception</span><span className="report-shelf-chip">2 Signed redelivery</span><span className="report-shelf-chip">3 Signed review</span><span className="report-shelf-chip">4 Draft</span><span className="report-shelf-chip">5 Approval / Post</span><span className="report-shelf-chip">6 GL / Report</span></div>
 
     <AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.wbs}/>
 
@@ -113,7 +87,8 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
       </>}
     </section>
 
-    <section className="report-workbench" aria-label="Signed WBS transition contract verification">
+    <details className="report-workbench" aria-label="Advanced signed WBS transition contract verification"><summary><b>Advanced: verify a signed transition contract</b></summary>
+    <section aria-label="Signed WBS transition contract verification">
       <div className="report-workbench-head"><div><b>Signed external contract</b><div className="page-subtitle">Paste only a provider-issued contract supplied through the approved evidence path. The accounting API verifies its pinned signature and rejects any contract that grants REFS action authority.</div></div><span className="badge badge-muted">VERIFY</span></div>
       <ul className="muted sm"><li>No direct WBS read or provider request occurs from this browser page.</li><li>No WBS ingress, REFS write, Draft, approval, posting, reversal, reserve, or release is available here.</li><li>A rejected document remains BLOCKED; previously verified evidence remains visible for review.</li></ul>
       <form className="filterbar" onSubmit={verify}>
@@ -125,11 +100,12 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
       {!data&&state.phase==='IDLE'&&<StateBlock tone="blocked" title="BLOCKED - signed provider evidence required">No signed provider contract has been supplied for this entity. REFS will not infer WBS cancellation, reopen, separation-of-duties, or accounting authority.</StateBlock>}
     </section>
 
-    {data&&<section className="report-workbench" aria-label="Verified WBS transition contract">
+    {data&&<section aria-label="Verified WBS transition contract">
       <div className="report-workbench-head"><div><b>Verified external evidence</b><div className="page-subtitle">Signature verification succeeded. These are WBS transition facts only; every REFS action flag is false.</div></div><span className="badge badge-ok">VERIFIED</span></div>
       <div className="qbo-toolgrid"><span><i>Contract hash</i><b>{data.contract_hash}</b></span><span><i>Valid from</i><b>{data.valid_from}</b></span><span><i>Valid until</i><b>{data.valid_until}</b></span><span><i>Company scope</i><b>{data.scope.company_keys.length} approved companies</b></span></div>
       <div className="report-shelf"><span className="report-shelf-chip">Dictionary {data.scope.dictionary_version}</span><span className="report-shelf-chip">Contract {data.contract_id}</span><span className="report-shelf-chip">Signature {data.signature.key_id} / {data.signature.algorithm}</span></div>
       <div className="table-wrap" role="region" tabIndex={0} aria-label="Verified WBS transition evidence; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Transition</th><th>Operation</th><th>Observed state path</th><th>Reason</th><th>Required roles</th><th>Accounting guard</th></tr></thead><tbody>{data.transitions.map(row=><tr key={row.transition_id}><td>{row.transition_id}</td><td>{row.operation}</td><td>{row.from_state} -&gt; {row.to_state}</td><td>{row.requires_reason?'Required':'Not admitted'}</td><td>{row.required_actor_roles.join(', ')}</td><td>Reviewed {row.accounting_guard.blocks_when_accounting_reviewed?'blocks':'not supplied'} / Approved {row.accounting_guard.blocks_when_accounting_approved?'blocks':'not supplied'} / Posted {row.accounting_guard.blocks_when_accounting_posted?'blocks':'not supplied'}</td></tr>)}</tbody></table></div>
     </section>}
+    </details>
   </AuthoritativeDemoView>;
 }

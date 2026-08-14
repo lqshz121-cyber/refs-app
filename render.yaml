@@ -15,6 +15,10 @@ services:
         value: production
       - key: REFS_HTTP_HOST
         value: 0.0.0.0
+      # Provider-signed delivery keeps immutable raw request/response/package
+      # bytes. This is a total request-body limit, not a per-field limit.
+      - key: REFS_HTTP_MAX_BODY_BYTES
+        value: "10485760"
       - key: REFS_PG_REQUIRED
         value: "1"
       # Non-secret Stage 1 scope coordinates. Keeping these in the Blueprint
@@ -52,6 +56,10 @@ services:
       - key: WBS_REFS_AUTH
         sync: false
       - key: WBS_SNAPSHOT_ED25519_PUBLIC_KEYS
+        sync: false
+      - key: WBS_PROVIDER_SIGNED_TRUST
+        sync: false
+      - key: WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID
         sync: false
       - key: S3_ENDPOINT
         sync: false
