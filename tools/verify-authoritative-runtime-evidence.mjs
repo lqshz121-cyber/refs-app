@@ -4,12 +4,27 @@ import {fileURLToPath} from 'node:url';
 
 export const AUTHORITATIVE_PAGES=Object.freeze({
   Dashboard:['/ap/bills','/ar/invoices','/journal-entries'],
-  AP:['/ap/bills','/ap/adjustments'],
-  AR:['/ar/invoices','/ar/adjustments'],
-  JE:['/journal-entries'],
+  Payables:['/ap/bills','/ap/adjustments','/ap/aging','/ap/control-totals'],
+  Receivables:['/ar/invoices','/ar/adjustments','/ar/aging','/ar/control-totals'],
+  Journals:['/journal-entries','/journal-workflow/capabilities'],
+  BankBatchPipeline:['/bank/reconciliations/admitted-statements'],
   Bank:['/bank/transactions'],
   Reconciliation:['/bank/reconciliations','/bank/reconciliations/*/worksheet'],
-  Reports:['/financial-statements'],
+  WbsPayableReview:['/wbs/inbound/payables/review-candidates','/wbs/inbound/payables/reviews'],
+  AiAudit:['/ai/findings/wbs-exceptions'],
+  WbsAutoRecEvidence:['/wbs/live-pilot','/wbs/auto-reconciliation/review-candidates'],
+  Reports:['/reports/financial-statements','/reports/financial-statement-snapshot','/reports/financial-statement-period-comparison','/reports/cash-flow-classification','/reports/cwip-rollforward','/reports/construction-loan-rollforward','/reports/prepaid-rollforward','/reports/budget-vs-actual'],
+  ProjectCostCwip:['/reports/dimension-profitability','/reports/cwip-rollforward','/reports/construction-loan-rollforward','/reports/prepaid-rollforward','/reports/budget-vs-actual'],
+  UnitLotProfitability:['/reports/dimension-profitability'],
+  PropertyOperatingPnl:['/reports/dimension-profitability'],
+  ConstructionLoan:['/reports/construction-loan-rollforward'],
+  Amortization:['/reports/prepaid-rollforward'],
+  Intercompany:['/reports/intercompany-reconciliation'],
+  Consolidation:['/reports/consolidation'],
+  SourceDocuments:['/source-documents'],
+  ChartOfAccounts:['/chart-of-accounts'],
+  AccountInquiry:['/account-register'],
+  GeneralLedger:['/general-ledger/entries'],
 });
 
 const forbidden=/[\p{Script=Han}\uFFFD\u0080-\u009F]/u;
