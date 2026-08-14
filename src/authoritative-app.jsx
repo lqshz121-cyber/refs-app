@@ -445,7 +445,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           <button type="button" className="icon-btn" aria-label="Refresh authoritative accounting evidence" title="Refresh authoritative accounting evidence" onClick={refresh}>Refresh</button>
           <button type="button" className="icon-btn" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} aria-pressed={theme === 'dark'} title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>{theme === 'dark' ? 'Light' : 'Dark'}</button>
           <span className="authoritative-mode-chip">Authoritative</span>
-          <span className="user-chip authoritative-user-chip" aria-label="Authenticated OIDC session"><span className="user-av" aria-hidden="true">A</span><span className="user-nm">Authenticated</span></span>
+          <span className="user-chip authoritative-user-chip" aria-label="Authenticated OIDC session"><span className="user-av" aria-hidden="true">A</span><span className="user-nm" title="Authenticated OIDC session">Signed</span></span>
           <button type="button" className="btn btn-sm btn-ghost authoritative-signout" onClick={logout}>Sign out</button>
         </div>
       </header>}

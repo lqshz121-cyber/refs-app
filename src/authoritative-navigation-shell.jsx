@@ -1,8 +1,10 @@
 import React from 'react';
 import { Icon } from './ui.jsx';
 
+const RAIL_LABELS = Object.freeze({ Administration: 'Admin' });
+
 function railLabel(label) {
-  return label.split(/\s+/)[0] || label;
+  return RAIL_LABELS[label] || label.split(/\s+/)[0] || label;
 }
 
 function compactLabel(label) {
@@ -59,7 +61,10 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroup,
             className={`nav-item nav-sub ${route === item.route ? 'nav-on' : ''}`} onClick={() => onSelectItem(item.route)}>
             <span className="nav-badge" aria-hidden="true">{compactLabel(item.label)}</span>
             <span className="nav-item-label">{item.label}</span>
-            <span className={`authoritative-nav-status authoritative-nav-status-${item.availability === 'API_READ' ? 'ready' : 'blocked'}`}>{item.availability === 'API_READ' ? 'API' : 'Unavailable'}</span>
+            <span className={`authoritative-nav-status authoritative-nav-status-${item.availability === 'API_READ' ? 'ready' : 'blocked'}`}
+              title={item.availability === 'API_READ' ? 'Authoritative API read available' : 'This workspace is unavailable for the current authority'}>
+              {item.availability === 'API_READ' ? 'API' : 'Unavailable'}
+            </span>
             <span className="nav-chev" aria-hidden="true">›</span>
           </button>)}
           </div>
