@@ -122,9 +122,9 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='property-rent-pickup'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Property Rent pickup reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
-        requireExactQuery(parsedUrl.searchParams,['limit']);
+        requireExactQuery(parsedUrl.searchParams,['periodId','limit']);
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listWbsPropertyRentPickup!=='function')throw new AccountingApiError(503,'WBS_PROPERTY_RENT_READ_UNAVAILABLE','Property Rent pickup read is unavailable');
-        result=await kernel.listWbsPropertyRentPickup({tenantId:principal.tenantId,entityId,limit:optionalAdmittedStatementLimit(parsedUrl.searchParams.get('limit'))});
+        result=await kernel.listWbsPropertyRentPickup({tenantId:principal.tenantId,entityId,periodId:requireUuid(parsedUrl.searchParams.get('periodId'),'periodId'),limit:optionalAdmittedStatementLimit(parsedUrl.searchParams.get('limit'))});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='POST'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='property-rent-pickup'&&parts[7]==='reviews'){

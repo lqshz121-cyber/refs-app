@@ -357,8 +357,8 @@ export class PostgresAccountingKernel{
     });
   }
 
-  async listWbsPropertyRentPickup({tenantId,entityId,limit=50}){
-    return this.inSession(async client=>(await client.query('SELECT * FROM refs_list_wbs_property_rent_pickup($1,$2,$3)',[tenantId,entityId,limit])).rows);
+  async listWbsPropertyRentPickup({tenantId,entityId,periodId,limit=50}){
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_list_wbs_property_rent_pickup($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);
   }
 
   async createWbsPropertyRentDraft({tenantId,entityId,reviewEvidenceId,expectedRevision,expectedEvidenceHash,reason,idempotencyKey}){

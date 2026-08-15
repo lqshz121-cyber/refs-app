@@ -11,14 +11,15 @@ test('Property Rent HTTP exposes GET-only readiness and guarded Review/Draft com
   reviewWbsPropertyRent:async args=>(calls.push(['review',args]),{review_evidence_id:reviewId,status:'READY_FOR_DRAFT',idempotent:false}),
   createWbsPropertyRentDraft:async args=>(calls.push(['draft',args]),{business_document_id:admissionId,journal_entry_id:reviewId,status:'DRAFT',idempotent:false})
  },api=createAccountingApi({authenticate:async()=>principal,kernelFactory:async()=>kernel});
- let response=await api({method:'GET',url:`/api/v1/entities/${entityId}/wbs/property-rent-pickup?limit=7`,headers:{},body:null});
- assert.equal(response.status,200);assert.deepEqual(calls.shift(),['list',{tenantId,entityId,limit:7}]);assert.equal(response.headers['cache-control'],'no-store');
+ let response=await api({method:'GET',url:`/api/v1/entities/${entityId}/wbs/property-rent-pickup?periodId=${periodId}&limit=7`,headers:{},body:null});
+ assert.equal(response.status,200);assert.deepEqual(calls.shift(),['list',{tenantId,entityId,periodId,limit:7}]);assert.equal(response.headers['cache-control'],'no-store');
  response=await api({method:'POST',url:`/api/v1/entities/${entityId}/wbs/property-rent-pickup/${admissionId}/reviews`,headers:{'idempotency-key':'property-rent-review-001','if-match':'"0"'},body:{periodId,expectedEvidenceHash:evidenceHash,reason:'Independent Property Rent review'}});
  assert.equal(response.status,201);assert.deepEqual(calls.shift(),['review',{tenantId,entityId,admissionId,periodId,expectedRevision:0,expectedEvidenceHash:evidenceHash,reason:'Independent Property Rent review',idempotencyKey:'property-rent-review-001'}]);
  response=await api({method:'POST',url:`/api/v1/entities/${entityId}/wbs/property-rent-pickup/reviews/${reviewId}/drafts`,headers:{'idempotency-key':'property-rent-draft-001','if-match':'"1"'},body:{expectedEvidenceHash:evidenceHash,reason:'Create exact reviewed rent Draft'}});
  assert.equal(response.status,201);assert.deepEqual(calls.shift(),['draft',{tenantId,entityId,reviewEvidenceId:reviewId,expectedRevision:1,expectedEvidenceHash:evidenceHash,reason:'Create exact reviewed rent Draft',idempotencyKey:'property-rent-draft-001'}]);
  for(const request of [
   {method:'GET',url:`/api/v1/entities/${entityId}/wbs/property-rent-pickup`,headers:{'idempotency-key':'forbidden-read'},body:null},
+  {method:'GET',url:`/api/v1/entities/${entityId}/wbs/property-rent-pickup?limit=7`,headers:{},body:null},
   {method:'POST',url:`/api/v1/entities/${entityId}/wbs/property-rent-pickup/${admissionId}/reviews`,headers:{'idempotency-key':'property-rent-review-002'},body:{periodId,expectedEvidenceHash:evidenceHash,reason:'Missing precondition must fail'}},
   {method:'POST',url:`/api/v1/entities/${entityId}/wbs/property-rent-pickup/reviews/${reviewId}/drafts`,headers:{'idempotency-key':'property-rent-draft-002','if-match':'"0"'},body:{expectedEvidenceHash:'sha256:bad',reason:'Invalid evidence must fail'}},
   {method:'POST',url:`/api/v1/entities/${entityId}/wbs/property-rent-pickup/${admissionId}/reviews`,headers:{'idempotency-key':'property-rent-review-003','if-match':'"0"'},body:{periodId,expectedEvidenceHash:evidenceHash,reason:'Identity must remain server derived',entityId}}
