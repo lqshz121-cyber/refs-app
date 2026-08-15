@@ -7,9 +7,11 @@ const row=value=>value&&typeof value==='object'&&CATEGORIES.has(value.category)&
 const HASH=/^sha256:[0-9a-f]{64}$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const bounded=(value,max)=>{const result=text(value);return result.length>0&&result.length<=max?result:null;};
+const redact=value=>text(value).replace(/\bBearer\s+[A-Za-z0-9._~+\/-]{8,}\b/gi,'Bearer [REDACTED]').replace(/\b(api[ _-]?key|access[ _-]?token|refresh[ _-]?token|token|secret|password|authorization)\b\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+/gi,'$1=[REDACTED]').replace(/\b(?:sk|rk|pk)-[A-Za-z0-9_-]{8,}\b/g,'[REDACTED]');
+const redactedBounded=(value,max)=>{const result=redact(value);return result.length>0&&result.length<=max?result:null;};
 const evidenceRow=(category,value)=>{
   if(!value||typeof value!=='object'||Array.isArray(value)||!CATEGORIES.has(category)||!['HIGH','MEDIUM','LOW'].includes(value.risk_level)||!Number.isFinite(Number(value.confidence))||Number(value.confidence)<0||Number(value.confidence)>1)return null;
-  const ruleId=bounded(value.rule_id,128),reason=bounded(value.reason,2000),suggestedAction=bounded(value.suggested_action,2000),createdAt=bounded(value.created_at,64);
+  const ruleId=bounded(value.rule_id,128),reason=redactedBounded(value.reason,2000),suggestedAction=redactedBounded(value.suggested_action,2000),createdAt=bounded(value.created_at,64);
   const sourceRefs=['source_document_id','candidate_source_document_id','source_document_line_id','source_record_id','source_evidence_row_id','external_bank_line_id'].map(key=>bounded(value[key],128)).filter(Boolean);
   const evidenceHashes=['source_payload_hash','candidate_payload_hash','source_line_hash','source_row_hash','provider_content_hash','observation_hash','match_key_hash'].map(key=>text(value[key])).filter(value=>HASH.test(value));
   const sourceVersions=['source_document_version','candidate_document_version','source_version','bank_version'].map(key=>Number(value[key])).filter(Number.isSafeInteger).filter(value=>value>=0&&value<=Number.MAX_SAFE_INTEGER);
