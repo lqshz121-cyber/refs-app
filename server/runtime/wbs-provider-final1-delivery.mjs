@@ -35,7 +35,7 @@ const exactDate=value=>DATE.test(value||'')&&new Date(`${value}T00:00:00.000Z`).
 // verified separately from REFS' internal normalized snapshot contract so a
 // transformed row can never be mistaken for the exact bytes the Provider
 // signed.  This function is evidence-only: it cannot persist or create a JE.
-export function verifyWbsProviderFinal1Delivery({providerTrust,receipt,requestRaw,responseRaw,packageRaw,expectedScope,now=Date.now()}={}){
+export function verifyWbsProviderFinal1Delivery({providerTrust,receipt,requestRaw,responseRaw,packageRaw,expectedScope,expectedCurrency=null,now=Date.now()}={}){
   const trust=normalizeWbsProviderTrust(providerTrust);
   safeRaw(requestRaw,'request');safeRaw(responseRaw,'response');safeRaw(packageRaw,'package');
   if(!object(receipt)||!object(expectedScope)||!UUID.test(expectedScope.tenant_id||'')||!UUID.test(expectedScope.entity_id||'')||!TOKEN.test(expectedScope.company_code||''))fail('WBS_FINAL1_SCOPE_INVALID','An independent tenant, entity, and company scope is required.');
@@ -62,15 +62,19 @@ export function verifyWbsProviderFinal1Delivery({providerTrust,receipt,requestRa
   }
   const rawContainsCredentials=SENSITIVE_RAW.test(requestRaw.toString('latin1'))||SENSITIVE_RAW.test(responseRaw.toString('latin1'));
   const currencySigned=rows.length>0&&rows.every(row=>/^[A-Z]{3}$/.test(row.currency||''))&&new Set(rows.map(row=>row.currency)).size===1;
+  const configuredCurrency=typeof expectedCurrency==='string'&&/^[A-Z]{3}$/.test(expectedCurrency)?expectedCurrency:null;
+  if(currencySigned&&configuredCurrency&&rows[0].currency!==configuredCurrency)fail('WBS_FINAL1_CURRENCY_SCOPE_MISMATCH','Provider currency differs from the independently approved REFS currency.');
+  const accountingCurrency=currencySigned?rows[0].currency:configuredCurrency;
   return Object.freeze({
     status:'VERIFIED_FINAL1_EVIDENCE_ONLY',format:'WBS_PROVIDER_FINAL1',signature_verified:true,
     tenant_id:expectedScope.tenant_id,entity_id:expectedScope.entity_id,company_code:expectedScope.company_code,
     snapshot_id:pkg.snapshot_id,date_from:pkg.date_from,date_to:pkg.date_to,row_count:rows.length,
     package_hash:`sha256:${bare(pkg.package_hash)}`,raw_package_hash:`sha256:${bare(receipt.package_hash)}`,
     raw_contains_credentials:rawContainsCredentials,currency_signed:currencySigned,
+    accounting_currency:accountingCurrency,currency_authority:currencySigned?'PROVIDER_SIGNED':'REFS_BUSINESS_OWNER_CONFIRMED',
     admission_blockers:Object.freeze([
       ...(rawContainsCredentials?['RAW_ARTIFACT_CREDENTIAL_REDACTION_REQUIRED']:[]),
-      ...(currencySigned?[]:['SIGNED_CURRENCY_REQUIRED_FOR_ACCOUNTING']),
+      ...(accountingCurrency?[]:['APPROVED_CURRENCY_REQUIRED_FOR_ACCOUNTING']),
     ]),
     package:pkg,can_admit:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false
   });

@@ -28,8 +28,14 @@ test('Final-1 verifies exact dual signatures and reports no accounting blocker w
 
 test('Final-1 exposes credential-bearing raw artifacts and unsigned currency as explicit fail-closed blockers',async()=>{
   const result=verifyWbsProviderFinal1Delivery(await fixture({credentials:true,currency:null}));
-  assert.deepEqual(result.admission_blockers,['RAW_ARTIFACT_CREDENTIAL_REDACTION_REQUIRED','SIGNED_CURRENCY_REQUIRED_FOR_ACCOUNTING']);
+  assert.deepEqual(result.admission_blockers,['RAW_ARTIFACT_CREDENTIAL_REDACTION_REQUIRED','APPROVED_CURRENCY_REQUIRED_FOR_ACCOUNTING']);
   assert.equal(result.can_create_draft,false);assert.equal(result.can_post,false);
+});
+
+test('Final-1 keeps unsigned row currency separate from independently approved USD accounting scope',async()=>{
+  const input=await fixture({currency:null}),result=verifyWbsProviderFinal1Delivery({...input,expectedCurrency:'USD'});
+  assert.equal(result.currency_signed,false);assert.equal(result.accounting_currency,'USD');
+  assert.equal(result.currency_authority,'REFS_BUSINESS_OWNER_CONFIRMED');assert.deepEqual(result.admission_blockers,[]);
 });
 
 test('Final-1 rejects changed package bytes before any persistence boundary',async()=>{
