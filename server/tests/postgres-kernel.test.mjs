@@ -837,7 +837,7 @@ pgTest('WBS AutoRec Reserve and Release persist receipt-bound source reservation
   assert.deepEqual(counts.rows[0],{events:3,reservations:4,journals:journalsBefore});
 });
 
-pgTest('independent AutoRec Bank Match review persists exact decision SoD CAS idempotency and GET-only evidence',async()=>{
+pgTest('independent AutoRec review and immutable accounting-event foundation enforce exact evidence and fail-closed Draft producers',async()=>{
   const ids=await seed({status:'APPROVED',journalType:'AUTO'});
   const bankTrace=await attachAutoSource(ids,{sourceRecordPrefix:'AUTOREC-BANK-REVIEW'});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'review-fixture-poster',['GL.JE.POST'])});
@@ -880,6 +880,18 @@ pgTest('independent AutoRec Bank Match review persists exact decision SoD CAS id
   await assert.rejects(sameActor.reviewWbsAutoRecBankMatch({...args,idempotencyKey:'autorec-match-review-sod'}),error=>error.code==='42501');
   await assert.rejects(reviewer.reviewWbsAutoRecBankMatch({...args,expectedMatchRevision:1,idempotencyKey:'autorec-match-review-revision'}),error=>error.code==='40001');
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_autorec_match_review WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,1);
+  const eventMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'autorec-event-maker',['BANK.AUTOREC.G11.DRAFT'])});
+  const eventArgs={tenantId:ids.tenantId,entityId:ids.entityId,reviewId:accepted.wbs_autorec_match_review_id,periodId:ids.periodId,expectedEvidenceHash:accepted.evidence_hash,reason:'Dedicated producer must fail until exact event mappings are persisted',idempotencyKey:'autorec-event-draft-001'};
+  const before=(await adminPool.query('SELECT (SELECT count(*)::int FROM accounting_event WHERE tenant_id=$1) events,(SELECT count(*)::int FROM journal_accounting_event WHERE tenant_id=$1) bindings,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) receipts',[ids.tenantId])).rows[0];
+  await assert.rejects(eventMaker.createWbsAutoRecPayableIncurDraft(eventArgs),error=>error.code==='23514');
+  await assert.rejects(eventMaker.createWbsAutoRecAutocDraft({...eventArgs,idempotencyKey:'autorec-event-draft-002'}),error=>error.code==='23514');
+  const after=(await adminPool.query('SELECT (SELECT count(*)::int FROM accounting_event WHERE tenant_id=$1) events,(SELECT count(*)::int FROM journal_accounting_event WHERE tenant_id=$1) bindings,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) receipts',[ids.tenantId])).rows[0];assert.deepEqual(after,before);
+  const mapping=(await adminPool.query('SELECT mapping_snapshot_id,snapshot_hash FROM mapping_snapshot WHERE mapping_snapshot_id=$1',[bankTrace.mappingId])).rows[0],eventId=randomUUID();
+  await adminPool.query(`INSERT INTO accounting_event(accounting_event_id,tenant_id,entity_id,wbs_autorec_match_review_id,review_candidate_id,event_type,source_document_id,staging_item_id,mapping_snapshot_id,mapping_snapshot_hash,amount,currency,bank_account_ref,clearing_member_ref,evidence_hash,created_by)
+    VALUES($1,$2,$3,$4,$5,'PAYABLE_INCUR',$6,$7,$8,$9,100,'USD','BANK-1','VENDOR-1',$10,'migration-fixture')`,[eventId,ids.tenantId,ids.entityId,accepted.wbs_autorec_match_review_id,reviewCandidateId,bankTrace.documentId,bankTrace.stagingId,mapping.mapping_snapshot_id,mapping.snapshot_hash,hash('autorec-event-foundation')]);
+  await adminPool.query('INSERT INTO journal_accounting_event(tenant_id,entity_id,accounting_event_id,journal_entry_id,bound_by) VALUES($1,$2,$3,$4,$5)',[ids.tenantId,ids.entityId,eventId,ids.journalId,'migration-fixture']);
+  await assert.rejects(adminPool.query("UPDATE accounting_event SET created_by='tampered' WHERE accounting_event_id=$1",[eventId]),error=>error.code==='55000');
+  await assert.rejects(adminPool.query('DELETE FROM journal_accounting_event WHERE accounting_event_id=$1',[eventId]),error=>error.code==='55000');
 });
 
 pgTest('WBS trace relation evidence is receipt-bound, replay-safe, readable, and never creates a journal',async()=>{

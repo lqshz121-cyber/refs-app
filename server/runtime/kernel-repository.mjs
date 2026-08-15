@@ -809,6 +809,16 @@ export class PostgresAccountingKernel{
     ),'WBS_AUTOREC_MATCH_REVIEW_READ_FAILED','AutoRec Bank Match review read did not return a result').result);
   }
 
+  async createWbsAutoRecPayableIncurDraft(args){return this.createWbsAutoRecEventDraft('refs_create_wbs_autorec_payable_incur_draft',args);}
+  async createWbsAutoRecAutocDraft(args){return this.createWbsAutoRecEventDraft('refs_create_wbs_autorec_autoc_draft',args);}
+  async createWbsAutoRecEventDraft(functionName,{tenantId,entityId,reviewId,periodId,expectedEvidenceHash,reason,idempotencyKey}){
+    if(!['refs_create_wbs_autorec_payable_incur_draft','refs_create_wbs_autorec_autoc_draft'].includes(functionName))throw new KernelError('WBS_AUTOREC_EVENT_DRAFT_FUNCTION_DENIED','AutoRec event Draft producer is not allowlisted');
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_wbs_autorec_event_draft_hash($1,$2,$3,$4,$5,$6) request_hash',[tenantId,entityId,reviewId,periodId,expectedEvidenceHash,reason]),'WBS_AUTOREC_EVENT_DRAFT_HASH_FAILED','AutoRec event Draft hash was not produced').request_hash;
+      return requireRow(await client.query(`SELECT ${functionName}($1,$2,$3,$4,$5,$6,$7,$8) result`,[tenantId,entityId,reviewId,periodId,expectedEvidenceHash,reason,idempotencyKey,requestHash]),'WBS_AUTOREC_EVENT_DRAFT_FAILED','AutoRec event Draft did not return a result').result;
+    });
+  }
+
   async getReconciliationSummary({tenantId,entityId,bankAccountRef,statementEndingDate}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_reconciliation_summary($1,$2,$3,$4::date)',

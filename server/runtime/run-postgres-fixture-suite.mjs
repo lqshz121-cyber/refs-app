@@ -10,7 +10,7 @@ export const FIXTURES=Object.freeze([
   Object.freeze({id:'signed-wbs-payable-post',pattern:'provider-signed Payable admission atomically reaches Review Draft four-role Post and same-JE reports'}),
   Object.freeze({id:'signed-bank-same-source-close',pattern:'provider-signed Bank source survives exact Match Unmatch adjustment Post reconciliation and same-source reports'}),
   Object.freeze({id:'bank-reconcile-close',pattern:'Stage 2 test-data chain traces one reconciled bank payment through its posted JE, GL, TB and report rows'}),
-  Object.freeze({id:'wbs-autorec-match-review',pattern:'independent AutoRec Bank Match review persists exact decision SoD CAS idempotency and GET-only evidence'}),
+  Object.freeze({id:'wbs-autorec-event-foundation',pattern:'independent AutoRec review and immutable accounting-event foundation enforce exact evidence and fail-closed Draft producers'}),
   Object.freeze({id:'ai-exception-lineage',pattern:'operator exception row links append-only to the later exact signed Payable source without becoming Review authority'}),
   Object.freeze({id:'real-estate-reports',pattern:'cash flow statement classifies|CWIP rollforward admits|construction-loan rollforward admits|prepaid rollforward admits|intercompany reconciliation requires|budget versus actual reads|consolidation reads only'})
 ]);
