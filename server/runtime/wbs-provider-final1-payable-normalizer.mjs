@@ -31,8 +31,8 @@ function requireVerifiedFinal1(verified){
   return freeze({view});
 }
 
-function normalizedRow(row,{verified,expectedCurrency}){
-  if(!object(row)||row.company_code!==verified.company_code||row.currency!==expectedCurrency)fail('WBS_FINAL1_NORMALIZATION_SCOPE_OR_CURRENCY_MISMATCH','Every payable row must retain the verified company scope and independently supplied expected currency.');
+function normalizedRow(row,{verified,expectedCurrency,currencyAuthority}){
+  if(!object(row)||row.company_code!==verified.company_code||(row.currency!=null&&row.currency!==''&&row.currency!==expectedCurrency))fail('WBS_FINAL1_NORMALIZATION_SCOPE_OR_CURRENCY_MISMATCH','Every payable row must retain the verified company scope; any Provider-supplied currency must match the independently approved accounting currency.');
   const apGuId=requiredUuid(row.ap_guid,'ap_guid'),rawRow=freeze(structuredClone(row)),rawRowHash=hash(canonical(rawRow));
   return freeze({
     source_system:'WBS',source_module:'BGDATA.payable',source_record_id:apGuId,
@@ -40,7 +40,7 @@ function normalizedRow(row,{verified,expectedCurrency}){
     raw_row:rawRow,raw_row_hash:rawRowHash,
     provider_package_hash:verified.package_hash,provider_raw_package_hash:verified.raw_package_hash,
     provider_snapshot_id:verified.snapshot_id,provider_company_code:verified.company_code,
-    currency:expectedCurrency,currency_authority:'REFS_BUSINESS_OWNER_CONFIRMED_CURRENCY',
+    currency:expectedCurrency,currency_authority:currencyAuthority,
     normalized:freeze({
       apGuId,apLongId:optionalText(row.ap_long_id),apType:optionalText(row.ap_type),amount:optionalText(row.amount),invoiceNo:optionalText(row.invoice_no),
       invoiceDate:optionalDate(row.invoice_date),incurredDate:optionalDate(row.incurred_date),postingDate:optionalDate(row.posting_date),clearDate:optionalDate(row.clear_date),checkNo:optionalText(row.check_no),checkDate:optionalDate(row.check_date),
@@ -56,14 +56,15 @@ function normalizedRow(row,{verified,expectedCurrency}){
 export function normalizeVerifiedWbsProviderFinal1Payables({verified,expectedCurrency}={}){
   requireVerifiedWbsProviderFinal1Evidence(verified);
   const currency=requireExpectedCurrency(expectedCurrency),{view}=requireVerifiedFinal1(verified);
-  if(verified.raw_contains_credentials===true||verified.currency_signed!==true||!Array.isArray(verified.admission_blockers)||verified.admission_blockers.length!==0)fail('WBS_FINAL1_NORMALIZATION_ADMISSION_BLOCKED','Final-1 evidence has unresolved provider-verification blockers.');
+  if(verified.raw_contains_credentials===true||!Array.isArray(verified.admission_blockers)||verified.admission_blockers.length!==0||verified.accounting_currency!==currency||!['PROVIDER_SIGNED','REFS_BUSINESS_OWNER_CONFIRMED'].includes(verified.currency_authority))fail('WBS_FINAL1_NORMALIZATION_ADMISSION_BLOCKED','Final-1 evidence has unresolved provider-verification blockers or differs from the approved accounting currency.');
+  const currencyAuthority=verified.currency_signed===true?'PROVIDER_SIGNED_CURRENCY':'REFS_BUSINESS_OWNER_CONFIRMED_CURRENCY';
   const ids=new Set(),rows=[];
   for(const row of view.rows){
-    const normalized=normalizedRow(row,{verified,expectedCurrency:currency}),key=normalized.source_record_id.toLowerCase();
+    const normalized=normalizedRow(row,{verified,expectedCurrency:currency,currencyAuthority}),key=normalized.source_record_id.toLowerCase();
     if(ids.has(key))fail('WBS_FINAL1_NORMALIZATION_DUPLICATE_SOURCE','Final-1 Payables contains a duplicate source record.');
     ids.add(key);rows.push(normalized);
   }
   if(rows.length===0)fail('WBS_FINAL1_NORMALIZATION_EMPTY','Final-1 Payables must contain at least one verified row.');
-  const provenance=freeze({tenant_id:verified.tenant_id,entity_id:verified.entity_id,company_code:verified.company_code,snapshot_id:verified.snapshot_id,provider_package_hash:verified.package_hash,provider_raw_package_hash:verified.raw_package_hash,source_row_count:rows.length,currency,currency_authority:'REFS_BUSINESS_OWNER_CONFIRMED_CURRENCY'});
+  const provenance=freeze({tenant_id:verified.tenant_id,entity_id:verified.entity_id,company_code:verified.company_code,snapshot_id:verified.snapshot_id,provider_package_hash:verified.package_hash,provider_raw_package_hash:verified.raw_package_hash,source_row_count:rows.length,currency,currency_authority:currencyAuthority});
   return freeze({status:'NORMALIZED_FINAL1_PAYABLE_STAGING_PLAN',format:'WBS_PROVIDER_FINAL1_NORMALIZED_PAYABLES_V1',provenance,plan_hash:canonicalRequestHash({provenance,row_hashes:rows.map(row=>row.raw_row_hash)}),staging_rows:freeze(rows),exception_rows:freeze([]),required_next_controls:freeze(['persist immutable staging evidence','exact attachment binding','approved mapping review','separate standard REFS Draft workflow']),can_persist_staging:true,can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 }
