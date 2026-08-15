@@ -284,6 +284,19 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createAiAmortizationDraft({tenantId,entityId,aiAmortizationScheduleId,aiAmortizationScheduleLineId,periodId,expectedProposalHash,attachmentIds,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_ai_amortization_draft_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',
+        [tenantId,entityId,aiAmortizationScheduleId,aiAmortizationScheduleLineId,periodId,expectedProposalHash,attachmentIds,reason]
+      ),'AI_AMORTIZATION_DRAFT_HASH_FAILED','AI amortization Draft hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_ai_amortization_draft($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+        [tenantId,entityId,aiAmortizationScheduleId,aiAmortizationScheduleLineId,periodId,expectedProposalHash,attachmentIds,reason,idempotencyKey,requestHash]
+      ),'AI_AMORTIZATION_DRAFT_FAILED','AI amortization Draft creation did not return a result').result;
+    });
+  }
+
   async listAiPrepaidCoverageFindings({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_prepaid_coverage_findings($1,$2,$3)',[tenantId,entityId,limit]
