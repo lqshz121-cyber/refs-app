@@ -12,7 +12,7 @@ const base={
   CONTEXT_ISSUER_DATABASE_URL:'postgresql://issuer:password@db.example/refs',
   GRANT_SYNC_DATABASE_URL:'postgresql://grants:password@db.example/refs',
   OIDC_ISSUER:'https://issuer.example',OIDC_AUDIENCE:'refs-accounting',OIDC_JWKS_URI:'https://issuer.example/jwks',
-  REFS_HTTP_ALLOWED_ORIGINS:'https://app.staging.example',REFS_HTTP_MAX_BODY_BYTES:'10485760',REFS_ATTACHMENT_MODE:'REQUIRED',REFS_WBS_INGEST_MODE:'REQUIRED',S3_ENDPOINT:'https://s3.example',S3_BUCKET:'refs',S3_REGION:'us-east-1',S3_ACCESS_KEY_ID:'access',S3_SECRET_ACCESS_KEY:'secret',
+  REFS_HTTP_ALLOWED_ORIGINS:'https://app.staging.example',REFS_HTTP_MAX_BODY_BYTES:'10485760',REFS_ATTACHMENT_MODE:'REQUIRED',REFS_WBS_INGEST_MODE:'REQUIRED',REFS_WBS_EVIDENCE_RETENTION_DAYS:'365',S3_ENDPOINT:'https://s3.example',S3_BUCKET:'refs',S3_REGION:'us-east-1',S3_ACCESS_KEY_ID:'access',S3_SECRET_ACCESS_KEY:'secret',
   VIRUS_SCANNER_ENDPOINT:'https://scanner.example/v1/scan',VIRUS_SCANNER_TOKEN:'scanner-token',VIRUS_SCANNER_CA_PEM:'-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----',VIRUS_SCANNER_SERVER_NAME:'scanner.example',
   ATTACHMENT_SCANNER_ACTOR_ID:'scanner-service',ATTACHMENT_CLEANUP_ACTOR_ID:'cleanup-service',ATTACHMENT_CLEANUP_SCOPES:'ATTACHMENT.CLEANUP',
   WBS_SNAPSHOT_ED25519_PUBLIC_KEYS:JSON.stringify({'wbs-2026-08':providerPublicKey}),
@@ -49,6 +49,7 @@ test('staging validation rejects malformed scope, keyring, incomplete or cross-o
   assert.throws(()=>validateStagingEnvironment({...base,WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID:''}),/missing WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID/);
   assert.throws(()=>validateStagingEnvironment({...base,WBS_PROVIDER_SIGNED_TRUST:'{}'}),/reviewed Ed25519 trust pin/);
   assert.throws(()=>validateStagingEnvironment({...base,REFS_HTTP_MAX_BODY_BYTES:'1048576'}),/requires REFS_HTTP_MAX_BODY_BYTES=10485760/);
+  assert.throws(()=>validateStagingEnvironment({...base,REFS_WBS_EVIDENCE_RETENTION_DAYS:'0'}),/must be an integer between 1 and 3650/);
   assert.throws(()=>validateStagingEnvironment({...base,REFS_STAGING_API_BASE_URL:'https://api.staging.example/path'}),/HTTPS origin/);
   assert.throws(()=>validateStagingEnvironment({...base,REFS_PUBLIC_ACCOUNTING_API_BASE_URL:'https://api.staging.example'}),/incomplete/);
   assert.throws(()=>validateStagingEnvironment({...base,...publicRuntime,REFS_PUBLIC_ACCOUNTING_API_BASE_URL:'https://other.example'}),/must equal/);

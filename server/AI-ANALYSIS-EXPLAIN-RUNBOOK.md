@@ -8,7 +8,7 @@ approval, posting, or source-system write.
 ## Preconditions
 
 - Confirm the OIDC subject, tenant UUID, and entity UUID.
-- Deploy the release containing the empty-evidence guard and migration 137.
+- Deploy the release containing the empty-evidence guard and migration 140.
 - Configure an approved AI gateway only through Render secrets; never place a
   gateway key in source, audit payloads, or tickets.
 - At least one retained authoritative finding must exist. Empty evidence is
@@ -45,7 +45,7 @@ explain findings:
 
 Remove `AI.ANALYSIS.EXPLAIN` through the same IAM sync flow. This revokes
 access without deleting retained findings or prior audit evidence. Roll back
-migration 137 only after no active grant references that permission.
+migration 140 only after no active grant references that permission.
 
 ## Escalate instead of bypassing
 

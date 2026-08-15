@@ -11,7 +11,7 @@ const backendRequired=[
   'REFS_ATTACHMENT_MODE','REFS_WBS_INGEST_MODE','REFS_STAGING_API_BASE_URL','REFS_STAGING_WEB_ORIGIN'
 ];
 const attachmentRequired=['S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','VIRUS_SCANNER_ENDPOINT','VIRUS_SCANNER_TOKEN','VIRUS_SCANNER_SERVER_NAME','ATTACHMENT_SCANNER_ACTOR_ID'];
-const signedIngestRequired=['WBS_SNAPSHOT_ED25519_PUBLIC_KEYS','WBS_PROVIDER_SIGNED_TRUST','WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID'];
+const signedIngestRequired=['WBS_SNAPSHOT_ED25519_PUBLIC_KEYS','WBS_PROVIDER_SIGNED_TRUST','WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID','S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY','REFS_WBS_EVIDENCE_RETENTION_DAYS'];
 const publicKeys=[
   'REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE',
   'REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT',
@@ -62,12 +62,14 @@ export function validateStagingEnvironment(environment=process.env){
     const signedMissing=signedIngestRequired.filter(key=>!present(environment[key]));
     if(signedMissing.length)throw new Error(`staging-env: WBS ingest integration missing ${signedMissing.join(', ')}`);
     if(String(environment.REFS_HTTP_MAX_BODY_BYTES||'').trim()!=='10485760')throw new Error('staging-env: signed WBS ingest requires REFS_HTTP_MAX_BODY_BYTES=10485760');
+    const retentionDays=Number(environment.REFS_WBS_EVIDENCE_RETENTION_DAYS);if(!Number.isSafeInteger(retentionDays)||retentionDays<1||retentionDays>3650)throw new Error('staging-env: REFS_WBS_EVIDENCE_RETENTION_DAYS must be an integer between 1 and 3650');
   }
   const {apiBaseUrl,webOrigin}=stagingSmokeConfig(environment);
   const allowedOrigins=exactOrigins(environment.REFS_HTTP_ALLOWED_ORIGINS);
   if(!allowedOrigins.includes(webOrigin))throw new Error('staging-env: REFS_HTTP_ALLOWED_ORIGINS must include REFS_STAGING_WEB_ORIGIN exactly');
   for(const key of ['OIDC_ISSUER','OIDC_JWKS_URI'])httpsUrl(environment[key],key);
   if(attachmentMode==='REQUIRED')for(const key of ['S3_ENDPOINT','VIRUS_SCANNER_ENDPOINT'])httpsUrl(environment[key],key);
+  else if(wbsIngestMode==='REQUIRED')httpsUrl(environment.S3_ENDPOINT,'S3_ENDPOINT');
   if(wbsIngestMode==='REQUIRED'){
     validateWbsKeyring(environment.WBS_SNAPSHOT_ED25519_PUBLIC_KEYS);
     validateWbsProviderTrust(environment.WBS_PROVIDER_SIGNED_TRUST);

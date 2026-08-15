@@ -146,4 +146,13 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"138_wbs_cost_cwip_draft_idempotency.sql",up:"9ec458833ef3b477ad98ab9603d88db79ce991aed3e77a0eed31bfd45d43913a",down:"5cac0e12c0797ff32e9201650d06fc563ad320a01a6a83abaa111c644a21b16b"}),
   Object.freeze({name:"139_ai_amortization_human_draft.sql",up:"e3946689d1cc9b4eb28e1e926da366bf42ea9de78505af4f7dbcbb353485d490",down:"5c8ad2b6d997ec00f4c5946c235992d60178fde855d3d4d48c281a847042d553"}),
   Object.freeze({name:"140_ai_analysis_explain_scope.sql",up:"e37ef70e247c5daf2d78f6714782e0742bdc076dbf6f0e8024a93f10072e9a39",down:"015ed3505fa1715b6e6df50d766d53688385c48110b38ff139c91f22308fba59"}),
+  Object.freeze({name:"141_ai_amortization_proposal_coverage_gate.sql",up:"d228d05a73c94ecbbd0d898867137d92ae557264f00ee994261bbc8c378e26a5",down:"71a8ef171ec2bd3dfe6f91dbdfc0a46eddc909492a885f63aae49645c16eddac"}),
+  Object.freeze({name:"142_ai_amortization_coverage_evidence_read.sql",up:"71bfd4932bee3fd4a3e93841f28b4264a6de7a6493746c9396db86f5f6894faa",down:"6ee5b3b5e8f1549f0f4fc71d9656b5d1085bdb297893831b2873e3e41bc4021b"}),
+  Object.freeze({name:"143_ai_finding_action_queue.sql",up:"5a6a0cc39ccd3806f71e71cf062c8c2a2068f5e0d31b5bca7025752a05969ff9",down:"2721259a3e24e9120d59b7479f58bf7501c8f7facb2a5c36f7f8f7a3994c5048"}),
+  Object.freeze({name:"144_ai_finding_action_read.sql",up:"2db469cc1aacb04ad972d8620a6312815a60971f55c62c0aaa864f64b6a455c1",down:"e96acce726689c1ae7e8c0b12e691fed172fa2f5c7487296a8a9abebf3ddb641"}),
+  Object.freeze({name:"145_ai_finding_action_resolution.sql",up:"0c92220d5b1f970013befb65811b5b08e80d27dcdfb501d4478fd0edb06ed842",down:"b1fc7589e909c63708129d643d74a64046904b4c38c1cdc8882cd66d67d8525f"}),
+  Object.freeze({name:"146_ai_finding_action_resolution_read_grant.sql",up:"39a843da9989f26c4a19b0e859448a677a75ab4b1c3af008ffce2dabc35866c2",down:"39a843da9989f26c4a19b0e859448a677a75ab4b1c3af008ffce2dabc35866c2"}),
+  Object.freeze({name:"147_ai_finding_action_resolution_actor_idempotency.sql",up:"4ed8cc35667c33c492ff1e14041afc91dd6f3eb02c9284e5267dd29812ff0a86",down:"de81b0e258d7947766ce824e51354ba25fde5e18f091cd8ed4b00e21e5ce9df3"}),
+  Object.freeze({name:"148_ai_accounting_analysis_report_read.sql",up:"6e0aa8bf16d844455fcb7d2e1e366978918ba83c426b34a1b1cd501f9c6a2891",down:"58ae4b5b354baa97fcab9bc2c7d64315b488ddb1d2a400fd653fab332ae59512"}),
+  Object.freeze({name:"149_wbs_final1_retained_source_evidence.sql",up:"33de9fb74964d4cea6797bb5d3fc0e0dbdc3b2b98600d6746101a1120bad04fe",down:"1c60fa45c0920e50fcfd22b6a3d529b13cfb00b1ca0fe51dbaceffb46ebeec76"}),
 ]);
