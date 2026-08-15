@@ -3091,10 +3091,13 @@ pgTest('AI exact duplicate payable finding retains paired source evidence withou
     authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
     kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,principal.actorId==='ai-audit-http-reader'?['AI.AMORTIZATION.PROPOSE']:[])})
   });
-  const auditPath=`/api/v1/entities/${ids.entityId}/ai/findings/duplicate-payables?limit=10`,beforeAuditRead=await auditReadCounts();
+  const auditPath=`/api/v1/entities/${ids.entityId}/ai/findings/duplicate-payables?limit=10`,summaryPath=`/api/v1/entities/${ids.entityId}/ai/analysis-summary`,beforeAuditRead=await auditReadCounts();
   const auditDenied=await auditApi({method:'GET',url:auditPath,body:null,headers:{'x-test-actor':'ai-audit-no-grant'}});assert.equal(auditDenied.status,403);
   const auditRead=await auditApi({method:'GET',url:auditPath,body:null,headers:{'x-test-actor':'ai-audit-http-reader'}});
   assert.equal(auditRead.status,200);assert.equal(auditRead.headers['cache-control'],'no-store');assert.deepEqual({count:auditRead.body.data.length,rule:auditRead.body.data[0].rule_id,risk:auditRead.body.data[0].risk_level,status:auditRead.body.data[0].status,draft:auditRead.body.data[0].can_create_draft,post:auditRead.body.data[0].can_post},{count:1,rule:'DUPLICATE_PAYABLE_EXACT',risk:'HIGH',status:'OPEN',draft:false,post:false});
+  const summaryDenied=await auditApi({method:'GET',url:summaryPath,body:null,headers:{'x-test-actor':'ai-audit-no-grant'}});assert.equal(summaryDenied.status,403);
+  const summaryRead=await auditApi({method:'GET',url:summaryPath,body:null,headers:{'x-test-actor':'ai-audit-http-reader'}});
+  assert.equal(summaryRead.status,200,JSON.stringify(summaryRead.body));assert.equal(summaryRead.headers['cache-control'],'no-store');assert.deepEqual(summaryRead.body.data.map(row=>({category:row.category,total:row.total_findings,high:row.high_findings,draft:row.can_create_draft,post:row.can_post})),[{category:'DUPLICATE_PAYABLE',total:'1',high:'1',draft:false,post:false}]);
   assert.deepEqual(await auditReadCounts(),beforeAuditRead);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1",[ids.tenantId])).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='AI_DUPLICATE_PAYABLE_FINDING_MATERIALIZED'",[ids.tenantId])).rows[0].n,1);
