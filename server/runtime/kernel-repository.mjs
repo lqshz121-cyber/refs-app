@@ -411,6 +411,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listAiAccountingAnalysisReports({tenantId,entityId,limit=20}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_accounting_analysis_reports($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
   async beginAiAccountingAnalysisExplanation({tenantId,entityId,summary,evidence,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

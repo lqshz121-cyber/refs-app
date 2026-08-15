@@ -562,6 +562,14 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         requireExactQuery(parsedUrl.searchParams,[]);const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readAiAccountingAnalysisSummary!=='function')throw new AccountingApiError(503,'AI_ACCOUNTING_ANALYSIS_SUMMARY_UNAVAILABLE','Persisted AI accounting analysis summary is unavailable');
         result=await kernel.readAiAccountingAnalysisSummary({tenantId:principal.tenantId,entityId});return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===6&&parts[4]==='ai'&&parts[5]==='analysis-reports'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI accounting analysis report reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);const rawLimit=parsedUrl.searchParams.get('limit'),limit=rawLimit==null?20:Number(rawLimit);
+        if(!Number.isSafeInteger(limit)||limit<1||limit>50)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be an integer from 1 to 50');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listAiAccountingAnalysisReports!=='function')throw new AccountingApiError(503,'AI_ACCOUNTING_ANALYSIS_REPORT_READ_UNAVAILABLE','Persisted AI accounting analysis reports are unavailable');
+        result=await kernel.listAiAccountingAnalysisReports({tenantId:principal.tenantId,entityId,limit});return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='POST'&&parts.length===6&&parts[4]==='ai'&&parts[5]==='analysis-explanation'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,[]);
         if(typeof aiAnalysisExplanationServiceFactory!=='function')throw new AccountingApiError(503,'AI_ANALYSIS_EXPLANATION_UNAVAILABLE','AI analysis explanation is not configured');
