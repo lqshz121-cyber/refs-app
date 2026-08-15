@@ -39,6 +39,8 @@ jobs:
         run: npm run test:ap-ar
       - name: Authoritative API client gate
         run: npm run test:api-client
+      - name: Current actor access UI gate
+        run: npm run test:authoritative-full-shell
       - name: Auto reconciliation fail-closed gate
         run: npm run test:autorecon
       - name: Frontend audit gate

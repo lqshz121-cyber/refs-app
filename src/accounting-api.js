@@ -752,6 +752,24 @@ export async function refreshAuthoritativeScope({config,fetcher=globalThis.fetch
   }catch{return unreachable('The browser could not complete the authoritative scope read; no HTTP response was produced.');}
 }
 
+const CURRENT_ACCESS_KEYS=['actor_id','configured_permissions','entity_id','grant_set_version','permissions','session_refresh_required','tenant_id'];
+const PERMISSION_CODE=/^(?:\*|[A-Z][A-Z0-9_.]+)$/;
+const CONFIGURED_PERMISSION_CODE=/^[A-Z][A-Z0-9_.]+$/;
+const exactPermissionList=(value,pattern)=>Array.isArray(value)&&value.every(item=>typeof item==='string'&&pattern.test(item))&&new Set(value).size===value.length;
+
+export async function refreshCurrentActorAccess({config,fetcher=globalThis.fetch}={}){
+  if(!config||!UUID.test(config.entityId||''))return notConfigured();
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/access/self`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'CURRENT_ACTOR_ACCESS');
+    const body=await response.json(),row=body?.data;
+    const keys=row&&typeof row==='object'&&!Array.isArray(row)?Object.keys(row).sort():[];
+    if(body?.ok!==true||!row||keys.length!==CURRENT_ACCESS_KEYS.length||keys.some((key,index)=>key!==CURRENT_ACCESS_KEYS[index])||!UUID.test(row.tenant_id||'')||row.entity_id!==config.entityId||typeof row.actor_id!=='string'||row.actor_id.length<1||row.actor_id.length>200||row.actor_id!==row.actor_id.trim()||/[\u0000-\u001f\u007f]/.test(row.actor_id)||!Number.isSafeInteger(row.grant_set_version)||row.grant_set_version<0||!exactPermissionList(row.permissions,PERMISSION_CODE)||!exactPermissionList(row.configured_permissions,CONFIGURED_PERMISSION_CODE)||typeof row.session_refresh_required!=='boolean')return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid current-user access diagnostic.'};
+    return {ok:true,row:{...row,permissions:[...row.permissions],configured_permissions:[...row.configured_permissions]}};
+  }catch{return unreachable('The browser could not read the current authenticated access state; no HTTP response was produced.');}
+}
+
 export async function refreshAuthoritativeAccountRegister({config,accountCode:requestedAccountCode,fetcher=globalThis.fetch}={}){
   const code=accountCode(requestedAccountCode);if(!config||!code)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Account register requires one authoritative entity, period, and account code.'};
   const result=await readAuthoritativeRows({config,path:`/general-ledger/account-register?${new URLSearchParams({periodId:config.periodId,accountCode:code})}`,operation:'ACCOUNT_REGISTER',fetcher});
