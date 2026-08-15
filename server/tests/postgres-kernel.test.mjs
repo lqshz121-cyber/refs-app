@@ -913,6 +913,8 @@ pgTest('independent AutoRec review and immutable accounting-event foundation der
     assert.equal((await journalApprover.transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:`g11-${suffix}-approve-001`})).status,'APPROVED');
     assert.equal((await g11Poster.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:`g11-${suffix}-post-001`})).idempotent,false);
   }
+  const postedButNotIncurred=await reviewer.getWbsAutoRecBankMatchReview({tenantId:ids.tenantId,entityId:ids.entityId,reviewId:accepted.wbs_autorec_match_review_id});
+  assert.deepEqual({linked:postedButNotIncurred.g11_linked,incurred:postedButNotIncurred.incurred},{linked:false,incurred:false});
   const finalizer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'g11-finalizer',['BANK.AUTOREC.G11.INCUR','WBS.AUTOREC.VIEW'])});
   const incurArgs={tenantId:ids.tenantId,entityId:ids.entityId,reviewId:accepted.wbs_autorec_match_review_id,expectedEvidenceHash:accepted.evidence_hash,reason:'Independent finalizer verified both exact posted G11 journals and clearing net zero',idempotencyKey:'g11-incur-finalize-001'};
   const incurred=await finalizer.finalizeWbsAutoRecG11Incur(incurArgs);
@@ -920,8 +922,16 @@ pgTest('independent AutoRec review and immutable accounting-event foundation der
   const incurReplay=await finalizer.finalizeWbsAutoRecG11Incur(incurArgs);assert.equal(incurReplay.idempotent,true);assert.equal(incurReplay.wbs_autorec_g11_completion_id,incurred.wbs_autorec_g11_completion_id);
   const evidence=await finalizer.getWbsAutoRecG11Evidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewId:accepted.wbs_autorec_match_review_id});
   assert.equal(evidence.g11_linked,true);assert.equal(evidence.incurred,true);assert.equal(evidence.lines.length,4);assert.equal(evidence.accounting_events.length,2);
+  assert.equal(evidence.released_candidate.allocated_amount,'100.0000');assert(evidence.accounting_events.every(row=>row.amount==='100.0000'));
+  assert(evidence.lines.every(row=>typeof row.debit_amount==='string'&&/^\d+\.\d{4}$/.test(row.debit_amount)&&typeof row.credit_amount==='string'&&/^\d+\.\d{4}$/.test(row.credit_amount)));
   assert.equal(evidence.incur_event.command,'INCUR');assert.equal(evidence.incur_event.next_state,'INCURRED');
+  const completedReview=await reviewer.getWbsAutoRecBankMatchReview({tenantId:ids.tenantId,entityId:ids.entityId,reviewId:accepted.wbs_autorec_match_review_id});
+  assert.deepEqual({linked:completedReview.g11_linked,incurred:completedReview.incurred},{linked:true,incurred:true});
   assert.equal((await adminPool.query("SELECT coalesce(sum(debit_amount-credit_amount),0)::text net FROM wbs_autorec_g11_completion_line WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001' AND member_ref='VENDOR-1'",[ids.tenantId,ids.entityId])).rows[0].net,'0.0000');
+  await adminPool.query(`INSERT INTO wbs_autorec_execution_event(tenant_id,entity_id,review_candidate_id,command,current_state,next_state,version,request_hash,idempotency_key,intent)
+    VALUES($1,$2,$3,'RELEASE','RESERVED','RELEASED',4,$4,'autorec-stale-completion-release',jsonb_build_object('review_candidate',$5::jsonb))`,[ids.tenantId,ids.entityId,reviewCandidateId,hash('autorec-stale-completion-release'),JSON.stringify(candidate)]);
+  const staleCompletion=await reviewer.getWbsAutoRecBankMatchReview({tenantId:ids.tenantId,entityId:ids.entityId,reviewId:accepted.wbs_autorec_match_review_id});
+  assert.deepEqual({linked:staleCompletion.g11_linked,incurred:staleCompletion.incurred},{linked:false,incurred:false});
   await assert.rejects(adminPool.query("UPDATE accounting_event SET created_by='tampered' WHERE accounting_event_id=$1",[payableDraft.accounting_event_id]),error=>error.code==='55000');
   await assert.rejects(adminPool.query('DELETE FROM journal_accounting_event WHERE accounting_event_id=$1',[payableDraft.accounting_event_id]),error=>error.code==='55000');
 });
