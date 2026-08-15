@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,randomUUID} from 'node:crypto';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {createWbsSignedDelivery} from '../runtime/wbs-signed-delivery-admission.mjs';
+import {createSyntheticWbsSignedDelivery} from './helpers/synthetic-wbs-signed-delivery.mjs';
 import {admitWbsProviderSignedPayableDelivery,WbsProviderSignedAdmissionClientError} from '../runtime/wbs-provider-signed-admission-client.mjs';
 
 const NOW=Date.parse('2026-08-15T01:05:00.000Z');
@@ -10,7 +10,7 @@ async function fixture(){
   const tenantId=randomUUID(),entityId=randomUUID(),recordId=randomUUID(),snapshotId=randomUUID(),companyCode='WBPA',pair=generateKeyPairSync('ed25519');
   const rows=[{apGuId:recordId,companyCode,amount:'25.0000'}],snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:snapshotId,captured_at:'2026-08-15T01:00:00.000Z',environment:'PRODUCTION',source_system:'WBS',dictionary_version:'WBS-2026-08',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',extract_started_at:'2026-08-15T01:00:00.000Z',extract_completed_at:'2026-08-15T01:00:00.000Z',consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'},views:[{name:'BGDATA.payable',company_key:companyCode,rows,content_hash:canonicalRequestHash(rows),row_count:1,first_primary_key:recordId,last_primary_key:recordId}]};
   const requestRaw=Buffer.from('{"query":"WBPA-2026"}'),responseRaw=Buffer.from('{"count":1}');
-  const made=await createWbsSignedDelivery({unsignedSnapshot:snapshot,requestRaw,responseRaw,scope:{tenant_id:tenantId,entity_id:entityId,company_code:companyCode},issuer:'wanbridge-wbs',keyId:'wbs-refs-2026-08-f98e6609',nonce:'wbpa-delivery-20260815-0001',signedAt:'2026-08-15T01:05:00.000Z',expiresAt:'2026-08-15T01:15:00.000Z',privateKeyPem:pair.privateKey.export({type:'pkcs8',format:'pem'}),now:NOW});
+  const made=await createSyntheticWbsSignedDelivery({unsignedSnapshot:snapshot,requestRaw,responseRaw,scope:{tenant_id:tenantId,entity_id:entityId,company_code:companyCode},issuer:'wanbridge-wbs',keyId:'wbs-refs-2026-08-f98e6609',nonce:'wbpa-delivery-20260815-0001',signedAt:'2026-08-15T01:05:00.000Z',expiresAt:'2026-08-15T01:15:00.000Z',privateKeyPem:pair.privateKey.export({type:'pkcs8',format:'pem'}),now:NOW});
   return {tenantId,entityId,companyCode,recordId,requestRaw,responseRaw,...made};
 }
 const jsonResponse=(status,data)=>({ok:status>=200&&status<300,status,async text(){return JSON.stringify(status>=200&&status<300?{ok:true,data}:data);}});

@@ -14,7 +14,7 @@ const expect=(condition,message)=>{if(!condition)throw new Error(`stage2-authori
 const contains=(value,expected)=>value===expected||Array.isArray(value)&&value.some(item=>contains(item,expected))||value&&typeof value==='object'&&Object.values(value).some(item=>contains(item,expected));
 const httpsOrigin=(value,name)=>{let url;try{url=new URL(String(value||''));}catch{throw new Error(`stage2-authoritative-e2e: ${name} must be an HTTPS origin`);}expect(url.protocol==='https:'&&!url.username&&!url.password&&url.pathname==='/'&&!url.search&&!url.hash,`${name} must be an HTTPS origin`);return url.origin;};
 const token=value=>{expect(typeof value==='string'&&value.trim().length>=16,'REFS_STAGE2_E2E_READ_ACCESS_TOKEN is required');expect(!/(replace|example|placeholder|changeme)/i.test(value),'REFS_STAGE2_E2E_READ_ACCESS_TOKEN must not be a placeholder');return value.trim();};
-const sameRelease=(actual,expected)=>typeof actual==='string'&&/^[0-9a-f]{7,40}$/i.test(actual)&&expected.startsWith(actual.toLowerCase());
+const sameRelease=(actual,expected)=>typeof actual==='string'&&/^[0-9a-f]{40}$/i.test(actual)&&actual.toLowerCase()===expected;
 
 export function stage2AuthoritativeE2eConfig(environment=process.env,scenario){
   expect(scenario&&typeof scenario==='object'&&!Array.isArray(scenario),'scenario must be a JSON object');

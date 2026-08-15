@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {generateKeyPairSync} from 'node:crypto';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {buildWbsMcpReadonlySnapshot} from '../runtime/wbs-mcp-inbound-lineage.mjs';
-import {createWbsSignedDelivery} from '../runtime/wbs-signed-delivery-admission.mjs';
+import {createSyntheticWbsSignedDelivery} from './helpers/synthetic-wbs-signed-delivery.mjs';
 import {createWbsProviderSignedPayableAdmission,WbsProviderSignedPayableAdmissionError} from '../runtime/wbs-provider-signed-payable-admission.mjs';
 
 const tenantId='11111111-1111-4111-8111-111111111111',entityId='22222222-2222-4222-8222-222222222222';
@@ -15,7 +15,7 @@ const conventions=[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash
 const unsignedSnapshot=()=>buildWbsMcpReadonlySnapshot({envelopes:[source],snapshotId:'44444444-4444-4444-8444-444444444444',dictionaryVersion:'WBS-MCP-V1',environment:'PRODUCTION',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',snapshot_token:'provider-snapshot-payable-1',extract_started_at:'2026-08-11T01:59:00.000Z',extract_completed_at:'2026-08-11T02:00:00.000Z',consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'},detachedSignature:{key_id:keyId,algorithm:'Ed25519',value:'placeholder'},payableDirectionConventions:conventions});
 
 async function delivery({nonce='nonce-0001',signedAt='2026-08-11T02:01:00.000Z',expiresAt='2026-08-11T02:11:00.000Z',creationNow=Date.parse('2026-08-11T02:02:00.000Z')}={}){
-  const made=await createWbsSignedDelivery({unsignedSnapshot:unsignedSnapshot(),requestRaw:Buffer.from('{"query":"payables"}'),responseRaw:Buffer.from('{"count":1}'),scope:{tenant_id:tenantId,entity_id:entityId,company_code:'COMPANY-A'},issuer:'wbs-provider',keyId,nonce,signedAt,expiresAt,privateKeyPem,now:creationNow});
+  const made=await createSyntheticWbsSignedDelivery({unsignedSnapshot:unsignedSnapshot(),requestRaw:Buffer.from('{"query":"payables"}'),responseRaw:Buffer.from('{"count":1}'),scope:{tenant_id:tenantId,entity_id:entityId,company_code:'COMPANY-A'},issuer:'wbs-provider',keyId,nonce,signedAt,expiresAt,privateKeyPem,now:creationNow});
   return {...made,body:{receipt:made.receipt,requestRawBase64:Buffer.from('{"query":"payables"}').toString('base64'),responseRawBase64:Buffer.from('{"count":1}').toString('base64'),packageRawBase64:made.packageRaw.toString('base64')}};
 }
 function harness({actorId=serviceActorId}={}){const calls=[];const kernel={async admitWbsProviderSignedPayables(input){calls.push(input);return {status:'PERSISTED_PAYABLE_STAGING_REVIEW_REQUIRED',signature_verified:true,wbs_provider_signed_payable_admission_id:'55555555-5555-4555-8555-555555555555',row_count:1,can_create_draft:false,can_approve:false,can_post:false,idempotent:false};}};return {calls,service:createWbsProviderSignedPayableAdmission({kernel,providerTrust:null,principal:{trusted:true,tenantId,actorId},serviceActorId,clock:()=>Date.parse('2026-08-11T02:02:00.000Z')}),kernel};}

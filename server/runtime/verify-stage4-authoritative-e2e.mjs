@@ -10,7 +10,7 @@ const MONEY4=/^-?[0-9]+\.[0-9]{4}$/;
 const statementTypes=new Set(['TRIAL_BALANCE','BALANCE_SHEET','INCOME_STATEMENT','CASH_FLOW']);
 const expect=(condition,message)=>{if(!condition)throw new Error(`stage4-authoritative-e2e: ${message}`);};
 const contains=(value,expected)=>value===expected||Array.isArray(value)&&value.some(item=>contains(item,expected))||value&&typeof value==='object'&&Object.values(value).some(item=>contains(item,expected));
-const sameRelease=(actual,expected)=>typeof actual==='string'&&/^[0-9a-f]{7,40}$/i.test(actual)&&expected.startsWith(actual.toLowerCase());
+const sameRelease=(actual,expected)=>typeof actual==='string'&&/^[0-9a-f]{40}$/i.test(actual)&&actual.toLowerCase()===expected;
 const origin=(value,name)=>{let url;try{url=new URL(String(value||''));}catch{throw new Error(`stage4-authoritative-e2e: ${name} must be an HTTPS origin`);}expect(url.protocol==='https:'&&url.origin===url.toString().replace(/\/$/,''),`${name} must be an HTTPS origin`);return url.origin;};
 const accessToken=value=>{expect(typeof value==='string'&&value.trim().length>=16&&!/(replace|example|placeholder|changeme)/i.test(value),'REFS_STAGE4_E2E_READ_ACCESS_TOKEN is required');return value.trim();};
 
