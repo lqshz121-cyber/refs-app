@@ -154,4 +154,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"146_ai_finding_action_resolution_read_grant.sql",up:"39a843da9989f26c4a19b0e859448a677a75ab4b1c3af008ffce2dabc35866c2",down:"39a843da9989f26c4a19b0e859448a677a75ab4b1c3af008ffce2dabc35866c2"}),
   Object.freeze({name:"147_ai_finding_action_resolution_actor_idempotency.sql",up:"4ed8cc35667c33c492ff1e14041afc91dd6f3eb02c9284e5267dd29812ff0a86",down:"de81b0e258d7947766ce824e51354ba25fde5e18f091cd8ed4b00e21e5ce9df3"}),
   Object.freeze({name:"148_ai_accounting_analysis_report_read.sql",up:"6e0aa8bf16d844455fcb7d2e1e366978918ba83c426b34a1b1cd501f9c6a2891",down:"58ae4b5b354baa97fcab9bc2c7d64315b488ddb1d2a400fd653fab332ae59512"}),
+  Object.freeze({name:"149_wbs_final1_retained_source_evidence.sql",up:"95f25d6af5ed1b3380f0ccca6a71599521c9ad1facdf98c336db18d18eb27ca4",down:"1c60fa45c0920e50fcfd22b6a3d529b13cfb00b1ca0fe51dbaceffb46ebeec76"}),
 ]);
