@@ -3262,6 +3262,9 @@ pgTest('AI finding assignment is source-hash-bound, idempotent, audited, revisio
   const resolver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-finding-resolver',['AI.FINDING.RESOLVE'])});
   const resolution={tenantId:ids.tenantId,entityId:ids.entityId,aiFindingActionId:created.ai_finding_action_id,findingHash:finding.finding_hash,reason:'Controller verified retained policy evidence and completed the follow-up.',expectedRevision:1,idempotencyKey:'ai-finding-resolve-001'};
   const resolved=await resolver.resolveAiFindingAction(resolution),resolvedReplay=await resolver.resolveAiFindingAction(resolution);assert.deepEqual({status:resolved.status,revision:resolved.revision,post:resolved.can_post,replay:resolvedReplay.idempotent},{status:'RESOLVED',revision:2,post:false,replay:true});
+  await assert.rejects(resolver.resolveAiFindingAction({...resolution,reason:'A different human conclusion must not reuse the original resolution receipt.'}),error=>error.code==='23505');
+  const otherResolver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-finding-second-resolver',['AI.FINDING.RESOLVE'])});
+  await assert.rejects(otherResolver.resolveAiFindingAction(resolution),error=>error.code==='23505');
   await assert.rejects(controller.assignAiFindingAction({...command,expectedRevision:2,idempotencyKey:'ai-finding-assign-resolved'}),error=>error.code==='55000');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='AI_FINDING_ACTION_RESOLVED'",[ids.tenantId,ids.entityId])).rows[0].n,1);
   const after=(await adminPool.query("SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger",[ids.tenantId])).rows[0];assert.deepEqual(after,before);
