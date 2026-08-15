@@ -379,6 +379,13 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async assignAiFindingAction({tenantId,entityId,findingKind,findingId,findingHash,owner,dueDate,expectedRevision,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_assign_ai_finding_action_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',[tenantId,entityId,findingKind,findingId,findingHash,owner,dueDate,expectedRevision]),'AI_FINDING_ACTION_HASH_FAILED','AI finding assignment hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_assign_ai_finding_action($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',[tenantId,entityId,findingKind,findingId,findingHash,owner,dueDate,expectedRevision,idempotencyKey,requestHash]),'AI_FINDING_ACTION_FAILED','AI finding assignment did not return a result').result;
+    });
+  }
+
   async readAiAccountingAnalysisSummary({tenantId,entityId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_accounting_analysis_summary($1,$2)',[tenantId,entityId]

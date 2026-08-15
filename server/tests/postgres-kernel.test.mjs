@@ -3240,6 +3240,27 @@ pgTest('AI amortization creates a human Draft then standard Posted JE with immut
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-lineage-reader',['GL.JE.VIEW','GL.REPORT.VIEW'])});const detail=await reader.getJournalEntryDetail({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:drafted.journal_entry_id,periodId:ids.periodId});assert.equal(detail.lines.some(line=>line.source_document_ids.includes(trace.documentId)),true);const statements=await reader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});assert.equal(statements.some(row=>row.statement_type==='TRIAL_BALANCE'&&(row.account_code==='141500'||row.account_code==='610100')&&row.journal_entry_ids.includes(drafted.journal_entry_id)&&row.source_document_ids.includes(trace.documentId)),true);
 });
 
+pgTest('AI finding assignment is source-hash-bound, idempotent, audited, revisioned, and has zero accounting effects',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const trace=await attachAutoSource(ids,{linkJournal:false});
+  await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT' WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
+  await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,description) VALUES($1,$2,$3,'finding-action-insurance-line',1,100,'DEBIT','Annual insurance policy premium')",[ids.tenantId,ids.entityId,trace.documentId]);
+  const finding=(await adminPool.query("SELECT ai_prepaid_coverage_finding_id,finding_hash FROM ai_prepaid_coverage_finding WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId])).rows[0];
+  assert.ok(finding);
+  const before=(await adminPool.query("SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger",[ids.tenantId])).rows[0];
+  const controller=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-finding-controller',['AI.FINDING.ASSIGN'])});
+  const command={tenantId:ids.tenantId,entityId:ids.entityId,findingKind:'PREPAID_COVERAGE',findingId:finding.ai_prepaid_coverage_finding_id,findingHash:finding.finding_hash,owner:'CONTROLLER',dueDate:'2026-08-31',expectedRevision:0,idempotencyKey:'ai-finding-assign-001'};
+  const created=await controller.assignAiFindingAction(command);
+  assert.deepEqual({owner:created.owner,due:created.due_date,revision:created.revision,draft:created.can_create_draft,review:created.can_review,approve:created.can_approve,post:created.can_post,idempotent:created.idempotent},{owner:'CONTROLLER',due:'2026-08-31',revision:0,draft:false,review:false,approve:false,post:false,idempotent:false});
+  const replay=await controller.assignAiFindingAction(command);assert.equal(replay.idempotent,true);assert.equal(replay.ai_finding_action_id,created.ai_finding_action_id);
+  await assert.rejects(controller.assignAiFindingAction({...command,owner:'SECOND_CONTROLLER'}),error=>error.code==='23505');
+  const reassigned=await controller.assignAiFindingAction({...command,owner:'SECOND_CONTROLLER',dueDate:'2026-09-05',expectedRevision:0,idempotencyKey:'ai-finding-assign-002'});assert.deepEqual({owner:reassigned.owner,due:reassigned.due_date,revision:reassigned.revision,idempotent:reassigned.idempotent},{owner:'SECOND_CONTROLLER',due:'2026-09-05',revision:1,idempotent:false});
+  await assert.rejects(controller.assignAiFindingAction({...command,idempotencyKey:'ai-finding-assign-stale'}),error=>error.code==='40001');
+  const after=(await adminPool.query("SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger",[ids.tenantId])).rows[0];assert.deepEqual(after,before);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='AI_FINDING_ACTION_ASSIGNED'",[ids.tenantId,ids.entityId])).rows[0].n,2);
+  assert.equal((await adminPool.query("SELECT status FROM ai_prepaid_coverage_finding WHERE tenant_id=$1 AND entity_id=$2 AND ai_prepaid_coverage_finding_id=$3",[ids.tenantId,ids.entityId,finding.ai_prepaid_coverage_finding_id])).rows[0].status,'OPEN');
+});
+
 pgTest('AI exact duplicate payable finding retains paired source evidence without changing either source or creating a journal',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null});
   const first=await attachAutoSource(ids,{linkJournal:false,sourceModule:'payable',sourceRecordPrefix:'DUP-A'});
