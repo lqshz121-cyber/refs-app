@@ -3210,6 +3210,47 @@ pgTest('AI unmatched bank payment finding retains bank evidence, never changes t
   retained=await reader.listAiUnmatchedBankPaymentFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50});assert.equal(retained[0].current_match_state,'MATCHED_AFTER_FINDING');assert.equal((await adminPool.query('SELECT amount FROM bank_source WHERE bank_source_id=$1',[bankSourceId])).rows[0].amount,'-100.0000');
 });
 
+pgTest('AI analysis explain reads every authoritative finding family but has no amortization or journal authority',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const analyst=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-explain-reader',['AI.ANALYSIS.EXPLAIN'])});
+  const reads=await Promise.all([
+    analyst.listAiWbsExceptionFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),
+    analyst.listAiPrepaidCoverageFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),
+    analyst.listAiDuplicatePayableFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),
+    analyst.listAiUnmatchedBankPaymentFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),
+    analyst.listAiCostDimensionFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),
+    analyst.listAiLoanReferenceFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),
+    analyst.readAiAccountingAnalysisSummary({tenantId:ids.tenantId,entityId:ids.entityId}),
+  ]);
+  assert.equal(reads.length,7);assert.ok(reads.every(Array.isArray));
+  await assert.rejects(analyst.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'AI.AMORTIZATION.PROPOSE')",[ids.tenantId,ids.entityId])),error=>error.code==='42501');
+  await assert.rejects(analyst.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'GL.JE.MAKER')",[ids.tenantId,ids.entityId])),error=>error.code==='42501');
+});
+
+pgTest('AI analysis explain completes and replays a retained WBS finding with an explanation-only audit receipt',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),capturedAt='2026-08-15T00:00:00.000Z';
+  const raw={ap_guid:`ai-explain-${randomUUID()}`,amount:'89.12500',company_code:ids.sourceEntityId,posting_date:'2026-08-14'};
+  const rowHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(raw)])).rows[0].hash;
+  const operator=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-explain-operator',['WBS.PAYABLE.OPERATOR_ATTEST'])});
+  await operator.attestWbsOperatorPayables({tenantId:ids.tenantId,entityId:ids.entityId,capturedAt,providerContentHash:hash('ai-explain-provider'),observationHash:hash('ai-explain-observation'),companyCodes:[ids.sourceEntityId],rows:[{source_record_id:raw.ap_guid,source_version:`operator:${capturedAt}:${rowHash.slice(7,39)}`,row_hash:rowHash,raw}],reason:'Retain one WBS row for explanation-only controller evidence.',idempotencyKey:'ai-explain-retain-0001'});
+  const analyst=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-explain-receiver',['AI.ANALYSIS.EXPLAIN'])});
+  const [finding]=await analyst.listAiWbsExceptionFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:10});assert.ok(finding);
+  const summary=(await analyst.readAiAccountingAnalysisSummary({tenantId:ids.tenantId,entityId:ids.entityId})).map(row=>({category:row.category,total_findings:row.total_findings,high_findings:row.high_findings,medium_findings:row.medium_findings,low_findings:row.low_findings,latest_materialized_at:new Date(row.latest_materialized_at).toISOString()}));
+  const evidence=[{category:'WBS_EXCEPTION',finding_id:finding.ai_finding_id,rule_id:finding.rule_id,risk_level:finding.risk_level,confidence:Number(finding.confidence),reason:finding.reason,suggested_action:finding.suggested_action,source_refs:[finding.source_evidence_row_id],evidence_hashes:[...new Set([finding.source_row_hash,finding.provider_content_hash,finding.observation_hash])],source_versions:[],created_at:new Date(finding.created_at).toISOString()}];
+  const idempotencyKey='ai-explain-receipt-0001',started=await analyst.beginAiAccountingAnalysisExplanation({tenantId:ids.tenantId,entityId:ids.entityId,summary,evidence,idempotencyKey});
+  assert.equal(started.result.state,'STARTED');
+  const output={traceId:'ai-explain-pg-0001',providerRequestId:null,model:'test-controller-memo',elapsedMs:0,result:{headline:'One retained WBS exception requires controller review.',risk_level:'MEDIUM',narrative:'The immutable WBS exception remains outside Draft and posting workflows.',controller_actions:[{category:'WBS_EXCEPTION',finding_ids:[finding.ai_finding_id],action:'Review the retained WBS exception evidence.'}],can_create_draft:false,can_review:false,can_approve:false,can_post:false}};
+  const completed=await analyst.completeAiAccountingAnalysisExplanation({tenantId:ids.tenantId,entityId:ids.entityId,idempotencyKey,requestHash:started.requestHash,output});assert.deepEqual(completed,output);
+  const replay=await analyst.beginAiAccountingAnalysisExplanation({tenantId:ids.tenantId,entityId:ids.entityId,summary,evidence,idempotencyKey});assert.equal(replay.result.state,'REPLAY');assert.deepEqual(replay.result.response,output);
+  const audit=(await adminPool.query("SELECT permission_used,metadata FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='AI_ACCOUNTING_ANALYSIS_EXPLAINED'",[ids.tenantId,ids.entityId])).rows;
+  assert.deepEqual(audit.map(row=>row.permission_used),['AI.ANALYSIS.EXPLAIN']);assert.deepEqual(audit[0].metadata,{schema_version:'REFS_AI_ACCOUNTING_ANALYSIS_EXPLANATION_V1',trace_id:output.traceId,provider_request_id:null,model:output.model,elapsed_ms:0,can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+  const accounting=(await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) AS journals,
+    (SELECT count(*)::int FROM staging_item WHERE tenant_id=$1) AS staging,
+    (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) AS ledger`,[ids.tenantId])).rows[0];
+  assert.deepEqual(accounting,{journals:1,staging:0,ledger:0});
+});
+
 pgTest('intercompany reconciliation requires two authorized entity scopes, reciprocal exact mappings, and POSTED ledger evidence without creating an elimination',async()=>{
   const current=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN'});
   const counterparty=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:'VERIFIED_CLEAN',tenantId:current.tenantId,extraMembers:[{memberRef:'AFFILIATE-1',memberType:'CUSTOMER_OR_AFFILIATE',displayName:'Counterparty entity'}],journalLines:[{lineNo:1,accountCode:'111000',debit:0,credit:100,memberRef:'BANK-1'},{lineNo:2,accountCode:'120200',debit:100,credit:0,memberRef:'AFFILIATE-1'}]});
