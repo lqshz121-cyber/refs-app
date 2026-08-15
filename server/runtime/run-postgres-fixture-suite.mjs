@@ -68,13 +68,27 @@ function runFixture(fixture,env){
   return new Promise(resolveRun=>{
     const startedAt=Date.now();
     const timeout=env.REFS_PG_FIXTURE_TIMEOUT_MS||'90000';
+    const processTimeout=env.REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS||String(Number(timeout)+30000);
+    if(!/^[1-9]\d*$/.test(processTimeout)||Number(processTimeout)<1000||Number(processTimeout)>930000)throw new Error('REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS must be an integer between 1000 and 930000 milliseconds');
     const child=spawn(process.execPath,['runtime/test-postgres-fresh.mjs','--pattern',fixture.pattern],{cwd:serverRoot,env:{...env,REFS_PG_TEST_TIMEOUT_MS:timeout},stdio:['ignore','pipe','pipe']});
     let output='';
+    let settled=false;
+    const finish=result=>{
+      if(settled)return;
+      settled=true;
+      clearTimeout(watchdog);
+      resolveRun(result);
+    };
+    const watchdog=setTimeout(()=>{
+      const error=`Fixture process exceeded ${processTimeout}ms after its ${timeout}ms test timeout.`;
+      child.kill('SIGTERM');
+      finish(fixtureResult({id:fixture.id,exitCode:1,output,durationMs:Date.now()-startedAt,signal:'SIGTERM',error}));
+    },Number(processTimeout));
     child.stdout.setEncoding('utf8');child.stderr.setEncoding('utf8');
     child.stdout.on('data',chunk=>{output+=chunk;process.stdout.write(chunk);});
     child.stderr.on('data',chunk=>{output+=chunk;process.stderr.write(chunk);});
-    child.once('error',error=>resolveRun(fixtureResult({id:fixture.id,exitCode:1,output,durationMs:Date.now()-startedAt,error:error.message})));
-    child.once('exit',(code,signal)=>resolveRun(fixtureResult({id:fixture.id,exitCode:code??1,output,durationMs:Date.now()-startedAt,signal:signal??null})));
+    child.once('error',error=>finish(fixtureResult({id:fixture.id,exitCode:1,output,durationMs:Date.now()-startedAt,error:error.message})));
+    child.once('exit',(code,signal)=>finish(fixtureResult({id:fixture.id,exitCode:code??1,output,durationMs:Date.now()-startedAt,signal:signal??null})));
   });
 }
 
