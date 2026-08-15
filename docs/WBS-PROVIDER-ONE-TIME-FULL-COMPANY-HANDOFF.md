@@ -54,7 +54,12 @@
 - `response.raw`
 - `package.json`（含 detached Ed25519 signature）
 
-Bank 使用 `WBS_SIGNED_BANK_ADMISSION_V1` 的签名 statement delivery/manifest，并绑定已准入的生产 snapshot；不能拿 Payable 四件套替代。
+Bank 使用独立的 `bank-admission.json`，其 `schema_version` 必须为 `WBS_SIGNED_BANK_ADMISSION_V1`，并绑定已准入的生产 snapshot；不能拿 Payable 四件套替代。现有 parser 接收的必填结构为：
+
+- 顶层：`schema_version`、`environment=PRODUCTION`、`source_system=WBS`、`admission_status=ADMITTED`、`snapshot_id`、`package_hash`、`source_entity_id`、`statement`、`transactions`、`detached_signature`、`admission_hash`
+- `statement`：`statement_id`、`bank_account_ref`、statement 起止日期、币种、opening/ending balance（定点字符串）、`payload_hash`、`payload_ref`
+- 每笔 transaction：`source_record_id`、`source_version`、`external_bank_line_id`、`payload_hash`、`payload_ref`、交易日期、币种、账户、非零定点金额
+- 约束：单一 statement、所有 transaction 使用同一币种/账户、交易日期位于 statement 范围内、每包 1–1000 笔、`external_bank_line_id` 与 source ID 各自唯一、`admission_hash` 为 canonical manifest hash
 
 每个域还必须提供：
 
@@ -66,7 +71,18 @@ Bank 使用 `WBS_SIGNED_BANK_ADMISSION_V1` 的签名 statement delivery/manifest
 - 数据字典、主键、外键、关联基数和 nullable 约束
 - 附件原件/对象版本/content hash（需要会计审核的行）
 
-#### C. 运行身份与密钥生命周期
+#### C. 2025-12-31 cutover / opening package
+
+若目标是完整生成 2026 BS、Cash Flow、AP/AR Aging、CWIP/loan/prepaid rollforward 和 comparative，不能只交 2026 发生额。每个 entity/company 还必须按相同版本/hash/control-total 合同交付：
+
+- 2025-12-31 opening trial balance
+- bank/cash opening balances 与 outstanding items
+- open AP / AR schedules
+- CWIP、construction loan、prepaid opening schedules
+- accumulated depreciation / amortization
+- prior-period comparative balances 与 cutover reconciliation
+
+#### D. 运行身份与密钥生命周期
 
 - dedicated OIDC M2M access token；其 `sub` 必须稳定并提供给 REFS 作为 `WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID`
 - token 的 issuer、audience 和 tenant claim 必须符合 REFS OIDC 合同
@@ -76,7 +92,7 @@ Bank 使用 `WBS_SIGNED_BANK_ADMISSION_V1` 的签名 statement delivery/manifest
 
 ### 2.2 REFS business owner
 
-- 批准每个 REFS entity UUID ↔ 单一 WBS immutable company_code 映射；禁止仅靠名称匹配。
+- 批准每个 REFS entity UUID ↔ 单一 WBS immutable company_code 映射；禁止仅靠名称匹配。机器可执行的 `mapping_snapshot` 必须包含 `family=WBS_AUTOREC`、`status=APPROVED`、exact `entity_id`、`input_keys.company_key`、币种、`effective_from/effective_to`、mapping version/hash、审批人和审批时间。
 - 为每个公司确认 OPEN accounting period、币种、vendor/customer、member/dimension、AP/AR/control/cash/expense/CWIP/prepaid accounts。
 - 批准 WBS Payable review setting 与唯一生效 mapping snapshot。
 - 指定并分离 Provider importer、uploader、scanner、Payable reviewer、Maker、JE Reviewer、Approver、Poster、Bank matcher/reconciler/signer/reopener。
@@ -118,7 +134,7 @@ Integrations API 必填变量名称：
 - optional `S3_SESSION_TOKEN`
 - `VIRUS_SCANNER_ENDPOINT`
 - `VIRUS_SCANNER_TOKEN`
-- `VIRUS_SCANNER_CA_PEM` 或 `VIRUS_SCANNER_CA_FILE`（二选一）
+- `VIRUS_SCANNER_CA_PEM`（Render integrations 使用此变量；`VIRUS_SCANNER_CA_FILE` 仅适用于另有经审查 secret mount 的部署平台）
 - `VIRUS_SCANNER_SERVER_NAME`
 - `ATTACHMENT_SCANNER_ACTOR_ID`
 - `REFS_HTTP_MAX_BODY_BYTES=10485760`
@@ -127,6 +143,8 @@ Cleanup worker 另需：
 
 - `ATTACHMENT_CLEANUP_ACTOR_ID`
 - `ATTACHMENT_CLEANUP_SCOPES`
+
+如果对象存储使用 STS，cleanup worker 也必须继承同一有效的 `S3_SESSION_TOKEN`，并与 access key/secret 的生命周期同步轮换。
 
 不得把 secret 放入 static `refs-app`；不得把 unsigned pilot 的 Cloudflare/WBS 登录变量复制到 signed integrations 服务；不得修改健康 Stage1 的 disabled 模式。
 
@@ -155,6 +173,9 @@ npm.cmd --prefix server run wbs:signed-delivery:verify -- `
   --request-raw <secure\WBPA\request.raw> `
   --response-raw <secure\WBPA\response.raw> `
   --package-raw <secure\WBPA\package.json> `
+  --tenant-id 6fb25daf-0799-4805-bede-be54230da33c `
+  --entity-id ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3 `
+  --company-code WBPA `
   --capture-dir <secure\verified-capture>
 ```
 
@@ -196,6 +217,8 @@ npm.cmd --prefix server run wbs:provider-signed-payables:admit -- `
 
 所有金额保持 PostgreSQL numeric/定点字符串，不使用 JavaScript 浮点汇总。
 
+逐步 API body、角色 token 切换、`Idempotency-Key`、强 ETag `If-Match`、负测与 readback 证据格式必须按 `server/WBS-PROVIDER-SIGNED-PAYABLE-ADMISSION-RUNBOOK.md` 执行；本清单不以概要步骤替代该运行手册。
+
 ### Gate 5 — 同一真实 Bank source 的完整对账链
 
 1. signed Bank admission
@@ -205,6 +228,8 @@ npm.cmd --prefix server run wbs:provider-signed-payables:admit -- `
 5. Adjustment Draft（需要时）→ Submit/Review/Approve/Post
 6. Clear → Review → Sign-off → immutable snapshot → Reopen
 7. 同一 source 回读 GL/TB/IS/BS/Cash Flow 与审计链
+
+每个命令必须保存独立 actor、`Idempotency-Key`、当前/预期 revision、`If-Match`、HTTP status/ETag 和回读 ID；不得用同一 token 或截图代替职责分离与服务端证据。
 
 ## 4. 扩展到全公司的批量规则
 
