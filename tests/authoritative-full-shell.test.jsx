@@ -75,10 +75,10 @@ assert.doesNotMatch(workspaceViewSource, /seed\.js|repo\.js|localStorage|legacy-
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
 assert.doesNotMatch(unavailableMarkup, /Entity-scoped source-document list|attachment-read contract/,
   'customer-facing setup pages must not expose implementation contracts');
-assert.match(unavailableMarkup, /Your finance administrator/);
-assert.match(unavailableMarkup, /For now:/);
+assert.match(unavailableMarkup, /Your finance team is completing/);
+assert.match(unavailableMarkup, /current records for the selected company and reporting period/);
 assert.match(unavailableMarkup, /Source Documents is being prepared/);
-assert.match(unavailableMarkup, /Nothing to review here yet/);
+assert.match(unavailableMarkup, /Records will appear here soon/);
 assert.match(unavailableMarkup, /What happens next/);
 assert.doesNotMatch(unavailableMarkup, /SETUP REQUIRED|SETUP NEEDED/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
