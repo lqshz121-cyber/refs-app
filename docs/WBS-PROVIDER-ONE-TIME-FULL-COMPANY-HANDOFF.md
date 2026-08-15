@@ -92,7 +92,7 @@ Bank 使用独立的 `bank-admission.json`，其 `schema_version` 必须为 `WBS
 
 ### 2.2 REFS business owner
 
-- 批准每个 REFS entity UUID ↔ 单一 WBS immutable company_code 映射；禁止仅靠名称匹配。机器可执行的 `mapping_snapshot` 必须包含 `family=WBS_AUTOREC`、`status=APPROVED`、exact `entity_id`、`input_keys.company_key`、币种、`effective_from/effective_to`、mapping version/hash、审批人和审批时间。
+- 批准每个 REFS entity UUID ↔ 单一 WBS immutable company_code 映射；禁止仅靠名称匹配。Provider-Signed Payable admission 的实体硬门是 `entity.source_system=WBS` 且 `entity.source_entity_id=<exact company_code>`。`WBS_AUTOREC` mapping 不能替代该硬绑定；它是独立的 AutoRec/accounting mapping，机器可执行的 `mapping_snapshot` 必须包含 `family=WBS_AUTOREC`、`status=APPROVED`、exact `entity_id`、`input_keys.company_key`、币种、`effective_from/effective_to`、mapping version/hash、审批人和审批时间。
 - 为每个公司确认 OPEN accounting period、币种、vendor/customer、member/dimension、AP/AR/control/cash/expense/CWIP/prepaid accounts。
 - 批准 WBS Payable review setting 与唯一生效 mapping snapshot。
 - 指定并分离 Provider importer、uploader、scanner、Payable reviewer、Maker、JE Reviewer、Approver、Poster、Bank matcher/reconciler/signer/reopener。
@@ -103,7 +103,7 @@ Bank 使用独立的 `bank-admission.json`，其 `schema_version` 必须为 `WBS
 - Payable reviewer：`AP.VIEW` + `WBS.PAYABLE.REVIEW`。
 - 附件：`ATTACHMENT.CREATE`、`ATTACHMENT.FINALIZE`、`ATTACHMENT.CLEANUP` 分离。
 - JE 生命周期：`AP.BILL.CREATE`、`GL.JE.SUBMIT`、`GL.JE.REVIEW`、`GL.JE.APPROVE`、`GL.JE.POST` 分离。
-- Bank：`BANK.MATCH.CREATE`、`BANK.MATCH.UNMATCH`、`BANK.RECONCILIATION.START/CLEAR/REVIEW/SIGN_OFF/REOPEN/ADJUSTMENT_DRAFT`。
+- Bank：`BANK.MATCH.CREATE`、`BANK.MATCH.UNMATCH`、`BANK.RECONCILIATION.START/CLEAR/REVIEW/SIGN_OFF/REOPEN`。Adjustment maker 必须同时有 `BANK.RECONCILIATION.ADJUSTMENT_DRAFT` + `GL.JE.CREATE`；提交/审核/批准/过账继续使用分离的 JE lifecycle 权限。
 - 权限必须通过权威 grant sync/CAS/idempotency/audit 流程下发，不能用浏览器自助授权替代。
 
 ### 2.4 Render / infrastructure owner
@@ -239,6 +239,21 @@ npm.cmd --prefix server run wbs:provider-signed-payables:admit -- `
 - 每公司先负测，再 admission，再 readback；任何 scope/hash/count/total 不一致，该公司该域停止，其他公司不受污染。
 - full snapshot 完成后才启用 delta；delta 必须有连续 cursor/version 和 tombstone。
 - 全量完成定义：目录中的每个 active company、每个必需域、2026 完整日期覆盖均为 VERIFIED/ADMITTED，并能从 REFS 查询到 immutable receipt/source lineage。
+
+### 当前业务域能力矩阵
+
+| 业务域 | 当前生产级能力 | Provider 交付后的状态 |
+| --- | --- | --- |
+| Payables | `SUPPORTED`：正式 signed admission、review、Draft、四角色 Post、GL/TB/Reports/AP Aging 合同已实现 | integrations runtime/配置/真实包/E2E 就绪后可执行 |
+| Bank Statements / Transactions | `SUPPORTED`：正式 signed admission 与同一 source 的 Match/Unmatch/Reconciliation/Adjustment/Post/Reports 合同已实现 | integrations runtime/配置/真实 Bank 包/E2E 就绪后可执行 |
+| Cost / Construction / CWIP | `PARTIAL`：已有会计/报表基础链，但未证明与 Payable/Bank 同等级的逐域生产 signed admission 全链 | 先交包保留证据；不得宣称已自动入账 |
+| Accounts Receivable | `CONTRACT-ONLY` | 需要独立 signed admission/runtime 与生产 E2E |
+| AutoRec | `CONTRACT-ONLY` | 需要独立 signed admission/runtime 与生产 E2E |
+| Journals | `CONTRACT-ONLY` | 需要独立 signed admission/runtime 与生产 E2E |
+| Insurance / Prepaid | `CONTRACT-ONLY` | 需要独立 signed admission/runtime 与生产 E2E |
+| Property Operations / Rent | `CONTRACT-ONLY` | 需要独立 signed admission/runtime 与生产 E2E |
+
+“全量完成”是最终目标，不表示上述八个域现在已经全部可准入。Provider 可按统一目录/包合同一次准备，但 REFS 仅在对应域的 admission、权限、会计链和生产 E2E 均通过后，将该域从 `CONTRACT-ONLY/PARTIAL` 提升为 `SUPPORTED`。
 
 ## 5. 必须保留的生产证据
 
