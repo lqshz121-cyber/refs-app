@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {runtimeConfig} from '../runtime/config.mjs';
+import {controlledDemoProvisionConfig,provisionControlledDemoTenant} from '../runtime/controlled-demo-bootstrap.mjs';
 
 test('local discovery has an explicit test-only default',()=>{
   const config=runtimeConfig({});
@@ -11,10 +12,14 @@ test('local discovery has an explicit test-only default',()=>{
   assert.equal(config.controlledDemoEnabled,false);
 });
 
-test('controlled DEMO runtime mode is disabled unless explicitly enabled',()=>{
+test('controlled DEMO runtime mode is permanently prohibited',()=>{
   assert.equal(runtimeConfig({}).controlledDemoEnabled,false);
-  assert.equal(runtimeConfig({REFS_CONTROLLED_DEMO_MODE:'ENABLED'}).controlledDemoEnabled,true);
-  for(const value of ['1','true','AUTO',''])assert.throws(()=>runtimeConfig({REFS_CONTROLLED_DEMO_MODE:value}),/REFS_CONTROLLED_DEMO_MODE must be ENABLED or DISABLED/);
+  for(const value of ['ENABLED','1','true','AUTO',''])assert.throws(()=>runtimeConfig({REFS_CONTROLLED_DEMO_MODE:value}),/REFS_CONTROLLED_DEMO_MODE/);
+});
+
+test('synthetic tenant provision cannot be re-enabled through its former runtime boundary',async()=>{
+  assert.throws(()=>controlledDemoProvisionConfig({REFS_CONTROLLED_DEMO_MODE:'ENABLED'}),error=>error.code==='CONTROLLED_DEMO_PROVISIONING_PROHIBITED');
+  await assert.rejects(()=>provisionControlledDemoTenant(),error=>error.code==='CONTROLLED_DEMO_PROVISIONING_PROHIBITED');
 });
 
 test('production and required modes require an explicit database URL',()=>{
