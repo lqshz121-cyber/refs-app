@@ -1,4 +1,6 @@
-const CATEGORIES=new Set(['WBS_EXCEPTION','PREPAID_COVERAGE','DUPLICATE_PAYABLE','UNMATCHED_BANK_PAYMENT','COST_DIMENSION','LOAN_REFERENCE']);
+import {AI_ANALYSIS_FINDING_CATEGORIES} from './ai-accounting-skill-registry.mjs';
+
+const CATEGORIES=new Set(AI_ANALYSIS_FINDING_CATEGORIES);
 const text=value=>typeof value==='string'?value.trim():'';
 const count=value=>Number.isSafeInteger(Number(value))&&Number(value)>=0?Number(value):null;
 const row=value=>value&&typeof value==='object'&&CATEGORIES.has(value.category)&&['total_findings','high_findings','medium_findings','low_findings'].every(key=>count(value[key])!==null)&&count(value.total_findings)===count(value.high_findings)+count(value.medium_findings)+count(value.low_findings)&&typeof value.latest_materialized_at==='string'?Object.freeze({category:value.category,total_findings:count(value.total_findings),high_findings:count(value.high_findings),medium_findings:count(value.medium_findings),low_findings:count(value.low_findings),latest_materialized_at:value.latest_materialized_at}):null;
