@@ -48,7 +48,7 @@ fresh Docker cleanup and `0` skips:
 
 | Closure | PostgreSQL versions |
 | --- | --- |
-| Entire fixture suite: 11 closures / 17 TAP tests | 18 |
+| Entire fixture suite: 11 closures / 17 TAP tests | 15, 16, 18 |
 | Signed WBS bank reconciliation | 15, 16, 18 |
 | Real-estate profitability | 15, 16, 18 |
 | AI insurance amortization | 15, 16, 18 |
