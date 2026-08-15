@@ -2013,6 +2013,9 @@ select{padding-right:28px; cursor:pointer;}
   .expense-filter-evidence{grid-template-columns:repeat(2,minmax(0,1fr));}
   .expense-filter-evidence label,.expense-filter-evidence select,.expense-filter-evidence input{max-width:100%;}
   .expense-toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:end;}
+  .expense-toolbar>*{min-width:0;max-width:100%;}
+  .expense-toolbar>label:not(.expense-search){display:grid;grid-template-columns:minmax(0,1fr);gap:4px;}
+  .expense-toolbar>label:not(.expense-search)>select{width:100%;max-width:100%;}
   .expense-toolbar .expense-search{grid-column:1/-1;max-width:none;width:100%;}
   .expense-toolbar .result-count{margin-left:0;min-width:0;white-space:normal;}
 }
