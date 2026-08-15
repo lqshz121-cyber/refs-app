@@ -146,6 +146,36 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async retainWbsCompanyCatalogCandidate({tenantId,entityId,catalog,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_retain_wbs_company_catalog_hash($1,$2,$3::jsonb) AS request_hash',[tenantId,entityId,JSON.stringify(catalog)]),'WBS_COMPANY_CATALOG_HASH_FAILED','Company catalog request hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_retain_wbs_company_catalog($1,$2,$3::jsonb,$4,$5) AS result',[tenantId,entityId,JSON.stringify(catalog),idempotencyKey,requestHash]),'WBS_COMPANY_CATALOG_RETAIN_FAILED','Company catalog retention did not return a result').result;
+    });
+  }
+
+  async listWbsCompanyCatalogCandidates({tenantId,entityId,limit=50,offset=0}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_wbs_company_catalogs($1,$2,$3,$4) AS rows',[tenantId,entityId,limit,offset]),'WBS_COMPANY_CATALOG_READ_FAILED','Company catalog read did not return a result').rows);
+  }
+
+  async listWbsCompanyCatalogRows({tenantId,entityId,candidateId,limit=50,offset=0}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_wbs_company_catalog_rows($1,$2,$3,$4,$5) AS rows',[tenantId,entityId,candidateId,limit,offset]),'WBS_COMPANY_CATALOG_READ_FAILED','Company catalog row read did not return a result').rows);
+  }
+
+  async classifyWbsCompanyCatalogRow({tenantId,entityId,rowId,expectedRevision,classification,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_classify_wbs_company_catalog_hash($1,$2,$3,$4,$5::jsonb,$6) AS request_hash',[tenantId,entityId,rowId,expectedRevision,JSON.stringify(classification),reason]),'WBS_COMPANY_CLASSIFICATION_HASH_FAILED','Company classification request hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_classify_wbs_company_catalog_row($1,$2,$3,$4,$5::jsonb,$6,$7,$8) AS result',[tenantId,entityId,rowId,expectedRevision,JSON.stringify(classification),reason,idempotencyKey,requestHash]),'WBS_COMPANY_CLASSIFICATION_FAILED','Company classification did not return a result').result;
+    });
+  }
+
+  async approveWbsCompanyCatalogRow({tenantId,entityId,rowId,expectedRevision,expectedCatalogHash,expectedRowHash,effectiveFrom,effectiveTo,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const params=[tenantId,entityId,rowId,expectedRevision,expectedCatalogHash,expectedRowHash,effectiveFrom,effectiveTo??null,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_approve_wbs_company_catalog_hash($1,$2,$3,$4,$5,$6,$7,$8,$9) AS request_hash',params),'WBS_COMPANY_APPROVAL_HASH_FAILED','Company approval request hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_approve_wbs_company_catalog_row($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS result',[...params,idempotencyKey,requestHash]),'WBS_COMPANY_APPROVAL_FAILED','Company approval did not return a result').result;
+    });
+  }
+
   async admitWbsSignedBankStatement({tenantId,entityId,admission,idempotencyKey}){
     const validated=validateWbsSignedBankAdmission(admission);
     if(typeof this.wbsSignedBankAdmissionVerifier!=='function')throw new KernelError('WBS_BANK_ADMISSION_SIGNATURE_REQUIRED','WBS bank admission requires a configured detached-signature verifier');
