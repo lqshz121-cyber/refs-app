@@ -256,17 +256,17 @@ test('financial statement snapshot read exposes a versioned immutable evidence c
   for(const field of ['financial_statement_snapshot_id','version','snapshot_hash','ledger_evidence_hash','prepared_by','approved_by','journal_entry_ids','ledger_line_ids','source_document_ids','row_hash'])assert.ok(row.required.includes(field));
 });
 
-test('dimension profitability is an exact, read-only Property, Project, or Unit ledger view',()=>{
+test('dimension profitability is an exact, read-only Property, Project, Unit, or Lot ledger view',()=>{
   const operation=contract.paths['/entities/{entityId}/reports/dimension-profitability'].get;
   assert.equal(operation.operationId,'getDimensionProfitability');
   assert.equal(operation.parameters.find(parameter=>parameter.name==='periodId').required,true);
-  assert.deepEqual(operation.parameters.find(parameter=>parameter.name==='dimensionType').schema.enum,['PROPERTY','PROJECT','UNIT']);
+  assert.deepEqual(operation.parameters.find(parameter=>parameter.name==='dimensionType').schema.enum,['PROPERTY','PROJECT','UNIT','LOT']);
   assert.equal(operation.parameters.find(parameter=>parameter.name==='dimensionRef').schema.maxLength,160);
   assert.equal(operation.responses['200'].$ref,'#/components/responses/DimensionProfitabilityReadOk');
   assert.match(operation.description,/Missing dimensions are excluded rather than inferred/i);
   const row=contract.components.schemas.DimensionProfitabilityReadRow;
   assert.equal(row.additionalProperties,false);
-  assert.deepEqual(row.properties.statement_type.enum,['PROPERTY_PNL','PROJECT_PNL','UNIT_PROFITABILITY']);
+  assert.deepEqual(row.properties.statement_type.enum,['PROPERTY_PNL','PROJECT_PNL','UNIT_PROFITABILITY','LOT_PROFITABILITY']);
   assert.equal(row.properties.classification_basis.const,'POSTED_LEDGER_DIMENSION_EXACT');
   for(const key of ['journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids'])assert.equal(row.properties[key].items.$ref,'#/components/schemas/Uuid');
   assert.equal(contract.components.responses.DimensionProfitabilityReadOk.headers['Cache-Control'].schema.const,'no-store');
