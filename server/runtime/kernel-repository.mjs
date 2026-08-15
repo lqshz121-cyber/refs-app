@@ -304,6 +304,12 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listAiAmortizationCoverageEvidence({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_amortization_coverage_evidence($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
   async recordAiAmortizationCoverageEvidence({tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,evidenceRef,evidenceHash,extractionMethod,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

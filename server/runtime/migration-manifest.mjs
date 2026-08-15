@@ -147,5 +147,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"139_ai_amortization_human_draft.sql",up:"e3946689d1cc9b4eb28e1e926da366bf42ea9de78505af4f7dbcbb353485d490",down:"5c8ad2b6d997ec00f4c5946c235992d60178fde855d3d4d48c281a847042d553"}),
   Object.freeze({name:"140_ai_analysis_explain_scope.sql",up:"e37ef70e247c5daf2d78f6714782e0742bdc076dbf6f0e8024a93f10072e9a39",down:"015ed3505fa1715b6e6df50d766d53688385c48110b38ff139c91f22308fba59"}),
   Object.freeze({name:"141_ai_amortization_proposal_coverage_gate.sql",up:"d228d05a73c94ecbbd0d898867137d92ae557264f00ee994261bbc8c378e26a5",down:"71a8ef171ec2bd3dfe6f91dbdfc0a46eddc909492a885f63aae49645c16eddac"}),
+  Object.freeze({name:"142_ai_amortization_coverage_evidence_read.sql",up:"71bfd4932bee3fd4a3e93841f28b4264a6de7a6493746c9396db86f5f6894faa",down:"6ee5b3b5e8f1549f0f4fc71d9656b5d1085bdb297893831b2873e3e41bc4021b"}),
   Object.freeze({name:"149_wbs_final1_retained_source_evidence.sql",up:"95f25d6af5ed1b3380f0ccca6a71599521c9ad1facdf98c336db18d18eb27ca4",down:"1c60fa45c0920e50fcfd22b6a3d529b13cfb00b1ca0fe51dbaceffb46ebeec76"}),
 ]);
