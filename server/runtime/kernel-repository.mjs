@@ -334,6 +334,22 @@ export class PostgresAccountingKernel{
     });
   }
 
+  // Materializes only immutable Raw/Source/Pending Review evidence. The
+  // Property Rent AR producer is intentionally absent, so this capability can
+  // never create an Invoice, Journal, approval, posting batch, or ledger line.
+  async admitWbsPropertyRentSource({tenantId,entityId,wbsInboundRowId,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_admit_wbs_property_rent_source_hash($1,$2,$3,$4,$5,$6,$7) AS request_hash',
+        [tenantId,entityId,wbsInboundRowId,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,reason]
+      ),'WBS_PROPERTY_RENT_SOURCE_HASH_FAILED','WBS Property Rent source admission hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_admit_wbs_property_rent_source($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',
+        [tenantId,entityId,wbsInboundRowId,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,reason,idempotencyKey,requestHash]
+      ),'WBS_PROPERTY_RENT_SOURCE_FAILED','WBS Property Rent source admission did not return a result').result;
+    });
+  }
+
   async reviewWbsPayable({tenantId,entityId,wbsInboundRowId,periodId,expectedRevision,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,settingSnapshotId,mappingSnapshotId,attachmentIds,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
