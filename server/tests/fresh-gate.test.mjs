@@ -19,8 +19,6 @@ test('fresh PostgreSQL gate requires all isolated runtime identities and the req
   assert.match(source,/REFS_PG_REQUIRED:'1'/);
   for(const key of ['DATABASE_URL','MIGRATION_DATABASE_URL','CONTEXT_ISSUER_DATABASE_URL','GRANT_SYNC_DATABASE_URL'])assert.match(source,new RegExp(`${key}:`));
   assert.match(source,/--test-name-pattern/);
-  assert.match(source,/REFS_PG_TEST_TIMEOUT_MS must be an integer between 1000 and 900000 milliseconds/);
-  assert.match(source,/postgresTestArgs\.push\(`--test-timeout=\$\{postgresTestTimeoutMs\}`\)/);
   assert.match(source,/postgresTestArgs\.push\('tests\/postgres-kernel\.test\.mjs'\)/);
   assert.match(source,/process\.execPath,postgresTestArgs/);
   assert.match(source,/shell:process\.platform==='win32'&&command==='docker'/);

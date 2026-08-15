@@ -19,9 +19,6 @@ const cliArgs=process.argv.slice(2);
 const patternIndex=cliArgs.indexOf('--pattern');
 if(cliArgs.length!==0&&(patternIndex!==0||cliArgs.length!==2||!cliArgs[1]))throw new Error('Usage: node runtime/test-postgres-fresh.mjs [--pattern <test name>]');
 const postgresTestNamePattern=cliArgs[1]||process.env.PG_TEST_NAME_PATTERN||null;
-const rawTestTimeout=process.env.REFS_PG_TEST_TIMEOUT_MS||'';
-if(rawTestTimeout!==''&&(!/^[1-9]\d*$/.test(rawTestTimeout)||Number(rawTestTimeout)<1000||Number(rawTestTimeout)>900000))throw new Error('REFS_PG_TEST_TIMEOUT_MS must be an integer between 1000 and 900000 milliseconds');
-const postgresTestTimeoutMs=rawTestTimeout===''?null:Number(rawTestTimeout);
 
 if(!/^refs_kernel_gate_[a-z0-9_-]+$/.test(project))throw new Error('Unsafe compose project name');
 if(!database.endsWith('_test'))throw new Error('Fresh PostgreSQL gate requires a *_test database');
@@ -67,7 +64,6 @@ const testEnv={...composeEnv,
   GRANT_SYNC_DATABASE_URL:`postgresql://refs_grant_sync:${passwords.grantSync}@127.0.0.1:${port}/${database}`
 };
 const postgresTestArgs=['--test'];
-if(postgresTestTimeoutMs!==null)postgresTestArgs.push(`--test-timeout=${postgresTestTimeoutMs}`);
 if(postgresTestNamePattern)postgresTestArgs.push('--test-name-pattern',postgresTestNamePattern);
 postgresTestArgs.push('tests/postgres-kernel.test.mjs');
 
