@@ -126,6 +126,14 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await kernel.listWbsPayableReviewEvidence({tenantId:principal.tenantId,entityId,limit:optionalAdmittedStatementLimit(parsedUrl.searchParams.get('limit'))});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='cost-cwip'&&parts[7]==='reviews'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS Cost-to-CWIP evidence reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listWbsCostCwipReviewEvidence!=='function')throw new AccountingApiError(503,'WBS_COST_CWIP_EVIDENCE_READ_UNAVAILABLE','WBS Cost-to-CWIP evidence read is unavailable');
+        result=await kernel.listWbsCostCwipReviewEvidence({tenantId:principal.tenantId,entityId,limit:optionalAdmittedStatementLimit(parsedUrl.searchParams.get('limit'))});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[7]==='review-candidates'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS Payable review-candidate reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');

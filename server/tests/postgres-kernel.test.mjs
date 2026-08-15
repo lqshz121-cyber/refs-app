@@ -588,6 +588,18 @@ pgTest('signed Cost-to-CWIP admission reaches controlled Draft, four-role Post, 
     FROM journal_entry j JOIN wbs_cost_cwip_review_evidence e ON e.tenant_id=j.tenant_id AND e.entity_id=j.entity_id
     JOIN staging_item s ON s.staging_item_id=e.staging_item_id WHERE j.journal_entry_id=$1`,[drafted.journal_entry_id])).rows[0];
   assert.deepEqual(posted,{journal_status:'POSTED',staging_status:'POSTED',staging_version:'5',ledger_lines:2});
+  // Finance users can read the reviewed Cost-to-CWIP evidence and its exact
+  // posted JE lineage through the authoritative API, but a caller without both
+  // review and JE-view grants receives no evidence.
+  const costEvidenceApi=createAccountingApi({
+    authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
+    kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,principal.actorId==='cost-cwip-http-reader'?['WBS.COST.CWIP.REVIEW','GL.JE.VIEW']:[])})
+  });
+  const costEvidencePath=`/api/v1/entities/${ids.entityId}/wbs/inbound/cost-cwip/reviews?limit=10`;
+  assert.equal((await costEvidenceApi({method:'GET',url:costEvidencePath,body:null,headers:{'x-test-actor':'cost-cwip-http-denied'}})).status,403);
+  const costEvidenceRead=await costEvidenceApi({method:'GET',url:costEvidencePath,body:null,headers:{'x-test-actor':'cost-cwip-http-reader'}});
+  assert.equal(costEvidenceRead.status,200);assert.equal(costEvidenceRead.headers['cache-control'],'no-store');
+  assert.deepEqual(costEvidenceRead.body.data.map(row=>({review:row.wbs_cost_cwip_review_evidence_id,source:row.source_document_id,amount:row.gross_amount,cwip:row.cwip_account_code,offset:row.offset_account_code,journal:row.journal_entry_id,status:row.journal_status,draft:row.can_create_draft,post:row.can_post})),[{review:reviewed.wbs_cost_cwip_review_evidence_id,source:reviewed.source_document_id,amount:'125.5000',cwip:'164100',offset:'610000',journal:drafted.journal_entry_id,status:'POSTED',draft:false,post:false}]);
 });
 
 pgTest('signed admitted WBS bank statement atomically creates exact bank sources with replay and conflict guards',async()=>{

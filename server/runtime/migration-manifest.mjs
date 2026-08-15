@@ -140,4 +140,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"132_ai_amortization_human_acceptance.sql",up:"29c1865b97c8011f1bdd386661e8fab5a1c079271a1cc547041c9135cf040b26",down:"ec542e02afa9a6ebc92f0187143a2b97012f563c52db5decc98124dfd6e18a7f"}),
   Object.freeze({name:"133_lot_profitability_read.sql",up:"4dbf3926152ed3ca307b66795e685196eda8059cac641c1f4ba63de2900592b9",down:"fd722c43fcb0eb8611064172643534d84835c1b183a4e2d113717cb2cb5226b3"}),
   Object.freeze({name:"134_ai_analysis_summary_qualified_columns.sql",up:"316fd62b77ced5a18d9851aad2709de63c112102a6017c807c4989ad6d5500df",down:"f0d526d4c6eb9cd79bd267759c6a85a34afb4179e292bcc906fc20b336e296d3"}),
+  Object.freeze({name:"135_wbs_cost_cwip_review_evidence_read.sql",up:"ad6b70cb2d2c49b37b5bb6e196eb3304adf71258c6b8f14d8f594c63c37a074a",down:"3fa56b0800e311d95ccd9be3c3313d9c9be9ff9d1c93d2d8cf3d483137ea9a6b"}),
 ]);
