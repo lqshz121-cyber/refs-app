@@ -20,7 +20,7 @@ import {buildWbsAutoRecExecutionIntent} from '../runtime/wbs-autorec-execution-c
 import {createProductionAccountingServer} from '../runtime/accounting-server.mjs';
 import {OidcJwtAuthenticator,REFS_TENANT_CLAIM} from '../api/oidc-authenticator.mjs';
 import {buildWbsMcpReadonlySnapshot} from '../runtime/wbs-mcp-inbound-lineage.mjs';
-import {createWbsSignedDelivery} from '../runtime/wbs-signed-delivery-admission.mjs';
+import {createSyntheticWbsSignedDelivery} from './helpers/synthetic-wbs-signed-delivery.mjs';
 import {createWbsProviderSignedPayableAdmission} from '../runtime/wbs-provider-signed-payable-admission.mjs';
 import {createWbsAdmittedPayableIngestion} from '../runtime/wbs-admitted-payable-ingestion.mjs';
 import {normalizeWbsCompanyCatalogCandidate,wbsCompanyCatalogCanonicalHash,normalizeWbsCompanyClassification} from '../runtime/wbs-company-catalog-controller.mjs';
@@ -411,7 +411,7 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   const unsigned=buildWbsMcpReadonlySnapshot({envelopes:[envelope],snapshotId:randomUUID(),dictionaryVersion:'WBS-MCP-V1',environment:'PRODUCTION',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',snapshot_token:snapshotToken,extract_started_at:'2026-07-11T02:59:00.000Z',extract_completed_at:capturedAt,consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'},detachedSignature:{key_id:keyId,algorithm:'Ed25519',value:'placeholder'},payableDirectionConventions:conventions});
   const requestRaw=Buffer.from('{"tool":"list_payables","company":"'+ids.sourceEntityId+'"}'),responseRaw=Buffer.from(JSON.stringify(envelope));
   const admissionNow=Date.now(),signedAt=new Date(admissionNow-60_000).toISOString(),expiresAt=new Date(admissionNow+9*60_000).toISOString();
-  const signedDelivery=await createWbsSignedDelivery({unsignedSnapshot:unsigned,requestRaw,responseRaw,scope:{tenant_id:ids.tenantId,entity_id:ids.entityId,company_code:ids.sourceEntityId},issuer:'wbs-provider-pg',keyId,nonce:`nonce-${randomUUID()}`,signedAt,expiresAt,privateKeyPem:privateKey.export({type:'pkcs8',format:'pem'}).toString(),now:admissionNow});
+  const signedDelivery=await createSyntheticWbsSignedDelivery({unsignedSnapshot:unsigned,requestRaw,responseRaw,scope:{tenant_id:ids.tenantId,entity_id:ids.entityId,company_code:ids.sourceEntityId},issuer:'wbs-provider-pg',keyId,nonce:`nonce-${randomUUID()}`,signedAt,expiresAt,privateKeyPem:privateKey.export({type:'pkcs8',format:'pem'}).toString(),now:admissionNow});
   const verifier=createWbsSnapshotSignatureVerifier({publicKeys:{[keyId]:publicKey.export({type:'spki',format:'pem'})}}),serviceActor='admitted-payable-importer';
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,serviceActor,['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:verifier});
   const demoStatus=await kernel.readControlledDemoTenant({tenantId:ids.tenantId});

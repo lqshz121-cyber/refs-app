@@ -10,4 +10,6 @@ test('the production package cannot mint provider-signed WBS delivery evidence',
   const manifest=JSON.parse(readFileSync(join(root,'package.json'),'utf8'));
   assert.equal(manifest.scripts['wbs:signed-delivery:create'],undefined);
   assert.equal(existsSync(join(root,'tools','create-wbs-signed-delivery.mjs')),false);
+  const runtime=readFileSync(join(root,'runtime','wbs-signed-delivery-admission.mjs'),'utf8');
+  assert.doesNotMatch(runtime,/createWbsSignedDelivery|createPrivateKey|\bsign\(/);
 });
