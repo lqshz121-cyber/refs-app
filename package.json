@@ -71,7 +71,8 @@
     "verify:authoritative-runtime-evidence": "node tools/verify-authoritative-runtime-evidence.mjs",
     "verify:stage2-bank-live-chain": "node server/runtime/verify-stage2-authoritative-e2e.mjs",
     "verify:stage3-wbs-live-chain": "npm.cmd --prefix server run verify:wbs-live-acceptance",
-    "verify:stage4-report-live-chain": "node server/runtime/verify-stage4-authoritative-e2e.mjs"
+    "verify:stage4-report-live-chain": "node server/runtime/verify-stage4-authoritative-e2e.mjs",
+    "verify:stage3-g11-live-chain": "node server/runtime/verify-stage3-g11-authoritative-e2e.mjs"
   },
   "dependencies": {
     "react": "18.3.1",
