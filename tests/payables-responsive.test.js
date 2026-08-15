@@ -4,6 +4,10 @@ import {readFileSync} from 'node:fs';
 const styles=readFileSync('index.html','utf8');
 const workspace=readFileSync('src/authoritative-workspace.jsx','utf8');
 
+assert.match(styles,/\.authoritative-topbar \.authoritative-shell-select::after\{content:'⌄'; position:absolute;/,
+  'the authoritative scope chevron must stay valid UTF-8 so later responsive media rules remain parseable');
+assert.doesNotMatch(styles,/content:'鈱\?;/,
+  'a deployment must never publish the mojibake sequence that swallows all later responsive CSS');
 assert.match(workspace,/className="filter-bar authoritative-list-filters"/,
   'the responsive contract must cover the authoritative AP/AR filter surface');
 assert.match(workspace,/<label>\{bill\?'Vendor':'Customer'\} <select/,
