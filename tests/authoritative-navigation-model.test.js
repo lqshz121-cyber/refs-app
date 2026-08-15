@@ -30,6 +30,8 @@ assert.match(source, /AuthoritativeUnavailableWorkspace/, 'unsupported modules m
 assert.doesNotMatch(source, /legacy-demo-app|\.\/repo\.js|\.\/seed\.js|module-wbs|module-aiaudit|module-ai-je-workbench/,
   'the authoritative shell may not import demo, mock, or browser-state workspaces');
 const shellSource = readFileSync(new URL('../src/authoritative-navigation-shell.jsx', import.meta.url), 'utf8');
-assert.match(shellSource, /compactLabel\(item\.label\)/, 'secondary navigation must use compact letter marks');
+assert.match(shellSource, /const ITEM_ICONS = Object\.freeze/, 'secondary navigation must use the fixed readable icon vocabulary');
+assert.match(shellSource, /<Icon name=\{ITEM_ICONS\[itemIndex % ITEM_ICONS\.length\]\}/, 'each secondary navigation item must render one decorative icon');
+assert.doesNotMatch(shellSource, /compactLabel\(item\.label\)/, 'secondary navigation must not fall back to ambiguous initial-only marks');
 assert.doesNotMatch(shellSource, /String\(index \+ 1\)\.padStart/, 'secondary navigation must not use numeric-only badges');
 console.log('authoritative navigation model: complete catalog retains only API-backed reads and fails closed elsewhere');
