@@ -151,4 +151,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"143_ai_finding_action_queue.sql",up:"5a6a0cc39ccd3806f71e71cf062c8c2a2068f5e0d31b5bca7025752a05969ff9",down:"2721259a3e24e9120d59b7479f58bf7501c8f7facb2a5c36f7f8f7a3994c5048"}),
   Object.freeze({name:"144_ai_finding_action_read.sql",up:"2db469cc1aacb04ad972d8620a6312815a60971f55c62c0aaa864f64b6a455c1",down:"e96acce726689c1ae7e8c0b12e691fed172fa2f5c7487296a8a9abebf3ddb641"}),
   Object.freeze({name:"145_ai_finding_action_resolution.sql",up:"0c92220d5b1f970013befb65811b5b08e80d27dcdfb501d4478fd0edb06ed842",down:"b1fc7589e909c63708129d643d74a64046904b4c38c1cdc8882cd66d67d8525f"}),
+  Object.freeze({name:"146_ai_finding_action_resolution_read_grant.sql",up:"39a843da9989f26c4a19b0e859448a677a75ab4b1c3af008ffce2dabc35866c2",down:"39a843da9989f26c4a19b0e859448a677a75ab4b1c3af008ffce2dabc35866c2"}),
 ]);
