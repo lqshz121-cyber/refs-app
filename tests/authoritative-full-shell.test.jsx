@@ -134,9 +134,9 @@ assert.match(appSource, /Property operating P&amp;L/, 'Property Ops Pickup must 
 assert.match(appSource, /initialDimensionType="PROJECT"/, 'the direct Project Cost & CWIP entry must default only its existing API-backed profitability reader to Project');
 assert.match(appSource, /Cost-code, vendor, and project transaction registers remain unavailable/, 'the direct workspace may not pretend that the legacy transaction register has an API contract');
 assert.match(appSource, /route === 'construction-loan'/, 'Construction Loan must mount its existing API rollforward rather than a demo route');
-assert.match(appSource, /route === 'amortization'/, 'Amortization Center must mount its existing API prepaid rollforward rather than a demo route');
+assert.match(appSource, /route === 'amortization'[\s\S]*?AuthoritativeAmortizationWorkspace[\s\S]*?config=\{config\}/, 'Amortization Center must mount its server-backed coverage and schedule evidence workspace rather than a demo route');
 assert.match(appSource, /Loan register, lender, commitment, and draw-management workflows remain unavailable/, 'the construction-loan reader must not overstate unavailable operational contracts');
-assert.match(appSource, /Schedule authoring, posting, and browser-local amortization calculations remain unavailable/, 'the amortization reader must not recreate a browser-side accounting workflow');
+assert.doesNotMatch(fs.readFileSync('src/authoritative-amortization-workspace.jsx','utf8'), /localStorage|seed\.js|repo\.js|legacy-demo-app|module-amortization-accrual/i, 'the amortization reader must not recreate a browser-side accounting workflow');
 assert.match(appSource, /route === 'intercompany'/, 'Intercompany must mount its existing two-entity API evidence reader rather than a demo route');
 assert.match(appSource, /route === 'consolidation'/, 'Consolidation must mount existing snapshot evidence rather than a browser workbook');
 assert.match(appSource, /Elimination, adjustment, and intercompany posting workflows remain unavailable/, 'the intercompany surface must not overstate unavailable posting contracts');
