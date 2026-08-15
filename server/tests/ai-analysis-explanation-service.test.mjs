@@ -19,6 +19,13 @@ test('AI analysis explanation redacts credential-like text before model and dura
   await service.explain({tenantId:'tenant',entityId:'entity',actorId:'oidc|controller',traceId:'redaction-01'});
   assert.doesNotMatch(JSON.stringify(input.facts),new RegExp(secret));assert.doesNotMatch(JSON.stringify(begin.evidence),new RegExp(secret));assert.match(input.facts.retained_evidence[0].reason,/token=\[REDACTED\]/);assert.match(input.facts.retained_evidence[0].suggested_action,/Authorization=\[REDACTED\]/);
 });
+test('AI analysis explanation redacts credential-like model output before it becomes a durable report',async()=>{
+  let completed;const secret='sk-live-MODELREPLYSECRET';const unsafeOutput={...modelOutput,result:{...modelOutput.result,headline:`Controller memo token=${secret}`,narrative:`Do not retain Authorization: Bearer ${secret}.`,controller_actions:[{...modelOutput.result.controller_actions[0],action:`Review secret=${secret} only in the original secured evidence.`}]}};
+  const repository={...audit(),completeAiAccountingAnalysisExplanation:async value=>(completed=value.output,value.output)};
+  const service=createAiAnalysisExplanationService({summaryReader:async()=>summary,evidenceReader:async()=>evidence,auditRepository:repository,gateway:{analyzeJson:async()=>unsafeOutput}});
+  const output=await service.explain({tenantId:'tenant',entityId:'entity',actorId:'oidc|controller',traceId:'redaction-output-01'});
+  assert.doesNotMatch(JSON.stringify(completed),new RegExp(secret));assert.doesNotMatch(JSON.stringify(output),new RegExp(secret));assert.match(output.result.headline,/token=\[REDACTED\]/);assert.match(output.result.narrative,/Authorization=\[REDACTED\]/);assert.match(output.result.controller_actions[0].action,/secret=\[REDACTED\]/);
+});
 test('AI analysis explanation replays a durable receipt without another model request',async()=>{
   let calls=0;const replay={...modelOutput,result:{...modelOutput.result,can_create_draft:false,can_review:false,can_approve:false,can_post:false}};const service=createAiAnalysisExplanationService({summaryReader:async()=>summary,evidenceReader:async()=>evidence,auditRepository:audit({state:'REPLAY',response:replay}),gateway:{analyzeJson:async()=>{calls++;throw new Error('must not call');}}});assert.deepEqual(await service.explain({tenantId:'t',entityId:'e',actorId:'a',traceId:'replay-01'}),replay);assert.equal(calls,0);
 });
