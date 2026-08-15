@@ -374,6 +374,25 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   assert.deepEqual((await reviewReader.getWbsPayableReviewCandidate({tenantId:ids.tenantId,entityId:ids.entityId,wbsInboundRowId:stored.wbs_inbound_row_id}))[0],candidate);
   const reviewOnlyReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-review-only',['WBS.PAYABLE.REVIEW'])});
   await assert.rejects(reviewOnlyReader.listWbsPayableReviewCandidates({tenantId:ids.tenantId,entityId:ids.entityId,limit:10}),error=>error.code==='42501');
+  // The user-facing Review queue must keep the same fail-closed boundary as the
+  // repository: WBS review permission alone cannot reveal AP evidence, while a
+  // reviewer with both read grants can retrieve the exact signed candidate over
+  // the authenticated HTTP route without creating accounting records.
+  const candidateReadCounts=async()=>(await adminPool.query("SELECT (SELECT count(*)::int FROM business_document WHERE tenant_id=$1) business_documents,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journal_entries,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger_lines",[ids.tenantId])).rows[0];
+  const candidateReadApi=createAccountingApi({
+    authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
+    kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,principal.actorId==='wbs-payable-http-reader'?['WBS.PAYABLE.REVIEW','AP.VIEW']:['WBS.PAYABLE.REVIEW'])})
+  });
+  const candidateRoute=`/api/v1/entities/${ids.entityId}/wbs/inbound/payables/review-candidates?limit=10`,beforeCandidateHttpRead=await candidateReadCounts();
+  const candidateDenied=await candidateReadApi({method:'GET',url:candidateRoute,body:null,headers:{'x-test-actor':'wbs-payable-http-review-only'}});
+  assert.equal(candidateDenied.status,403);
+  const candidateRead=await candidateReadApi({method:'GET',url:candidateRoute,body:null,headers:{'x-test-actor':'wbs-payable-http-reader'}});
+  assert.equal(candidateRead.status,200);assert.equal(candidateRead.headers['cache-control'],'no-store');
+  const httpCandidate=candidateRead.body.data.find(item=>item.wbs_inbound_row_id===stored.wbs_inbound_row_id);
+  assert.deepEqual({row:httpCandidate.wbs_inbound_row_id,number:httpCandidate.document_number,currency:httpCandidate.currency,amount:httpCandidate.gross_amount,readiness:httpCandidate.review_readiness,canReview:httpCandidate.can_review},{row:stored.wbs_inbound_row_id,number:'WBS-INV-PG-001',currency:'USD',amount:'89.1250',readiness:'VERIFIED_ATTACHMENT_REQUIRED',canReview:false});
+  const detailRead=await candidateReadApi({method:'GET',url:`/api/v1/entities/${ids.entityId}/wbs/inbound/payables/review-candidates/${stored.wbs_inbound_row_id}`,body:null,headers:{'x-test-actor':'wbs-payable-http-reader'}});
+  assert.equal(detailRead.status,200);assert.equal(detailRead.headers['cache-control'],'no-store');assert.equal(detailRead.body.data.wbs_inbound_row_id,stored.wbs_inbound_row_id);
+  assert.deepEqual(await candidateReadCounts(),beforeCandidateHttpRead);
   await assert.rejects(reviewer.reviewWbsPayable({...reviewArgs,mappingSnapshotId:lowerMappingId,idempotencyKey:'wbs-payable-review-pg-lower-map'}),error=>error.code==='23514');
   // A clean entity attachment is still unusable until it is bound to this
   // exact signed WBS row and immutable object version.
