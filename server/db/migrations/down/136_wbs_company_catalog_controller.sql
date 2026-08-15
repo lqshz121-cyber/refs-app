@@ -1,0 +1,16 @@
+BEGIN;
+REVOKE EXECUTE ON FUNCTION refs_retain_wbs_company_catalog_hash(uuid,uuid,jsonb),refs_retain_wbs_company_catalog(uuid,uuid,jsonb,text,text),refs_read_wbs_company_catalogs(uuid,uuid,integer,integer),refs_read_wbs_company_catalog_rows(uuid,uuid,uuid,integer,integer),refs_classify_wbs_company_catalog_hash(uuid,uuid,uuid,bigint,jsonb,text),refs_classify_wbs_company_catalog_row(uuid,uuid,uuid,bigint,jsonb,text,text,text),refs_approve_wbs_company_catalog_hash(uuid,uuid,uuid,bigint,text,text,date,date,text),refs_approve_wbs_company_catalog_row(uuid,uuid,uuid,bigint,text,text,date,date,text,text,text) FROM refs_app;
+DROP FUNCTION refs_approve_wbs_company_catalog_row(uuid,uuid,uuid,bigint,text,text,date,date,text,text,text);
+DROP FUNCTION refs_approve_wbs_company_catalog_hash(uuid,uuid,uuid,bigint,text,text,date,date,text);
+DROP FUNCTION refs_classify_wbs_company_catalog_row(uuid,uuid,uuid,bigint,jsonb,text,text,text);
+DROP FUNCTION refs_classify_wbs_company_catalog_hash(uuid,uuid,uuid,bigint,jsonb,text);
+DROP FUNCTION refs_read_wbs_company_catalog_rows(uuid,uuid,uuid,integer,integer);
+DROP FUNCTION refs_read_wbs_company_catalogs(uuid,uuid,integer,integer);
+DROP FUNCTION refs_retain_wbs_company_catalog(uuid,uuid,jsonb,text,text);
+DROP FUNCTION refs_retain_wbs_company_catalog_hash(uuid,uuid,jsonb);
+DROP TABLE wbs_company_catalog_controller_decision;
+DROP TABLE wbs_company_catalog_validation_finding;
+DROP TABLE wbs_company_catalog_candidate_row;
+DROP TABLE wbs_company_catalog_candidate;
+DELETE FROM permission_catalog WHERE permission_code IN ('WBS.COMPANY.CATALOG.VIEW','WBS.COMPANY.CATALOG.RETAIN','WBS.COMPANY.CATALOG.CLASSIFY','WBS.COMPANY.CATALOG.APPROVE');
+COMMIT;
