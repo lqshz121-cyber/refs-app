@@ -83,6 +83,11 @@ assert.match(unavailableMarkup, /attachment-read contract/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 const amortizationSource = fs.readFileSync('src/authoritative-amortization-workspace.jsx', 'utf8');
+for(const file of ['src/authoritative-aging-workspace.jsx','src/authoritative-amortization-workspace.jsx','src/authoritative-lineage-drill.jsx','src/authoritative-property-rent-workspace.jsx']){
+  const source=fs.readFileSync(file,'utf8');
+  assert.doesNotMatch(source,/Entity \{config\.entityId\}|(?:configured )?period \{config\.periodId\}|<b>\{config\.(?:entityId|periodId)\}<\/b>/,`${file} must present readable scope labels and retain raw identifiers only as audit metadata`);
+  assert.match(source,/scopePresentation\?\.(?:entityLabel|periodLabel)|context\.(?:entityLabel|periodLabel)/,`${file} must use the shared authoritative scope presentation contract`);
+}
 assert.match(appSource,/refreshCurrentActorAccess\(\{config,fetcher:boundFetcher\}\)/,'READY shell must read the current authenticated actor through the self-only API');
 assert.match(appSource,/AuthoritativeAccessStatus state=\{accessState\}/,'the entity and period scope bar must expose the current session access diagnostic');
 assert.doesNotMatch(fs.readFileSync('src/authoritative-access-status.jsx','utf8'),/activateAuthoritative|reconcileActorGrant|revokeActor|localStorage|sessionStorage|fetch\(/,'the access status is presentation-only and cannot grant, revoke, persist, or fetch authority');

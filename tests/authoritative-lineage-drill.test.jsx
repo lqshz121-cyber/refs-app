@@ -25,7 +25,7 @@ assert.equal(requestGuard.isCurrent(latestRead),true);
 
 for(const [kind,value,label] of [['JOURNAL',{journal,context:{entityId,periodId}},'Journal entry JE-100'],['GL',{row:gl,context:{entityId,periodId}},'Posted ledger line'],['SOURCE',{detail:source,context:{entityId,periodId}},'Source Document evidence'],['REPORT',{row:report,context:{entityId,periodId}},'INCOME_STATEMENT account evidence']]){
   const markup=renderToStaticMarkup(<AuthoritativeLineageDrill config={config} initial={{kind,...value}} onExit={()=>{}}/>);
-  assert.match(markup,new RegExp(label));assert.match(markup,/Entity 11111111-1111-4111-8111-111111111111/);assert.match(markup,/Period 22222222-2222-4222-8222-222222222222/);assert.doesNotMatch(markup,/Create|Edit|Post journal|Export/);
+  assert.match(markup,new RegExp(label));assert.match(markup,/Entity Configured entity/);assert.match(markup,/Period Configured period/);assert.doesNotMatch(markup,/>Entity 11111111-1111-4111-8111-111111111111|>Period 22222222-2222-4222-8222-222222222222/);assert.doesNotMatch(markup,/Create|Edit|Post journal|Export/);
 }
 const sourceCode=readFileSync('src/authoritative-lineage-drill.jsx','utf8');
 for(const call of ['readAuthoritativeJournalEntryDetail','readAuthoritativeSourceDocumentDetail','refreshAuthoritativeGeneralLedger','refreshAuthoritativeFinancialStatements'])assert.match(sourceCode,new RegExp(call));

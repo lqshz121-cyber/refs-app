@@ -12,6 +12,7 @@ export const journalLineMatchesLedger=(journal,line,row)=>Boolean(journal&&line&
 export const createLineageRequestGuard=()=>{let version=0;return {start:()=>++version,isCurrent:token=>token===version,invalidate:()=>++version};};
 
 export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initial,onExit}){
+  const entityLabel=config?.scopePresentation?.entityLabel||'Configured entity',periodLabel=config?.scopePresentation?.periodLabel||'Configured period';
   const [stack,setStack]=useState([initial]);
   const [read,setRead]=useState({phase:'READY',error:null});
   const requestGuard=useRef(null);
@@ -87,7 +88,7 @@ export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initi
     const item=matches[0];push({kind:'GL',row:item,context:{entityId:config.entityId,periodId:config.periodId,journalEntryId:item.journal_entry_id,journalLineId:item.journal_line_id,ledgerLineId:item.ledger_line_id}},token);
   };
   if(read.phase==='LOADING')return <section className="full-bleed qbo-transaction-report authoritative-evidence-page"><StateBlock tone="loading" title="Reading evidence">Re-reading immutable lineage evidence. Navigation resumes when this exact GET completes.</StateBlock></section>;
-  if(read.phase==='BLOCKED')return <section className="full-bleed qbo-transaction-report authoritative-evidence-page"><div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={clearBlocked}>Back to current evidence</button><span>Entity {config.entityId} | Period {config.periodId}</span></div><StateBlock tone="blocked" title="BLOCKED - immutable lineage mismatch">{read.error.message}</StateBlock></section>;
+  if(read.phase==='BLOCKED')return <section className="full-bleed qbo-transaction-report authoritative-evidence-page"><div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={clearBlocked}>Back to current evidence</button><span title={`Entity ID: ${config.entityId}; Period ID: ${config.periodId}`}>Entity {entityLabel} | Period {periodLabel}</span></div><StateBlock tone="blocked" title="BLOCKED - immutable lineage mismatch">{read.error.message}</StateBlock></section>;
   if(frame.kind==='JOURNAL')return <JournalFrame frame={frame} back={back} readLedger={readLedger} readSource={readSource}/>;
   if(frame.kind==='GL')return <LedgerFrame frame={frame} back={back} readJournal={readJournal} readSource={readSource} readReports={readReports}/>;
   if(frame.kind==='SOURCE')return <SourceFrame frame={frame} back={back} readJournal={readJournal}/>;
@@ -96,7 +97,7 @@ export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initi
   return <ReportFrame frame={frame} back={back} readLedger={readLedgerFromReport}/>;
 }
 
-const Back=({onClick,label='Back to prior evidence',context})=><div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onClick}>{label}</button><span>Entity {context.entityId} | Period {context.periodId}</span></div>;
+const Back=({onClick,label='Back to prior evidence',context})=><div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onClick}>{label}</button><span title={`Entity ID: ${context.entityId}; Period ID: ${context.periodId}`}>Entity {context.entityLabel||'Configured entity'} | Period {context.periodLabel||'Configured period'}</span></div>;
 
 function JournalFrame({frame,back,readLedger,readSource}){const j=frame.journal;return <section className="full-bleed qbo-transaction-report authoritative-evidence-page" aria-label="Journal lineage evidence"><Back onClick={back} context={frame.context}/><h1>Journal entry {j.journal_number}</h1><p className="page-subtitle">Exact GET evidence for Journal {j.journal_entry_id}, revision {j.revision}, currency {j.currency}.</p><div className="table-wrap" role="region" tabIndex={0} aria-label="Journal lineage lines; scroll horizontally"><table className="tbl"><thead><tr><th>Line</th><th>Account</th><th>Debit</th><th>Credit</th><th>Ledger</th><th>Sources</th></tr></thead><tbody>{j.lines.map(line=><tr key={line.journal_line_id}><td>{line.line_no}</td><td>{line.account_code}</td><td>{money(line.debit_amount)}</td><td>{money(line.credit_amount)}</td><td>{line.ledger_line_id?<button type="button" className="btn btn-sm" onClick={()=>readLedger(j,line)}>Open GL evidence</button>:'Not posted'}</td><td>{line.source_document_ids.length?line.source_document_ids.map(id=><button key={id} type="button" className="btn btn-sm btn-ghost" onClick={()=>readSource(id,j.journal_entry_id)}>Open source</button>):'None returned'}</td></tr>)}</tbody></table></div><StateBlock tone="empty" title="GET only">No edit, workflow, posting, export, or reconstructed lineage action is available.</StateBlock></section>}
 
