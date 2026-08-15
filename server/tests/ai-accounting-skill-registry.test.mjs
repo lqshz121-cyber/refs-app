@@ -35,7 +35,8 @@ test('accrual accounting remains disabled until a signed recurring-obligation se
   assert.equal(accrual.finding_category,null);
   assert.deepEqual(accrual.required_evidence,[
     'service_period_start','service_period_end','recurring_obligation_id',
-    'service_frequency','obligation_status','source_document_id','entity_id','accounting_period_id'
+    'service_frequency','obligation_status','source_document_id','source_document_line_id',
+    'source_payload_hash','source_line_hash','entity_id','accounting_period_id','currency','amount'
   ]);
   assert.deepEqual(accrual.prohibited_actions,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 });
