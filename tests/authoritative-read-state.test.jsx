@@ -7,21 +7,20 @@ for(const code of ['AUTHENTICATION_REQUIRED','AUTHORIZATION_DENIED','ACCOUNTING_
 for(const code of ['ACCOUNTING_API_UNREACHABLE','ACCOUNTING_API_SERVER_ERROR','HTTP_503',undefined])assert.equal(authoritativeReadFailurePhase({code}),'ERROR',`${code||'missing code'} must remain an ordinary retriable service error`);
 
 const blocked=renderToStaticMarkup(<AuthoritativeReadFailure state={{phase:'BLOCKED',error:{code:'AUTHORIZATION_DENIED',message:'Current entity is not admitted.'}}} onRetry={()=>{}}/>);
-assert.match(blocked,/NO_PERMISSION — this account cannot read this scope/);
-assert.match(blocked,/NO_PERMISSION<\/b>: AUTHORIZATION_DENIED: Current entity is not admitted\./);
-assert.match(blocked,/Ask an administrator for read access to this entity/);
+assert.match(blocked,/You need access to view these records/);
+assert.match(blocked,/Current entity is not admitted\./);
+assert.match(blocked,/Ask an administrator for access to this company/);
 assert.match(blocked,/Retry read-only evidence/);
 
 const serviceError=renderToStaticMarkup(<AuthoritativeReadFailure state={{phase:'ERROR',error:{code:'ACCOUNTING_API_UNREACHABLE',message:'Gateway unavailable.'}}} onRetry={()=>{}}/>);
-assert.match(serviceError,/ACCOUNTING_API_UNREACHABLE/);
 assert.match(serviceError,/Gateway unavailable\./);
-assert.match(serviceError,/API_ERROR — authoritative data could not be read/);
+assert.match(serviceError,/We could not load these records/);
 assert.match(serviceError,/Retry report read/);
 assert.doesNotMatch(serviceError,/NO_PERMISSION/);
-assert.equal(authoritativeReadFailureDiagnostic({code:'AUTHENTICATION_REQUIRED'}).status,'SIGN_IN_REQUIRED');
-assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SCOPE_INVALID'}).status,'SCOPE_INVALID');
-assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SCOPE_NOT_FOUND'}).status,'SCOPE_UNAVAILABLE');
-assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SERVER_ERROR'}).status,'API_ERROR');
+assert.equal(authoritativeReadFailureDiagnostic({code:'AUTHENTICATION_REQUIRED'}).title,'Please sign in again');
+assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SCOPE_INVALID'}).title,'Choose a valid company and reporting period');
+assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SCOPE_NOT_FOUND'}).title,'This company or reporting period is not available');
+assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SERVER_ERROR'}).title,'We could not load these records');
 
 const postedEmpty=renderToStaticMarkup(<AuthoritativeScopeEmpty subject="POSTED ledger lines" requiresPosted/>);
 assert.match(postedEmpty,/No posted records yet/);
