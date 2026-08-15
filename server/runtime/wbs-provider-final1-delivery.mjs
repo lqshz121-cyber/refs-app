@@ -9,6 +9,7 @@ const UTC=/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{3}))?Z$/;
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const MAX_RAW_BYTES=32*1024*1024;
 const SENSITIVE_RAW=/(?:^|\r?\n)(?:authorization|proxy-authorization|cookie|set-cookie|cf-access-client-secret|x-refs-auth)\s*:/i;
+const verifiedFinal1Evidence=new WeakSet();
 
 const fail=(code,message)=>{throw new WbsSignedDeliveryAdmissionError(code,message);};
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype;
@@ -30,6 +31,22 @@ const verified=(publicKey,payload,value)=>{
   try{return verify(null,payload,publicKey,Buffer.from(value,'base64'))===true;}catch{return false;}
 };
 const exactDate=value=>DATE.test(value||'')&&new Date(`${value}T00:00:00.000Z`).toISOString().slice(0,10)===value;
+const deepFreeze=value=>{
+  if(value&&typeof value==='object'&&!Object.isFrozen(value)){
+    for(const child of Object.values(value))deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
+};
+
+// A Final-1 verifier result is a capability, not a serializable assertion.
+// Normalizers may use only the exact in-process object produced here.  A
+// clone with self-consistent replacement hashes still lacks this provenance
+// and must never be promoted into a staging plan.
+export function requireVerifiedWbsProviderFinal1Evidence(value){
+  if(!verifiedFinal1Evidence.has(value))fail('WBS_FINAL1_NORMALIZATION_TAMPERED','Final-1 evidence must be the exact immutable result of the signature verifier.');
+  return value;
+}
 
 // Final-1 is the Provider's externally versioned delivery envelope.  It is
 // verified separately from REFS' internal normalized snapshot contract so a
@@ -65,7 +82,7 @@ export function verifyWbsProviderFinal1Delivery({providerTrust,receipt,requestRa
   const configuredCurrency=typeof expectedCurrency==='string'&&/^[A-Z]{3}$/.test(expectedCurrency)?expectedCurrency:null;
   if(currencySigned&&configuredCurrency&&rows[0].currency!==configuredCurrency)fail('WBS_FINAL1_CURRENCY_SCOPE_MISMATCH','Provider currency differs from the independently approved REFS currency.');
   const accountingCurrency=currencySigned?rows[0].currency:configuredCurrency;
-  return Object.freeze({
+  const result=deepFreeze({
     status:'VERIFIED_FINAL1_EVIDENCE_ONLY',format:'WBS_PROVIDER_FINAL1',signature_verified:true,
     tenant_id:expectedScope.tenant_id,entity_id:expectedScope.entity_id,company_code:expectedScope.company_code,
     snapshot_id:pkg.snapshot_id,date_from:pkg.date_from,date_to:pkg.date_to,row_count:rows.length,
@@ -78,4 +95,6 @@ export function verifyWbsProviderFinal1Delivery({providerTrust,receipt,requestRa
     ]),
     package:pkg,can_admit:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false
   });
+  verifiedFinal1Evidence.add(result);
+  return result;
 }
