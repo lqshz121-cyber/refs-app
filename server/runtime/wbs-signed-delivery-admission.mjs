@@ -9,6 +9,7 @@ import {createWbsSnapshotSignatureVerifier} from './wbs-snapshot-signature.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TOKEN=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const HASH=/^sha256:[0-9a-f]{64}$/;
+const UTC_INSTANT=/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{3}))?Z$/;
 const MAX_RAW_BYTES=32*1024*1024;
 export const WBS_SIGNED_DELIVERY_MAX_TTL_MS=15*60*1000;
 
@@ -23,7 +24,11 @@ const safeRaw=(value,label)=>{
   if(!Buffer.isBuffer(value)||value.byteLength===0||value.byteLength>MAX_RAW_BYTES)fail('WBS_SIGNED_DELIVERY_RAW_INVALID',`${label} raw bytes are absent or outside the fixed size bound.`);
   return value;
 };
-const exactUtc=value=>typeof value==='string'&&value.endsWith('Z')&&Number.isFinite(Date.parse(value))&&new Date(Date.parse(value)).toISOString()===value;
+const exactUtc=value=>{
+  if(typeof value!=='string')return false;
+  const match=UTC_INSTANT.exec(value),milliseconds=Date.parse(value);
+  return match!==null&&Number.isFinite(milliseconds)&&new Date(milliseconds).toISOString()===`${match[1]}.${match[2]||'000'}Z`;
+};
 const exactScope=scope=>object(scope)&&UUID.test(scope.tenant_id||'')&&UUID.test(scope.entity_id||'')&&TOKEN.test(scope.company_code||'');
 const without=(value,...keys)=>Object.fromEntries(Object.entries(value).filter(([key])=>!keys.includes(key)));
 const declaredFingerprint=value=>{

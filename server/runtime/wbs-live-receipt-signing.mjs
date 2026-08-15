@@ -30,10 +30,13 @@ export const canonicalWbsLiveReceiptSigningPayload = receipt => JSON.stringify(
 // shared prevents the offline release gate and the read-only acceptance tool
 // from disagreeing about an expired (or implausibly future-dated) receipt.
 const RECEIPT_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const UTC_INSTANT = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{3}))?Z$/;
 const parseUtcInstant = value => {
-  if (typeof value !== 'string' || !value.endsWith('Z')) return null;
+  if (typeof value !== 'string') return null;
+  const match = UTC_INSTANT.exec(value);
+  if (match === null) return null;
   const milliseconds = Date.parse(value);
-  if (!Number.isFinite(milliseconds) || new Date(milliseconds).toISOString() !== value) return null;
+  if (!Number.isFinite(milliseconds) || new Date(milliseconds).toISOString() !== `${match[1]}.${match[2] || '000'}Z`) return null;
   return milliseconds;
 };
 
