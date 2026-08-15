@@ -2729,7 +2729,7 @@ pgTest('Stage 2 test-data chain traces one reconciled bank payment through its p
   const match=await matcher.createBankPaymentMatch({...ids,bankSourceId,paymentOccurrenceId:payment.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Exact stage 2 payment evidence',idempotencyKey:'stage2-bank-match-001'});
   const evidence=(await adminPool.query('SELECT journal_entry_id,journal_line_id,ledger_line_id FROM bank_match WHERE bank_match_id=$1',[match.bank_match_id])).rows[0];
   assert.equal(evidence.journal_entry_id,payment.journal_entry_id);assert.ok(evidence.journal_line_id);assert.ok(evidence.ledger_line_id);
-  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-report-reader',['BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'])});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'stage2-report-reader',['AP.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'])});
   const demoStatus=await reader.readControlledDemoTenant({tenantId:ids.tenantId});
   assert.deepEqual({is_demo:demoStatus.is_demo,lifecycle_status:demoStatus.lifecycle_status,scenario_code:demoStatus.scenario_code},{is_demo:true,lifecycle_status:'ACTIVE_DEMO',scenario_code:'STAGE2_BANK_RECONCILIATION'});
   const otherTenant=await seed({status:'DRAFT',attachmentStatus:null,tenantId:randomUUID(),entityId:randomUUID(),periodId:randomUUID(),journalId:randomUUID()});
@@ -2769,6 +2769,25 @@ pgTest('Stage 2 test-data chain traces one reconciled bank payment through its p
   }
   const snapshot=(await adminPool.query('SELECT snapshot_body,snapshot_hash FROM reconciliation_snapshot WHERE reconciliation_id=$1',[reconciliation.reconciliation_id])).rows[0];
   assert.equal(snapshot.snapshot_hash,signed.snapshot_hash);assert.match(JSON.stringify(snapshot.snapshot_body),new RegExp(bankSourceId));assert.match(JSON.stringify(snapshot.snapshot_body),new RegExp(match.bank_match_id));
+
+  // Use the same authenticated API surface that a workspace uses.  This proves
+  // the isolated tenant has non-empty retained evidence across AP, Bank, JE,
+  // GL, and reports without relying on browser state or a seed-data renderer.
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'stage2-report-reader'}),kernelFactory:async()=>reader});
+  const get=path=>api({method:'GET',url:`/api/v1/entities/${ids.entityId}${path}`,body:null,headers:{}});
+  const [apiBill,apiBank,apiJournal,apiLedger,apiReport]=await Promise.all([
+    get('/ap/bills'),
+    get('/bank/transactions?bankAccountRef=BANK-1&from=2026-07-01&through=2026-07-31&limit=10&offset=0'),
+    get(`/journal-entries/${payment.journal_entry_id}?periodId=${ids.periodId}`),
+    get(`/general-ledger/entries?periodId=${ids.periodId}&accountCode=111000&limit=10&offset=0`),
+    get(`/reports/financial-statements?periodId=${ids.periodId}`)
+  ]);
+  for(const response of [apiBill,apiBank,apiJournal,apiLedger,apiReport])assert.equal(response.status,200);
+  assert.ok(apiBill.body.data.some(row=>row.business_document_id===billId));
+  assert.ok(apiBank.body.data.some(row=>row.bank_source_id===bankSourceId&&row.bank_match_id===match.bank_match_id));
+  assert.equal(apiJournal.body.data.journal_entry_id,payment.journal_entry_id);assert.equal(apiJournal.body.data.status,'POSTED');
+  assert.ok(apiLedger.body.data.some(row=>row.journal_entry_id===payment.journal_entry_id&&row.source_document_ids.includes(source.documentId)));
+  assert.ok(apiReport.body.data.some(row=>row.statement_type==='TRIAL_BALANCE'&&row.account_code==='111000'&&row.journal_entry_ids.includes(payment.journal_entry_id)));
 });
 
 pgTest('financial statements read only POSTED ledger evidence with entity, period, and source drill scope',async()=>{
