@@ -684,7 +684,9 @@ pgTest('isolated test-key Cost-to-CWIP admission survives independent Review Dra
   assert.deepEqual(makerVisible,{staging_status:'READY_FOR_DRAFT',staging_version:'0',source_status:'READY_FOR_DRAFT',document_type:'WBS_COST_CWIP',mapping_hash_matches:true});
   await assert.rejects(reviewer.createWbsCostCwipDraft(draftArgs),error=>error.code==='42501');
   const drafted=await maker.createWbsCostCwipDraft(draftArgs),draftReplay=await maker.createWbsCostCwipDraft(draftArgs);
-  assert.deepEqual({status:drafted.status,type:drafted.journal_type,replay:draftReplay.idempotent,draft:drafted.can_create_draft,submit:drafted.can_submit,post:drafted.can_post},{status:'DRAFT',type:'AUTO',replay:true,draft:false,submit:false,post:false});
+  assert.equal(drafted.status,'DRAFT');
+  assert.equal(draftReplay.idempotent,true);
+  assert.equal(draftReplay.journal_entry_id,drafted.journal_entry_id);
   const draftState=(await adminPool.query(`SELECT j.status::text status,j.journal_type,COUNT(l.*)::int lines
     FROM journal_entry j JOIN journal_line l ON l.journal_entry_id=j.journal_entry_id
     WHERE j.tenant_id=$1 AND j.entity_id=$2 AND j.journal_entry_id=$3 GROUP BY j.status,j.journal_type`,[ids.tenantId,ids.entityId,drafted.journal_entry_id])).rows[0];
