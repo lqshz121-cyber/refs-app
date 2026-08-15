@@ -1570,6 +1570,24 @@
         "responses": {"200": {"$ref": "#/components/responses/CwipRollforwardReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/reports/construction-loan-rollforward": {
+      "get": {
+        "operationId": "getConstructionLoanRollforward",
+        "summary": "Read a mapping-backed construction-loan rollforward",
+        "description": "Returns only POSTED ledger evidence for exact accounts admitted by one immutable construction-loan account-classification mapping snapshot. Missing or ambiguous mappings remain BLOCKED. This operation cannot infer debt from account labels, create a draw or repayment, post a journal, or persist a report.",
+        "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}],
+        "responses": {"200": {"$ref": "#/components/responses/ConstructionLoanRollforwardReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/reports/prepaid-rollforward": {
+      "get": {
+        "operationId": "getPrepaidRollforward",
+        "summary": "Read a mapping-backed prepaid rollforward",
+        "description": "Returns only POSTED ledger evidence for exact accounts admitted by one immutable prepaid account-classification mapping snapshot. Missing or ambiguous mappings remain BLOCKED. This operation cannot infer prepaid classification, create amortization, post a journal, or persist a report.",
+        "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}],
+        "responses": {"200": {"$ref": "#/components/responses/PrepaidRollforwardReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/reports/intercompany-reconciliation": {
       "get": {
         "operationId": "getIntercompanyReconciliation",
@@ -3687,6 +3705,30 @@
         }
       },
       "CwipRollforwardReadEnvelope": {"type":"object", "additionalProperties":false, "required":["ok","data"], "properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/CwipRollforwardReadRow"}}}},
+      "ConstructionLoanRollforwardReadRow": {
+        "type": "object", "additionalProperties": false,
+        "required": ["period_id","period_code","period_start","period_end","account_code","account_name","mapping_status","classification_basis","opening_balance","period_draws","period_repayments","closing_balance","mapping_snapshot_id","mapping_version","mapping_snapshot_hash","journal_entry_ids","journal_line_ids","ledger_line_ids","source_document_ids"],
+        "properties": {
+          "period_id": {"$ref":"#/components/schemas/Uuid"}, "period_code": {"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])$"}, "period_start": {"type":"string","format":"date"}, "period_end": {"type":"string","format":"date"},
+          "account_code": {"type":"string"}, "account_name": {"type":"string"}, "mapping_status": {"type":"string","enum":["MAPPED_CONSTRUCTION_LOAN_ACCOUNT","BLOCKED_MAPPING_REQUIRED","BLOCKED_MAPPING_AMBIGUOUS","BLOCKED_MAPPING_RULE_INVALID"]}, "classification_basis": {"type":"string"},
+          "opening_balance": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "period_draws": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "period_repayments": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "closing_balance": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]},
+          "mapping_snapshot_id": {"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]}, "mapping_version": {"type":["string","null"]}, "mapping_snapshot_hash": {"type":["string","null"]},
+          "journal_entry_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "journal_line_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "ledger_line_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "source_document_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}
+        }
+      },
+      "ConstructionLoanRollforwardReadEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/ConstructionLoanRollforwardReadRow"}}}},
+      "PrepaidRollforwardReadRow": {
+        "type": "object", "additionalProperties": false,
+        "required": ["period_id","period_code","period_start","period_end","account_code","account_name","mapping_status","classification_basis","opening_balance","period_additions","period_amortization","closing_balance","mapping_snapshot_id","mapping_version","mapping_snapshot_hash","journal_entry_ids","journal_line_ids","ledger_line_ids","source_document_ids"],
+        "properties": {
+          "period_id": {"$ref":"#/components/schemas/Uuid"}, "period_code": {"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])$"}, "period_start": {"type":"string","format":"date"}, "period_end": {"type":"string","format":"date"},
+          "account_code": {"type":"string"}, "account_name": {"type":"string"}, "mapping_status": {"type":"string","enum":["MAPPED_PREPAID_ACCOUNT","BLOCKED_MAPPING_REQUIRED","BLOCKED_MAPPING_AMBIGUOUS","BLOCKED_MAPPING_RULE_INVALID"]}, "classification_basis": {"type":"string"},
+          "opening_balance": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "period_additions": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "period_amortization": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "closing_balance": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]},
+          "mapping_snapshot_id": {"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]}, "mapping_version": {"type":["string","null"]}, "mapping_snapshot_hash": {"type":["string","null"]},
+          "journal_entry_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "journal_line_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "ledger_line_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "source_document_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}
+        }
+      },
+      "PrepaidRollforwardReadEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/PrepaidRollforwardReadRow"}}}},
       "IntercompanyReconciliationReadRow": {
         "type": "object", "additionalProperties": false,
         "required": ["period_id","counterparty_period_id","period_code","period_start","period_end","account_code","account_name","counterparty_account_code","counterparty_account_name","mapping_status","classification_basis","current_closing_balance","counterparty_closing_balance","difference_amount","in_balance","mapping_snapshot_id","mapping_version","mapping_snapshot_hash","counterparty_mapping_snapshot_id","counterparty_mapping_version","counterparty_mapping_snapshot_hash","journal_entry_ids","journal_line_ids","ledger_line_ids","source_document_ids","counterparty_journal_entry_ids","counterparty_journal_line_ids","counterparty_ledger_line_ids","counterparty_source_document_ids"],
@@ -5429,6 +5471,16 @@
         "description": "Scoped immutable mapping-backed CWIP rollforward evidence",
         "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CwipRollforwardReadEnvelope"}}}
+      },
+      "ConstructionLoanRollforwardReadOk": {
+        "description": "Scoped immutable mapping-backed construction-loan rollforward evidence",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConstructionLoanRollforwardReadEnvelope"}}}
+      },
+      "PrepaidRollforwardReadOk": {
+        "description": "Scoped immutable mapping-backed prepaid rollforward evidence",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PrepaidRollforwardReadEnvelope"}}}
       },
       "IntercompanyReconciliationReadOk": {
         "description": "Scoped, read-only intercompany reconciliation evidence; a nonzero difference requires review and cannot create an elimination or adjustment",
