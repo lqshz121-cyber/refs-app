@@ -20,7 +20,7 @@ test('AI Accounting skill registry exposes only retained-evidence, no-action fin
 
 test('planned AI skills cannot be accidentally sent to the model before their source contracts exist',()=>{
   const planned=AI_ACCOUNTING_SKILLS.filter(item=>item.status==='PLANNED_SOURCE_CONTRACT');
-  assert.ok(planned.length>=4);
+  assert.ok(planned.length>=3);
   for(const item of planned){
     assert.equal(item.finding_category,null);
     assert.equal(isAiAnalysisFindingCategory(item.finding_category),false);
@@ -28,15 +28,17 @@ test('planned AI skills cannot be accidentally sent to the model before their so
   }
 });
 
-test('accrual accounting remains disabled until a signed recurring-obligation service-period contract exists',()=>{
+test('accrual accounting exposes only its signed-evidence review candidate contract',()=>{
   const accrual=AI_ACCOUNTING_SKILLS.find(item=>item.id==='ACCRUAL_ACCOUNTING');
   assert.ok(accrual);
-  assert.equal(accrual.status,'PLANNED_SOURCE_CONTRACT');
+  assert.equal(accrual.status,'IMPLEMENTED_REVIEW_CANDIDATE');
   assert.equal(accrual.finding_category,null);
   assert.deepEqual(accrual.required_evidence,[
     'service_period_start','service_period_end','recurring_obligation_id',
     'service_frequency','obligation_status','source_document_id','source_document_line_id',
     'source_payload_hash','source_line_hash','entity_id','accounting_period_id','currency','amount'
   ]);
+  assert.deepEqual(accrual.allowed_outputs,['accrual_review_candidate']);
   assert.deepEqual(accrual.prohibited_actions,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+  assert.equal(isAiAnalysisFindingCategory(accrual.finding_category),false);
 });

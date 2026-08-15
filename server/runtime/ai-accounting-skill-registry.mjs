@@ -20,9 +20,10 @@ const skill=({id,name,status,findingCategory,requiredEvidence,allowedOutputs})=>
 });
 
 // IMPLEMENTED_FINDING skills are the only categories eligible for the
-// explanation gateway.  PLANNED_SOURCE_CONTRACT entries deliberately have no
-// finding category: they cannot become model input until a source-bound rule
-// and retained evidence contract exist.
+// explanation gateway. IMPLEMENTED_REVIEW_CANDIDATE skills have a separate,
+// deterministic retained-evidence analysis contract, but are deliberately not
+// findings and cannot become model input. PLANNED_SOURCE_CONTRACT entries have
+// neither contract yet.
 export const AI_ACCOUNTING_SKILLS=Object.freeze([
   skill({id:'REAL_ESTATE_CONTROLLER_REVIEW',name:'Real Estate Controller Review',status:'IMPLEMENTED_FINDING',findingCategory:'WBS_EXCEPTION',requiredEvidence:['source_record_id','source_payload_hash','source_document_version'],allowedOutputs:['controller_memo','assignable_review_action']}),
   skill({id:'AP_PAYABLE_AUDIT',name:'AP and Payable Audit',status:'IMPLEMENTED_FINDING',findingCategory:'DUPLICATE_PAYABLE',requiredEvidence:['source_document_id','candidate_source_document_id','source_payload_hash','candidate_payload_hash','match_key_hash'],allowedOutputs:['controller_memo','duplicate_review_action']}),
@@ -34,7 +35,7 @@ export const AI_ACCOUNTING_SKILLS=Object.freeze([
   // identifies both the actual service window and the recurring obligation.
   // These explicit fields prevent a generic invoice, amount, or LLM guess from
   // being mistaken for support for an accrual.
-  skill({id:'ACCRUAL_ACCOUNTING',name:'Accrual Accounting',status:'PLANNED_SOURCE_CONTRACT',findingCategory:null,requiredEvidence:['service_period_start','service_period_end','recurring_obligation_id','service_frequency','obligation_status','source_document_id','source_document_line_id','source_payload_hash','source_line_hash','entity_id','accounting_period_id','currency','amount'],allowedOutputs:['future_accrual_review_action']}),
+  skill({id:'ACCRUAL_ACCOUNTING',name:'Accrual Accounting',status:'IMPLEMENTED_REVIEW_CANDIDATE',findingCategory:null,requiredEvidence:['service_period_start','service_period_end','recurring_obligation_id','service_frequency','obligation_status','source_document_id','source_document_line_id','source_payload_hash','source_line_hash','entity_id','accounting_period_id','currency','amount'],allowedOutputs:['accrual_review_candidate']}),
   skill({id:'REVENUE_PROPERTY_MANAGEMENT',name:'Revenue and Property Management',status:'PLANNED_SOURCE_CONTRACT',findingCategory:null,requiredEvidence:['rent_roll_or_operating_report','gl_revenue_trace','entity','property'],allowedOutputs:['future_revenue_review_action']}),
   skill({id:'FINANCIAL_REPORTING',name:'Financial Reporting',status:'PLANNED_SOURCE_CONTRACT',findingCategory:null,requiredEvidence:['posted_gl_lines','period','entity','account_mapping'],allowedOutputs:['future_variance_explanation']}),
   skill({id:'INTERCOMPANY_CLOSE_CONTROLLER',name:'Intercompany and Close Controller',status:'PLANNED_SOURCE_CONTRACT',findingCategory:null,requiredEvidence:['counterparty_entity','intercompany_mapping','posted_gl_lines','period'],allowedOutputs:['future_close_review_action']})
