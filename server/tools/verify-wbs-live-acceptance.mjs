@@ -72,7 +72,7 @@ export function verifySignedReceipt({receipt,providerTrust,raw,now=Date.now()}){
   catch(error){if(error?.code)throw error;fail('WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_INVALID');}
   let snapshot,validated;try{snapshot=JSON.parse(raw.package.toString('utf8'));validated=validateWbsSnapshotPackage(snapshot);}catch{fail('WBS_LIVE_ACCEPTANCE_PACKAGE_INVALID');}
   if(validated.environment!=='PRODUCTION'||validated.company_key!==text(receipt.company_code)||validated.snapshot_id!==text(receipt.immutable_version)||validated.receipt_count<1)fail('WBS_LIVE_ACCEPTANCE_PACKAGE_INVALID');
-  const sourceFacts=validated.receipts.map(source=>{const view=snapshot.views.find(row=>row.name===source.source_module),row=view?.rows.find(value=>canonicalRequestHash(value)===source.payload_hash);if(!row)fail('WBS_LIVE_ACCEPTANCE_PACKAGE_INVALID');return Object.freeze({...source,amount:row.amount,currency:row.currency,bank_account_ref:row.bank_account_ref});});
+  const sourceFacts=validated.receipts.map(source=>{const view=snapshot.views.find(row=>row.name===source.source_module),row=view?.rows.find(value=>canonicalRequestHash(value)===source.payload_hash);if(!row)fail('WBS_LIVE_ACCEPTANCE_PACKAGE_INVALID');return Object.freeze({...source,provider_receipt_hash:canonicalRequestHash(source),amount:row.amount,currency:row.currency,bank_account_ref:row.bank_account_ref});});
   return Object.freeze({tenant_id:text(receipt.tenant_id),entity_id:text(receipt.entity_id),company_code:text(receipt.company_code),package_hash:text(receipt.package_hash),snapshot_id:validated.snapshot_id,source_receipts:Object.freeze(sourceFacts)});
 }
 
