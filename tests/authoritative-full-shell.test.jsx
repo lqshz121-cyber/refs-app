@@ -94,10 +94,15 @@ for(const scopeHook of [
 ])assert.ok(appSource.indexOf(scopeHook)>0&&appSource.indexOf(scopeHook)<firstConditionalRender,`${scopeHook} must execute before every conditional render so OIDC phase changes cannot alter the React hook order`);
 assert.match(appSource, /Accounting records are read only from the authenticated API in this mode/,
   'the sign-in surface must describe the sole authoritative source of accounting records');
-assert.match(appSource, /display name not returned by API/,
-  'a missing entity display name must be explained without promoting its internal UUID to primary text');
-assert.match(appSource, /period details not returned by API/,
-  'a missing period label must be explained without presenting an internal ID as the period');
+assert.match(appSource, /company details are being confirmed/,
+  'a missing entity display name must be explained in finance-team language without promoting its internal UUID to primary text');
+assert.match(appSource, /reporting period details are being confirmed/,
+  'a missing period label must be explained in finance-team language without presenting an internal ID as the period');
+const topbarSource = fs.readFileSync('src/authoritative-topbar.jsx', 'utf8');
+assert.match(topbarSource, /badge badge-ok">Connected</,
+  'the visible topbar status must use customer-facing connection language');
+assert.doesNotMatch(topbarSource, /API read/,
+  'the visible topbar status must not expose implementation terminology');
 assert.doesNotMatch(appSource, /No demo identity/,
   'the authoritative sign-in surface must not expose retired product terminology');
 const runtimeErrorSource = fs.readFileSync('src/runtime-error-page.jsx', 'utf8');
