@@ -147,5 +147,7 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"139_wbs_autorec_match_review_g11_readback.sql",up:"032a1ce4ff43a230915b214332003175a9d08e62f475fb6e62648bec13671fb7",down:"c33337a52b883d235a063bb7da6543960a4494379439ec2f4f48645f6137c081"}),
   Object.freeze({name:"141_insurance_prepaid_amortization.sql",up:"a75417936b6ab242cc0763af694866d4e9fd395d3a8d8963899d8ca250767e42",down:"4edaa74ae3b49cef304eafbda9d630b1b7c59e4db893017ea8f6d90639256b59"}),
   Object.freeze({name:"142_wbs_property_rent_source_admission.sql",up:"05015013f8e065b85474fd7e6b890cc068a4e9225f5ae8c7f877d5f951c76df3",down:"664c55b2df3b739b96e44992d15cac3d8fdf04f8e15d81355ccfa82fd656f9d1"}),
-  Object.freeze({name:"143_wbs_property_rent_pickup.sql",up:"131d3e021d0f0e8edee2a88567b3eb66a36de20b07d2394c7b91d334533f9be8",down:"37801664a4bf2e85f524c20b038e58f55ed6bd78aeb0fd21a92d1222ec3a456b"}),
+  Object.freeze({name:"143_wbs_property_rent_pickup.sql",up:"c3376d891622706d2e1e8329ec0b76c2991479bbfdf83803827222db6df0c603",down:"c44cbf48ccb9ffb4809f9b990be2f27930fb92736ac8b88f37ae0a7037d7dfd1"}),
+  Object.freeze({name:"144_wbs_property_rent_pickup_read.sql",up:"858148d131c832234bcaeb3a22a9413c64111692ed9a47e3c636b9312a40bb2e",down:"03161858e167d00743afd424540df41c34a4cb73a033c315d56916637912ee22"}),
+  Object.freeze({name:"145_insurance_prepaid_amortization_read.sql",up:"5d247caa3ba65433f5fa2eb35693b10b3095bcd5b71817fc1a9d4cf6e77a111f",down:"32e01ca3e8081a89fdb8d87f2edff800ace3d0ddc0a5ed99086f20e85323fa19"}),
 ]);

@@ -118,6 +118,28 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         assertWbsLivePilotResult(result,{entityId,tool:selection.tool,limit:selection.limit});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='property-rent-pickup'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Property Rent pickup reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listWbsPropertyRentPickup!=='function')throw new AccountingApiError(503,'WBS_PROPERTY_RENT_READ_UNAVAILABLE','Property Rent pickup read is unavailable');
+        result=await kernel.listWbsPropertyRentPickup({tenantId:principal.tenantId,entityId,limit:optionalAdmittedStatementLimit(parsedUrl.searchParams.get('limit'))});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='POST'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='property-rent-pickup'&&parts[7]==='reviews'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['periodId','expectedEvidenceHash','reason']);
+        const expectedRevision=requireRevision(headers);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.reviewWbsPropertyRent!=='function')throw new AccountingApiError(503,'WBS_PROPERTY_RENT_REVIEW_UNAVAILABLE','Property Rent review is unavailable');
+        result=await kernel.reviewWbsPropertyRent({tenantId:principal.tenantId,entityId,admissionId:requireUuid(parts[6],'admissionId'),periodId:requireUuid(payload.periodId,'periodId'),expectedRevision,expectedEvidenceHash:requireSha256(payload.expectedEvidenceHash,'expectedEvidenceHash'),reason:requireReviewReason(payload.reason),idempotencyKey:requireIdempotency(headers)});
+        return {status:result.idempotent===true?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='POST'&&parts.length===9&&parts[4]==='wbs'&&parts[5]==='property-rent-pickup'&&parts[6]==='reviews'&&parts[8]==='drafts'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['expectedEvidenceHash','reason']);
+        const expectedRevision=requireRevision(headers);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createWbsPropertyRentDraft!=='function')throw new AccountingApiError(503,'WBS_PROPERTY_RENT_DRAFT_UNAVAILABLE','Property Rent Draft creation is unavailable');
+        result=await kernel.createWbsPropertyRentDraft({tenantId:principal.tenantId,entityId,reviewEvidenceId:requireUuid(parts[7],'reviewEvidenceId'),expectedRevision,expectedEvidenceHash:requireSha256(payload.expectedEvidenceHash,'expectedEvidenceHash'),reason:requireReviewReason(payload.reason),idempotencyKey:requireIdempotency(headers)});
+        return {status:result.idempotent===true?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='payables'&&parts[7]==='reviews'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','WBS Payable evidence reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
