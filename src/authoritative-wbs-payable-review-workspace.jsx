@@ -8,13 +8,13 @@ const immutableCandidate=row=>JSON.stringify(row);
 
 const ReviewCandidateReadBlocked=({error,onRetry})=>{
   const denied=error?.code==='AUTHORIZATION_DENIED';
-  return <StateBlock tone="blocked" title={denied?'NO_PERMISSION — WBS Payable reviewer access required':error?.code||'WBS_PAYABLE_REVIEW_CANDIDATES_BLOCKED'}
-    actions={<button type="button" className="btn btn-sm" onClick={onRetry}>Retry review readiness</button>}>
+  return <StateBlock tone="blocked" title={denied?'Review access needed':'Review records are unavailable'}
+    actions={<button type="button" className="btn btn-sm" onClick={onRetry}>Check access again</button>}>
     {denied?<>
-      <p>The current session cannot read signed WBS Payables for this entity.</p>
-      <p>Next step: an administrator must assign the <b>WBS_PAYABLE_REVIEWER</b> role for this entity. That role supplies <code>WBS.PAYABLE.REVIEW</code> and <code>AP.VIEW</code>; it does not grant import, Draft creation, approval, or posting.</p>
-      <p>Unsigned Pilot observations remain excluded even after this read permission is assigned.</p>
-    </>:<p>{error?.message||'The authoritative review-candidate read is unavailable for this entity.'}</p>}
+      <p>Your account can view WBS exceptions, but it cannot review signed payables for this company.</p>
+      <p>Next step: ask an administrator for <b>WBS Payable Reviewer</b> access for this company. It lets you review qualified records only; it does not allow importing, creating a draft, approving, or posting.</p>
+      <p>Unsigned pilot records are not included in the review queue.</p>
+    </>:<p>{error?.message||'We could not load review-ready records. Try again, or contact your administrator if the problem continues.'}</p>}
   </StateBlock>;
 };
 
