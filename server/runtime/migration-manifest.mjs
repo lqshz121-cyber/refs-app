@@ -143,6 +143,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"135_wbs_autorec_match_review.sql",up:"398287c477ba7481babb0e148e3006a1bb5de4f9c3d1b514fa1188d6f6d22cab",down:"d18842b9042155e0341bba9cd1ebb42d0e00f72fce4cb74c313c396b03590a1b"}),
   Object.freeze({name:"136_wbs_autorec_accounting_event.sql",up:"51a813e7e5b9f856878d624080038f420616a900d4543a420f113f596342749b",down:"dd60c10ee875109c8ee3e41ddbfe9213cc825c04ca346cb3f9876b933afbf629"}),
   Object.freeze({name:"137_wbs_autorec_g11_draft.sql",up:"828d4c8e83f689529a3ae9696cca323a11d311ab49480c547b3fdab97bc4a817",down:"b93d0857d90257069fd9c8b1b13d18049bb87add1c275d2551ab25bea7c7e919"}),
-  Object.freeze({name:"138_wbs_autorec_g11_incurred.sql",up:"cb4f99723cd1584a3a9e7af68844bc42bd29db9ca153c35285c47a985f9d0324",down:"e59faf1519476dd0b5d0558fd2932d441ad790cba0ee7cf1b1c9990df65bbcce"}),
+  Object.freeze({name:"138_wbs_autorec_g11_incurred.sql",up:"6968a894cfb8d3aaf3cfefea3a86d4dc8ae48b4c837b478d506abcf896fc5fe8",down:"e59faf1519476dd0b5d0558fd2932d441ad790cba0ee7cf1b1c9990df65bbcce"}),
   Object.freeze({name:"139_wbs_autorec_match_review_g11_readback.sql",up:"032a1ce4ff43a230915b214332003175a9d08e62f475fb6e62648bec13671fb7",down:"c33337a52b883d235a063bb7da6543960a4494379439ec2f4f48645f6137c081"}),
 ]);

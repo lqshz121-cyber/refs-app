@@ -77,7 +77,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,publi
 DECLARE actor text:=refs_current_actor(); review_row wbs_autorec_match_review; release_row wbs_autorec_execution_event;
 DECLARE payable_event accounting_event; autoc_event accounting_event; payable_je journal_entry; autoc_je journal_entry;
 DECLARE payable_batch uuid; autoc_batch uuid; completion_id uuid:=gen_random_uuid(); incur_id uuid:=gen_random_uuid(); next_version integer;
-DECLARE rec idempotency_receipt; evidence text; result jsonb; candidate jsonb; prior_actors text[];
+DECLARE rec idempotency_receipt; evidence text; result jsonb; candidate jsonb; prior_actors text[]; line_snapshot jsonb;
 BEGIN
   PERFORM refs_assert_scope(p_tenant,p_entity,'BANK.AUTOREC.G11.INCUR');
   IF actor IS NULL OR p_request_hash<>refs_wbs_autorec_g11_incur_hash(p_tenant,p_entity,p_review,p_expected_evidence_hash,p_reason)
@@ -112,6 +112,12 @@ BEGIN
      OR payable_event.mapping_snapshot_id<>autoc_event.mapping_snapshot_id OR payable_event.mapping_snapshot_hash<>autoc_event.mapping_snapshot_hash THEN
     RAISE EXCEPTION 'G11 accounting events do not share the exact reviewed allocation and mapping' USING ERRCODE='23514';
   END IF;
+  IF NOT EXISTS(SELECT 1 FROM mapping_snapshot m WHERE m.tenant_id=p_tenant AND m.entity_id=p_entity
+       AND m.mapping_snapshot_id=payable_event.mapping_snapshot_id AND m.family='WBS_AUTOREC_G11'
+       AND m.snapshot_hash=payable_event.mapping_snapshot_hash
+       AND m.snapshot_hash=refs_jsonb_hash(jsonb_build_object('input_keys',m.input_keys,'output_rules',m.output_rules))) THEN
+    RAISE EXCEPTION 'G11 mapping snapshot is missing or not canonical' USING ERRCODE='23514';
+  END IF;
   SELECT je.* INTO payable_je FROM journal_accounting_event b JOIN journal_entry je USING(tenant_id,entity_id,journal_entry_id)
     WHERE b.tenant_id=p_tenant AND b.entity_id=p_entity AND b.accounting_event_id=payable_event.accounting_event_id FOR SHARE OF je;
   SELECT je.* INTO autoc_je FROM journal_accounting_event b JOIN journal_entry je USING(tenant_id,entity_id,journal_entry_id)
@@ -119,6 +125,13 @@ BEGIN
   IF payable_je.journal_entry_id IS NULL OR autoc_je.journal_entry_id IS NULL OR payable_je.journal_entry_id=autoc_je.journal_entry_id
      OR payable_je.status<>'POSTED' OR autoc_je.status<>'POSTED' OR payable_je.journal_type<>'AUTO' OR autoc_je.journal_type<>'AUTO'
      OR payable_je.revision<>4 OR autoc_je.revision<>4 THEN RAISE EXCEPTION 'G11 INCUR requires two distinct standard POSTED AUTO journals' USING ERRCODE='23514'; END IF;
+  IF (SELECT count(*) FROM accounting_event ae JOIN journal_accounting_event jae USING(tenant_id,entity_id,accounting_event_id)
+       JOIN source_link sl ON sl.tenant_id=ae.tenant_id AND sl.entity_id=ae.entity_id
+        AND sl.source_document_id=ae.source_document_id AND sl.staging_item_id=ae.staging_item_id
+        AND sl.journal_entry_id=jae.journal_entry_id AND sl.link_type='SOURCE_TO_JE'
+       WHERE ae.tenant_id=p_tenant AND ae.entity_id=p_entity AND ae.wbs_autorec_match_review_id=p_review)<>2 THEN
+    RAISE EXCEPTION 'G11 exact Source-to-JE lineage is incomplete' USING ERRCODE='23514';
+  END IF;
   prior_actors:=ARRAY[review_row.candidate_prepared_by,review_row.matched_by,review_row.reviewed_by,payable_je.created_by,payable_je.reviewed_by,payable_je.approved_by,payable_je.posted_by,autoc_je.created_by,autoc_je.reviewed_by,autoc_je.approved_by,autoc_je.posted_by];
   IF actor=ANY(prior_actors) THEN RAISE EXCEPTION 'G11 finalizer SoD violation' USING ERRCODE='42501'; END IF;
   IF (SELECT count(*) FROM journal_line WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id IN(payable_je.journal_entry_id,autoc_je.journal_entry_id))<>4
@@ -137,11 +150,31 @@ BEGIN
   SELECT (array_agg(DISTINCT posting_batch_id))[1] INTO payable_batch FROM ledger_line WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=payable_je.journal_entry_id HAVING count(DISTINCT posting_batch_id)=1;
   SELECT (array_agg(DISTINCT posting_batch_id))[1] INTO autoc_batch FROM ledger_line WHERE tenant_id=p_tenant AND entity_id=p_entity AND journal_entry_id=autoc_je.journal_entry_id HAVING count(DISTINCT posting_batch_id)=1;
   IF payable_batch IS NULL OR autoc_batch IS NULL OR payable_batch=autoc_batch THEN RAISE EXCEPTION 'G11 requires one distinct posting batch per journal' USING ERRCODE='23514'; END IF;
+  SELECT jsonb_agg(jsonb_build_object(
+      'event_type',ae.event_type,'accounting_event_id',ae.accounting_event_id,
+      'source_document_id',ae.source_document_id,'staging_item_id',ae.staging_item_id,
+      'journal_entry_id',je.journal_entry_id,'posting_batch_id',ll.posting_batch_id,
+      'journal_line_id',jl.journal_line_id,'ledger_line_id',ll.ledger_line_id,
+      'line_role',CASE WHEN jl.account_code='291001' THEN 'CLEARING' ELSE 'OFFSET' END,
+      'account_code',jl.account_code,'debit_amount',to_char(jl.debit_amount,'FM999999999999990.0000'),
+      'credit_amount',to_char(jl.credit_amount,'FM999999999999990.0000'),'member_ref',jl.member_ref)
+      ORDER BY ae.event_type,CASE WHEN jl.account_code='291001' THEN 'CLEARING' ELSE 'OFFSET' END)
+    INTO line_snapshot
+  FROM accounting_event ae JOIN journal_accounting_event jae USING(tenant_id,entity_id,accounting_event_id)
+    JOIN journal_entry je USING(tenant_id,entity_id,journal_entry_id) JOIN journal_line jl USING(tenant_id,entity_id,journal_entry_id)
+    JOIN ledger_line ll USING(tenant_id,entity_id,journal_entry_id,journal_line_id)
+  WHERE ae.tenant_id=p_tenant AND ae.entity_id=p_entity AND ae.wbs_autorec_match_review_id=p_review;
+  IF jsonb_array_length(coalesce(line_snapshot,'[]'::jsonb))<>4 THEN
+    RAISE EXCEPTION 'G11 immutable line snapshot is incomplete' USING ERRCODE='23514';
+  END IF;
   evidence:=refs_jsonb_hash(jsonb_build_object('review_id',p_review,'review_evidence_hash',review_row.evidence_hash,
     'release_receipt_id',release_row.execution_receipt_id,'release_version',release_row.version,
     'payable_event_id',payable_event.accounting_event_id,'autoc_event_id',autoc_event.accounting_event_id,
+    'mapping_snapshot_id',payable_event.mapping_snapshot_id,'mapping_snapshot_hash',payable_event.mapping_snapshot_hash,
+    'payable_source_document_id',payable_event.source_document_id,'payable_staging_item_id',payable_event.staging_item_id,
+    'autoc_source_document_id',autoc_event.source_document_id,'autoc_staging_item_id',autoc_event.staging_item_id,
     'payable_journal_id',payable_je.journal_entry_id,'autoc_journal_id',autoc_je.journal_entry_id,
-    'payable_batch_id',payable_batch,'autoc_batch_id',autoc_batch));
+    'payable_batch_id',payable_batch,'autoc_batch_id',autoc_batch,'lines',line_snapshot));
   next_version:=release_row.version+1;
   INSERT INTO wbs_autorec_execution_event(execution_receipt_id,tenant_id,entity_id,review_candidate_id,command,current_state,next_state,version,request_hash,idempotency_key,intent)
   VALUES(incur_id,p_tenant,p_entity,review_row.review_candidate_id,'INCUR','RELEASED','INCURRED',next_version,p_request_hash,p_idempotency,
