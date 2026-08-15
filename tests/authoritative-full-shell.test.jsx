@@ -48,8 +48,11 @@ assert.match(topbarMarkup, /WBHO WB Home LLC/);
 assert.doesNotMatch(topbarMarkup, /Search or jump|Help is unavailable|Notifications are unavailable|disabled=/,
   'the authoritative topbar must not render inert product controls');
 assert.match(topbarMarkup, /Period/);
-assert.match(topbarMarkup, /Authoritative/);
-assert.match(topbarMarkup, /Authenticated/);
+assert.match(topbarMarkup, /View only/);
+assert.match(topbarMarkup, /Secure workspace/);
+assert.match(topbarMarkup, /Signed in/);
+assert.doesNotMatch(topbarMarkup, /API read|Authoritative|Authenticated|OIDC/,
+  'finance-reader chrome must not expose transport or authentication implementation labels');
 const accessRow={tenant_id:'55555555-5555-4555-8555-555555555555',entity_id:'11111111-1111-4111-8111-111111111111',actor_id:'auth0|current-user',grant_set_version:7,permissions:['AP.VIEW','WBS.PAYABLE.REVIEW'],configured_permissions:['AP.VIEW','GL.REPORT.VIEW','WBS.PAYABLE.REVIEW'],session_refresh_required:true};
 const accessMarkup=renderToStaticMarkup(<AuthoritativeAccessStatus state={{status:'READY',row:accessRow}}/>);
 assert.match(accessMarkup,/Access<\/b> Changed - sign in again/);
@@ -72,16 +75,16 @@ const workspaceViewSource = fs.readFileSync('src/authoritative-workbench-view.js
 assert.doesNotMatch(workspaceViewSource, /seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js/,
   'the reusable authoritative presentation frame must not import or persist local accounting state');
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
-assert.match(unavailableMarkup, /Entity-scoped source-document list and immutable detail endpoints\./);
-assert.match(unavailableMarkup, /Separate authorised attachment-read contract\./);
+assert.match(unavailableMarkup, /Company records are available for this workspace\./);
+assert.match(unavailableMarkup, /Supporting documents can be reviewed securely\./);
 assert.match(unavailableMarkup, /Who completes this:/);
 assert.match(unavailableMarkup, /Next step:/);
 assert.match(unavailableMarkup, /Source Documents is being prepared/);
 assert.match(unavailableMarkup, /No financial activity is shown until setup is complete/);
-assert.match(unavailableMarkup, /What needs to be in place/);
-assert.match(unavailableMarkup, /attachment-read contract/);
+assert.match(unavailableMarkup, /What happens next/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
+const topbarSource = fs.readFileSync('src/authoritative-topbar.jsx', 'utf8');
 assert.match(appSource,/refreshCurrentActorAccess\(\{config,fetcher:boundFetcher\}\)/,'READY shell must read the current authenticated actor through the self-only API');
 assert.match(appSource,/AuthoritativeAccessStatus state=\{accessState\}/,'the entity and period scope bar must expose the current session access diagnostic');
 assert.doesNotMatch(fs.readFileSync('src/authoritative-access-status.jsx','utf8'),/activateAuthoritative|reconcileActorGrant|revokeActor|localStorage|sessionStorage|fetch\(/,'the access status is presentation-only and cannot grant, revoke, persist, or fetch authority');
@@ -93,9 +96,9 @@ for(const scopeHook of [
 ])assert.ok(appSource.indexOf(scopeHook)>0&&appSource.indexOf(scopeHook)<firstConditionalRender,`${scopeHook} must execute before every conditional render so OIDC phase changes cannot alter the React hook order`);
 assert.match(appSource, /Accounting records are read only from the authenticated API in this mode/,
   'the sign-in surface must describe the sole authoritative source of accounting records');
-assert.match(appSource, /display name not returned by API/,
+assert.match(appSource, /company name pending/,
   'a missing entity display name must be explained without promoting its internal UUID to primary text');
-assert.match(appSource, /period details not returned by API/,
+assert.match(appSource, /period details pending/,
   'a missing period label must be explained without presenting an internal ID as the period');
 assert.doesNotMatch(appSource, /No demo identity/,
   'the authoritative sign-in surface must not expose retired product terminology');
@@ -152,8 +155,8 @@ assert.match(appSource, /authoritative-topbar/, 'the formal app must use the com
 assert.match(appSource, /AuthoritativeTopbar/, 'the production app must use the dedicated authoritative topbar');
 assert.match(appSource, /Authoritative entity \$\{config\.entityId\}/, 'the top bar must expose the configured API entity as scope, not a local selector');
 assert.match(appSource, /Authoritative period \$\{config\.periodId\}/, 'the top bar must expose the configured API period as scope');
-assert.match(appSource, /Refresh authoritative accounting evidence/, 'the top-bar refresh control must name its real GET-only outcome');
-assert.match(appSource, /Authenticated OIDC session/, 'the user chip must describe an authenticated session without fabricating a demo user');
+assert.match(topbarSource, /Refresh financial records/, 'the top-bar refresh control must name its real reader-facing outcome');
+assert.match(topbarSource, /Signed-in session/, 'the user chip must describe a signed-in session without fabricating a demo user');
 assert.match(appSource, /onClick=\{logout\}>Sign out/, 'the visual shell keeps the real OIDC sign-out command');
 const styles = fs.readFileSync('index.html', 'utf8');
 assert.match(styles, /\.authoritative-entity-chip\{/, 'the authoritative entity scope needs the complete-shell selector treatment');
