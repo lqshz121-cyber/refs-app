@@ -126,6 +126,19 @@ async function main(){
   assert.match(workspace,/Open GL \/ Journal \/ source drill/,'CWIP, prepaid, construction-loan, and exact-dimension evidence must expose the same server-backed GL-to-Journal-to-source drill instead of presenting identifiers as a dead end');
   assert.match(workspace,/kind:'EVIDENCE_LINEAGE'/,'non-statement report evidence must enter the shared immutable lineage reader rather than a browser-side reconstruction');
   assert.match(lineage,/readLedgerFromEvidence/,'the shared lineage reader must re-read GL for rollforward and profitability evidence before opening Journal or source details');
+  for(const detail of ['CashFlowDetail','IntercompanyDetail','BudgetActualDetail','ConsolidationDetail','ComparisonDetail','StatementSnapshotDetail']){
+    assert.match(workspace,new RegExp(`const ${detail}=\\(\\{row,returnContext,onBack,onOpenLineage\\}\\)`),`${detail} must expose the shared immutable lineage action from its real evidence row`);
+  }
+  for(const kind of ['CASH_FLOW_CLASSIFICATION','INTERCOMPANY_RECONCILIATION','BUDGET_VS_ACTUAL','CONSOLIDATION','PERIOD_COMPARISON','STATEMENT_SNAPSHOT']){
+    assert.match(workspace,new RegExp(`selected\\?\\.kind==='${kind}'[\\s\\S]*?onOpenLineage=\\{openEvidenceLineage\\}`),`${kind} must wire its full-page detail to the shared lineage reader`);
+  }
+  assert.match(workspace,/comparisonLineageRow\(row,'CURRENT'\)/,'period comparison must retain current-period evidence as a distinct lineage choice');
+  assert.match(workspace,/comparisonLineageRow\(row,'PRIOR'\)/,'period comparison must retain prior-period evidence as a distinct lineage choice');
+  assert.match(workspace,/lineageConfig:\{\.\.\.config,periodId\}/,'lineage re-read must use the exact evidence period instead of silently using the current selector');
+  assert.match(workspace,/Open snapshot lineage/,'each immutable snapshot row must provide an explicit lineage action');
+  assert.match(lineage,/const accountCode=typeof evidence\.account_code/,'shared evidence lineage must explicitly distinguish exact-account and retained multi-account evidence');
+  assert.match(lineage,/\(!accountCode\|\|item\.account_code===accountCode\)/,'multi-account report evidence must not invent an account filter');
+  assert.match(lineage,/\(!evidence\.currency\|\|item\.currency===evidence\.currency\)/,'shared lineage must enforce currency only when the authoritative row supplied one');
   assert.match(workspace,/DimensionProfitabilityDetail/,'property, project, and unit P&L rows must open a dedicated authoritative evidence page');
   assert.match(workspace,/DIMENSION_PROFITABILITY/,'dimension rows must select the dedicated API-backed workbench instead of a generic statement detail');
   assert.match(workspace,/authoritative-profitability-table/,'dimension rows must use a contained table region rather than scrolling the page');
