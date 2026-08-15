@@ -10,6 +10,7 @@ import {createWbsAdmittedPayableIngestion} from './wbs-admitted-payable-ingestio
 import {createWbsProviderSignedPayableAdmission} from './wbs-provider-signed-payable-admission.mjs';
 import {createWbsProviderFinal1RetainedEvidenceAdmission} from './wbs-provider-final1-retained-evidence-admission.mjs';
 import {createAiAnalysisExplanationService} from './ai-analysis-explanation-service.mjs';
+import {createAiAccrualCandidateAnalysisService} from './ai-accrual-candidate-analysis-service.mjs';
 
 export function createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant,stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsProviderSignedTrust,wbsProviderSignedServiceActorId,aiGateway,runtimeLoginAllowlist=['refs_runtime'],maxBodyBytes,releaseSha,allowedOrigins=[]}={}){
   if(!runtimePool||!issuerPool||typeof authenticator?.authenticate!=='function')throw new Error('Production accounting server requires runtime pool, isolated issuer pool and authenticator');
@@ -39,6 +40,24 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
       ...cost.map(row=>({category:'COST_DIMENSION',row})),...loan.map(row=>({category:'LOAN_REFERENCE',row}))
     ];
   }});}:undefined;
+  const aiAccrualCandidateAnalysisServiceFactory=principal=>{const kernel=kernelFor(principal);const analysis=createAiAccrualCandidateAnalysisService({
+    retainedHistoryReader:async({tenantId,entityId,currentPeriodId})=>{
+      if(tenantId!==principal.tenantId)throw new Error('AI accrual tenant scope does not match the authenticated principal');
+      return kernel.listAiAccrualRetainedHistory({tenantId,entityId,currentPeriodId});
+    },
+    currentSourceReader:async({tenantId,entityId,currentPeriodId,recurringObligationId})=>{
+      if(tenantId!==principal.tenantId)throw new Error('AI accrual tenant scope does not match the authenticated principal');
+      return kernel.listAiAccrualCurrentSourceIds({tenantId,entityId,currentPeriodId,recurringObligationId});
+    },
+    postedSourceReader:async({tenantId,entityId,currentPeriodId,recurringObligationId})=>{
+      if(tenantId!==principal.tenantId)throw new Error('AI accrual tenant scope does not match the authenticated principal');
+      return kernel.listAiAccrualPostedSourceIds({tenantId,entityId,currentPeriodId,recurringObligationId});
+    }
+  });return {analyze:async({tenantId,entityId,currentPeriodId})=>{
+    if(tenantId!==principal.tenantId)throw new Error('AI accrual tenant scope does not match the authenticated principal');
+    const period=await kernel.readAiAccrualAnalysisPeriod({tenantId,entityId,currentPeriodId});
+    return analysis.analyze({tenantId,entityId,currentPeriodId,currentPeriodKey:period.period_code,currentPeriodOrdinal:Number(period.period_ordinal)});
+  }};};
   const server=createAccountingHttpServer({
     maxBodyBytes,releaseSha,
     healthCheck:async()=>{try{const checks=[runtimePool.query('SELECT 1 AS ready'),issuerPool.query('SELECT 1 AS ready')];if(attachmentEnabled)checks.push(attachmentStorage.probe(),virusScanner.probe());if(wbsImmutableEvidenceStorage)checks.push(wbsImmutableEvidenceStorage.probeImmutable());const [runtime,issuer]=await Promise.all(checks);return runtime.rowCount===1&&issuer.rowCount===1;}catch{return false;}},
@@ -75,11 +94,13 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
     wbsProviderSignedPayableServiceFactory:wbsProviderSignedTrust?principal=>createWbsProviderSignedPayableAdmission({kernel:kernelFor(principal),providerTrust:wbsProviderSignedTrust,principal,serviceActorId:wbsProviderSignedServiceActorId}):undefined,
     wbsProviderFinal1RetainedEvidenceServiceFactory:wbsImmutableEvidenceStorage?principal=>createWbsProviderFinal1RetainedEvidenceAdmission({kernel:kernelFor(principal),storage:wbsImmutableEvidenceStorage,providerTrust:wbsProviderSignedTrust,principal,serviceActorId:wbsProviderSignedServiceActorId}):undefined,
     aiAnalysisExplanationServiceFactory,
+    aiAccrualCandidateAnalysisServiceFactory,
     allowedOrigins,attachmentServiceFactory:attachmentEnabled?principal=>new AttachmentEvidenceService({storage:attachmentStorage,scanner:virusScanner,uploaderKernelFactory:kernelFor,
       scannerKernelFactory:()=>kernelFor({trusted:true,tenantId:principal.tenantId,actorId:scannerServiceActorId})})
       :undefined
   });
   Object.defineProperty(server,'aiGateway',{value:aiGateway||null,writable:false,enumerable:false,configurable:false});
   Object.defineProperty(server,'createAiAnalysisExplanationService',{value:aiAnalysisExplanationServiceFactory||null,writable:false,enumerable:false,configurable:false});
+  Object.defineProperty(server,'createAiAccrualCandidateAnalysisService',{value:aiAccrualCandidateAnalysisServiceFactory,writable:false,enumerable:false,configurable:false});
   return server;
 }

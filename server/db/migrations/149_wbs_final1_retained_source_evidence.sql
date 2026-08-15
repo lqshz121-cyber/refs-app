@@ -153,15 +153,15 @@ BEGIN
      OR (p_delivery->>'date_from')::date>(p_delivery->>'date_to')::date THEN
     RAISE EXCEPTION 'Final-1 retained evidence delivery is invalid or expired' USING ERRCODE='22023';
   END IF;
-  IF COALESCE(p_artifacts#>>'{receipt,storage_ref}','') !~ '^s3://' OR COALESCE(p_artifacts#>>'{receipt,storage_version}','') !~ '^[^[:cntrl:]]{1,512}$' OR p_artifacts#>>'{receipt,storage_version}' ~ '^pending:'
+  IF COALESCE(p_artifacts#>>'{receipt,storage_ref}','') !~ '^s3://' OR COALESCE(p_artifacts#>>'{receipt,storage_version}','')='' OR length(p_artifacts#>>'{receipt,storage_version}')>512 OR p_artifacts#>>'{receipt,storage_version}' ~ '[[:cntrl:]]' OR p_artifacts#>>'{receipt,storage_version}' ~ '^pending:'
      OR p_artifacts#>>'{receipt,content_hash}' IS DISTINCT FROM p_delivery->>'receipt_hash' OR COALESCE((p_artifacts#>>'{receipt,size_bytes}')::bigint,0)<=0
-     OR COALESCE(p_artifacts#>>'{request,storage_ref}','') !~ '^s3://' OR COALESCE(p_artifacts#>>'{request,storage_version}','') !~ '^[^[:cntrl:]]{1,512}$' OR p_artifacts#>>'{request,storage_version}' ~ '^pending:'
+     OR COALESCE(p_artifacts#>>'{request,storage_ref}','') !~ '^s3://' OR COALESCE(p_artifacts#>>'{request,storage_version}','')='' OR length(p_artifacts#>>'{request,storage_version}')>512 OR p_artifacts#>>'{request,storage_version}' ~ '[[:cntrl:]]' OR p_artifacts#>>'{request,storage_version}' ~ '^pending:'
      OR p_artifacts#>>'{request,content_hash}' IS DISTINCT FROM p_delivery->>'request_raw_hash'
      OR COALESCE((p_artifacts#>>'{request,size_bytes}')::bigint,0)<=0
-     OR COALESCE(p_artifacts#>>'{response,storage_ref}','') !~ '^s3://' OR COALESCE(p_artifacts#>>'{response,storage_version}','') !~ '^[^[:cntrl:]]{1,512}$' OR p_artifacts#>>'{response,storage_version}' ~ '^pending:'
+     OR COALESCE(p_artifacts#>>'{response,storage_ref}','') !~ '^s3://' OR COALESCE(p_artifacts#>>'{response,storage_version}','')='' OR length(p_artifacts#>>'{response,storage_version}')>512 OR p_artifacts#>>'{response,storage_version}' ~ '[[:cntrl:]]' OR p_artifacts#>>'{response,storage_version}' ~ '^pending:'
      OR p_artifacts#>>'{response,content_hash}' IS DISTINCT FROM p_delivery->>'response_raw_hash'
      OR COALESCE((p_artifacts#>>'{response,size_bytes}')::bigint,0)<=0
-     OR COALESCE(p_artifacts#>>'{package,storage_ref}','') !~ '^s3://' OR COALESCE(p_artifacts#>>'{package,storage_version}','') !~ '^[^[:cntrl:]]{1,512}$' OR p_artifacts#>>'{package,storage_version}' ~ '^pending:'
+     OR COALESCE(p_artifacts#>>'{package,storage_ref}','') !~ '^s3://' OR COALESCE(p_artifacts#>>'{package,storage_version}','')='' OR length(p_artifacts#>>'{package,storage_version}')>512 OR p_artifacts#>>'{package,storage_version}' ~ '[[:cntrl:]]' OR p_artifacts#>>'{package,storage_version}' ~ '^pending:'
      OR p_artifacts#>>'{package,content_hash}' IS DISTINCT FROM p_delivery->>'package_raw_hash'
      OR COALESCE((p_artifacts#>>'{package,size_bytes}')::bigint,0)<=0
      OR EXISTS(SELECT 1 FROM jsonb_each(p_artifacts) artifact WHERE artifact.value->>'retentionMode'<>'COMPLIANCE' OR (artifact.value->>'retainUntil')::timestamptz<=clock_timestamp())

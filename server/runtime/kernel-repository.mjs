@@ -382,6 +382,15 @@ export class PostgresAccountingKernel{
   // These readers are deliberately evidence-only.  They are the only database
   // seam used by the AI accrual candidate analysis; none can write a finding,
   // source, Draft, review, approval, or journal.
+  async readAiAccrualAnalysisPeriod({tenantId,entityId,currentPeriodId}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
+      return requireRow(await client.query(`SELECT period_id,period_code,(extract(year FROM starts_on)::integer*12+extract(month FROM starts_on)::integer) AS period_ordinal
+        FROM accounting_period
+        WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3 AND ledger_code='PRIMARY'`,[tenantId,entityId,currentPeriodId]),'AI_ACCRUAL_PERIOD_NOT_FOUND','Authoritative primary accounting period is unavailable');
+    });
+  }
+
   async listAiAccrualRetainedHistory({tenantId,entityId,currentPeriodId,limit=240}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);

@@ -33,6 +33,7 @@
     "test:ai-accrual-candidate": "node --test tests/ai-accrual-candidate-evaluator.test.mjs",
     "test:ai-accrual-retained-source": "node --test tests/ai-accrual-retained-source-adapter.test.mjs",
     "test:ai-accrual-analysis": "node --test tests/ai-accrual-candidate-analysis-service.test.mjs",
+    "test:ai-accrual-http": "node --test tests/ai-accrual-candidate-http-contract.test.mjs",
     "test:ai-accrual-repository": "node --test tests/ai-accrual-repository-read-contract.test.mjs",
     "test:ai-analysis-explanation": "node --test tests/ai-analysis-explanation-service.test.mjs",
     "test:ai-analysis-explanation-http": "node --test tests/ai-analysis-explanation-http-contract.test.mjs",
