@@ -18,9 +18,9 @@ test('observed Payable, Detail, PB, and journal schemas map only into read-only 
   assert.deepEqual({id:journal.id,company:journal.company,bank:journal.cb_id,currency:journal.currency},{id:1,company:'COMPANY-A',bank:'TRACE-ONLY',currency:'USD'});
 });
 
-test('row adapter fails closed for cross-company input and never derives a bank transaction id from journal keys',()=>{
+test('row adapter fails closed for cross-company input and requires the Provider cb_id bank key',()=>{
   assert.throws(()=>mapWbsReadonlyProviderRow({sourceTable:'wbsdata.account_book_payable_info',scope,row:{uuid:'PAY-1',company_code:'COMPANY-B'}}),error=>error instanceof WbsProviderReadonlyRowAdapterError&&error.code==='WBS_PROVIDER_COMPANY_SCOPE_MISMATCH');
-  assert.throws(()=>mapWbsReadonlyProviderRow({sourceTable:'accounting.bank_transaction_result',scope,row:{id:1,com_code:'COMPANY-A',cb_id:'CB-1'}}),error=>error instanceof WbsProviderReadonlyRowAdapterError&&error.code==='WBS_PROVIDER_STABLE_KEY_REQUIRED');
+  assert.throws(()=>mapWbsReadonlyProviderRow({sourceTable:'accounting.bank_transaction_result',scope,row:{bank_transaction_id:'LEGACY-ONLY',com_code:'COMPANY-A'}}),error=>error instanceof WbsProviderReadonlyRowAdapterError&&error.code==='WBS_PROVIDER_STABLE_KEY_REQUIRED');
 });
 
 test('an observed AutoRec physical row with no posting-date column becomes an exception, not staging evidence',()=>{
@@ -44,8 +44,8 @@ test('a mapped physical Payable row reaches receipt-bound Raw/Normalized/Staging
   assert.deepEqual({source:prepared.staging[0].raw_trace.source_type,key:prepared.staging[0].raw_trace.source_record_id,posting:prepared.staging[0].raw_trace.posting_date,amount:prepared.staging[0].raw_trace.amount},{source:'PAYABLE',key:'11111111-1111-4111-8111-111111111111',posting:'2026-08-02',amount:-100});
 });
 
-test('a receipt-supplied immutable Bank Transaction key reaches staging, while journal relation keys remain trace only',async()=>{
-  const row=mapWbsReadonlyProviderRow({sourceTable:'accounting.bank_transaction_result',scope,row:{bank_transaction_id:'BANK-TX-001',company_code:'COMPANY-A',account_code:'BANK-OP',debtor:'0',lender:'100.0000',set_date:'2026-08-01',posting_date:'2026-08-02',cb_id:'RELATION-ONLY',journal_no:'J-1',ref_no:'DISPLAY-ONLY'}});
+test('a receipt-supplied Provider cb_id reaches staging, while journal relation keys remain trace only',async()=>{
+  const row=mapWbsReadonlyProviderRow({sourceTable:'accounting.bank_transaction_result',scope,row:{cb_id:'BANK-TX-001',company_code:'COMPANY-A',account_code:'BANK-OP',debtor:'0',lender:'100.0000',set_date:'2026-08-01',posting_date:'2026-08-02',journal_no:'J-1',ref_no:'DISPLAY-ONLY'}});
   const rows=[row],content_sha256=canonicalRequestHash(rows).slice(7);
   const envelope={contract_version:'WBS-REFS-MCP-V1',tool:'list_bank_transactions',environment:'production',captured_at:'2026-08-10T00:00:00.000Z',source:{system:'WBS'},scope:{company:'COMPANY-A',currency:'USD'},record_count:1,content_sha256,cursor_next:null,etl_notice:'Snapshot comparison required',rows};
   const conventions=[{scope:{company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-OP'},receipt:{hash:`sha256:${content_sha256}`,ref:'object://wbs/test/bank-receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-10T00:00:00.000Z'},rule_id:'WBS-BANK-DR-1',version:'1',debtor_direction:'DEBIT',lender_direction:'CREDIT'}];
@@ -53,7 +53,7 @@ test('a receipt-supplied immutable Bank Transaction key reaches staging, while j
   const prepared=await createWbsInboundDataAdapter({snapshotReader:{readOnly:true,readSnapshot:async()=>snapshot}}).pull();
   assert.deepEqual({raw:prepared.raw.length,normalized:prepared.normalized.length,staging:prepared.staging.length,exceptions:prepared.exceptions.length},{raw:1,normalized:1,staging:1,exceptions:0});
   assert.deepEqual({source:prepared.staging[0].raw_trace.source_type,key:prepared.staging[0].raw_trace.source_record_id,bank:prepared.staging[0].raw_trace.bank_account_ref,amount:prepared.staging[0].raw_trace.amount,direction:prepared.staging[0].raw_trace.direction},{source:'BANK_TRANSACTION',key:'BANK-TX-001',bank:'BANK-OP',amount:-100,direction:'CREDIT'});
-  assert.deepEqual(prepared.staging[0].raw_trace.external_trace,{transaction_date:'2026-08-01',posting_date:'2026-08-02',account_code:'BANK-OP',ref_no:'DISPLAY-ONLY'});
+  assert.deepEqual(prepared.staging[0].raw_trace.external_trace,{source_cb_id:'BANK-TX-001',transaction_date:'2026-08-01',posting_date:'2026-08-02',account_code:'BANK-OP',ref_no:'DISPLAY-ONLY'});
   assert.equal(prepared.staging[0].raw_trace.source_record_id,'BANK-TX-001');
 });
 
@@ -104,7 +104,7 @@ test('physical AutoRec Detail reaches a case-scoped review row only through a si
 test('physical Payable and Bank Journal rows can reach one receipt-bound AutoRec review proposal without a release or JE command',async()=>{
   const captured='2026-08-10T00:00:00.000Z';
   const payableRow=mapWbsReadonlyProviderRow({sourceTable:'wbsdata.account_book_payable_info',scope,row:{uuid:'77777777-7777-4777-8777-777777777777',company_code:'COMPANY-A',type:'AUTOC',amount:'100.0000',incurred_date:'2026-08-01',posting_date:'2026-08-02',vendor_no:'V-1',project_code:'P-1',cost_id:'C-1'}});
-  const bankRow=mapWbsReadonlyProviderRow({sourceTable:'accounting.bank_transaction_result',scope,row:{bank_transaction_id:'88888888-8888-4888-8888-888888888888',company_code:'COMPANY-A',account_code:'BANK-OP',debtor:'0',lender:'100.0000',set_date:'2026-08-01',posting_date:'2026-08-02',payee_no:'V-1',ref_no:'DISPLAY-ONLY'}});
+  const bankRow=mapWbsReadonlyProviderRow({sourceTable:'accounting.bank_transaction_result',scope,row:{cb_id:'88888888-8888-4888-8888-888888888888',company_code:'COMPANY-A',account_code:'BANK-OP',debtor:'0',lender:'100.0000',set_date:'2026-08-01',posting_date:'2026-08-02',payee_no:'V-1',ref_no:'DISPLAY-ONLY'}});
   const envelope=(tool,rows)=>({contract_version:'WBS-REFS-MCP-V1',tool,environment:'production',captured_at:captured,source:{system:'WBS'},scope:{company:'COMPANY-A',currency:'USD'},record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:'Snapshot comparison required',rows});
   const payable=envelope('list_payables',[payableRow]),bank=envelope('list_bank_transactions',[bankRow]);
   const receipt=(body,ref)=>({hash:`sha256:${body.content_sha256}`,ref,version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:captured});
@@ -117,10 +117,10 @@ test('physical Payable and Bank Journal rows can reach one receipt-bound AutoRec
   assert.deepEqual({staging:prepared.staging.length,exceptions:prepared.exceptions.length},{staging:2,exceptions:0});
   const raw=type=>prepared.staging.find(item=>item.raw_trace.source_type===type).raw_trace;
   const payableRelation={relation_type:'PAYABLE_TO_BANK_REVIEW',source_key:payableRow.ap_guid,bank_account_ref:'BANK-OP'};
-  const bankRelation={relation_type:'BANK_TO_PAYABLE_REVIEW',source_key:bankRow.bank_transaction_id,bank_account_ref:'BANK-OP'};
+  const bankRelation={relation_type:'BANK_TO_PAYABLE_REVIEW',source_key:bankRow.cb_id,bank_account_ref:'BANK-OP'};
   const payableTrace={...raw('PAYABLE'),stage:'STAGING_REVIEWED',receipt_id:'receipt-pay',receipt_ref:'object://refs/receipt/pay',receipt_hash:'sha256:'+'1'.repeat(64),upstream_mcp_snapshot_token:'physical-review-snapshot',staging_item_id:'stg-pay',raw_event_id:'raw-pay',source_document_id:'doc-pay',bill_no:payableRow.ap_guid,project_ref:'P-1',project_code:'P-1',account_before:'600000',account_after:'291001',review_event_id:'review-pay',bank_account_ref:'BANK-OP',external_trace:payableRelation,external_trace_hash:canonicalRequestHash(payableRelation)};
-  const bankTrace={...raw('BANK_TRANSACTION'),stage:'STAGING_REVIEWED',receipt_id:'receipt-bank',receipt_ref:'object://refs/receipt/bank',receipt_hash:'sha256:'+'2'.repeat(64),upstream_mcp_snapshot_token:'physical-review-snapshot',staging_item_id:'stg-bank',raw_event_id:'raw-bank',source_document_id:'doc-bank',journal_no:bankRow.bank_transaction_id,payee_no:'V-1',account_before:'111000',account_after:'291001',review_event_id:'review-bank',external_trace:bankRelation,external_trace_hash:canonicalRequestHash(bankRelation)};
+  const bankTrace={...raw('BANK_TRANSACTION'),stage:'STAGING_REVIEWED',receipt_id:'receipt-bank',receipt_ref:'object://refs/receipt/bank',receipt_hash:'sha256:'+'2'.repeat(64),upstream_mcp_snapshot_token:'physical-review-snapshot',staging_item_id:'stg-bank',raw_event_id:'raw-bank',source_document_id:'doc-bank',journal_no:bankRow.cb_id,payee_no:'V-1',account_before:'111000',account_after:'291001',review_event_id:'review-bank',external_trace:bankRelation,external_trace_hash:canonicalRequestHash(bankRelation)};
   assert.throws(()=>buildAutoReconciliationReviewRequest({bankStaging:bankTrace,businessStaging:{...payableTrace,bank_account_ref:''},dateWindowDays:1,dateMatchBasis:'BUSINESS_AND_ACCOUNTING'}),error=>error.code==='WBS_AUTOREC_ELIGIBILITY_TRACE_REQUIRED');
   const review=buildAutoReconciliationReviewRequest({bankStaging:bankTrace,businessStaging:payableTrace,dateWindowDays:1,dateMatchBasis:'BUSINESS_AND_ACCOUNTING'});
-  assert.deepEqual({status:review.status,amount:review.allocated_amount,release:review.can_release,post:review.can_post,bankKey:review.trace.bank_source_record_id,businessKey:review.trace.business_source_record_id},{status:'REVIEW_REQUIRED',amount:100,release:false,post:false,bankKey:bankRow.bank_transaction_id,businessKey:payableRow.ap_guid});
+  assert.deepEqual({status:review.status,amount:review.allocated_amount,release:review.can_release,post:review.can_post,bankKey:review.trace.bank_source_record_id,businessKey:review.trace.business_source_record_id},{status:'REVIEW_REQUIRED',amount:100,release:false,post:false,bankKey:bankRow.cb_id,businessKey:payableRow.ap_guid});
 });

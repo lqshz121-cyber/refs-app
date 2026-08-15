@@ -251,7 +251,6 @@ export const WBS_SOURCE_CATALOG = Object.freeze({
     schema_origin: 'FROZEN_ROW_FIELD_ALLOWLIST',
     schema: Object.freeze({
       account_code: acct(true),
-      bank_transaction_id: s(true),
       cb_id: s(true),
       child_come_from: s(),
       child_count: n(),
@@ -269,7 +268,7 @@ export const WBS_SOURCE_CATALOG = Object.freeze({
       sys_id: s(),
       turn_flag: s(),
     }),
-    stable_key: Object.freeze(['bank_transaction_id']),
+    stable_key: Object.freeze(['cb_id']),
     company_field: 'company_code',
     currency_field: null,
     source_document_ref_field: 'sys_id',

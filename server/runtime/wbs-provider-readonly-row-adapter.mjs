@@ -49,11 +49,10 @@ export function mapWbsReadonlyProviderRow({sourceTable,row,scope}={}){
       return Object.freeze({id:row.id,cb_id:optional(row.cb_id),business_guid:optional(row.business_guid),company:selected.company_code,account:optional(row.account),account_code:optional(row.account_code),debtor:amount(row.debtor),lender:amount(row.lender),posting_date:date(row.posting_date),set_date:date(row.set_date),journal_no:optional(row.journal_no),bill_no:optional(row.bill_no),check_no:optional(row.check_no),check_date:date(row.check_date),clear_date:date(row.clear_date),come_from:optional(row.come_from),source:optional(row.source),project:optional(row.project),pj_code:optional(row.pj_code),cost_code:optional(row.cost_code),review:optional(row.review),reviewer:optional(row.reviewer),closed:optional(row.closed),currency:selected.currency});
     }
     case 'accounting.bank_transaction_result': {
-      // accounting_info.id and cb_id are journal/relation locators. A
-      // transaction producer is admissible only when WBS returns an explicit
-      // immutable bank_transaction_id in the signed result row.
+      // The production Provider catalogue declares cb_id as this source's
+      // immutable key. Do not accept a legacy bank_transaction_id fallback.
       sameCompany(row.company_code??row.com_code,selected,'Bank Transaction');
-      return Object.freeze({bank_transaction_id:required(row,'bank_transaction_id','Bank Transaction'),cb_id:optional(row.cb_id),company_code:selected.company_code,currency:selected.currency,account_code:optional(row.account_code),debtor:amount(row.debtor),lender:amount(row.lender),set_date:date(row.set_date),posting_date:date(row.posting_date),payee:optional(row.payee),payee_no:optional(row.payee_no),description:optional(row.description),ref_no:optional(row.ref_no),come_from:optional(row.come_from),journal_no:optional(row.journal_no)});
+      return Object.freeze({cb_id:required(row,'cb_id','Bank Transaction'),company_code:selected.company_code,currency:selected.currency,account_code:optional(row.account_code),debtor:amount(row.debtor),lender:amount(row.lender),set_date:date(row.set_date),posting_date:date(row.posting_date),payee:optional(row.payee),payee_no:optional(row.payee_no),description:optional(row.description),ref_no:optional(row.ref_no),come_from:optional(row.come_from),journal_no:optional(row.journal_no)});
     }
     default: fail('WBS_PROVIDER_SOURCE_UNSUPPORTED','The WBS source table is not admitted by the read-only accounting adapter.');
   }
