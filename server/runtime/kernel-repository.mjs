@@ -304,6 +304,19 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async recordAiAmortizationCoverageEvidence({tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,evidenceRef,evidenceHash,extractionMethod,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_ai_amortization_coverage_evidence_hash($1,$2,$3,$4,$5,$6,$7,$8,$9) AS request_hash',
+        [tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,evidenceRef,evidenceHash,extractionMethod]
+      ),'AI_AMORTIZATION_COVERAGE_EVIDENCE_HASH_FAILED','AI amortization coverage evidence hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_record_ai_amortization_coverage_evidence($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS result',
+        [tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,evidenceRef,evidenceHash,extractionMethod,idempotencyKey,requestHash]
+      ),'AI_AMORTIZATION_COVERAGE_EVIDENCE_FAILED','AI amortization coverage evidence did not return a result').result;
+    });
+  }
+
   async proposeAiAmortizationSchedule({tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,prepaidAccountCode,expenseAccountCode,memberTrace,confidence,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
