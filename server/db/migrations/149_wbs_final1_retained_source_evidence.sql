@@ -118,7 +118,7 @@ CREATE FUNCTION refs_retain_wbs_final1_source_evidence(
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE actor text:=refs_current_actor(); idem idempotency_receipt; entity_record entity; approved_mapping record;
-DECLARE computed_hash text; domain text:=p_delivery->>'domain'; company_code text:=p_delivery->>'company_code'; mapping_count integer;
+DECLARE computed_hash text; domain text:=p_delivery->>'domain'; delivery_company_code text:=p_delivery->>'company_code'; mapping_count integer;
 DECLARE plan_rows jsonb; row_value jsonb; normalized jsonb; exception_code jsonb; admission_id uuid:=gen_random_uuid(); import_id uuid:=gen_random_uuid();
 DECLARE raw_id uuid; document_id uuid; line_id uuid; row_id uuid; finding_id uuid; evidence_id uuid; business_date date; gross numeric(20,4);
 DECLARE source_record text; source_primary_key text; source_version text; normalized_module text:='payable'; description text; package_versioned_ref text; source_ref text; coverage_evidence_ref text; source_status_value source_status; row_date_missing boolean; coverage_gap boolean;
@@ -169,25 +169,25 @@ BEGIN
     RAISE EXCEPTION 'Final-1 retained evidence requires exact versioned S3 artifacts and hashes' USING ERRCODE='22023';
   END IF;
   SELECT * INTO entity_record FROM entity WHERE tenant_id=p_tenant AND entity_id=p_entity AND active FOR SHARE;
-  IF NOT FOUND OR entity_record.source_system<>'WBS' OR entity_record.source_entity_id IS DISTINCT FROM company_code OR entity_record.base_currency<>'USD' THEN
+  IF NOT FOUND OR entity_record.source_system<>'WBS' OR entity_record.source_entity_id IS DISTINCT FROM delivery_company_code OR entity_record.base_currency<>'USD' THEN
     RAISE EXCEPTION 'Final-1 entity/company/USD scope is denied' USING ERRCODE='42501';
   END IF;
   SELECT count(*) INTO mapping_count
       FROM wbs_company_catalog_controller_decision d
       WHERE d.tenant_id=p_tenant AND d.entity_id=p_entity AND d.decision_type='APPROVED'
-        AND d.company_code=company_code AND d.base_currency='USD'
+        AND d.company_code=delivery_company_code AND d.base_currency='USD'
         AND d.effective_from<=(p_delivery->>'date_from')::date
         AND (d.effective_to IS NULL OR d.effective_to>=(p_delivery->>'date_to')::date);
   IF mapping_count<>1 THEN RAISE EXCEPTION 'Final-1 evidence company mapping is missing or ambiguous' USING ERRCODE='42501'; END IF;
   SELECT d.mapping_hash,d.mapping_document,d.effective_from,d.effective_to INTO approved_mapping
       FROM wbs_company_catalog_controller_decision d
       WHERE d.tenant_id=p_tenant AND d.entity_id=p_entity AND d.decision_type='APPROVED'
-        AND d.company_code=company_code AND d.base_currency='USD'
+        AND d.company_code=delivery_company_code AND d.base_currency='USD'
         AND d.effective_from<=(p_delivery->>'date_from')::date
         AND (d.effective_to IS NULL OR d.effective_to>=(p_delivery->>'date_to')::date)
       FOR SHARE;
   IF NOT FOUND OR approved_mapping.mapping_document->>'refs_entity_id' IS DISTINCT FROM p_entity::text
-     OR approved_mapping.mapping_document->>'company_code' IS DISTINCT FROM company_code
+     OR approved_mapping.mapping_document->>'company_code' IS DISTINCT FROM delivery_company_code
      OR approved_mapping.mapping_document->>'base_currency'<>'USD'
      OR approved_mapping.mapping_document->>'mapping_hash' IS DISTINCT FROM approved_mapping.mapping_hash
      OR refs_jsonb_hash(approved_mapping.mapping_document-'mapping_hash') IS DISTINCT FROM approved_mapping.mapping_hash THEN
@@ -201,7 +201,7 @@ BEGIN
   plan_rows:=CASE domain WHEN 'PAYABLES' THEN p_plan->'staging_rows' ELSE p_plan->'evidence_rows' END;
   IF jsonb_typeof(plan_rows)<>'array' OR jsonb_array_length(plan_rows)=0 OR jsonb_array_length(plan_rows)<>(p_delivery->>'row_count')::integer
      OR p_plan#>>'{provenance,tenant_id}' IS DISTINCT FROM p_tenant::text OR p_plan#>>'{provenance,entity_id}' IS DISTINCT FROM p_entity::text
-     OR p_plan#>>'{provenance,company_code}' IS DISTINCT FROM company_code OR p_plan#>>'{provenance,snapshot_id}' IS DISTINCT FROM p_delivery->>'snapshot_id'
+     OR p_plan#>>'{provenance,company_code}' IS DISTINCT FROM delivery_company_code OR p_plan#>>'{provenance,snapshot_id}' IS DISTINCT FROM p_delivery->>'snapshot_id'
      OR p_plan#>>'{provenance,currency}'<>'USD' OR (p_plan#>>'{provenance,source_row_count}')::integer<>jsonb_array_length(plan_rows)
      OR (domain='PAYABLES' AND (p_plan#>>'{provenance,source_surface,database}'<>'wbsdata' OR p_plan#>>'{provenance,source_surface,table}'<>'account_book_payable_info'))
      OR (domain='INSURANCE' AND (p_plan#>>'{provenance,source_surface,database}'<>'wb_insurance' OR p_plan#>>'{provenance,source_surface,table}'<>'insurance_data' OR p_plan#>>'{provenance,company_mapping_hash}' IS DISTINCT FROM p_delivery->>'company_mapping_hash'))
@@ -223,14 +223,14 @@ BEGIN
   IF idem.status='SUCCEEDED' THEN RETURN idem.response_body||jsonb_build_object('idempotent',true); END IF;
 
   INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash,status,cursor_before,cursor_after,request_id,row_count,started_at,completed_at)
-    VALUES(import_id,p_tenant,p_entity,'WBS_PROVIDER_FINAL1',CASE domain WHEN 'PAYABLES' THEN 'payable' ELSE 'insurance' END,company_code,p_idempotency_key,p_request_hash,'SUCCEEDED','{}'::jsonb,jsonb_build_object('snapshot_id',p_delivery->>'snapshot_id'),p_idempotency_key,jsonb_array_length(plan_rows),clock_timestamp(),clock_timestamp());
+    VALUES(import_id,p_tenant,p_entity,'WBS_PROVIDER_FINAL1',CASE domain WHEN 'PAYABLES' THEN 'payable' ELSE 'insurance' END,delivery_company_code,p_idempotency_key,p_request_hash,'SUCCEEDED','{}'::jsonb,jsonb_build_object('snapshot_id',p_delivery->>'snapshot_id'),p_idempotency_key,jsonb_array_length(plan_rows),clock_timestamp(),clock_timestamp());
   INSERT INTO wbs_final1_retained_evidence_admission(
     wbs_final1_retained_evidence_admission_id,tenant_id,entity_id,domain,issuer,key_id,algorithm,nonce,company_code,company_mapping_hash,
     signed_at,expires_at,observation_at,date_from,date_to,snapshot_id,receipt_hash,receipt_storage_ref,receipt_storage_version,receipt_size_bytes,request_raw_hash,request_storage_ref,request_storage_version,request_size_bytes,
     response_raw_hash,response_storage_ref,response_storage_version,response_size_bytes,package_raw_hash,package_hash,package_storage_ref,package_storage_version,package_size_bytes,evidence_retain_until,
     plan_hash,request_hash,import_batch_id,row_count,retained_by
   ) VALUES(
-    (p_delivery->>'admission_id')::uuid,p_tenant,p_entity,domain,p_delivery->>'issuer',p_delivery->>'key_id','Ed25519',p_delivery->>'nonce',company_code,
+    (p_delivery->>'admission_id')::uuid,p_tenant,p_entity,domain,p_delivery->>'issuer',p_delivery->>'key_id','Ed25519',p_delivery->>'nonce',delivery_company_code,
     NULLIF(p_delivery->>'company_mapping_hash',''),(p_delivery->>'signed_at')::timestamptz,(p_delivery->>'expires_at')::timestamptz,(p_delivery->>'observation_at')::timestamptz,
     (p_delivery->>'date_from')::date,(p_delivery->>'date_to')::date,(p_delivery->>'snapshot_id')::uuid,p_delivery->>'receipt_hash',p_artifacts#>>'{receipt,storage_ref}',p_artifacts#>>'{receipt,storage_version}',(p_artifacts#>>'{receipt,size_bytes}')::bigint,
     p_delivery->>'request_raw_hash',p_artifacts#>>'{request,storage_ref}',p_artifacts#>>'{request,storage_version}',(p_artifacts#>>'{request,size_bytes}')::bigint,
@@ -247,7 +247,7 @@ BEGIN
     IF COALESCE(source_record,'')='' OR COALESCE(source_version,'')='' OR COALESCE(row_value->>'raw_row_hash','') !~ '^sha256:[0-9a-f]{64}$'
        OR COALESCE((row_value->>'source_row_ordinal')::integer,-1)<>expected_ordinal
        OR row_value->>'provider_snapshot_id' IS DISTINCT FROM p_delivery->>'snapshot_id'
-       OR row_value->>'provider_company_code' IS DISTINCT FROM company_code
+       OR row_value->>'provider_company_code' IS DISTINCT FROM delivery_company_code
        OR row_value->>'provider_package_hash' IS DISTINCT FROM p_delivery->>'package_hash'
        OR row_value->>'provider_raw_package_hash' IS DISTINCT FROM p_delivery->>'package_raw_hash'
        OR row_value->>'currency'<>'USD' OR jsonb_typeof(row_value->'exception_codes')<>'array'
@@ -301,13 +301,13 @@ BEGIN
     SELECT count(*),CASE WHEN count(*)=1 THEN min(period_id::text)::uuid ELSE NULL END INTO accounting_period_count,accounting_period_id
       FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity AND ledger_code='PRIMARY' AND starts_on<=business_date AND ends_on>=business_date;
     source_status_value:=CASE WHEN row_value->>'outcome'='EXCEPTION_REVIEW_REQUIRED' THEN 'QUARANTINED'::source_status ELSE 'PENDING_REVIEW'::source_status END;
-    UPDATE raw_event SET is_current=false,superseded_at=clock_timestamp() WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_system='WBS' AND source_module=normalized_module AND source_entity_id=company_code AND source_record_id=source_record AND is_current;
+    UPDATE raw_event SET is_current=false,superseded_at=clock_timestamp() WHERE tenant_id=p_tenant AND entity_id=p_entity AND source_system='WBS' AND source_module=normalized_module AND source_entity_id=delivery_company_code AND source_record_id=source_record AND is_current;
     raw_id:=gen_random_uuid(); document_id:=gen_random_uuid(); line_id:=gen_random_uuid(); row_id:=gen_random_uuid();
     coverage_evidence_ref:='wbs-final1-row:'||row_id;
     INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id)
-      VALUES(raw_id,p_tenant,p_entity,import_id,'WBS',normalized_module,company_code,source_record,source_version,'UPSERT',business_date::timestamptz,p_delivery->>'package_raw_hash',package_versioned_ref,p_idempotency_key);
+      VALUES(raw_id,p_tenant,p_entity,import_id,'WBS',normalized_module,delivery_company_code,source_record,source_version,'UPSERT',business_date::timestamptz,p_delivery->>'package_raw_hash',package_versioned_ref,p_idempotency_key);
     INSERT INTO source_document(source_document_id,tenant_id,entity_id,raw_event_id,source_system,source_module,source_entity_id,source_record_id,source_version,document_type,document_no,business_date,accounting_date,currency,gross_amount,status,source_ref,payload_hash)
-      VALUES(document_id,p_tenant,p_entity,raw_id,'WBS',normalized_module,company_code,source_record,source_version,CASE domain WHEN 'PAYABLES' THEN 'WBS_FINAL1_PAYABLE' ELSE 'WBS_FINAL1_INSURANCE' END,
+      VALUES(document_id,p_tenant,p_entity,raw_id,'WBS',normalized_module,delivery_company_code,source_record,source_version,CASE domain WHEN 'PAYABLES' THEN 'WBS_FINAL1_PAYABLE' ELSE 'WBS_FINAL1_INSURANCE' END,
         CASE domain WHEN 'PAYABLES' THEN NULLIF(normalized->>'invoiceNo','') ELSE NULLIF(normalized->>'policyNumber','') END,business_date,business_date,'USD',gross,source_status_value,source_ref,row_value->>'raw_row_hash');
     INSERT INTO source_document_line(source_document_line_id,tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,description,party_ref,project_ref,property_ref,unit_ref,external_dimension_refs)
       VALUES(line_id,p_tenant,p_entity,document_id,source_primary_key,1,abs(gross),'NONE',description,
@@ -367,7 +367,7 @@ BEGIN
     expected_ordinal:=expected_ordinal+1;
   END LOOP;
 
-  event_payload:=jsonb_build_object('schema_version','WBS_FINAL1_RETAINED_SOURCE_EVIDENCE_V1','admission_id',admission_id,'audit_event_id',admission_audit_id,'outbox_event_id',admission_outbox_id,'domain',domain,'snapshot_id',p_delivery->>'snapshot_id','company_code',company_code,'row_count',retained_count,'exception_count',exception_count,'coverage_evidence_count',coverage_count,'prepaid_coverage_finding_count',finding_count,'signature_verified',true,'can_write_wbs',false,'can_propose_amortization',false,'can_create_draft',false,'can_review',false,'can_approve',false,'can_post',false);
+  event_payload:=jsonb_build_object('schema_version','WBS_FINAL1_RETAINED_SOURCE_EVIDENCE_V1','admission_id',admission_id,'audit_event_id',admission_audit_id,'outbox_event_id',admission_outbox_id,'domain',domain,'snapshot_id',p_delivery->>'snapshot_id','company_code',delivery_company_code,'row_count',retained_count,'exception_count',exception_count,'coverage_evidence_count',coverage_count,'prepaid_coverage_finding_count',finding_count,'signature_verified',true,'can_write_wbs',false,'can_propose_amortization',false,'can_create_draft',false,'can_review',false,'can_approve',false,'can_post',false);
   INSERT INTO audit_event(audit_event_id,tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash,reason,metadata)
     VALUES(admission_audit_id,p_tenant,p_entity,'WBS_FINAL1_RETAINED_SOURCE_EVIDENCE_ADMITTED','WBS_FINAL1_RETAINED_EVIDENCE_ADMISSION',admission_id,'RETAIN',actor,'SERVICE_ACCOUNT','WBS.SNAPSHOT.IMPORT',p_idempotency_key,p_idempotency_key,p_idempotency_key,p_request_hash,'Provider-signed source evidence retained without accounting action',event_payload);
   INSERT INTO outbox_event(outbox_event_id,tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
