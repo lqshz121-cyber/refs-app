@@ -155,7 +155,7 @@ async function main(){
   assert.match(workspace,/rep-card/,'report families must be discoverable as report cards while remaining API-backed');
   assert.match(workspace,/REPORT_LIBRARY_SHORTCUTS/,'the Reports Center must offer API-backed core statement shortcuts without importing legacy report state');
   assert.match(workspace,/PROPERTY_REPORT_SHORTCUTS/,'the Reports Center must expose actual property, project, unit, CWIP, loan, prepaid, and budget readers from one authoritative directory');
-  assert.match(workspace,/Property and project report directory/,'the property report directory must be discoverable before a user knows the legacy navigation');
+  assert.match(workspace,/Property, project, unit, and lot report directory/,'the complete dimension report directory must be discoverable before a user knows the legacy navigation');
   assert.match(workspace,/openPropertyReport/,'property report shortcuts must only select an existing report workspace; they may not manufacture report rows');
   assert.match(workspace,/findAuthoritativeReportShortcuts/,'the Reports finder must resolve only declared aliases for existing API statement readers');
   assert.match(workspace,/Matching API-backed statements/,'a recognized statement alias must be actionable from the finder without a favorite or report mutation');

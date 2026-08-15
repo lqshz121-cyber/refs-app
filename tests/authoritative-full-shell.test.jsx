@@ -82,6 +82,7 @@ assert.match(unavailableMarkup, /What needs to be in place/);
 assert.match(unavailableMarkup, /attachment-read contract/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
+const amortizationSource = fs.readFileSync('src/authoritative-amortization-workspace.jsx', 'utf8');
 assert.match(appSource,/refreshCurrentActorAccess\(\{config,fetcher:boundFetcher\}\)/,'READY shell must read the current authenticated actor through the self-only API');
 assert.match(appSource,/AuthoritativeAccessStatus state=\{accessState\}/,'the entity and period scope bar must expose the current session access diagnostic');
 assert.doesNotMatch(fs.readFileSync('src/authoritative-access-status.jsx','utf8'),/activateAuthoritative|reconcileActorGrant|revokeActor|localStorage|sessionStorage|fetch\(/,'the access status is presentation-only and cannot grant, revoke, persist, or fetch authority');
@@ -135,7 +136,8 @@ assert.match(appSource, /Cost-code, vendor, and project transaction registers re
 assert.match(appSource, /route === 'construction-loan'/, 'Construction Loan must mount its existing API rollforward rather than a demo route');
 assert.match(appSource, /route === 'amortization'/, 'Amortization Center must mount its existing API prepaid rollforward rather than a demo route');
 assert.match(appSource, /Loan register, lender, commitment, and draw-management workflows remain unavailable/, 'the construction-loan reader must not overstate unavailable operational contracts');
-assert.match(appSource, /Schedule authoring, posting, and browser-local amortization calculations remain unavailable/, 'the amortization reader must not recreate a browser-side accounting workflow');
+assert.match(amortizationSource, /Draft creation never submits, reviews, approves, or posts the Journal Entry/, 'the amortization control must stop at a server-created Draft and retain the standard Journal workflow boundary');
+assert.match(amortizationSource, /No AI, browser-local, or demonstration schedule is substituted/, 'the amortization control must fail closed rather than recreate accounting evidence in the browser');
 assert.match(appSource, /route === 'intercompany'/, 'Intercompany must mount its existing two-entity API evidence reader rather than a demo route');
 assert.match(appSource, /route === 'consolidation'/, 'Consolidation must mount existing snapshot evidence rather than a browser workbook');
 assert.match(appSource, /Elimination, adjustment, and intercompany posting workflows remain unavailable/, 'the intercompany surface must not overstate unavailable posting contracts');
