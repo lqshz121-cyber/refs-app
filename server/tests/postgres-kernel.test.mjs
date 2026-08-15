@@ -184,6 +184,58 @@ pgTest('authoritative scope returns persisted entity metadata and period status 
   });
 });
 
+pgTest('current actor access returns only the authenticated session permissions for one allowed entity',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),other=await seed({status:'DRAFT',attachmentStatus:null});
+  const actor='access-diagnostics-reader',permissions=['WBS.PAYABLE.REVIEW','AP.VIEW'];
+  await adminPool.query(`INSERT INTO runtime_actor_grant_set(tenant_id,actor_id,entity_id,version,updated_by)
+    VALUES($1,$2,$3,7,'grant-sync-test')`,[ids.tenantId,actor,ids.entityId]);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actor,permissions)});
+  assert.deepEqual(await kernel.readCurrentActorAccess({tenantId:ids.tenantId,entityId:ids.entityId}),{
+    tenant_id:ids.tenantId,entity_id:ids.entityId,actor_id:actor,grant_set_version:7,
+    permissions:['AP.VIEW','WBS.PAYABLE.REVIEW'],configured_permissions:['AP.VIEW','WBS.PAYABLE.REVIEW'],session_refresh_required:false
+  });
+  const driftKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>{
+    const session=await trustedSession(ids,actor,permissions);
+    await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'GL.REPORT.VIEW')",[ids.tenantId,actor,ids.entityId]);
+    await adminPool.query("UPDATE runtime_actor_grant_set SET version=8 WHERE tenant_id=$1 AND actor_id=$2 AND entity_id=$3",[ids.tenantId,actor,ids.entityId]);
+    return session;
+  }});
+  assert.deepEqual(await driftKernel.readCurrentActorAccess({tenantId:ids.tenantId,entityId:ids.entityId}),{
+    tenant_id:ids.tenantId,entity_id:ids.entityId,actor_id:actor,grant_set_version:8,
+    permissions:['AP.VIEW','WBS.PAYABLE.REVIEW'],configured_permissions:['AP.VIEW','GL.REPORT.VIEW','WBS.PAYABLE.REVIEW'],session_refresh_required:true
+  });
+  await assert.rejects(()=>kernel.readCurrentActorAccess({tenantId:ids.tenantId,entityId:other.entityId}),error=>error.code==='42501');
+  await assert.rejects(()=>kernel.readCurrentActorAccess({tenantId:other.tenantId,entityId:other.entityId}),error=>error.code==='42501');
+  const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>({trusted:true,actorId:actor})});
+  const revokedKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>{
+    const session=await trustedSession(ids,actor,permissions);
+    await issuer.revoke({contextToken:session.contextToken,reason:'access diagnostics revoke test'});
+    return session;
+  }});
+  await assert.rejects(()=>revokedKernel.readCurrentActorAccess({tenantId:ids.tenantId,entityId:ids.entityId}),error=>error.code==='42501');
+  const expiredKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>{
+    const session=await trustedSession(ids,actor,permissions);
+    await adminPool.query("UPDATE runtime_auth_context SET expires_at=now()-interval '1 second' WHERE token_hash=$1",[hash(session.contextToken)]);
+    return session;
+  }});
+  await assert.rejects(()=>expiredKernel.readCurrentActorAccess({tenantId:ids.tenantId,entityId:ids.entityId}),error=>error.code==='42501');
+  const emptyKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>{
+    const session=await trustedSession(ids,actor,permissions);
+    await adminPool.query("UPDATE runtime_auth_context SET grants=jsonb_build_array(jsonb_build_object('entity_id',$2::uuid,'permission','')) WHERE token_hash=$1",[hash(session.contextToken),ids.entityId]);
+    return session;
+  }});
+  assert.deepEqual(await emptyKernel.readCurrentActorAccess({tenantId:ids.tenantId,entityId:ids.entityId}),{
+    tenant_id:ids.tenantId,entity_id:ids.entityId,actor_id:actor,grant_set_version:8,permissions:[],
+    configured_permissions:['AP.VIEW','GL.REPORT.VIEW','WBS.PAYABLE.REVIEW'],session_refresh_required:true
+  });
+  const malformedKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>{
+    const session=await trustedSession(ids,actor,permissions);
+    await adminPool.query("UPDATE runtime_auth_context SET grants=jsonb_build_array(jsonb_build_object('entity_id','not-a-uuid','permission','AP.VIEW')) WHERE token_hash=$1",[hash(session.contextToken)]);
+    return session;
+  }});
+  await assert.rejects(()=>malformedKernel.readCurrentActorAccess({tenantId:ids.tenantId,entityId:ids.entityId}),error=>error.code==='42501');
+});
+
 pgTest('migration clean down and up is reversible from the fixed manifest',async()=>{
   await migrateDown(adminPool,{all:true});
   const missing=await adminPool.query("SELECT to_regclass('public.tenant') AS tenant_table");

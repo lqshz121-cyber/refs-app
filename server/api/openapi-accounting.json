@@ -1413,6 +1413,15 @@
         "responses": {"200": {"$ref": "#/components/responses/AuthoritativeScopeReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/access/self": {
+      "get": {
+        "operationId": "readCurrentActorAccess",
+        "summary": "Read the current authenticated actor's effective entity permissions",
+        "description": "Returns only the current session actor identifier, tenant and entity scope, current configured grant-set revision, effective permission codes embedded in this authenticated database context, current configured permission codes, and whether the session must be refreshed. It accepts no actor identifier and cannot grant, revoke, create, edit, approve, or post.",
+        "parameters": [{"$ref": "#/components/parameters/EntityId"}],
+        "responses": {"200": {"$ref": "#/components/responses/CurrentActorAccessReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/general-ledger/account-register": {
       "get": {
         "operationId": "listAccountRegister",
@@ -3294,6 +3303,17 @@
           "period_id":{"$ref":"#/components/schemas/Uuid"},"period_code":{"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])$"},"period_start":{"type":"string","format":"date"},"period_end":{"type":"string","format":"date"},"period_status":{"type":"string","enum":["OPEN","SOFT_CLOSED","CLOSED"]}
         }
       },
+      "CurrentActorAccessReadRow": {
+        "type":"object","additionalProperties":false,
+        "required":["tenant_id","entity_id","actor_id","grant_set_version","permissions","configured_permissions","session_refresh_required"],
+        "properties":{
+          "tenant_id":{"$ref":"#/components/schemas/Uuid"},"entity_id":{"$ref":"#/components/schemas/Uuid"},
+          "actor_id":{"type":"string","minLength":1,"maxLength":200},"grant_set_version":{"type":"integer","minimum":0},
+          "permissions":{"type":"array","uniqueItems":true,"items":{"type":"string","pattern":"^(?:\\*|[A-Z][A-Z0-9_.]+)$"}},
+          "configured_permissions":{"type":"array","uniqueItems":true,"items":{"type":"string","pattern":"^[A-Z][A-Z0-9_.]+$"}},
+          "session_refresh_required":{"type":"boolean"}
+        }
+      },
       "AccountRegisterReadRow": {
         "type": "object", "additionalProperties": false,
         "required": ["period_id","period_code","period_start","period_end","account_code","account_name","currency","journal_date","journal_entry_id","journal_number","journal_line_id","ledger_line_id","member_ref","description","debit_amount","credit_amount","opening_balance","running_balance","source_document_ids"],
@@ -3427,6 +3447,10 @@
       "AuthoritativeScopeReadEnvelope": {
         "type":"object","additionalProperties":false,"required":["ok","data"],
         "properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/AuthoritativeScopeReadRow"}}
+      },
+      "CurrentActorAccessReadEnvelope": {
+        "type":"object","additionalProperties":false,"required":["ok","data"],
+        "properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/CurrentActorAccessReadRow"}}
       },
       "AccountRegisterReadEnvelope": {
         "type":"object", "additionalProperties":false, "required":["ok","data"],
@@ -5151,6 +5175,11 @@
         "description":"Authenticated persisted entity and accounting-period scope read",
         "headers":{"Cache-Control":{"schema":{"const":"no-store"}}},
         "content":{"application/json":{"schema":{"$ref":"#/components/schemas/AuthoritativeScopeReadEnvelope"}}}
+      },
+      "CurrentActorAccessReadOk": {
+        "description":"Authenticated self-only effective entity permission read",
+        "headers":{"Cache-Control":{"schema":{"const":"no-store"}}},
+        "content":{"application/json":{"schema":{"$ref":"#/components/schemas/CurrentActorAccessReadEnvelope"}}}
       },
       "AccountRegisterReadOk": {
         "description":"Authenticated entity, period, and account-scoped POSTED register read",

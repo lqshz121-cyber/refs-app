@@ -709,6 +709,22 @@ export class PostgresAccountingKernel{
     ),'AUTHORITATIVE_SCOPE_NOT_FOUND','Authoritative entity and period scope is unavailable'));
   }
 
+  async readCurrentActorAccess({tenantId,entityId}){
+    return this.inSession(async client=>{
+      const row=requireRow(await client.query(
+        'SELECT * FROM refs_read_current_actor_access($1,$2)',[tenantId,entityId]
+      ),'CURRENT_ACTOR_ACCESS_UNAVAILABLE','Current actor access is unavailable');
+      const version=Number(row.grant_set_version);
+      if(!Number.isSafeInteger(version)||version<0
+        ||!Array.isArray(row.permissions)||row.permissions.some(permission=>typeof permission!=='string')
+        ||!Array.isArray(row.configured_permissions)||row.configured_permissions.some(permission=>typeof permission!=='string')
+        ||typeof row.session_refresh_required!=='boolean'){
+        throw new KernelError('CURRENT_ACTOR_ACCESS_INVALID','Current actor access is outside the public read contract');
+      }
+      return {...row,grant_set_version:version,permissions:[...row.permissions],configured_permissions:[...row.configured_permissions]};
+    });
+  }
+
   async listAccountRegister({tenantId,entityId,periodId,accountCode}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_account_register($1,$2,$3,$4)',[tenantId,entityId,periodId,accountCode]
