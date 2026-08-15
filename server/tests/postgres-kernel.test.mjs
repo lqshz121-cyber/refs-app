@@ -146,7 +146,7 @@ pgTest('controlled DEMO tenant is tenant-scoped, retired non-destructively, and 
   const demo=await seed({status:'DRAFT',attachmentStatus:null}),production=await seed({status:'DRAFT',attachmentStatus:null});
   await adminPool.query("UPDATE tenant SET tenant_code='DEMO_AP_BANK_2026' WHERE tenant_id=$1",[demo.tenantId]);
   await adminPool.query(`INSERT INTO controlled_demo_tenant(tenant_id,scenario_code,display_label,created_by,expires_at)
-    VALUES($1,'AP_BANK_CLOSURE','DEMO — non-real evidence','demo-admin',clock_timestamp()+interval '1 day')`,[demo.tenantId]);
+    VALUES($1,'AP_BANK_CLOSURE','DEMO ? non-real evidence','demo-admin',clock_timestamp()+interval '1 day')`,[demo.tenantId]);
   const demoReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(demo,'demo-reader')});
   const productionReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(production,'production-reader')});
   const demoStatus=await demoReader.readControlledDemoTenant({tenantId:demo.tenantId});
@@ -155,7 +155,7 @@ pgTest('controlled DEMO tenant is tenant-scoped, retired non-destructively, and 
   for(const [reader,other] of [[demoReader,production],[productionReader,demo]]){
     await assert.rejects(()=>reader.readControlledDemoTenant({tenantId:other.tenantId}),error=>error.code==='42501');
     await assert.rejects(()=>reader.inSession(client=>client.query(`INSERT INTO controlled_demo_tenant(tenant_id,scenario_code,display_label,created_by,expires_at)
-      VALUES($1,'AP_BANK_CLOSURE','DEMO — non-real evidence','runtime-attempt',clock_timestamp()+interval '1 day')`,[other.tenantId])),error=>error.code==='42501');
+      VALUES($1,'AP_BANK_CLOSURE','DEMO ? non-real evidence','runtime-attempt',clock_timestamp()+interval '1 day')`,[other.tenantId])),error=>error.code==='42501');
   }
   const retired=(await adminPool.query("SELECT refs_retire_controlled_demo_tenant($1,'Demo validation complete','demo-admin') result",[demo.tenantId])).rows[0].result;
   assert.equal(retired.retired,true);assert.equal(retired.idempotent,false);
@@ -514,6 +514,15 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   const draftArgs={...ids,wbsInboundRowId:stored.wbs_inbound_row_id,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id,expectedRevision:0,expectedEvidenceHash:stored.evidence_hash,mappingSnapshotId:mappingId,attachmentIds:[attachmentId],reason:'Create the AP Bill Draft from frozen reviewed WBS evidence',idempotencyKey:'wbs-payable-draft-pg-0001'};
   const reviewerAsMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-reviewer',['AP.BILL.CREATE'])});
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-maker',['AP.BILL.CREATE'])});
+  const aiProposalService=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-payable-proposal-service',['AI.PROPOSAL.CREATE'])});
+  const proposalArgs={...ids,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id,modelId:'REFS_RULE_ASSIST_V1',promptVersion:'WBS_PAYABLE_V1',idempotencyKey:'ai-wbs-payable-proposal-pg-0001'};
+  await assert.rejects(denied.proposeAiWbsPayableDraft(proposalArgs),error=>error.code==='42501');
+  const proposed=await aiProposalService.proposeAiWbsPayableDraft(proposalArgs),proposalReplay=await aiProposalService.proposeAiWbsPayableDraft(proposalArgs);
+  assert.deepEqual({replay:proposalReplay.idempotent,draft:proposed.can_create_draft,submit:proposed.can_submit,review:proposed.can_review,approve:proposed.can_approve,post:proposed.can_post},{replay:true,draft:false,submit:false,review:false,approve:false,post:false});
+  assert.deepEqual((await adminPool.query("SELECT p.proposal_lines,r.decision FROM ai_wbs_payable_draft_proposal p LEFT JOIN ai_wbs_payable_draft_proposal_review r ON r.ai_wbs_payable_draft_proposal_id=p.ai_wbs_payable_draft_proposal_id WHERE p.tenant_id=$1 AND p.ai_wbs_payable_draft_proposal_id=$2",[ids.tenantId,proposed.ai_wbs_payable_draft_proposal_id])).rows[0],{proposal_lines:[{line_no:1,account_code:'610000',debit_amount:'89.1250',credit_amount:'0.0000',source:'REVIEWED_MAPPING'},{line_no:2,account_code:'291001',debit_amount:'0.0000',credit_amount:'89.1250',source:'REVIEWED_MAPPING'}],decision:null});
+  await assert.rejects(reviewerAsMaker.reviewAiWbsPayableDraftProposal({...ids,proposalId:proposed.ai_wbs_payable_draft_proposal_id,decision:'ACCEPTED',reason:'The recommended lines match the reviewed evidence',idempotencyKey:'ai-wbs-payable-proposal-review-pg-reviewer'}),error=>error.code==='42501'&&/maker and evidence reviewer/i.test(error.message));
+  const accepted=await maker.reviewAiWbsPayableDraftProposal({...ids,proposalId:proposed.ai_wbs_payable_draft_proposal_id,decision:'ACCEPTED',reason:'The recommended lines match the reviewed evidence',idempotencyKey:'ai-wbs-payable-proposal-review-pg-0001'});
+  assert.deepEqual({decision:accepted.decision,draft:accepted.can_create_draft,submit:accepted.can_submit,approve:accepted.can_approve,post:accepted.can_post},{decision:'ACCEPTED',draft:false,submit:false,approve:false,post:false});
   const draftMutationCounts=async()=>(await adminPool.query("SELECT (SELECT count(*)::int FROM business_document WHERE tenant_id=$1 AND entity_id=$2) business_documents,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2) journal_entries,(SELECT count(*)::int FROM journal_line WHERE tenant_id=$1 AND entity_id=$2) journal_lines,(SELECT count(*)::int FROM wbs_payable_draft_evidence WHERE tenant_id=$1 AND entity_id=$2) draft_evidence,(SELECT count(*)::int FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND link_type IN ('SOURCE_TO_JE','JE_ATTACHMENT')) draft_links,(SELECT count(*)::int FROM posting_batch WHERE tenant_id=$1 AND entity_id=$2) posting_batches,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1 AND entity_id=$2) ledger_lines",[ids.tenantId,ids.entityId])).rows[0];
   const beforeFailedDrafts=await draftMutationCounts();
   await assert.rejects(reviewerAsMaker.createWbsPayableApDraft(draftArgs),error=>error.code==='42501'&&/maker and reviewer/i.test(error.message));

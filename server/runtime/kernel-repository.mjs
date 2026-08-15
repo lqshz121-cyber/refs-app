@@ -314,6 +314,42 @@ export class PostgresAccountingKernel{
     ));
   }
 
+  // The service may only create an evidence-bound proposal.  The returned
+  // object deliberately has no Draft, approval, or posting authority.
+  async proposeAiWbsPayableDraft({tenantId,entityId,reviewEvidenceId,modelId,promptVersion,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_ai_wbs_payable_draft_proposal_hash($1,$2,$3,$4,$5) AS request_hash',
+        [tenantId,entityId,reviewEvidenceId,modelId,promptVersion]
+      ),'AI_WBS_PAYABLE_PROPOSAL_HASH_FAILED','AI WBS payable proposal hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_propose_ai_wbs_payable_draft($1,$2,$3,$4,$5,$6,$7) AS result',
+        [tenantId,entityId,reviewEvidenceId,modelId,promptVersion,idempotencyKey,requestHash]
+      ),'AI_WBS_PAYABLE_PROPOSAL_FAILED','AI WBS payable proposal did not return a result').result;
+    });
+  }
+
+  async listAiWbsPayableDraftProposals({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_wbs_payable_draft_proposals($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  // A human AP maker records an immutable accept/reject decision.  Creating
+  // the ordinary WBS AP Draft remains a separate, existing command.
+  async reviewAiWbsPayableDraftProposal({tenantId,entityId,proposalId,decision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_review_ai_wbs_payable_draft_proposal_hash($1,$2,$3,$4,$5) AS request_hash',
+        [tenantId,entityId,proposalId,decision,reason]
+      ),'AI_WBS_PAYABLE_PROPOSAL_REVIEW_HASH_FAILED','AI WBS payable proposal review hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_review_ai_wbs_payable_draft_proposal($1,$2,$3,$4,$5,$6,$7) AS result',
+        [tenantId,entityId,proposalId,decision,reason,idempotencyKey,requestHash]
+      ),'AI_WBS_PAYABLE_PROPOSAL_REVIEW_FAILED','AI WBS payable proposal review did not return a result').result;
+    });
+  }
+
   async persistWbsInboundRows({tenantId,entityId,importBatchId,receipt,rows,idempotencyKey,requestHash}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_persist_wbs_inbound_rows($1,$2,$3,$4,$5,$6,$7,$8) AS result',
