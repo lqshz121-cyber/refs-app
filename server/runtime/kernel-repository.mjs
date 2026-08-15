@@ -254,6 +254,19 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async acceptAiAmortizationSchedule({tenantId,entityId,aiAmortizationScheduleId,aiAmortizationScheduleLineId,journalEntryId,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_accept_ai_amortization_schedule_hash($1,$2,$3,$4,$5,$6) AS request_hash',
+        [tenantId,entityId,aiAmortizationScheduleId,aiAmortizationScheduleLineId,journalEntryId,reason]
+      ),'AI_AMORTIZATION_ACCEPTANCE_HASH_FAILED','AI amortization acceptance hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_accept_ai_amortization_schedule($1,$2,$3,$4,$5,$6,$7,$8) AS result',
+        [tenantId,entityId,aiAmortizationScheduleId,aiAmortizationScheduleLineId,journalEntryId,reason,idempotencyKey,requestHash]
+      ),'AI_AMORTIZATION_ACCEPTANCE_FAILED','AI amortization acceptance did not return a result').result;
+    });
+  }
+
   async listAiPrepaidCoverageFindings({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_prepaid_coverage_findings($1,$2,$3)',[tenantId,entityId,limit]
