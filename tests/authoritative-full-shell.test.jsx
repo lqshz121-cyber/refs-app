@@ -76,10 +76,10 @@ const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspac
 assert.doesNotMatch(unavailableMarkup, /Entity-scoped source-document list|attachment-read contract/,
   'customer-facing setup pages must not expose implementation contracts');
 assert.match(unavailableMarkup, /Your finance administrator/);
-assert.match(unavailableMarkup, /For now:/);
-assert.match(unavailableMarkup, /Source Documents is being prepared/);
-assert.match(unavailableMarkup, /Nothing to review here yet/);
-assert.match(unavailableMarkup, /What happens next/);
+assert.match(unavailableMarkup, /Until then:/);
+assert.match(unavailableMarkup, /Source Documents is not ready yet/);
+assert.match(unavailableMarkup, /No records are available here yet/);
+assert.match(unavailableMarkup, /Getting this workspace ready/);
 assert.doesNotMatch(unavailableMarkup, /SETUP REQUIRED|SETUP NEEDED/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
