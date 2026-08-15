@@ -59,13 +59,15 @@ const workspaceViewSource = fs.readFileSync('src/authoritative-workbench-view.js
 assert.doesNotMatch(workspaceViewSource, /seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js/,
   'the reusable authoritative presentation frame must not import or persist local accounting state');
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
+assert.match(unavailableMarkup,/Nothing to review here yet/, 'a workspace still being prepared explains the state in finance-reader language');
+assert.match(unavailableMarkup,/What you can do now:/, 'a setup page gives a safe next step instead of engineering status text');
 assert.match(unavailableMarkup, /Entity-scoped source-document list and immutable detail endpoints\./);
 assert.match(unavailableMarkup, /Separate authorised attachment-read contract\./);
 assert.match(unavailableMarkup, /Who completes this:/);
-assert.match(unavailableMarkup, /Next step:/);
+assert.match(unavailableMarkup, /What you can do now:/);
 assert.match(unavailableMarkup, /Source Documents is being prepared/);
-assert.match(unavailableMarkup, /No financial activity is shown until setup is complete/);
-assert.match(unavailableMarkup, /What needs to be in place/);
+assert.match(unavailableMarkup, /Nothing to review here yet/);
+assert.match(unavailableMarkup, /Before you can use this workspace/);
 assert.match(unavailableMarkup, /attachment-read contract/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');

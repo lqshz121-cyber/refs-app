@@ -27,20 +27,20 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
       'Attachment binding, independent review and the separate AP Draft step preserve exact receipt and object-version evidence.',
     ]),
     item('staging', 'Accounting Staging', 'API_UNAVAILABLE', [
-      'Entity-scoped persisted staging items with immutable receipt, source version, mapping version, and review state.',
-      'Read-only list and detail endpoints before any controller workflow can be exposed.',
+      'Your finance administrator needs to activate the approved incoming-data connection for this company.',
+      'The connection must provide reviewed accounting items and their supporting documents before this workspace can be used.',
     ]),
     item('source-documents', 'Source Documents', 'API_READ', [
       'Entity-scoped source-document list and immutable detail endpoints.',
       'Separate authorised attachment-read contract; upload and finalise endpoints are not a document reader.',
     ]),
     item('integration-hub', 'Integration Hub', 'API_UNAVAILABLE', [
-      'Read-only connector health, immutable receipt, and source-version evidence scoped to this entity.',
-      'No provider synchronisation control is shown until a server-authorised contract exists.',
+      'Connect the approved source systems for this company and confirm read access for the finance team.',
+      'Once verified, this workspace will show connection status and document history. It will not change source data.',
     ]),
     item('mapping-exceptions', 'Mapping Exceptions', 'API_UNAVAILABLE', [
-      'Entity- and period-scoped exception read model with mapping version, reason, and retained audit evidence.',
-      'A reviewed resolution command must be separately authorised and versioned.',
+      'Approve this company’s accounting mappings and the review process for exceptions.',
+      'Once ready, finance users can review exceptions alongside their supporting evidence.',
     ]),
   ]),
   group('Auto Reconciliation', [

@@ -139,7 +139,7 @@ assert.match(unavailableWorkspace,/WORKSPACE SETUP|SETUP REQUIRED|SETUP NEEDED/,
   'an unconfigured workspace must explain setup in finance-reader language');
 assert.match(unavailableWorkspace,/requirements\.map\(requirement=><li key=\{requirement\}>\{requirement\}<\/li>\)/,
   'a setup page must retain each route-specific prerequisite instead of hiding the actual connection or access gap');
-assert.match(unavailableWorkspace,/Who completes this:|Next step:/,
+assert.match(unavailableWorkspace,/Who completes this:|What you can do now:/,
   'a setup page must explain both the responsible party and the safe reader next step');
 assert.doesNotMatch(unavailableWorkspace,/config\?\.entityId \|\| 'Not configured'|config\?\.periodId \|\| 'Not configured'/,
   'raw scope identifiers must not be rendered as the visible workspace value');
