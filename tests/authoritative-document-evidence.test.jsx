@@ -151,6 +151,8 @@ for(const route of [apRoute,arRoute]){
 const workspace=fs.readFileSync(path.join(process.cwd(),'src','authoritative-workspace.jsx'),'utf8');
 assert.doesNotMatch(workspace,/localStorage|SEED_/,'authoritative AP/AR evidence must not read browser business state');
 assert.doesNotMatch(workspace,/from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data/,'authoritative AP/AR presentation must not import demo business state');
+assert.doesNotMatch(workspace,/(?:BLOCKED|Configured entity|Category unavailable) \?|\} \? (?:rev|v|\{)/,'visible AP/AR copy must not expose question-mark replacement characters as separators');
+for(const rendered of [detail,completeDetail,adjustmentDetail,completeAdjustmentDetail])assert.doesNotMatch(rendered,/ \? /,'rendered authoritative evidence must use intentional readable separators');
 assert.match(workspace,/authoritative-document-workspace stack/,'authoritative AP/AR list facts require a full-page hierarchy rather than a bare table');
 assert.match(workspace,/presentation contract/,'authoritative AP/AR hierarchy must state its API-only list/detail return boundary');
 assert.match(app,/authoritative-scope-bar/,'authoritative shell must display the configured entity and period scope');
