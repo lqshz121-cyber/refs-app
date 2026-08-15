@@ -379,6 +379,50 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  // These readers are deliberately evidence-only.  They are the only database
+  // seam used by the AI accrual candidate analysis; none can write a finding,
+  // source, Draft, review, approval, or journal.
+  async listAiAccrualRetainedHistory({tenantId,entityId,currentPeriodId,limit=240}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
+      return (await client.query(`SELECT d.tenant_id,d.entity_id,d.source_system,d.source_module,d.document_type,d.status AS source_status,d.source_document_id,l.source_document_line_id,p.period_id AS accounting_period_id,p.period_code,(extract(year FROM p.starts_on)::integer*12+extract(month FROM p.starts_on)::integer) AS period_ordinal,true AS period_closed,d.payload_hash,d.currency,l.amount::text,l.party_ref,l.external_dimension_refs
+        FROM wbs_final1_retained_source_row r
+        JOIN raw_event e ON e.tenant_id=r.tenant_id AND e.entity_id=r.entity_id AND e.raw_event_id=r.raw_event_id AND e.is_current
+        JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id
+        JOIN source_document_line l ON l.tenant_id=r.tenant_id AND l.entity_id=r.entity_id AND l.source_document_line_id=r.source_document_line_id
+        JOIN accounting_period p ON p.tenant_id=r.tenant_id AND p.entity_id=r.entity_id AND p.period_id=r.accounting_period_id AND p.ledger_code='PRIMARY'
+        JOIN accounting_period current_period ON current_period.tenant_id=r.tenant_id AND current_period.entity_id=r.entity_id AND current_period.period_id=$3 AND current_period.ledger_code='PRIMARY'
+        WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.domain='PAYABLES' AND d.document_type='WBS_FINAL1_PAYABLE' AND d.status='PENDING_REVIEW' AND p.status='CLOSED' AND p.starts_on<current_period.starts_on
+        ORDER BY p.starts_on DESC,d.source_document_id DESC LIMIT $4`,[tenantId,entityId,currentPeriodId,limit])).rows;
+    });
+  }
+
+  async listAiAccrualCurrentSourceIds({tenantId,entityId,currentPeriodId,recurringObligationId}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
+      return (await client.query(`SELECT DISTINCT d.source_document_id
+        FROM wbs_final1_retained_source_row r JOIN raw_event e ON e.tenant_id=r.tenant_id AND e.entity_id=r.entity_id AND e.raw_event_id=r.raw_event_id AND e.is_current
+        JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id
+        JOIN source_document_line l ON l.tenant_id=r.tenant_id AND l.entity_id=r.entity_id AND l.source_document_line_id=r.source_document_line_id
+        WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.domain='PAYABLES' AND r.accounting_period_id=$3
+          AND COALESCE(NULLIF(l.external_dimension_refs->>'signed_recurring_obligation_id',''),CASE WHEN NULLIF(l.external_dimension_refs->>'signed_contract_id','') IS NOT NULL AND NULLIF(l.party_ref,'') IS NOT NULL AND NULLIF(l.external_dimension_refs->>'signed_charge_code','') IS NOT NULL THEN 'contract:'||(l.external_dimension_refs->>'signed_contract_id')||'|vendor:'||l.party_ref||'|charge:'||(l.external_dimension_refs->>'signed_charge_code') END)=$4`,[tenantId,entityId,currentPeriodId,recurringObligationId])).rows.map(row=>row.source_document_id);
+    });
+  }
+
+  async listAiAccrualPostedSourceIds({tenantId,entityId,currentPeriodId,recurringObligationId}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
+      return (await client.query(`SELECT DISTINCT d.source_document_id
+        FROM wbs_final1_retained_source_row r JOIN raw_event e ON e.tenant_id=r.tenant_id AND e.entity_id=r.entity_id AND e.raw_event_id=r.raw_event_id AND e.is_current
+        JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id
+        JOIN source_document_line l ON l.tenant_id=r.tenant_id AND l.entity_id=r.entity_id AND l.source_document_line_id=r.source_document_line_id
+        JOIN source_link sl ON sl.tenant_id=r.tenant_id AND sl.entity_id=r.entity_id AND sl.source_document_id=d.source_document_id
+        JOIN journal_entry j ON j.tenant_id=r.tenant_id AND j.entity_id=r.entity_id AND j.journal_entry_id=sl.journal_entry_id AND j.status='POSTED'
+        WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.domain='PAYABLES' AND r.accounting_period_id=$3
+          AND COALESCE(NULLIF(l.external_dimension_refs->>'signed_recurring_obligation_id',''),CASE WHEN NULLIF(l.external_dimension_refs->>'signed_contract_id','') IS NOT NULL AND NULLIF(l.party_ref,'') IS NOT NULL AND NULLIF(l.external_dimension_refs->>'signed_charge_code','') IS NOT NULL THEN 'contract:'||(l.external_dimension_refs->>'signed_contract_id')||'|vendor:'||l.party_ref||'|charge:'||(l.external_dimension_refs->>'signed_charge_code') END)=$4`,[tenantId,entityId,currentPeriodId,recurringObligationId])).rows.map(row=>row.source_document_id);
+    });
+  }
+
   async assignAiFindingAction({tenantId,entityId,findingKind,findingId,findingHash,owner,dueDate,expectedRevision,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query('SELECT refs_assign_ai_finding_action_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',[tenantId,entityId,findingKind,findingId,findingHash,owner,dueDate,expectedRevision]),'AI_FINDING_ACTION_HASH_FAILED','AI finding assignment hash was not produced').request_hash;
