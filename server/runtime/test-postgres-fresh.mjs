@@ -7,7 +7,8 @@ import {createPool} from './db.mjs';
 import {waitForPostgresReadiness} from './postgres-readiness.mjs';
 
 const serverRoot=resolve(dirname(fileURLToPath(import.meta.url)),'..');
-const project=`refs_kernel_gate_${process.pid}_${Date.now().toString(36)}`.toLowerCase();
+const generatedProject=`refs_kernel_gate_${process.pid}_${Date.now().toString(36)}`.toLowerCase();
+const project=process.env.REFS_PG_COMPOSE_PROJECT||generatedProject;
 const database='refs_kernel_gate_test';
 const passwords={
   migrator:'refs_migrator_test_K8r3w5T1z9Hp',
@@ -19,8 +20,12 @@ const cliArgs=process.argv.slice(2);
 const patternIndex=cliArgs.indexOf('--pattern');
 if(cliArgs.length!==0&&(patternIndex!==0||cliArgs.length!==2||!cliArgs[1]))throw new Error('Usage: node runtime/test-postgres-fresh.mjs [--pattern <test name>]');
 const postgresTestNamePattern=cliArgs[1]||process.env.PG_TEST_NAME_PATTERN||null;
+const rawTestTimeout=process.env.REFS_PG_TEST_TIMEOUT_MS||'';
+if(rawTestTimeout!==''&&(!/^[1-9]\d*$/.test(rawTestTimeout)||Number(rawTestTimeout)<1000||Number(rawTestTimeout)>900000))throw new Error('REFS_PG_TEST_TIMEOUT_MS must be an integer between 1000 and 900000 milliseconds');
+const postgresTestTimeoutMs=rawTestTimeout===''?null:Number(rawTestTimeout);
 
 if(!/^refs_kernel_gate_[a-z0-9_-]+$/.test(project))throw new Error('Unsafe compose project name');
+if(process.env.REFS_PG_COMPOSE_PROJECT&& !/^refs_kernel_gate_fixture_[a-z0-9_-]+$/.test(project))throw new Error('Externally owned compose project must use the refs_kernel_gate_fixture_ prefix');
 if(!database.endsWith('_test'))throw new Error('Fresh PostgreSQL gate requires a *_test database');
 
 function freePort(){
@@ -64,6 +69,7 @@ const testEnv={...composeEnv,
   GRANT_SYNC_DATABASE_URL:`postgresql://refs_grant_sync:${passwords.grantSync}@127.0.0.1:${port}/${database}`
 };
 const postgresTestArgs=['--test'];
+if(postgresTestTimeoutMs!==null)postgresTestArgs.push(`--test-timeout=${postgresTestTimeoutMs}`);
 if(postgresTestNamePattern)postgresTestArgs.push('--test-name-pattern',postgresTestNamePattern);
 postgresTestArgs.push('tests/postgres-kernel.test.mjs');
 
