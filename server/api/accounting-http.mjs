@@ -430,6 +430,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=assertWbsReadOnlyResult(await service.readAutoRecReview({tenantId:principal.tenantId,entityId,companyKey:selection.companyKey,sourceRecordIds:selection.sourceRecordIds}));
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='match-reviews'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AutoRec Bank Match review reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.getWbsAutoRecBankMatchReview!=='function')throw new AccountingApiError(503,'WBS_AUTOREC_MATCH_REVIEW_READ_UNAVAILABLE','AutoRec Bank Match review evidence is unavailable');
+        result=await kernel.getWbsAutoRecBankMatchReview({tenantId:principal.tenantId,entityId,reviewId:requireUuid(parts[7],'reviewId')});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='operator-attested'&&parts[6]==='payables'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Operator-attested evidence reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');

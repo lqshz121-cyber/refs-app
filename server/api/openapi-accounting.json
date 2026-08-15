@@ -1981,6 +1981,66 @@
         }
       }
     },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews": {
+      "post": {
+        "operationId": "reviewWbsAutoRecBankMatch",
+        "summary": "Persist one independent AutoRec Bank Match review decision",
+        "description": "Requires BANK.MATCH.REVIEW. The authenticated reviewer must differ from both the exact Bank Match maker and the persisted candidate preparer. The command binds one immutable reserved candidate hash to one exact ACTIVE Bank Match revision and records only ACCEPTED or REJECTED review evidence. It never creates or posts a Journal Entry, links G11 evidence, or marks an AutoRec candidate INCURRED.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {"$ref": "#/components/parameters/IfMatch"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["reviewCandidateId","candidateHash","bankMatchId","decision","reason"],
+                "properties": {
+                  "reviewCandidateId": {"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+                  "candidateHash": {"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+                  "bankMatchId": {"$ref":"#/components/schemas/Uuid"},
+                  "decision": {"type":"string","enum":["ACCEPTED","REJECTED"]},
+                  "reason": {"type":"string","minLength":8,"maxLength":2000}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {"$ref":"#/components/responses/CommandReplay"},
+          "201": {"$ref":"#/components/responses/CommandCreated"},
+          "400": {"$ref":"#/components/responses/Problem"},
+          "403": {"$ref":"#/components/responses/Problem"},
+          "409": {"$ref":"#/components/responses/Problem"},
+          "412": {"$ref":"#/components/responses/PreconditionFailed"},
+          "503": {"$ref":"#/components/responses/SerializationRetryExhausted"},
+          "default": {"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}": {
+      "get": {
+        "operationId": "getWbsAutoRecBankMatchReview",
+        "summary": "Read one persisted AutoRec Bank Match review",
+        "description": "Requires WBS.AUTOREC.VIEW and returns only the selected entity's immutable decision, candidate and Bank Match revisions, evidence hash, reviewer/time and SoD actors. This GET is no-store and cannot create a match, link G11 evidence, mark INCURRED, or post.",
+        "parameters": [
+          {"$ref":"#/components/parameters/EntityId"},
+          {"name":"reviewId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}
+        ],
+        "responses": {
+          "200": {"$ref":"#/components/responses/ReadOk"},
+          "400": {"$ref":"#/components/responses/Problem"},
+          "403": {"$ref":"#/components/responses/Problem"},
+          "404": {"$ref":"#/components/responses/Problem"},
+          "503": {"$ref":"#/components/responses/Problem"},
+          "default": {"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/wbs/auto-reconciliation/transition-contracts/verify": {
       "post": {
         "operationId": "verifyWbsAutoRecTransitionContract",

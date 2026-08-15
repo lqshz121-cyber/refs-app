@@ -341,6 +341,23 @@ test('Bank unmatch command retains scope and requires the active match revision 
   assert.equal((await command(`/api/v1/entities/${entityId}/bank/transactions/${bankSourceId}/matches/${bankMatchId}/unmatch`,{reason:' short '},{'If-Match':'"0"'})).body.code,'INVALID_REASON');
 });
 
+test('AutoRec Bank Match review persists an independent exact decision and exposes a GET-only readback',async()=>{
+  const observed=[];const reviewId=randomUUID(),bankMatchId=randomUUID(),reviewCandidateId='sha256:'+'1'.repeat(64),candidateHash='sha256:'+'2'.repeat(64);
+  const evidence={wbs_autorec_match_review_id:reviewId,review_candidate_id:reviewCandidateId,candidate_hash:candidateHash,bank_match_id:bankMatchId,bank_match_revision:3,decision:'ACCEPTED',reviewed_by:'reviewer',reviewed_at:'2026-08-16T00:00:00.000Z',sod_verified:true,g11_linked:false,incurred:false};
+  const reviewApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'reviewer'}),kernelFactory:async()=>({
+    reviewWbsAutoRecBankMatch:async input=>(observed.push(['review',input]),evidence),
+    getWbsAutoRecBankMatchReview:async input=>(observed.push(['read',input]),evidence)
+  })});
+  const body={reviewCandidateId,candidateHash,bankMatchId,decision:'ACCEPTED',reason:'Independent controller accepted the exact Bank Match evidence'};
+  const created=await reviewApi({method:'POST',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/match-reviews`,body,headers:{'Idempotency-Key':'autorec-review-http-0001','If-Match':'"3"'}});
+  assert.equal(created.status,201);assert.deepEqual(observed[0],['review',{tenantId,entityId,reviewCandidateId,candidateHash,bankMatchId,expectedMatchRevision:3,decision:'ACCEPTED',reason:body.reason,idempotencyKey:'autorec-review-http-0001'}]);
+  const read=await reviewApi({method:'GET',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/match-reviews/${reviewId}`,body:null,headers:{}});
+  assert.equal(read.status,200);assert.equal(read.headers['cache-control'],'no-store');assert.deepEqual(observed[1],['read',{tenantId,entityId,reviewId}]);assert.equal(read.body.data.g11_linked,false);assert.equal(read.body.data.incurred,false);
+  assert.equal((await reviewApi({method:'POST',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/match-reviews`,body:{...body,decision:'POSTED'},headers:{'Idempotency-Key':'autorec-review-http-0002','If-Match':'"3"'}})).body.code,'INVALID_REVIEW_DECISION');
+  assert.equal((await reviewApi({method:'POST',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/match-reviews`,body,headers:{'Idempotency-Key':'autorec-review-http-0003'}})).status,428);
+  assert.equal((await reviewApi({method:'GET',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/match-reviews/${reviewId}`,body:null,headers:{'If-Match':'"3"'}})).body.code,'READ_COMMAND_HEADERS_FORBIDDEN');
+});
+
 test('AR Receipt route creates only Draft occurrence and pending allocation from trusted scope',async()=>{
   calls.length=0;const invoiceId=randomUUID();const body={periodId,receiptNumber:'ARRCPT-1',receiptDate:'2026-08-02',cashAccountCode:'100100',bankMemberRef:'BANK-1',amount:75,reason:'Receive customer payment'};
   const response=await command(`/api/v1/entities/${entityId}/ar/invoices/${invoiceId}/receipts`,body);

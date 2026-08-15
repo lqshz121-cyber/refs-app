@@ -790,6 +790,25 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async reviewWbsAutoRecBankMatch({tenantId,entityId,reviewCandidateId,candidateHash,bankMatchId,expectedMatchRevision,decision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_autorec_match_review_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',
+        [tenantId,entityId,reviewCandidateId,candidateHash,bankMatchId,expectedMatchRevision,decision,reason]
+      ),'WBS_AUTOREC_MATCH_REVIEW_HASH_FAILED','AutoRec Bank Match review request hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_review_wbs_autorec_bank_match($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+        [tenantId,entityId,reviewCandidateId,candidateHash,bankMatchId,expectedMatchRevision,decision,reason,idempotencyKey,requestHash]
+      ),'WBS_AUTOREC_MATCH_REVIEW_FAILED','AutoRec Bank Match review did not return a result').result;
+    });
+  }
+
+  async getWbsAutoRecBankMatchReview({tenantId,entityId,reviewId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_get_wbs_autorec_match_review($1,$2,$3) AS result',[tenantId,entityId,reviewId]
+    ),'WBS_AUTOREC_MATCH_REVIEW_READ_FAILED','AutoRec Bank Match review read did not return a result').result);
+  }
+
   async getReconciliationSummary({tenantId,entityId,bankAccountRef,statementEndingDate}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_reconciliation_summary($1,$2,$3,$4::date)',
