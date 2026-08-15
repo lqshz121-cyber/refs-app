@@ -24,10 +24,10 @@ assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SCOPE_NOT_
 assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SERVER_ERROR'}).status,'API_ERROR');
 
 const postedEmpty=renderToStaticMarkup(<AuthoritativeScopeEmpty subject="POSTED ledger lines" requiresPosted/>);
-assert.match(postedEmpty,/INGESTION_BLOCKED — no posted authoritative evidence/);
-assert.match(postedEmpty,/Next step: admit a signed source, complete review, and post its Journal entry/);
+assert.match(postedEmpty,/No posted records yet/);
+assert.match(postedEmpty,/Next step: finance should confirm a signed source, complete review, and post its journal entry/);
 
 const scopeEmpty=renderToStaticMarkup(<AuthoritativeScopeEmpty subject="AP bills"/>);
-assert.match(scopeEmpty,/SCOPE_EMPTY — no authoritative records returned/);
-assert.match(scopeEmpty,/does not prove that an upstream source is empty\. It is not evidence of a zero balance/);
+assert.match(scopeEmpty,/No records in this view/);
+assert.match(scopeEmpty,/does not confirm a zero balance or that upstream source records are empty/);
 console.log('authoritative read failure classification and scoped retry states passed');
