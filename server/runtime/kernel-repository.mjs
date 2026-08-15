@@ -350,6 +350,20 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async reviewWbsPropertyRent({tenantId,entityId,admissionId,periodId,expectedEvidenceHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_review_wbs_property_rent_hash($1,$2,$3,$4,$5,$6) AS request_hash',[tenantId,entityId,admissionId,periodId,expectedEvidenceHash,reason]),'WBS_PROPERTY_RENT_REVIEW_HASH_FAILED','Property Rent review hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_review_wbs_property_rent($1,$2,$3,$4,$5,$6,$7,$8) AS result',[tenantId,entityId,admissionId,periodId,expectedEvidenceHash,reason,idempotencyKey,requestHash]),'WBS_PROPERTY_RENT_REVIEW_FAILED','Property Rent review did not return a result').result;
+    });
+  }
+
+  async createWbsPropertyRentDraft({tenantId,entityId,reviewEvidenceId,expectedEvidenceHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_create_wbs_property_rent_draft_hash($1,$2,$3,$4,$5) AS request_hash',[tenantId,entityId,reviewEvidenceId,expectedEvidenceHash,reason]),'WBS_PROPERTY_RENT_DRAFT_HASH_FAILED','Property Rent Draft hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_create_wbs_property_rent_draft($1,$2,$3,$4,$5,$6,$7) AS result',[tenantId,entityId,reviewEvidenceId,expectedEvidenceHash,reason,idempotencyKey,requestHash]),'WBS_PROPERTY_RENT_DRAFT_FAILED','Property Rent Draft did not return a result').result;
+    });
+  }
+
   async reviewWbsPayable({tenantId,entityId,wbsInboundRowId,periodId,expectedRevision,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,settingSnapshotId,mappingSnapshotId,attachmentIds,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
