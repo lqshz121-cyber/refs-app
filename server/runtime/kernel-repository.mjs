@@ -259,6 +259,39 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async readWbsProviderFinal1AdmissionScope({tenantId,entityId,dateFrom,dateTo}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'WBS.SNAPSHOT.IMPORT')",[tenantId,entityId]);
+      const entity=requireRow(await client.query(
+        "SELECT entity_id,source_system,source_entity_id AS company_code,base_currency,active FROM entity WHERE tenant_id=$1 AND entity_id=$2",
+        [tenantId,entityId]
+      ),'WBS_FINAL1_ENTITY_SCOPE_NOT_FOUND','Final-1 entity scope is unavailable');
+      const mappings=(await client.query(
+        `SELECT mapping_hash,mapping_document,effective_from,effective_to
+           FROM wbs_company_catalog_controller_decision
+          WHERE tenant_id=$1 AND entity_id=$2 AND decision_type='APPROVED'
+            AND company_code=$3 AND base_currency=$4 AND effective_from<=$5::date
+            AND (effective_to IS NULL OR effective_to>=$6::date)`,
+        [tenantId,entityId,entity.company_code,entity.base_currency,dateFrom,dateTo]
+      )).rows;
+      if(mappings.length!==1)throw new KernelError('WBS_FINAL1_MAPPING_SCOPE_INVALID','Final-1 company mapping is missing or ambiguous for the complete delivery range');
+      return {...entity,company_mapping_hash:mappings[0].mapping_hash,mapping_document:mappings[0].mapping_document,effective_from:mappings[0].effective_from,effective_to:mappings[0].effective_to};
+    });
+  }
+
+  async retainWbsProviderFinal1SourceEvidence({tenantId,entityId,delivery,artifacts,plan,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_final1_retained_evidence_hash($1,$2,$3::jsonb,$4::jsonb,$5::jsonb) AS request_hash',
+        [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan)]
+      ),'WBS_FINAL1_RETAINED_HASH_FAILED','Final-1 retained evidence hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_retain_wbs_final1_source_evidence($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7) AS result',
+        [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan),idempotencyKey,requestHash]
+      ),'WBS_FINAL1_RETAINED_SOURCE_FAILED','Final-1 retained evidence admission did not return a result').result;
+    });
+  }
+
   async listAiWbsExceptionFindings({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_wbs_exception_findings($1,$2,$3)',[tenantId,entityId,limit]

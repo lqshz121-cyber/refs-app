@@ -149,6 +149,26 @@
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/provider-signed/final1/payables/admissions": {
+      "post": {
+        "operationId": "retainProviderSignedWbsFinal1Payables",
+        "summary": "Retain one provider-signed Final-1 Payables delivery as immutable authoritative evidence",
+        "description": "Service-only OIDC command. Verifies current receipt TTL, pinned Ed25519 signatures, exact raw hashes, credential redaction, Controller-approved entity/company/USD scope, then stores the exact four artifacts under S3 Object Lock and atomically retains source documents and review exceptions. It never writes WBS or creates a Draft, review, approval, Journal, ledger line, or posting.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsProviderFinal1Admission"},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/provider-signed/final1/insurance/admissions": {
+      "post": {
+        "operationId": "retainProviderSignedWbsFinal1Insurance",
+        "summary": "Retain one provider-signed Final-1 Insurance delivery as immutable authoritative evidence",
+        "description": "Service-only OIDC command. Exact signed 12-month coverage becomes immutable amortization coverage evidence; missing, invalid, or approximate coverage becomes PREPAID_COVERAGE_REQUIRED retained findings. All source rows remain PENDING_REVIEW or QUARANTINED. It never writes WBS or creates a Draft, review, approval, Journal, ledger line, or posting.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsProviderFinal1Admission"},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/operator-attested/payables": {
       "get": {
         "operationId": "listOperatorAttestedWbsPayableEvidence",
@@ -3986,6 +4006,10 @@
       }
     },
     "requestBodies": {
+      "WbsProviderFinal1Admission": {
+        "required": true,
+        "content": {"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["receipt","requestRawBase64","responseRawBase64","packageRawBase64"],"properties":{"receipt":{"type":"object","additionalProperties":false,"required":["issuer","kid","algorithm","request_sha256","response_sha256","package_hash","nonce","signed_at","expires_at","tenant_id","entity_id","company_code","immutable_version","nonempty","detached_signature"],"properties":{"issuer":{"type":"string","minLength":1,"maxLength":128},"kid":{"type":"string","minLength":1,"maxLength":128},"algorithm":{"const":"Ed25519"},"request_sha256":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"response_sha256":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"package_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"nonce":{"type":"string","minLength":1,"maxLength":128},"signed_at":{"type":"string","format":"date-time"},"expires_at":{"type":"string","format":"date-time"},"tenant_id":{"$ref":"#/components/schemas/Uuid"},"entity_id":{"$ref":"#/components/schemas/Uuid"},"company_code":{"type":"string","minLength":1,"maxLength":128},"immutable_version":{"$ref":"#/components/schemas/Uuid"},"nonempty":{"const":true},"detached_signature":{"type":"object","additionalProperties":false,"required":["key_id","algorithm","value"],"properties":{"key_id":{"type":"string","minLength":1,"maxLength":128},"algorithm":{"const":"Ed25519"},"value":{"type":"string","minLength":4,"maxLength":512}}}}},"requestRawBase64":{"type":"string","format":"byte","minLength":4,"maxLength":5592408},"responseRawBase64":{"type":"string","format":"byte","minLength":4,"maxLength":5592408},"packageRawBase64":{"type":"string","format":"byte","minLength":4,"maxLength":5592408}}}}}
+      },
       "WbsProviderSignedPayableAdmission": {
         "required": true,
         "content": {"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["receipt","requestRawBase64","responseRawBase64","packageRawBase64"],"properties":{"receipt":{"type":"object","additionalProperties":false,"required":["issuer","kid","algorithm","request_sha256","response_sha256","package_hash","nonce","signed_at","expires_at","tenant_id","entity_id","company_code","immutable_version","nonempty","detached_signature"],"properties":{"issuer":{"type":"string","minLength":1,"maxLength":128},"kid":{"type":"string","minLength":1,"maxLength":128},"algorithm":{"const":"Ed25519"},"request_sha256":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"response_sha256":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"package_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"nonce":{"type":"string","minLength":1,"maxLength":128},"signed_at":{"type":"string","format":"date-time"},"expires_at":{"type":"string","format":"date-time"},"tenant_id":{"$ref":"#/components/schemas/Uuid"},"entity_id":{"$ref":"#/components/schemas/Uuid"},"company_code":{"type":"string","minLength":1,"maxLength":128},"immutable_version":{"$ref":"#/components/schemas/Uuid"},"nonempty":{"const":true},"detached_signature":{"type":"object","additionalProperties":false,"required":["key_id","algorithm","value"],"properties":{"key_id":{"type":"string","minLength":1,"maxLength":128},"algorithm":{"const":"Ed25519"},"value":{"type":"string","minLength":4,"maxLength":512}}}}},"requestRawBase64":{"type":"string","format":"byte","minLength":4,"maxLength":2796204},"responseRawBase64":{"type":"string","format":"byte","minLength":4,"maxLength":2796204},"packageRawBase64":{"type":"string","format":"byte","minLength":4,"maxLength":2796204}}}}}

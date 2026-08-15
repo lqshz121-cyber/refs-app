@@ -73,6 +73,8 @@ services:
         sync: false
       - key: WBS_PROVIDER_SIGNED_SERVICE_ACTOR_ID
         sync: false
+      - key: REFS_WBS_EVIDENCE_RETENTION_DAYS
+        sync: false
       - key: S3_ENDPOINT
         sync: false
       - key: S3_BUCKET

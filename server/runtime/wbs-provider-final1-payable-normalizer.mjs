@@ -7,6 +7,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const HASH=/^sha256:[0-9a-f]{64}$/;
 const CURRENCY=/^[A-Z]{3}$/;
 const DATE=/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z)?$/;
+const FIXED_AMOUNT=/^-?(?:0|[1-9]\d{0,17})(?:\.\d{1,4})?$/;
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype;
 const freeze=value=>Object.freeze(value);
 const deepFreeze=value=>{
@@ -38,17 +39,21 @@ function requireVerifiedFinal1(verified){
   return freeze({view});
 }
 
-function normalizedRow(row,{verified,expectedCurrency,currencyAuthority}){
+function normalizedRow(row,{verified,expectedCurrency,currencyAuthority,sourceRowOrdinal}){
   if(!object(row)||row.company_code!==verified.company_code||(row.currency!=null&&row.currency!==''&&row.currency!==expectedCurrency))fail('WBS_FINAL1_NORMALIZATION_SCOPE_OR_CURRENCY_MISMATCH','Every payable row must retain the verified company scope; any Provider-supplied currency must match the independently approved accounting currency.');
   const apGuId=requiredUuid(row.ap_guid,'ap_guid'),rawRow=deepFreeze(structuredClone(row)),rawRowHash=hash(canonical(rawRow));
   const invoiceNo=optionalText(row.invoice_no),vendorRef=optionalText(row.vendor_no),vendorName=optionalText(row.vendor_name);
+  const amount=optionalText(row.amount);
+  if(!FIXED_AMOUNT.test(amount))fail('WBS_FINAL1_NORMALIZATION_ROW_INVALID','A payable amount must be an exact fixed-point value with at most four decimals.');
+  const invoiceDate=optionalDate(row.invoice_date),incurredDate=optionalDate(row.incurred_date),postingDate=optionalDate(row.posting_date);
   const exceptionCodes=[
     ...(!invoiceNo?['WBS_PAYABLE_INVOICE_NUMBER_MISSING']:[]),
     ...(!vendorRef&&!vendorName?['WBS_PAYABLE_VENDOR_MISSING']:[]),
+    ...(!invoiceDate&&!incurredDate&&!postingDate?['WBS_PAYABLE_BUSINESS_DATE_MISSING']:[]),
     'WBS_PAYABLE_ATTACHMENT_REQUIRED','WBS_PAYABLE_MAPPING_REVIEW_REQUIRED'
   ];
   return freeze({
-    source_system:'WBS',source_module:'BGDATA.payable',source_record_id:apGuId,
+    source_system:'WBS',source_module:'BGDATA.payable',source_record_id:apGuId,source_row_ordinal:sourceRowOrdinal,
     source_surface:freeze({database:'wbsdata',table:'account_book_payable_info',stable_keys:freeze(['ap_guid'])}),
     source_version:`final1:${verified.snapshot_id}:${bare(rawRowHash).slice(0,16)}`,
     raw_row:rawRow,raw_row_hash:rawRowHash,
@@ -56,13 +61,16 @@ function normalizedRow(row,{verified,expectedCurrency,currencyAuthority}){
     provider_snapshot_id:verified.snapshot_id,provider_company_code:verified.company_code,
     currency:expectedCurrency,currency_authority:currencyAuthority,
     normalized:freeze({
-      apGuId,apLongId:optionalText(row.ap_long_id),apType:optionalText(row.ap_type),amount:optionalText(row.amount),invoiceNo,
-      invoiceDate:optionalDate(row.invoice_date),incurredDate:optionalDate(row.incurred_date),postingDate:optionalDate(row.posting_date),clearDate:optionalDate(row.clear_date),checkNo:optionalText(row.check_no),checkDate:optionalDate(row.check_date),
+      apGuId,apLongId:optionalText(row.ap_long_id),apType:optionalText(row.ap_type),amount,invoiceNo,
+      invoiceDate,incurredDate,postingDate,clearDate:optionalDate(row.clear_date),checkNo:optionalText(row.check_no),checkDate:optionalDate(row.check_date),
       vendorRef,vendorName,projectRef:optionalText(row.project_guid),projectCode:optionalText(row.pj_code),projectName:optionalText(row.pj_name),
+      servicePeriodStart:optionalDate(row.service_period_start),servicePeriodEnd:optionalDate(row.service_period_end),
+      recurringObligationId:optionalText(row.recurring_obligation_id),contractId:optionalText(row.contract_id),chargeCode:optionalText(row.charge_code),
+      serviceFrequency:optionalText(row.service_frequency),obligationStatus:optionalText(row.obligation_status),
       businessId:optionalText(row.business_id),journalNo:optionalText(row.journal_no),payStatus:optionalText(row.pay_status),reviewStatus:optionalText(row.review_status),description:optionalText(row.description),currency:expectedCurrency
     }),
-    outcome:!invoiceNo||!vendorRef&&!vendorName?'EXCEPTION_REVIEW_REQUIRED':'STAGING_REVIEW_REQUIRED',exception_codes:freeze(exceptionCodes),
-    can_create_draft:false,can_review:false,can_approve:false,can_post:false
+    outcome:!invoiceNo||!vendorRef&&!vendorName||!invoiceDate&&!incurredDate&&!postingDate?'EXCEPTION_REVIEW_REQUIRED':'STAGING_REVIEW_REQUIRED',exception_codes:freeze(exceptionCodes),
+    can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false
   });
 }
 
@@ -72,14 +80,14 @@ export function normalizeVerifiedWbsProviderFinal1Payables({verified,expectedCur
   const currency=requireExpectedCurrency(expectedCurrency),{view}=requireVerifiedFinal1(verified);
   if(verified.raw_contains_credentials===true||!Array.isArray(verified.admission_blockers)||verified.admission_blockers.length!==0||verified.accounting_currency!==currency||!['PROVIDER_SIGNED','REFS_BUSINESS_OWNER_CONFIRMED'].includes(verified.currency_authority))fail('WBS_FINAL1_NORMALIZATION_ADMISSION_BLOCKED','Final-1 evidence has unresolved provider-verification blockers or differs from the approved accounting currency.');
   const currencyAuthority=verified.currency_signed===true?'PROVIDER_SIGNED_CURRENCY':'REFS_BUSINESS_OWNER_CONFIRMED_CURRENCY';
-  const ids=new Set(),rows=[];
+  const ids=new Set(),rows=[];let sourceRowOrdinal=0;
   for(const row of view.rows){
-    const normalized=normalizedRow(row,{verified,expectedCurrency:currency,currencyAuthority}),key=normalized.source_record_id.toLowerCase();
+    const normalized=normalizedRow(row,{verified,expectedCurrency:currency,currencyAuthority,sourceRowOrdinal}),key=normalized.source_record_id.toLowerCase();
     if(ids.has(key))fail('WBS_FINAL1_NORMALIZATION_DUPLICATE_SOURCE','Final-1 Payables contains a duplicate source record.');
-    ids.add(key);rows.push(normalized);
+    ids.add(key);rows.push(normalized);sourceRowOrdinal++;
   }
   if(rows.length===0)fail('WBS_FINAL1_NORMALIZATION_EMPTY','Final-1 Payables must contain at least one verified row.');
   const sourceSurface=freeze({database:'wbsdata',table:'account_book_payable_info',stable_keys:freeze(['ap_guid'])});
   const provenance=freeze({tenant_id:verified.tenant_id,entity_id:verified.entity_id,company_code:verified.company_code,snapshot_id:verified.snapshot_id,provider_package_hash:verified.package_hash,provider_raw_package_hash:verified.raw_package_hash,source_surface:sourceSurface,source_row_count:rows.length,currency,currency_authority:currencyAuthority});
-  return freeze({status:'NORMALIZED_FINAL1_PAYABLE_STAGING_PLAN',format:'WBS_PROVIDER_FINAL1_NORMALIZED_PAYABLES_V1',provenance,plan_hash:canonicalRequestHash({provenance,row_hashes:rows.map(row=>row.raw_row_hash)}),staging_rows:freeze(rows),exception_rows:freeze(rows.filter(row=>row.outcome==='EXCEPTION_REVIEW_REQUIRED')),required_next_controls:freeze(['persist immutable staging evidence','resolve invoice and vendor exceptions','exact attachment binding','approved mapping review','separate standard REFS Draft workflow']),can_persist_staging:true,can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+  return freeze({status:'NORMALIZED_FINAL1_PAYABLE_STAGING_PLAN',format:'WBS_PROVIDER_FINAL1_NORMALIZED_PAYABLES_V1',provenance,plan_hash:canonicalRequestHash({provenance,row_hashes:rows.map(row=>row.raw_row_hash)}),staging_rows:freeze(rows),exception_rows:freeze(rows.filter(row=>row.outcome==='EXCEPTION_REVIEW_REQUIRED')),required_next_controls:freeze(['persist immutable staging evidence','resolve invoice and vendor exceptions','exact attachment binding','approved mapping review','separate standard REFS Draft workflow']),can_persist_staging:true,can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false});
 }

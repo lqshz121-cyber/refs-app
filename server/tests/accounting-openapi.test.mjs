@@ -6,7 +6,7 @@ const accountingCommands=operations.filter(operation=>operation.operationId!=='e
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
-  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitProviderSignedWbsPayables','admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','approveFinancialStatementSnapshot','approveWbsCompanyCatalogRow','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','classifyWbsCompanyCatalogRow','createAiAmortizationDraft','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsCostCwipDraft','createReviewedWbsPayableApDraft','explainAiAccountingAnalysis','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','prepareFinancialStatementSnapshot','proposeAiAmortizationSchedule','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','retainWbsCompanyCatalogCandidate','reviewAdmittedWbsCostCwip','reviewAdmittedWbsPayable','reviewAiWbsPayableDraftProposal','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
+  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitProviderSignedWbsPayables','admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','approveFinancialStatementSnapshot','approveWbsCompanyCatalogRow','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','classifyWbsCompanyCatalogRow','createAiAmortizationDraft','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsCostCwipDraft','createReviewedWbsPayableApDraft','explainAiAccountingAnalysis','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','prepareFinancialStatementSnapshot','proposeAiAmortizationSchedule','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','retainProviderSignedWbsFinal1Insurance','retainProviderSignedWbsFinal1Payables','retainWbsCompanyCatalogCandidate','reviewAdmittedWbsCostCwip','reviewAdmittedWbsPayable','reviewAiWbsPayableDraftProposal','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
 });
 
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{
@@ -16,12 +16,15 @@ test('every accounting command requires idempotency and every mutable existing r
 });
 
 test('identity and server-computed request hash are absent from all public request schemas',()=>{
-  const {WbsProviderSignedPayableAdmission,...ordinaryBodies}=contract.components.requestBodies;
+  const {WbsProviderSignedPayableAdmission,WbsProviderFinal1Admission,...ordinaryBodies}=contract.components.requestBodies;
   const serialized=JSON.stringify(ordinaryBodies);
   for(const forbidden of ['actorId','actor_id','tenantId','tenant_id','entityId','entity_id','requestHash','request_hash'])assert.equal(serialized.includes(`\"${forbidden}\"`),false);
   const signedSchema=WbsProviderSignedPayableAdmission.content['application/json'].schema;
   for(const forbidden of ['actorId','actor_id','tenantId','entityId','requestHash','request_hash','providerTrust'])assert.equal(Object.hasOwn(signedSchema.properties,forbidden),false);
   assert.equal(signedSchema.properties.receipt.additionalProperties,false,'signed scope is evidence inside the verified receipt, never caller authority');
+  const final1Schema=WbsProviderFinal1Admission.content['application/json'].schema;
+  for(const forbidden of ['actorId','actor_id','tenantId','entityId','requestHash','request_hash','providerTrust'])assert.equal(Object.hasOwn(final1Schema.properties,forbidden),false);
+  assert.equal(final1Schema.properties.receipt.additionalProperties,false,'Final-1 signed scope is verified evidence, never caller authority');
 });
 
 test('all responses are no-store and use a structured success or problem envelope',()=>{
