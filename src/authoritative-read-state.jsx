@@ -8,6 +8,7 @@ export const AUTHORITATIVE_READ_BLOCKED_CODES=Object.freeze([
   'AUTHENTICATION_REQUIRED',
   'AUTHORIZATION_DENIED',
   'ACCOUNTING_API_SCOPE_INVALID',
+  'ACCOUNTING_API_SCOPE_NOT_FOUND',
   'ACCOUNTING_API_PROTOCOL',
   'CONFIGURATION_REQUIRED',
 ]);
@@ -19,6 +20,7 @@ export const authoritativeReadFailurePhase=failure=>AUTHORITATIVE_READ_BLOCKED_C
 // diagnosis instead of implying that inaccessible evidence is an empty ledger.
 export const authoritativeReadFailureDiagnostic=failure=>{
   const code=failure?.code||'AUTHORITATIVE_READ_FAILED';
+  if(code==='ACCOUNTING_API_SCOPE_NOT_FOUND')return {status:'SCOPE_UNAVAILABLE',title:'SCOPE_UNAVAILABLE: the API could not find this configured scope',next:'Check the configured entity and period with an administrator, then refresh.'};
   const known={
     AUTHENTICATION_REQUIRED:{status:'SIGN_IN_REQUIRED',title:'SIGN_IN_REQUIRED — authenticate to read this scope',next:'Sign in again, then refresh this read-only view.'},
     AUTHORIZATION_DENIED:{status:'NO_PERMISSION',title:'NO_PERMISSION — this account cannot read this scope',next:'Ask an administrator for read access to this entity, then refresh.'},

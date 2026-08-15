@@ -3,7 +3,7 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {AuthoritativeReadFailure,AuthoritativeScopeEmpty,authoritativeReadFailureDiagnostic,authoritativeReadFailurePhase} from '../src/authoritative-read-state.jsx';
 
-for(const code of ['AUTHENTICATION_REQUIRED','AUTHORIZATION_DENIED','ACCOUNTING_API_SCOPE_INVALID','ACCOUNTING_API_PROTOCOL','CONFIGURATION_REQUIRED'])assert.equal(authoritativeReadFailurePhase({code}),'BLOCKED',`${code} must fail closed as an authoritative-read boundary`);
+for(const code of ['AUTHENTICATION_REQUIRED','AUTHORIZATION_DENIED','ACCOUNTING_API_SCOPE_INVALID','ACCOUNTING_API_SCOPE_NOT_FOUND','ACCOUNTING_API_PROTOCOL','CONFIGURATION_REQUIRED'])assert.equal(authoritativeReadFailurePhase({code}),'BLOCKED',`${code} must fail closed as an authoritative-read boundary`);
 for(const code of ['ACCOUNTING_API_UNREACHABLE','ACCOUNTING_API_SERVER_ERROR','HTTP_503',undefined])assert.equal(authoritativeReadFailurePhase({code}),'ERROR',`${code||'missing code'} must remain an ordinary retriable service error`);
 
 const blocked=renderToStaticMarkup(<AuthoritativeReadFailure state={{phase:'BLOCKED',error:{code:'AUTHORIZATION_DENIED',message:'Current entity is not admitted.'}}} onRetry={()=>{}}/>);
@@ -20,6 +20,7 @@ assert.match(serviceError,/Retry report read/);
 assert.doesNotMatch(serviceError,/NO_PERMISSION/);
 assert.equal(authoritativeReadFailureDiagnostic({code:'AUTHENTICATION_REQUIRED'}).status,'SIGN_IN_REQUIRED');
 assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SCOPE_INVALID'}).status,'SCOPE_INVALID');
+assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SCOPE_NOT_FOUND'}).status,'SCOPE_UNAVAILABLE');
 assert.equal(authoritativeReadFailureDiagnostic({code:'ACCOUNTING_API_SERVER_ERROR'}).status,'API_ERROR');
 
 const postedEmpty=renderToStaticMarkup(<AuthoritativeScopeEmpty subject="POSTED ledger lines" requiresPosted/>);
