@@ -2742,10 +2742,16 @@ pgTest('Stage 2 test-data chain traces one reconciled bank payment through its p
   const reconciliation=await starter.startReconciliation({...ids,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'-100.1234',reason:'Stage 2 test statement',idempotencyKey:'stage2-reconciliation-start-001'});
   const cleared=await clearer.setReconciliationClearance({...ids,reconciliationId:reconciliation.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Clear exact posted stage 2 payment',idempotencyKey:'stage2-reconciliation-clear-001'});
   assert.equal(Number(cleared.difference),0);
+  const uncleared=await clearer.setReconciliationClearance({...ids,reconciliationId:reconciliation.reconciliation_id,bankSourceId,expectedReconciliationVersion:cleared.revision,expectedBankVersion:0,clear:false,reason:'Controller temporarily reopens the exact bank item for review',idempotencyKey:'stage2-reconciliation-unclear-001'});
+  assert.equal(uncleared.state,'UNCLEARED');assert.equal(Number(uncleared.difference),0);
+  assert.equal((await reader.listReconciliationWorksheet({...ids,reconciliationId:reconciliation.reconciliation_id}))[0].clearance_state,'UNCLEARED');
+  const recleared=await clearer.setReconciliationClearance({...ids,reconciliationId:reconciliation.reconciliation_id,bankSourceId,expectedReconciliationVersion:uncleared.revision,expectedBankVersion:0,clear:true,reason:'Controller clears the unchanged exact posted bank item again',idempotencyKey:'stage2-reconciliation-reclear-001'});
+  assert.equal(recleared.state,'CLEARED');assert.equal(Number(recleared.difference),0);
   const worksheet=await reader.listReconciliationWorksheet({...ids,reconciliationId:reconciliation.reconciliation_id});
   assert.equal(worksheet.length,1);assert.equal(worksheet[0].bank_source_id,bankSourceId);assert.equal(worksheet[0].clearance_state,'CLEARED');assert.equal(worksheet[0].bank_match_id,match.bank_match_id);
-  const reviewed=await reconReviewer.transitionReconciliation({...ids,reconciliationId:reconciliation.reconciliation_id,action:'REVIEW',expectedVersion:1,reason:'Review exact bank to JE evidence',idempotencyKey:'stage2-reconciliation-review-001'});
-  const signed=await signer.transitionReconciliation({...ids,reconciliationId:reconciliation.reconciliation_id,action:'SIGN_OFF',expectedVersion:2,reason:'Sign off stage 2 test statement',idempotencyKey:'stage2-reconciliation-signoff-001'});
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND object_id=$2 AND event_type='RECONCILIATION_ITEM_UNCLEARED'",[ids.tenantId,reconciliation.reconciliation_id])).rows[0].n,1);
+  const reviewed=await reconReviewer.transitionReconciliation({...ids,reconciliationId:reconciliation.reconciliation_id,action:'REVIEW',expectedVersion:recleared.revision,reason:'Review exact bank to JE evidence',idempotencyKey:'stage2-reconciliation-review-001'});
+  const signed=await signer.transitionReconciliation({...ids,reconciliationId:reconciliation.reconciliation_id,action:'SIGN_OFF',expectedVersion:reviewed.revision,reason:'Sign off stage 2 test statement',idempotencyKey:'stage2-reconciliation-signoff-001'});
   assert.equal(reviewed.status,'IN_REVIEW');assert.equal(signed.status,'RECONCILED');assert.match(signed.snapshot_hash,/^sha256:[0-9a-f]{64}$/);
   const signedSnapshot=await reader.getSignedReconciliationSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,reconciliationId:reconciliation.reconciliation_id});
   assert.equal(signedSnapshot.length,1);assert.equal(signedSnapshot[0].snapshot_hash,signed.snapshot_hash);
