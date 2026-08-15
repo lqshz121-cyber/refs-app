@@ -12,6 +12,7 @@ export const FIXTURES=Object.freeze([
   Object.freeze({id:'signed-bank-same-source-close',pattern:'provider-signed Bank source survives exact Match Unmatch adjustment Post reconciliation and same-source reports'}),
   Object.freeze({id:'bank-reconcile-close',pattern:'Stage 2 test-data chain traces one reconciled bank payment through its posted JE, GL, TB and report rows'}),
   Object.freeze({id:'bank-match-unmatch-controls',pattern:'061 bank match creates exact posted AP evidence once and fails closed for reversal and ambiguous cash account evidence|reconciliation rejects mixed currencies and non-posted hand-made match evidence'}),
+  Object.freeze({id:'wbs-autorec-reserve-release',pattern:'WBS AutoRec Reserve and Release persist receipt-bound source reservations without creating a journal'}),
   // Each lifecycle gate is its own PostgreSQL process.  The kernel test module owns
   // connection pools in a global before/after hook, so combining these independent
   // closures under one --test-name-pattern can race pool teardown during Docker
@@ -66,7 +67,8 @@ export function fixtureResult({id,exitCode,output,durationMs,signal=null,error=n
 function runFixture(fixture,env){
   return new Promise(resolveRun=>{
     const startedAt=Date.now();
-    const child=spawn(process.execPath,['runtime/test-postgres-fresh.mjs','--pattern',fixture.pattern],{cwd:serverRoot,env,stdio:['ignore','pipe','pipe']});
+    const timeout=env.REFS_PG_FIXTURE_TIMEOUT_MS||'90000';
+    const child=spawn(process.execPath,['runtime/test-postgres-fresh.mjs','--pattern',fixture.pattern],{cwd:serverRoot,env:{...env,REFS_PG_TEST_TIMEOUT_MS:timeout},stdio:['ignore','pipe','pipe']});
     let output='';
     child.stdout.setEncoding('utf8');child.stderr.setEncoding('utf8');
     child.stdout.on('data',chunk=>{output+=chunk;process.stdout.write(chunk);});
