@@ -72,14 +72,14 @@ const workspaceViewSource = fs.readFileSync('src/authoritative-workbench-view.js
 assert.doesNotMatch(workspaceViewSource, /seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js/,
   'the reusable authoritative presentation frame must not import or persist local accounting state');
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
-assert.match(unavailableMarkup, /Entity-scoped source-document list and immutable detail endpoints\./);
-assert.match(unavailableMarkup, /Separate authorised attachment-read contract\./);
-assert.match(unavailableMarkup, /Who completes this:/);
-assert.match(unavailableMarkup, /Next step:/);
+assert.doesNotMatch(unavailableMarkup, /Entity-scoped source-document list|attachment-read contract/,
+  'customer-facing setup pages must not expose implementation contracts');
+assert.match(unavailableMarkup, /Your finance administrator/);
+assert.match(unavailableMarkup, /For now:/);
 assert.match(unavailableMarkup, /Source Documents is being prepared/);
-assert.match(unavailableMarkup, /No financial activity is shown until setup is complete/);
-assert.match(unavailableMarkup, /What needs to be in place/);
-assert.match(unavailableMarkup, /attachment-read contract/);
+assert.match(unavailableMarkup, /Nothing to review here yet/);
+assert.match(unavailableMarkup, /What happens next/);
+assert.doesNotMatch(unavailableMarkup, /SETUP REQUIRED|SETUP NEEDED/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 assert.match(appSource,/refreshCurrentActorAccess\(\{config,fetcher:boundFetcher\}\)/,'READY shell must read the current authenticated actor through the self-only API');
