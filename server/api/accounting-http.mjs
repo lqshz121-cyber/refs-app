@@ -7,6 +7,7 @@ import {WbsSignedBankAdmissionError} from '../runtime/wbs-signed-bank-admission.
 import {WbsProviderSignedPayableAdmissionError} from '../runtime/wbs-provider-signed-payable-admission.mjs';
 import {WbsProviderFinal1RetainedEvidenceError} from '../runtime/wbs-provider-final1-retained-evidence-admission.mjs';
 import {AiAnalysisExplanationError} from '../runtime/ai-analysis-explanation-service.mjs';
+import {AI_ACCOUNTING_SKILL_REGISTRY_VERSION,AI_ACCOUNTING_SKILLS} from '../runtime/ai-accounting-skill-registry.mjs';
 import {WbsCompanyCatalogControllerError,normalizeWbsCompanyCatalogCandidate,normalizeWbsCompanyClassification} from '../runtime/wbs-company-catalog-controller.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -561,6 +562,12 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
         requireExactQuery(parsedUrl.searchParams,[]);const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readAiAccountingAnalysisSummary!=='function')throw new AccountingApiError(503,'AI_ACCOUNTING_ANALYSIS_SUMMARY_UNAVAILABLE','Persisted AI accounting analysis summary is unavailable');
         result=await kernel.readAiAccountingAnalysisSummary({tenantId:principal.tenantId,entityId});return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='ai'&&parts[5]==='skills'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI skill registry reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:{registry_version:AI_ACCOUNTING_SKILL_REGISTRY_VERSION,skills:AI_ACCOUNTING_SKILLS}}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='ai'&&parts[5]==='analysis-reports'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI accounting analysis report reads do not accept command headers');
