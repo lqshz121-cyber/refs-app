@@ -107,8 +107,8 @@ assert.match(styles,/\.authoritative-app \.authoritative-sidebar\{flex-direction
   'the authoritative shell must use the readable rail-and-panel layout');
 assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-rail \.nav-group-h/,
   'the production workflow rail must keep compact, stable group controls');
-assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:nowrap/,
-  'the production page panel must keep the demo shell’s stable single-line rows');
+assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:normal/,
+  'the production page panel must show complete finance-reader labels instead of truncating them');
 assert.match(styles,/\.authoritative-app \.sidebar\{position:sticky; top:0; left:auto; transform:none; width:var\(--nav-w\); flex:0 0 var\(--nav-w\); box-shadow:none;\}/,
   'the QBO-like rail and panel must remain anchored through wider tablet layouts');
 assert.match(styles,/@media\(min-width:901px\)\{\s*\.authoritative-app \.sidebar\{position:sticky/,
@@ -135,10 +135,10 @@ assert.match(authoritativeShell,/<Icon name=\{ITEM_ICONS\[itemIndex % ITEM_ICONS
   'the readable navigation row must render its icon at a compact, consistent size');
 assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|API_READ|Unavailable/,
   'navigation rows must not expose implementation statuses or letter abbreviations to finance readers');
-assert.match(unavailableWorkspace,/WORKSPACE SETUP|SETUP REQUIRED|SETUP NEEDED/,
+assert.match(unavailableWorkspace,/WORKSPACE SETUP|SETUP IN PROGRESS|SETUP NEEDED/,
   'an unconfigured workspace must explain setup in finance-reader language');
-assert.match(unavailableWorkspace,/requirements\.map\(requirement=><li key=\{requirement\}>\{requirement\}<\/li>\)/,
-  'a setup page must retain each route-specific prerequisite instead of hiding the actual connection or access gap');
+assert.match(unavailableWorkspace,/readerChecklist\.map\(\(requirement,index\)=><li key=\{`\$\{requirement\}-\$\{index\}`\}>\{requirement\}<\/li>\)/,
+  'a setup page must translate technical prerequisites into a clear finance-reader checklist');
 assert.match(unavailableWorkspace,/Who completes this:|Next step:/,
   'a setup page must explain both the responsible party and the safe reader next step');
 assert.doesNotMatch(unavailableWorkspace,/config\?\.entityId \|\| 'Not configured'|config\?\.periodId \|\| 'Not configured'/,

@@ -72,14 +72,13 @@ const workspaceViewSource = fs.readFileSync('src/authoritative-workbench-view.js
 assert.doesNotMatch(workspaceViewSource, /seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js/,
   'the reusable authoritative presentation frame must not import or persist local accounting state');
 const unavailableMarkup = renderToStaticMarkup(<AuthoritativeUnavailableWorkspace item={{label:'Source Documents',requirements:['Entity-scoped source-document list and immutable detail endpoints.','Separate authorised attachment-read contract.']}} config={{entityId:'entity-1',periodId:'period-1'}}/>);
-assert.match(unavailableMarkup, /Entity-scoped source-document list and immutable detail endpoints\./);
-assert.match(unavailableMarkup, /Separate authorised attachment-read contract\./);
+assert.match(unavailableMarkup, /Company records are available for this workspace\./);
+assert.match(unavailableMarkup, /Supporting documents can be reviewed securely\./);
 assert.match(unavailableMarkup, /Who completes this:/);
 assert.match(unavailableMarkup, /Next step:/);
 assert.match(unavailableMarkup, /Source Documents is being prepared/);
 assert.match(unavailableMarkup, /No financial activity is shown until setup is complete/);
-assert.match(unavailableMarkup, /What needs to be in place/);
-assert.match(unavailableMarkup, /attachment-read contract/);
+assert.match(unavailableMarkup, /What happens next/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
 assert.match(appSource,/refreshCurrentActorAccess\(\{config,fetcher:boundFetcher\}\)/,'READY shell must read the current authenticated actor through the self-only API');
@@ -93,9 +92,9 @@ for(const scopeHook of [
 ])assert.ok(appSource.indexOf(scopeHook)>0&&appSource.indexOf(scopeHook)<firstConditionalRender,`${scopeHook} must execute before every conditional render so OIDC phase changes cannot alter the React hook order`);
 assert.match(appSource, /Accounting records are read only from the authenticated API in this mode/,
   'the sign-in surface must describe the sole authoritative source of accounting records');
-assert.match(appSource, /display name not returned by API/,
+assert.match(appSource, /company name pending/,
   'a missing entity display name must be explained without promoting its internal UUID to primary text');
-assert.match(appSource, /period details not returned by API/,
+assert.match(appSource, /period details pending/,
   'a missing period label must be explained without presenting an internal ID as the period');
 assert.doesNotMatch(appSource, /No demo identity/,
   'the authoritative sign-in surface must not expose retired product terminology');
