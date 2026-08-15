@@ -25,7 +25,7 @@
     "test:ai-wbs-exception-findings": "node --test tests/ai-wbs-exception-finding-contract.test.mjs",
     "test:ai-wbs-exception-findings-http": "node --test tests/ai-wbs-exception-finding-http-contract.test.mjs",
     "test:ai-amortization": "node --test tests/ai-amortization-schedule-contract.test.mjs tests/ai-amortization-schedule-read-contract.test.mjs tests/ai-amortization-proposal-http-contract.test.mjs tests/ai-prepaid-coverage-finding-contract.test.mjs tests/ai-prepaid-coverage-finding-http-contract.test.mjs tests/ai-duplicate-payable-finding-contract.test.mjs tests/ai-duplicate-payable-finding-http-contract.test.mjs tests/ai-unmatched-bank-payment-finding-contract.test.mjs tests/ai-unmatched-bank-payment-finding-http-contract.test.mjs tests/ai-cost-dimension-finding-contract.test.mjs tests/ai-cost-dimension-finding-http-contract.test.mjs tests/ai-loan-reference-finding-contract.test.mjs tests/ai-loan-reference-finding-http-contract.test.mjs",
-    "test:insurance-amortization": "node --test tests/insurance-prepaid-amortization-contract.test.mjs tests/insurance-prepaid-amortization-read-contract.test.mjs tests/insurance-prepaid-amortization-http-contract.test.mjs",
+    "test:insurance-amortization": "node --test tests/insurance-prepaid-amortization-contract.test.mjs tests/insurance-prepaid-amortization-read-contract.test.mjs tests/insurance-prepaid-amortization-http-contract.test.mjs tests/insurance-prepaid-amortization-entity-capability-contract.test.mjs",
     "test:litellm-gateway": "node --test tests/litellm-gateway.test.mjs",
     "test:ai-analysis-summary": "node --test tests/ai-accounting-analysis-summary-contract.test.mjs",
     "test:ai-analysis-explanation": "node --test tests/ai-analysis-explanation-service.test.mjs",
