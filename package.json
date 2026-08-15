@@ -74,6 +74,7 @@
     "verify:stage3-wbs-live-chain": "npm.cmd --prefix server run verify:wbs-live-acceptance",
     "verify:stage3-cost-cwip-live-chain": "node server/runtime/verify-stage3-cost-cwip-authoritative-e2e.mjs",
     "verify:stage3-g11-live-chain": "node server/runtime/verify-stage3-g11-authoritative-e2e.mjs",
+    "verify:stage3-reporting-live-chain": "node server/runtime/verify-stage3-reporting-authoritative-e2e.mjs",
     "verify:stage4-report-live-chain": "node server/runtime/verify-stage4-authoritative-e2e.mjs"
   },
   "dependencies": {
