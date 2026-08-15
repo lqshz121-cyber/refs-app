@@ -15,6 +15,11 @@ test('Property Rent workspace is an authoritative queue with explicit detail ret
   assert.match(source,/getElementById\?\.\(context\?\.focusId\)\?\.focus/);
   assert.match(source,/role="region" tabIndex=\{0\} aria-label="Property Rent pickup evidence; scroll horizontally to view every column"/);
   assert.match(app,/route === 'property-ops-pickup' && <AuthoritativePropertyRentWorkspace/);
+  assert.match(app,/propertyPnlTitle="Property operating P&amp;L"/);
+  assert.match(source,/AuthoritativeReportsWorkspace/);
+  assert.match(source,/initialDimensionType="PROPERTY" initialDimensionRef=\{report\.propertyRef\}/);
+  assert.match(source,/Back to Rent pickup evidence/);
+  assert.match(source,/Open this Property P&amp;L and lineage/);
 });
 
 test('Property Rent workspace exposes honest loading, empty, error and permission states',()=>{
@@ -24,5 +29,8 @@ test('Property Rent workspace exposes honest loading, empty, error and permissio
   assert.match(source,/No local or demonstration row is substituted/);
   assert.match(source,/READ ONLY FOR CURRENT ACTOR/);
   assert.match(source,/Draft creation never submits, reviews, approves, or posts/);
+  assert.match(source,/commandInFlight\.current/);
+  assert.match(source,/disabled=\{!ready\|\|running\}/);
+  assert.match(source,/!\/\[\\u0000-\\u001f\\u007f\]\//);
   assert.doesNotMatch(source,/localStorage|sessionStorage|auto.?post/i);
 });

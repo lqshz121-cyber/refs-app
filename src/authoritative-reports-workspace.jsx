@@ -252,7 +252,7 @@ export const AuthoritativeReportDetail=({row,returnContext,onBack})=>{
 </section>;
 };
 
-export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,environment=globalThis,initialCatalog=DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,onOpenArAging=()=>{},workspaceTitle='Reports center',workspaceEyebrow='AUTHORITATIVE / REPORTING',workspaceDescription='OIDC-authenticated, entity-and-period-scoped POSTED ledger evidence. Every displayed report reads the accounting API; no browser data is used.',initialDimensionType='PROPERTY'}){
+export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,environment=globalThis,initialCatalog=DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,onOpenArAging=()=>{},workspaceTitle='Reports center',workspaceEyebrow='AUTHORITATIVE / REPORTING',workspaceDescription='OIDC-authenticated, entity-and-period-scoped POSTED ledger evidence. Every displayed report reads the accounting API; no browser data is used.',initialDimensionType='PROPERTY',initialDimensionRef=''}){
   const entityLabel=config?.scopePresentation?.entityLabel||'Configured entity';
   const periodLabel=config?.scopePresentation?.periodLabel||'Configured period';
   const initialCatalogState=normalizeAuthoritativeReportsCatalog(initialCatalog);
@@ -264,7 +264,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   const [state,setState]=useState({phase:'LOADING',rows:[],error:null});
   const [statementSnapshotState,setStatementSnapshotState]=useState({phase:'IDLE',rows:[],error:null,scope:null,snapshotId:null,version:null});
   const [dimensionType,setDimensionType]=useState(initialDimension);
-  const [dimensionRef,setDimensionRef]=useState('');
+  const [dimensionRef,setDimensionRef]=useState(typeof initialDimensionRef==='string'?initialDimensionRef.trim():'');
   const [dimensionState,setDimensionState]=useState({phase:'IDLE',rows:[],error:null,scope:null});
   const [cashFlowState,setCashFlowState]=useState({phase:'IDLE',rows:[],error:null,scope:null,complete:false});
   const [cwipState,setCwipState]=useState({phase:'IDLE',rows:[],error:null,scope:null,complete:false});
@@ -292,6 +292,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   const loadConsolidation=async()=>{setConsolidationState({phase:'LOADING',rows:[],error:null,scope:null,complete:false});const result=await refreshAuthoritativeConsolidation({config,groupRef:consolidationGroupRef,fetcher});setConsolidationState(result.ok?{phase:'READY',rows:result.rows,error:null,scope:result.scope,complete:result.complete}:{phase:authoritativeReadFailurePhase(result),rows:[],error:result,scope:null,complete:false});};
   const loadComparison=async()=>{setComparisonState({phase:'LOADING',rows:[],error:null,scope:null});const result=await refreshAuthoritativeFinancialStatementPeriodComparison({config,priorPeriodId,fetcher});setComparisonState(result.ok?{phase:'READY',rows:result.rows,error:null,scope:result.scope}:{phase:authoritativeReadFailurePhase(result),rows:[],error:result,scope:null});};
   useEffect(()=>{load();},[config?.entityId,config?.periodId]);
+  useEffect(()=>{if(initialDimensionRef.trim())void loadDimension();},[config?.entityId,config?.periodId,initialDimensionRef]);
   const rows=useMemo(()=>state.rows.filter(row=>row.statement_type===report),[state.rows,report]);
   const openEvidence=(row,focusId,kind='STATEMENT',title=null,detailContext=null)=>{
     const base=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
