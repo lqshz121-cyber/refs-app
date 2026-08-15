@@ -40,21 +40,45 @@ services:
       - key: REFS_WBS_LIVE_PILOT_MODE
         value: DISABLED
       - key: DATABASE_URL
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-staging
+          envVarKey: DATABASE_URL
       - key: MIGRATION_DATABASE_URL
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-staging
+          envVarKey: MIGRATION_DATABASE_URL
       - key: CONTEXT_ISSUER_DATABASE_URL
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-staging
+          envVarKey: CONTEXT_ISSUER_DATABASE_URL
       - key: GRANT_SYNC_DATABASE_URL
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-staging
+          envVarKey: GRANT_SYNC_DATABASE_URL
       - key: OIDC_ISSUER
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-staging
+          envVarKey: OIDC_ISSUER
       - key: OIDC_AUDIENCE
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-staging
+          envVarKey: OIDC_AUDIENCE
       - key: OIDC_JWKS_URI
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-staging
+          envVarKey: OIDC_JWKS_URI
       - key: REFS_HTTP_ALLOWED_ORIGINS
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-staging
+          envVarKey: REFS_HTTP_ALLOWED_ORIGINS
       - key: WBS_SNAPSHOT_ED25519_PUBLIC_KEYS
         sync: false
       - key: WBS_PROVIDER_SIGNED_TRUST
@@ -98,24 +122,56 @@ services:
       - key: REFS_PG_REQUIRED
         value: "1"
       - key: DATABASE_URL
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: DATABASE_URL
       - key: MIGRATION_DATABASE_URL
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: MIGRATION_DATABASE_URL
       - key: CONTEXT_ISSUER_DATABASE_URL
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: CONTEXT_ISSUER_DATABASE_URL
       - key: GRANT_SYNC_DATABASE_URL
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: GRANT_SYNC_DATABASE_URL
       - key: ATTACHMENT_CLEANUP_ACTOR_ID
         sync: false
       - key: ATTACHMENT_CLEANUP_SCOPES
         sync: false
       - key: S3_ENDPOINT
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: S3_ENDPOINT
       - key: S3_BUCKET
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: S3_BUCKET
       - key: S3_REGION
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: S3_REGION
       - key: S3_ACCESS_KEY_ID
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: S3_ACCESS_KEY_ID
       - key: S3_SECRET_ACCESS_KEY
-        sync: false
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: S3_SECRET_ACCESS_KEY
+      - key: S3_SESSION_TOKEN
+        fromService:
+          type: web
+          name: refs-accounting-api-integrations-staging
+          envVarKey: S3_SESSION_TOKEN

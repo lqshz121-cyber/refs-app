@@ -35,6 +35,22 @@ accounting readback pass should the static service's single
 `REFS_PUBLIC_ACCOUNTING_API_BASE_URL` be changed to this API origin. Do not
 split browser reads and commands across the Stage 1 and integrations APIs.
 
+The Blueprint uses Render `fromService` references for the existing PostgreSQL,
+OIDC, and CORS variables on `refs-accounting-api-staging`; it does not copy their
+values into source control or ask an operator to re-enter them. The cleanup
+worker similarly inherits its PostgreSQL and S3 variables from the integrations
+API. Initial Blueprint creation therefore prompts only for the genuinely new
+Provider trust/identity, attachment storage/scanner, and cleanup identities.
+If either referenced service name is absent from the same Render workspace, the
+Blueprint must fail to sync instead of accepting substituted values.
+
+On the first Blueprint release, keep the cleanup worker suspended until the
+integrations API has completed `npm run db:up`, logged
+`accounting_server_started`, and returned HTTP 200 from `/health/ready` at the
+target release SHA. Then start the worker and verify its first claim cycle.
+This ordering prevents the worker from racing a schema migration even though
+both services are declared in the same Blueprint.
+
 | Variable | Purpose | Minimum privilege |
 | --- | --- | --- |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION` | Versioned object storage location | TLS endpoint and one staging bucket. |
