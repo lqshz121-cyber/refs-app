@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Read-only acceptance verifier for evidence supplied after a real WBS run.
+// Read-only offline consistency verifier for evidence supplied after a real WBS run.
 // It never opens a network connection and never connects to an accounting DB.
 //
 // node tools/verify-wbs-live-acceptance.mjs --provider-trust <json> --receipt <json> \
@@ -9,12 +9,16 @@
 // Provider trust is a separately managed pinned configuration, not evidence
 // supplied by the run. A PASS verifies that the supplied evidence is bound to
 // that pin; it never creates, approves, or posts anything.
+// A PASS does not authenticate the downstream ingress/G11/report JSON. Formal
+// release still requires same-release authenticated API E2E readback.
 
 import {existsSync,readFileSync} from 'node:fs';
 import {createHash,createPublicKey,verify} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {validateWbsAutoRecG11PostedTrace} from '../runtime/wbs-inbound-data-adapter.mjs';
 import {canonicalWbsLiveReceiptSigningPayload,isWbsLiveReceiptTimeWindowValid} from '../runtime/wbs-live-receipt-signing.mjs';
+import {validateWbsSnapshotPackage} from '../runtime/wbs-snapshot-package.mjs';
+import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 
 const HASH=/^sha256:[0-9a-f]{64}$/;
 const KEY_ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -66,7 +70,10 @@ export function verifySignedReceipt({receipt,providerTrust,raw,now=Date.now()}){
   if(!signature||text(signature.key_id)!==text(receipt.kid)||signature.algorithm!=='Ed25519'||typeof signature.value!=='string'||!signature.value.trim())fail('WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_MISSING');
   try{if(!verify(null,Buffer.from(canonicalWbsLiveReceiptSigningPayload(receipt),'utf8'),providerTrust.publicKey,Buffer.from(signature.value,'base64')))fail('WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_INVALID');}
   catch(error){if(error?.code)throw error;fail('WBS_LIVE_ACCEPTANCE_RECEIPT_SIGNATURE_INVALID');}
-  return Object.freeze({tenant_id:text(receipt.tenant_id),entity_id:text(receipt.entity_id),company_code:text(receipt.company_code),package_hash:text(receipt.package_hash)});
+  let snapshot,validated;try{snapshot=JSON.parse(raw.package.toString('utf8'));validated=validateWbsSnapshotPackage(snapshot);}catch{fail('WBS_LIVE_ACCEPTANCE_PACKAGE_INVALID');}
+  if(validated.environment!=='PRODUCTION'||validated.company_key!==text(receipt.company_code)||validated.snapshot_id!==text(receipt.immutable_version)||validated.receipt_count<1)fail('WBS_LIVE_ACCEPTANCE_PACKAGE_INVALID');
+  const sourceFacts=validated.receipts.map(source=>{const view=snapshot.views.find(row=>row.name===source.source_module),row=view?.rows.find(value=>canonicalRequestHash(value)===source.payload_hash);if(!row)fail('WBS_LIVE_ACCEPTANCE_PACKAGE_INVALID');return Object.freeze({...source,amount:row.amount,currency:row.currency,bank_account_ref:row.bank_account_ref});});
+  return Object.freeze({tenant_id:text(receipt.tenant_id),entity_id:text(receipt.entity_id),company_code:text(receipt.company_code),package_hash:text(receipt.package_hash),snapshot_id:validated.snapshot_id,source_receipts:Object.freeze(sourceFacts)});
 }
 
 function sameScope(value,scope,code){
@@ -78,10 +85,13 @@ export function verifyIngressEvidence({ingress,scope}){
   sameScope(ingress,scope,'WBS_LIVE_ACCEPTANCE_INGRESS_SCOPE_MISMATCH');
   if(ingress.status!=='PERSISTED_STAGING_REVIEW_REQUIRED'||ingress.can_dispatch_draft!==false||ingress.can_dispatch_autorec!==false||ingress.can_post!==false)fail('WBS_LIVE_ACCEPTANCE_INGRESS_STATUS_INVALID');
   const trace=ingress.trace;
-  if(!trace||!text(trace.import_batch_id)||!Array.isArray(trace.trace_rows)||trace.trace_rows.length===0)fail('WBS_LIVE_ACCEPTANCE_INGRESS_TRACE_REQUIRED');
+  if(!trace||!text(trace.import_batch_id)||!Array.isArray(trace.trace_rows)||trace.trace_rows.length!==2)fail('WBS_LIVE_ACCEPTANCE_INGRESS_TRACE_REQUIRED');
+  const packageSources=new Map();for(const source of scope.source_receipts||[]){const key=[text(source.source_record_id),text(source.source_version)].join('\u0000');if(packageSources.has(key))fail('WBS_LIVE_ACCEPTANCE_PACKAGE_INVALID');packageSources.set(key,source);}
   for(const row of trace.trace_rows){
     required(row,['receipt_id','raw_event_id','source_document_id','staging_item_id','source_record_id','source_version','receipt_hash'],'WBS_LIVE_ACCEPTANCE_INGRESS_TRACE_REQUIRED');
     if(!HASH.test(text(row.receipt_hash)))fail('WBS_LIVE_ACCEPTANCE_INGRESS_TRACE_REQUIRED');
+    const source=packageSources.get([text(row.source_record_id),text(row.source_version)].join('\u0000'));
+    if(!source||text(source.payload_hash)!==text(row.receipt_hash))fail('WBS_LIVE_ACCEPTANCE_INGRESS_PACKAGE_MISMATCH');
   }
   const reviews=ingress.staging_reviews;
   if(!Array.isArray(reviews)||reviews.length===0||reviews.length!==trace.trace_rows.length)fail('WBS_LIVE_ACCEPTANCE_STAGING_REVIEW_REQUIRED');
@@ -93,14 +103,19 @@ export function verifyIngressEvidence({ingress,scope}){
     reviewed.add(text(review.staging_item_id));
   }
   if(reviewed.size!==stagingIds.size)fail('WBS_LIVE_ACCEPTANCE_STAGING_REVIEW_REQUIRED');
-  return Object.freeze({import_batch_id:text(trace.import_batch_id),row_count:trace.trace_rows.length});
+  return Object.freeze({import_batch_id:text(trace.import_batch_id),row_count:trace.trace_rows.length,rows_by_staging:new Map(trace.trace_rows.map(row=>[text(row.staging_item_id),row]))});
 }
 
-export function verifyG11Evidence({g11,scope}){
+export function verifyG11Evidence({g11,scope,ingress}){
   sameScope(g11,scope,'WBS_LIVE_ACCEPTANCE_G11_SCOPE_MISMATCH');
   if(!g11||typeof g11!=='object'||!g11.review_request||!Array.isArray(g11.posted_journals))fail('WBS_LIVE_ACCEPTANCE_G11_EVIDENCE_REQUIRED');
   let result;try{result=validateWbsAutoRecG11PostedTrace({reviewRequest:g11.review_request,postedJournals:g11.posted_journals});}catch{fail('WBS_LIVE_ACCEPTANCE_G11_INVALID');}
   if(result.status!=='POSTED_TRACE_VERIFIED'||text(g11.review_request.trace?.company_key)!==scope.company_code)fail('WBS_LIVE_ACCEPTANCE_G11_INVALID');
+  const trace=g11.review_request.trace,sourceByKey=new Map((scope.source_receipts||[]).map(row=>[[text(row.source_record_id),text(row.source_version)].join('\u0000'),row])),bank=sourceByKey.get([text(trace.bank_source_record_id),text(trace.bank_source_version)].join('\u0000')),business=sourceByKey.get([text(trace.business_source_record_id),text(trace.business_source_version)].join('\u0000')),bankIngress=ingress?.rows_by_staging?.get(text(trace.bank_staging_item_id)),businessIngress=ingress?.rows_by_staging?.get(text(trace.business_staging_item_id));
+  const sameIngress=(row,prefix)=>row&&text(row.receipt_id)===text(trace[`${prefix}_receipt_id`])&&text(row.raw_event_id)===text(trace[`${prefix}_raw_event_id`])&&text(row.source_document_id)===text(trace[`${prefix}_source_document_id`])&&text(row.source_record_id)===text(trace[`${prefix}_source_record_id`])&&text(row.source_version)===text(trace[`${prefix}_source_version`])&&text(row.receipt_hash)===text(trace[`${prefix}_receipt_hash`]);
+  if(bank?.source_module!=='BGDATA.bank_transaction'||business?.source_module!=='BGDATA.payable'||text(bank.payload_hash)!==text(trace.bank_receipt_hash)||text(business.payload_hash)!==text(trace.business_receipt_hash)||!sameIngress(bankIngress,'bank')||!sameIngress(businessIngress,'business'))fail('WBS_LIVE_ACCEPTANCE_G11_PACKAGE_LINEAGE_MISMATCH');
+  const allocated=money4(text(trace.allocated_amount),'WBS_LIVE_ACCEPTANCE_G11_SOURCE_AMOUNT_INVALID'),bankAmount=money4(bank.amount,'WBS_LIVE_ACCEPTANCE_G11_SOURCE_AMOUNT_INVALID'),businessAmount=money4(business.amount,'WBS_LIVE_ACCEPTANCE_G11_SOURCE_AMOUNT_INVALID'),absolute=value=>value<0n?-value:value;
+  if(allocated<=0n||allocated>absolute(bankAmount)||allocated>absolute(businessAmount)||text(bank.currency).toUpperCase()!==text(trace.currency).toUpperCase()||text(business.currency).toUpperCase()!==text(trace.currency).toUpperCase()||text(bank.bank_account_ref)!==text(trace.bank_account_ref))fail('WBS_LIVE_ACCEPTANCE_G11_SOURCE_AMOUNT_INVALID');
   return Object.freeze({journal_ids:new Set(g11.posted_journals.map(row=>text(row.journal_entry_id))),ledger_line_count:g11.posted_journals.reduce((sum,row)=>sum+row.ledger_lines.length,0)});
 }
 
@@ -122,9 +137,9 @@ export function verifyGlReportEvidence({glReport,scope,g11}){
 export function verifyWbsLiveAcceptance({providerTrust,receipt,raw,ingress,g11,glReport,now=Date.now()}){
   const scope=verifySignedReceipt({receipt,providerTrust:normalizePinnedProviderTrust(providerTrust),raw,now});
   const ingressResult=verifyIngressEvidence({ingress,scope});
-  const g11Result=verifyG11Evidence({g11,scope});
+  const g11Result=verifyG11Evidence({g11,scope,ingress:ingressResult});
   const reportResult=verifyGlReportEvidence({glReport,scope,g11:g11Result});
-  return Object.freeze({ok:true,status:'WBS_LIVE_ACCEPTANCE_EVIDENCE_VERIFIED',import_batch_id:ingressResult.import_batch_id,ingress_rows:ingressResult.row_count,posted_journal_count:g11Result.journal_ids.size,report_id:reportResult.report_id,currency:reportResult.currency});
+  return Object.freeze({ok:true,status:'WBS_LIVE_ACCEPTANCE_OFFLINE_CONSISTENCY_VERIFIED',authoritative_downstream:false,requires_authenticated_api_e2e:true,import_batch_id:ingressResult.import_batch_id,ingress_rows:ingressResult.row_count,posted_journal_count:g11Result.journal_ids.size,report_id:reportResult.report_id,currency:reportResult.currency});
 }
 
 function argumentsFrom(argv){
@@ -135,7 +150,7 @@ function argumentsFrom(argv){
 }
 
 export function main(argv=process.argv.slice(2)){
-  try{const args=argumentsFrom(argv);const raw={request:readRaw(args['request-raw'],'REQUEST_RAW'),response:readRaw(args['response-raw'],'RESPONSE_RAW'),package:readRaw(args['package-raw'],'PACKAGE_RAW')};const result=verifyWbsLiveAcceptance({providerTrust:readJson(args['provider-trust'],'PROVIDER_TRUST'),receipt:readJson(args.receipt,'RECEIPT'),raw,ingress:readJson(args.ingress,'INGRESS'),g11:readJson(args.g11,'G11'),glReport:readJson(args['gl-report'],'GL_REPORT')});console.log(`wbs-live-acceptance: PASS ingress_rows=${result.ingress_rows} posted_journals=${result.posted_journal_count}`);return 0;}
+  try{const args=argumentsFrom(argv);const raw={request:readRaw(args['request-raw'],'REQUEST_RAW'),response:readRaw(args['response-raw'],'RESPONSE_RAW'),package:readRaw(args['package-raw'],'PACKAGE_RAW')};const result=verifyWbsLiveAcceptance({providerTrust:readJson(args['provider-trust'],'PROVIDER_TRUST'),receipt:readJson(args.receipt,'RECEIPT'),raw,ingress:readJson(args.ingress,'INGRESS'),g11:readJson(args.g11,'G11'),glReport:readJson(args['gl-report'],'GL_REPORT')});console.log(`wbs-live-acceptance: OFFLINE_CONSISTENCY_PASS ingress_rows=${result.ingress_rows} posted_journals=${result.posted_journal_count} requires_authenticated_api_e2e=true`);return 0;}
   catch(error){console.error(`${error?.code||'WBS_LIVE_ACCEPTANCE_FAILED'}: evidence verification failed`);return 1;}
 }
 
