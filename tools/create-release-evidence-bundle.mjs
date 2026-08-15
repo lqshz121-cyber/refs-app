@@ -108,7 +108,7 @@ const requiredCommands = [
   { name: 'server-pg15-fresh', command: 'POSTGRES_IMAGE=postgres:15-alpine npm.cmd --prefix server run test:postgres:fresh', requiredExit: 0, scope: 'fresh PostgreSQL 15 gate with cleanup evidence' },
   { name: 'server-pg16-fresh', command: 'POSTGRES_IMAGE=postgres:16-alpine npm.cmd --prefix server run test:postgres:fresh', requiredExit: 0, scope: 'fresh PostgreSQL 16 gate with cleanup evidence' },
   { name: 'server-attachments-containers', command: 'npm.cmd --prefix server run test:attachments:containers', requiredExit: 0, scope: 'versioned object storage and malware scanner container gate' },
-  { name: 'live-ui-22-page', command: 'npm.cmd run verify:authoritative-runtime-evidence', requiredExit: 0, scope: 'real authenticated evidence for all 22 authoritative business pages, including AP/AR/JE/Bank/Reconciliation/WBS/real-estate reports; not satisfied by local simulation' },
+  { name: 'live-ui-23-page', command: 'npm.cmd run verify:authoritative-runtime-evidence', requiredExit: 0, scope: 'real authenticated evidence for all 23 authoritative business pages, including AP/AR/JE/Bank/Reconciliation/WBS/Insurance amortization/Property Rent/real-estate reports; not satisfied by local simulation' },
   { name: 'provider-s3-scanner', command: 'npm.cmd run verify:release-s3-scanner', requiredExit: 0, scope: 'real provider S3/scanner lifecycle; not satisfied by local simulation' },
   { name: 'provider-wbs-receipt', command: 'npm.cmd run verify:release-wbs-receipt', requiredExit: 0, scope: 'real WBS signed nonempty receipt; not satisfied by local simulation' },
   { name: 'stage1-payable-live-chain', command: 'npm.cmd run verify:stage1-payable-live-acceptance -- --provider-trust <pinned-trust.json> --receipt <receipt.json> --request-raw <request.raw> --response-raw <response.raw> --package-raw <package.json> --chain <stage1-chain.json>', requiredExit: 0, scope: 'real signed Payable attachment → separated roles → same posted JE → GL/TB/AP Aging; not satisfied by local simulation' },
@@ -233,7 +233,7 @@ const manifest = {
   required_commands: requiredCommands,
   release_acceptance: {
     local_candidate_gate: 'PASS only after recorded required local commands exit 0 on a clean frozen SHA',
-    global_release_gate: 'PARTIAL/FAIL until real HTTPS/OIDC, authenticated 22-page authoritative live E2E, provider S3/scanner lifecycle, signed WBS Payable attachment-to-GL/TB/AP Aging evidence, the signed-off Bank-to-GL/TB/BS/Cash Flow chain, signed WBS multi-source ingress-to-GL/report evidence, and immutable report-snapshot-to-source evidence exist',
+    global_release_gate: 'PARTIAL/FAIL until real HTTPS/OIDC, authenticated 23-page authoritative live E2E, provider S3/scanner lifecycle, signed WBS Payable attachment-to-GL/TB/AP Aging evidence, the signed-off Bank-to-GL/TB/BS/Cash Flow chain, signed WBS multi-source ingress-to-GL/report evidence, and immutable report-snapshot-to-source evidence exist',
   },
   head_ci: headCi,
 };
