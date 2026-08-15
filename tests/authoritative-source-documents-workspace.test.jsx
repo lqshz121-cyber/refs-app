@@ -17,7 +17,11 @@ assert.match(presentation,/full-bleed.*authoritative-source-documents-presentati
 assert.match(presentation,/Source Documents Register/,'Source Documents must retain the demo register heading');
 assert.match(presentation,/kpi-row authoritative-source-summary/,'Source Documents must present API-returned scope counts in the demo KPI hierarchy');
 assert.match(source,/authoritative-source-scope/,'Source Documents must visibly retain the API entity and period scope above the evidence register');
-assert.match(source,/Journal-linked/,'Source Documents must distinguish retained journal references from unlinked list facts');
+assert.match(source,/Company<\/span><b title=\{`Entity ID: \$\{config\.entityId\}`\}>\{companyLabel\}/,'Source Documents must present a human-readable company label while keeping the immutable ID as an audit tooltip');
+assert.match(source,/Reporting period<\/span><b title=\{`Period ID: \$\{config\.periodId\}`\}>\{periodLabel\}/,'Source Documents must present a human-readable reporting period while keeping the immutable ID as an audit tooltip');
+assert.doesNotMatch(source,/>Authenticated API read</,'Source Documents must not expose implementation jargon as a user-facing record-source label');
+assert.match(source,/Linked to journals/,'Source Documents must distinguish retained journal references from records that are not yet linked');
+assert.match(source,/Not yet linked/,'Source Documents must make the unlinked state understandable to finance users');
 assert.match(source,/authoritative-source-intro/,'Source Documents must disclose its evidence-only boundary before the list');
 assert.match(source,/authoritative-source-filters/,'Source Documents must provide presentation-only source evidence filters');
 assert.match(source,/sourceSystem==='ALL'\|\|row\.source_system===sourceSystem/,'Source filtering must be applied only to rows already returned by the authoritative API');
