@@ -125,6 +125,18 @@ async function main(){
   assert.match(workspace,/CwipRollforwardDetail/,'CWIP must have a dedicated authoritative evidence page instead of reusing a generic presentation');
   assert.match(workspace,/CWIP_ROLLFORWARD/,'CWIP evidence controls must select the dedicated API-backed workbench');
   assert.match(workspace,/authoritative-cwip-table/,'CWIP rows must use a contained table region rather than scrolling the page');
+  for(const label of [
+    'Financial statement rows',
+    'Statement of cash flows rows',
+    'Prior-period comparison rows',
+    'Intercompany reconciliation rows',
+    'Budget versus actual rows',
+    'Consolidation rows',
+  ]){
+    assert.match(workspace,new RegExp(`role="region" tabIndex=\\{0\\} aria-label="${label}; scroll horizontally to view every column"`),`${label} must remain a named keyboard-focusable horizontal scroll region at Stage 5 phone widths`);
+  }
+  assert.match(workspace,/role="region" tabIndex=\{0\} aria-label=\{`\$\{title\} rows; scroll horizontally to view every column`\}/,'the full-page statement must expose the same accessible narrow-width table contract');
+  assert.match(workspace,/role="region" tabIndex=\{0\} aria-label="Immutable financial statement snapshot rows; scroll horizontally to view every column"/,'immutable snapshot rows must remain keyboard-scrollable at narrow widths');
   assert.match(workspace,/mapping_snapshot_hash/,'CWIP evidence must retain the immutable mapping hash in its full-page scope');
   assert.match(workspace,/Open GL \/ Journal \/ source drill/,'CWIP, prepaid, construction-loan, and exact-dimension evidence must expose the same server-backed GL-to-Journal-to-source drill instead of presenting identifiers as a dead end');
   assert.match(workspace,/kind:'EVIDENCE_LINEAGE'/,'non-statement report evidence must enter the shared immutable lineage reader rather than a browser-side reconstruction');
