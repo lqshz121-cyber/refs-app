@@ -837,18 +837,16 @@ pgTest('WBS AutoRec Reserve and Release persist receipt-bound source reservation
   assert.deepEqual(counts.rows[0],{events:3,reservations:4,journals:journalsBefore});
 });
 
-pgTest('independent AutoRec review and immutable accounting-event foundation enforce exact evidence and fail-closed Draft producers',async()=>{
-  const ids=await seed({status:'APPROVED',journalType:'AUTO'});
+pgTest('independent AutoRec review and immutable accounting-event foundation derive exact G11 Drafts from approved rules',async()=>{
+  const ids=await seed({status:'APPROVED',journalType:'AUTO',extraAccounts:[{accountCode:'610000',accountName:'Operating Expense'}]});
   const bankTrace=await attachAutoSource(ids,{sourceRecordPrefix:'AUTOREC-BANK-REVIEW'});
   const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'review-fixture-poster',['GL.JE.POST'])});
   await poster.postJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'autorec-review-post-001'});
   const bankDocument=(await adminPool.query('SELECT * FROM source_document WHERE source_document_id=$1',[bankTrace.documentId])).rows[0];
-  const businessRecord='AUTOREC-PAYABLE-REVIEW-1',businessVersion='v1',businessBatch=randomUUID(),businessRaw=randomUUID(),businessDocumentId=randomUUID();
-  await adminPool.query("INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash) VALUES($1,$2,$3,'WBS_API','payable',$4,'autorec-review-business-import',$5)",[businessBatch,ids.tenantId,ids.entityId,ids.sourceEntityId,hash('autorec-review-business-import')]);
-  await adminPool.query(`INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id)
-    VALUES($1,$2,$3,$4,'WBS','payable',$5,$6,$7,'UPSERT',now(),$8,$9,$6)`,[businessRaw,ids.tenantId,ids.entityId,businessBatch,ids.sourceEntityId,businessRecord,businessVersion,hash('autorec-review-business-raw'),`object://raw/${businessRaw}`]);
-  await adminPool.query(`INSERT INTO source_document(source_document_id,tenant_id,entity_id,raw_event_id,source_system,source_module,source_entity_id,source_record_id,source_version,document_type,business_date,accounting_date,currency,gross_amount,source_ref,payload_hash)
-    VALUES($1,$2,$3,$4,'WBS','payable',$5,$6,$7,'PAYABLE','2026-07-15','2026-07-15','USD',100,$8,$9)`,[businessDocumentId,ids.tenantId,ids.entityId,businessRaw,ids.sourceEntityId,businessRecord,businessVersion,`WBS:${businessRecord}`,hash('autorec-review-business-doc')]);
+  const businessTrace=await attachAutoSource(ids,{sourceRecordPrefix:'AUTOREC-PAYABLE-REVIEW',sourceModule:'payable',linkJournal:false,reuseApprovedSnapshots:true});
+  await adminPool.query("UPDATE source_document SET document_type='PAYABLE' WHERE source_document_id=$1",[businessTrace.documentId]);
+  const businessDocument=(await adminPool.query('SELECT * FROM source_document WHERE source_document_id=$1',[businessTrace.documentId])).rows[0];
+  const businessRecord=businessDocument.source_record_id,businessVersion=businessDocument.source_version,businessDocumentId=businessDocument.source_document_id;
   const cash=(await adminPool.query(`SELECT jl.journal_line_id,ll.ledger_line_id FROM journal_line jl JOIN ledger_line ll
     ON ll.tenant_id=jl.tenant_id AND ll.entity_id=jl.entity_id AND ll.journal_entry_id=jl.journal_entry_id AND ll.journal_line_id=jl.journal_line_id
     WHERE jl.tenant_id=$1 AND jl.entity_id=$2 AND jl.journal_entry_id=$3 AND jl.account_code='111000'`,[ids.tenantId,ids.entityId,ids.journalId])).rows[0];
@@ -867,6 +865,8 @@ pgTest('independent AutoRec review and immutable accounting-event foundation enf
     VALUES($1,$2,'WBS_AUTOREC_EXECUTION_PERSISTED','WBS_AUTOREC_EXECUTION',$3,'RESERVE','autorec-candidate-preparer','USER','BANK.AUTOREC.MANAGE','autorec-review-reserve-001','autorec-review-reserve-001','autorec-review-reserve-001',$4)`,[ids.tenantId,ids.entityId,executionReceiptId,executionRequestHash]);
   await adminPool.query(`INSERT INTO wbs_autorec_source_reservation(tenant_id,entity_id,execution_receipt_id,review_candidate_id,source_side,source_type,source_record_id,source_version,currency,allocated_amount)
     VALUES($1,$2,$3,$4,'BANK','BANK_TRANSACTION',$5,$6,'USD',100),($1,$2,$3,$4,'BUSINESS','PAYABLE',$7,$8,'USD',100)`,[ids.tenantId,ids.entityId,executionReceiptId,reviewCandidateId,bankDocument.source_record_id,bankDocument.source_version,businessRecord,businessVersion]);
+  await adminPool.query(`INSERT INTO wbs_autorec_execution_event(tenant_id,entity_id,review_candidate_id,command,current_state,next_state,version,request_hash,idempotency_key,intent)
+    VALUES($1,$2,$3,'RELEASE','RESERVED','RELEASED',2,$4,'autorec-review-release-001',jsonb_build_object('review_candidate',$5::jsonb))`,[ids.tenantId,ids.entityId,reviewCandidateId,hash('autorec-review-release-request'),JSON.stringify(candidate)]);
 
   const args={tenantId:ids.tenantId,entityId:ids.entityId,reviewCandidateId,candidateHash,bankMatchId,expectedMatchRevision:0,decision:'ACCEPTED',reason:'Independent controller accepted the exact persisted AutoRec Bank Match evidence',idempotencyKey:'autorec-match-review-001'};
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'autorec-independent-reviewer',['BANK.MATCH.REVIEW','WBS.AUTOREC.VIEW'])});
@@ -884,14 +884,27 @@ pgTest('independent AutoRec review and immutable accounting-event foundation enf
   const eventArgs={tenantId:ids.tenantId,entityId:ids.entityId,reviewId:accepted.wbs_autorec_match_review_id,periodId:ids.periodId,expectedEvidenceHash:accepted.evidence_hash,reason:'Dedicated producer must fail until exact event mappings are persisted',idempotencyKey:'autorec-event-draft-001'};
   const before=(await adminPool.query('SELECT (SELECT count(*)::int FROM accounting_event WHERE tenant_id=$1) events,(SELECT count(*)::int FROM journal_accounting_event WHERE tenant_id=$1) bindings,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) receipts',[ids.tenantId])).rows[0];
   await assert.rejects(eventMaker.createWbsAutoRecPayableIncurDraft(eventArgs),error=>error.code==='23514');
-  await assert.rejects(eventMaker.createWbsAutoRecAutocDraft({...eventArgs,idempotencyKey:'autorec-event-draft-002'}),error=>error.code==='23514');
   const after=(await adminPool.query('SELECT (SELECT count(*)::int FROM accounting_event WHERE tenant_id=$1) events,(SELECT count(*)::int FROM journal_accounting_event WHERE tenant_id=$1) bindings,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1) receipts',[ids.tenantId])).rows[0];assert.deepEqual(after,before);
-  const mapping=(await adminPool.query('SELECT mapping_snapshot_id,snapshot_hash FROM mapping_snapshot WHERE mapping_snapshot_id=$1',[bankTrace.mappingId])).rows[0],eventId=randomUUID();
-  await adminPool.query(`INSERT INTO accounting_event(accounting_event_id,tenant_id,entity_id,wbs_autorec_match_review_id,review_candidate_id,event_type,source_document_id,staging_item_id,mapping_snapshot_id,mapping_snapshot_hash,amount,currency,bank_account_ref,clearing_member_ref,evidence_hash,created_by)
-    VALUES($1,$2,$3,$4,$5,'PAYABLE_INCUR',$6,$7,$8,$9,100,'USD','BANK-1','VENDOR-1',$10,'migration-fixture')`,[eventId,ids.tenantId,ids.entityId,accepted.wbs_autorec_match_review_id,reviewCandidateId,bankTrace.documentId,bankTrace.stagingId,mapping.mapping_snapshot_id,mapping.snapshot_hash,hash('autorec-event-foundation')]);
-  await adminPool.query('INSERT INTO journal_accounting_event(tenant_id,entity_id,accounting_event_id,journal_entry_id,bound_by) VALUES($1,$2,$3,$4,$5)',[ids.tenantId,ids.entityId,eventId,ids.journalId,'migration-fixture']);
-  await assert.rejects(adminPool.query("UPDATE accounting_event SET created_by='tampered' WHERE accounting_event_id=$1",[eventId]),error=>error.code==='55000');
-  await assert.rejects(adminPool.query('DELETE FROM journal_accounting_event WHERE accounting_event_id=$1',[eventId]),error=>error.code==='55000');
+  const g11Input={company_key:ids.sourceEntityId,currency:'USD',bank_account_ref:'BANK-1'},g11Rules={clearing_account:'291001',clearing_member_ref:'VENDOR-1',bank_member_ref:'BANK-1',payable_incur_offset_account:'610000',autoc_offset_account:'111000'};
+  const g11Hash=(await adminPool.query("SELECT refs_jsonb_hash(jsonb_build_object('input_keys',$1::jsonb,'output_rules',$2::jsonb)) snapshot_hash",[JSON.stringify(g11Input),JSON.stringify(g11Rules)])).rows[0].snapshot_hash,g11MappingId=randomUUID();
+  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3,'WBS_AUTOREC_G11','ENTITY',$8,$4,1,1,'2026-01-01','APPROVED',$5::jsonb,$6::jsonb,$7,'g11-mapping-maker','g11-mapping-approver',now())`,[g11MappingId,ids.tenantId,ids.entityId,hash('g11-input'),JSON.stringify(g11Input),JSON.stringify(g11Rules),g11Hash,ids.entityId]);
+  const payableDraft=await eventMaker.createWbsAutoRecPayableIncurDraft(eventArgs);
+  const autocDraft=await eventMaker.createWbsAutoRecAutocDraft({...eventArgs,idempotencyKey:'autorec-event-draft-002'});
+  assert.deepEqual([payableDraft.event_type,autocDraft.event_type],['PAYABLE_INCUR','AUTOC']);
+  assert.equal(payableDraft.amount,'100.0000');assert.equal(autocDraft.amount,'100.0000');assert.notEqual(payableDraft.journal_entry_id,autocDraft.journal_entry_id);
+  const replayDraft=await eventMaker.createWbsAutoRecPayableIncurDraft(eventArgs);assert.equal(replayDraft.idempotent,true);assert.equal(replayDraft.journal_entry_id,payableDraft.journal_entry_id);
+  const g11Rows=(await adminPool.query(`SELECT ae.event_type,ae.source_document_id,ae.mapping_snapshot_id,je.status,je.journal_type,jl.line_no,jl.account_code,jl.debit_amount::text,jl.credit_amount::text,jl.member_ref
+    FROM accounting_event ae JOIN journal_accounting_event jae USING(tenant_id,entity_id,accounting_event_id)
+    JOIN journal_entry je USING(tenant_id,entity_id,journal_entry_id) JOIN journal_line jl USING(tenant_id,entity_id,journal_entry_id)
+    WHERE ae.tenant_id=$1 AND ae.entity_id=$2 AND ae.wbs_autorec_match_review_id=$3 ORDER BY ae.event_type,jl.line_no`,[ids.tenantId,ids.entityId,accepted.wbs_autorec_match_review_id])).rows;
+  assert.equal(g11Rows.length,4);assert(g11Rows.every(row=>row.status==='DRAFT'&&row.journal_type==='AUTO'&&row.mapping_snapshot_id===g11MappingId));
+  assert.deepEqual(g11Rows.map(row=>[row.event_type,row.account_code,row.debit_amount,row.credit_amount,row.member_ref]),[
+    ['AUTOC','291001','100.0000','0.0000','VENDOR-1'],['AUTOC','111000','0.0000','100.0000','BANK-1'],
+    ['PAYABLE_INCUR','610000','100.0000','0.0000',null],['PAYABLE_INCUR','291001','0.0000','100.0000','VENDOR-1']
+  ]);
+  await assert.rejects(adminPool.query("UPDATE accounting_event SET created_by='tampered' WHERE accounting_event_id=$1",[payableDraft.accounting_event_id]),error=>error.code==='55000');
+  await assert.rejects(adminPool.query('DELETE FROM journal_accounting_event WHERE accounting_event_id=$1',[payableDraft.accounting_event_id]),error=>error.code==='55000');
 });
 
 pgTest('WBS trace relation evidence is receipt-bound, replay-safe, readable, and never creates a journal',async()=>{
