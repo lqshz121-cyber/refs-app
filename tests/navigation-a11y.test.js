@@ -109,6 +109,8 @@ assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-rail \.na
   'the production workflow rail must keep compact, stable group controls');
 assert.match(styles,/\.nav-item-label\{flex:1 1 auto; min-width:0; overflow:visible; text-overflow:clip; white-space:normal; overflow-wrap:anywhere/,
   'the production page panel must show complete labels instead of truncating finance workspaces');
+assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; line-height:1\.3;\}/,
+  'the authoritative desktop rule must not reintroduce clipped navigation labels');
 assert.match(styles,/\.authoritative-app \.sidebar\{position:sticky; top:0; left:auto; transform:none; width:var\(--nav-w\); flex:0 0 var\(--nav-w\); box-shadow:none;\}/,
   'the QBO-like rail and panel must remain anchored through wider tablet layouts');
 assert.match(styles,/@media\(min-width:901px\)\{\s*\.authoritative-app \.sidebar\{position:sticky/,
