@@ -115,6 +115,7 @@ const requiredCommands = [
   { name: 'stage2-bank-live-chain', command: 'npm.cmd run verify:stage2-bank-live-chain', requiredExit: 0, scope: 'real signed-off Bank match to immutable snapshot to posted JE to GL/TB/BS/Cash Flow readback; read-only and not satisfied by local simulation' },
   { name: 'stage3-wbs-live-chain', command: 'npm.cmd run verify:stage3-wbs-live-chain -- --provider-trust <pinned-trust.json> --receipt <receipt.json> --request-raw <request.raw> --response-raw <response.raw> --package-raw <package.json> --ingress <ingress.json> --g11 <g11.json> --gl-report <gl-report.json>', requiredExit: 0, scope: 'real signed WBS multi-source ingress to reviewed staging to G11 posted journals to tied GL/report evidence; read-only and not satisfied by local simulation' },
   { name: 'stage3-g11-live-chain', command: 'npm.cmd run verify:stage3-g11-live-chain', requiredExit: 0, scope: 'same-release authenticated GET-only ACCEPTED review→released candidate→PAYABLE_INCUR/AUTOC events→two distinct AUTO POSTED JEs→raw line/ledger IDs→291001 member allocation/net zero→INCURRED; independently recomputed, not satisfied by offline downstream JSON or local simulation' },
+  { name: 'stage3-cost-cwip-live-chain', command: 'npm.cmd run verify:stage3-cost-cwip-live-chain', requiredExit: 0, scope: 'same-release authenticated GET-only WBS_COST_CWIP source-document to POSTED JE to both GL legs to TB/BS/IS readback with exact IDs and MONEY4; must pair with the offline provider-signed gate and does not prove Review/SoD, Insurance/Prepaid, or Property Operations/Rent Pickup' },
   { name: 'stage4-report-live-chain', command: 'npm.cmd run verify:stage4-report-live-chain', requiredExit: 0, scope: 'real immutable financial-statement snapshot row to live statement to GL to posted JE to source-document readback; read-only and not satisfied by local simulation' },
 ];
 
@@ -169,7 +170,7 @@ if (executeLocal) {
 const localExecutionPassed = executeLocal && executionReceipts.length === localExecutionCommands.length && executionReceipts.every(receipt => receipt.status === 0);
 
 const scriptCoverage = Object.fromEntries(
-  ['test', 'build', 'test:release-harness', 'test:release-simulation', 'verify:external-release-gate', 'verify:authoritative-runtime-evidence', 'verify:release-s3-scanner', 'verify:release-wbs-receipt', 'verify:stage1-payable-live-acceptance', 'verify:stage2-bank-live-chain', 'verify:stage3-wbs-live-chain', 'verify:stage3-g11-live-chain', 'verify:stage4-report-live-chain']
+  ['test', 'build', 'test:release-harness', 'test:release-simulation', 'verify:external-release-gate', 'verify:authoritative-runtime-evidence', 'verify:release-s3-scanner', 'verify:release-wbs-receipt', 'verify:stage1-payable-live-acceptance', 'verify:stage2-bank-live-chain', 'verify:stage3-wbs-live-chain', 'verify:stage3-cost-cwip-live-chain', 'verify:stage3-g11-live-chain', 'verify:stage4-report-live-chain']
     .map(name => [name, packageJson.scripts?.[name] || null]),
 );
 
