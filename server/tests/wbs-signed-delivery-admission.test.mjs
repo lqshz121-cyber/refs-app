@@ -37,6 +37,17 @@ test('provider trust accepts the standard SPKI DER fingerprint with or without t
   assert.throws(()=>normalizeWbsProviderTrust({...input.providerTrust,fingerprint_sha256:`sha256:${'0'.repeat(64)}`}),rejected('WBS_SIGNED_DELIVERY_PROVIDER_TRUST_INVALID'));
 });
 
+test('signed delivery accepts exact RFC3339 UTC seconds as well as millisecond timestamps without weakening the time window',async()=>{
+  const pair=generateKeyPairSync('ed25519'),scope={tenant_id:randomUUID(),entity_id:randomUUID(),company_code:'COMPANY-A'},snapshotId=randomUUID(),recordId=randomUUID();
+  const rows=[{apGuId:recordId,companyCode:'COMPANY-A',amount:'25.0000'}];
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:snapshotId,captured_at:'2026-08-12T08:00:00.000Z',environment:'PRODUCTION',source_system:'WBS',dictionary_version:'WBS-2026-08',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',extract_started_at:'2026-08-12T08:00:00.000Z',extract_completed_at:'2026-08-12T08:00:00.000Z',consistency:'COMPLETE',read_consistency:'REPEATABLE_READ_TRANSACTION',pagination:'PRIMARY_KEY_SEEK'},views:[{name:'BGDATA.payable',company_key:'COMPANY-A',rows,content_hash:canonicalRequestHash(rows),row_count:1,first_primary_key:recordId,last_primary_key:recordId}]};
+  const requestRaw=Buffer.from('{"jsonrpc":"2.0","id":1,"method":"tools/call"}','utf8'),responseRaw=Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"captured":true}}','utf8');
+  const created=await createWbsSignedDelivery({unsignedSnapshot:snapshot,requestRaw,responseRaw,scope,issuer:'wanbridge-wbs',keyId:'wbs-prod-2026-08',nonce:'delivery-nonce-seconds',signedAt:'2026-08-12T08:05:00Z',expiresAt:'2026-08-12T08:20:00Z',privateKeyPem:pair.privateKey.export({type:'pkcs8',format:'pem'}),now:NOW});
+  const verified=await verifyWbsSignedDelivery({providerTrust:created.providerTrust,receipt:created.receipt,requestRaw,responseRaw,packageRaw:created.packageRaw,expectedScope:scope,now:NOW});
+  assert.equal(verified.status,'VERIFIED_NOT_ADMITTED');
+  await assert.rejects(()=>verifyWbsSignedDelivery({providerTrust:created.providerTrust,receipt:{...created.receipt,signed_at:'2026-08-12T08:05:00.1Z'},requestRaw,responseRaw,packageRaw:created.packageRaw,expectedScope:scope,now:NOW}),rejected('WBS_SIGNED_DELIVERY_RECEIPT_EXPIRED'));
+});
+
 test('capture is write-once by provider nonce and prepares only the existing authoritative snapshot endpoint request',async()=>{
   const input=await fixture(),root=mkdtempSync(join(tmpdir(),'refs-wbs-signed-'));
   try{
