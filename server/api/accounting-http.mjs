@@ -717,9 +717,9 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       }else if(parts.length===7&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='match-reviews'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['reviewCandidateId','candidateHash','bankMatchId','decision','reason']);
         const decision=typeof payload.decision==='string'?payload.decision.toUpperCase():'';
-        if(!['ACCEPTED','REJECTED'].includes(decision))throw new AccountingApiError(400,'INVALID_DECISION','decision must be ACCEPTED or REJECTED');
+        if(!['ACCEPTED','REJECTED'].includes(decision))throw new AccountingApiError(400,'INVALID_REVIEW_DECISION','decision must be ACCEPTED or REJECTED');
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.reviewWbsAutoRecBankMatch!=='function')throw new AccountingApiError(503,'WBS_AUTOREC_MATCH_REVIEW_UNAVAILABLE','AutoRec Bank Match review is unavailable');
-        result=await kernel.reviewWbsAutoRecBankMatch({tenantId:principal.tenantId,entityId,reviewCandidateId:payload.reviewCandidateId,candidateHash:requireSha256(payload.candidateHash,'candidateHash'),bankMatchId:requireUuid(payload.bankMatchId,'bankMatchId'),expectedBankMatchRevision:requireRevision(headers),decision,reason:requireReviewReason(payload.reason),idempotencyKey});
+        result=await kernel.reviewWbsAutoRecBankMatch({tenantId:principal.tenantId,entityId,reviewCandidateId:payload.reviewCandidateId,candidateHash:requireSha256(payload.candidateHash,'candidateHash'),bankMatchId:requireUuid(payload.bankMatchId,'bankMatchId'),expectedMatchRevision:requireRevision(headers),decision,reason:requireReviewReason(payload.reason),idempotencyKey});
       }else if(parts.length===6&&parts[4]==='bank'&&parts[5]==='reconciliations'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['bankAccountRef','statementEndingDate','statementOpeningBalance','statementEndingBalance','reason']);
