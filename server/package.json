@@ -52,6 +52,7 @@
     "test:postgres:fixture:ai-exception-lineage": "node runtime/test-postgres-fresh.mjs --pattern \"operator exception row links append-only to the later exact signed Payable source without becoming Review authority\"",
     "test:postgres:fixture:real-estate-reports": "node runtime/test-postgres-fresh.mjs --pattern \"cash flow statement classifies|CWIP rollforward admits|construction-loan rollforward admits|prepaid rollforward admits|intercompany reconciliation requires|budget versus actual reads|consolidation reads only\"",
     "test:postgres:fixtures:closure": "node runtime/run-postgres-fixture-suite.mjs",
+    "test:postgres:fixtures:matrix": "node runtime/run-postgres-fixture-matrix.mjs",
     "test:backup:restore": "node runtime/test-backup-restore-drill.mjs",
     "test:attachments:containers": "node runtime/test-attachment-containers.mjs",
     "test:staging:smoke": "node runtime/test-staging-smoke.mjs",
