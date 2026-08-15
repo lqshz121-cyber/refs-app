@@ -11,6 +11,7 @@ export const FIXTURES=Object.freeze([
   Object.freeze({id:'signed-wbs-cost-cwip-post',pattern:'signed Cost-to-CWIP admission reaches controlled Draft, four-role Post, GL, and Trial Balance'}),
   Object.freeze({id:'bank-reconcile-close',pattern:'Stage 2 test-data chain traces one reconciled bank payment through its posted JE, GL, TB and report rows'}),
   Object.freeze({id:'ai-exception-lineage',pattern:'operator exception row links append-only to the later exact signed Payable source without becoming Review authority'}),
+  Object.freeze({id:'ai-duplicate-payable-audit-read',pattern:'AI exact duplicate payable finding retains paired source evidence without changing either source or creating a journal'}),
   Object.freeze({id:'ai-insurance-amortization-close',pattern:'AI insurance proposal requires a different controller to accept one exact standard Draft before the normal four-role post and report trace'}),
   Object.freeze({id:'real-estate-reports',pattern:'cash flow statement classifies|CWIP rollforward admits|construction-loan rollforward admits|prepaid rollforward admits|intercompany reconciliation requires|budget versus actual reads|consolidation reads only'})
 ]);
