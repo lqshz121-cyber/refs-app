@@ -398,6 +398,13 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async resolveAiFindingAction({tenantId,entityId,aiFindingActionId,findingHash,reason,expectedRevision,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_resolve_ai_finding_action_hash($1,$2,$3,$4,$5,$6) AS request_hash',[tenantId,entityId,aiFindingActionId,findingHash,reason,expectedRevision]),'AI_FINDING_ACTION_RESOLUTION_HASH_FAILED','AI finding resolution hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_resolve_ai_finding_action($1,$2,$3,$4,$5,$6,$7,$8) AS result',[tenantId,entityId,aiFindingActionId,findingHash,reason,expectedRevision,idempotencyKey,requestHash]),'AI_FINDING_ACTION_RESOLUTION_FAILED','AI finding resolution did not return a result').result;
+    });
+  }
+
   async readAiAccountingAnalysisSummary({tenantId,entityId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_accounting_analysis_summary($1,$2)',[tenantId,entityId]
