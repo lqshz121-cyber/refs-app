@@ -49,6 +49,51 @@
         }
       }
     },
+    "/entities/{entityId}/wbs/company-catalogs": {
+      "get": {
+        "operationId": "listWbsCompanyCatalogCandidates",
+        "summary": "Read bounded immutable WBS company catalog candidates",
+        "description": "Requires WBS.COMPANY.CATALOG.VIEW. Returns retained source hashes, controls, and validation counts for the authenticated entity only. It grants no accounting mapping or posting authority.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":100,"default":100}},{"name":"offset","in":"query","schema":{"type":"integer","minimum":0,"maximum":100000,"default":0}}],
+        "responses": {"200":{"$ref":"#/components/responses/ReadOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      },
+      "post": {
+        "operationId": "retainWbsCompanyCatalogCandidate",
+        "summary": "Retain one immutable company catalog candidate",
+        "description": "Requires WBS.COMPANY.CATALOG.RETAIN. Retains only allowlisted source metadata, exact hashes, row controls, account-book controls, company rows, and ERROR/REVIEW/INFO findings. Credential-like fields fail closed. This does not approve a company, change an entity binding, or create mapping_snapshot.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["catalog"],"properties":{"catalog":{"$ref":"#/components/schemas/WbsCompanyCatalogCandidateInput"}}}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/company-catalogs/{candidateId}/companies": {
+      "get": {
+        "operationId": "listWbsCompanyCatalogRows",
+        "summary": "Read bounded candidate companies, validation findings, and current Controller decisions",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"candidateId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":50,"default":50}},{"name":"offset","in":"query","schema":{"type":"integer","minimum":0,"maximum":100000,"default":0}}],
+        "responses": {"200":{"$ref":"#/components/responses/ReadOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/company-catalog-rows/{rowId}/classifications": {
+      "post": {
+        "operationId": "classifyWbsCompanyCatalogRow",
+        "summary": "Classify a retained company candidate without approving it",
+        "description": "Requires WBS.COMPANY.CATALOG.CLASSIFY, strong revision CAS, idempotency, and a Controller distinct from the catalog retainer. Appends audit/outbox evidence and creates no entity binding or mapping_snapshot.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"rowId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsCompanyCatalogClassificationRequest"}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/Problem"},"423":{"$ref":"#/components/responses/Problem"},"428":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/company-catalog-rows/{rowId}/approvals": {
+      "post": {
+        "operationId": "approveWbsCompanyCatalogRow",
+        "summary": "Approve one exact Controller-classified company and atomically bind the entity",
+        "description": "Requires WBS.COMPANY.CATALOG.APPROVE, strong revision CAS, exact catalog and row hashes, reconciled account-book controls, exact entity currency/effective scope, and an approver distinct from both retainer and classifier. Atomically writes or verifies the entity WBS company binding. It never creates mapping_snapshot.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"rowId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsCompanyCatalogApprovalRequest"}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"428":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/snapshots": {
       "post": {
         "operationId": "recordWbsSnapshot",
@@ -2195,6 +2240,22 @@
       },
       "WbsPayableEvidenceListEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","maxItems":50,"items":{"$ref":"#/components/schemas/WbsPayableEvidenceReadRow"}}}},
       "WbsPayableEvidenceDetailEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/WbsPayableEvidenceReadRow"}}},
+      "WbsCompanyCatalogCandidateInput": {
+        "type":"object","additionalProperties":false,"required":["catalogVersion","generatedAt","providerEnvironment","source","accountBookControl","companies"],
+        "properties":{
+          "catalogVersion":{"type":"string","minLength":1,"maxLength":128},"generatedAt":{"type":"string","format":"date-time"},"providerEnvironment":{"const":"PRODUCTION"},
+          "source":{"type":"object","additionalProperties":false,"required":["name","version","rawFileHash","catalogHash","rowControl"],"properties":{"name":{"type":"string","minLength":1,"maxLength":128},"version":{"type":"string","minLength":1,"maxLength":128},"rawFileHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"catalogHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"rowControl":{"type":"object","additionalProperties":false,"required":["sourceRowCount","acceptedRowCount","rejectedRows"],"properties":{"sourceRowCount":{"type":"integer","minimum":0},"acceptedRowCount":{"type":"integer","minimum":0},"rejectedRows":{"type":"array","maxItems":1000,"items":{"type":"object","additionalProperties":false,"required":["sourceRowKey","reason","rowHash"],"properties":{"sourceRowKey":{"type":"string","minLength":1,"maxLength":256},"reason":{"type":"string","minLength":1,"maxLength":1000},"rowHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}}}}}}},
+          "accountBookControl":{"type":"object","additionalProperties":false,"required":["total","open","closed","companiesWithBooks"],"properties":{"total":{"type":"integer","minimum":0},"open":{"type":"integer","minimum":0},"closed":{"type":"integer","minimum":0},"companiesWithBooks":{"type":"integer","minimum":0}}},
+          "companies":{"type":"array","minItems":1,"maxItems":500,"items":{"$ref":"#/components/schemas/WbsCompanyCatalogCompanyInput"}}
+        }
+      },
+      "WbsCompanyCatalogCompanyInput": {
+        "type":"object","additionalProperties":false,"required":["companyCode","wbsCompanyId","displayName","legalName","activeStatus","entityType","baseCurrency","operationallyActive2026","accountBooks","accountBookCount","openAccountBookCount","domains"],
+        "properties":{"companyCode":{"type":["string","null"],"maxLength":64},"wbsCompanyId":{"type":["string","null"],"maxLength":128},"displayName":{"type":["string","null"],"maxLength":200},"legalName":{"type":["string","null"],"maxLength":200},"activeStatus":{"type":["string","null"],"maxLength":64},"entityType":{"type":["string","null"],"maxLength":64},"baseCurrency":{"type":["string","null"],"maxLength":3},"operationallyActive2026":{"type":"boolean"},"accountBookCount":{"type":"integer","minimum":0},"openAccountBookCount":{"type":"integer","minimum":0},"accountBooks":{"type":"array","maxItems":500,"items":{"type":"object","additionalProperties":false,"required":["accountBookId","accountName","accountStatus","externalCompanyId"],"properties":{"accountBookId":{"type":["string","null"],"maxLength":128},"accountName":{"type":["string","null"],"maxLength":256},"accountStatus":{"type":["string","null"],"maxLength":8},"externalCompanyId":{"type":["string","number","null"]}}}},"domains":{"type":"object","additionalProperties":false,"properties":{"PAYABLES":{"$ref":"#/components/schemas/WbsCompanyCatalogDomainInput"},"BANK":{"$ref":"#/components/schemas/WbsCompanyCatalogDomainInput"},"JOURNAL":{"$ref":"#/components/schemas/WbsCompanyCatalogDomainInput"},"AUTOREC":{"$ref":"#/components/schemas/WbsCompanyCatalogDomainInput"}}}}
+      },
+      "WbsCompanyCatalogDomainInput":{"type":"object","additionalProperties":false,"properties":{"rowCount":{"type":"integer","minimum":0},"minDate":{"type":["string","null"],"format":"date"},"maxDate":{"type":["string","null"],"format":"date"},"pbStatus":{"type":["string","null"],"maxLength":128},"reconStart":{"type":["string","null"],"format":"date"}}},
+      "WbsCompanyCatalogClassificationRequest":{"type":"object","additionalProperties":false,"required":["classification","reason"],"properties":{"classification":{"type":"object","additionalProperties":false,"required":["companyCode","displayName","legalName","entityType","activeStatus","baseCurrency"],"properties":{"companyCode":{"type":"string","pattern":"^[A-Z0-9][A-Z0-9_-]{0,63}$"},"displayName":{"type":"string","minLength":1,"maxLength":200},"legalName":{"type":"string","minLength":1,"maxLength":200},"entityType":{"type":"string","enum":["LEGAL_ENTITY","CONSOLIDATION","INACTIVE","TEST","OTHER"]},"activeStatus":{"type":"string","enum":["ACTIVE","INACTIVE","CLOSED"]},"baseCurrency":{"type":"string","pattern":"^[A-Z]{3}$"}}},"reason":{"type":"string","minLength":8,"maxLength":2000}}},
+      "WbsCompanyCatalogApprovalRequest":{"type":"object","additionalProperties":false,"required":["expectedCatalogHash","expectedRowHash","effectiveFrom","effectiveTo","reason"],"properties":{"expectedCatalogHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expectedRowHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"effectiveFrom":{"type":"string","format":"date"},"effectiveTo":{"type":["string","null"],"format":"date"},"reason":{"type":"string","minLength":8,"maxLength":2000}}},
       "Uuid": {
         "type": "string",
         "format": "uuid"
