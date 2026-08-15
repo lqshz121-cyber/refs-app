@@ -13,7 +13,8 @@ function fixture({currency='USD',credentials=false}={}){
   const row={
     ap_guid:'11111111-1111-4111-8111-111111111111',ap_long_id:'AP-LONG-1',ap_type:'AUTOC',company_code:'WBPA',
     ...(currency==null?{}:{currency}),amount:'10.0000',incurred_date:'2026-01-15',posting_date:'2026-01-16',
-    vendor_no:'V-1',vendor_name:'Vendor',project_guid:'P-1',pj_code:'PROJECT-1',pj_name:'Project',description:'Invoice'
+    vendor_no:'V-1',vendor_name:'Vendor',project_guid:'P-1',pj_code:'PROJECT-1',pj_name:'Project',description:'Invoice',
+    provider_metadata:{control:{state:'ORIGINAL'}}
   };
   const view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},row_count:1,content_hash:hash(canonical([row])).slice(7),rows:[row]};
   const unsigned={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-15T00:00:00Z',environment:'PRODUCTION',source_system:'WBS',domain:'PAYABLES',company_key:'WBPA',date_from:'2026-01-01',date_to:'2026-06-30',views:{list_payables:view}};
@@ -37,6 +38,12 @@ test('normalizes Provider-signed USD rows into immutable staging only',()=>{
   assert.equal(output.normalized.projectCode,'PROJECT-1');
   assert.match(output.raw_row_hash,/^sha256:/);
   assert.equal(output.raw_row.ap_guid,row.ap_guid);
+  assert.equal(Object.isFrozen(output.raw_row.provider_metadata),true);
+  assert.equal(Object.isFrozen(output.raw_row.provider_metadata.control),true);
+  const originalRawRowHash=output.raw_row_hash;
+  assert.throws(()=>{output.raw_row.provider_metadata.control.state='MUTATED';},TypeError);
+  assert.equal(output.raw_row.provider_metadata.control.state,'ORIGINAL');
+  assert.equal(hash(canonical(output.raw_row)),originalRawRowHash);
   assert.equal(output.can_create_draft,false);
   assert.equal(plan.can_post,false);
   assert.deepEqual(plan.exception_rows,[]);

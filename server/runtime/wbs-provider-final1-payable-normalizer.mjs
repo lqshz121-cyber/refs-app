@@ -9,6 +9,13 @@ const CURRENCY=/^[A-Z]{3}$/;
 const DATE=/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z)?$/;
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype;
 const freeze=value=>Object.freeze(value);
+const deepFreeze=value=>{
+  if(value&&typeof value==='object'&&!Object.isFrozen(value)){
+    for(const child of Object.values(value))deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
+};
 const canonical=value=>Buffer.from(canonicalRequestBody(value),'utf8');
 const hash=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
 const bare=value=>typeof value==='string'&&value.startsWith('sha256:')?value.slice(7):value;
@@ -33,7 +40,7 @@ function requireVerifiedFinal1(verified){
 
 function normalizedRow(row,{verified,expectedCurrency,currencyAuthority}){
   if(!object(row)||row.company_code!==verified.company_code||(row.currency!=null&&row.currency!==''&&row.currency!==expectedCurrency))fail('WBS_FINAL1_NORMALIZATION_SCOPE_OR_CURRENCY_MISMATCH','Every payable row must retain the verified company scope; any Provider-supplied currency must match the independently approved accounting currency.');
-  const apGuId=requiredUuid(row.ap_guid,'ap_guid'),rawRow=freeze(structuredClone(row)),rawRowHash=hash(canonical(rawRow));
+  const apGuId=requiredUuid(row.ap_guid,'ap_guid'),rawRow=deepFreeze(structuredClone(row)),rawRowHash=hash(canonical(rawRow));
   return freeze({
     source_system:'WBS',source_module:'BGDATA.payable',source_record_id:apGuId,
     source_version:`final1:${verified.snapshot_id}:${bare(rawRowHash).slice(0,16)}`,
