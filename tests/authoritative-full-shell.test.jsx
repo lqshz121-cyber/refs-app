@@ -91,8 +91,8 @@ for(const scopeHook of [
   'const scopePresentation=useMemo(',
   'const displayConfig=useMemo('
 ])assert.ok(appSource.indexOf(scopeHook)>0&&appSource.indexOf(scopeHook)<firstConditionalRender,`${scopeHook} must execute before every conditional render so OIDC phase changes cannot alter the React hook order`);
-assert.match(appSource, /Accounting records are read only from the authenticated API in this mode/,
-  'the sign-in surface must describe the sole authoritative source of accounting records');
+assert.match(appSource, /Sign in securely to view the records available to your role/,
+  'the sign-in surface must describe the reader outcome without exposing implementation terms');
 assert.match(appSource, /display name not returned by API/,
   'a missing entity display name must be explained without promoting its internal UUID to primary text');
 assert.match(appSource, /period details not returned by API/,
@@ -131,15 +131,15 @@ assert.match(appSource, /initialDimensionType="UNIT"/, 'Unit Cost Ledger must re
 assert.match(appSource, /route === 'property-ops-pickup'/, 'Property Ops Pickup must mount the authenticated Property P&L reader rather than an unavailable demo route');
 assert.match(appSource, /Property operating P&amp;L/, 'Property Ops Pickup must identify its read-only Property P&L scope');
 assert.match(appSource, /initialDimensionType="PROJECT"/, 'the direct Project Cost & CWIP entry must default only its existing API-backed profitability reader to Project');
-assert.match(appSource, /Cost-code, vendor, and project transaction registers remain unavailable/, 'the direct workspace may not pretend that the legacy transaction register has an API contract');
+assert.match(appSource, /Detailed cost-code, vendor, and project registers will appear when they are ready for review/, 'the direct workspace must not pretend that legacy transaction registers are ready');
 assert.match(appSource, /route === 'construction-loan'/, 'Construction Loan must mount its existing API rollforward rather than a demo route');
 assert.match(appSource, /route === 'amortization'/, 'Amortization Center must mount its existing API prepaid rollforward rather than a demo route');
-assert.match(appSource, /Loan register, lender, commitment, and draw-management workflows remain unavailable/, 'the construction-loan reader must not overstate unavailable operational contracts');
-assert.match(appSource, /Schedule authoring, posting, and browser-local amortization calculations remain unavailable/, 'the amortization reader must not recreate a browser-side accounting workflow');
+assert.match(appSource, /Lender commitments and draw management are handled through their controlled workflows/, 'the construction-loan reader must not overstate operational controls');
+assert.match(appSource, /Schedule setup and posting follow the standard review workflow/, 'the amortization reader must not recreate a browser-side accounting workflow');
 assert.match(appSource, /route === 'intercompany'/, 'Intercompany must mount its existing two-entity API evidence reader rather than a demo route');
 assert.match(appSource, /route === 'consolidation'/, 'Consolidation must mount existing snapshot evidence rather than a browser workbook');
-assert.match(appSource, /Elimination, adjustment, and intercompany posting workflows remain unavailable/, 'the intercompany surface must not overstate unavailable posting contracts');
-assert.match(appSource, /Elimination creation, group maintenance, and browser-side consolidation workbooks remain unavailable/, 'the consolidation surface must not recreate a browser-side workbook');
+assert.match(appSource, /Elimination and adjustment posting follow the controlled close workflow/, 'the intercompany surface must not overstate posting controls');
+assert.match(appSource, /Group setup and elimination entries follow the controlled close workflow/, 'the consolidation surface must not recreate a browser-side workbook');
 assert.match(appSource, /AuthoritativeWbsTransitionWorkspace/, 'WBS evidence must mount an API-backed signed-contract verifier, not a demo workspace');
 assert.match(appSource, /AuthoritativeWbsPayableReviewWorkspace/, 'WBS Payable Review must mount the signed-and-admitted evidence queue rather than an unavailable or browser-backed route');
 assert.match(appSource, /AuthoritativeAiAuditWorkspace/, 'AI Audit Center must mount the authenticated server-backed finding reader rather than a browser-backed audit model');

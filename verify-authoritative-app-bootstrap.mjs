@@ -19,7 +19,7 @@ assert.match(authoritative, /refreshAuthoritativeDocuments/, 'authoritative AP a
 assert.match(authoritative, /refreshAuthoritativeJournalEntries/, 'authoritative Journal Entry reads must be mounted');
 assert.match(authoritative, /AuthoritativeJournalWorkspace/, 'authoritative Journal Entry evidence workspace must be mounted');
 assert.doesNotMatch(authoritative, /transitionAuthoritativeJournal|nextAuthoritativeWorkflowAction/, 'authoritative Journal list evidence must not mount workflow mutations');
-assert.match(authoritative, /Accounting records are read only from the authenticated API in this mode/, 'authoritative login must describe its authenticated API boundary');
+assert.match(authoritative, /Sign in securely to view the records available to your role/, 'authoritative login must describe the secure reader outcome without implementation jargon');
 assert.doesNotMatch(authoritative, /No demo identity/, 'authoritative login must not expose retired product terminology');
 assert.doesNotMatch(authoritative, /localStorage\s*[.(]|JOURNAL_ENTRIES|SEED_BILLS|SEED_BANK|FY2026/, 'authoritative runtime must not use browser seed accounting state');
 assert.doesNotMatch(authoritative, /Draft entry|route === 'drafts'/, 'authoritative shell must not advertise an unimplemented Draft entry route');
