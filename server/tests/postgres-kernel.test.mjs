@@ -3083,6 +3083,19 @@ pgTest('AI exact duplicate payable finding retains paired source evidence withou
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-duplicate-reader',['AI.AMORTIZATION.PROPOSE'])});
   const retained=await reader.listAiDuplicatePayableFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50});
   assert.equal(retained.length,1);assert.deepEqual({rule:retained[0].rule_id,risk:retained[0].risk_level,confidence:retained[0].confidence,status:retained[0].status,draft:retained[0].can_create_draft,review:retained[0].can_review,approve:retained[0].can_approve,post:retained[0].can_post},{rule:'DUPLICATE_PAYABLE_EXACT',risk:'HIGH',confidence:'1.0000',status:'OPEN',draft:false,review:false,approve:false,post:false});
+  // AI Audit reads only materialized, source-bound findings.  The HTTP surface
+  // must be nonempty for an authorized controller, hide it from an ungranted
+  // caller, and never turn a finding into a document or journal mutation.
+  const auditReadCounts=async()=>(await adminPool.query("SELECT (SELECT count(*)::int FROM source_document WHERE tenant_id=$1) source_documents,(SELECT count(*)::int FROM business_document WHERE tenant_id=$1) business_documents,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journal_entries,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger_lines",[ids.tenantId])).rows[0];
+  const auditApi=createAccountingApi({
+    authenticate:async({headers})=>({trusted:true,tenantId:ids.tenantId,actorId:headers['x-test-actor']}),
+    kernelFactory:async principal=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,principal.actorId,principal.actorId==='ai-audit-http-reader'?['AI.AMORTIZATION.PROPOSE']:[])})
+  });
+  const auditPath=`/api/v1/entities/${ids.entityId}/ai/findings/duplicate-payables?limit=10`,beforeAuditRead=await auditReadCounts();
+  const auditDenied=await auditApi({method:'GET',url:auditPath,body:null,headers:{'x-test-actor':'ai-audit-no-grant'}});assert.equal(auditDenied.status,403);
+  const auditRead=await auditApi({method:'GET',url:auditPath,body:null,headers:{'x-test-actor':'ai-audit-http-reader'}});
+  assert.equal(auditRead.status,200);assert.equal(auditRead.headers['cache-control'],'no-store');assert.deepEqual({count:auditRead.body.data.length,rule:auditRead.body.data[0].rule_id,risk:auditRead.body.data[0].risk_level,status:auditRead.body.data[0].status,draft:auditRead.body.data[0].can_create_draft,post:auditRead.body.data[0].can_post},{count:1,rule:'DUPLICATE_PAYABLE_EXACT',risk:'HIGH',status:'OPEN',draft:false,post:false});
+  assert.deepEqual(await auditReadCounts(),beforeAuditRead);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1",[ids.tenantId])).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND event_type='AI_DUPLICATE_PAYABLE_FINDING_MATERIALIZED'",[ids.tenantId])).rows[0].n,1);
   const documents=(await adminPool.query("SELECT status FROM source_document WHERE tenant_id=$1 AND entity_id=$2 ORDER BY source_document_id",[ids.tenantId,ids.entityId])).rows;assert.deepEqual(documents.map(row=>row.status),['READY_FOR_DRAFT','READY_FOR_DRAFT']);
