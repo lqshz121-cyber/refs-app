@@ -33,7 +33,8 @@ assert.match(sourceCode,/journal\.entity_id===config\.entityId&&journal\.period_
 assert.match(sourceCode,/item\.period_id===config\.periodId&&item\.account_code===row\.account_code&&item\.currency===row\.currency/);
 assert.match(sourceCode,/The Source Document detail did not retain the exact source-to-Journal relationship/);
 assert.match(sourceCode,/BLOCKED - immutable lineage mismatch/);
-assert.match(sourceCode,/disabled aria-disabled="true">Reading evidence/,'Back must be disabled while an immutable read is pending');
+assert.match(sourceCode,/StateBlock tone="loading" title="Reading evidence"/,'an immutable read must expose a non-interactive announced loading state');
+assert.doesNotMatch(sourceCode,/<button[^>]+disabled[^>]*>Reading evidence/,'a pending immutable read must not masquerade as a disabled action');
 assert.match(sourceCode,/onClick=\{clearBlocked\}>Back to current evidence/,'a failed read must retain the current evidence frame');
 assert.match(sourceCode,/journalLineMatchesLedger\(journal,line,row\)/,'Journal→GL must use the closed symmetric binding');
 assert.match(sourceCode,/journalLineMatchesLedger\(journal,line,expected\.ledgerRow\)/,'GL→Journal must use the same closed symmetric binding');
