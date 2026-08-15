@@ -38,20 +38,20 @@ provider key:
    idempotency, and records only immutable WBS snapshot receipts. It does not
    write WBS or create, approve, or post a journal.
 
-## Provider command
+## Provider delivery boundary
 
-The provider keeps its PKCS#8 Ed25519 private key outside the repository and
-runs `npm run wbs:signed-delivery:create --` from `server` with:
+The provider signs evidence with its own managed signing service. REFS has no
+command that accepts a provider private key or mints a provider receipt. The
+provider delivers, by its approved secure channel:
 
-- `--snapshot`, `--request-raw`, `--response-raw`, `--private-key`
-- `--issuer`, `--key-id`, and a new unique `--nonce`
-- `--tenant-id`, `--entity-id`, `--company-code`
-- `--output-dir` for the evidence bundle
-- `--trust-output` for the public trust record delivered separately
+- canonical `package.json`, `request.raw`, `response.raw`, and `receipt.json`
+- a separately delivered `{issuer, key_id, public_key, fingerprint_sha256}`
+  trust record
 
-Optional `--signed-at` and `--expires-at` values must be canonical UTC. The
-maximum lifetime is 15 minutes. The tool never generates a key and never sends
-data over the network.
+The receipt must use a new unique nonce and canonical UTC `signed_at` and
+`expires_at` values. Its maximum lifetime is 15 minutes. A local key, generated
+receipt, or trust record is test data only and is rejected as production
+admission evidence.
 
 ## REFS verification and capture command
 
