@@ -27,3 +27,15 @@ test('planned AI skills cannot be accidentally sent to the model before their so
     assert.deepEqual(item.prohibited_actions,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
   }
 });
+
+test('accrual accounting remains disabled until a signed recurring-obligation service-period contract exists',()=>{
+  const accrual=AI_ACCOUNTING_SKILLS.find(item=>item.id==='ACCRUAL_ACCOUNTING');
+  assert.ok(accrual);
+  assert.equal(accrual.status,'PLANNED_SOURCE_CONTRACT');
+  assert.equal(accrual.finding_category,null);
+  assert.deepEqual(accrual.required_evidence,[
+    'service_period_start','service_period_end','recurring_obligation_id',
+    'service_frequency','obligation_status','source_document_id','entity_id','accounting_period_id'
+  ]);
+  assert.deepEqual(accrual.prohibited_actions,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+});
