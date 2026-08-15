@@ -577,7 +577,7 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   assert.deepEqual(await authorityReader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'89.1250',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'89.1250'}]);
 });
 
-pgTest('signed admitted WBS bank statement atomically creates exact bank sources with replay and conflict guards',async()=>{
+pgTest('provider-signed Bank source survives exact Match Unmatch adjustment Post reconciliation and same-source reports',async()=>{
   const ids=await seed({status:'DRAFT'}),snapshotId=randomUUID(),capturedAt=new Date().toISOString(),{privateKey,publicKey}=generateKeyPairSync('ed25519');
   const bankRows=[
     {bankTransactionId:'BANK-TXN-1',bank_account_ref:'BANK-1',transaction_date:'2026-07-15',currency:'USD',amount:'25.0000'},
@@ -611,6 +611,36 @@ pgTest('signed admitted WBS bank statement atomically creates exact bank sources
   await assert.rejects(adminPool.query('UPDATE wbs_bank_statement_receipt SET ending_balance=999 WHERE tenant_id=$1',[ids.tenantId]),error=>error.code==='55000');
 
   const admittedSource=(await adminPool.query('SELECT bank_source_id,source_document_id FROM wbs_bank_statement_transaction WHERE tenant_id=$1 AND entity_id=$2 AND wbs_bank_statement_receipt_id=$3',[ids.tenantId,ids.entityId,created.statement_receipt_id])).rows[0];
+  // Prove that the exact provider-created bank_source can enter the ordinary
+  // payment matching boundary without a hand-written bank_source/bank_match.
+  // The receipt is deliberately unmatched again before the adjustment path so
+  // both command histories are retained while the reconciliation remains open.
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'CUSTOMER-SIGNED-BANK','CUSTOMER','Signed bank customer')",[ids.tenantId,ids.entityId]);
+  const augustPeriodId=randomUUID();
+  await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriodId,ids.tenantId,ids.entityId]);
+  const invoiceId=randomUUID();
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,'AR_INVOICE','INV-SIGNED-BANK-25','CUSTOMER-SIGNED-BANK','Signed bank customer','USD','2026-07-15','2026-08-15',25,25,'OPEN','fixture')`,[invoiceId,ids.tenantId,ids.entityId]);
+  const receiptMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-receipt-maker',['AR.RECEIPT.CREATE','GL.JE.SUBMIT'])});
+  const receiptJeReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-receipt-je-reviewer',['GL.JE.REVIEW'])});
+  const receiptJeApprover=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-receipt-je-approver',['GL.JE.APPROVE'])});
+  const receiptJePoster=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-receipt-je-poster',['GL.JE.POST'])});
+  const receipt=await receiptMaker.createArReceipt({...ids,periodId:augustPeriodId,businessDocumentId:invoiceId,receiptNumber:'RCPT-SIGNED-BANK-25',receiptDate:'2026-08-01',cashAccountCode:'111000',bankMemberRef:'BANK-1',amount:25,reason:'Exact signed bank receipt candidate within the allowed match window',idempotencyKey:'wbs-statement-receipt-create-001'});
+  await attachAutoSource({...ids,journalId:receipt.journal_entry_id},{reuseApprovedSnapshots:true});
+  await receiptMaker.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'wbs-statement-receipt-submit-001'});
+  await receiptJeReviewer.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'wbs-statement-receipt-review-001'});
+  await receiptJeApprover.transitionJournal({...ids,journalEntryId:receipt.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'wbs-statement-receipt-approve-001'});
+  await receiptJePoster.postJournal({...ids,journalEntryId:receipt.journal_entry_id,periodId:augustPeriodId,expectedRevision:3,idempotencyKey:'wbs-statement-receipt-post-001'});
+  const statementMatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-match-maker',['BANK.MATCH.CREATE'])});
+  const statementUnmatcher=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-match-controller',['BANK.MATCH.UNMATCH'])});
+  const candidates=await statementMatcher.listBankMatchCandidates({...ids,bankSourceId:admittedSource.bank_source_id});
+  assert.equal(candidates.length,1);assert.equal(candidates[0].payment_occurrence_id,receipt.payment_occurrence_id);assert.equal(candidates[0].journal_entry_id,receipt.journal_entry_id);
+  const statementMatch=await statementMatcher.createBankPaymentMatch({...ids,bankSourceId:admittedSource.bank_source_id,paymentOccurrenceId:receipt.payment_occurrence_id,expectedBankVersion:0,expectedOccurrenceVersion:1,reason:'Exact provider-signed bank source matched to posted AR receipt',idempotencyKey:'wbs-statement-bank-match-001'});
+  assert.equal(statementMatch.status,'ACTIVE');assert.equal(statementMatch.idempotent,false);
+  const matchEvidence=(await adminPool.query('SELECT payment_occurrence_id,journal_entry_id,journal_line_id,ledger_line_id,status,matched_by FROM bank_match WHERE bank_match_id=$1',[statementMatch.bank_match_id])).rows[0];
+  assert.equal(matchEvidence.payment_occurrence_id,receipt.payment_occurrence_id);assert.equal(matchEvidence.journal_entry_id,receipt.journal_entry_id);assert.ok(matchEvidence.journal_line_id);assert.ok(matchEvidence.ledger_line_id);assert.equal(matchEvidence.status,'ACTIVE');assert.equal(matchEvidence.matched_by,'wbs-statement-match-maker');
+  const unmatched=await statementUnmatcher.unmatchBankPayment({...ids,bankSourceId:admittedSource.bank_source_id,bankMatchId:statementMatch.bank_match_id,expectedMatchVersion:0,reason:'Independent controller returns the exact signed source to adjustment review',idempotencyKey:'wbs-statement-bank-unmatch-001'});
+  assert.equal(unmatched.status,'UNMATCHED');assert.equal(unmatched.revision,1);
   const crossReceiptAdmission=makeAdmission({statement_id:'STMT-2026-07-OTHER',opening_balance:'0.0000',ending_balance:'25.0000',payload_hash:hash('statement-2026-07-other'),payload_ref:'object://wbs-bank-statements/STMT-2026-07-OTHER'},{external_bank_line_id:'EXT-2',transaction_date:'2026-07-16',amount:'25.0000'},receipts[1]);
   const crossReceipt=await importer.admitWbsSignedBankStatement({tenantId:ids.tenantId,entityId:ids.entityId,admission:crossReceiptAdmission,idempotencyKey:'signed-bank-admission-0003'});
   const unrelatedBankSourceId=(await adminPool.query('SELECT bank_source_id FROM wbs_bank_statement_transaction WHERE tenant_id=$1 AND entity_id=$2 AND wbs_bank_statement_receipt_id=$3',[ids.tenantId,ids.entityId,crossReceipt.statement_receipt_id])).rows[0].bank_source_id;
@@ -645,7 +675,7 @@ pgTest('signed admitted WBS bank statement atomically creates exact bank sources
   await assert.rejects(adminPool.query('INSERT INTO reconciliation_item(tenant_id,entity_id,reconciliation_id,bank_source_id,state,cleared_by,reason) VALUES($1,$2,$3,$4,\'CLEARED\',\'fixture\',\'Unrelated row must not enter receipt worksheet\')',[ids.tenantId,ids.entityId,started.reconciliation_id,unrelatedBankSourceId]),error=>error.code==='23514');
   await assert.rejects(adminPool.query('UPDATE reconciliation SET wbs_bank_statement_receipt_id=NULL WHERE reconciliation_id=$1',[started.reconciliation_id]),error=>error.code==='55000');
   const actionCounts=(await adminPool.query("SELECT (SELECT count(*)::int FROM bank_match WHERE tenant_id=$1) matches,(SELECT count(*)::int FROM reconciliation_item WHERE tenant_id=$1) items,(SELECT count(*)::int FROM reconciliation WHERE tenant_id=$1 AND status<>'DRAFT') progressed",[ids.tenantId])).rows[0];
-  assert.deepEqual(actionCounts,{matches:0,items:0,progressed:0});
+  assert.deepEqual(actionCounts,{matches:1,items:0,progressed:0});
 
   const attachmentId=(await adminPool.query("SELECT attachment_id FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3 AND attachment_id IS NOT NULL",[ids.tenantId,ids.entityId,ids.journalId])).rows[0].attachment_id;
   const rejectedMakerSession=await trustedSession(ids,'wbs-statement-cross-receipt-maker',['BANK.RECONCILIATION.ADJUSTMENT_DRAFT','GL.JE.CREATE']);
@@ -660,7 +690,7 @@ pgTest('signed admitted WBS bank statement atomically creates exact bank sources
     return row;
   };
   const beforeRejectedAdjustment=await adjustmentWriteCounts();
-  await assert.rejects(rejectedMaker.createReconciliationAdjustmentDraft(adjustmentArgs(unrelatedBankSourceId,'JE-WBS-CROSS-RECEIPT','wbs-statement-cross-receipt-adjustment-001')),error=>error.code==='23514'&&/admitted WBS statement receipt/i.test(error.message));
+  await assert.rejects(rejectedMaker.createReconciliationAdjustmentDraft(adjustmentArgs(unrelatedBankSourceId,'JE-WBS-CROSS-RECEIPT','wbs-statement-cross-receipt-adjustment-001')),error=>error.code==='23514'&&/(admitted WBS statement receipt|tied reconciliation)/i.test(error.message));
   assert.deepEqual(await adjustmentWriteCounts(),beforeRejectedAdjustment);
 
   const adjustment=await maker.createReconciliationAdjustmentDraft(adjustmentArgs(admittedSource.bank_source_id,'JE-WBS-RECEIPT-ADJUSTMENT','wbs-statement-receipt-adjustment-001'));
@@ -691,9 +721,6 @@ pgTest('signed admitted WBS bank statement atomically creates exact bank sources
   assert.equal(cleared.revision,2);assert.equal(Number(cleared.difference),0);
   const rotatedStarterReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-recon-starter',['BANK.RECONCILIATION.REVIEW'])});
   await assert.rejects(rotatedStarterReviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:2,reason:'A rotated starter identity must remain separated from review',idempotencyKey:'wbs-statement-starter-review-sod-001'}),error=>error.code==='42501'&&/independent from prior maker/i.test(error.message));
-  const statementMatchId=randomUUID();
-  await adminPool.query(`INSERT INTO bank_match(bank_match_id,tenant_id,entity_id,bank_source_id,business_source_document_id,candidate_rule_code,amount_delta,currency_match,date_delta_days,status,matched_by)
-    VALUES($1,$2,$3,$4,$5,'EXACT_POSTED_PAYMENT',0,true,0,'ACTIVE','wbs-statement-match-maker')`,[statementMatchId,ids.tenantId,ids.entityId,admittedSource.bank_source_id,admittedSource.source_document_id]);
   const reviewed=await reviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:2,reason:'Review exact receipt evidence despite unrelated same-date row',idempotencyKey:'wbs-statement-adjustment-review-001'});
   assert.equal(reviewed.status,'IN_REVIEW');
   const rotatedClearerSigner=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-adjustment-clearer',['BANK.RECONCILIATION.SIGN_OFF'])});
@@ -706,6 +733,8 @@ pgTest('signed admitted WBS bank statement atomically creates exact bank sources
   const independentReopener=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-independent-reopener',['BANK.RECONCILIATION.REOPEN'])});
   const reopened=await independentReopener.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REOPEN',expectedVersion:4,reason:'Independent controller reopens the latest signed statement',idempotencyKey:'wbs-statement-independent-reopen-001'});
   assert.equal(reopened.status,'REOPENED');
+  const retainedMatch=(await adminPool.query('SELECT status,version::int AS revision,matched_by,unmatched_by,bank_source_id,payment_occurrence_id,journal_entry_id,ledger_line_id FROM bank_match WHERE bank_match_id=$1',[statementMatch.bank_match_id])).rows[0];
+  assert.deepEqual({status:retainedMatch.status,revision:retainedMatch.revision,matchedBy:retainedMatch.matched_by,unmatchedBy:retainedMatch.unmatched_by,bankSource:retainedMatch.bank_source_id,payment:retainedMatch.payment_occurrence_id,journal:retainedMatch.journal_entry_id,hasLedger:Boolean(retainedMatch.ledger_line_id)},{status:'UNMATCHED',revision:1,matchedBy:'wbs-statement-match-maker',unmatchedBy:'wbs-statement-match-controller',bankSource:admittedSource.bank_source_id,payment:receipt.payment_occurrence_id,journal:receipt.journal_entry_id,hasLedger:true});
   await assert.rejects(
     adminPool.query("UPDATE reconciliation SET status='IN_REVIEW',reviewed_by='maintenance',reviewed_at=clock_timestamp(),review_reason='Maintenance cannot bypass a signed receipt actor boundary' WHERE tenant_id=$1 AND entity_id=$2 AND reconciliation_id=$3",[ids.tenantId,ids.entityId,started.reconciliation_id]),
     error=>error.code==='42501'&&/Authenticated actor missing/i.test(error.message)
