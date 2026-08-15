@@ -37,6 +37,8 @@ jobs:
         run: npm run test:ssr
       - name: AP and AR workflow gate
         run: npm run test:ap-ar
+      - name: Authoritative Payables responsive gate
+        run: npm run test:payables-responsive
       - name: Authoritative API client gate
         run: npm run test:api-client
       - name: Current actor access UI gate
