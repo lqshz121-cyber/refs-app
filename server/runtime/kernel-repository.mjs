@@ -368,6 +368,32 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async listInsurancePrepaidAmortization({tenantId,entityId,periodId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT refs_read_insurance_prepaid_amortization($1,$2,$3,$4) AS evidence',[tenantId,entityId,periodId,limit]
+    )).rows.map(row=>row.evidence));
+  }
+
+  async reviewInsurancePrepaidAmortization(args){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_review_insurance_prepaid_amortization_http($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) AS result',
+      [args.tenantId,args.entityId,args.admissionId,args.scheduleId,args.scheduleLineId,args.periodId,args.settingSnapshotId,args.mappingSnapshotId,args.capitalizationJournalEntryId,args.capitalizationLedgerLineId,args.expectedSourceVersion,args.expectedSourceHash,args.expectedProposalHash,args.expectedCoverageHash,args.reason,args.idempotencyKey]
+    ),'INSURANCE_AMORTIZATION_REVIEW_FAILED','Insurance prepaid amortization review did not return a result').result);
+  }
+
+  async createInsurancePrepaidAmortizationDraft(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_insurance_prepaid_amortization_draft_hash($1,$2,$3,$4,$5) AS request_hash',
+        [args.tenantId,args.entityId,args.reviewEvidenceId,args.expectedEvidenceHash,args.reason]
+      ),'INSURANCE_AMORTIZATION_DRAFT_HASH_FAILED','Insurance prepaid amortization Draft hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_insurance_prepaid_amortization_draft($1,$2,$3,$4,$5,$6,$7) AS result',
+        [args.tenantId,args.entityId,args.reviewEvidenceId,args.expectedEvidenceHash,args.reason,args.idempotencyKey,requestHash]
+      ),'INSURANCE_AMORTIZATION_DRAFT_FAILED','Insurance prepaid amortization Draft did not return a result').result;
+    });
+  }
+
   async reviewWbsPayable({tenantId,entityId,wbsInboundRowId,periodId,expectedRevision,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,settingSnapshotId,mappingSnapshotId,attachmentIds,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

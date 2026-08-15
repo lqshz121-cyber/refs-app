@@ -150,4 +150,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"143_wbs_property_rent_pickup.sql",up:"c3376d891622706d2e1e8329ec0b76c2991479bbfdf83803827222db6df0c603",down:"c44cbf48ccb9ffb4809f9b990be2f27930fb92736ac8b88f37ae0a7037d7dfd1"}),
   Object.freeze({name:"144_wbs_property_rent_pickup_read.sql",up:"858148d131c832234bcaeb3a22a9413c64111692ed9a47e3c636b9312a40bb2e",down:"03161858e167d00743afd424540df41c34a4cb73a033c315d56916637912ee22"}),
   Object.freeze({name:"145_insurance_prepaid_amortization_read.sql",up:"5d247caa3ba65433f5fa2eb35693b10b3095bcd5b71817fc1a9d4cf6e77a111f",down:"32e01ca3e8081a89fdb8d87f2edff800ace3d0ddc0a5ed99086f20e85323fa19"}),
+  Object.freeze({name:"146_insurance_prepaid_amortization_http_cas.sql",up:"e4970dbfdc15a9c399108d7140229dbfe1c10920505b045534d7653f97db11fe",down:"b3def2b6300e4d15a745fb7def506d4ab9f868d881b7e39aeff40e52df5ae809"}),
 ]);
