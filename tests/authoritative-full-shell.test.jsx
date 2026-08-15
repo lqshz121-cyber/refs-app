@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { AUTHORITATIVE_API_ROUTES, AUTHORITATIVE_NAVIGATION, AUTHORITATIVE_ROUTES } from '../src/authoritative-navigation.js';
 import { AuthoritativeNavigationShell } from '../src/authoritative-navigation-shell.jsx';
 import { AuthoritativeTopbar } from '../src/authoritative-topbar.jsx';
+import { AuthoritativeAccessStatus } from '../src/authoritative-access-status.jsx';
 import { AuthoritativeWorkspaceView, AuthoritativeWorkspaceHeader } from '../src/authoritative-workbench-view.jsx';
 import { AuthoritativeUnavailableWorkspace } from '../src/authoritative-unavailable-workspace.jsx';
 import { watchRetainedRoute } from '../src/authoritative-app.jsx';
@@ -49,6 +50,18 @@ assert.doesNotMatch(topbarMarkup, /Search or jump|Help is unavailable|Notificati
 assert.match(topbarMarkup, /Period/);
 assert.match(topbarMarkup, /Authoritative/);
 assert.match(topbarMarkup, /Authenticated/);
+const accessRow={tenant_id:'55555555-5555-4555-8555-555555555555',entity_id:'11111111-1111-4111-8111-111111111111',actor_id:'auth0|current-user',grant_set_version:7,permissions:['AP.VIEW','WBS.PAYABLE.REVIEW'],configured_permissions:['AP.VIEW','GL.REPORT.VIEW','WBS.PAYABLE.REVIEW'],session_refresh_required:true};
+const accessMarkup=renderToStaticMarkup(<AuthoritativeAccessStatus state={{status:'READY',row:accessRow}}/>);
+assert.match(accessMarkup,/Access<\/b> Changed - sign in again/);
+assert.match(accessMarkup,/AP\.VIEW, WBS\.PAYABLE\.REVIEW/);
+assert.match(accessMarkup,/GL\.REPORT\.VIEW/);
+assert.match(accessMarkup,/Grant revision/);
+assert.match(accessMarkup,/Technical scope/);
+const accessErrorMarkup=renderToStaticMarkup(<AuthoritativeAccessStatus state={{status:'ERROR',code:'AUTHORIZATION_DENIED',message:'Denied'}}/>);
+assert.match(accessErrorMarkup,/diagnostic read failure, not an empty permission set/);
+const accessEmptyMarkup=renderToStaticMarkup(<AuthoritativeAccessStatus state={{status:'READY',row:{...accessRow,permissions:[],configured_permissions:[],session_refresh_required:false}}}/>);
+assert.match(accessEmptyMarkup,/Session permissions current/);assert.match(accessEmptyMarkup,/None in this session/);assert.match(accessEmptyMarkup,/None configured/);
+assert.match(renderToStaticMarkup(<AuthoritativeAccessStatus state={{status:'LOADING'}}/>),/Checking current session/);
 assert.doesNotMatch(fs.readFileSync('src/authoritative-topbar.jsx', 'utf8'), /seed\.js|repo\.js|localStorage|legacy-demo-app|disabled/,
   'the authoritative shell must accept API/OIDC slots only and expose no inert actions');
 const workspaceViewMarkup = renderToStaticMarkup(<AuthoritativeWorkspaceView area="Reports"><AuthoritativeWorkspaceHeader eyebrow="AUTHORITATIVE | REPORTING" title="Reports center" description="API-backed report facts only."/><div>API-owned report content</div></AuthoritativeWorkspaceView>);
@@ -69,6 +82,9 @@ assert.match(unavailableMarkup, /What needs to be in place/);
 assert.match(unavailableMarkup, /attachment-read contract/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
+assert.match(appSource,/refreshCurrentActorAccess\(\{config,fetcher:boundFetcher\}\)/,'READY shell must read the current authenticated actor through the self-only API');
+assert.match(appSource,/AuthoritativeAccessStatus state=\{accessState\}/,'the entity and period scope bar must expose the current session access diagnostic');
+assert.doesNotMatch(fs.readFileSync('src/authoritative-access-status.jsx','utf8'),/activateAuthoritative|reconcileActorGrant|revokeActor|localStorage|sessionStorage|fetch\(/,'the access status is presentation-only and cannot grant, revoke, persist, or fetch authority');
 const firstConditionalRender=appSource.indexOf("if (!configured) return");
 for(const scopeHook of [
   'useEffect(()=>{let current=true;if(phase!==\'READY\')',

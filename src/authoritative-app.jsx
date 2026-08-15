@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { accountingApiConfig, activateAuthoritativeReadAccess, refreshAuthoritativeChartOfAccounts, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, refreshAuthoritativeScope } from './accounting-api.js';
+import { accountingApiConfig, activateAuthoritativeReadAccess, refreshAuthoritativeChartOfAccounts, refreshAuthoritativeDocuments, refreshAuthoritativeJournalEntries, refreshAuthoritativeScope, refreshCurrentActorAccess } from './accounting-api.js';
 import { AuthoritativeSourceDocumentsWorkspace } from './authoritative-source-documents-workspace.jsx';
 import { BrowserOidcClient, RENEWAL_MIN_INTERVAL_MS, oidcRuntimeConfig, silentRenewalSchedule } from './oidc-client.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
@@ -34,6 +34,7 @@ import { AuthoritativeNavigationShell } from './authoritative-navigation-shell.j
 import { AuthoritativeTopbar } from './authoritative-topbar.jsx';
 import { AuthoritativeUnavailableWorkspace } from './authoritative-unavailable-workspace.jsx';
 import {authoritativeScopePresentation} from './authoritative-scope-presentation.js';
+import {AuthoritativeAccessStatus} from './authoritative-access-status.jsx';
 
 export const authoritativeRuntimeConfigured = (environment = globalThis) =>
   Boolean(accountingApiConfig(environment) && oidcRuntimeConfig(environment));
@@ -147,6 +148,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [sharedAccountingLoaded, setSharedAccountingLoaded] = useState(false);
   const [scopeRows,setScopeRows]=useState([]);
   const [scopeMetadata,setScopeMetadata]=useState(null);
+  const [accessState,setAccessState]=useState({status:'LOADING'});
   // A direct selection of Reports is an explicit catalog entry, not a
   // continuation of the last report drill. React preserves a mounted route
   // when a user selects its already-active navigation item, so keep a small
@@ -405,6 +407,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const logout = () => { oidcClient?.logout(); setData({ ap:{ bills:[], adjustments:[] }, ar:{ invoices:[], adjustments:[] }, journals:[] }); setDocumentDetail(null); setAdjustmentDetail(null); setListViews({AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},AR:{...DEFAULT_AUTHORITATIVE_LIST_VIEW}}); setError(null); setRenewalFailure(null); setSessionExpired(false); setPhase('LOGIN_REQUIRED'); };
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeChartOfAccounts({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeRows(result.ok?result.rows:[]);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};refreshAuthoritativeScope({config,fetcher:boundFetcher}).then(result=>{if(current)setScopeMetadata(result.ok?result.row:null);});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
+  useEffect(()=>{let current=true;if(phase!=='READY')return()=>{current=false;};setAccessState({status:'LOADING'});refreshCurrentActorAccess({config,fetcher:boundFetcher}).then(result=>{if(current)setAccessState(result.ok?{status:'READY',row:result.row}:{status:'ERROR',code:result.code,message:result.message});});return()=>{current=false;};},[phase,config,boundFetcher,workspaceRefreshVersion]);
   const scopePresentation=useMemo(()=>authoritativeScopePresentation(config,scopeRows,scopeMetadata),[config,scopeRows,scopeMetadata]);
   const displayConfig=useMemo(()=>({...config,scopePresentation}),[config,scopePresentation]);
   if (!configured) return <RuntimeErrorPage code="CONFIGURATION_REQUIRED"/>;
@@ -473,6 +476,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
           <span title={`${scopePresentation.entityHint ? `${scopePresentation.entityHint} ` : ''}Entity ID: ${scopePresentation.entityDetail}`}><b>Entity</b> {scopePresentation.entityLabel}{scopePresentation.entityHint&&<small className="muted sm"> — display name not returned by API</small>}</span>
           <span title={`${scopePresentation.periodHint ? `${scopePresentation.periodHint} ` : ''}${scopePresentation.periodDetail}`}><b>Period</b> {scopePresentation.periodLabel}{scopePresentation.periodHint&&<small className="muted sm"> — period details not returned by API</small>}</span>
           {config.cashAccountCode&&<span><b>Cash account</b> {scopePresentation.cashAccountLabel}</span>}
+          <AuthoritativeAccessStatus state={accessState}/>
           {(documentDetail?.returnContext||adjustmentDetail?.returnContext)&&<span><b>Return context</b> Query {(documentDetail?.returnContext||adjustmentDetail?.returnContext).view.query||'All'} | Page {(documentDetail?.returnContext||adjustmentDetail?.returnContext).view.page}</span>}
         </section>
         {(sessionExpired || renewalFailure) && <RuntimeErrorPanel
