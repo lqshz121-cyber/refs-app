@@ -14,7 +14,8 @@ export const FIXTURES=Object.freeze([
   Object.freeze({id:'ai-exception-lineage',pattern:'operator exception row links append-only to the later exact signed Payable source without becoming Review authority'}),
   Object.freeze({id:'ai-duplicate-payable-audit-read',pattern:'AI exact duplicate payable finding retains paired source evidence without changing either source or creating a journal'}),
   Object.freeze({id:'ai-insurance-amortization-close',pattern:'AI insurance proposal requires a different controller to accept one exact standard Draft before the normal four-role post and report trace'}),
-  Object.freeze({id:'real-estate-reports',pattern:'cash flow statement classifies|CWIP rollforward admits|construction-loan rollforward admits|prepaid rollforward admits|intercompany reconciliation requires|budget versus actual reads|consolidation reads only'})
+  Object.freeze({id:'real-estate-reports',pattern:'cash flow statement classifies|CWIP rollforward admits|construction-loan rollforward admits|prepaid rollforward admits|intercompany reconciliation requires|budget versus actual reads|consolidation reads only'}),
+  Object.freeze({id:'real-estate-profitability',pattern:'dimension profitability reads only exact POSTED ledger dimensions and never fills a missing property, project, unit, or lot'})
 ]);
 
 export function selectFixtures(args=[]){
