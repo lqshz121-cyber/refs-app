@@ -8,6 +8,7 @@ export const FIXTURES=Object.freeze([
   Object.freeze({id:'controlled-ap-close',pattern:'controlled DEMO tenant runs one AP Bill through HTTP Draft, four-role Post, GL, TB and AP aging without affecting another tenant'}),
   Object.freeze({id:'ar-rent-pickup-close',pattern:'isolated property rent pickup carries invoice and bank receipt evidence through AR, JE, GL, trial balance, and reports'}),
   Object.freeze({id:'signed-wbs-payable-post',pattern:'provider-signed Payable admission atomically reaches Review Draft four-role Post and same-JE reports'}),
+  Object.freeze({id:'signed-wbs-cost-cwip-post',pattern:'signed Cost-to-CWIP admission reaches controlled Draft, four-role Post, GL, and Trial Balance'}),
   Object.freeze({id:'bank-reconcile-close',pattern:'Stage 2 test-data chain traces one reconciled bank payment through its posted JE, GL, TB and report rows'}),
   Object.freeze({id:'ai-exception-lineage',pattern:'operator exception row links append-only to the later exact signed Payable source without becoming Review authority'}),
   Object.freeze({id:'real-estate-reports',pattern:'cash flow statement classifies|CWIP rollforward admits|construction-loan rollforward admits|prepaid rollforward admits|intercompany reconciliation requires|budget versus actual reads|consolidation reads only'})
