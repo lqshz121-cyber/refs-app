@@ -386,6 +386,18 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async listAiFindingAssignmentCandidates({tenantId,entityId,limit=100}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_finding_assignment_candidates($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async listAiFindingActions({tenantId,entityId,limit=100}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_finding_actions($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
   async readAiAccountingAnalysisSummary({tenantId,entityId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_accounting_analysis_summary($1,$2)',[tenantId,entityId]
