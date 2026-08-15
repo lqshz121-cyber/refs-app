@@ -107,8 +107,8 @@ assert.match(styles,/\.authoritative-app \.authoritative-sidebar\{flex-direction
   'the authoritative shell must use the readable rail-and-panel layout');
 assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-rail \.nav-group-h/,
   'the production workflow rail must keep compact, stable group controls');
-assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:nowrap/,
-  'the production page panel must keep the demo shell’s stable single-line rows');
+assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:normal; overflow:visible; text-overflow:clip;/,
+  'the production page panel must show every workspace name instead of truncating it');
 assert.match(styles,/\.authoritative-app \.sidebar\{position:sticky; top:0; left:auto; transform:none; width:var\(--nav-w\); flex:0 0 var\(--nav-w\); box-shadow:none;\}/,
   'the QBO-like rail and panel must remain anchored through wider tablet layouts');
 assert.match(styles,/@media\(min-width:901px\)\{\s*\.authoritative-app \.sidebar\{position:sticky/,
@@ -129,9 +129,9 @@ assert.doesNotMatch(authoritativeShell,/authoritative-new-disabled|\+ New/,
   'the authoritative shell must not render an inert New control when no authorised API action exists');
 assert.match(authoritativeShell,/from '\.\/ui\.jsx'/,
   'the presentation shell must reuse the local, self-authored rail icon vocabulary');
-assert.match(authoritativeShell,/ITEM_ICONS/,
-  'each visible catalog entry must use a self-authored icon rather than an abbreviation badge');
-assert.match(authoritativeShell,/<Icon name=\{ITEM_ICONS\[itemIndex % ITEM_ICONS\.length\]\} size=\{18\}\/>/,
+assert.match(authoritativeShell,/ITEM_ICON_BY_ROUTE/,
+  'each visible catalog entry must use a route-specific, self-authored icon rather than an abbreviation badge');
+assert.match(authoritativeShell,/<Icon name=\{ITEM_ICON_BY_ROUTE\[item\.route\] \|\| 'document'\} size=\{18\}\/>/,
   'the readable navigation row must render its icon at a compact, consistent size');
 assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|API_READ|Unavailable/,
   'navigation rows must not expose implementation statuses or letter abbreviations to finance readers');

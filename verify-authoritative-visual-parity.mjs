@@ -21,7 +21,7 @@ const matches = (source, pattern, message) => assert.match(source, pattern, mess
 // Desktop contract — 1440px and above.  The authority runtime must keep the
 // same measured shell geometry as the complete demonstration rather than
 // collapsing into a bespoke admin rail.
-for (const token of ['--qb-rail-w:74px;', '--qb-navpanel-w:236px;', '--nav-w:calc(var(--qb-rail-w) + var(--qb-navpanel-w));']) {
+for (const token of ['--qb-rail-w:74px;', '--qb-navpanel-w:270px;', '--nav-w:calc(var(--qb-rail-w) + var(--qb-navpanel-w));']) {
   contains(css, token, `desktop shell token missing: ${token}`);
 }
 matches(css, /\.sidebar\{[\s\S]*?width:var\(--nav-w\); flex:0 0 var\(--nav-w\);[\s\S]*?height:100vh;/,
@@ -32,6 +32,8 @@ matches(css, /\.nav-panel\{display:flex; flex-direction:column; flex:1 1 auto; m
   'desktop panel must be the demo shell’s flexible second column');
 matches(css, /\.topbar\{[\s\S]*?height:58px; padding:0 24px;/,
   'desktop topbar must retain the demo control rhythm');
+matches(css, /\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:normal; overflow:visible; text-overflow:clip;/,
+  'desktop panel must show complete workspace names instead of clipped abbreviations');
 matches(css, /\.main\{[\s\S]*?flex:1; min-width:0;[\s\S]*?margin:6px 6px 6px 0;/,
   'desktop canvas must remain shrinkable beside navigation');
 for (const token of ['className="nav-rail"', 'className="nav-panel"', 'className="topbar authoritative-topbar"', 'className="qbo-home-hero"', 'className="qbo-quicklinks"', 'className="qbo-grid"']) {
