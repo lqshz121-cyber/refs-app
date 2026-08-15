@@ -16,5 +16,7 @@ assert.match(styles,/@media\s*\(max-width:720px\)[\s\S]*?\.authoritative-list-fi
   'phone widths must collapse authoritative Payables filters to one safe column');
 assert.match(styles,/\.authoritative-document-workspace,\.authoritative-document-workspace>\*,\.authoritative-document-table,\.authoritative-adjustment-table\{min-width:0;max-width:100%;\}/,
   'the authoritative workspace must remain shrinkable while tables own their horizontal scrolling');
+assert.match(styles,/\.report-workbench\{margin:14px 0; padding:16px; min-width:0; max-width:100%;\}/,
+  'nested retained-evidence workbenches must not preserve an intrinsic width that overflows a 360px page');
 
 console.log('payables-responsive: authoritative Payables filters collapse before sidebar-reduced desktop and phone widths');

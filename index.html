@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>REFS · WanBridge Real Estate Financial System</title>
+<title>REFS 路 WanBridge Real Estate Financial System</title>
 <style>
 /* ===========================================================================
    REFS UI SYSTEM - single authoritative layer
@@ -183,7 +183,7 @@ body.dark{
    got the light build until the user found the moon glyph.
    The whole palette is still switched from one place - the `dark` class that
    src/theme-preference.js puts on <body> at boot from the OS setting, and that
-   the ☾ control overrules for good once the user has pressed it. This block
+   the 鈽?control overrules for good once the user has pressed it. This block
    exists only for the frame before the bundle runs, and it declares just the
    two values that frame can show, both read from the same tokens body.dark
    uses, so a pre-boot frame cannot drift from the booted app.
@@ -348,7 +348,7 @@ input,select,textarea{
    canvas before a narrow desktop can compress accounting evidence. */
 .authoritative-topbar .authoritative-shell-scope{display:flex; flex:1 1 340px; min-width:200px; max-width:420px;}
 .authoritative-topbar .authoritative-shell-select{display:flex; align-items:center; width:100%; min-width:0; height:var(--qb-control-h); padding:0 34px 0 12px; overflow:hidden; border:1px solid var(--qb-border); border-radius:var(--qb-r-control); background:var(--qb-surface); color:var(--qb-text-strong); font-size:13px; font-weight:500; text-overflow:ellipsis; white-space:nowrap; position:relative;}
-.authoritative-topbar .authoritative-shell-select::after{content:'⌄'; position:absolute; right:12px; color:var(--qb-text-muted); font-size:18px;}
+.authoritative-topbar .authoritative-shell-select::after{content:'鈱?; position:absolute; right:12px; color:var(--qb-text-muted); font-size:18px;}
 .authoritative-topbar .authoritative-top-actions{margin-left:auto;}
 @media (max-width:900px) and (min-width:769px){
   .authoritative-app .sidebar{position:fixed; top:0; left:0; z-index:32; transform:translateX(-100%); transition:transform var(--qb-dur-2) var(--qb-ease-out); box-shadow:var(--qb-shadow-strong);}
@@ -1864,7 +1864,7 @@ select{padding-right:28px; cursor:pointer;}
 .rep-tag .badge{max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .rep-card:hover{background:var(--qb-canvas); border-color:var(--qb-border);}
 .rep-card.rep-on{background:var(--qb-accent-tint); border:2px solid var(--qb-accent);}
-.report-workbench{margin:14px 0; padding:16px;}
+.report-workbench{margin:14px 0; padding:16px; min-width:0; max-width:100%;}
 .authoritative-cwip-table .tbl{min-width:900px; table-layout:fixed;}
 .authoritative-property-table .tbl{min-width:900px; table-layout:fixed;}
 .authoritative-cwip-table th:nth-child(n+2):nth-child(-n+5){width:12%;}
