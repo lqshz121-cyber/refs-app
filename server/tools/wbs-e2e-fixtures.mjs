@@ -157,7 +157,6 @@ export const PAYABLE_MAPPINGS = Object.freeze({
 export const BANK_ROWS = Object.freeze([
   Object.freeze({
     account_code: '111000',
-    bank_transaction_id: 'BANK-GUID-0001',
     cb_id: 'CB-0001',
     come_from: 'FAST',
     company_code: FIXTURE_COMPANY_KEY,
@@ -175,7 +174,6 @@ export const BANK_ROWS = Object.freeze([
   }),
   Object.freeze({
     account_code: '111000',
-    bank_transaction_id: 'BANK-GUID-0002',
     cb_id: 'CB-0002',
     come_from: 'FAST',
     company_code: FIXTURE_COMPANY_KEY,
@@ -193,7 +191,6 @@ export const BANK_ROWS = Object.freeze([
   }),
   Object.freeze({
     account_code: '111000',
-    bank_transaction_id: 'BANK-GUID-0003',
     cb_id: 'CB-0003',
     come_from: 'Const Loan',
     company_code: FIXTURE_COMPANY_KEY,

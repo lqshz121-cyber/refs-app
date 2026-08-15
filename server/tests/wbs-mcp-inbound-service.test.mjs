@@ -11,7 +11,7 @@ const payableDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-
 const detailDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/autorec/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-AUTOREC-DR-1',version:'1',biz_type:'WB',deposit_direction:'CREDIT',payment_direction:'DEBIT',business_date_field:'incurred_date'}];
 const values={
   list_payables:raw('list_payables',[{ap_guid:'11111111-1111-4111-8111-111111111111',ap_type:'AUTOC',company_code:'COMPANY-A',currency:'USD',amount:100,posting_date:'2026-08-09'}]),
-  list_bank_transactions:raw('list_bank_transactions',[{bank_transaction_id:'BANK-TX-1',cb_id:'BANK-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:100,lender:0,set_date:'2026-08-09',posting_date:'2026-08-09'}]),
+  list_bank_transactions:raw('list_bank_transactions',[{cb_id:'BANK-TX-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:100,lender:0,set_date:'2026-08-09',posting_date:'2026-08-09'}]),
   list_autorec_details:raw('list_autorec_details',[{pd_guid:'22222222-2222-4222-8222-222222222222',company_code:'COMPANY-A',currency:'USD',biz_type:'WB',deposit:0,payment:100,incurred_date:'2026-08-09',posting_date:'2026-08-09'}])
 };
 const args={list_payables:{company:'COMPANY-A'},list_bank_transactions:{company:'COMPANY-A'},list_autorec_details:{company:'COMPANY-A'}};
@@ -48,6 +48,16 @@ test('transaction snapshot safely combines all cursor pages only inside one immu
   const duplicatePage={...second,rows:[structuredClone(first.rows[0])],content_sha256:canonicalRequestHash(first.rows).slice(7)};
   const duplicate=createWbsMcpInboundService({client:{readView:async request=>request.toolName==='list_payables'?(request.args.cursor?duplicatePage:first):structuredClone(values[request.toolName])}});
   await assert.rejects(()=>duplicate.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1'}),error=>error.code==='WBS_MCP_PAGINATION_ROWS_INVALID');
+});
+
+test('Bank cursor pages reject a repeated cb_id before any receipt-gated snapshot is returned',async()=>{
+  const first={...values.list_bank_transactions,scope:{company:'COMPANY-A',snapshot_token:'bank-snapshot-1'},cursor_next:'bank-cursor-2'};
+  const second={...raw('list_bank_transactions',[{...first.rows[0]}]),scope:{company:'COMPANY-A',snapshot_token:'bank-snapshot-1'}};
+  const service=createWbsMcpInboundService({client:{readView:async request=>{
+    if(request.toolName==='list_bank_transactions')return structuredClone(request.args.cursor?second:first);
+    return structuredClone(values[request.toolName]);
+  }}});
+  await assert.rejects(()=>service.pullTransactionSnapshot({companyKey:'COMPANY-A',argsByTool:args,snapshotId:'33333333-3333-4333-8333-333333333333',dictionaryVersion:'WBS-MCP-V1',bankDirectionConventions:bankDirectionConventions({...first,cursor_next:null,record_count:2,rows:[...first.rows,...second.rows],content_sha256:canonicalRequestHash([...first.rows,...second.rows]).slice(7)}),payableDirectionConventions:payableDirectionConventions(values.list_payables),autoRecDetailDirectionConventions:detailDirectionConventions(values.list_autorec_details)}),error=>error.code==='WBS_MCP_PAGINATION_ROWS_INVALID');
 });
 
 test('control and trace views are read separately and cannot enter a transaction path',async()=>{

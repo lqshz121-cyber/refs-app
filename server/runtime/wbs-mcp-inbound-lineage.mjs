@@ -4,10 +4,11 @@ import {validateWbsReadEnvelope,WBS_READONLY_ROW_FIELDS,WBS_READONLY_OPTIONAL_TR
 // This module is deliberately an admission and lineage layer, not a WBS
 // business-operation adapter.  Its output can be persisted only by the
 // receipt-backed REFS ingress workflow and is never a Draft or posting command.
-const stableKey=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'bank_transaction_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
+const stableKey=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
 const sourceType=Object.freeze({list_payables:'PAYABLE',list_bank_transactions:'BANK_TRANSACTION',list_autorec_details:'AUTOREC_PAYMENT_DETAIL',list_autorec_banks:'AUTOREC_BANK_CONTROL',list_journal_entries:'WBS_JOURNAL_EVIDENCE',list_control_totals:'WBS_CONTROL_TOTAL',trace_by_key:'WBS_TRACE_RELATION'});
-// `cb_id` can be retained as the related accounting locator in a trace, but
-// only `bank_transaction_id` may identify a bank-side transaction producer.
+// The production Provider catalogue makes cb_id the immutable Bank producer
+// key.  It is mapped deterministically to REFS' internal bankTransactionId
+// only at snapshot construction, while the raw cb_id remains provenance.
 const traceKeyTypes=new Set(['ap_guid','bank_transaction_id','cb_id','pd_guid','pb_guid','id']);
 const text=value=>value==null?'':String(value).trim();
 const providerCode=value=>{const candidate=text(value);return candidate.length>0&&candidate.length<=128&&!/[\u0000-\u001f\u007f]/.test(candidate);};
@@ -60,7 +61,7 @@ const payableSourceDetailRelation=row=>{
   });
 };
 const bankTrace=row=>freeze(Object.fromEntries([
-  ['transaction_date',row.set_date],['posting_date',row.posting_date],['account_code',row.account_code],['account_name',row.account_name],['payee',row.payee],['payee_no',row.payee_no],['memo',row.description],['ref_no',row.ref_no],
+  ['source_cb_id',row.cb_id],['transaction_date',row.set_date],['posting_date',row.posting_date],['account_code',row.account_code],['account_name',row.account_name],['payee',row.payee],['payee_no',row.payee_no],['memo',row.description],['ref_no',row.ref_no],
   ['deposit',row.deposit],['payment',row.payment],['project_code',row.pj_code],['department',row.department],['cost_code',row.cost_code],['brief_description',row.brief_description],
   ['invoice_receipt_evidence',row.invoice_receipt_evidence],['user_ref',row.user_ref],['review_status',row.review],['reviewer_ref',row.reviewer],['comments_log_ref',row.comments_log_ref],
   ['come_from',row.come_from],['child_come_from',row.child_come_from],['statistical_business',row.statistical_business],['turn_flag',row.turn_flag]
@@ -230,7 +231,8 @@ export function mapWbsMcpEnvelopeToInbound({envelope,bankDirectionConventions=nu
       // is required accounting-date evidence; a transaction date cannot be
       // silently reused when the provider omitted it.
       const admission=!isoDate(row.posting_date)?freeze({admission:'EXCEPTION_REVIEW_REQUIRED',exception_code:'WBS_MCP_BANK_POSTING_DATE_REQUIRED',missing:freeze([...new Set([...baseAdmission.missing,'posting_date'])])}):baseAdmission;
-      rows.push(freeze({...bankCommon,...admission,exception_code:!directionRule?'WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED':admission.exception_code,amount:movement?.amount??null,direction:movement?.direction??null,currency,bank_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,bank_trace_ref:row.cb_id,raw_memo:row.description||null,autoc_relation:row.come_from||null,bank_trace:bankTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false}));
+      const cbId=text(row.cb_id);
+      rows.push(freeze({...bankCommon,...admission,bankTransactionId:cbId,source_cb_id:cbId,exception_code:!directionRule?'WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED':admission.exception_code,amount:movement?.amount??null,direction:movement?.direction??null,currency,bank_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,bank_trace_ref:cbId,raw_memo:row.description||null,autoc_relation:row.come_from||null,bank_trace:bankTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false}));
     } else if(tool==='list_autorec_details'){
       const directionRule=detailRules.get(text(row.biz_type)),movement=directionRule?signedMovement(row,'deposit','payment',directionRule.deposit_direction,directionRule.payment_direction):null;
       // WBS exposes both Incurred and Clear Date.  A receipt-bound business
@@ -313,7 +315,8 @@ function snapshotRow(accepted,row,bankRules,payableRules,detailRules){
   }
   if(accepted.tool_name==='list_bank_transactions'){
     const directionRule=bankRules?.get(text(row.account_code)),movement=directionRule?signedMovement(row,'lender','debtor',directionRule.lender_direction,directionRule.debtor_direction):null;
-    return freeze({...provenance,bankTransactionId:text(row.bank_transaction_id),bank_account_ref:row.account_code||null,currency:scopedCurrency(accepted,row),amount:movement?.amount??null,transaction_date:row.set_date||null,posting_date:row.posting_date||null,direction:movement?.direction??null,bank_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,description:row.description||null,come_from:row.come_from||null,external_trace:bankTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false});
+    const cbId=text(row.cb_id);
+    return freeze({...provenance,bankTransactionId:cbId,source_cb_id:cbId,bank_account_ref:row.account_code||null,currency:scopedCurrency(accepted,row),amount:movement?.amount??null,transaction_date:row.set_date||null,posting_date:row.posting_date||null,direction:movement?.direction??null,bank_direction_rule:directionRule?freeze({rule_id:directionRule.rule_id,version:directionRule.version,receipt_hash:directionRule.receipt.hash}):null,description:row.description||null,come_from:row.come_from||null,external_trace:bankTrace(row),can_use_trace_as_key:false,can_use_trace_as_posting_authority:false});
   }
   const directionRule=detailRules?.get(text(row.biz_type)),movement=directionRule?signedMovement(row,'deposit','payment',directionRule.deposit_direction,directionRule.payment_direction):null;
   // pd_pv_guid is observed as a relation navigation value, not a verified

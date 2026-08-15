@@ -36,8 +36,8 @@ Receipt  ->  Raw  ->  Normalized  ->  Staging / Exception  ->  Mapping Review
 
 ## 2. The eight sources
 
-Field counts below are asserted by the test suite. Total declared fields: **117**;
-mapped source fields: **117** (coverage ratio `1.0`). A declared field counts as
+Field counts below are asserted by the test suite. Total declared fields: **116**;
+mapped source fields: **116** (coverage ratio `1.0`). A declared field counts as
 mapped when it feeds a normalized alias, the stable key (`source_id`) or the
 `source_document_ref` trace.
 
@@ -45,7 +45,7 @@ mapped when it feeds a normalized alias, the stable key (`source_id`) or the
 |---|---|---|---|---|---|---|---|---|
 | 1 | `get_meta` | `wbs.meta` | `METADATA` | `RECEIPT` | 5 | `contract_version` + `generated_at` | — | REFS-declared* |
 | 2 | `list_payables` | `BGDATA.payable` | `TRANSACTION_PRODUCER` | `STANDARD_JE_REQUEST_SEAM` | 27 | `ap_guid` | `ap_guid` | frozen allowlist |
-| 3 | `list_bank_transactions` | `BGDATA.bank_transaction` | `TRANSACTION_PRODUCER` | `STANDARD_JE_REQUEST_SEAM` | 18 | `bank_transaction_id` | `sys_id` | frozen allowlist |
+| 3 | `list_bank_transactions` | `BGDATA.bank_transaction` | `TRANSACTION_PRODUCER` | `STANDARD_JE_REQUEST_SEAM` | 17 | `cb_id` | `sys_id` | frozen allowlist |
 | 4 | `list_autorec_details` | `BGDATA.autoc_detail` | `TRANSACTION_PRODUCER` | `AUTOREC_REVIEW` | 19 | `pd_guid` | `pd_pv_guid` | frozen allowlist |
 | 5 | `list_autorec_banks` | `BGDATA.autoc_bank` | `CASE_CONTROL` | `AUTOREC_REVIEW` | 13 | `pb_guid` | — | frozen allowlist |
 | 6 | `list_journal_entries` | `accounting.accounting_info` | `LEDGER_EVIDENCE` | `EVIDENCE_SEAM` | 19 | `id` | `sys_id` | frozen allowlist |
@@ -261,8 +261,8 @@ persisting it is a kernel command and is out of scope for this read-only mapper.
 | Metric | Value |
 |---|---|
 | Sources catalogued | 8 / 8 |
-| Declared, typed fields | 117 |
-| Fields mapped (normalized alias, stable key, or source-document ref) | 117 |
+| Declared, typed fields | 116 |
+| Fields mapped (normalized alias, stable key, or source-document ref) | 116 |
 | Coverage ratio | 1.0 |
 | Sources whose schema is asserted against the frozen row-field allowlist | 6 / 8 |
 | Sources whose schema is REFS-declared pending provider confirmation | 2 / 8 (`get_meta`, `trace_by_key`) |

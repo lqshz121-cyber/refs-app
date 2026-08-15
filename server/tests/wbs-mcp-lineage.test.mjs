@@ -73,7 +73,6 @@ const ROWS = Object.freeze({
   }),
   list_bank_transactions: Object.freeze({
     account_code: '111000',
-    bank_transaction_id: 'BANK-GUID-0001',
     cb_id: 'CB-0001',
     come_from: 'FAST',
     company_code: 'CO-A',
