@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {canonicalRequestBody,canonicalRequestHash} from './request-hash.mjs';
 import {WbsSignedDeliveryAdmissionError} from './wbs-signed-delivery-admission.mjs';
+import {requireVerifiedWbsProviderFinal1Evidence} from './wbs-provider-final1-delivery.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HASH=/^sha256:[0-9a-f]{64}$/;
@@ -53,6 +54,7 @@ function normalizedRow(row,{verified,expectedCurrency}){
 
 // Pure boundary transformation: no kernel, persistence, Draft, or workflow command.
 export function normalizeVerifiedWbsProviderFinal1Payables({verified,expectedCurrency}={}){
+  requireVerifiedWbsProviderFinal1Evidence(verified);
   const currency=requireExpectedCurrency(expectedCurrency),{view}=requireVerifiedFinal1(verified);
   if(verified.raw_contains_credentials===true||verified.currency_signed!==true||!Array.isArray(verified.admission_blockers)||verified.admission_blockers.length!==0)fail('WBS_FINAL1_NORMALIZATION_ADMISSION_BLOCKED','Final-1 evidence has unresolved provider-verification blockers.');
   const ids=new Set(),rows=[];
