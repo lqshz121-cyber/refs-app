@@ -343,6 +343,26 @@
         }
       }
     },
+    "/entities/{entityId}/wbs/inbound/cost-cwip/{wbsInboundRowId}/reviews": {
+      "post": {
+        "operationId":"reviewAdmittedWbsCostCwip",
+        "summary":"Review one signed Cost-to-CWIP record into controlled staging evidence",
+        "description":"Requires WBS.COST.CWIP.REVIEW and one exact signed production Cost record, approved setting and mapping, active accounts, and an open period. The reviewer must be independent of source admission and configuration. This creates immutable source and staging evidence only; it never creates a Draft, approval, posting batch, or ledger line.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"wbsInboundRowId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["periodId","expectedSourceVersion","expectedReceiptHash","expectedEvidenceHash","settingSnapshotId","mappingSnapshotId","reason"],"properties":{"periodId":{"$ref":"#/components/schemas/Uuid"},"expectedSourceVersion":{"type":"string","minLength":1},"expectedReceiptHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expectedEvidenceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"settingSnapshotId":{"$ref":"#/components/schemas/Uuid"},"mappingSnapshotId":{"$ref":"#/components/schemas/Uuid"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/inbound/cost-cwip/reviews/{reviewEvidenceId}/drafts": {
+      "post": {
+        "operationId":"createReviewedWbsCostCwipDraft",
+        "summary":"Create one source-linked AUTO Journal Draft from reviewed Cost-to-CWIP evidence",
+        "description":"Requires WBS.COST.CWIP.DRAFT and GL.JE.AUTO.CREATE. The maker must be different from the reviewer. Journal lines, source link, period, mapping and amounts are re-derived from immutable reviewed evidence. This creates only an unsubmitted balanced AUTO Draft; it never approves, posts, or writes a ledger line.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"reviewEvidenceId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedEvidenceHash","reason"],"properties":{"expectedEvidenceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/inbound/bank-statements": {
       "post": {
         "operationId": "admitSignedWbsBankStatement",

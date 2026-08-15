@@ -142,4 +142,6 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"134_lot_profitability_read.sql",up:"994dd8c081fad6a04fe21f17a3c5eca853f4e1bd305a55398b406c60c11fa1c5",down:"c875248bb604df4145dc17b328bbf49b0a4bbd20468d61d40141f08b4947b1cc"}),
   Object.freeze({name:"135_ai_wbs_payable_draft_proposal.sql",up:"5c9480a7a8a03853da2675fd68a204b21a6965a3d8971f983e28d630d704b239",down:"ed21fa7f39c34c7e914f9fa77135d90f0fc2207c024ada226857868543ded744"}),
   Object.freeze({name:"136_wbs_company_catalog_controller.sql",up:"f5f12bebecfd7cd9609e70bc71685c0e434f1f7e4851da9466c9f1f42d0a4b31",down:"1cff9c64deb030af1a54d69f374e900103e2c045d415977f8201b9d7e64644e1"}),
+  Object.freeze({name:"137_wbs_cost_cwip_source_module.sql",up:"1e88d9b88bc2eb061a5a4f7a10ec4a31397ffc6de6a526ce30fe85a5c5efe8cf",down:"a82f0f6ac56519b5a8738607aecea0bbd54a99e2544cba92e5e9c6f0b8adcdd4"}),
+  Object.freeze({name:"138_wbs_cost_cwip_draft_idempotency.sql",up:"9ec458833ef3b477ad98ab9603d88db79ce991aed3e77a0eed31bfd45d43913a",down:"5cac0e12c0797ff32e9201650d06fc563ad320a01a6a83abaa111c644a21b16b"}),
 ]);
