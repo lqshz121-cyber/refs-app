@@ -35,11 +35,15 @@ accounting readback pass should the static service's single
 `REFS_PUBLIC_ACCOUNTING_API_BASE_URL` be changed to this API origin. Do not
 split browser reads and commands across the Stage 1 and integrations APIs.
 
-The Blueprint uses Render `fromService` references for the existing PostgreSQL,
-OIDC, and CORS variables on `refs-accounting-api-staging`; it does not copy their
-values into source control or ask an operator to re-enter them. The cleanup
-worker similarly inherits its PostgreSQL and S3 variables from the integrations
-API. Initial Blueprint creation therefore prompts only for the genuinely new
+The Blueprint uses Render `fromService` references for the existing OIDC and
+CORS variables on `refs-accounting-api-staging`; it does not copy their values
+into source control. Render does not allow a Blueprint to re-reference the four
+database variables because the Stage 1 values are themselves managed references,
+so the integrations service declares those four variables with `sync: false`.
+Select the same approved database secret references in the Render dashboard; do
+not paste them into source control. The cleanup worker then inherits its
+PostgreSQL and S3 variables from the integrations API. Initial Blueprint creation
+therefore prompts for the four database references plus the genuinely new
 Provider trust/identity, attachment storage/scanner, and cleanup identities.
 If either referenced service name is absent from the same Render workspace, the
 Blueprint must fail to sync instead of accepting substituted values.
