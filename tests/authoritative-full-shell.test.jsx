@@ -48,8 +48,11 @@ assert.match(topbarMarkup, /WBHO WB Home LLC/);
 assert.doesNotMatch(topbarMarkup, /Search or jump|Help is unavailable|Notifications are unavailable|disabled=/,
   'the authoritative topbar must not render inert product controls');
 assert.match(topbarMarkup, /Period/);
-assert.match(topbarMarkup, /Authoritative/);
-assert.match(topbarMarkup, /Authenticated/);
+assert.match(topbarMarkup, /View only/);
+assert.match(topbarMarkup, /Secure workspace/);
+assert.match(topbarMarkup, /Signed in/);
+assert.doesNotMatch(topbarMarkup, /API read|Authoritative|Authenticated|OIDC/,
+  'finance-reader chrome must not expose transport or authentication implementation labels');
 const accessRow={tenant_id:'55555555-5555-4555-8555-555555555555',entity_id:'11111111-1111-4111-8111-111111111111',actor_id:'auth0|current-user',grant_set_version:7,permissions:['AP.VIEW','WBS.PAYABLE.REVIEW'],configured_permissions:['AP.VIEW','GL.REPORT.VIEW','WBS.PAYABLE.REVIEW'],session_refresh_required:true};
 const accessMarkup=renderToStaticMarkup(<AuthoritativeAccessStatus state={{status:'READY',row:accessRow}}/>);
 assert.match(accessMarkup,/Access<\/b> Changed - sign in again/);
@@ -81,6 +84,7 @@ assert.match(unavailableMarkup, /No financial activity is shown until setup is c
 assert.match(unavailableMarkup, /What happens next/);
 assert.doesNotMatch(unavailableMarkup, /localStorage|seed\.js|Create/);
 const appSource = fs.readFileSync('src/authoritative-app.jsx', 'utf8');
+const topbarSource = fs.readFileSync('src/authoritative-topbar.jsx', 'utf8');
 assert.match(appSource,/refreshCurrentActorAccess\(\{config,fetcher:boundFetcher\}\)/,'READY shell must read the current authenticated actor through the self-only API');
 assert.match(appSource,/AuthoritativeAccessStatus state=\{accessState\}/,'the entity and period scope bar must expose the current session access diagnostic');
 assert.doesNotMatch(fs.readFileSync('src/authoritative-access-status.jsx','utf8'),/activateAuthoritative|reconcileActorGrant|revokeActor|localStorage|sessionStorage|fetch\(/,'the access status is presentation-only and cannot grant, revoke, persist, or fetch authority');
@@ -151,8 +155,8 @@ assert.match(appSource, /authoritative-topbar/, 'the formal app must use the com
 assert.match(appSource, /AuthoritativeTopbar/, 'the production app must use the dedicated authoritative topbar');
 assert.match(appSource, /Authoritative entity \$\{config\.entityId\}/, 'the top bar must expose the configured API entity as scope, not a local selector');
 assert.match(appSource, /Authoritative period \$\{config\.periodId\}/, 'the top bar must expose the configured API period as scope');
-assert.match(appSource, /Refresh authoritative accounting evidence/, 'the top-bar refresh control must name its real GET-only outcome');
-assert.match(appSource, /Authenticated OIDC session/, 'the user chip must describe an authenticated session without fabricating a demo user');
+assert.match(topbarSource, /Refresh financial records/, 'the top-bar refresh control must name its real reader-facing outcome');
+assert.match(topbarSource, /Signed-in session/, 'the user chip must describe a signed-in session without fabricating a demo user');
 assert.match(appSource, /onClick=\{logout\}>Sign out/, 'the visual shell keeps the real OIDC sign-out command');
 const styles = fs.readFileSync('index.html', 'utf8');
 assert.match(styles, /\.authoritative-entity-chip\{/, 'the authoritative entity scope needs the complete-shell selector treatment');
