@@ -13,6 +13,7 @@ Run any command from `server` with `POSTGRES_IMAGE` set to
 | `npm run test:postgres:fixture:controlled-ap-close` | REFS-owned controlled-demo AP Bill Draft through four-role Post, GL, trial balance, AP aging, and tenant isolation. |
 | `npm run test:postgres:fixture:ar-rent-pickup-close` | Rent invoice and receipt through AR, journal, GL, trial balance, and reports. |
 | `npm run test:postgres:fixture:signed-wbs-payable-post` | Test-generated-key signed Payable through Review, Draft, four-role Post, and reports; it is not a Provider delivery. |
+| `npm run test:postgres:fixtures:closure -- --fixture signed-cost-cwip-post` | Test-key signed Cost evidence through immutable receipt, review, approved mapping, standard Draft, four-role Post, GL, trial balance, CWIP rollforward and report lineage; it is not a Provider delivery. |
 | `npm run test:postgres:fixture:bank-reconcile` | Existing test bank-source/payment-match reconciliation through posted journal, GL, trial balance, and report rows; it does not exercise Provider-signed Bank statement admission. |
 | `npm run test:postgres:fixture:ai-exception-lineage` | Append-only AI exception linked to later signed Payable evidence without review or posting authority. |
 | `npm run test:postgres:fixture:real-estate-reports` | Cash flow, CWIP, construction loan, prepaid, intercompany, budget variance, and consolidation report evidence. |
@@ -37,7 +38,7 @@ The complete run covers the individual scenarios below, in addition to the
 shorter command table above:
 
 - controlled AP close and AR rent pickup close;
-- signed WBS Payable and signed Bank-source flows through standard posting;
+- signed WBS Payable, Cost-to-CWIP and signed Bank-source flows through standard posting;
 - Bank match/unmatch separation, reconciliation governance, lifecycle,
   adjustment clearance and immutable sign-off;
 - append-only AI exception lineage and human-owned amortization Draft to
