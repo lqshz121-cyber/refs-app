@@ -596,3 +596,15 @@ test('authoritative scope read returns only persisted entity and exact period me
   response=await scopeApi({method:'GET',url:`${path}&unused=1`,body:null,headers:{}});assert.equal(response.status,400);assert.equal(response.body.code,'UNEXPECTED_QUERY_PARAMETER');
   response=await scopeApi({method:'GET',url:path,body:null,headers:{'If-Match':'"0"'}});assert.equal(response.status,400);assert.equal(response.body.code,'IF_MATCH_NOT_ALLOWED');
 });
+
+test('current actor access read is self-only bodyless no-store diagnostics',async()=>{
+  const access={tenant_id:tenantId,entity_id:entityId,actor_id:'auth0|current-user',grant_set_version:7,permissions:['AP.VIEW','WBS.PAYABLE.REVIEW'],configured_permissions:['AP.VIEW','WBS.PAYABLE.REVIEW'],session_refresh_required:false};
+  const reads=[];const accessApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'auth0|current-user'}),kernelFactory:async()=>({readCurrentActorAccess:async input=>{reads.push(input);return access;}})});
+  const path=`/api/v1/entities/${entityId}/access/self`;
+  let response=await accessApi({method:'GET',url:path,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body,{ok:true,data:access});assert.deepEqual(reads,[{tenantId,entityId}]);
+  response=await accessApi({method:'GET',url:`${path}?actorId=someone-else`,body:null,headers:{}});assert.equal(response.status,400);assert.equal(response.body.code,'UNEXPECTED_QUERY_PARAMETER');
+  response=await accessApi({method:'GET',url:path,body:null,headers:{'Idempotency-Key':'not-allowed'}});assert.equal(response.status,400);assert.equal(response.body.code,'IDEMPOTENCY_KEY_NOT_ALLOWED');
+  response=await accessApi({method:'GET',url:path,body:null,headers:{'If-Match':'\"0\"'}});assert.equal(response.status,400);assert.equal(response.body.code,'IF_MATCH_NOT_ALLOWED');
+  response=await accessApi({method:'GET',url:path,body:{actorId:'someone-else'},headers:{}});assert.equal(response.status,400);assert.equal(response.body.code,'IDENTITY_FIELD_FORBIDDEN');
+});
