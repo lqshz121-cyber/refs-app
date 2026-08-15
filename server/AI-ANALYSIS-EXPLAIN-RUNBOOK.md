@@ -16,9 +16,10 @@ approval, posting, or source-system write.
 
 ## Grant
 
-Use the isolated `refs_grant_sync` IAM workflow to reconcile the actor's
-complete active, entity-scoped grant set with exactly one added permission:
-`AI.ANALYSIS.EXPLAIN`.
+Use the isolated `refs_grant_sync` IAM workflow with the frozen
+`AI_CONTROLLER_REVIEWER` role. Its complete entity-scoped bundle preserves
+the six authoritative read permissions and adds only
+`AI.ANALYSIS.EXPLAIN` plus read-only `AI.AMORTIZATION.VIEW`.
 
 Do not write `runtime_actor_grant` directly. Preserve existing authorized
 read permissions, use the current grant-set version, a new idempotency key,
@@ -26,6 +27,7 @@ and the canonical request hash. Do not add any of the following merely to
 explain findings:
 
 - `AI.AMORTIZATION.PROPOSE`
+- `AP.BILL.CREATE`
 - `GL.JE.*`
 - review, approval, or posting permissions
 

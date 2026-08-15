@@ -12,6 +12,7 @@ const READ=Object.freeze(['AP.VIEW','AR.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPOR
 // reviewer, approver, and poster authority on one identity.
 export const AUTHORITATIVE_WORKFLOW_ROLES=Object.freeze({
   WBS_OPERATOR_ATTESTER:Object.freeze(['WBS.AUTOREC.VIEW','WBS.PAYABLE.OPERATOR_ATTEST']),
+  AI_CONTROLLER_REVIEWER:Object.freeze([...READ,'AI.ANALYSIS.EXPLAIN','AI.AMORTIZATION.VIEW']),
   WBS_PAYABLE_REVIEWER:Object.freeze([...READ,'WBS.PAYABLE.REVIEW']),
   WBS_PAYABLE_MAKER:Object.freeze([...READ,'AP.BILL.CREATE','GL.JE.SUBMIT']),
   JE_REVIEWER:Object.freeze([...READ,'GL.JE.REVIEW']),

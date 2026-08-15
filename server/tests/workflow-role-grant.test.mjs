@@ -14,6 +14,10 @@ test('workflow roles are complete mutually exclusive grant sets with no provider
   assert.deepEqual(AUTHORITATIVE_WORKFLOW_ROLES.WBS_OPERATOR_ATTESTER,['WBS.AUTOREC.VIEW','WBS.PAYABLE.OPERATOR_ATTEST']);
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.WBS_OPERATOR_ATTESTER.some(permission=>/^(AP\.|AR\.|BANK\.|GL\.)/.test(permission)),false);
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.WBS_OPERATOR_ATTESTER.some(permission=>/REVIEW|CREATE|SUBMIT|APPROVE|POST|IMPORT|ADMIT/.test(permission)),false);
+  assert.deepEqual(AUTHORITATIVE_WORKFLOW_ROLES.AI_CONTROLLER_REVIEWER,[
+    'AP.VIEW','AR.VIEW','BANK.VIEW','GL.JE.VIEW','GL.REPORT.VIEW','WBS.AUTOREC.VIEW','AI.ANALYSIS.EXPLAIN','AI.AMORTIZATION.VIEW',
+  ]);
+  assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.AI_CONTROLLER_REVIEWER.some(permission=>/PROPOSE|CREATE|SUBMIT|REVIEW|APPROVE|POST|IMPORT|ADMIT/.test(permission)),false);
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.WBS_PAYABLE_MAKER.includes('GL.JE.REVIEW'),false);
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.WBS_PAYABLE_REVIEWER.includes('AP.BILL.CREATE'),false);
   assert.equal(AUTHORITATIVE_WORKFLOW_ROLES.JE_REVIEWER.includes('GL.JE.APPROVE'),false);
@@ -43,6 +47,16 @@ test('authenticated role grant derives actor from verified token and sends only 
   const reconcile=calls.find(call=>call.sql.startsWith('SELECT refs_reconcile_actor_grants'));
   assert.equal(reconcile.args[1],'auth0|maker');
   assert.deepEqual(reconcile.args[3],config.permissions);
+});
+
+test('AI controller reviewer preserves authoritative reads without accounting or source-write authority',async()=>{
+  const config=authoritativeWorkflowRoleGrantConfig({...base,REFS_WORKFLOW_ROLE:'AI_CONTROLLER_REVIEWER'});
+  assert.deepEqual(config.permissions,AUTHORITATIVE_WORKFLOW_ROLES.AI_CONTROLLER_REVIEWER);
+  assert.equal(config.permissions.includes('AI.ANALYSIS.EXPLAIN'),true);
+  assert.equal(config.permissions.includes('AI.AMORTIZATION.VIEW'),true);
+  for(const denied of ['AI.AMORTIZATION.PROPOSE','AP.BILL.CREATE','GL.JE.SUBMIT','GL.JE.REVIEW','GL.JE.APPROVE','GL.JE.POST','WBS.SNAPSHOT.IMPORT','WBS.BANK.ADMIT']){
+    assert.equal(config.permissions.includes(denied),false);
+  }
 });
 
 test('role wrapper rejects altered permissions and tenant swaps before grant sync',async()=>{
