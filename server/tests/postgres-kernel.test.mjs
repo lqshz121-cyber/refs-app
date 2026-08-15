@@ -903,6 +903,25 @@ pgTest('independent AutoRec review and immutable accounting-event foundation der
     ['AUTOC','291001','100.0000','0.0000','VENDOR-1'],['AUTOC','111000','0.0000','100.0000','BANK-1'],
     ['PAYABLE_INCUR','610000','100.0000','0.0000',null],['PAYABLE_INCUR','291001','0.0000','100.0000','VENDOR-1']
   ]);
+  const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'g11-submitter',['GL.JE.SUBMIT'])});
+  const journalReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'g11-journal-reviewer',['GL.JE.REVIEW'])});
+  const journalApprover=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'g11-journal-approver',['GL.JE.APPROVE'])});
+  const g11Poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'g11-poster',['GL.JE.POST'])});
+  for(const [suffix,draft] of [['pi',payableDraft],['ac',autocDraft]]){
+    assert.equal((await submitter.transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:`g11-${suffix}-submit-001`})).status,'PENDING_REVIEW');
+    assert.equal((await journalReviewer.transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:`g11-${suffix}-review-001`})).status,'PENDING_APPROVAL');
+    assert.equal((await journalApprover.transitionJournal({...ids,journalEntryId:draft.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:`g11-${suffix}-approve-001`})).status,'APPROVED');
+    assert.equal((await g11Poster.postJournal({...ids,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:`g11-${suffix}-post-001`})).idempotent,false);
+  }
+  const finalizer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'g11-finalizer',['BANK.AUTOREC.G11.INCUR','WBS.AUTOREC.VIEW'])});
+  const incurArgs={tenantId:ids.tenantId,entityId:ids.entityId,reviewId:accepted.wbs_autorec_match_review_id,expectedEvidenceHash:accepted.evidence_hash,reason:'Independent finalizer verified both exact posted G11 journals and clearing net zero',idempotencyKey:'g11-incur-finalize-001'};
+  const incurred=await finalizer.finalizeWbsAutoRecG11Incur(incurArgs);
+  assert.deepEqual({linked:incurred.g11_linked,incurred:incurred.incurred,version:incurred.incur_execution_version},{linked:true,incurred:true,version:3});
+  const incurReplay=await finalizer.finalizeWbsAutoRecG11Incur(incurArgs);assert.equal(incurReplay.idempotent,true);assert.equal(incurReplay.wbs_autorec_g11_completion_id,incurred.wbs_autorec_g11_completion_id);
+  const evidence=await finalizer.getWbsAutoRecG11Evidence({tenantId:ids.tenantId,entityId:ids.entityId,reviewId:accepted.wbs_autorec_match_review_id});
+  assert.equal(evidence.g11_linked,true);assert.equal(evidence.incurred,true);assert.equal(evidence.lines.length,4);assert.equal(evidence.accounting_events.length,2);
+  assert.equal(evidence.incur_event.command,'INCUR');assert.equal(evidence.incur_event.next_state,'INCURRED');
+  assert.equal((await adminPool.query("SELECT coalesce(sum(debit_amount-credit_amount),0)::text net FROM wbs_autorec_g11_completion_line WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001' AND member_ref='VENDOR-1'",[ids.tenantId,ids.entityId])).rows[0].net,'0.0000');
   await assert.rejects(adminPool.query("UPDATE accounting_event SET created_by='tampered' WHERE accounting_event_id=$1",[payableDraft.accounting_event_id]),error=>error.code==='55000');
   await assert.rejects(adminPool.query('DELETE FROM journal_accounting_event WHERE accounting_event_id=$1',[payableDraft.accounting_event_id]),error=>error.code==='55000');
 });

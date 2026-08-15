@@ -358,6 +358,24 @@ test('AutoRec Bank Match review persists an independent exact decision and expos
   assert.equal((await reviewApi({method:'GET',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/match-reviews/${reviewId}`,body:null,headers:{'If-Match':'"3"'}})).body.code,'READ_COMMAND_HEADERS_FORBIDDEN');
 });
 
+test('AutoRec G11 HTTP surface creates only fixed producers, independently finalizes, and exposes no-store raw evidence',async()=>{
+  const observed=[],reviewId=randomUUID(),expectedEvidenceHash='sha256:'+'3'.repeat(64),draft={status:'DRAFT'},completion={g11_linked:true,incurred:true},evidence={g11_linked:true,incurred:true,lines:[]};
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'g11-actor'}),kernelFactory:async()=>({
+    createWbsAutoRecPayableIncurDraft:async input=>(observed.push(['payable',input]),draft),
+    createWbsAutoRecAutocDraft:async input=>(observed.push(['autoc',input]),draft),
+    finalizeWbsAutoRecG11Incur:async input=>(observed.push(['incur',input]),completion),
+    getWbsAutoRecG11Evidence:async input=>(observed.push(['read',input]),evidence)
+  })});
+  const draftBody={periodId,expectedEvidenceHash,reason:'Controller creates the exact mapped G11 Draft'};
+  for(const leg of ['payable-incur','autoc'])assert.equal((await api({method:'POST',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/match-reviews/${reviewId}/g11-drafts/${leg}`,body:draftBody,headers:{'Idempotency-Key':`g11-${leg}-http-001`}})).status,201);
+  assert.equal((await api({method:'POST',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/match-reviews/${reviewId}/g11-incur`,body:{expectedEvidenceHash,reason:'Independent finalizer verified exact posted G11 evidence'},headers:{'Idempotency-Key':'g11-incur-http-001'}})).status,201);
+  const read=await api({method:'GET',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/match-reviews/${reviewId}/g11-evidence`,body:null,headers:{}});
+  assert.equal(read.status,200);assert.equal(read.headers['cache-control'],'no-store');assert.equal(read.body.data.incurred,true);
+  assert.deepEqual(observed.map(item=>item[0]),['payable','autoc','incur','read']);assert.deepEqual(observed[3][1],{tenantId,entityId,reviewId});
+  assert.equal((await api({method:'POST',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/match-reviews/${reviewId}/g11-drafts/forged`,body:draftBody,headers:{'Idempotency-Key':'g11-forged-http-001'}})).status,404);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/wbs/auto-reconciliation/match-reviews/${reviewId}/g11-evidence`,body:null,headers:{'If-Match':'"1"'}})).body.code,'READ_COMMAND_HEADERS_FORBIDDEN');
+});
+
 test('AR Receipt route creates only Draft occurrence and pending allocation from trusted scope',async()=>{
   calls.length=0;const invoiceId=randomUUID();const body={periodId,receiptNumber:'ARRCPT-1',receiptDate:'2026-08-02',cashAccountCode:'100100',bankMemberRef:'BANK-1',amount:75,reason:'Receive customer payment'};
   const response=await command(`/api/v1/entities/${entityId}/ar/invoices/${invoiceId}/receipts`,body);

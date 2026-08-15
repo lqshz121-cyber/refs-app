@@ -2041,6 +2041,45 @@
         }
       }
     },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/g11-drafts/payable-incur": {
+      "post": {
+        "operationId": "createWbsAutoRecPayableIncurDraft",
+        "summary": "Derive one PAYABLE_INCUR Draft from accepted AutoRec evidence",
+        "description": "Requires BANK.AUTOREC.G11.DRAFT. Accounts, amount, member, source, mapping and lines are server-derived; callers cannot supply accounting fields. The command stops at an unsubmitted AUTO Draft.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"reviewId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["periodId","expectedEvidenceHash","reason"],"properties":{"periodId":{"$ref":"#/components/schemas/Uuid"},"expectedEvidenceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/g11-drafts/autoc": {
+      "post": {
+        "operationId": "createWbsAutoRecAutocDraft",
+        "summary": "Derive one AUTOC Draft from accepted AutoRec evidence",
+        "description": "Requires BANK.AUTOREC.G11.DRAFT. The dedicated producer derives the exact Bank source, approved G11 mapping, 291001 member clearing and cash leg in PostgreSQL and stops at Draft.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"reviewId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["periodId","expectedEvidenceHash","reason"],"properties":{"periodId":{"$ref":"#/components/schemas/Uuid"},"expectedEvidenceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/g11-incur": {
+      "post": {
+        "operationId": "finalizeWbsAutoRecG11Incur",
+        "summary": "Finalize two standard POSTED G11 journals as INCURRED",
+        "description": "Requires BANK.AUTOREC.G11.INCUR and an actor independent of the candidate, match, review and both journals' maker/reviewer/approver/poster roles. PostgreSQL derives the two event and journal IDs, validates four ledger lines and exact 291001 member net zero, then appends immutable INCURRED evidence.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"reviewId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedEvidenceHash","reason"],"properties":{"expectedEvidenceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/g11-evidence": {
+      "get": {
+        "operationId": "getWbsAutoRecG11Evidence",
+        "summary": "Read immutable G11 event, journal, ledger and INCURRED evidence",
+        "description": "Requires WBS.AUTOREC.VIEW. Returns no-store raw identifiers and fixed-point ledger amounts for independent readback; booleans alone are not acceptance evidence.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"reviewId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses": {"200":{"$ref":"#/components/responses/ReadOk"},"400":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/auto-reconciliation/transition-contracts/verify": {
       "post": {
         "operationId": "verifyWbsAutoRecTransitionContract",

@@ -819,6 +819,25 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async finalizeWbsAutoRecG11Incur({tenantId,entityId,reviewId,expectedEvidenceHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_autorec_g11_incur_hash($1,$2,$3,$4,$5) request_hash',
+        [tenantId,entityId,reviewId,expectedEvidenceHash,reason]
+      ),'WBS_AUTOREC_G11_INCUR_HASH_FAILED','AutoRec G11 INCUR hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_finalize_wbs_autorec_g11_incur($1,$2,$3,$4,$5,$6,$7) result',
+        [tenantId,entityId,reviewId,expectedEvidenceHash,reason,idempotencyKey,requestHash]
+      ),'WBS_AUTOREC_G11_INCUR_FAILED','AutoRec G11 INCUR did not return a result').result;
+    });
+  }
+
+  async getWbsAutoRecG11Evidence({tenantId,entityId,reviewId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_get_wbs_autorec_g11_evidence($1,$2,$3) result',[tenantId,entityId,reviewId]
+    ),'WBS_AUTOREC_G11_EVIDENCE_READ_FAILED','AutoRec G11 evidence read did not return a result').result);
+  }
+
   async getReconciliationSummary({tenantId,entityId,bankAccountRef,statementEndingDate}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_reconciliation_summary($1,$2,$3,$4::date)',

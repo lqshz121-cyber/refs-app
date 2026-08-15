@@ -1,5 +1,15 @@
 BEGIN;
 
+DO $$ BEGIN
+  IF EXISTS(SELECT 1 FROM accounting_event) THEN RAISE EXCEPTION 'Cannot remove G11 Draft controls while accounting events are retained'; END IF;
+END $$;
+
+DROP TRIGGER IF EXISTS source_link_staging_journal_guard ON source_link;
+DROP FUNCTION IF EXISTS refs_enforce_source_link_staging_journal();
+DROP INDEX IF EXISTS source_link_staging_journal_exact_uq;
+CREATE UNIQUE INDEX source_link_one_staging_journal_uq ON source_link(tenant_id,entity_id,staging_item_id)
+  WHERE staging_item_id IS NOT NULL AND journal_entry_id IS NOT NULL;
+
 CREATE OR REPLACE FUNCTION refs_create_wbs_autorec_event_draft_private(
   p_event_type text,p_tenant uuid,p_entity uuid,p_review uuid,p_period uuid,
   p_expected_evidence_hash text,p_reason text,p_idempotency text,p_request_hash text

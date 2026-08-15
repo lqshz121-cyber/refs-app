@@ -1,5 +1,30 @@
 BEGIN;
 
+-- Preserve the platform one-staging/one-journal rule for every ordinary
+-- journal.  A second link is allowed only after the immutable G11
+-- source->accounting_event->journal binding already exists and matches every
+-- scoped identifier.  Locking the staging row closes the concurrent bypass.
+DROP INDEX source_link_one_staging_journal_uq;
+CREATE UNIQUE INDEX source_link_staging_journal_exact_uq ON source_link(tenant_id,entity_id,staging_item_id,journal_entry_id)
+  WHERE staging_item_id IS NOT NULL AND journal_entry_id IS NOT NULL;
+CREATE FUNCTION refs_enforce_source_link_staging_journal() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,pg_temp AS $$
+BEGIN
+  IF NEW.staging_item_id IS NULL OR NEW.journal_entry_id IS NULL THEN RETURN NEW; END IF;
+  PERFORM 1 FROM staging_item WHERE tenant_id=NEW.tenant_id AND entity_id=NEW.entity_id AND staging_item_id=NEW.staging_item_id FOR UPDATE;
+  IF EXISTS(SELECT 1 FROM source_link sl WHERE sl.tenant_id=NEW.tenant_id AND sl.entity_id=NEW.entity_id
+      AND sl.staging_item_id=NEW.staging_item_id AND sl.journal_entry_id<>NEW.journal_entry_id)
+     AND NOT EXISTS(
+       SELECT 1 FROM accounting_event ae JOIN journal_accounting_event jae
+         ON jae.tenant_id=ae.tenant_id AND jae.entity_id=ae.entity_id AND jae.accounting_event_id=ae.accounting_event_id
+       WHERE ae.tenant_id=NEW.tenant_id AND ae.entity_id=NEW.entity_id AND ae.staging_item_id=NEW.staging_item_id
+         AND ae.source_document_id=NEW.source_document_id AND jae.journal_entry_id=NEW.journal_entry_id
+     ) THEN
+    RAISE EXCEPTION 'A staging item may support another journal only through an exact immutable G11 event binding' USING ERRCODE='23505';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER source_link_staging_journal_guard BEFORE INSERT ON source_link FOR EACH ROW EXECUTE FUNCTION refs_enforce_source_link_staging_journal();
+
 -- The G11 mapping is an approved immutable mapping_snapshot.  The command
 -- accepts no accounting values; all accounts, the clearing member and both
 -- source legs are resolved while the accepted review and source rows are
@@ -150,9 +175,8 @@ BEGIN
   END IF;
   INSERT INTO journal_accounting_event(tenant_id,entity_id,accounting_event_id,journal_entry_id,bound_by)
     VALUES(p_tenant,p_entity,event_id,journal_id,actor);
-  -- accounting_event plus journal_accounting_event is the exact immutable
-  -- source->event->JE lineage.  Do not create a second generic SOURCE_TO_JE
-  -- row for a bank staging item that already supports the reviewed match.
+  INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,staging_item_id,journal_entry_id,created_by)
+    VALUES(p_tenant,p_entity,'SOURCE_TO_JE',source_row.source_document_id,stage_row.staging_item_id,journal_id,actor);
   response:=jsonb_build_object('accounting_event_id',event_id,'event_type',p_event_type,'journal_entry_id',journal_id,
     'status','DRAFT','revision',0,'review_id',p_review,'source_document_id',source_row.source_document_id,
     'staging_item_id',stage_row.staging_item_id,'mapping_snapshot_id',mapping_row.mapping_snapshot_id,

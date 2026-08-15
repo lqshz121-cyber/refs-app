@@ -439,6 +439,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await kernel.getWbsAutoRecBankMatchReview({tenantId:principal.tenantId,entityId,reviewId:requireUuid(parts[7],'reviewId')});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===9&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='match-reviews'&&parts[8]==='g11-evidence'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','G11 evidence reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.getWbsAutoRecG11Evidence!=='function')throw new AccountingApiError(503,'WBS_AUTOREC_G11_EVIDENCE_UNAVAILABLE','AutoRec G11 evidence is unavailable');
+        result=await kernel.getWbsAutoRecG11Evidence({tenantId:principal.tenantId,entityId,reviewId:requireUuid(parts[7],'reviewId')});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='operator-attested'&&parts[6]==='payables'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Operator-attested evidence reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
@@ -693,6 +702,24 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['reason']);
         result=await kernel.unmatchBankPayment({tenantId:principal.tenantId,entityId,bankSourceId:requireUuid(parts[6],'bankSourceId'),bankMatchId:requireUuid(parts[8],'bankMatchId'),expectedMatchVersion:requireRevision(headers),reason:requireReviewReason(payload.reason),idempotencyKey});
+      }else if(parts.length===10&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='match-reviews'&&parts[8]==='g11-drafts'){
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','G11 Draft creation is bound to immutable review evidence');
+        allowOnly(payload,['periodId','expectedEvidenceHash','reason']);
+        const kernel=await kernelFactory(principal),args={tenantId:principal.tenantId,entityId,reviewId:requireUuid(parts[7],'reviewId'),periodId:requireUuid(payload.periodId,'periodId'),expectedEvidenceHash:requireSha256(payload.expectedEvidenceHash,'expectedEvidenceHash'),reason:requireReviewReason(payload.reason),idempotencyKey};
+        if(parts[9]==='payable-incur'&&typeof kernel?.createWbsAutoRecPayableIncurDraft==='function')result=await kernel.createWbsAutoRecPayableIncurDraft(args);
+        else if(parts[9]==='autoc'&&typeof kernel?.createWbsAutoRecAutocDraft==='function')result=await kernel.createWbsAutoRecAutocDraft(args);
+        else throw new AccountingApiError(404,'WBS_AUTOREC_G11_DRAFT_ROUTE_NOT_FOUND','Unknown or unavailable G11 Draft producer');
+      }else if(parts.length===9&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='match-reviews'&&parts[8]==='g11-incur'){
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','G11 INCUR is bound to immutable review and posted evidence');
+        allowOnly(payload,['expectedEvidenceHash','reason']);const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.finalizeWbsAutoRecG11Incur!=='function')throw new AccountingApiError(503,'WBS_AUTOREC_G11_INCUR_UNAVAILABLE','AutoRec G11 INCUR is unavailable');
+        result=await kernel.finalizeWbsAutoRecG11Incur({tenantId:principal.tenantId,entityId,reviewId:requireUuid(parts[7],'reviewId'),expectedEvidenceHash:requireSha256(payload.expectedEvidenceHash,'expectedEvidenceHash'),reason:requireReviewReason(payload.reason),idempotencyKey});
+      }else if(parts.length===7&&parts[4]==='wbs'&&parts[5]==='auto-reconciliation'&&parts[6]==='match-reviews'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['reviewCandidateId','candidateHash','bankMatchId','decision','reason']);
+        const decision=typeof payload.decision==='string'?payload.decision.toUpperCase():'';
+        if(!['ACCEPTED','REJECTED'].includes(decision))throw new AccountingApiError(400,'INVALID_DECISION','decision must be ACCEPTED or REJECTED');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.reviewWbsAutoRecBankMatch!=='function')throw new AccountingApiError(503,'WBS_AUTOREC_MATCH_REVIEW_UNAVAILABLE','AutoRec Bank Match review is unavailable');
+        result=await kernel.reviewWbsAutoRecBankMatch({tenantId:principal.tenantId,entityId,reviewCandidateId:payload.reviewCandidateId,candidateHash:requireSha256(payload.candidateHash,'candidateHash'),bankMatchId:requireUuid(payload.bankMatchId,'bankMatchId'),expectedBankMatchRevision:requireRevision(headers),decision,reason:requireReviewReason(payload.reason),idempotencyKey});
       }else if(parts.length===6&&parts[4]==='bank'&&parts[5]==='reconciliations'){
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         allowOnly(payload,['bankAccountRef','statementEndingDate','statementOpeningBalance','statementEndingBalance','reason']);
