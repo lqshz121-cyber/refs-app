@@ -40,25 +40,13 @@ services:
       - key: REFS_WBS_LIVE_PILOT_MODE
         value: DISABLED
       - key: DATABASE_URL
-        fromService:
-          type: web
-          name: refs-accounting-api-staging
-          envVarKey: DATABASE_URL
+        sync: false
       - key: MIGRATION_DATABASE_URL
-        fromService:
-          type: web
-          name: refs-accounting-api-staging
-          envVarKey: MIGRATION_DATABASE_URL
+        sync: false
       - key: CONTEXT_ISSUER_DATABASE_URL
-        fromService:
-          type: web
-          name: refs-accounting-api-staging
-          envVarKey: CONTEXT_ISSUER_DATABASE_URL
+        sync: false
       - key: GRANT_SYNC_DATABASE_URL
-        fromService:
-          type: web
-          name: refs-accounting-api-staging
-          envVarKey: GRANT_SYNC_DATABASE_URL
+        sync: false
       - key: OIDC_ISSUER
         fromService:
           type: web
