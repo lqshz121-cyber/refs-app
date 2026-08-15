@@ -35,17 +35,22 @@ assert.equal(manifest.local_simulation_artifacts.envFile, 'outputs/local-release
 assert.equal(manifest.scripts['verify:external-release-gate'], 'node tools/verify-external-release-gate.mjs all');
 
 const commandNames = new Set(manifest.required_commands.map(row => row.name));
-for (const name of ['root-test', 'release-simulation', 'wbs-e2e-harness', 'external-release-gate-local-sim', 'live-ui-23-page', 'provider-s3-scanner', 'provider-wbs-receipt', 'stage1-payable-live-chain', 'stage2-bank-live-chain', 'stage3-wbs-live-chain', 'stage3-cost-cwip-live-chain', 'stage3-g11-live-chain', 'stage3-insurance-prepaid-live-chain', 'stage3-property-rent-live-chain', 'stage3-reporting-live-chain', 'stage4-report-live-chain']) {
+for (const name of ['root-test', 'release-simulation', 'wbs-e2e-harness', 'external-release-gate-local-sim', 'live-ui-23-page', 'provider-s3-scanner', 'provider-wbs-receipt', 'stage1-payable-live-chain', 'stage1-payable-current-release-readback', 'stage2-bank-live-chain', 'stage3-wbs-live-chain', 'stage3-bank-exception-live-chain', 'stage3-cost-cwip-live-chain', 'stage3-g11-live-chain', 'stage3-insurance-prepaid-live-chain', 'stage3-property-rent-live-chain', 'stage3-reporting-live-chain', 'stage4-report-live-chain']) {
   assert.equal(commandNames.has(name), true, `missing required command ${name}`);
 }
 assert.match(manifest.release_acceptance.global_release_gate, /PARTIAL\/FAIL/);
 assert.match(manifest.release_acceptance.global_release_gate, /23-page authoritative live E2E/);
 assert.equal(manifest.scripts['verify:stage1-payable-live-acceptance'], 'node server/tools/verify-stage1-payable-live-acceptance.mjs');
+assert.equal(manifest.scripts['verify:stage1-payable-current-release-readback'], 'node server/runtime/verify-stage1-authoritative-e2e.mjs');
 assert.equal(manifest.scripts['verify:stage2-bank-live-chain'], 'node server/runtime/verify-stage2-authoritative-e2e.mjs');
 assert.equal(manifest.scripts['verify:stage3-wbs-live-chain'], 'npm.cmd --prefix server run verify:wbs-live-acceptance');
+assert.equal(manifest.scripts['verify:stage3-bank-exception-live-chain'], 'node server/runtime/verify-stage3-bank-exception-authoritative-e2e.mjs');
 assert.equal(manifest.scripts['verify:stage3-g11-live-chain'], 'node server/runtime/verify-stage3-g11-authoritative-e2e.mjs');
 assert.equal(manifest.scripts['verify:stage4-report-live-chain'], 'node server/runtime/verify-stage4-authoritative-e2e.mjs');
 const g11=manifest.required_commands.find(row=>row.name==='stage3-g11-live-chain');
+const payableReadback=manifest.required_commands.find(row=>row.name==='stage1-payable-current-release-readback');
+assert.match(payableReadback.scope,/same-release authenticated GET-only/);
+assert.match(payableReadback.scope,/must pair with stage1-payable-live-chain/);
 assert.match(g11.scope,/ACCEPTED review→released candidate→PAYABLE_INCUR\/AUTOC events/);
 assert.match(g11.scope,/291001 member allocation\/net zero→INCURRED/);
 assert.match(g11.scope,/not satisfied by offline downstream JSON or local simulation/);
@@ -55,6 +60,10 @@ assert.equal(manifest.scripts['verify:stage3-property-rent-live-chain'], 'node s
 assert.equal(manifest.scripts['verify:stage3-reporting-live-chain'], 'node server/runtime/verify-stage3-reporting-authoritative-e2e.mjs');
 assert.equal(manifest.scripts['verify:stage4-report-live-chain'], 'node server/runtime/verify-stage4-authoritative-e2e.mjs');
 const costCwip=manifest.required_commands.find(row=>row.name==='stage3-cost-cwip-live-chain');
+const bankException=manifest.required_commands.find(row=>row.name==='stage3-bank-exception-live-chain');
+assert.match(bankException.scope,/admitted signed WBS bank statement/);
+assert.match(bankException.scope,/BANK_PAYMENT_UNMATCHED finding/);
+assert.match(bankException.scope,/no active match, clearance, adjustment Draft, or posted journal/);
 assert.match(costCwip.scope,/GET-only WBS_COST_CWIP/);
 assert.match(costCwip.scope,/must pair with the offline provider-signed gate/);
 assert.match(costCwip.scope,/does not prove Review\/SoD, Insurance\/Prepaid, or Property Operations\/Rent Pickup/);
