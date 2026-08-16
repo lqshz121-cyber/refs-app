@@ -62,6 +62,93 @@ export class S3AttachmentStorage{
   async deleteReservation(storageRef){const url=this.objectUrl(this.parseRef(storageRef));const response=await this.fetcher(url,{method:'DELETE',headers:this.signedHeaders('DELETE',url),redirect:'error'});if(!response.ok&&response.status!==404)throw storageFailure([403,409,423].includes(response.status)?'STORAGE_RETENTION':'STORAGE_RESERVATION_DELETE','STORAGE',response.status);}
 }
 
+const WBS_EVIDENCE_ARTIFACTS=Object.freeze({
+  'receipt.json':'application/json',
+  'request.raw':'application/octet-stream',
+  'response.raw':'application/octet-stream',
+  'package.json':'application/json'
+});
+const EVIDENCE_HASH=/^sha256:[0-9a-f]{64}$/;
+const EVIDENCE_DOMAIN=/^(PAYABLES|INSURANCE)$/;
+
+// Server-side immutable evidence storage. Unlike attachment reservations this
+// never returns a browser upload URL: the already verified exact bytes are PUT
+// with S3 versioning and Object Lock COMPLIANCE metadata in one server call.
+export class S3ImmutableEvidenceStorage extends S3AttachmentStorage{
+  constructor({retentionDays,...options}={}){
+    super({...options,prefix:options.prefix||'refs-wbs-final1',requireVersionId:true});
+    if(!Number.isInteger(retentionDays)||retentionDays<1||retentionDays>3650)throw new Error('WBS evidence retention days must be between 1 and 3650');
+    this.retentionDays=retentionDays;
+  }
+  signedPayloadHeaders(method,url,body,additionalHeaders={}){
+    const payloadHash=sha256(body),now=this.clock(),amzDate=timestamp(now),date=dateStamp(now),scope=`${date}/${this.region}/s3/aws4_request`;
+    const headers=Object.fromEntries(Object.entries({...additionalHeaders,'x-amz-date':amzDate,'x-amz-content-sha256':payloadHash,...(this.sessionToken?{'x-amz-security-token':this.sessionToken}:{})}).map(([name,value])=>[name.toLowerCase(),String(value).trim().replace(/\s+/g,' ')]));
+    const values={host:url.host,...headers},names=Object.keys(values).sort(),canonicalHeaders=names.map(name=>`${name}:${values[name]}\n`).join('');
+    const canonical=`${method}\n${url.pathname}\n${canonicalQuery(url.searchParams)}\n${canonicalHeaders}\n${names.join(';')}\n${payloadHash}`;
+    const signature=hmac(this.deriveKey(date),`AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${sha256(canonical)}`,'hex');
+    return {...headers,authorization:`AWS4-HMAC-SHA256 Credential=${this.accessKeyId}/${scope}, SignedHeaders=${names.join(';')}, Signature=${signature}`};
+  }
+  evidenceKey({tenantId,entityId,admissionId,immutableVersion,domain,artifact,contentHash}){
+    if(!EVIDENCE_DOMAIN.test(domain||'')||!Object.hasOwn(WBS_EVIDENCE_ARTIFACTS,artifact)||!EVIDENCE_HASH.test(contentHash||''))throw new Error('WBS evidence identity is invalid');
+    return `${this.prefix}/${safeSegment(tenantId)}/${safeSegment(entityId)}/${safeSegment(domain)}/${safeSegment(admissionId)}/${safeSegment(immutableVersion)}/${safeSegment(artifact)}-${contentHash.slice(7)}`;
+  }
+  async inspectImmutableVersion(storageRef,storageVersion,{contentHash,sizeBytes,mediaType}={}){
+    const url=this.objectUrl(this.parseRef(storageRef));url.searchParams.set('versionId',storageVersion);
+    const response=await this.fetcher(url,{method:'HEAD',headers:this.signedHeaders('HEAD',url),redirect:'error'});
+    if(!response.ok)throw storageFailure('WBS_EVIDENCE_STORAGE_HEAD_FAILED','STORAGE',response.status);
+    const observedVersion=response.headers.get('x-amz-version-id'),observedHash=response.headers.get('x-amz-meta-sha256'),observedSize=Number(response.headers.get('content-length')),observedType=response.headers.get('content-type')?.split(';')[0].trim().toLowerCase(),retentionMode=response.headers.get('x-amz-object-lock-mode'),retainUntil=response.headers.get('x-amz-object-lock-retain-until-date');
+    if(observedVersion!==storageVersion||observedHash!==contentHash||observedSize!==sizeBytes||observedType!==mediaType||retentionMode!=='COMPLIANCE'||!retainUntil||Date.parse(retainUntil)<=this.clock().getTime())throw storageFailure('WBS_EVIDENCE_STORAGE_METADATA_INVALID','STORAGE');
+    return {storageVersion:observedVersion,contentHash:observedHash,sizeBytes:observedSize,mediaType:observedType,retentionMode,retainUntil};
+  }
+  async putImmutableVersion({tenantId,entityId,admissionId,immutableVersion,domain,artifact,bytes,expectedHash,receiptHash,retentionUntil=null}={}){
+    const body=Buffer.isBuffer(bytes)?bytes:Buffer.from(bytes||[]),contentHash=`sha256:${sha256(body)}`;
+    if(body.length<1||body.length>32*1024*1024||contentHash!==expectedHash||!EVIDENCE_HASH.test(receiptHash||''))throw new Error('WBS evidence bytes or hash are invalid');
+    const key=this.evidenceKey({tenantId,entityId,admissionId,immutableVersion,domain,artifact,contentHash}),storageRef=this.storageRef(key),url=this.objectUrl(key),mediaType=WBS_EVIDENCE_ARTIFACTS[artifact];
+    const maximumRetention=this.clock().getTime()+this.retentionDays*86400000,requestedRetention=retentionUntil==null?maximumRetention:Date.parse(retentionUntil);
+    if(!Number.isFinite(requestedRetention)||requestedRetention<=this.clock().getTime()||requestedRetention>maximumRetention+1000)throw new Error('WBS evidence retention timestamp is invalid');
+    const retainUntil=new Date(requestedRetention).toISOString();
+    const headers={
+      'content-type':mediaType,'content-length':String(body.length),'content-md5':createHash('md5').update(body).digest('base64'),
+      'x-amz-meta-sha256':contentHash,'x-amz-meta-tenant-id':tenantId,'x-amz-meta-entity-id':entityId,
+      'x-amz-meta-immutable-version':immutableVersion,'x-amz-meta-domain':domain,'x-amz-meta-artifact':artifact,
+      'x-amz-meta-receipt-hash':receiptHash,'x-amz-meta-schema-version':'WBS_FINAL1_RETAINED_RAW_V1',
+      'x-amz-object-lock-mode':'COMPLIANCE','x-amz-object-lock-retain-until-date':retainUntil,'if-none-match':'*'
+    };
+    const response=await this.fetcher(url,{method:'PUT',headers:this.signedPayloadHeaders('PUT',url,body,headers),body,redirect:'error'});
+    if(response.status===412){
+      const observed=await this.inspect(storageRef);
+      if(observed.contentHash!==contentHash||observed.sizeBytes!==body.length||observed.mediaType!==mediaType)throw storageFailure('WBS_EVIDENCE_REPLAY_CONFLICT','STORAGE',412);
+      const locked=await this.inspectImmutableVersion(storageRef,observed.storageVersion,{contentHash,sizeBytes:body.length,mediaType});
+      return {artifact,storageRef,...locked,idempotent:true};
+    }
+    if(!response.ok)throw storageFailure('WBS_EVIDENCE_STORAGE_WRITE_FAILED','STORAGE',response.status);
+    const storageVersion=response.headers.get('x-amz-version-id'),etag=response.headers.get('etag')?.replaceAll('"','')||null;
+    if(!storageVersion)throw storageFailure('WBS_EVIDENCE_STORAGE_VERSION_MISSING','STORAGE');
+    const locked=await this.inspectImmutableVersion(storageRef,storageVersion,{contentHash,sizeBytes:body.length,mediaType});
+    return {artifact,storageRef,...locked,etag,idempotent:false};
+  }
+  async readVerifiedVersion({storageRef,storageVersion,expectedHash,maxBytes=32*1024*1024}={}){
+    if(typeof storageVersion!=='string'||!storageVersion||!EVIDENCE_HASH.test(expectedHash||'')||!Number.isSafeInteger(maxBytes)||maxBytes<1)throw new Error('Exact WBS evidence read identity is required');
+    const url=this.objectUrl(this.parseRef(storageRef));url.searchParams.set('versionId',storageVersion);
+    const response=await this.fetcher(url,{method:'GET',headers:this.signedHeaders('GET',url),redirect:'error'});
+    if(!response.ok)throw storageFailure('WBS_EVIDENCE_STORAGE_READ_FAILED','STORAGE',response.status);
+    if(response.headers.get('x-amz-version-id')!==storageVersion||response.headers.get('x-amz-meta-sha256')!==expectedHash||!response.body)throw storageFailure('WBS_EVIDENCE_STORAGE_METADATA_INVALID','STORAGE');
+    const declared=Number(response.headers.get('content-length'));if(!Number.isSafeInteger(declared)||declared<1||declared>maxBytes)throw storageFailure('WBS_EVIDENCE_STORAGE_SIZE_INVALID','STORAGE');
+    const chunks=[];let size=0;for await(const chunk of response.body){size+=chunk.byteLength;if(size>maxBytes)throw storageFailure('WBS_EVIDENCE_STORAGE_SIZE_INVALID','STORAGE');chunks.push(Buffer.from(chunk));}
+    const body=Buffer.concat(chunks);if(body.length!==declared||`sha256:${sha256(body)}`!==expectedHash)throw storageFailure('WBS_EVIDENCE_STORAGE_HASH_MISMATCH','STORAGE');
+    return new Uint8Array(body);
+  }
+  async probeImmutable(){
+    const versioning=this.bucketUrl();versioning.searchParams.set('versioning','');
+    const versioningResponse=await this.fetcher(versioning,{method:'GET',headers:this.signedHeaders('GET',versioning),redirect:'error'});
+    if(!versioningResponse.ok||!/<Status>Enabled<\/Status>/.test(await versioningResponse.text()))throw storageFailure('WBS_EVIDENCE_VERSIONING_REQUIRED','STORAGE',versioningResponse.status);
+    const lock=this.bucketUrl();lock.searchParams.set('object-lock','');
+    const lockResponse=await this.fetcher(lock,{method:'GET',headers:this.signedHeaders('GET',lock),redirect:'error'});
+    if(!lockResponse.ok||!/<ObjectLockEnabled>Enabled<\/ObjectLockEnabled>/.test(await lockResponse.text()))throw storageFailure('WBS_EVIDENCE_OBJECT_LOCK_REQUIRED','STORAGE',lockResponse.status);
+    return true;
+  }
+}
+
 export class HttpVirusScanner{
   constructor({endpoint,bearerToken,fetcher=null,ca=null,serverName=null,timeoutMs=30000,maxAttempts=3,retryBaseMs=100,sleeper=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}){let url;try{url=new URL(endpoint);}catch{throw new Error('Scanner endpoint must be a valid URL');}if(url.protocol!=='https:'||!bearerToken||(!fetcher&&!ca)||!Number.isInteger(maxAttempts)||maxAttempts<1||maxAttempts>5)throw new Error('Scanner requires HTTPS endpoint, credential, trusted CA, and safe retry policy');if(ca&&!serverName)throw new Error('Scanner serverName is required with a private CA');this.endpoint=url;this.bearerToken=bearerToken;this.fetcher=fetcher||(async(url,init)=>tlsJsonFetch(url,init,{ca,serverName}));this.timeoutMs=timeoutMs;this.maxAttempts=maxAttempts;this.retryBaseMs=retryBaseMs;this.sleeper=sleeper;}
   async probe(){const url=new URL(this.endpoint);url.pathname='/health';url.search='';const response=await this.fetcher(url,{method:'GET',redirect:'error',headers:{accept:'application/json'}});if(!response.ok)throw Object.assign(new Error('Scanner readiness failed'),{code:'SCANNER_READINESS_FAILED',status:response.status});const body=await response.json();if(body?.ok!==true)throw Object.assign(new Error('Scanner readiness response is invalid'),{code:'SCANNER_READINESS_INVALID'});return true;}

@@ -6,7 +6,8 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {canonicalRequestBody,canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {canonicalWbsLiveReceiptSigningPayload} from '../runtime/wbs-live-receipt-signing.mjs';
-import {captureWbsSignedDelivery,createWbsSignedDelivery,normalizeWbsProviderTrust,verifyWbsSignedDelivery,WbsSignedDeliveryAdmissionError} from '../runtime/wbs-signed-delivery-admission.mjs';
+import {captureWbsSignedDelivery,normalizeWbsProviderTrust,verifyWbsSignedDelivery,WbsSignedDeliveryAdmissionError} from '../runtime/wbs-signed-delivery-admission.mjs';
+import {createSyntheticWbsSignedDelivery} from './helpers/synthetic-wbs-signed-delivery.mjs';
 
 const NOW=Date.parse('2026-08-12T08:05:00.000Z');
 const rawHash=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -15,7 +16,7 @@ const fixture=async()=>{
   const rows=[{apGuId:recordId,companyCode:'COMPANY-A',amount:'25.0000'}];
   const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:snapshotId,captured_at:'2026-08-12T08:00:00.000Z',environment:'PRODUCTION',source_system:'WBS',dictionary_version:'WBS-2026-08',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',extract_started_at:'2026-08-12T08:00:00.000Z',extract_completed_at:'2026-08-12T08:00:00.000Z',consistency:'COMPLETE',read_consistency:'REPEATABLE_READ_TRANSACTION',pagination:'PRIMARY_KEY_SEEK'},views:[{name:'BGDATA.payable',company_key:'COMPANY-A',rows,content_hash:canonicalRequestHash(rows),row_count:1,first_primary_key:recordId,last_primary_key:recordId}]};
   const requestRaw=Buffer.from('{"jsonrpc":"2.0","id":1,"method":"tools/call"}','utf8'),responseRaw=Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"captured":true}}','utf8');
-  const created=await createWbsSignedDelivery({unsignedSnapshot:snapshot,requestRaw,responseRaw,scope,issuer:'wanbridge-wbs',keyId:'wbs-prod-2026-08',nonce:'delivery-nonce-0001',signedAt:'2026-08-12T08:05:00.000Z',expiresAt:'2026-08-12T08:20:00.000Z',privateKeyPem:pair.privateKey.export({type:'pkcs8',format:'pem'}),now:NOW});
+  const created=await createSyntheticWbsSignedDelivery({unsignedSnapshot:snapshot,requestRaw,responseRaw,scope,issuer:'wanbridge-wbs',keyId:'wbs-prod-2026-08',nonce:'delivery-nonce-0001',signedAt:'2026-08-12T08:05:00.000Z',expiresAt:'2026-08-12T08:20:00.000Z',privateKeyPem:pair.privateKey.export({type:'pkcs8',format:'pem'}),now:NOW});
   return {pair,scope,requestRaw,responseRaw,...created};
 };
 const rejected=(code)=>error=>error instanceof WbsSignedDeliveryAdmissionError&&error.code===code;
@@ -35,6 +36,17 @@ test('provider trust accepts the standard SPKI DER fingerprint with or without t
   assert.equal(bare.fingerprint_sha256,`sha256:${hex}`);
   assert.equal(prefixed.fingerprint_sha256,`sha256:${hex}`);
   assert.throws(()=>normalizeWbsProviderTrust({...input.providerTrust,fingerprint_sha256:`sha256:${'0'.repeat(64)}`}),rejected('WBS_SIGNED_DELIVERY_PROVIDER_TRUST_INVALID'));
+});
+
+test('signed delivery accepts exact RFC3339 UTC seconds as well as millisecond timestamps without weakening the time window',async()=>{
+  const pair=generateKeyPairSync('ed25519'),scope={tenant_id:randomUUID(),entity_id:randomUUID(),company_code:'COMPANY-A'},snapshotId=randomUUID(),recordId=randomUUID();
+  const rows=[{apGuId:recordId,companyCode:'COMPANY-A',amount:'25.0000'}];
+  const snapshot={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:snapshotId,captured_at:'2026-08-12T08:00:00.000Z',environment:'PRODUCTION',source_system:'WBS',dictionary_version:'WBS-2026-08',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',extract_started_at:'2026-08-12T08:00:00.000Z',extract_completed_at:'2026-08-12T08:00:00.000Z',consistency:'COMPLETE',read_consistency:'REPEATABLE_READ_TRANSACTION',pagination:'PRIMARY_KEY_SEEK'},views:[{name:'BGDATA.payable',company_key:'COMPANY-A',rows,content_hash:canonicalRequestHash(rows),row_count:1,first_primary_key:recordId,last_primary_key:recordId}]};
+  const requestRaw=Buffer.from('{"jsonrpc":"2.0","id":1,"method":"tools/call"}','utf8'),responseRaw=Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"captured":true}}','utf8');
+  const created=await createSyntheticWbsSignedDelivery({unsignedSnapshot:snapshot,requestRaw,responseRaw,scope,issuer:'wanbridge-wbs',keyId:'wbs-prod-2026-08',nonce:'delivery-nonce-seconds',signedAt:'2026-08-12T08:05:00Z',expiresAt:'2026-08-12T08:20:00Z',privateKeyPem:pair.privateKey.export({type:'pkcs8',format:'pem'}),now:NOW});
+  const verified=await verifyWbsSignedDelivery({providerTrust:created.providerTrust,receipt:created.receipt,requestRaw,responseRaw,packageRaw:created.packageRaw,expectedScope:scope,now:NOW});
+  assert.equal(verified.status,'VERIFIED_NOT_ADMITTED');
+  await assert.rejects(()=>verifyWbsSignedDelivery({providerTrust:created.providerTrust,receipt:{...created.receipt,signed_at:'2026-08-12T08:05:00.1Z'},requestRaw,responseRaw,packageRaw:created.packageRaw,expectedScope:scope,now:NOW}),rejected('WBS_SIGNED_DELIVERY_RECEIPT_EXPIRED'));
 });
 
 test('capture is write-once by provider nonce and prepares only the existing authoritative snapshot endpoint request',async()=>{
@@ -65,6 +77,6 @@ test('a receipt correctly re-signed over a modified package still fails the inde
 
 test('plain delivery documents, unsigned packages, and self-supplied non-Ed25519 trust cannot satisfy admission',async()=>{
   const input=await fixture();
-  await assert.rejects(()=>createWbsSignedDelivery({unsignedSnapshot:input.package,requestRaw:input.requestRaw,responseRaw:input.responseRaw,scope:input.scope,issuer:'wanbridge-wbs',keyId:'wbs-prod-2026-08',nonce:'delivery-nonce-0002',signedAt:'2026-08-12T08:05:00.000Z',expiresAt:'2026-08-12T08:20:00.000Z',privateKeyPem:'not a provider key',now:NOW}),rejected('WBS_SIGNED_DELIVERY_PRIVATE_KEY_INVALID'));
+  await assert.rejects(()=>createSyntheticWbsSignedDelivery({unsignedSnapshot:input.package,requestRaw:input.requestRaw,responseRaw:input.responseRaw,scope:input.scope,issuer:'wanbridge-wbs',keyId:'wbs-prod-2026-08',nonce:'delivery-nonce-0002',signedAt:'2026-08-12T08:05:00.000Z',expiresAt:'2026-08-12T08:20:00.000Z',privateKeyPem:'not a provider key',now:NOW}),rejected('WBS_SIGNED_DELIVERY_PRIVATE_KEY_INVALID'));
   await assert.rejects(()=>verifyWbsSignedDelivery({providerTrust:{issuer:'wanbridge-wbs',key_id:'wbs-prod-2026-08',public_key:'not a key'},receipt:input.receipt,requestRaw:input.requestRaw,responseRaw:input.responseRaw,packageRaw:input.packageRaw,expectedScope:input.scope,now:NOW}),rejected('WBS_SIGNED_DELIVERY_PROVIDER_TRUST_INVALID'));
 });

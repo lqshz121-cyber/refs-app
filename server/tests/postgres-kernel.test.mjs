@@ -20,9 +20,11 @@ import {buildWbsAutoRecExecutionIntent} from '../runtime/wbs-autorec-execution-c
 import {createProductionAccountingServer} from '../runtime/accounting-server.mjs';
 import {OidcJwtAuthenticator,REFS_TENANT_CLAIM} from '../api/oidc-authenticator.mjs';
 import {buildWbsMcpReadonlySnapshot} from '../runtime/wbs-mcp-inbound-lineage.mjs';
-import {createWbsSignedDelivery} from '../runtime/wbs-signed-delivery-admission.mjs';
+import {createSyntheticWbsSignedDelivery} from './helpers/synthetic-wbs-signed-delivery.mjs';
 import {createWbsProviderSignedPayableAdmission} from '../runtime/wbs-provider-signed-payable-admission.mjs';
 import {createWbsAdmittedPayableIngestion} from '../runtime/wbs-admitted-payable-ingestion.mjs';
+import {normalizeWbsCompanyCatalogCandidate,wbsCompanyCatalogCanonicalHash,normalizeWbsCompanyClassification} from '../runtime/wbs-company-catalog-controller.mjs';
+import {createWbsAdmittedCostCwipIngestion} from '../runtime/wbs-admitted-cost-cwip-ingestion.mjs';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -142,11 +144,85 @@ async function trustedSession(ids,actorId='poster',permissions=['GL.JE.POST']){
 
 const sessionProvider=(ids,actorId='poster',permissions=['GL.JE.POST'])=>()=>trustedSession(ids,actorId,permissions);
 
+pgTest('Controller retains classifies and approves an exact WBS company catalog binding with SoD CAS audit and zero accounting mapping snapshots',async()=>{
+  const ids={tenantId:randomUUID(),entityId:randomUUID()};
+  await adminPool.query('INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,$2,$3)',[ids.tenantId,`T${ids.tenantId.replaceAll('-','').slice(0,8)}`.toUpperCase(),'Company catalog tenant']);
+  await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,'CATALOG_ENTITY','REFS_CATALOG_PENDING','PENDING-WBS-COMPANY','Catalog pending entity','USD')",[ids.entityId,ids.tenantId]);
+  const makeCatalog=({companyCode='WBPA',declaredTotal=1,baseCurrency='USD',raw='catalog-raw'}={})=>{
+    const input={catalogVersion:`catalog-${companyCode}-${baseCurrency}-${declaredTotal}-v1`,generatedAt:'2026-08-15T01:02:03.000Z',providerEnvironment:'PRODUCTION',source:{name:'wbs-accountbook-export',version:'wbs-readonly-2026-08-15',rawFileHash:hash(raw),catalogHash:hash('placeholder'),rowControl:{sourceRowCount:1,acceptedRowCount:1,rejectedRows:[]}},accountBookControl:{total:declaredTotal,open:1,closed:0,companiesWithBooks:1},companies:[{companyCode,wbsCompanyId:'176',displayName:'Wan Pacific Real Estate Development LLC',legalName:'Wan Pacific Real Estate Development LLC',activeStatus:'ACTIVE',entityType:'LEGAL_ENTITY',baseCurrency,operationallyActive2026:true,accountBooks:[{accountBookId:`book-${companyCode}-${baseCurrency}`,accountName:'Operating account',accountStatus:'O',externalCompanyId:'176'}],accountBookCount:1,openAccountBookCount:1,domains:{PAYABLES:{rowCount:183,minDate:'2026-01-01',maxDate:'2026-08-15'},JOURNAL:{rowCount:199,minDate:'2026-01-01',maxDate:'2026-08-15'},BANK:{rowCount:17,minDate:'2026-01-01',maxDate:'2026-08-15'},AUTOREC:{pbStatus:'SOURCE_PRESENT',reconStart:'2026-01-01'}}}]};
+    input.source.catalogHash=wbsCompanyCatalogCanonicalHash(input);return normalizeWbsCompanyCatalogCandidate(input);
+  };
+  const catalog=makeCatalog(),retainer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'catalog-retainer',['WBS.COMPANY.CATALOG.RETAIN','WBS.COMPANY.CATALOG.VIEW'])});
+  const retained=await retainer.retainWbsCompanyCatalogCandidate({tenantId:ids.tenantId,entityId:ids.entityId,catalog,idempotencyKey:'catalog-pg-retain-001'});assert.equal(retained.record_count,1);assert.equal(retained.error_count,0);assert.equal(retained.can_create_mapping_snapshot,false);assert.equal((await retainer.retainWbsCompanyCatalogCandidate({tenantId:ids.tenantId,entityId:ids.entityId,catalog,idempotencyKey:'catalog-pg-retain-001'})).idempotent,true);
+  const rows=await retainer.listWbsCompanyCatalogRows({tenantId:ids.tenantId,entityId:ids.entityId,candidateId:retained.wbs_company_catalog_candidate_id,limit:10,offset:0});assert.equal(rows.length,1);assert.equal(rows[0].company_code,'WBPA');const rowId=rows[0].wbs_company_catalog_candidate_row_id;
+  const classification=normalizeWbsCompanyClassification({companyCode:'WBPA',displayName:'Wan Pacific Real Estate Development LLC',legalName:'Wan Pacific Real Estate Development LLC',entityType:'LEGAL_ENTITY',activeStatus:'ACTIVE',baseCurrency:'USD'});
+  await assert.rejects(retainer.classifyWbsCompanyCatalogRow({tenantId:ids.tenantId,entityId:ids.entityId,rowId,expectedRevision:0,classification,reason:'Retainer must not classify retained evidence.',idempotencyKey:'catalog-pg-classify-sod'}),error=>error.code==='42501');
+  const classifier=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'catalog-classifier',['WBS.COMPANY.CATALOG.CLASSIFY','WBS.COMPANY.CATALOG.VIEW'])});
+  const wrongCompanyClassification=normalizeWbsCompanyClassification({companyCode:'WBLF',displayName:'Wan Pacific Real Estate Development LLC',legalName:'Wan Pacific Real Estate Development LLC',entityType:'LEGAL_ENTITY',activeStatus:'ACTIVE',baseCurrency:'USD'});
+  await assert.rejects(classifier.classifyWbsCompanyCatalogRow({tenantId:ids.tenantId,entityId:ids.entityId,rowId,expectedRevision:0,classification:wrongCompanyClassification,reason:'A Controller must not replace the retained WBS company identity.',idempotencyKey:'catalog-pg-classify-wrong-company'}),error=>error.code==='23514');
+  assert.equal(Number((await adminPool.query('SELECT count(*) count FROM wbs_company_catalog_controller_decision WHERE tenant_id=$1 AND entity_id=$2 AND wbs_company_catalog_candidate_row_id=$3',[ids.tenantId,ids.entityId,rowId])).rows[0].count),0);
+  const classified=await classifier.classifyWbsCompanyCatalogRow({tenantId:ids.tenantId,entityId:ids.entityId,rowId,expectedRevision:0,classification,reason:'Independent Controller classified the exact WBS company.',idempotencyKey:'catalog-pg-classify-001'});assert.equal(classified.revision,1);assert.equal(classified.can_create_mapping_snapshot,false);
+  await assert.rejects(classifier.approveWbsCompanyCatalogRow({tenantId:ids.tenantId,entityId:ids.entityId,rowId,expectedRevision:1,expectedCatalogHash:catalog.catalog_hash,expectedRowHash:catalog.rows[0].row_hash,effectiveFrom:'2026-01-01',effectiveTo:null,reason:'Classifier must not approve the same company.',idempotencyKey:'catalog-pg-approve-sod'}),error=>error.code==='42501');
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'catalog-approver',['WBS.COMPANY.CATALOG.APPROVE','WBS.COMPANY.CATALOG.VIEW'])});
+  await assert.rejects(approver.approveWbsCompanyCatalogRow({tenantId:ids.tenantId,entityId:ids.entityId,rowId,expectedRevision:1,expectedCatalogHash:hash('wrong-catalog'),expectedRowHash:catalog.rows[0].row_hash,effectiveFrom:'2026-01-01',effectiveTo:null,reason:'Reject a catalog whose exact evidence hash changed.',idempotencyKey:'catalog-pg-approve-hash'}),error=>error.code==='23514');
+  const beforeMappings=Number((await adminPool.query('SELECT count(*) count FROM mapping_snapshot WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].count),approvalArgs={tenantId:ids.tenantId,entityId:ids.entityId,rowId,expectedRevision:1,expectedCatalogHash:catalog.catalog_hash,expectedRowHash:catalog.rows[0].row_hash,effectiveFrom:'2026-01-01',effectiveTo:'2026-12-31',reason:'Independent Controller approves the exact reconciled company binding.',idempotencyKey:'catalog-pg-approve-001'},approved=await approver.approveWbsCompanyCatalogRow(approvalArgs);assert.equal(approved.revision,2);assert.equal(approved.mapping.company_code,'WBPA');assert.equal(approved.can_create_mapping_snapshot,false);assert.equal((await approver.approveWbsCompanyCatalogRow(approvalArgs)).idempotent,true);
+  assert.deepEqual((await adminPool.query('SELECT source_system,source_entity_id,base_currency FROM entity WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0],{source_system:'WBS',source_entity_id:'WBPA',base_currency:'USD'});assert.equal(Number((await adminPool.query('SELECT count(*) count FROM mapping_snapshot WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].count),beforeMappings);
+  assert.equal(Number((await adminPool.query("SELECT count(*) count FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type LIKE 'WBS_COMPANY_CATALOG_%'",[ids.tenantId,ids.entityId])).rows[0].count),3);assert.equal(Number((await adminPool.query("SELECT count(*) count FROM outbox_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type LIKE 'WBS_COMPANY_CATALOG_%'",[ids.tenantId,ids.entityId])).rows[0].count),3);
+  await assert.rejects(approver.approveWbsCompanyCatalogRow({tenantId:ids.tenantId,entityId:ids.entityId,rowId,expectedRevision:1,expectedCatalogHash:catalog.catalog_hash,expectedRowHash:catalog.rows[0].row_hash,effectiveFrom:'2026-01-01',effectiveTo:null,reason:'Stale Controller revision must fail closed.',idempotencyKey:'catalog-pg-approve-stale'}),error=>error.code==='40001');
+  const retainAndClassify=async({candidate:nextCatalog,suffix})=>{const nextRetained=await retainer.retainWbsCompanyCatalogCandidate({tenantId:ids.tenantId,entityId:ids.entityId,catalog:nextCatalog,idempotencyKey:`catalog-pg-retain-${suffix}`}),nextRows=await retainer.listWbsCompanyCatalogRows({tenantId:ids.tenantId,entityId:ids.entityId,candidateId:nextRetained.wbs_company_catalog_candidate_id,limit:10,offset:0}),nextRowId=nextRows[0].wbs_company_catalog_candidate_row_id,nextClassification=normalizeWbsCompanyClassification({companyCode:nextCatalog.rows[0].company_code,displayName:'Controller verified company',legalName:'Controller verified company',entityType:'LEGAL_ENTITY',activeStatus:'ACTIVE',baseCurrency:nextCatalog.rows[0].base_currency});await classifier.classifyWbsCompanyCatalogRow({tenantId:ids.tenantId,entityId:ids.entityId,rowId:nextRowId,expectedRevision:0,classification:nextClassification,reason:'Independent Controller classified the exact company scope.',idempotencyKey:`catalog-pg-classify-${suffix}`});return {nextRetained,nextRowId};};
+  const badControls=makeCatalog({declaredTotal:2,raw:'bad-controls'}),badControlState=await retainAndClassify({candidate:badControls,suffix:'bad-controls'});await assert.rejects(approver.approveWbsCompanyCatalogRow({tenantId:ids.tenantId,entityId:ids.entityId,rowId:badControlState.nextRowId,expectedRevision:1,expectedCatalogHash:badControls.catalog_hash,expectedRowHash:badControls.rows[0].row_hash,effectiveFrom:'2026-01-01',effectiveTo:null,reason:'Account-book control mismatch must fail closed.',idempotencyKey:'catalog-pg-approve-bad-controls'}),error=>error.code==='23514');
+  const wrongCurrency=makeCatalog({baseCurrency:'EUR',raw:'wrong-currency'}),wrongCurrencyState=await retainAndClassify({candidate:wrongCurrency,suffix:'wrong-currency'});await assert.rejects(approver.approveWbsCompanyCatalogRow({tenantId:ids.tenantId,entityId:ids.entityId,rowId:wrongCurrencyState.nextRowId,expectedRevision:1,expectedCatalogHash:wrongCurrency.catalog_hash,expectedRowHash:wrongCurrency.rows[0].row_hash,effectiveFrom:'2026-01-01',effectiveTo:null,reason:'Entity base currency mismatch must fail closed.',idempotencyKey:'catalog-pg-approve-wrong-currency'}),error=>error.code==='23514');
+  const wrongCompany=makeCatalog({companyCode:'WBLF',raw:'wrong-company'}),wrongCompanyState=await retainAndClassify({candidate:wrongCompany,suffix:'wrong-company'});await assert.rejects(approver.approveWbsCompanyCatalogRow({tenantId:ids.tenantId,entityId:ids.entityId,rowId:wrongCompanyState.nextRowId,expectedRevision:1,expectedCatalogHash:wrongCompany.catalog_hash,expectedRowHash:wrongCompany.rows[0].row_hash,effectiveFrom:'2026-01-01',effectiveTo:null,reason:'Existing exact WBS company binding must not be replaced.',idempotencyKey:'catalog-pg-approve-wrong-company'}),error=>error.code==='23514');
+  await assert.rejects(adminPool.query('UPDATE wbs_company_catalog_candidate SET source_name=$1 WHERE wbs_company_catalog_candidate_id=$2',['mutated',retained.wbs_company_catalog_candidate_id]),error=>/append-only|not allowed|immutable/i.test(error.message));
+});
+
+pgTest('WBS Final-1 retained evidence persists exact Payables and Insurance source rows with prepaid findings but zero accounting action',async()=>{
+  const ids={tenantId:randomUUID(),entityId:randomUUID()},candidateId=randomUUID(),candidateRowId=randomUUID(),actor='wbs-final1-importer';
+  await adminPool.query('INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,$2,$3)',[ids.tenantId,`T${ids.tenantId.replaceAll('-','').slice(0,8)}`.toUpperCase(),'Final-1 retained evidence tenant']);
+  await adminPool.query("INSERT INTO entity(entity_id,tenant_id,entity_code,source_system,source_entity_id,name,base_currency) VALUES($1,$2,'WBPA','WBS','WBPA','WBPA','USD')",[ids.entityId,ids.tenantId]);
+  await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-01','2026-01-01','2026-01-31','OPEN')",[randomUUID(),ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO wbs_company_catalog_candidate(wbs_company_catalog_candidate_id,tenant_id,entity_id,catalog_version,generated_at,provider_environment,source_name,source_version,raw_file_hash,catalog_hash,source_row_count,accepted_row_count,rejected_row_count,source_rejections,declared_account_book_total,declared_account_book_open,declared_account_book_closed,declared_companies_with_books,recomputed_account_book_total,recomputed_account_book_open,recomputed_account_book_closed,recomputed_companies_with_books,retained_by,request_hash)
+    VALUES($1,$2,$3,'catalog-v1',now(),'PRODUCTION','wbs-provider','v1',$4,$5,1,1,0,'[]',1,1,0,1,1,1,0,1,'controller-retainer',$6)`,[candidateId,ids.tenantId,ids.entityId,hash('catalog-raw'),hash('catalog'),hash('catalog-request')]);
+  await adminPool.query(`INSERT INTO wbs_company_catalog_candidate_row(wbs_company_catalog_candidate_row_id,tenant_id,entity_id,wbs_company_catalog_candidate_id,row_ordinal,company_code,wbs_company_id,display_name,legal_name,proposed_active_status,proposed_entity_type,proposed_base_currency,operationally_active_2026,account_books,domains,account_book_count,open_account_book_count,row_hash)
+    VALUES($1,$2,$3,$4,0,'WBPA','176','WBPA','WBPA','ACTIVE','LEGAL_ENTITY','USD',true,'[]','{}',0,0,$5)`,[candidateRowId,ids.tenantId,ids.entityId,candidateId,hash('catalog-row')]);
+  const mappingBase={schema_version:'WBS_COMPANY_ENTITY_MAPPING_V1',tenant_id:ids.tenantId,refs_entity_id:ids.entityId,company_code:'WBPA',base_currency:'USD',effective_from:'2026-01-01',effective_to:'2026-12-31',approval_status:'APPROVED',mapping_version:'v1'};
+  const mappingHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) mapping_hash',[JSON.stringify(mappingBase)])).rows[0].mapping_hash,mappingDocument={...mappingBase,mapping_hash:mappingHash};
+  await adminPool.query(`INSERT INTO wbs_company_catalog_controller_decision(tenant_id,entity_id,wbs_company_catalog_candidate_id,wbs_company_catalog_candidate_row_id,revision,decision_type,company_code,display_name,legal_name,entity_type,active_status,base_currency,effective_from,effective_to,mapping_version,mapping_document,mapping_hash,reason,decided_by,decision_hash,request_hash)
+    VALUES($1,$2,$3,$4,2,'APPROVED','WBPA','WBPA','WBPA','LEGAL_ENTITY','ACTIVE','USD','2026-01-01','2026-12-31','v1',$5::jsonb,$6,'Independent Controller approved exact WBPA scope.','controller-approver',$7,$8)`,[ids.tenantId,ids.entityId,candidateId,candidateRowId,JSON.stringify(mappingDocument),mappingHash,hash('decision'),hash('decision-request')]);
+  await adminPool.query("INSERT INTO runtime_actor_grant(tenant_id,actor_id,entity_id,permission) VALUES($1,$2,$3,'WBS.SNAPSHOT.IMPORT')",[ids.tenantId,actor,ids.entityId]);
+  const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actor,['WBS.SNAPSHOT.IMPORT'])});
+  const now=Date.now(),signedAt=new Date(now-60000).toISOString(),expiresAt=new Date(now+9*60000).toISOString(),observationAt=new Date(now-30000).toISOString();
+  const artifactsFor=delivery=>Object.freeze(Object.fromEntries(['receipt','request','response','package'].map(name=>[name,{storage_ref:`s3://refs-wbs-final1/${delivery.domain}/${name}`,storage_version:`v-${name}`,size_bytes:100,content_hash:delivery[name==='receipt'?'receipt_hash':`${name}_raw_hash`],retentionMode:'COMPLIANCE',retainUntil:new Date(now+365*86400000).toISOString()}])));
+  const deliveryBase=domain=>({admission_id:randomUUID(),domain,issuer:'wbs-provider',key_id:'wbs-final1-key',algorithm:'Ed25519',nonce:`nonce-${domain.toLowerCase()}`,company_code:'WBPA',signed_at:signedAt,expires_at:expiresAt,observation_at:observationAt,date_from:'2026-01-01',date_to:'2026-12-31',snapshot_id:randomUUID(),receipt_hash:hash(`${domain}-receipt`),request_raw_hash:hash(`${domain}-request`),response_raw_hash:hash(`${domain}-response`),package_raw_hash:hash(`${domain}-package-raw`),package_hash:hash(`${domain}-package`),signature_verified:true});
+  const payableDelivery={...deliveryBase('PAYABLES'),row_count:1,plan_hash:hash('payable-plan')};
+  const payableRowHash=hash('payable-row'),payableRecord=randomUUID(),payablePlan={status:'NORMALIZED_FINAL1_PAYABLE_STAGING_PLAN',plan_hash:payableDelivery.plan_hash,provenance:{tenant_id:ids.tenantId,entity_id:ids.entityId,company_code:'WBPA',snapshot_id:payableDelivery.snapshot_id,currency:'USD',source_row_count:1,source_surface:{database:'wbsdata',table:'account_book_payable_info'}},staging_rows:[{source_record_id:payableRecord,source_primary_key:payableRecord,source_row_ordinal:0,source_version:'final1:payable:v1',raw_row_hash:payableRowHash,provider_snapshot_id:payableDelivery.snapshot_id,provider_company_code:'WBPA',provider_package_hash:payableDelivery.package_hash,provider_raw_package_hash:payableDelivery.package_raw_hash,currency:'USD',source_module:'BGDATA.payable',source_surface:{database:'wbsdata',table:'account_book_payable_info'},normalized:{apGuId:payableRecord,amount:'125.2500',invoiceNo:'INV-1',vendorRef:'VENDOR-1',vendorName:'Vendor',postingDate:'2026-01-15',incurredDate:null,invoiceDate:null,description:'Signed payable',projectRef:null},outcome:'STAGING_REVIEW_REQUIRED',exception_codes:['WBS_PAYABLE_ATTACHMENT_REQUIRED','WBS_PAYABLE_MAPPING_REVIEW_REQUIRED'],can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false}],can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false};
+  const payable=await kernel.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:payableDelivery,artifacts:artifactsFor(payableDelivery),plan:payablePlan,idempotencyKey:'wbs-final1-payable-pg-001'});
+  assert.equal(payable.status,'WBS_FINAL1_RETAINED_SOURCE_EVIDENCE');assert.equal(payable.row_count,1);assert.equal(payable.can_write_wbs,false);assert.equal((await kernel.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:payableDelivery,artifacts:artifactsFor(payableDelivery),plan:payablePlan,idempotencyKey:'wbs-final1-payable-pg-001'})).idempotent,true);
+  const insuranceDelivery={...deliveryBase('INSURANCE'),company_mapping_hash:mappingHash,row_count:2,plan_hash:hash('insurance-plan')},candidateHash=hash('insurance-candidate'),gapHash=hash('insurance-gap');
+  const insurancePlan={status:'NORMALIZED_FINAL1_INSURANCE_EVIDENCE_PLAN',plan_hash:insuranceDelivery.plan_hash,provenance:{tenant_id:ids.tenantId,entity_id:ids.entityId,company_code:'WBPA',snapshot_id:insuranceDelivery.snapshot_id,currency:'USD',company_mapping_hash:mappingHash,source_row_count:2,source_surface:{database:'wb_insurance',table:'insurance_data'}},evidence_rows:[
+    {source_record_id:'POLICY-1',source_primary_key:'1',source_row_ordinal:0,source_version:'final1:insurance:v1',raw_row_hash:candidateHash,provider_snapshot_id:insuranceDelivery.snapshot_id,provider_company_code:'WBPA',provider_package_hash:insuranceDelivery.package_hash,provider_raw_package_hash:insuranceDelivery.package_raw_hash,company_mapping_hash:mappingHash,currency:'USD',source_module:'payable',source_domain:'insurance',source_surface:{database:'wb_insurance',table:'insurance_data'},normalized:{policyId:'POLICY-1',sourceId:'1',pcCode:'WBPA',policyNumber:'P-1',carrier:'Carrier',insuranceType:'Annual',finalPremium:'1200.00',startDate:'2026-01-01',expireDate:'2026-12-31'},outcome:'AMORTIZATION_COVERAGE_EVIDENCE_CANDIDATE',exception_codes:[],can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false},
+    {source_record_id:'POLICY-2',source_primary_key:'2',source_row_ordinal:1,source_version:'final1:insurance:v1',raw_row_hash:gapHash,provider_snapshot_id:insuranceDelivery.snapshot_id,provider_company_code:'WBPA',provider_package_hash:insuranceDelivery.package_hash,provider_raw_package_hash:insuranceDelivery.package_raw_hash,company_mapping_hash:mappingHash,currency:'USD',source_module:'payable',source_domain:'insurance',source_surface:{database:'wb_insurance',table:'insurance_data'},normalized:{policyId:'POLICY-2',sourceId:'2',pcCode:'WBPA',policyNumber:'P-2',carrier:'Carrier',insuranceType:'Annual',finalPremium:'100.00',startDate:null,expireDate:null},outcome:'EXCEPTION_REVIEW_REQUIRED',exception_codes:['INSURANCE_COVERAGE_DATE_MISSING'],can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false}
+  ],can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false};
+  const insurance=await kernel.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:insuranceDelivery,artifacts:artifactsFor(insuranceDelivery),plan:insurancePlan,idempotencyKey:'wbs-final1-insurance-pg-001'});
+  assert.equal(insurance.coverage_evidence_count,1);assert.equal(insurance.prepaid_coverage_finding_count,1);assert.equal(insurance.can_propose_amortization,false);
+  const counts=(await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM wbs_final1_retained_source_row WHERE tenant_id=$1) retained,
+    (SELECT count(*)::int FROM source_document WHERE tenant_id=$1) documents,
+    (SELECT count(*)::int FROM ai_amortization_coverage_evidence WHERE tenant_id=$1) coverage,
+    (SELECT count(*)::int FROM ai_prepaid_coverage_finding WHERE tenant_id=$1) findings,
+    (SELECT count(*)::int FROM staging_item WHERE tenant_id=$1) staging,
+    (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,
+    (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger`,[ids.tenantId])).rows[0];
+  assert.deepEqual(counts,{retained:3,documents:3,coverage:1,findings:1,staging:0,journals:0,ledger:0});
+  const statuses=(await adminPool.query('SELECT status::text,accounting_period_id FROM source_document d JOIN wbs_final1_retained_source_row r USING(tenant_id,entity_id,source_document_id) WHERE d.tenant_id=$1 ORDER BY r.domain,r.source_row_ordinal',[ids.tenantId])).rows;
+  assert.deepEqual(statuses.map(row=>row.status),['PENDING_REVIEW','QUARANTINED','PENDING_REVIEW']);assert.ok(statuses.some(row=>row.accounting_period_id));
+});
+
 pgTest('controlled DEMO tenant is tenant-scoped, retired non-destructively, and cannot cross real-tenant boundaries',async()=>{
   const demo=await seed({status:'DRAFT',attachmentStatus:null}),production=await seed({status:'DRAFT',attachmentStatus:null});
   await adminPool.query("UPDATE tenant SET tenant_code='DEMO_AP_BANK_2026' WHERE tenant_id=$1",[demo.tenantId]);
   await adminPool.query(`INSERT INTO controlled_demo_tenant(tenant_id,scenario_code,display_label,created_by,expires_at)
-    VALUES($1,'AP_BANK_CLOSURE','DEMO — non-real evidence','demo-admin',clock_timestamp()+interval '1 day')`,[demo.tenantId]);
+    VALUES($1,'AP_BANK_CLOSURE','DEMO ? non-real evidence','demo-admin',clock_timestamp()+interval '1 day')`,[demo.tenantId]);
   const demoReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(demo,'demo-reader')});
   const productionReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(production,'production-reader')});
   const demoStatus=await demoReader.readControlledDemoTenant({tenantId:demo.tenantId});
@@ -155,7 +231,7 @@ pgTest('controlled DEMO tenant is tenant-scoped, retired non-destructively, and 
   for(const [reader,other] of [[demoReader,production],[productionReader,demo]]){
     await assert.rejects(()=>reader.readControlledDemoTenant({tenantId:other.tenantId}),error=>error.code==='42501');
     await assert.rejects(()=>reader.inSession(client=>client.query(`INSERT INTO controlled_demo_tenant(tenant_id,scenario_code,display_label,created_by,expires_at)
-      VALUES($1,'AP_BANK_CLOSURE','DEMO — non-real evidence','runtime-attempt',clock_timestamp()+interval '1 day')`,[other.tenantId])),error=>error.code==='42501');
+      VALUES($1,'AP_BANK_CLOSURE','DEMO ? non-real evidence','runtime-attempt',clock_timestamp()+interval '1 day')`,[other.tenantId])),error=>error.code==='42501');
   }
   const retired=(await adminPool.query("SELECT refs_retire_controlled_demo_tenant($1,'Demo validation complete','demo-admin') result",[demo.tenantId])).rows[0].result;
   assert.equal(retired.retired,true);assert.equal(retired.idempotent,false);
@@ -377,7 +453,7 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   const unsigned=buildWbsMcpReadonlySnapshot({envelopes:[envelope],snapshotId:randomUUID(),dictionaryVersion:'WBS-MCP-V1',environment:'PRODUCTION',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',snapshot_token:snapshotToken,extract_started_at:'2026-07-11T02:59:00.000Z',extract_completed_at:capturedAt,consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'},detachedSignature:{key_id:keyId,algorithm:'Ed25519',value:'placeholder'},payableDirectionConventions:conventions});
   const requestRaw=Buffer.from('{"tool":"list_payables","company":"'+ids.sourceEntityId+'"}'),responseRaw=Buffer.from(JSON.stringify(envelope));
   const admissionNow=Date.now(),signedAt=new Date(admissionNow-60_000).toISOString(),expiresAt=new Date(admissionNow+9*60_000).toISOString();
-  const signedDelivery=await createWbsSignedDelivery({unsignedSnapshot:unsigned,requestRaw,responseRaw,scope:{tenant_id:ids.tenantId,entity_id:ids.entityId,company_code:ids.sourceEntityId},issuer:'wbs-provider-pg',keyId,nonce:`nonce-${randomUUID()}`,signedAt,expiresAt,privateKeyPem:privateKey.export({type:'pkcs8',format:'pem'}).toString(),now:admissionNow});
+  const signedDelivery=await createSyntheticWbsSignedDelivery({unsignedSnapshot:unsigned,requestRaw,responseRaw,scope:{tenant_id:ids.tenantId,entity_id:ids.entityId,company_code:ids.sourceEntityId},issuer:'wbs-provider-pg',keyId,nonce:`nonce-${randomUUID()}`,signedAt,expiresAt,privateKeyPem:privateKey.export({type:'pkcs8',format:'pem'}).toString(),now:admissionNow});
   const verifier=createWbsSnapshotSignatureVerifier({publicKeys:{[keyId]:publicKey.export({type:'spki',format:'pem'})}}),serviceActor='admitted-payable-importer';
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,serviceActor,['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:verifier});
   const demoStatus=await kernel.readControlledDemoTenant({tenantId:ids.tenantId});
@@ -514,6 +590,15 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   const draftArgs={...ids,wbsInboundRowId:stored.wbs_inbound_row_id,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id,expectedRevision:0,expectedEvidenceHash:stored.evidence_hash,mappingSnapshotId:mappingId,attachmentIds:[attachmentId],reason:'Create the AP Bill Draft from frozen reviewed WBS evidence',idempotencyKey:'wbs-payable-draft-pg-0001'};
   const reviewerAsMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-reviewer',['AP.BILL.CREATE'])});
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-payable-maker',['AP.BILL.CREATE'])});
+  const aiProposalService=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-payable-proposal-service',['AI.PROPOSAL.CREATE'])});
+  const proposalArgs={...ids,reviewEvidenceId:reviewed.wbs_payable_review_evidence_id,modelId:'REFS_RULE_ASSIST_V1',promptVersion:'WBS_PAYABLE_V1',idempotencyKey:'ai-wbs-payable-proposal-pg-0001'};
+  await assert.rejects(denied.proposeAiWbsPayableDraft(proposalArgs),error=>error.code==='42501');
+  const proposed=await aiProposalService.proposeAiWbsPayableDraft(proposalArgs),proposalReplay=await aiProposalService.proposeAiWbsPayableDraft(proposalArgs);
+  assert.deepEqual({replay:proposalReplay.idempotent,draft:proposed.can_create_draft,submit:proposed.can_submit,review:proposed.can_review,approve:proposed.can_approve,post:proposed.can_post},{replay:true,draft:false,submit:false,review:false,approve:false,post:false});
+  assert.deepEqual((await adminPool.query("SELECT p.proposal_lines,r.decision FROM ai_wbs_payable_draft_proposal p LEFT JOIN ai_wbs_payable_draft_proposal_review r ON r.ai_wbs_payable_draft_proposal_id=p.ai_wbs_payable_draft_proposal_id WHERE p.tenant_id=$1 AND p.ai_wbs_payable_draft_proposal_id=$2",[ids.tenantId,proposed.ai_wbs_payable_draft_proposal_id])).rows[0],{proposal_lines:[{line_no:1,account_code:'610000',debit_amount:'89.1250',credit_amount:'0.0000',source:'REVIEWED_MAPPING'},{line_no:2,account_code:'291001',debit_amount:'0.0000',credit_amount:'89.1250',source:'REVIEWED_MAPPING'}],decision:null});
+  await assert.rejects(reviewerAsMaker.reviewAiWbsPayableDraftProposal({...ids,proposalId:proposed.ai_wbs_payable_draft_proposal_id,decision:'ACCEPTED',reason:'The recommended lines match the reviewed evidence',idempotencyKey:'ai-wbs-payable-proposal-review-pg-reviewer'}),error=>error.code==='42501'&&/maker and evidence reviewer/i.test(error.message));
+  const accepted=await maker.reviewAiWbsPayableDraftProposal({...ids,proposalId:proposed.ai_wbs_payable_draft_proposal_id,decision:'ACCEPTED',reason:'The recommended lines match the reviewed evidence',idempotencyKey:'ai-wbs-payable-proposal-review-pg-0001'});
+  assert.deepEqual({decision:accepted.decision,draft:accepted.can_create_draft,submit:accepted.can_submit,approve:accepted.can_approve,post:accepted.can_post},{decision:'ACCEPTED',draft:false,submit:false,approve:false,post:false});
   const draftMutationCounts=async()=>(await adminPool.query("SELECT (SELECT count(*)::int FROM business_document WHERE tenant_id=$1 AND entity_id=$2) business_documents,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2) journal_entries,(SELECT count(*)::int FROM journal_line WHERE tenant_id=$1 AND entity_id=$2) journal_lines,(SELECT count(*)::int FROM wbs_payable_draft_evidence WHERE tenant_id=$1 AND entity_id=$2) draft_evidence,(SELECT count(*)::int FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND link_type IN ('SOURCE_TO_JE','JE_ATTACHMENT')) draft_links,(SELECT count(*)::int FROM posting_batch WHERE tenant_id=$1 AND entity_id=$2) posting_batches,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1 AND entity_id=$2) ledger_lines",[ids.tenantId,ids.entityId])).rows[0];
   const beforeFailedDrafts=await draftMutationCounts();
   await assert.rejects(reviewerAsMaker.createWbsPayableApDraft(draftArgs),error=>error.code==='42501'&&/maker and reviewer/i.test(error.message));
@@ -575,6 +660,98 @@ pgTest('provider-signed Payable admission atomically reaches Review Draft four-r
   assert.deepEqual({debit:trialExpense.period_debit,credit:trialExpense.period_credit,balance:trialExpense.display_balance},{debit:'89.1250',credit:'0.0000',balance:'89.1250'});
   assert.deepEqual({debit:trialPayable.period_debit,credit:trialPayable.period_credit,balance:trialPayable.display_balance},{debit:'0.0000',credit:'89.1250',balance:'-89.1250'});
   assert.deepEqual(await authorityReader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'89.1250',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'89.1250'}]);
+});
+
+pgTest('isolated test-key Cost-to-CWIP admission survives independent Review Draft four-role Post and report lineage',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null,extraAccounts:[
+    {accountCode:'164100',accountName:'Construction in progress - land'},
+    {accountCode:'610000',accountName:'Cost clearing'}
+  ]});
+  await adminPool.query("UPDATE tenant SET tenant_code='DEMO_STAGE3_COST_CWIP_2026',name='DEMO isolated Cost-to-CWIP acceptance' WHERE tenant_id=$1",[ids.tenantId]);
+  await adminPool.query(`INSERT INTO controlled_demo_tenant(tenant_id,scenario_code,display_label,created_by,expires_at)
+    VALUES($1,'STAGE3_TEST_KEY_COST_CWIP','DEMO test-key Cost-to-CWIP to report acceptance','demo-admin',clock_timestamp()+interval '1 day')`,[ids.tenantId]);
+
+  const {privateKey,publicKey}=generateKeyPairSync('ed25519'),keyId='wbs-cost-cwip-pg-test-key',costLedgerId=`COST-PG-${randomUUID()}`;
+  const costRow={costLedgerId,currency:'USD',amount:'125.5000',cost_date:'2026-07-10',posting_date:'2026-07-11',project_ref:'PROJECT-01',cost_code_ref:'CWIP-LAND',description:'Land preparation',direction:'DEBIT'};
+  const view={name:'BGDATA.cost_general_ledger',company_key:ids.sourceEntityId,rows:[costRow],row_count:1,first_primary_key:costLedgerId,last_primary_key:costLedgerId,content_hash:canonicalRequestHash([costRow])};
+  const unsigned={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:randomUUID(),captured_at:'2026-07-11T03:00:00.000Z',environment:'PRODUCTION',source_system:'WBS',dictionary_version:'WBS-COST-GL-V1',delivery:{mode:'SIGNED_SNAPSHOT_PACKAGE',snapshot_token:`cost-cwip-${randomUUID()}`,extract_started_at:'2026-07-11T02:59:00.000Z',extract_completed_at:'2026-07-11T03:00:00.000Z',consistency:'COMPLETE',read_consistency:'SNAPSHOT_ISOLATION',pagination:'PRIMARY_KEY_SEEK'},views:[view],detached_signature:{key_id:keyId,algorithm:'Ed25519',value:'placeholder'}};
+  unsigned.package_hash=canonicalRequestHash(Object.fromEntries(Object.entries(unsigned).filter(([key])=>!['package_hash','detached_signature'].includes(key))));
+  const snapshot={...unsigned,detached_signature:{...unsigned.detached_signature,value:sign(null,Buffer.from(unsigned.package_hash),privateKey).toString('base64')}};
+  const verifier=createWbsSnapshotSignatureVerifier({publicKeys:{[keyId]:publicKey.export({type:'spki',format:'pem'})}});
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-test-importer',['WBS.SNAPSHOT.IMPORT']),wbsSnapshotVerifier:verifier});
+  const admission=createWbsAdmittedCostCwipIngestion({kernel:importer,signatureVerifier:verifier});
+  const admitted=await admission.ingest({tenantId:ids.tenantId,entityId:ids.entityId,snapshot,idempotencyKey:'cost-cwip-pg-test-admission-0001'});
+  assert.deepEqual({status:admitted.status,staging:admitted.staging_count,draft:admitted.can_create_draft,post:admitted.can_post},{status:'PERSISTED_COST_CWIP_STAGING_REVIEW_REQUIRED',staging:1,draft:false,post:false});
+  const stored=(await adminPool.query(`SELECT i.wbs_inbound_row_id,i.source_version,r.receipt_hash,i.raw,i.normalized,i.outcome_kind,
+      refs_wbs_cost_cwip_review_evidence_hash(i.wbs_inbound_row_id,i.source_record_id,i.source_version,r.receipt_hash,i.raw,i.normalized,i.outcome,i.outcome_kind) evidence_hash
+    FROM wbs_inbound_receipt r JOIN wbs_inbound_row i USING(receipt_id)
+    WHERE r.tenant_id=$1 AND r.entity_id=$2 AND i.source_record_id=$3`,[ids.tenantId,ids.entityId,costLedgerId])).rows[0];
+  assert.deepEqual({amount:stored.normalized.amount_money4,project:stored.normalized.project_ref,cost:stored.normalized.cost_code_ref,outcome:stored.outcome_kind},{amount:'125.5000',project:'PROJECT-01',cost:'CWIP-LAND',outcome:'STAGING'});
+
+  const settingId=randomUUID(),mappingId=randomUUID();
+  const mappingInput={company_key:ids.sourceEntityId,currency:'USD',project_ref:'PROJECT-01',cost_code_ref:'CWIP-LAND'};
+  const mappingOutput={cwip_account_code:'164100',offset_account_code:'610000',rule_code:'WBS_COST_CWIP_TEST',rule_version:'1'};
+  const hashes=(await adminPool.query("SELECT refs_jsonb_hash('{}'::jsonb) setting_hash,refs_jsonb_hash($1::jsonb) input_hash,refs_jsonb_hash(jsonb_build_object('input_keys',$1::jsonb,'output_rules',$2::jsonb)) mapping_hash",[JSON.stringify(mappingInput),JSON.stringify(mappingOutput)])).rows[0];
+  await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3::uuid,'WBS_COST_CWIP_REVIEW','ENTITY',$3::text,1,'2026-01-01','APPROVED','{}',$4,'cost-setting-maker','cost-setting-approver',now())`,[settingId,ids.tenantId,ids.entityId,hashes.setting_hash]);
+  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3::uuid,'WBS_COST_CWIP','ENTITY',$3::text,$4,1,1,'2026-01-01','APPROVED',$5::jsonb,$6::jsonb,$7,'cost-mapping-maker','cost-mapping-approver',now())`,[mappingId,ids.tenantId,ids.entityId,hashes.input_hash,JSON.stringify(mappingInput),JSON.stringify(mappingOutput),hashes.mapping_hash]);
+
+  const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-reviewer',['WBS.COST.CWIP.REVIEW'])});
+  const reviewArgs={...ids,wbsInboundRowId:stored.wbs_inbound_row_id,periodId:ids.periodId,expectedSourceVersion:stored.source_version,expectedReceiptHash:stored.receipt_hash,expectedEvidenceHash:stored.evidence_hash,settingSnapshotId:settingId,mappingSnapshotId:mappingId,reason:'Independently review this exact signed Cost-to-CWIP evidence.',idempotencyKey:'cost-cwip-pg-test-review-0001'};
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-reader',[])});
+  await assert.rejects(denied.reviewWbsCostCwip(reviewArgs),error=>error.code==='42501');
+  const reviewed=await reviewer.reviewWbsCostCwip(reviewArgs),reviewReplay=await reviewer.reviewWbsCostCwip(reviewArgs);
+  assert.deepEqual({status:reviewed.status,replay:reviewReplay.idempotent,draft:reviewed.can_create_draft,approve:reviewed.can_approve,post:reviewed.can_post},{status:'READY_FOR_DRAFT',replay:true,draft:false,approve:false,post:false});
+  await assert.rejects(reviewer.reviewWbsCostCwip({...reviewArgs,expectedEvidenceHash:hash('stale-cost-evidence'),idempotencyKey:'cost-cwip-pg-test-review-stale'}),error=>error.code==='40001');
+
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-maker',['WBS.COST.CWIP.DRAFT','GL.JE.AUTO.CREATE'])});
+  const draftArgs={...ids,reviewEvidenceId:reviewed.wbs_cost_cwip_review_evidence_id,expectedEvidenceHash:stored.evidence_hash,reason:'Create a standard Draft journal from reviewed Cost-to-CWIP evidence.',idempotencyKey:'cost-cwip-pg-test-draft-0001'};
+  const readyState=(await adminPool.query(`SELECT s.status::text staging_status,s.version::text staging_version,d.status::text source_status,d.document_type,
+      m.snapshot_hash,m.snapshot_hash=refs_jsonb_hash(jsonb_build_object('input_keys',m.input_keys,'output_rules',m.output_rules)) mapping_hash_matches
+    FROM wbs_cost_cwip_review_evidence e
+    JOIN staging_item s ON s.staging_item_id=e.staging_item_id
+    JOIN source_document d ON d.source_document_id=e.source_document_id
+    JOIN mapping_snapshot m ON m.mapping_snapshot_id=e.mapping_snapshot_id
+    WHERE e.tenant_id=$1 AND e.entity_id=$2 AND e.wbs_cost_cwip_review_evidence_id=$3`,[ids.tenantId,ids.entityId,reviewed.wbs_cost_cwip_review_evidence_id])).rows[0];
+  assert.deepEqual(readyState,{staging_status:'READY_FOR_DRAFT',staging_version:'0',source_status:'READY_FOR_DRAFT',document_type:'WBS_COST_CWIP',snapshot_hash:hashes.mapping_hash,mapping_hash_matches:true});
+  const makerVisible=(await maker.inSession(client=>client.query(`SELECT s.status::text staging_status,s.version::text staging_version,d.status::text source_status,d.document_type,
+      m.snapshot_hash=m_expected.snapshot_hash mapping_hash_matches
+    FROM wbs_cost_cwip_review_evidence e
+    JOIN staging_item s ON s.staging_item_id=e.staging_item_id
+    JOIN source_document d ON d.source_document_id=e.source_document_id
+    JOIN mapping_snapshot m ON m.mapping_snapshot_id=e.mapping_snapshot_id
+    CROSS JOIN LATERAL (SELECT refs_jsonb_hash(jsonb_build_object('input_keys',m.input_keys,'output_rules',m.output_rules)) snapshot_hash) m_expected
+    WHERE e.tenant_id=$1 AND e.entity_id=$2 AND e.wbs_cost_cwip_review_evidence_id=$3`,[ids.tenantId,ids.entityId,reviewed.wbs_cost_cwip_review_evidence_id]))).rows[0];
+  assert.deepEqual(makerVisible,{staging_status:'READY_FOR_DRAFT',staging_version:'0',source_status:'READY_FOR_DRAFT',document_type:'WBS_COST_CWIP',mapping_hash_matches:true});
+  await assert.rejects(reviewer.createWbsCostCwipDraft(draftArgs),error=>error.code==='42501');
+  const drafted=await maker.createWbsCostCwipDraft(draftArgs),draftReplay=await maker.createWbsCostCwipDraft(draftArgs);
+  assert.equal(drafted.status,'DRAFT');
+  assert.equal(draftReplay.idempotent,true);
+  assert.equal(draftReplay.journal_entry_id,drafted.journal_entry_id);
+  const draftState=(await adminPool.query(`SELECT j.status::text status,j.journal_type,COUNT(l.*)::int lines
+    FROM journal_entry j JOIN journal_line l ON l.journal_entry_id=j.journal_entry_id
+    WHERE j.tenant_id=$1 AND j.entity_id=$2 AND j.journal_entry_id=$3 GROUP BY j.status,j.journal_type`,[ids.tenantId,ids.entityId,drafted.journal_entry_id])).rows[0];
+  assert.deepEqual(draftState,{status:'DRAFT',journal_type:'AUTO',lines:2});
+
+  const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-submitter',['GL.JE.SUBMIT'])});
+  const journalReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-journal-reviewer',['GL.JE.REVIEW'])});
+  const approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-approver',['GL.JE.APPROVE'])});
+  const poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-poster',['GL.JE.POST'])});
+  assert.equal((await submitter.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'cost-cwip-pg-test-submit-0001'})).status,'PENDING_REVIEW');
+  assert.equal((await journalReviewer.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'cost-cwip-pg-test-journal-review-0001'})).status,'PENDING_APPROVAL');
+  assert.equal((await approver.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'cost-cwip-pg-test-approve-0001'})).status,'APPROVED');
+  await poster.postJournal({...ids,journalEntryId:drafted.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'cost-cwip-pg-test-post-0001'});
+  const posted=(await adminPool.query(`SELECT j.status::text journal_status,(SELECT count(*)::int FROM ledger_line l WHERE l.tenant_id=j.tenant_id AND l.entity_id=j.entity_id AND l.journal_entry_id=j.journal_entry_id) ledger_lines,
+      (SELECT count(*)::int FROM source_link s WHERE s.tenant_id=j.tenant_id AND s.entity_id=j.entity_id AND s.journal_entry_id=j.journal_entry_id AND s.source_document_id=$4) source_links
+    FROM journal_entry j WHERE j.tenant_id=$1 AND j.entity_id=$2 AND j.journal_entry_id=$3`,[ids.tenantId,ids.entityId,drafted.journal_entry_id,reviewed.source_document_id])).rows[0];
+  assert.deepEqual(posted,{journal_status:'POSTED',ledger_lines:2,source_links:1});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'cost-cwip-report-reader',['GL.JE.VIEW','GL.REPORT.VIEW'])});
+  const gl=await reader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'164100',query:costLedgerId,limit:10,offset:0});
+  assert.deepEqual({count:gl.length,journal:gl[0]?.journal_entry_id,debit:gl[0]?.debit_amount,source:gl[0]?.source_document_ids},{count:1,journal:drafted.journal_entry_id,debit:'125.5000',source:[reviewed.source_document_id]});
+  const statements=await reader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
+  const trial=statements.find(row=>row.statement_type==='TRIAL_BALANCE'&&row.account_code==='164100');
+  assert.deepEqual({debit:trial.period_debit,credit:trial.period_credit,balance:trial.display_balance},{debit:'125.5000',credit:'0.0000',balance:'125.5000'});
 });
 
 pgTest('provider-signed Bank source survives exact Match Unmatch adjustment Post reconciliation and same-source reports',async()=>{
@@ -824,7 +1001,13 @@ pgTest('WBS AutoRec Reserve and Release persist receipt-bound source reservation
   const created=await kernel.executeWbsAutoRecIntent({tenantId:ids.tenantId,entityId:ids.entityId,intent:reserve});
   assert.deepEqual({state:created.next_state,draft:created.can_create_draft,post:created.can_post},{state:'RESERVED',draft:false,post:false});
   const replay=await kernel.executeWbsAutoRecIntent({tenantId:ids.tenantId,entityId:ids.entityId,intent:reserve});assert.equal(replay.idempotent,true);
-  const release=buildWbsAutoRecExecutionIntent({command:'RELEASE',currentState:'RESERVED',reviewCandidate:review,reservationReceipt:{reservation_id:created.execution_receipt_id,request_hash:created.request_hash,control_hash:created.control_hash,version:String(created.version),review_candidate_id:review.review_candidate_id,bank_source_record_id:bankId,bank_source_version:'v1',business_source_record_id:payId,business_source_version:'v1',allocated_amount:'100.0000'},idempotencyKey:'wbs-release-pg-0001'});
+  const reservationReceipt={reservation_id:created.execution_receipt_id,request_hash:created.request_hash,control_hash:created.control_hash,version:String(created.version),review_candidate_id:review.review_candidate_id,bank_source_record_id:bankId,bank_source_version:'v1',business_source_record_id:payId,business_source_version:'v1',allocated_amount:'100.0000'};
+  const beforeTamper=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_autorec_execution_event WHERE tenant_id=$1) AS events,(SELECT count(*)::int FROM wbs_autorec_source_reservation WHERE tenant_id=$1) AS reservations,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) AS journals",[ids.tenantId])).rows[0];
+  const tamperedRelease=buildWbsAutoRecExecutionIntent({command:'RELEASE',currentState:'RESERVED',reviewCandidate:review,reservationReceipt:{...reservationReceipt,request_hash:hash('tampered-reservation-request')},idempotencyKey:'wbs-release-tampered-pg-0001'});
+  await assert.rejects(kernel.executeWbsAutoRecIntent({tenantId:ids.tenantId,entityId:ids.entityId,intent:tamperedRelease}),error=>error.code==='22023');
+  const afterTamper=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_autorec_execution_event WHERE tenant_id=$1) AS events,(SELECT count(*)::int FROM wbs_autorec_source_reservation WHERE tenant_id=$1) AS reservations,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) AS journals",[ids.tenantId])).rows[0];
+  assert.deepEqual(afterTamper,beforeTamper);
+  const release=buildWbsAutoRecExecutionIntent({command:'RELEASE',currentState:'RESERVED',reviewCandidate:review,reservationReceipt,idempotencyKey:'wbs-release-pg-0001'});
   const released=await kernel.executeWbsAutoRecIntent({tenantId:ids.tenantId,entityId:ids.entityId,intent:release});assert.equal(released.next_state,'RELEASED');
   const raceReview=id=>({...review,review_candidate_id:hash(id),allocated_amount:'60.0000',trace:{...review.trace,bank_source_record_id:raceBankId,business_source_record_id:racePayId,bank_receipt_ref:raceBank.receipt.payload_ref,bank_receipt_hash:raceBankHash,business_receipt_ref:racePayable.receipt.payload_ref,business_receipt_hash:racePayHash}});
   const race=[
@@ -3001,6 +3184,13 @@ pgTest('AI amortization proposal creates a source-bound twelve-month schedule wi
   await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,project_ref,property_ref) VALUES($1,$2,$3,'insurance-line-1',1,100,'DEBIT','PROJECT-1','PROPERTY-1')",[ids.tenantId,ids.entityId,trace.documentId]);
   const proposer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-preparer',['AI.AMORTIZATION.PROPOSE'])});
   const args=[ids.tenantId,ids.entityId,trace.documentId,hash('auto-doc'),'2026-01-01','2026-12-31','141500','610100',JSON.stringify({project_ref:'PROJECT-1',property_ref:'PROPERTY-1',allocation_basis:'SOURCE_DIMENSIONED'}),'0.9500','Insurance policy coverage evidenced by source document'];
+  await assert.rejects(proposer.inSession(async client=>{
+    const requestHash=(await client.query('SELECT refs_propose_ai_amortization_schedule_hash($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) AS request_hash',args)).rows[0].request_hash;
+    return client.query('SELECT refs_propose_ai_amortization_schedule($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13) AS result',[...args,'ai-amortization-missing-evidence-001',requestHash]);
+  }),error=>error.code==='23514');
+  const coverage=await proposer.recordAiAmortizationCoverageEvidence({tenantId:ids.tenantId,entityId:ids.entityId,sourceDocumentId:trace.documentId,sourcePayloadHash:hash('auto-doc'),coverageStart:'2026-01-01',coverageEnd:'2026-12-31',evidenceRef:'source_attachment:insurance-policy.pdf#coverage',evidenceHash:hash('insurance-coverage-evidence'),extractionMethod:'HUMAN_VERIFIED_SOURCE_FIELD',idempotencyKey:'ai-amortization-coverage-001'});
+  assert.equal(coverage.can_create_draft,false);
+  const coverageReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-coverage-reader',['AI.AMORTIZATION.VIEW'])});const retainedCoverage=await coverageReader.listAiAmortizationCoverageEvidence({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),isoDate=value=>value instanceof Date?`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`:String(value).slice(0,10);assert.equal(retainedCoverage.length,1);assert.deepEqual({source:retainedCoverage[0].source_document_id,start:isoDate(retainedCoverage[0].coverage_start),end:isoDate(retainedCoverage[0].coverage_end),draft:retainedCoverage[0].can_create_draft,post:retainedCoverage[0].can_post},{source:trace.documentId,start:'2026-01-01',end:'2026-12-31',draft:false,post:false});
   const proposal=await proposer.inSession(async client=>{
     const requestHash=(await client.query('SELECT refs_propose_ai_amortization_schedule_hash($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) AS request_hash',args)).rows[0].request_hash;
     return (await client.query('SELECT refs_propose_ai_amortization_schedule($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13) AS result',[...args,'ai-amortization-12-month-001',requestHash])).rows[0].result;
@@ -3027,6 +3217,61 @@ pgTest('AI amortization proposal creates a source-bound twelve-month schedule wi
   await assert.rejects(denied.inSession(client=>client.query('SELECT refs_propose_ai_amortization_schedule($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13)',[...args,'ai-amortization-denied-001',hash('not-reached')])),error=>error.code==='42501');
 });
 
+pgTest('AI amortization creates a human Draft then standard Posted JE with immutable source and ledger lineage',async()=>{
+  const ids=await seed({status:'DRAFT',extraAccounts:[{accountCode:'141500',accountName:'Prepaid insurance'},{accountCode:'610100',accountName:'Insurance expense'}]});
+  const attachmentId=(await adminPool.query("SELECT attachment_id FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3 AND attachment_id IS NOT NULL",[ids.tenantId,ids.entityId,ids.journalId])).rows[0].attachment_id;
+  const trace=await attachAutoSource(ids,{linkJournal:false});
+  await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT' WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
+  await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,project_ref,property_ref) VALUES($1,$2,$3,'ai-amort-line-1',1,100,'DEBIT','PROJECT-1','PROPERTY-1')",[ids.tenantId,ids.entityId,trace.documentId]);
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'source-retainer')",[ids.tenantId,ids.entityId,trace.documentId,attachmentId]);
+  const proposer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-analysis-proposer',['AI.AMORTIZATION.PROPOSE'])});
+  await proposer.recordAiAmortizationCoverageEvidence({tenantId:ids.tenantId,entityId:ids.entityId,sourceDocumentId:trace.documentId,sourcePayloadHash:hash('auto-doc'),coverageStart:'2026-01-01',coverageEnd:'2026-12-31',evidenceRef:'source_attachment:insurance-policy.pdf#coverage',evidenceHash:hash('insurance-coverage-evidence'),extractionMethod:'HUMAN_VERIFIED_SOURCE_FIELD',idempotencyKey:'ai-human-draft-coverage-0001'});
+  const proposal=await proposer.proposeAiAmortizationSchedule({tenantId:ids.tenantId,entityId:ids.entityId,sourceDocumentId:trace.documentId,sourcePayloadHash:hash('auto-doc'),coverageStart:'2026-01-01',coverageEnd:'2026-12-31',prepaidAccountCode:'141500',expenseAccountCode:'610100',memberTrace:{project_ref:'PROJECT-1',property_ref:'PROPERTY-1',allocation_basis:'SOURCE_DIMENSIONED'},confidence:0.95,reason:'Retained insurance source supports a deterministic twelve-month amortization proposal.',idempotencyKey:'ai-human-draft-proposal-0001'});
+  const july=(await adminPool.query("SELECT ai_amortization_schedule_line_id,amount::text FROM ai_amortization_schedule_line WHERE tenant_id=$1 AND entity_id=$2 AND ai_amortization_schedule_id=$3 AND amortization_month='2026-07-01'",[ids.tenantId,ids.entityId,proposal.ai_amortization_schedule_id])).rows[0];
+  const args={tenantId:ids.tenantId,entityId:ids.entityId,aiAmortizationScheduleId:proposal.ai_amortization_schedule_id,aiAmortizationScheduleLineId:july.ai_amortization_schedule_line_id,periodId:ids.periodId,expectedProposalHash:proposal.proposal_hash,attachmentIds:[attachmentId],reason:'Controller converts the retained July schedule line into a standard Draft for review.',idempotencyKey:'ai-human-draft-create-0001'};
+  const sameActor=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-analysis-proposer',['AI.AMORTIZATION.PROPOSE','AI.AMORTIZATION.DRAFT','GL.JE.CREATE'])});
+  await assert.rejects(sameActor.createAiAmortizationDraft(args),error=>error.code==='42501');
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-draft-maker',['AI.AMORTIZATION.DRAFT','GL.JE.CREATE'])});
+  const drafted=await maker.createAiAmortizationDraft(args),replay=await maker.createAiAmortizationDraft(args);assert.deepEqual({status:drafted.status,type:drafted.journal_type,amount:july.amount,replay:replay.idempotent},{status:'DRAFT',type:'MANUAL',amount:'8.3333',replay:true});
+  const evidence=(await adminPool.query("SELECT source_document_id,journal_entry_id,line_amount::text FROM ai_amortization_draft_evidence WHERE tenant_id=$1 AND entity_id=$2 AND ai_amortization_draft_evidence_id=$3",[ids.tenantId,ids.entityId,drafted.ai_amortization_draft_evidence_id])).rows[0];assert.deepEqual({...evidence,source_document_id:String(evidence.source_document_id),journal_entry_id:String(evidence.journal_entry_id)},{source_document_id:trace.documentId,journal_entry_id:drafted.journal_entry_id,line_amount:'8.3333'});
+  const submitter=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-je-submitter',['GL.JE.SUBMIT'])}),reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-je-reviewer',['GL.JE.REVIEW'])}),approver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-je-approver',['GL.JE.APPROVE'])}),poster=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-je-poster',['GL.JE.POST'])});
+  await submitter.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'ai-human-draft-submit'});await reviewer.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'ai-human-draft-review'});await approver.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'ai-human-draft-approve'});await poster.postJournal({...ids,journalEntryId:drafted.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'ai-human-draft-post'});assert.equal((await adminPool.query('SELECT status FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,drafted.journal_entry_id])).rows[0].status,'POSTED');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM ledger_line WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3",[ids.tenantId,ids.entityId,drafted.journal_entry_id])).rows[0].n,2);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-lineage-reader',['GL.JE.VIEW','GL.REPORT.VIEW'])});const detail=await reader.getJournalEntryDetail({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:drafted.journal_entry_id,periodId:ids.periodId});assert.equal(detail.lines.some(line=>line.source_document_ids.includes(trace.documentId)),true);const statements=await reader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});assert.equal(statements.some(row=>row.statement_type==='TRIAL_BALANCE'&&(row.account_code==='141500'||row.account_code==='610100')&&row.journal_entry_ids.includes(drafted.journal_entry_id)&&row.source_document_ids.includes(trace.documentId)),true);
+});
+
+pgTest('AI finding assignment is source-hash-bound, idempotent, audited, revisioned, and has zero accounting effects',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const trace=await attachAutoSource(ids,{linkJournal:false});
+  await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT' WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
+  await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,description) VALUES($1,$2,$3,'finding-action-insurance-line',1,100,'DEBIT','Annual insurance policy premium')",[ids.tenantId,ids.entityId,trace.documentId]);
+  const finding=(await adminPool.query("SELECT ai_prepaid_coverage_finding_id,finding_hash FROM ai_prepaid_coverage_finding WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId])).rows[0];
+  assert.ok(finding);
+  const before=(await adminPool.query("SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger",[ids.tenantId])).rows[0];
+  const controller=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-finding-controller',['AI.FINDING.ASSIGN'])});
+  const command={tenantId:ids.tenantId,entityId:ids.entityId,findingKind:'PREPAID_COVERAGE',findingId:finding.ai_prepaid_coverage_finding_id,findingHash:finding.finding_hash,owner:'CONTROLLER',dueDate:'2026-08-31',expectedRevision:0,idempotencyKey:'ai-finding-assign-001'};
+  const created=await controller.assignAiFindingAction(command);
+  assert.deepEqual({owner:created.owner,due:created.due_date,revision:created.revision,draft:created.can_create_draft,review:created.can_review,approve:created.can_approve,post:created.can_post,idempotent:created.idempotent},{owner:'CONTROLLER',due:'2026-08-31',revision:0,draft:false,review:false,approve:false,post:false,idempotent:false});
+  const replay=await controller.assignAiFindingAction(command);assert.equal(replay.idempotent,true);assert.equal(replay.ai_finding_action_id,created.ai_finding_action_id);
+  await assert.rejects(controller.assignAiFindingAction({...command,owner:'SECOND_CONTROLLER'}),error=>error.code==='23505');
+  const reassigned=await controller.assignAiFindingAction({...command,owner:'SECOND_CONTROLLER',dueDate:'2026-09-05',expectedRevision:0,idempotencyKey:'ai-finding-assign-002'});assert.deepEqual({owner:reassigned.owner,due:reassigned.due_date,revision:reassigned.revision,idempotent:reassigned.idempotent},{owner:'SECOND_CONTROLLER',due:'2026-09-05',revision:1,idempotent:false});
+  const candidates=await controller.listAiFindingAssignmentCandidates({tenantId:ids.tenantId,entityId:ids.entityId,limit:100}),actions=await controller.listAiFindingActions({tenantId:ids.tenantId,entityId:ids.entityId,limit:100});
+  assert.deepEqual({candidate:candidates[0].finding_id,hash:candidates[0].finding_hash,draft:candidates[0].can_create_draft,post:candidates[0].can_post},{candidate:finding.ai_prepaid_coverage_finding_id,hash:finding.finding_hash,draft:false,post:false});
+  assert.deepEqual({action:actions[0].ai_finding_action_id,owner:actions[0].owner,due:actions[0].due_date,revision:actions[0].revision,draft:actions[0].can_create_draft,post:actions[0].can_post},{action:created.ai_finding_action_id,owner:'SECOND_CONTROLLER',due:'2026-09-05',revision:1,draft:false,post:false});
+  await assert.rejects(controller.assignAiFindingAction({...command,idempotencyKey:'ai-finding-assign-stale'}),error=>error.code==='40001');
+  const resolver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-finding-resolver',['AI.FINDING.RESOLVE'])});
+  const resolution={tenantId:ids.tenantId,entityId:ids.entityId,aiFindingActionId:created.ai_finding_action_id,findingHash:finding.finding_hash,reason:'Controller verified retained policy evidence and completed the follow-up.',expectedRevision:1,idempotencyKey:'ai-finding-resolve-001'};
+  const resolved=await resolver.resolveAiFindingAction(resolution),resolvedReplay=await resolver.resolveAiFindingAction(resolution);assert.deepEqual({status:resolved.status,revision:resolved.revision,post:resolved.can_post,replay:resolvedReplay.idempotent},{status:'RESOLVED',revision:2,post:false,replay:true});
+  await assert.rejects(resolver.resolveAiFindingAction({...resolution,reason:'A different human conclusion must not reuse the original resolution receipt.'}),error=>error.code==='23505');
+  const otherResolver=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-finding-second-resolver',['AI.FINDING.RESOLVE'])});
+  await assert.rejects(otherResolver.resolveAiFindingAction(resolution),error=>error.code==='23505');
+  await assert.rejects(controller.assignAiFindingAction({...command,expectedRevision:2,idempotencyKey:'ai-finding-assign-resolved'}),error=>error.code==='55000');
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='AI_FINDING_ACTION_RESOLVED'",[ids.tenantId,ids.entityId])).rows[0].n,1);
+  const after=(await adminPool.query("SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger",[ids.tenantId])).rows[0];assert.deepEqual(after,before);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='AI_FINDING_ACTION_ASSIGNED'",[ids.tenantId,ids.entityId])).rows[0].n,2);
+  assert.equal((await adminPool.query("SELECT status FROM ai_prepaid_coverage_finding WHERE tenant_id=$1 AND entity_id=$2 AND ai_prepaid_coverage_finding_id=$3",[ids.tenantId,ids.entityId,finding.ai_prepaid_coverage_finding_id])).rows[0].status,'OPEN');
+});
+
 pgTest('AI exact duplicate payable finding retains paired source evidence without changing either source or creating a journal',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null});
   const first=await attachAutoSource(ids,{linkJournal:false,sourceModule:'payable',sourceRecordPrefix:'DUP-A'});
@@ -3051,6 +3296,49 @@ pgTest('AI unmatched bank payment finding retains bank evidence, never changes t
   await adminPool.query(`INSERT INTO bank_match(bank_match_id,tenant_id,entity_id,bank_source_id,business_source_document_id,candidate_rule_code,amount_delta,currency_match,date_delta_days,status,matched_by)
     VALUES($1,$2,$3,$4,$5,'CONTROLLER_RETAINED_MATCH',0,true,0,'ACTIVE','controller')`,[randomUUID(),ids.tenantId,ids.entityId,bankSourceId,trace.documentId]);
   retained=await reader.listAiUnmatchedBankPaymentFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50});assert.equal(retained[0].current_match_state,'MATCHED_AFTER_FINDING');assert.equal((await adminPool.query('SELECT amount FROM bank_source WHERE bank_source_id=$1',[bankSourceId])).rows[0].amount,'-100.0000');
+});
+
+pgTest('AI analysis explain reads every authoritative finding family but has no amortization or journal authority',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const analyst=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-explain-reader',['AI.ANALYSIS.EXPLAIN'])});
+  const reads=await Promise.all([
+    analyst.listAiWbsExceptionFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),
+    analyst.listAiPrepaidCoverageFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),
+    analyst.listAiDuplicatePayableFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),
+    analyst.listAiUnmatchedBankPaymentFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),
+    analyst.listAiCostDimensionFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),
+    analyst.listAiLoanReferenceFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:50}),
+    analyst.readAiAccountingAnalysisSummary({tenantId:ids.tenantId,entityId:ids.entityId}),
+  ]);
+  assert.equal(reads.length,7);assert.ok(reads.every(Array.isArray));
+  await assert.rejects(analyst.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'AI.AMORTIZATION.PROPOSE')",[ids.tenantId,ids.entityId])),error=>error.code==='42501');
+  await assert.rejects(analyst.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'GL.JE.MAKER')",[ids.tenantId,ids.entityId])),error=>error.code==='42501');
+});
+
+pgTest('AI analysis explain completes and replays a retained WBS finding with an explanation-only audit receipt',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),capturedAt='2026-08-15T00:00:00.000Z';
+  const raw={ap_guid:`ai-explain-${randomUUID()}`,amount:'89.12500',company_code:ids.sourceEntityId,posting_date:'2026-08-14'};
+  const rowHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) hash',[JSON.stringify(raw)])).rows[0].hash;
+  const operator=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-explain-operator',['WBS.PAYABLE.OPERATOR_ATTEST'])});
+  await operator.attestWbsOperatorPayables({tenantId:ids.tenantId,entityId:ids.entityId,capturedAt,providerContentHash:hash('ai-explain-provider'),observationHash:hash('ai-explain-observation'),companyCodes:[ids.sourceEntityId],rows:[{source_record_id:raw.ap_guid,source_version:`operator:${capturedAt}:${rowHash.slice(7,39)}`,row_hash:rowHash,raw}],reason:'Retain one WBS row for explanation-only controller evidence.',idempotencyKey:'ai-explain-retain-0001'});
+  const analyst=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-explain-receiver',['AI.ANALYSIS.EXPLAIN'])});
+  const [finding]=await analyst.listAiWbsExceptionFindings({tenantId:ids.tenantId,entityId:ids.entityId,limit:10});assert.ok(finding);
+  const summary=(await analyst.readAiAccountingAnalysisSummary({tenantId:ids.tenantId,entityId:ids.entityId})).map(row=>({category:row.category,total_findings:row.total_findings,high_findings:row.high_findings,medium_findings:row.medium_findings,low_findings:row.low_findings,latest_materialized_at:new Date(row.latest_materialized_at).toISOString()}));
+  const evidence=[{category:'WBS_EXCEPTION',finding_id:finding.ai_finding_id,rule_id:finding.rule_id,risk_level:finding.risk_level,confidence:Number(finding.confidence),reason:finding.reason,suggested_action:finding.suggested_action,source_refs:[finding.source_evidence_row_id],evidence_hashes:[...new Set([finding.source_row_hash,finding.provider_content_hash,finding.observation_hash])],source_versions:[],created_at:new Date(finding.created_at).toISOString()}];
+  const idempotencyKey='ai-explain-receipt-0001',started=await analyst.beginAiAccountingAnalysisExplanation({tenantId:ids.tenantId,entityId:ids.entityId,summary,evidence,idempotencyKey});
+  assert.equal(started.result.state,'STARTED');
+  const output={traceId:'ai-explain-pg-0001',providerRequestId:null,model:'test-controller-memo',elapsedMs:0,result:{headline:'One retained WBS exception requires controller review.',risk_level:'MEDIUM',narrative:'The immutable WBS exception remains outside Draft and posting workflows.',controller_actions:[{category:'WBS_EXCEPTION',finding_ids:[finding.ai_finding_id],action:'Review the retained WBS exception evidence.'}],can_create_draft:false,can_review:false,can_approve:false,can_post:false}};
+  const completed=await analyst.completeAiAccountingAnalysisExplanation({tenantId:ids.tenantId,entityId:ids.entityId,idempotencyKey,requestHash:started.requestHash,output});assert.deepEqual(completed,output);
+  const replay=await analyst.beginAiAccountingAnalysisExplanation({tenantId:ids.tenantId,entityId:ids.entityId,summary,evidence,idempotencyKey});assert.equal(replay.result.state,'REPLAY');assert.deepEqual(replay.result.response,output);
+  const reports=await analyst.listAiAccountingAnalysisReports({tenantId:ids.tenantId,entityId:ids.entityId,limit:10});assert.equal(reports.length,1);assert.deepEqual({idempotency_key:reports[0].idempotency_key,request_hash:reports[0].request_hash,actor_id:reports[0].actor_id,report:reports[0].report,can_create_draft:reports[0].can_create_draft,can_review:reports[0].can_review,can_approve:reports[0].can_approve,can_post:reports[0].can_post},{idempotency_key:idempotencyKey,request_hash:started.requestHash,actor_id:'ai-explain-receiver',report:output,can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+  await assert.rejects(analyst.listAiAccountingAnalysisReports({tenantId:ids.tenantId,entityId:ids.entityId,limit:51}),error=>error.code==='22023');
+  const audit=(await adminPool.query("SELECT permission_used,metadata FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='AI_ACCOUNTING_ANALYSIS_EXPLAINED'",[ids.tenantId,ids.entityId])).rows;
+  assert.deepEqual(audit.map(row=>row.permission_used),['AI.ANALYSIS.EXPLAIN']);assert.deepEqual(audit[0].metadata,{schema_version:'REFS_AI_ACCOUNTING_ANALYSIS_EXPLANATION_V1',trace_id:output.traceId,provider_request_id:null,model:output.model,elapsed_ms:0,can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+  const accounting=(await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) AS journals,
+    (SELECT count(*)::int FROM staging_item WHERE tenant_id=$1) AS staging,
+    (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) AS ledger`,[ids.tenantId])).rows[0];
+  assert.deepEqual(accounting,{journals:1,staging:0,ledger:0});
 });
 
 pgTest('intercompany reconciliation requires two authorized entity scopes, reciprocal exact mappings, and POSTED ledger evidence without creating an elimination',async()=>{

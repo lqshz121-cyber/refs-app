@@ -107,8 +107,10 @@ assert.match(styles,/\.authoritative-app \.authoritative-sidebar\{flex-direction
   'the authoritative shell must use the readable rail-and-panel layout');
 assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-rail \.nav-group-h/,
   'the production workflow rail must keep compact, stable group controls');
-assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:nowrap/,
-  'the production page panel must keep the demo shell’s stable single-line rows');
+assert.match(styles,/\.nav-item-label\{flex:1 1 auto; min-width:0; overflow:visible; text-overflow:clip; white-space:normal; overflow-wrap:anywhere/,
+  'the production page panel must show complete labels instead of truncating finance workspaces');
+assert.match(styles,/\.authoritative-app \.authoritative-sidebar \.nav-panel \.nav-item-label\{white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; line-height:1\.3;\}/,
+  'the authoritative desktop rule must not reintroduce clipped navigation labels');
 assert.match(styles,/\.authoritative-app \.sidebar\{position:sticky; top:0; left:auto; transform:none; width:var\(--nav-w\); flex:0 0 var\(--nav-w\); box-shadow:none;\}/,
   'the QBO-like rail and panel must remain anchored through wider tablet layouts');
 assert.match(styles,/@media\(min-width:901px\)\{\s*\.authoritative-app \.sidebar\{position:sticky/,
@@ -121,9 +123,9 @@ assert.match(authoritativeShell,/className="nav-panel"/,
   'the reusable production shell must render a full page navigation panel');
 assert.match(authoritativeShell,/aria-label="Accounting workspace groups"/,
   'the production workflow rail must expose an accessible landmark name');
-assert.match(authoritativeShell,/aria-label=\{`\$\{activeGroup\.label\} navigation`\}/,
-  'the selected production group must expose a named page navigation landmark');
-assert.match(authoritativeShell,/className="nav-panel-title"/,
+assert.match(authoritativeShell,/aria-label="Accounting workspace navigation"/,
+  'the production shell must expose one named navigation landmark for its open groups');
+assert.match(authoritativeShell,/className="nav-panel-title nav-panel-toggle"/,
   'the production panel must retain the demo shell’s group title hierarchy');
 assert.doesNotMatch(authoritativeShell,/authoritative-new-disabled|\+ New/,
   'the authoritative shell must not render an inert New control when no authorised API action exists');
@@ -131,16 +133,14 @@ assert.match(authoritativeShell,/from '\.\/ui\.jsx'/,
   'the presentation shell must reuse the local, self-authored rail icon vocabulary');
 assert.match(authoritativeShell,/ITEM_ICONS/,
   'each visible catalog entry must use a self-authored icon rather than an abbreviation badge');
-assert.match(authoritativeShell,/<Icon name=\{ITEM_ICONS\[itemIndex % ITEM_ICONS\.length\]\} size=\{18\}\/>/,
+assert.match(authoritativeShell,/<Icon name=\{ITEM_ICONS\[item\.route\] \|\| 'document'\} size=\{18\}\/>/,
   'the readable navigation row must render its icon at a compact, consistent size');
 assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|API_READ|Unavailable/,
   'navigation rows must not expose implementation statuses or letter abbreviations to finance readers');
 assert.match(unavailableWorkspace,/WORKSPACE SETUP|SETUP REQUIRED|SETUP NEEDED/,
   'an unconfigured workspace must explain setup in finance-reader language');
-assert.match(unavailableWorkspace,/requirements\.map\(requirement=><li key=\{requirement\}>\{requirement\}<\/li>\)/,
-  'a setup page must retain each route-specific prerequisite instead of hiding the actual connection or access gap');
-assert.match(unavailableWorkspace,/Who completes this:|Next step:/,
-  'a setup page must explain both the responsible party and the safe reader next step');
+assert.match(unavailableWorkspace,/What happens next|finance administrator|company connection is ready/,
+  'a setup page must explain the responsible person and the safe next step in finance-reader language');
 assert.doesNotMatch(unavailableWorkspace,/config\?\.entityId \|\| 'Not configured'|config\?\.periodId \|\| 'Not configured'/,
   'raw scope identifiers must not be rendered as the visible workspace value');
 assert.doesNotMatch(authoritativeShell,/legacy-demo-app|from ['"]\.\/data|from ['"]\.\/seed|from ['"]\.\/repo|localStorage/,

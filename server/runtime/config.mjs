@@ -11,10 +11,10 @@ function positiveInteger(env,name,fallback,{min=1,max=600000}={}){
   return value;
 }
 
-function disabledByDefaultFeature(env,name){
-  const value=String(env[name]??'DISABLED').trim().toUpperCase();
-  if(!['DISABLED','ENABLED'].includes(value))throw new Error(`${name} must be ENABLED or DISABLED`);
-  return value==='ENABLED';
+function controlledDemoMode(env){
+  const value=String(env.REFS_CONTROLLED_DEMO_MODE??'DISABLED').trim().toUpperCase();
+  if(value!=='DISABLED')throw new Error('REFS_CONTROLLED_DEMO_MODE is permanently disabled in the authoritative runtime');
+  return false;
 }
 
 function validatedUrl(raw,{strict}){
@@ -53,7 +53,7 @@ export function runtimeConfig(env=process.env){
     contextIssuerDatabaseUrl,
     grantSyncDatabaseUrl,
     requirePostgres:strict,
-    controlledDemoEnabled:disabledByDefaultFeature(env,'REFS_CONTROLLED_DEMO_MODE'),
+    controlledDemoEnabled:controlledDemoMode(env),
     allowDown:env.REFS_ALLOW_DB_DOWN==='1',
     statementTimeoutMs:positiveInteger(env,'REFS_PG_STATEMENT_TIMEOUT_MS',10000,{min:100,max:600000}),
     lockTimeoutMs:positiveInteger(env,'REFS_PG_LOCK_TIMEOUT_MS',5000,{min:100,max:60000})

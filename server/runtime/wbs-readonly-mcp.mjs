@@ -16,7 +16,7 @@ export const WBS_READONLY_ROW_FIELDS=Object.freeze({
   // synthesized from the Payable Account Code, Journal No., cb_id, or another
   // display field; without it the REFS AutoRec candidate remains blocked.
   list_payables:Object.freeze(['amount','ap_guid','ap_long_id','ap_type','bank_account_ref','business_id','business_status','cb_id','check_date','check_no','clear_date','company_code','company_name','cost_id','cost_ledger_id','description','incurred_date','journal_no','pay_status','pay_type','pj_code','pj_name','posting_date','project_guid','review_status','vendor_name','vendor_no']),
-  list_bank_transactions:Object.freeze(['account_code','bank_transaction_id','cb_id','child_come_from','child_count','come_from','company_code','debtor','description','lender','payee','payee_no','posting_date','review','set_date','statistical_business','sys_id','turn_flag']),
+  list_bank_transactions:Object.freeze(['account_code','cb_id','child_come_from','child_count','come_from','company_code','debtor','description','lender','payee','payee_no','posting_date','review','set_date','statistical_business','sys_id','turn_flag']),
   list_autorec_details:Object.freeze(['batch_guid','biz_type','cb_id','clear_date','cost_code','data_source','deposit','incurred_date','match_guid','match_status','payment','pd_guid','pd_pv_guid','posting_date','project_guid','released_by','released_date','status','vendor_no']),
   list_autorec_banks:Object.freeze(['ah_id','ah_name','company_code','company_name','debit_amount','incurred','pay_amount','pb_guid','quantity','reconciliation_start_date','released','released_quantity','status']),
   list_journal_entries:Object.freeze(['account','bill_no','cb_id','closed','come_from','company','cost_code','debtor','id','journal_no','lender','pj_code','posting_date','project','reverse','review','reviewer','set_date','sys_id']),
@@ -86,10 +86,11 @@ function safeArguments(args){
   return structuredClone(args);
 }
 
-// cb_id is an accounting/relation locator.  It is not the immutable bank-row
-// key: one accounting relationship can span several source rows.  Bank input
-// remains fail-closed until the provider supplies its own immutable key.
-const stableKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'bank_transaction_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
+// The production WBS tool catalogue defines cb_id as the immutable Bank row
+// key.  REFS must not silently fall back to a legacy bank_transaction_id: it
+// would make pagination and replay checks disagree with the signed provider
+// population.
+const stableKeyByTool=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
 export function validateWbsReadEnvelope({toolName,envelope}={}){
   if(!WBS_READONLY_TOOLS.includes(toolName)||!plainObject(envelope)||!Array.isArray(envelope.rows)||!/^[0-9a-f]{64}$/.test(envelope.content_sha256)||typeof envelope.contract_version!=='string'||!envelope.contract_version.trim()||envelope.tool!==toolName||typeof envelope.environment!=='string'||envelope.environment.toLowerCase()!=='production'||typeof envelope.captured_at!=='string'||Number.isNaN(Date.parse(envelope.captured_at))||!plainObject(envelope.source)||!plainObject(envelope.scope)||!Number.isSafeInteger(envelope.record_count)||envelope.record_count!==envelope.rows.length||(envelope.cursor_next!==null&&typeof envelope.cursor_next!=='string')||(envelope.etl_notice!==null&&typeof envelope.etl_notice!=='string'))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS production read envelope, scope, count, hash, or cursor is invalid.');
   const scopeCompany=scopedText(envelope.scope.company);

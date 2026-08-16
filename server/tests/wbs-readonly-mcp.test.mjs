@@ -113,6 +113,10 @@ test('formal provider envelope validates stable string keys, integer journal ids
   const accepted=validateWbsReadEnvelope({toolName:'list_payables',envelope});assert.equal(accepted.requires_snapshot_diff,true);assert.equal(accepted.has_revision_contract,false);assert.equal(accepted.etl_notice,null);
   const journal=readEnvelope({tool:'list_journal_entries',rows:[{id:7,currency:'USD'}],etl_notice:'Snapshot comparison required'});
   assert.equal(validateWbsReadEnvelope({toolName:'list_journal_entries',envelope:journal}).rows[0].id,7);
+  const bank=readEnvelope({tool:'list_bank_transactions',rows:[{cb_id:'CB-0001',currency:'USD'}]});
+  assert.equal(validateWbsReadEnvelope({toolName:'list_bank_transactions',envelope:bank}).rows[0].cb_id,'CB-0001');
+  assert.equal(WBS_READONLY_ROW_FIELDS.list_bank_transactions.includes('bank_transaction_id'),false);
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_bank_transactions',envelope:readEnvelope({tool:'list_bank_transactions',rows:[{bank_transaction_id:'LEGACY-ONLY',currency:'USD'}]})}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_journal_entries',envelope:readEnvelope({tool:'list_journal_entries',rows:[{id:'7',currency:'USD'}]})}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,rows:[{currency:'USD'}]}}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:readEnvelope({rows:[{ap_guid:'AP-\u0001',currency:'USD'}]})}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');

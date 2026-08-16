@@ -12,23 +12,39 @@ const GROUP_ICONS = Object.freeze([
   'gauge', 'gear', 'document', 'cycle', 'document', 'book',
   'layers', 'calendar', 'wallet', 'bars', 'shield',
 ]);
-const ITEM_ICONS = Object.freeze(['document','cycle','book','layers','wallet','bank','check','bars']);
+const ITEM_ICONS = Object.freeze({
+  overview:'gauge', approvals:'check', 'ai-audit':'shield', 'ai-je-workbench':'document',
+  settings:'gear', rules:'check', mapping:'layers',
+  'wbs-payable-review':'document', staging:'layers', 'source-documents':'document', 'integration-hub':'cycle', 'mapping-exceptions':'check',
+  'bank-batch-pipeline':'bank', 'wbs-autorec-evidence':'cycle', bank:'bank', reconciliation:'check', 'checks-payments':'wallet',
+  journals:'document', 'general-ledger':'book', consolidation:'layers', 'account-inquiry':'lines', 'subsidiary-ledger':'book', 'chart-of-accounts':'lines',
+  'project-cost-cwip':'bars', 'unit-cost-ledger':'bars', 'unit-transfer':'exchange', 'construction-loan':'bank', 'loan-register':'book',
+  'property-ops-pickup':'wallet', 'closing-accounting':'calendar', intercompany:'exchange', 'fixed-assets':'layers', amortization:'cycle', accruals:'document',
+  'month-end-close':'calendar', 'period-management':'calendar', payables:'wallet', receivables:'wallet', reports:'bars',
+  'master-data':'layers', 'bank-accounts':'bank', 'audit-log':'shield', 'users-settings':'gear',
+});
 
-export function AuthoritativeNavigationShell({ navigation, route, expandedGroup, onSelectGroup, onSelectItem, navOpen, navDrawerRef, drawerAttributes, onClose }) {
+function openGroupLabels(expandedGroups, expandedGroup, activeGroup) {
+  const labels = Array.isArray(expandedGroups) ? expandedGroups : expandedGroup ? [expandedGroup] : [];
+  return new Set([...labels, activeGroup?.label].filter(Boolean));
+}
+
+export function AuthoritativeNavigationShell({ navigation, route, expandedGroups, expandedGroup, onSelectGroup, onSelectItem, navOpen, navDrawerRef, drawerAttributes, onClose }) {
   const activeGroup = navigation.find(group => group.items.some(item => item.route === route))
-    || navigation.find(group => group.label === expandedGroup)
+    || navigation.find(group => group.label === (Array.isArray(expandedGroups) ? expandedGroups[0] : expandedGroup))
     || navigation[0];
-  const activeGroupIndex = navigation.indexOf(activeGroup);
+  const openGroups = openGroupLabels(expandedGroups, expandedGroup, activeGroup);
 
   return <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar authoritative-sidebar ${navOpen ? 'mobile-open' : ''}`} {...drawerAttributes}>
     <div className="nav-rail" aria-label="Accounting workspace groups">
       <div className="rail-logo" aria-hidden="true">R</div>
       {navigation.map((group, index) => {
         const active = group.label === activeGroup.label;
+        const expanded = openGroups.has(group.label);
         return <div key={group.label} className={`nav-group nav-tone-${index % 6}`}>
           <button type="button"
             className={`nav-group-h ${active ? 'rail-on' : ''}`}
-            aria-current={active ? 'page' : undefined}
+            aria-current={active ? 'page' : undefined} aria-expanded={expanded}
             aria-label={group.label}
             onClick={() => onSelectGroup(group)}>
             <span className="rail-glyph" aria-hidden="true"><Icon name={GROUP_ICONS[index] || 'document'} /></span>
@@ -40,18 +56,24 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroup,
     <div className="nav-panel">
       <div className="brand"><span className="logo" aria-hidden="true">R</span> REFS<span className="brand-sub">Authoritative</span></div>
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={onClose}>Close</button>}
-      <nav aria-label={`${activeGroup.label} navigation`}>
-        <div className={`nav-panel-group nav-tone-${activeGroupIndex % 6}`}>
-          <div className="nav-panel-title">{activeGroup.label}</div>
-          <div className="nav-group-items" id={`authoritative-navigation-group-${activeGroupIndex}`}>
-          {activeGroup.items.map((item,itemIndex) => <button type="button" key={item.route} aria-current={route === item.route ? 'page' : undefined}
-            className={`nav-item nav-sub ${route === item.route ? 'nav-on' : ''}`} onClick={() => onSelectItem(item.route)}>
-            <span className="nav-badge" aria-hidden="true"><Icon name={ITEM_ICONS[itemIndex % ITEM_ICONS.length]} size={18}/></span>
+      <nav aria-label="Accounting workspace navigation">
+        {navigation.map((group, groupIndex) => {
+          const expanded = openGroups.has(group.label);
+          return <section key={group.label} className={`nav-panel-group nav-tone-${groupIndex % 6}`}>
+          <button type="button" className="nav-panel-title nav-panel-toggle" aria-expanded={expanded}
+            aria-controls={`authoritative-navigation-group-${groupIndex}`} onClick={() => onSelectGroup(group)}>
+            <span>{group.label}</span><span aria-hidden="true">{expanded ? '⌄' : '›'}</span>
+          </button>
+          {expanded && <div className="nav-group-items" id={`authoritative-navigation-group-${groupIndex}`}>
+          {group.items.map(item => <button type="button" key={item.route} aria-current={route === item.route ? 'page' : undefined}
+            className={`nav-item nav-sub ${route === item.route ? 'nav-on' : ''}`} onClick={() => onSelectItem(item.route)} title={item.label}>
+            <span className="nav-badge" aria-hidden="true"><Icon name={ITEM_ICONS[item.route] || 'document'} size={18}/></span>
             <span className="nav-item-label">{item.label}</span>
             <span className="nav-chev" aria-hidden="true">›</span>
           </button>)}
-          </div>
-        </div>
+          </div>}
+          </section>;
+        })}
       </nav>
     </div>
   </aside>;

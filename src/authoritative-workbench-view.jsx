@@ -17,7 +17,7 @@ export function AuthoritativeWorkspaceHeader({
       <h1 className="page-h">{title}</h1>
       {description && <p className="page-subtitle">{description}</p>}
     </div>
-    {scope || <span className="badge badge-muted authoritative-workspace-status">{status}</span>}
+    {scope || (status ? <span className="badge badge-muted authoritative-workspace-status">{status}</span> : null)}
   </header>;
 }
 

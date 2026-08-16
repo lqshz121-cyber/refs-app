@@ -5,7 +5,10 @@ import {WbsAdmittedPayableIngestionError} from '../runtime/wbs-admitted-payable-
 import {WbsOperatorAttestedPayableError} from '../runtime/wbs-operator-attested-payable.mjs';
 import {WbsSignedBankAdmissionError} from '../runtime/wbs-signed-bank-admission.mjs';
 import {WbsProviderSignedPayableAdmissionError} from '../runtime/wbs-provider-signed-payable-admission.mjs';
+import {WbsProviderFinal1RetainedEvidenceError} from '../runtime/wbs-provider-final1-retained-evidence-admission.mjs';
 import {AiAnalysisExplanationError} from '../runtime/ai-analysis-explanation-service.mjs';
+import {AI_ACCOUNTING_SKILL_REGISTRY_VERSION,AI_ACCOUNTING_SKILLS} from '../runtime/ai-accounting-skill-registry.mjs';
+import {WbsCompanyCatalogControllerError,normalizeWbsCompanyCatalogCandidate,normalizeWbsCompanyClassification} from '../runtime/wbs-company-catalog-controller.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const FORBIDDEN_BODY_KEYS=new Set(['actor','actorId','actor_id','tenantId','tenant_id','entityId','entity_id','requestHash','request_hash']);
@@ -46,8 +49,10 @@ const validateBody=body=>{if(!body||typeof body!=='object'||Array.isArray(body))
 const allowOnly=(body,allowed)=>{const unexpected=Object.keys(body).filter(key=>!allowed.includes(key));if(unexpected.length)throw new AccountingApiError(400,'UNEXPECTED_FIELD',`Unexpected request field: ${unexpected[0]}`);return body;};
 const requireAiAmortizationMemberTrace=value=>{if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==3||!['project_ref','property_ref','allocation_basis'].every(key=>Object.hasOwn(value,key)))throw new AccountingApiError(400,'INVALID_MEMBER_TRACE','memberTrace must contain exactly project_ref, property_ref, and allocation_basis');const ref=(item,name)=>item===null?null:requireDimensionRef(item,name);const projectRef=ref(value.project_ref,'memberTrace.project_ref'),propertyRef=ref(value.property_ref,'memberTrace.property_ref'),basis=value.allocation_basis;if(!['ENTITY_ONLY','SOURCE_DIMENSIONED'].includes(basis)||(basis==='ENTITY_ONLY'&&(projectRef!==null||propertyRef!==null)))throw new AccountingApiError(400,'INVALID_MEMBER_TRACE','memberTrace must be ENTITY_ONLY with null dimensions or SOURCE_DIMENSIONED');return {project_ref:projectRef,property_ref:propertyRef,allocation_basis:basis};};
 
-const isRevisionPrecondition=error=>error?.code==='40001'&&/(revision conflict|version conflict|period changed during transition|staging source changed during journal creation|lease is absent, stale, or owned)/i.test(String(error.message||''));
+const isRevisionPrecondition=error=>error?.code==='40001'&&/(revision conflict|version conflict|period changed during transition|staging source changed during journal creation|lease is absent, stale, or owned|AI finding resolution requires an open exact action, finding hash, reason, and revision)/i.test(String(error.message||''));
 function statusFor(error){
+  if(error instanceof WbsProviderFinal1RetainedEvidenceError)return /SERVICE_IDENTITY_DENIED/.test(error.code)?403:/STORAGE_REQUIRED|PERSISTENCE_REQUIRED|TRUST_REQUIRED|BOUNDARY_REQUIRED/.test(error.code)?503:/RESULT_INVALID/.test(error.code)?500:422;
+  if(error instanceof WbsCompanyCatalogControllerError)return /HASH_MISMATCH|SOURCE_CONTROL_INVALID/.test(error.code)?422:400;
   if(error instanceof WbsProviderSignedPayableAdmissionError)return /PERSISTENCE_REQUIRED|TRUST_REQUIRED/.test(error.code)?503:/SERVICE_IDENTITY_DENIED/.test(error.code)?403:error.code==='WBS_PROVIDER_SIGNED_RESULT_INVALID'?500:422;
   if(error instanceof WbsOperatorAttestedPayableError)return error.code==='WBS_OPERATOR_ATTEST_PROVIDER_UNAVAILABLE'?503:error.code==='WBS_OPERATOR_ATTEST_STALE_OBSERVATION'?412:error.code==='WBS_OPERATOR_ATTEST_RESULT_INVALID'?500:422;
   if(error instanceof WbsAdmittedPayableIngestionError)return /PERSISTENCE_REQUIRED|VERIFIER_REQUIRED|PERSISTENCE_FAILED/.test(error.code)?503:error.code==='WBS_PAYABLE_ADMISSION_IDEMPOTENCY_CONFLICT'?409:422;
@@ -65,9 +70,9 @@ function statusFor(error){
   if(error?.code==='23505')return 409;if(error?.code==='55000')return 423;
   if(['22023','23503','23514'].includes(error?.code))return 422;return 500;
 }
-  const problemFor=error=>{const status=statusFor(error);const code=isRevisionPrecondition(error)?'PRECONDITION_FAILED':error?.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED'?'WBS_SNAPSHOT_SIGNATURE_REQUIRED':error?.code==='WBS_BANK_ADMISSION_SIGNATURE_REQUIRED'?'WBS_BANK_ADMISSION_SIGNATURE_REQUIRED':error?.code==='WBS_READ_SERVICE_UNAVAILABLE'?'WBS_READ_SERVICE_UNAVAILABLE':error?.code==='WBS_PAYABLE_ADMISSION_UNAVAILABLE'?'WBS_PAYABLE_ADMISSION_UNAVAILABLE':error?.code==='WBS_OPERATOR_ATTEST_UNAVAILABLE'?'WBS_OPERATOR_ATTEST_UNAVAILABLE':error?.code==='AI_FINDING_READ_UNAVAILABLE'?'AI_FINDING_READ_UNAVAILABLE':error?.code==='AI_PREPAID_COVERAGE_FINDING_READ_UNAVAILABLE'?'AI_PREPAID_COVERAGE_FINDING_READ_UNAVAILABLE':error?.code==='AI_DUPLICATE_PAYABLE_FINDING_READ_UNAVAILABLE'?'AI_DUPLICATE_PAYABLE_FINDING_READ_UNAVAILABLE':error?.code==='AI_UNMATCHED_BANK_PAYMENT_FINDING_READ_UNAVAILABLE'?'AI_UNMATCHED_BANK_PAYMENT_FINDING_READ_UNAVAILABLE':error?.code==='AI_COST_DIMENSION_FINDING_READ_UNAVAILABLE'?'AI_COST_DIMENSION_FINDING_READ_UNAVAILABLE':error?.code==='AI_LOAN_REFERENCE_FINDING_READ_UNAVAILABLE'?'AI_LOAN_REFERENCE_FINDING_READ_UNAVAILABLE':error?.code==='AI_ACCOUNTING_ANALYSIS_SUMMARY_UNAVAILABLE'?'AI_ACCOUNTING_ANALYSIS_SUMMARY_UNAVAILABLE':error?.code==='AI_ANALYSIS_EXPLANATION_UNAVAILABLE'?'AI_ANALYSIS_EXPLANATION_UNAVAILABLE':error?.code==='AI_AMORTIZATION_PROPOSAL_UNAVAILABLE'?'AI_AMORTIZATION_PROPOSAL_UNAVAILABLE':error instanceof WbsProviderSignedPayableAdmissionError?error.code:error instanceof WbsOperatorAttestedPayableError?error.code:error instanceof WbsSignedBankAdmissionError?error.code:error instanceof WbsAdmittedPayableIngestionError?error.code:error instanceof WbsLivePilotError?error.code:error instanceof AiAnalysisExplanationError?error.code:error instanceof WbsReadContractError?error.code:status===503?'SERIALIZATION_RETRY_EXHAUSTED':error.code||'INTERNAL_ERROR';const message=status>=500?'Internal server error':status===403?'Forbidden':error.message;const headers={'content-type':'application/problem+json','cache-control':'no-store'};if(status===503)headers['retry-after']='1';return {status,headers,body:{ok:false,code,message}};};
+  const problemFor=error=>{const status=statusFor(error);const code=isRevisionPrecondition(error)?'PRECONDITION_FAILED':error?.code==='55000'&&/Resolved AI finding accountability cannot be reassigned or reopened/.test(String(error.message||''))?'AI_FINDING_ACTION_CLOSED':error?.code==='WBS_SNAPSHOT_SIGNATURE_REQUIRED'?'WBS_SNAPSHOT_SIGNATURE_REQUIRED':error?.code==='WBS_BANK_ADMISSION_SIGNATURE_REQUIRED'?'WBS_BANK_ADMISSION_SIGNATURE_REQUIRED':error?.code==='WBS_READ_SERVICE_UNAVAILABLE'?'WBS_READ_SERVICE_UNAVAILABLE':error?.code==='WBS_PAYABLE_ADMISSION_UNAVAILABLE'?'WBS_PAYABLE_ADMISSION_UNAVAILABLE':error?.code==='WBS_FINAL1_ADMISSION_UNAVAILABLE'?'WBS_FINAL1_ADMISSION_UNAVAILABLE':error?.code==='WBS_OPERATOR_ATTEST_UNAVAILABLE'?'WBS_OPERATOR_ATTEST_UNAVAILABLE':error?.code==='AI_FINDING_READ_UNAVAILABLE'?'AI_FINDING_READ_UNAVAILABLE':error?.code==='AI_FINDING_ACTION_UNAVAILABLE'?'AI_FINDING_ACTION_UNAVAILABLE':error?.code==='AI_FINDING_ACTION_RESOLUTION_UNAVAILABLE'?'AI_FINDING_ACTION_RESOLUTION_UNAVAILABLE':error?.code==='AI_FINDING_ASSIGNMENT_CANDIDATE_READ_UNAVAILABLE'?'AI_FINDING_ASSIGNMENT_CANDIDATE_READ_UNAVAILABLE':error?.code==='AI_FINDING_ACTION_READ_UNAVAILABLE'?'AI_FINDING_ACTION_READ_UNAVAILABLE':error?.code==='AI_PREPAID_COVERAGE_FINDING_READ_UNAVAILABLE'?'AI_PREPAID_COVERAGE_FINDING_READ_UNAVAILABLE':error?.code==='AI_DUPLICATE_PAYABLE_FINDING_READ_UNAVAILABLE'?'AI_DUPLICATE_PAYABLE_FINDING_READ_UNAVAILABLE':error?.code==='AI_UNMATCHED_BANK_PAYMENT_FINDING_READ_UNAVAILABLE'?'AI_UNMATCHED_BANK_PAYMENT_FINDING_READ_UNAVAILABLE':error?.code==='AI_COST_DIMENSION_FINDING_READ_UNAVAILABLE'?'AI_COST_DIMENSION_FINDING_READ_UNAVAILABLE':error?.code==='AI_LOAN_REFERENCE_FINDING_READ_UNAVAILABLE'?'AI_LOAN_REFERENCE_FINDING_READ_UNAVAILABLE':error?.code==='AI_ACCOUNTING_ANALYSIS_SUMMARY_UNAVAILABLE'?'AI_ACCOUNTING_ANALYSIS_SUMMARY_UNAVAILABLE':error?.code==='AI_ANALYSIS_EXPLANATION_UNAVAILABLE'?'AI_ANALYSIS_EXPLANATION_UNAVAILABLE':error?.code==='AI_AMORTIZATION_COVERAGE_EVIDENCE_UNAVAILABLE'?'AI_AMORTIZATION_COVERAGE_EVIDENCE_UNAVAILABLE':error?.code==='AI_AMORTIZATION_COVERAGE_EVIDENCE_READ_UNAVAILABLE'?'AI_AMORTIZATION_COVERAGE_EVIDENCE_READ_UNAVAILABLE':error?.code==='AI_AMORTIZATION_PROPOSAL_UNAVAILABLE'?'AI_AMORTIZATION_PROPOSAL_UNAVAILABLE':error?.code==='AI_AMORTIZATION_DRAFT_UNAVAILABLE'?'AI_AMORTIZATION_DRAFT_UNAVAILABLE':error instanceof WbsCompanyCatalogControllerError?error.code:error instanceof WbsProviderFinal1RetainedEvidenceError?error.code:error instanceof WbsProviderSignedPayableAdmissionError?error.code:error instanceof WbsOperatorAttestedPayableError?error.code:error instanceof WbsSignedBankAdmissionError?error.code:error instanceof WbsAdmittedPayableIngestionError?error.code:error instanceof WbsLivePilotError?error.code:error instanceof AiAnalysisExplanationError?error.code:error instanceof WbsReadContractError?error.code:status===503?'SERIALIZATION_RETRY_EXHAUSTED':error.code||'INTERNAL_ERROR';const message=status>=500?'Internal server error':status===403?'Forbidden':error.message;const headers={'content-type':'application/problem+json','cache-control':'no-store'};if(status===503)headers['retry-after']='1';return {status,headers,body:{ok:false,code,message}};};
 
-export function createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsProviderSignedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,aiAnalysisExplanationServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory}={}){
+export function createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsProviderSignedPayableServiceFactory,wbsProviderFinal1RetainedEvidenceServiceFactory,wbsOperatorAttestedPayableServiceFactory,aiAnalysisExplanationServiceFactory,aiAccrualCandidateAnalysisServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory}={}){
   if(typeof authenticate!=='function'||typeof kernelFactory!=='function')throw new Error('Accounting API requires authenticate and kernelFactory');
   return async function dispatch({method,url,headers={},body=null}){
     try{
@@ -430,6 +435,24 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=assertWbsReadOnlyResult(await service.readAutoRecReview({tenantId:principal.tenantId,entityId,companyKey:selection.companyKey,sourceRecordIds:selection.sourceRecordIds}));
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='company-catalogs'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Company catalog reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit','offset']);const limit=optionalReadLimit(parsedUrl.searchParams.get('limit')),offset=optionalReadOffset(parsedUrl.searchParams.get('offset'));
+        if(limit>100||offset>100000)throw new AccountingApiError(400,'INVALID_PAGINATION','Company catalog pagination is limited to 100 rows and offset 100000');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listWbsCompanyCatalogCandidates!=='function')throw new AccountingApiError(503,'WBS_COMPANY_CATALOG_READ_UNAVAILABLE','Company catalog candidates are unavailable');
+        result=await kernel.listWbsCompanyCatalogCandidates({tenantId:principal.tenantId,entityId,limit,offset});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='company-catalogs'&&parts[7]==='companies'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Company catalog row reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit','offset']);const limit=optionalReadLimit(parsedUrl.searchParams.get('limit')),offset=optionalReadOffset(parsedUrl.searchParams.get('offset'));
+        if(limit>50||offset>100000)throw new AccountingApiError(400,'INVALID_PAGINATION','Company catalog row pagination is limited to 50 rows and offset 100000');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listWbsCompanyCatalogRows!=='function')throw new AccountingApiError(503,'WBS_COMPANY_CATALOG_READ_UNAVAILABLE','Company catalog rows are unavailable');
+        result=await kernel.listWbsCompanyCatalogRows({tenantId:principal.tenantId,entityId,candidateId:requireUuid(parts[6],'candidateId'),limit,offset});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='operator-attested'&&parts[6]==='payables'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Operator-attested evidence reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
@@ -463,6 +486,22 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await kernel.listAiWbsExceptionFindings({tenantId:principal.tenantId,entityId,limit});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===7&&parts[4]==='ai'&&parts[5]==='findings'&&parts[6]==='assignment-candidates'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI finding assignment-candidate reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);const rawLimit=parsedUrl.searchParams.get('limit'),limit=rawLimit==null?100:Number(rawLimit);
+        if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be an integer from 1 to 100');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listAiFindingAssignmentCandidates!=='function')throw new AccountingApiError(503,'AI_FINDING_ASSIGNMENT_CANDIDATE_READ_UNAVAILABLE','Persisted AI finding assignment candidates are unavailable');
+        result=await kernel.listAiFindingAssignmentCandidates({tenantId:principal.tenantId,entityId,limit});return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===7&&parts[4]==='ai'&&parts[5]==='findings'&&parts[6]==='actions'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI finding action reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);const rawLimit=parsedUrl.searchParams.get('limit'),limit=rawLimit==null?100:Number(rawLimit);
+        if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be an integer from 1 to 100');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listAiFindingActions!=='function')throw new AccountingApiError(503,'AI_FINDING_ACTION_READ_UNAVAILABLE','Persisted AI finding actions are unavailable');
+        result=await kernel.listAiFindingActions({tenantId:principal.tenantId,entityId,limit});return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===7&&parts[4]==='ai'&&parts[5]==='amortization'&&parts[6]==='schedules'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI amortization schedule reads do not accept command headers');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
@@ -472,6 +511,28 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);
         if(!kernel||typeof kernel.listAiAmortizationSchedules!=='function')throw new AccountingApiError(503,'AI_AMORTIZATION_SCHEDULE_READ_UNAVAILABLE','Persisted AI amortization schedules are unavailable');
         result=await kernel.listAiAmortizationSchedules({tenantId:principal.tenantId,entityId,limit});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===7&&parts[4]==='ai'&&parts[5]==='amortization'&&parts[6]==='coverage-evidence'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI amortization coverage evidence reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);
+        const rawLimit=parsedUrl.searchParams.get('limit'),limit=rawLimit==null?50:Number(rawLimit);
+        if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be an integer from 1 to 100');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.listAiAmortizationCoverageEvidence!=='function')throw new AccountingApiError(503,'AI_AMORTIZATION_COVERAGE_EVIDENCE_READ_UNAVAILABLE','Persisted AI amortization coverage evidence is unavailable');
+        result=await kernel.listAiAmortizationCoverageEvidence({tenantId:principal.tenantId,entityId,limit});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='ai'&&parts[5]==='wbs-payable-draft-proposals'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI proposal reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);
+        const rawLimit=parsedUrl.searchParams.get('limit'),limit=rawLimit==null?50:Number(rawLimit);
+        if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be an integer from 1 to 100');
+        const kernel=await kernelFactory(principal);
+        if(!kernel||typeof kernel.listAiWbsPayableDraftProposals!=='function')throw new AccountingApiError(503,'AI_WBS_PAYABLE_PROPOSAL_READ_UNAVAILABLE','AI payable proposals are unavailable');
+        result=await kernel.listAiWbsPayableDraftProposals({tenantId:principal.tenantId,entityId,limit});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===7&&parts[4]==='ai'&&parts[5]==='findings'&&parts[6]==='prepaid-coverage'){
@@ -529,6 +590,30 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         requireExactQuery(parsedUrl.searchParams,[]);const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.readAiAccountingAnalysisSummary!=='function')throw new AccountingApiError(503,'AI_ACCOUNTING_ANALYSIS_SUMMARY_UNAVAILABLE','Persisted AI accounting analysis summary is unavailable');
         result=await kernel.readAiAccountingAnalysisSummary({tenantId:principal.tenantId,entityId});return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===6&&parts[4]==='ai'&&parts[5]==='skills'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI skill registry reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:{registry_version:AI_ACCOUNTING_SKILL_REGISTRY_VERSION,skills:AI_ACCOUNTING_SKILLS}}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='ai'&&parts[5]==='analysis-reports'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI accounting analysis report reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['limit']);const rawLimit=parsedUrl.searchParams.get('limit'),limit=rawLimit==null?20:Number(rawLimit);
+        if(!Number.isSafeInteger(limit)||limit<1||limit>50)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be an integer from 1 to 50');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.listAiAccountingAnalysisReports!=='function')throw new AccountingApiError(503,'AI_ACCOUNTING_ANALYSIS_REPORT_READ_UNAVAILABLE','Persisted AI accounting analysis reports are unavailable');
+        result=await kernel.listAiAccountingAnalysisReports({tenantId:principal.tenantId,entityId,limit});return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='ai'&&parts[5]==='accrual-candidates'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','AI accrual candidate reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId']);const currentPeriodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId');
+        if(typeof aiAccrualCandidateAnalysisServiceFactory!=='function')throw new AccountingApiError(503,'AI_ACCRUAL_ANALYSIS_UNAVAILABLE','AI accrual candidate analysis is not configured');
+        const service=await aiAccrualCandidateAnalysisServiceFactory(principal);if(!service||typeof service.analyze!=='function')throw new AccountingApiError(503,'AI_ACCRUAL_ANALYSIS_UNAVAILABLE','AI accrual candidate analysis is not configured');
+        result=await service.analyze({tenantId:principal.tenantId,entityId,currentPeriodId});
+        if(!result||result.status!=='AI_ACCRUAL_ANALYSIS_COMPLETE'||result.can_create_draft!==false||result.can_review!==false||result.can_approve!==false||result.can_post!==false)throw new AccountingApiError(502,'AI_ACCRUAL_ANALYSIS_RESPONSE_INVALID','AI accrual candidate analysis returned an unsafe response');
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='POST'&&parts.length===6&&parts[4]==='ai'&&parts[5]==='analysis-explanation'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,[]);
         if(typeof aiAnalysisExplanationServiceFactory!=='function')throw new AccountingApiError(503,'AI_ANALYSIS_EXPLANATION_UNAVAILABLE','AI analysis explanation is not configured');
@@ -581,7 +666,23 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       }
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');
       const idempotencyKey=requireIdempotency(headers);
-      if(parts.length===6&&parts[4]==='reports'&&parts[5]==='financial-statement-snapshot-proposals'){
+      if(parts.length===6&&parts[4]==='wbs'&&parts[5]==='company-catalogs'){
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Immutable catalog retention does not use If-Match');
+        allowOnly(payload,['catalog']);const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.retainWbsCompanyCatalogCandidate!=='function')throw new AccountingApiError(503,'WBS_COMPANY_CATALOG_RETAIN_UNAVAILABLE','Company catalog retention is unavailable');
+        result=await kernel.retainWbsCompanyCatalogCandidate({tenantId:principal.tenantId,entityId,catalog:normalizeWbsCompanyCatalogCandidate(payload.catalog),idempotencyKey});
+        return {status:result.idempotent===true?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':`"${result.revision}"`},body:{ok:true,data:result}};
+      }else if(parts.length===8&&parts[4]==='wbs'&&parts[5]==='company-catalog-rows'&&parts[7]==='classifications'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['classification','reason']);if(!Object.hasOwn(payload,'classification')||!Object.hasOwn(payload,'reason'))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING','classification and reason are required');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.classifyWbsCompanyCatalogRow!=='function')throw new AccountingApiError(503,'WBS_COMPANY_CLASSIFICATION_UNAVAILABLE','Company catalog classification is unavailable');
+        result=await kernel.classifyWbsCompanyCatalogRow({tenantId:principal.tenantId,entityId,rowId:requireUuid(parts[6],'rowId'),expectedRevision:requireRevision(headers),classification:normalizeWbsCompanyClassification(payload.classification),reason:requireReviewReason(payload.reason),idempotencyKey});
+        return {status:result.idempotent===true?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':`"${result.revision}"`},body:{ok:true,data:result}};
+      }else if(parts.length===8&&parts[4]==='wbs'&&parts[5]==='company-catalog-rows'&&parts[7]==='approvals'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['expectedCatalogHash','expectedRowHash','effectiveFrom','effectiveTo','reason']);for(const key of ['expectedCatalogHash','expectedRowHash','effectiveFrom','effectiveTo','reason'])if(!Object.hasOwn(payload,key))throw new AccountingApiError(400,'REQUIRED_FIELD_MISSING',`${key} is required`);
+        const effectiveFrom=requireIsoDate(payload.effectiveFrom,'effectiveFrom'),effectiveTo=payload.effectiveTo===null?null:requireIsoDate(payload.effectiveTo,'effectiveTo');if(effectiveTo!==null&&effectiveTo<effectiveFrom)throw new AccountingApiError(400,'INVALID_EFFECTIVE_RANGE','effectiveTo must be null or on/after effectiveFrom');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.approveWbsCompanyCatalogRow!=='function')throw new AccountingApiError(503,'WBS_COMPANY_APPROVAL_UNAVAILABLE','Company catalog approval is unavailable');
+        result=await kernel.approveWbsCompanyCatalogRow({tenantId:principal.tenantId,entityId,rowId:requireUuid(parts[6],'rowId'),expectedRevision:requireRevision(headers),expectedCatalogHash:requireSha256(payload.expectedCatalogHash,'expectedCatalogHash'),expectedRowHash:requireSha256(payload.expectedRowHash,'expectedRowHash'),effectiveFrom,effectiveTo,reason:requireReviewReason(payload.reason),idempotencyKey});
+        return {status:result.idempotent===true?200:201,headers:{'content-type':'application/json','cache-control':'no-store','etag':`"${result.revision}"`},body:{ok:true,data:result}};
+      }else if(parts.length===6&&parts[4]==='reports'&&parts[5]==='financial-statement-snapshot-proposals'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['periodId']);
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.prepareFinancialStatementSnapshot!=='function')throw new AccountingApiError(503,'STATEMENT_SNAPSHOT_PREPARE_UNAVAILABLE','Statement snapshot preparation is unavailable');
         result=await kernel.prepareFinancialStatementSnapshot({tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),idempotencyKey});
@@ -589,6 +690,17 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,[]);
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.approveFinancialStatementSnapshot!=='function')throw new AccountingApiError(503,'STATEMENT_SNAPSHOT_APPROVE_UNAVAILABLE','Statement snapshot approval is unavailable');
         result=await kernel.approveFinancialStatementSnapshot({tenantId:principal.tenantId,entityId,proposalId:requireUuid(parts[6],'proposalId'),idempotencyKey});
+      }else if(parts.length===7&&parts[4]==='ai'&&parts[5]==='amortization'&&parts[6]==='coverage-evidence'){
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','AI amortization coverage evidence uses immutable source hashes, not If-Match');
+        allowOnly(payload,['sourceDocumentId','sourcePayloadHash','coverageStart','coverageEnd','evidenceRef','evidenceHash','extractionMethod']);
+        const coverageStart=requireIsoDate(payload.coverageStart,'coverageStart'),coverageEnd=requireIsoDate(payload.coverageEnd,'coverageEnd');
+        if(coverageStart.slice(8)!=='01'||coverageEnd!==new Date(Date.UTC(Number(coverageEnd.slice(0,4)),Number(coverageEnd.slice(5,7)),0)).toISOString().slice(0,10)||coverageEnd<coverageStart)throw new AccountingApiError(400,'INVALID_COVERAGE_PERIOD','coverageStart and coverageEnd must be an ordered whole-month range');
+        const extractionMethod=payload.extractionMethod;
+        if(!['SIGNED_SOURCE_FIELD','SIGNED_ATTACHMENT_FIELD','HUMAN_VERIFIED_SOURCE_FIELD'].includes(extractionMethod))throw new AccountingApiError(400,'INVALID_EXTRACTION_METHOD','extractionMethod must identify signed or human-verified retained evidence');
+        if(typeof payload.evidenceRef!=='string'||payload.evidenceRef!==payload.evidenceRef.trim()||payload.evidenceRef.length<1||payload.evidenceRef.length>512||/[\u0000-\u001f\u007f]/.test(payload.evidenceRef))throw new AccountingApiError(400,'INVALID_EVIDENCE_REFERENCE','evidenceRef must be a canonical retained evidence reference');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.recordAiAmortizationCoverageEvidence!=='function')throw new AccountingApiError(503,'AI_AMORTIZATION_COVERAGE_EVIDENCE_UNAVAILABLE','AI amortization coverage evidence persistence is unavailable');
+        result=await kernel.recordAiAmortizationCoverageEvidence({tenantId:principal.tenantId,entityId,sourceDocumentId:requireUuid(payload.sourceDocumentId,'sourceDocumentId'),sourcePayloadHash:requireSha256(payload.sourcePayloadHash,'sourcePayloadHash'),coverageStart,coverageEnd,evidenceRef:payload.evidenceRef,evidenceHash:requireSha256(payload.evidenceHash,'evidenceHash'),extractionMethod,idempotencyKey});
+        if(!result||!UUID.test(result.ai_amortization_coverage_evidence_id||'')||result.can_create_draft!==false||result.can_review!==false||result.can_approve!==false||result.can_post!==false)throw new AccountingApiError(500,'AI_AMORTIZATION_COVERAGE_EVIDENCE_RESULT_INVALID','AI amortization coverage evidence must remain immutable and cannot grant accounting authority');
       }else if(parts.length===7&&parts[4]==='ai'&&parts[5]==='amortization'&&parts[6]==='proposals'){
         requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','AI amortization proposals use immutable source hashes, not If-Match');
         allowOnly(payload,['sourceDocumentId','sourcePayloadHash','coverageStart','coverageEnd','prepaidAccountCode','expenseAccountCode','memberTrace','confidence','reason']);
@@ -597,6 +709,24 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.proposeAiAmortizationSchedule!=='function')throw new AccountingApiError(503,'AI_AMORTIZATION_PROPOSAL_UNAVAILABLE','AI amortization proposal persistence is unavailable');
         result=await kernel.proposeAiAmortizationSchedule({tenantId:principal.tenantId,entityId,sourceDocumentId:requireUuid(payload.sourceDocumentId,'sourceDocumentId'),sourcePayloadHash:requireSha256(payload.sourcePayloadHash,'sourcePayloadHash'),coverageStart,coverageEnd,prepaidAccountCode:requireAccountCode(payload.prepaidAccountCode),expenseAccountCode:requireAccountCode(payload.expenseAccountCode),memberTrace:requireAiAmortizationMemberTrace(payload.memberTrace),confidence:requireAiConfidence(payload.confidence),reason:requireReviewReason(payload.reason),idempotencyKey});
         if(!result||result.status!=='PROPOSED'||!UUID.test(result.ai_amortization_schedule_id||'')||result.can_create_draft!==false||result.can_review!==false||result.can_approve!==false||result.can_post!==false)throw new AccountingApiError(500,'AI_AMORTIZATION_PROPOSAL_RESULT_INVALID','AI amortization proposal must remain an immutable, no-action proposal');
+      }else if(parts.length===9&&parts[4]==='ai'&&parts[5]==='amortization'&&parts[6]==='schedules'&&parts[8]==='drafts'){
+        requireExactQuery(parsedUrl.searchParams,[]);if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','AI amortization Draft creation uses immutable proposal evidence, not If-Match');
+        allowOnly(payload,['periodId','scheduleLineId','expectedProposalHash','attachmentIds','reason']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createAiAmortizationDraft!=='function')throw new AccountingApiError(503,'AI_AMORTIZATION_DRAFT_UNAVAILABLE','AI amortization Draft creation is unavailable');
+        result=await kernel.createAiAmortizationDraft({tenantId:principal.tenantId,entityId,aiAmortizationScheduleId:requireUuid(parts[7],'aiAmortizationScheduleId'),aiAmortizationScheduleLineId:requireUuid(payload.scheduleLineId,'scheduleLineId'),periodId:requireUuid(payload.periodId,'periodId'),expectedProposalHash:requireSha256(payload.expectedProposalHash,'expectedProposalHash'),attachmentIds:requireAttachmentIds(payload.attachmentIds),reason:requireReviewReason(payload.reason),idempotencyKey});
+        if(!result||result.status!=='DRAFT'||result.journal_type!=='MANUAL'||!UUID.test(result.journal_entry_id||'')||!UUID.test(result.ai_amortization_draft_evidence_id||'')||result.can_create_draft!==false||result.can_review!==false||result.can_approve!==false||result.can_post!==false)throw new AccountingApiError(500,'AI_AMORTIZATION_DRAFT_RESULT_INVALID','AI amortization Draft creation must stop at an unsubmitted standard Draft');
+      }else if(parts.length===7&&parts[4]==='ai'&&parts[5]==='findings'&&parts[6]==='assignments'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['findingKind','findingId','findingHash','owner','dueDate']);
+        const owner=typeof payload.owner==='string'?payload.owner.trim():'';if(owner.length<2||owner.length>128||!/^\d{4}-\d{2}-\d{2}$/.test(payload.dueDate||''))throw new AccountingApiError(400,'INVALID_AI_FINDING_ASSIGNMENT','AI finding assignment requires a bounded owner and ISO due date');
+        const kind=payload.findingKind;if(!['WBS_EXCEPTION','PREPAID_COVERAGE','DUPLICATE_PAYABLE','UNMATCHED_BANK_PAYMENT','COST_DIMENSION','LOAN_REFERENCE'].includes(kind))throw new AccountingApiError(400,'INVALID_AI_FINDING_KIND','AI finding assignment kind is unsupported');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.assignAiFindingAction!=='function')throw new AccountingApiError(503,'AI_FINDING_ACTION_UNAVAILABLE','AI finding action persistence is unavailable');
+        result=await kernel.assignAiFindingAction({tenantId:principal.tenantId,entityId,findingKind:kind,findingId:requireUuid(payload.findingId,'findingId'),findingHash:requireSha256(payload.findingHash,'findingHash'),owner,dueDate:payload.dueDate,expectedRevision:requireRevision(headers),idempotencyKey});
+        if(!result||!UUID.test(result.ai_finding_action_id||'')||result.can_create_draft!==false||result.can_review!==false||result.can_approve!==false||result.can_post!==false)throw new AccountingApiError(500,'AI_FINDING_ACTION_RESULT_INVALID','AI finding action must remain human accountability only and cannot grant accounting authority');
+      }else if(parts.length===8&&parts[4]==='ai'&&parts[5]==='findings'&&parts[6]==='actions'&&parts[7]==='resolutions'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['aiFindingActionId','findingHash','reason']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.resolveAiFindingAction!=='function')throw new AccountingApiError(503,'AI_FINDING_ACTION_RESOLUTION_UNAVAILABLE','AI finding action resolution persistence is unavailable');
+        result=await kernel.resolveAiFindingAction({tenantId:principal.tenantId,entityId,aiFindingActionId:requireUuid(payload.aiFindingActionId,'aiFindingActionId'),findingHash:requireSha256(payload.findingHash,'findingHash'),reason:requireReviewReason(payload.reason),expectedRevision:requireRevision(headers),idempotencyKey});
+        if(!result||result.status!=='RESOLVED'||!UUID.test(result.ai_finding_action_id||'')||result.can_create_draft!==false||result.can_review!==false||result.can_approve!==false||result.can_post!==false)throw new AccountingApiError(500,'AI_FINDING_ACTION_RESOLUTION_RESULT_INVALID','AI finding resolution must retain human accountability only and cannot grant accounting authority');
       }else if(parts.length===6&&parts[4]==='attachments'&&parts[5]==='reservations'){
         if(typeof attachmentServiceFactory!=='function')throw new AccountingApiError(503,'ATTACHMENT_SERVICE_UNAVAILABLE','Attachment service is unavailable');
         allowOnly(payload,['name','mediaType','sizeBytes','contentHash']);const service=await attachmentServiceFactory(principal);result=await service.reserve(principal,{...payload,tenantId:principal.tenantId,entityId,idempotencyKey});
@@ -626,6 +756,14 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const service=await wbsProviderSignedPayableServiceFactory(principal);
         if(!service||typeof service.admit!=='function')throw new AccountingApiError(503,'WBS_PROVIDER_SIGNED_ADMISSION_UNAVAILABLE','Provider-signed WBS Payable admission is unavailable');
         result=await service.admit({tenantId:principal.tenantId,entityId,receipt:payload.receipt,requestRawBase64:payload.requestRawBase64,responseRawBase64:payload.responseRawBase64,packageRawBase64:payload.packageRawBase64,idempotencyKey});
+      }else if(parts.length===9&&parts[4]==='wbs'&&parts[5]==='provider-signed'&&parts[6]==='final1'&&['payables','insurance'].includes(parts[7])&&parts[8]==='admissions'){
+        requireExactQuery(parsedUrl.searchParams,[]);
+        allowOnly(payload,['receipt','requestRawBase64','responseRawBase64','packageRawBase64']);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Final-1 admission uses signed hashes and idempotency, not If-Match');
+        if(typeof wbsProviderFinal1RetainedEvidenceServiceFactory!=='function')throw new AccountingApiError(503,'WBS_FINAL1_ADMISSION_UNAVAILABLE','Provider-signed WBS Final-1 retained evidence admission is unavailable');
+        const service=await wbsProviderFinal1RetainedEvidenceServiceFactory(principal);
+        if(!service||typeof service.admit!=='function')throw new AccountingApiError(503,'WBS_FINAL1_ADMISSION_UNAVAILABLE','Provider-signed WBS Final-1 retained evidence admission is unavailable');
+        result=await service.admit({domain:parts[7]==='payables'?'PAYABLES':'INSURANCE',tenantId:principal.tenantId,entityId,receipt:payload.receipt,requestRawBase64:payload.requestRawBase64,responseRawBase64:payload.responseRawBase64,packageRawBase64:payload.packageRawBase64,idempotencyKey});
       }else if(parts.length===7&&parts[4]==='wbs'&&parts[5]==='operator-attested'&&parts[6]==='payables'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['expectedObservationHash','expectedProviderContentSha256','expectedCompanyCode','dateFrom','dateTo','reason','limit']);
         if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Operator attestation uses exact observation hashes, not If-Match');
@@ -662,6 +800,26 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const drafted=await kernel.createWbsPayableApDraft({tenantId:principal.tenantId,entityId,wbsInboundRowId:requireUuid(parts[7],'wbsInboundRowId'),reviewEvidenceId:requireUuid(payload.reviewEvidenceId,'reviewEvidenceId'),expectedRevision:requireRevision(headers),expectedEvidenceHash:requireSha256(payload.expectedEvidenceHash,'expectedEvidenceHash'),mappingSnapshotId:requireUuid(payload.mappingSnapshotId,'mappingSnapshotId'),attachmentIds:requireAttachmentIds(payload.attachmentIds),reason:requireReviewReason(payload.reason),idempotencyKey});
         if(!drafted||drafted.status!=='DRAFT'||drafted.journal_type!=='AUTO'||drafted.can_create_draft!==false||drafted.can_submit!==false||drafted.can_review!==false||drafted.can_approve!==false||drafted.can_post!==false)throw new AccountingApiError(500,'WBS_PAYABLE_AP_DRAFT_RESULT_INVALID','WBS Payable AP Draft creation must stop at an unsubmitted AUTO Draft');
         result=drafted;
+      }else if(parts.length===9&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='cost-cwip'&&parts[8]==='reviews'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['periodId','expectedSourceVersion','expectedReceiptHash','expectedEvidenceHash','settingSnapshotId','mappingSnapshotId','reason']);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Cost-to-CWIP review uses immutable signed evidence selectors, not a browser revision');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.reviewWbsCostCwip!=='function')throw new AccountingApiError(503,'WBS_COST_CWIP_REVIEW_UNAVAILABLE','Cost-to-CWIP review is unavailable');
+        const reviewed=await kernel.reviewWbsCostCwip({tenantId:principal.tenantId,entityId,wbsInboundRowId:requireUuid(parts[7],'wbsInboundRowId'),periodId:requireUuid(payload.periodId,'periodId'),expectedSourceVersion:requireSourceVersion(payload.expectedSourceVersion,'expectedSourceVersion'),expectedReceiptHash:requireSha256(payload.expectedReceiptHash,'expectedReceiptHash'),expectedEvidenceHash:requireSha256(payload.expectedEvidenceHash,'expectedEvidenceHash'),settingSnapshotId:requireUuid(payload.settingSnapshotId,'settingSnapshotId'),mappingSnapshotId:requireUuid(payload.mappingSnapshotId,'mappingSnapshotId'),reason:requireReviewReason(payload.reason),idempotencyKey});
+        if(!reviewed||reviewed.status!=='READY_FOR_DRAFT'||reviewed.can_create_draft!==false||reviewed.can_approve!==false||reviewed.can_post!==false)throw new AccountingApiError(500,'WBS_COST_CWIP_REVIEW_RESULT_INVALID','Cost-to-CWIP review must preserve evidence only and cannot create or post a journal');
+        result=reviewed;
+      }else if(parts.length===10&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='cost-cwip'&&parts[7]==='reviews'&&parts[9]==='drafts'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['expectedEvidenceHash','reason']);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Cost-to-CWIP Draft creation uses immutable reviewed evidence, not a browser revision');
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.createWbsCostCwipDraft!=='function')throw new AccountingApiError(503,'WBS_COST_CWIP_DRAFT_UNAVAILABLE','Cost-to-CWIP Draft creation is unavailable');
+        const drafted=await kernel.createWbsCostCwipDraft({tenantId:principal.tenantId,entityId,reviewEvidenceId:requireUuid(parts[8],'reviewEvidenceId'),expectedEvidenceHash:requireSha256(payload.expectedEvidenceHash,'expectedEvidenceHash'),reason:requireReviewReason(payload.reason),idempotencyKey});
+        if(!drafted||drafted.status!=='DRAFT'||drafted.journal_type!=='AUTO'||drafted.can_create_draft!==false||drafted.can_submit!==false||drafted.can_review!==false||drafted.can_approve!==false||drafted.can_post!==false)throw new AccountingApiError(500,'WBS_COST_CWIP_DRAFT_RESULT_INVALID','Cost-to-CWIP Draft creation must stop at an unsubmitted AUTO Draft');
+        result=drafted;
+      }else if(parts.length===8&&parts[4]==='ai'&&parts[5]==='wbs-payable-draft-proposals'&&parts[7]==='reviews'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['decision','reason']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.reviewAiWbsPayableDraftProposal!=='function')throw new AccountingApiError(503,'AI_WBS_PAYABLE_PROPOSAL_REVIEW_UNAVAILABLE','AI payable proposal review is unavailable');
+        const reviewed=await kernel.reviewAiWbsPayableDraftProposal({tenantId:principal.tenantId,entityId,proposalId:requireUuid(parts[6],'proposalId'),decision:typeof payload.decision==='string'?payload.decision:'',reason:requireReviewReason(payload.reason),idempotencyKey});
+        if(!reviewed||!['ACCEPTED','REJECTED'].includes(reviewed.decision)||reviewed.can_create_draft!==false||reviewed.can_submit!==false||reviewed.can_approve!==false||reviewed.can_post!==false)throw new AccountingApiError(500,'AI_WBS_PAYABLE_PROPOSAL_REVIEW_RESULT_INVALID','AI payable proposal review must not create or advance a journal');
+        result=reviewed;
       }else if(parts.length===7&&parts[4]==='wbs'&&parts[5]==='inbound'&&parts[6]==='bank-statements'){
         requireExactQuery(parsedUrl.searchParams,[]);
         if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by signed WBS bank admission');
@@ -787,10 +945,10 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
 
 const corsHeaders=(origin,allowedOrigins)=>origin&&allowedOrigins.has(origin)?{'access-control-allow-origin':origin,'access-control-allow-credentials':'true','access-control-allow-methods':'GET, POST, OPTIONS','access-control-allow-headers':'authorization, content-type, idempotency-key, if-match, cache-control','access-control-max-age':'600','vary':'Origin'}:{};
 
-export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsProviderSignedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,aiAnalysisExplanationServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory,maxBodyBytes=1024*1024,healthCheck,releaseSha=null,allowedOrigins=[]}={}){
+export function createAccountingHttpServer({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsProviderSignedPayableServiceFactory,wbsProviderFinal1RetainedEvidenceServiceFactory,wbsOperatorAttestedPayableServiceFactory,aiAnalysisExplanationServiceFactory,aiAccrualCandidateAnalysisServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory,maxBodyBytes=1024*1024,healthCheck,releaseSha=null,allowedOrigins=[]}={}){
   const allowed=new Set(allowedOrigins);
   const release=typeof releaseSha==='string'&&/^[0-9a-f]{40}$/i.test(releaseSha)?releaseSha.toLowerCase():'unversioned';
-  const dispatch=createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsProviderSignedPayableServiceFactory,wbsOperatorAttestedPayableServiceFactory,aiAnalysisExplanationServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory});
+  const dispatch=createAccountingApi({authenticate,kernelFactory,attachmentServiceFactory,wbsReadServiceFactory,wbsLivePilotServiceFactory,wbsAdmittedPayableServiceFactory,wbsProviderSignedPayableServiceFactory,wbsProviderFinal1RetainedEvidenceServiceFactory,wbsOperatorAttestedPayableServiceFactory,aiAnalysisExplanationServiceFactory,aiAccrualCandidateAnalysisServiceFactory,stage1SelfGrantServiceFactory,stage1SelfWbsReadUpgradeServiceFactory,stage1SelfWbsOperatorUpgradeServiceFactory});
   return createServer(async(req,res)=>{
     const chunks=[];let size=0;
     try{

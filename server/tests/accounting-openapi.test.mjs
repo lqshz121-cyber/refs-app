@@ -6,22 +6,25 @@ const accountingCommands=operations.filter(operation=>operation.operationId!=='e
 
 test('accounting OpenAPI is 3.1, authenticated and operation ids match the runtime kernel surface',()=>{
   assert.equal(contract.openapi,'3.1.0');assert.deepEqual(contract.security,[{bearerAuth:[]}]);
-  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitProviderSignedWbsPayables','admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','approveFinancialStatementSnapshot','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsPayableApDraft','explainAiAccountingAnalysis','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','prepareFinancialStatementSnapshot','proposeAiAmortizationSchedule','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','reviewAdmittedWbsPayable','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
+  assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitProviderSignedWbsPayables','admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','approveFinancialStatementSnapshot','approveWbsCompanyCatalogRow','assignAiFindingAction','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','classifyWbsCompanyCatalogRow','createAiAmortizationDraft','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsCostCwipDraft','createReviewedWbsPayableApDraft','explainAiAccountingAnalysis','finalizeAttachment','ingestAdmittedWbsPayables','postJournal','prepareFinancialStatementSnapshot','proposeAiAmortizationSchedule','recordAiAmortizationCoverageEvidence','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','resolveAiFindingAction','retainProviderSignedWbsFinal1Insurance','retainProviderSignedWbsFinal1Payables','retainWbsCompanyCatalogCandidate','reviewAdmittedWbsCostCwip','reviewAdmittedWbsPayable','reviewAiWbsPayableDraftProposal','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
 });
 
 test('every accounting command requires idempotency and every mutable existing resource requires If-Match',()=>{
   for(const operation of accountingCommands.filter(operation=>operation.operationId!=='verifyWbsAutoRecTransitionContract'))assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IdempotencyKey'));
-  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment','setReconciliationClearance','setReconciliationAdjustmentClearance','transitionReconciliation','createReconciliationAdjustmentDraft','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','reviewAdmittedWbsPayable','createReviewedWbsPayableApDraft'].includes(item.operationId)))assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IfMatch'));
+  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment','setReconciliationClearance','setReconciliationAdjustmentClearance','transitionReconciliation','createReconciliationAdjustmentDraft','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','reviewAdmittedWbsPayable','reviewAiWbsPayableDraftProposal','createReviewedWbsPayableApDraft','classifyWbsCompanyCatalogRow','approveWbsCompanyCatalogRow'].includes(item.operationId)))assert.ok(operation.parameters.some(parameter=>parameter.$ref==='#/components/parameters/IfMatch'));
   assert.equal(contract.components.parameters.IfMatch.schema.pattern,'^\\\"[0-9]+\\\"$');
 });
 
 test('identity and server-computed request hash are absent from all public request schemas',()=>{
-  const {WbsProviderSignedPayableAdmission,...ordinaryBodies}=contract.components.requestBodies;
+  const {WbsProviderSignedPayableAdmission,WbsProviderFinal1Admission,...ordinaryBodies}=contract.components.requestBodies;
   const serialized=JSON.stringify(ordinaryBodies);
   for(const forbidden of ['actorId','actor_id','tenantId','tenant_id','entityId','entity_id','requestHash','request_hash'])assert.equal(serialized.includes(`\"${forbidden}\"`),false);
   const signedSchema=WbsProviderSignedPayableAdmission.content['application/json'].schema;
   for(const forbidden of ['actorId','actor_id','tenantId','entityId','requestHash','request_hash','providerTrust'])assert.equal(Object.hasOwn(signedSchema.properties,forbidden),false);
   assert.equal(signedSchema.properties.receipt.additionalProperties,false,'signed scope is evidence inside the verified receipt, never caller authority');
+  const final1Schema=WbsProviderFinal1Admission.content['application/json'].schema;
+  for(const forbidden of ['actorId','actor_id','tenantId','entityId','requestHash','request_hash','providerTrust'])assert.equal(Object.hasOwn(final1Schema.properties,forbidden),false);
+  assert.equal(final1Schema.properties.receipt.additionalProperties,false,'Final-1 signed scope is verified evidence, never caller authority');
 });
 
 test('all responses are no-store and use a structured success or problem envelope',()=>{
@@ -34,7 +37,7 @@ test('all responses are no-store and use a structured success or problem envelop
   assert.match(contract.components.responses.Problem.description,/503/);
   for(const operation of accountingCommands){assert.ok(operation.responses['200']);assert.ok(operation.responses['503']);assert.ok(operation.responses.default);if(operation.operationId!=='verifyWbsAutoRecTransitionContract')assert.ok(operation.responses['201']);}
   const explanation=contract.paths['/entities/{entityId}/ai/analysis-explanation'].post;assert.ok(explanation.responses['200']);assert.ok(explanation.responses['503']);assert.equal(explanation.responses['201'],undefined);assert.match(explanation.description,/cannot create a Draft.*approve.*post/i);const explanationAction=contract.components.schemas.AiAccountingAnalysisExplanationResult.properties.controller_actions.items;assert.deepEqual(explanationAction.required,['category','finding_ids','action']);assert.equal(explanationAction.properties.finding_ids.minItems,1);
-  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment','setReconciliationClearance','setReconciliationAdjustmentClearance','transitionReconciliation','createReconciliationAdjustmentDraft','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','reviewAdmittedWbsPayable','createReviewedWbsPayableApDraft'].includes(item.operationId)))assert.equal(operation.responses['412'].$ref,'#/components/responses/PreconditionFailed');
+  for(const operation of operations.filter(item=>['transitionJournal','postJournal','createApBillVoid','createBankPaymentMatch','unmatchBankPayment','setReconciliationClearance','setReconciliationAdjustmentClearance','transitionReconciliation','createReconciliationAdjustmentDraft','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','reviewAdmittedWbsPayable','reviewAiWbsPayableDraftProposal','createReviewedWbsPayableApDraft'].includes(item.operationId)))assert.equal(operation.responses['412'].$ref,'#/components/responses/PreconditionFailed');
   assert.equal(contract.components.responses.SerializationRetryExhausted.headers['Retry-After'].schema.minimum,0);
 });
 
@@ -77,6 +80,15 @@ test('WBS Payable review is an evidence-only CAS command with frozen server-side
   assert.deepEqual(operation.parameters.filter(item=>item.$ref).map(item=>item.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey','#/components/parameters/IfMatch']);
   assert.match(operation.description,/WBS\.PAYABLE\.REVIEW/);assert.match(operation.description,/never creates a Bill, Journal Entry, approval, posting batch, or ledger line/);
   const body=contract.components.requestBodies.WbsPayableReview.content['application/json'].schema;assert.equal(body.additionalProperties,false);assert.ok(body.required.includes('expectedEvidenceHash'));assert.ok(body.required.includes('mappingSnapshotId'));assert.ok(body.required.includes('attachmentIds'));
+});
+
+test('AI payable proposals are immutable human-review evidence and cannot create or post a journal',()=>{
+  const list=contract.paths['/entities/{entityId}/ai/wbs-payable-draft-proposals'].get;
+  const review=contract.paths['/entities/{entityId}/ai/wbs-payable-draft-proposals/{proposalId}/reviews'].post;
+  assert.equal(list.operationId,'listAiWbsPayableDraftProposals');assert.match(list.description,/does not create a Draft, submit, approve, or post/i);
+  assert.equal(review.operationId,'reviewAiWbsPayableDraftProposal');assert.deepEqual(review.parameters.filter(item=>item.$ref).map(item=>item.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey','#/components/parameters/IfMatch']);
+  assert.match(review.description,/never creates a Draft or advances a journal/i);assert.equal(review.responses['412'].$ref,'#/components/responses/PreconditionFailed');
+  assert.equal(contract.components.schemas.AiWbsPayableDraftProposal.properties.can_post.const,false);
 });
 
 test('admitted WBS Payable review candidates are dual-permission closed GET contracts',()=>{

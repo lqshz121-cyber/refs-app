@@ -6,8 +6,7 @@ import {createWbsInboundDataAdapter} from '../runtime/wbs-inbound-data-adapter.m
 import {validateWbsSnapshotPackage} from '../runtime/wbs-snapshot-package.mjs';
 
 const envelope=(tool,rows,scope={company:'COMPANY-A'})=>{
-  const materialized=tool==='list_bank_transactions'?rows.map((row,index)=>Object.hasOwn(row,'bank_transaction_id')?row:{...row,bank_transaction_id:`BANK-TX-${index+1}`}):rows;
-  return {contract_version:'WBS-REFS-MCP-V1',tool,environment:'production',captured_at:'2026-08-09T12:00:00.000Z',source:{system:'WBS'},scope,record_count:materialized.length,content_sha256:canonicalRequestHash(materialized).slice(7),cursor_next:null,etl_notice:'Snapshot comparison required',rows:materialized};
+  return {contract_version:'WBS-REFS-MCP-V1',tool,environment:'production',captured_at:'2026-08-09T12:00:00.000Z',source:{system:'WBS'},scope,record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,etl_notice:'Snapshot comparison required',rows};
 };
 const bankDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD',bank_account_ref:'BANK-1'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/bank/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-BANK-DR-1',version:'1',debtor_direction:'DEBIT',lender_direction:'CREDIT'}];
 const payableDirectionConventions=sourceEnvelope=>[{scope:{company_key:'COMPANY-A',currency:'USD'},receipt:{hash:`sha256:${sourceEnvelope.content_sha256}`,ref:'object://wbs/payable/receipt',version:'v1',verification_id:'verify-1',key_id:'wbs-k1',algorithm:'ES256',verified_on:'2026-08-09T12:00:00.000Z'},rule_id:'WBS-PAYABLE-DR-1',version:'1',ap_type:'AUTOC',direction:'DEBIT'}];
@@ -23,9 +22,10 @@ test('formal WBS Payable, Bank Journal, and AutoRec detail envelopes map to read
   const bankEnvelope=envelope('list_bank_transactions',[{cb_id:'B-1',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',account_name:'Operating Cash',debtor:'100',lender:'0',set_date:'2026-08-01',posting_date:'2026-08-01',payee:'Vendor A',payee_no:'V-1',description:'Bank memo',ref_no:'REF-1',deposit:'0',payment:'100',pj_code:'PROJECT',department:'DEPT',cost_code:'COST',brief_description:'Brief',invoice_receipt_evidence:'ATTACHMENT-1',user_ref:'USER-1',review:'REVIEWED',reviewer:'REVIEWER-1',comments_log_ref:'LOG-1',come_from:'AUTOC',child_come_from:'PAYABLE'}]);
   const bank=mapWbsMcpEnvelopeToInbound({envelope:bankEnvelope,bankDirectionConventions:bankDirectionConventions(bankEnvelope)});
   assert.deepEqual({direction:bank.rows[0].direction,amount:bank.rows[0].amount,post:bank.rows[0].can_post},{direction:'DEBIT',amount:'-100.0000',post:false});
+  assert.deepEqual({sourceRecordId:bank.rows[0].source_record_id,bankTransactionId:bank.rows[0].bankTransactionId,sourceCbId:bank.rows[0].source_cb_id},{sourceRecordId:'B-1',bankTransactionId:'B-1',sourceCbId:'B-1'});
   const blockedBank=mapWbsMcpEnvelopeToInbound({envelope:bankEnvelope});
   assert.deepEqual({admission:blockedBank.rows[0].admission,code:blockedBank.rows[0].exception_code,direction:blockedBank.rows[0].direction},{admission:'EXCEPTION_REVIEW_REQUIRED',code:'WBS_MCP_BANK_DIRECTION_CONVENTION_REQUIRED',direction:null});
-  assert.deepEqual(bank.rows[0].bank_trace,{transaction_date:'2026-08-01',posting_date:'2026-08-01',account_code:'BANK-1',account_name:'Operating Cash',payee:'Vendor A',payee_no:'V-1',memo:'Bank memo',ref_no:'REF-1',deposit:'0',payment:'100',project_code:'PROJECT',department:'DEPT',cost_code:'COST',brief_description:'Brief',invoice_receipt_evidence:'ATTACHMENT-1',user_ref:'USER-1',review_status:'REVIEWED',reviewer_ref:'REVIEWER-1',comments_log_ref:'LOG-1',come_from:'AUTOC',child_come_from:'PAYABLE'});assert.equal(bank.rows[0].can_use_trace_as_key,false);
+  assert.deepEqual(bank.rows[0].bank_trace,{source_cb_id:'B-1',transaction_date:'2026-08-01',posting_date:'2026-08-01',account_code:'BANK-1',account_name:'Operating Cash',payee:'Vendor A',payee_no:'V-1',memo:'Bank memo',ref_no:'REF-1',deposit:'0',payment:'100',project_code:'PROJECT',department:'DEPT',cost_code:'COST',brief_description:'Brief',invoice_receipt_evidence:'ATTACHMENT-1',user_ref:'USER-1',review_status:'REVIEWED',reviewer_ref:'REVIEWER-1',comments_log_ref:'LOG-1',come_from:'AUTOC',child_come_from:'PAYABLE'});assert.equal(bank.rows[0].can_use_trace_as_key,false);
   const detailEnvelope=envelope('list_autorec_details',[{pd_guid:'D-1',company_code:'COMPANY-A',currency:'USD',deposit:'0',payment:'100',cb_id:'B-1',pd_pv_guid:'PB-1',batch_guid:'BATCH-1',biz_type:'WB',clear_date:'2026-08-02',incurred_date:'2026-08-01',posting_date:'2026-08-01',released_date:'2026-08-01',released_by:'USER-MASKED',status:'INCURRED',match_status:'MATCHED',match_guid:'MATCH-1',project_guid:'PROJECT-1',cost_code:'COST-1',vendor_no:'V-1'}]);
   const detail=mapWbsMcpEnvelopeToInbound({envelope:detailEnvelope,autoRecDetailDirectionConventions:detailDirectionConventions(detailEnvelope)});
   assert.equal(detail.rows[0].admission,'AUTOREC_REVIEW_EVIDENCE');assert.equal(detail.rows[0].direction,'DEBIT');assert.equal(detail.rows[0].can_create_draft,false);
@@ -73,8 +73,8 @@ test('MCP direction ambiguity becomes an exception and report/control views cann
   assert.equal(control.rows[0].admission,'CONTROL_OR_TRACE_ONLY');assert.equal(control.rows[0].source_record_id,null);assert.equal(control.can_post,false);
 });
 
-test('Bank Journal cb_id remains a relation locator and cannot substitute for a bank transaction key',()=>{
-  const missingKey=envelope('list_bank_transactions',[{bank_transaction_id:'',cb_id:'RELATION-ONLY',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-01',posting_date:'2026-08-01'}]);
+test('Bank cb_id is the required immutable producer key and legacy keys cannot substitute',()=>{
+  const missingKey=envelope('list_bank_transactions',[{bank_transaction_id:'LEGACY-ONLY',cb_id:'',company_code:'COMPANY-A',currency:'USD',account_code:'BANK-1',debtor:'100',lender:'0',set_date:'2026-08-01',posting_date:'2026-08-01'}]);
   assert.throws(()=>mapWbsMcpEnvelopeToInbound({envelope:missingKey}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');
 });
 
@@ -249,7 +249,8 @@ test('formal MCP transaction views enter the existing Raw/Normalized/Staging ada
   assert.equal(raw.upstream_mcp_tool,'list_payables');assert.equal(raw.upstream_mcp_snapshot_token,'snapshot-trace-1');assert.match(raw.upstream_mcp_content_hash,/^sha256:/);
   assert.deepEqual(raw.external_trace,{ap_type:'AUTOC',posting_date:'2026-08-09',incurred_date:'2026-08-09',journal_no:'J-1',check_no:'CHK-1',clear_date:'2026-08-10',company_code:'COMPANY-A'});assert.equal(raw.can_use_trace_as_key,false);assert.equal(raw.can_use_trace_as_posting_authority,false);
   const bankRaw=result.staging.find(item=>item.raw_trace.source_type==='BANK_TRANSACTION').raw_trace;
-  assert.deepEqual(bankRaw.external_trace,{transaction_date:'2026-08-09',posting_date:'2026-08-09',account_code:'BANK-1',payee:'Vendor A',memo:'Bank memo',come_from:'AUTOC'});assert.equal(bankRaw.can_use_trace_as_key,false);assert.equal(bankRaw.can_use_trace_as_posting_authority,false);
+  assert.equal(bankRaw.source_record_id,'B-1');
+  assert.deepEqual(bankRaw.external_trace,{source_cb_id:'B-1',transaction_date:'2026-08-09',posting_date:'2026-08-09',account_code:'BANK-1',payee:'Vendor A',memo:'Bank memo',come_from:'AUTOC'});assert.equal(bankRaw.can_use_trace_as_key,false);assert.equal(bankRaw.can_use_trace_as_posting_authority,false);
   const detailRaw=result.exceptions.find(item=>item.raw_trace.source_type==='AUTOREC_PAYMENT_DETAIL').raw_trace;
   assert.deepEqual(detailRaw.external_trace,{batch_guid:'UNVERIFIED-BATCH-RELATION',biz_type:'WB',clear_date:'2026-08-10',incurred_date:'2026-08-09',posting_date:'2026-08-09',status:'INCURRED',match_status:'MATCHED',autoc_relation_ref:'RELATION-ONLY'});assert.equal(detailRaw.can_use_trace_as_state_authority,false);assert.equal(detailRaw.can_use_trace_as_posting_authority,false);
   assert.equal(Object.hasOwn(detailRaw,'pbGuId'),false);

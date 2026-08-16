@@ -16,6 +16,8 @@ import { AuthoritativeGeneralLedgerWorkspace } from './authoritative-general-led
 import { AuthoritativeWbsTransitionWorkspace } from './authoritative-wbs-transition-workspace.jsx';
 import { AuthoritativeWbsPayableReviewWorkspace } from './authoritative-wbs-payable-review-workspace.jsx';
 import { AuthoritativeAiAuditWorkspace } from './authoritative-ai-audit-workspace.jsx';
+import { AuthoritativeAccrualWorkspace } from './authoritative-accrual-workspace.jsx';
+import { AuthoritativeAmortizationWorkspace } from './authoritative-amortization-workspace.jsx';
 import { resolveInitialTheme, watchOsTheme, writeStoredTheme } from './authoritative-theme-preference.js';
 import {
   AuthoritativeAdjustmentDetail,
@@ -161,8 +163,10 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   // previously had no opener at all, which made the navigation unreachable on a
   // tablet as well as untabbable - both are fixed by the same three pieces.
   const [navOpen, setNavOpen] = useState(false);
-  const [expandedNavigationGroup, setExpandedNavigationGroup] = useState(() =>
-    AUTHORITATIVE_NAVIGATION.find(group => group.items.some(item => item.route === readRetainedRoute(environment)))?.label || null);
+  const [expandedNavigationGroups, setExpandedNavigationGroups] = useState(() => {
+    const initial = AUTHORITATIVE_NAVIGATION.find(group => group.items.some(item => item.route === readRetainedRoute(environment)))?.label;
+    return initial ? [initial] : [];
+  });
   const [navOffCanvas, setNavOffCanvas] = useState(() => readOffCanvas());
   const navDrawerRef = useRef(null);
   const navOpenerRef = useRef(null);
@@ -285,14 +289,20 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     if (next === 'reports') setReportsNavigationVersion(current => current + 1);
     setRouteState(next);
     retainRoute(environment, next);
-    setExpandedNavigationGroup(AUTHORITATIVE_NAVIGATION.find(group => group.items.some(item => item.route === next))?.label || null);
+    const group = AUTHORITATIVE_NAVIGATION.find(entry => entry.items.some(item => item.route === next));
+    if (group) setExpandedNavigationGroups(current => current.includes(group.label) ? current : [...current, group.label]);
     setNavOpen(false);
   }), [environment]);
   const selectNavigationGroup = useCallback(group => {
-    const multiple = group.items.length > 1;
-    setExpandedNavigationGroup(current => multiple && current === group.label ? null : group.label);
-    setRoute(group.items[0].route);
-    setNavOpen(false);
+    setExpandedNavigationGroups(current => current.includes(group.label)
+      ? current.filter(label => label !== group.label)
+      : [...current, group.label]);
+  }, []);
+
+  const selectNavigationItem = useCallback(next => {
+    const group = AUTHORITATIVE_NAVIGATION.find(entry => entry.items.some(item => item.route === next));
+    if (group) setExpandedNavigationGroups(current => current.includes(group.label) ? current : [...current, group.label]);
+    setRoute(next); setNavOpen(false);
   }, [setRoute]);
 
   const refresh = useCallback(async () => {
@@ -430,8 +440,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   }
   const counts = { bills:data.ap.bills.length, invoices:data.ar.invoices.length, adjustments:data.ap.adjustments.length + data.ar.adjustments.length, journals:data.journals.length };
   return <div className="app authoritative-app">
-    <AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route={route} expandedGroup={expandedNavigationGroup}
-      onSelectGroup={selectNavigationGroup} onSelectItem={next => { setRoute(next); setNavOpen(false); }} navOpen={navOpen}
+    <AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route={route} expandedGroups={expandedNavigationGroups}
+      onSelectGroup={selectNavigationGroup} onSelectItem={selectNavigationItem} navOpen={navOpen}
       navDrawerRef={navDrawerRef} drawerAttributes={navDrawerAttributes(navOffCanvas, navOpen)} onClose={() => setNavOpen(false)}/>
     {false && <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar ${navOpen ? 'mobile-open' : ''}`}
       {...navDrawerAttributes(navOffCanvas, navOpen)}>
@@ -493,20 +503,21 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace key={`reconciliation-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'wbs-payable-review' && <AuthoritativeWbsPayableReviewWorkspace key={`wbs-payable-review-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'ai-audit' && <AuthoritativeAiAuditWorkspace key={`ai-audit-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
+        {phase === 'READY' && route === 'accruals' && <AuthoritativeAccrualWorkspace key={`accruals-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'wbs-autorec-evidence' && <AuthoritativeWbsTransitionWorkspace key={`wbs-autorec-evidence-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={async()=>{const [documents,journals]=await Promise.all([refreshAuthoritativeDocuments({config,fetcher:boundFetcher}),refreshAuthoritativeJournalEntries({config,fetcher:boundFetcher})]);if(documents.ok&&journals.ok){setData({ap:documents.ap,ar:documents.ar,journals:journals.journals});setSharedAccountingLoaded(true);}}}/>}
         {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace key={`reports-${workspaceRefreshVersion}-${reportsNavigationVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={reportCatalogReturn||DEFAULT_AUTHORITATIVE_REPORTS_CATALOG} onOpenArAging={openReportAgingEvidence}/>}
         {phase === 'READY' && route === 'project-cost-cwip' && <AuthoritativeReportsWorkspace key={`project-cost-cwip-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="PROJECT" workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Project Cost & CWIP" workspaceDescription="Project profitability, CWIP rollforward, construction-loan, prepaid, and budget evidence are read from existing OIDC-authenticated accounting APIs. Cost-code, vendor, and project transaction registers remain unavailable until their own server read contracts exist."/>}
         {phase === 'READY' && route === 'unit-cost-ledger' && <AuthoritativeReportsWorkspace key={`unit-cost-ledger-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="UNIT" workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Unit / Lot profitability" workspaceDescription="Unit and lot profitability reads only exact Unit dimensions retained on same-entity, same-period POSTED ledger lines. Select a canonical Unit reference to load its report, then drill back through the retained evidence. Unit transfer, pricing, and browser-side allocation workflows remain unavailable."/>}
         {phase === 'READY' && route === 'property-ops-pickup' && <AuthoritativeReportsWorkspace key={`property-ops-pickup-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="PROPERTY" workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Property operating P&amp;L" workspaceDescription="Property operating results read only exact Property dimensions retained on same-entity, same-period POSTED ledger lines. Select a canonical Property reference to load its report and trace the displayed evidence. Rent pickup, external source sync, and automatic journal creation remain unavailable."/>}
         {phase === 'READY' && route === 'construction-loan' && <AuthoritativeReportsWorkspace key={`construction-loan-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'CASH_AND_CAPITAL',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Construction Loan" workspaceDescription="Construction-loan rollforward evidence is read from the existing OIDC-authenticated accounting API and requires approved mappings plus POSTED ledger evidence. Loan register, lender, commitment, and draw-management workflows remain unavailable until server contracts exist."/>}
-        {phase === 'READY' && route === 'amortization' && <AuthoritativeReportsWorkspace key={`amortization-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'CASH_AND_CAPITAL',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Amortization Center" workspaceDescription="Prepaid rollforward evidence is read from the existing OIDC-authenticated accounting API and requires approved mappings plus POSTED ledger evidence. Schedule authoring, posting, and browser-local amortization calculations remain unavailable until server contracts exist."/>}
+        {phase === 'READY' && route === 'amortization' && <AuthoritativeAmortizationWorkspace key={`amortization-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'intercompany' && <AuthoritativeReportsWorkspace key={`intercompany-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Intercompany" workspaceDescription="Intercompany reconciliation reads existing OIDC-authenticated, aligned-period evidence for two explicitly scoped entities. Elimination, adjustment, and intercompany posting workflows remain unavailable until server contracts exist."/>}
         {phase === 'READY' && route === 'consolidation' && <AuthoritativeReportsWorkspace key={`consolidation-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceEyebrow="AUTHORITATIVE - GENERAL LEDGER" workspaceTitle="Consolidation" workspaceDescription="Consolidation evidence is read from existing OIDC-authenticated approved group snapshots and POSTED ledger evidence. Elimination creation, group maintenance, and browser-side consolidation workbooks remain unavailable until server contracts exist."/>}
         {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'source-documents' && <AuthoritativeSourceDocumentsWorkspace key={`source-documents-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && ['chart-of-accounts','account-inquiry'].includes(route) && <AuthoritativeChartOfAccountsWorkspace key={`coa-${workspaceRefreshVersion}`} config={config} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'general-ledger' && <AuthoritativeGeneralLedgerWorkspace key={`general-ledger-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
-        {phase === 'READY' && !['overview','payables','receivables','bank-batch-pipeline','bank','reconciliation','wbs-payable-review','ai-audit','wbs-autorec-evidence','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','amortization','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','general-ledger'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
+        {phase === 'READY' && !['overview','payables','receivables','bank-batch-pipeline','bank','reconciliation','wbs-payable-review','ai-audit','wbs-autorec-evidence','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','amortization','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','general-ledger','accruals'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
       </main>
     </div>
   </div>;

@@ -1,4 +1,4 @@
-import {createHash,createPrivateKey,createPublicKey,sign,verify} from 'node:crypto';
+import {createHash,createPublicKey,verify} from 'node:crypto';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {canonicalRequestBody,canonicalRequestHash} from './request-hash.mjs';
@@ -9,6 +9,7 @@ import {createWbsSnapshotSignatureVerifier} from './wbs-snapshot-signature.mjs';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TOKEN=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const HASH=/^sha256:[0-9a-f]{64}$/;
+const UTC_INSTANT=/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{3}))?Z$/;
 const MAX_RAW_BYTES=32*1024*1024;
 export const WBS_SIGNED_DELIVERY_MAX_TTL_MS=15*60*1000;
 
@@ -23,7 +24,11 @@ const safeRaw=(value,label)=>{
   if(!Buffer.isBuffer(value)||value.byteLength===0||value.byteLength>MAX_RAW_BYTES)fail('WBS_SIGNED_DELIVERY_RAW_INVALID',`${label} raw bytes are absent or outside the fixed size bound.`);
   return value;
 };
-const exactUtc=value=>typeof value==='string'&&value.endsWith('Z')&&Number.isFinite(Date.parse(value))&&new Date(Date.parse(value)).toISOString()===value;
+const exactUtc=value=>{
+  if(typeof value!=='string')return false;
+  const match=UTC_INSTANT.exec(value),milliseconds=Date.parse(value);
+  return match!==null&&Number.isFinite(milliseconds)&&new Date(milliseconds).toISOString()===`${match[1]}.${match[2]||'000'}Z`;
+};
 const exactScope=scope=>object(scope)&&UUID.test(scope.tenant_id||'')&&UUID.test(scope.entity_id||'')&&TOKEN.test(scope.company_code||'');
 const without=(value,...keys)=>Object.fromEntries(Object.entries(value).filter(([key])=>!keys.includes(key)));
 const declaredFingerprint=value=>{
@@ -31,12 +36,6 @@ const declaredFingerprint=value=>{
   const match=/^(?:sha256:)?([0-9a-f]{64})$/i.exec(value.trim());
   return match?`sha256:${match[1].toLowerCase()}`:null;
 };
-
-function keyPair(privateKeyPem){
-  let privateKey;try{privateKey=createPrivateKey(String(privateKeyPem||'').replace(/\\n/g,'\n'));}catch{fail('WBS_SIGNED_DELIVERY_PRIVATE_KEY_INVALID','An Ed25519 provider private key is required.');}
-  if(privateKey.asymmetricKeyType!=='ed25519')fail('WBS_SIGNED_DELIVERY_PRIVATE_KEY_INVALID','The provider signing key must be Ed25519.');
-  return Object.freeze({privateKey,publicKey:createPublicKey(privateKey)});
-}
 
 export function normalizeWbsProviderTrust(value){
   if(!object(value)||!TOKEN.test(value.issuer||'')||!TOKEN.test(value.key_id||'')||typeof value.public_key!=='string')fail('WBS_SIGNED_DELIVERY_PROVIDER_TRUST_INVALID','Pinned provider issuer, key id, and Ed25519 public key are required.');
@@ -57,25 +56,6 @@ export function normalizeWbsProviderTrust(value){
 
 function validReceiptWindow(receipt,now){
   if(!isWbsLiveReceiptTimeWindowValid(receipt,now)||!exactUtc(receipt.signed_at)||!exactUtc(receipt.expires_at)||Date.parse(receipt.expires_at)-Date.parse(receipt.signed_at)>WBS_SIGNED_DELIVERY_MAX_TTL_MS)fail('WBS_SIGNED_DELIVERY_RECEIPT_EXPIRED','The signed receipt is expired, future-dated, malformed, or exceeds the fixed 15-minute lifetime.');
-}
-
-export async function createWbsSignedDelivery({unsignedSnapshot,requestRaw,responseRaw,scope,issuer,keyId,nonce,signedAt,expiresAt,privateKeyPem,now=Date.now()}={}){
-  safeRaw(requestRaw,'request');safeRaw(responseRaw,'response');
-  if(!exactScope(scope)||!TOKEN.test(issuer||'')||!TOKEN.test(keyId||'')||!TOKEN.test(nonce||''))fail('WBS_SIGNED_DELIVERY_SCOPE_INVALID','One exact tenant, entity, company, issuer, key id, and nonce are required.');
-  if(!object(unsignedSnapshot))fail('WBS_SIGNED_DELIVERY_PACKAGE_INVALID','A WBS snapshot package is required.');
-  const keys=keyPair(privateKeyPem);
-  const manifest=without(structuredClone(unsignedSnapshot),'package_hash','detached_signature');
-  const packageHash=canonicalRequestHash(manifest);
-  const snapshot={...manifest,package_hash:packageHash,detached_signature:{key_id:keyId,algorithm:'Ed25519',value:sign(null,Buffer.from(packageHash,'utf8'),keys.privateKey).toString('base64')}};
-  let validated;try{validated=validateWbsSnapshotPackage(snapshot);}catch{fail('WBS_SIGNED_DELIVERY_PACKAGE_INVALID','The WBS snapshot package does not satisfy the production V2 contract.');}
-  if(validated.environment!=='PRODUCTION'||validated.company_key!==scope.company_code||validated.receipt_count<1)fail('WBS_SIGNED_DELIVERY_SCOPE_INVALID','The signed production package must be nonempty and match the exact company scope.');
-  const packageRaw=canonicalBytes(snapshot);
-  const receipt={issuer,kid:keyId,algorithm:'Ed25519',request_sha256:sha256(requestRaw),response_sha256:sha256(responseRaw),package_hash:sha256(packageRaw),nonce,signed_at:signedAt,expires_at:expiresAt,tenant_id:scope.tenant_id,entity_id:scope.entity_id,company_code:scope.company_code,immutable_version:snapshot.snapshot_id,nonempty:true};
-  validReceiptWindow(receipt,now);
-  receipt.detached_signature={key_id:keyId,algorithm:'Ed25519',value:sign(null,Buffer.from(canonicalWbsLiveReceiptSigningPayload(receipt),'utf8'),keys.privateKey).toString('base64')};
-  const publicKey=keys.publicKey.export({type:'spki',format:'pem'}).toString();
-  const providerTrust=Object.freeze({issuer,key_id:keyId,public_key:publicKey,fingerprint_sha256:sha256(keys.publicKey.export({type:'spki',format:'der'}))});
-  return Object.freeze({providerTrust,receipt:Object.freeze(receipt),package:Object.freeze(snapshot),packageRaw});
 }
 
 export async function verifyWbsSignedDelivery({providerTrust,receipt,requestRaw,responseRaw,packageRaw,expectedScope,now=Date.now()}={}){

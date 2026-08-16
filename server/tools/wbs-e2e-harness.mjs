@@ -310,12 +310,23 @@ export function runBankReconciliationScenario({ allowSimulatedPersistence = true
     )?.row?.cb_id ?? null;
 
   const reviewedFor = seam =>
-    simulatePersistedReviewedStaging({
-      stagingItem: seam.staging_item,
-      reviewedBy: ACTORS.reviewer.user_id,
-      reviewedAt: REVIEWED_AT,
-      allowSimulatedPersistence,
-    });
+    // A contract drift must fail in the scenario itself, rather than leave an
+    // undefined seam that node:test later reports as asynchronous activity.
+    // In particular, Bank rows use provider cb_id as their immutable key.
+    (() => {
+      if (!seam?.staging_item) {
+        throw new WbsE2eError(
+          'WBS_E2E_STAGING_SEAM_MISSING',
+          'The receipt-bound Bank row did not reach the reviewed staging seam.',
+        );
+      }
+      return simulatePersistedReviewedStaging({
+        stagingItem: seam.staging_item,
+        reviewedBy: ACTORS.reviewer.user_id,
+        reviewedAt: REVIEWED_AT,
+        allowSimulatedPersistence,
+      });
+    })();
 
   /* --- 2a. Matched candidate run through the real eligibility gate --- */
   const bankSeam = bankSeamFor('SYS-BANK-0001');

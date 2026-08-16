@@ -146,6 +146,36 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async retainWbsCompanyCatalogCandidate({tenantId,entityId,catalog,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_retain_wbs_company_catalog_hash($1,$2,$3::jsonb) AS request_hash',[tenantId,entityId,JSON.stringify(catalog)]),'WBS_COMPANY_CATALOG_HASH_FAILED','Company catalog request hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_retain_wbs_company_catalog($1,$2,$3::jsonb,$4,$5) AS result',[tenantId,entityId,JSON.stringify(catalog),idempotencyKey,requestHash]),'WBS_COMPANY_CATALOG_RETAIN_FAILED','Company catalog retention did not return a result').result;
+    });
+  }
+
+  async listWbsCompanyCatalogCandidates({tenantId,entityId,limit=50,offset=0}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_wbs_company_catalogs($1,$2,$3,$4) AS rows',[tenantId,entityId,limit,offset]),'WBS_COMPANY_CATALOG_READ_FAILED','Company catalog read did not return a result').rows);
+  }
+
+  async listWbsCompanyCatalogRows({tenantId,entityId,candidateId,limit=50,offset=0}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_wbs_company_catalog_rows($1,$2,$3,$4,$5) AS rows',[tenantId,entityId,candidateId,limit,offset]),'WBS_COMPANY_CATALOG_READ_FAILED','Company catalog row read did not return a result').rows);
+  }
+
+  async classifyWbsCompanyCatalogRow({tenantId,entityId,rowId,expectedRevision,classification,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_classify_wbs_company_catalog_hash($1,$2,$3,$4,$5::jsonb,$6) AS request_hash',[tenantId,entityId,rowId,expectedRevision,JSON.stringify(classification),reason]),'WBS_COMPANY_CLASSIFICATION_HASH_FAILED','Company classification request hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_classify_wbs_company_catalog_row($1,$2,$3,$4,$5::jsonb,$6,$7,$8) AS result',[tenantId,entityId,rowId,expectedRevision,JSON.stringify(classification),reason,idempotencyKey,requestHash]),'WBS_COMPANY_CLASSIFICATION_FAILED','Company classification did not return a result').result;
+    });
+  }
+
+  async approveWbsCompanyCatalogRow({tenantId,entityId,rowId,expectedRevision,expectedCatalogHash,expectedRowHash,effectiveFrom,effectiveTo,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const params=[tenantId,entityId,rowId,expectedRevision,expectedCatalogHash,expectedRowHash,effectiveFrom,effectiveTo??null,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_approve_wbs_company_catalog_hash($1,$2,$3,$4,$5,$6,$7,$8,$9) AS request_hash',params),'WBS_COMPANY_APPROVAL_HASH_FAILED','Company approval request hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_approve_wbs_company_catalog_row($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS result',[...params,idempotencyKey,requestHash]),'WBS_COMPANY_APPROVAL_FAILED','Company approval did not return a result').result;
+    });
+  }
+
   async admitWbsSignedBankStatement({tenantId,entityId,admission,idempotencyKey}){
     const validated=validateWbsSignedBankAdmission(admission);
     if(typeof this.wbsSignedBankAdmissionVerifier!=='function')throw new KernelError('WBS_BANK_ADMISSION_SIGNATURE_REQUIRED','WBS bank admission requires a configured detached-signature verifier');
@@ -229,6 +259,39 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async readWbsProviderFinal1AdmissionScope({tenantId,entityId,dateFrom,dateTo}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'WBS.SNAPSHOT.IMPORT')",[tenantId,entityId]);
+      const entity=requireRow(await client.query(
+        "SELECT entity_id,source_system,source_entity_id AS company_code,base_currency,active FROM entity WHERE tenant_id=$1 AND entity_id=$2",
+        [tenantId,entityId]
+      ),'WBS_FINAL1_ENTITY_SCOPE_NOT_FOUND','Final-1 entity scope is unavailable');
+      const mappings=(await client.query(
+        `SELECT mapping_hash,mapping_document,effective_from,effective_to
+           FROM wbs_company_catalog_controller_decision
+          WHERE tenant_id=$1 AND entity_id=$2 AND decision_type='APPROVED'
+            AND company_code=$3 AND base_currency=$4 AND effective_from<=$5::date
+            AND (effective_to IS NULL OR effective_to>=$6::date)`,
+        [tenantId,entityId,entity.company_code,entity.base_currency,dateFrom,dateTo]
+      )).rows;
+      if(mappings.length!==1)throw new KernelError('WBS_FINAL1_MAPPING_SCOPE_INVALID','Final-1 company mapping is missing or ambiguous for the complete delivery range');
+      return {...entity,company_mapping_hash:mappings[0].mapping_hash,mapping_document:mappings[0].mapping_document,effective_from:mappings[0].effective_from,effective_to:mappings[0].effective_to};
+    });
+  }
+
+  async retainWbsProviderFinal1SourceEvidence({tenantId,entityId,delivery,artifacts,plan,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_final1_retained_evidence_hash($1,$2,$3::jsonb,$4::jsonb,$5::jsonb) AS request_hash',
+        [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan)]
+      ),'WBS_FINAL1_RETAINED_HASH_FAILED','Final-1 retained evidence hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_retain_wbs_final1_source_evidence($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7) AS result',
+        [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan),idempotencyKey,requestHash]
+      ),'WBS_FINAL1_RETAINED_SOURCE_FAILED','Final-1 retained evidence admission did not return a result').result;
+    });
+  }
+
   async listAiWbsExceptionFindings({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_wbs_exception_findings($1,$2,$3)',[tenantId,entityId,limit]
@@ -241,6 +304,25 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listAiAmortizationCoverageEvidence({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_amortization_coverage_evidence($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async recordAiAmortizationCoverageEvidence({tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,evidenceRef,evidenceHash,extractionMethod,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_ai_amortization_coverage_evidence_hash($1,$2,$3,$4,$5,$6,$7,$8,$9) AS request_hash',
+        [tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,evidenceRef,evidenceHash,extractionMethod]
+      ),'AI_AMORTIZATION_COVERAGE_EVIDENCE_HASH_FAILED','AI amortization coverage evidence hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_record_ai_amortization_coverage_evidence($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS result',
+        [tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,evidenceRef,evidenceHash,extractionMethod,idempotencyKey,requestHash]
+      ),'AI_AMORTIZATION_COVERAGE_EVIDENCE_FAILED','AI amortization coverage evidence did not return a result').result;
+    });
+  }
+
   async proposeAiAmortizationSchedule({tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,prepaidAccountCode,expenseAccountCode,memberTrace,confidence,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
@@ -251,6 +333,19 @@ export class PostgresAccountingKernel{
         'SELECT refs_propose_ai_amortization_schedule($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) AS result',
         [tenantId,entityId,sourceDocumentId,sourcePayloadHash,coverageStart,coverageEnd,prepaidAccountCode,expenseAccountCode,JSON.stringify(memberTrace),confidence,reason,idempotencyKey,requestHash]
       ),'AI_AMORTIZATION_PROPOSAL_FAILED','AI amortization proposal did not return a result').result;
+    });
+  }
+
+  async createAiAmortizationDraft({tenantId,entityId,aiAmortizationScheduleId,aiAmortizationScheduleLineId,periodId,expectedProposalHash,attachmentIds,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_ai_amortization_draft_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',
+        [tenantId,entityId,aiAmortizationScheduleId,aiAmortizationScheduleLineId,periodId,expectedProposalHash,attachmentIds,reason]
+      ),'AI_AMORTIZATION_DRAFT_HASH_FAILED','AI amortization Draft hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_ai_amortization_draft($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+        [tenantId,entityId,aiAmortizationScheduleId,aiAmortizationScheduleLineId,periodId,expectedProposalHash,attachmentIds,reason,idempotencyKey,requestHash]
+      ),'AI_AMORTIZATION_DRAFT_FAILED','AI amortization Draft creation did not return a result').result;
     });
   }
 
@@ -284,9 +379,94 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  // These readers are deliberately evidence-only.  They are the only database
+  // seam used by the AI accrual candidate analysis; none can write a finding,
+  // source, Draft, review, approval, or journal.
+  async readAiAccrualAnalysisPeriod({tenantId,entityId,currentPeriodId}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
+      return requireRow(await client.query(`SELECT period_id,period_code,(extract(year FROM starts_on)::integer*12+extract(month FROM starts_on)::integer) AS period_ordinal
+        FROM accounting_period
+        WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3 AND ledger_code='PRIMARY'`,[tenantId,entityId,currentPeriodId]),'AI_ACCRUAL_PERIOD_NOT_FOUND','Authoritative primary accounting period is unavailable');
+    });
+  }
+
+  async listAiAccrualRetainedHistory({tenantId,entityId,currentPeriodId,limit=240}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
+      return (await client.query(`SELECT d.tenant_id,d.entity_id,d.source_system,d.source_module,d.document_type,d.status AS source_status,d.source_document_id,l.source_document_line_id,p.period_id AS accounting_period_id,p.period_code,(extract(year FROM p.starts_on)::integer*12+extract(month FROM p.starts_on)::integer) AS period_ordinal,true AS period_closed,d.payload_hash,d.currency,l.amount::text,l.party_ref,l.external_dimension_refs
+        FROM wbs_final1_retained_source_row r
+        JOIN raw_event e ON e.tenant_id=r.tenant_id AND e.entity_id=r.entity_id AND e.raw_event_id=r.raw_event_id AND e.is_current
+        JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id
+        JOIN source_document_line l ON l.tenant_id=r.tenant_id AND l.entity_id=r.entity_id AND l.source_document_line_id=r.source_document_line_id
+        JOIN accounting_period p ON p.tenant_id=r.tenant_id AND p.entity_id=r.entity_id AND p.period_id=r.accounting_period_id AND p.ledger_code='PRIMARY'
+        JOIN accounting_period current_period ON current_period.tenant_id=r.tenant_id AND current_period.entity_id=r.entity_id AND current_period.period_id=$3 AND current_period.ledger_code='PRIMARY'
+        WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.domain='PAYABLES' AND d.document_type='WBS_FINAL1_PAYABLE' AND d.status='PENDING_REVIEW' AND p.status='CLOSED' AND p.starts_on<current_period.starts_on
+        ORDER BY p.starts_on DESC,d.source_document_id DESC LIMIT $4`,[tenantId,entityId,currentPeriodId,limit])).rows;
+    });
+  }
+
+  async listAiAccrualCurrentSourceIds({tenantId,entityId,currentPeriodId,recurringObligationId}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
+      return (await client.query(`SELECT DISTINCT d.source_document_id
+        FROM wbs_final1_retained_source_row r JOIN raw_event e ON e.tenant_id=r.tenant_id AND e.entity_id=r.entity_id AND e.raw_event_id=r.raw_event_id AND e.is_current
+        JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id
+        JOIN source_document_line l ON l.tenant_id=r.tenant_id AND l.entity_id=r.entity_id AND l.source_document_line_id=r.source_document_line_id
+        WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.domain='PAYABLES' AND r.accounting_period_id=$3
+          AND COALESCE(NULLIF(l.external_dimension_refs->>'signed_recurring_obligation_id',''),CASE WHEN NULLIF(l.external_dimension_refs->>'signed_contract_id','') IS NOT NULL AND NULLIF(l.party_ref,'') IS NOT NULL AND NULLIF(l.external_dimension_refs->>'signed_charge_code','') IS NOT NULL THEN 'contract:'||(l.external_dimension_refs->>'signed_contract_id')||'|vendor:'||l.party_ref||'|charge:'||(l.external_dimension_refs->>'signed_charge_code') END)=$4`,[tenantId,entityId,currentPeriodId,recurringObligationId])).rows.map(row=>row.source_document_id);
+    });
+  }
+
+  async listAiAccrualPostedSourceIds({tenantId,entityId,currentPeriodId,recurringObligationId}){
+    return this.inSession(async client=>{
+      await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
+      return (await client.query(`SELECT DISTINCT d.source_document_id
+        FROM wbs_final1_retained_source_row r JOIN raw_event e ON e.tenant_id=r.tenant_id AND e.entity_id=r.entity_id AND e.raw_event_id=r.raw_event_id AND e.is_current
+        JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id
+        JOIN source_document_line l ON l.tenant_id=r.tenant_id AND l.entity_id=r.entity_id AND l.source_document_line_id=r.source_document_line_id
+        JOIN source_link sl ON sl.tenant_id=r.tenant_id AND sl.entity_id=r.entity_id AND sl.source_document_id=d.source_document_id
+        JOIN journal_entry j ON j.tenant_id=r.tenant_id AND j.entity_id=r.entity_id AND j.journal_entry_id=sl.journal_entry_id AND j.status='POSTED'
+        WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.domain='PAYABLES' AND r.accounting_period_id=$3
+          AND COALESCE(NULLIF(l.external_dimension_refs->>'signed_recurring_obligation_id',''),CASE WHEN NULLIF(l.external_dimension_refs->>'signed_contract_id','') IS NOT NULL AND NULLIF(l.party_ref,'') IS NOT NULL AND NULLIF(l.external_dimension_refs->>'signed_charge_code','') IS NOT NULL THEN 'contract:'||(l.external_dimension_refs->>'signed_contract_id')||'|vendor:'||l.party_ref||'|charge:'||(l.external_dimension_refs->>'signed_charge_code') END)=$4`,[tenantId,entityId,currentPeriodId,recurringObligationId])).rows.map(row=>row.source_document_id);
+    });
+  }
+
+  async assignAiFindingAction({tenantId,entityId,findingKind,findingId,findingHash,owner,dueDate,expectedRevision,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_assign_ai_finding_action_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',[tenantId,entityId,findingKind,findingId,findingHash,owner,dueDate,expectedRevision]),'AI_FINDING_ACTION_HASH_FAILED','AI finding assignment hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_assign_ai_finding_action($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',[tenantId,entityId,findingKind,findingId,findingHash,owner,dueDate,expectedRevision,idempotencyKey,requestHash]),'AI_FINDING_ACTION_FAILED','AI finding assignment did not return a result').result;
+    });
+  }
+
+  async listAiFindingAssignmentCandidates({tenantId,entityId,limit=100}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_finding_assignment_candidates($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async listAiFindingActions({tenantId,entityId,limit=100}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_finding_actions($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async resolveAiFindingAction({tenantId,entityId,aiFindingActionId,findingHash,reason,expectedRevision,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_resolve_ai_finding_action_hash($1,$2,$3,$4,$5,$6) AS request_hash',[tenantId,entityId,aiFindingActionId,findingHash,reason,expectedRevision]),'AI_FINDING_ACTION_RESOLUTION_HASH_FAILED','AI finding resolution hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_resolve_ai_finding_action($1,$2,$3,$4,$5,$6,$7,$8) AS result',[tenantId,entityId,aiFindingActionId,findingHash,reason,expectedRevision,idempotencyKey,requestHash]),'AI_FINDING_ACTION_RESOLUTION_FAILED','AI finding resolution did not return a result').result;
+    });
+  }
+
   async readAiAccountingAnalysisSummary({tenantId,entityId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_accounting_analysis_summary($1,$2)',[tenantId,entityId]
+    )).rows);
+  }
+
+  async listAiAccountingAnalysisReports({tenantId,entityId,limit=20}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_accounting_analysis_reports($1,$2,$3)',[tenantId,entityId,limit]
     )).rows);
   }
 
@@ -312,6 +492,42 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>client.query(
       'SELECT refs_abandon_ai_accounting_analysis_explanation($1,$2,$3,$4)',[tenantId,entityId,idempotencyKey,requestHash]
     ));
+  }
+
+  // The service may only create an evidence-bound proposal.  The returned
+  // object deliberately has no Draft, approval, or posting authority.
+  async proposeAiWbsPayableDraft({tenantId,entityId,reviewEvidenceId,modelId,promptVersion,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_ai_wbs_payable_draft_proposal_hash($1,$2,$3,$4,$5) AS request_hash',
+        [tenantId,entityId,reviewEvidenceId,modelId,promptVersion]
+      ),'AI_WBS_PAYABLE_PROPOSAL_HASH_FAILED','AI WBS payable proposal hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_propose_ai_wbs_payable_draft($1,$2,$3,$4,$5,$6,$7) AS result',
+        [tenantId,entityId,reviewEvidenceId,modelId,promptVersion,idempotencyKey,requestHash]
+      ),'AI_WBS_PAYABLE_PROPOSAL_FAILED','AI WBS payable proposal did not return a result').result;
+    });
+  }
+
+  async listAiWbsPayableDraftProposals({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_wbs_payable_draft_proposals($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  // A human AP maker records an immutable accept/reject decision.  Creating
+  // the ordinary WBS AP Draft remains a separate, existing command.
+  async reviewAiWbsPayableDraftProposal({tenantId,entityId,proposalId,decision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_review_ai_wbs_payable_draft_proposal_hash($1,$2,$3,$4,$5) AS request_hash',
+        [tenantId,entityId,proposalId,decision,reason]
+      ),'AI_WBS_PAYABLE_PROPOSAL_REVIEW_HASH_FAILED','AI WBS payable proposal review hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_review_ai_wbs_payable_draft_proposal($1,$2,$3,$4,$5,$6,$7) AS result',
+        [tenantId,entityId,proposalId,decision,reason,idempotencyKey,requestHash]
+      ),'AI_WBS_PAYABLE_PROPOSAL_REVIEW_FAILED','AI WBS payable proposal review did not return a result').result;
+    });
   }
 
   async persistWbsInboundRows({tenantId,entityId,importBatchId,receipt,rows,idempotencyKey,requestHash}){
