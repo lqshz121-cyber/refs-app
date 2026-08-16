@@ -94,7 +94,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
     wbsOperatorAttestedPayableServiceFactory:wbsLivePilotClient?principal=>createWbsOperatorAttestedPayableService({client:wbsLivePilotClient,kernel:kernelFor(principal)}):undefined,
     wbsAdmittedPayableServiceFactory:wbsSnapshotVerifier?principal=>createWbsAdmittedPayableIngestion({kernel:kernelFor(principal),signatureVerifier:wbsSnapshotVerifier}):undefined,
     wbsProviderSignedPayableServiceFactory:wbsProviderSignedTrust?principal=>createWbsProviderSignedPayableAdmission({kernel:kernelFor(principal),providerTrust:wbsProviderSignedTrust,principal,serviceActorId:wbsProviderSignedServiceActorId}):undefined,
-    wbsProviderFinal1RetainedEvidenceServiceFactory:wbsImmutableEvidenceStorage?principal=>createWbsProviderFinal1RetainedEvidenceAdmission({kernel:kernelFor(principal),storage:wbsImmutableEvidenceStorage,providerTrust:wbsProviderSignedTrust,principal,serviceActorId:wbsProviderSignedServiceActorId}):undefined,
+    wbsProviderFinal1RetainedEvidenceServiceFactory:wbsImmutableEvidenceStorage?principal=>createWbsProviderFinal1RetainedEvidenceAdmission({kernel:kernelFor(principal),storage:wbsImmutableEvidenceStorage,scanner:virusScanner,providerTrust:wbsProviderSignedTrust,principal,serviceActorId:wbsProviderSignedServiceActorId}):undefined,
     aiAnalysisExplanationServiceFactory,
     aiAccrualCandidateAnalysisServiceFactory,
     allowedOrigins,attachmentServiceFactory:attachmentEnabled?principal=>new AttachmentEvidenceService({storage:attachmentStorage,scanner:virusScanner,uploaderKernelFactory:kernelFor,

@@ -184,6 +184,10 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async recordWbsInsurancePcMappingPreAdmission({tenantId,entityId,observation,rows}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_record_wbs_insurance_pc_mapping_pre_admission($1,$2,$3,$4) AS result',[tenantId,entityId,observation,rows]),'WBS_INSURANCE_PRE_ADMISSION_RECORD_FAILED','Insurance pre-admission observation was not recorded').result);
+  }
+
   async approveWbsInsurancePcMappingProposal({tenantId,entityId,proposalId,expectedRevision,expectedObservationHash,expectedProposalHash,catalogDecisionId,expectedCompanyMappingHash,effectiveFrom,effectiveTo,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const params=[tenantId,entityId,proposalId,expectedRevision,expectedObservationHash,expectedProposalHash,catalogDecisionId,expectedCompanyMappingHash,effectiveFrom,effectiveTo??null,reason];

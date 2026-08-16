@@ -28,7 +28,7 @@ CREATE TABLE wbs_insurance_pc_mapping_pre_admission_observation (
  UNIQUE(tenant_id,entity_id,observation_id),
  UNIQUE(tenant_id,entity_id,observation_hash),
  FOREIGN KEY(tenant_id,entity_id) REFERENCES entity(tenant_id,entity_id),
- CHECK(observation_hash=refs_jsonb_hash(observation_document)),
+ CHECK(observation_hash=refs_jsonb_hash((observation_document-'observation_hash')#-'{public_dto,observation_hash}')),
  CHECK(observation_document->>'schema_version'='REFS_INSURANCE_PRE_ADMISSION_OBSERVATION_V1'
    AND observation_document->>'status'='PRE_ADMISSION_OBSERVATION'
    AND observation_document->>'admission_state'='NOT_ADMITTED'
@@ -51,13 +51,13 @@ BEGIN
  IF NEW.observation_document->'artifacts' IS DISTINCT FROM NEW.artifact_document
     OR jsonb_typeof(NEW.artifact_document)<>'object' OR (SELECT count(*) FROM jsonb_each(NEW.artifact_document))<>4
     OR NOT (NEW.artifact_document ?& ARRAY['receipt','request','response','package'])
-    OR (NEW.observation_document#>>'{write_delta,admission}')::integer<>0 OR (NEW.observation_document#>>'{write_delta,retention}')::integer<>0
-    OR (NEW.observation_document#>>'{write_delta,coverage}')::integer<>0 OR (NEW.observation_document#>>'{write_delta,staging}')::integer<>0
-    OR (NEW.observation_document#>>'{write_delta,journal_entry}')::integer<>0 OR (NEW.observation_document#>>'{write_delta,ledger}')::integer<>0
-    OR (NEW.observation_document#>>'{write_delta,audit}')::integer<>0 OR (NEW.observation_document#>>'{write_delta,outbox}')::integer<>0
-    OR (NEW.observation_document#>>'{write_delta,model_call}')::integer<>0 OR (NEW.observation_document#>>'{write_delta,storage_action}')::integer<>0
-    OR (NEW.observation_document#>>'{actions,can_propose_amortization}')::boolean OR (NEW.observation_document#>>'{actions,can_create_draft}')::boolean
-    OR (NEW.observation_document#>>'{actions,can_review}')::boolean OR (NEW.observation_document#>>'{actions,can_approve}')::boolean OR (NEW.observation_document#>>'{actions,can_post}')::boolean THEN
+    OR (NEW.observation_document#>>'{write_delta,admission}')::integer IS DISTINCT FROM 0 OR (NEW.observation_document#>>'{write_delta,retention}')::integer IS DISTINCT FROM 0
+    OR (NEW.observation_document#>>'{write_delta,coverage}')::integer IS DISTINCT FROM 0 OR (NEW.observation_document#>>'{write_delta,staging}')::integer IS DISTINCT FROM 0
+    OR (NEW.observation_document#>>'{write_delta,journal_entry}')::integer IS DISTINCT FROM 0 OR (NEW.observation_document#>>'{write_delta,ledger}')::integer IS DISTINCT FROM 0
+    OR (NEW.observation_document#>>'{write_delta,audit}')::integer IS DISTINCT FROM 0 OR (NEW.observation_document#>>'{write_delta,outbox}')::integer IS DISTINCT FROM 0
+    OR (NEW.observation_document#>>'{write_delta,model_call}')::integer IS DISTINCT FROM 0 OR (NEW.observation_document#>>'{write_delta,storage_action}')::integer IS DISTINCT FROM 0
+    OR (NEW.observation_document#>>'{actions,can_propose_amortization}')::boolean IS DISTINCT FROM false OR (NEW.observation_document#>>'{actions,can_create_draft}')::boolean IS DISTINCT FROM false
+    OR (NEW.observation_document#>>'{actions,can_review}')::boolean IS DISTINCT FROM false OR (NEW.observation_document#>>'{actions,can_approve}')::boolean IS DISTINCT FROM false OR (NEW.observation_document#>>'{actions,can_post}')::boolean IS DISTINCT FROM false THEN
    RAISE EXCEPTION 'Insurance pre-admission observation is not exact zero-action evidence' USING ERRCODE='23514';
  END IF;
  FOR artifact_name,artifact_value IN SELECT key,value FROM jsonb_each(NEW.artifact_document) LOOP
@@ -70,6 +70,27 @@ BEGIN
  END LOOP;RETURN NEW;
 END $$;
 CREATE TRIGGER wbs_insurance_pc_mapping_pre_admission_validate BEFORE INSERT ON wbs_insurance_pc_mapping_pre_admission_observation FOR EACH ROW EXECUTE FUNCTION refs_validate_wbs_insurance_pre_admission_observation();
+
+CREATE FUNCTION refs_record_wbs_insurance_pc_mapping_pre_admission(p_tenant uuid,p_entity uuid,p_observation jsonb,p_rows jsonb) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE actor text:=refs_current_actor();item jsonb;ordinal integer:=0;stored wbs_insurance_pc_mapping_pre_admission_observation;response jsonb;
+BEGIN
+ PERFORM refs_assert_scope(p_tenant,p_entity,'WBS.SNAPSHOT.IMPORT');
+ IF actor IS NULL OR jsonb_typeof(p_observation)<>'object' OR jsonb_typeof(p_rows)<>'array' OR jsonb_array_length(p_rows) NOT BETWEEN 1 AND 5000
+   OR p_observation->>'observation_hash' IS DISTINCT FROM refs_jsonb_hash((p_observation-'observation_hash')#-'{public_dto,observation_hash}')
+   OR (SELECT count(*) FROM jsonb_object_keys(p_observation))<>22 THEN RAISE EXCEPTION 'Insurance pre-admission recorder input is invalid' USING ERRCODE='22023';END IF;
+ INSERT INTO wbs_insurance_pc_mapping_pre_admission_observation(observation_id,tenant_id,entity_id,observation_hash,source_evidence_hash,artifact_set_hash,package_hash,source_payload_hash,canonical_set_hash,captured_at,record_count,null_pc_code_row_count,scope_pc_code_count,artifact_document,observation_document,observed_by)
+ VALUES((p_observation->>'observation_id')::uuid,p_tenant,p_entity,p_observation->>'observation_hash',p_observation->>'source_evidence_hash',p_observation->>'artifact_set_hash',p_observation->>'package_hash',p_observation->>'source_payload_hash',p_observation->>'canonical_set_hash',(p_observation->>'captured_at')::timestamptz,(p_observation->>'record_count')::bigint,(p_observation->>'null_pc_code_row_count')::bigint,(p_observation->>'scope_pc_code_count')::integer,p_observation->'artifacts',p_observation,actor) ON CONFLICT DO NOTHING;
+ SELECT * INTO stored FROM wbs_insurance_pc_mapping_pre_admission_observation WHERE tenant_id=p_tenant AND entity_id=p_entity AND observation_id=(p_observation->>'observation_id')::uuid FOR SHARE;
+ IF stored.observation_hash IS DISTINCT FROM p_observation->>'observation_hash' OR stored.observation_document IS DISTINCT FROM p_observation OR stored.observed_by IS DISTINCT FROM actor THEN RAISE EXCEPTION 'Insurance pre-admission observation replay conflict' USING ERRCODE='23505';END IF;
+ FOR item IN SELECT value FROM jsonb_array_elements(p_rows) LOOP
+  IF jsonb_typeof(item)<>'object' OR (SELECT count(*) FROM jsonb_object_keys(item))<>3 OR item->>'pc_code' IS NULL OR item->>'pc_code'<>btrim(item->>'pc_code') OR length(item->>'pc_code') NOT BETWEEN 1 AND 128 OR item->>'pc_code'~'[[:cntrl:]]' OR coalesce((item->>'observed_row_count')::bigint,0)<=0 OR item->>'row_hash' IS DISTINCT FROM refs_jsonb_hash(jsonb_build_object('pc_code',item->>'pc_code','observed_row_count',(item->>'observed_row_count')::bigint)) THEN RAISE EXCEPTION 'Insurance pre-admission aggregate row is invalid' USING ERRCODE='23514';END IF;
+  INSERT INTO wbs_insurance_pc_mapping_pre_admission_row(tenant_id,entity_id,observation_id,row_ordinal,pc_code,observed_row_count,row_hash) VALUES(p_tenant,p_entity,stored.observation_id,ordinal,item->>'pc_code',(item->>'observed_row_count')::bigint,item->>'row_hash') ON CONFLICT DO NOTHING;ordinal:=ordinal+1;
+ END LOOP;
+ IF (SELECT count(*) FROM wbs_insurance_pc_mapping_pre_admission_row WHERE tenant_id=p_tenant AND entity_id=p_entity AND observation_id=stored.observation_id)<>jsonb_array_length(p_rows) THEN RAISE EXCEPTION 'Insurance pre-admission aggregate replay differs' USING ERRCODE='23505';END IF;
+ response:=jsonb_build_object('schema_version','REFS_INSURANCE_PRE_ADMISSION_OBSERVATION_V1','observation_id',stored.observation_id,'observation_hash',stored.observation_hash,'status','PRE_ADMISSION_OBSERVATION','admission_state','NOT_ADMITTED','source_kind','PRE_ADMISSION_OBSERVATION','source_evidence_hash',stored.source_evidence_hash,'scope_kind','FIRST_PACKAGE_WBPA','scope_pc_code_count',stored.scope_pc_code_count,'artifact_set_hash',stored.artifact_set_hash,'package_hash',stored.package_hash,'source_payload_hash',stored.source_payload_hash,'canonical_set_hash',stored.canonical_set_hash,'captured_at',to_char(stored.captured_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),'record_count',stored.record_count,'null_pc_code_row_count',stored.null_pc_code_row_count);
+ RETURN response;
+END $$;
 
 CREATE TABLE wbs_insurance_pc_mapping_pre_admission_row (
  observation_row_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,entity_id uuid NOT NULL,
@@ -184,7 +205,7 @@ CREATE FUNCTION refs_read_wbs_insurance_pc_mapping_proposal(p_tenant uuid,p_enti
 
 CREATE FUNCTION refs_read_wbs_insurance_pc_mapping_trace(p_tenant uuid,p_entity uuid,p_pc_code text,p_accounting_date date) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$ DECLARE matched integer;result jsonb;BEGIN PERFORM refs_assert_scope(p_tenant,p_entity,'WBS.INSURANCE.PC_MAPPING.VIEW');IF p_pc_code IS NULL OR p_pc_code<>btrim(p_pc_code) OR length(p_pc_code) NOT BETWEEN 1 AND 128 OR p_accounting_date IS NULL THEN RAISE EXCEPTION 'Insurance PC mapping trace selection is invalid' USING ERRCODE='22023';END IF;SELECT count(*)::integer INTO matched FROM wbs_insurance_pc_company_mapping_decision d WHERE d.tenant_id=p_tenant AND d.entity_id=p_entity AND d.pc_code=p_pc_code AND d.approval_status='APPROVED' AND d.effective_from<=p_accounting_date AND (d.effective_to IS NULL OR d.effective_to>=p_accounting_date);IF matched<>1 THEN RETURN jsonb_build_object('pc_code',p_pc_code,'accounting_date',to_char(p_accounting_date,'YYYY-MM-DD'),'match_count',matched,'mapping_status',CASE WHEN matched=0 THEN 'MISSING' ELSE 'AMBIGUOUS' END);END IF;SELECT jsonb_build_object('pc_code',d.pc_code,'accounting_date',to_char(p_accounting_date,'YYYY-MM-DD'),'match_count',1,'mapping_status','CONTROLLER_APPROVED','company_code',d.company_code,'effective_from',to_char(d.effective_from,'YYYY-MM-DD'),'effective_to',CASE WHEN d.effective_to IS NULL THEN NULL ELSE to_jsonb(to_char(d.effective_to,'YYYY-MM-DD')) END,'observation_hash',t.observation_hash,'proposal_hash',t.proposal_hash,'decision_hash',t.decision_hash,'company_mapping_hash',t.company_mapping_hash,'catalog_decision_id',d.wbs_company_catalog_controller_decision_id,'approved_by',d.decided_by,'approved_at',to_char(d.decided_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) INTO result FROM wbs_insurance_pc_company_mapping_decision d JOIN wbs_insurance_pc_mapping_decision_trace t ON t.tenant_id=d.tenant_id AND t.entity_id=d.entity_id AND t.wbs_insurance_pc_company_mapping_decision_id=d.wbs_insurance_pc_company_mapping_decision_id WHERE d.tenant_id=p_tenant AND d.entity_id=p_entity AND d.pc_code=p_pc_code AND d.approval_status='APPROVED' AND d.effective_from<=p_accounting_date AND (d.effective_to IS NULL OR d.effective_to>=p_accounting_date);RETURN jsonb_strip_nulls(result);END $$;
 
-REVOKE EXECUTE ON FUNCTION refs_propose_wbs_insurance_pc_mapping_hash(uuid,uuid,uuid,text,text),refs_create_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid,text,text,text,text),refs_approve_wbs_insurance_pc_mapping_hash(uuid,uuid,uuid,bigint,text,text,uuid,text,date,date,text),refs_approve_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid,bigint,text,text,uuid,text,date,date,text,text,text),refs_read_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid),refs_read_wbs_insurance_pc_mapping_trace(uuid,uuid,text,date) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION refs_propose_wbs_insurance_pc_mapping_hash(uuid,uuid,uuid,text,text),refs_create_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid,text,text,text,text),refs_approve_wbs_insurance_pc_mapping_hash(uuid,uuid,uuid,bigint,text,text,uuid,text,date,date,text),refs_approve_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid,bigint,text,text,uuid,text,date,date,text,text,text),refs_read_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid),refs_read_wbs_insurance_pc_mapping_trace(uuid,uuid,text,date) TO refs_app;
+REVOKE EXECUTE ON FUNCTION refs_record_wbs_insurance_pc_mapping_pre_admission(uuid,uuid,jsonb,jsonb),refs_propose_wbs_insurance_pc_mapping_hash(uuid,uuid,uuid,text,text),refs_create_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid,text,text,text,text),refs_approve_wbs_insurance_pc_mapping_hash(uuid,uuid,uuid,bigint,text,text,uuid,text,date,date,text),refs_approve_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid,bigint,text,text,uuid,text,date,date,text,text,text),refs_read_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid),refs_read_wbs_insurance_pc_mapping_trace(uuid,uuid,text,date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION refs_record_wbs_insurance_pc_mapping_pre_admission(uuid,uuid,jsonb,jsonb),refs_propose_wbs_insurance_pc_mapping_hash(uuid,uuid,uuid,text,text),refs_create_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid,text,text,text,text),refs_approve_wbs_insurance_pc_mapping_hash(uuid,uuid,uuid,bigint,text,text,uuid,text,date,date,text),refs_approve_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid,bigint,text,text,uuid,text,date,date,text,text,text),refs_read_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid),refs_read_wbs_insurance_pc_mapping_trace(uuid,uuid,text,date) TO refs_app;
 
 COMMIT;

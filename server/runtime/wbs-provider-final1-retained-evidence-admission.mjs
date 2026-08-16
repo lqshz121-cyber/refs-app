@@ -1,8 +1,9 @@
 import {createHash} from 'node:crypto';
 import {canonicalRequestBody,canonicalRequestHash} from './request-hash.mjs';
-import {verifyWbsProviderFinal1Delivery,verifyWbsProviderFinal1InsuranceDelivery} from './wbs-provider-final1-delivery.mjs';
+import {containsWbsProviderFinal1Credential,verifyWbsProviderFinal1Delivery,verifyWbsProviderFinal1InsuranceDelivery} from './wbs-provider-final1-delivery.mjs';
 import {normalizeVerifiedWbsProviderFinal1Payables} from './wbs-provider-final1-payable-normalizer.mjs';
 import {normalizeVerifiedWbsProviderFinal1Insurance} from './wbs-provider-final1-insurance-normalizer.mjs';
+import {validateInsurancePreAdmissionObservation} from './wbs-insurance-pc-mapping-controller.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
@@ -29,18 +30,26 @@ const packagePreflight=(packageRaw,domain)=>{
   if(pkg?.domain!==domain||!DATE.test(pkg?.date_from||'')||!DATE.test(pkg?.date_to||'')||pkg.date_from>pkg.date_to)fail('WBS_FINAL1_PACKAGE_INVALID','Final-1 package domain or date range is invalid.');
   return {dateFrom:pkg.date_from,dateTo:pkg.date_to};
 };
-const artifactDescriptor=value=>Object.freeze({storage_ref:value.storageRef,storage_version:value.storageVersion,size_bytes:value.sizeBytes,content_hash:value.contentHash,retentionMode:value.retentionMode,retainUntil:value.retainUntil});
+const retainedObjectDescriptor=value=>Object.freeze({storage_ref:value.storageRef,storage_version:value.storageVersion,size_bytes:value.sizeBytes,media_type:value.mediaType,content_hash:value.contentHash});
+const artifactDescriptor=(value,scan)=>Object.freeze({storage_ref:value.storageRef,storage_version:value.storageVersion,size_bytes:value.sizeBytes,media_type:value.mediaType,content_hash:value.contentHash,retentionMode:value.retentionMode,retainUntil:value.retainUntil,scan_clean:true,scan_ref:scan.scanRef});
+const orphanRetained=(cause,{retainedCount,attemptedArtifact,markerPersisted})=>{const error=new WbsProviderFinal1RetainedEvidenceError('WBS_FINAL1_ORPHAN_RETAINED','Final-1 immutable evidence storage was attempted but all-clean database completion was not established.');Object.defineProperties(error,{cause:{value:cause},retainedCount:{value:retainedCount},attemptedArtifact:{value:attemptedArtifact},markerPersisted:{value:markerPersisted===true}});return error;};
 
 export function createWbsProviderFinal1RetainedEvidenceAdmission({
-  kernel,storage,providerTrust,principal,serviceActorId,clock=()=>Date.now(),
+  kernel,storage,scanner,providerTrust,principal,serviceActorId,clock=()=>Date.now(),opsLogger=null,
   verifyPayables=verifyWbsProviderFinal1Delivery,verifyInsurance=verifyWbsProviderFinal1InsuranceDelivery,
   normalizePayables=normalizeVerifiedWbsProviderFinal1Payables,normalizeInsurance=normalizeVerifiedWbsProviderFinal1Insurance
 }={}){
   if(!kernel||typeof kernel.readWbsProviderFinal1AdmissionScope!=='function'||typeof kernel.retainWbsProviderFinal1SourceEvidence!=='function')fail('WBS_FINAL1_PERSISTENCE_REQUIRED','Final-1 scope and atomic persistence kernel are required.');
-  if(!storage||typeof storage.putImmutableVersion!=='function'||!Number.isInteger(storage.retentionDays))fail('WBS_FINAL1_STORAGE_REQUIRED','Immutable versioned WBS evidence storage is required.');
+  if(!storage||typeof storage.putImmutableVersion!=='function'||typeof storage.putOrphanLifecycleMarker!=='function'||!Number.isInteger(storage.retentionDays))fail('WBS_FINAL1_STORAGE_REQUIRED','Immutable versioned WBS evidence storage and durable orphan marker are required.');
+  if(!scanner||typeof scanner.scan!=='function')fail('WBS_FINAL1_SCANNER_REQUIRED','A strict exact-version evidence scanner is required.');
   if(!principal?.trusted||!principal.actorId||principal.actorId!==serviceActorId)fail('WBS_FINAL1_SERVICE_IDENTITY_DENIED','Only the configured authenticated OIDC service subject may retain Final-1 evidence.');
   if(!providerTrust||typeof providerTrust.public_key!=='string')fail('WBS_FINAL1_TRUST_REQUIRED','Pinned Provider trust is required.');
   for(const dependency of [verifyPayables,verifyInsurance,normalizePayables,normalizeInsurance])if(typeof dependency!=='function')fail('WBS_FINAL1_BOUNDARY_REQUIRED','Final-1 verification and normalization boundaries are required.');
+  const recordOrphans=async({tenantId,entityId,admissionId,immutableVersion,domain,receiptHash,retentionUntil,confirmed,failureStage,reasonCode})=>{
+    if(Object.keys(confirmed).length===0)return {markerPersisted:false};
+    try{const marker=await storage.putOrphanLifecycleMarker({tenantId,entityId,admissionId,immutableVersion,domain,receiptHash,retentionUntil,failureStage,reasonCode,artifacts:Object.freeze({...confirmed})});if(marker?.status!=='WBS_FINAL1_ORPHAN_MARKER_RETAINED'||typeof marker.contentHash!=='string'||typeof marker.storageVersion!=='string')throw new Error('unsafe marker result');opsLogger?.warn?.(JSON.stringify({event:'wbs_final1_orphan_marker_retained',failure_stage:failureStage,reason_code:reasonCode,object_count:Object.keys(confirmed).length,marker_hash:marker.contentHash,marker_version:marker.storageVersion,marker_status:'RETAINED'}));return {markerPersisted:true};}
+    catch{opsLogger?.error?.(JSON.stringify({event:'wbs_final1_orphan_persistence_failed',failure_stage:failureStage,reason_code:reasonCode,object_count:Object.keys(confirmed).length,marker_status:'NOT_CONFIRMED'}));return {markerPersisted:false};}
+  };
   return Object.freeze({
     mode:'WBS_PROVIDER_FINAL1_RETAINED_EVIDENCE_V1',
     async admit({domain,tenantId,entityId,receipt,requestRawBase64,responseRawBase64,packageRawBase64,idempotencyKey}={}){
@@ -49,6 +58,7 @@ export function createWbsProviderFinal1RetainedEvidenceAdmission({
       const requestRaw=decode(requestRawBase64,'requestRawBase64'),responseRaw=decode(responseRawBase64,'responseRawBase64'),packageRaw=decode(packageRawBase64,'packageRawBase64');
       const receiptRaw=Buffer.from(canonicalRequestBody(receipt),'utf8');
       if(receiptRaw.byteLength<1||requestRaw.byteLength+responseRaw.byteLength+packageRaw.byteLength+receiptRaw.byteLength>MAX_COMBINED_BYTES)fail('WBS_FINAL1_RAW_INVALID','Final-1 artifact set exceeds the controlled admission bound.');
+      if([receiptRaw,requestRaw,responseRaw,packageRaw].some(containsWbsProviderFinal1Credential))fail('WBS_FINAL1_BOUNDARY_INVALID','Final-1 artifacts must be credential-free before immutable storage.');
       const {dateFrom,dateTo}=packagePreflight(packageRaw,domain);
       const scope=await kernel.readWbsProviderFinal1AdmissionScope({tenantId,entityId,dateFrom,dateTo});
       if(!scope||scope.active!==true||scope.source_system!=='WBS'||typeof scope.company_code!=='string'||scope.base_currency!=='USD'||typeof scope.company_mapping_hash!=='string')fail('WBS_FINAL1_APPROVED_SCOPE_REQUIRED','An active Controller-approved WBS company/USD mapping is required.');
@@ -68,10 +78,30 @@ export function createWbsProviderFinal1RetainedEvidenceAdmission({
         ['receipt','receipt.json',receiptRaw,receiptHash],['request','request.raw',requestRaw,sha256(requestRaw)],
         ['response','response.raw',responseRaw,sha256(responseRaw)],['package','package.json',packageRaw,sha256(packageRaw)]
       ];
-      const artifacts={};
-      for(const [name,artifact,bytes,expectedHash] of inputs){
-        const stored=await storage.putImmutableVersion({tenantId,entityId,admissionId,immutableVersion:verified.snapshot_id,domain,artifact,bytes,expectedHash,receiptHash,retentionUntil});
-        artifacts[name]=artifactDescriptor(stored);
+      const artifacts={},confirmed={};let retainedCount=0,attemptedArtifact=null;
+      try{for(const [name,artifact,bytes,expectedHash] of inputs){
+        attemptedArtifact=artifact;
+        const stored=await storage.putImmutableVersion({tenantId,entityId,admissionId,immutableVersion:verified.snapshot_id,domain,artifact,bytes,expectedHash,receiptHash,retentionUntil});retainedCount++;confirmed[name]=retainedObjectDescriptor(stored);
+        const scan=await scanner.scan({tenantId,entityId,admissionId,artifact,storageRef:stored.storageRef,storageVersion:stored.storageVersion,sizeBytes:stored.sizeBytes,contentHash:stored.contentHash,mediaType:stored.mediaType});
+        const expectedScanRef=`clamav:${stored.contentHash.slice(7)}:clean`;
+        if(scan?.clean!==true||scan.scanRef!==expectedScanRef)fail('WBS_FINAL1_SCAN_NOT_CLEAN','Every exact immutable Final-1 artifact version must have a hash-bound clean scan before persistence.');
+        artifacts[name]=artifactDescriptor(stored,scan);
+      }}catch(cause){const reasonCode=cause?.code==='WBS_FINAL1_SCAN_NOT_CLEAN'?'WBS_FINAL1_SCAN_NOT_CLEAN':'WBS_FINAL1_STORAGE_OR_SCAN_FAILED';const persisted=await recordOrphans({tenantId,entityId,admissionId,immutableVersion:verified.snapshot_id,domain,receiptHash,retentionUntil,confirmed,failureStage:'STORAGE_OR_SCAN',reasonCode});throw orphanRetained(cause,{retainedCount,attemptedArtifact,...persisted});}
+      if(domain==='INSURANCE'){
+        if(typeof kernel.recordWbsInsurancePcMappingPreAdmission!=='function'||typeof kernel.getWbsInsurancePcMappingTrace!=='function')fail('WBS_INSURANCE_PRE_ADMISSION_PERSISTENCE_REQUIRED','Insurance Final-1 requires the Controller pre-admission recorder and trace reader.');
+        const countByPc=new Map();let nullPcCodeRowCount=0;
+        for(const row of plan.evidence_rows){const pc=row.normalized?.pcCode;if(pc==null){nullPcCodeRowCount++;continue;}countByPc.set(pc,(countByPc.get(pc)||0)+1);}
+        const aggregateRows=[...countByPc].sort(([a],[b])=>a.localeCompare(b)).map(([pc_code,observed_row_count])=>Object.freeze({pc_code,observed_row_count,row_hash:canonicalRequestHash({pc_code,observed_row_count})}));
+        if(aggregateRows.length===0)fail('WBS_INSURANCE_PRE_ADMISSION_EMPTY','Insurance pre-admission requires at least one signed non-null PC code.');
+        const exactArtifacts=Object.fromEntries(Object.entries(artifacts).map(([name,value])=>[name,Object.freeze({storage_ref:value.storage_ref,storage_version:value.storage_version,content_hash:value.content_hash,size_bytes:value.size_bytes,media_type:value.media_type,object_lock_mode:value.retentionMode,retain_until:new Date(value.retainUntil).toISOString(),scan_disposition:'CLEAN',scan_ref:value.scan_ref,scan_hash:value.content_hash})]));
+        const actions=Object.freeze({can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false}),write_delta=Object.freeze({admission:0,retention:0,coverage:0,staging:0,journal_entry:0,ledger:0,audit:0,outbox:0,model_call:0,storage_action:0});
+        const capturedAt=new Date(verified.package?.captured_at||receipt.signed_at).toISOString(),observationId=deterministicUuid(`${admissionId}\0insurance-pc-mapping-observation`),canonicalSetHash=canonicalRequestHash({pc_codes:aggregateRows.map(({pc_code,observed_row_count})=>({pc_code,observed_row_count}))}),artifactSetHash=canonicalRequestHash(exactArtifacts);
+        const publicBase={schema_version:'REFS_INSURANCE_PRE_ADMISSION_OBSERVATION_V1',observation_id:observationId,status:'PRE_ADMISSION_OBSERVATION',admission_state:'NOT_ADMITTED',source_kind:'PRE_ADMISSION_OBSERVATION',source_evidence_hash:plan.plan_hash,scope_kind:'FIRST_PACKAGE_WBPA',scope_pc_code_count:aggregateRows.length,artifact_set_hash:artifactSetHash,package_hash:verified.package_hash,source_payload_hash:verified.raw_package_hash,canonical_set_hash:canonicalSetHash,captured_at:capturedAt,record_count:plan.evidence_rows.length,null_pc_code_row_count:nullPcCodeRowCount};
+        const hashBase={...publicBase,signature_algorithm:'Ed25519',signature_verified:true,artifacts:exactArtifacts,actions,write_delta,public_dto:publicBase},observationHash=canonicalRequestHash(hashBase);
+        const observation=validateInsurancePreAdmissionObservation(Object.freeze({...hashBase,observation_hash:observationHash,public_dto:Object.freeze({...publicBase,observation_hash:observationHash})}));
+        const recorded=await kernel.recordWbsInsurancePcMappingPreAdmission({tenantId,entityId,observation,rows:aggregateRows});
+        const traces=await Promise.all(aggregateRows.map(row=>kernel.getWbsInsurancePcMappingTrace({tenantId,entityId,pcCode:row.pc_code,accountingDate:dateFrom})));
+        if(traces.some(trace=>trace?.match_count!==1||trace.mapping_status!=='CONTROLLER_APPROVED'||trace.observation_hash!==observationHash))return Object.freeze(recorded);
       }
       const delivery=Object.freeze({
         admission_id:admissionId,domain,issuer:receipt.issuer,key_id:receipt.kid,algorithm:'Ed25519',nonce:receipt.nonce,
