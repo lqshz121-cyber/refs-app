@@ -7,7 +7,7 @@ import {validateWbsSignedBankAdmission} from '../runtime/wbs-signed-bank-admissi
 const ids={tenantId:'10000000-0000-4000-8000-000000000001',entityId:'20000000-0000-4000-8000-000000000002',snapshotId:'30000000-0000-4000-8000-000000000003'};
 const hash=char=>`sha256:${char.repeat(64)}`;
 function fixture(overrides={}){
-  const value={schema_version:'WBS_SIGNED_BANK_ADMISSION_V1',environment:'PRODUCTION',source_system:'WBS',admission_status:'ADMITTED',snapshot_id:ids.snapshotId,package_hash:hash('a'),source_entity_id:'ENTITY-1',statement:{statement_id:'STMT-2026-07',bank_account_ref:'BANK-1',statement_start_date:'2026-07-01',statement_end_date:'2026-07-31',currency:'USD',opening_balance:'100.0000',ending_balance:'125.0000',payload_hash:hash('b'),payload_ref:'object://wbs-bank-statements/STMT-2026-07'},transactions:[{source_record_id:'BANK-TXN-1',source_version:`snapshot:${ids.snapshotId}:0123456789abcdef`,external_bank_line_id:'EXT-1',payload_hash:hash('c'),payload_ref:`object://wbs-snapshot/${ids.snapshotId}/BGDATA.bank_transaction/BANK-TXN-1`,transaction_date:'2026-07-15',currency:'USD',bank_account_ref:'BANK-1',amount:'25.0000'}],detached_signature:{key_id:'wbs-prod-2026',algorithm:'Ed25519',value:'signed-value'},...overrides};
+  const value={schema_version:'WBS_SIGNED_BANK_ADMISSION_V1',environment:'PRODUCTION',source_system:'WBS',admission_status:'ADMITTED',snapshot_id:ids.snapshotId,package_hash:hash('a'),source_entity_id:'ENTITY-1',statement:{statement_id:'STMT-2026-07',bank_account_ref:'BANK-1',statement_start_date:'2026-07-01',statement_end_date:'2026-07-31',currency:'USD',opening_balance:'100.0000',ending_balance:'125.0000',payload_hash:hash('b'),payload_ref:'object://wbs-bank-statements/STMT-2026-07'},transactions:[{source_record_id:'BANK-TXN-1',source_version:`snapshot:${ids.snapshotId}:0123456789abcdef`,external_bank_line_id:'EXT-1',payload_hash:hash('c'),payload_ref:`object://wbs-snapshot/${ids.snapshotId}/BGDATA.bank_transaction/BANK-TXN-1`,transaction_date:'2026-07-15',currency:'USD',bank_account_ref:'BANK-1',amount:'25.0000'}],key_id:'wbs-prod-2026',algorithm:'Ed25519',detached_signature:{key_id:'wbs-prod-2026',algorithm:'Ed25519',value:'signed-value'},...overrides};
   value.admission_hash=canonicalRequestHash(Object.fromEntries(Object.entries(value).filter(([key])=>!['admission_hash','detached_signature'].includes(key))));
   return value;
 }
@@ -17,6 +17,7 @@ test('signed bank admission freezes a production statement and exact transaction
   assert.equal(value.admission_status,'ADMITTED');
   assert.equal(value.statement.bank_account_ref,'BANK-1');
   assert.equal(value.transactions.length,1);
+  assert.equal(value.key_id,'wbs-prod-2026');assert.equal(value.algorithm,'Ed25519');
   assert.ok(Object.isFrozen(value.transactions));
 });
 
@@ -28,6 +29,9 @@ test('unsigned pilot, tampered, cross-account, and zero-value observations canno
     fixture({transactions:[{...fixture().transactions[0],amount:'0.0000'}]})
   ])assert.throws(()=>validateWbsSignedBankAdmission(invalid));
   assert.throws(()=>validateWbsSignedBankAdmission(fixture({actorId:'forged'})),error=>error.code==='WBS_BANK_ADMISSION_INVALID');
+  const hashBound=fixture();hashBound.key_id='wbs-other';hashBound.detached_signature.key_id='wbs-other';
+  assert.throws(()=>validateWbsSignedBankAdmission(hashBound),error=>error.code==='WBS_BANK_ADMISSION_HASH_MISMATCH');
+  assert.throws(()=>validateWbsSignedBankAdmission(fixture({detached_signature:{key_id:'wbs-other',algorithm:'Ed25519',value:'signed-value'}})),error=>error.code==='WBS_BANK_ADMISSION_SIGNATURE_REQUIRED');
   assert.throws(()=>validateWbsSignedBankAdmission(fixture({transactions:[{...fixture().transactions[0],unexpected:'raw'}]})),error=>error.code==='WBS_BANK_TRANSACTION_INVALID');
 });
 

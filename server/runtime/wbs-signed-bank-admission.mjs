@@ -27,7 +27,7 @@ function fail(code,message){throw new WbsSignedBankAdmissionError(code,message);
 
 export function validateWbsSignedBankAdmission(admission){
   if(!object(admission)||admission.schema_version!=='WBS_SIGNED_BANK_ADMISSION_V1'||admission.environment!=='PRODUCTION'||admission.source_system!=='WBS'||admission.admission_status!=='ADMITTED')fail('WBS_BANK_ADMISSION_INVALID','A production ADMITTED WBS bank admission manifest is required.');
-  exact(admission,['schema_version','environment','source_system','admission_status','snapshot_id','package_hash','source_entity_id','statement','transactions','detached_signature','admission_hash'],'WBS_BANK_ADMISSION_INVALID');
+  exact(admission,['schema_version','environment','source_system','admission_status','snapshot_id','package_hash','source_entity_id','statement','transactions','key_id','algorithm','detached_signature','admission_hash'],'WBS_BANK_ADMISSION_INVALID');
   if(!UUID.test(admission.snapshot_id||'')||!HASH.test(admission.package_hash||'')||!text(admission.source_entity_id,128))fail('WBS_BANK_ADMISSION_INVALID','The signed snapshot identity is incomplete.');
   const statement=admission.statement;
   if(!object(statement)||!text(statement.statement_id,128)||!text(statement.bank_account_ref,128)||!/^[A-Z]{3}$/.test(statement.currency||'')||!DATE.test(statement.statement_start_date||'')||!DATE.test(statement.statement_end_date||'')||statement.statement_start_date>statement.statement_end_date||!MONEY.test(statement.opening_balance||'')||!MONEY.test(statement.ending_balance||'')||!HASH.test(statement.payload_hash||'')||!REF.test(statement.payload_ref||''))fail('WBS_BANK_STATEMENT_INVALID','The signed bank statement header is incomplete or invalid.');
@@ -41,9 +41,12 @@ export function validateWbsSignedBankAdmission(admission){
     seen.add(item.external_bank_line_id);seen.add(`record:${item.source_record_id}`);
     return Object.freeze({...item});
   });
+  if(!text(admission.key_id,128)||admission.algorithm!=='Ed25519')fail('WBS_BANK_ADMISSION_SIGNATURE_REQUIRED','The admission requires a top-level Ed25519 key identity.');
   const signature=admission.detached_signature;
-  if(!object(signature)||!text(signature.key_id,128)||signature.algorithm!=='Ed25519'||!text(signature.value,4096))fail('WBS_BANK_ADMISSION_SIGNATURE_REQUIRED','The admission requires an Ed25519 detached signature.');
+  if(!object(signature)||!text(signature.key_id,128)||signature.algorithm!=='Ed25519'||!text(signature.value,4096)||signature.key_id!==admission.key_id||signature.algorithm!==admission.algorithm)fail('WBS_BANK_ADMISSION_SIGNATURE_REQUIRED','The admission requires a matching top-level and detached Ed25519 signature identity.');
   exact(signature,['key_id','algorithm','value'],'WBS_BANK_ADMISSION_SIGNATURE_REQUIRED');
+  // key_id and algorithm are intentionally top-level signed inputs.  Only the
+  // self-referential hash and detached signature bytes are excluded.
   const computed=canonicalRequestHash(without(admission,'admission_hash','detached_signature'));
   if(admission.admission_hash!==computed)fail('WBS_BANK_ADMISSION_HASH_MISMATCH','The admission hash does not match the signed manifest.');
   return Object.freeze({...admission,statement:Object.freeze({...statement}),transactions:Object.freeze(transactions),detached_signature:Object.freeze({...signature})});

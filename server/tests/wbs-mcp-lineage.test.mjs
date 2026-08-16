@@ -151,6 +151,15 @@ const ROWS = Object.freeze({
     total_credit: 1250.5,
     total_debit: 0,
   }),
+  list_insurance: Object.freeze({
+    id: 1,
+    policy_id: 'POL-0001',
+    company_code: null,
+    pc_code: 'PC-1',
+    final_premium: '1200.00',
+    deleted: 0,
+    currency: 'USD',
+  }),
   trace_by_key: Object.freeze({
     bill_no: 'AP-2026-0001',
     company_code: 'CO-A',
@@ -191,8 +200,8 @@ const codes = result => result.exceptions.map(exception => exception.code);
 
 /* ---------------- 1. catalog + schema declaration ---------------------- */
 
-test('the catalog declares exactly the eight approved read-only sources with a schema, stable key, role and terminus', () => {
-  assert.equal(WBS_LINEAGE_SOURCE_COUNT, 8);
+test('the catalog declares exactly the nine approved read-only sources with a schema, stable key, role and terminus', () => {
+  assert.equal(WBS_LINEAGE_SOURCE_COUNT, 9);
   assert.deepEqual(Object.keys(WBS_SOURCE_CATALOG).sort(), [...WBS_READONLY_TOOLS].sort());
   for (const [tool, entry] of Object.entries(WBS_SOURCE_CATALOG)) {
     assert.ok(Object.keys(entry.schema).length > 0, `${tool} must declare a schema`);
@@ -223,9 +232,9 @@ test('the catalog schema is bound to the frozen row-field allowlist and never dr
 
 test('mapping coverage is reported for every source and every declared field is typed', () => {
   const coverage = describeWbsMappingCoverage();
-  assert.equal(coverage.source_count, 8);
-  assert.equal(coverage.per_source.length, 8);
-  assert.ok(coverage.declared_fields >= 100, 'the eight sources declare the full field surface');
+  assert.equal(coverage.source_count, 9);
+  assert.equal(coverage.per_source.length, 9);
+  assert.ok(coverage.declared_fields >= 100, 'the nine sources declare the full field surface');
   assert.equal(coverage.mapped_source_fields, coverage.declared_fields);
   assert.equal(coverage.coverage_ratio, 1);
   for (const item of coverage.per_source) {
@@ -289,7 +298,7 @@ test('a payable envelope flows Receipt -> Raw -> Normalized -> Staging -> Mappin
   assert.equal(normalized.source_document_ref, 'AP-GUID-0001');
 });
 
-test('every one of the eight sources maps at least one sanitized row to its declared terminus', () => {
+test('every one of the nine sources maps at least one sanitized row to its declared terminus', () => {
   const mappings = mappingsFor([
     ['list_payables', ROWS.list_payables, '640000'],
     ['list_bank_transactions', ROWS.list_bank_transactions, '111000'],
@@ -320,6 +329,7 @@ test('every one of the eight sources maps at least one sanitized row to its decl
     list_autorec_banks: 'AUTOREC_REVIEW',
     list_journal_entries: 'EVIDENCE_SEAM',
     list_control_totals: 'EVIDENCE_SEAM',
+    list_insurance: 'EVIDENCE_SEAM',
     trace_by_key: 'EVIDENCE_SEAM',
   });
 });
@@ -733,7 +743,7 @@ test('a stateless replay from zero produces identical stable keys and identical 
   assert.deepEqual(runA.observed_keys_by_tool, runB.observed_keys_by_tool);
   assert.deepEqual(runA.source_versions, runB.source_versions);
   assert.deepEqual(JSON.parse(JSON.stringify(runA.results)), JSON.parse(JSON.stringify(runB.results)));
-  assert.equal(Object.keys(runA.observed_keys_by_tool).length, 8);
+  assert.equal(Object.keys(runA.observed_keys_by_tool).length, 9);
 
   const incremental = replayWbsLineage({
     pages,

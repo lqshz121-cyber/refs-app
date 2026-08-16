@@ -11,7 +11,7 @@ const mappingHash=`sha256:${'a'.repeat(64)}`;
 
 function fixture({rows,credentials=false}={}){
   const {privateKey,publicKey}=generateKeyPairSync('ed25519'),kid='wbs-final1-insurance-test';
-  const sourceRows=rows||[{id:1,policy_id:'POL-1',company_code:'WBPA',pc_code:'PC-1',property_code:'PROP-1',unit_code:'UNIT-1',insurance_status:'Active',approval_status:'Approved',policy_number:'P-100',carrier:'Carrier',insurance_type:'Fire',final_premium:'1200.00',start_date:'2026-01-01',expire_date:'2026-12-31',attachment_count:1,policy_attachment_id:'attachment-1',data_source:'new-insurance',update_time:'2026-08-15 00:00:00',deleted:0}];
+  const sourceRows=rows||[{id:1,policy_id:'POL-1',company_code:null,pc_code:'PC-1',property_code:'PROP-1',unit_code:'UNIT-1',insurance_status:'Active',approval_status:'Approved',policy_number:'P-100',carrier:'Carrier',insurance_type:'Fire',final_premium:'1200.00',start_date:'2026-01-01',expire_date:'2026-12-31',attachment_count:1,policy_attachment_id:'attachment-1',data_source:'new-insurance',update_time:'2026-08-15 00:00:00',deleted:0}];
   const view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']},row_count:sourceRows.length,content_hash:hash(canonical(sourceRows)).slice(7),rows:sourceRows};
   const unsigned={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-15T00:00:00Z',environment:'PRODUCTION',source_system:'WBS',domain:'INSURANCE',source_database:'wb_insurance',source_table:'insurance_data',company_key:'WBPA',company_mapping_hash:mappingHash,currency:'USD',date_from:'2026-01-01',date_to:'2026-12-31',views:{list_insurance:view}};
   const packageHash=hash(canonical(unsigned)).slice(7),pkg={...unsigned,package_hash:packageHash,detached_signature:{key_id:kid,algorithm:'Ed25519',value:sign(null,canonical(unsigned),privateKey).toString('base64')}},packageRaw=canonical(pkg);
@@ -28,16 +28,17 @@ test('verifies actual insurance_data source keys and retains an exact whole-mont
   assert.equal(row.source_module,'payable');assert.equal(row.source_domain,'insurance');
   assert.deepEqual(row.source_surface,{database:'wb_insurance',table:'insurance_data',stable_keys:['id','policy_id']});
   assert.equal(row.source_primary_key,'1');assert.equal(row.source_record_id,'POL-1');assert.equal(row.normalized.finalPremium,'1200.00');
+  assert.equal(row.raw_row.company_code,null);assert.equal(row.company_mapping_trace.pc_code,'PC-1');assert.equal(row.company_mapping_trace.mapping_authority,'UNRESOLVED_PENDING_SERVER_DECISION');assert.equal(row.company_mapping_trace.controller_approved,false);
   assert.equal(row.outcome,'AMORTIZATION_COVERAGE_EVIDENCE_CANDIDATE');assert.equal(plan.candidate_rows.length,1);assert.equal(plan.exception_rows.length,0);
   for(const key of ['can_propose_amortization','can_create_draft','can_review','can_approve','can_post'])assert.equal(row[key],false);
 });
 
 test('retains missing, invalid, nonpositive, and approximate coverage as exceptions rather than AI proposals',()=>{
   const rows=[
-    {id:1,policy_id:'POL-MISSING',company_code:'WBPA',pc_code:'PC-1',final_premium:'100.00',start_date:null,expire_date:null,deleted:0},
-    {id:2,policy_id:'POL-INVALID',company_code:'WBPA',pc_code:'PC-1',final_premium:'100.00',start_date:'2026-12-31',expire_date:'2026-01-01',deleted:0},
-    {id:3,policy_id:'POL-ZERO',company_code:'WBPA',pc_code:'PC-1',final_premium:'0.00',start_date:'2026-01-01',expire_date:'2026-12-31',deleted:0},
-    {id:4,policy_id:'POL-APPROX',company_code:'WBPA',pc_code:null,final_premium:'100.00',start_date:'2026-01-15',expire_date:'2027-01-14',deleted:0}
+    {id:1,policy_id:'POL-MISSING',company_code:null,pc_code:'PC-1',final_premium:'100.00',start_date:null,expire_date:null,deleted:0},
+    {id:2,policy_id:'POL-INVALID',company_code:null,pc_code:'PC-1',final_premium:'100.00',start_date:'2026-12-31',expire_date:'2026-01-01',deleted:0},
+    {id:3,policy_id:'POL-ZERO',company_code:null,pc_code:'PC-1',final_premium:'0.00',start_date:'2026-01-01',expire_date:'2026-12-31',deleted:0},
+    {id:4,policy_id:'POL-APPROX',company_code:null,pc_code:'PC-1',final_premium:'100.00',start_date:'2026-01-15',expire_date:'2027-01-14',deleted:0}
   ];
   const {input}=fixture({rows}),verified=verifyWbsProviderFinal1InsuranceDelivery(input),plan=normalizeVerifiedWbsProviderFinal1Insurance({verified});
   assert.equal(plan.candidate_rows.length,0);assert.equal(plan.exception_rows.length,4);
@@ -45,7 +46,7 @@ test('retains missing, invalid, nonpositive, and approximate coverage as excepti
     ['INSURANCE_COVERAGE_DATE_MISSING'],
     ['INSURANCE_COVERAGE_DATE_INVALID'],
     ['INSURANCE_PREMIUM_NONPOSITIVE'],
-    ['INSURANCE_ENTITY_MAPPING_REQUIRED','INSURANCE_COVERAGE_NORMALIZATION_REQUIRED']
+    ['INSURANCE_COVERAGE_NORMALIZATION_REQUIRED']
   ]);
   assert.equal(plan.can_propose_amortization,false);assert.equal(plan.can_create_draft,false);assert.equal(plan.can_post,false);
 });
@@ -55,9 +56,9 @@ test('fails closed for credentialed raw artifacts, unredacted columns, tamper, w
   assert.deepEqual(verified.admission_blockers,['RAW_ARTIFACT_CREDENTIAL_REDACTION_REQUIRED']);
   assert.throws(()=>normalizeVerifiedWbsProviderFinal1Insurance({verified}),error=>error.code==='WBS_FINAL1_INSURANCE_NORMALIZATION_BLOCKED');
 
-  const unredacted=fixture({rows:[{id:1,policy_id:'POL-PII',company_code:'WBPA',pc_code:'PC-1',final_premium:'100.00',start_date:'2026-01-01',expire_date:'2026-12-31',deleted:0,owner:'must not cross boundary'}]});
+  const unredacted=fixture({rows:[{id:1,policy_id:'POL-PII',company_code:null,pc_code:'PC-1',final_premium:'100.00',start_date:'2026-01-01',expire_date:'2026-12-31',deleted:0,owner:'must not cross boundary'}]});
   assert.throws(()=>verifyWbsProviderFinal1InsuranceDelivery(unredacted.input),error=>error.code==='WBS_FINAL1_INSURANCE_ROW_INVALID');
-  const nested=fixture({rows:[{id:1,policy_id:'POL-NESTED',company_code:'WBPA',pc_code:'PC-1',carrier:{access_token:'must not cross boundary'},final_premium:'100.00',start_date:'2026-01-01',expire_date:'2026-12-31',deleted:0}]});
+  const nested=fixture({rows:[{id:1,policy_id:'POL-NESTED',company_code:null,pc_code:'PC-1',carrier:{access_token:'must not cross boundary'},final_premium:'100.00',start_date:'2026-01-01',expire_date:'2026-12-31',deleted:0}]});
   assert.throws(()=>verifyWbsProviderFinal1InsuranceDelivery(nested.input),error=>error.code==='WBS_FINAL1_INSURANCE_ROW_INVALID');
   const tampered=fixture();tampered.input.packageRaw=Buffer.from(tampered.input.packageRaw);tampered.input.packageRaw[5]^=1;
   assert.throws(()=>verifyWbsProviderFinal1InsuranceDelivery(tampered.input),error=>error.code==='WBS_SIGNED_DELIVERY_RAW_HASH_MISMATCH');
@@ -65,4 +66,16 @@ test('fails closed for credentialed raw artifacts, unredacted columns, tamper, w
   assert.throws(()=>verifyWbsProviderFinal1InsuranceDelivery(wrongMapping.input),error=>error.code==='WBS_FINAL1_INSURANCE_PACKAGE_INVALID');
   const wrongCurrency=fixture();wrongCurrency.input.expectedCurrency='CAD';
   assert.throws(()=>verifyWbsProviderFinal1InsuranceDelivery(wrongCurrency.input),error=>error.code==='WBS_FINAL1_INSURANCE_SCOPE_INVALID');
+  const inferredCompany=fixture({rows:[{id:1,policy_id:'POL-COMPANY',company_code:'WBPA',pc_code:'PC-1',final_premium:'100.00',start_date:'2026-01-01',expire_date:'2026-12-31',deleted:0}]});
+  assert.throws(()=>verifyWbsProviderFinal1InsuranceDelivery(inferredCompany.input),error=>error.code==='WBS_FINAL1_INSURANCE_ROW_INVALID');
+  const missingPc=fixture({rows:[{id:1,policy_id:'POL-PC',company_code:null,pc_code:null,final_premium:'100.00',start_date:'2026-01-01',expire_date:'2026-12-31',deleted:0}]});
+  const missingPcPlan=normalizeVerifiedWbsProviderFinal1Insurance({verified:verifyWbsProviderFinal1InsuranceDelivery(missingPc.input)});
+  assert.equal(missingPcPlan.candidate_rows.length,0);assert.deepEqual(missingPcPlan.exception_rows[0].exception_codes,['INSURANCE_ENTITY_MAPPING_REQUIRED']);
+});
+
+test('Final-1 signed insurance population accepts 500 unique rows and rejects 501 before normalization',()=>{
+  const rows=Array.from({length:500},(_,index)=>({id:index+1,policy_id:`POL-${index+1}`,company_code:null,pc_code:'PC-1',final_premium:'100.00',start_date:'2026-01-01',expire_date:'2026-12-31',deleted:0}));
+  assert.equal(verifyWbsProviderFinal1InsuranceDelivery(fixture({rows}).input).row_count,500);
+  const oversize=[...rows,{...rows.at(-1),id:501,policy_id:'POL-501'}];
+  assert.throws(()=>verifyWbsProviderFinal1InsuranceDelivery(fixture({rows:oversize}).input),error=>error.code==='WBS_FINAL1_INSURANCE_VIEW_INVALID');
 });

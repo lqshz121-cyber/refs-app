@@ -56,7 +56,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   });return {analyze:async({tenantId,entityId,currentPeriodId})=>{
     if(tenantId!==principal.tenantId)throw new Error('AI accrual tenant scope does not match the authenticated principal');
     const period=await kernel.readAiAccrualAnalysisPeriod({tenantId,entityId,currentPeriodId});
-    return analysis.analyze({tenantId,entityId,currentPeriodId,currentPeriodKey:period.period_code,currentPeriodOrdinal:Number(period.period_ordinal)});
+    return analysis.analyze({tenantId,entityId,currentPeriodId,companyCode:period.company_code,currentPeriodKey:period.period_code,currentPeriodOrdinal:Number(period.period_ordinal)});
   }};};
   const server=createAccountingHttpServer({
     maxBodyBytes,releaseSha,

@@ -8,8 +8,10 @@ const HASH=/^(?:sha256:)?[0-9a-f]{64}$/;
 const UTC=/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{3}))?Z$/;
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const MAX_RAW_BYTES=32*1024*1024;
-const SENSITIVE_RAW=/(?:^|\r?\n)(?:authorization|proxy-authorization|cookie|set-cookie|cf-access-client-secret|x-refs-auth)\s*:/i;
-const SENSITIVE_JSON=/"(?:authorization|proxy_authorization|cookie|set_cookie|cf_access_client_secret|x_refs_auth|password|access_token|refresh_token|client_secret|api_key)"\s*:/i;
+const FINAL1_SIGNED_POPULATION_MAX=500;
+const SENSITIVE_RAW=/(?:^|\r?\n)(?:authorization|proxy-authorization|cookie|set-cookie|cf-access-client-secret|x-refs-auth|x-api-key)\s*:/i;
+const SENSITIVE_JSON=/"(?:authorization|proxy_authorization|cookie|set_cookie|cf_access_client_secret|x_refs_auth|password|access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key)"\s*:/i;
+const SENSITIVE_QUERY=/[?&](?:access[_-]?token|api[_-]?key)=/i;
 const verifiedFinal1Evidence=new WeakSet();
 const verifiedFinal1InsuranceEvidence=new WeakSet();
 
@@ -23,7 +25,8 @@ const safeRaw=(value,label)=>{
   if(!Buffer.isBuffer(value)||value.byteLength===0||value.byteLength>MAX_RAW_BYTES)fail('WBS_FINAL1_RAW_INVALID',`${label} raw bytes are absent or outside the fixed size bound.`);
   return value;
 };
-const containsCredential=value=>SENSITIVE_RAW.test(value.toString('latin1'))||SENSITIVE_JSON.test(value.toString('latin1'));
+const percentDecode=value=>{let decoded=value;for(let pass=0;pass<3;pass++){const next=decoded.replace(/%([0-9a-f]{2})/gi,(_match,hex)=>String.fromCharCode(Number.parseInt(hex,16)));if(next===decoded)break;decoded=next;}return decoded;};
+export const containsWbsProviderFinal1Credential=value=>{const raw=value.toString('latin1'),decoded=percentDecode(raw);return SENSITIVE_RAW.test(raw)||SENSITIVE_JSON.test(raw)||SENSITIVE_QUERY.test(raw)||SENSITIVE_RAW.test(decoded)||SENSITIVE_JSON.test(decoded)||SENSITIVE_QUERY.test(decoded);};
 const instant=value=>{
   if(typeof value!=='string')return null;
   const match=UTC.exec(value),time=Date.parse(value);
@@ -79,13 +82,14 @@ export function verifyWbsProviderFinal1Delivery({providerTrust,receipt,requestRa
   const packageSignature=signatureValue(pkg.detached_signature),unsignedPackage=without(pkg,'package_hash','detached_signature'),packageCanonical=bytes(unsignedPackage);
   if(!HASH.test(pkg.package_hash||'')||bare(pkg.package_hash)!==bare(sha256(packageCanonical))||pkg.detached_signature?.key_id!==receipt.kid||!packageSignature||!verified(trust.publicKey,packageCanonical,packageSignature))fail('WBS_SIGNED_DELIVERY_PACKAGE_SIGNATURE_INVALID','Final-1 package hash or signature is invalid.');
   const view=pkg.views.list_payables,rows=view.rows;
-  if(!Array.isArray(rows)||!Number.isSafeInteger(view.row_count)||view.row_count!==rows.length||bare(view.content_hash)!==bare(sha256(bytes(rows)))||!object(view.scope)||!Array.isArray(view.scope.company_codes)||view.scope.company_codes.length!==1||view.scope.company_codes[0]!==expectedScope.company_code||!Array.isArray(view.scope.date_range)||view.scope.date_range.length!==2||view.scope.date_range[0]!==pkg.date_from||view.scope.date_range[1]!==pkg.date_to)fail('WBS_FINAL1_VIEW_INVALID','Final-1 Payables row count, content hash, or scope is invalid.');
+  if(!Array.isArray(rows)||!Number.isSafeInteger(view.row_count)||view.row_count<1||view.row_count>FINAL1_SIGNED_POPULATION_MAX||view.row_count!==rows.length||bare(view.content_hash)!==bare(sha256(bytes(rows)))||!object(view.scope)||!Array.isArray(view.scope.company_codes)||view.scope.company_codes.length!==1||view.scope.company_codes[0]!==expectedScope.company_code||!Array.isArray(view.scope.date_range)||view.scope.date_range.length!==2||view.scope.date_range[0]!==pkg.date_from||view.scope.date_range[1]!==pkg.date_to)fail('WBS_FINAL1_VIEW_INVALID','Final-1 Payables row count, content hash, or scope is invalid.');
   const ids=new Set();
   for(const row of rows){
-    if(!object(row)||!UUID.test(row.ap_guid||'')||ids.has(row.ap_guid.toLowerCase())||row.company_code!==expectedScope.company_code)fail('WBS_FINAL1_ROW_INVALID','Final-1 Payables rows require unique ap_guid values and exact company scope.');
+    const signedAccrualNulls=['service_period_start','service_period_end','recurring_obligation_id','contract_id','charge_code','service_frequency','obligation_status'];
+    if(!object(row)||!UUID.test(row.ap_guid||'')||ids.has(row.ap_guid.toLowerCase())||row.company_code!==expectedScope.company_code||['invoice_no','invoice_date','business_id'].some(key=>!Object.hasOwn(row,key))||signedAccrualNulls.some(key=>!Object.hasOwn(row,key)||row[key]!==null))fail('WBS_FINAL1_ROW_INVALID','Final-1 Payables rows require unique ap_guid, exact scope, signed invoice_no/invoice_date/business_id keys, and seven explicit null accrual fields.');
     ids.add(row.ap_guid.toLowerCase());
   }
-  const rawContainsCredentials=containsCredential(requestRaw)||containsCredential(responseRaw)||SENSITIVE_JSON.test(packageRaw.toString('latin1'));
+  const rawContainsCredentials=containsWbsProviderFinal1Credential(bytes(receipt))||containsWbsProviderFinal1Credential(requestRaw)||containsWbsProviderFinal1Credential(responseRaw)||containsWbsProviderFinal1Credential(packageRaw);
   const currencySigned=rows.length>0&&rows.every(row=>/^[A-Z]{3}$/.test(row.currency||''))&&new Set(rows.map(row=>row.currency)).size===1;
   const configuredCurrency=typeof expectedCurrency==='string'&&/^[A-Z]{3}$/.test(expectedCurrency)?expectedCurrency:null;
   if(currencySigned&&configuredCurrency&&rows[0].currency!==configuredCurrency)fail('WBS_FINAL1_CURRENCY_SCOPE_MISMATCH','Provider currency differs from the independently approved REFS currency.');
@@ -135,13 +139,13 @@ export function verifyWbsProviderFinal1InsuranceDelivery({providerTrust,receipt,
   const packageSignature=signatureValue(pkg.detached_signature),unsignedPackage=without(pkg,'package_hash','detached_signature'),packageCanonical=bytes(unsignedPackage);
   if(!HASH.test(pkg.package_hash||'')||bare(pkg.package_hash)!==bare(sha256(packageCanonical))||pkg.detached_signature?.key_id!==receipt.kid||!packageSignature||!verified(trust.publicKey,packageCanonical,packageSignature))fail('WBS_SIGNED_DELIVERY_PACKAGE_SIGNATURE_INVALID','Insurance package hash or signature is invalid.');
   const view=pkg.views.list_insurance,rows=view.rows;
-  if(!Array.isArray(rows)||!Number.isSafeInteger(view.row_count)||view.row_count!==rows.length||bare(view.content_hash)!==bare(sha256(bytes(rows)))||!object(view.scope)||!Array.isArray(view.scope.company_codes)||view.scope.company_codes.length!==1||view.scope.company_codes[0]!==expectedScope.company_code||!Array.isArray(view.scope.date_range)||view.scope.date_range.length!==2||view.scope.date_range[0]!==pkg.date_from||view.scope.date_range[1]!==pkg.date_to)fail('WBS_FINAL1_INSURANCE_VIEW_INVALID','Insurance row count, content hash, or scope is invalid.');
+  if(!Array.isArray(rows)||!Number.isSafeInteger(view.row_count)||view.row_count<1||view.row_count>FINAL1_SIGNED_POPULATION_MAX||view.row_count!==rows.length||bare(view.content_hash)!==bare(sha256(bytes(rows)))||!object(view.scope)||!Array.isArray(view.scope.company_codes)||view.scope.company_codes.length!==1||view.scope.company_codes[0]!==expectedScope.company_code||!Array.isArray(view.scope.date_range)||view.scope.date_range.length!==2||view.scope.date_range[0]!==pkg.date_from||view.scope.date_range[1]!==pkg.date_to)fail('WBS_FINAL1_INSURANCE_VIEW_INVALID','Insurance population count, content hash, or scope is invalid.');
   const ids=new Set(),policies=new Set();let priorId=0;
   for(const row of rows){
-    if(!object(row)||Object.keys(row).some(key=>!INSURANCE_FIELDS.has(key))||INSURANCE_TEXT_FIELDS.some(key=>row[key]!=null&&(typeof row[key]!=='string'||!SAFE_SOURCE_TEXT.test(row[key])))||!Number.isSafeInteger(row.id)||row.id<=priorId||!SAFE_SOURCE_TEXT.test(row.policy_id||'')||ids.has(row.id)||policies.has(row.policy_id)||row.company_code!==expectedScope.company_code||row.deleted!==0||!FIXED_2.test(row.final_premium||'')||(row.start_date!=null&&!exactDate(row.start_date))||(row.expire_date!=null&&!exactDate(row.expire_date))||(row.currency!=null&&row.currency!=='USD')||(row.attachment_count!=null&&(!Number.isSafeInteger(row.attachment_count)||row.attachment_count<0)))fail('WBS_FINAL1_INSURANCE_ROW_INVALID','Insurance rows require the redacted scalar allowlist, ascending id, unique policy_id, fixed-point premium, exact company, and valid source fields.');
+    if(!object(row)||Object.keys(row).some(key=>!INSURANCE_FIELDS.has(key))||INSURANCE_TEXT_FIELDS.some(key=>row[key]!=null&&(typeof row[key]!=='string'||!SAFE_SOURCE_TEXT.test(row[key])))||!Number.isSafeInteger(row.id)||row.id<=priorId||!SAFE_SOURCE_TEXT.test(row.policy_id||'')||(row.pc_code!=null&&!SAFE_SOURCE_TEXT.test(row.pc_code))||ids.has(row.id)||policies.has(row.policy_id)||row.company_code!==null||row.deleted!==0||!FIXED_2.test(row.final_premium||'')||(row.start_date!=null&&!exactDate(row.start_date))||(row.expire_date!=null&&!exactDate(row.expire_date))||(row.currency!=null&&row.currency!=='USD')||(row.attachment_count!=null&&(!Number.isSafeInteger(row.attachment_count)||row.attachment_count<0)))fail('WBS_FINAL1_INSURANCE_ROW_INVALID','Insurance rows require the redacted scalar allowlist, ascending id/policy_id, nullable pc_code, null company_code, fixed-point premium, and valid source fields.');
     ids.add(row.id);policies.add(row.policy_id);priorId=row.id;
   }
-  const rawContainsCredentials=containsCredential(requestRaw)||containsCredential(responseRaw)||SENSITIVE_JSON.test(packageRaw.toString('latin1'));
+  const rawContainsCredentials=containsWbsProviderFinal1Credential(bytes(receipt))||containsWbsProviderFinal1Credential(requestRaw)||containsWbsProviderFinal1Credential(responseRaw)||containsWbsProviderFinal1Credential(packageRaw);
   const result=deepFreeze({status:'VERIFIED_FINAL1_INSURANCE_EVIDENCE_ONLY',format:'WBS_PROVIDER_FINAL1_INSURANCE',signature_verified:true,tenant_id:expectedScope.tenant_id,entity_id:expectedScope.entity_id,company_code:expectedScope.company_code,company_mapping_hash:expectedScope.company_mapping_hash,snapshot_id:pkg.snapshot_id,date_from:pkg.date_from,date_to:pkg.date_to,row_count:rows.length,package_hash:`sha256:${bare(pkg.package_hash)}`,raw_package_hash:`sha256:${bare(receipt.package_hash)}`,raw_contains_credentials:rawContainsCredentials,accounting_currency:'USD',currency_authority:'REFS_BUSINESS_OWNER_CONFIRMED',admission_blockers:Object.freeze(rawContainsCredentials?['RAW_ARTIFACT_CREDENTIAL_REDACTION_REQUIRED']:[]),package:pkg,can_admit:false,can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false});
   verifiedFinal1InsuranceEvidence.add(result);
   return result;

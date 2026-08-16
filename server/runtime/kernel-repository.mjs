@@ -385,16 +385,16 @@ export class PostgresAccountingKernel{
   async readAiAccrualAnalysisPeriod({tenantId,entityId,currentPeriodId}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
-      return requireRow(await client.query(`SELECT period_id,period_code,(extract(year FROM starts_on)::integer*12+extract(month FROM starts_on)::integer) AS period_ordinal
-        FROM accounting_period
-        WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3 AND ledger_code='PRIMARY'`,[tenantId,entityId,currentPeriodId]),'AI_ACCRUAL_PERIOD_NOT_FOUND','Authoritative primary accounting period is unavailable');
+      return requireRow(await client.query(`SELECT p.period_id,p.period_code,(extract(year FROM p.starts_on)::integer*12+extract(month FROM p.starts_on)::integer) AS period_ordinal,e.source_entity_id AS company_code
+        FROM accounting_period p JOIN entity e ON e.tenant_id=p.tenant_id AND e.entity_id=p.entity_id
+        WHERE p.tenant_id=$1 AND p.entity_id=$2 AND p.period_id=$3 AND p.ledger_code='PRIMARY'`,[tenantId,entityId,currentPeriodId]),'AI_ACCRUAL_PERIOD_NOT_FOUND','Authoritative primary accounting period is unavailable');
     });
   }
 
   async listAiAccrualRetainedHistory({tenantId,entityId,currentPeriodId,limit=240}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
-      return (await client.query(`SELECT d.tenant_id,d.entity_id,d.source_system,d.source_module,d.document_type,d.status AS source_status,d.source_document_id,l.source_document_line_id,p.period_id AS accounting_period_id,p.period_code,(extract(year FROM p.starts_on)::integer*12+extract(month FROM p.starts_on)::integer) AS period_ordinal,true AS period_closed,d.payload_hash,d.currency,l.amount::text,l.party_ref,l.external_dimension_refs
+      return (await client.query(`SELECT d.tenant_id,d.entity_id,d.source_entity_id,d.source_system,d.source_module,d.document_type,d.status AS source_status,d.source_document_id,l.source_document_line_id,p.period_id AS accounting_period_id,p.period_code,(extract(year FROM p.starts_on)::integer*12+extract(month FROM p.starts_on)::integer) AS period_ordinal,true AS period_closed,d.payload_hash,d.currency,l.amount::text,l.party_ref,l.external_dimension_refs
         FROM wbs_final1_retained_source_row r
         JOIN raw_event e ON e.tenant_id=r.tenant_id AND e.entity_id=r.entity_id AND e.raw_event_id=r.raw_event_id AND e.is_current
         JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id

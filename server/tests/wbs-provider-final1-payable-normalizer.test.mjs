@@ -12,8 +12,9 @@ function fixture({currency='USD',credentials=false}={}){
   const {privateKey,publicKey}=generateKeyPairSync('ed25519'),kid='wbs-final1-normalize-test';
   const row={
     ap_guid:'11111111-1111-4111-8111-111111111111',ap_long_id:'AP-LONG-1',ap_type:'AUTOC',company_code:'WBPA',
-    ...(currency==null?{}:{currency}),amount:'10.0000',invoice_no:'INV-1',incurred_date:'2026-01-15',posting_date:'2026-01-16',
+    ...(currency==null?{}:{currency}),amount:'10.0000',invoice_no:'INV-1',invoice_date:'2026-01-14',business_id:'BUS-1',incurred_date:'2026-01-15',posting_date:'2026-01-16',
     vendor_no:'V-1',vendor_name:'Vendor',project_guid:'P-1',pj_code:'PROJECT-1',pj_name:'Project',description:'Invoice',
+    service_period_start:null,service_period_end:null,recurring_obligation_id:null,contract_id:null,charge_code:null,service_frequency:null,obligation_status:null,
     provider_metadata:{control:{state:'ORIGINAL'}}
   };
   const view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},row_count:1,content_hash:hash(canonical([row])).slice(7),rows:[row]};
@@ -38,6 +39,9 @@ test('normalizes Provider-signed USD rows into immutable staging only',()=>{
   assert.deepEqual(output.source_surface,{database:'wbsdata',table:'account_book_payable_info',stable_keys:['ap_guid']});
   assert.equal(output.normalized.vendorName,'Vendor');
   assert.equal(output.normalized.projectCode,'PROJECT-1');
+  assert.equal(output.raw_row.invoice_no,'INV-1');assert.equal(output.raw_row.invoice_date,'2026-01-14');assert.equal(output.raw_row.business_id,'BUS-1');
+  assert.equal(output.normalized.invoiceNo,'INV-1');assert.equal(output.normalized.invoiceDate,'2026-01-14');assert.equal(output.normalized.businessId,'BUS-1');
+  for(const field of ['servicePeriodStart','servicePeriodEnd','recurringObligationId','contractId','chargeCode','serviceFrequency','obligationStatus'])assert.equal(output.normalized[field],null,`${field} must remain explicit null rather than inferred`);
   assert.match(output.raw_row_hash,/^sha256:/);
   assert.equal(output.raw_row.ap_guid,row.ap_guid);
   assert.equal(Object.isFrozen(output.raw_row.provider_metadata),true);
@@ -53,7 +57,7 @@ test('normalizes Provider-signed USD rows into immutable staging only',()=>{
 
 test('retains missing invoice or vendor facts as signed exceptions without confirming duplicates or creating accounting actions',()=>{
   const {privateKey,publicKey}=generateKeyPairSync('ed25519'),kid='wbs-final1-missing-fields';
-  const row={ap_guid:'55555555-5555-4555-8555-555555555555',company_code:'WBPA',currency:'USD',amount:'10.0000',incurred_date:'2026-01-15'};
+  const row={ap_guid:'55555555-5555-4555-8555-555555555555',company_code:'WBPA',currency:'USD',amount:'10.0000',invoice_no:null,invoice_date:null,business_id:null,incurred_date:'2026-01-15',service_period_start:null,service_period_end:null,recurring_obligation_id:null,contract_id:null,charge_code:null,service_frequency:null,obligation_status:null};
   const view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},row_count:1,content_hash:hash(canonical([row])).slice(7),rows:[row]};
   const unsigned={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:'66666666-6666-4666-8666-666666666666',captured_at:'2026-08-15T00:00:00Z',environment:'PRODUCTION',source_system:'WBS',domain:'PAYABLES',company_key:'WBPA',date_from:'2026-01-01',date_to:'2026-06-30',views:{list_payables:view}};
   const packageHash=hash(canonical(unsigned)).slice(7),pkg={...unsigned,package_hash:packageHash,detached_signature:{key_id:kid,algorithm:'Ed25519',value:sign(null,canonical(unsigned),privateKey).toString('base64')}},packageRaw=canonical(pkg),requestRaw=Buffer.from('GET /mcp/payables'),responseRaw=Buffer.from('{"ok":true}');

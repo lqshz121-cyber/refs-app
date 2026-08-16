@@ -1,4 +1,4 @@
-# WBS read-only MCP lineage — eight-source accounting field map
+# WBS read-only MCP lineage — nine-source accounting field map
 
 Contract version: `WBS-REFS-MCP-LINEAGE-V1`
 Implementation: `server/runtime/wbs-mcp-lineage.mjs`
@@ -34,10 +34,10 @@ Receipt  ->  Raw  ->  Normalized  ->  Staging / Exception  ->  Mapping Review
 
 ---
 
-## 2. The eight sources
+## 2. The nine sources
 
-Field counts below are asserted by the test suite. Total declared fields: **116**;
-mapped source fields: **116** (coverage ratio `1.0`). A declared field counts as
+Field counts below are asserted by the test suite. Total declared fields: **145**;
+mapped source fields: **145** (coverage ratio `1.0`). A declared field counts as
 mapped when it feeds a normalized alias, the stable key (`source_id`) or the
 `source_document_ref` trace.
 
@@ -50,7 +50,8 @@ mapped when it feeds a normalized alias, the stable key (`source_id`) or the
 | 5 | `list_autorec_banks` | `BGDATA.autoc_bank` | `CASE_CONTROL` | `AUTOREC_REVIEW` | 13 | `pb_guid` | — | frozen allowlist |
 | 6 | `list_journal_entries` | `accounting.accounting_info` | `LEDGER_EVIDENCE` | `EVIDENCE_SEAM` | 19 | `id` | `sys_id` | frozen allowlist |
 | 7 | `list_control_totals` | `accounting.balance_cell` | `CONTROL_EVIDENCE_ONLY` | `EVIDENCE_SEAM` | 8 | `company` + `period` + `formula` | — | frozen allowlist |
-| 8 | `trace_by_key` | `wbs.trace` | `TRACE` | `EVIDENCE_SEAM` | 8 | `source_module` + `source_record_id` + `source_version` | `source_document_id` | REFS-declared* |
+| 8 | `list_insurance` | `wb_insurance.insurance_data` | `CONTROL_EVIDENCE_ONLY` | `EVIDENCE_SEAM` | 20 | `id` + `policy_id` | `policy_id` | frozen allowlist; `company_code=null`, signed `pc_code` maps only through Controller-approved package mapping |
+| 9 | `trace_by_key` | `wbs.trace` | `TRACE` | `EVIDENCE_SEAM` | 8 | `source_module` + `source_record_id` + `source_version` | `source_document_id` | REFS-declared* |
 
 \* `get_meta` and `trace_by_key` have no frozen row-field allowlist in
 `WBS_READONLY_ROW_FIELDS`. Their schemas are marked
@@ -282,7 +283,7 @@ persisting it is a kernel command and is out of scope for this read-only mapper.
 - **AI/automation never posts.** The furthest any source can go is a
   `STANDARD_JE_REQUEST_SEAM` record whose `can_create_draft`, `can_dispatch`,
   `can_post` and `can_write_wbs` are all `false`. A test serializes an entire
-  eight-source replay and asserts no `"can_post": true`, `"can_create_draft":
+  nine-source replay and asserts no `"can_post": true`, `"can_create_draft":
   true`, `"can_dispatch": true`, `"can_allocate": true` or `"can_write_wbs":
   true` appears anywhere in the output.
 - **Posted is immutable.** This mapper produces no journal and touches no

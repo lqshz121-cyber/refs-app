@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {canonicalRequestBody} from './request-hash.mjs';
-import {WBS_MCP_APPROVED_ENDPOINT,createReadOnlyWbsMcpClient} from './wbs-readonly-mcp.mjs';
+import {WBS_MCP_APPROVED_ENDPOINT,WBS_MCP_CATALOG_V2_REVIEWED_PINS,createReadOnlyWbsMcpClient} from './wbs-readonly-mcp.mjs';
 
 export const WBS_LIVE_PILOT_TOOLS=Object.freeze(['list_payables','list_bank_transactions','list_autorec_details','list_autorec_banks','list_journal_entries']);
 const COMPANY_SCOPED_TOOLS=new Set(['list_payables','list_bank_transactions','list_autorec_banks','list_journal_entries']);
@@ -120,7 +120,7 @@ export function parseWbsLivePilotSelection(searchParams){
 
 export function createWbsLivePilotClient({credentials,fetcher=globalThis.fetch}={}){
   if(!plain(credentials))fail('WBS_LIVE_PILOT_CONFIG_INVALID','WBS live pilot server credentials are unavailable.');
-  return createReadOnlyWbsMcpClient({endpoint:WBS_MCP_APPROVED_ENDPOINT,getAuthHeaders:()=>structuredClone(credentials),allowedReadTools:WBS_LIVE_PILOT_TOOLS,fetcher,pilotObservationMode:true});
+  return createReadOnlyWbsMcpClient({endpoint:WBS_MCP_APPROVED_ENDPOINT,getAuthHeaders:()=>structuredClone(credentials),allowedReadTools:WBS_LIVE_PILOT_TOOLS,fetcher,pilotObservationMode:true,reviewedCatalog:WBS_MCP_CATALOG_V2_REVIEWED_PINS});
 }
 
 export function assertWbsLivePilotResult(value,{entityId,tool,limit}={}){

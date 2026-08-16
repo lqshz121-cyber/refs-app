@@ -317,9 +317,9 @@ async function main() {
   console.log(`  protocol ${session.protocolVersion} · server ${session.serverName ?? '(unnamed)'}`);
 
   console.log('\nStep 1 · tools/list');
-  // listTools itself refuses unless the advertised catalogue is exactly the eight
+  // listTools itself refuses unless the advertised catalogue is exactly the nine
   // approved tools and every one is declared readOnly, non-destructive and
-  // idempotent. A provider that quietly adds a ninth tool fails here, closed.
+  // idempotent. A provider that quietly adds a tenth tool fails here, closed.
   const advertised = await client.listTools();
   const names = (advertised || []).map(t => (typeof t === 'string' ? t : t.name)).filter(Boolean);
   console.log(`  advertised: ${names.join(', ') || '(none)'}`);
