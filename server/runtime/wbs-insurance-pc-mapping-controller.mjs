@@ -4,6 +4,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const HASH=/^sha256:[0-9a-f]{64}$/;
 const UTC=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const ARTIFACTS=Object.freeze(['receipt','request','response','package']);
+const ARTIFACT_FIELDS=Object.freeze(['storage_ref','storage_version','content_hash','size_bytes','media_type','object_lock_mode','retain_until','scan_disposition','scan_ref','scan_hash']);
 const ACTIONS=Object.freeze(['can_propose_amortization','can_create_draft','can_review','can_approve','can_post']);
 
 export class WbsInsurancePcMappingError extends Error{
@@ -26,7 +27,7 @@ export const computeInsuranceFormalAdmissionReceiptHash=value=>canonicalHash({sc
 function assertZeroActions(actions){closed(actions,ACTIONS,'actions');for(const key of ACTIONS)if(actions[key]!==false)fail('WBS_INSURANCE_PC_MAPPING_ACTION_FORBIDDEN','Pre-admission and mapping evidence cannot enable accounting actions');}
 function assertZeroWrites(delta,name){closed(delta,['admission','retention','coverage','staging','journal_entry','ledger','audit','outbox','model_call','storage_action'],name);for(const value of Object.values(delta))if(value!==0)fail('WBS_INSURANCE_PC_MAPPING_WRITE_FORBIDDEN','Pre-admission observation must have zero business, evidence, model, and storage action writes');}
 function validateArtifact(value,name){
-  closed(value,['storage_ref','storage_version','content_hash','size_bytes','media_type','object_lock_mode','retain_until','scan_disposition','scan_ref','scan_hash'],`artifacts.${name}`);
+  closed(value,ARTIFACT_FIELDS,`artifacts.${name}`);
   if(typeof value.storage_ref!=='string'||!/^s3:\/\/[a-z0-9][a-z0-9.-]{1,62}\/[A-Za-z0-9!_.*'()\-/]{1,1024}$/.test(value.storage_ref))fail('WBS_INSURANCE_PC_MAPPING_ARTIFACT_INVALID','Artifact storage reference must be a canonical secret-free s3 URI');
   if(typeof value.storage_version!=='string'||value.storage_version.length<1||value.storage_version.length>512||value.storage_version.startsWith('pending:'))fail('WBS_INSURANCE_PC_MAPPING_ARTIFACT_INVALID','Artifact VersionId must be final and exact');
   hash(value.content_hash,`${name}.content_hash`);hash(value.scan_hash,`${name}.scan_hash`);
@@ -76,7 +77,7 @@ export function validateInsuranceFormalAdmissionBinding(value,observation,expect
   for(const key of ['observation_hash','proposal_hash','decision_hash','company_mapping_hash','canonical_mapping_decision_hash','parent_company_mapping_hash','receipt_hash','request_hash'])hash(value[key],key);
   if(value.decision_hash!==value.canonical_mapping_decision_hash||value.company_mapping_hash!==value.parent_company_mapping_hash)fail('WBS_INSURANCE_PC_MAPPING_FORMAL_BINDING_INVALID','Formal admission decision and parent mapping hashes must be canonical');
   for(const key of ['artifact_set_hash','package_hash','source_payload_hash'])if(value[key]!==observation[key])fail('WBS_INSURANCE_PC_MAPPING_ARTIFACT_DRIFT','Formal admission artifact hashes drifted from pre-admission');
-  closed(value.artifacts,ARTIFACTS,'formalAdmissionBinding.artifacts');for(const name of ARTIFACTS){validateArtifact(value.artifacts[name],name);for(const key of ['storage_version','content_hash','size_bytes','media_type','scan_disposition','scan_hash'])if(value.artifacts[name][key]!==observation.artifacts[name][key])fail('WBS_INSURANCE_PC_MAPPING_ARTIFACT_DRIFT','Formal admission artifact coordinates drifted from pre-admission');}
+  closed(value.artifacts,ARTIFACTS,'formalAdmissionBinding.artifacts');for(const name of ARTIFACTS){validateArtifact(value.artifacts[name],name);for(const key of ARTIFACT_FIELDS)if(value.artifacts[name][key]!==observation.artifacts[name][key])fail('WBS_INSURANCE_PC_MAPPING_ARTIFACT_DRIFT','Formal admission artifact coordinates drifted from pre-admission');}
   closed(value.provenance,['admission_id','observation_id','observation_hash','mapping_approval_id','canonical_mapping_decision_hash','parent_company_mapping_hash','receipt_hash','request_hash','artifact_set_hash','package_hash','source_payload_hash','artifacts'],'formalAdmissionBinding.provenance');
   for(const key of ['admission_id','observation_id','observation_hash','mapping_approval_id','canonical_mapping_decision_hash','parent_company_mapping_hash','receipt_hash','request_hash','artifact_set_hash','package_hash','source_payload_hash'])if(value.provenance[key]!==value[key])fail('WBS_INSURANCE_PC_MAPPING_FORMAL_BINDING_INVALID','Formal receipt/request provenance is not bound to the exact approval and artifact set');
   if(JSON.stringify(value.provenance.artifacts)!==JSON.stringify(value.artifacts))fail('WBS_INSURANCE_PC_MAPPING_FORMAL_BINDING_INVALID','Formal provenance artifact coordinates are not exact');
@@ -87,11 +88,30 @@ export function validateInsuranceFormalAdmissionBinding(value,observation,expect
 
 export function assertInsurancePcMappingDto(value,{approved=false,trace=false}={}){
   object(value,'mappingDto');
-  const allowed=new Set(['proposal_id','observation_id','revision','status','source_kind','admission_state','observation_hash','proposal_hash','canonical_set_hash','decision_hash','company_mapping_hash','match_count','idempotent','rows','pc_code','company_code','effective_from','effective_to','proposed_by','proposed_at','approved_by','approved_at','reason','catalog_decision_id']);
+  const allowed=new Set(['proposal_id','observation_id','revision','status','source_kind','admission_state','observation_hash','proposal_hash','canonical_set_hash','decision_hash','company_mapping_hash','match_count','mapping_status','accounting_date','idempotent','rows','pc_code','company_code','effective_from','effective_to','proposed_by','proposed_at','approved_by','approved_at','reason','catalog_decision_id']);
   if(Object.keys(value).some(key=>!allowed.has(key)))fail('WBS_INSURANCE_PC_MAPPING_PUBLIC_DTO_UNSAFE','Mapping DTO contains an unexpected field');
+  if(trace){
+    if(!Number.isSafeInteger(value.match_count)||value.match_count<0)fail('WBS_INSURANCE_PC_MAPPING_TRACE_INVALID','Mapping trace match count is invalid');
+    const expectedStatus=value.match_count===0?'MISSING':value.match_count===1?'CONTROLLER_APPROVED':'AMBIGUOUS';
+    if(value.mapping_status!==expectedStatus)fail('WBS_INSURANCE_PC_MAPPING_TRACE_INVALID','Mapping trace status does not match its authoritative count');
+    if(value.match_count!==1){
+      const forbidden=['observation_hash','proposal_hash','decision_hash','company_mapping_hash','company_code','catalog_decision_id'];
+      if(forbidden.some(key=>Object.hasOwn(value,key)&&value[key]!=null))fail('WBS_INSURANCE_PC_MAPPING_TRACE_INVALID','Missing or ambiguous trace cannot expose mapping authority');
+      if(containsForbiddenKey(value))fail('WBS_INSURANCE_PC_MAPPING_PUBLIC_DTO_UNSAFE','Mapping DTO contains forbidden raw transport data');
+      return value;
+    }
+  }
+  if(Object.hasOwn(value,'rows')){
+    if(!Array.isArray(value.rows))fail('WBS_INSURANCE_PC_MAPPING_PUBLIC_DTO_UNSAFE','Mapping DTO rows must be an array');
+    for(const row of value.rows){
+      closed(row,['proposal_row_id','pc_code','observed_row_count','row_hash'],'mappingDto.rows[]');
+      uuid(row.proposal_row_id,'proposal_row_id');
+      if(typeof row.pc_code!=='string'||row.pc_code.length<1||row.pc_code.length>128||row.pc_code!==row.pc_code.trim()||/[\u0000-\u001f\u007f]/.test(row.pc_code)||!Number.isSafeInteger(row.observed_row_count)||row.observed_row_count<1)fail('WBS_INSURANCE_PC_MAPPING_PUBLIC_DTO_UNSAFE','Mapping DTO row is invalid');
+      hash(row.row_hash,'row_hash');
+    }
+  }
   for(const key of ['observation_hash','proposal_hash'])hash(value[key],key);
   if(approved)for(const key of ['decision_hash','company_mapping_hash'])hash(value[key],key);
-  if(trace&&value.match_count!==1)fail('WBS_INSURANCE_PC_MAPPING_TRACE_INVALID','Approved trace must have exactly one mapping match');
   if(containsForbiddenKey(value))fail('WBS_INSURANCE_PC_MAPPING_PUBLIC_DTO_UNSAFE','Mapping DTO contains forbidden raw transport data');
   return value;
 }

@@ -12,6 +12,8 @@ import {createWbsProviderFinal1RetainedEvidenceAdmission} from './wbs-provider-f
 import {createAiAnalysisExplanationService} from './ai-analysis-explanation-service.mjs';
 import {createAiAccrualCandidateAnalysisService} from './ai-accrual-candidate-analysis-service.mjs';
 
+const INSURANCE_PC_MAPPING_READINESS="SELECT to_regprocedure('refs_record_wbs_insurance_pc_mapping_pre_admission(uuid,uuid,jsonb,jsonb)') IS NOT NULL AND to_regprocedure('refs_propose_wbs_insurance_pc_mapping_hash(uuid,uuid,uuid,text,text)') IS NOT NULL AND to_regprocedure('refs_create_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid,text,text,text,text)') IS NOT NULL AND to_regprocedure('refs_approve_wbs_insurance_pc_mapping_hash(uuid,uuid,uuid,bigint,text,text,uuid,text,date,date,text)') IS NOT NULL AND to_regprocedure('refs_approve_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid,bigint,text,text,uuid,text,date,date,text,text,text)') IS NOT NULL AND to_regprocedure('refs_read_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid)') IS NOT NULL AND to_regprocedure('refs_read_wbs_insurance_pc_mapping_trace(uuid,uuid,text,date)') IS NOT NULL AND to_regprocedure('refs_read_wbs_insurance_pc_mapping_admission_resume(uuid,uuid,uuid,text,uuid,text,text)') IS NOT NULL AS ready";
+
 export function createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant,stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsProviderSignedTrust,wbsProviderSignedServiceActorId,aiGateway,runtimeLoginAllowlist=['refs_runtime'],maxBodyBytes,releaseSha,allowedOrigins=[]}={}){
   if(!runtimePool||!issuerPool||typeof authenticator?.authenticate!=='function')throw new Error('Production accounting server requires runtime pool, isolated issuer pool and authenticator');
   const attachmentEnabled=Boolean(attachmentStorage||virusScanner||scannerServiceActorId);
@@ -60,7 +62,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   }};};
   const server=createAccountingHttpServer({
     maxBodyBytes,releaseSha,
-    healthCheck:async()=>{try{const checks=[runtimePool.query('SELECT 1 AS ready'),issuerPool.query('SELECT 1 AS ready')];if(attachmentEnabled)checks.push(attachmentStorage.probe(),virusScanner.probe());if(wbsImmutableEvidenceStorage)checks.push(wbsImmutableEvidenceStorage.probeImmutable());const [runtime,issuer]=await Promise.all(checks);return runtime.rowCount===1&&issuer.rowCount===1;}catch{return false;}},
+    healthCheck:async()=>{try{const checks=[runtimePool.query('SELECT 1 AS ready'),issuerPool.query('SELECT 1 AS ready'),runtimePool.query(INSURANCE_PC_MAPPING_READINESS)];if(attachmentEnabled)checks.push(attachmentStorage.probe(),virusScanner.probe());if(wbsImmutableEvidenceStorage)checks.push(wbsImmutableEvidenceStorage.probeImmutable());const [runtime,issuer,...dependencies]=await Promise.all(checks);return runtime.rowCount===1&&issuer.rowCount===1&&dependencies.every(result=>result?.rows?.[0]?.ready===true||result===undefined);}catch{return false;}},
     authenticate:request=>authenticator.authenticate(request),
     kernelFactory:kernelFor,
     stage1SelfGrantServiceFactory:stage1SelfGrant?principal=>({
