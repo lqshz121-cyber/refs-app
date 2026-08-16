@@ -227,7 +227,8 @@ test('Source Document reads are OIDC-authenticated entity evidence only and matc
   assert.equal(listRow.properties.source_document_revision.minimum,0);assert.equal(listRow.properties.gross_amount.pattern,'^-?(?:0|[1-9][0-9]{0,15})\\.[0-9]{4}$');
   assert.equal(line.properties.amount.pattern,'^-?(?:0|[1-9][0-9]{0,15})\\.[0-9]{4}$');
   const publicSchemas=JSON.stringify({listRow,detailRow,line});
-  for(const forbidden of ['"payload":','"raw_payload"','"attachment"','"attachment_id"','"attachment_ids"','"storage_ref"','"storage_version"','"provider"','"provider_'])assert.equal(publicSchemas.includes(forbidden),false);
+  for(const forbidden of ['"payload":','"raw_payload"','"provider_payload"','"attachment"','"attachment_id"','"attachment_ids"','"storage_ref"','"storage_version"','"receipt_hash"','"access_token"','"credential"'])assert.equal(publicSchemas.includes(forbidden),false);
+  assert.ok(line.required.includes('provider_trace'));assert.equal(line.properties.provider_trace.oneOf[0].type,'null');assert.equal(line.properties.provider_trace.oneOf[1].$ref,'#/components/schemas/WbsProviderSourceTrace');
 });
 
 test('bank transaction and reconciliation reads are scoped no-store evidence only',()=>{

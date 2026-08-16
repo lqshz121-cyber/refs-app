@@ -3133,7 +3133,8 @@
           "phase_ref",
           "unit_ref",
           "loan_ref",
-          "cost_code_ref"
+          "cost_code_ref",
+          "provider_trace"
         ],
         "properties": {
           "source_document_line_id": {"$ref": "#/components/schemas/Uuid"},
@@ -3148,7 +3149,41 @@
           "phase_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
           "unit_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
           "loan_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
-          "cost_code_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255}
+          "cost_code_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
+          "provider_trace": {"oneOf": [{"type": "null"}, {"$ref": "#/components/schemas/WbsProviderSourceTrace"}]}
+        }
+      },
+      "WbsProviderSourceTrace": {
+        "oneOf": [{"$ref": "#/components/schemas/WbsProviderPayableSourceTrace"}, {"$ref": "#/components/schemas/WbsProviderInsuranceSourceTrace"}]
+      },
+      "WbsProviderActionFlags": {
+        "type": "object", "additionalProperties": false,
+        "required": ["can_propose_amortization", "can_review", "can_create_draft", "can_approve", "can_post"],
+        "properties": {"can_propose_amortization": {"const": false}, "can_review": {"const": false}, "can_create_draft": {"const": false}, "can_approve": {"const": false}, "can_post": {"const": false}}
+      },
+      "WbsProviderPayableSourceTrace": {
+        "type": "object", "additionalProperties": false,
+        "required": ["trace_version", "domain", "source_payload_hash", "disposition", "action_flags", "invoice_no", "invoice_date", "business_id", "accrual"],
+        "properties": {
+          "trace_version": {"const": "WBS_PROVIDER_SOURCE_TRACE_V1"}, "domain": {"const": "PAYABLES"},
+          "source_payload_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "disposition": {"const": "RETAINED"}, "action_flags": {"$ref": "#/components/schemas/WbsProviderActionFlags"},
+          "invoice_no": {"type": ["string", "null"]}, "invoice_date": {"type": ["string", "null"], "format": "date"}, "business_id": {"type": ["string", "null"]},
+          "accrual": {"type": "object", "additionalProperties": false, "required": ["service_period_start", "service_period_end", "recurring_obligation_id", "contract_id", "charge_code", "service_frequency", "obligation_status"], "properties": {"service_period_start": {"type": ["string", "null"], "format": "date"}, "service_period_end": {"type": ["string", "null"], "format": "date"}, "recurring_obligation_id": {"type": ["string", "null"]}, "contract_id": {"type": ["string", "null"]}, "charge_code": {"type": ["string", "null"]}, "service_frequency": {"type": ["string", "null"]}, "obligation_status": {"type": ["string", "null"]}}}
+        }
+      },
+      "WbsProviderInsuranceSourceTrace": {
+        "type": "object", "additionalProperties": false,
+        "required": ["trace_version", "domain", "source_payload_hash", "action_flags", "policy_id", "source_id", "pc_code", "final_premium", "mapping_decision_id", "mapping_decision_hash", "company_mapping_hash", "resolved_company_code", "match_count", "disposition", "coverage_start", "coverage_end", "coverage_disposition"],
+        "properties": {
+          "trace_version": {"const": "WBS_PROVIDER_SOURCE_TRACE_V1"}, "domain": {"const": "INSURANCE"}, "source_payload_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "action_flags": {"$ref": "#/components/schemas/WbsProviderActionFlags"},
+          "policy_id": {"type": "string", "minLength": 1}, "source_id": {"type": "string", "minLength": 1}, "pc_code": {"type": ["string", "null"]}, "final_premium": {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]{0,17})\\.[0-9]{4}$"},
+          "mapping_decision_id": {"oneOf": [{"type": "null"}, {"$ref": "#/components/schemas/Uuid"}]},
+          "mapping_decision_hash": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+          "company_mapping_hash": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+          "resolved_company_code": {"type": ["string", "null"], "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$"},
+          "match_count": {"type": "integer", "minimum": 0}, "disposition": {"enum": ["RESOLVED", "MAPPING_REVIEW_REQUIRED", "QUARANTINED", "REJECTED"]},
+          "coverage_start": {"type": ["string", "null"], "format": "date"}, "coverage_end": {"type": ["string", "null"], "format": "date"}, "coverage_disposition": {"enum": ["POSITIVE_COVERAGE", "EXCEPTION_REVIEW_REQUIRED"]}
         }
       },
       "SourceDocumentDetailReadRow": {
