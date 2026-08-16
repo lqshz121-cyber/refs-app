@@ -22,6 +22,7 @@ test('migration 165 adds only a closed nullable provider trace to authoritative 
   assert.equal(trace.oneOf.length,2);for(const name of ['WbsProviderPayableSourceTrace','WbsProviderInsuranceSourceTrace']){const schema=contract.components.schemas[name];assert.equal(schema.additionalProperties,false);assert.deepEqual(schema.properties.trace_version,{const:'WBS_PROVIDER_SOURCE_TRACE_V1'});}
   assert.deepEqual(contract.components.schemas.WbsProviderPayableSourceTrace.required,['trace_version','domain','source_payload_hash','disposition','action_flags','invoice_no','invoice_date','business_id','accrual']);
   assert.deepEqual(contract.components.schemas.WbsProviderInsuranceSourceTrace.required,['trace_version','domain','source_payload_hash','action_flags','policy_id','source_id','pc_code','final_premium','mapping_decision_id','mapping_decision_hash','company_mapping_hash','resolved_company_code','match_count','disposition','coverage_start','coverage_end','coverage_disposition']);
+  assert.deepEqual(contract.components.schemas.WbsProviderInsuranceSourceTrace.properties.match_count,{type:'integer',enum:[0,1]});
   assert.deepEqual(contract.components.schemas.WbsProviderActionFlags.required,['can_propose_amortization','can_review','can_create_draft','can_approve','can_post']);assert.equal(contract.components.schemas.WbsProviderActionFlags.additionalProperties,false);assert.ok(line.required.includes('provider_trace'));assert.equal(line.properties.provider_trace.oneOf[0].type,'null');
 });
 

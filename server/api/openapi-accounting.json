@@ -3182,7 +3182,7 @@
           "mapping_decision_hash": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
           "company_mapping_hash": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
           "resolved_company_code": {"type": ["string", "null"], "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$"},
-          "match_count": {"type": "integer", "minimum": 0}, "disposition": {"enum": ["RESOLVED", "MAPPING_REVIEW_REQUIRED", "QUARANTINED", "REJECTED"]},
+          "match_count": {"type": "integer", "enum": [0, 1]}, "disposition": {"enum": ["RESOLVED", "MAPPING_REVIEW_REQUIRED", "QUARANTINED", "REJECTED"]},
           "coverage_start": {"type": ["string", "null"], "format": "date"}, "coverage_end": {"type": ["string", "null"], "format": "date"}, "coverage_disposition": {"enum": ["POSITIVE_COVERAGE", "EXCEPTION_REVIEW_REQUIRED"]}
         }
       },
