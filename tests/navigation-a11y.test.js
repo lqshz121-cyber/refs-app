@@ -154,6 +154,10 @@ for (const width of [1440,1280,1024,768,430,360]) {
   assert.match(styles,new RegExp(`@media\\(max-width:${width}px\\)|@media \\(max-width:${width}px\\)`),
     `responsive layout must retain an explicit ${width}px boundary`);
 }
+assert.match(styles,/@media\(max-width:768px\)\{[\s\S]*?\.authoritative-app button,[\s\S]*?\.authoritative-app select,[\s\S]*?\.authoritative-app input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\[type="hidden"\]\)\{min-height:44px;\}/,
+  'all authoritative touch-width actions and form controls must retain a 44px target, including compact table and Back controls');
+assert.match(styles,/\.authoritative-wbs-payable-review fieldset label\{display:flex;align-items:center;gap:8px;min-height:44px;\}/,
+  'verified-evidence checkboxes must expose their full label as a 44px touch target');
 assert.match(styles,/\.table-wrap\{[\s\S]*?overflow:auto;/,
   'wide accounting evidence must scroll inside its own table region');
 assert.match(styles,/\.table-wrap\{[\s\S]*?overflow:auto;\s*min-width:0;\s*width:100%;[\s\S]*?box-sizing:border-box;/,

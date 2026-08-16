@@ -17,6 +17,9 @@ const manifest={schema:'refs.authoritative-runtime-evidence/v1',frozen_sha:froze
 const path=join(root,'manifest.json');
 const verify=value=>{writeFileSync(path,JSON.stringify(value));process.exitCode=0;const ok=verifyAuthoritativeRuntimeEvidence({REFS_AUTHORITATIVE_E2E_MANIFEST:path,REFS_RELEASE_SHA:frozen});process.exitCode=0;return ok;};
 
+assert.equal(Object.keys(AUTHORITATIVE_PAGES).length,23);
+assert.deepEqual(AUTHORITATIVE_PAGES.Amortization,['/prepaid/amortization','/reports/prepaid-rollforward']);
+assert.deepEqual(AUTHORITATIVE_PAGES.PropertyRentPickup,['/wbs/property-rent-pickup']);
 assert.equal(verify(manifest),true);
 assert.equal(verify({...manifest,worktree_clean:false}),false);
 assert.equal(verify({...manifest,runtime_mode:'LOCAL_MOCK'}),false);
@@ -25,6 +28,7 @@ assert.equal(verify({...manifest,oidc:{...manifest.oidc,renewal:{...manifest.oid
 assert.equal(verify({...manifest,api_smoke:{...manifest.api_smoke,anonymous_status:200}}),false);
 assert.equal(verify({...manifest,refresh:{...manifest.refresh,route_after:'Reports'}}),false);
 assert.equal(verify({...manifest,pages:{...pages,Bank:{...pages.Bank,network_log:pages.Journals.network_log}}}),false);
+assert.equal(verify({...manifest,pages:{...pages,PropertyRentPickup:{...pages.PropertyRentPickup,network_log:pages.PropertyOperatingPnl.network_log}}}),false);
 writeFileSync(pages.Payables.visible_text,'Observed QBO demo');
 assert.equal(verify(manifest),false);
 console.log('authoritative runtime evidence gate: positive and fail-closed assertions passed');

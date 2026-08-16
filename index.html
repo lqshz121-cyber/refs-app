@@ -2149,6 +2149,14 @@ select{padding-right:28px; cursor:pointer;}
   .authoritative-app .main{margin-left:0;}
 }
 @media(max-width:768px){
+  /* The compact desktop controls are 30/36px high.  At touch widths every
+     production action and form control needs a complete 44px hit target;
+     this is scoped to the authoritative root so the frozen demonstration
+     surface cannot influence the release contract. */
+  .authoritative-app button,
+  .authoritative-app select,
+  .authoritative-app input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]){min-height:44px;}
+  .authoritative-wbs-payable-review fieldset label{display:flex;align-items:center;gap:8px;min-height:44px;}
   .topbar{padding:0 14px; gap:8px;}
   .authoritative-entity-chip{flex:1 1 auto; min-width:0; max-width:none;}
   .authoritative-top-actions{gap:6px;}
