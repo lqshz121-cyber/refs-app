@@ -206,6 +206,16 @@
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/provider-signed/final1/insurance/observations/{observationId}/admit": {
+      "post": {
+        "operationId": "resumeProviderSignedWbsFinal1InsuranceAdmission",
+        "summary": "Admit the exact retained Insurance observation after independent Controller approval",
+        "description": "Provider-service-only Phase B command. It accepts no raw artifacts or storage coordinates. The server rereads the durable Phase A observation, exact original Object Lock VersionIds and hashes, rescans all four objects, re-verifies the Ed25519 package, and requires the exact current non-revoked Controller approval before formal admission. It never rewrites the retained objects and does not require the Provider service principal to hold Controller VIEW permission.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"observationId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedObservationHash","expectedApprovalId","expectedDecisionHash","expectedCompanyMappingHash","reason"],"properties":{"expectedObservationHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expectedApprovalId":{"type":"string","format":"uuid"},"expectedDecisionHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expectedCompanyMappingHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/operator-attested/payables": {
       "get": {
         "operationId": "listOperatorAttestedWbsPayableEvidence",

@@ -188,6 +188,13 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>requireRow(await client.query('SELECT refs_record_wbs_insurance_pc_mapping_pre_admission($1,$2,$3,$4) AS result',[tenantId,entityId,observation,rows]),'WBS_INSURANCE_PRE_ADMISSION_RECORD_FAILED','Insurance pre-admission observation was not recorded').result);
   }
 
+  async readWbsInsurancePcMappingAdmissionResume({tenantId,entityId,observationId,expectedObservationHash,expectedApprovalId,expectedDecisionHash,expectedCompanyMappingHash}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_insurance_pc_mapping_admission_resume($1,$2,$3,$4,$5,$6,$7) AS result',
+      [tenantId,entityId,observationId,expectedObservationHash,expectedApprovalId,expectedDecisionHash,expectedCompanyMappingHash]
+    ),'WBS_INSURANCE_RESUME_NOT_FOUND','The exact approved Insurance pre-admission observation is unavailable').result);
+  }
+
   async approveWbsInsurancePcMappingProposal({tenantId,entityId,proposalId,expectedRevision,expectedObservationHash,expectedProposalHash,catalogDecisionId,expectedCompanyMappingHash,effectiveFrom,effectiveTo,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const params=[tenantId,entityId,proposalId,expectedRevision,expectedObservationHash,expectedProposalHash,catalogDecisionId,expectedCompanyMappingHash,effectiveFrom,effectiveTo??null,reason];

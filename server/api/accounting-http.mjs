@@ -852,6 +852,13 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const service=await wbsProviderSignedPayableServiceFactory(principal);
         if(!service||typeof service.admit!=='function')throw new AccountingApiError(503,'WBS_PROVIDER_SIGNED_ADMISSION_UNAVAILABLE','Provider-signed WBS Payable admission is unavailable');
         result=await service.admit({tenantId:principal.tenantId,entityId,receipt:payload.receipt,requestRawBase64:payload.requestRawBase64,responseRawBase64:payload.responseRawBase64,packageRawBase64:payload.packageRawBase64,idempotencyKey});
+      }else if(parts.length===11&&parts[4]==='wbs'&&parts[5]==='provider-signed'&&parts[6]==='final1'&&parts[7]==='insurance'&&parts[8]==='observations'&&parts[10]==='admit'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['expectedObservationHash','expectedApprovalId','expectedDecisionHash','expectedCompanyMappingHash','reason']);
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Insurance Phase B admission uses exact observation and approval hashes, not If-Match');
+        if(typeof wbsProviderFinal1RetainedEvidenceServiceFactory!=='function')throw new AccountingApiError(503,'WBS_FINAL1_ADMISSION_UNAVAILABLE','Provider-signed WBS Final-1 retained evidence admission is unavailable');
+        const service=await wbsProviderFinal1RetainedEvidenceServiceFactory(principal);
+        if(!service||typeof service.resumeInsurance!=='function')throw new AccountingApiError(503,'WBS_INSURANCE_RESUME_UNAVAILABLE','Insurance Final-1 Phase B resume is unavailable');
+        result=await service.resumeInsurance({tenantId:principal.tenantId,entityId,observationId:requireUuid(parts[9],'observationId'),expectedObservationHash:requireSha256(payload.expectedObservationHash,'expectedObservationHash'),expectedApprovalId:requireUuid(payload.expectedApprovalId,'expectedApprovalId'),expectedDecisionHash:requireSha256(payload.expectedDecisionHash,'expectedDecisionHash'),expectedCompanyMappingHash:requireSha256(payload.expectedCompanyMappingHash,'expectedCompanyMappingHash'),reason:requireReviewReason(payload.reason),idempotencyKey});
       }else if(parts.length===9&&parts[4]==='wbs'&&parts[5]==='provider-signed'&&parts[6]==='final1'&&['payables','insurance'].includes(parts[7])&&parts[8]==='admissions'){
         requireExactQuery(parsedUrl.searchParams,[]);
         allowOnly(payload,['receipt','requestRawBase64','responseRawBase64','packageRawBase64']);
