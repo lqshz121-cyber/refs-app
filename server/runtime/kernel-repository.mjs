@@ -185,7 +185,7 @@ export class PostgresAccountingKernel{
   }
 
   async recordWbsInsurancePcMappingPreAdmission({tenantId,entityId,observation,rows}){
-    return this.inSession(async client=>requireRow(await client.query('SELECT refs_record_wbs_insurance_pc_mapping_pre_admission($1,$2,$3,$4) AS result',[tenantId,entityId,observation,rows]),'WBS_INSURANCE_PRE_ADMISSION_RECORD_FAILED','Insurance pre-admission observation was not recorded').result);
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_record_wbs_insurance_pc_mapping_pre_admission($1,$2,$3::jsonb,$4::jsonb) AS result',[tenantId,entityId,JSON.stringify(observation),JSON.stringify(rows)]),'WBS_INSURANCE_PRE_ADMISSION_RECORD_FAILED','Insurance pre-admission observation was not recorded').result);
   }
 
   async readWbsInsurancePcMappingAdmissionResume({tenantId,entityId,observationId,expectedObservationHash,expectedApprovalId,expectedDecisionHash,expectedCompanyMappingHash}){
