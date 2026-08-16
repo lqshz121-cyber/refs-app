@@ -73,7 +73,8 @@ BEGIN
  FOR artifact_name,artifact_value IN SELECT key,value FROM jsonb_each(NEW.artifact_document) LOOP
   IF jsonb_typeof(artifact_value)<>'object' OR (SELECT count(*) FROM jsonb_object_keys(artifact_value))<>10 OR NOT (artifact_value ?& ARRAY['storage_ref','storage_version','content_hash','size_bytes','media_type','object_lock_mode','retain_until','scan_disposition','scan_ref','scan_hash']) OR artifact_value->>'storage_ref'!~'^s3://' OR coalesce(artifact_value->>'storage_version','')='' OR artifact_value->>'storage_version'~'^pending:'
     OR artifact_value->>'content_hash'!~'^sha256:[0-9a-f]{64}$' OR coalesce((artifact_value->>'size_bytes')::bigint,0)<=0
-    OR artifact_value->>'media_type' IS DISTINCT FROM CASE WHEN artifact_name IN ('receipt','package') THEN 'application/json' ELSE 'application/octet-stream' END
+    OR (artifact_name IN ('receipt','package') AND artifact_value->>'media_type' IS DISTINCT FROM 'application/json')
+    OR (artifact_name IN ('request','response') AND artifact_value->>'media_type' IS DISTINCT FROM 'application/octet-stream')
     OR artifact_value->>'object_lock_mode'<>'COMPLIANCE' OR (artifact_value->>'retain_until')::timestamptz<=clock_timestamp()
     OR artifact_value->>'scan_disposition'<>'CLEAN' OR artifact_value->>'scan_hash' IS DISTINCT FROM artifact_value->>'content_hash' OR coalesce(artifact_value->>'scan_ref','')='' THEN
    RAISE EXCEPTION 'Insurance pre-admission artifact is not exact ObjectLock clean evidence' USING ERRCODE='23514';

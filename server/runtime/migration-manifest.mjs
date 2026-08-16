@@ -169,5 +169,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"161_insurance_prepaid_amortization_entity_capabilities.sql",up:"aa414f898cfce02cc824ebd57a7c76e5b265cd0ea40a77b6c1b418ff761290f9",down:"bd0046b70475da2975fd40881b3402edb69d329ff97c0c1d5e19c342b01eeb87"}),
   Object.freeze({name:"162_wbs_property_rent_period_read.sql",up:"aa249fefa89ee33e4e3ac4efec7c4d89116be57b44bbd2b4888ee6bf0d2ccbc6",down:"4e18ec0c3cb00e180d97148ce488e337f70223cd9d2a8c10cd7f365d09bddd93"}),
   Object.freeze({name:"163_wbs_final1_amount_precision_pc_mapping_and_accrual_isolation.sql",up:"44d5d262d7033596d8eb46f2f97dd636b4ff6ca7a42730ad5d71d6eaea09a4a0",down:"df3b8eb50335c9ce5e0cc31d724fa815a2f42e39be930f34419206c303e61b18"}),
-  Object.freeze({name:"164_wbs_insurance_pc_mapping_controller_workflow.sql",up:"5cd23e60d27cec2f30bca953cc60cb8de1a868195b48f5ceac314f1ee5307729",down:"d255e798ed9c7bcf8769a776e2173d91d4def6230d0b3ed3c74e46c025d28e5c"}),
+  Object.freeze({name:"164_wbs_insurance_pc_mapping_controller_workflow.sql",up:"f5781cef57ea8ff2b03657617c5f9da112d0d3d205a40a75a7a70cb252705c14",down:"d255e798ed9c7bcf8769a776e2173d91d4def6230d0b3ed3c74e46c025d28e5c"}),
 ]);
