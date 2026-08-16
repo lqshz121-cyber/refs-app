@@ -48,10 +48,10 @@ export function AuthoritativeReadFailure({state,onRetry,retryLabel='Retry report
 // count from being presented as either an access error or a zero balance.
 export function AuthoritativeScopeEmpty({subject='records',requiresPosted=false}){
   const prerequisite=requiresPosted
-    ? 'Next step: admit a signed source, complete review, and post its Journal entry. Reports and GL read posted evidence only.'
-    : 'This is a successful query for the current scope. It does not prove that an upstream source is empty. It is not evidence of a zero balance.';
-  return <StateBlock tone="empty" title={requiresPosted?'INGESTION_BLOCKED — no posted authoritative evidence':'SCOPE_EMPTY — no authoritative records returned'}>
-    <p>The authenticated API returned 0 {subject} for the current entity and period scope.</p>
+    ? 'To see activity here, finance must first verify a signed source, complete review, and post the journal entry. Reports and the General Ledger show posted entries only.'
+    : 'This is a successful result for the selected company and period. It does not confirm that there is no activity outside this view, and it is not a zero balance.';
+  return <StateBlock tone="empty" title={requiresPosted?'No posted activity in this period':'No records for this company and period'}>
+    <p>No {subject} are available for the selected company and period.</p>
     <p>{prerequisite}</p>
   </StateBlock>;
 }
