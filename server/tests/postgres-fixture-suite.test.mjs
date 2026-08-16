@@ -38,7 +38,7 @@ test('PostgreSQL fixture suite waits for child exit and owned Docker cleanup aft
   let settled=false;
   const resultPromise=runFixture({id:'timeout-behavior',pattern:'behavior-only fixture'},
     {REFS_PG_FIXTURE_TIMEOUT_MS:'1000',REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS:'1000'},
-    {spawnFixture:(_fixture,env)=>{assert.match(env.REFS_PG_COMPOSE_PROJECT,/^refs_kernel_gate_fixture_/);return child;},cleanupProject:async project=>{cleanups.push(project);await cleanupBlocked;}});
+    {spawnFixture:(_fixture,env)=>{assert.match(env.REFS_PG_COMPOSE_PROJECT,/^refs_kernel_gate_fixture_/);assert.equal(env.REFS_PG_STATEMENT_TIMEOUT_MS,'1000');return child;},cleanupProject:async project=>{cleanups.push(project);await cleanupBlocked;}});
   resultPromise.then(()=>{settled=true;});
   await delay(1050);
   assert.deepEqual(signals,['SIGTERM']);

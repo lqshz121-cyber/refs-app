@@ -87,7 +87,11 @@ export function runFixture(fixture,env,{spawnFixture=spawnFixtureProcess,cleanup
     const processTimeout=env.REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS||String(Number(timeout)+30000);
     if(!/^[1-9]\d*$/.test(processTimeout)||Number(processTimeout)<1000||Number(processTimeout)>930000)throw new Error('REFS_PG_FIXTURE_PROCESS_TIMEOUT_MS must be an integer between 1000 and 930000 milliseconds');
     const project=ownedProjectName(fixture);
-    const childEnv={...env,REFS_PG_TEST_TIMEOUT_MS:timeout,REFS_PG_COMPOSE_PROJECT:project};
+    // A fixture may legitimately perform schema setup and a full accounting
+    // closure. Keep the per-query database budget aligned with its bounded
+    // test budget unless a caller deliberately supplies a stricter value.
+    const statementTimeout=env.REFS_PG_STATEMENT_TIMEOUT_MS||String(Math.min(Number(timeout),600000));
+    const childEnv={...env,REFS_PG_TEST_TIMEOUT_MS:timeout,REFS_PG_STATEMENT_TIMEOUT_MS:statementTimeout,REFS_PG_COMPOSE_PROJECT:project};
     const child=spawnFixture(fixture,childEnv);
     let output='';
     let settled=false;
