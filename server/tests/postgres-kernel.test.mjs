@@ -879,8 +879,18 @@ pgTest('provider-signed Bank source survives exact Match Unmatch adjustment Post
   const adjustmentRequest=adjustmentArgs(admittedSource.bank_source_id,'JE-WBS-RECEIPT-ADJUSTMENT','wbs-statement-receipt-adjustment-001');
   const adjustment=await maker.createReconciliationAdjustmentDraft(adjustmentRequest);
   assert.equal(adjustment.journal_status,'DRAFT');assert.equal(adjustment.reconciliation_revision,1);
-  const adjustmentCounts=await adjustmentWriteCounts(),adjustmentReplay=await maker.createReconciliationAdjustmentDraft(adjustmentRequest);
-  assert.equal(adjustmentReplay.idempotent,true);assert.equal(adjustmentReplay.journal_entry_id,adjustment.journal_entry_id);assert.deepEqual(await adjustmentWriteCounts(),adjustmentCounts);
+  const readBankReplayState=async()=>{
+    const [reconciliationResult,itemsResult,adjustmentResult,journalResult,snapshotsResult]=await Promise.all([
+      adminPool.query("SELECT reconciliation_id,status::text AS status,version::int AS version,difference::text AS difference,wbs_bank_statement_receipt_id FROM reconciliation WHERE tenant_id=$1 AND entity_id=$2 AND reconciliation_id=$3",[ids.tenantId,ids.entityId,started.reconciliation_id]),
+      adminPool.query("SELECT reconciliation_item_id,bank_source_id,bank_match_id,state,version::int AS version FROM reconciliation_item WHERE tenant_id=$1 AND entity_id=$2 AND reconciliation_id=$3 ORDER BY reconciliation_item_id",[ids.tenantId,ids.entityId,started.reconciliation_id]),
+      adminPool.query("SELECT reconciliation_adjustment_draft_id,reconciliation_id,bank_source_id,journal_entry_id,reconciliation_version::int AS reconciliation_version,bank_delta::text AS bank_delta,reason,created_by FROM reconciliation_adjustment_draft WHERE tenant_id=$1 AND entity_id=$2 AND reconciliation_id=$3 AND bank_source_id=$4",[ids.tenantId,ids.entityId,started.reconciliation_id,admittedSource.bank_source_id]),
+      adminPool.query("SELECT journal_entry_id,status::text AS status,revision::int AS revision FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3",[ids.tenantId,ids.entityId,adjustment.journal_entry_id]),
+      adminPool.query("SELECT reconciliation_snapshot_id,reconciliation_id,reconciliation_version::int AS reconciliation_version,snapshot_hash,snapshot_body FROM reconciliation_snapshot WHERE tenant_id=$1 AND entity_id=$2 AND reconciliation_id=$3 ORDER BY reconciliation_snapshot_id",[ids.tenantId,ids.entityId,started.reconciliation_id])
+    ]);
+    return {reconciliation:reconciliationResult.rows[0],items:itemsResult.rows,adjustment:adjustmentResult.rows[0],journal:journalResult.rows[0],snapshots:snapshotsResult.rows};
+  };
+  const adjustmentStateBeforeReplay=await readBankReplayState(),adjustmentCounts=await adjustmentWriteCounts(),adjustmentReplay=await maker.createReconciliationAdjustmentDraft(adjustmentRequest);
+  assert.equal(adjustmentReplay.idempotent,true);assert.equal(adjustmentReplay.journal_entry_id,adjustment.journal_entry_id);assert.deepEqual(await readBankReplayState(),adjustmentStateBeforeReplay);assert.deepEqual(await adjustmentWriteCounts(),adjustmentCounts);
   await maker.transitionJournal({...ids,journalEntryId:adjustment.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'wbs-statement-adjustment-submit-001'});
   const reviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-adjustment-reviewer',['GL.JE.REVIEW','BANK.RECONCILIATION.REVIEW'])});
   await reviewer.transitionJournal({...ids,journalEntryId:adjustment.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'wbs-statement-adjustment-je-review-001'});
@@ -907,34 +917,35 @@ pgTest('provider-signed Bank source survives exact Match Unmatch adjustment Post
   const clearArgs={...ids,reconciliationId:started.reconciliation_id,bankSourceId:admittedSource.bank_source_id,expectedReconciliationVersion:1,expectedBankVersion:0,clear:true,reason:'Clear only the exact signed statement receipt row',idempotencyKey:'wbs-statement-adjustment-clear-001'};
   const cleared=await clearer.setReconciliationAdjustmentClearance(clearArgs);
   assert.equal(cleared.revision,2);assert.equal(Number(cleared.difference),0);
-  const clearedCounts=await reconciliationWriteCounts(),clearReplay=await clearer.setReconciliationAdjustmentClearance(clearArgs);
-  assert.equal(clearReplay.idempotent,true);assert.equal(clearReplay.revision,cleared.revision);assert.deepEqual(await reconciliationWriteCounts(),clearedCounts);
+  const clearedStateBeforeReplay=await readBankReplayState(),clearedCounts=await reconciliationWriteCounts(),clearReplay=await clearer.setReconciliationAdjustmentClearance(clearArgs);
+  assert.equal(clearReplay.idempotent,true);assert.equal(clearReplay.revision,cleared.revision);assert.deepEqual(await readBankReplayState(),clearedStateBeforeReplay);assert.deepEqual(await reconciliationWriteCounts(),clearedCounts);
   const rotatedStarterReviewer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-recon-starter',['BANK.RECONCILIATION.REVIEW'])});
   await assert.rejects(rotatedStarterReviewer.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:2,reason:'A rotated starter identity must remain separated from review',idempotencyKey:'wbs-statement-starter-review-sod-001'}),error=>error.code==='42501'&&/independent from prior maker/i.test(error.message));
   const reviewArgs={...ids,reconciliationId:started.reconciliation_id,action:'REVIEW',expectedVersion:2,reason:'Review exact receipt evidence despite unrelated same-date row',idempotencyKey:'wbs-statement-adjustment-review-001'};
   const reviewed=await reviewer.transitionReconciliation(reviewArgs);
   assert.equal(reviewed.status,'IN_REVIEW');
-  const reviewedCounts=await reconciliationWriteCounts(),reviewReplay=await reviewer.transitionReconciliation(reviewArgs);
-  assert.equal(reviewReplay.idempotent,true);assert.equal(reviewReplay.revision,reviewed.revision);assert.deepEqual(await reconciliationWriteCounts(),reviewedCounts);
+  const reviewedStateBeforeReplay=await readBankReplayState(),reviewedCounts=await reconciliationWriteCounts(),reviewReplay=await reviewer.transitionReconciliation(reviewArgs);
+  assert.equal(reviewReplay.idempotent,true);assert.equal(reviewReplay.revision,reviewed.revision);assert.deepEqual(await readBankReplayState(),reviewedStateBeforeReplay);assert.deepEqual(await reconciliationWriteCounts(),reviewedCounts);
   const rotatedClearerSigner=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-adjustment-clearer',['BANK.RECONCILIATION.SIGN_OFF'])});
   await assert.rejects(rotatedClearerSigner.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:3,reason:'A rotated clearance identity must remain separated from sign off',idempotencyKey:'wbs-statement-clearer-signoff-sod-001'}),error=>error.code==='42501'&&/independent from prior maker/i.test(error.message));
   const signer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-adjustment-signer',['BANK.RECONCILIATION.SIGN_OFF'])});
   const signOffArgs={...ids,reconciliationId:started.reconciliation_id,action:'SIGN_OFF',expectedVersion:3,reason:'Sign off only the exact admitted statement receipt evidence',idempotencyKey:'wbs-statement-adjustment-signoff-001'};
   const signed=await signer.transitionReconciliation(signOffArgs);
   assert.equal(signed.status,'RECONCILED');assert.ok(signed.snapshot_id);
-  const signedCounts=await reconciliationWriteCounts(),signOffReplay=await signer.transitionReconciliation(signOffArgs);
-  assert.equal(signOffReplay.idempotent,true);assert.equal(signOffReplay.snapshot_id,signed.snapshot_id);assert.equal(signOffReplay.snapshot_hash,signed.snapshot_hash);assert.deepEqual(await reconciliationWriteCounts(),signedCounts);
+  const signedStateBeforeReplay=await readBankReplayState(),signedCounts=await reconciliationWriteCounts(),signOffReplay=await signer.transitionReconciliation(signOffArgs);
+  assert.equal(signOffReplay.idempotent,true);assert.equal(signOffReplay.snapshot_id,signed.snapshot_id);assert.equal(signOffReplay.snapshot_hash,signed.snapshot_hash);assert.deepEqual(await readBankReplayState(),signedStateBeforeReplay);assert.deepEqual(await reconciliationWriteCounts(),signedCounts);
   const signedSnapshots=await reader.getSignedReconciliationSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,reconciliationId:started.reconciliation_id});
   assert.equal(signedSnapshots.length,1);const signedSnapshot=signedSnapshots[0];
-  assert.equal(signedSnapshot.snapshot_hash,signed.snapshot_hash);assert.equal(signedSnapshot.snapshot_body.reconciliation.reconciliation_id,started.reconciliation_id);assert.equal(signedSnapshot.snapshot_body.reconciliation.wbs_bank_statement_receipt_id,created.statement_receipt_id);assert.equal(signedSnapshot.snapshot_body.items[0].bank_source_id,admittedSource.bank_source_id);assert.deepEqual(sourceLineage,[{source_document_id:admittedSource.source_document_id,bank_source_id:admittedSource.bank_source_id,reconciliation_id:started.reconciliation_id,journal_entry_id:adjustment.journal_entry_id}]);
+  const sourceLinksAfterSignOff=(await adminPool.query("SELECT source_document_id,bank_source_id,reconciliation_id,journal_entry_id FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND link_type='RECONCILIATION_ADJUSTMENT_SOURCE_DOCUMENT' AND reconciliation_id=$3 AND bank_source_id=$4 AND journal_entry_id=$5",[ids.tenantId,ids.entityId,started.reconciliation_id,admittedSource.bank_source_id,adjustment.journal_entry_id])).rows;
+  assert.equal(signedSnapshot.snapshot_hash,signed.snapshot_hash);assert.equal(signedSnapshot.snapshot_body.reconciliation.reconciliation_id,started.reconciliation_id);assert.equal(signedSnapshot.snapshot_body.reconciliation.wbs_bank_statement_receipt_id,created.statement_receipt_id);assert.equal(signedSnapshot.snapshot_body.items[0].bank_source_id,admittedSource.bank_source_id);assert.deepEqual(sourceLinksAfterSignOff,[{source_document_id:admittedSource.source_document_id,bank_source_id:admittedSource.bank_source_id,reconciliation_id:started.reconciliation_id,journal_entry_id:adjustment.journal_entry_id}]);
   const rotatedMatcherReopener=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-match-maker',['BANK.RECONCILIATION.REOPEN'])});
   await assert.rejects(rotatedMatcherReopener.transitionReconciliation({...ids,reconciliationId:started.reconciliation_id,action:'REOPEN',expectedVersion:4,reason:'A rotated match identity must remain separated from reopen',idempotencyKey:'wbs-statement-matcher-reopen-sod-001'}),error=>error.code==='42501'&&/independent from prior maker/i.test(error.message));
   const independentReopener=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'wbs-statement-independent-reopener',['BANK.RECONCILIATION.REOPEN'])});
   const reopenArgs={...ids,reconciliationId:started.reconciliation_id,action:'REOPEN',expectedVersion:4,reason:'Independent controller reopens the latest signed statement',idempotencyKey:'wbs-statement-independent-reopen-001'};
   const reopened=await independentReopener.transitionReconciliation(reopenArgs);
   assert.equal(reopened.status,'REOPENED');
-  const reopenedCounts=await reconciliationWriteCounts(),reopenReplay=await independentReopener.transitionReconciliation(reopenArgs);
-  assert.equal(reopenReplay.idempotent,true);assert.equal(reopenReplay.revision,reopened.revision);assert.deepEqual(await reconciliationWriteCounts(),reopenedCounts);
+  const reopenedStateBeforeReplay=await readBankReplayState(),reopenedCounts=await reconciliationWriteCounts(),reopenReplay=await independentReopener.transitionReconciliation(reopenArgs);
+  assert.equal(reopenReplay.idempotent,true);assert.equal(reopenReplay.revision,reopened.revision);assert.deepEqual(await readBankReplayState(),reopenedStateBeforeReplay);assert.deepEqual(await reconciliationWriteCounts(),reopenedCounts);
   const snapshotAfterReopen=await reader.getSignedReconciliationSnapshot({tenantId:ids.tenantId,entityId:ids.entityId,reconciliationId:started.reconciliation_id});
   assert.equal(snapshotAfterReopen.length,1);assert.equal(snapshotAfterReopen[0].snapshot_hash,signedSnapshot.snapshot_hash);assert.deepEqual(snapshotAfterReopen[0].snapshot_body,signedSnapshot.snapshot_body);
   const retainedMatch=(await adminPool.query('SELECT status,version::int AS revision,matched_by,unmatched_by,bank_source_id,payment_occurrence_id,journal_entry_id,ledger_line_id FROM bank_match WHERE bank_match_id=$1',[statementMatch.bank_match_id])).rows[0];
