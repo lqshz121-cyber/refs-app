@@ -60,6 +60,8 @@ async function main(){
   assert.match(markup,/Accounts receivable aging summary/);assert.match(markup,/id="authoritative-report-ar-aging"/);assert.match(markup,/Open aging report/);
   const projectCostMarkup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="PROJECT" workspaceEyebrow="AUTHORITATIVE / ACCOUNTING OPERATIONS" workspaceTitle="Project Cost & CWIP" workspaceDescription="Existing API readers only."/>);
   assert.match(projectCostMarkup,/Project Cost &amp; CWIP/);assert.match(projectCostMarkup,/AUTHORITATIVE[\s\S]*ACCOUNTING OPERATIONS/);assert.match(projectCostMarkup,/Project P&amp;L/);assert.match(projectCostMarkup,/CWIP rollforward/);assert.match(projectCostMarkup,/Dimension type/);assert.match(projectCostMarkup,/value="PROJECT" selected=""/);
+  const lotMarkup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher} initialCatalog={{category:'OPERATING_ANALYSIS',query:'lot',preview:'TRIAL_BALANCE'}} initialDimensionType="LOT" workspaceTitle="Lot profitability" workspaceDescription="Exact retained LOT evidence only."/>);
+  assert.match(lotMarkup,/Lot profitability/);assert.match(lotMarkup,/value="LOT" selected=""/);assert.match(lotMarkup,/e\.g\. LOT-01/);assert.match(lotMarkup,/Exact retained Lot dimension on POSTED ledger lines/);
   const capitalMarkup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher} initialCatalog={{category:'CASH_AND_CAPITAL',query:'',preview:'TRIAL_BALANCE'}} workspaceTitle="Construction Loan" workspaceDescription="Existing API readers only."/>);
   assert.match(capitalMarkup,/Construction Loan/);assert.match(capitalMarkup,/Statement of cash flows/);assert.match(capitalMarkup,/CWIP rollforward/);assert.match(capitalMarkup,/Construction loan rollforward/);assert.match(capitalMarkup,/Prepaid rollforward/);assert.match(capitalMarkup,/AI amortization schedule proposals/);assert.match(capitalMarkup,/Load proposed schedules/);assert.match(capitalMarkup,/not a monthly Journal Entry/);
   const groupMarkup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceTitle="Consolidation" workspaceDescription="Existing API readers only."/>);
@@ -71,6 +73,7 @@ async function main(){
   assert.deepEqual(findAuthoritativeReportShortcuts('P&L').map(([key])=>key),['INCOME_STATEMENT'],'the report finder must recognize the common P&L abbreviation without creating a report alias state');
   assert.deepEqual(findAuthoritativeReportShortcuts('profitability'),[],'finder aliases must not over-claim a property/project/unit report reader without an exact dimension scope');
   assert.deepEqual(findAuthoritativePropertyReportShortcuts('property').map(([key])=>key),['PROPERTY_PROFITABILITY'],'the catalog must make the exact Property P&L reader discoverable without inventing a reference');
+  assert.deepEqual(findAuthoritativePropertyReportShortcuts('lot').map(([key])=>key),['LOT_PROFITABILITY'],'the catalog must route Lot profitability to the exact LOT dimension reader');
   assert.deepEqual(findAuthoritativePropertyReportShortcuts('construction loan').map(([key])=>key),['CONSTRUCTION_LOAN_ROLLFORWARD'],'the catalog must only route loan work to its existing API-backed rollforward reader');
   const balanceMarkup=renderToStaticMarkup(<FinancialStatementSummary report="BALANCE_SHEET" rows={[
     {...row,statement_type:'BALANCE_SHEET',statement_section:'ASSETS',display_balance:'125.1000'},
@@ -122,12 +125,40 @@ async function main(){
   assert.match(workspace,/CwipRollforwardDetail/,'CWIP must have a dedicated authoritative evidence page instead of reusing a generic presentation');
   assert.match(workspace,/CWIP_ROLLFORWARD/,'CWIP evidence controls must select the dedicated API-backed workbench');
   assert.match(workspace,/authoritative-cwip-table/,'CWIP rows must use a contained table region rather than scrolling the page');
+  for(const label of [
+    'Financial statement rows',
+    'Statement of cash flows rows',
+    'Prior-period comparison rows',
+    'Intercompany reconciliation rows',
+    'Budget versus actual rows',
+    'Consolidation rows',
+  ]){
+    assert.match(workspace,new RegExp(`role="region" tabIndex=\\{0\\} aria-label="${label}; scroll horizontally to view every column"`),`${label} must remain a named keyboard-focusable horizontal scroll region at Stage 5 phone widths`);
+  }
+  assert.match(workspace,/role="region" tabIndex=\{0\} aria-label=\{`\$\{title\} rows; scroll horizontally to view every column`\}/,'the full-page statement must expose the same accessible narrow-width table contract');
+  assert.match(workspace,/role="region" tabIndex=\{0\} aria-label="Immutable financial statement snapshot rows; scroll horizontally to view every column"/,'immutable snapshot rows must remain keyboard-scrollable at narrow widths');
   assert.match(workspace,/mapping_snapshot_hash/,'CWIP evidence must retain the immutable mapping hash in its full-page scope');
   assert.match(workspace,/Open GL \/ Journal \/ source drill/,'CWIP, prepaid, construction-loan, and exact-dimension evidence must expose the same server-backed GL-to-Journal-to-source drill instead of presenting identifiers as a dead end');
   assert.match(workspace,/kind:'EVIDENCE_LINEAGE'/,'non-statement report evidence must enter the shared immutable lineage reader rather than a browser-side reconstruction');
   assert.match(lineage,/readLedgerFromEvidence/,'the shared lineage reader must re-read GL for rollforward and profitability evidence before opening Journal or source details');
-  assert.match(workspace,/DimensionProfitabilityDetail/,'property, project, and unit P&L rows must open a dedicated authoritative evidence page');
+  for(const detail of ['CashFlowDetail','IntercompanyDetail','BudgetActualDetail','ConsolidationDetail','ComparisonDetail','StatementSnapshotDetail']){
+    assert.match(workspace,new RegExp(`const ${detail}=\\(\\{row,returnContext,onBack,onOpenLineage\\}\\)`),`${detail} must expose the shared immutable lineage action from its real evidence row`);
+  }
+  for(const kind of ['CASH_FLOW_CLASSIFICATION','INTERCOMPANY_RECONCILIATION','BUDGET_VS_ACTUAL','CONSOLIDATION','PERIOD_COMPARISON','STATEMENT_SNAPSHOT']){
+    assert.match(workspace,new RegExp(`selected\\?\\.kind==='${kind}'[\\s\\S]*?onOpenLineage=\\{openEvidenceLineage\\}`),`${kind} must wire its full-page detail to the shared lineage reader`);
+  }
+  assert.match(workspace,/comparisonLineageRow\(row,'CURRENT'\)/,'period comparison must retain current-period evidence as a distinct lineage choice');
+  assert.match(workspace,/comparisonLineageRow\(row,'PRIOR'\)/,'period comparison must retain prior-period evidence as a distinct lineage choice');
+  assert.match(workspace,/lineageConfig:\{\.\.\.config,periodId\}/,'lineage re-read must use the exact evidence period instead of silently using the current selector');
+  assert.match(workspace,/Open snapshot lineage/,'each immutable snapshot row must provide an explicit lineage action');
+  assert.match(lineage,/const accountCode=typeof evidence\.account_code/,'shared evidence lineage must explicitly distinguish exact-account and retained multi-account evidence');
+  assert.match(lineage,/\(!accountCode\|\|item\.account_code===accountCode\)/,'multi-account report evidence must not invent an account filter');
+  assert.match(lineage,/\(!evidence\.currency\|\|item\.currency===evidence\.currency\)/,'shared lineage must enforce currency only when the authoritative row supplied one');
+  assert.match(workspace,/DimensionProfitabilityDetail/,'property, project, unit, and lot P&L rows must open a dedicated authoritative evidence page');
   assert.match(workspace,/DIMENSION_PROFITABILITY/,'dimension rows must select the dedicated API-backed workbench instead of a generic statement detail');
+  assert.match(workspace,/\['LOT_PROFITABILITY','Lot profitability',[\s\S]*?'LOT'\]/,'the Reports directory must expose the server-backed LOT profitability contract');
+  assert.match(workspace,/const DIMENSION_TYPES=Object\.freeze\(\[\['PROPERTY','Property P&L'\][^\n]*\['LOT','Lot profitability'\]\]\);/,'the dimension selector must retain LOT as a declared API scope');
+  assert.match(workspace,/\['PROPERTY','PROJECT','UNIT','LOT'\]\.includes\(context\?\.dimension\?\.type\)/,'Back must restore an exact LOT dimension scope instead of falling back to Property');
   assert.match(workspace,/authoritative-profitability-table/,'dimension rows must use a contained table region rather than scrolling the page');
   assert.match(workspace,/dimension:\{type:dimensionType,ref:dimensionRef\}/,'Back must retain the exact API dimension type and reference');
   assert.match(workspace,/authoritative-period-comparison-\$\{row\.statement_type\}/,'comparison rows must also open full-page evidence');
@@ -136,7 +167,7 @@ async function main(){
   assert.match(workspace,/rep-card/,'report families must be discoverable as report cards while remaining API-backed');
   assert.match(workspace,/REPORT_LIBRARY_SHORTCUTS/,'the Reports Center must offer API-backed core statement shortcuts without importing legacy report state');
   assert.match(workspace,/PROPERTY_REPORT_SHORTCUTS/,'the Reports Center must expose actual property, project, unit, CWIP, loan, prepaid, and budget readers from one authoritative directory');
-  assert.match(workspace,/Property and project report directory/,'the property report directory must be discoverable before a user knows the legacy navigation');
+  assert.match(workspace,/Property, project, unit, and lot report directory/,'the complete dimension report directory must be discoverable before a user knows the legacy navigation');
   assert.match(workspace,/openPropertyReport/,'property report shortcuts must only select an existing report workspace; they may not manufacture report rows');
   assert.match(workspace,/findAuthoritativeReportShortcuts/,'the Reports finder must resolve only declared aliases for existing API statement readers');
   assert.match(workspace,/Matching API-backed statements/,'a recognized statement alias must be actionable from the finder without a favorite or report mutation');
