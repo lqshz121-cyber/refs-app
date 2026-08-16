@@ -4,13 +4,13 @@ import {existsSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
 
 const root=join(import.meta.dirname,'..');
-const upPath=join(root,'db','migrations','155_wbs_insurance_pc_mapping_controller_workflow.sql');
-const downPath=join(root,'db','migrations','down','155_wbs_insurance_pc_mapping_controller_workflow.sql');
+const upPath=join(root,'db','migrations','164_wbs_insurance_pc_mapping_controller_workflow.sql');
+const downPath=join(root,'db','migrations','down','164_wbs_insurance_pc_mapping_controller_workflow.sql');
 const read=path=>readFileSync(path,'utf8');
 const requireFile=(path,label)=>{assert.equal(existsSync(path),true,`${label} is required after compat 153 is frozen`);return read(path);};
 const contains=(source,value)=>assert.equal(source.includes(value),true,`missing required contract token: ${value}`);
 
-test('155 extends the compat decision table and does not create a parallel approval authority',()=>{
+test('164 extends the compat decision table and does not create a parallel approval authority',()=>{
   const sql=requireFile(upPath,'migration 155');
   assert.match(sql,/INSERT INTO\s+wbs_insurance_pc_company_mapping_decision/i);
   assert.doesNotMatch(sql,/CREATE TABLE\s+wbs_insurance_pc_mapping_decision\s*\(/i);
