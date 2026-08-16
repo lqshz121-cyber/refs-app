@@ -39,9 +39,10 @@ function validateArtifact(value,name){
 }
 
 export function validateInsurancePreAdmissionObservation(value){
-  closed(value,['schema_version','observation_id','observation_hash','status','admission_state','source_kind','source_evidence_hash','scope_kind','scope_pc_code_count','signature_algorithm','signature_verified','artifact_set_hash','package_hash','source_payload_hash','canonical_set_hash','captured_at','record_count','null_pc_code_row_count','artifacts','actions','write_delta','public_dto'], 'preAdmissionObservation');
+  closed(value,['schema_version','observation_id','observation_hash','admission_id','immutable_version','receipt_hash','date_from','date_to','status','admission_state','source_kind','source_evidence_hash','scope_kind','scope_pc_code_count','signature_algorithm','signature_verified','artifact_set_hash','package_hash','source_payload_hash','canonical_set_hash','captured_at','record_count','null_pc_code_row_count','artifacts','actions','write_delta','public_dto'], 'preAdmissionObservation');
   if(value.schema_version!=='REFS_INSURANCE_PRE_ADMISSION_OBSERVATION_V1'||value.status!=='PRE_ADMISSION_OBSERVATION'||value.admission_state!=='NOT_ADMITTED'||value.source_kind!=='PRE_ADMISSION_OBSERVATION'||value.scope_kind!=='FIRST_PACKAGE_WBPA')fail('WBS_INSURANCE_PC_MAPPING_PRE_ADMISSION_INVALID','Observation must remain first-package pre-admission evidence');
-  uuid(value.observation_id,'observation_id');
+  uuid(value.observation_id,'observation_id');uuid(value.admission_id,'admission_id');uuid(value.immutable_version,'immutable_version');hash(value.receipt_hash,'receipt_hash');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(value.date_from)||!/^\d{4}-\d{2}-\d{2}$/.test(value.date_to)||value.date_from>value.date_to)fail('WBS_INSURANCE_PC_MAPPING_PRE_ADMISSION_INVALID','Observation date range is invalid');
   if(value.signature_algorithm!=='Ed25519'||value.signature_verified!==true)fail('WBS_INSURANCE_PC_MAPPING_SIGNATURE_INVALID','Ed25519 verification is required');
   for(const name of ['observation_hash','source_evidence_hash','artifact_set_hash','package_hash','source_payload_hash','canonical_set_hash'])hash(value[name],name);
   canonicalUtc(value.captured_at,'captured_at');
@@ -88,7 +89,7 @@ export function validateInsuranceFormalAdmissionBinding(value,observation,expect
 
 export function assertInsurancePcMappingDto(value,{approved=false,trace=false}={}){
   object(value,'mappingDto');
-  const allowed=new Set(['proposal_id','observation_id','revision','status','source_kind','admission_state','observation_hash','proposal_hash','canonical_set_hash','decision_hash','company_mapping_hash','match_count','mapping_status','accounting_date','idempotent','rows','pc_code','company_code','effective_from','effective_to','proposed_by','proposed_at','approved_by','approved_at','reason','catalog_decision_id']);
+  const allowed=new Set(['proposal_id','observation_id','mapping_approval_id','revision','status','source_kind','admission_state','observation_hash','proposal_hash','canonical_set_hash','decision_hash','company_mapping_hash','match_count','mapping_status','accounting_date','idempotent','rows','pc_code','company_code','effective_from','effective_to','proposed_by','proposed_at','approved_by','approved_at','reason','catalog_decision_id']);
   if(Object.keys(value).some(key=>!allowed.has(key)))fail('WBS_INSURANCE_PC_MAPPING_PUBLIC_DTO_UNSAFE','Mapping DTO contains an unexpected field');
   if(trace){
     if(!Number.isSafeInteger(value.match_count)||value.match_count<0)fail('WBS_INSURANCE_PC_MAPPING_TRACE_INVALID','Mapping trace match count is invalid');
@@ -110,6 +111,7 @@ export function assertInsurancePcMappingDto(value,{approved=false,trace=false}={
     }
   }
   for(const key of ['observation_hash','proposal_hash'])hash(value[key],key);
+  if(Object.hasOwn(value,'mapping_approval_id'))uuid(value.mapping_approval_id,'mapping_approval_id');
   if(approved)for(const key of ['decision_hash','company_mapping_hash'])hash(value[key],key);
   if(containsForbiddenKey(value))fail('WBS_INSURANCE_PC_MAPPING_PUBLIC_DTO_UNSAFE','Mapping DTO contains forbidden raw transport data');
   return value;

@@ -64,7 +64,7 @@
         "operationId":"getWbsInsurancePcMappingProposal",
         "summary":"Read one immutable Insurance PC mapping proposal and hash trace",
         "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"proposalId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
-        "responses":{"200":{"$ref":"#/components/responses/ReadOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+        "responses":{"200":{"$ref":"#/components/responses/WbsInsurancePcMappingRead"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
     "/entities/{entityId}/wbs/insurance/pc-mapping-proposals/{proposalId}/approve": {
@@ -83,7 +83,7 @@
         "summary":"Read one effective Controller-approved PC/company mapping trace",
         "description":"Requires WBS.INSURANCE.PC_MAPPING.VIEW. Returns only scoped ids, effective dates, match count and observation/proposal/decision/catalog hashes; provider raw rows and transport artifacts are never returned.",
         "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"pcCode","in":"query","required":true,"schema":{"type":"string","minLength":1,"maxLength":128}},{"name":"accountingDate","in":"query","required":true,"schema":{"type":"string","format":"date"}}],
-        "responses":{"200":{"$ref":"#/components/responses/ReadOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+        "responses":{"200":{"$ref":"#/components/responses/WbsInsurancePcMappingRead"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
     "/entities/{entityId}/wbs/company-catalogs": {
@@ -2398,6 +2398,11 @@
       }
     },
     "schemas": {
+      "WbsInsurancePcMappingProposalRow":{"type":"object","additionalProperties":false,"required":["proposal_row_id","pc_code","observed_row_count","row_hash"],"properties":{"proposal_row_id":{"$ref":"#/components/schemas/Uuid"},"pc_code":{"type":"string","minLength":1,"maxLength":128},"observed_row_count":{"type":"integer","minimum":1},"row_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}},
+      "WbsInsurancePcMappingProposal":{"type":"object","additionalProperties":false,"required":["proposal_id","observation_id","revision","status","source_kind","admission_state","observation_hash","proposal_hash","canonical_set_hash","proposed_by","proposed_at","rows"],"properties":{"proposal_id":{"$ref":"#/components/schemas/Uuid"},"observation_id":{"$ref":"#/components/schemas/Uuid"},"revision":{"type":"integer","enum":[0,1]},"status":{"type":"string","enum":["PENDING_CONTROLLER_APPROVAL","APPROVED"]},"source_kind":{"const":"PRE_ADMISSION_OBSERVATION"},"admission_state":{"const":"NOT_ADMITTED"},"observation_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"proposal_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"canonical_set_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"decision_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"company_mapping_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"proposed_by":{"type":"string","minLength":1,"maxLength":256},"proposed_at":{"type":"string","format":"date-time"},"approved_by":{"type":"string","minLength":1,"maxLength":256},"approved_at":{"type":"string","format":"date-time"},"rows":{"type":"array","minItems":1,"maxItems":5000,"items":{"$ref":"#/components/schemas/WbsInsurancePcMappingProposalRow"}}}},
+      "WbsInsurancePcMappingNonUniqueTrace":{"type":"object","additionalProperties":false,"required":["pc_code","accounting_date","match_count","mapping_status"],"properties":{"pc_code":{"type":"string","minLength":1,"maxLength":128},"accounting_date":{"type":"string","format":"date"},"match_count":{"type":"integer","minimum":0,"not":{"const":1}},"mapping_status":{"type":"string","enum":["MISSING","AMBIGUOUS"]}}},
+      "WbsInsurancePcMappingApprovedTrace":{"type":"object","additionalProperties":false,"required":["pc_code","accounting_date","match_count","mapping_status","company_code","effective_from","mapping_approval_id","observation_hash","proposal_hash","decision_hash","company_mapping_hash","catalog_decision_id","approved_by","approved_at"],"properties":{"pc_code":{"type":"string","minLength":1,"maxLength":128},"accounting_date":{"type":"string","format":"date"},"match_count":{"const":1},"mapping_status":{"const":"CONTROLLER_APPROVED"},"company_code":{"const":"WBPA"},"effective_from":{"type":"string","format":"date"},"effective_to":{"type":["string","null"],"format":"date"},"mapping_approval_id":{"$ref":"#/components/schemas/Uuid"},"observation_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"proposal_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"decision_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"company_mapping_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"catalog_decision_id":{"$ref":"#/components/schemas/Uuid"},"approved_by":{"type":"string","minLength":1,"maxLength":256},"approved_at":{"type":"string","format":"date-time"}}},
+      "WbsInsurancePcMappingEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"oneOf":[{"$ref":"#/components/schemas/WbsInsurancePcMappingProposal"},{"$ref":"#/components/schemas/WbsInsurancePcMappingNonUniqueTrace"},{"$ref":"#/components/schemas/WbsInsurancePcMappingApprovedTrace"}]}}},
       "WbsPayableReviewAttachmentChoice": {
         "type":"object","additionalProperties":false,
         "required":["attachment_id","name","media_type","verified_at"],
@@ -5385,6 +5390,7 @@
           }
         }
       },
+      "WbsInsurancePcMappingRead":{"description":"Closed no-store Controller Insurance PC mapping response","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsInsurancePcMappingEnvelope"}}}},
       "ReadOk": {
         "description": "Authenticated read response",
         "headers": {
