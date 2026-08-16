@@ -49,6 +49,43 @@
         }
       }
     },
+    "/entities/{entityId}/wbs/insurance/pc-mapping-proposals": {
+      "post": {
+        "operationId":"createWbsInsurancePcMappingProposal",
+        "summary":"Propose exact server-derived Insurance PC evidence for independent Controller approval",
+        "description":"Requires WBS.INSURANCE.PC_MAPPING.PROPOSE. The caller supplies only an immutable pre-admission or controlled-live observation id/hash and reason; PC codes, company codes, raw rows, captured times, tokens and aggregate arrays are forbidden. This command does not admit evidence or enable accounting actions.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["observationId","expectedObservationHash","reason"],"properties":{"observationId":{"$ref":"#/components/schemas/Uuid"},"expectedObservationHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/insurance/pc-mapping-proposals/{proposalId}": {
+      "get": {
+        "operationId":"getWbsInsurancePcMappingProposal",
+        "summary":"Read one immutable Insurance PC mapping proposal and hash trace",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"proposalId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses":{"200":{"$ref":"#/components/responses/ReadOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/insurance/pc-mapping-proposals/{proposalId}/approve": {
+      "post": {
+        "operationId":"approveWbsInsurancePcMappingProposal",
+        "summary":"Approve exact first-package Insurance PC mappings after SoD and CAS",
+        "description":"Requires WBS.INSURANCE.PC_MAPPING.APPROVE, strong revision CAS, actor-bound idempotency, independent Controller SoD, exact observation/proposal/catalog hashes and a catalog effective interval covering the entire mapping range. Approval is mapping-only and does not admit provider artifacts.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"proposalId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedObservationHash","expectedProposalHash","catalogDecisionId","expectedCompanyMappingHash","effectiveFrom","reason"],"properties":{"expectedObservationHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expectedProposalHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"catalogDecisionId":{"$ref":"#/components/schemas/Uuid"},"expectedCompanyMappingHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"effectiveFrom":{"type":"string","format":"date"},"effectiveTo":{"type":["string","null"],"format":"date"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"428":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/insurance/pc-company-mappings/trace": {
+      "get": {
+        "operationId":"getWbsInsurancePcMappingTrace",
+        "summary":"Read one effective Controller-approved PC/company mapping trace",
+        "description":"Requires WBS.INSURANCE.PC_MAPPING.VIEW. Returns only scoped ids, effective dates, match count and observation/proposal/decision/catalog hashes; provider raw rows and transport artifacts are never returned.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"pcCode","in":"query","required":true,"schema":{"type":"string","minLength":1,"maxLength":128}},{"name":"accountingDate","in":"query","required":true,"schema":{"type":"string","format":"date"}}],
+        "responses":{"200":{"$ref":"#/components/responses/ReadOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/company-catalogs": {
       "get": {
         "operationId": "listWbsCompanyCatalogCandidates",

@@ -176,6 +176,30 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createWbsInsurancePcMappingProposal({tenantId,entityId,observationId,expectedObservationHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const params=[tenantId,entityId,observationId,expectedObservationHash,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_propose_wbs_insurance_pc_mapping_hash($1,$2,$3,$4,$5) AS request_hash',params),'WBS_INSURANCE_PC_MAPPING_PROPOSAL_HASH_FAILED','Insurance PC mapping proposal hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_create_wbs_insurance_pc_mapping_proposal($1,$2,$3,$4,$5,$6,$7) AS result',[...params,idempotencyKey,requestHash]),'WBS_INSURANCE_PC_MAPPING_PROPOSAL_FAILED','Insurance PC mapping proposal did not return a result').result;
+    });
+  }
+
+  async approveWbsInsurancePcMappingProposal({tenantId,entityId,proposalId,expectedRevision,expectedObservationHash,expectedProposalHash,catalogDecisionId,expectedCompanyMappingHash,effectiveFrom,effectiveTo,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const params=[tenantId,entityId,proposalId,expectedRevision,expectedObservationHash,expectedProposalHash,catalogDecisionId,expectedCompanyMappingHash,effectiveFrom,effectiveTo??null,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_approve_wbs_insurance_pc_mapping_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS request_hash',params),'WBS_INSURANCE_PC_MAPPING_APPROVAL_HASH_FAILED','Insurance PC mapping approval hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_approve_wbs_insurance_pc_mapping_proposal($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) AS result',[...params,idempotencyKey,requestHash]),'WBS_INSURANCE_PC_MAPPING_APPROVAL_FAILED','Insurance PC mapping approval did not return a result').result;
+    });
+  }
+
+  async getWbsInsurancePcMappingProposal({tenantId,entityId,proposalId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_wbs_insurance_pc_mapping_proposal($1,$2,$3) AS result',[tenantId,entityId,proposalId]),'WBS_INSURANCE_PC_MAPPING_PROPOSAL_NOT_FOUND','Insurance PC mapping proposal was not found').result);
+  }
+
+  async getWbsInsurancePcMappingTrace({tenantId,entityId,pcCode,accountingDate}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_wbs_insurance_pc_mapping_trace($1,$2,$3,$4) AS result',[tenantId,entityId,pcCode,accountingDate]),'WBS_INSURANCE_PC_MAPPING_TRACE_FAILED','Insurance PC mapping trace was not returned').result);
+  }
+
   async admitWbsSignedBankStatement({tenantId,entityId,admission,idempotencyKey}){
     const validated=validateWbsSignedBankAdmission(admission);
     if(typeof this.wbsSignedBankAdmissionVerifier!=='function')throw new KernelError('WBS_BANK_ADMISSION_SIGNATURE_REQUIRED','WBS bank admission requires a configured detached-signature verifier');
