@@ -207,16 +207,16 @@ pgTest('WBS Final-1 retained evidence persists exact Payables and Insurance sour
   assert.equal(payable.status,'WBS_FINAL1_RETAINED_SOURCE_EVIDENCE');assert.equal(payable.row_count,1);assert.equal(payable.can_write_wbs,false);assert.equal((await kernel.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery:payableDelivery,artifacts:artifactsFor(payableDelivery),plan:payablePlan,idempotencyKey:'wbs-final1-payable-pg-001'})).idempotent,true);
   const writeCounts=async()=>(await adminPool.query(`SELECT
     (SELECT count(*)::int FROM wbs_final1_retained_evidence_admission WHERE tenant_id=$1) admissions,
-    (SELECT count(*)::int FROM wbs_final1_artifact_scan_evidence WHERE tenant_id=$1) scans,
     (SELECT count(*)::int FROM wbs_final1_retained_source_row WHERE tenant_id=$1) retained,
     (SELECT count(*)::int FROM source_document WHERE tenant_id=$1) documents,
     (SELECT count(*)::int FROM source_document_line WHERE tenant_id=$1) document_lines,
+    (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,
     (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1) audit,
     (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox`,[ids.tenantId])).rows[0];
   const rejectDirectPayable=async(label,mutate)=>{
-    const before=await writeCounts(),delivery={...payableDelivery,admission_id:randomUUID(),nonce:`nonce-payable-direct-${label}`,plan_hash:hash(`payable-direct-${label}`)},row={...payablePlan.staging_rows[0],raw_row:{...payablePlan.staging_rows[0].raw_row},normalized:{...payablePlan.staging_rows[0].normalized},exception_codes:[...payablePlan.staging_rows[0].exception_codes]},plan={...payablePlan,plan_hash:delivery.plan_hash,staging_rows:[row]};
+    const directSession=await trustedSession(ids,actor,['WBS.SNAPSHOT.IMPORT']),directKernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>directSession}),before=await writeCounts(),snapshotId=randomUUID(),delivery={...payableDelivery,admission_id:randomUUID(),snapshot_id:snapshotId,nonce:`nonce-payable-direct-${label}`,plan_hash:hash(`payable-direct-${label}`)},row={...payablePlan.staging_rows[0],provider_snapshot_id:snapshotId,raw_row:{...payablePlan.staging_rows[0].raw_row},normalized:{...payablePlan.staging_rows[0].normalized},exception_codes:[...payablePlan.staging_rows[0].exception_codes]},plan={...payablePlan,plan_hash:delivery.plan_hash,provenance:{...payablePlan.provenance,snapshot_id:snapshotId},staging_rows:[row]};
     mutate(row);
-    await assert.rejects(kernel.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery,artifacts:artifactsFor(delivery),plan,idempotencyKey:`wbs-final1-payable-direct-${label}`}),error=>['22023','23514'].includes(error.code));
+    await assert.rejects(directKernel.retainWbsProviderFinal1SourceEvidence({tenantId:ids.tenantId,entityId:ids.entityId,delivery,artifacts:artifactsFor(delivery),plan,idempotencyKey:`wbs-final1-payable-direct-${label}`}),error=>['22023','23514'].includes(error.code));
     assert.deepEqual(await writeCounts(),before,`invalid Final-1 Payables ${label} must be zero-write`);
   };
   for(const key of ['invoice_no','invoice_date','business_id','service_period_start','service_period_end','recurring_obligation_id','contract_id','charge_code','service_frequency','obligation_status'])await rejectDirectPayable(`missing-${key}`,row=>{delete row.raw_row[key];});
