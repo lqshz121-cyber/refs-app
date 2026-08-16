@@ -719,7 +719,8 @@ const readAuthoritativeRows=async({config,path,operation,fetcher})=>{
     const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
     if(!response.ok)return await failure(response,operation);
     const body=await response.json();
-    return body?.ok===true&&Array.isArray(body.data)?{ok:true,rows:body.data}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:`Accounting API returned an invalid ${operation} envelope.`};
+    const cacheControl=typeof response.headers?.get==='function'?String(response.headers.get('cache-control')||''):'';
+    return body?.ok===true&&Array.isArray(body.data)?{ok:true,rows:body.data,cacheControl}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:`Accounting API returned an invalid ${operation} envelope.`};
   }catch{return unreachable('The browser could not complete the authoritative accounting read; no HTTP response was produced.');}
 };
 
@@ -804,10 +805,40 @@ const sourceDocumentRow=row=>{
   const revision=Number(row.source_document_revision);if(!Number.isSafeInteger(revision)||revision<0||new Set(row.posted_journal_entry_ids).size!==row.posted_journal_entry_ids.length)return null;
   return {...row,source_document_revision:revision,gross_amount:String(row.gross_amount),posted_journal_entry_ids:[...row.posted_journal_entry_ids]};
 };
+const PROVIDER_SECRET_SHAPE=/(?:bearer\s+|(?:access[_ -]?token|api[_ -]?key|authorization|secret|password)\s*[:=]|-----BEGIN(?: [A-Z]+)?(?: PRIVATE)? KEY-----|eyJ[A-Za-z0-9_-]{12,}|(?:^|[^A-Za-z0-9_-])(?:sk|rk|pk)-(?:proj-)?[A-Za-z0-9_-]{16,}(?:$|[^A-Za-z0-9_-]))/i;
+const providerTraceText=(value,maxLength=160)=>value===null||value===undefined||(typeof value==='string'&&value.length<=maxLength&&TEXT_TOKEN.test(value)&&!/[<>&]/.test(value)&&!PROVIDER_SECRET_SHAPE.test(value));
+const providerTraceIdentifier=(value,maxLength=128)=>value===null||value===undefined||(typeof value==='string'&&value.length<=maxLength&&/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(value)&&!PROVIDER_SECRET_SHAPE.test(value));
+const providerTraceCompany=value=>value===null||value===undefined||(typeof value==='string'&&/^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(value));
+const providerTraceDate=value=>value===null||value===undefined||validDate(value);
+const providerTraceActions=value=>Boolean(value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join('|')==='can_approve|can_create_draft|can_post|can_propose_amortization|can_review'&&['can_propose_amortization','can_review','can_create_draft','can_approve','can_post'].every(field=>value[field]===false));
+const providerEvidenceTrace=value=>{
+  if(value===undefined)return undefined;
+  if(!value||typeof value!=='object'||Array.isArray(value))return null;
+  const unsupported=()=>Object.freeze({supported:false,reason:'UNSUPPORTED_PROVIDER_TRACE'});
+  if(value.trace_version!=='WBS_PROVIDER_SOURCE_TRACE_V1'||!['PAYABLES','INSURANCE'].includes(value.domain))return unsupported();
+  if(value.domain==='PAYABLES'){
+    const fields=['invoice_no','business_id','service_period_start','service_period_end','recurring_obligation_id','contract_id','charge_code','service_frequency','obligation_status'];
+    if(Object.keys(value).sort().join('|')!==['trace_version','domain','source_payload_hash','disposition','action_flags','invoice_no','invoice_date','business_id','accrual'].sort().join('|')||!SHA256.test(value.source_payload_hash||'')||value.disposition!=='RETAINED'||!providerTraceActions(value.action_flags)||!providerTraceIdentifier(value.invoice_no)||!providerTraceIdentifier(value.business_id)||!providerTraceDate(value.invoice_date)||!value.accrual||typeof value.accrual!=='object'||Array.isArray(value.accrual)||Object.keys(value.accrual).sort().join('|')!==fields.slice(2).sort().join('|')||!providerTraceDate(value.accrual.service_period_start)||!providerTraceDate(value.accrual.service_period_end)||!fields.slice(4).every(field=>providerTraceText(value.accrual[field])))return null;
+    return Object.freeze({...value,accrual:Object.freeze({...value.accrual})});
+  }
+  if(value.domain==='INSURANCE'){
+    const fields=['policy_id','source_id','pc_code','final_premium','mapping_decision_id','mapping_decision_hash','company_mapping_hash','resolved_company_code','match_count','disposition','coverage_start','coverage_end','coverage_disposition'];
+    if(!['RESOLVED','MAPPING_REVIEW_REQUIRED','QUARANTINED','REJECTED'].includes(value.disposition))return unsupported();
+    const mappingHashesDistinct=new Set([value.source_payload_hash,value.mapping_decision_hash,value.company_mapping_hash]).size===3;
+    const approved=UUID.test(value.mapping_decision_id||'')&&SHA256.test(value.mapping_decision_hash||'')&&SHA256.test(value.company_mapping_hash||'')&&mappingHashesDistinct&&providerTraceCompany(value.resolved_company_code);
+    const noResolution=value.mapping_decision_id===null&&value.mapping_decision_hash===null&&value.company_mapping_hash===null&&value.resolved_company_code===null;
+    const review=['MAPPING_REVIEW_REQUIRED','QUARANTINED','REJECTED'].includes(value.disposition)&&value.match_count!==1&&noResolution;
+    const positiveCoverage=value.coverage_disposition==='POSITIVE_COVERAGE';
+    if(Object.keys(value).sort().join('|')!==['trace_version','domain','source_payload_hash','action_flags',...fields].sort().join('|')||!SHA256.test(value.source_payload_hash||'')||!providerTraceActions(value.action_flags)||!['policy_id','source_id','pc_code'].every(field=>providerTraceIdentifier(value[field]))||!['POSITIVE_COVERAGE','EXCEPTION_REVIEW_REQUIRED'].includes(value.coverage_disposition)||!(value.final_premium===null||value.final_premium===undefined||REPORT_MONEY4.test(String(value.final_premium)))||!(value.mapping_decision_id===null||value.mapping_decision_id===undefined||UUID.test(value.mapping_decision_id))||!(value.mapping_decision_hash===null||value.mapping_decision_hash===undefined||SHA256.test(value.mapping_decision_hash))||!(value.company_mapping_hash===null||value.company_mapping_hash===undefined||SHA256.test(value.company_mapping_hash))||!Number.isSafeInteger(value.match_count)||value.match_count<0||!providerTraceDate(value.coverage_start)||!providerTraceDate(value.coverage_end)||(value.disposition==='RESOLVED'&&!(value.match_count===1&&approved&&positiveCoverage))||!((value.disposition==='RESOLVED'&&approved&&positiveCoverage)||(review&&!positiveCoverage)))return null;
+    return Object.freeze({...value,final_premium:value.final_premium===null||value.final_premium===undefined?null:String(value.final_premium)});
+  }
+  return null;
+};
 const sourceDocumentLine=row=>{
   const nullableText=value=>value===null||value===undefined||TEXT_TOKEN.test(value);
-  if(!row||!UUID.test(row.source_document_line_id||'')||!TEXT_TOKEN.test(row.source_line_id||'')||!Number.isSafeInteger(row.line_no)||row.line_no<1||!REPORT_MONEY4.test(String(row.amount??''))||!['DEBIT','CREDIT','INFLOW','OUTFLOW','NONE'].includes(row.direction)||!['party_ref','bank_account_ref','project_ref','property_ref','phase_ref','unit_ref','loan_ref','cost_code_ref'].every(field=>nullableText(row[field])))return null;
-  return {...row,amount:String(row.amount)};
+  const trace=providerEvidenceTrace(row?.provider_trace);
+  if(!row||!UUID.test(row.source_document_line_id||'')||!TEXT_TOKEN.test(row.source_line_id||'')||!Number.isSafeInteger(row.line_no)||row.line_no<1||!REPORT_MONEY4.test(String(row.amount??''))||!['DEBIT','CREDIT','INFLOW','OUTFLOW','NONE'].includes(row.direction)||!['party_ref','bank_account_ref','project_ref','property_ref','phase_ref','unit_ref','loan_ref','cost_code_ref'].every(field=>nullableText(row[field]))||trace===null)return null;
+  return {...row,amount:String(row.amount),...(trace===undefined?{}:{provider_trace:trace})};
 };
 
 export async function refreshAuthoritativeSourceDocuments({config,fetcher=globalThis.fetch}={}){
@@ -824,7 +855,10 @@ export async function readAuthoritativeSourceDocumentDetail({config,sourceDocume
   if(!result.ok)return result;
   if(result.rows.length!==1)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Source Document detail cardinality.'};
   const detail=sourceDocumentRow(result.rows[0]),lines=Array.isArray(result.rows[0]?.lines)?result.rows[0].lines.map(sourceDocumentLine):null;
-  if(!detail||detail.source_document_id!==sourceDocumentId||!lines||lines.length!==detail.source_line_count||new Set(lines.map(line=>line?.source_document_line_id)).size!==lines.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned invalid Source Document detail evidence.'};
+  if(!detail||detail.source_document_id!==sourceDocumentId||!lines||lines.some(line=>line===null)||lines.length!==detail.source_line_count||new Set(lines.map(line=>line?.source_document_line_id)).size!==lines.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned invalid Source Document detail evidence.'};
+  const providerLines=lines.filter(line=>line?.provider_trace);
+  if(providerLines.length&& !/\bno-store\b/i.test(result.cacheControl||''))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned provider trace without a no-store response.'};
+  if(lines.some(line=>line.provider_trace?.supported!==false&&line.provider_trace?.source_payload_hash!==detail.payload_hash))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned provider trace detached from its source payload hash.'};
   return {ok:true,detail:{...detail,lines},scope:{entityId:config.entityId,sourceDocumentId}};
 }
 
