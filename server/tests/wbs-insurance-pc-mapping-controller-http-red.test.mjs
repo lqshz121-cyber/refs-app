@@ -44,6 +44,13 @@ test('proposal read rejects every non-closed nested row before HTTP serializatio
   assert.equal(response.status,500);assert.equal(JSON.stringify(response.body).includes('must-not-leak'),false);
 });
 
+test('missing mapping trace rejects proposal or workflow fields outside its exact four-field DTO',async()=>{
+  const kernel={async getWbsInsurancePcMappingTrace(){return {pc_code:'PC-X',accounting_date:'2026-06-30',match_count:0,mapping_status:'MISSING',proposal_id:proposalId,reason:'must not escape the proposal domain',rows:[]};}};
+  const dispatch=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'controller'}),kernelFactory:async()=>kernel});
+  const response=await dispatch({method:'GET',url:`/api/v1/entities/${entityId}/wbs/insurance/pc-company-mappings/trace?pcCode=PC-X&accountingDate=2026-06-30`,headers:{},body:null});
+  assert.equal(response.status,500);assert.equal(JSON.stringify(response.body).includes('must not escape'),false);
+});
+
 test('approve uses strong revision exact hashes independent SoD and no-store',async()=>{
   const {dispatch,calls}=harness();
   const response=await dispatch({method:'POST',url:`/api/v1/entities/${entityId}/wbs/insurance/pc-mapping-proposals/${proposalId}/approve`,headers:{'idempotency-key':'insurance-pc-approve-001','if-match':'"0"'},body:{expectedObservationHash:sha('a'),expectedProposalHash:sha('b'),catalogDecisionId:'9c11327d-8d2d-4b66-9e72-66fda26751ce',expectedCompanyMappingHash:sha('e'),effectiveFrom:'2026-01-01',effectiveTo:'2026-12-31',reason:'Independent Controller approves the exact observed PC scope and catalog binding.'}});

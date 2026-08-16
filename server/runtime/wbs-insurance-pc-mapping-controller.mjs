@@ -95,8 +95,7 @@ export function assertInsurancePcMappingDto(value,{approved=false,trace=false}={
     const expectedStatus=value.match_count===0?'MISSING':value.match_count===1?'CONTROLLER_APPROVED':'AMBIGUOUS';
     if(value.mapping_status!==expectedStatus)fail('WBS_INSURANCE_PC_MAPPING_TRACE_INVALID','Mapping trace status does not match its authoritative count');
     if(value.match_count!==1){
-      const forbidden=['observation_hash','proposal_hash','decision_hash','company_mapping_hash','company_code','catalog_decision_id'];
-      if(forbidden.some(key=>Object.hasOwn(value,key)&&value[key]!=null))fail('WBS_INSURANCE_PC_MAPPING_TRACE_INVALID','Missing or ambiguous trace cannot expose mapping authority');
+      closed(value,['pc_code','accounting_date','match_count','mapping_status'],'mappingTrace');
       if(containsForbiddenKey(value))fail('WBS_INSURANCE_PC_MAPPING_PUBLIC_DTO_UNSAFE','Mapping DTO contains forbidden raw transport data');
       return value;
     }
