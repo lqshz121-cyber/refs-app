@@ -11,6 +11,21 @@ const migrationRoot=resolve(here,'..','db','migrations');
 const downRoot=join(migrationRoot,'down');
 const lockKey=728346219;
 
+async function acquireMigrationLock(client){
+  const prior=(await client.query("SELECT current_setting('statement_timeout') AS statement_timeout,current_setting('lock_timeout') AS lock_timeout")).rows[0];
+  let locked=false;
+  try{
+    // Pool-level statement/lock timeouts protect ordinary SQL, but a runner
+    // waiting behind another full down/up pass must not abort mid-reset.
+    await client.query("SELECT set_config('statement_timeout','0',false),set_config('lock_timeout','0',false)");
+    await client.query('SELECT pg_advisory_lock($1)',[lockKey]);
+    locked=true;
+  }finally{
+    await client.query("SELECT set_config('statement_timeout',$1,false),set_config('lock_timeout',$2,false)",[prior.statement_timeout,prior.lock_timeout]);
+  }
+  return locked;
+}
+
 function bodyWithoutOuterTransaction(sql){
   return sql.replace(/^\s*BEGIN;\s*/i,'').replace(/\s*COMMIT;\s*$/i,'').trim();
 }
@@ -69,14 +84,7 @@ export async function migrateUp(pool){
   const client=await pool.connect();
   let locked=false;
   try{
-    // The runtime pool intentionally has a short DDL lock timeout.  The
-    // migration mutex is different: concurrent runners must wait for the
-    // currently active migration and then serialize, rather than fail halfway
-    // through a schema reset and leave the following reader on a partial DB.
-    await client.query('SET lock_timeout = 0');
-    await client.query('SELECT pg_advisory_lock($1)',[lockKey]);
-    locked=true;
-    await client.query('RESET lock_timeout');
+    locked=await acquireMigrationLock(client);
     await assertMigrationConnection(client);
     await ensureMetadata(client);
     const files=await filesAt(migrationRoot);
@@ -103,13 +111,7 @@ export async function migrateDown(pool,{all=false}={}){
   const client=await pool.connect();
   let locked=false;
   try{
-    // See migrateUp: only waiting for the process-wide advisory mutex is
-    // unbounded.  Individual migration statements retain the configured
-    // lock timeout after the mutex has been acquired.
-    await client.query('SET lock_timeout = 0');
-    await client.query('SELECT pg_advisory_lock($1)',[lockKey]);
-    locked=true;
-    await client.query('RESET lock_timeout');
+    locked=await acquireMigrationLock(client);
     await assertMigrationConnection(client,{destructive:true});
     await ensureMetadata(client);
     const applied=(await client.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name DESC')).rows.map(row=>row.migration_name);

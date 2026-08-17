@@ -62,7 +62,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   }};};
   const server=createAccountingHttpServer({
     maxBodyBytes,releaseSha,
-    healthCheck:async()=>{try{const checks=[runtimePool.query('SELECT 1 AS ready'),issuerPool.query('SELECT 1 AS ready'),runtimePool.query(INSURANCE_PC_MAPPING_READINESS)];if(attachmentEnabled)checks.push(attachmentStorage.probe(),virusScanner.probe());if(wbsImmutableEvidenceStorage)checks.push(wbsImmutableEvidenceStorage.probeImmutable());const [runtime,issuer,...dependencies]=await Promise.all(checks);return runtime.rowCount===1&&issuer.rowCount===1&&dependencies.every(result=>result?.rows?.[0]?.ready===true||result===undefined);}catch{return false;}},
+    healthCheck:async()=>{try{const checks=[runtimePool.query('SELECT 1 AS ready'),issuerPool.query('SELECT 1 AS ready'),runtimePool.query(INSURANCE_PC_MAPPING_READINESS)];if(attachmentEnabled)checks.push(attachmentStorage.probe(),virusScanner.probe());if(wbsImmutableEvidenceStorage)checks.push(wbsImmutableEvidenceStorage.probeImmutable());const [runtime,issuer,...dependencies]=await Promise.all(checks);return runtime.rowCount===1&&issuer.rowCount===1&&dependencies.every(result=>result===true||result?.rows?.[0]?.ready===true||result===undefined);}catch{return false;}},
     authenticate:request=>authenticator.authenticate(request),
     kernelFactory:kernelFor,
     stage1SelfGrantServiceFactory:stage1SelfGrant?principal=>({

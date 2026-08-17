@@ -32,6 +32,7 @@ export const FIXTURES=Object.freeze([
   Object.freeze({id:'intercompany-reconciliation-close',pattern:'intercompany reconciliation requires two authorized entity scopes, reciprocal exact mappings, and POSTED ledger evidence without creating an elimination'}),
   Object.freeze({id:'budget-vs-actual-close',pattern:'budget versus actual reads one approved immutable snapshot against same-currency POSTED ledger evidence without mutating a budget or journal'}),
   Object.freeze({id:'consolidation-close',pattern:'consolidation reads only an approved immutable two-member scope with explicit elimination evidence and never creates an elimination journal'}),
+  Object.freeze({id:'insurance-pc-mapping-controller',pattern:'Insurance PC company mapping Controller164 records proposes approves resumes and preserves zero accounting writes'}),
   Object.freeze({id:'wbs-autorec-event-foundation',pattern:'independent AutoRec review and immutable accounting-event foundation derive exact G11 Drafts from approved rules'}),
   Object.freeze({id:'real-estate-profitability-lineage',pattern:'isolated financial-statement snapshots retain|financial statement period comparison reads|dimension profitability reads only exact POSTED ledger dimensions'}),
   Object.freeze({id:'real-estate-reports',pattern:'cash flow statement classifies|CWIP rollforward admits|construction-loan rollforward admits|prepaid rollforward admits|intercompany reconciliation requires|budget versus actual reads|consolidation reads only'})

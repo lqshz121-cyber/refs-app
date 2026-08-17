@@ -8,6 +8,7 @@ function fakePool(identity){
     async query(text){
       queries.push(String(text));
       if(String(text).startsWith('SELECT current_database()'))return {rows:[identity],rowCount:1};
+      if(String(text).startsWith("SELECT current_setting('statement_timeout')"))return {rows:[{statement_timeout:'10s',lock_timeout:'5s'}],rowCount:1};
       return {rows:[],rowCount:0};
     },
     release(){queries.push('RELEASE');}
@@ -23,8 +24,9 @@ test('down safety uses the actual connected database rather than the runtime URL
   finally{if(prior===undefined)delete process.env.MIGRATION_DATABASE_URL;else process.env.MIGRATION_DATABASE_URL=prior;}
   assert.ok(pool.queries.some(query=>query.includes('pg_advisory_lock')));
   assert.ok(pool.queries.some(query=>query.includes('pg_advisory_unlock')));
-  assert.ok(pool.queries.some(query=>query==='SET lock_timeout = 0'));
-  assert.ok(pool.queries.some(query=>query==='RESET lock_timeout'));
+  assert.ok(pool.queries.some(query=>query.includes("set_config('statement_timeout','0',false)")));
+  assert.ok(pool.queries.some(query=>query.includes("set_config('lock_timeout','0',false)")));
+  assert.ok(pool.queries.some(query=>query.includes("set_config('statement_timeout',$1,false)")));
   assert.ok(!pool.queries.some(query=>/\b(DROP|ALTER|DELETE|CREATE)\b/i.test(query)));
 });
 
