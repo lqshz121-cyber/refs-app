@@ -2,6 +2,10 @@
 
 Base commit: `1233a13` (`docs(wbs): normalize readonly MCP runbook`)
 Branch: `claude/wbs-mcp-lineage-review-20260805`
+
+## Reviewed Catalog V2 boundary (2026-08-16)
+
+The direct MCP catalog is local, credential-redacted **UNSIGNED_PILOT** preflight evidence only. It is not a Final-1 four-pack, is never placed in ObjectLock retention, and its open output schemas do not attest rows or an authoritative paging snapshot. The repository fixture uses canonical `.b64` encoding solely to preserve transport bytes: strict decoding (one terminal LF, canonical Base64 alphabet/padding, and decode-to-encode roundtrip) yields request `357` bytes / `sha256:0d18bb3d0d57bc64e4a045303fa794569b2fa1bcec2bf5902f2db809200b3d73`, response `9343` bytes / `sha256:9d89f8da2b427681eae4e5de8ac02a67620fd261cc575da8664efa5097a412ea`, and parsed catalog `17369` bytes / `sha256:950745b69488ec0dc6227f066381921b546c89ef13f4f552a66795f5e19b354e`. These are transport/document hashes, not Base64-blob hashes. Full canonical `result.tools` is `sha256:cad2dc4ec796cf2b528310a17e5bf7bf1bbd9fdd52b944feffea909a048b982b`; runtime semantic V1 is `sha256:cb39c51f000598e67e94aee4f2fc1afb005d6a67220733ba461c417eb605195f`. The former eight-tool V1 credential-bearing raw/cookie artifact is retired, rejected, and intentionally not stored in this repository.
 Task: TASK-TO-CLAUDE-2026-08-05-002 (official WBS MCP accounting-field mapping review)
 
 This branch is a **review and gap-closure** pass, not a greenfield build. A
@@ -14,12 +18,12 @@ file records the honest before/after so the diff can be judged accurately.
 
 ### Read-only MCP client and contract — `server/runtime/wbs-readonly-mcp.mjs`
 
-- The eight approved read-only tool names, frozen:
+- The nine approved read-only tool names, frozen:
   `get_meta`, `list_payables`, `list_bank_transactions`, `list_autorec_details`,
-  `list_autorec_banks`, `list_journal_entries`, `list_control_totals`,
+  `list_autorec_banks`, `list_journal_entries`, `list_control_totals`, `list_insurance`,
   `trace_by_key`.
 - `WBS_READONLY_ROW_FIELDS` — a frozen row-field **allowlist** (names only, no
-  types) for six of the eight tools.
+  types) for seven of the nine tools.
 - `validateWbsReadEnvelope` — envelope-level contract: `content_sha256` over
   canonical sorted-compact rows, `record_count`, `environment === production`,
   `captured_at`, `source`, `scope`, `cursor_next`, `etl_notice`; a per-tool
@@ -76,7 +80,7 @@ file records the honest before/after so the diff can be judged accurately.
    Nothing declared a type, a required flag, a date format or an account-code
    format, so "validate or raise a scoped exception" was not executable.
 2. **`get_meta` and `trace_by_key` had no declared field surface at all** —
-   two of the eight sources were named but not mapped.
+   two of the nine sources were named but not mapped.
 3. **No executable stable-key derivation.** `stableKeyByTool` checked that a key
    *field was present*; nothing composed
    `source_system + source_id + source_version` into a replay-stable key, and
@@ -96,7 +100,7 @@ file records the honest before/after so the diff can be judged accurately.
 7. **The MCP tool surface and the inbound adapter were not connected.** The
    adapter worked off snapshot `views` (`BGDATA.*` / `accounting.*`); the MCP
    client worked off tool names (`list_*`). Nothing joined them, so there was no
-   end-to-end map from the eight tools through the pipeline.
+   end-to-end map from the nine tools through the pipeline.
 8. **No `docs/` directory.** No document stated stable keys, field mappings,
    cursor semantics or mapping coverage.
 
@@ -104,8 +108,8 @@ file records the honest before/after so the diff can be judged accurately.
 
 | File | Status | What it is |
 |---|---|---|
-| `server/runtime/wbs-mcp-lineage.mjs` | new | The executable eight-source catalog with typed closed schemas, stable-key derivation, scoped exception taxonomy, cursor state machine, mapping resolution and the full `Receipt → Raw → Normalized → Staging/Exception → Mapping Review → AutoRec Review → JE request seam / evidence seam` mapper. |
-| `server/tests/wbs-mcp-lineage.test.mjs` | new | 34 `node --test` cases on sanitized fixtures covering catalog integrity, coverage, key determinism, the happy path for all eight sources, every exception class, cursor semantics, replay from zero, and the accounting red lines. |
+| `server/runtime/wbs-mcp-lineage.mjs` | new | The executable nine-source catalog with typed closed schemas, stable-key derivation, scoped exception taxonomy, cursor state machine, mapping resolution and the full `Receipt → Raw → Normalized → Staging/Exception → Mapping Review → AutoRec Review → JE request seam / evidence seam` mapper. |
+| `server/tests/wbs-mcp-lineage.test.mjs` | new | Sanitized fixtures covering catalog integrity, coverage, key determinism, the happy path for all nine sources, every exception class, cursor semantics, replay from zero, and the accounting red lines. |
 | `verify-wbs-mcp-lineage.mjs` | new | Root verifier (auto-discovered by `tools/run-verifiers.mjs`, so it runs inside `npm run test:visual`) binding `docs/WBS-MCP-LINEAGE.md` to the catalog and re-asserting the credential-free constraint. |
 | `docs/WBS-MCP-LINEAGE.md` | new | The catalog, per-source field maps, stable keys, exception taxonomy, cursor semantics, coverage table and red-line statement. |
 | `docs/WBS-MCP-CURRENT-STATE.md` | new | This file. |

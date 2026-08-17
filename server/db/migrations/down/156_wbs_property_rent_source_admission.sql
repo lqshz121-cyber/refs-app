@@ -1,0 +1,11 @@
+BEGIN;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM wbs_property_rent_source_admission) THEN RAISE EXCEPTION 'Cannot remove retained WBS Property Rent source admissions'; END IF; END $$;
+REVOKE EXECUTE ON FUNCTION refs_admit_wbs_property_rent_source(uuid,uuid,uuid,text,text,text,text,text,text) FROM refs_app;
+REVOKE EXECUTE ON FUNCTION refs_admit_wbs_property_rent_source_hash(uuid,uuid,uuid,text,text,text,text) FROM refs_app;
+REVOKE EXECUTE ON FUNCTION refs_wbs_property_rent_source_evidence_hash(uuid,text,text,text,jsonb,jsonb,jsonb,text) FROM refs_app;
+DROP FUNCTION refs_admit_wbs_property_rent_source(uuid,uuid,uuid,text,text,text,text,text,text);
+DROP FUNCTION refs_admit_wbs_property_rent_source_hash(uuid,uuid,uuid,text,text,text,text);
+DROP FUNCTION refs_wbs_property_rent_source_evidence_hash(uuid,text,text,text,jsonb,jsonb,jsonb,text);
+DROP TABLE wbs_property_rent_source_admission;
+UPDATE permission_catalog SET active=false,version=version+1,effective_to=clock_timestamp() WHERE permission_code='WBS.PROPERTY.REVIEW';
+COMMIT;

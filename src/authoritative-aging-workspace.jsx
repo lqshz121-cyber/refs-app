@@ -20,6 +20,8 @@ const agingContextMatches=(config,side,returnContext,expectedOrigin)=>!returnCon
 export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetch,onBack,backLabel='Back to invoices & receipts',returnContext,expectedOrigin}){
   const label=side==='ap'?'AP':'AR';
   const businessLabel=side==='ap'?'Accounts payable':'Accounts receivable';
+  const entityLabel=config?.scopePresentation?.entityLabel||'Configured entity';
+  const periodLabel=config?.scopePresentation?.periodLabel||'Configured period';
   const scopeMatches=agingContextMatches(config,side,returnContext,expectedOrigin);
   const [asOf,setAsOf]=useState(defaultAsOf());
   const [state,setState]=useState({phase:'LOADING',aging:[],control:[],error:null});
@@ -47,13 +49,13 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
       </div>
     </header>
     <form className="authoritative-aging-controls" aria-label={`${label} aging report scope`} onSubmit={submit}>
-      <output className="authoritative-aging-scope"><i>Entity reporting scope</i><b>{config.entityId}</b></output>
-      <output className="authoritative-aging-scope"><i>Configured period</i><b>{config.periodId}</b></output>
+      <output className="authoritative-aging-scope" title={`Entity ID: ${config.entityId}`}><i>Entity reporting scope</i><b>{entityLabel}</b></output>
+      <output className="authoritative-aging-scope" title={`Period ID: ${config.periodId}`}><i>Configured period</i><b>{periodLabel}</b></output>
       <label><span>As-of date</span><input type="date" aria-label={`${label} aging as-of date`} value={asOf} onChange={event=>setAsOf(event.target.value)}/></label>
       <button type="submit" className="btn btn-sm">Refresh evidence</button>
     </form>
     <section className="authoritative-aging-context" aria-label="Immutable evidence scope">
-      <b>Evidence scope</b><span>Entity {config.entityId} · configured period {config.periodId} · as of {asOf}</span><span>GET-only refresh; no accounting record can be changed from this report.</span>
+      <b>Evidence scope</b><span title={`Entity ID: ${config.entityId}; Period ID: ${config.periodId}`}>Entity {entityLabel} · period {periodLabel} · as of {asOf}</span><span>GET-only refresh; no accounting record can be changed from this report.</span>
     </section>
     {!scopeMatches&&<StateBlock tone="blocked" title="BLOCKED — immutable aging scope mismatch">The full-page aging report no longer matches the entity, configured period, AP/AR side, or parent route retained by its return context. Return to the parent report; no aging result is asserted from this mismatched scope.</StateBlock>}
     {scopeMatches&&<>

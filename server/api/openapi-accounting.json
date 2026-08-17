@@ -49,6 +49,43 @@
         }
       }
     },
+    "/entities/{entityId}/wbs/insurance/pc-mapping-proposals": {
+      "post": {
+        "operationId":"createWbsInsurancePcMappingProposal",
+        "summary":"Propose exact server-derived Insurance PC evidence for independent Controller approval",
+        "description":"Requires WBS.INSURANCE.PC_MAPPING.PROPOSE. The caller supplies only an immutable pre-admission or controlled-live observation id/hash and reason; PC codes, company codes, raw rows, captured times, tokens and aggregate arrays are forbidden. This command does not admit evidence or enable accounting actions.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["observationId","expectedObservationHash","reason"],"properties":{"observationId":{"$ref":"#/components/schemas/Uuid"},"expectedObservationHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/insurance/pc-mapping-proposals/{proposalId}": {
+      "get": {
+        "operationId":"getWbsInsurancePcMappingProposal",
+        "summary":"Read one immutable Insurance PC mapping proposal and hash trace",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"proposalId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses":{"200":{"$ref":"#/components/responses/WbsInsurancePcMappingRead"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/insurance/pc-mapping-proposals/{proposalId}/approve": {
+      "post": {
+        "operationId":"approveWbsInsurancePcMappingProposal",
+        "summary":"Approve exact first-package Insurance PC mappings after SoD and CAS",
+        "description":"Requires WBS.INSURANCE.PC_MAPPING.APPROVE, strong revision CAS, actor-bound idempotency, independent Controller SoD, exact observation/proposal/catalog hashes and a catalog effective interval covering the entire mapping range. Approval is mapping-only and does not admit provider artifacts.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"proposalId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedObservationHash","expectedProposalHash","catalogDecisionId","expectedCompanyMappingHash","effectiveFrom","reason"],"properties":{"expectedObservationHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expectedProposalHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"catalogDecisionId":{"$ref":"#/components/schemas/Uuid"},"expectedCompanyMappingHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"effectiveFrom":{"type":"string","format":"date"},"effectiveTo":{"type":["string","null"],"format":"date"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"428":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/insurance/pc-company-mappings/trace": {
+      "get": {
+        "operationId":"getWbsInsurancePcMappingTrace",
+        "summary":"Read one effective Controller-approved PC/company mapping trace",
+        "description":"Requires WBS.INSURANCE.PC_MAPPING.VIEW. Returns only scoped ids, effective dates, match count and observation/proposal/decision/catalog hashes; provider raw rows and transport artifacts are never returned.",
+        "parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"pcCode","in":"query","required":true,"schema":{"type":"string","minLength":1,"maxLength":128}},{"name":"accountingDate","in":"query","required":true,"schema":{"type":"string","format":"date"}}],
+        "responses":{"200":{"$ref":"#/components/responses/WbsInsurancePcMappingRead"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/company-catalogs": {
       "get": {
         "operationId": "listWbsCompanyCatalogCandidates",
@@ -169,6 +206,16 @@
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/provider-signed/final1/insurance/observations/{observationId}/admit": {
+      "post": {
+        "operationId": "resumeProviderSignedWbsFinal1InsuranceAdmission",
+        "summary": "Admit the exact retained Insurance observation after independent Controller approval",
+        "description": "Provider-service-only Phase B command. It accepts no raw artifacts or storage coordinates. The server rereads the durable Phase A observation, exact original Object Lock VersionIds and hashes, rescans all four objects, re-verifies the Ed25519 package, and requires the exact current non-revoked Controller approval before formal admission. It never rewrites the retained objects and does not require the Provider service principal to hold Controller VIEW permission.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"observationId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedObservationHash","expectedApprovalId","expectedDecisionHash","expectedCompanyMappingHash","reason"],"properties":{"expectedObservationHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expectedApprovalId":{"type":"string","format":"uuid"},"expectedDecisionHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expectedCompanyMappingHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/operator-attested/payables": {
       "get": {
         "operationId": "listOperatorAttestedWbsPayableEvidence",
@@ -240,6 +287,12 @@
         "responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/PreconditionFailed"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/property-rent-pickup": {"get":{"operationId":"listWbsPropertyRentPickup","summary":"List admitted Property Rent pickup readiness","description":"Authenticated entity-and-period-scoped GET only. Returns immutable signed admission, review, Draft and Posted lineage with MONEY4 strings, exact mapping snapshot version/hash, audit times, and server-derived capabilities. Reviewed rows from any other period are excluded. It accepts no command headers, body, browser token, provider secret, or WBS credential.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":50,"default":50}}],"responses":{"200":{"$ref":"#/components/responses/ReadOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
+    "/entities/{entityId}/wbs/property-rent-pickup/{admissionId}/reviews": {"post":{"operationId":"reviewWbsPropertyRentPickup","summary":"Independently review one signed Property Rent admission","description":"Requires WBS.PROPERTY.RENT.REVIEW, Idempotency-Key and strong If-Match equal to the staging revision returned by the queue. The server resolves the approved setting and unique highest-priority mapping; it creates review evidence only and never creates or posts a Journal.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"admissionId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["periodId","expectedEvidenceHash","reason"],"properties":{"periodId":{"$ref":"#/components/schemas/Uuid"},"expectedEvidenceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/PreconditionFailed"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
+    "/entities/{entityId}/wbs/property-rent-pickup/reviews/{reviewEvidenceId}/drafts": {"post":{"operationId":"createWbsPropertyRentPickupDraft","summary":"Create an AR Invoice and AUTO Draft from reviewed Property Rent evidence","description":"Requires WBS.PROPERTY.RENT.DRAFT, AR.INVOICE.CREATE, GL.JE.AUTO.CREATE, Idempotency-Key and strong If-Match equal to the staging revision returned by the queue. Creates a balanced MONEY4 Draft and exact SOURCE_TO_JE lineage only; standard Submit, Review, Approve and Post remain separate.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"reviewEvidenceId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedEvidenceHash","reason"],"properties":{"expectedEvidenceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/PreconditionFailed"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
+    "/entities/{entityId}/prepaid/amortization": {"get":{"operationId":"listInsurancePrepaidAmortization","summary":"Read signed Insurance amortization readiness and retained evidence","description":"Authenticated entity-period GET only. Requires GL.REPORT.VIEW and returns exact signed admission, source version and hashes, approved configuration, POSTED capitalization, independent review, monthly AUTO Draft and Journal status using MONEY4 strings. AI proposals remain PROPOSED evidence and never imply review or posting authority.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}],"responses":{"200":{"$ref":"#/components/responses/ReadOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
+    "/entities/{entityId}/prepaid/amortization/reviews": {"post":{"operationId":"reviewInsurancePrepaidAmortization","summary":"Independently review one signed Insurance monthly schedule line","description":"Requires PREPAID.AMORTIZATION.REVIEW, Idempotency-Key, a strong If-Match equal to the exact source version, and exact source/proposal/coverage hashes. Retains immutable review evidence only; it creates no Draft, approval, posting, or ledger line.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["admissionId","scheduleId","scheduleLineId","periodId","settingSnapshotId","mappingSnapshotId","capitalizationJournalEntryId","capitalizationLedgerLineId","expectedSourceHash","expectedProposalHash","expectedCoverageHash","reason"],"properties":{"admissionId":{"$ref":"#/components/schemas/Uuid"},"scheduleId":{"$ref":"#/components/schemas/Uuid"},"scheduleLineId":{"$ref":"#/components/schemas/Uuid"},"periodId":{"$ref":"#/components/schemas/Uuid"},"settingSnapshotId":{"$ref":"#/components/schemas/Uuid"},"mappingSnapshotId":{"$ref":"#/components/schemas/Uuid"},"capitalizationJournalEntryId":{"$ref":"#/components/schemas/Uuid"},"capitalizationLedgerLineId":{"$ref":"#/components/schemas/Uuid"},"expectedSourceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expectedProposalHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"expectedCoverageHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/PreconditionFailed"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
+    "/entities/{entityId}/prepaid/amortization/reviews/{reviewEvidenceId}/drafts": {"post":{"operationId":"createInsurancePrepaidAmortizationDraft","summary":"Create one monthly AUTO Draft from independently reviewed Insurance evidence","description":"Requires PREPAID.AMORTIZATION.DRAFT, GL.JE.AUTO.CREATE, Idempotency-Key, strong If-Match revision zero and the immutable review evidence hash. Creates a balanced MONEY4 AUTO Draft with signed-root and derived-source lineage only. Standard Submit, Review, Approve and Post remain separate and there is no automatic posting.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"reviewEvidenceId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"},{"$ref":"#/components/parameters/IfMatch"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedEvidenceHash","reason"],"properties":{"expectedEvidenceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/PreconditionFailed"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/wbs/inbound/payables/reviews": {
       "get": {
         "operationId":"listReviewedWbsPayableEvidence",
@@ -1677,6 +1730,24 @@
         "responses": {"200": {"$ref": "#/components/responses/CwipRollforwardReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/reports/construction-loan-rollforward": {
+      "get": {
+        "operationId": "getConstructionLoanRollforward",
+        "summary": "Read a mapping-backed construction-loan rollforward",
+        "description": "Returns only POSTED ledger evidence for exact accounts admitted by one immutable construction-loan account-classification mapping snapshot. Missing or ambiguous mappings remain BLOCKED. This operation cannot infer debt from account labels, create a draw or repayment, post a journal, or persist a report.",
+        "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}],
+        "responses": {"200": {"$ref": "#/components/responses/ConstructionLoanRollforwardReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/reports/prepaid-rollforward": {
+      "get": {
+        "operationId": "getPrepaidRollforward",
+        "summary": "Read a mapping-backed prepaid rollforward",
+        "description": "Returns only POSTED ledger evidence for exact accounts admitted by one immutable prepaid account-classification mapping snapshot. Missing or ambiguous mappings remain BLOCKED. This operation cannot infer prepaid classification, create amortization, post a journal, or persist a report.",
+        "parameters": [{"$ref": "#/components/parameters/EntityId"}, {"name": "periodId", "in": "query", "required": true, "schema": {"$ref": "#/components/schemas/Uuid"}}],
+        "responses": {"200": {"$ref": "#/components/responses/PrepaidRollforwardReadOk"}, "default": {"$ref": "#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/reports/intercompany-reconciliation": {
       "get": {
         "operationId": "getIntercompanyReconciliation",
@@ -2094,6 +2165,105 @@
         }
       }
     },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews": {
+      "post": {
+        "operationId": "reviewWbsAutoRecBankMatch",
+        "summary": "Persist one independent AutoRec Bank Match review decision",
+        "description": "Requires BANK.MATCH.REVIEW. The authenticated reviewer must differ from both the exact Bank Match maker and the persisted candidate preparer. The command binds one immutable reserved candidate hash to one exact ACTIVE Bank Match revision and records only ACCEPTED or REJECTED review evidence. It never creates or posts a Journal Entry, links G11 evidence, or marks an AutoRec candidate INCURRED.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {"$ref": "#/components/parameters/IfMatch"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["reviewCandidateId","candidateHash","bankMatchId","decision","reason"],
+                "properties": {
+                  "reviewCandidateId": {"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+                  "candidateHash": {"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},
+                  "bankMatchId": {"$ref":"#/components/schemas/Uuid"},
+                  "decision": {"type":"string","enum":["ACCEPTED","REJECTED"]},
+                  "reason": {"type":"string","minLength":8,"maxLength":2000}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {"$ref":"#/components/responses/CommandReplay"},
+          "201": {"$ref":"#/components/responses/CommandCreated"},
+          "400": {"$ref":"#/components/responses/Problem"},
+          "403": {"$ref":"#/components/responses/Problem"},
+          "409": {"$ref":"#/components/responses/Problem"},
+          "412": {"$ref":"#/components/responses/PreconditionFailed"},
+          "503": {"$ref":"#/components/responses/SerializationRetryExhausted"},
+          "default": {"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}": {
+      "get": {
+        "operationId": "getWbsAutoRecBankMatchReview",
+        "summary": "Read one persisted AutoRec Bank Match review",
+        "description": "Requires WBS.AUTOREC.VIEW and returns only the selected entity's immutable decision, candidate and Bank Match revisions, evidence hash, reviewer/time and SoD actors. This GET is no-store and cannot create a match, link G11 evidence, mark INCURRED, or post.",
+        "parameters": [
+          {"$ref":"#/components/parameters/EntityId"},
+          {"name":"reviewId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}
+        ],
+        "responses": {
+          "200": {"$ref":"#/components/responses/ReadOk"},
+          "400": {"$ref":"#/components/responses/Problem"},
+          "403": {"$ref":"#/components/responses/Problem"},
+          "404": {"$ref":"#/components/responses/Problem"},
+          "503": {"$ref":"#/components/responses/Problem"},
+          "default": {"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/g11-drafts/payable-incur": {
+      "post": {
+        "operationId": "createWbsAutoRecPayableIncurDraft",
+        "summary": "Derive one PAYABLE_INCUR Draft from accepted AutoRec evidence",
+        "description": "Requires BANK.AUTOREC.G11.DRAFT. Accounts, amount, member, source, mapping and lines are server-derived; callers cannot supply accounting fields. The command stops at an unsubmitted AUTO Draft.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"reviewId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["periodId","expectedEvidenceHash","reason"],"properties":{"periodId":{"$ref":"#/components/schemas/Uuid"},"expectedEvidenceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/g11-drafts/autoc": {
+      "post": {
+        "operationId": "createWbsAutoRecAutocDraft",
+        "summary": "Derive one AUTOC Draft from accepted AutoRec evidence",
+        "description": "Requires BANK.AUTOREC.G11.DRAFT. The dedicated producer derives the exact Bank source, approved G11 mapping, 291001 member clearing and cash leg in PostgreSQL and stops at Draft.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"reviewId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["periodId","expectedEvidenceHash","reason"],"properties":{"periodId":{"$ref":"#/components/schemas/Uuid"},"expectedEvidenceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/g11-incur": {
+      "post": {
+        "operationId": "finalizeWbsAutoRecG11Incur",
+        "summary": "Finalize two standard POSTED G11 journals as INCURRED",
+        "description": "Requires BANK.AUTOREC.G11.INCUR and an actor independent of the candidate, match, review and both journals' maker/reviewer/approver/poster roles. PostgreSQL derives the two event and journal IDs, validates four ledger lines and exact 291001 member net zero, then appends immutable INCURRED evidence.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"reviewId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["expectedEvidenceHash","reason"],"properties":{"expectedEvidenceHash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"reason":{"type":"string","minLength":8,"maxLength":2000}}}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/auto-reconciliation/match-reviews/{reviewId}/g11-evidence": {
+      "get": {
+        "operationId": "getWbsAutoRecG11Evidence",
+        "summary": "Read immutable G11 event, journal, ledger and INCURRED evidence",
+        "description": "Requires WBS.AUTOREC.VIEW. Returns no-store raw identifiers and fixed-point ledger amounts for independent readback; booleans alone are not acceptance evidence.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"name":"reviewId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],
+        "responses": {"200":{"$ref":"#/components/responses/ReadOk"},"400":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/auto-reconciliation/transition-contracts/verify": {
       "post": {
         "operationId": "verifyWbsAutoRecTransitionContract",
@@ -2228,6 +2398,11 @@
       }
     },
     "schemas": {
+      "WbsInsurancePcMappingProposalRow":{"type":"object","additionalProperties":false,"required":["proposal_row_id","pc_code","observed_row_count","row_hash"],"properties":{"proposal_row_id":{"$ref":"#/components/schemas/Uuid"},"pc_code":{"type":"string","minLength":1,"maxLength":128},"observed_row_count":{"type":"integer","minimum":1},"row_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}},
+      "WbsInsurancePcMappingProposal":{"type":"object","additionalProperties":false,"required":["proposal_id","observation_id","revision","status","source_kind","admission_state","observation_hash","proposal_hash","canonical_set_hash","proposed_by","proposed_at","rows"],"properties":{"proposal_id":{"$ref":"#/components/schemas/Uuid"},"observation_id":{"$ref":"#/components/schemas/Uuid"},"revision":{"type":"integer","enum":[0,1]},"status":{"type":"string","enum":["PENDING_CONTROLLER_APPROVAL","APPROVED"]},"source_kind":{"const":"PRE_ADMISSION_OBSERVATION"},"admission_state":{"const":"NOT_ADMITTED"},"observation_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"proposal_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"canonical_set_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"decision_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"company_mapping_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"proposed_by":{"type":"string","minLength":1,"maxLength":256},"proposed_at":{"type":"string","format":"date-time"},"approved_by":{"type":"string","minLength":1,"maxLength":256},"approved_at":{"type":"string","format":"date-time"},"rows":{"type":"array","minItems":1,"maxItems":5000,"items":{"$ref":"#/components/schemas/WbsInsurancePcMappingProposalRow"}}}},
+      "WbsInsurancePcMappingNonUniqueTrace":{"type":"object","additionalProperties":false,"required":["pc_code","accounting_date","match_count","mapping_status"],"properties":{"pc_code":{"type":"string","minLength":1,"maxLength":128},"accounting_date":{"type":"string","format":"date"},"match_count":{"type":"integer","minimum":0,"not":{"const":1}},"mapping_status":{"type":"string","enum":["MISSING","AMBIGUOUS"]}}},
+      "WbsInsurancePcMappingApprovedTrace":{"type":"object","additionalProperties":false,"required":["pc_code","accounting_date","match_count","mapping_status","company_code","effective_from","mapping_approval_id","observation_hash","proposal_hash","decision_hash","company_mapping_hash","catalog_decision_id","approved_by","approved_at"],"properties":{"pc_code":{"type":"string","minLength":1,"maxLength":128},"accounting_date":{"type":"string","format":"date"},"match_count":{"const":1},"mapping_status":{"const":"CONTROLLER_APPROVED"},"company_code":{"const":"WBPA"},"effective_from":{"type":"string","format":"date"},"effective_to":{"type":["string","null"],"format":"date"},"mapping_approval_id":{"$ref":"#/components/schemas/Uuid"},"observation_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"proposal_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"decision_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"company_mapping_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"catalog_decision_id":{"$ref":"#/components/schemas/Uuid"},"approved_by":{"type":"string","minLength":1,"maxLength":256},"approved_at":{"type":"string","format":"date-time"}}},
+      "WbsInsurancePcMappingEnvelope":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"oneOf":[{"$ref":"#/components/schemas/WbsInsurancePcMappingProposal"},{"$ref":"#/components/schemas/WbsInsurancePcMappingNonUniqueTrace"},{"$ref":"#/components/schemas/WbsInsurancePcMappingApprovedTrace"}]}}},
       "WbsPayableReviewAttachmentChoice": {
         "type":"object","additionalProperties":false,
         "required":["attachment_id","name","media_type","verified_at"],
@@ -2958,7 +3133,8 @@
           "phase_ref",
           "unit_ref",
           "loan_ref",
-          "cost_code_ref"
+          "cost_code_ref",
+          "provider_trace"
         ],
         "properties": {
           "source_document_line_id": {"$ref": "#/components/schemas/Uuid"},
@@ -2973,7 +3149,41 @@
           "phase_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
           "unit_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
           "loan_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
-          "cost_code_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255}
+          "cost_code_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 255},
+          "provider_trace": {"oneOf": [{"type": "null"}, {"$ref": "#/components/schemas/WbsProviderSourceTrace"}]}
+        }
+      },
+      "WbsProviderSourceTrace": {
+        "oneOf": [{"$ref": "#/components/schemas/WbsProviderPayableSourceTrace"}, {"$ref": "#/components/schemas/WbsProviderInsuranceSourceTrace"}]
+      },
+      "WbsProviderActionFlags": {
+        "type": "object", "additionalProperties": false,
+        "required": ["can_propose_amortization", "can_review", "can_create_draft", "can_approve", "can_post"],
+        "properties": {"can_propose_amortization": {"const": false}, "can_review": {"const": false}, "can_create_draft": {"const": false}, "can_approve": {"const": false}, "can_post": {"const": false}}
+      },
+      "WbsProviderPayableSourceTrace": {
+        "type": "object", "additionalProperties": false,
+        "required": ["trace_version", "domain", "source_payload_hash", "disposition", "action_flags", "invoice_no", "invoice_date", "business_id", "accrual"],
+        "properties": {
+          "trace_version": {"const": "WBS_PROVIDER_SOURCE_TRACE_V1"}, "domain": {"const": "PAYABLES"},
+          "source_payload_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "disposition": {"const": "RETAINED"}, "action_flags": {"$ref": "#/components/schemas/WbsProviderActionFlags"},
+          "invoice_no": {"type": ["string", "null"]}, "invoice_date": {"type": ["string", "null"], "format": "date"}, "business_id": {"type": ["string", "null"]},
+          "accrual": {"type": "object", "additionalProperties": false, "required": ["service_period_start", "service_period_end", "recurring_obligation_id", "contract_id", "charge_code", "service_frequency", "obligation_status"], "properties": {"service_period_start": {"type": ["string", "null"], "format": "date"}, "service_period_end": {"type": ["string", "null"], "format": "date"}, "recurring_obligation_id": {"type": ["string", "null"]}, "contract_id": {"type": ["string", "null"]}, "charge_code": {"type": ["string", "null"]}, "service_frequency": {"type": ["string", "null"]}, "obligation_status": {"type": ["string", "null"]}}}
+        }
+      },
+      "WbsProviderInsuranceSourceTrace": {
+        "type": "object", "additionalProperties": false,
+        "required": ["trace_version", "domain", "source_payload_hash", "action_flags", "policy_id", "source_id", "pc_code", "final_premium", "mapping_decision_id", "mapping_decision_hash", "company_mapping_hash", "resolved_company_code", "match_count", "disposition", "coverage_start", "coverage_end", "coverage_disposition"],
+        "properties": {
+          "trace_version": {"const": "WBS_PROVIDER_SOURCE_TRACE_V1"}, "domain": {"const": "INSURANCE"}, "source_payload_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "action_flags": {"$ref": "#/components/schemas/WbsProviderActionFlags"},
+          "policy_id": {"type": "string", "minLength": 1}, "source_id": {"type": "string", "minLength": 1}, "pc_code": {"type": ["string", "null"]}, "final_premium": {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]{0,17})\\.[0-9]{4}$"},
+          "mapping_decision_id": {"oneOf": [{"type": "null"}, {"$ref": "#/components/schemas/Uuid"}]},
+          "mapping_decision_hash": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+          "company_mapping_hash": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+          "resolved_company_code": {"type": ["string", "null"], "pattern": "^[A-Z0-9][A-Z0-9_-]{0,63}$"},
+          "match_count": {"type": "integer", "enum": [0, 1]}, "disposition": {"enum": ["RESOLVED", "MAPPING_REVIEW_REQUIRED", "QUARANTINED", "REJECTED"]},
+          "coverage_start": {"type": ["string", "null"], "format": "date"}, "coverage_end": {"type": ["string", "null"], "format": "date"}, "coverage_disposition": {"enum": ["POSITIVE_COVERAGE", "EXCEPTION_REVIEW_REQUIRED"]}
         }
       },
       "SourceDocumentDetailReadRow": {
@@ -3715,6 +3925,30 @@
         }
       },
       "CwipRollforwardReadEnvelope": {"type":"object", "additionalProperties":false, "required":["ok","data"], "properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/CwipRollforwardReadRow"}}}},
+      "ConstructionLoanRollforwardReadRow": {
+        "type": "object", "additionalProperties": false,
+        "required": ["period_id","period_code","period_start","period_end","account_code","account_name","mapping_status","classification_basis","opening_balance","period_draws","period_repayments","closing_balance","mapping_snapshot_id","mapping_version","mapping_snapshot_hash","journal_entry_ids","journal_line_ids","ledger_line_ids","source_document_ids"],
+        "properties": {
+          "period_id": {"$ref":"#/components/schemas/Uuid"}, "period_code": {"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])$"}, "period_start": {"type":"string","format":"date"}, "period_end": {"type":"string","format":"date"},
+          "account_code": {"type":"string"}, "account_name": {"type":"string"}, "mapping_status": {"type":"string","enum":["MAPPED_CONSTRUCTION_LOAN_ACCOUNT","BLOCKED_MAPPING_REQUIRED","BLOCKED_MAPPING_AMBIGUOUS","BLOCKED_MAPPING_RULE_INVALID"]}, "classification_basis": {"type":"string"},
+          "opening_balance": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "period_draws": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "period_repayments": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "closing_balance": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]},
+          "mapping_snapshot_id": {"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]}, "mapping_version": {"type":["string","null"]}, "mapping_snapshot_hash": {"type":["string","null"]},
+          "journal_entry_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "journal_line_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "ledger_line_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "source_document_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}
+        }
+      },
+      "ConstructionLoanRollforwardReadEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/ConstructionLoanRollforwardReadRow"}}}},
+      "PrepaidRollforwardReadRow": {
+        "type": "object", "additionalProperties": false,
+        "required": ["period_id","period_code","period_start","period_end","account_code","account_name","mapping_status","classification_basis","opening_balance","period_additions","period_amortization","closing_balance","mapping_snapshot_id","mapping_version","mapping_snapshot_hash","journal_entry_ids","journal_line_ids","ledger_line_ids","source_document_ids"],
+        "properties": {
+          "period_id": {"$ref":"#/components/schemas/Uuid"}, "period_code": {"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])$"}, "period_start": {"type":"string","format":"date"}, "period_end": {"type":"string","format":"date"},
+          "account_code": {"type":"string"}, "account_name": {"type":"string"}, "mapping_status": {"type":"string","enum":["MAPPED_PREPAID_ACCOUNT","BLOCKED_MAPPING_REQUIRED","BLOCKED_MAPPING_AMBIGUOUS","BLOCKED_MAPPING_RULE_INVALID"]}, "classification_basis": {"type":"string"},
+          "opening_balance": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "period_additions": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "period_amortization": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]}, "closing_balance": {"oneOf":[{"$ref":"#/components/schemas/Money"},{"type":"null"}]},
+          "mapping_snapshot_id": {"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]}, "mapping_version": {"type":["string","null"]}, "mapping_snapshot_hash": {"type":["string","null"]},
+          "journal_entry_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "journal_line_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "ledger_line_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}, "source_document_ids": {"type":"array","items":{"$ref":"#/components/schemas/Uuid"}}
+        }
+      },
+      "PrepaidRollforwardReadEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/PrepaidRollforwardReadRow"}}}},
       "IntercompanyReconciliationReadRow": {
         "type": "object", "additionalProperties": false,
         "required": ["period_id","counterparty_period_id","period_code","period_start","period_end","account_code","account_name","counterparty_account_code","counterparty_account_name","mapping_status","classification_basis","current_closing_balance","counterparty_closing_balance","difference_amount","in_balance","mapping_snapshot_id","mapping_version","mapping_snapshot_hash","counterparty_mapping_snapshot_id","counterparty_mapping_version","counterparty_mapping_snapshot_hash","journal_entry_ids","journal_line_ids","ledger_line_ids","source_document_ids","counterparty_journal_entry_ids","counterparty_journal_line_ids","counterparty_ledger_line_ids","counterparty_source_document_ids"],
@@ -5191,6 +5425,7 @@
           }
         }
       },
+      "WbsInsurancePcMappingRead":{"description":"Closed no-store Controller Insurance PC mapping response","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsInsurancePcMappingEnvelope"}}}},
       "ReadOk": {
         "description": "Authenticated read response",
         "headers": {
@@ -5461,6 +5696,16 @@
         "description": "Scoped immutable mapping-backed CWIP rollforward evidence",
         "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CwipRollforwardReadEnvelope"}}}
+      },
+      "ConstructionLoanRollforwardReadOk": {
+        "description": "Scoped immutable mapping-backed construction-loan rollforward evidence",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConstructionLoanRollforwardReadEnvelope"}}}
+      },
+      "PrepaidRollforwardReadOk": {
+        "description": "Scoped immutable mapping-backed prepaid rollforward evidence",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PrepaidRollforwardReadEnvelope"}}}
       },
       "IntercompanyReconciliationReadOk": {
         "description": "Scoped, read-only intercompany reconciliation evidence; a nonzero difference requires review and cannot create an elimination or adjustment",

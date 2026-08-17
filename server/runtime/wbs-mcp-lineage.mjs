@@ -1,6 +1,6 @@
 // WBS read-only MCP lineage mapper.
 //
-// This module is the executable, credential-free field map from the eight
+// This module is the executable, credential-free field map from the nine
 // approved read-only WBS MCP sources through the REFS accounting pipeline:
 //
 //   Receipt -> Raw -> Normalized -> Staging/Exception -> Mapping Review
@@ -83,6 +83,7 @@ const s = (required = false) => Object.freeze({ type: 'string', required });
 const n = (required = false) => Object.freeze({ type: 'number', required });
 const int = (required = false) => Object.freeze({ type: 'integer', required });
 const amt = (required = false) => Object.freeze({ type: 'amount', required });
+const fixed2 = (required = false) => Object.freeze({ type: 'fixed_2', required });
 const dt = (required = false) => Object.freeze({ type: 'date', required });
 const ts = (required = false) => Object.freeze({ type: 'datetime', required });
 const acct = (required = false) => Object.freeze({ type: 'account_code', required });
@@ -126,7 +127,7 @@ const amountUnits = value => {
 };
 
 /* ------------------------------------------------------------------ */
-/* The eight-source catalog                                            */
+/* The nine-source catalog                                             */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -139,7 +140,7 @@ const amountUnits = value => {
  *  - `source_document_ref_field` the upstream immutable source-document key;
  *  - `normalized`      normalized field <- source field map.
  *
- * `schema` field sets for the six list_* data tools are asserted in tests to
+ * `schema` field sets for the seven list_* data tools are asserted in tests to
  * equal the frozen `WBS_READONLY_ROW_FIELDS` allowlist. `get_meta` and
  * `trace_by_key` have no frozen row-field allowlist in the repository yet;
  * their schemas below are REFS-declared and must be confirmed by the provider
@@ -188,23 +189,32 @@ export const WBS_SOURCE_CATALOG = Object.freeze({
       business_id: s(),
       business_status: s(),
       cb_id: s(),
+      charge_code: s(),
       check_date: dt(),
       check_no: s(),
       clear_date: dt(),
       company_code: s(true),
       company_name: s(),
+      contract_id: s(),
       cost_id: s(),
       cost_ledger_id: s(),
       description: s(),
       incurred_date: dt(true),
+      invoice_date: dt(),
+      invoice_no: s(),
       journal_no: s(),
+      obligation_status: s(),
       pay_status: s(),
       pay_type: s(),
       pj_code: s(),
       pj_name: s(),
       posting_date: dt(),
       project_guid: s(),
+      recurring_obligation_id: s(),
       review_status: s(),
+      service_frequency: s(),
+      service_period_end: dt(),
+      service_period_start: dt(),
       vendor_name: s(),
       vendor_no: s(),
     }),
@@ -230,6 +240,15 @@ export const WBS_SOURCE_CATALOG = Object.freeze({
       cost_ledger_ref: 'cost_ledger_id',
       description: 'description',
       bill_no: 'ap_long_id',
+      invoice_no: 'invoice_no',
+      invoice_date: 'invoice_date',
+      service_period_start: 'service_period_start',
+      service_period_end: 'service_period_end',
+      recurring_obligation_id: 'recurring_obligation_id',
+      contract_id: 'contract_id',
+      charge_code: 'charge_code',
+      service_frequency: 'service_frequency',
+      obligation_status: 'obligation_status',
       journal_no: 'journal_no',
       bank_account_ref: 'bank_account_ref',
       payable_detail_relation_ref: 'business_id',
@@ -485,6 +504,71 @@ export const WBS_SOURCE_CATALOG = Object.freeze({
     }),
   }),
 
+  // Insurance is a signed, evidence-only source.  A provider row must never
+  // echo a company code here: pc_code is resolved only through the
+  // Controller-approved package-level mapping hash in the Final-1 verifier.
+  list_insurance: Object.freeze({
+    tool: 'list_insurance',
+    source_module: 'wb_insurance.insurance_data',
+    role: 'CONTROL_EVIDENCE_ONLY',
+    source_type: 'INSURANCE_EVIDENCE',
+    terminus: 'EVIDENCE_SEAM',
+    schema_origin: 'FROZEN_ROW_FIELD_ALLOWLIST',
+    schema: Object.freeze({
+      approval_status: s(),
+      attachment_count: n(),
+      carrier: s(),
+      company_code: s(),
+      currency: s(),
+      data_source: s(),
+      deleted: int(true),
+      expire_date: dt(),
+      final_premium: fixed2(true),
+      id: int(true),
+      insurance_status: s(),
+      insurance_type: s(),
+      pc_code: s(),
+      policy_attachment_id: s(),
+      policy_id: s(true),
+      policy_number: s(),
+      property_code: s(),
+      start_date: dt(),
+      unit_code: s(),
+      update_time: s(),
+    }),
+    // Evidence identity is the signed id+policy_id pair. Pagination order is
+    // deliberately separate: numeric id ASC, with policy_id independently
+    // unique; never compare the pair as a lexical string tuple.
+    stable_key: Object.freeze(['id','policy_id']),
+    pagination_cursor_key: 'id',
+    pagination_order: 'NUMERIC_ASC',
+    uniqueness_keys: Object.freeze(['id','policy_id']),
+    company_field: null,
+    currency_field: 'currency',
+    source_document_ref_field: 'policy_id',
+    normalized: Object.freeze({
+      company_code: 'company_code',
+      policy_id: 'policy_id',
+      pc_code: 'pc_code',
+      property_code: 'property_code',
+      unit_code: 'unit_code',
+      insurance_status: 'insurance_status',
+      approval_status: 'approval_status',
+      policy_number: 'policy_number',
+      carrier: 'carrier',
+      insurance_type: 'insurance_type',
+      final_premium: 'final_premium',
+      start_date: 'start_date',
+      expire_date: 'expire_date',
+      attachment_count: 'attachment_count',
+      policy_attachment_id: 'policy_attachment_id',
+      data_source: 'data_source',
+      update_time: 'update_time',
+      deleted: 'deleted',
+      currency: 'currency',
+    }),
+  }),
+
   trace_by_key: Object.freeze({
     tool: 'trace_by_key',
     source_module: 'wbs.trace',
@@ -635,6 +719,10 @@ function validateField(name, spec, value) {
       return Number.isSafeInteger(value) ? null : { field: name, reason: 'EXPECTED_INTEGER' };
     case 'amount':
       return toAmount(value) === null ? { field: name, reason: 'EXPECTED_AMOUNT' } : null;
+    case 'fixed_2':
+      return typeof value === 'string' && /^-?(?:0|[1-9]\d*)\.\d{2}$/.test(value)
+        ? null
+        : { field: name, reason: 'EXPECTED_FIXED_2_AMOUNT' };
     case 'date':
       return typeof value === 'string' && isCalendarDate(value)
         ? null
@@ -677,6 +765,9 @@ export function validateWbsSourceRow(toolName, row) {
     if (!Object.hasOwn(entry.schema, name) && name !== 'currency') {
       violations.push({ field: name, reason: 'UNDECLARED_FIELD' });
     }
+  }
+  if (toolName === 'list_insurance' && row.company_code !== null) {
+    violations.push({ field: 'company_code', reason: 'INSURANCE_RAW_COMPANY_CODE_MUST_BE_NULL' });
   }
   return { ok: violations.length === 0, violations };
 }
@@ -724,7 +815,7 @@ export function createWbsCursor({ tool, company_key = null } = {}) {
   if (!WBS_SOURCE_CATALOG[tool]) {
     throw new WbsLineageError(
       WBS_LINEAGE_EXCEPTIONS.CURSOR_INVALID,
-      'A WBS cursor must name one of the eight approved read-only sources.',
+      'A WBS cursor must name one of the nine approved read-only sources.',
     );
   }
   return Object.freeze({
@@ -955,7 +1046,7 @@ export function mapWbsSourceEnvelope({
       exceptions: [
         scopedException({
           code: WBS_LINEAGE_EXCEPTIONS.SCHEMA_INVALID,
-          message: 'WBS lineage accepts only the eight approved read-only sources.',
+          message: 'WBS lineage accepts only the nine approved read-only sources.',
           level: 'ENVELOPE',
           tool: toolName ?? null,
           cursor,
@@ -1583,7 +1674,7 @@ export function replayWbsLineage({
 /* Coverage                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Declared-field and normalized-field coverage for the eight sources. */
+/** Declared-field and normalized-field coverage for the nine sources. */
 export function describeWbsMappingCoverage() {
   const perSource = Object.entries(WBS_SOURCE_CATALOG).map(([tool, entry]) => {
     const declared = Object.keys(entry.schema);

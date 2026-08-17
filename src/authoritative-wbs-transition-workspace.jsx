@@ -1,5 +1,5 @@
 import React,{useState} from 'react';
-import {refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,verifyAuthoritativeWbsTransitionContract} from './accounting-api.js';
+import {refreshAuthoritativeWbsAutoRecG11Evidence,refreshAuthoritativeWbsAutoRecMatchReview,refreshAuthoritativeWbsAutoRecReview,refreshAuthoritativeWbsControlReconciliation,verifyAuthoritativeWbsTransitionContract} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeWorkspaceView,AuthoritativeWorkspaceHeader} from './authoritative-workbench-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
@@ -12,6 +12,9 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
   const [state,setState]=useState({phase:'IDLE',data:null,error:null});
   const [reviewInput,setReviewInput]=useState({companyKey:'',sourceRecordIds:''});
   const [reviewState,setReviewState]=useState({phase:'IDLE',data:null,error:null});
+  const [matchReviewId,setMatchReviewId]=useState('');
+  const [matchState,setMatchState]=useState({phase:'IDLE',data:null,error:null});
+  const [g11State,setG11State]=useState({phase:'IDLE',data:null,error:null});
   const [controlInput,setControlInput]=useState({sourceType:'COST_GENERAL_LEDGER',companyKey:'',period:'',currency:'USD',propertyRef:'',periodStart:'',periodEnd:'',bankAccountRef:''});
   const [controlState,setControlState]=useState({phase:'IDLE',data:null,error:null});
   const verify=async event=>{
@@ -36,8 +39,18 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     const result=await refreshAuthoritativeWbsControlReconciliation({config,...controlInput,fetcher});
     setControlState(current=>result.ok&&result.data.status!=='BLOCKED'?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result.ok?{code:result.data.code,message:'Receipt-backed WBS and REFS control evidence is incomplete for this exact scope.'}:result});
   };
+  const readMatchReview=async event=>{
+    event.preventDefault();const reviewId=matchReviewId.trim();setMatchState(current=>({...current,phase:'LOADING',error:null}));
+    const result=await refreshAuthoritativeWbsAutoRecMatchReview({config,reviewId,fetcher});
+    setMatchState(current=>result.ok?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result});
+  };
+  const readG11=async()=>{
+    const reviewId=matchReviewId.trim();setG11State(current=>({...current,phase:'LOADING',error:null}));
+    const result=await refreshAuthoritativeWbsAutoRecG11Evidence({config,reviewId,fetcher});
+    setG11State(current=>result.ok?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result});
+  };
   const data=state.data;
-  const review=reviewState.data,control=controlState.data;
+  const review=reviewState.data,matchReview=matchState.data,g11=g11State.data,control=controlState.data;
   return <AuthoritativeWorkspaceView area="WBS exception review" className="stack authoritative-wbs-transition-workspace">
     <AuthoritativeWorkspaceHeader eyebrow="AUTO RECONCILIATION / PRODUCTION WBS" title="WBS Payables and exception review" description="See the real Production WBS rows retained for this company, their readiness, and the owner of the next step." status="LIVE DATA"/>
 
@@ -61,6 +74,23 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
       {review?.status==='READ_ONLY_PROJECTED'&&<>
         <div className="qbo-toolgrid"><span><i>Status</i><b>{review.status}</b></span><span><i>Review candidates</i><b>{review.candidates.length}</b></span><span><i>Exceptions</i><b>{review.exceptions.length}</b></span><span><i>Action authority</i><b>None</b></span></div>
         {review.candidates.length===0?<StateBlock tone="empty" title="No retained review candidates">The authenticated API returned a valid empty result for this exact selection.</StateBlock>:<div className="table-wrap authoritative-wbs-review-table" role="region" tabIndex={0} aria-label="WBS AutoRec review candidates; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Candidate</th><th>Side</th><th>Source type</th><th>Source record</th><th>Version</th><th>Date</th><th>Currency</th><th>Amount</th><th>Bank scope</th><th>Mapping</th></tr></thead><tbody>{review.candidates.map(row=><tr key={row.review_candidate_id}><td>{row.review_candidate_id}</td><td>{row.side}</td><td>{row.source_type}</td><td>{row.source_record_id}</td><td>{row.source_version}</td><td>{row.accounting_date}</td><td>{row.currency}</td><td>{row.amount}</td><td>{row.bank_account_ref}</td><td>{row.mapping.mapping_id} / {row.mapping.version}</td></tr>)}</tbody></table></div>}
+      </>}
+    </section>
+
+    <section className="report-workbench" aria-label="AutoRec Match Review and G11 posted evidence">
+      <div className="report-workbench-head"><div><b>Match Review → G11 posted evidence</b><div className="page-subtitle">Read one immutable independent decision, then trace the same review through two posted AutoRec journals and four exact ledger lines. These controls never infer a review ID or use WBS browser data.</div></div><span className="badge badge-muted">AUTHORITATIVE GET</span></div>
+      <form className="filterbar" onSubmit={readMatchReview}>
+        <label htmlFor="wbs-match-review-id">Match Review ID<input id="wbs-match-review-id" required pattern="[0-9a-fA-F-]{36}" maxLength="36" value={matchReviewId} onChange={event=>setMatchReviewId(event.target.value)} placeholder="Exact persisted review UUID"/></label>
+        <button type="submit" className="btn" disabled={matchState.phase==='LOADING'}>{matchState.phase==='LOADING'?'Reading review...':'Load Match Review'}</button>
+        <button type="button" className="btn" onClick={readG11} disabled={g11State.phase==='LOADING'}>{g11State.phase==='LOADING'?'Reading posted evidence...':'Trace G11 / GL'}</button>
+      </form>
+      {matchState.phase==='BLOCKED'&&<StateBlock tone="blocked" title={matchState.error?.code||'WBS_AUTOREC_MATCH_REVIEW_BLOCKED'}>{matchState.error?.message}{matchReview&&' Previously loaded review remains below.'}</StateBlock>}
+      {g11State.phase==='BLOCKED'&&<StateBlock tone="blocked" title={g11State.error?.code||'WBS_AUTOREC_G11_BLOCKED'}>{g11State.error?.message}{g11&&' Previously loaded posted evidence remains below.'}</StateBlock>}
+      {!matchReview&&!g11&&matchState.phase==='IDLE'&&g11State.phase==='IDLE'&&<StateBlock tone="empty" title="No persisted Match Review loaded">Enter the exact review UUID retained by PostgreSQL. Loading G11 before completion fails closed.</StateBlock>}
+      {matchReview&&<div className="qbo-toolgrid"><span><i>Decision</i><b>{matchReview.decision}</b></span><span><i>Reviewer</i><b>{matchReview.reviewed_by}</b></span><span><i>Reviewed at</i><b>{matchReview.reviewed_at}</b></span><span><i>SoD</i><b>{matchReview.sod_verified?'VERIFIED':'BLOCKED'}</b></span><span><i>Bank Match revision</i><b>{matchReview.bank_match_revision}</b></span><span><i>G11</i><b>{matchReview.g11_linked?'LINKED':'NOT COMPLETED'}</b></span></div>}
+      {g11&&<>
+        <div className="qbo-toolgrid"><span><i>Status</i><b>INCURRED</b></span><span><i>Allocation</i><b>{g11.released_candidate.allocated_amount}</b></span><span><i>Events</i><b>{g11.accounting_events.length}</b></span><span><i>Ledger lines</i><b>{g11.lines.length}</b></span><span><i>Completion hash</i><b>{g11.completion.evidence_hash}</b></span></div>
+        <div className="table-wrap" role="region" tabIndex={0} aria-label="G11 posted journal and ledger evidence; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Event</th><th>Role</th><th>Journal</th><th>Account</th><th>Member</th><th>Debit</th><th>Credit</th><th>Ledger line</th></tr></thead><tbody>{g11.lines.map(row=><tr key={row.ledger_line_id}><td>{row.event_type}</td><td>{row.line_role}</td><td>{row.journal_entry_id}</td><td>{row.account_code}</td><td>{row.member_ref||'—'}</td><td>{row.debit_amount}</td><td>{row.credit_amount}</td><td>{row.ledger_line_id}</td></tr>)}</tbody></table></div>
       </>}
     </section>
 

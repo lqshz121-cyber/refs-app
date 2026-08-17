@@ -1,0 +1,12 @@
+BEGIN;
+REVOKE EXECUTE ON FUNCTION refs_create_wbs_autorec_autoc_draft(uuid,uuid,uuid,uuid,text,text,text,text) FROM refs_app;
+REVOKE EXECUTE ON FUNCTION refs_create_wbs_autorec_payable_incur_draft(uuid,uuid,uuid,uuid,text,text,text,text) FROM refs_app;
+REVOKE EXECUTE ON FUNCTION refs_wbs_autorec_event_draft_hash(uuid,uuid,uuid,uuid,text,text) FROM refs_app;
+DROP FUNCTION refs_create_wbs_autorec_autoc_draft(uuid,uuid,uuid,uuid,text,text,text,text);
+DROP FUNCTION refs_create_wbs_autorec_payable_incur_draft(uuid,uuid,uuid,uuid,text,text,text,text);
+DROP FUNCTION refs_create_wbs_autorec_event_draft_private(text,uuid,uuid,uuid,uuid,text,text,text,text);
+DROP FUNCTION refs_wbs_autorec_event_draft_hash(uuid,uuid,uuid,uuid,text,text);
+DROP TABLE journal_accounting_event;
+DROP TABLE accounting_event;
+DELETE FROM permission_catalog WHERE permission_code='BANK.AUTOREC.G11.DRAFT';
+COMMIT;

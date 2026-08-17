@@ -176,6 +176,41 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createWbsInsurancePcMappingProposal({tenantId,entityId,observationId,expectedObservationHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const params=[tenantId,entityId,observationId,expectedObservationHash,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_propose_wbs_insurance_pc_mapping_hash($1,$2,$3,$4,$5) AS request_hash',params),'WBS_INSURANCE_PC_MAPPING_PROPOSAL_HASH_FAILED','Insurance PC mapping proposal hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_create_wbs_insurance_pc_mapping_proposal($1,$2,$3,$4,$5,$6,$7) AS result',[...params,idempotencyKey,requestHash]),'WBS_INSURANCE_PC_MAPPING_PROPOSAL_FAILED','Insurance PC mapping proposal did not return a result').result;
+    });
+  }
+
+  async recordWbsInsurancePcMappingPreAdmission({tenantId,entityId,observation,rows}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_record_wbs_insurance_pc_mapping_pre_admission($1,$2,$3::jsonb,$4::jsonb) AS result',[tenantId,entityId,JSON.stringify(observation),JSON.stringify(rows)]),'WBS_INSURANCE_PRE_ADMISSION_RECORD_FAILED','Insurance pre-admission observation was not recorded').result);
+  }
+
+  async readWbsInsurancePcMappingAdmissionResume({tenantId,entityId,observationId,expectedObservationHash,expectedApprovalId,expectedDecisionHash,expectedCompanyMappingHash}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_wbs_insurance_pc_mapping_admission_resume($1,$2,$3,$4,$5,$6,$7) AS result',
+      [tenantId,entityId,observationId,expectedObservationHash,expectedApprovalId,expectedDecisionHash,expectedCompanyMappingHash]
+    ),'WBS_INSURANCE_RESUME_NOT_FOUND','The exact approved Insurance pre-admission observation is unavailable').result);
+  }
+
+  async approveWbsInsurancePcMappingProposal({tenantId,entityId,proposalId,expectedRevision,expectedObservationHash,expectedProposalHash,catalogDecisionId,expectedCompanyMappingHash,effectiveFrom,effectiveTo,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const params=[tenantId,entityId,proposalId,expectedRevision,expectedObservationHash,expectedProposalHash,catalogDecisionId,expectedCompanyMappingHash,effectiveFrom,effectiveTo??null,reason];
+      const requestHash=requireRow(await client.query('SELECT refs_approve_wbs_insurance_pc_mapping_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS request_hash',params),'WBS_INSURANCE_PC_MAPPING_APPROVAL_HASH_FAILED','Insurance PC mapping approval hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_approve_wbs_insurance_pc_mapping_proposal($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) AS result',[...params,idempotencyKey,requestHash]),'WBS_INSURANCE_PC_MAPPING_APPROVAL_FAILED','Insurance PC mapping approval did not return a result').result;
+    });
+  }
+
+  async getWbsInsurancePcMappingProposal({tenantId,entityId,proposalId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_wbs_insurance_pc_mapping_proposal($1,$2,$3) AS result',[tenantId,entityId,proposalId]),'WBS_INSURANCE_PC_MAPPING_PROPOSAL_NOT_FOUND','Insurance PC mapping proposal was not found').result);
+  }
+
+  async getWbsInsurancePcMappingTrace({tenantId,entityId,pcCode,accountingDate}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_wbs_insurance_pc_mapping_trace($1,$2,$3,$4) AS result',[tenantId,entityId,pcCode,accountingDate]),'WBS_INSURANCE_PC_MAPPING_TRACE_FAILED','Insurance PC mapping trace was not returned').result);
+  }
+
   async admitWbsSignedBankStatement({tenantId,entityId,admission,idempotencyKey}){
     const validated=validateWbsSignedBankAdmission(admission);
     if(typeof this.wbsSignedBankAdmissionVerifier!=='function')throw new KernelError('WBS_BANK_ADMISSION_SIGNATURE_REQUIRED','WBS bank admission requires a configured detached-signature verifier');
@@ -385,16 +420,16 @@ export class PostgresAccountingKernel{
   async readAiAccrualAnalysisPeriod({tenantId,entityId,currentPeriodId}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
-      return requireRow(await client.query(`SELECT period_id,period_code,(extract(year FROM starts_on)::integer*12+extract(month FROM starts_on)::integer) AS period_ordinal
-        FROM accounting_period
-        WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3 AND ledger_code='PRIMARY'`,[tenantId,entityId,currentPeriodId]),'AI_ACCRUAL_PERIOD_NOT_FOUND','Authoritative primary accounting period is unavailable');
+      return requireRow(await client.query(`SELECT p.period_id,p.period_code,(extract(year FROM p.starts_on)::integer*12+extract(month FROM p.starts_on)::integer) AS period_ordinal,e.source_entity_id AS company_code
+        FROM accounting_period p JOIN entity e ON e.tenant_id=p.tenant_id AND e.entity_id=p.entity_id
+        WHERE p.tenant_id=$1 AND p.entity_id=$2 AND p.period_id=$3 AND p.ledger_code='PRIMARY'`,[tenantId,entityId,currentPeriodId]),'AI_ACCRUAL_PERIOD_NOT_FOUND','Authoritative primary accounting period is unavailable');
     });
   }
 
   async listAiAccrualRetainedHistory({tenantId,entityId,currentPeriodId,limit=240}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
-      return (await client.query(`SELECT d.tenant_id,d.entity_id,d.source_system,d.source_module,d.document_type,d.status AS source_status,d.source_document_id,l.source_document_line_id,p.period_id AS accounting_period_id,p.period_code,(extract(year FROM p.starts_on)::integer*12+extract(month FROM p.starts_on)::integer) AS period_ordinal,true AS period_closed,d.payload_hash,d.currency,l.amount::text,l.party_ref,l.external_dimension_refs
+      return (await client.query(`SELECT d.tenant_id,d.entity_id,d.source_entity_id,d.source_system,d.source_module,d.document_type,d.status AS source_status,d.source_document_id,l.source_document_line_id,p.period_id AS accounting_period_id,p.period_code,(extract(year FROM p.starts_on)::integer*12+extract(month FROM p.starts_on)::integer) AS period_ordinal,true AS period_closed,d.payload_hash,d.currency,l.amount::text,l.party_ref,l.external_dimension_refs
         FROM wbs_final1_retained_source_row r
         JOIN raw_event e ON e.tenant_id=r.tenant_id AND e.entity_id=r.entity_id AND e.raw_event_id=r.raw_event_id AND e.is_current
         JOIN source_document d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.source_document_id=r.source_document_id
@@ -547,6 +582,66 @@ export class PostgresAccountingKernel{
         'SELECT refs_admit_wbs_provider_signed_payables($1,$2,$3,$4,$5,$6,$7) AS result',
         [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(snapshot),JSON.stringify(groups),idempotencyKey,requestHash]
       ),'WBS_PROVIDER_SIGNED_ADMISSION_FAILED','Provider signed Payable admission did not return a result').result;
+    });
+  }
+
+  // Materializes only immutable Raw/Source/Pending Review evidence. The
+  // Property Rent AR producer is intentionally absent, so this capability can
+  // never create an Invoice, Journal, approval, posting batch, or ledger line.
+  async admitWbsPropertyRentSource({tenantId,entityId,wbsInboundRowId,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_admit_wbs_property_rent_source_hash($1,$2,$3,$4,$5,$6,$7) AS request_hash',
+        [tenantId,entityId,wbsInboundRowId,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,reason]
+      ),'WBS_PROPERTY_RENT_SOURCE_HASH_FAILED','WBS Property Rent source admission hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_admit_wbs_property_rent_source($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',
+        [tenantId,entityId,wbsInboundRowId,expectedSourceVersion,expectedReceiptHash,expectedEvidenceHash,reason,idempotencyKey,requestHash]
+      ),'WBS_PROPERTY_RENT_SOURCE_FAILED','WBS Property Rent source admission did not return a result').result;
+    });
+  }
+
+  async reviewWbsPropertyRent({tenantId,entityId,admissionId,periodId,expectedRevision,expectedEvidenceHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_review_wbs_property_rent_hash($1,$2,$3,$4,$5,$6,$7) AS request_hash',[tenantId,entityId,admissionId,periodId,expectedRevision,expectedEvidenceHash,reason]),'WBS_PROPERTY_RENT_REVIEW_HASH_FAILED','Property Rent review hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_review_wbs_property_rent($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',[tenantId,entityId,admissionId,periodId,expectedRevision,expectedEvidenceHash,reason,idempotencyKey,requestHash]),'WBS_PROPERTY_RENT_REVIEW_FAILED','Property Rent review did not return a result').result;
+    });
+  }
+
+  async listWbsPropertyRentPickup({tenantId,entityId,periodId,limit=50}){
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_list_wbs_property_rent_pickup($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);
+  }
+
+  async createWbsPropertyRentDraft({tenantId,entityId,reviewEvidenceId,expectedRevision,expectedEvidenceHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_create_wbs_property_rent_draft_hash($1,$2,$3,$4,$5,$6) AS request_hash',[tenantId,entityId,reviewEvidenceId,expectedRevision,expectedEvidenceHash,reason]),'WBS_PROPERTY_RENT_DRAFT_HASH_FAILED','Property Rent Draft hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_create_wbs_property_rent_draft($1,$2,$3,$4,$5,$6,$7,$8) AS result',[tenantId,entityId,reviewEvidenceId,expectedRevision,expectedEvidenceHash,reason,idempotencyKey,requestHash]),'WBS_PROPERTY_RENT_DRAFT_FAILED','Property Rent Draft did not return a result').result;
+    });
+  }
+
+  async listInsurancePrepaidAmortization({tenantId,entityId,periodId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT refs_read_insurance_prepaid_amortization($1,$2,$3,$4) AS evidence',[tenantId,entityId,periodId,limit]
+    )).rows.map(row=>row.evidence));
+  }
+
+  async reviewInsurancePrepaidAmortization(args){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_review_insurance_prepaid_amortization_http($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) AS result',
+      [args.tenantId,args.entityId,args.admissionId,args.scheduleId,args.scheduleLineId,args.periodId,args.settingSnapshotId,args.mappingSnapshotId,args.capitalizationJournalEntryId,args.capitalizationLedgerLineId,args.expectedSourceVersion,args.expectedSourceHash,args.expectedProposalHash,args.expectedCoverageHash,args.reason,args.idempotencyKey]
+    ),'INSURANCE_AMORTIZATION_REVIEW_FAILED','Insurance prepaid amortization review did not return a result').result);
+  }
+
+  async createInsurancePrepaidAmortizationDraft(args){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_insurance_prepaid_amortization_draft_hash($1,$2,$3,$4,$5) AS request_hash',
+        [args.tenantId,args.entityId,args.reviewEvidenceId,args.expectedEvidenceHash,args.reason]
+      ),'INSURANCE_AMORTIZATION_DRAFT_HASH_FAILED','Insurance prepaid amortization Draft hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_insurance_prepaid_amortization_draft($1,$2,$3,$4,$5,$6,$7) AS result',
+        [args.tenantId,args.entityId,args.reviewEvidenceId,args.expectedEvidenceHash,args.reason,args.idempotencyKey,requestHash]
+      ),'INSURANCE_AMORTIZATION_DRAFT_FAILED','Insurance prepaid amortization Draft did not return a result').result;
     });
   }
 
@@ -1004,6 +1099,54 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_bank_match_candidates($1,$2,$3)',[tenantId,entityId,bankSourceId]
     )).rows);
+  }
+
+  async reviewWbsAutoRecBankMatch({tenantId,entityId,reviewCandidateId,candidateHash,bankMatchId,expectedMatchRevision,decision,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_autorec_match_review_hash($1,$2,$3,$4,$5,$6,$7,$8) AS request_hash',
+        [tenantId,entityId,reviewCandidateId,candidateHash,bankMatchId,expectedMatchRevision,decision,reason]
+      ),'WBS_AUTOREC_MATCH_REVIEW_HASH_FAILED','AutoRec Bank Match review request hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_review_wbs_autorec_bank_match($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+        [tenantId,entityId,reviewCandidateId,candidateHash,bankMatchId,expectedMatchRevision,decision,reason,idempotencyKey,requestHash]
+      ),'WBS_AUTOREC_MATCH_REVIEW_FAILED','AutoRec Bank Match review did not return a result').result;
+    });
+  }
+
+  async getWbsAutoRecBankMatchReview({tenantId,entityId,reviewId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_get_wbs_autorec_match_review($1,$2,$3) AS result',[tenantId,entityId,reviewId]
+    ),'WBS_AUTOREC_MATCH_REVIEW_READ_FAILED','AutoRec Bank Match review read did not return a result').result);
+  }
+
+  async createWbsAutoRecPayableIncurDraft(args){return this.createWbsAutoRecEventDraft('refs_create_wbs_autorec_payable_incur_draft',args);}
+  async createWbsAutoRecAutocDraft(args){return this.createWbsAutoRecEventDraft('refs_create_wbs_autorec_autoc_draft',args);}
+  async createWbsAutoRecEventDraft(functionName,{tenantId,entityId,reviewId,periodId,expectedEvidenceHash,reason,idempotencyKey}){
+    if(!['refs_create_wbs_autorec_payable_incur_draft','refs_create_wbs_autorec_autoc_draft'].includes(functionName))throw new KernelError('WBS_AUTOREC_EVENT_DRAFT_FUNCTION_DENIED','AutoRec event Draft producer is not allowlisted');
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query('SELECT refs_wbs_autorec_event_draft_hash($1,$2,$3,$4,$5,$6) request_hash',[tenantId,entityId,reviewId,periodId,expectedEvidenceHash,reason]),'WBS_AUTOREC_EVENT_DRAFT_HASH_FAILED','AutoRec event Draft hash was not produced').request_hash;
+      return requireRow(await client.query(`SELECT ${functionName}($1,$2,$3,$4,$5,$6,$7,$8) result`,[tenantId,entityId,reviewId,periodId,expectedEvidenceHash,reason,idempotencyKey,requestHash]),'WBS_AUTOREC_EVENT_DRAFT_FAILED','AutoRec event Draft did not return a result').result;
+    });
+  }
+
+  async finalizeWbsAutoRecG11Incur({tenantId,entityId,reviewId,expectedEvidenceHash,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_wbs_autorec_g11_incur_hash($1,$2,$3,$4,$5) request_hash',
+        [tenantId,entityId,reviewId,expectedEvidenceHash,reason]
+      ),'WBS_AUTOREC_G11_INCUR_HASH_FAILED','AutoRec G11 INCUR hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_finalize_wbs_autorec_g11_incur($1,$2,$3,$4,$5,$6,$7) result',
+        [tenantId,entityId,reviewId,expectedEvidenceHash,reason,idempotencyKey,requestHash]
+      ),'WBS_AUTOREC_G11_INCUR_FAILED','AutoRec G11 INCUR did not return a result').result;
+    });
+  }
+
+  async getWbsAutoRecG11Evidence({tenantId,entityId,reviewId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_get_wbs_autorec_g11_evidence($1,$2,$3) result',[tenantId,entityId,reviewId]
+    ),'WBS_AUTOREC_G11_EVIDENCE_READ_FAILED','AutoRec G11 evidence read did not return a result').result);
   }
 
   async getReconciliationSummary({tenantId,entityId,bankAccountRef,statementEndingDate}){

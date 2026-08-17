@@ -1,4 +1,4 @@
-// Binds docs/WBS-MCP-LINEAGE.md to the executable eight-source catalog so the
+// Binds docs/WBS-MCP-LINEAGE.md to the reviewed V2 nine-source catalog so the
 // documented stable keys, field counts, exception taxonomy and cursor
 // semantics cannot silently drift from server/runtime/wbs-mcp-lineage.mjs.
 //
@@ -21,13 +21,32 @@ const doc = readFileSync(resolve(root, 'docs', 'WBS-MCP-LINEAGE.md'), 'utf8');
 const source = readFileSync(resolve(root, 'server', 'runtime', 'wbs-mcp-lineage.mjs'), 'utf8');
 const coverage = describeWbsMappingCoverage();
 
+// This is a reviewed contract, not a count-only threshold.  In particular, it
+// retires the legacy eight-tool catalog by requiring the V2 insurance listing
+// in its reviewed position.
+const REVIEWED_WBS_MCP_CATALOG_V2_TOOLS = Object.freeze([
+  'get_meta',
+  'list_payables',
+  'list_bank_transactions',
+  'list_autorec_details',
+  'list_autorec_banks',
+  'list_journal_entries',
+  'list_control_totals',
+  'list_insurance',
+  'trace_by_key',
+]);
+
 const failures = [];
 const check = (condition, message) => {
   if (!condition) failures.push(message);
 };
 
 check(doc.includes(WBS_LINEAGE_CONTRACT_VERSION), `docs must name ${WBS_LINEAGE_CONTRACT_VERSION}`);
-check(coverage.source_count === 8, 'the catalog must hold exactly eight sources');
+check(
+  JSON.stringify(WBS_READONLY_TOOLS) === JSON.stringify(REVIEWED_WBS_MCP_CATALOG_V2_TOOLS),
+  'the catalog must exactly match reviewed V2 nine-tool order; the legacy eight-tool catalog is rejected',
+);
+check(coverage.source_count === REVIEWED_WBS_MCP_CATALOG_V2_TOOLS.length, 'the catalog must hold exactly nine sources');
 check(coverage.declared_fields === coverage.mapped_source_fields, 'every declared field must be mapped');
 check(doc.includes(String(coverage.declared_fields)), 'docs must state the declared field count');
 

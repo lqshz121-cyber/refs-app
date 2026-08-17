@@ -6,11 +6,14 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {FIXTURES,fixtureResult,readTapSummary,runFixture,selectFixtures} from '../runtime/run-postgres-fixture-suite.mjs';
 
 test('PostgreSQL fixture suite names each isolated accounting closure explicitly',()=>{
-  assert.deepEqual(FIXTURES.map(item=>item.id),['controlled-ap-close','ar-rent-pickup-close','signed-wbs-payable-post','signed-cost-cwip-post','signed-bank-same-source-close','bank-reconcile-close','bank-match-unmatch-controls','wbs-autorec-reserve-release','reconciliation-governance-snapshot','reconciliation-lifecycle-close','ai-exception-lineage','ai-amortization-human-close','dimension-profitability-close','cash-flow-close','cwip-rollforward-close','construction-loan-rollforward-close','prepaid-rollforward-close','intercompany-reconciliation-close','budget-vs-actual-close','consolidation-close']);
+  assert.deepEqual(FIXTURES.map(item=>item.id),['controlled-ap-close','ar-rent-pickup-close','signed-wbs-payable-post','signed-cost-cwip-post','signed-bank-same-source-close','bank-reconcile-close','bank-match-unmatch-controls','wbs-autorec-reserve-release','reconciliation-governance-snapshot','reconciliation-lifecycle-close','ai-exception-lineage','ai-amortization-human-close','dimension-profitability-close','cash-flow-close','cwip-rollforward-close','construction-loan-rollforward-close','prepaid-rollforward-close','intercompany-reconciliation-close','budget-vs-actual-close','consolidation-close','insurance-pc-mapping-controller','wbs-autorec-event-foundation','real-estate-profitability-lineage','real-estate-reports']);
   assert.ok(FIXTURES.every(item=>typeof item.pattern==='string'&&item.pattern.length>20));
   assert.deepEqual(selectFixtures().map(item=>item.id),FIXTURES.map(item=>item.id));
   assert.deepEqual(selectFixtures(['--fixture','bank-reconcile-close']).map(item=>item.id),['bank-reconcile-close']);
   assert.deepEqual(selectFixtures(['--fixture','signed-bank-same-source-close']).map(item=>item.id),['signed-bank-same-source-close']);
+  assert.deepEqual(selectFixtures(['--fixture','wbs-autorec-event-foundation']).map(item=>item.id),['wbs-autorec-event-foundation']);
+  assert.deepEqual(selectFixtures(['--fixture','insurance-pc-mapping-controller']).map(item=>item.id),['insurance-pc-mapping-controller']);
+  assert.deepEqual(selectFixtures(['--fixture','real-estate-profitability-lineage']).map(item=>item.id),['real-estate-profitability-lineage']);
 });
 
 test('PostgreSQL fixture suite fails closed for malformed or unknown selection',()=>{

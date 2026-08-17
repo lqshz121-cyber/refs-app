@@ -2,6 +2,7 @@ import {spawn} from 'node:child_process';
 import {createServer} from 'node:net';
 import {fileURLToPath} from 'node:url';
 import {dirname,resolve} from 'node:path';
+import {readFileSync} from 'node:fs';
 import {postgresDataVolumeTarget} from './postgres-container.mjs';
 import {createPool} from './db.mjs';
 import {waitForPostgresReadiness} from './postgres-readiness.mjs';
@@ -20,6 +21,14 @@ const cliArgs=process.argv.slice(2);
 const patternIndex=cliArgs.indexOf('--pattern');
 if(cliArgs.length!==0&&(patternIndex!==0||cliArgs.length!==2||!cliArgs[1]))throw new Error('Usage: node runtime/test-postgres-fresh.mjs [--pattern <test name>]');
 const postgresTestNamePattern=cliArgs[1]||process.env.PG_TEST_NAME_PATTERN||null;
+if(postgresTestNamePattern){
+  let matcher;try{matcher=new RegExp(postgresTestNamePattern);}catch{throw new Error('PostgreSQL test name pattern must be a valid regular expression');}
+  const source=readFileSync(resolve(serverRoot,'tests/postgres-kernel.test.mjs'),'utf8');
+  const declared=[...source.matchAll(/pgTest\((['"`])([^'"`]+)\1/g)].map(match=>match[2]);
+  const matched=declared.filter(name=>matcher.test(name));
+  if(matched.length<1)throw new Error(`PostgreSQL test name pattern matched zero declared pgTest cases: ${postgresTestNamePattern}`);
+  console.log(`Fresh PostgreSQL gate declared_test_count=${matched.length} pattern=${JSON.stringify(postgresTestNamePattern)}`);
+}
 const rawTestTimeout=process.env.REFS_PG_TEST_TIMEOUT_MS||'';
 if(rawTestTimeout!==''&&(!/^[1-9]\d*$/.test(rawTestTimeout)||Number(rawTestTimeout)<1000||Number(rawTestTimeout)>900000))throw new Error('REFS_PG_TEST_TIMEOUT_MS must be an integer between 1000 and 900000 milliseconds');
 const postgresTestTimeoutMs=rawTestTimeout===''?null:Number(rawTestTimeout);
@@ -39,11 +48,13 @@ function freePort(){
   });
 }
 
-function run(command,args,env){
+function run(command,args,env,{capture=false}={}){
   return new Promise((resolveRun,reject)=>{
-    const child=spawn(command,args,{cwd:serverRoot,env,stdio:'inherit',shell:process.platform==='win32'&&command==='docker'});
+    const child=spawn(command,args,{cwd:serverRoot,env,stdio:capture?['ignore','pipe','pipe']:'inherit',shell:process.platform==='win32'&&command==='docker'});
+    let stdout='';
+    if(capture){child.stdout.on('data',chunk=>{stdout+=chunk;process.stdout.write(chunk);});child.stderr.on('data',chunk=>process.stderr.write(chunk));}
     child.once('error',reject);
-    child.once('exit',(code,signal)=>code===0?resolveRun():reject(new Error(`${command} exited ${code??signal}`)));
+    child.once('exit',(code,signal)=>code===0?resolveRun(stdout):reject(new Error(`${command} exited ${code??signal}`)));
   });
 }
 
@@ -78,7 +89,8 @@ try{
   await run('docker',['compose','-p',project,'-f','compose.yaml','up','-d','--wait'],composeEnv);
   const readiness=await waitForPostgresReadiness({probe:()=>probePostgres(testEnv.MIGRATION_DATABASE_URL)});
   console.log(`Fresh PostgreSQL gate ready after ${readiness.attempts} probe(s) in ${readiness.elapsedMs}ms`);
-  await run(process.execPath,postgresTestArgs,testEnv);
+  const tap=await run(process.execPath,postgresTestArgs,testEnv,{capture:true});
+  if(postgresTestNamePattern){const count=Number(tap.match(/^# tests (\d+)$/m)?.[1]||0);if(count<1)throw new Error(`PostgreSQL test runner executed zero tests for pattern: ${postgresTestNamePattern}`);console.log(`Fresh PostgreSQL gate executed_test_count=${count}`);}
 }finally{
   await run('docker',['compose','-p',project,'-f','compose.yaml','down','-v','--remove-orphans'],composeEnv).catch(error=>{
     console.error(`Fresh gate cleanup failed for owned project ${project}: ${error.message}`);
