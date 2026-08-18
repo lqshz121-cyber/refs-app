@@ -365,6 +365,10 @@ pgTest('WBS Final-1 Controller167 persists five-domain signed controls and exact
 
 pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while retaining an out-of-period source date',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  await adminPool.query('DELETE FROM journal_line WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,ids.journalId]);
+  await adminPool.query('DELETE FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,ids.journalId]);
+  await adminPool.query("DELETE FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId]);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId])).rows[0].n,0);
   const row={source_record_hash:hash('wbs-test-payable-row'),currency:'USD',accounting_date:'2025-02-15',amount:'12.3000',status:'CLEAR'};
   const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_payables',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:createHash('sha256').update('provider-content').digest('hex'),scope:{company_codes:['WBPA'],date_range:['2025-01-01','2025-12-31']},record_count:1,rows:[row],signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash('wbs-test-observation')};
   const counts=async()=>(await adminPool.query(`SELECT
@@ -383,11 +387,19 @@ pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while r
   const before=await counts();
   await assert.rejects(noApKernel.createWbsTestPayableDraft({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,observation,row,rowIndex:0,idempotencyKey:'wbs-test-no-ap-0001'}),error=>error.code==='42501');
   assert.deepEqual(await counts(),before);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId])).rows[0].n,0);
 
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-test-maker',['WBS.TEST.IMPORT','AP.BILL.CREATE'])});
   const draftArgs={tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,observation,row,rowIndex:0,idempotencyKey:'wbs-test-draft-0001'};
+  await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type,active) VALUES($1,$2,'291001','Conflicting test account',false,NULL,true)",[ids.tenantId,ids.entityId]);
+  const beforeConflict=await counts();
+  await assert.rejects(maker.createWbsTestPayableDraft({...draftArgs,idempotencyKey:'wbs-test-control-conflict-0001'}),error=>error.code==='23514');
+  assert.deepEqual(await counts(),beforeConflict);
+  assert.deepEqual((await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId])).rows[0],{account_name:'Conflicting test account',requires_member:false,required_member_type:null,active:true});
+  await adminPool.query("DELETE FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId]);
   const draft=await maker.createWbsTestPayableDraft(draftArgs);
   assert.deepEqual({status:draft.status,revision:draft.revision,idempotent:draft.idempotent,test_only:draft.test_only,provenance_mode:draft.provenance_mode},{status:'DRAFT',revision:0,idempotent:false,test_only:true,provenance_mode:'UNSIGNED_TEST_ONLY'});
+  assert.deepEqual((await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId])).rows[0],{account_name:'Accounts Payable',requires_member:true,required_member_type:'VENDOR',active:true});
   assert.equal((await maker.createWbsTestPayableDraft(draftArgs)).idempotent,true);
   const source=(await adminPool.query(`SELECT d.business_date::text,d.accounting_date::text,d.status::text,l.external_dimension_refs,
       a.scan_status,a.finalization_status,a.storage_ref
