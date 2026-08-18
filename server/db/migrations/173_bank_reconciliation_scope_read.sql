@@ -8,7 +8,7 @@ CREATE FUNCTION refs_list_reconciliation_scopes(
 RETURNS TABLE(
   reconciliation_id uuid,
   bank_account_ref text,
-  statement_ending_date date,
+  statement_ending_date text,
   currency char(3),
   status text,
   version bigint
@@ -20,7 +20,7 @@ BEGIN
     RAISE EXCEPTION 'Reconciliation scope limit must be between 1 and 200' USING ERRCODE='22023';
   END IF;
   RETURN QUERY
-    SELECT r.reconciliation_id,r.bank_account_ref,r.statement_ending_date,r.currency,r.status::text,r.version
+    SELECT r.reconciliation_id,r.bank_account_ref,r.statement_ending_date::text,r.currency,r.status::text,r.version
     FROM public.reconciliation r
     WHERE r.tenant_id=p_tenant AND r.entity_id=p_entity
       AND r.status IN ('DRAFT','IN_REVIEW','REOPENED','RECONCILED')

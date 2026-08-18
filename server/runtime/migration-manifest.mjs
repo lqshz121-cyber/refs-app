@@ -178,5 +178,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"170_wbs_test_ap_control_account_normalization.sql",up:"41361201fe2310d77cf4032e621647212debdb95f84efafd0a16f2999cc3afa1",down:"ab5eb5d5a6b9549f5bae1428bdbb43a7b683c6d01c9d103d47b4fdc09a31c1a7"}),
   Object.freeze({name:"171_wbs_test_entity_source_binding.sql",up:"10c22e51dee6f027d6b83bb2eedd4f03d2c842103e7ec796e70f6b1454bbda64",down:"2937206d023ebb4a840a20af764e042dcdca7586d599330d3fba20a8957d5730"}),
   Object.freeze({name:"172_source_document_line_amount_text.sql",up:"4f4a98e1a824fd6e2b9c07218074ebc450784e11257cb76cb212426861ac75d4",down:"51ae76ce8cb19d30f0a8da11b702a7d6bad93c7f76d42584d556a6674c017a5e"}),
-  Object.freeze({name:"173_bank_reconciliation_scope_read.sql",up:"d1017545c4486e19183214a8ca916cf29ac6e292c28745e05fbd8170889b365d",down:"01d62275812ac99d4bb048a0b14757a2e3ee4174a022f9a6541f6e0c8c5fbfc5"}),
+  Object.freeze({name:"173_bank_reconciliation_scope_read.sql",up:"4462f3aa4fa4454aa4d1fa7c8bab3887d43b6633a35a53736e3b5c1dcee3a4f2",down:"01d62275812ac99d4bb048a0b14757a2e3ee4174a022f9a6541f6e0c8c5fbfc5"}),
 ]);
