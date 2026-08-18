@@ -91,8 +91,10 @@ REFS_RELEASE_SHA=<40-character-current-HEAD> npm run verify:controlled-maturity-
 
 This command reports `controlledExecutionPass=true` only when PG15, PG16, and
 PG18 each return the exact 24 groups and 33 non-skipped TAP assertions and no
-owned Docker container, network, or volume remains. It still reports
-`productionPass=false`.
+owned Docker container, network, or volume remains. Before the database matrix,
+it also runs the complete root and server `npm test` gates so a merely present
+but failing UI, API, AI, reporting, security, or release script cannot satisfy
+the controlled score. It still reports `productionPass=false`.
 
 ## Production boundary
 

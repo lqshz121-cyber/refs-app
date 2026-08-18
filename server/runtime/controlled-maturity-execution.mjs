@@ -5,16 +5,25 @@ import {FIXTURES,runFixtureSuite} from './run-postgres-fixture-suite.mjs';
 import {readControlledMaturityMatrix} from './controlled-maturity-matrix.mjs';
 
 export const REQUIRED_POSTGRES_IMAGES=Object.freeze(['postgres:15-alpine','postgres:16-alpine','postgres:18-alpine']);
+export const REQUIRED_COMMAND_GATES=Object.freeze([
+  Object.freeze({id:'root-full-test',cwd:resolve(fileURLToPath(new URL('../..',import.meta.url)))}),
+  Object.freeze({id:'server-full-test',cwd:resolve(fileURLToPath(new URL('..',import.meta.url)))})
+]);
 export const EXPECTED_TAP_ASSERTIONS_PER_IMAGE=33;
 const SHA_PATTERN=/^[0-9a-f]{40}$/;
 
 const sorted=value=>[...value].sort();
 
-export function validateControlledExecution({releaseSha,summaries,cleanupResources=[]}){
+export function validateControlledExecution({releaseSha,summaries,commandGates,cleanupResources=[]}){
   if(!SHA_PATTERN.test(releaseSha))throw new Error('Controlled execution requires the exact 40-character release SHA.');
   if(!Array.isArray(summaries)||summaries.length!==REQUIRED_POSTGRES_IMAGES.length)throw new Error('Controlled execution requires exactly PG15, PG16, and PG18 summaries.');
   if(!Array.isArray(cleanupResources))throw new Error('Docker cleanup evidence must be an array.');
   if(cleanupResources.length!==0)throw new Error(`Owned Docker resources remain: ${cleanupResources.join(', ')}`);
+  if(!Array.isArray(commandGates)||commandGates.length!==REQUIRED_COMMAND_GATES.length)throw new Error('Controlled execution requires the root and server full-test gates.');
+  const expectedCommandIds=sorted(REQUIRED_COMMAND_GATES.map(({id})=>id));
+  const commandIds=sorted(commandGates.map(({id})=>id));
+  if(JSON.stringify(commandIds)!==JSON.stringify(expectedCommandIds))throw new Error('Controlled execution command-gate identities do not match the frozen suite.');
+  for(const gate of commandGates)if(gate?.exitCode!==0)throw new Error(`${gate?.id??'unknown'} command gate did not pass.`);
 
   const expectedFixtureIds=sorted(FIXTURES.map(({id})=>id));
   const images=[];
@@ -47,9 +56,22 @@ export function validateControlledExecution({releaseSha,summaries,cleanupResourc
     postgresImages:Object.freeze([...REQUIRED_POSTGRES_IMAGES]),
     fixtureGroupsPerImage:FIXTURES.length,
     tapAssertionsPerImage:EXPECTED_TAP_ASSERTIONS_PER_IMAGE,
+    commandGates:Object.freeze(commandGates.map(gate=>Object.freeze({...gate}))),
     dockerCleanupVerified:true,
     controlledExecutionPass:true,
     productionPass:false
+  });
+}
+
+export function runControlledCommandGates({env=process.env,run=execFileSync}={}){
+  const npmInvocation=env.npm_execpath
+    ?{command:process.execPath,args:[env.npm_execpath,'test']}
+    :process.platform==='win32'
+      ?{command:env.ComSpec??'cmd.exe',args:['/d','/s','/c','npm.cmd test']}
+      :{command:'npm',args:['test']};
+  return REQUIRED_COMMAND_GATES.map(({id,cwd})=>{
+    run(npmInvocation.command,npmInvocation.args,{cwd,env,stdio:'inherit'});
+    return Object.freeze({id,exitCode:0});
   });
 }
 
@@ -84,12 +106,13 @@ export async function runControlledMaturityExecution({env=process.env}={}){
   await assertExecutionDependencies();
   const matrix=await readControlledMaturityMatrix();
   if(matrix.dimensions.some(({complete})=>!complete))throw new Error('Controlled maturity coverage matrix is incomplete.');
+  const commandGates=runControlledCommandGates({env});
   const summaries=[];
   for(const image of REQUIRED_POSTGRES_IMAGES){
     summaries.push(await runFixtureSuite({env:{...env,REFS_RELEASE_SHA:releaseSha,POSTGRES_IMAGE:image}}));
   }
   const cleanupResources=listOwnedDockerResources();
-  const execution=validateControlledExecution({releaseSha,summaries,cleanupResources});
+  const execution=validateControlledExecution({releaseSha,summaries,commandGates,cleanupResources});
   return Object.freeze({...execution,summaries});
 }
 
