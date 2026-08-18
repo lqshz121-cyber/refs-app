@@ -46,6 +46,29 @@ services:
         value: DISABLED
       - key: REFS_WBS_LIVE_PILOT_MODE
         value: ENABLED
+      # Explicitly authorized staging-only bridge: sanitized live-pilot
+      # Payables become test-only Drafts and pass through six isolated actors.
+      # This mode never claims Provider signature, Object Lock, or admission.
+      - key: REFS_WBS_TEST_IMPORT_MODE
+        value: ENABLED
+      - key: REFS_WBS_TEST_IMPORT_TENANT_ID
+        value: 6fb25daf-0799-4805-bede-be54230da33c
+      - key: REFS_WBS_TEST_IMPORT_ENTITY_ID
+        value: ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3
+      - key: REFS_WBS_TEST_IMPORT_COMPANY_CODE
+        value: WBPA
+      - key: REFS_WBS_TEST_IMPORT_IMPORTER_ACTOR_ID
+        value: wbs-test-importer
+      - key: REFS_WBS_TEST_IMPORT_MAKER_ACTOR_ID
+        value: wbs-test-maker
+      - key: REFS_WBS_TEST_IMPORT_SUBMITTER_ACTOR_ID
+        value: wbs-test-submitter
+      - key: REFS_WBS_TEST_IMPORT_REVIEWER_ACTOR_ID
+        value: wbs-test-reviewer
+      - key: REFS_WBS_TEST_IMPORT_APPROVER_ACTOR_ID
+        value: wbs-test-approver
+      - key: REFS_WBS_TEST_IMPORT_POSTER_ACTOR_ID
+        value: wbs-test-poster
       # The unsigned pilot is enabled only on this authoritative staging API.
       # Credentials remain server-side Render secrets and signed admission
       # stays independently disabled until provider trust is delivered.
@@ -110,6 +133,8 @@ services:
       # never enter the static build; the browser obtains a PKCE access token.
       - key: REFS_PUBLIC_ACCOUNTING_API_BASE_URL
         sync: false
+      - key: REFS_WBS_TEST_IMPORT_MODE
+        value: ENABLED
       - key: REFS_PUBLIC_ENTITY_ID
         sync: false
       - key: REFS_PUBLIC_PERIOD_ID

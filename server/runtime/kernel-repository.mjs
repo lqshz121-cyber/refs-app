@@ -74,6 +74,32 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createWbsTestPayableDraft({tenantId,entityId,periodId,observation,row,rowIndex,idempotencyKey}){
+    return this.inSession(async client=>{
+      const payload=[tenantId,entityId,periodId,JSON.stringify(observation),JSON.stringify(row),rowIndex];
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_wbs_test_payable_draft_hash($1,$2,$3,$4::jsonb,$5::jsonb,$6) AS request_hash',payload
+      ),'WBS_TEST_IMPORT_HASH_FAILED','WBS test Payable import hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_wbs_test_payable_draft($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8) AS result',
+        [...payload,idempotencyKey,requestHash]
+      ),'WBS_TEST_IMPORT_FAILED','WBS test Payable Draft was not created').result;
+    });
+  }
+
+  async finalizeWbsTestImportSource({tenantId,entityId,sourceDocumentId,businessDocumentId,journalEntryId,idempotencyKey}){
+    return this.inSession(async client=>{
+      const payload=[tenantId,entityId,sourceDocumentId,businessDocumentId,journalEntryId];
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_finalize_wbs_test_import_source_hash($1,$2,$3,$4,$5) AS request_hash',payload
+      ),'WBS_TEST_FINALIZE_HASH_FAILED','WBS test source finalization hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_finalize_wbs_test_import_source($1,$2,$3,$4,$5,$6,$7) AS result',
+        [...payload,idempotencyKey,requestHash]
+      ),'WBS_TEST_FINALIZE_FAILED','WBS test source was not finalized').result;
+    });
+  }
+
   async reserveAttachment(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
