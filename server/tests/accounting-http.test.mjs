@@ -69,6 +69,18 @@ test('self-service WBS operator upgrade adds the fixed exception-retain permissi
   assert.equal((await selfService({method:'POST',url:`/api/v1/entities/${entityId}/access/self-service-wbs-operator-grant/upgrade`,body:{permission:'GL.JE.POST'},headers:{'Idempotency-Key':'wbs-operator-upgrade-0002'}})).status,400);
 });
 
+test('controlled test workflow upgrade derives the signed-in actor and exposes only a test-only receipt',async()=>{
+  const upgradeCalls=[];
+  const selfService=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'oidc|reader'}),kernelFactory:async()=>kernel,stage1SelfControlledTestWorkflowUpgradeServiceFactory:async principal=>({upgrade:async input=>{upgradeCalls.push([principal,input]);return {idempotent:false,permissionCount:22};}})});
+  const path=`/api/v1/entities/${entityId}/access/self-service-controlled-test-workflow-grant/upgrade`;
+  const response=await selfService({method:'POST',url:path,body:{},headers:{'Idempotency-Key':'controlled-test-upgrade-0001'}});
+  assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body.data,{upgraded:true,idempotent:false,permission_count:22,test_only:true});
+  assert.deepEqual(upgradeCalls,[[{trusted:true,tenantId,actorId:'oidc|reader'},{entityId,idempotencyKey:'controlled-test-upgrade-0001'}]]);
+  const replayApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'oidc|reader'}),kernelFactory:async()=>kernel,stage1SelfControlledTestWorkflowUpgradeServiceFactory:async()=>({upgrade:async()=>({idempotent:true,permissionCount:22})})});
+  assert.equal((await replayApi({method:'POST',url:path,body:{},headers:{'Idempotency-Key':'controlled-test-upgrade-0001'}})).status,200);
+  assert.equal((await selfService({method:'POST',url:path,body:{actorId:'other'},headers:{'Idempotency-Key':'controlled-test-upgrade-0002'}})).status,400);
+});
+
 test('manual command derives tenant/entity/actor boundary from authenticated context',async()=>{
   calls.length=0;const body={periodId,journalNumber:'JE-1',journalDate:'2026-08-02',currency:'USD',attachmentIds:[],lines:[]};
   const response=await command(`/api/v1/entities/${entityId}/journal-entries/manual`,body);

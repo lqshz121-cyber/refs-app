@@ -17,6 +17,13 @@ export const STAGE1_READ_PERMISSIONS=Object.freeze(['AP.VIEW','AR.VIEW','BANK.VI
 // excludes WBS.SNAPSHOT.IMPORT and every REFS command permission.
 export const STAGE1_WBS_READ_PERMISSIONS=Object.freeze([...STAGE1_READ_PERMISSIONS,'WBS.AUTOREC.VIEW']);
 export const STAGE1_WBS_OPERATOR_PERMISSIONS=Object.freeze([...STAGE1_WBS_READ_PERMISSIONS,'WBS.PAYABLE.OPERATOR_ATTEST']);
+export const STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS=Object.freeze([
+  'AP.VIEW','AR.VIEW','BANK.MATCH.CREATE','BANK.MATCH.REVIEW','BANK.MATCH.UNMATCH',
+  'BANK.RECONCILIATION.ADJUSTMENT_DRAFT','BANK.RECONCILIATION.CLEAR','BANK.RECONCILIATION.REOPEN',
+  'BANK.RECONCILIATION.REVIEW','BANK.RECONCILIATION.SIGN_OFF','BANK.RECONCILIATION.START','BANK.VIEW',
+  'GL.JE.APPROVE','GL.JE.CREATE','GL.JE.POST','GL.JE.REVIEW','GL.JE.SUBMIT','GL.JE.VIEW','GL.REPORT.VIEW',
+  'WBS.AUTOREC.VIEW','WBS.PAYABLE.OPERATOR_ATTEST','WBS.TEST.IMPORT'
+]);
 export const STAGE1_ACCOUNTING_CODES=Object.freeze({payable:'291001',receivable:'120200'});
 
 const required=(environment,key)=>{
@@ -154,6 +161,17 @@ export function stage1SelfWbsOperatorUpgradeConfig(environment=process.env){
   });
 }
 
+export function stage1SelfControlledTestWorkflowUpgradeConfig(environment=process.env){
+  if(String(environment.REFS_STAGE1_SELF_GRANT_ENABLED||'')!=='STAGE1_AUTHORITATIVE_ONLY'||String(environment.REFS_WBS_TEST_IMPORT_MODE||'').toUpperCase()!=='ENABLED')return null;
+  exactStaging(environment);
+  return Object.freeze({
+    tenantId:uuid(required(environment,'REFS_STAGE1_TENANT_ID'),'REFS_STAGE1_TENANT_ID'),
+    entityId:uuid(required(environment,'REFS_STAGE1_ENTITY_ID'),'REFS_STAGE1_ENTITY_ID'),
+    expectedVersion:3,
+    permissions:[...STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS],
+  });
+}
+
 const normalizedRow=row=>Object.fromEntries(Object.entries(row).map(([key,value])=>[key,value instanceof Date?value.toISOString().slice(0,10):value]));
 const same=(actual,expected)=>canonicalRequestHash(normalizedRow(actual))===canonicalRequestHash(expected);
 const conflict=(label)=>{throw new KernelError('STAGE1_BOOTSTRAP_STATE_CONFLICT',`${label} conflicts with the requested immutable staging scope`);};
@@ -241,6 +259,23 @@ export async function upgradeStage1WbsOperatorAccess(pool,config,{principalProvi
     const result=requireRow(await client.query('SELECT refs_upgrade_stage1_wbs_operator_attest($1,$2,$3,$4,$5,$6) AS result',[config.tenantId,config.actorId,config.entityId,config.idempotencyKey,requestHash,config.expectedVersion]),'STAGE1_WBS_OPERATOR_UPGRADE_FAILED','Stage 1 WBS operator upgrade did not return a result').result;
     const returned=[...(result.permissions||[])].sort(),expected=[...STAGE1_WBS_OPERATOR_PERMISSIONS].sort();
     if(returned.length!==expected.length||returned.some((value,index)=>value!==expected[index]))throw new KernelError('STAGE1_WBS_OPERATOR_UPGRADE_RESULT_INVALID','Stage 1 WBS operator upgrade returned an unexpected permission set');
+    return {idempotent:result.idempotent===true,version:result.version,permissionCount:returned.length};
+  });
+}
+
+export async function upgradeStage1ControlledTestWorkflowAccess(pool,config,{principalProvider=async()=>({trusted:true,serviceId:'platform-iam-sync'})}={}){
+  if(config.expectedVersion!==3||config.permissions.length!==STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS.length||config.permissions.some((value,index)=>value!==STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS[index])){
+    throw new KernelError('STAGE1_CONTROLLED_TEST_UPGRADE_SCOPE_DENIED','Controlled test workflow upgrade must contain exactly the approved staging test permissions');
+  }
+  const principal=await principalProvider();
+  if(!principal||principal.trusted!==true||principal.serviceId!=='platform-iam-sync')throw new KernelError('GRANT_SYNC_PRINCIPAL_DENIED','Only the authenticated platform IAM sync service may reconcile grants');
+  return withSerializableRetry(pool,async client=>{
+    const identity=requireRow(await client.query('SELECT session_user,current_user'),'GRANT_SYNC_IDENTITY_MISSING','Grant sync DB identity missing');
+    if(identity.session_user!=='refs_grant_sync'||identity.current_user!=='refs_grant_sync')throw new KernelError('GRANT_SYNC_DB_IDENTITY_DENIED','Grant sync requires its isolated database login');
+    const requestHash=requireRow(await client.query('SELECT refs_grant_request_hash($1,$2,$3,$4,$5) AS request_hash',[config.tenantId,config.actorId,config.entityId,config.permissions,config.expectedVersion]),'GRANT_SYNC_HASH_FAILED','Canonical grant hash was not returned').request_hash;
+    const result=requireRow(await client.query('SELECT refs_upgrade_stage1_controlled_test_workflow($1,$2,$3,$4,$5,$6) AS result',[config.tenantId,config.actorId,config.entityId,config.idempotencyKey,requestHash,config.expectedVersion]),'STAGE1_CONTROLLED_TEST_UPGRADE_FAILED','Controlled test workflow upgrade did not return a result').result;
+    const returned=[...(result.permissions||[])].sort(),expected=[...STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS].sort();
+    if(returned.length!==expected.length||returned.some((value,index)=>value!==expected[index]))throw new KernelError('STAGE1_CONTROLLED_TEST_UPGRADE_RESULT_INVALID','Controlled test workflow upgrade returned an unexpected permission set');
     return {idempotent:result.idempotent===true,version:result.version,permissionCount:returned.length};
   });
 }

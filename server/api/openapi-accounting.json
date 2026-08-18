@@ -25,6 +25,16 @@
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/access/self-service-controlled-test-workflow-grant/upgrade": {
+      "post": {
+        "operationId": "upgradeStage1ControlledTestWorkflowAccess",
+        "summary": "Enable the fixed TEST_ONLY WBS, Bank, Journal and report workflow on the staging test entity",
+        "description": "Available only when the fixed staging WBS test-import mode is enabled. The authenticated OIDC actor and configured tenant/entity are server-derived. PostgreSQL accepts only version 3 with exactly the Stage 1 WBS operator permissions and replaces it with the closed controlled-test permission bundle at version 4. No identity, permission or scope selector is accepted in the body.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"maxProperties":0}}}},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/SerializationRetryExhausted"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/live-pilot": {
       "get": {
         "operationId": "getWbsLivePilotObservation",

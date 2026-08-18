@@ -17,7 +17,7 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
   assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitProviderSignedWbsPayables','admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','approveFinancialStatementSnapshot','approveWbsCompanyCatalogRow','approveWbsInsurancePcMappingProposal','assignAiFindingAction','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','classifyWbsCompanyCatalogRow','createAiAmortizationDraft','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsCostCwipDraft','createReviewedWbsPayableApDraft','createWbsAutoRecAutocDraft','createWbsAutoRecPayableIncurDraft','createWbsInsurancePcMappingProposal','explainAiAccountingAnalysis','finalizeAttachment','finalizeWbsAutoRecG11Incur','importWbsTestPayables','ingestAdmittedWbsPayables','postJournal','prepareFinancialStatementSnapshot','proposeAiAmortizationSchedule','recordAiAmortizationCoverageEvidence','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','resolveAiFindingAction','retainProviderSignedWbsFinal1Bank','retainProviderSignedWbsFinal1CostControl','retainProviderSignedWbsFinal1Insurance','retainProviderSignedWbsFinal1Payables','retainProviderSignedWbsFinal1PropertyControl','retainWbsCompanyCatalogCandidate','reviewAdmittedWbsCostCwip','reviewAdmittedWbsPayable','reviewAiWbsPayableDraftProposal','reviewWbsAutoRecBankMatch','runControlledTestAiWorkflow','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
   }
   const operationIds=operations.map(operation=>operation.operationId);
-  assert.equal(operationIds.length,67);
+  assert.equal(operationIds.length,68);
   assert.equal(new Set(operationIds).size,operationIds.length);
   assert.ok(operationIds.includes('importWbsControlledTestBankTransactions'));
   assert.ok(operationIds.includes('runControlledTestAiWorkflow'));
@@ -405,4 +405,11 @@ test('Stage 1 WBS operator self-upgrade is a closed exact-scope command',()=>{
   assert.equal(operation.operationId,'upgradeStage1WbsOperatorAccess');assert.deepEqual(operation.parameters.map(item=>item.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);
   assert.equal(operation.requestBody.content['application/json'].schema.additionalProperties,false);assert.equal(operation.requestBody.content['application/json'].schema.maxProperties,0);
   assert.match(operation.description,/only WBS\.PAYABLE\.OPERATOR_ATTEST/);assert.match(operation.description,/no import, review, Draft, approval, posting, ledger, or WBS write authority/i);
+});
+
+test('controlled test workflow self-upgrade is a closed identity-free staging command',()=>{
+  const operation=contract.paths['/entities/{entityId}/access/self-service-controlled-test-workflow-grant/upgrade'].post;
+  assert.equal(operation.operationId,'upgradeStage1ControlledTestWorkflowAccess');assert.deepEqual(operation.parameters.map(item=>item.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);
+  const schema=operation.requestBody.content['application/json'].schema;assert.equal(schema.additionalProperties,false);assert.equal(schema.maxProperties,0);
+  assert.match(operation.description,/version 3/);assert.match(operation.description,/version 4/);assert.match(operation.description,/No identity, permission or scope selector/i);
 });
