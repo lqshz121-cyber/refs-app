@@ -73,7 +73,7 @@ BEGIN
           JOIN accounting_period ap ON ap.tenant_id=j.tenant_id AND ap.entity_id=j.entity_id AND ap.period_id=j.period_id
           CROSS JOIN target t
           WHERE a.tenant_id=p_tenant AND a.entity_id=p_entity AND a.business_document_id=d.business_document_id
-            AND ap.ends_on<=t.ends_on AND a.created_at<((t.ends_on+1)::timestamp AT TIME ZONE 'UTC')),0)
+            AND ap.ends_on<=t.ends_on),0)
        - COALESCE((SELECT sum(a.amount) FROM business_adjustment a
           JOIN journal_entry j ON j.tenant_id=a.tenant_id AND j.entity_id=a.entity_id AND j.journal_entry_id=a.posted_journal_entry_id AND j.status='POSTED'
           JOIN accounting_period ap ON ap.tenant_id=j.tenant_id AND ap.entity_id=j.entity_id AND ap.period_id=j.period_id
