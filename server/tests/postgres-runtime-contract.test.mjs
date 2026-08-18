@@ -628,3 +628,15 @@ test('Cost-to-CWIP creates a Draft only from immutable reviewed evidence and app
   assert.match(costCwipDraftSql,/actor=evidence\.reviewed_by/);
   assert.doesNotMatch(costCwipDraftSql,/p_lines jsonb/);
 });
+
+test('WBS TEST IMPORT forward migration prepares only the exact vendor-member AP control account',async()=>{
+  const forward=await readFile(new URL('../db/migrations/169_wbs_test_ap_control_account.sql',import.meta.url),'utf8');
+  const backward=await readFile(new URL('../db/migrations/down/169_wbs_test_ap_control_account.sql',import.meta.url),'utf8');
+  assert.match(forward,/refs_assert_scope\(p_tenant,p_entity,'WBS\.TEST\.IMPORT'\)/);
+  assert.match(forward,/VALUES \(\s*p_tenant,p_entity,'291001','Accounts Payable',true,'VENDOR',true\s*\) ON CONFLICT DO NOTHING/);
+  assert.match(forward,/account_code='291001'[\s\S]+AND active[\s\S]+AND requires_member[\s\S]+AND required_member_type='VENDOR'/);
+  assert.match(forward,/refs_create_wbs_test_payable_draft_v168\(/);
+  assert.doesNotMatch(forward,/GRANT EXECUTE[^;]+refs_create_wbs_test_payable_draft_v168/);
+  assert.match(backward,/DROP FUNCTION refs_create_wbs_test_payable_draft\(/);
+  assert.match(backward,/RENAME TO refs_create_wbs_test_payable_draft/);
+});
