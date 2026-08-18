@@ -69,6 +69,26 @@ services:
         value: wbs-test-approver
       - key: REFS_WBS_TEST_IMPORT_POSTER_ACTOR_ID
         value: wbs-test-poster
+      # Isolated AI accounting runner. Keep disabled until the exact OIDC caller
+      # is entered in Render; it remains restricted to the fixed test scope.
+      - key: REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE
+        value: DISABLED
+      - key: REFS_CONTROLLED_TEST_AI_CALLER_ACTOR_ID
+        sync: false
+      - key: REFS_CONTROLLED_TEST_AI_SOURCE_MAKER_ACTOR_ID
+        value: refs-controlled-ai-source
+      - key: REFS_CONTROLLED_TEST_AI_PROPOSER_ACTOR_ID
+        value: refs-controlled-ai-proposer
+      - key: REFS_CONTROLLED_TEST_AI_DRAFT_MAKER_ACTOR_ID
+        value: refs-controlled-ai-draft
+      - key: REFS_CONTROLLED_TEST_AI_SUBMITTER_ACTOR_ID
+        value: refs-controlled-ai-submitter
+      - key: REFS_CONTROLLED_TEST_AI_REVIEWER_ACTOR_ID
+        value: refs-controlled-ai-reviewer
+      - key: REFS_CONTROLLED_TEST_AI_APPROVER_ACTOR_ID
+        value: refs-controlled-ai-approver
+      - key: REFS_CONTROLLED_TEST_AI_POSTER_ACTOR_ID
+        value: refs-controlled-ai-poster
       # The unsigned pilot is enabled only on this authoritative staging API.
       # Credentials remain server-side Render secrets and signed admission
       # stays independently disabled until provider trust is delivered.

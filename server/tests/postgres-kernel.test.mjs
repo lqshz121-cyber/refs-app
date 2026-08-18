@@ -145,6 +145,26 @@ async function trustedSession(ids,actorId='poster',permissions=['GL.JE.POST']){
 
 const sessionProvider=(ids,actorId='poster',permissions=['GL.JE.POST'])=>()=>trustedSession(ids,actorId,permissions);
 
+pgTest('controlled test AI source bridge is private, fixed-permission, and rejects non-WBS-test parents with zero writes',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null,extraAccounts:[{accountCode:'610000',accountName:'Operating expense'}]});
+  const ordinary=await attachAutoSource(ids,{linkJournal:false,sourceModule:'payable',sourceRecordPrefix:'ORDINARY-NON-TEST'});
+  const counts=()=>adminPool.query(`SELECT
+    (SELECT count(*)::int FROM controlled_test_ai_source WHERE tenant_id=$1) traces,
+    (SELECT count(*)::int FROM source_document WHERE tenant_id=$1) sources,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='CONTROLLED_TEST_AI_SOURCE_DERIVED') audits,
+    (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type='CONTROLLED_TEST_AI_SOURCE_DERIVED') outbox,
+    (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND operation_scope LIKE 'CONTROLLED_TEST_AI_SOURCE:%') receipts`,[ids.tenantId]).then(result=>result.rows[0]);
+  const before=await counts();
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ordinary-ai-actor',[])});
+  await assert.rejects(denied.deriveControlledTestAiSource({tenantId:ids.tenantId,entityId:ids.entityId,parentSourceDocumentId:ordinary.documentId,initiatedBy:'authenticated-test-user',idempotencyKey:'controlled-ai-denied'}),error=>error.code==='42501');
+  assert.deepEqual(await counts(),before);
+  const sourceMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-ai-source-maker',['AI.TEST.WORKFLOW'])});
+  await assert.rejects(sourceMaker.deriveControlledTestAiSource({tenantId:ids.tenantId,entityId:ids.entityId,parentSourceDocumentId:ordinary.documentId,initiatedBy:'authenticated-test-user',idempotencyKey:'controlled-ai-wrong-parent'}),error=>error.code==='23514');
+  assert.deepEqual(await counts(),before);
+  const acl=(await adminPool.query("SELECT has_function_privilege('refs_app','refs_derive_controlled_test_ai_source(uuid,uuid,uuid,text,text,text)','EXECUTE') allowed,EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='refs_derive_controlled_test_ai_source(uuid,uuid,uuid,text,text,text)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE') public_allowed")).rows[0];
+  assert.deepEqual(acl,{allowed:true,public_allowed:false});
+});
+
 pgTest('Controller retains classifies and approves an exact WBS company catalog binding with SoD CAS audit and zero accounting mapping snapshots',async()=>{
   const ids={tenantId:randomUUID(),entityId:randomUUID()};
   await adminPool.query('INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,$2,$3)',[ids.tenantId,`T${ids.tenantId.replaceAll('-','').slice(0,8)}`.toUpperCase(),'Company catalog tenant']);
@@ -2640,7 +2660,7 @@ pgTest('runtime reclass requires evidence, creates new balanced lines and leaves
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[reclass.journal_entry_id])).rows[0].n,2);
 });
 
-pgTest('posting is atomic, same-hash retry replays before state validation, different hash conflicts',async()=>{
+pgTest('posting response loss is safe: same-hash retry yields one journal posting before state validation',async()=>{
   const ids=await seed();
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids)});
   const args={...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'post-key-0001',requestHash:hash('post')};
@@ -2649,6 +2669,8 @@ pgTest('posting is atomic, same-hash retry replays before state validation, diff
   assert.equal(first.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.posting_batch_id,first.posting_batch_id);assert.equal(first.revision,1);assert.equal(replay.revision,1);
   await assert.rejects(kernel.postJournal({...args,expectedRevision:1,requestHash:hash('caller-is-ignored')}),error=>error.code==='23505');
   assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM ledger_line')).rows[0].n,2);
+  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM journal_entry WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,1);
+  assert.equal((await adminPool.query('SELECT count(DISTINCT posting_batch_id)::int AS n FROM ledger_line WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM source_link WHERE link_type='JE_LINE_TO_LEDGER'")).rows[0].n,2);
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM outbox_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,1);
@@ -3977,4 +3999,39 @@ pgTest('consolidation reads only an approved immutable two-member scope with exp
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:reporting.tenantId,actorId:actor}),kernelFactory:async()=>reader});
   const response=await api({method:'GET',url:`/api/v1/entities/${reporting.entityId}/reports/consolidation?periodId=${reporting.periodId}&groupRef=${groupRef}`,body:null,headers:{}});assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data[0].report_status,'APPROVED_CONSOLIDATION_SNAPSHOT_AND_POSTED_LEDGER_EXACT');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1 AND journal_type='ELIMINATION'",[reporting.tenantId])).rows[0].n,0);
+});
+
+pgTest('controlled test unsigned WBS Bank rows create isolated source evidence and one ordinary DRAFT reconciliation',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_bank_transactions',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:'b'.repeat(64),scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']},record_count:2,rows:[
+    {source_record_hash:`sha256:${'a'.repeat(64)}`,currency:'USD',accounting_date:'2026-07-11',amount:'25.0000',direction:'DEBIT',status:'POSTED'},
+    {source_record_hash:`sha256:${'c'.repeat(64)}`,currency:'USD',accounting_date:'2026-07-12',amount:'25.0000',direction:'CREDIT',status:'POSTED'}
+  ],signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:`sha256:${'d'.repeat(64)}`};
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-bank-importer',['WBS.TEST.IMPORT','BANK.RECONCILIATION.START'])});
+  const before=(await adminPool.query('SELECT count(*)::int journals FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0];
+  const args={...ids,companyCode:'WBPA',observation,bankAccountRef:'WBS_TEST_BANK',idempotencyKey:'controlled-test-bank-pg-001'};
+  const created=await importer.createWbsControlledTestBankScope(args);assert.equal(created.status,'DRAFT');assert.equal(created.test_only,true);assert.equal(created.provenance_mode,'CONTROLLED_TEST_UNSIGNED');assert.equal(created.transaction_count,2);assert.equal(created.bank_account_ref,'WBS_TEST_BANK');assert.equal(created.idempotent,false);
+  const replay=await importer.createWbsControlledTestBankScope(args);assert.equal(replay.idempotent,true);assert.deepEqual(replay.bank_source_ids,created.bank_source_ids);
+  const retained=(await adminPool.query(`SELECT i.test_only,i.provenance_mode,i.row_count,r.status,r.difference,count(ir.*)::int retained_rows
+    FROM wbs_controlled_test_bank_import i JOIN reconciliation r ON r.tenant_id=i.tenant_id AND r.entity_id=i.entity_id AND r.reconciliation_id=i.reconciliation_id
+    JOIN wbs_controlled_test_bank_import_row ir ON ir.tenant_id=i.tenant_id AND ir.entity_id=i.entity_id AND ir.wbs_controlled_test_bank_import_id=i.wbs_controlled_test_bank_import_id
+    WHERE i.tenant_id=$1 AND i.entity_id=$2 GROUP BY i.test_only,i.provenance_mode,i.row_count,r.status,r.difference`,[ids.tenantId,ids.entityId])).rows[0];
+  assert.deepEqual(retained,{test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',row_count:2,status:'DRAFT',difference:'0.0000',retained_rows:2});
+  const sources=(await adminPool.query(`SELECT d.document_type,d.status,d.source_ref,dl.external_dimension_refs,bs.bank_account_ref,bs.amount::text
+    FROM wbs_controlled_test_bank_import_row ir JOIN source_document d ON d.tenant_id=ir.tenant_id AND d.entity_id=ir.entity_id AND d.source_document_id=ir.source_document_id
+    JOIN source_document_line dl ON dl.tenant_id=ir.tenant_id AND dl.entity_id=ir.entity_id AND dl.source_document_line_id=ir.source_document_line_id
+    JOIN bank_source bs ON bs.tenant_id=ir.tenant_id AND bs.entity_id=ir.entity_id AND bs.bank_source_id=ir.bank_source_id
+    WHERE ir.tenant_id=$1 AND ir.entity_id=$2 ORDER BY ir.row_index`,[ids.tenantId,ids.entityId])).rows;
+  assert.deepEqual(sources.map(row=>[row.document_type,row.status,row.bank_account_ref,row.amount,row.external_dimension_refs.test_only,row.external_dimension_refs.provenance_mode]),[
+    ['WBS_TEST_BANK_TRANSACTION','RECEIVED','WBS_TEST_BANK','25.0000',true,'CONTROLLED_TEST_UNSIGNED'],
+    ['WBS_TEST_BANK_TRANSACTION','RECEIVED','WBS_TEST_BANK','-25.0000',true,'CONTROLLED_TEST_UNSIGNED']
+  ]);assert.ok(sources.every(row=>row.source_ref.startsWith('object://refs-test-only/')));
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-bank-reader',['BANK.VIEW'])});
+  const transactions=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'WBS_TEST_BANK',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:10});assert.equal(transactions.length,2);
+  const scopes=await reader.listReconciliationScopes({tenantId:ids.tenantId,entityId:ids.entityId,limit:10});assert.equal(scopes.length,1);assert.equal(scopes[0].reconciliation_id,created.reconciliation_id);assert.equal(scopes[0].status,'DRAFT');
+  assert.deepEqual((await adminPool.query('SELECT count(*)::int journals FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0],before);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_bank_statement_receipt WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,0);
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-bank-denied',['WBS.TEST.IMPORT'])});
+  await assert.rejects(denied.createWbsControlledTestBankScope({...args,idempotencyKey:'controlled-test-bank-pg-denied'}),error=>error.code==='42501');
+  const counts=await adminPool.query('SELECT (SELECT count(*) FROM wbs_controlled_test_bank_import WHERE tenant_id=$1 AND entity_id=$2)::int imports,(SELECT count(*) FROM bank_source WHERE tenant_id=$1 AND entity_id=$2)::int sources',[ids.tenantId,ids.entityId]);assert.deepEqual(counts.rows[0],{imports:1,sources:2});
 });

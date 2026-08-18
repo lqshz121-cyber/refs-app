@@ -5,7 +5,7 @@ const MONEY4=/^-?(?:0|[1-9][0-9]{0,15})\.[0-9]{4}$/;
 const SHA256=/^sha256:[0-9a-f]{64}$/;
 const ACTOR_ROLES=Object.freeze(['importer','maker','submitter','reviewer','approver','poster']);
 export const WBS_TEST_IMPORT_GRANT_BUNDLES=Object.freeze({
-  importer:Object.freeze(['WBS.TEST.IMPORT']),
+  importer:Object.freeze(['WBS.TEST.IMPORT','BANK.RECONCILIATION.START']),
   maker:Object.freeze(['WBS.TEST.IMPORT','AP.BILL.CREATE']),
   submitter:Object.freeze(['GL.JE.SUBMIT']),
   reviewer:Object.freeze(['GL.JE.REVIEW']),
@@ -34,6 +34,10 @@ function assertRow(row){
   if(!exactObject(row,['source_record_hash','currency','accounting_date','amount','status'])||!SHA256.test(row.source_record_hash||'')||row.currency!=='USD'||!date(row.accounting_date)||!MONEY4.test(row.amount||'')||row.amount==='0.0000'||row.amount==='-0.0000'||typeof row.status!=='string'||row.status.length<1||row.status.length>64)fail('WBS_TEST_IMPORT_ROW_INVALID','Sanitized WBS Payable row is incomplete or unsafe for the test-import path.');
 }
 
+function assertBankRow(row){
+  if(!exactObject(row,['source_record_hash','currency','accounting_date','amount','direction','status'])||!SHA256.test(row.source_record_hash||'')||row.currency!=='USD'||!date(row.accounting_date)||!MONEY4.test(row.amount||'')||row.amount==='0.0000'||row.amount==='-0.0000'||!['DEBIT','CREDIT'].includes(row.direction)||typeof row.status!=='string'||row.status.length<1||row.status.length>64)fail('WBS_TEST_BANK_ROW_INVALID','Sanitized WBS Bank row is incomplete or unsafe for the controlled test bridge.');
+}
+
 function assertDraft(result){
   if(!result||result.status!=='DRAFT'||result.revision!==0||result.test_only!==true||result.provenance_mode!=='UNSIGNED_TEST_ONLY'||!UUID.test(result.business_document_id||'')||!UUID.test(result.journal_entry_id||'')||!UUID.test(result.source_document_id||'')||!UUID.test(result.attachment_id||''))fail('WBS_TEST_IMPORT_DRAFT_INVALID','Test-import persistence returned an unsafe Draft result.');
 }
@@ -45,6 +49,13 @@ function assertPost(result,journalEntryId){
 export function assertWbsTestImportResult(value){
   const keys=['failed_count','imported_count','posted_count','replayed_count','status','test_only'];
   if(!exactObject(value,keys)||value.status!=='WBS_TEST_PAYABLE_IMPORT_COMPLETE'||value.test_only!==true||!['failed_count','imported_count','posted_count','replayed_count'].every(key=>Number.isSafeInteger(value[key])&&value[key]>=0)||value.failed_count!==0||value.posted_count!==value.imported_count+value.replayed_count)fail('WBS_TEST_IMPORT_RESULT_INVALID','Test-import result is incomplete or unsafe.');
+  return value;
+}
+
+
+export function assertWbsControlledTestBankResult(value){
+  const keys=['bank_account_ref','bank_source_ids','idempotent','provenance_mode','reconciliation_id','statement_ending_date','status','test_only','transaction_count','wbs_controlled_test_bank_import_id'];
+  if(!exactObject(value,keys)||value.bank_account_ref!=='WBS_TEST_BANK'||!UUID.test(value.wbs_controlled_test_bank_import_id||'')||!UUID.test(value.reconciliation_id||'')||!date(value.statement_ending_date)||value.status!=='DRAFT'||value.test_only!==true||value.provenance_mode!=='CONTROLLED_TEST_UNSIGNED'||typeof value.idempotent!=='boolean'||!Number.isSafeInteger(value.transaction_count)||value.transaction_count<1||value.transaction_count>10||!Array.isArray(value.bank_source_ids)||value.bank_source_ids.length!==value.transaction_count||value.bank_source_ids.some(id=>!UUID.test(id||''))||new Set(value.bank_source_ids).size!==value.bank_source_ids.length)fail('WBS_TEST_BANK_RESULT_INVALID','Controlled test Bank result is incomplete or unsafe.');
   return value;
 }
 
@@ -62,7 +73,7 @@ export async function reconcileWbsTestImportActorGrants({grantSync,scope}={}){
   return Object.freeze(results);
 }
 
-export function createWbsTestImportService({pilotService,kernelForActor,scope}={}){
+export function createWbsTestImportService({pilotService,kernelForActor,authorizeBank,scope}={}){
   if(!pilotService||typeof pilotService.readObservation!=='function'||typeof kernelForActor!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Test-import dependencies are unavailable.');
   assertConfiguration(scope);
   const actors=Object.freeze(Object.fromEntries(ACTOR_ROLES.map(role=>[role,scope.actors[role].trim()])));
@@ -96,6 +107,21 @@ export function createWbsTestImportService({pilotService,kernelForActor,scope}={
         posted++;
       }
       return Object.freeze(assertWbsTestImportResult({status:'WBS_TEST_PAYABLE_IMPORT_COMPLETE',imported_count:imported,replayed_count:replayed,posted_count:posted,failed_count:0,test_only:true}));
+    },
+    async importBankTransactions({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit,idempotencyKey}={}){
+      assertSelection({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit},scope);
+      if(typeof authorizeBank!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Controlled test Bank caller authorization is unavailable.');
+      if(typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>160)fail('WBS_TEST_IMPORT_IDEMPOTENCY_REQUIRED','A bounded test-import idempotency key is required.');
+      await authorizeBank({tenantId,entityId});
+      const observation=await pilotService.readObservation({tenantId,entityId,tool:'list_bank_transactions',limit,company_code:companyCode,date_from:dateFrom,date_to:dateTo});
+      assertWbsLivePilotResult(observation,{entityId,tool:'list_bank_transactions',limit});
+      if(observation.scope?.company_codes?.length!==1||observation.scope.company_codes[0]!==companyCode||observation.scope?.date_range?.[0]!==dateFrom||observation.scope.date_range[1]!==dateTo)fail('WBS_TEST_IMPORT_SCOPE_DENIED','Provider Bank observation did not retain the configured test-import scope.');
+      if(observation.rows.length===0)fail('WBS_TEST_IMPORT_EMPTY','The bounded WBS Bank observation contains no rows to import.');
+      const hashes=new Set();for(const row of observation.rows){assertBankRow(row);if(hashes.has(row.source_record_hash))fail('WBS_TEST_BANK_ROW_INVALID','Provider observation contains a duplicate sanitized Bank identity.');hashes.add(row.source_record_hash);}
+      const importer=kernelForActor(actors.importer);
+      if(!importer||typeof importer.createWbsControlledTestBankScope!=='function')fail('WBS_TEST_IMPORT_CONFIG_INVALID','Controlled test Bank importer kernel is unavailable.');
+      const result=await importer.createWbsControlledTestBankScope({tenantId,entityId,periodId,companyCode,observation,bankAccountRef:'WBS_TEST_BANK',idempotencyKey});
+      return Object.freeze(assertWbsControlledTestBankResult(result));
     }
   });
 }
