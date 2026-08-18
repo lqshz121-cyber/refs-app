@@ -13,7 +13,7 @@ import { watchRetainedRoute } from '../src/authoritative-app.jsx';
 assert.ok(AUTHORITATIVE_NAVIGATION.length >= 10, 'the production catalog keeps the complete major workspace taxonomy discoverable');
 assert.ok(AUTHORITATIVE_ROUTES.includes('project-cost-cwip'));
 assert.ok(AUTHORITATIVE_ROUTES.includes('ai-audit'));
-assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'ai-audit', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
+assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'ai-audit', 'ai-je-workbench', 'amortization', 'bank', 'bank-batch-pipeline', 'chart-of-accounts', 'consolidation', 'construction-loan', 'general-ledger', 'intercompany', 'journals', 'overview', 'payables', 'project-cost-cwip', 'property-ops-pickup', 'receivables', 'reconciliation', 'reports', 'source-documents', 'unit-cost-ledger', 'wbs-autorec-evidence', 'wbs-payable-review'].sort());
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
@@ -153,7 +153,8 @@ assert.match(appSource, /AuthoritativeWbsTransitionWorkspace/, 'WBS evidence mus
 assert.match(appSource, /AuthoritativeWbsPayableReviewWorkspace/, 'WBS Payable Review must mount the signed-and-admitted evidence queue rather than an unavailable or browser-backed route');
 assert.match(appSource, /AuthoritativeAiAuditWorkspace/, 'AI Audit Center must mount the authenticated server-backed finding reader rather than a browser-backed audit model');
 assert.match(appSource, /route === 'ai-audit'/, 'AI Audit Center must mount at its stable authoritative route');
-assert.match(appSource, /'ai-audit','wbs-autorec-evidence'/, 'AI Audit Center must not fall through to the unavailable workspace after mounting');
+assert.match(appSource, /'ai-audit','ai-je-workbench','wbs-autorec-evidence'/, 'AI Audit and AI JE workspaces must not fall through to the unavailable workspace after mounting');
+assert.match(appSource, /AuthoritativeAiJeWorkspace/, 'AI JE Workbench must mount the authoritative proposal-to-Draft workspace');
 assert.match(appSource, /route === 'wbs-payable-review'/, 'the WBS Payable Review entry must have a stable authoritative route');
 assert.match(appSource, /AuthoritativeBankBatchPipelineWorkspace/, 'Bank Batch Pipeline must compose existing authoritative Bank and Reconciliation readers rather than fail closed as an unavailable route');
 assert.match(appSource, /route === 'bank-batch-pipeline'/, 'the API-backed Bank Batch Pipeline must mount at its stable navigation route');

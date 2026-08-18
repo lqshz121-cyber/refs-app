@@ -7,6 +7,30 @@ const kernel={createManualJournal:invoke('createManualJournal'),createAutoJourna
 const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'maker'}),kernelFactory:async()=>kernel});
 const command=(path,body={},headers={})=>api({method:'POST',url:path,body,headers:{'Idempotency-Key':'idem-key-0001',...headers}});
 
+test('AI amortization schedule GET and Draft POST preserve exact scope, no-store, and Draft-only output',async()=>{
+  const scheduleId=randomUUID(),scheduleLineId=randomUUID(),attachmentId=randomUUID(),draftEvidenceId=randomUUID(),observed=[];
+  const schedule=[{ai_amortization_schedule_id:scheduleId,eligible_source_attachment_ids:[attachmentId],schedule_lines:[{ai_amortization_schedule_line_id:scheduleLineId}],can_create_draft:false,can_review:false,can_approve:false,can_post:false}];
+  const routeApi=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'ai-reader-maker'}),kernelFactory:async()=>({
+    listAiAmortizationSchedules:async args=>(observed.push(['read',args]),schedule),
+    createAiAmortizationDraft:async args=>(observed.push(['draft',args]),{ai_amortization_draft_evidence_id:draftEvidenceId,journal_entry_id:journalEntryId,status:'DRAFT',revision:0,journal_type:'MANUAL',can_create_draft:false,can_review:false,can_approve:false,can_post:false,idempotent:false})
+  })});
+  const readPath=`/api/v1/entities/${entityId}/ai/amortization/schedules`;
+  let response=await routeApi({method:'GET',url:`${readPath}?limit=25`,body:null,headers:{}});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body.data,schedule);assert.deepEqual(observed[0],['read',{tenantId,entityId,limit:25}]);
+  for(const request of [
+    {method:'GET',url:readPath,body:{},headers:{}},
+    {method:'GET',url:`${readPath}?unexpected=true`,body:null,headers:{}},
+    {method:'GET',url:readPath,body:null,headers:{'Idempotency-Key':'forbidden'}},
+    {method:'GET',url:readPath,body:null,headers:{'If-Match':'"0"'}},
+  ])assert.equal((await routeApi(request)).status,400);
+  const proposalHash='sha256:'+'a'.repeat(64),draftPath=`${readPath}/${scheduleId}/drafts`,draftBody={periodId,scheduleLineId,expectedProposalHash:proposalHash,attachmentIds:[attachmentId],reason:'Maker creates one human-controlled Draft from the immutable schedule line.'};
+  response=await routeApi({method:'POST',url:draftPath,body:draftBody,headers:{'Idempotency-Key':'stable-ai-draft-0001'}});
+  assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.status,'DRAFT');assert.equal(response.body.data.can_post,false);
+  assert.deepEqual(observed[1],['draft',{tenantId,entityId,aiAmortizationScheduleId:scheduleId,aiAmortizationScheduleLineId:scheduleLineId,periodId,expectedProposalHash:proposalHash,attachmentIds:[attachmentId],reason:draftBody.reason,idempotencyKey:'stable-ai-draft-0001'}]);
+  assert.equal((await routeApi({method:'POST',url:draftPath,body:draftBody,headers:{'Idempotency-Key':'stable-ai-draft-0001','If-Match':'"0"'}})).body.code,'IF_MATCH_NOT_ALLOWED');
+  assert.equal((await routeApi({method:'POST',url:`${draftPath}?unexpected=true`,body:draftBody,headers:{'Idempotency-Key':'stable-ai-draft-0001'}})).body.code,'UNEXPECTED_QUERY_PARAMETER');
+});
+
 test('self-service Stage 1 activation derives only the signed-in principal and fixed entity scope',async()=>{
   const activationCalls=[];
   const selfService=createAccountingApi({
