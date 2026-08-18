@@ -351,6 +351,7 @@ test('AI accrual analysis returns a closed bounded no-action evidence contract',
   const candidate=contract.components.schemas.AiAccrualCandidate;
   assert.equal(candidate.additionalProperties,false);assert.deepEqual(candidate.required,Object.keys(candidate.properties));
   assert.equal(candidate.properties.status.const,'ACCRUAL_CANDIDATE_REVIEW_REQUIRED');assert.equal(candidate.properties.rule_id.const,'RECURRING_OBLIGATION_MISSING_CURRENT_PERIOD');
+  for(const field of ['recurring_obligation_id','service_frequency'])assert.deepEqual(candidate.properties[field].type,['string','null']);
   assert.equal(candidate.properties.historical_amounts.minItems,3);assert.equal(candidate.properties.historical_amounts.maxItems,3);
   assert.equal(candidate.properties.prior_source_trace.minItems,3);assert.equal(candidate.properties.prior_source_trace.maxItems,3);assert.equal(candidate.properties.prior_source_trace.items.$ref,'#/components/schemas/AiAccrualSourceTrace');
   assert.equal(candidate.properties.required_human_fields.items,false);assert.deepEqual(candidate.properties.required_human_fields.prefixItems.map(item=>item.const),['owner','due_date','accrual_basis','account_mapping','member_trace','reversing_entry_decision']);
@@ -360,6 +361,7 @@ test('AI accrual analysis returns a closed bounded no-action evidence contract',
   assert.equal(trace.additionalProperties,false);assert.deepEqual(trace.required,Object.keys(trace.properties));
   for(const field of ['source_document_id','source_document_line_id','accounting_period_id'])assert.equal(trace.properties[field].$ref,'#/components/schemas/Uuid');
   for(const field of ['source_payload_hash','source_line_hash'])assert.equal(trace.properties[field].pattern,'^sha256:[0-9a-f]{64}$');
+  for(const field of ['recurring_obligation_id','service_frequency','obligation_status'])assert.deepEqual(trace.properties[field].type,['string','null']);
 });
 
 test('Stage 1 WBS operator self-upgrade is a closed exact-scope command',()=>{
