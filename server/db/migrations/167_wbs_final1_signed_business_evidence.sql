@@ -65,6 +65,28 @@ LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
   SELECT refs_jsonb_hash(jsonb_build_object('row_count',p_row_count,'per_currency_totals',p_totals))
 $$;
 
+CREATE FUNCTION refs_assert_wbs_final1_signed_artifacts(p_delivery jsonb,p_artifacts jsonb) RETURNS void
+LANGUAGE plpgsql SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE v_artifact text;
+BEGIN
+  IF jsonb_typeof(p_artifacts)<>'object' OR (SELECT count(*) FROM jsonb_object_keys(p_artifacts))<>4 THEN RAISE EXCEPTION 'Final-1 requires exactly four immutable artifacts' USING ERRCODE='22023'; END IF;
+  FOREACH v_artifact IN ARRAY ARRAY['receipt','request','response','package'] LOOP
+    IF NOT (p_artifacts ? v_artifact) OR (SELECT count(*) FROM jsonb_object_keys(p_artifacts->v_artifact))<>9
+       OR p_artifacts#>>ARRAY[v_artifact,'storage_ref'] !~ '^s3://'
+       OR COALESCE(p_artifacts#>>ARRAY[v_artifact,'storage_version'],'')='' OR p_artifacts#>>ARRAY[v_artifact,'storage_version'] ~ '^pending:'
+       OR p_artifacts#>>ARRAY[v_artifact,'content_hash'] !~ '^sha256:[0-9a-f]{64}$'
+       OR p_artifacts#>>ARRAY[v_artifact,'content_hash'] IS DISTINCT FROM CASE v_artifact WHEN 'receipt' THEN p_delivery->>'receipt_hash' WHEN 'request' THEN p_delivery->>'request_raw_hash' WHEN 'response' THEN p_delivery->>'response_raw_hash' ELSE p_delivery->>'package_raw_hash' END
+       OR COALESCE(p_artifacts#>>ARRAY[v_artifact,'size_bytes'],'') !~ '^[1-9][0-9]{0,7}$' OR (p_artifacts#>>ARRAY[v_artifact,'size_bytes'])::bigint>33554432
+       OR p_artifacts#>>ARRAY[v_artifact,'media_type'] IS DISTINCT FROM CASE WHEN v_artifact IN ('receipt','package') THEN 'application/json' ELSE 'application/octet-stream' END
+       OR p_artifacts#>>ARRAY[v_artifact,'retentionMode']<>'COMPLIANCE' OR (p_artifacts#>>ARRAY[v_artifact,'retainUntil'])::timestamptz<=clock_timestamp()
+       OR (p_artifacts#>>ARRAY[v_artifact,'scan_clean'])::boolean IS DISTINCT FROM true
+       OR p_artifacts#>>ARRAY[v_artifact,'scan_ref'] IS DISTINCT FROM 'clamav:'||substring(p_artifacts#>>ARRAY[v_artifact,'content_hash'] from 8)||':clean' THEN
+      RAISE EXCEPTION 'Every Final-1 artifact requires exact hash, size, media type, immutable COMPLIANCE version, future retention, and CLEAN scan' USING ERRCODE='22023';
+    END IF;
+  END LOOP;
+END;
+$$;
+
 CREATE FUNCTION refs_record_wbs_final1_signed_control_total(p_tenant uuid,p_entity uuid,p_admission uuid,p_row_count integer,p_totals jsonb,p_hash text) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 DECLARE v_actor text:=refs_current_actor();v_domain text;v_existing wbs_final1_signed_control_total;v_prior text:='';v_item jsonb;v_audit uuid:=gen_random_uuid();v_payload jsonb;v_recomputed_count integer;v_recomputed_totals jsonb;
@@ -105,16 +127,14 @@ $$;
 
 CREATE FUNCTION refs_retain_wbs_final1_business_evidence(p_tenant uuid,p_entity uuid,p_delivery jsonb,p_artifacts jsonb,p_plan jsonb,p_idempotency_key text,p_request_hash text) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
-DECLARE v_actor text:=refs_current_actor();v_domain text:=p_delivery->>'domain';v_tool text:=p_delivery->>'source_tool';v_company text:=p_delivery->>'company_code';v_rows jsonb:=p_plan->'evidence_rows';v_row jsonb;v_expected integer:=0;v_period uuid;v_period_count integer;v_import uuid:=gen_random_uuid();v_admission uuid:=(p_delivery->>'admission_id')::uuid;v_raw uuid;v_doc uuid;v_line uuid;v_business_row uuid;v_amount numeric(20,4);v_date date;v_status source_status;v_payload jsonb;v_response jsonb;v_idem idempotency_receipt;v_computed_totals jsonb;v_computed_hash text;v_mapping_count integer;v_artifact text;
+DECLARE v_actor text:=refs_current_actor();v_domain text:=p_delivery->>'domain';v_tool text:=p_delivery->>'source_tool';v_company text:=p_delivery->>'company_code';v_rows jsonb:=p_plan->'evidence_rows';v_row jsonb;v_expected integer:=0;v_period uuid;v_period_count integer;v_import uuid:=gen_random_uuid();v_admission uuid:=(p_delivery->>'admission_id')::uuid;v_raw uuid;v_doc uuid;v_line uuid;v_business_row uuid;v_amount numeric(20,4);v_date date;v_status source_status;v_payload jsonb;v_response jsonb;v_idem idempotency_receipt;v_computed_totals jsonb;v_computed_hash text;v_mapping_count integer;
 BEGIN
   PERFORM refs_assert_scope(p_tenant,p_entity,'WBS.SNAPSHOT.IMPORT');
   IF v_actor IS NULL THEN RAISE EXCEPTION 'Authenticated Final-1 service actor missing' USING ERRCODE='42501'; END IF;
   IF v_domain NOT IN ('BANK','COST','PROPERTY') OR (v_domain='BANK' AND v_tool<>'list_bank_transactions') OR (v_domain IN ('COST','PROPERTY') AND v_tool<>'list_control_totals') THEN RAISE EXCEPTION 'Final-1 business domain/tool is not server allowlisted' USING ERRCODE='22023'; END IF;
   IF p_request_hash IS DISTINCT FROM refs_wbs_final1_business_evidence_hash(p_tenant,p_entity,p_delivery,p_artifacts,p_plan) THEN RAISE EXCEPTION 'Final-1 business request hash is not canonical' USING ERRCODE='22023'; END IF;
   IF jsonb_typeof(v_rows)<>'array' OR jsonb_array_length(v_rows)=0 OR jsonb_array_length(v_rows)<>(p_delivery->>'row_count')::integer OR p_plan->>'status'<>'NORMALIZED_FINAL1_BUSINESS_EVIDENCE_PLAN' OR p_plan#>>'{provenance,tenant_id}' IS DISTINCT FROM p_tenant::text OR p_plan#>>'{provenance,entity_id}' IS DISTINCT FROM p_entity::text OR p_plan#>>'{provenance,domain}' IS DISTINCT FROM v_domain OR p_plan#>>'{provenance,source_tool}' IS DISTINCT FROM v_tool OR p_plan#>>'{provenance,control_totals_hash}' IS DISTINCT FROM p_delivery->>'control_totals_hash' OR COALESCE((p_plan->>'can_create_transaction')::boolean,true) OR COALESCE((p_plan->>'can_create_draft')::boolean,true) OR COALESCE((p_plan->>'can_post')::boolean,true) THEN RAISE EXCEPTION 'Final-1 business plan is malformed or action-enabled' USING ERRCODE='22023'; END IF;
-  FOREACH v_artifact IN ARRAY ARRAY['receipt','request','response','package'] LOOP
-    IF NOT (p_artifacts ? v_artifact) OR p_artifacts#>>ARRAY[v_artifact,'storage_ref'] !~ '^s3://' OR COALESCE(p_artifacts#>>ARRAY[v_artifact,'storage_version'],'')='' OR p_artifacts#>>ARRAY[v_artifact,'content_hash'] !~ '^sha256:[0-9a-f]{64}$' OR p_artifacts#>>ARRAY[v_artifact,'content_hash'] IS DISTINCT FROM CASE v_artifact WHEN 'receipt' THEN p_delivery->>'receipt_hash' WHEN 'request' THEN p_delivery->>'request_raw_hash' WHEN 'response' THEN p_delivery->>'response_raw_hash' ELSE p_delivery->>'package_raw_hash' END OR COALESCE(p_artifacts#>>ARRAY[v_artifact,'size_bytes'],'') !~ '^[1-9][0-9]{0,7}$' OR (p_artifacts#>>ARRAY[v_artifact,'size_bytes'])::bigint>33554432 OR p_artifacts#>>ARRAY[v_artifact,'media_type'] IS DISTINCT FROM CASE WHEN v_artifact IN ('receipt','package') THEN 'application/json' ELSE 'application/octet-stream' END OR p_artifacts#>>ARRAY[v_artifact,'retentionMode']<>'COMPLIANCE' OR (p_artifacts#>>ARRAY[v_artifact,'retainUntil'])::timestamptz<=clock_timestamp() OR (p_artifacts#>>ARRAY[v_artifact,'scan_clean'])::boolean IS DISTINCT FROM true OR p_artifacts#>>ARRAY[v_artifact,'scan_ref'] IS DISTINCT FROM 'clamav:'||substring(p_artifacts#>>ARRAY[v_artifact,'content_hash'] from 8)||':clean' THEN RAISE EXCEPTION 'Every Final-1 artifact requires exact hash, size, media type, immutable COMPLIANCE version, future retention, and CLEAN scan' USING ERRCODE='22023'; END IF;
-  END LOOP;
+  PERFORM refs_assert_wbs_final1_signed_artifacts(p_delivery,p_artifacts);
   SELECT count(*) INTO v_mapping_count FROM wbs_company_catalog_controller_decision d WHERE d.tenant_id=p_tenant AND d.entity_id=p_entity AND d.decision_type='APPROVED' AND d.active_status='ACTIVE' AND d.company_code=v_company AND d.base_currency='USD' AND d.effective_from<=(p_delivery->>'date_from')::date AND (d.effective_to IS NULL OR d.effective_to>=(p_delivery->>'date_to')::date) AND d.mapping_document->>'refs_entity_id'=p_entity::text AND d.mapping_document->>'mapping_hash'=d.mapping_hash AND refs_jsonb_hash(d.mapping_document-'mapping_hash')=d.mapping_hash;
   IF v_mapping_count<>1 THEN RAISE EXCEPTION 'Final-1 business company mapping is missing or ambiguous' USING ERRCODE='42501'; END IF;
   SELECT jsonb_agg(jsonb_build_object('currency',currency,'gross_amount',gross::numeric(20,4)::text) ORDER BY currency) INTO v_computed_totals FROM (SELECT value->>'currency' currency,sum(abs((value->>'gross_amount')::numeric(20,4))) gross FROM jsonb_array_elements(v_rows) GROUP BY value->>'currency') q;
@@ -153,9 +173,21 @@ BEGIN
 END;
 $$;
 
+CREATE FUNCTION refs_retain_wbs_final1_source_evidence_with_signed_controls(p_tenant uuid,p_entity uuid,p_delivery jsonb,p_artifacts jsonb,p_plan jsonb,p_idempotency_key text,p_request_hash text) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE v_result jsonb;
+BEGIN
+  PERFORM refs_assert_wbs_final1_signed_artifacts(p_delivery,p_artifacts);
+  v_result:=refs_retain_wbs_final1_source_evidence(p_tenant,p_entity,p_delivery,p_artifacts,p_plan,p_idempotency_key,p_request_hash);
+  PERFORM refs_record_wbs_final1_signed_control_total(p_tenant,p_entity,(v_result->>'admission_id')::uuid,(p_delivery->>'row_count')::integer,p_delivery->'per_currency_totals',p_delivery->>'control_totals_hash');
+  RETURN v_result;
+END;
+$$;
+
 REVOKE ALL ON wbs_final1_signed_control_total,wbs_final1_signed_business_source_row FROM PUBLIC,refs_app;
 GRANT SELECT ON wbs_final1_signed_control_total,wbs_final1_signed_business_source_row TO refs_app;
-REVOKE ALL ON FUNCTION refs_wbs_final1_control_totals_hash(integer,jsonb),refs_record_wbs_final1_signed_control_total(uuid,uuid,uuid,integer,jsonb,text),refs_wbs_final1_business_evidence_hash(uuid,uuid,jsonb,jsonb,jsonb),refs_retain_wbs_final1_business_evidence(uuid,uuid,jsonb,jsonb,jsonb,text,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION refs_wbs_final1_control_totals_hash(integer,jsonb),refs_record_wbs_final1_signed_control_total(uuid,uuid,uuid,integer,jsonb,text),refs_wbs_final1_business_evidence_hash(uuid,uuid,jsonb,jsonb,jsonb),refs_retain_wbs_final1_business_evidence(uuid,uuid,jsonb,jsonb,jsonb,text,text) TO refs_app;
+REVOKE ALL ON FUNCTION refs_wbs_final1_control_totals_hash(integer,jsonb),refs_assert_wbs_final1_signed_artifacts(jsonb,jsonb),refs_record_wbs_final1_signed_control_total(uuid,uuid,uuid,integer,jsonb,text),refs_wbs_final1_business_evidence_hash(uuid,uuid,jsonb,jsonb,jsonb),refs_retain_wbs_final1_business_evidence(uuid,uuid,jsonb,jsonb,jsonb,text,text),refs_retain_wbs_final1_source_evidence_with_signed_controls(uuid,uuid,jsonb,jsonb,jsonb,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION refs_assert_wbs_final1_signed_artifacts(jsonb,jsonb),refs_record_wbs_final1_signed_control_total(uuid,uuid,uuid,integer,jsonb,text) FROM refs_app;
+GRANT EXECUTE ON FUNCTION refs_wbs_final1_control_totals_hash(integer,jsonb),refs_wbs_final1_business_evidence_hash(uuid,uuid,jsonb,jsonb,jsonb),refs_retain_wbs_final1_business_evidence(uuid,uuid,jsonb,jsonb,jsonb,text,text),refs_retain_wbs_final1_source_evidence_with_signed_controls(uuid,uuid,jsonb,jsonb,jsonb,text,text) TO refs_app;
 
 COMMIT;

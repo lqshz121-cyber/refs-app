@@ -305,7 +305,7 @@ export class PostgresAccountingKernel{
         `SELECT mapping_hash,mapping_document,effective_from,effective_to
            FROM wbs_company_catalog_controller_decision
           WHERE tenant_id=$1 AND entity_id=$2 AND decision_type='APPROVED'
-            AND company_code=$3 AND base_currency=$4 AND effective_from<=$5::date
+            AND active_status='ACTIVE' AND company_code=$3 AND base_currency=$4 AND effective_from<=$5::date
             AND (effective_to IS NULL OR effective_to>=$6::date)`,
         [tenantId,entityId,entity.company_code,entity.base_currency,dateFrom,dateTo]
       )).rows;
@@ -331,10 +331,9 @@ export class PostgresAccountingKernel{
         [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan)]
       ),'WBS_FINAL1_RETAINED_HASH_FAILED','Final-1 retained evidence hash was not produced').request_hash;
       const result=requireRow(await client.query(
-        'SELECT refs_retain_wbs_final1_source_evidence($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7) AS result',
+        'SELECT refs_retain_wbs_final1_source_evidence_with_signed_controls($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7) AS result',
         [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan),idempotencyKey,requestHash]
       ),'WBS_FINAL1_RETAINED_SOURCE_FAILED','Final-1 retained evidence admission did not return a result').result;
-      await client.query('SELECT refs_record_wbs_final1_signed_control_total($1,$2,$3,$4,$5::jsonb,$6)',[tenantId,entityId,result.admission_id,delivery.row_count,JSON.stringify(delivery.per_currency_totals),delivery.control_totals_hash]);
       return result;
     });
   }
