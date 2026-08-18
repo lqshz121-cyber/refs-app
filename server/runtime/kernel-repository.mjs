@@ -9,6 +9,15 @@ function assertTrustedSession(session){
   return session;
 }
 
+// node-postgres materializes PostgreSQL DATE values as local-midnight Date
+// objects in this runtime.  JSON serialization would turn those values into
+// timestamps (and can shift their calendar day), while the public accounting
+// read contract deliberately exposes ISO calendar dates only.
+function publicDate(value){
+  if(!(value instanceof Date))return value;
+  return `${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;
+}
+
 export class PostgresAccountingKernel{
   constructor(pool,{sessionProvider,runtimeLoginAllowlist=['refs_runtime'],wbsSnapshotVerifier=null,wbsAutoRecTransitionContractVerifier=null,wbsSignedBankAdmissionVerifier=null}={}){
     if(typeof sessionProvider!=='function')throw new KernelError('SESSION_PROVIDER_REQUIRED','A trusted session provider is required');
@@ -1016,14 +1025,14 @@ export class PostgresAccountingKernel{
     if(!['AP_BILL','AR_INVOICE'].includes(documentKind))throw new KernelError('BUSINESS_DOCUMENT_KIND_INVALID','Unsupported business document kind');
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_business_documents($1,$2,$3)',[tenantId,entityId,documentKind]
-    )).rows);
+    )).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date),due_date:row.due_date==null?null:publicDate(row.due_date)})));
   }
 
   async listBusinessAdjustments({tenantId,entityId,module}){
     if(!['AP','AR'].includes(module))throw new KernelError('BUSINESS_ADJUSTMENT_MODULE_INVALID','Unsupported business adjustment module');
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_business_adjustments($1,$2,$3)',[tenantId,entityId,module]
-    )).rows);
+    )).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date)})));
   }
 
   async listJournalEntries({tenantId,entityId}){

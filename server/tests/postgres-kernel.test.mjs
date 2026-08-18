@@ -25,6 +25,7 @@ import {createWbsProviderSignedPayableAdmission} from '../runtime/wbs-provider-s
 import {createWbsAdmittedPayableIngestion} from '../runtime/wbs-admitted-payable-ingestion.mjs';
 import {normalizeWbsCompanyCatalogCandidate,wbsCompanyCatalogCanonicalHash,normalizeWbsCompanyClassification} from '../runtime/wbs-company-catalog-controller.mjs';
 import {createWbsAdmittedCostCwipIngestion} from '../runtime/wbs-admitted-cost-cwip-ingestion.mjs';
+import {refreshAuthoritativeDocuments} from '../../src/accounting-api.js';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -458,6 +459,14 @@ pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while r
   assert.deepEqual({debit:expense.period_debit,credit:expense.period_credit,balance:expense.display_balance},{debit:'21.3000',credit:'0.0000',balance:'21.3000'});
   assert.deepEqual({debit:payable.period_debit,credit:payable.period_credit,balance:payable.display_balance},{debit:'0.0000',credit:'21.3000',balance:'-21.3000'});
   assert.equal(incomeExpense.display_balance,'21.3000');assert.equal(incomeExpense.journal_entry_ids.length,10);assert.equal(incomeExpense.source_document_ids.length,10);
+  const listedBills=await reader.listBusinessDocuments({tenantId:ids.tenantId,entityId:ids.entityId,documentKind:'AP_BILL'});
+  assert.equal(listedBills.length,10);
+  const clientRead=await refreshAuthoritativeDocuments({config:{baseUrl:'https://accounting.test',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>`test-token-${'a'.repeat(32)}`},fetcher:async url=>{
+    const path=new URL(url).pathname;
+    const data=path.endsWith('/ap/bills')?listedBills:[];
+    return {ok:true,status:200,json:async()=>({ok:true,data})};
+  }});
+  assert.equal(clientRead.ok,true,JSON.stringify({clientRead,listedBills}));
   assert.deepEqual((await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='120200'",[ids.tenantId,ids.entityId])).rows[0],untouchedAccount);
   assert.deepEqual((await adminPool.query("SELECT requires_member,required_member_type FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[other.tenantId,other.entityId])).rows[0],{requires_member:false,required_member_type:null});
   assert.deepEqual((await adminPool.query('SELECT source_system,source_entity_id FROM entity WHERE tenant_id=$1 AND entity_id=$2',[other.tenantId,other.entityId])).rows[0],otherEntityBinding);
