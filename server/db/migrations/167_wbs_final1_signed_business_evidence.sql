@@ -75,9 +75,9 @@ BEGIN
        OR p_artifacts#>>ARRAY[v_artifact,'storage_ref'] !~ '^s3://'
        OR COALESCE(p_artifacts#>>ARRAY[v_artifact,'storage_version'],'')='' OR p_artifacts#>>ARRAY[v_artifact,'storage_version'] ~ '^pending:'
        OR p_artifacts#>>ARRAY[v_artifact,'content_hash'] !~ '^sha256:[0-9a-f]{64}$'
-       OR p_artifacts#>>ARRAY[v_artifact,'content_hash'] IS DISTINCT FROM CASE v_artifact WHEN 'receipt' THEN p_delivery->>'receipt_hash' WHEN 'request' THEN p_delivery->>'request_raw_hash' WHEN 'response' THEN p_delivery->>'response_raw_hash' ELSE p_delivery->>'package_raw_hash' END
+       OR p_artifacts#>>ARRAY[v_artifact,'content_hash'] IS DISTINCT FROM (CASE v_artifact WHEN 'receipt' THEN p_delivery->>'receipt_hash' WHEN 'request' THEN p_delivery->>'request_raw_hash' WHEN 'response' THEN p_delivery->>'response_raw_hash' ELSE p_delivery->>'package_raw_hash' END)
        OR COALESCE(p_artifacts#>>ARRAY[v_artifact,'size_bytes'],'') !~ '^[1-9][0-9]{0,7}$' OR (p_artifacts#>>ARRAY[v_artifact,'size_bytes'])::bigint>33554432
-       OR p_artifacts#>>ARRAY[v_artifact,'media_type'] IS DISTINCT FROM CASE WHEN v_artifact IN ('receipt','package') THEN 'application/json' ELSE 'application/octet-stream' END
+       OR p_artifacts#>>ARRAY[v_artifact,'media_type'] IS DISTINCT FROM (CASE WHEN v_artifact IN ('receipt','package') THEN 'application/json' ELSE 'application/octet-stream' END)
        OR p_artifacts#>>ARRAY[v_artifact,'retentionMode']<>'COMPLIANCE' OR (p_artifacts#>>ARRAY[v_artifact,'retainUntil'])::timestamptz<=clock_timestamp()
        OR (p_artifacts#>>ARRAY[v_artifact,'scan_clean'])::boolean IS DISTINCT FROM true
        OR p_artifacts#>>ARRAY[v_artifact,'scan_ref'] IS DISTINCT FROM 'clamav:'||substring(p_artifacts#>>ARRAY[v_artifact,'content_hash'] from 8)||':clean' THEN
