@@ -813,7 +813,7 @@ const providerTraceCompany=value=>value===null||value===undefined||(typeof value
 const providerTraceDate=value=>value===null||value===undefined||validDate(value);
 const providerTraceActions=value=>Boolean(value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join('|')==='can_approve|can_create_draft|can_post|can_propose_amortization|can_review'&&['can_propose_amortization','can_review','can_create_draft','can_approve','can_post'].every(field=>value[field]===false));
 const providerEvidenceTrace=value=>{
-  if(value===undefined)return undefined;
+  if(value===undefined||value===null)return undefined;
   if(!value||typeof value!=='object'||Array.isArray(value))return null;
   const unsupported=()=>Object.freeze({supported:false,reason:'UNSUPPORTED_PROVIDER_TRACE'});
   if(value.trace_version!=='WBS_PROVIDER_SOURCE_TRACE_V1'||!['PAYABLES','INSURANCE'].includes(value.domain))return unsupported();
@@ -839,7 +839,8 @@ const sourceDocumentLine=row=>{
   const nullableText=value=>value===null||value===undefined||TEXT_TOKEN.test(value);
   const trace=providerEvidenceTrace(row?.provider_trace);
   if(!row||!UUID.test(row.source_document_line_id||'')||!TEXT_TOKEN.test(row.source_line_id||'')||!Number.isSafeInteger(row.line_no)||row.line_no<1||!REPORT_MONEY4.test(String(row.amount??''))||!['DEBIT','CREDIT','INFLOW','OUTFLOW','NONE'].includes(row.direction)||!['party_ref','bank_account_ref','project_ref','property_ref','phase_ref','unit_ref','loan_ref','cost_code_ref'].every(field=>nullableText(row[field]))||trace===null)return null;
-  return {...row,amount:String(row.amount),...(trace===undefined?{}:{provider_trace:trace})};
+  const {provider_trace:_providerTrace,...line}=row;
+  return {...line,amount:String(row.amount),...(trace===undefined?{}:{provider_trace:trace})};
 };
 
 export async function refreshAuthoritativeSourceDocuments({config,fetcher=globalThis.fetch}={}){
@@ -859,7 +860,7 @@ export async function readAuthoritativeSourceDocumentDetail({config,sourceDocume
   if(!detail||detail.source_document_id!==sourceDocumentId||!lines||lines.some(line=>line===null)||lines.length!==detail.source_line_count||new Set(lines.map(line=>line?.source_document_line_id)).size!==lines.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned invalid Source Document detail evidence.'};
   const providerLines=lines.filter(line=>line?.provider_trace);
   if(providerLines.length&& !/\bno-store\b/i.test(result.cacheControl||''))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned provider trace without a no-store response.'};
-  if(lines.some(line=>line.provider_trace?.supported!==false&&line.provider_trace?.source_payload_hash!==detail.payload_hash))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned provider trace detached from its source payload hash.'};
+  if(lines.some(line=>line.provider_trace&&line.provider_trace.supported!==false&&line.provider_trace.source_payload_hash!==detail.payload_hash))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned provider trace detached from its source payload hash.'};
   return {ok:true,detail:{...detail,lines},scope:{entityId:config.entityId,sourceDocumentId}};
 }
 
