@@ -6,6 +6,7 @@ const contract=JSON.parse(await readFile(new URL('../api/openapi-accounting.json
 
 test('reconciliation OpenAPI mirrors the scoped optimistic lifecycle and controlled adjustment Draft boundary',()=>{
   const worksheet=contract.paths['/entities/{entityId}/bank/reconciliations/{reconciliationId}/worksheet'].get;
+  const scopes=contract.paths['/entities/{entityId}/bank/reconciliations/scopes'].get;
   const start=contract.paths['/entities/{entityId}/bank/reconciliations'].post;
   const admittedStart=contract.paths['/entities/{entityId}/bank/reconciliations/from-admitted-statement'].post;
   const admittedList=contract.paths['/entities/{entityId}/bank/reconciliations/admitted-statements'].get;
@@ -15,6 +16,7 @@ test('reconciliation OpenAPI mirrors the scoped optimistic lifecycle and control
   const transition=contract.paths['/entities/{entityId}/bank/reconciliations/{reconciliationId}/transitions/{action}'].post;
   const adjustment=contract.paths['/entities/{entityId}/bank/reconciliations/{reconciliationId}/adjustment-drafts'].post;
   assert.equal(start.operationId,'startReconciliation');assert.match(start.description,/cannot create or post a Journal Entry/i);
+  assert.equal(scopes.operationId,'listReconciliationScopes');assert.match(scopes.description,/cannot start, clear, review, sign off, reopen, create a Journal Entry, or post/i);assert.equal(scopes.parameters.find(item=>item.name==='limit').schema.maximum,200);assert.equal(scopes.responses['200'].$ref,'#/components/responses/ReconciliationScopeListOk');
   assert.equal(admittedStart.operationId,'startReconciliationFromAdmittedWbsStatement');assert.match(admittedStart.description,/derives the bank account, currency, statement dates, opening and ending balances/i);assert.match(admittedStart.description,/never matches, clears, reviews, signs off, creates a Journal Entry, or posts/i);
   assert.equal(admittedList.operationId,'listAdmittedWbsBankStatementReceipts');assert.match(admittedList.description,/both BANK\.VIEW and BANK\.RECONCILIATION\.START/i);assert.match(admittedList.description,/No provider payload reference/i);
   assert.equal(admittedList.parameters.find(item=>item.name==='limit').schema.maximum,50);assert.equal(admittedList.responses['200'].$ref,'#/components/responses/AdmittedWbsBankStatementListOk');
@@ -38,6 +40,7 @@ test('reconciliation OpenAPI mirrors the scoped optimistic lifecycle and control
   const row=contract.components.schemas.ReconciliationWorksheetRow;
   assert.equal(row.additionalProperties,false);assert.deepEqual(row.properties.clearance_state.enum,['NOT_CLEARED','CLEARED','UNCLEARED']);
   assert.equal(contract.components.responses.ReconciliationWorksheetOk.headers['Cache-Control'].$ref,'#/components/headers/NoStore');
+  const scopeRow=contract.components.schemas.ReconciliationScopeRow;assert.equal(scopeRow.additionalProperties,false);assert.deepEqual(scopeRow.required,['reconciliation_id','bank_account_ref','statement_ending_date','currency','status','version']);assert.deepEqual(scopeRow.properties.status.enum,['DRAFT','IN_REVIEW','RECONCILED','REOPENED']);assert.equal(contract.components.responses.ReconciliationScopeListOk.headers['Cache-Control'].schema.const,'no-store');
   const admittedRow=contract.components.schemas.AdmittedWbsBankStatementReadRow;assert.equal(admittedRow.additionalProperties,false);assert.deepEqual(admittedRow.properties.selection_state.enum,['ALREADY_STARTED','BLOCKED_OPEN_RECONCILIATION','AVAILABLE_FOR_SERVER_VALIDATION']);
   for(const forbidden of ['statement_id','statement_payload_ref','signature_key_id','source_document_id','bank_source_id'])assert.equal(Object.hasOwn(admittedRow.properties,forbidden),false);
 });

@@ -23,6 +23,7 @@ assert.match(namedBankInitial,/Wan Pacific Real Estate Development LLC/);assert.
 
 const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/One authoritative statement cutoff/);
+assert.match(reconciliationInitial,/Available reconciliation scopes/);assert.match(reconciliationInitial,/Discovering reconciliation scopes/);assert.match(reconciliationInitial,/READ ONLY/);
 assert.match(reconciliationInitial,/Signed admitted statements/);assert.match(reconciliationInitial,/SIGNED \+ ADMITTED/);assert.match(reconciliationInitial,/separate from UNSIGNED PILOT/);assert.match(reconciliationInitial,/Load signed statements/);
 const admittedInitial=renderToStaticMarkup(<AuthoritativeAdmittedStatements config={config} bankAccountRef="BANK-1" fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(admittedInitial,/Signed statement read not requested/);assert.match(admittedInitial,/Bank account BANK-1/);assert.match(admittedInitial,/SERVER REVALIDATED/);assert.doesNotMatch(admittedInitial,/Start Draft from signed statement/);
@@ -118,6 +119,9 @@ assert.doesNotMatch(source,/statementOpeningBalance|statementEndingBalance/,'The
 assert.match(source,/setAuthoritativeReconciliationClearance/,'Clear and Unclear must use the authoritative command client');
 assert.doesNotMatch(source,/Start DRAFT reconciliation|Start controlled reconciliation/,'A missing scoped statement must fail closed instead of presenting a false Start Draft affordance');
 assert.match(source,/transitionAuthoritativeReconciliation/,'Review, sign-off, and reopen must use the authoritative lifecycle command client');
+assert.match(source,/REOPENED:\{action:'REVIEW',label:'Send reopened statement to independent review'\}/,'A reopened reconciliation must be able to re-enter the existing independent review command');
+assert.match(source,/refreshAuthoritativeReconciliationScopes/,'Reconciliation account and cutoff selection must come from an authoritative discovery read');
+assert.match(source,/aria-label="Existing reconciliation statement"/,'Discovered reconciliation scopes must be selectable without freehand account and cutoff entry');
 assert.match(source,/item\.match_status==='ACTIVE'/,'Only a server-returned active Match may expose Clear');
 assert.match(source,/row:item/,'Clearance command must receive the selected server worksheet row, not the reconciliation summary');
 assert.match(source,/const reasonReady=reason\.trim\(\)\.length>=8/,'Clearance commands must require a non-blank controller reason before they can be clicked');

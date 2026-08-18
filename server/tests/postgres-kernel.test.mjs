@@ -3165,6 +3165,7 @@ pgTest('bank and reconciliation reads enforce permission, tenant, entity, accoun
 
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bank-denied',['AP.VIEW'])});
   await assert.rejects(denied.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1'}),error=>error.code==='42501');
+  await assert.rejects(denied.listReconciliationScopes({tenantId:ids.tenantId,entityId:ids.entityId}),error=>error.code==='42501');
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bank-reader',['BANK.VIEW'])});
   const rows=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:25});
   assert.equal(rows.length,1);assert.equal(rows[0].bank_source_id,bankSourceId);assert.equal(rows[0].bank_match_id,bankMatchId);
@@ -3186,6 +3187,12 @@ pgTest('bank and reconciliation reads enforce permission, tenant, entity, accoun
   assert.equal(summaries[0].bank_transaction_count,'1');assert.equal(summaries[0].active_match_count,'1');assert.equal(summaries[0].unmatched_transaction_count,'0');
   assert.equal(summaries[0].statement_activity_amount,'100.0000');
   assert.deepEqual(await reader.getReconciliationSummary({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-10'}),[]);
+  const scopes=await reader.listReconciliationScopes({tenantId:ids.tenantId,entityId:ids.entityId,limit:25});
+  assert.deepEqual(scopes.map(row=>({id:row.reconciliation_id,account:row.bank_account_ref,date:row.statement_ending_date,status:row.status,version:row.version})),[
+    {id:reconciliationId,account:'BANK-1',date:'2026-07-31',status:'DRAFT',version:'0'},
+    {id:priorReconciliationId,account:'BANK-1',date:'2026-07-10',status:'RECONCILED',version:'0'}
+  ]);
+  await assert.rejects(reader.listReconciliationScopes({tenantId:ids.tenantId,entityId:ids.entityId,limit:201}),error=>error.code==='22023');
   const indexes=(await adminPool.query("SELECT to_regclass('public.bank_source_read_scope_idx') bank, to_regclass('public.reconciliation_live_read_scope_idx') live, to_regclass('public.reconciliation_reconciled_cutoff_idx') cutoff")).rows[0];
   assert.deepEqual(indexes,{bank:'bank_source_read_scope_idx',live:'reconciliation_live_read_scope_idx',cutoff:'reconciliation_reconciled_cutoff_idx'});
 
@@ -3194,6 +3201,8 @@ pgTest('bank and reconciliation reads enforce permission, tenant, entity, accoun
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'bank-reader'}),kernelFactory:async()=>reader});
   const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/bank/reconciliation?bankAccountRef=BANK-1&statementEndingDate=2026-07-31`,body:null,headers:{}});
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data[0].reconciliation_id,reconciliationId);
+  const scopeResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/bank/reconciliations/scopes?limit=25`,body:null,headers:{}});
+  assert.equal(scopeResponse.status,200);assert.equal(scopeResponse.headers['cache-control'],'no-store');assert.deepEqual(scopeResponse.body.data.map(row=>row.reconciliation_id),[reconciliationId,priorReconciliationId]);
 });
 
 pgTest('reconciliation lifecycle is scoped, idempotent, separated by role, snapshotted, and reopen-gated',async()=>{
@@ -3724,10 +3733,15 @@ pgTest('AI amortization creates a human Draft then standard Posted JE with immut
   const trace=await attachAutoSource(ids,{linkJournal:false});
   await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT' WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
   await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,project_ref,property_ref) VALUES($1,$2,$3,'ai-amort-line-1',1,100,'DEBIT','PROJECT-1','PROPERTY-1')",[ids.tenantId,ids.entityId,trace.documentId]);
-  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'source-retainer')",[ids.tenantId,ids.entityId,trace.documentId,attachmentId]);
   const proposer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-analysis-proposer',['AI.AMORTIZATION.PROPOSE'])});
   await proposer.recordAiAmortizationCoverageEvidence({tenantId:ids.tenantId,entityId:ids.entityId,sourceDocumentId:trace.documentId,sourcePayloadHash:hash('auto-doc'),coverageStart:'2026-01-01',coverageEnd:'2026-12-31',evidenceRef:'source_attachment:insurance-policy.pdf#coverage',evidenceHash:hash('insurance-coverage-evidence'),extractionMethod:'HUMAN_VERIFIED_SOURCE_FIELD',idempotencyKey:'ai-human-draft-coverage-0001'});
   const proposal=await proposer.proposeAiAmortizationSchedule({tenantId:ids.tenantId,entityId:ids.entityId,sourceDocumentId:trace.documentId,sourcePayloadHash:hash('auto-doc'),coverageStart:'2026-01-01',coverageEnd:'2026-12-31',prepaidAccountCode:'141500',expenseAccountCode:'610100',memberTrace:{project_ref:'PROJECT-1',property_ref:'PROPERTY-1',allocation_basis:'SOURCE_DIMENSIONED'},confidence:0.95,reason:'Retained insurance source supports a deterministic twelve-month amortization proposal.',idempotencyKey:'ai-human-draft-proposal-0001'});
+  const scheduleReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-schedule-attachment-reader',['AI.AMORTIZATION.VIEW'])});
+  const beforeSourceLink=await scheduleReader.listAiAmortizationSchedules({tenantId:ids.tenantId,entityId:ids.entityId,limit:50});
+  assert.deepEqual(beforeSourceLink[0].eligible_source_attachment_ids,[],'same-entity attachment not linked to this source document must stay ineligible');
+  await adminPool.query("INSERT INTO source_link(tenant_id,entity_id,link_type,source_document_id,attachment_id,created_by) VALUES($1,$2,'SOURCE_ATTACHMENT',$3,$4,'source-retainer')",[ids.tenantId,ids.entityId,trace.documentId,attachmentId]);
+  const afterSourceLink=await scheduleReader.listAiAmortizationSchedules({tenantId:ids.tenantId,entityId:ids.entityId,limit:50});
+  assert.deepEqual(afterSourceLink[0].eligible_source_attachment_ids,[attachmentId],'reader must return only the exact source-bound clean attachment');
   const july=(await adminPool.query("SELECT ai_amortization_schedule_line_id,amount::text FROM ai_amortization_schedule_line WHERE tenant_id=$1 AND entity_id=$2 AND ai_amortization_schedule_id=$3 AND amortization_month='2026-07-01'",[ids.tenantId,ids.entityId,proposal.ai_amortization_schedule_id])).rows[0];
   const args={tenantId:ids.tenantId,entityId:ids.entityId,aiAmortizationScheduleId:proposal.ai_amortization_schedule_id,aiAmortizationScheduleLineId:july.ai_amortization_schedule_line_id,periodId:ids.periodId,expectedProposalHash:proposal.proposal_hash,attachmentIds:[attachmentId],reason:'Controller converts the retained July schedule line into a standard Draft for review.',idempotencyKey:'ai-human-draft-create-0001'};
   const sameActor=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-analysis-proposer',['AI.AMORTIZATION.PROPOSE','AI.AMORTIZATION.DRAFT','GL.JE.CREATE'])});

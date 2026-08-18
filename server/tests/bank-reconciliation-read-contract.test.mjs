@@ -26,6 +26,17 @@ test('bank and reconciliation reads require exact scope and expose no mutation a
   assert.ok(calls.every(call=>/^SELECT \* FROM refs_(?:list_bank_transactions|get_reconciliation_summary)/.test(call.sql)));
 });
 
+test('reconciliation scope discovery is a BANK.VIEW-only navigation read',async()=>{
+  const up=await readFile(new URL('../db/migrations/173_bank_reconciliation_scope_read.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/173_bank_reconciliation_scope_read.sql',import.meta.url),'utf8');
+  for(const token of ["'BANK.VIEW'",'refs_assert_scope','r.tenant_id=p_tenant','r.entity_id=p_entity',"'DRAFT','IN_REVIEW','REOPENED','RECONCILED'",'REVOKE ALL','GRANT EXECUTE'])assert.ok(up.includes(token),`scope reader must contain ${token}`);
+  assert.doesNotMatch(up,/\b(?:INSERT INTO|UPDATE |DELETE FROM|refs_transition_reconciliation|refs_post_journal)\b/i);
+  assert.match(down,/DROP FUNCTION refs_list_reconciliation_scopes/);
+  const calls=[],kernel=Object.create(PostgresAccountingKernel.prototype);kernel.inSession=async work=>work({query:async(sql,args)=>{calls.push({sql,args});return {rows:[]};}});
+  assert.deepEqual(await kernel.listReconciliationScopes({tenantId:'tenant',entityId:'entity',limit:25}),[]);
+  assert.deepEqual(calls[0].args,['tenant','entity',25]);assert.match(calls[0].sql,/^SELECT \* FROM refs_list_reconciliation_scopes/);
+});
+
 test('Bank Match candidates are a high-risk scoped read of exact POSTED cash evidence only',async()=>{
   const up=await readFile(new URL('../db/migrations/065_bank_match_candidate_read.sql',import.meta.url),'utf8');
   const down=await readFile(new URL('../db/migrations/down/065_bank_match_candidate_read.sql',import.meta.url),'utf8');

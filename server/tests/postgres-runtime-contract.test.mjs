@@ -20,6 +20,8 @@ const arCreditMemoAllocationDown=await readFile(new URL('../db/migrations/down/0
 const arCreditMemoPostSql=await readFile(new URL('../db/migrations/019_ar_credit_memo_post_reducer.sql',import.meta.url),'utf8');
 const costCwipReviewSql=await readFile(new URL('../db/migrations/132_wbs_cost_cwip_review.sql',import.meta.url),'utf8');
 const costCwipDraftSql=await readFile(new URL('../db/migrations/133_wbs_cost_cwip_draft.sql',import.meta.url),'utf8');
+const aiDraftLineReadSql=await readFile(new URL('../db/migrations/174_ai_amortization_schedule_line_read_identity.sql',import.meta.url),'utf8');
+const aiDraftLineReadDown=await readFile(new URL('../db/migrations/down/174_ai_amortization_schedule_line_read_identity.sql',import.meta.url),'utf8');
 const arCreditMemoPostDown=await readFile(new URL('../db/migrations/down/019_ar_credit_memo_post_reducer.sql',import.meta.url),'utf8');
 const arRefundSql=await readFile(new URL('../db/migrations/020_ar_refund_command.sql',import.meta.url),'utf8');
 const arRefundDown=await readFile(new URL('../db/migrations/down/020_ar_refund_command.sql',import.meta.url),'utf8');
@@ -92,6 +94,12 @@ const journalEntryReadTypeFixDown=await readFile(new URL('../db/migrations/down/
 const bankMatchCandidateReadSql=await readFile(new URL('../db/migrations/065_bank_match_candidate_read.sql',import.meta.url),'utf8');
 const reconciliationAdjustmentPostGuardSql=await readFile(new URL('../db/migrations/068_reconciliation_adjustment_post_guard.sql',import.meta.url),'utf8');
 const reconciliationAdjustmentPostGuardDown=await readFile(new URL('../db/migrations/down/068_reconciliation_adjustment_post_guard.sql',import.meta.url),'utf8');
+
+test('AI amortization schedule reader exposes immutable line identity without granting Draft authority',()=>{
+  assert.match(aiDraftLineReadSql,/ai_amortization_schedule_line_id/i);assert.match(aiDraftLineReadSql,/eligible_source_attachment_ids/);for(const token of ["sl.source_document_id=s.source_document_id","sl.link_type='SOURCE_ATTACHMENT'","a.finalization_status='VERIFIED_CLEAN'","a.scan_status='CLEAN'",'a.verified_at IS NOT NULL','a.finalized_at IS NOT NULL'])assert.match(aiDraftLineReadSql,new RegExp(token.replaceAll('.','\\.')));assert.match(aiDraftLineReadSql,/refs_assert_scope\(p_tenant,p_entity,'AI\.AMORTIZATION\.VIEW'\)/);assert.match(aiDraftLineReadSql,/false,false,false,false/);assert.match(aiDraftLineReadSql,/SECURITY DEFINER/);assert.match(aiDraftLineReadSql,/REVOKE ALL[\s\S]*PUBLIC/);assert.match(aiDraftLineReadSql,/GRANT EXECUTE[\s\S]*refs_app/);
+  assert.doesNotMatch(aiDraftLineReadSql,/AI\.AMORTIZATION\.DRAFT|GL\.JE\.CREATE|refs_create_ai_amortization_draft\(/);
+  assert.doesNotMatch(aiDraftLineReadDown,/jsonb_build_object\('ai_amortization_schedule_line_id'/);assert.match(aiDraftLineReadDown,/jsonb_build_object\('line_no',l\.line_no,'amortization_month'/);
+});
 
 test('migration manifest freezes normalized up and down artifacts including append-only WBS inbound scope',async()=>{
   const names=MIGRATION_MANIFEST.map(item=>item.name);

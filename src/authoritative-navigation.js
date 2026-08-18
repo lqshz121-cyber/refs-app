@@ -16,7 +16,10 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
     item('overview', 'Dashboard', 'API_READ'),
     item('approvals', 'Action required'),
     item('ai-audit', 'AI Audit Center', 'API_READ'),
-    item('ai-je-workbench', 'AI JE Workbench'),
+    item('ai-je-workbench', 'AI JE Workbench', 'API_READ', [
+      'Only immutable amortization proposal lines with exact source and proposal hashes may be selected.',
+      'A separately authorized human maker may create a MANUAL Draft; submit, review, approve, and post remain separate Journal Entry actions.',
+    ]),
   ]),
   group('Accounting Settings', [
     item('settings', 'Core settings'), item('rules', 'Rule Center'), item('mapping', 'Mapping Center'),
