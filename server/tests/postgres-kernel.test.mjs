@@ -25,7 +25,7 @@ import {createWbsProviderSignedPayableAdmission} from '../runtime/wbs-provider-s
 import {createWbsAdmittedPayableIngestion} from '../runtime/wbs-admitted-payable-ingestion.mjs';
 import {normalizeWbsCompanyCatalogCandidate,wbsCompanyCatalogCanonicalHash,normalizeWbsCompanyClassification} from '../runtime/wbs-company-catalog-controller.mjs';
 import {createWbsAdmittedCostCwipIngestion} from '../runtime/wbs-admitted-cost-cwip-ingestion.mjs';
-import {refreshAuthoritativeDocuments} from '../../src/accounting-api.js';
+import {refreshAuthoritativeDocuments,refreshAuthoritativeJournalEntries} from '../../src/accounting-api.js';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -467,6 +467,11 @@ pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while r
     return {ok:true,status:200,json:async()=>({ok:true,data})};
   }});
   assert.equal(clientRead.ok,true,JSON.stringify({clientRead,listedBills}));
+  const listedJournals=await reader.listJournalEntries({tenantId:ids.tenantId,entityId:ids.entityId});
+  assert.equal(listedJournals.length,10);
+  const journalHttpRows=JSON.parse(JSON.stringify(listedJournals));
+  const journalClientRead=await refreshAuthoritativeJournalEntries({config:{baseUrl:'https://accounting.test',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>`test-token-${'a'.repeat(32)}`},fetcher:async()=>({ok:true,status:200,json:async()=>({ok:true,data:journalHttpRows})})});
+  assert.equal(journalClientRead.ok,true,JSON.stringify({journalClientRead,listedJournals}));
   assert.deepEqual((await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='120200'",[ids.tenantId,ids.entityId])).rows[0],untouchedAccount);
   assert.deepEqual((await adminPool.query("SELECT requires_member,required_member_type FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[other.tenantId,other.entityId])).rows[0],{requires_member:false,required_member_type:null});
   assert.deepEqual((await adminPool.query('SELECT source_system,source_entity_id FROM entity WHERE tenant_id=$1 AND entity_id=$2',[other.tenantId,other.entityId])).rows[0],otherEntityBinding);
@@ -2216,10 +2221,7 @@ pgTest('authenticated HTTP lists entity-scoped Journal Entries through the exact
   assert.deepEqual({journal_entry_id:journal.journal_entry_id,journal_number:journal.journal_number,journal_type:journal.journal_type,status:journal.status,currency:journal.currency,revision:journal.revision,posted_at:journal.posted_at,ledger_line_count:journal.ledger_line_count},{
     journal_entry_id:ids.journalId,journal_number:`JE-${ids.journalId.slice(0,8)}`,journal_type:'MANUAL',status:'DRAFT',currency:'USD',revision:'0',posted_at:null,ledger_line_count:'0'
   });
-  assert.equal(journal.journal_date instanceof Date,true);
-  assert.equal(journal.journal_date.getFullYear(),2026);
-  assert.equal(journal.journal_date.getMonth(),6);
-  assert.equal(journal.journal_date.getDate(),15);
+  assert.equal(journal.journal_date,'2026-07-15');
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/journal-entries`,headers:{},body:null})).status,403);
 });
 

@@ -1038,7 +1038,7 @@ export class PostgresAccountingKernel{
   async listJournalEntries({tenantId,entityId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_journal_entries($1,$2)',[tenantId,entityId]
-    )).rows);
+    )).rows.map(row=>({...row,journal_date:publicDate(row.journal_date)})));
   }
 
   async getJournalWorkflowCapabilities({tenantId,entityId}){
