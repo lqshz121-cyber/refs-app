@@ -44,6 +44,8 @@ test('migration 167 is append-only, actor-bound, RLS scoped, five-domain control
   assert.doesNotMatch(up,/refs_jsonb_hash\(jsonb_build_object\('row_count'/);
   assert.doesNotMatch(up,/jsonb_build_object\('currency',\s*currency,\s*'gross_amount'/);
   assert.match(up,/faa6c295db3c0d8e097f0f897b7da3102ae098551023cc9e55bba1ebd14011e1/);
+  for(const mapping of ["WHEN 'BANK' THEN 'bankFeed'","WHEN 'COST' THEN 'cost_general_ledger'","WHEN 'PROPERTY' THEN 'pmCharge'"])assert.ok(up.includes(mapping),`migration missing canonical source module mapping ${mapping}`);
+  assert.match(up,/raw_event[^;]+v_tool/is);assert.match(up,/source_document[^;]+v_source_module/is);
   assert.match(up,/REVOKE ALL ON FUNCTION refs_retain_wbs_final1_source_evidence\(uuid,uuid,jsonb,jsonb,jsonb,text,text\) FROM refs_app/);
   assert.match(down,/GRANT EXECUTE ON FUNCTION refs_retain_wbs_final1_source_evidence\(uuid,uuid,jsonb,jsonb,jsonb,text,text\) TO refs_app/);
   assert.match(down,/Cannot remove migration 167 while signed control\/business evidence exists/);assert.match(manifest,/167_wbs_final1_signed_business_evidence\.sql/);

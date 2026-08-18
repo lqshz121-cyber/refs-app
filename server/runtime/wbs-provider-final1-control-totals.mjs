@@ -32,7 +32,11 @@ export function computeWbsFinal1ControlTotals({rows,currencyOf,amountOf}={}){
   if(rows.length>MAX_ROWS)fail('WBS_FINAL1_CONTROL_INVALID','Signed row population exceeds the fixed control bound.');
   const totals=new Map();
   for(const row of rows){const currency=currencyOf(row);if(!/^[A-Z]{3}$/.test(currency||''))fail('WBS_FINAL1_CONTROL_CURRENCY_INVALID','Signed rows require exact ISO currency authority.');let amount=amountOf(row);if(typeof amount!=='bigint')fail('WBS_FINAL1_CONTROL_MONEY_INVALID','Control amount rule must return fixed-point units.');if(amount<0n)amount=-amount;const prior=totals.get(currency)||{row_count:0,amount:0n};prior.row_count++;prior.amount+=amount;totals.set(currency,prior);}
-  const currency_totals=[...totals].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([currency,total])=>Object.freeze({currency,row_count:total.row_count,amount_total:formatWbsFinal1Money4(total.amount)}));
+  const currency_totals=[...totals].sort(([a],[b])=>a<b?-1:a>b?1:0).map(([currency,total])=>{
+    const amount_total=formatWbsFinal1Money4(total.amount);
+    if(!TOTAL_MONEY.test(amount_total))fail('WBS_FINAL1_CONTROL_MONEY_INVALID','Aggregated signed control amount exceeds the canonical MONEY4 bound.');
+    return Object.freeze({currency,row_count:total.row_count,amount_total});
+  });
   const control_totals=Object.freeze({row_count:rows.length,currency_totals:Object.freeze(currency_totals)});
   return Object.freeze({control_totals,control_totals_hash:wbsFinal1ControlTotalsHash(control_totals)});
 }

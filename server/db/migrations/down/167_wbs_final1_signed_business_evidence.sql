@@ -14,6 +14,6 @@ DROP FUNCTION IF EXISTS refs_canonical_jsonb_text(jsonb);
 ALTER TABLE wbs_final1_retained_evidence_admission DROP CONSTRAINT wbs_final1_retained_evidence_admission_mapping_check;
 ALTER TABLE wbs_final1_retained_evidence_admission DROP CONSTRAINT wbs_final1_retained_evidence_admission_domain_check;
 ALTER TABLE wbs_final1_retained_evidence_admission ADD CONSTRAINT wbs_final1_retained_evidence_admission_domain_check CHECK(domain IN ('PAYABLES','INSURANCE'));
-ALTER TABLE wbs_final1_retained_evidence_admission ADD CONSTRAINT wbs_final1_retained_evidence_admission_check CHECK((domain='INSURANCE' AND company_mapping_hash IS NOT NULL) OR (domain='PAYABLES' AND company_mapping_hash IS NULL));
+ALTER TABLE wbs_final1_retained_evidence_admission ADD CONSTRAINT wbs_final1_retained_evidence_admission_check2 CHECK((domain='INSURANCE' AND company_mapping_hash IS NOT NULL) OR (domain='PAYABLES' AND company_mapping_hash IS NULL));
 GRANT EXECUTE ON FUNCTION refs_retain_wbs_final1_source_evidence(uuid,uuid,jsonb,jsonb,jsonb,text,text) TO refs_app;
 COMMIT;

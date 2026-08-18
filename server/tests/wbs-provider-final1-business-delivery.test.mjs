@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,sign} from 'node:crypto';
 import {canonicalRequestBody} from '../runtime/request-hash.mjs';
 import {normalizeVerifiedWbsProviderFinal1Business,verifyWbsProviderFinal1BusinessDelivery} from '../runtime/wbs-provider-final1-business-delivery.mjs';
+import {computeWbsFinal1ControlTotals} from '../runtime/wbs-provider-final1-control-totals.mjs';
 
 const canonical=value=>Buffer.from(canonicalRequestBody(value),'utf8');
 const sha256=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -46,6 +47,10 @@ test('Final-1 business control totals freeze the Provider canonical V1 bytes and
   assert.equal(canonicalRequestBody(KNOWN_CONTROL_TOTALS),KNOWN_CANONICAL_BODY);
   assert.equal(sha256(Buffer.from(KNOWN_CANONICAL_BODY,'utf8')),KNOWN_CONTROL_TOTALS_HASH);
   assert.deepEqual(control(1,KNOWN_CONTROL_TOTALS.currency_totals),{control_totals:KNOWN_CONTROL_TOTALS,control_totals_hash:KNOWN_CONTROL_TOTALS_HASH});
+});
+
+test('Final-1 control aggregation rejects totals outside the canonical MONEY4 bound',()=>{
+  assert.throws(()=>computeWbsFinal1ControlTotals({rows:['999999999999999999.9900','100.0000'],currencyOf:()=> 'USD',amountOf:value=>BigInt(value.replace('.',''))}),error=>error.code==='WBS_FINAL1_CONTROL_MONEY_INVALID');
 });
 
 test('Final-1 business verification rejects extra fields, wrong tools, wrong scope, and unsigned or old contracts',()=>{
