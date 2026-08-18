@@ -211,7 +211,13 @@ pgTest('Insurance PC company mapping Controller164 records proposes approves res
   assert.deepEqual(await approver.getWbsInsurancePcMappingTrace({tenantId:ids.tenantId,entityId:ids.entityId,pcCode:'PC-MISSING',accountingDate:'2026-06-30'}),{pc_code:'PC-MISSING',accounting_date:'2026-06-30',match_count:0,mapping_status:'MISSING'});
   const resume=await observer.readWbsInsurancePcMappingAdmissionResume({tenantId:ids.tenantId,entityId:ids.entityId,observationId,expectedObservationHash:observationHash,expectedApprovalId:approved.mapping_approval_id,expectedDecisionHash:approved.decision_hash,expectedCompanyMappingHash:mappingHash});assert.equal(resume.admission_id,admissionId);assert.equal(resume.immutable_version,immutableVersion);assert.deepEqual(resume.observation.artifacts,artifacts);assert.equal(resume.approval.mapping_approval_id,approved.mapping_approval_id);assert.equal(resume.approval.canonical_mapping_decision_hash,approved.decision_hash);
   await assert.rejects(observer.readWbsInsurancePcMappingAdmissionResume({tenantId:ids.tenantId,entityId:ids.entityId,observationId,expectedObservationHash:hash('wrong-observation'),expectedApprovalId:approved.mapping_approval_id,expectedDecisionHash:approved.decision_hash,expectedCompanyMappingHash:mappingHash}),error=>error.code==='40001');assert.deepEqual(await businessCounts(),zeroAccounting);
-  await migrateDown(adminPool);await assert.rejects(migrateDown(adminPool),error=>error.code==='55000');await migrateUp(adminPool);assert.deepEqual(await businessCounts(),zeroAccounting);
+  for(;;){
+    const latest=(await adminPool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name DESC LIMIT 1')).rows[0]?.migration_name;
+    assert.ok(latest,'Controller164 rollback guard requires an applied migration chain');
+    if(latest.startsWith('164_'))break;
+    await migrateDown(adminPool);
+  }
+  await assert.rejects(migrateDown(adminPool),error=>error.code==='55000');await migrateUp(adminPool);assert.deepEqual(await businessCounts(),zeroAccounting);
 });
 
 pgTest('WBS Final-1 Controller167 persists five-domain signed controls and exact business evidence with zero accounting action',async()=>{
