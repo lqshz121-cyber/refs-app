@@ -11,13 +11,13 @@ const render=tools=>renderToStaticMarkup(<AuthoritativeWbsLivePilotObservation c
 
 const dashboard=render(WBS_LIVE_PILOT_SURFACE_TOOLS.dashboard);
 for(const label of ['Payables','Bank transactions','AutoRec details','AutoRec banks','Journal entries'])assert.match(dashboard,new RegExp(`>${label}<`));
-for(const boundary of ['READ ONLY','No demo or browser-stored data'])assert.match(dashboard,new RegExp(boundary,'i'));
-assert.match(dashboard,/Live connection not checked/);
+for(const boundary of ['View only','No sample or browser-stored data'])assert.match(dashboard,new RegExp(boundary,'i'));
+assert.match(dashboard,/No WBS records loaded/);
 assert.match(dashboard,/Refresh live WBS data/);
-for(const liveFact of ['Live WBS connection status','Last successful API read','Record count','Test entity','Production WBS API'])assert.match(dashboard,new RegExp(liveFact));
+for(const liveFact of ['WBS records','Last successful read','Records returned','Test entity','Production WBS'])assert.match(dashboard,new RegExp(liveFact));
 
 const payables=render(WBS_LIVE_PILOT_SURFACE_TOOLS.payables);
-assert.match(payables,/WBS read-only view:<\/b> Payables/);
+assert.match(payables,/Record type:<\/b> Payables/);
 for(const boundary of ['OPERATOR ATTESTED','UNSIGNED','EXCEPTION REVIEW REQUIRED','NOT POSTED','outside Raw, Staging, AP Bills, Journals, GL, and Posted totals'])assert.match(payables,new RegExp(boundary,'i'));
 assert.match(payables,/Retain as exception evidence/);assert.match(payables,/Refresh retained evidence/);
 const source=fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8');
@@ -40,12 +40,12 @@ assert.doesNotMatch(payables,/<select/);
 assert.doesNotMatch(payables,/Bank transactions|AutoRec details|Journal entries/);
 
 const bank=render(WBS_LIVE_PILOT_SURFACE_TOOLS.bank);
-assert.match(bank,/WBS read-only view:<\/b> Bank transactions/);
+assert.match(bank,/Record type:<\/b> Bank transactions/);
 assert.doesNotMatch(bank,/>AutoRec banks</);
 assert.doesNotMatch(bank,/>Payables<|>Journal entries</);
 
 const journal=render(WBS_LIVE_PILOT_SURFACE_TOOLS.journal);
-assert.match(journal,/WBS read-only view:<\/b> Journal entries/);
+assert.match(journal,/Record type:<\/b> Journal entries/);
 assert.doesNotMatch(journal,/<select/);
 assert.doesNotMatch(journal,/>Payables<|>Bank transactions</);
 
@@ -54,6 +54,8 @@ assert.match(source,/refreshAuthoritativeWbsLivePilot/);
 assert.doesNotMatch(source,/localStorage|sessionStorage|seed\.js|repo\.js|method:\s*['"](?:PUT|PATCH|DELETE)['"]|vendor_name|vendor_no|payee/);
 assert.match(source,/attestAuthoritativeWbsPayableObservation/);assert.match(source,/Confirm exception retain/);assert.match(source,/attestationConfirmation\?attest\(\):setAttestationConfirmation\(true\)/);assert.match(source,/It will not create a Draft or post anything/);assert.doesNotMatch(source,/globalThis\.confirm/);
 assert.match(source,/const retainPathReady=true/);assert.match(source,/disabled=\{!retainPathReady\|\|capabilityState/);assert.doesNotMatch(source,/!hasExactAttestationScope\|\|attestationState/);
+for(const readableStatus of ['Multiple companies need review','Needs finance review','Additional review access required','Ready for signed review','Not in the books'])assert.match(source,new RegExp(readableStatus));
+assert.match(source,/title=\{selectedExceptionRow\.signed_link_status\}/,'technical status remains available as audit-only hover text');
 for(const host of ['authoritative-overview.jsx','authoritative-workspace.jsx','authoritative-bank-workspace.jsx','authoritative-journal-workspace.jsx','authoritative-wbs-transition-workspace.jsx']){
   assert.match(fs.readFileSync(`src/${host}`,'utf8'),/AuthoritativeWbsLivePilotObservation/,`${host} must use the shared read-only WBS observation`);
 }
