@@ -96,6 +96,19 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async createWbsControlledTestBankScope({tenantId,entityId,periodId,companyCode,observation,bankAccountRef,idempotencyKey}){
+    return this.inSession(async client=>{
+      const payload=[tenantId,entityId,periodId,companyCode,JSON.stringify(observation),bankAccountRef];
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_create_wbs_controlled_test_bank_scope_hash($1,$2,$3,$4,$5::jsonb,$6) AS request_hash',payload
+      ),'WBS_TEST_BANK_HASH_FAILED','Controlled test Bank import hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_create_wbs_controlled_test_bank_scope($1,$2,$3,$4,$5::jsonb,$6,$7,$8) AS result',
+        [...payload,idempotencyKey,requestHash]
+      ),'WBS_TEST_BANK_IMPORT_FAILED','Controlled test Bank scope was not created').result;
+    });
+  }
+
   async finalizeWbsTestImportSource({tenantId,entityId,sourceDocumentId,businessDocumentId,journalEntryId,idempotencyKey}){
     return this.inSession(async client=>{
       const payload=[tenantId,entityId,sourceDocumentId,businessDocumentId,journalEntryId];
@@ -282,6 +295,11 @@ export class PostgresAccountingKernel{
 
   async assertWbsAutoRecView({tenantId,entityId}){
     await this.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'WBS.AUTOREC.VIEW')",[tenantId,entityId]));
+    return true;
+  }
+
+  async assertWbsTestImport({tenantId,entityId}){
+    await this.inSession(client=>client.query("SELECT refs_assert_scope($1,$2,'WBS.TEST.IMPORT')",[tenantId,entityId]));
     return true;
   }
 

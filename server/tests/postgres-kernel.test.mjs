@@ -3978,3 +3978,38 @@ pgTest('consolidation reads only an approved immutable two-member scope with exp
   const response=await api({method:'GET',url:`/api/v1/entities/${reporting.entityId}/reports/consolidation?periodId=${reporting.periodId}&groupRef=${groupRef}`,body:null,headers:{}});assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data[0].report_status,'APPROVED_CONSOLIDATION_SNAPSHOT_AND_POSTED_LEDGER_EXACT');
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM journal_entry WHERE tenant_id=$1 AND journal_type='ELIMINATION'",[reporting.tenantId])).rows[0].n,0);
 });
+
+pgTest('controlled test unsigned WBS Bank rows create isolated source evidence and one ordinary DRAFT reconciliation',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_bank_transactions',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:'b'.repeat(64),scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']},record_count:2,rows:[
+    {source_record_hash:`sha256:${'a'.repeat(64)}`,currency:'USD',accounting_date:'2026-07-11',amount:'25.0000',direction:'DEBIT',status:'POSTED'},
+    {source_record_hash:`sha256:${'c'.repeat(64)}`,currency:'USD',accounting_date:'2026-07-12',amount:'25.0000',direction:'CREDIT',status:'POSTED'}
+  ],signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:`sha256:${'d'.repeat(64)}`};
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-bank-importer',['WBS.TEST.IMPORT','BANK.RECONCILIATION.START'])});
+  const before=(await adminPool.query('SELECT count(*)::int journals FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0];
+  const args={...ids,companyCode:'WBPA',observation,bankAccountRef:'WBS_TEST_BANK',idempotencyKey:'controlled-test-bank-pg-001'};
+  const created=await importer.createWbsControlledTestBankScope(args);assert.equal(created.status,'DRAFT');assert.equal(created.test_only,true);assert.equal(created.provenance_mode,'CONTROLLED_TEST_UNSIGNED');assert.equal(created.transaction_count,2);assert.equal(created.bank_account_ref,'WBS_TEST_BANK');assert.equal(created.idempotent,false);
+  const replay=await importer.createWbsControlledTestBankScope(args);assert.equal(replay.idempotent,true);assert.deepEqual(replay.bank_source_ids,created.bank_source_ids);
+  const retained=(await adminPool.query(`SELECT i.test_only,i.provenance_mode,i.row_count,r.status,r.difference,count(ir.*)::int retained_rows
+    FROM wbs_controlled_test_bank_import i JOIN reconciliation r ON r.tenant_id=i.tenant_id AND r.entity_id=i.entity_id AND r.reconciliation_id=i.reconciliation_id
+    JOIN wbs_controlled_test_bank_import_row ir ON ir.tenant_id=i.tenant_id AND ir.entity_id=i.entity_id AND ir.wbs_controlled_test_bank_import_id=i.wbs_controlled_test_bank_import_id
+    WHERE i.tenant_id=$1 AND i.entity_id=$2 GROUP BY i.test_only,i.provenance_mode,i.row_count,r.status,r.difference`,[ids.tenantId,ids.entityId])).rows[0];
+  assert.deepEqual(retained,{test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',row_count:2,status:'DRAFT',difference:'0.0000',retained_rows:2});
+  const sources=(await adminPool.query(`SELECT d.document_type,d.status,d.source_ref,dl.external_dimension_refs,bs.bank_account_ref,bs.amount::text
+    FROM wbs_controlled_test_bank_import_row ir JOIN source_document d ON d.tenant_id=ir.tenant_id AND d.entity_id=ir.entity_id AND d.source_document_id=ir.source_document_id
+    JOIN source_document_line dl ON dl.tenant_id=ir.tenant_id AND dl.entity_id=ir.entity_id AND dl.source_document_line_id=ir.source_document_line_id
+    JOIN bank_source bs ON bs.tenant_id=ir.tenant_id AND bs.entity_id=ir.entity_id AND bs.bank_source_id=ir.bank_source_id
+    WHERE ir.tenant_id=$1 AND ir.entity_id=$2 ORDER BY ir.row_index`,[ids.tenantId,ids.entityId])).rows;
+  assert.deepEqual(sources.map(row=>[row.document_type,row.status,row.bank_account_ref,row.amount,row.external_dimension_refs.test_only,row.external_dimension_refs.provenance_mode]),[
+    ['WBS_TEST_BANK_TRANSACTION','RECEIVED','WBS_TEST_BANK','25.0000',true,'CONTROLLED_TEST_UNSIGNED'],
+    ['WBS_TEST_BANK_TRANSACTION','RECEIVED','WBS_TEST_BANK','-25.0000',true,'CONTROLLED_TEST_UNSIGNED']
+  ]);assert.ok(sources.every(row=>row.source_ref.startsWith('object://refs-test-only/')));
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-bank-reader',['BANK.VIEW'])});
+  const transactions=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'WBS_TEST_BANK',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:10});assert.equal(transactions.length,2);
+  const scopes=await reader.listReconciliationScopes({tenantId:ids.tenantId,entityId:ids.entityId,limit:10});assert.equal(scopes.length,1);assert.equal(scopes[0].reconciliation_id,created.reconciliation_id);assert.equal(scopes[0].status,'DRAFT');
+  assert.deepEqual((await adminPool.query('SELECT count(*)::int journals FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0],before);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_bank_statement_receipt WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,0);
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-bank-denied',['WBS.TEST.IMPORT'])});
+  await assert.rejects(denied.createWbsControlledTestBankScope({...args,idempotencyKey:'controlled-test-bank-pg-denied'}),error=>error.code==='42501');
+  const counts=await adminPool.query('SELECT (SELECT count(*) FROM wbs_controlled_test_bank_import WHERE tenant_id=$1 AND entity_id=$2)::int imports,(SELECT count(*) FROM bank_source WHERE tenant_id=$1 AND entity_id=$2)::int sources',[ids.tenantId,ids.entityId]);assert.deepEqual(counts.rows[0],{imports:1,sources:2});
+});

@@ -10,7 +10,7 @@ import {AiAnalysisExplanationError} from '../runtime/ai-analysis-explanation-ser
 import {AI_ACCOUNTING_SKILL_REGISTRY_VERSION,AI_ACCOUNTING_SKILLS} from '../runtime/ai-accounting-skill-registry.mjs';
 import {WbsCompanyCatalogControllerError,normalizeWbsCompanyCatalogCandidate,normalizeWbsCompanyClassification} from '../runtime/wbs-company-catalog-controller.mjs';
 import {assertInsurancePcMappingDto} from '../runtime/wbs-insurance-pc-mapping-controller.mjs';
-import {WbsTestImportError,assertWbsTestImportResult} from '../runtime/wbs-test-import-service.mjs';
+import {WbsTestImportError,assertWbsControlledTestBankResult,assertWbsTestImportResult} from '../runtime/wbs-test-import-service.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AI_ACCRUAL_HASH=/^sha256:[0-9a-f]{64}$/;
@@ -154,6 +154,16 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await service.importPayables({tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),companyCode:requireWbsCompanyCode(payload.companyCode),dateFrom:requireIsoDate(payload.dateFrom,'dateFrom'),dateTo:requireIsoDate(payload.dateTo,'dateTo'),limit:payload.limit,idempotencyKey:requireIdempotency(headers)});
         assertWbsTestImportResult(result);
         return {status:result.imported_count===0?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='POST'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='test-import'&&parts[6]==='bank-transactions'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['periodId','companyCode','dateFrom','dateTo','limit']);
+        if(typeof wbsTestImportServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
+        if(!Number.isSafeInteger(payload.limit)||payload.limit<1||payload.limit>10)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be an integer from 1 to 10');
+        const service=await wbsTestImportServiceFactory(principal);
+        if(!service||typeof service.importBankTransactions!=='function')throw new WbsTestImportError('WBS_TEST_IMPORT_CONFIG_INVALID','Controlled test Bank service is unavailable.');
+        result=await service.importBankTransactions({tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),companyCode:requireWbsCompanyCode(payload.companyCode),dateFrom:requireIsoDate(payload.dateFrom,'dateFrom'),dateTo:requireIsoDate(payload.dateTo,'dateTo'),limit:payload.limit,idempotencyKey:requireIdempotency(headers)});
+        assertWbsControlledTestBankResult(result);
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='property-rent-pickup'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Property Rent pickup reads do not accept command headers');
