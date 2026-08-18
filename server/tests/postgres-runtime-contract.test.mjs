@@ -652,3 +652,16 @@ test('WBS TEST IMPORT normalization is entity-scoped and leaves the v169 compati
   assert.match(backward,/DROP FUNCTION refs_create_wbs_test_payable_draft\(/);
   assert.match(backward,/RENAME TO refs_create_wbs_test_payable_draft/);
 });
+
+test('WBS TEST IMPORT child source rows retain the authoritative Stage-1 entity source binding',async()=>{
+  const forward=await readFile(new URL('../db/migrations/171_wbs_test_entity_source_binding.sql',import.meta.url),'utf8');
+  const backward=await readFile(new URL('../db/migrations/down/171_wbs_test_entity_source_binding.sql',import.meta.url),'utf8');
+  assert.match(forward,/pg_get_functiondef\([\s\S]+refs_create_wbs_test_payable_draft_v168/);
+  assert.match(forward,/old_fragment constant text:=',''WBS'',''payable'',entity_row\.source_entity_id,'/);
+  assert.match(forward,/new_fragment constant text:=',entity_row\.source_system,''payable'',entity_row\.source_entity_id,'/);
+  assert.match(forward,/occurrences<>2/);
+  assert.match(forward,/REVOKE ALL ON FUNCTION refs_create_wbs_test_payable_draft_v168[\s\S]+FROM PUBLIC,refs_app/);
+  assert.doesNotMatch(forward,/UPDATE public\.entity|source_system='WBS',source_entity_id='WBPA'/);
+  assert.match(backward,/replace\(definition,new_fragment,old_fragment\)/);
+  assert.match(backward,/occurrences<>2/);
+});
