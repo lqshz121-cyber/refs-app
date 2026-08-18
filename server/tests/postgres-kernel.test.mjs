@@ -9,6 +9,7 @@ import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
+import {reconcileWbsTestImportActorGrants} from '../runtime/wbs-test-import-service.mjs';
 import {STAGE1_READ_PERMISSIONS,STAGE1_WBS_OPERATOR_PERMISSIONS,grantStage1ReadAccess,provisionStage1Scope,stage1GrantConfig,stage1ProvisionConfig,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from '../runtime/stage1-bootstrap.mjs';
 import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
@@ -1762,6 +1763,22 @@ pgTest('formal IAM grant sync reconciles and revokes desired state with version,
   await adminPool.query("UPDATE permission_catalog SET active=false,version=version+1 WHERE permission_code='AP.VIEW'");
   await assert.rejects(trustedSession(ids,actor,['AP.VIEW']),error=>error.code==='42501');
   await adminPool.query("UPDATE permission_catalog SET active=true,version=version+1 WHERE permission_code='AP.VIEW'");
+});
+
+pgTest('WBS test importer grant bootstraps v1 then upgrades v2 and remains restart-idempotent',async()=>{
+  const ids=await seed(),sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  const actors={importer:'wbs-bootstrap-importer',maker:'wbs-bootstrap-maker',submitter:'wbs-bootstrap-submitter',reviewer:'wbs-bootstrap-reviewer',approver:'wbs-bootstrap-approver',poster:'wbs-bootstrap-poster'};
+  const scope={tenantId:ids.tenantId,entityId:ids.entityId,companyCode:'WBPA',actors};
+  const legacy=await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId:actors.importer,permissions:['WBS.TEST.IMPORT'],expectedVersion:0,idempotencyKey:'wbs-test-import-importer-grant-v1'});
+  assert.equal(legacy.version,1);assert.equal(legacy.idempotent,false);
+  const upgraded=await reconcileWbsTestImportActorGrants({scope,grantSync:sync});
+  assert.equal(upgraded.importer.version,2);assert.equal(upgraded.importer.idempotent,false);
+  const restarted=await reconcileWbsTestImportActorGrants({scope,grantSync:sync});
+  assert.equal(restarted.importer.version,2);assert.equal(restarted.importer.idempotent,true);
+  assert.deepEqual((await adminPool.query(`SELECT version FROM runtime_actor_grant_set WHERE tenant_id=$1 AND actor_id=$2 AND entity_id=$3`,[ids.tenantId,actors.importer,ids.entityId])).rows[0],{version:'2'});
+  assert.deepEqual((await adminPool.query(`SELECT permission FROM runtime_actor_grant WHERE tenant_id=$1 AND actor_id=$2 AND entity_id=$3 AND revoked_at IS NULL ORDER BY permission`,[ids.tenantId,actors.importer,ids.entityId])).rows.map(row=>row.permission),['BANK.RECONCILIATION.START','WBS.TEST.IMPORT']);
+  assert.deepEqual((await adminPool.query(`SELECT idempotency_key FROM runtime_grant_sync_receipt WHERE tenant_id=$1 AND actor_id=$2 AND entity_id=$3 ORDER BY idempotency_key`,[ids.tenantId,actors.importer,ids.entityId])).rows.map(row=>row.idempotency_key),['wbs-test-import-importer-grant-v1','wbs-test-import-importer-grant-v2']);
+  assert.equal((await adminPool.query(`SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='ACTOR_GRANTS_RECONCILED'`,[ids.tenantId,ids.entityId])).rows[0].n,7);
 });
 
 pgTest('Stage 1 provisioning creates only minimal read scope, replays exactly and grants the observed OIDC subject',async()=>{

@@ -4,6 +4,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const MONEY4=/^-?(?:0|[1-9][0-9]{0,15})\.[0-9]{4}$/;
 const SHA256=/^sha256:[0-9a-f]{64}$/;
 const ACTOR_ROLES=Object.freeze(['importer','maker','submitter','reviewer','approver','poster']);
+const WBS_TEST_IMPORTER_V1_PERMISSIONS=Object.freeze(['WBS.TEST.IMPORT']);
 export const WBS_TEST_IMPORT_GRANT_BUNDLES=Object.freeze({
   importer:Object.freeze(['WBS.TEST.IMPORT','BANK.RECONCILIATION.START']),
   maker:Object.freeze(['WBS.TEST.IMPORT','AP.BILL.CREATE']),
@@ -65,7 +66,14 @@ export async function reconcileWbsTestImportActorGrants({grantSync,scope}={}){
   const results={};
   for(const role of ACTOR_ROLES){
     const permissions=[...WBS_TEST_IMPORT_GRANT_BUNDLES[role]];
-    const result=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId:scope.actors[role].trim(),permissions,expectedVersion:0,idempotencyKey:`wbs-test-import-${role}-grant-v1`});
+    const actorId=scope.actors[role].trim();
+    if(role==='importer'){
+      const bootstrap=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions:[...WBS_TEST_IMPORTER_V1_PERMISSIONS],expectedVersion:0,idempotencyKey:'wbs-test-import-importer-grant-v1'});
+      const returned=[...(bootstrap?.permissions||[])].sort(),expected=[...WBS_TEST_IMPORTER_V1_PERMISSIONS].sort();
+      if(returned.length!==expected.length||returned.some((value,index)=>value!==expected[index]))fail('WBS_TEST_IMPORT_GRANT_INVALID','Test-import importer v1 bootstrap grant is not exact.');
+    }
+    const version=role==='importer'?2:1;
+    const result=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions,expectedVersion:version-1,idempotencyKey:`wbs-test-import-${role}-grant-v${version}`});
     const returned=[...(result?.permissions||[])].sort(),expected=[...permissions].sort();
     if(returned.length!==expected.length||returned.some((value,index)=>value!==expected[index]))fail('WBS_TEST_IMPORT_GRANT_INVALID',`Test-import ${role} grant does not match its frozen permission bundle.`);
     results[role]=Object.freeze({version:result.version,idempotent:result.idempotent===true,permission_count:returned.length});
