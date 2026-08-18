@@ -263,7 +263,7 @@
     "/entities/{entityId}/ai/analysis-summary": {"get":{"operationId":"readAiAccountingAnalysisSummary","summary":"Read retained no-action accounting analysis summary","description":"Returns retained analysis only and cannot create a Draft, review, approve, or post.","parameters":[{"$ref":"#/components/parameters/EntityId"}],"responses":{"200":{"description":"Retained analysis summary"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/ai/skills": {"get":{"operationId":"readAiAccountingSkills","summary":"Read the server-published AI accounting capability boundary","description":"Returns implemented and planned AI skills only; it cannot create a Draft, review, approve, or post.","parameters":[{"$ref":"#/components/parameters/EntityId"}],"responses":{"200":{"description":"AI accounting skill registry"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/ai/analysis-reports": {"get":{"operationId":"readAiAccountingAnalysisReports","summary":"Read retained no-action controller analysis reports","description":"Returns completed durable controller-memo receipts only; it cannot create a Draft, review, approve, or post.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":50}}],"responses":{"200":{"description":"Retained analysis reports"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"}}}},
-    "/entities/{entityId}/ai/accrual-candidates": {"get":{"operationId":"analyzeAiAccrualCandidates","summary":"Read deterministic recurring-obligation accrual candidates","description":"Requires AI.ANALYSIS.EXPLAIN and authoritative retained WBS payable evidence. It returns review-required candidates only; it cannot create a Draft, review, approve, post, or write WBS.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],"responses":{"200":{"description":"No-action accrual analysis result"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"}}}},
+    "/entities/{entityId}/ai/accrual-candidates": {"get":{"operationId":"analyzeAiAccrualCandidates","summary":"Read deterministic recurring-obligation accrual candidates","description":"Requires AI.ANALYSIS.EXPLAIN and authoritative retained WBS payable evidence. It returns review-required candidates only; it cannot create a Draft, review, approve, post, or write WBS.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],"responses":{"200":{"$ref":"#/components/responses/AiAccrualAnalysisOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/ai/analysis-explanation": {"post":{"operationId":"explainAiAccountingAnalysis","summary":"Create a retained controller explanation without accounting authority","description":"Requires an idempotency key and creates a redacted explanation receipt only; it cannot create a Draft, review, approve, or post.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Retained analysis explanation"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/ai/amortization/coverage-evidence": {"get":{"operationId":"listAiAmortizationCoverageEvidence","summary":"List retained source-bound amortization coverage evidence","description":"Requires AI.AMORTIZATION.VIEW. This no-store read returns immutable evidence only and cannot create a Draft JE, review, approve, post, or write a source system.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}],"responses":{"200":{"description":"Retained amortization coverage evidence"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"}}},"post":{"operationId":"recordAiAmortizationCoverageEvidence","summary":"Retain source-bound whole-month coverage evidence for AI amortization analysis","description":"Requires AI.AMORTIZATION.PROPOSE and an Idempotency-Key. This command retains immutable coverage evidence only; it cannot create a Draft JE, review, approve, post, or write a source system.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AiAmortizationCoverageEvidenceRequest"}}}},"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/ai/amortization/proposals": {"post":{"operationId":"proposeAiAmortizationSchedule","summary":"Persist an evidence-backed AI prepaid amortization proposal","description":"Requires AI.AMORTIZATION.PROPOSE and an Idempotency-Key. This command creates immutable PROPOSED analysis evidence only; it cannot create a Draft JE, review, approve, post, or write a source system.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AiAmortizationProposalRequest"}}}},"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
@@ -4128,6 +4128,140 @@
           }
         }
       },
+      "AiAccrualSourceTrace": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_document_id",
+          "source_document_line_id",
+          "source_payload_hash",
+          "source_line_hash",
+          "accounting_period_id",
+          "period_key",
+          "service_period_start",
+          "service_period_end",
+          "recurring_obligation_id",
+          "service_frequency",
+          "obligation_status",
+          "currency",
+          "amount"
+        ],
+        "properties": {
+          "source_document_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_document_line_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_payload_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "source_line_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "accounting_period_id": {"$ref": "#/components/schemas/Uuid"},
+          "period_key": {"type": "string", "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])$"},
+          "service_period_start": {"type": "string", "format": "date"},
+          "service_period_end": {"type": "string", "format": "date"},
+          "recurring_obligation_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+          "service_frequency": {"type": ["string", "null"], "minLength": 1, "maxLength": 32},
+          "obligation_status": {"type": ["string", "null"], "minLength": 1, "maxLength": 32},
+          "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+          "amount": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{4}$"}
+        }
+      },
+      "AiAccrualCandidate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "rule_id",
+          "entity_id",
+          "accounting_period_id",
+          "period_key",
+          "recurring_obligation_id",
+          "service_frequency",
+          "currency",
+          "historical_amounts",
+          "prior_source_trace",
+          "required_human_fields",
+          "can_create_draft",
+          "can_review",
+          "can_approve",
+          "can_post"
+        ],
+        "properties": {
+          "status": {"const": "ACCRUAL_CANDIDATE_REVIEW_REQUIRED"},
+          "rule_id": {"const": "RECURRING_OBLIGATION_MISSING_CURRENT_PERIOD"},
+          "entity_id": {"$ref": "#/components/schemas/Uuid"},
+          "accounting_period_id": {"$ref": "#/components/schemas/Uuid"},
+          "period_key": {"type": "string", "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])$"},
+          "recurring_obligation_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+          "service_frequency": {"type": ["string", "null"], "minLength": 1, "maxLength": 32},
+          "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+          "historical_amounts": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{4}$"}
+          },
+          "prior_source_trace": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {"$ref": "#/components/schemas/AiAccrualSourceTrace"}
+          },
+          "required_human_fields": {
+            "type": "array",
+            "minItems": 6,
+            "maxItems": 6,
+            "prefixItems": [
+              {"const": "owner"},
+              {"const": "due_date"},
+              {"const": "accrual_basis"},
+              {"const": "account_mapping"},
+              {"const": "member_trace"},
+              {"const": "reversing_entry_decision"}
+            ],
+            "items": false
+          },
+          "can_create_draft": {"const": false},
+          "can_review": {"const": false},
+          "can_approve": {"const": false},
+          "can_post": {"const": false}
+        }
+      },
+      "AiAccrualAnalysisResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "entity_id",
+          "accounting_period_id",
+          "excluded_explicit_non_accrual_evidence_count",
+          "candidates",
+          "can_create_draft",
+          "can_review",
+          "can_approve",
+          "can_post"
+        ],
+        "properties": {
+          "status": {"const": "AI_ACCRUAL_ANALYSIS_COMPLETE"},
+          "entity_id": {"$ref": "#/components/schemas/Uuid"},
+          "accounting_period_id": {"$ref": "#/components/schemas/Uuid"},
+          "excluded_explicit_non_accrual_evidence_count": {"type": "integer", "minimum": 0, "maximum": 1000},
+          "candidates": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {"$ref": "#/components/schemas/AiAccrualCandidate"}
+          },
+          "can_create_draft": {"const": false},
+          "can_review": {"const": false},
+          "can_approve": {"const": false},
+          "can_post": {"const": false}
+        }
+      },
+      "AiAccrualAnalysisEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {"$ref": "#/components/schemas/AiAccrualAnalysisResult"}
+        }
+      },
       "ReconciliationWorksheetEnvelope": {
         "type": "object",
         "additionalProperties": false,
@@ -5809,6 +5943,21 @@
                   }
                 }
               }
+            }
+          }
+        }
+      },
+      "AiAccrualAnalysisOk": {
+        "description": "Closed no-action accrual analysis result.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AiAccrualAnalysisEnvelope"
             }
           }
         }

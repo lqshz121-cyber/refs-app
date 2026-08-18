@@ -332,6 +332,36 @@ test('AP Bill and AR Invoice create commands are Draft-only and require a canoni
   assert.equal(schema.additionalProperties,false);assert.deepEqual(schema.required,['periodId','documentNumber','counterpartyRef','counterpartyName','currency','accountingDate','amount','offsetAccountCode','attachmentIds']);
 });
 
+test('AI accrual analysis returns a closed bounded no-action evidence contract',()=>{
+  const operation=contract.paths['/entities/{entityId}/ai/accrual-candidates'].get;
+  assert.equal(operation.operationId,'analyzeAiAccrualCandidates');
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/AiAccrualAnalysisOk');
+  assert.equal(contract.components.responses.AiAccrualAnalysisOk.headers['Cache-Control'].$ref,'#/components/headers/NoStore');
+  assert.equal(contract.components.responses.AiAccrualAnalysisOk.content['application/json'].schema.$ref,'#/components/schemas/AiAccrualAnalysisEnvelope');
+
+  const envelope=contract.components.schemas.AiAccrualAnalysisEnvelope;
+  assert.equal(envelope.additionalProperties,false);assert.deepEqual(envelope.required,['ok','data']);assert.equal(envelope.properties.data.$ref,'#/components/schemas/AiAccrualAnalysisResult');
+  const result=contract.components.schemas.AiAccrualAnalysisResult;
+  assert.equal(result.additionalProperties,false);assert.deepEqual(result.required,Object.keys(result.properties));
+  assert.equal(result.properties.status.const,'AI_ACCRUAL_ANALYSIS_COMPLETE');
+  assert.deepEqual(result.properties.excluded_explicit_non_accrual_evidence_count,{type:'integer',minimum:0,maximum:1000});
+  assert.equal(result.properties.candidates.maxItems,1000);assert.equal(result.properties.candidates.items.$ref,'#/components/schemas/AiAccrualCandidate');
+  for(const field of ['can_create_draft','can_review','can_approve','can_post'])assert.equal(result.properties[field].const,false);
+
+  const candidate=contract.components.schemas.AiAccrualCandidate;
+  assert.equal(candidate.additionalProperties,false);assert.deepEqual(candidate.required,Object.keys(candidate.properties));
+  assert.equal(candidate.properties.status.const,'ACCRUAL_CANDIDATE_REVIEW_REQUIRED');assert.equal(candidate.properties.rule_id.const,'RECURRING_OBLIGATION_MISSING_CURRENT_PERIOD');
+  assert.equal(candidate.properties.historical_amounts.minItems,3);assert.equal(candidate.properties.historical_amounts.maxItems,3);
+  assert.equal(candidate.properties.prior_source_trace.minItems,3);assert.equal(candidate.properties.prior_source_trace.maxItems,3);assert.equal(candidate.properties.prior_source_trace.items.$ref,'#/components/schemas/AiAccrualSourceTrace');
+  assert.equal(candidate.properties.required_human_fields.items,false);assert.deepEqual(candidate.properties.required_human_fields.prefixItems.map(item=>item.const),['owner','due_date','accrual_basis','account_mapping','member_trace','reversing_entry_decision']);
+  for(const field of ['can_create_draft','can_review','can_approve','can_post'])assert.equal(candidate.properties[field].const,false);
+
+  const trace=contract.components.schemas.AiAccrualSourceTrace;
+  assert.equal(trace.additionalProperties,false);assert.deepEqual(trace.required,Object.keys(trace.properties));
+  for(const field of ['source_document_id','source_document_line_id','accounting_period_id'])assert.equal(trace.properties[field].$ref,'#/components/schemas/Uuid');
+  for(const field of ['source_payload_hash','source_line_hash'])assert.equal(trace.properties[field].pattern,'^sha256:[0-9a-f]{64}$');
+});
+
 test('Stage 1 WBS operator self-upgrade is a closed exact-scope command',()=>{
   const operation=contract.paths['/entities/{entityId}/access/self-service-wbs-operator-grant/upgrade'].post;
   assert.equal(operation.operationId,'upgradeStage1WbsOperatorAccess');assert.deepEqual(operation.parameters.map(item=>item.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);

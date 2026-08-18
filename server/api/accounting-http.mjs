@@ -12,6 +12,12 @@ import {WbsCompanyCatalogControllerError,normalizeWbsCompanyCatalogCandidate,nor
 import {assertInsurancePcMappingDto} from '../runtime/wbs-insurance-pc-mapping-controller.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const AI_ACCRUAL_HASH=/^sha256:[0-9a-f]{64}$/;
+const AI_ACCRUAL_MONEY4=/^-?[0-9]+\.[0-9]{4}$/;
+const AI_ACCRUAL_PERIOD=/^\d{4}-(?:0[1-9]|1[0-2])$/;
+const AI_ACCRUAL_TRACE_KEYS=['accounting_period_id','amount','currency','obligation_status','period_key','recurring_obligation_id','service_frequency','service_period_end','service_period_start','source_document_id','source_document_line_id','source_line_hash','source_payload_hash'];
+const AI_ACCRUAL_CANDIDATE_KEYS=['accounting_period_id','can_approve','can_create_draft','can_post','can_review','currency','entity_id','historical_amounts','period_key','prior_source_trace','recurring_obligation_id','required_human_fields','rule_id','service_frequency','status'];
+const AI_ACCRUAL_HUMAN_FIELDS=['owner','due_date','accrual_basis','account_mapping','member_trace','reversing_entry_decision'];
 const FORBIDDEN_BODY_KEYS=new Set(['actor','actorId','actor_id','tenantId','tenant_id','entityId','entity_id','requestHash','request_hash']);
 
 export class AccountingApiError extends Error{
@@ -24,6 +30,15 @@ const header=(headers,name)=>{
   const value=key?headers[key]:null;return Array.isArray(value)?value[0]:value;
 };
 const requireUuid=(value,name)=>{if(!UUID.test(value||''))throw new AccountingApiError(400,'INVALID_PATH_PARAMETER',`${name} must be a UUID`);return value;};
+const exactKeys=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join('\u0000')===keys.join('\u0000');
+const canonicalDate=value=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return false;const date=new Date(`${value}T00:00:00.000Z`);return Number.isFinite(date.getTime())&&date.toISOString().slice(0,10)===value;};
+const boundedText=(value,max)=>typeof value==='string'&&value.length>=1&&value.length<=max&&!/[\u0000-\u001f\u007f]/.test(value);
+const safeAiAccrualTrace=value=>exactKeys(value,AI_ACCRUAL_TRACE_KEYS)&&UUID.test(value.source_document_id||'')&&UUID.test(value.source_document_line_id||'')&&AI_ACCRUAL_HASH.test(value.source_payload_hash||'')&&AI_ACCRUAL_HASH.test(value.source_line_hash||'')&&UUID.test(value.accounting_period_id||'')&&AI_ACCRUAL_PERIOD.test(value.period_key||'')&&canonicalDate(value.service_period_start)&&canonicalDate(value.service_period_end)&&value.service_period_start<=value.service_period_end&&boundedText(value.recurring_obligation_id,128)&&boundedText(value.service_frequency,32)&&boundedText(value.obligation_status,32)&&/^[A-Z]{3}$/.test(value.currency||'')&&AI_ACCRUAL_MONEY4.test(value.amount||'')?{...value}:null;
+const safeAiAccrualCandidate=(value,{entityId,periodId})=>{
+  if(!exactKeys(value,AI_ACCRUAL_CANDIDATE_KEYS)||value.status!=='ACCRUAL_CANDIDATE_REVIEW_REQUIRED'||value.rule_id!=='RECURRING_OBLIGATION_MISSING_CURRENT_PERIOD'||value.entity_id!==entityId||value.accounting_period_id!==periodId||!AI_ACCRUAL_PERIOD.test(value.period_key||'')||!boundedText(value.recurring_obligation_id,128)||!boundedText(value.service_frequency,32)||!/^[A-Z]{3}$/.test(value.currency||'')||!Array.isArray(value.historical_amounts)||value.historical_amounts.length!==3||value.historical_amounts.some(amount=>!AI_ACCRUAL_MONEY4.test(amount||''))||!Array.isArray(value.prior_source_trace)||value.prior_source_trace.length!==3||!Array.isArray(value.required_human_fields)||value.required_human_fields.join('\u0000')!==AI_ACCRUAL_HUMAN_FIELDS.join('\u0000')||value.can_create_draft!==false||value.can_review!==false||value.can_approve!==false||value.can_post!==false)return null;
+  const traces=value.prior_source_trace.map(safeAiAccrualTrace);if(traces.some(trace=>trace===null)||traces.some(trace=>trace.recurring_obligation_id!==value.recurring_obligation_id||trace.currency!==value.currency))return null;
+  return {...value,historical_amounts:[...value.historical_amounts],prior_source_trace:traces,required_human_fields:[...value.required_human_fields]};
+};
 const requireIsoDate=(value,name)=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER',`${name} must be an ISO calendar date`);const date=new Date(`${value}T00:00:00.000Z`);if(!Number.isFinite(date.getTime())||date.toISOString().slice(0,10)!==value)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER',`${name} must be an ISO calendar date`);return value;};
 const optionalIsoDate=(value,name)=>value==null?null:requireIsoDate(value,name);
 const requireBankAccountRef=value=>{if(typeof value!=='string'||!value||value!==value.trim()||value.length>128||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','bankAccountRef must be a canonical trimmed value of 1-128 printable characters');return value;};
@@ -695,8 +710,13 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         if(typeof aiAccrualCandidateAnalysisServiceFactory!=='function')throw new AccountingApiError(503,'AI_ACCRUAL_ANALYSIS_UNAVAILABLE','AI accrual candidate analysis is not configured');
         const service=await aiAccrualCandidateAnalysisServiceFactory(principal);if(!service||typeof service.analyze!=='function')throw new AccountingApiError(503,'AI_ACCRUAL_ANALYSIS_UNAVAILABLE','AI accrual candidate analysis is not configured');
         result=await service.analyze({tenantId:principal.tenantId,entityId,currentPeriodId});
-        if(!result||result.status!=='AI_ACCRUAL_ANALYSIS_COMPLETE'||result.can_create_draft!==false||result.can_review!==false||result.can_approve!==false||result.can_post!==false)throw new AccountingApiError(502,'AI_ACCRUAL_ANALYSIS_RESPONSE_INVALID','AI accrual candidate analysis returned an unsafe response');
-        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+        const expectedKeys=['accounting_period_id','can_approve','can_create_draft','can_post','can_review','candidates','entity_id','excluded_explicit_non_accrual_evidence_count','status'];
+        const resultKeys=result&&typeof result==='object'&&!Array.isArray(result)?Object.keys(result).sort():[];
+        const excludedCount=result?.excluded_explicit_non_accrual_evidence_count;
+        const candidates=Array.isArray(result?.candidates)&&result.candidates.length<=1000?result.candidates.map(candidate=>safeAiAccrualCandidate(candidate,{entityId,periodId:currentPeriodId})):null;
+        if(resultKeys.length!==expectedKeys.length||resultKeys.some((key,index)=>key!==expectedKeys[index])||result.status!=='AI_ACCRUAL_ANALYSIS_COMPLETE'||result.entity_id!==entityId||result.accounting_period_id!==currentPeriodId||!Number.isSafeInteger(excludedCount)||excludedCount<0||excludedCount>1000||candidates===null||candidates.some(candidate=>candidate===null)||new Set(candidates.map(candidate=>candidate.recurring_obligation_id)).size!==candidates.length||result.can_create_draft!==false||result.can_review!==false||result.can_approve!==false||result.can_post!==false)throw new AccountingApiError(502,'AI_ACCRUAL_ANALYSIS_RESPONSE_INVALID','AI accrual candidate analysis returned an unsafe response');
+        const safeResult={status:result.status,entity_id:result.entity_id,accounting_period_id:result.accounting_period_id,excluded_explicit_non_accrual_evidence_count:excludedCount,candidates,can_create_draft:false,can_review:false,can_approve:false,can_post:false};
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:safeResult}};
       }
       if(method==='POST'&&parts.length===6&&parts[4]==='ai'&&parts[5]==='analysis-explanation'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,[]);
