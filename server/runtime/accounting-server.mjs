@@ -3,7 +3,7 @@ import {PostgresContextIssuer} from './context-issuer.mjs';
 import {PostgresAccountingKernel} from './kernel-repository.mjs';
 import {AttachmentEvidenceService} from './attachment-storage.mjs';
 import {createWbsInboundAutoRecHttpReadService} from './wbs-inbound-autorec-http-read-service.mjs';
-import {grantStage1ReadAccess,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from './stage1-bootstrap.mjs';
+import {grantStage1ReadAccess,upgradeStage1ControlledTestWorkflowAccess,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from './stage1-bootstrap.mjs';
 import {createWbsLivePilotReadService} from './wbs-live-pilot-read-service.mjs';
 import {createWbsOperatorAttestedPayableService} from './wbs-operator-attested-payable.mjs';
 import {createWbsAdmittedPayableIngestion} from './wbs-admitted-payable-ingestion.mjs';
@@ -18,7 +18,7 @@ const INSURANCE_PC_MAPPING_READINESS="SELECT to_regprocedure('refs_record_wbs_in
 const WBS_TEST_IMPORT_READINESS="SELECT to_regprocedure('refs_create_wbs_test_payable_draft_hash(uuid,uuid,uuid,jsonb,jsonb,integer)') IS NOT NULL AND to_regprocedure('refs_create_wbs_test_payable_draft(uuid,uuid,uuid,jsonb,jsonb,integer,text,text)') IS NOT NULL AND to_regprocedure('refs_finalize_wbs_test_import_source_hash(uuid,uuid,uuid,uuid,uuid)') IS NOT NULL AND to_regprocedure('refs_finalize_wbs_test_import_source(uuid,uuid,uuid,uuid,uuid,text,text)') IS NOT NULL AND to_regprocedure('refs_create_wbs_controlled_test_bank_scope_hash(uuid,uuid,uuid,text,jsonb,text)') IS NOT NULL AND to_regprocedure('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)') IS NOT NULL AS ready";
 const CONTROLLED_TEST_AI_READINESS="SELECT to_regprocedure('refs_derive_controlled_test_ai_source_hash(uuid,uuid,uuid,text)') IS NOT NULL AND to_regprocedure('refs_derive_controlled_test_ai_source(uuid,uuid,uuid,text,text,text)') IS NOT NULL AS ready";
 
-export function createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant,stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport,controlledTestAiWorkflow,wbsProviderSignedTrust,wbsProviderSignedServiceActorId,aiGateway,runtimeLoginAllowlist=['refs_runtime'],maxBodyBytes,releaseSha,allowedOrigins=[]}={}){
+export function createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant,stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade,stage1SelfControlledTestWorkflowUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport,controlledTestAiWorkflow,wbsProviderSignedTrust,wbsProviderSignedServiceActorId,aiGateway,runtimeLoginAllowlist=['refs_runtime'],maxBodyBytes,releaseSha,allowedOrigins=[]}={}){
   if(!runtimePool||!issuerPool||typeof authenticator?.authenticate!=='function')throw new Error('Production accounting server requires runtime pool, isolated issuer pool and authenticator');
   const attachmentEnabled=Boolean(attachmentStorage||virusScanner||scannerServiceActorId);
   if(attachmentEnabled&&(!attachmentStorage||!virusScanner||!scannerServiceActorId))throw new Error('Attachment integration requires object storage, virus scanner and scanner identity together');
@@ -28,7 +28,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   if(Boolean(wbsProviderSignedTrust)!==Boolean(wbsProviderSignedServiceActorId))throw new Error('Provider signed WBS admission requires pinned trust and service actor identity together');
   if(Boolean(wbsImmutableEvidenceStorage)!==Boolean(wbsProviderSignedTrust))throw new Error('Final-1 retained evidence requires immutable WBS storage, pinned trust, and service actor together');
   if(aiGateway!=null&&typeof aiGateway.analyzeJson!=='function')throw new Error('AI gateway must expose analyzeJson when configured');
-  if((stage1SelfGrant!=null||stage1SelfWbsReadUpgrade!=null||stage1SelfWbsOperatorUpgrade!=null)&&!grantSyncPool)throw new Error('Stage 1 self-grant requires the isolated grant-sync pool');
+  if((stage1SelfGrant!=null||stage1SelfWbsReadUpgrade!=null||stage1SelfWbsOperatorUpgrade!=null||stage1SelfControlledTestWorkflowUpgrade!=null)&&!grantSyncPool)throw new Error('Stage 1 self-grant requires the isolated grant-sync pool');
   if(wbsTestImport&&!wbsLivePilotClient)throw new Error('WBS test import requires the configured live-pilot client');
   const kernelFor=principal=>{const issuer=new PostgresContextIssuer(issuerPool,{principalProvider:async()=>principal});return new PostgresAccountingKernel(runtimePool,{runtimeLoginAllowlist,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,sessionProvider:()=>issuer.issue({tenantId:principal.tenantId})});};
   const aiAnalysisExplanationServiceFactory=aiGateway?principal=>{const kernel=kernelFor(principal);return createAiAnalysisExplanationService({gateway:aiGateway,auditRepository:kernel,summaryReader:async({tenantId,entityId})=>{
@@ -92,6 +92,14 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
           const error=new Error('This signed-in identity is not configured for the Stage 1 WBS operator scope');error.code='42501';throw error;
         }
         return upgradeStage1WbsOperatorAccess(grantSyncPool,{...stage1SelfWbsOperatorUpgrade,actorId:principal.actorId,idempotencyKey});
+      }
+    }):undefined,
+    stage1SelfControlledTestWorkflowUpgradeServiceFactory:stage1SelfControlledTestWorkflowUpgrade?principal=>({
+      upgrade:async({entityId,idempotencyKey})=>{
+        if(principal.tenantId!==stage1SelfControlledTestWorkflowUpgrade.tenantId||entityId!==stage1SelfControlledTestWorkflowUpgrade.entityId){
+          const error=new Error('This signed-in identity is not configured for the controlled test workflow scope');error.code='42501';throw error;
+        }
+        return upgradeStage1ControlledTestWorkflowAccess(grantSyncPool,{...stage1SelfControlledTestWorkflowUpgrade,actorId:principal.actorId,idempotencyKey});
       }
     }):undefined,
     wbsReadServiceFactory:principal=>createWbsInboundAutoRecHttpReadService({kernel:kernelFor(principal)}),

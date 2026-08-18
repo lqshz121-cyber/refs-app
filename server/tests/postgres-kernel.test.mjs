@@ -10,7 +10,7 @@ import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
 import {reconcileWbsTestImportActorGrants} from '../runtime/wbs-test-import-service.mjs';
-import {STAGE1_READ_PERMISSIONS,STAGE1_WBS_OPERATOR_PERMISSIONS,grantStage1ReadAccess,provisionStage1Scope,stage1GrantConfig,stage1ProvisionConfig,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from '../runtime/stage1-bootstrap.mjs';
+import {STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS,STAGE1_READ_PERMISSIONS,STAGE1_WBS_OPERATOR_PERMISSIONS,grantStage1ReadAccess,provisionStage1Scope,stage1GrantConfig,stage1ProvisionConfig,upgradeStage1ControlledTestWorkflowAccess,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from '../runtime/stage1-bootstrap.mjs';
 import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
 import {canonicalRequestBody,canonicalRequestHash} from '../runtime/request-hash.mjs';
@@ -1824,6 +1824,26 @@ pgTest('Stage 1 WBS operator self-upgrade adds only exception retain and replays
   await assert.rejects(upgradeStage1WbsOperatorAccess(adminPool,{...input,idempotencyKey:'operator-upgrade-0003'}),error=>error.code==='GRANT_SYNC_DB_IDENTITY_DENIED');
   await adminPool.query("UPDATE runtime_actor_grant SET revoked_at=now() WHERE tenant_id=$1 AND entity_id=$2 AND actor_id=$3 AND permission='WBS.PAYABLE.OPERATOR_ATTEST'",[ids.tenantId,ids.entityId,actor]);
   await assert.rejects(upgradeStage1WbsOperatorAccess(grantSyncPool,input),error=>error.code==='42501');
+});
+
+pgTest('controlled test workflow self-upgrade requires exact version-3 operator grants and replays at version 4',async()=>{
+  const ids=await seed(),actor='auth0|controlled-test-operator';
+  const sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
+  await sync.reconcile({tenantId:ids.tenantId,actorId:actor,entityId:ids.entityId,permissions:STAGE1_READ_PERMISSIONS,expectedVersion:0,idempotencyKey:'controlled-seed-read-0001'});
+  await upgradeStage1WbsReadAccess(grantSyncPool,{tenantId:ids.tenantId,entityId:ids.entityId,actorId:actor,expectedVersion:1,permissions:[...STAGE1_READ_PERMISSIONS,'WBS.AUTOREC.VIEW'],idempotencyKey:'controlled-seed-wbs-0001'});
+  await upgradeStage1WbsOperatorAccess(grantSyncPool,{tenantId:ids.tenantId,entityId:ids.entityId,actorId:actor,expectedVersion:2,permissions:STAGE1_WBS_OPERATOR_PERMISSIONS,idempotencyKey:'controlled-seed-operator-0001'});
+  const input={tenantId:ids.tenantId,entityId:ids.entityId,actorId:actor,expectedVersion:3,permissions:STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS,idempotencyKey:'controlled-workflow-upgrade-0001'};
+  const created=await upgradeStage1ControlledTestWorkflowAccess(grantSyncPool,input),replay=await upgradeStage1ControlledTestWorkflowAccess(grantSyncPool,input);
+  assert.deepEqual(created,{idempotent:false,version:4,permissionCount:22});assert.equal(replay.idempotent,true);assert.equal(replay.version,4);
+  const permissions=(await adminPool.query('SELECT permission FROM runtime_actor_grant WHERE tenant_id=$1 AND entity_id=$2 AND actor_id=$3 AND revoked_at IS NULL ORDER BY permission',[ids.tenantId,ids.entityId,actor])).rows.map(row=>row.permission);
+  assert.deepEqual(permissions,[...STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS].sort());
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM runtime_grant_sync_receipt WHERE tenant_id=$1 AND entity_id=$2 AND actor_id=$3',[ids.tenantId,ids.entityId,actor])).rows[0].n,4);
+  await assert.rejects(upgradeStage1ControlledTestWorkflowAccess(grantSyncPool,{...input,idempotencyKey:'controlled-workflow-upgrade-0002'}),error=>error.code==='40001');
+  const other=await seed(),otherActor='auth0|different-version-three';
+  await sync.reconcile({tenantId:other.tenantId,actorId:otherActor,entityId:other.entityId,permissions:['AP.VIEW'],expectedVersion:0,idempotencyKey:'controlled-other-v1-0001'});
+  await sync.reconcile({tenantId:other.tenantId,actorId:otherActor,entityId:other.entityId,permissions:['AP.VIEW','AR.VIEW'],expectedVersion:1,idempotencyKey:'controlled-other-v2-0001'});
+  await sync.reconcile({tenantId:other.tenantId,actorId:otherActor,entityId:other.entityId,permissions:['AP.VIEW','AR.VIEW','BANK.VIEW'],expectedVersion:2,idempotencyKey:'controlled-other-v3-0001'});
+  await assert.rejects(upgradeStage1ControlledTestWorkflowAccess(grantSyncPool,{tenantId:other.tenantId,entityId:other.entityId,actorId:otherActor,expectedVersion:3,permissions:STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS,idempotencyKey:'controlled-other-upgrade-0001'}),error=>error.code==='42501');
 });
 
 pgTest('two connections enforce duplicate canonical raw source and atomic idempotency compare/replay',async()=>{
