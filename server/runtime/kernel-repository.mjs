@@ -122,6 +122,19 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async deriveControlledTestAiSource({tenantId,entityId,parentSourceDocumentId,initiatedBy,idempotencyKey}){
+    return this.inSession(async client=>{
+      const payload=[tenantId,entityId,parentSourceDocumentId,initiatedBy];
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_derive_controlled_test_ai_source_hash($1,$2,$3,$4) AS request_hash',payload
+      ),'CONTROLLED_TEST_AI_SOURCE_HASH_FAILED','Controlled-test AI source hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_derive_controlled_test_ai_source($1,$2,$3,$4,$5,$6) AS result',
+        [...payload,idempotencyKey,requestHash]
+      ),'CONTROLLED_TEST_AI_SOURCE_FAILED','Controlled-test AI source was not derived').result;
+    });
+  }
+
   async reserveAttachment(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

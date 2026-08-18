@@ -145,6 +145,26 @@ async function trustedSession(ids,actorId='poster',permissions=['GL.JE.POST']){
 
 const sessionProvider=(ids,actorId='poster',permissions=['GL.JE.POST'])=>()=>trustedSession(ids,actorId,permissions);
 
+pgTest('controlled test AI source bridge is private, fixed-permission, and rejects non-WBS-test parents with zero writes',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null,extraAccounts:[{accountCode:'610000',accountName:'Operating expense'}]});
+  const ordinary=await attachAutoSource(ids,{linkJournal:false,sourceModule:'payable',sourceRecordPrefix:'ORDINARY-NON-TEST'});
+  const counts=()=>adminPool.query(`SELECT
+    (SELECT count(*)::int FROM controlled_test_ai_source WHERE tenant_id=$1) traces,
+    (SELECT count(*)::int FROM source_document WHERE tenant_id=$1) sources,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='CONTROLLED_TEST_AI_SOURCE_DERIVED') audits,
+    (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type='CONTROLLED_TEST_AI_SOURCE_DERIVED') outbox,
+    (SELECT count(*)::int FROM idempotency_receipt WHERE tenant_id=$1 AND operation_scope LIKE 'CONTROLLED_TEST_AI_SOURCE:%') receipts`,[ids.tenantId]).then(result=>result.rows[0]);
+  const before=await counts();
+  const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ordinary-ai-actor',[])});
+  await assert.rejects(denied.deriveControlledTestAiSource({tenantId:ids.tenantId,entityId:ids.entityId,parentSourceDocumentId:ordinary.documentId,initiatedBy:'authenticated-test-user',idempotencyKey:'controlled-ai-denied'}),error=>error.code==='42501');
+  assert.deepEqual(await counts(),before);
+  const sourceMaker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-ai-source-maker',['AI.TEST.WORKFLOW'])});
+  await assert.rejects(sourceMaker.deriveControlledTestAiSource({tenantId:ids.tenantId,entityId:ids.entityId,parentSourceDocumentId:ordinary.documentId,initiatedBy:'authenticated-test-user',idempotencyKey:'controlled-ai-wrong-parent'}),error=>error.code==='23514');
+  assert.deepEqual(await counts(),before);
+  const acl=(await adminPool.query("SELECT has_function_privilege('refs_app','refs_derive_controlled_test_ai_source(uuid,uuid,uuid,text,text,text)','EXECUTE') allowed,EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='refs_derive_controlled_test_ai_source(uuid,uuid,uuid,text,text,text)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE') public_allowed")).rows[0];
+  assert.deepEqual(acl,{allowed:true,public_allowed:false});
+});
+
 pgTest('Controller retains classifies and approves an exact WBS company catalog binding with SoD CAS audit and zero accounting mapping snapshots',async()=>{
   const ids={tenantId:randomUUID(),entityId:randomUUID()};
   await adminPool.query('INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,$2,$3)',[ids.tenantId,`T${ids.tenantId.replaceAll('-','').slice(0,8)}`.toUpperCase(),'Company catalog tenant']);
@@ -2640,7 +2660,7 @@ pgTest('runtime reclass requires evidence, creates new balanced lines and leaves
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM ledger_line WHERE journal_entry_id=$1',[reclass.journal_entry_id])).rows[0].n,2);
 });
 
-pgTest('posting is atomic, same-hash retry replays before state validation, different hash conflicts',async()=>{
+pgTest('posting response loss is safe: same-hash retry yields one journal posting before state validation',async()=>{
   const ids=await seed();
   const kernel=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids)});
   const args={...ids,journalEntryId:ids.journalId,expectedRevision:0,idempotencyKey:'post-key-0001',requestHash:hash('post')};
@@ -2649,6 +2669,8 @@ pgTest('posting is atomic, same-hash retry replays before state validation, diff
   assert.equal(first.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.posting_batch_id,first.posting_batch_id);assert.equal(first.revision,1);assert.equal(replay.revision,1);
   await assert.rejects(kernel.postJournal({...args,expectedRevision:1,requestHash:hash('caller-is-ignored')}),error=>error.code==='23505');
   assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM ledger_line')).rows[0].n,2);
+  assert.equal((await adminPool.query('SELECT count(*)::int AS n FROM journal_entry WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,1);
+  assert.equal((await adminPool.query('SELECT count(DISTINCT posting_batch_id)::int AS n FROM ledger_line WHERE journal_entry_id=$1',[ids.journalId])).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM source_link WHERE link_type='JE_LINE_TO_LEDGER'")).rows[0].n,2);
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int AS n FROM outbox_event WHERE event_type='JOURNAL_POSTED'")).rows[0].n,1);

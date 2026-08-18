@@ -11,6 +11,7 @@ import {createWbsLivePilotClient} from './wbs-live-pilot-read-service.mjs';
 import {createLiteLlmGateway} from './litellm-gateway.mjs';
 import {PostgresGrantSync} from './grant-sync.mjs';
 import {reconcileWbsTestImportActorGrants} from './wbs-test-import-service.mjs';
+import {reconcileControlledTestAiWorkflowActorGrants} from './controlled-test-ai-workflow-service.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const integer=(value,name,{min,max})=>{const parsed=Number(value);if(!Number.isSafeInteger(parsed)||parsed<min||parsed>max)throw new Error(`${name} must be an integer between ${min} and ${max}`);return parsed;};
@@ -49,6 +50,8 @@ export function accountingServerConfig(env=process.env){
   if(!['ENABLED','DISABLED'].includes(wbsLivePilotMode))throw new Error('REFS_WBS_LIVE_PILOT_MODE must be ENABLED or DISABLED');
   const wbsTestImportMode=String(env.REFS_WBS_TEST_IMPORT_MODE||'DISABLED').trim().toUpperCase();
   if(!['ENABLED','DISABLED'].includes(wbsTestImportMode))throw new Error('REFS_WBS_TEST_IMPORT_MODE must be ENABLED or DISABLED');
+  const controlledTestAiMode=String(env.REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE||'DISABLED').trim().toUpperCase();
+  if(!['ENABLED','DISABLED'].includes(controlledTestAiMode))throw new Error('REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE must be ENABLED or DISABLED');
   const aiMode=String(env.REFS_AI_MODE||'DISABLED').trim().toUpperCase();if(!['ENABLED','DISABLED'].includes(aiMode))throw new Error('REFS_AI_MODE must be ENABLED or DISABLED');
   const aiGateway=aiMode==='ENABLED'?createLiteLlmGateway({baseUrl:env.LITELLM_BASE_URL,apiKey:env.LITELLM_API_KEY,model:env.LITELLM_MODEL||'gpt-4.1-mini',timeoutMs:integer(env.LITELLM_TIMEOUT_MS||45000,'LITELLM_TIMEOUT_MS',{min:1000,max:120000}),fetcher:globalThis.fetch}):null;
   const s3Keys=['S3_ENDPOINT','S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY'];
@@ -77,17 +80,32 @@ export function accountingServerConfig(env=process.env){
     if(!UUID.test(env.REFS_WBS_TEST_IMPORT_TENANT_ID||'')||!UUID.test(env.REFS_WBS_TEST_IMPORT_ENTITY_ID||'')||!/^[A-Z0-9][A-Z0-9_:-]{0,63}$/.test(env.REFS_WBS_TEST_IMPORT_COMPANY_CODE||'')||new Set(Object.values(actors)).size!==actorKeys.length)throw new Error('REFS_WBS_TEST_IMPORT scope and actors must be canonical and distinct');
     wbsTestImport={tenantId:env.REFS_WBS_TEST_IMPORT_TENANT_ID,entityId:env.REFS_WBS_TEST_IMPORT_ENTITY_ID,companyCode:env.REFS_WBS_TEST_IMPORT_COMPANY_CODE,actors};
   }
+  let controlledTestAiWorkflow=null;
+  if(controlledTestAiMode==='ENABLED'){
+    if(String(env.REFS_DEPLOYMENT_ENV||'').trim().toLowerCase()!=='staging')throw new Error('REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE may be enabled only in staging');
+    if(!wbsTestImport)throw new Error('REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE requires the fixed WBS test-import scope');
+    const actorKeys=['SOURCE_MAKER','PROPOSER','DRAFT_MAKER','SUBMITTER','REVIEWER','APPROVER','POSTER'].map(role=>`REFS_CONTROLLED_TEST_AI_${role}_ACTOR_ID`);
+    requireAll(env,['REFS_CONTROLLED_TEST_AI_CALLER_ACTOR_ID',...actorKeys]);
+    const actors=Object.fromEntries(actorKeys.map(key=>{
+      const role=key.slice('REFS_CONTROLLED_TEST_AI_'.length,-'_ACTOR_ID'.length).toLowerCase().replace('_maker','Maker');
+      return [role,env[key]];
+    }));
+    const identities=[env.REFS_CONTROLLED_TEST_AI_CALLER_ACTOR_ID,...Object.values(actors),...Object.values(wbsTestImport.actors)];
+    if(new Set(identities).size!==identities.length)throw new Error('Controlled-test AI caller, AI actors, and WBS test actors must all be distinct');
+    controlledTestAiWorkflow={tenantId:wbsTestImport.tenantId,entityId:wbsTestImport.entityId,callerActorId:env.REFS_CONTROLLED_TEST_AI_CALLER_ACTOR_ID,
+      prepaidAccountCode:'141500',expenseAccountCode:'610000',actors};
+  }
   const origins=allowedOrigins(env.REFS_HTTP_ALLOWED_ORIGINS||'',production);if(production&&!origins.length)throw new Error('REFS_HTTP_ALLOWED_ORIGINS is required in production');
   const deploymentRelease=releaseSha(env.RENDER_GIT_COMMIT||env.GITHUB_SHA,production);
   return {database,issuer,audience,jwksUri,host:env.REFS_HTTP_HOST||'127.0.0.1',port:integer(env.PORT||8080,'PORT',{min:1,max:65535}),maxBodyBytes:integer(env.REFS_HTTP_MAX_BODY_BYTES||1048576,'REFS_HTTP_MAX_BODY_BYTES',{min:1024,max:10*1024*1024}),runtimePoolMax:integer(env.REFS_PG_RUNTIME_POOL_MAX||4,'REFS_PG_RUNTIME_POOL_MAX',{min:1,max:20}),issuerPoolMax:integer(env.REFS_PG_ISSUER_POOL_MAX||2,'REFS_PG_ISSUER_POOL_MAX',{min:1,max:10}),allowedOrigins:origins,
-    attachmentMode,wbsIngestMode,wbsSnapshotPublicKeys,wbsProviderSignedTrust,wbsProviderSignedServiceActorId,wbsEvidenceRetentionDays:wbsIngestMode==='REQUIRED'?integer(env.REFS_WBS_EVIDENCE_RETENTION_DAYS,'REFS_WBS_EVIDENCE_RETENTION_DAYS',{min:1,max:3650}):null,wbsLivePilotMode,wbsLivePilotCredentials:wbsLivePilotMode==='ENABLED'?{'CF-Access-Client-Id':env.WBS_CF_ACCESS_CLIENT_ID,'CF-Access-Client-Secret':env.WBS_CF_ACCESS_CLIENT_SECRET,'X-REFS-Auth':env.WBS_REFS_AUTH}:null,wbsTestImportMode,wbsTestImport,aiMode,aiGateway,controlledDemoEnabled:database.controlledDemoEnabled,stage1SelfGrant:stage1SelfGrantConfig(env),stage1SelfWbsReadUpgrade:stage1SelfWbsReadUpgradeConfig(env),stage1SelfWbsOperatorUpgrade:stage1SelfWbsOperatorUpgradeConfig(env),releaseSha:deploymentRelease,s3:attachmentMode==='REQUIRED'||wbsIngestMode==='REQUIRED'?{endpoint:env.S3_ENDPOINT,bucket:env.S3_BUCKET,region:env.S3_REGION,accessKeyId:env.S3_ACCESS_KEY_ID,secretAccessKey:env.S3_SECRET_ACCESS_KEY,sessionToken:env.S3_SESSION_TOKEN||null}:null,scanner:attachmentMode==='REQUIRED'?{endpoint:env.VIRUS_SCANNER_ENDPOINT,bearerToken:env.VIRUS_SCANNER_TOKEN,caFile:scannerCaConfig.file,caPem:scannerCaConfig.pem,serverName:env.VIRUS_SCANNER_SERVER_NAME,actorId:env.ATTACHMENT_SCANNER_ACTOR_ID,timeoutMs:integer(env.VIRUS_SCANNER_TIMEOUT_MS||30000,'VIRUS_SCANNER_TIMEOUT_MS',{min:100,max:120000}),maxAttempts:integer(env.VIRUS_SCANNER_MAX_ATTEMPTS||3,'VIRUS_SCANNER_MAX_ATTEMPTS',{min:1,max:5}),retryBaseMs:integer(env.VIRUS_SCANNER_RETRY_BASE_MS||100,'VIRUS_SCANNER_RETRY_BASE_MS',{min:1,max:10000})}:null};
+    attachmentMode,wbsIngestMode,wbsSnapshotPublicKeys,wbsProviderSignedTrust,wbsProviderSignedServiceActorId,wbsEvidenceRetentionDays:wbsIngestMode==='REQUIRED'?integer(env.REFS_WBS_EVIDENCE_RETENTION_DAYS,'REFS_WBS_EVIDENCE_RETENTION_DAYS',{min:1,max:3650}):null,wbsLivePilotMode,wbsLivePilotCredentials:wbsLivePilotMode==='ENABLED'?{'CF-Access-Client-Id':env.WBS_CF_ACCESS_CLIENT_ID,'CF-Access-Client-Secret':env.WBS_CF_ACCESS_CLIENT_SECRET,'X-REFS-Auth':env.WBS_REFS_AUTH}:null,wbsTestImportMode,wbsTestImport,controlledTestAiMode,controlledTestAiWorkflow,aiMode,aiGateway,controlledDemoEnabled:database.controlledDemoEnabled,stage1SelfGrant:stage1SelfGrantConfig(env),stage1SelfWbsReadUpgrade:stage1SelfWbsReadUpgradeConfig(env),stage1SelfWbsOperatorUpgrade:stage1SelfWbsOperatorUpgradeConfig(env),releaseSha:deploymentRelease,s3:attachmentMode==='REQUIRED'||wbsIngestMode==='REQUIRED'?{endpoint:env.S3_ENDPOINT,bucket:env.S3_BUCKET,region:env.S3_REGION,accessKeyId:env.S3_ACCESS_KEY_ID,secretAccessKey:env.S3_SECRET_ACCESS_KEY,sessionToken:env.S3_SESSION_TOKEN||null}:null,scanner:attachmentMode==='REQUIRED'?{endpoint:env.VIRUS_SCANNER_ENDPOINT,bearerToken:env.VIRUS_SCANNER_TOKEN,caFile:scannerCaConfig.file,caPem:scannerCaConfig.pem,serverName:env.VIRUS_SCANNER_SERVER_NAME,actorId:env.ATTACHMENT_SCANNER_ACTOR_ID,timeoutMs:integer(env.VIRUS_SCANNER_TIMEOUT_MS||30000,'VIRUS_SCANNER_TIMEOUT_MS',{min:100,max:120000}),maxAttempts:integer(env.VIRUS_SCANNER_MAX_ATTEMPTS||3,'VIRUS_SCANNER_MAX_ATTEMPTS',{min:1,max:5}),retryBaseMs:integer(env.VIRUS_SCANNER_RETRY_BASE_MS||100,'VIRUS_SCANNER_RETRY_BASE_MS',{min:1,max:10000})}:null};
 }
 
 export async function startAccountingServer({env=process.env,fetcher=globalThis.fetch,logger=console}={}){
   const config=accountingServerConfig(env);
   const runtimePool=await createPool({databaseUrl:config.database.databaseUrl,applicationName:'refs-accounting-http-runtime',max:config.runtimePoolMax});
   const issuerPool=await createPool({databaseUrl:config.database.contextIssuerDatabaseUrl,applicationName:'refs-accounting-http-issuer',max:config.issuerPoolMax});
-  const grantSyncPool=(config.stage1SelfGrant||config.stage1SelfWbsReadUpgrade||config.stage1SelfWbsOperatorUpgrade||config.wbsTestImport)?await createPool({databaseUrl:config.database.grantSyncDatabaseUrl,applicationName:'refs-accounting-http-grant-sync',max:1}):null;
+  const grantSyncPool=(config.stage1SelfGrant||config.stage1SelfWbsReadUpgrade||config.stage1SelfWbsOperatorUpgrade||config.wbsTestImport||config.controlledTestAiWorkflow)?await createPool({databaseUrl:config.database.grantSyncDatabaseUrl,applicationName:'refs-accounting-http-grant-sync',max:1}):null;
   const resolver=new RemoteJwksResolver({jwksUri:config.jwksUri,fetcher});
   const authenticator=new OidcJwtAuthenticator({issuer:config.issuer,audience:config.audience,keyResolver:resolver});
   const wbsSnapshotVerifier=config.wbsIngestMode==='REQUIRED'?createWbsSnapshotSignatureVerifier({publicKeys:config.wbsSnapshotPublicKeys}):null;
@@ -99,10 +117,11 @@ export async function startAccountingServer({env=process.env,fetcher=globalThis.
   const scannerCaPem=config.attachmentMode==='REQUIRED'?(config.scanner.caPem||await readFile(config.scanner.caFile,'utf8')):null;
   const virusScanner=config.attachmentMode==='REQUIRED'?new HttpVirusScanner({...config.scanner,ca:scannerCaPem}):null;
   const wbsLivePilotClient=config.wbsLivePilotMode==='ENABLED'?createWbsLivePilotClient({credentials:config.wbsLivePilotCredentials,fetcher}):null;
-  const server=createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant:config.stage1SelfGrant,stage1SelfWbsReadUpgrade:config.stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade:config.stage1SelfWbsOperatorUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport:config.wbsTestImport,wbsProviderSignedTrust:config.wbsProviderSignedTrust,wbsProviderSignedServiceActorId:config.wbsProviderSignedServiceActorId,aiGateway:config.aiGateway,maxBodyBytes:config.maxBodyBytes,releaseSha:config.releaseSha,allowedOrigins:config.allowedOrigins});
+  const server=createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant:config.stage1SelfGrant,stage1SelfWbsReadUpgrade:config.stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade:config.stage1SelfWbsOperatorUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId:config.scanner?.actorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport:config.wbsTestImport,controlledTestAiWorkflow:config.controlledTestAiWorkflow,wbsProviderSignedTrust:config.wbsProviderSignedTrust,wbsProviderSignedServiceActorId:config.wbsProviderSignedServiceActorId,aiGateway:config.aiGateway,maxBodyBytes:config.maxBodyBytes,releaseSha:config.releaseSha,allowedOrigins:config.allowedOrigins});
   try{
     await Promise.all([runtimePool.query('SELECT 1'),issuerPool.query('SELECT 1'),...(grantSyncPool?[grantSyncPool.query('SELECT 1')]:[])]);
     if(config.wbsTestImport)await reconcileWbsTestImportActorGrants({scope:config.wbsTestImport,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})})});
+    if(config.controlledTestAiWorkflow)await reconcileControlledTestAiWorkflowActorGrants({scope:config.controlledTestAiWorkflow,grantSync:new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})})});
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(config.port,config.host,resolve);});
   }
   catch(error){await Promise.allSettled([runtimePool.end(),issuerPool.end(),grantSyncPool?.end()]);throw error;}
