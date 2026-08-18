@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FIXTURES} from '../runtime/run-postgres-fixture-suite.mjs';
-import {EXPECTED_TAP_ASSERTIONS_PER_IMAGE,REQUIRED_POSTGRES_IMAGES,validateControlledExecution} from '../runtime/controlled-maturity-execution.mjs';
+import {EXPECTED_TAP_ASSERTIONS_PER_IMAGE,REQUIRED_POSTGRES_IMAGES,assertExecutionDependencies,validateControlledExecution} from '../runtime/controlled-maturity-execution.mjs';
 
 const releaseSha='a'.repeat(40);
 const assertionCounts=[...Array(EXPECTED_TAP_ASSERTIONS_PER_IMAGE-FIXTURES.length).fill(2),...Array(2*FIXTURES.length-EXPECTED_TAP_ASSERTIONS_PER_IMAGE).fill(1)];
@@ -28,4 +28,11 @@ test('execution evidence fails closed for release, version, fixture, TAP, or cle
   const skipped=summaries();skipped[0].fixtures[0]={...skipped[0].fixtures[0],tap:{tests:1,pass:0,fail:0,skipped:1}};
   assert.throws(()=>validateControlledExecution({releaseSha,summaries:skipped}),/not a passing, non-skipped fixture/);
   assert.throws(()=>validateControlledExecution({releaseSha,summaries:summaries(),cleanupResources:['volume:refs_kernel_gate_fixture_leftover']}),/resources remain/);
+});
+
+test('dependency preflight stops before any fixture when pg or Docker is unavailable',async()=>{
+  let dockerCalls=0;
+  await assert.rejects(()=>assertExecutionDependencies({loadPg:async()=>{throw new Error('missing pg');},run:()=>{dockerCalls++;}}),/installed server dependencies/);
+  assert.equal(dockerCalls,0);
+  await assert.rejects(()=>assertExecutionDependencies({loadPg:async()=>({}),run:()=>{throw new Error('daemon unavailable');}}),/reachable Docker server/);
 });

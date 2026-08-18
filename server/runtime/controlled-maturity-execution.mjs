@@ -57,6 +57,11 @@ export function currentGitSha(){
   return execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim().toLowerCase();
 }
 
+export async function assertExecutionDependencies({loadPg=()=>import('pg'),run=execFileSync}={}){
+  try{await loadPg();}catch(error){throw new Error(`Controlled execution requires installed server dependencies: ${error.message}`);}
+  try{run('docker',['version','--format','{{.Server.Version}}'],{encoding:'utf8'});}catch(error){throw new Error(`Controlled execution requires a reachable Docker server: ${error.message}`);}
+}
+
 export function listOwnedDockerResources(){
   const commands=[
     ['container',['ps','-a','--format','{{.Names}}']],
@@ -76,6 +81,7 @@ export async function runControlledMaturityExecution({env=process.env}={}){
   if(!SHA_PATTERN.test(releaseSha))throw new Error('REFS_RELEASE_SHA must be the exact 40-character commit SHA.');
   const gitSha=currentGitSha();
   if(gitSha!==releaseSha)throw new Error(`REFS_RELEASE_SHA ${releaseSha} does not match current HEAD ${gitSha}.`);
+  await assertExecutionDependencies();
   const matrix=await readControlledMaturityMatrix();
   if(matrix.dimensions.some(({complete})=>!complete))throw new Error('Controlled maturity coverage matrix is incomplete.');
   const summaries=[];
