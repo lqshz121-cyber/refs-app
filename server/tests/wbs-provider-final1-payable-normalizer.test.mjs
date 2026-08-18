@@ -7,6 +7,7 @@ import {normalizeVerifiedWbsProviderFinal1Payables} from '../runtime/wbs-provide
 
 const canonical=value=>Buffer.from(canonicalRequestBody(value),'utf8');
 const hash=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
+const controls=rows=>{const units=rows.reduce((sum,row)=>{const [whole,fraction='']=row.amount.replace(/^-/,'').split('.');return sum+BigInt(whole)*10000n+BigInt((fraction+'0000').slice(0,4));},0n),control_totals={row_count:rows.length,currency_totals:[{currency:'USD',row_count:rows.length,amount_total:`${units/10000n}.${String(units%10000n).padStart(4,'0')}`}]};return {control_totals,control_totals_hash:hash(canonical(control_totals))};};
 
 function fixture({currency='USD',credentials=false}={}){
   const {privateKey,publicKey}=generateKeyPairSync('ed25519'),kid='wbs-final1-normalize-test';
@@ -17,7 +18,7 @@ function fixture({currency='USD',credentials=false}={}){
     service_period_start:null,service_period_end:null,recurring_obligation_id:null,contract_id:null,charge_code:null,service_frequency:null,obligation_status:null,
     provider_metadata:{control:{state:'ORIGINAL'}}
   };
-  const view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},row_count:1,content_hash:hash(canonical([row])).slice(7),rows:[row]};
+  const signedControls=controls([row]),view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},row_count:1,...signedControls,content_hash:hash(canonical([row])).slice(7),rows:[row]};
   const unsigned={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-15T00:00:00Z',environment:'PRODUCTION',source_system:'WBS',domain:'PAYABLES',company_key:'WBPA',date_from:'2026-01-01',date_to:'2026-06-30',views:{list_payables:view}};
   const packageHash=hash(canonical(unsigned)).slice(7);
   const pkg={...unsigned,package_hash:packageHash,detached_signature:{key_id:kid,algorithm:'Ed25519',value:sign(null,canonical(unsigned),privateKey).toString('base64')}};
@@ -58,7 +59,7 @@ test('normalizes Provider-signed USD rows into immutable staging only',()=>{
 test('retains missing invoice or vendor facts as signed exceptions without confirming duplicates or creating accounting actions',()=>{
   const {privateKey,publicKey}=generateKeyPairSync('ed25519'),kid='wbs-final1-missing-fields';
   const row={ap_guid:'55555555-5555-4555-8555-555555555555',company_code:'WBPA',currency:'USD',amount:'10.0000',invoice_no:null,invoice_date:null,business_id:null,incurred_date:'2026-01-15',service_period_start:null,service_period_end:null,recurring_obligation_id:null,contract_id:null,charge_code:null,service_frequency:null,obligation_status:null};
-  const view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},row_count:1,content_hash:hash(canonical([row])).slice(7),rows:[row]};
+  const signedControls=controls([row]),view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},row_count:1,...signedControls,content_hash:hash(canonical([row])).slice(7),rows:[row]};
   const unsigned={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:'66666666-6666-4666-8666-666666666666',captured_at:'2026-08-15T00:00:00Z',environment:'PRODUCTION',source_system:'WBS',domain:'PAYABLES',company_key:'WBPA',date_from:'2026-01-01',date_to:'2026-06-30',views:{list_payables:view}};
   const packageHash=hash(canonical(unsigned)).slice(7),pkg={...unsigned,package_hash:packageHash,detached_signature:{key_id:kid,algorithm:'Ed25519',value:sign(null,canonical(unsigned),privateKey).toString('base64')}},packageRaw=canonical(pkg),requestRaw=Buffer.from('GET /mcp/payables'),responseRaw=Buffer.from('{"ok":true}');
   const unsignedReceipt={issuer:'refs-mcp.wbm3.com',kid,algorithm:'Ed25519',request_sha256:hash(requestRaw),response_sha256:hash(responseRaw),package_hash:hash(packageRaw),nonce:'missing-fields-nonce',signed_at:'2026-08-15T00:01:00Z',expires_at:'2026-08-15T00:16:00Z',tenant_id:'33333333-3333-4333-8333-333333333333',entity_id:'44444444-4444-4444-8444-444444444444',company_code:'WBPA',immutable_version:pkg.snapshot_id,nonempty:true};

@@ -8,11 +8,12 @@ import {normalizeVerifiedWbsProviderFinal1Insurance} from '../runtime/wbs-provid
 const canonical=value=>Buffer.from(canonicalRequestBody(value),'utf8');
 const hash=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
 const mappingHash=`sha256:${'a'.repeat(64)}`;
+const controls=rows=>{const units=rows.reduce((sum,row)=>{const [whole,fraction='']=row.final_premium.replace(/^-/,'').split('.');return sum+BigInt(whole)*10000n+BigInt((fraction+'0000').slice(0,4));},0n),control_totals={row_count:rows.length,currency_totals:[{currency:'USD',row_count:rows.length,amount_total:`${units/10000n}.${String(units%10000n).padStart(4,'0')}`}]};return {control_totals,control_totals_hash:hash(canonical(control_totals))};};
 
 function fixture({rows,credentials=false}={}){
   const {privateKey,publicKey}=generateKeyPairSync('ed25519'),kid='wbs-final1-insurance-test';
   const sourceRows=rows||[{id:1,policy_id:'POL-1',company_code:null,pc_code:'PC-1',property_code:'PROP-1',unit_code:'UNIT-1',insurance_status:'Active',approval_status:'Approved',policy_number:'P-100',carrier:'Carrier',insurance_type:'Fire',final_premium:'1200.00',start_date:'2026-01-01',expire_date:'2026-12-31',attachment_count:1,policy_attachment_id:'attachment-1',data_source:'new-insurance',update_time:'2026-08-15 00:00:00',deleted:0}];
-  const view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']},row_count:sourceRows.length,content_hash:hash(canonical(sourceRows)).slice(7),rows:sourceRows};
+  const signedControls=controls(sourceRows),view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']},row_count:sourceRows.length,...signedControls,content_hash:hash(canonical(sourceRows)).slice(7),rows:sourceRows};
   const unsigned={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-15T00:00:00Z',environment:'PRODUCTION',source_system:'WBS',domain:'INSURANCE',source_database:'wb_insurance',source_table:'insurance_data',company_key:'WBPA',company_mapping_hash:mappingHash,currency:'USD',date_from:'2026-01-01',date_to:'2026-12-31',views:{list_insurance:view}};
   const packageHash=hash(canonical(unsigned)).slice(7),pkg={...unsigned,package_hash:packageHash,detached_signature:{key_id:kid,algorithm:'Ed25519',value:sign(null,canonical(unsigned),privateKey).toString('base64')}},packageRaw=canonical(pkg);
   const requestRaw=Buffer.from(credentials?'GET /insurance\r\nAuthorization: Bearer secret':'GET /insurance\r\nX-Request-Id: safe'),responseRaw=Buffer.from('{"ok":true}');

@@ -305,7 +305,7 @@ export class PostgresAccountingKernel{
         `SELECT mapping_hash,mapping_document,effective_from,effective_to
            FROM wbs_company_catalog_controller_decision
           WHERE tenant_id=$1 AND entity_id=$2 AND decision_type='APPROVED'
-            AND company_code=$3 AND base_currency=$4 AND effective_from<=$5::date
+            AND active_status='ACTIVE' AND company_code=$3 AND base_currency=$4 AND effective_from<=$5::date
             AND (effective_to IS NULL OR effective_to>=$6::date)`,
         [tenantId,entityId,entity.company_code,entity.base_currency,dateFrom,dateTo]
       )).rows;
@@ -316,14 +316,25 @@ export class PostgresAccountingKernel{
 
   async retainWbsProviderFinal1SourceEvidence({tenantId,entityId,delivery,artifacts,plan,idempotencyKey}){
     return this.inSession(async client=>{
+      if(['BANK','COST','PROPERTY'].includes(delivery?.domain)){
+        const requestHash=requireRow(await client.query(
+          'SELECT refs_wbs_final1_business_evidence_hash($1,$2,$3::jsonb,$4::jsonb,$5::jsonb) AS request_hash',
+          [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan)]
+        ),'WBS_FINAL1_RETAINED_HASH_FAILED','Final-1 business evidence hash was not produced').request_hash;
+        return requireRow(await client.query(
+          'SELECT refs_retain_wbs_final1_business_evidence($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7) AS result',
+          [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan),idempotencyKey,requestHash]
+        ),'WBS_FINAL1_RETAINED_SOURCE_FAILED','Final-1 business evidence admission did not return a result').result;
+      }
       const requestHash=requireRow(await client.query(
         'SELECT refs_wbs_final1_retained_evidence_hash($1,$2,$3::jsonb,$4::jsonb,$5::jsonb) AS request_hash',
         [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan)]
       ),'WBS_FINAL1_RETAINED_HASH_FAILED','Final-1 retained evidence hash was not produced').request_hash;
-      return requireRow(await client.query(
-        'SELECT refs_retain_wbs_final1_source_evidence($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7) AS result',
+      const result=requireRow(await client.query(
+        'SELECT refs_retain_wbs_final1_source_evidence_with_signed_controls($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7) AS result',
         [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan),idempotencyKey,requestHash]
       ),'WBS_FINAL1_RETAINED_SOURCE_FAILED','Final-1 retained evidence admission did not return a result').result;
+      return result;
     });
   }
 
@@ -1088,6 +1099,63 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getWbsProviderSignedSourceEvidence({tenantId,entityId,sourceDocumentId}){
+    return this.inSession(async client=>{
+      await client.query('SELECT refs_assert_scope($1,$2,$3)',[tenantId,entityId,'GL.JE.VIEW']);
+      const row=requireRow(await client.query(`
+        WITH retained AS (
+          SELECT tenant_id,entity_id,wbs_final1_retained_evidence_admission_id,domain,
+                 accounting_period_id,source_document_id,raw_event_id,source_record_id,
+                 source_version,raw_row_hash
+            FROM wbs_final1_retained_source_row
+          UNION ALL
+          SELECT tenant_id,entity_id,wbs_final1_retained_evidence_admission_id,domain,
+                 accounting_period_id,source_document_id,raw_event_id,source_record_id,
+                 source_version,raw_row_hash
+            FROM wbs_final1_signed_business_source_row
+        )
+        SELECT d.tenant_id,d.entity_id,r.accounting_period_id,d.source_document_id,
+               r.raw_event_id,r.source_record_id,r.source_version,r.raw_row_hash AS source_row_hash,
+               a.wbs_final1_retained_evidence_admission_id AS admission_id,
+               a.request_hash AS admission_hash,a.snapshot_id,a.issuer,a.key_id,a.algorithm,
+               a.receipt_hash,a.receipt_storage_version,a.request_raw_hash,a.request_storage_version,
+               a.response_raw_hash,a.response_storage_version,a.package_raw_hash,a.package_hash,
+               a.package_storage_version,c.control_totals,c.control_totals_hash
+          FROM source_document d
+          JOIN retained r ON r.tenant_id=d.tenant_id AND r.entity_id=d.entity_id
+                         AND r.source_document_id=d.source_document_id AND r.raw_event_id=d.raw_event_id
+                         AND r.source_record_id=d.source_record_id AND r.source_version=d.source_version
+                         AND r.raw_row_hash=d.payload_hash
+          JOIN wbs_final1_retained_evidence_admission a
+            ON a.tenant_id=r.tenant_id AND a.entity_id=r.entity_id
+           AND a.wbs_final1_retained_evidence_admission_id=r.wbs_final1_retained_evidence_admission_id
+           AND a.domain=r.domain
+          JOIN wbs_final1_signed_control_total c
+            ON c.tenant_id=a.tenant_id AND c.entity_id=a.entity_id
+           AND c.wbs_final1_retained_evidence_admission_id=a.wbs_final1_retained_evidence_admission_id
+           AND c.domain=a.domain
+         WHERE d.tenant_id=$1 AND d.entity_id=$2 AND d.source_document_id=$3
+           AND d.source_system='WBS' AND r.accounting_period_id IS NOT NULL
+      `,[tenantId,entityId,sourceDocumentId]),'WBS_PROVIDER_SIGNED_SOURCE_EVIDENCE_NOT_AVAILABLE','Exact formally admitted provider-signed source evidence is not available');
+      return Object.freeze({
+        evidence_version:'WBS_PROVIDER_SIGNED_SOURCE_EVIDENCE_V1',provider_mode:'SIGNED_OBJECT_LOCK',
+        admission_status:'ADMITTED',signature_verified:true,tenant_id:row.tenant_id,entity_id:row.entity_id,
+        accounting_period_id:row.accounting_period_id,source_document_id:row.source_document_id,
+        raw_event_id:row.raw_event_id,source_record_id:row.source_record_id,source_version:row.source_version,
+        source_row_hash:row.source_row_hash,admission_id:row.admission_id,admission_hash:row.admission_hash,
+        snapshot_id:row.snapshot_id,issuer:row.issuer,key_id:row.key_id,algorithm:row.algorithm,
+        control_totals:row.control_totals,control_totals_hash:row.control_totals_hash,
+        action_flags:Object.freeze({can_propose_amortization:false,can_review:false,can_create_draft:false,can_approve:false,can_post:false}),
+        artifacts:Object.freeze({
+          receipt:Object.freeze({sha256:row.receipt_hash,version_id:row.receipt_storage_version}),
+          request:Object.freeze({sha256:row.request_raw_hash,version_id:row.request_storage_version}),
+          response:Object.freeze({sha256:row.response_raw_hash,version_id:row.response_storage_version}),
+          package:Object.freeze({sha256:row.package_raw_hash,canonical_package_hash:row.package_hash,version_id:row.package_storage_version}),
+        }),
+      });
+    });
+  }
+
   async listBankTransactions({tenantId,entityId,bankAccountRef,fromDate=null,throughDate=null,limit=100,offset=0}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_bank_transactions($1,$2,$3,$4::date,$5::date,$6,$7)',
@@ -1399,15 +1467,17 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
-  async getApControlTotal({tenantId,entityId}){
-    return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_ap_control_total($1,$2)',[tenantId,entityId]
+  async getApControlTotal({tenantId,entityId,periodId}){
+    return this.inSession(async client=>(await client.query(periodId===undefined
+      ?'SELECT * FROM refs_ap_control_total($1,$2)'
+      :'SELECT * FROM refs_ap_control_total($1,$2,$3)',periodId===undefined?[tenantId,entityId]:[tenantId,entityId,periodId]
     )).rows);
   }
 
-  async getArControlTotal({tenantId,entityId}){
-    return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_ar_control_total($1,$2)',[tenantId,entityId]
+  async getArControlTotal({tenantId,entityId,periodId}){
+    return this.inSession(async client=>(await client.query(periodId===undefined
+      ?'SELECT * FROM refs_ar_control_total($1,$2)'
+      :'SELECT * FROM refs_ar_control_total($1,$2,$3)',periodId===undefined?[tenantId,entityId]:[tenantId,entityId,periodId]
     )).rows);
   }
 

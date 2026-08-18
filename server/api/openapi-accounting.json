@@ -206,6 +206,45 @@
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/provider-signed/final1/bank/admissions": {
+      "post": {
+        "operationId": "retainProviderSignedWbsFinal1Bank",
+        "summary": "Retain one provider-signed Final-1 Bank delivery as immutable evidence",
+        "description": "Service-only OIDC command. Requires the exact list_bank_transactions tool, pinned Ed25519 receipt and package signatures, four Object-Lock artifact versions with CLEAN scans, and Provider-signed row count/per-currency MONEY4 controls that REFS recomputes. Rows remain PENDING_REVIEW with no matching, Draft, review, approval, or posting authority.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsProviderFinal1Admission"},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/provider-signed/final1/cost/admissions": {
+      "post": {
+        "operationId": "retainProviderSignedWbsFinal1CostControl",
+        "summary": "Retain provider-signed Cost control evidence without creating a CWIP transaction",
+        "description": "Service-only OIDC evidence command for exact list_control_totals/COST_GENERAL_LEDGER rows. Signed controls are recomputed and retained; the current Provider contract does not make this report a transaction producer, so every row is CONTROL_EVIDENCE_ONLY and cannot create a transaction, CWIP Draft, review, approval, Journal, or posting.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsProviderFinal1Admission"},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/provider-signed/final1/property/admissions": {
+      "post": {
+        "operationId": "retainProviderSignedWbsFinal1PropertyControl",
+        "summary": "Retain provider-signed Property comparison control evidence",
+        "description": "Service-only OIDC evidence command for exact list_control_totals/PROPERTY_COMPARISON scope. It preserves property, bank-account and period controls under Object Lock. It does not misrepresent control totals as a Property Operations rent transaction and grants no accounting authority.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsProviderFinal1Admission"},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/provider-signed/evidence/source-documents/{sourceDocumentId}": {
+      "get": {
+        "operationId": "getWbsProviderSignedSourceEvidence",
+        "summary": "Read exact Object-Lock evidence for one formally admitted WBS source document",
+        "description": "Requires GL.JE.VIEW for the authenticated tenant and path entity. Returns a closed projection derived only from the append-only Final-1 admission, exact retained source row, and matching source document. Receipt, request, response, and package hashes and Object Lock VersionIds come from persisted server admission evidence. Legacy signed snapshots, unsigned GET-only Pilot data, unresolved periods, caller claims, raw bytes, storage locations, signatures, credentials, and arbitrary external references fail closed or are never returned.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/SourceDocumentId"}],
+        "responses": {"200":{"$ref":"#/components/responses/WbsProviderSignedSourceEvidenceReadOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/provider-signed/final1/insurance/observations/{observationId}/admit": {
       "post": {
         "operationId": "resumeProviderSignedWbsFinal1InsuranceAdmission",
@@ -1338,6 +1377,14 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "periodId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
           }
         ],
         "responses": {
@@ -1356,6 +1403,14 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "periodId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
           }
         ],
         "responses": {
@@ -3117,6 +3172,40 @@
           "updated_at": {"type": "string", "format": "date-time"}
         }
       },
+      "WbsFinal1CurrencyControlTotal": {
+        "type": "object", "additionalProperties": false,
+        "required": ["currency", "row_count", "amount_total"],
+        "properties": {"currency": {"type": "string", "pattern": "^[A-Z]{3}$"}, "row_count": {"type": "integer", "minimum": 1, "maximum": 500}, "amount_total": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,17})\\.[0-9]{4}$"}}
+      },
+      "WbsFinal1SignedControlTotals": {
+        "type": "object", "additionalProperties": false,
+        "required": ["row_count", "currency_totals"],
+        "properties": {"row_count": {"type": "integer", "minimum": 1, "maximum": 500}, "currency_totals": {"type": "array", "minItems": 1, "maxItems": 500, "uniqueItems": true, "items": {"$ref": "#/components/schemas/WbsFinal1CurrencyControlTotal"}}}
+      },
+      "WbsProviderSignedEvidenceArtifact": {
+        "type": "object", "additionalProperties": false, "required": ["sha256", "version_id"],
+        "properties": {"sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "version_id": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"}}
+      },
+      "WbsProviderSignedEvidencePackageArtifact": {
+        "type": "object", "additionalProperties": false, "required": ["sha256", "canonical_package_hash", "version_id"],
+        "properties": {"sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "canonical_package_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "version_id": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"}}
+      },
+      "WbsProviderSignedSourceEvidence": {
+        "type": "object", "additionalProperties": false,
+        "required": ["evidence_version", "provider_mode", "admission_status", "signature_verified", "tenant_id", "entity_id", "accounting_period_id", "source_document_id", "raw_event_id", "source_record_id", "source_version", "source_row_hash", "admission_id", "admission_hash", "snapshot_id", "issuer", "key_id", "algorithm", "control_totals", "control_totals_hash", "action_flags", "artifacts"],
+        "properties": {
+          "evidence_version": {"const": "WBS_PROVIDER_SIGNED_SOURCE_EVIDENCE_V1"}, "provider_mode": {"const": "SIGNED_OBJECT_LOCK"}, "admission_status": {"const": "ADMITTED"}, "signature_verified": {"const": true},
+          "tenant_id": {"$ref": "#/components/schemas/Uuid"}, "entity_id": {"$ref": "#/components/schemas/Uuid"}, "accounting_period_id": {"$ref": "#/components/schemas/Uuid"}, "source_document_id": {"$ref": "#/components/schemas/Uuid"}, "raw_event_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_record_id": {"type": "string", "minLength": 1, "maxLength": 512}, "source_version": {"type": "string", "minLength": 1, "maxLength": 512}, "source_row_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "admission_id": {"$ref": "#/components/schemas/Uuid"}, "admission_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "snapshot_id": {"$ref": "#/components/schemas/Uuid"}, "issuer": {"type": "string", "minLength": 1}, "key_id": {"type": "string", "minLength": 1}, "algorithm": {"const": "Ed25519"},
+          "control_totals": {"$ref": "#/components/schemas/WbsFinal1SignedControlTotals"}, "control_totals_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "action_flags": {"$ref": "#/components/schemas/WbsProviderActionFlags"},
+          "artifacts": {"type": "object", "additionalProperties": false, "required": ["receipt", "request", "response", "package"], "properties": {"receipt": {"$ref": "#/components/schemas/WbsProviderSignedEvidenceArtifact"}, "request": {"$ref": "#/components/schemas/WbsProviderSignedEvidenceArtifact"}, "response": {"$ref": "#/components/schemas/WbsProviderSignedEvidenceArtifact"}, "package": {"$ref": "#/components/schemas/WbsProviderSignedEvidencePackageArtifact"}}}
+        }
+      },
+      "WbsProviderSignedSourceEvidenceEnvelope": {
+        "type": "object", "additionalProperties": false, "required": ["ok", "data"],
+        "properties": {"ok": {"const": true}, "data": {"$ref": "#/components/schemas/WbsProviderSignedSourceEvidence"}}
+      },
       "SourceDocumentLineReadRow": {
         "type": "object",
         "additionalProperties": false,
@@ -3275,12 +3364,29 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "period_id",
+          "account_code",
           "currency",
           "open_balance",
           "control_balance",
-          "in_balance"
+          "in_balance",
+          "business_document_ids",
+          "document_source_document_ids",
+          "journal_entry_ids",
+          "journal_line_ids",
+          "ledger_line_ids",
+          "source_document_ids",
+          "document_contributors",
+          "ledger_contributors"
         ],
         "properties": {
+          "period_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "account_code": {
+            "type": "string",
+            "enum": ["291001", "120200"]
+          },
           "currency": {
             "type": "string",
             "pattern": "^[A-Z]{3}$"
@@ -3293,7 +3399,68 @@
           },
           "in_balance": {
             "type": "boolean"
+          },
+          "business_document_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/Uuid"}
+          },
+          "document_source_document_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/Uuid"}
+          },
+          "journal_entry_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/Uuid"}
+          },
+          "journal_line_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/Uuid"}
+          },
+          "ledger_line_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/Uuid"}
+          },
+          "source_document_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/Uuid"}
+          },
+          "document_contributors": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ControlTotalDocumentContributor"}
+          },
+          "ledger_contributors": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ControlTotalLedgerContributor"}
           }
+        }
+      },
+      "ControlTotalDocumentContributor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["business_document_id", "source_document_id", "posted_journal_entry_id", "open_balance"],
+        "properties": {
+          "business_document_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_document_id": {"oneOf": [{"$ref": "#/components/schemas/Uuid"}, {"type": "null"}]},
+          "posted_journal_entry_id": {"$ref": "#/components/schemas/Uuid"},
+          "open_balance": {"$ref": "#/components/schemas/Money"}
+        }
+      },
+      "ControlTotalLedgerContributor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["journal_entry_id", "journal_line_id", "ledger_line_id", "source_document_ids", "control_amount"],
+        "properties": {
+          "journal_entry_id": {"$ref": "#/components/schemas/Uuid"},
+          "journal_line_id": {"$ref": "#/components/schemas/Uuid"},
+          "ledger_line_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_document_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/components/schemas/Uuid"}},
+          "control_amount": {"$ref": "#/components/schemas/Money"}
         }
       },
       "ControlTotalEnvelope": {
@@ -5560,6 +5727,11 @@
         }
       },
       "WbsInsurancePcMappingRead":{"description":"Closed no-store Controller Insurance PC mapping response","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsInsurancePcMappingEnvelope"}}}},
+      "WbsProviderSignedSourceEvidenceReadOk": {
+        "description": "Authenticated no-store exact Final-1 signed Object Lock evidence read",
+        "headers": {"Cache-Control": {"schema": {"const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WbsProviderSignedSourceEvidenceEnvelope"}}}
+      },
       "ReadOk": {
         "description": "Authenticated read response",
         "headers": {

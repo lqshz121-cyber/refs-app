@@ -7,11 +7,13 @@ import {verifyWbsProviderFinal1Delivery} from '../runtime/wbs-provider-final1-de
 const canonical=value=>Buffer.from(canonicalRequestBody(value),'utf8');
 const hash=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`;
 const without=(value,...keys)=>Object.fromEntries(Object.entries(value).filter(([key])=>!keys.includes(key)));
+const units=value=>{const [whole,fraction='']=String(value).split('.');return BigInt(whole)*10000n+BigInt((fraction+'0000').slice(0,4));};
+const controls=rows=>{const total=rows.reduce((sum,row)=>sum+units(String(row.amount).replace(/^-/,'')),0n),control_totals={row_count:rows.length,currency_totals:[{currency:'USD',row_count:rows.length,amount_total:`${total/10000n}.${String(total%10000n).padStart(4,'0')}`}]};return {control_totals,control_totals_hash:hash(canonical(control_totals))};};
 
-async function fixture({credentials=false,requestText=null,currency='USD',receiptExtra={},packageExtra={},rows=null}={}){
+async function fixture({credentials=false,requestText=null,currency='USD',receiptExtra={},packageExtra={},rows=null,controlTotals=null,controlTotalsHash=null}={}){
   const {privateKey,publicKey}=generateKeyPairSync('ed25519'),kid='wbs-final1-test';
   const row={ap_guid:'11111111-1111-4111-8111-111111111111',company_code:'WBPA',amount:'10.000',incurred_date:'2026-01-15T00:00:00',posting_date:'2026-01-15T00:00:00',invoice_no:'INV-1',invoice_date:'2026-01-15',business_id:'BUS-1',service_period_start:null,service_period_end:null,recurring_obligation_id:null,contract_id:null,charge_code:null,service_frequency:null,obligation_status:null,...(currency?{currency}:{})};
-  const signedRows=rows??[row],view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},row_count:signedRows.length,content_hash:hash(canonical(signedRows)).slice(7),rows:signedRows};
+  const signedRows=rows??[row],computedControls=controls(signedRows),signedControls={control_totals:controlTotals??computedControls.control_totals,control_totals_hash:controlTotalsHash??hash(canonical(controlTotals??computedControls.control_totals))},view={scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},row_count:signedRows.length,...signedControls,content_hash:hash(canonical(signedRows)).slice(7),rows:signedRows};
   const unsigned={schema_version:'WBS_READONLY_SNAPSHOT_V2',snapshot_id:'22222222-2222-4222-8222-222222222222',captured_at:'2026-08-15T00:00:00Z',environment:'PRODUCTION',source_system:'WBS',domain:'PAYABLES',company_key:'WBPA',date_from:'2026-01-01',date_to:'2026-06-30',views:{list_payables:view},...packageExtra};
   const packageHash=hash(canonical(unsigned)).slice(7);
   const pkg={...unsigned,package_hash:packageHash,detached_signature:{key_id:kid,algorithm:'Ed25519',value:sign(null,canonical(unsigned),privateKey).toString('base64')}};
@@ -24,6 +26,18 @@ async function fixture({credentials=false,requestText=null,currency='USD',receip
 test('Final-1 verifies exact dual signatures and reports no accounting blocker when currency and raw artifacts are safe',async()=>{
   const result=verifyWbsProviderFinal1Delivery(await fixture());
   assert.equal(result.signature_verified,true);assert.equal(result.row_count,1);assert.deepEqual(result.admission_blockers,[]);assert.equal(result.can_admit,false);
+  assert.deepEqual(result.control_totals,{row_count:1,currency_totals:[{currency:'USD',row_count:1,amount_total:'10.0000'}]});
+  assert.equal(result.control_totals_hash,'sha256:faa6c295db3c0d8e097f0f897b7da3102ae098551023cc9e55bba1ebd14011e1');
+});
+
+test('Final-1 signed totals use the frozen canonical V1 vector and reject legacy shape or hash drift',async()=>{
+  const value={row_count:1,currency_totals:[{currency:'USD',row_count:1,amount_total:'10.0000'}]};
+  assert.equal(canonicalRequestBody(value),'{"currency_totals":[{"amount_total":"10.0000","currency":"USD","row_count":1}],"row_count":1}');
+  assert.equal(hash(canonical(value)),'sha256:faa6c295db3c0d8e097f0f897b7da3102ae098551023cc9e55bba1ebd14011e1');
+  const legacy=await fixture({controlTotals:{row_count:1,per_currency_totals:[{currency:'USD',gross_amount:'10.0000'}]}});
+  assert.throws(()=>verifyWbsProviderFinal1Delivery(legacy),error=>error.code==='WBS_FINAL1_VIEW_INVALID');
+  const drift=await fixture({controlTotalsHash:'sha256:0aa6c295db3c0d8e097f0f897b7da3102ae098551023cc9e55bba1ebd14011e1'});
+  assert.throws(()=>verifyWbsProviderFinal1Delivery(drift),error=>error.code==='WBS_FINAL1_VIEW_INVALID');
 });
 
 test('Final-1 credential detector blocks query, header, camelCase JSON, and percent-encoded token names',async()=>{

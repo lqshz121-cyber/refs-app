@@ -453,8 +453,11 @@ test('AP aging is an authenticated read scoped to entity and a strict as-of date
 
 test('AP and AR control totals are authenticated entity-scoped reads',async()=>{
   for(const [module,method] of [['ap','getApControlTotal'],['ar','getArControlTotal']]){
-    calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/control-totals`,body:null,headers:{}});
-    assert.equal(response.status,200);assert.equal(calls[0][0],method);assert.deepEqual(calls[0][1],{tenantId,entityId});
+    calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/control-totals?periodId=${periodId}`,body:null,headers:{}});
+    assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(calls[0][0],method);assert.deepEqual(calls[0][1],{tenantId,entityId,periodId});
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/control-totals`,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/control-totals?periodId=${periodId}&ignored=true`,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/control-totals?periodId=${periodId}`,body:null,headers:{'If-Match':'"0"'}})).status,400);
   }
 });
 

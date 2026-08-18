@@ -3,6 +3,7 @@ import {canonicalRequestBody,canonicalRequestHash} from './request-hash.mjs';
 import {containsWbsProviderFinal1Credential,verifyWbsProviderFinal1Delivery,verifyWbsProviderFinal1InsuranceDelivery} from './wbs-provider-final1-delivery.mjs';
 import {normalizeVerifiedWbsProviderFinal1Payables} from './wbs-provider-final1-payable-normalizer.mjs';
 import {normalizeVerifiedWbsProviderFinal1Insurance} from './wbs-provider-final1-insurance-normalizer.mjs';
+import {normalizeVerifiedWbsProviderFinal1Business,verifyWbsProviderFinal1BusinessDelivery} from './wbs-provider-final1-business-delivery.mjs';
 import {validateInsuranceFormalAdmissionBinding,validateInsurancePreAdmissionObservation} from './wbs-insurance-pc-mapping-controller.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -36,15 +37,15 @@ const orphanRetained=(cause,{retainedCount,attemptedArtifact,registryPersisted,m
 
 export function createWbsProviderFinal1RetainedEvidenceAdmission({
   kernel,storage,scanner,providerTrust,principal,serviceActorId,serviceAudience=null,serviceTenantId=null,clock=()=>Date.now(),opsLogger=null,
-  verifyPayables=verifyWbsProviderFinal1Delivery,verifyInsurance=verifyWbsProviderFinal1InsuranceDelivery,
-  normalizePayables=normalizeVerifiedWbsProviderFinal1Payables,normalizeInsurance=normalizeVerifiedWbsProviderFinal1Insurance
+  verifyPayables=verifyWbsProviderFinal1Delivery,verifyInsurance=verifyWbsProviderFinal1InsuranceDelivery,verifyBusiness=verifyWbsProviderFinal1BusinessDelivery,
+  normalizePayables=normalizeVerifiedWbsProviderFinal1Payables,normalizeInsurance=normalizeVerifiedWbsProviderFinal1Insurance,normalizeBusiness=normalizeVerifiedWbsProviderFinal1Business
 }={}){
   if(!kernel||typeof kernel.readWbsProviderFinal1AdmissionScope!=='function'||typeof kernel.retainWbsProviderFinal1SourceEvidence!=='function')fail('WBS_FINAL1_PERSISTENCE_REQUIRED','Final-1 scope and atomic persistence kernel are required.');
   if(!storage||typeof storage.putImmutableVersion!=='function'||typeof storage.putOrphanLifecycleMarker!=='function'||typeof storage.inspectImmutableVersion!=='function'||typeof storage.readVerifiedVersion!=='function'||!Number.isInteger(storage.retentionDays))fail('WBS_FINAL1_STORAGE_REQUIRED','Immutable versioned WBS evidence storage, exact-version readback, and durable orphan marker are required.');
   if(!scanner||typeof scanner.scan!=='function')fail('WBS_FINAL1_SCANNER_REQUIRED','A strict exact-version evidence scanner is required.');
   if(!principal?.trusted||!principal.actorId||principal.actorId!==serviceActorId||(serviceTenantId!=null&&principal.tenantId!==serviceTenantId)||(serviceAudience!=null&&(!Array.isArray(principal.audiences)||principal.audiences.length!==1||principal.audiences[0]!==serviceAudience)))fail('WBS_FINAL1_SERVICE_IDENTITY_DENIED','Only the configured authenticated Provider service identity may retain Final-1 evidence.');
   if(!providerTrust||typeof providerTrust.public_key!=='string')fail('WBS_FINAL1_TRUST_REQUIRED','Pinned Provider trust is required.');
-  for(const dependency of [verifyPayables,verifyInsurance,normalizePayables,normalizeInsurance])if(typeof dependency!=='function')fail('WBS_FINAL1_BOUNDARY_REQUIRED','Final-1 verification and normalization boundaries are required.');
+  for(const dependency of [verifyPayables,verifyInsurance,verifyBusiness,normalizePayables,normalizeInsurance,normalizeBusiness])if(typeof dependency!=='function')fail('WBS_FINAL1_BOUNDARY_REQUIRED','Final-1 verification and normalization boundaries are required.');
   const recordOrphans=async({tenantId,entityId,admissionId,immutableVersion,domain,receiptHash,retentionUntil,confirmed,failureStage,reasonCode})=>{
     if(Object.keys(confirmed).length===0)return {registryPersisted:false,markerPersisted:false};
     try{
@@ -60,7 +61,7 @@ export function createWbsProviderFinal1RetainedEvidenceAdmission({
   return Object.freeze({
     mode:'WBS_PROVIDER_FINAL1_RETAINED_EVIDENCE_V1',
     async admit({domain,tenantId,entityId,receipt,requestRawBase64,responseRawBase64,packageRawBase64,idempotencyKey}={}){
-      if(!['PAYABLES','INSURANCE'].includes(domain)||!UUID.test(text(tenantId))||!UUID.test(text(entityId)))fail('WBS_FINAL1_SCOPE_INVALID','Authenticated tenant, entity, and fixed Final-1 domain are required.');
+      if(!['PAYABLES','INSURANCE','BANK','COST','PROPERTY'].includes(domain)||!UUID.test(text(tenantId))||!UUID.test(text(entityId)))fail('WBS_FINAL1_SCOPE_INVALID','Authenticated tenant, entity, and fixed Final-1 domain are required.');
       if(!IDEMPOTENCY.test(text(idempotencyKey)))fail('WBS_FINAL1_IDEMPOTENCY_REQUIRED','A stable 16-200 character idempotency key is required.');
       const requestRaw=decode(requestRawBase64,'requestRawBase64'),responseRaw=decode(responseRawBase64,'responseRawBase64'),packageRaw=decode(packageRawBase64,'packageRawBase64');
       const receiptRaw=Buffer.from(canonicalRequestBody(receipt),'utf8');
@@ -74,9 +75,12 @@ export function createWbsProviderFinal1RetainedEvidenceAdmission({
         if(domain==='PAYABLES'){
           verified=verifyPayables({providerTrust,receipt,requestRaw,responseRaw,packageRaw,expectedScope:{tenant_id:tenantId,entity_id:entityId,company_code:scope.company_code},expectedCurrency:'USD',now:clock()});
           plan=normalizePayables({verified,expectedCurrency:'USD'});
-        }else{
+        }else if(domain==='INSURANCE'){
           verified=verifyInsurance({providerTrust,receipt,requestRaw,responseRaw,packageRaw,expectedScope:{tenant_id:tenantId,entity_id:entityId,company_code:scope.company_code,company_mapping_hash:scope.company_mapping_hash},expectedCurrency:'USD',now:clock()});
           plan=normalizeInsurance({verified,expectedCurrency:'USD'});
+        }else{
+          verified=verifyBusiness({providerTrust,receipt,requestRaw,responseRaw,packageRaw,expectedScope:{tenant_id:tenantId,entity_id:entityId,company_code:scope.company_code},domain,now:clock()});
+          plan=normalizeBusiness({verified});
         }
       }catch(cause){throw new WbsProviderFinal1RetainedEvidenceError(cause?.code||'WBS_FINAL1_VERIFICATION_FAILED','Final-1 verification or normalization failed.');}
       if(verified.signature_verified!==true||verified.raw_contains_credentials!==false||verified.admission_blockers?.length!==0||plan.can_create_draft!==false||plan.can_review!==false||plan.can_approve!==false||plan.can_post!==false||plan.can_propose_amortization===true)fail('WBS_FINAL1_BOUNDARY_INVALID','Final-1 evidence boundary returned an unsafe result.');
@@ -115,8 +119,9 @@ export function createWbsProviderFinal1RetainedEvidenceAdmission({
       const delivery=Object.freeze({
         admission_id:admissionId,domain,issuer:receipt.issuer,key_id:receipt.kid,algorithm:'Ed25519',nonce:receipt.nonce,
         company_code:scope.company_code,...(domain==='INSURANCE'?{company_mapping_hash:scope.company_mapping_hash}:{}),
-        signed_at:receipt.signed_at,expires_at:receipt.expires_at,observation_at:verified.package?.captured_at||receipt.signed_at,
+        signed_at:receipt.signed_at,expires_at:receipt.expires_at,observation_at:verified.package?.captured_at||receipt.signed_at,source_tool:verified.source_tool||null,
         date_from:verified.date_from,date_to:verified.date_to,snapshot_id:verified.snapshot_id,row_count:verified.row_count,
+        control_totals:verified.control_totals,control_totals_hash:verified.control_totals_hash,
         receipt_hash:receiptHash,request_raw_hash:sha256(requestRaw),response_raw_hash:sha256(responseRaw),package_raw_hash:sha256(packageRaw),package_hash:verified.package_hash,
         plan_hash:plan.plan_hash,signature_verified:true
       });
