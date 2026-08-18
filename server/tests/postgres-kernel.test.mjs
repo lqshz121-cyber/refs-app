@@ -368,6 +368,8 @@ pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while r
   await adminPool.query('DELETE FROM journal_line WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,ids.journalId]);
   await adminPool.query('DELETE FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,ids.journalId]);
   await adminPool.query("UPDATE account_master SET requires_member=false,required_member_type=NULL WHERE account_code='291001' AND ((tenant_id=$1 AND entity_id=$2) OR (tenant_id=$3 AND entity_id=$4))",[ids.tenantId,ids.entityId,other.tenantId,other.entityId]);
+  await adminPool.query("UPDATE entity SET source_system='REFS_STAGE1',source_entity_id='LEGACY-WBPA' WHERE tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId]);
+  const otherEntityBinding=(await adminPool.query('SELECT source_system,source_entity_id FROM entity WHERE tenant_id=$1 AND entity_id=$2',[other.tenantId,other.entityId])).rows[0];
   const rows=Array.from({length:10},(_,index)=>({source_record_hash:hash(`wbs-test-payable-row-${index}`),currency:'USD',accounting_date:index===0?'2025-02-15':`2025-03-${String(index+1).padStart(2,'0')}`,amount:index===0?'12.3000':'1.0000',status:'CLEAR'})),row=rows[0];
   const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_payables',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:createHash('sha256').update('provider-content').digest('hex'),scope:{company_codes:['WBPA'],date_range:['2025-01-01','2025-12-31']},record_count:10,rows,signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash('wbs-test-observation')};
   const untouchedAccount=(await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='120200'",[ids.tenantId,ids.entityId])).rows[0];
@@ -388,11 +390,20 @@ pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while r
   await assert.rejects(noApKernel.createWbsTestPayableDraft({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,observation,row,rowIndex:0,idempotencyKey:'wbs-test-no-ap-0001'}),error=>error.code==='42501');
   assert.deepEqual(await counts(),before);
   assert.deepEqual((await adminPool.query("SELECT requires_member,required_member_type FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId])).rows[0],{requires_member:false,required_member_type:null});
+  assert.deepEqual((await adminPool.query('SELECT source_system,source_entity_id FROM entity WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0],{source_system:'REFS_STAGE1',source_entity_id:'LEGACY-WBPA'});
 
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-test-maker',['WBS.TEST.IMPORT','AP.BILL.CREATE'])});
   const draftArgs={tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,observation,row,rowIndex:0,idempotencyKey:'wbs-test-draft-0001'};
   const draft=await maker.createWbsTestPayableDraft(draftArgs);
   assert.deepEqual({status:draft.status,revision:draft.revision,idempotent:draft.idempotent,test_only:draft.test_only,provenance_mode:draft.provenance_mode},{status:'DRAFT',revision:0,idempotent:false,test_only:true,provenance_mode:'UNSIGNED_TEST_ONLY'});
+  assert.deepEqual((await adminPool.query('SELECT source_system,source_entity_id FROM entity WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0],{source_system:'REFS_STAGE1',source_entity_id:'LEGACY-WBPA'});
+  assert.deepEqual((await adminPool.query(`SELECT d.source_system document_source_system,d.source_entity_id document_source_entity_id,
+      r.source_system raw_source_system,r.source_entity_id raw_source_entity_id,b.connector_code
+    FROM source_document d JOIN raw_event r ON r.tenant_id=d.tenant_id AND r.raw_event_id=d.raw_event_id
+    JOIN import_batch b ON b.tenant_id=r.tenant_id AND b.import_batch_id=r.import_batch_id
+    WHERE d.tenant_id=$1 AND d.entity_id=$2 AND d.source_document_id=$3`,[ids.tenantId,ids.entityId,draft.source_document_id])).rows[0],{
+    document_source_system:'REFS_STAGE1',document_source_entity_id:'LEGACY-WBPA',raw_source_system:'REFS_STAGE1',raw_source_entity_id:'LEGACY-WBPA',connector_code:'WBS_TEST'
+  });
   assert.deepEqual((await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId])).rows[0],{account_name:'Accounts Payable',requires_member:true,required_member_type:'VENDOR',active:true});
   assert.equal((await maker.createWbsTestPayableDraft(draftArgs)).idempotent,true);
   const source=(await adminPool.query(`SELECT d.business_date::text,d.accounting_date::text,d.status::text,l.external_dimension_refs,
@@ -403,6 +414,7 @@ pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while r
     WHERE d.tenant_id=$1 AND d.entity_id=$2 AND d.source_document_id=$3`,[ids.tenantId,ids.entityId,draft.source_document_id])).rows[0];
   assert.equal(source.business_date,'2025-02-15');assert.equal(source.accounting_date,'2026-07-01');assert.equal(source.status,'READY_FOR_DRAFT');
   assert.equal(source.external_dimension_refs.original_accounting_date,'2025-02-15');assert.equal(source.external_dimension_refs.posting_accounting_date,'2026-07-01');
+  assert.equal(source.external_dimension_refs.schema_version,'WBS_TEST_IMPORT_LINE_V1');assert.equal(source.external_dimension_refs.provenance_mode,'UNSIGNED_TEST_ONLY');
   assert.equal(source.scan_status,'CLEAN');assert.equal(source.finalization_status,'VERIFIED_CLEAN');assert.match(source.storage_ref,/^object:\/\/refs-test-only\//);
   const accounting=(await adminPool.query(`SELECT b.accounting_date::text business_accounting_date,b.status business_status,j.journal_date::text journal_date,j.status::text journal_status
     FROM business_document b JOIN journal_entry j ON j.tenant_id=b.tenant_id AND j.entity_id=b.entity_id AND j.journal_entry_id=b.draft_journal_entry_id
@@ -448,6 +460,7 @@ pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while r
   assert.equal(incomeExpense.display_balance,'21.3000');assert.equal(incomeExpense.journal_entry_ids.length,10);assert.equal(incomeExpense.source_document_ids.length,10);
   assert.deepEqual((await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='120200'",[ids.tenantId,ids.entityId])).rows[0],untouchedAccount);
   assert.deepEqual((await adminPool.query("SELECT requires_member,required_member_type FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[other.tenantId,other.entityId])).rows[0],{requires_member:false,required_member_type:null});
+  assert.deepEqual((await adminPool.query('SELECT source_system,source_entity_id FROM entity WHERE tenant_id=$1 AND entity_id=$2',[other.tenantId,other.entityId])).rows[0],otherEntityBinding);
   assert.deepEqual((await adminPool.query('SELECT (SELECT count(*)::int FROM business_document WHERE tenant_id=$1) documents,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM source_document WHERE tenant_id=$1) sources',( [ids.tenantId] ))).rows[0],{documents:10,journals:10,ledger:20,sources:10});
 });
 
