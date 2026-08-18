@@ -64,10 +64,18 @@ void (async()=>{
   assert.equal(apiResult.detail.lines[0].provider_trace.source_payload_hash,apiResult.detail.payload_hash,'the retained trace must bind to the parent source payload');
   assert.equal(apiResult.detail.lines[0].provider_trace.business_id,'BUS-901');
   assert.equal(apiResult.detail.lines[0].provider_trace.accrual.contract_id,null);
+  const {provider_trace:_ordinaryTrace,...ordinaryLine}=apiLine;
+  const ordinary=await readAuthoritativeSourceDocumentDetail({config,sourceDocumentId,fetcher:async()=>({ok:true,headers:{get:key=>key==='cache-control'?'private':'application/json'},json:async()=>({ok:true,data:[{...apiDetail,source_system:'MANUAL',source_module:'AP',lines:[ordinaryLine]}]})})});
+  assert.equal(ordinary.ok,true,'an ordinary source line may omit optional provider trace evidence');
+  assert.equal(Object.hasOwn(ordinary.detail.lines[0],'provider_trace'),false,'an absent provider trace remains absent');
+  const wbsTest=await readAuthoritativeSourceDocumentDetail({config,sourceDocumentId,fetcher:async()=>({ok:true,headers:{get:key=>key==='cache-control'?'private':'application/json'},json:async()=>({ok:true,data:[{...apiDetail,source_system:'WBS_TEST',source_module:'WBS_TEST_PAYABLE_IMPORT',lines:[{...ordinaryLine,provider_trace:null}]}]})})});
+  assert.equal(wbsTest.ok,true,'a WBS_TEST source line may carry the database null provider trace sentinel');
+  assert.equal(Object.hasOwn(wbsTest.detail.lines[0],'provider_trace'),false,'a null provider trace normalizes to absent evidence');
   const cacheable=await readAuthoritativeSourceDocumentDetail({config,sourceDocumentId,fetcher:async()=>({ok:true,headers:{get:key=>key==='cache-control'?'private':'application/json'},json:async()=>({ok:true,data:[apiDetail]})})});
   assert.equal(cacheable.ok,false,'a provider trace cannot be accepted from a cacheable detail response');
   const hashMismatch=await readAuthoritativeSourceDocumentDetail({config,sourceDocumentId,fetcher:async()=>({ok:true,headers,json:async()=>({ok:true,data:[{...apiDetail,lines:[{...apiLine,provider_trace:{...apiLine.provider_trace,source_payload_hash:`sha256:${'f'.repeat(64)}`}}]}]})})});
   assert.equal(hashMismatch.ok,false,'each provider trace must bind to the source document payload hash');
+  assert.equal(hashMismatch.code,'ACCOUNTING_API_PROTOCOL');
   const rejected=async trace=>readAuthoritativeSourceDocumentDetail({
     config,sourceDocumentId,
     fetcher:async()=>({ok:true,headers,json:async()=>({ok:true,data:[{...apiDetail,lines:[{...apiLine,provider_trace:trace}]}]})})

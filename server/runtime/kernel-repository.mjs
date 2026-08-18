@@ -1113,25 +1113,29 @@ export class PostgresAccountingKernel{
   async listAccountRegister({tenantId,entityId,periodId,accountCode}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_account_register($1,$2,$3,$4)',[tenantId,entityId,periodId,accountCode]
-    )).rows);
+    )).rows.map(row=>({...row,...(row.period_start===undefined?{}:{period_start:publicDate(row.period_start)}),...(row.period_end===undefined?{}:{period_end:publicDate(row.period_end)}),...(row.journal_date===undefined?{}:{journal_date:publicDate(row.journal_date)})})));
   }
 
   async listGeneralLedger({tenantId,entityId,periodId,accountCode=null,query=null,limit=50,offset=0}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_general_ledger($1,$2,$3,$4,$5,$6,$7)',[tenantId,entityId,periodId,accountCode,query,limit,offset]
-    )).rows);
+    )).rows.map(row=>({...row,...(row.period_start===undefined?{}:{period_start:publicDate(row.period_start)}),...(row.period_end===undefined?{}:{period_end:publicDate(row.period_end)}),...(row.journal_date===undefined?{}:{journal_date:publicDate(row.journal_date)})})));
   }
 
   async listSourceDocuments({tenantId,entityId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_source_documents($1,$2)',[tenantId,entityId]
-    )).rows);
+    )).rows.map(row=>({...row,...(row.business_date===undefined?{}:{business_date:publicDate(row.business_date)}),...(row.accounting_date===undefined?{}:{accounting_date:publicDate(row.accounting_date)}),...(row.source_line_count===undefined?{}:{source_line_count:Number(row.source_line_count)})})));
   }
 
   async getSourceDocumentDetail({tenantId,entityId,sourceDocumentId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_source_document_detail($1,$2,$3)',[tenantId,entityId,sourceDocumentId]
-    )).rows);
+    )).rows.map(row=>({...row,...(row.business_date===undefined?{}:{business_date:publicDate(row.business_date)}),...(row.accounting_date===undefined?{}:{accounting_date:publicDate(row.accounting_date)}),...(row.source_line_count===undefined?{}:{source_line_count:Number(row.source_line_count)}),lines:Array.isArray(row.lines)?row.lines.map(line=>{
+      if(line?.provider_trace!==null)return line;
+      const {provider_trace,...withoutAbsentTrace}=line;
+      return withoutAbsentTrace;
+    }):row.lines})));
   }
 
   async getWbsProviderSignedSourceEvidence({tenantId,entityId,sourceDocumentId}){
@@ -1395,7 +1399,7 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_financial_statements($1,$2,$3)',
       [tenantId,entityId,periodId]
-    )).rows);
+    )).rows.map(row=>({...row,...(row.period_start===undefined?{}:{period_start:publicDate(row.period_start)}),...(row.period_end===undefined?{}:{period_end:publicDate(row.period_end)})})));
   }
 
   async getFinancialStatementSnapshot({tenantId,entityId,periodId}){
@@ -1435,7 +1439,7 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_financial_statement_period_comparison($1,$2,$3,$4)',
       [tenantId,entityId,currentPeriodId,priorPeriodId]
-    )).rows);
+    )).rows.map(row=>({...row,...(row.current_period_start===undefined?{}:{current_period_start:publicDate(row.current_period_start)}),...(row.current_period_end===undefined?{}:{current_period_end:publicDate(row.current_period_end)}),...(row.prior_period_start===undefined?{}:{prior_period_start:publicDate(row.prior_period_start)}),...(row.prior_period_end===undefined?{}:{prior_period_end:publicDate(row.prior_period_end)})})));
   }
 
   async getDimensionProfitability({tenantId,entityId,periodId,dimensionType,dimensionRef}){

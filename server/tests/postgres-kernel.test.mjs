@@ -25,7 +25,7 @@ import {createWbsProviderSignedPayableAdmission} from '../runtime/wbs-provider-s
 import {createWbsAdmittedPayableIngestion} from '../runtime/wbs-admitted-payable-ingestion.mjs';
 import {normalizeWbsCompanyCatalogCandidate,wbsCompanyCatalogCanonicalHash,normalizeWbsCompanyClassification} from '../runtime/wbs-company-catalog-controller.mjs';
 import {createWbsAdmittedCostCwipIngestion} from '../runtime/wbs-admitted-cost-cwip-ingestion.mjs';
-import {refreshAuthoritativeDocuments,refreshAuthoritativeJournalEntries} from '../../src/accounting-api.js';
+import {readAuthoritativeSourceDocumentDetail,refreshAuthoritativeDocuments,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatements,refreshAuthoritativeGeneralLedger,refreshAuthoritativeJournalEntries,refreshAuthoritativeSourceDocuments} from '../../src/accounting-api.js';
 
 const config=runtimeConfig();
 let adminPool=null;
@@ -454,11 +454,26 @@ pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while r
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-test-report-reader',['GL.REPORT.VIEW','GL.JE.VIEW','AP.VIEW'])});
   const gl=await reader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'610000',query:'',limit:50,offset:0});
   assert.equal(gl.length,10);assert.equal(gl.reduce((sum,item)=>sum+Number(item.debit_amount),0),21.3);assert.ok(gl.some(item=>item.journal_entry_id===draft.journal_entry_id&&item.source_document_ids.includes(draft.source_document_id)));
+  const generalLedgerHttpRows=JSON.parse(JSON.stringify(gl));
+  const generalLedgerClientRead=await refreshAuthoritativeGeneralLedger({config:{baseUrl:'https://accounting.test',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>`test-token-${'a'.repeat(32)}`},accountCode:'610000',query:'',limit:50,offset:0,fetcher:async()=>({ok:true,status:200,json:async()=>({ok:true,data:generalLedgerHttpRows})})});
+  assert.equal(generalLedgerClientRead.ok,true,JSON.stringify({generalLedgerClientRead,generalLedgerHttpRows}));
   const statements=await reader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
   const expense=statements.find(item=>item.statement_type==='TRIAL_BALANCE'&&item.account_code==='610000'),payable=statements.find(item=>item.statement_type==='TRIAL_BALANCE'&&item.account_code==='291001'),incomeExpense=statements.find(item=>item.statement_type==='INCOME_STATEMENT'&&item.account_code==='610000');
   assert.deepEqual({debit:expense.period_debit,credit:expense.period_credit,balance:expense.display_balance},{debit:'21.3000',credit:'0.0000',balance:'21.3000'});
   assert.deepEqual({debit:payable.period_debit,credit:payable.period_credit,balance:payable.display_balance},{debit:'0.0000',credit:'21.3000',balance:'-21.3000'});
   assert.equal(incomeExpense.display_balance,'21.3000');assert.equal(incomeExpense.journal_entry_ids.length,10);assert.equal(incomeExpense.source_document_ids.length,10);
+  const financialStatementHttpRows=JSON.parse(JSON.stringify(statements));
+  const financialStatementClientRead=await refreshAuthoritativeFinancialStatements({config:{baseUrl:'https://accounting.test',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>`test-token-${'a'.repeat(32)}`},fetcher:async()=>({ok:true,status:200,json:async()=>({ok:true,data:financialStatementHttpRows})})});
+  assert.equal(financialStatementClientRead.ok,true,JSON.stringify({financialStatementClientRead,financialStatementHttpRows}));
+  const listedSources=await reader.listSourceDocuments({tenantId:ids.tenantId,entityId:ids.entityId});
+  assert.equal(listedSources.length,10);
+  const sourceListHttpRows=JSON.parse(JSON.stringify(listedSources));
+  const sourceListClientRead=await refreshAuthoritativeSourceDocuments({config:{baseUrl:'https://accounting.test',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>`test-token-${'a'.repeat(32)}`},fetcher:async()=>({ok:true,status:200,headers:{get:()=> 'no-store'},json:async()=>({ok:true,data:sourceListHttpRows})})});
+  assert.equal(sourceListClientRead.ok,true,JSON.stringify({sourceListClientRead,sourceListHttpRows}));
+  const sourceDetailRows=await reader.getSourceDocumentDetail({tenantId:ids.tenantId,entityId:ids.entityId,sourceDocumentId:draft.source_document_id});
+  const sourceDetailHttpRows=JSON.parse(JSON.stringify(sourceDetailRows));
+  const sourceDetailClientRead=await readAuthoritativeSourceDocumentDetail({config:{baseUrl:'https://accounting.test',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>`test-token-${'a'.repeat(32)}`},sourceDocumentId:draft.source_document_id,fetcher:async()=>({ok:true,status:200,headers:{get:()=> 'no-store'},json:async()=>({ok:true,data:sourceDetailHttpRows})})});
+  assert.equal(sourceDetailClientRead.ok,true,JSON.stringify({sourceDetailClientRead,sourceDetailHttpRows}));
   const listedBills=await reader.listBusinessDocuments({tenantId:ids.tenantId,entityId:ids.entityId,documentKind:'AP_BILL'});
   assert.equal(listedBills.length,10);
   const clientRead=await refreshAuthoritativeDocuments({config:{baseUrl:'https://accounting.test',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>`test-token-${'a'.repeat(32)}`},fetcher:async url=>{
@@ -3566,6 +3581,9 @@ pgTest('financial statement period comparison reads two ordered periods and mark
   const rows=await reader.getFinancialStatementPeriodComparison({tenantId:ids.tenantId,entityId:ids.entityId,currentPeriodId:ids.periodId,priorPeriodId});
   const current=rows.find(row=>row.statement_type==='INCOME_STATEMENT'&&row.account_code==='610000');
   assert.equal(current.comparison_status,'MISSING_PRIOR_EVIDENCE');assert.equal(current.current_display_balance,'100.0000');assert.equal(current.prior_display_balance,null);assert.equal(current.prior_ledger_line_ids,null);
+  const comparisonHttpRows=JSON.parse(JSON.stringify(rows));
+  const comparisonClientRead=await refreshAuthoritativeFinancialStatementPeriodComparison({config:{baseUrl:'https://accounting.test',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>`test-token-${'a'.repeat(32)}`},priorPeriodId,fetcher:async()=>({ok:true,status:200,json:async()=>({ok:true,data:comparisonHttpRows})})});
+  assert.equal(comparisonClientRead.ok,true,JSON.stringify({comparisonClientRead,comparisonHttpRows}));
   await assert.rejects(reader.getFinancialStatementPeriodComparison({tenantId:ids.tenantId,entityId:ids.entityId,currentPeriodId:ids.periodId,priorPeriodId:ids.periodId}),error=>error.code==='22023');
   await assert.rejects(reader.getFinancialStatementPeriodComparison({tenantId:ids.tenantId,entityId:ids.entityId,currentPeriodId:priorPeriodId,priorPeriodId:ids.periodId}),error=>error.code==='22023');
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'comparison-reader'}),kernelFactory:async()=>reader});
