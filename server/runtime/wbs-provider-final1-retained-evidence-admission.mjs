@@ -121,7 +121,7 @@ export function createWbsProviderFinal1RetainedEvidenceAdmission({
         company_code:scope.company_code,...(domain==='INSURANCE'?{company_mapping_hash:scope.company_mapping_hash}:{}),
         signed_at:receipt.signed_at,expires_at:receipt.expires_at,observation_at:verified.package?.captured_at||receipt.signed_at,source_tool:verified.source_tool||null,
         date_from:verified.date_from,date_to:verified.date_to,snapshot_id:verified.snapshot_id,row_count:verified.row_count,
-        per_currency_totals:verified.per_currency_totals,control_totals_hash:verified.control_totals_hash,
+        control_totals:verified.control_totals,control_totals_hash:verified.control_totals_hash,
         receipt_hash:receiptHash,request_raw_hash:sha256(requestRaw),response_raw_hash:sha256(responseRaw),package_raw_hash:sha256(packageRaw),package_hash:verified.package_hash,
         plan_hash:plan.plan_hash,signature_verified:true
       });

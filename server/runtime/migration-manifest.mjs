@@ -172,5 +172,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"164_wbs_insurance_pc_mapping_controller_workflow.sql",up:"f0f13af3b2135051defda1beecc9a8dc742b40909809c7dcc5417a47242b9ba8",down:"d255e798ed9c7bcf8769a776e2173d91d4def6230d0b3ed3c74e46c025d28e5c"}),
   Object.freeze({name:"165_source_document_provider_trace_read.sql",up:"f2c65fe02d40004ab75b5a722af9ade5da3d96bc37f86ff2fd0b3f047fb1ad11",down:"67197e238006844bc8982b34d3f68d1b9b206a0deab69125f0591efd4e258497"}),
   Object.freeze({name:"166_ap_ar_period_control_lineage_read.sql",up:"723a942bd53c6ac246840614c59d127fc5f51541c126536621e9ec707a43d289",down:"29a9f74b12c97a690e8043637d4689a26cbad27891450689a7dbc237afb192c8"}),
-  Object.freeze({name:"167_wbs_final1_signed_business_evidence.sql",up:"49e83e55fae08ff19ebe35f23f0588da8c1fe698fcf4b5e4d233686578c8dab7",down:"02375097d6f9f2322f6512119c1a6c9a6fa5b1d7dd29a333338564e09cc450eb"}),
+  Object.freeze({name:"167_wbs_final1_signed_business_evidence.sql",up:"18d59b3874bcf7f04e2bc7ba6f489a106de143508a1a9c26928892c212470f18",down:"6ea31078db2b5718ebde488dc13cee35a4818d6dc51c20095b22c30c47326860"}),
 ]);

@@ -3,11 +3,14 @@ DO $$ BEGIN IF EXISTS(SELECT 1 FROM wbs_final1_signed_control_total) OR EXISTS(S
 DROP FUNCTION IF EXISTS refs_retain_wbs_final1_business_evidence(uuid,uuid,jsonb,jsonb,jsonb,text,text);
 DROP FUNCTION IF EXISTS refs_retain_wbs_final1_source_evidence_with_signed_controls(uuid,uuid,jsonb,jsonb,jsonb,text,text);
 DROP FUNCTION IF EXISTS refs_wbs_final1_business_evidence_hash(uuid,uuid,jsonb,jsonb,jsonb);
-DROP FUNCTION IF EXISTS refs_record_wbs_final1_signed_control_total(uuid,uuid,uuid,integer,jsonb,text);
+DROP FUNCTION IF EXISTS refs_record_wbs_final1_signed_control_total(uuid,uuid,uuid,jsonb,text);
 DROP FUNCTION IF EXISTS refs_assert_wbs_final1_signed_artifacts(jsonb,jsonb);
-DROP FUNCTION IF EXISTS refs_wbs_final1_control_totals_hash(integer,jsonb);
 DROP TABLE wbs_final1_signed_business_source_row;
 DROP TABLE wbs_final1_signed_control_total;
+DROP FUNCTION IF EXISTS refs_wbs_final1_control_totals_valid(jsonb,text);
+DROP FUNCTION IF EXISTS refs_wbs_final1_control_totals_hash(jsonb);
+DROP FUNCTION IF EXISTS refs_canonical_jsonb_hash(jsonb);
+DROP FUNCTION IF EXISTS refs_canonical_jsonb_text(jsonb);
 ALTER TABLE wbs_final1_retained_evidence_admission DROP CONSTRAINT wbs_final1_retained_evidence_admission_mapping_check;
 ALTER TABLE wbs_final1_retained_evidence_admission DROP CONSTRAINT wbs_final1_retained_evidence_admission_domain_check;
 ALTER TABLE wbs_final1_retained_evidence_admission ADD CONSTRAINT wbs_final1_retained_evidence_admission_domain_check CHECK(domain IN ('PAYABLES','INSURANCE'));

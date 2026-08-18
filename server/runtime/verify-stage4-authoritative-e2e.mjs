@@ -10,7 +10,7 @@ const MONEY4=/^-?[0-9]+\.[0-9]{4}$/;
 const STATEMENT_MONEY_FIELDS=Object.freeze(['opening_debit','opening_credit','period_debit','period_credit','ending_debit','ending_credit','display_balance']);
 const statementTypes=new Set(['TRIAL_BALANCE','BALANCE_SHEET','INCOME_STATEMENT','CASH_FLOW']);
 const expect=(condition,message)=>{if(!condition)throw new Error(`stage4-authoritative-e2e: ${message}`);};
-const contains=(value,expected)=>value===expected||Array.isArray(value)&&value.some(item=>contains(item,expected))||value&&typeof value==='object'&&Object.values(value).some(item=>contains(item,expected));
+const includesExact=(value,expected)=>Array.isArray(value)&&value.includes(expected);
 const sameRelease=(actual,expected)=>typeof actual==='string'&&SHA.test(actual)&&actual.toLowerCase()===expected;
 const origin=(value,name)=>{let url;try{url=new URL(String(value||''));}catch{throw new Error(`stage4-authoritative-e2e: ${name} must be an HTTPS origin`);}expect(url.protocol==='https:'&&url.origin===url.toString().replace(/\/$/,''),`${name} must be an HTTPS origin`);return url.origin;};
 const accessToken=value=>{expect(typeof value==='string'&&value.trim().length>=16&&!/(replace|example|placeholder|changeme)/i.test(value),'REFS_STAGE4_E2E_READ_ACCESS_TOKEN is required');return value.trim();};
@@ -40,7 +40,7 @@ export async function verifyStage4AuthoritativeE2e({config,fetcher=globalThis.fe
     getJson(fetcher,`${base}/journal-entries/${scenario.journalEntryId}?${query}`,token,'journal detail'),
     getJson(fetcher,`${base}/source-documents/${scenario.sourceDocumentId}`,token,'source document'),
   ]);
-  const rowMatches=(row,statementType=scenario.statementType)=>row?.statement_type===statementType&&row?.account_code===scenario.accountCode&&contains(row,scenario.journalEntryId)&&contains(row,scenario.journalLineId)&&contains(row,scenario.ledgerLineId)&&contains(row,scenario.sourceDocumentId);
+  const rowMatches=(row,statementType=scenario.statementType)=>row?.statement_type===statementType&&row?.account_code===scenario.accountCode&&includesExact(row?.journal_entry_ids,scenario.journalEntryId)&&includesExact(row?.journal_line_ids,scenario.journalLineId)&&includesExact(row?.ledger_line_ids,scenario.ledgerLineId)&&includesExact(row?.source_document_ids,scenario.sourceDocumentId);
   const snapshotMatches=(row,statementType)=>row?.financial_statement_snapshot_id===scenario.financialStatementSnapshotId&&rowMatches(row,statementType)&&/^sha256:[0-9a-f]{64}$/.test(String(row.snapshot_hash||''))&&/^sha256:[0-9a-f]{64}$/.test(String(row.ledger_evidence_hash||''))&&/^sha256:[0-9a-f]{64}$/.test(String(row.row_hash||''));
   expect(Array.isArray(snapshot)&&snapshot.some(row=>snapshotMatches(row,scenario.statementType)),'immutable statement snapshot does not retain the exact lineage row');
   expect(Array.isArray(statements)&&statements.some(row=>rowMatches(row,scenario.statementType)),'live financial statements do not retain the exact lineage row');
@@ -51,10 +51,10 @@ export async function verifyStage4AuthoritativeE2e({config,fetcher=globalThis.fe
     expect(snapshot.some(row=>snapshotMatches(row,'TRIAL_BALANCE')&&exactMoneyRow(row)),'immutable statement snapshot does not retain the paired Trial Balance lineage row with expectedAmount in its fixed MONEY4 fields');
     expect(statements.some(row=>rowMatches(row,'TRIAL_BALANCE')&&exactMoneyRow(row)),'live financial statements do not retain the paired Trial Balance lineage row with expectedAmount in its fixed MONEY4 fields');
   }
-  expect(Array.isArray(ledger)&&ledger.some(row=>row?.ledger_line_id===scenario.ledgerLineId&&row?.journal_entry_id===scenario.journalEntryId&&contains(row,scenario.journalLineId)&&contains(row,scenario.sourceDocumentId)),'general ledger does not retain the exact report line');
-  expect(journal?.journal_entry_id===scenario.journalEntryId&&contains(journal,'POSTED')&&contains(journal,scenario.journalLineId)&&contains(journal,scenario.sourceDocumentId),'journal detail does not retain the posted source evidence');
-  expect(source?.source_document_id===scenario.sourceDocumentId||contains(source,scenario.sourceDocumentId),'source-document detail does not retain the exact source identity');
-  if(scenario.expectedAmount!==undefined)expect([snapshot,statements,ledger,journal].some(value=>contains(value,scenario.expectedAmount)),`expected fixed-point amount ${scenario.expectedAmount} is absent from retained evidence`);
+  expect(Array.isArray(ledger)&&ledger.some(row=>row?.ledger_line_id===scenario.ledgerLineId&&row?.journal_entry_id===scenario.journalEntryId&&row?.journal_line_id===scenario.journalLineId&&includesExact(row?.source_document_ids,scenario.sourceDocumentId)),'general ledger does not retain the exact report line');
+  expect(journal?.journal_entry_id===scenario.journalEntryId&&journal?.status==='POSTED'&&Array.isArray(journal?.lines)&&journal.lines.some(line=>line?.journal_line_id===scenario.journalLineId&&line?.ledger_line_id===scenario.ledgerLineId&&includesExact(line?.source_document_ids,scenario.sourceDocumentId)),'journal detail does not retain the posted source evidence');
+  expect(source?.source_document_id===scenario.sourceDocumentId||Array.isArray(source)&&source.some(row=>row?.source_document_id===scenario.sourceDocumentId),'source-document detail does not retain the exact source identity');
+  if(scenario.expectedAmount!==undefined)expect(snapshot.some(row=>STATEMENT_MONEY_FIELDS.some(key=>row?.[key]===scenario.expectedAmount))||statements.some(row=>STATEMENT_MONEY_FIELDS.some(key=>row?.[key]===scenario.expectedAmount))||ledger.some(row=>row?.debit_amount===scenario.expectedAmount||row?.credit_amount===scenario.expectedAmount)||journal.lines.some(line=>line?.debit_amount===scenario.expectedAmount||line?.credit_amount===scenario.expectedAmount),`expected fixed-point amount ${scenario.expectedAmount} is absent from retained evidence`);
   return Object.freeze({ok:true,mode:'READ_ONLY_FINANCIAL_STATEMENT_SNAPSHOT_EVIDENCE',release:stamps,checks:['same-release-stamps','immutable-snapshot-row','live-statement-row',...(scenario.pairedTrialBalance&&scenario.statementType!=='TRIAL_BALANCE'?['paired-trial-balance-row']:[]),'general-ledger','posted-journal','source-document','cross-source-identifiers'],financialStatementSnapshotId:scenario.financialStatementSnapshotId});
 }
 

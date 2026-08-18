@@ -288,6 +288,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await kernel.getSourceDocumentDetail({tenantId:principal.tenantId,entityId,sourceDocumentId:requireUuid(parts[5],'sourceDocumentId')});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
+      if(method==='GET'&&parts.length===9&&parts[4]==='wbs'&&parts[5]==='provider-signed'&&parts[6]==='evidence'&&parts[7]==='source-documents'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Provider-signed evidence reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,[]);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.getWbsProviderSignedSourceEvidence!=='function')throw new AccountingApiError(503,'WBS_PROVIDER_SIGNED_SOURCE_EVIDENCE_UNAVAILABLE','Provider-signed source evidence read is unavailable');
+        try{result=await kernel.getWbsProviderSignedSourceEvidence({tenantId:principal.tenantId,entityId,sourceDocumentId:requireUuid(parts[8],'sourceDocumentId')});}
+        catch(error){if(error?.code==='WBS_PROVIDER_SIGNED_SOURCE_EVIDENCE_NOT_AVAILABLE')throw new AccountingApiError(404,'WBS_PROVIDER_SIGNED_SOURCE_EVIDENCE_NOT_AVAILABLE','Exact formally admitted provider-signed source evidence is not available');throw error;}
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
       if(method==='GET'&&parts.length===6&&parts[4]==='general-ledger'&&parts[5]==='chart-of-accounts'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
         if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
