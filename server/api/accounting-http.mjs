@@ -886,14 +886,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         const service=await wbsProviderFinal1RetainedEvidenceServiceFactory(principal);
         if(!service||typeof service.resumeInsurance!=='function')throw new AccountingApiError(503,'WBS_INSURANCE_RESUME_UNAVAILABLE','Insurance Final-1 Phase B resume is unavailable');
         result=await service.resumeInsurance({tenantId:principal.tenantId,entityId,observationId:requireUuid(parts[9],'observationId'),expectedObservationHash:requireSha256(payload.expectedObservationHash,'expectedObservationHash'),expectedApprovalId:requireUuid(payload.expectedApprovalId,'expectedApprovalId'),expectedDecisionHash:requireSha256(payload.expectedDecisionHash,'expectedDecisionHash'),expectedCompanyMappingHash:requireSha256(payload.expectedCompanyMappingHash,'expectedCompanyMappingHash'),reason:requireReviewReason(payload.reason),idempotencyKey});
-      }else if(parts.length===9&&parts[4]==='wbs'&&parts[5]==='provider-signed'&&parts[6]==='final1'&&['payables','insurance'].includes(parts[7])&&parts[8]==='admissions'){
+      }else if(parts.length===9&&parts[4]==='wbs'&&parts[5]==='provider-signed'&&parts[6]==='final1'&&['payables','insurance','bank','cost','property'].includes(parts[7])&&parts[8]==='admissions'){
         requireExactQuery(parsedUrl.searchParams,[]);
         allowOnly(payload,['receipt','requestRawBase64','responseRawBase64','packageRawBase64']);
         if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Final-1 admission uses signed hashes and idempotency, not If-Match');
         if(typeof wbsProviderFinal1RetainedEvidenceServiceFactory!=='function')throw new AccountingApiError(503,'WBS_FINAL1_ADMISSION_UNAVAILABLE','Provider-signed WBS Final-1 retained evidence admission is unavailable');
         const service=await wbsProviderFinal1RetainedEvidenceServiceFactory(principal);
         if(!service||typeof service.admit!=='function')throw new AccountingApiError(503,'WBS_FINAL1_ADMISSION_UNAVAILABLE','Provider-signed WBS Final-1 retained evidence admission is unavailable');
-        result=await service.admit({domain:parts[7]==='payables'?'PAYABLES':'INSURANCE',tenantId:principal.tenantId,entityId,receipt:payload.receipt,requestRawBase64:payload.requestRawBase64,responseRawBase64:payload.responseRawBase64,packageRawBase64:payload.packageRawBase64,idempotencyKey});
+        const domain={payables:'PAYABLES',insurance:'INSURANCE',bank:'BANK',cost:'COST',property:'PROPERTY'}[parts[7]];
+        result=await service.admit({domain,tenantId:principal.tenantId,entityId,receipt:payload.receipt,requestRawBase64:payload.requestRawBase64,responseRawBase64:payload.responseRawBase64,packageRawBase64:payload.packageRawBase64,idempotencyKey});
       }else if(parts.length===7&&parts[4]==='wbs'&&parts[5]==='operator-attested'&&parts[6]==='payables'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['expectedObservationHash','expectedProviderContentSha256','expectedCompanyCode','dateFrom','dateTo','reason','limit']);
         if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','Operator attestation uses exact observation hashes, not If-Match');

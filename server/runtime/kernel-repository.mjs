@@ -316,14 +316,26 @@ export class PostgresAccountingKernel{
 
   async retainWbsProviderFinal1SourceEvidence({tenantId,entityId,delivery,artifacts,plan,idempotencyKey}){
     return this.inSession(async client=>{
+      if(['BANK','COST','PROPERTY'].includes(delivery?.domain)){
+        const requestHash=requireRow(await client.query(
+          'SELECT refs_wbs_final1_business_evidence_hash($1,$2,$3::jsonb,$4::jsonb,$5::jsonb) AS request_hash',
+          [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan)]
+        ),'WBS_FINAL1_RETAINED_HASH_FAILED','Final-1 business evidence hash was not produced').request_hash;
+        return requireRow(await client.query(
+          'SELECT refs_retain_wbs_final1_business_evidence($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7) AS result',
+          [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan),idempotencyKey,requestHash]
+        ),'WBS_FINAL1_RETAINED_SOURCE_FAILED','Final-1 business evidence admission did not return a result').result;
+      }
       const requestHash=requireRow(await client.query(
         'SELECT refs_wbs_final1_retained_evidence_hash($1,$2,$3::jsonb,$4::jsonb,$5::jsonb) AS request_hash',
         [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan)]
       ),'WBS_FINAL1_RETAINED_HASH_FAILED','Final-1 retained evidence hash was not produced').request_hash;
-      return requireRow(await client.query(
+      const result=requireRow(await client.query(
         'SELECT refs_retain_wbs_final1_source_evidence($1,$2,$3::jsonb,$4::jsonb,$5::jsonb,$6,$7) AS result',
         [tenantId,entityId,JSON.stringify(delivery),JSON.stringify(artifacts),JSON.stringify(plan),idempotencyKey,requestHash]
       ),'WBS_FINAL1_RETAINED_SOURCE_FAILED','Final-1 retained evidence admission did not return a result').result;
+      await client.query('SELECT refs_record_wbs_final1_signed_control_total($1,$2,$3,$4,$5::jsonb,$6)',[tenantId,entityId,result.admission_id,delivery.row_count,JSON.stringify(delivery.per_currency_totals),delivery.control_totals_hash]);
+      return result;
     });
   }
 

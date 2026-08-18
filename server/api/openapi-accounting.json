@@ -206,6 +206,45 @@
         "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
       }
     },
+    "/entities/{entityId}/wbs/provider-signed/final1/bank/admissions": {
+      "post": {
+        "operationId": "retainProviderSignedWbsFinal1Bank",
+        "summary": "Retain one provider-signed Final-1 Bank delivery as immutable evidence",
+        "description": "Service-only OIDC command. Requires the exact list_bank_transactions tool, pinned Ed25519 receipt and package signatures, four Object-Lock artifact versions with CLEAN scans, and Provider-signed row count/per-currency MONEY4 controls that REFS recomputes. Rows remain PENDING_REVIEW with no matching, Draft, review, approval, or posting authority.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsProviderFinal1Admission"},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/provider-signed/final1/cost/admissions": {
+      "post": {
+        "operationId": "retainProviderSignedWbsFinal1CostControl",
+        "summary": "Retain provider-signed Cost control evidence without creating a CWIP transaction",
+        "description": "Service-only OIDC evidence command for exact list_control_totals/COST_GENERAL_LEDGER rows. Signed controls are recomputed and retained; the current Provider contract does not make this report a transaction producer, so every row is CONTROL_EVIDENCE_ONLY and cannot create a transaction, CWIP Draft, review, approval, Journal, or posting.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsProviderFinal1Admission"},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/provider-signed/final1/property/admissions": {
+      "post": {
+        "operationId": "retainProviderSignedWbsFinal1PropertyControl",
+        "summary": "Retain provider-signed Property comparison control evidence",
+        "description": "Service-only OIDC evidence command for exact list_control_totals/PROPERTY_COMPARISON scope. It preserves property, bank-account and period controls under Object Lock. It does not misrepresent control totals as a Property Operations rent transaction and grants no accounting authority.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"$ref":"#/components/requestBodies/WbsProviderFinal1Admission"},
+        "responses": {"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/entities/{entityId}/wbs/provider-signed/evidence/source-documents/{sourceDocumentId}": {
+      "get": {
+        "operationId": "getWbsProviderSignedSourceEvidence",
+        "summary": "Read exact Object-Lock evidence for one formally admitted WBS source document",
+        "description": "Requires GL.JE.VIEW for the authenticated tenant and path entity. Returns a closed projection derived only from the append-only Final-1 admission, exact retained source row, and matching source document. Receipt, request, response, and package hashes and Object Lock VersionIds come from persisted server admission evidence. Legacy signed snapshots, unsigned GET-only Pilot data, unresolved periods, caller claims, raw bytes, storage locations, signatures, credentials, and arbitrary external references fail closed or are never returned.",
+        "parameters": [{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/SourceDocumentId"}],
+        "responses": {"200":{"$ref":"#/components/responses/WbsProviderSignedSourceEvidenceReadOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
     "/entities/{entityId}/wbs/provider-signed/final1/insurance/observations/{observationId}/admit": {
       "post": {
         "operationId": "resumeProviderSignedWbsFinal1InsuranceAdmission",

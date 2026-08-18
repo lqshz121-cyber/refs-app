@@ -1,6 +1,7 @@
 import {createHash,verify} from 'node:crypto';
 import {canonicalRequestBody} from './request-hash.mjs';
 import {normalizeWbsProviderTrust,WBS_SIGNED_DELIVERY_MAX_TTL_MS,WbsSignedDeliveryAdmissionError} from './wbs-signed-delivery-admission.mjs';
+import {computeWbsFinal1ControlTotals,parseWbsFinal1Money4,validateWbsFinal1SignedControlTotals} from './wbs-provider-final1-control-totals.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TOKEN=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -94,10 +95,15 @@ export function verifyWbsProviderFinal1Delivery({providerTrust,receipt,requestRa
   const configuredCurrency=typeof expectedCurrency==='string'&&/^[A-Z]{3}$/.test(expectedCurrency)?expectedCurrency:null;
   if(currencySigned&&configuredCurrency&&rows[0].currency!==configuredCurrency)fail('WBS_FINAL1_CURRENCY_SCOPE_MISMATCH','Provider currency differs from the independently approved REFS currency.');
   const accountingCurrency=currencySigned?rows[0].currency:configuredCurrency;
+  const signedReceiptControls=validateWbsFinal1SignedControlTotals(receipt.control_totals,{label:'Receipt'}),controlCurrency=accountingCurrency||(signedReceiptControls.per_currency_totals.length===1?signedReceiptControls.per_currency_totals[0].currency:null);
+  if(!controlCurrency)fail('WBS_FINAL1_CONTROL_CURRENCY_INVALID','Signed Payables controls require one exact currency.');
+  const computedControls=computeWbsFinal1ControlTotals({rows,currencyOf:row=>row.currency||controlCurrency,amountOf:row=>parseWbsFinal1Money4(row.amount)});
+  validateWbsFinal1SignedControlTotals(signedReceiptControls,{label:'Receipt',expected:computedControls});
+  validateWbsFinal1SignedControlTotals(pkg.control_totals,{label:'Package',expected:computedControls});
   const result=deepFreeze({
     status:'VERIFIED_FINAL1_EVIDENCE_ONLY',format:'WBS_PROVIDER_FINAL1',signature_verified:true,
     tenant_id:expectedScope.tenant_id,entity_id:expectedScope.entity_id,company_code:expectedScope.company_code,
-    snapshot_id:pkg.snapshot_id,date_from:pkg.date_from,date_to:pkg.date_to,row_count:rows.length,
+    snapshot_id:pkg.snapshot_id,date_from:pkg.date_from,date_to:pkg.date_to,row_count:rows.length,per_currency_totals:computedControls.per_currency_totals,control_totals_hash:computedControls.control_totals_hash,
     package_hash:`sha256:${bare(pkg.package_hash)}`,raw_package_hash:`sha256:${bare(receipt.package_hash)}`,
     raw_contains_credentials:rawContainsCredentials,currency_signed:currencySigned,
     accounting_currency:accountingCurrency,currency_authority:currencySigned?'PROVIDER_SIGNED':'REFS_BUSINESS_OWNER_CONFIRMED',
@@ -145,8 +151,11 @@ export function verifyWbsProviderFinal1InsuranceDelivery({providerTrust,receipt,
     if(!object(row)||Object.keys(row).some(key=>!INSURANCE_FIELDS.has(key))||INSURANCE_TEXT_FIELDS.some(key=>row[key]!=null&&(typeof row[key]!=='string'||!SAFE_SOURCE_TEXT.test(row[key])))||!Number.isSafeInteger(row.id)||row.id<=priorId||!SAFE_SOURCE_TEXT.test(row.policy_id||'')||(row.pc_code!=null&&!SAFE_SOURCE_TEXT.test(row.pc_code))||ids.has(row.id)||policies.has(row.policy_id)||row.company_code!==null||row.deleted!==0||!FIXED_2.test(row.final_premium||'')||(row.start_date!=null&&!exactDate(row.start_date))||(row.expire_date!=null&&!exactDate(row.expire_date))||(row.currency!=null&&row.currency!=='USD')||(row.attachment_count!=null&&(!Number.isSafeInteger(row.attachment_count)||row.attachment_count<0)))fail('WBS_FINAL1_INSURANCE_ROW_INVALID','Insurance rows require the redacted scalar allowlist, ascending id/policy_id, nullable pc_code, null company_code, fixed-point premium, and valid source fields.');
     ids.add(row.id);policies.add(row.policy_id);priorId=row.id;
   }
+  const computedControls=computeWbsFinal1ControlTotals({rows,currencyOf:()=>expectedCurrency,amountOf:row=>parseWbsFinal1Money4(row.final_premium)});
+  validateWbsFinal1SignedControlTotals(receipt.control_totals,{label:'Receipt',expected:computedControls});
+  validateWbsFinal1SignedControlTotals(pkg.control_totals,{label:'Package',expected:computedControls});
   const rawContainsCredentials=containsWbsProviderFinal1Credential(bytes(receipt))||containsWbsProviderFinal1Credential(requestRaw)||containsWbsProviderFinal1Credential(responseRaw)||containsWbsProviderFinal1Credential(packageRaw);
-  const result=deepFreeze({status:'VERIFIED_FINAL1_INSURANCE_EVIDENCE_ONLY',format:'WBS_PROVIDER_FINAL1_INSURANCE',signature_verified:true,tenant_id:expectedScope.tenant_id,entity_id:expectedScope.entity_id,company_code:expectedScope.company_code,company_mapping_hash:expectedScope.company_mapping_hash,snapshot_id:pkg.snapshot_id,date_from:pkg.date_from,date_to:pkg.date_to,row_count:rows.length,package_hash:`sha256:${bare(pkg.package_hash)}`,raw_package_hash:`sha256:${bare(receipt.package_hash)}`,raw_contains_credentials:rawContainsCredentials,accounting_currency:'USD',currency_authority:'REFS_BUSINESS_OWNER_CONFIRMED',admission_blockers:Object.freeze(rawContainsCredentials?['RAW_ARTIFACT_CREDENTIAL_REDACTION_REQUIRED']:[]),package:pkg,can_admit:false,can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+  const result=deepFreeze({status:'VERIFIED_FINAL1_INSURANCE_EVIDENCE_ONLY',format:'WBS_PROVIDER_FINAL1_INSURANCE',signature_verified:true,tenant_id:expectedScope.tenant_id,entity_id:expectedScope.entity_id,company_code:expectedScope.company_code,company_mapping_hash:expectedScope.company_mapping_hash,snapshot_id:pkg.snapshot_id,date_from:pkg.date_from,date_to:pkg.date_to,row_count:rows.length,per_currency_totals:computedControls.per_currency_totals,control_totals_hash:computedControls.control_totals_hash,package_hash:`sha256:${bare(pkg.package_hash)}`,raw_package_hash:`sha256:${bare(receipt.package_hash)}`,raw_contains_credentials:rawContainsCredentials,accounting_currency:'USD',currency_authority:'REFS_BUSINESS_OWNER_CONFIRMED',admission_blockers:Object.freeze(rawContainsCredentials?['RAW_ARTIFACT_CREDENTIAL_REDACTION_REQUIRED']:[]),package:pkg,can_admit:false,can_propose_amortization:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false});
   verifiedFinal1InsuranceEvidence.add(result);
   return result;
 }
