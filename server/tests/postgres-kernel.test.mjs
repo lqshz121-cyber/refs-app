@@ -364,13 +364,13 @@ pgTest('WBS Final-1 Controller167 persists five-domain signed controls and exact
 });
 
 pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while retaining an out-of-period source date',async()=>{
-  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),other=await seed({status:'DRAFT',attachmentStatus:null});
   await adminPool.query('DELETE FROM journal_line WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,ids.journalId]);
   await adminPool.query('DELETE FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,ids.journalId]);
-  await adminPool.query("DELETE FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId]);
-  assert.equal((await adminPool.query("SELECT count(*)::int n FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId])).rows[0].n,0);
-  const row={source_record_hash:hash('wbs-test-payable-row'),currency:'USD',accounting_date:'2025-02-15',amount:'12.3000',status:'CLEAR'};
-  const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_payables',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:createHash('sha256').update('provider-content').digest('hex'),scope:{company_codes:['WBPA'],date_range:['2025-01-01','2025-12-31']},record_count:1,rows:[row],signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash('wbs-test-observation')};
+  await adminPool.query("UPDATE account_master SET requires_member=false,required_member_type=NULL WHERE account_code='291001' AND ((tenant_id=$1 AND entity_id=$2) OR (tenant_id=$3 AND entity_id=$4))",[ids.tenantId,ids.entityId,other.tenantId,other.entityId]);
+  const rows=Array.from({length:10},(_,index)=>({source_record_hash:hash(`wbs-test-payable-row-${index}`),currency:'USD',accounting_date:index===0?'2025-02-15':`2025-03-${String(index+1).padStart(2,'0')}`,amount:index===0?'12.3000':'1.0000',status:'CLEAR'})),row=rows[0];
+  const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_payables',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:createHash('sha256').update('provider-content').digest('hex'),scope:{company_codes:['WBPA'],date_range:['2025-01-01','2025-12-31']},record_count:10,rows,signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash('wbs-test-observation')};
+  const untouchedAccount=(await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='120200'",[ids.tenantId,ids.entityId])).rows[0];
   const counts=async()=>(await adminPool.query(`SELECT
     (SELECT count(*)::int FROM import_batch WHERE tenant_id=$1) import_batches,
     (SELECT count(*)::int FROM raw_event WHERE tenant_id=$1) raw_events,
@@ -387,16 +387,10 @@ pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while r
   const before=await counts();
   await assert.rejects(noApKernel.createWbsTestPayableDraft({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,observation,row,rowIndex:0,idempotencyKey:'wbs-test-no-ap-0001'}),error=>error.code==='42501');
   assert.deepEqual(await counts(),before);
-  assert.equal((await adminPool.query("SELECT count(*)::int n FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId])).rows[0].n,0);
+  assert.deepEqual((await adminPool.query("SELECT requires_member,required_member_type FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId])).rows[0],{requires_member:false,required_member_type:null});
 
   const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-test-maker',['WBS.TEST.IMPORT','AP.BILL.CREATE'])});
   const draftArgs={tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,observation,row,rowIndex:0,idempotencyKey:'wbs-test-draft-0001'};
-  await adminPool.query("INSERT INTO account_master(tenant_id,entity_id,account_code,account_name,requires_member,required_member_type,active) VALUES($1,$2,'291001','Conflicting test account',false,NULL,true)",[ids.tenantId,ids.entityId]);
-  const beforeConflict=await counts();
-  await assert.rejects(maker.createWbsTestPayableDraft({...draftArgs,idempotencyKey:'wbs-test-control-conflict-0001'}),error=>error.code==='23514');
-  assert.deepEqual(await counts(),beforeConflict);
-  assert.deepEqual((await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId])).rows[0],{account_name:'Conflicting test account',requires_member:false,required_member_type:null,active:true});
-  await adminPool.query("DELETE FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId]);
   const draft=await maker.createWbsTestPayableDraft(draftArgs);
   assert.deepEqual({status:draft.status,revision:draft.revision,idempotent:draft.idempotent,test_only:draft.test_only,provenance_mode:draft.provenance_mode},{status:'DRAFT',revision:0,idempotent:false,test_only:true,provenance_mode:'UNSIGNED_TEST_ONLY'});
   assert.deepEqual((await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[ids.tenantId,ids.entityId])).rows[0],{account_name:'Accounts Payable',requires_member:true,required_member_type:'VENDOR',active:true});
@@ -430,18 +424,31 @@ pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while r
   assert.deepEqual(await importer.finalizeWbsTestImportSource(finalizeArgs),{status:'POSTED',test_only:true,idempotent:false});
   assert.deepEqual(await importer.finalizeWbsTestImportSource(finalizeArgs),{status:'POSTED',test_only:true,idempotent:true});
   assert.equal((await adminPool.query('SELECT status::text FROM source_document WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3',[ids.tenantId,ids.entityId,draft.source_document_id])).rows[0].status,'POSTED');
+  const completed=[draft];
+  for(let index=1;index<rows.length;index++){
+    const current=await maker.createWbsTestPayableDraft({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,observation,row:rows[index],rowIndex:index,idempotencyKey:`wbs-test-draft-${index}`});
+    assert.equal((await submitter.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:current.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:`wbs-test-submit-${index}`})).status,'PENDING_REVIEW');
+    assert.equal((await reviewer.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:current.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:`wbs-test-review-${index}`})).status,'PENDING_APPROVAL');
+    assert.equal((await approver.transitionJournal({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:current.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:`wbs-test-approve-${index}`})).status,'APPROVED');
+    assert.equal((await poster.postJournal({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,journalEntryId:current.journal_entry_id,expectedRevision:3,idempotencyKey:`wbs-test-post-${index}`})).journal_entry_id,current.journal_entry_id);
+    assert.equal((await importer.finalizeWbsTestImportSource({tenantId:ids.tenantId,entityId:ids.entityId,sourceDocumentId:current.source_document_id,businessDocumentId:current.business_document_id,journalEntryId:current.journal_entry_id,idempotencyKey:`wbs-test-finalize-${index}`})).status,'POSTED');
+    completed.push(current);
+  }
   const ledger=(await adminPool.query(`SELECT ll.account_code,ll.debit_amount::text,ll.credit_amount::text FROM ledger_line ll
     JOIN journal_line jl ON jl.tenant_id=ll.tenant_id AND jl.entity_id=ll.entity_id AND jl.journal_line_id=ll.journal_line_id
     WHERE ll.tenant_id=$1 AND ll.entity_id=$2 AND ll.journal_entry_id=$3 ORDER BY jl.line_no`,[ids.tenantId,ids.entityId,draft.journal_entry_id])).rows;
   assert.deepEqual(ledger,[{account_code:'610000',debit_amount:'12.3000',credit_amount:'0.0000'},{account_code:'291001',debit_amount:'0.0000',credit_amount:'12.3000'}]);
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'wbs-test-report-reader',['GL.REPORT.VIEW','GL.JE.VIEW','AP.VIEW'])});
   const gl=await reader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'610000',query:'',limit:50,offset:0});
-  assert.equal(gl.length,1);assert.equal(gl[0].journal_entry_id,draft.journal_entry_id);assert.equal(gl[0].debit_amount,'12.3000');assert.deepEqual(gl[0].source_document_ids,[draft.source_document_id]);
+  assert.equal(gl.length,10);assert.equal(gl.reduce((sum,item)=>sum+Number(item.debit_amount),0),21.3);assert.ok(gl.some(item=>item.journal_entry_id===draft.journal_entry_id&&item.source_document_ids.includes(draft.source_document_id)));
   const statements=await reader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});
   const expense=statements.find(item=>item.statement_type==='TRIAL_BALANCE'&&item.account_code==='610000'),payable=statements.find(item=>item.statement_type==='TRIAL_BALANCE'&&item.account_code==='291001'),incomeExpense=statements.find(item=>item.statement_type==='INCOME_STATEMENT'&&item.account_code==='610000');
-  assert.deepEqual({debit:expense.period_debit,credit:expense.period_credit,balance:expense.display_balance},{debit:'12.3000',credit:'0.0000',balance:'12.3000'});
-  assert.deepEqual({debit:payable.period_debit,credit:payable.period_credit,balance:payable.display_balance},{debit:'0.0000',credit:'12.3000',balance:'-12.3000'});
-  assert.equal(incomeExpense.display_balance,'12.3000');assert.ok(incomeExpense.journal_entry_ids.includes(draft.journal_entry_id));assert.ok(incomeExpense.source_document_ids.includes(draft.source_document_id));
+  assert.deepEqual({debit:expense.period_debit,credit:expense.period_credit,balance:expense.display_balance},{debit:'21.3000',credit:'0.0000',balance:'21.3000'});
+  assert.deepEqual({debit:payable.period_debit,credit:payable.period_credit,balance:payable.display_balance},{debit:'0.0000',credit:'21.3000',balance:'-21.3000'});
+  assert.equal(incomeExpense.display_balance,'21.3000');assert.equal(incomeExpense.journal_entry_ids.length,10);assert.equal(incomeExpense.source_document_ids.length,10);
+  assert.deepEqual((await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='120200'",[ids.tenantId,ids.entityId])).rows[0],untouchedAccount);
+  assert.deepEqual((await adminPool.query("SELECT requires_member,required_member_type FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[other.tenantId,other.entityId])).rows[0],{requires_member:false,required_member_type:null});
+  assert.deepEqual((await adminPool.query('SELECT (SELECT count(*)::int FROM business_document WHERE tenant_id=$1) documents,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM source_document WHERE tenant_id=$1) sources',( [ids.tenantId] ))).rows[0],{documents:10,journals:10,ledger:20,sources:10});
 });
 
 pgTest('controlled DEMO tenant is tenant-scoped, retired non-destructively, and cannot cross real-tenant boundaries',async()=>{
