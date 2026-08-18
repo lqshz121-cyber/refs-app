@@ -2442,6 +2442,30 @@
           }
         }
       }
+    },
+    "/entities/{entityId}/wbs/test-import/payables": {
+      "post": {
+        "operationId": "importWbsTestPayables",
+        "summary": "Import bounded WBS Payables into the staging test workflow",
+        "description": "Staging-only authenticated bridge. Reads a sanitized unsigned live-pilot observation for the configured tenant, entity, and company; persists TEST_ONLY provenance; and uses six isolated internal actors to create, submit, review, approve, and post each Payable. It does not claim Provider signature, Object Lock, malware scan, or formal Provider admission.",
+        "parameters": [
+          {"$ref":"#/components/parameters/EntityId"},
+          {"$ref":"#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["periodId","companyCode","dateFrom","dateTo","limit"],"properties":{"periodId":{"$ref":"#/components/schemas/Uuid"},"companyCode":{"type":"string","pattern":"^[A-Z0-9][A-Z0-9_:-]{0,63}$"},"dateFrom":{"type":"string","format":"date"},"dateTo":{"type":"string","format":"date"},"limit":{"type":"integer","minimum":1,"maximum":10}}}}}
+        },
+        "responses": {
+          "200": {"$ref":"#/components/responses/WbsTestImportOk"},
+          "201": {"$ref":"#/components/responses/WbsTestImportOk"},
+          "400": {"$ref":"#/components/responses/Problem"},
+          "403": {"$ref":"#/components/responses/Problem"},
+          "422": {"$ref":"#/components/responses/Problem"},
+          "503": {"$ref":"#/components/responses/Problem"},
+          "default": {"$ref":"#/components/responses/Problem"}
+        }
+      }
     }
   },
   "components": {
@@ -2453,6 +2477,7 @@
       }
     },
     "schemas": {
+      "WbsTestImportResult":{"type":"object","additionalProperties":false,"required":["status","imported_count","replayed_count","posted_count","failed_count","test_only"],"properties":{"status":{"const":"WBS_TEST_PAYABLE_IMPORT_COMPLETE"},"imported_count":{"type":"integer","minimum":0},"replayed_count":{"type":"integer","minimum":0},"posted_count":{"type":"integer","minimum":0},"failed_count":{"const":0},"test_only":{"const":true}}},
       "WbsInsurancePcMappingProposalRow":{"type":"object","additionalProperties":false,"required":["proposal_row_id","pc_code","observed_row_count","row_hash"],"properties":{"proposal_row_id":{"$ref":"#/components/schemas/Uuid"},"pc_code":{"type":"string","minLength":1,"maxLength":128},"observed_row_count":{"type":"integer","minimum":1},"row_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"}}},
       "WbsInsurancePcMappingProposal":{"type":"object","additionalProperties":false,"required":["proposal_id","observation_id","revision","status","source_kind","admission_state","observation_hash","proposal_hash","canonical_set_hash","proposed_by","proposed_at","rows"],"properties":{"proposal_id":{"$ref":"#/components/schemas/Uuid"},"observation_id":{"$ref":"#/components/schemas/Uuid"},"revision":{"type":"integer","enum":[0,1]},"status":{"type":"string","enum":["PENDING_CONTROLLER_APPROVAL","APPROVED"]},"source_kind":{"const":"PRE_ADMISSION_OBSERVATION"},"admission_state":{"const":"NOT_ADMITTED"},"observation_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"proposal_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"canonical_set_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"decision_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"company_mapping_hash":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"proposed_by":{"type":"string","minLength":1,"maxLength":256},"proposed_at":{"type":"string","format":"date-time"},"approved_by":{"type":"string","minLength":1,"maxLength":256},"approved_at":{"type":"string","format":"date-time"},"rows":{"type":"array","minItems":1,"maxItems":5000,"items":{"$ref":"#/components/schemas/WbsInsurancePcMappingProposalRow"}}}},
       "WbsInsurancePcMappingNonUniqueTrace":{"type":"object","additionalProperties":false,"required":["pc_code","accounting_date","match_count","mapping_status"],"properties":{"pc_code":{"type":"string","minLength":1,"maxLength":128},"accounting_date":{"type":"string","format":"date"},"match_count":{"type":"integer","minimum":0,"not":{"const":1}},"mapping_status":{"type":"string","enum":["MISSING","AMBIGUOUS"]}}},
@@ -5597,6 +5622,7 @@
       }
     },
     "responses": {
+      "WbsTestImportOk":{"description":"Closed staging-only WBS test-import result.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/WbsTestImportResult"}}}}}},
       "WbsOperatorPayableAttestationListOk":{"description":"Operator-attested unsigned WBS Payable exception evidence list.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsOperatorPayableAttestationListEnvelope"}}}},
       "WbsOperatorPayableExceptionRowListOk":{"description":"Closed real retained WBS Payable exception rows and signed-link readiness.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsOperatorPayableExceptionRowListEnvelope"}}}},
       "WbsPayableReviewCandidateListOk":{"description":"Admitted WBS Payable review-candidate list.","headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WbsPayableReviewCandidateListEnvelope"}}}},

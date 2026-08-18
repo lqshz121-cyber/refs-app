@@ -34,6 +34,7 @@ test('Render staging manifest declares every production startup secret and uses 
   assert.ok(hasFixed(api.body,'REFS_ATTACHMENT_MODE','DISABLED'),'Stage 1 API must not require unreleased attachment infrastructure');
   assert.ok(hasFixed(api.body,'REFS_WBS_INGEST_MODE','DISABLED'),'Stage 1 API must not require unreleased signed-ingest infrastructure');
   assert.ok(hasFixed(api.body,'REFS_WBS_LIVE_PILOT_MODE','ENABLED'));
+  for(const [key,value] of [['REFS_WBS_TEST_IMPORT_MODE','ENABLED'],['REFS_WBS_TEST_IMPORT_TENANT_ID','6fb25daf-0799-4805-bede-be54230da33c'],['REFS_WBS_TEST_IMPORT_ENTITY_ID','ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3'],['REFS_WBS_TEST_IMPORT_COMPANY_CODE','WBPA'],['REFS_WBS_TEST_IMPORT_IMPORTER_ACTOR_ID','wbs-test-importer'],['REFS_WBS_TEST_IMPORT_MAKER_ACTOR_ID','wbs-test-maker'],['REFS_WBS_TEST_IMPORT_SUBMITTER_ACTOR_ID','wbs-test-submitter'],['REFS_WBS_TEST_IMPORT_REVIEWER_ACTOR_ID','wbs-test-reviewer'],['REFS_WBS_TEST_IMPORT_APPROVER_ACTOR_ID','wbs-test-approver'],['REFS_WBS_TEST_IMPORT_POSTER_ACTOR_ID','wbs-test-poster']])assert.ok(hasFixed(api.body,key,value),`test-import API is missing ${key}=${value}`);
   assert.doesNotMatch(api.body,/- key: REFS_ATTACHMENT_MODE\r?\n\s+value: REQUIRED/);
   assert.doesNotMatch(api.body,/- key: REFS_WBS_INGEST_MODE\r?\n\s+value: REQUIRED/);
   for(const key of ['WBS_CF_ACCESS_CLIENT_ID','WBS_CF_ACCESS_CLIENT_SECRET','WBS_REFS_AUTH'])assert.ok(hasSecret(api.body,key),`${key} must remain a server-side Render secret`);
@@ -49,6 +50,7 @@ test('Render staging manifest declares every production startup secret and uses 
   for(const key of ['ATTACHMENT_CLEANUP_ACTOR_ID','ATTACHMENT_CLEANUP_SCOPES'])assert.ok(hasSecret(worker.body,key),`cleanup worker is missing ${key}`);
   const publicKeys=['REFS_PUBLIC_ACCOUNTING_API_BASE_URL','REFS_PUBLIC_ENTITY_ID','REFS_PUBLIC_PERIOD_ID','REFS_PUBLIC_CASH_ACCOUNT_CODE','REFS_PUBLIC_OIDC_ISSUER','REFS_PUBLIC_OIDC_AUTHORIZATION_ENDPOINT','REFS_PUBLIC_OIDC_TOKEN_ENDPOINT','REFS_PUBLIC_OIDC_REDIRECT_URI','REFS_PUBLIC_OIDC_CLIENT_ID','REFS_PUBLIC_OIDC_AUDIENCE'];
   for(const key of publicKeys)assert.ok(hasSecret(web.body,key),`static service is missing ${key}`);
+  assert.ok(hasFixed(web.body,'REFS_WBS_TEST_IMPORT_MODE','ENABLED'),'static runtime config must expose the staging test-import switch');
   assert.doesNotMatch(api.body,/REFS_PUBLIC_/);assert.doesNotMatch(worker.body,/REFS_PUBLIC_/);assert.doesNotMatch(web.body,/REFS_PUBLIC_RUNTIME_MODE/,'authoritative static builds must not opt into LOCAL_MOCK');
   assert.equal((manifest.match(/autoDeployTrigger: off/g)||[]).length,2,'Stage 1 coordinates only API and static client');
   assert.equal((integrations.match(/autoDeployTrigger: off/g)||[]).length,2,'signed-ingest API and attachment cleanup require explicit coordinated releases');
