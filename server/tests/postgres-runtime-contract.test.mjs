@@ -640,3 +640,15 @@ test('WBS TEST IMPORT forward migration prepares only the exact vendor-member AP
   assert.match(backward,/DROP FUNCTION refs_create_wbs_test_payable_draft\(/);
   assert.match(backward,/RENAME TO refs_create_wbs_test_payable_draft/);
 });
+
+test('WBS TEST IMPORT normalization is entity-scoped and leaves the v169 compatibility command private',async()=>{
+  const forward=await readFile(new URL('../db/migrations/170_wbs_test_ap_control_account_normalization.sql',import.meta.url),'utf8');
+  const backward=await readFile(new URL('../db/migrations/down/170_wbs_test_ap_control_account_normalization.sql',import.meta.url),'utf8');
+  assert.match(forward,/refs_assert_scope\(p_tenant,p_entity,'WBS\.TEST\.IMPORT'\)/);
+  assert.match(forward,/UPDATE public\.account_master[\s\S]+tenant_id=p_tenant[\s\S]+entity_id=p_entity[\s\S]+account_code='291001'/);
+  assert.match(forward,/SET active=true,requires_member=true,required_member_type='VENDOR'/);
+  assert.match(forward,/refs_create_wbs_test_payable_draft_v169\(/);
+  assert.doesNotMatch(forward,/GRANT EXECUTE[^;]+refs_create_wbs_test_payable_draft_v169/);
+  assert.match(backward,/DROP FUNCTION refs_create_wbs_test_payable_draft\(/);
+  assert.match(backward,/RENAME TO refs_create_wbs_test_payable_draft/);
+});
