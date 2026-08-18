@@ -26,6 +26,8 @@ const sha256=value=>`sha256:${createHash('sha256').update(value).digest('hex')}`
 const without=(value,...keys)=>Object.fromEntries(Object.entries(value).filter(([key])=>!keys.includes(key)));
 const instant=value=>{const match=typeof value==='string'&&UTC.exec(value),time=Date.parse(value);return match&&Number.isFinite(time)&&new Date(time).toISOString()===`${match[1]}.${match[2]||'000'}Z`?time:null;};
 const exactDate=value=>DATE.test(value||'')&&new Date(`${value}T00:00:00.000Z`).toISOString().slice(0,10)===value;
+const dateInRange=(value,from,to)=>exactDate(value)&&value>=from&&value<=to;
+const exactMonthRange=(period,from,to)=>{if(!/^\d{4}-\d{2}$/.test(period||''))return false;const start=`${period}-01`;if(!exactDate(start))return false;const next=new Date(`${start}T00:00:00.000Z`);next.setUTCMonth(next.getUTCMonth()+1);next.setUTCDate(0);return from===start&&to===next.toISOString().slice(0,10);};
 const signature=value=>exactKeys(value,['key_id','algorithm','value'])&&value.algorithm==='Ed25519'&&typeof value.value==='string'&&value.value.length>0?value.value:null;
 const signatureOk=(key,payload,value)=>{try{return verify(null,payload,key,Buffer.from(value,'base64'))===true;}catch{return false;}};
 const deepFreeze=value=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const child of Object.values(value))deepFreeze(child);Object.freeze(value);}return value;};
@@ -33,14 +35,14 @@ function computedControls(domain,view,rows){
   return computeWbsFinal1ControlTotals({rows,currencyOf:()=>view.scope.currency,amountOf:row=>{if(domain==='BANK'){const debtor=parseWbsFinal1Money4(row.debtor),lender=parseWbsFinal1Money4(row.lender);if(debtor<0n||lender<0n||(debtor===0n)===(lender===0n))fail('WBS_FINAL1_BANK_DIRECTION_INVALID','A Bank row must have exactly one non-zero non-negative debtor or lender amount.');return debtor+lender;}return parseWbsFinal1Money4(row.amount);}});
 }
 
-function validateRows(domain,config,view,expectedScope){
+function validateRows(domain,config,view,expectedScope,dateFrom,dateTo){
   const rows=view.rows;
   if(!Array.isArray(rows)||rows.length<1||rows.length>MAX_ROWS||view.row_count!==rows.length||sha256(canonical(rows))!==view.content_hash)fail('WBS_FINAL1_BUSINESS_VIEW_INVALID','Signed business row count or content hash is invalid.');
   let prior='';
   for(const row of rows){
     if(!exactKeys(row,config.rowKeys)||!SAFE_TEXT.test(String(row[config.stableKey]||''))||String(row[config.stableKey])<=prior)fail('WBS_FINAL1_BUSINESS_ROW_INVALID','Signed business rows must use the exact domain allowlist and strictly ascending stable keys.');
     prior=String(row[config.stableKey]);
-    if(domain==='BANK'&&row.company_code!==expectedScope.company_code)fail('WBS_FINAL1_BUSINESS_SCOPE_MISMATCH','Bank row company differs from the independently approved scope.');
+    if(domain==='BANK'&&(row.company_code!==expectedScope.company_code||![row.posting_date,row.set_date].some(Boolean)||[row.posting_date,row.set_date].filter(Boolean).some(value=>!dateInRange(value,dateFrom,dateTo))))fail('WBS_FINAL1_BUSINESS_SCOPE_MISMATCH','Bank row company or business date differs from the signed package scope.');
     if(domain!=='BANK'&&(!SAFE_TEXT.test(row.metric_key||'')||typeof row.amount!=='string'))fail('WBS_FINAL1_BUSINESS_ROW_INVALID','Control evidence rows require exact metric_key and fixed-point amount strings.');
   }
   return rows;
@@ -72,8 +74,9 @@ export function verifyWbsProviderFinal1BusinessDelivery({providerTrust,receipt,r
   const scopeKeys=domain==='BANK'?['company_codes','currency','date_range','snapshot_token']:domain==='COST'?['company_codes','currency','date_range','report_type','period','snapshot_token']:['bank_account_ref','company_codes','currency','date_range','period_end','period_start','property_ref','report_type','snapshot_token'];
   if(!exactKeys(view.scope,scopeKeys)||!Array.isArray(view.scope.company_codes)||view.scope.company_codes.length!==1||view.scope.company_codes[0]!==expectedScope.company_code||view.scope.currency!=='USD'||!Array.isArray(view.scope.date_range)||view.scope.date_range.length!==2||view.scope.date_range[0]!==pkg.date_from||view.scope.date_range[1]!==pkg.date_to||!SAFE_TEXT.test(view.scope.snapshot_token||''))fail('WBS_FINAL1_BUSINESS_SCOPE_MISMATCH','Signed business view scope is incomplete or differs from the approved scope.');
   if(config.reportType&&view.scope.report_type!==config.reportType)fail('WBS_FINAL1_BUSINESS_SCOPE_MISMATCH','Signed control report type differs from its fixed domain.');
-  if(domain==='PROPERTY'&&(!SAFE_TEXT.test(view.scope.property_ref||'')||!SAFE_TEXT.test(view.scope.bank_account_ref||'')||!exactDate(view.scope.period_start)||!exactDate(view.scope.period_end)||view.scope.period_start>view.scope.period_end))fail('WBS_FINAL1_BUSINESS_SCOPE_MISMATCH','Property control evidence requires exact property, bank account, and period scope.');
-  const rows=validateRows(domain,config,view,expectedScope),computed=computedControls(domain,view,rows);
+  if(domain==='COST'&&!exactMonthRange(view.scope.period,pkg.date_from,pkg.date_to))fail('WBS_FINAL1_BUSINESS_SCOPE_MISMATCH','Cost control period must equal the complete signed package month.');
+  if(domain==='PROPERTY'&&(!SAFE_TEXT.test(view.scope.property_ref||'')||!SAFE_TEXT.test(view.scope.bank_account_ref||'')||view.scope.period_start!==pkg.date_from||view.scope.period_end!==pkg.date_to))fail('WBS_FINAL1_BUSINESS_SCOPE_MISMATCH','Property control evidence requires exact property, bank account, and package period scope.');
+  const rows=validateRows(domain,config,view,expectedScope,pkg.date_from,pkg.date_to),computed=computedControls(domain,view,rows);
   validateWbsFinal1SignedControlTotals(receipt.control_totals,{label:'Receipt',expected:computed});validateWbsFinal1SignedControlTotals(pkg.control_totals,{label:'Package',expected:computed});
   const rawContainsCredentials=[canonical(receipt),requestRaw,responseRaw,packageRaw].some(containsWbsProviderFinal1Credential);
   const result=deepFreeze({status:'VERIFIED_FINAL1_BUSINESS_EVIDENCE_ONLY',format:'WBS_PROVIDER_FINAL1_BUSINESS_V1',signature_verified:true,tenant_id:expectedScope.tenant_id,entity_id:expectedScope.entity_id,company_code:expectedScope.company_code,domain,source_tool:config.tool,snapshot_id:pkg.snapshot_id,date_from:pkg.date_from,date_to:pkg.date_to,row_count:rows.length,per_currency_totals:computed.per_currency_totals,control_totals_hash:computed.control_totals_hash,package_hash:pkg.package_hash,raw_package_hash:receipt.package_hash,raw_contains_credentials:rawContainsCredentials,admission_blockers:rawContainsCredentials?['RAW_ARTIFACT_CREDENTIAL_REDACTION_REQUIRED']:[],package:pkg,can_persist:false,can_create_transaction:false,can_create_draft:false,can_review:false,can_approve:false,can_post:false});

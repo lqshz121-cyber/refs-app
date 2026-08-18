@@ -48,6 +48,12 @@ test('Final-1 business verification rejects extra fields, wrong tools, wrong sco
   assert.throws(()=>verifyWbsProviderFinal1BusinessDelivery(old8),error=>error.code==='WBS_FINAL1_BUSINESS_RECEIPT_INVALID');
 });
 
+test('Final-1 business verification binds every row and control period to the signed package range',()=>{
+  assert.throws(()=>verifyWbsProviderFinal1BusinessDelivery(fixture('BANK',{mutatePackage:value=>{value.views.list_bank_transactions.rows[0].posting_date='2026-09-01';value.views.list_bank_transactions.content_hash=sha256(canonical(value.views.list_bank_transactions.rows));return value;}})),error=>error.code==='WBS_FINAL1_BUSINESS_SCOPE_MISMATCH');
+  assert.throws(()=>verifyWbsProviderFinal1BusinessDelivery(fixture('COST',{mutatePackage:value=>{value.views.list_control_totals.scope.period='2026-07';return value;}})),error=>error.code==='WBS_FINAL1_BUSINESS_SCOPE_MISMATCH');
+  assert.throws(()=>verifyWbsProviderFinal1BusinessDelivery(fixture('PROPERTY',{mutatePackage:value=>{value.views.list_control_totals.scope.period_start='2026-07-01';return value;}})),error=>error.code==='WBS_FINAL1_BUSINESS_SCOPE_MISMATCH');
+});
+
 test('Final-1 business credential-bearing artifacts remain evidence-only and cannot normalize',()=>{
   const verified=verifyWbsProviderFinal1BusinessDelivery(fixture('BANK',{requestText:'GET /mcp?access_token=secret HTTP/1.1\r\n\r\n'}));
   assert.equal(verified.raw_contains_credentials,true);assert.deepEqual(verified.admission_blockers,['RAW_ARTIFACT_CREDENTIAL_REDACTION_REQUIRED']);
