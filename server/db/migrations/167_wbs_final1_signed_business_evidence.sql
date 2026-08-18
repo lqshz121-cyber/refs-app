@@ -188,6 +188,7 @@ REVOKE ALL ON wbs_final1_signed_control_total,wbs_final1_signed_business_source_
 GRANT SELECT ON wbs_final1_signed_control_total,wbs_final1_signed_business_source_row TO refs_app;
 REVOKE ALL ON FUNCTION refs_wbs_final1_control_totals_hash(integer,jsonb),refs_assert_wbs_final1_signed_artifacts(jsonb,jsonb),refs_record_wbs_final1_signed_control_total(uuid,uuid,uuid,integer,jsonb,text),refs_wbs_final1_business_evidence_hash(uuid,uuid,jsonb,jsonb,jsonb),refs_retain_wbs_final1_business_evidence(uuid,uuid,jsonb,jsonb,jsonb,text,text),refs_retain_wbs_final1_source_evidence_with_signed_controls(uuid,uuid,jsonb,jsonb,jsonb,text,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION refs_assert_wbs_final1_signed_artifacts(jsonb,jsonb),refs_record_wbs_final1_signed_control_total(uuid,uuid,uuid,integer,jsonb,text) FROM refs_app;
+REVOKE ALL ON FUNCTION refs_retain_wbs_final1_source_evidence(uuid,uuid,jsonb,jsonb,jsonb,text,text) FROM refs_app;
 GRANT EXECUTE ON FUNCTION refs_wbs_final1_control_totals_hash(integer,jsonb),refs_wbs_final1_business_evidence_hash(uuid,uuid,jsonb,jsonb,jsonb),refs_retain_wbs_final1_business_evidence(uuid,uuid,jsonb,jsonb,jsonb,text,text),refs_retain_wbs_final1_source_evidence_with_signed_controls(uuid,uuid,jsonb,jsonb,jsonb,text,text) TO refs_app;
 
 COMMIT;
