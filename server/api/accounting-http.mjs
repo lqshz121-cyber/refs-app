@@ -761,12 +761,18 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       }
       if(method==='GET'&&parts.length===6&&['ap','ar'].includes(parts[4])&&['aging','control-totals'].includes(parts[5])){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by read operations');
         if(Object.keys(payload).length)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         if(parts[5]==='aging'){
+          requireExactQuery(parsedUrl.searchParams,['asOf']);
           const args={tenantId:principal.tenantId,entityId,asOfDate:requireIsoDate(parsedUrl.searchParams.get('asOf'),'asOf')};
           result=await (parts[4]==='ap'?kernel.getApAging(args):kernel.getArAging(args));
-        }else result=await (parts[4]==='ap'?kernel.getApControlTotal({tenantId:principal.tenantId,entityId}):kernel.getArControlTotal({tenantId:principal.tenantId,entityId}));
+        }else{
+          requireExactQuery(parsedUrl.searchParams,['periodId']);
+          const args={tenantId:principal.tenantId,entityId,periodId:requireUuid(parsedUrl.searchParams.get('periodId'),'periodId')};
+          result=await (parts[4]==='ap'?kernel.getApControlTotal(args):kernel.getArControlTotal(args));
+        }
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');

@@ -171,10 +171,13 @@ test('AP and AR aging are no-store authenticated GETs with a required as-of date
 test('AP and AR control totals are no-store authenticated GETs',()=>{
   for(const [path,operationId] of [['/entities/{entityId}/ap/control-totals','getApControlTotal'],['/entities/{entityId}/ar/control-totals','getArControlTotal']]){
     const operation=contract.paths[path].get;
-    assert.equal(operation.operationId,operationId);assert.equal(operation.responses['200'].$ref,'#/components/responses/ControlTotalOk');
+    assert.equal(operation.operationId,operationId);assert.equal(operation.parameters[1].name,'periodId');assert.equal(operation.parameters[1].required,true);assert.equal(operation.responses['200'].$ref,'#/components/responses/ControlTotalOk');
   }
   assert.equal(contract.components.responses.ControlTotalOk.headers['Cache-Control'].schema.const,'no-store');
   assert.equal(contract.components.schemas.ControlTotalRow.additionalProperties,false);
+  assert.deepEqual(contract.components.schemas.ControlTotalRow.required,['period_id','account_code','currency','open_balance','control_balance','in_balance','business_document_ids','document_source_document_ids','journal_entry_ids','journal_line_ids','ledger_line_ids','source_document_ids','document_contributors','ledger_contributors']);
+  assert.equal(contract.components.schemas.ControlTotalDocumentContributor.additionalProperties,false);
+  assert.equal(contract.components.schemas.ControlTotalLedgerContributor.additionalProperties,false);
 });
 
 test('AP Bill and AR Invoice list reads are authenticated no-store operations',()=>{

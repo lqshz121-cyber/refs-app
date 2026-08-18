@@ -1399,15 +1399,17 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
-  async getApControlTotal({tenantId,entityId}){
-    return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_ap_control_total($1,$2)',[tenantId,entityId]
+  async getApControlTotal({tenantId,entityId,periodId}){
+    return this.inSession(async client=>(await client.query(periodId===undefined
+      ?'SELECT * FROM refs_ap_control_total($1,$2)'
+      :'SELECT * FROM refs_ap_control_total($1,$2,$3)',periodId===undefined?[tenantId,entityId]:[tenantId,entityId,periodId]
     )).rows);
   }
 
-  async getArControlTotal({tenantId,entityId}){
-    return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_ar_control_total($1,$2)',[tenantId,entityId]
+  async getArControlTotal({tenantId,entityId,periodId}){
+    return this.inSession(async client=>(await client.query(periodId===undefined
+      ?'SELECT * FROM refs_ar_control_total($1,$2)'
+      :'SELECT * FROM refs_ar_control_total($1,$2,$3)',periodId===undefined?[tenantId,entityId]:[tenantId,entityId,periodId]
     )).rows);
   }
 

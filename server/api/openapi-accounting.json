@@ -1338,6 +1338,14 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "periodId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
           }
         ],
         "responses": {
@@ -1356,6 +1364,14 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/EntityId"
+          },
+          {
+            "name": "periodId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
           }
         ],
         "responses": {
@@ -3275,12 +3291,29 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "period_id",
+          "account_code",
           "currency",
           "open_balance",
           "control_balance",
-          "in_balance"
+          "in_balance",
+          "business_document_ids",
+          "document_source_document_ids",
+          "journal_entry_ids",
+          "journal_line_ids",
+          "ledger_line_ids",
+          "source_document_ids",
+          "document_contributors",
+          "ledger_contributors"
         ],
         "properties": {
+          "period_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "account_code": {
+            "type": "string",
+            "enum": ["291001", "120200"]
+          },
           "currency": {
             "type": "string",
             "pattern": "^[A-Z]{3}$"
@@ -3293,7 +3326,68 @@
           },
           "in_balance": {
             "type": "boolean"
+          },
+          "business_document_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/Uuid"}
+          },
+          "document_source_document_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/Uuid"}
+          },
+          "journal_entry_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/Uuid"}
+          },
+          "journal_line_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/Uuid"}
+          },
+          "ledger_line_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/Uuid"}
+          },
+          "source_document_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"$ref": "#/components/schemas/Uuid"}
+          },
+          "document_contributors": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ControlTotalDocumentContributor"}
+          },
+          "ledger_contributors": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ControlTotalLedgerContributor"}
           }
+        }
+      },
+      "ControlTotalDocumentContributor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["business_document_id", "source_document_id", "posted_journal_entry_id", "open_balance"],
+        "properties": {
+          "business_document_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_document_id": {"oneOf": [{"$ref": "#/components/schemas/Uuid"}, {"type": "null"}]},
+          "posted_journal_entry_id": {"$ref": "#/components/schemas/Uuid"},
+          "open_balance": {"$ref": "#/components/schemas/Money"}
+        }
+      },
+      "ControlTotalLedgerContributor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["journal_entry_id", "journal_line_id", "ledger_line_id", "source_document_ids", "control_amount"],
+        "properties": {
+          "journal_entry_id": {"$ref": "#/components/schemas/Uuid"},
+          "journal_line_id": {"$ref": "#/components/schemas/Uuid"},
+          "ledger_line_id": {"$ref": "#/components/schemas/Uuid"},
+          "source_document_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/components/schemas/Uuid"}},
+          "control_amount": {"$ref": "#/components/schemas/Money"}
         }
       },
       "ControlTotalEnvelope": {
