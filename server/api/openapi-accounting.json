@@ -1616,6 +1616,21 @@
         }
       }
     },
+    "/entities/{entityId}/bank/reconciliations/scopes": {
+      "get": {
+        "operationId": "listReconciliationScopes",
+        "summary": "Discover retained reconciliation account and cutoff scopes",
+        "description": "Requires BANK.VIEW. Returns existing DRAFT, IN_REVIEW, REOPENED, and RECONCILED statement keys for the authenticated entity so a reader can select an exact account and cutoff. This read cannot start, clear, review, sign off, reopen, create a Journal Entry, or post.",
+        "parameters": [
+          {"$ref":"#/components/parameters/EntityId"},
+          {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":200,"default":100}}
+        ],
+        "responses": {
+          "200": {"$ref":"#/components/responses/ReconciliationScopeListOk"},
+          "default": {"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/general-ledger/chart-of-accounts": {
       "get": {
         "operationId": "listChartOfAccounts",
@@ -3750,6 +3765,19 @@
           }
         }
       },
+      "ReconciliationScopeRow": {
+        "type":"object",
+        "additionalProperties":false,
+        "required":["reconciliation_id","bank_account_ref","statement_ending_date","currency","status","version"],
+        "properties":{
+          "reconciliation_id":{"$ref":"#/components/schemas/Uuid"},
+          "bank_account_ref":{"type":"string","minLength":1,"maxLength":128,"pattern":"^(?:\\S|\\S.*\\S)$"},
+          "statement_ending_date":{"type":"string","format":"date"},
+          "currency":{"type":"string","pattern":"^[A-Z]{3}$"},
+          "status":{"type":"string","enum":["DRAFT","IN_REVIEW","RECONCILED","REOPENED"]},
+          "version":{"type":"string","pattern":"^[0-9]+$"}
+        }
+      },
       "BankTransactionReadEnvelope": {
         "type": "object",
         "additionalProperties": false,
@@ -3787,6 +3815,15 @@
               "$ref": "#/components/schemas/ReconciliationSummaryRow"
             }
           }
+        }
+      },
+      "ReconciliationScopeListEnvelope": {
+        "type":"object",
+        "additionalProperties":false,
+        "required":["ok","data"],
+        "properties":{
+          "ok":{"const":true},
+          "data":{"type":"array","maxItems":200,"uniqueItems":true,"items":{"$ref":"#/components/schemas/ReconciliationScopeRow"}}
         }
       },
       "AdmittedWbsBankStatementReadRow": {
@@ -5964,6 +6001,11 @@
             }
           }
         }
+      },
+      "ReconciliationScopeListOk": {
+        "description":"Entity-scoped read-only reconciliation account and cutoff keys",
+        "headers":{"Cache-Control":{"schema":{"const":"no-store"}}},
+        "content":{"application/json":{"schema":{"$ref":"#/components/schemas/ReconciliationScopeListEnvelope"}}}
       },
       "AdmittedWbsBankStatementListOk": {
         "description":"Closed admitted signed WBS statement selections for one bank account",

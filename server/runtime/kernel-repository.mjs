@@ -1263,6 +1263,13 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listReconciliationScopes({tenantId,entityId,limit=100}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_reconciliation_scopes($1,$2,$3)',
+      [tenantId,entityId,limit]
+    )).rows);
+  }
+
   async listAdmittedWbsBankStatementReceipts({tenantId,entityId,bankAccountRef,limit=50}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_admitted_wbs_bank_statement_receipts($1,$2,$3,$4)',

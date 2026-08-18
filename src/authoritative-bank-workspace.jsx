@@ -1,5 +1,5 @@
-import React, {useState} from 'react';
-import {createAuthoritativeBankPaymentMatch,createAuthoritativeReconciliationAdjustmentDraft,readAuthoritativeAdmittedBankStatement,refreshAuthoritativeAdmittedBankStatements,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation,refreshAuthoritativeReconciliationWorksheet,setAuthoritativeReconciliationAdjustmentClearance,setAuthoritativeReconciliationClearance,startAuthoritativeReconciliationFromAdmittedStatement,transitionAuthoritativeReconciliation,unmatchAuthoritativeBankPayment} from './accounting-api.js';
+import React, {useEffect,useState} from 'react';
+import {createAuthoritativeBankPaymentMatch,createAuthoritativeReconciliationAdjustmentDraft,readAuthoritativeAdmittedBankStatement,refreshAuthoritativeAdmittedBankStatements,refreshAuthoritativeBankMatchCandidates,refreshAuthoritativeBankTransactions,refreshAuthoritativeReconciliation,refreshAuthoritativeReconciliationScopes,refreshAuthoritativeReconciliationWorksheet,setAuthoritativeReconciliationAdjustmentClearance,setAuthoritativeReconciliationClearance,startAuthoritativeReconciliationFromAdmittedStatement,transitionAuthoritativeReconciliation,unmatchAuthoritativeBankPayment} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeWorkspaceView,AuthoritativeWorkspaceHeader} from './authoritative-workbench-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
@@ -214,7 +214,7 @@ export function AuthoritativeReconciliationDetail({row,scope,onBack,config,fetch
   const [transitionState,setTransitionState]=useState({phase:'IDLE',error:null});
   const [adjustment,setAdjustment]=useState({item:null,journalNumber:'',journalDate:'',offsetAccountCode:'',description:'',attachmentIds:'',phase:'IDLE',error:null});
   const reasonReady=reason.trim().length>=8;
-  const transitionByStatus={DRAFT:{action:'REVIEW',label:'Send to independent review'},IN_REVIEW:{action:'SIGN_OFF',label:'Sign off reviewed statement'},RECONCILED:{action:'REOPEN',label:'Reopen signed statement'}};
+  const transitionByStatus={DRAFT:{action:'REVIEW',label:'Send to independent review'},REOPENED:{action:'REVIEW',label:'Send reopened statement to independent review'},IN_REVIEW:{action:'SIGN_OFF',label:'Sign off reviewed statement'},RECONCILED:{action:'REOPEN',label:'Reopen signed statement'}};
   const transition=transitionByStatus[row.status]||null;
   const canChangeItems=['DRAFT','REOPENED'].includes(row.status);
   const hasPostedAdjustmentEvidence=item=>item?.match_status===null&&item?.adjustment_clearance_eligible===true&&item?.adjustment_journal_status==='POSTED'&&Boolean(item?.adjustment_journal_entry_id)&&Number.isSafeInteger(item?.adjustment_journal_version);
@@ -299,8 +299,11 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
 
 export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
   const [scope,setScope]=useState({bankAccountRef:'',statementEndingDate:''});
+  const [scopeDiscovery,setScopeDiscovery]=useState({phase:'LOADING',rows:[],error:null});
   const [state,setState]=useState({phase:'IDLE',row:null,error:null,readAt:null});
   const [selected,setSelected]=useState(null);
+  const loadScopes=async()=>{setScopeDiscovery({phase:'LOADING',rows:[],error:null});const result=await refreshAuthoritativeReconciliationScopes({config,fetcher});setScopeDiscovery(result.ok?{phase:'READY',rows:result.rows,error:null}:{phase:'ERROR',rows:[],error:result});return result;};
+  useEffect(()=>{let active=true;(async()=>{const result=await refreshAuthoritativeReconciliationScopes({config,fetcher});if(active)setScopeDiscovery(result.ok?{phase:'READY',rows:result.rows,error:null}:{phase:'ERROR',rows:[],error:result});})();return()=>{active=false;};},[config,fetcher]);
   const readSummary=async({bankAccountRef,statementEndingDate},preserveDetail=false)=>{if(!preserveDetail)setSelected(null);setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeReconciliation({config,bankAccountRef,statementEndingDate,fetcher});const readAt=new Date().toISOString();setState(result.ok?{phase:'READY',row:result.row,error:null,readAt}:{phase:'ERROR',row:null,error:result,readAt});if(preserveDetail&&result.ok)setSelected(current=>current&&result.row?{...current,row:result.row}:current);return result;};
   const load=async(event,{preserveDetail=false}={})=>{event?.preventDefault?.();return readSummary(scope,preserveDetail);};
   const handleAdmittedStarted=async row=>{const nextScope={bankAccountRef:row.bank_account_ref,statementEndingDate:row.statement_end_date};setScope(nextScope);await readSummary(nextScope,false);};
@@ -316,6 +319,12 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
   };
   if(selected)return <AuthoritativeReconciliationDetail row={selected.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} onBack={closeEvidence} config={config} fetcher={fetcher} onChanged={()=>load(null,{preserveDetail:true})}/>;
   return <AuthoritativeWorkspaceView area="Reconciliation evidence" className="stack authoritative-reconciliation-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING | RECONCILIATION" title="Reconciliation evidence" description="One authoritative statement cutoff for one entity and bank account. Lifecycle commands are controller-gated, revision-bound, idempotent, and audited by the accounting API."/>
+    <section className="report-workbench authoritative-reconciliation-scope-picker" aria-label="Available reconciliation scopes"><div className="report-workbench-head"><div><b>Available reconciliation scopes</b><div className="page-subtitle">Existing entity-scoped statements returned by the accounting API. Selecting one fills the exact account and cutoff; it does not execute a lifecycle command.</div></div><span className="badge badge-muted">READ ONLY</span></div>
+      {scopeDiscovery.phase==='LOADING'&&<StateBlock tone="loading">Discovering reconciliation scopes...</StateBlock>}
+      {scopeDiscovery.phase==='ERROR'&&<BankReadFailure error={scopeDiscovery.error} onRetry={loadScopes} subject="reconciliation scopes"/>}
+      {scopeDiscovery.phase==='READY'&&!scopeDiscovery.rows.length&&<StateBlock tone="empty" title="No existing reconciliation scopes">No Draft, review, reopened, or signed reconciliation exists for this entity yet. A signed admitted statement may still be selected below.</StateBlock>}
+      {scopeDiscovery.phase==='READY'&&scopeDiscovery.rows.length>0&&<label>Existing statement<select aria-label="Existing reconciliation statement" value={scope.bankAccountRef&&scope.statementEndingDate?`${scope.bankAccountRef}|${scope.statementEndingDate}`:''} onChange={event=>{const row=scopeDiscovery.rows.find(item=>`${item.bank_account_ref}|${item.statement_ending_date}`===event.target.value);if(row)setScope({bankAccountRef:row.bank_account_ref,statementEndingDate:row.statement_ending_date});}}><option value="">Choose a retained reconciliation</option>{scopeDiscovery.rows.map(row=><option key={row.reconciliation_id} value={`${row.bank_account_ref}|${row.statement_ending_date}`}>{row.bank_account_ref} · {row.statement_ending_date} · {row.status}</option>)}</select></label>}
+    </section>
     <form className="filterbar" onSubmit={load} aria-label="Reconciliation statement scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>
       <label>Statement ending date<input required type="date" value={scope.statementEndingDate} onChange={event=>setScope(current=>({...current,statementEndingDate:event.target.value}))}/></label>

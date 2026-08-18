@@ -3165,6 +3165,7 @@ pgTest('bank and reconciliation reads enforce permission, tenant, entity, accoun
 
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bank-denied',['AP.VIEW'])});
   await assert.rejects(denied.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1'}),error=>error.code==='42501');
+  await assert.rejects(denied.listReconciliationScopes({tenantId:ids.tenantId,entityId:ids.entityId}),error=>error.code==='42501');
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bank-reader',['BANK.VIEW'])});
   const rows=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:25});
   assert.equal(rows.length,1);assert.equal(rows[0].bank_source_id,bankSourceId);assert.equal(rows[0].bank_match_id,bankMatchId);
@@ -3186,6 +3187,12 @@ pgTest('bank and reconciliation reads enforce permission, tenant, entity, accoun
   assert.equal(summaries[0].bank_transaction_count,'1');assert.equal(summaries[0].active_match_count,'1');assert.equal(summaries[0].unmatched_transaction_count,'0');
   assert.equal(summaries[0].statement_activity_amount,'100.0000');
   assert.deepEqual(await reader.getReconciliationSummary({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-10'}),[]);
+  const scopes=await reader.listReconciliationScopes({tenantId:ids.tenantId,entityId:ids.entityId,limit:25});
+  assert.deepEqual(scopes.map(row=>({id:row.reconciliation_id,account:row.bank_account_ref,date:row.statement_ending_date,status:row.status,version:row.version})),[
+    {id:reconciliationId,account:'BANK-1',date:'2026-07-31',status:'DRAFT',version:'0'},
+    {id:priorReconciliationId,account:'BANK-1',date:'2026-07-10',status:'RECONCILED',version:'0'}
+  ]);
+  await assert.rejects(reader.listReconciliationScopes({tenantId:ids.tenantId,entityId:ids.entityId,limit:201}),error=>error.code==='22023');
   const indexes=(await adminPool.query("SELECT to_regclass('public.bank_source_read_scope_idx') bank, to_regclass('public.reconciliation_live_read_scope_idx') live, to_regclass('public.reconciliation_reconciled_cutoff_idx') cutoff")).rows[0];
   assert.deepEqual(indexes,{bank:'bank_source_read_scope_idx',live:'reconciliation_live_read_scope_idx',cutoff:'reconciliation_reconciled_cutoff_idx'});
 
@@ -3194,6 +3201,8 @@ pgTest('bank and reconciliation reads enforce permission, tenant, entity, accoun
   const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'bank-reader'}),kernelFactory:async()=>reader});
   const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/bank/reconciliation?bankAccountRef=BANK-1&statementEndingDate=2026-07-31`,body:null,headers:{}});
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data[0].reconciliation_id,reconciliationId);
+  const scopeResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/bank/reconciliations/scopes?limit=25`,body:null,headers:{}});
+  assert.equal(scopeResponse.status,200);assert.equal(scopeResponse.headers['cache-control'],'no-store');assert.deepEqual(scopeResponse.body.data.map(row=>row.reconciliation_id),[reconciliationId,priorReconciliationId]);
 });
 
 pgTest('reconciliation lifecycle is scoped, idempotent, separated by role, snapshotted, and reopen-gated',async()=>{

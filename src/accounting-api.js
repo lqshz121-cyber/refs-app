@@ -52,6 +52,7 @@ const JOURNAL_TYPES=new Set(['MANUAL','AUTO','REVERSAL','RECLASS']);
 const JOURNAL_STATUSES=new Set(['DRAFT','PENDING_REVIEW','PENDING_APPROVAL','APPROVED','POSTED']);
 const BANK_MATCH_STATUSES=new Set(['ACTIVE','UNMATCHED','REVERSED']);
 const RECONCILIATION_STATUSES=new Set(['DRAFT','IN_REVIEW','RECONCILED','REOPENED']);
+const RECONCILIATION_SCOPE_FIELDS=new Set(['reconciliation_id','bank_account_ref','statement_ending_date','currency','status','version']);
 const ADMITTED_STATEMENT_SELECTION_STATES=new Set(['ALREADY_STARTED','BLOCKED_OPEN_RECONCILIATION','AVAILABLE_FOR_SERVER_VALIDATION']);
 const ADMITTED_STATEMENT_FIELDS=new Set(['wbs_bank_statement_receipt_id','bank_account_ref','statement_start_date','statement_end_date','currency','opening_balance','ending_balance','transaction_count','statement_activity_amount','admission_hash','signature_verified','admission_status','admitted_at','reconciliation_id','reconciliation_status','reconciliation_version','selection_state']);
 
@@ -130,6 +131,11 @@ const reconciliationRow=(row,account,statementEndingDate)=>{
   const version=Number(row.version),bankTransactionCount=Number(row.bank_transaction_count),activeMatchCount=Number(row.active_match_count),unmatchedTransactionCount=Number(row.unmatched_transaction_count);
   if(![version,bankTransactionCount,activeMatchCount,unmatchedTransactionCount].every(value=>Number.isSafeInteger(value)&&value>=0)||activeMatchCount+unmatchedTransactionCount!==bankTransactionCount)return null;
   return {reconciliation_id:row.reconciliation_id,bank_account_ref:row.bank_account_ref,statement_ending_date:row.statement_ending_date,statement_ending_balance:String(row.statement_ending_balance),difference:String(row.difference),status:row.status,version,reconciled_by:reconciledBy,reconciled_at:reconciledAt,reopened_by:reopenedBy,reopened_at:reopenedAt,bank_transaction_count:bankTransactionCount,active_match_count:activeMatchCount,unmatched_transaction_count:unmatchedTransactionCount,statement_activity_amount:String(row.statement_activity_amount)};
+};
+
+const reconciliationScopeRow=row=>{
+  if(!row||Object.keys(row).length!==RECONCILIATION_SCOPE_FIELDS.size||Object.keys(row).some(field=>!RECONCILIATION_SCOPE_FIELDS.has(field))||!UUID.test(row.reconciliation_id||'')||!BANK_ACCOUNT_REF.test(row.bank_account_ref||'')||!validDate(row.statement_ending_date)||!/^[A-Z]{3}$/.test(row.currency||'')||!RECONCILIATION_STATUSES.has(row.status)||!UNSIGNED_INTEGER.test(String(row.version??'')))return null;
+  return {reconciliation_id:row.reconciliation_id,bank_account_ref:row.bank_account_ref,statement_ending_date:row.statement_ending_date,currency:row.currency,status:row.status,version:Number(row.version)};
 };
 
 const admittedStatementRow=(row,{account=null,receiptId=null}={})=>{
@@ -365,6 +371,19 @@ export async function refreshAuthoritativeReconciliation({config,bankAccountRef,
     if(rows.some(row=>row===null))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation row.'};
     return {ok:true,row:rows[0]||null,scope:{entityId:config.entityId,bankAccountRef:account,statementEndingDate}};
   }catch{return unreachable('The browser could not complete the authoritative reconciliation read; no HTTP response was produced.');}
+}
+
+export async function refreshAuthoritativeReconciliationScopes({config,limit=100,fetcher=globalThis.fetch}={}){
+  if(!config||typeof fetcher!=='function'||!Number.isSafeInteger(limit)||limit<1||limit>200)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Reconciliation scope discovery requires one authoritative entity and a limit from 1 to 200.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/bank/reconciliations/scopes?limit=${limit}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,'RECONCILIATION_SCOPES');
+    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid reconciliation scope envelope.'};
+    const rows=body.data.map(reconciliationScopeRow),ids=rows.map(row=>row?.reconciliation_id);
+    if(rows.some(row=>row===null)||new Set(ids).size!==ids.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate reconciliation scope row.'};
+    return {ok:true,rows,scope:{entityId:config.entityId,limit}};
+  }catch{return unreachable('The browser could not complete reconciliation scope discovery; no HTTP response was produced.');}
 }
 
 export async function refreshAuthoritativeReconciliationWorksheet({config,reconciliationId,fetcher=globalThis.fetch}={}){
