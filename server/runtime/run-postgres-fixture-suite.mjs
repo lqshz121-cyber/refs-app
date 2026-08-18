@@ -133,7 +133,13 @@ export function runFixture(fixture,env,{spawnFixture=spawnFixtureProcess,cleanup
 export async function runFixtureSuite({fixtures=FIXTURES,env=process.env}={}){
   const results=[];
   for(const fixture of fixtures)results.push(await runFixture(fixture,env));
-  return {schema:'REFS_POSTGRES_FIXTURE_SUITE_V1',image:env.POSTGRES_IMAGE||'postgres:16-alpine',fixtures:results,pass:results.every(result=>result.exitCode===0)};
+  return {
+    schema:'REFS_POSTGRES_FIXTURE_SUITE_V1',
+    releaseSha:env.REFS_RELEASE_SHA||null,
+    image:env.POSTGRES_IMAGE||'postgres:16-alpine',
+    fixtures:results,
+    pass:results.every(result=>result.exitCode===0)
+  };
 }
 
 if(process.argv[1]===fileURLToPath(import.meta.url)){

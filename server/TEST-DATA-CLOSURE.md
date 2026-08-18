@@ -82,6 +82,18 @@ It can report 10/10 only for `CONTROLLED_TEST_DATA_ONLY`. The result always keep
 fixture and command coverage, while raw PG15/16/18 runs remain separate evidence.
 Controlled completeness cannot be promoted into a live release claim.
 
+To execute and bind every group to one exact commit across all three supported
+PostgreSQL versions, set the full current SHA and run:
+
+```text
+REFS_RELEASE_SHA=<40-character-current-HEAD> npm run verify:controlled-maturity-execution
+```
+
+This command reports `controlledExecutionPass=true` only when PG15, PG16, and
+PG18 each return the exact 24 groups and 33 non-skipped TAP assertions and no
+owned Docker container, network, or volume remains. It still reports
+`productionPass=false`.
+
 ## Production boundary
 
 Production acceptance additionally requires all of the following on the exact
