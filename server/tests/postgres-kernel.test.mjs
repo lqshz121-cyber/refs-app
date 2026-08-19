@@ -178,9 +178,11 @@ pgTest('controlled test AI source module and SERVICE_ACCOUNT audit actor are exp
   assert.match(definition,/actor,'SERVICE_ACCOUNT','AI\.TEST\.WORKFLOW'/);assert.doesNotMatch(definition,/actor,'SERVICE','AI\.TEST\.WORKFLOW'/);
   await adminPool.query("INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash) VALUES($1,$2,'CONTROLLED_TEST_AI_SOURCE_DERIVED','SOURCE_DOCUMENT',$3,'DERIVE_TEST_SOURCE','controlled-ai-source-maker','SERVICE_ACCOUNT','AI.TEST.WORKFLOW',$4,$4,$4,$5)",[ids.tenantId,ids.entityId,sourceId,'controlled-ai-audit-actor-test',hash('controlled-ai-audit-actor-test')]);
   assert.deepEqual((await adminPool.query("SELECT actor_type FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='CONTROLLED_TEST_AI_SOURCE_DERIVED'",[ids.tenantId,ids.entityId])).rows,[{actor_type:'SERVICE_ACCOUNT'}]);
+  await migrateDown(adminPool); // 189 is a read-only function replacement.
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
   assert.equal((await adminPool.query("SELECT pg_get_constraintdef(oid) definition FROM pg_constraint WHERE conname='source_document_source_module_check'")).rows[0].definition.includes('ai_test_prepaid'),true);
   assert.match((await adminPool.query("SELECT pg_get_functiondef('refs_derive_controlled_test_ai_source(uuid,uuid,uuid,text,text,text)'::regprocedure) definition")).rows[0].definition,/actor,'SERVICE_ACCOUNT','AI\.TEST\.WORKFLOW'/);
+  await migrateUp(adminPool); // Restore the read-only 189 replacement removed above.
 });
 
 pgTest('Controller retains classifies and approves an exact WBS company catalog binding with SoD CAS audit and zero accounting mapping snapshots',async()=>{
@@ -4195,6 +4197,7 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
+  await migrateDown(adminPool);
   const rolledBack=(await adminPool.query(`SELECT
     to_regprocedure('refs_get_reconciliation_worksheet_item(uuid,uuid,uuid,uuid)') IS NULL item_reader_removed,
     to_regprocedure('refs_list_reconciliation_adjustment_evidence(uuid,uuid,integer)') IS NOT NULL evidence_retained,
@@ -4203,6 +4206,7 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     pg_get_functiondef('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) LIKE '%NOT BETWEEN 1 AND 500%' function_cap_restored,
     pg_get_functiondef('refs_guard_reconciliation_adjustment_lifecycle()'::regprocedure) LIKE '%adjustment.bank_delta<>(SELECT source.amount%' item_guard_retained`)).rows[0];
   assert.deepEqual(rolledBack,{item_reader_removed:true,evidence_retained:true,import_cap_restored:true,row_cap_restored:true,function_cap_restored:true,item_guard_retained:true});
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
@@ -4281,7 +4285,9 @@ pgTest('WBS TEST Bank monthly identity admits legacy July hashes, isolates month
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
+  await migrateDown(adminPool);
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
@@ -4355,8 +4361,10 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
+  await migrateDown(adminPool);
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0],beforeDown);
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
