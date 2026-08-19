@@ -167,6 +167,17 @@ pgTest('controlled test AI source bridge is private, fixed-permission, and rejec
   assert.deepEqual(acl,{allowed:true,public_allowed:false});
 });
 
+pgTest('controlled test AI source module is explicitly allowlisted and its rollback fails closed after evidence exists',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const batchId=randomUUID(),rawId=randomUUID(),sourceId=randomUUID(),recordId=`AI-TEST-${sourceId}`;
+  await adminPool.query("INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash,status,row_count,started_at,completed_at) VALUES($1,$2,$3,'WBS_AI_TEST','ai_test_prepaid',$4,$5,$6,'SUCCEEDED',1,now(),now())",[batchId,ids.tenantId,ids.entityId,ids.sourceEntityId,`ai-module-${sourceId}`,hash('ai-module-batch')]);
+  await adminPool.query("INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id) VALUES($1,$2,$3,$4,'WBS','ai_test_prepaid',$5,$6,'unsigned-test-only:v1','UPSERT',now(),$7,$8,$6)",[rawId,ids.tenantId,ids.entityId,batchId,ids.sourceEntityId,recordId,hash('ai-module-raw'),`object://refs-test-only/${ids.entityId}/ai-workflow/${sourceId}`]);
+  await adminPool.query("INSERT INTO source_document(source_document_id,tenant_id,entity_id,raw_event_id,source_system,source_module,source_entity_id,source_record_id,source_version,document_type,document_no,business_date,accounting_date,currency,gross_amount,status,source_ref,payload_hash) VALUES($1,$2,$3,$4,'WBS','ai_test_prepaid',$5,$6,'unsigned-test-only:v1','WBS_TEST_AI_PREPAID',$6,'2026-07-15','2026-07-15','USD',1,'READY_FOR_DRAFT',$7,$8)",[sourceId,ids.tenantId,ids.entityId,rawId,ids.sourceEntityId,recordId,`object://refs-test-only/${ids.entityId}/ai-workflow/${sourceId}`,hash('ai-module-source')]);
+  assert.deepEqual((await adminPool.query('SELECT source_module,document_type,status FROM source_document WHERE source_document_id=$1',[sourceId])).rows,[{source_module:'ai_test_prepaid',document_type:'WBS_TEST_AI_PREPAID',status:'READY_FOR_DRAFT'}]);
+  await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
+  assert.equal((await adminPool.query("SELECT pg_get_constraintdef(oid) definition FROM pg_constraint WHERE conname='source_document_source_module_check'")).rows[0].definition.includes('ai_test_prepaid'),true);
+});
+
 pgTest('Controller retains classifies and approves an exact WBS company catalog binding with SoD CAS audit and zero accounting mapping snapshots',async()=>{
   const ids={tenantId:randomUUID(),entityId:randomUUID()};
   await adminPool.query('INSERT INTO tenant(tenant_id,tenant_code,name) VALUES($1,$2,$3)',[ids.tenantId,`T${ids.tenantId.replaceAll('-','').slice(0,8)}`.toUpperCase(),'Company catalog tenant']);
@@ -4165,12 +4176,13 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.reconciliation_id=$3 GROUP BY r.status,r.version,r.difference`,[ids.tenantId,ids.entityId,created.reconciliation_id])).rows[0];
   assert.deepEqual(proof,{status:'REOPENED',version:'7',difference:'0.0000',cleared:2,adjustments:2,posted_ledgers:2,snapshots:1});
   // 181 owns the Bank cap and item reader assertions below.  Roll back the
-  // later AI source read, stage batch, Bank identity and Payable migrations
+  // later AI source module/read, stage batch, Bank identity and Payable migrations
   // first, then 181.
   // This fixture deliberately exercises an older migration's rollback after
   // retaining a completed 185 stage.  Remove only its synthetic stage facts;
   // production down remains fail-closed while any checkpoint is retained.
   await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
+  await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
@@ -4185,6 +4197,7 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     pg_get_functiondef('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) LIKE '%NOT BETWEEN 1 AND 500%' function_cap_restored,
     pg_get_functiondef('refs_guard_reconciliation_adjustment_lifecycle()'::regprocedure) LIKE '%adjustment.bank_delta<>(SELECT source.amount%' item_guard_retained`)).rows[0];
   assert.deepEqual(rolledBack,{item_reader_removed:true,evidence_retained:true,import_cap_restored:true,row_cap_restored:true,function_cap_restored:true,item_guard_retained:true});
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
@@ -4253,13 +4266,15 @@ pgTest('WBS TEST Bank monthly identity admits legacy July hashes, isolates month
   const changed={...january,provider_content_sha256:createHash('sha256').update('bank-monthly-jan-changed').digest('hex'),rows:[{...january.rows[0],amount:'11.0000'}],observation_hash:hash('bank-monthly-jan-changed')};
   await assert.rejects(importer.createWbsControlledTestBankScope({...ids,periodId:periodByCode.get('2026-01'),companyCode:'WBPA',observation:changed,bankAccountRef:'WBS_TEST_BANK_2026_01',idempotencyKey:'bank-monthly-identity-jan-changed'}),error=>error.code==='23505');
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM import_batch WHERE tenant_id=$1) batches,(SELECT count(*)::int FROM raw_event WHERE tenant_id=$1) raw,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank",[ids.tenantId])).rows[0],before);
-  // Clear this test's synthetic 185 staging facts so rollback can cross 186
+  // Clear this test's synthetic 185 staging facts so rollback can cross 187/186
   // and 185 to reach 183, whose cross-month identity conflict is under test.
   await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
+  await migrateDown(adminPool);
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
@@ -4329,8 +4344,10 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM reconciliation WHERE tenant_id=$1) reconciliations,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports",[ids.tenantId])).rows[0],{staged:201,bank:201,reconciliations:1,imports:1});
   const beforeDown=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0];
   await migrateDown(adminPool);
+  await migrateDown(adminPool);
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0],beforeDown);
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
 });
 
