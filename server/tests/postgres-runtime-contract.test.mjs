@@ -623,6 +623,10 @@ test('large TEST_ONLY Bank import checkpoints privately and publishes core rows 
   for(const table of ['raw_event','source_document','source_document_line','bank_source','wbs_controlled_test_bank_import'])assert.match(finalize,new RegExp(`INSERT INTO ${table}`));
   assert.match(staged,/REVOKE ALL ON TABLE wbs_test_bank_import_stage,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_final FROM PUBLIC,refs_app/);
   assert.doesNotMatch(staged,/GRANT SELECT ON TABLE wbs_test_bank_import_stage/);
+  const finalizeRepository=repository.slice(repository.indexOf("if(stop<begin.chunk_count)"),repository.indexOf('async ensureWbsTestH12026Periods'));
+  assert.match(finalizeRepository,/set_config\('statement_timeout',\$1,true\)[\s\S]+WBS_TEST_BANK_FINALIZE_STATEMENT_TIMEOUT/);
+  assert.match(repository,/const WBS_TEST_BANK_FINALIZE_STATEMENT_TIMEOUT='120s'/);
+  assert.equal((repository.match(/set_config\('statement_timeout'/g)||[]).length,1);
 });
 
 test('isolated issuer derives authorization from DB grants and supports revoke and cleanup',()=>{
