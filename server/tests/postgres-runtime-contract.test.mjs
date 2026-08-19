@@ -610,6 +610,21 @@ test('runtime identity uses opaque DB-owned transaction context, not caller clai
   assert.match(sql,/REVOKE ALL ON TABLE runtime_auth_context,runtime_actor_grant,runtime_actor_grant_set,runtime_grant_sync_receipt FROM PUBLIC,refs_app,refs_runtime,refs_context_issuer,refs_grant_sync/);
 });
 
+test('large TEST_ONLY Bank import checkpoints privately and publishes core rows only at exact finalize',async()=>{
+  const staged=await readFile(new URL('../db/migrations/185_wbs_test_bank_staged_import.sql',import.meta.url),'utf8');
+  assert.match(staged,/CREATE TABLE wbs_test_bank_import_stage[\s\S]+expected_row_count integer NOT NULL CHECK\(expected_row_count BETWEEN 1 AND 10000\)/);
+  assert.match(staged,/CREATE TABLE wbs_test_bank_import_stage_chunk[\s\S]+row_count integer NOT NULL CHECK\(row_count BETWEEN 1 AND 100\)/);
+  assert.match(staged,/CREATE TABLE wbs_test_bank_import_stage_row[\s\S]+row_payload jsonb NOT NULL/);
+  assert.match(staged,/CREATE TABLE wbs_test_bank_import_stage_final/);
+  assert.match(staged,/actual_count<>parent\.expected_row_count OR actual_activity<>parent\.expected_activity OR actual_rows_hash<>parent\.rows_hash/);
+  const append=staged.slice(staged.indexOf('CREATE FUNCTION refs_append_wbs_test_bank_staged_chunk'),staged.indexOf('CREATE FUNCTION refs_finalize_wbs_test_bank_staged_import'));
+  assert.doesNotMatch(append,/INSERT INTO (?:raw_event|source_document|source_document_line|bank_source|wbs_controlled_test_bank_import)/);
+  const finalize=staged.slice(staged.indexOf('CREATE FUNCTION refs_finalize_wbs_test_bank_staged_import'));
+  for(const table of ['raw_event','source_document','source_document_line','bank_source','wbs_controlled_test_bank_import'])assert.match(finalize,new RegExp(`INSERT INTO ${table}`));
+  assert.match(staged,/REVOKE ALL ON TABLE wbs_test_bank_import_stage,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_final FROM PUBLIC,refs_app/);
+  assert.doesNotMatch(staged,/GRANT SELECT ON TABLE wbs_test_bank_import_stage/);
+});
+
 test('isolated issuer derives authorization from DB grants and supports revoke and cleanup',()=>{
   assert.match(sql,/session_user<>'refs_context_issuer'/);
   assert.match(sql,/FROM runtime_actor_grant/);

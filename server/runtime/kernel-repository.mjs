@@ -97,16 +97,31 @@ export class PostgresAccountingKernel{
   }
 
   async createWbsControlledTestBankScope({tenantId,entityId,periodId,companyCode,observation,bankAccountRef,idempotencyKey}){
-    return this.inSession(async client=>{
+    const begin=await this.inSession(async client=>{
       const payload=[tenantId,entityId,periodId,companyCode,JSON.stringify(observation),bankAccountRef];
       const requestHash=requireRow(await client.query(
         'SELECT refs_create_wbs_controlled_test_bank_scope_hash($1,$2,$3,$4,$5::jsonb,$6) AS request_hash',payload
       ),'WBS_TEST_BANK_HASH_FAILED','Controlled test Bank import hash was not produced').request_hash;
       return requireRow(await client.query(
-        'SELECT refs_create_wbs_controlled_test_bank_scope($1,$2,$3,$4,$5::jsonb,$6,$7,$8) AS result',
+        'SELECT refs_begin_wbs_test_bank_staged_import($1,$2,$3,$4,$5::jsonb,$6,$7,$8) AS result',
         [...payload,idempotencyKey,requestHash]
-      ),'WBS_TEST_BANK_IMPORT_FAILED','Controlled test Bank scope was not created').result;
+      ),'WBS_TEST_BANK_IMPORT_FAILED','Controlled test Bank stage was not prepared').result;
     });
+    if(begin?.status!=='WBS_TEST_BANK_IMPORT_PARTIAL')return begin;
+    const rows=observation?.rows;
+    if(!Array.isArray(rows))throw new KernelError('WBS_TEST_BANK_IMPORT_FAILED','Controlled test Bank stage has no row population');
+    const stop=Math.min(begin.chunk_count,begin.next_chunk_index+20);
+    for(let chunkIndex=begin.next_chunk_index;chunkIndex<stop;chunkIndex++){
+      const chunk=rows.slice(chunkIndex*100,(chunkIndex+1)*100);
+      await this.inSession(async client=>requireRow(await client.query(
+        'SELECT refs_append_wbs_test_bank_staged_chunk($1,$2,$3,$4,$5::jsonb,$6) AS result',
+        [tenantId,entityId,begin.stage_id,chunkIndex,JSON.stringify(chunk),`${idempotencyKey}:chunk:${chunkIndex}`]
+      ),'WBS_TEST_BANK_APPEND_FAILED','Controlled test Bank staged chunk was not retained').result);
+    }
+    if(stop<begin.chunk_count)return {...begin,next_chunk_index:stop,idempotent:false};
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_finalize_wbs_test_bank_staged_import($1,$2,$3) AS result',[tenantId,entityId,begin.stage_id]
+    ),'WBS_TEST_BANK_FINALIZE_FAILED','Controlled test Bank staged import was not finalized').result);
   }
 
   async ensureWbsTestH12026Periods({tenantId,entityId}){
