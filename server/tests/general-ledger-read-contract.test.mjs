@@ -21,6 +21,15 @@ test('General Ledger period scope fix qualifies output-variable names before exe
   assert.match(down,/CREATE OR REPLACE FUNCTION refs_list_general_ledger/);
   assert.doesNotMatch(up,/\b(?:INSERT INTO|UPDATE|DELETE FROM|refs_post_journal|refs_create_|refs_transition_)\b/i);
 });
+test('General Ledger expands source lineage only after the bounded page is selected',async()=>{
+  const up=await readFile(new URL('../db/migrations/189_general_ledger_page_before_lineage.sql',import.meta.url),'utf8');
+  const down=await readFile(new URL('../db/migrations/down/189_general_ledger_page_before_lineage.sql',import.meta.url),'utf8');
+  assert.match(up,/numbered AS[\s\S]*paged AS[\s\S]*LIMIT p_limit OFFSET p_offset[\s\S]*FROM paged p/);
+  assert.match(up,/FROM public\.source_link link[\s\S]*link\.journal_entry_id=p\.journal_entry_id/);
+  assert.doesNotMatch(up,/FROM public\.source_link link[\s\S]*link\.journal_entry_id=l\.journal_entry_id[\s\S]*AS source_document_ids/);
+  assert.match(down,/link\.journal_entry_id=l\.journal_entry_id[\s\S]*AS source_document_ids/);
+  assert.doesNotMatch(up,/\b(?:INSERT INTO|UPDATE|DELETE FROM|refs_post_journal|refs_create_|refs_transition_)\b/i);
+});
 test('repository and HTTP bind tenant, entity, period, query and page to no-store General Ledger GET',async()=>{
   const calls=[],kernel=Object.create(PostgresAccountingKernel.prototype);kernel.inSession=async work=>work({query:async(sql,args)=>{calls.push({sql,args});return {rows:[]};}});
   await kernel.listGeneralLedger({tenantId:'t',entityId:'e',periodId:'p',accountCode:null,query:'JE-100',limit:50,offset:100});

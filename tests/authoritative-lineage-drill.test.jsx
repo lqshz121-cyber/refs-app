@@ -31,6 +31,7 @@ const sourceCode=readFileSync('src/authoritative-lineage-drill.jsx','utf8');
 for(const call of ['readAuthoritativeJournalEntryDetail','readAuthoritativeSourceDocumentDetail','refreshAuthoritativeGeneralLedger','refreshAuthoritativeFinancialStatements'])assert.match(sourceCode,new RegExp(call));
 assert.match(sourceCode,/journal\.entity_id===config\.entityId&&journal\.period_id===config\.periodId/);
 assert.match(sourceCode,/item\.period_id===config\.periodId&&item\.account_code===row\.account_code&&item\.currency===row\.currency/);
+assert.match(sourceCode,/item\.account_code===row\.account_code&&\(!row\.currency\|\|item\.currency===row\.currency\)/,'financial statements without a currency field must still re-read their exact account-scoped ledger line');
 assert.match(sourceCode,/The Source Document detail did not retain the exact source-to-Journal relationship/);
 assert.match(sourceCode,/BLOCKED - immutable lineage mismatch/);
 assert.match(sourceCode,/StateBlock tone="loading" title="Reading evidence"/,'an immutable read must expose a non-interactive announced loading state');
