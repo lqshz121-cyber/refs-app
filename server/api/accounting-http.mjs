@@ -12,7 +12,7 @@ import {WbsCompanyCatalogControllerError,normalizeWbsCompanyCatalogCandidate,nor
 import {assertInsurancePcMappingDto} from '../runtime/wbs-insurance-pc-mapping-controller.mjs';
 import {WbsTestImportError,assertWbsControlledTestBankResult,assertWbsTestImportResult,assertWbsTestRangeImportResult} from '../runtime/wbs-test-import-service.mjs';
 import {ControlledTestAiWorkflowError,assertControlledTestAiWorkflowResult} from '../runtime/controlled-test-ai-workflow-service.mjs';
-import {ControlledTestBankWorkflowError,assertControlledTestBankRangeWorkflowResult,assertControlledTestBankWorkflowResult} from '../runtime/controlled-test-bank-workflow-service.mjs';
+import {ControlledTestBankWorkflowError,assertControlledTestBankRangeWorkflowResult,assertControlledTestBankWorkflowPartialResult,assertControlledTestBankWorkflowResult} from '../runtime/controlled-test-bank-workflow-service.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AI_ACCRUAL_HASH=/^sha256:[0-9a-f]{64}$/;
@@ -182,7 +182,7 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['companyCode','dateFrom','dateTo','pageSize','maxPages']);
         if(typeof wbsTestImportServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
         if(payload.pageSize!==10)throw new AccountingApiError(400,'INVALID_LIMIT','pageSize must equal the frozen ten-row Provider page size');
-        if(!Number.isSafeInteger(payload.maxPages)||payload.maxPages<1||payload.maxPages>50)throw new AccountingApiError(400,'INVALID_LIMIT','maxPages must be an integer from 1 to 50');
+        if(!Number.isSafeInteger(payload.maxPages)||payload.maxPages<1||payload.maxPages>1000)throw new AccountingApiError(400,'INVALID_LIMIT','maxPages must be an integer from 1 to 1000');
         const service=await wbsTestImportServiceFactory(principal);
         if(!service||typeof service.importRange!=='function')throw new WbsTestImportError('WBS_TEST_IMPORT_CONFIG_INVALID','Paged test-import service is unavailable.');
         result=await service.importRange({tenantId:principal.tenantId,entityId,companyCode:requireWbsCompanyCode(payload.companyCode),dateFrom:requireIsoDate(payload.dateFrom,'dateFrom'),dateTo:requireIsoDate(payload.dateTo,'dateTo'),pageSize:payload.pageSize,maxPages:payload.maxPages,idempotencyKey:requireIdempotency(headers)});
@@ -190,7 +190,7 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         return {status:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='POST'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='test-import'&&parts[6]==='bank-workflow'&&parts[7]==='run'){
-        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['periodId','reconciliationId','scopes','reason']);
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['periodId','reconciliationId','scopes','reason','maxItems']);
         if(typeof wbsTestImportServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
         const service=await wbsTestImportServiceFactory(principal);
         const range=Array.isArray(payload.scopes);
@@ -198,11 +198,17 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         if(!service||typeof service[range?'runRange':'run']!=='function')throw new ControlledTestBankWorkflowError('CONTROLLED_TEST_BANK_CONFIG_INVALID','Controlled test Bank workflow service is unavailable.');
         const common={tenantId:principal.tenantId,entityId,reason:requireReviewReason(payload.reason),idempotencyKey:requireIdempotency(headers)};
         if(range){
+          if(payload.maxItems!==undefined)throw new AccountingApiError(400,'INVALID_BANK_WORKFLOW_SCOPE','maxItems is supported only by the single-month resumable workflow');
           if(payload.scopes.length<1||payload.scopes.length>6)throw new AccountingApiError(400,'INVALID_BANK_WORKFLOW_SCOPE','scopes must contain one to six monthly period/reconciliation pairs');
           const scopes=payload.scopes.map((item,index)=>{allowOnly(item,['periodId','reconciliationId']);return {periodId:requireUuid(item.periodId,`scopes[${index}].periodId`),reconciliationId:requireUuid(item.reconciliationId,`scopes[${index}].reconciliationId`)};});
           result=await service.runRange({...common,scopes});assertControlledTestBankRangeWorkflowResult(result);
-        }else{result=await service.run({...common,periodId:requireUuid(payload.periodId,'periodId'),reconciliationId:requireUuid(payload.reconciliationId,'reconciliationId')});assertControlledTestBankWorkflowResult(result);}
-        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+        }else{
+          const maxItems=payload.maxItems===undefined?25:payload.maxItems;
+          if(!Number.isSafeInteger(maxItems)||maxItems<1||maxItems>100)throw new AccountingApiError(400,'INVALID_LIMIT','maxItems must be an integer from 1 to 100');
+          result=await service.run({...common,periodId:requireUuid(payload.periodId,'periodId'),reconciliationId:requireUuid(payload.reconciliationId,'reconciliationId'),maxItems});
+          if(result?.status==='CONTROLLED_TEST_BANK_WORKFLOW_PARTIAL')assertControlledTestBankWorkflowPartialResult(result);else assertControlledTestBankWorkflowResult(result);
+        }
+        return {status:result.status==='CONTROLLED_TEST_BANK_WORKFLOW_PARTIAL'||result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='property-rent-pickup'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Property Rent pickup reads do not accept command headers');

@@ -10,9 +10,17 @@ test('routes exact authenticated Bank runner command and returns closed no-store
   const calls=[];const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'operator'}),kernelFactory:async()=>({}),wbsTestImportServiceFactory:async()=>({run:async args=>(calls.push(args),result(false))})});
   const response=await api({method:'POST',url,headers:{'idempotency-key':'controlled-bank-http-001'},body});
   assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body,{ok:true,data:result(false)});
-  assert.deepEqual(calls,[{tenantId,entityId,...body,idempotencyKey:'controlled-bank-http-001'}]);
+  assert.deepEqual(calls,[{tenantId,entityId,...body,idempotencyKey:'controlled-bank-http-001',maxItems:25}]);
   const replay=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'operator'}),kernelFactory:async()=>({}),wbsTestImportServiceFactory:async()=>({run:async()=>result(true)})});
   assert.equal((await replay({method:'POST',url,headers:{'idempotency-key':'controlled-bank-http-001'},body})).status,200);
+});
+
+test('returns a closed PARTIAL receipt and forwards an explicit bounded chunk size',async()=>{
+  const partial={status:'CONTROLLED_TEST_BANK_WORKFLOW_PARTIAL',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:false,reconciliation_id:reconciliationId,total_count:1888,processed_count:100,matched_count:0,adjusted_count:100,cleared_count:100,remaining_count:1788,revision:100};let received;
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'operator'}),kernelFactory:async()=>({}),wbsTestImportServiceFactory:async()=>({run:async args=>(received=args,partial)})});
+  const response=await api({method:'POST',url,headers:{'idempotency-key':'controlled-bank-http-partial-001'},body:{...body,maxItems:100}});
+  assert.equal(response.status,200);assert.deepEqual(response.body,{ok:true,data:partial});assert.equal(received.maxItems,100);
+  assert.equal((await api({method:'POST',url,headers:{'idempotency-key':'controlled-bank-http-partial-001'},body:{...body,maxItems:101}})).status,400);
 });
 
 test('keeps runner absent when disabled and rejects injected or malformed selection',async()=>{
