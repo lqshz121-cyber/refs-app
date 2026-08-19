@@ -4131,6 +4131,11 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
   assert.deepEqual(proof,{status:'REOPENED',version:'7',difference:'0.0000',cleared:2,adjustments:2,posted_ledgers:2,snapshots:1});
   // 181 owns the Bank cap and item reader assertions below.  Roll back the
   // later stage batch, Bank identity and Payable migrations first, then 181.
+  // This fixture deliberately exercises an older migration's rollback after
+  // retaining a completed 185 stage.  Remove only its synthetic stage facts;
+  // production down remains fail-closed while any checkpoint is retained.
+  await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
+  await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
@@ -4143,6 +4148,7 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     pg_get_functiondef('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) LIKE '%NOT BETWEEN 1 AND 500%' function_cap_restored,
     pg_get_functiondef('refs_guard_reconciliation_adjustment_lifecycle()'::regprocedure) LIKE '%adjustment.bank_delta<>(SELECT source.amount%' item_guard_retained`)).rows[0];
   assert.deepEqual(rolledBack,{item_reader_removed:true,evidence_retained:true,import_cap_restored:true,row_cap_restored:true,function_cap_restored:true,item_guard_retained:true});
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
@@ -4180,8 +4186,13 @@ pgTest('WBS TEST Bank monthly identity admits legacy July hashes, isolates month
   const changed={...january,provider_content_sha256:createHash('sha256').update('bank-monthly-jan-changed').digest('hex'),rows:[{...january.rows[0],amount:'11.0000'}],observation_hash:hash('bank-monthly-jan-changed')};
   await assert.rejects(importer.createWbsControlledTestBankScope({...ids,periodId:periodByCode.get('2026-01'),companyCode:'WBPA',observation:changed,bankAccountRef:'WBS_TEST_BANK_2026_01',idempotencyKey:'bank-monthly-identity-jan-changed'}),error=>error.code==='23505');
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM import_batch WHERE tenant_id=$1) batches,(SELECT count(*)::int FROM raw_event WHERE tenant_id=$1) raw,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank",[ids.tenantId])).rows[0],before);
+  // Clear this test's synthetic 185 staging facts so the first rollback can
+  // reach 184, whose cross-month identity conflict is the behavior under test.
+  await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
+  await migrateDown(adminPool);
   await migrateDown(adminPool);
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   assert.match((await adminPool.query("SELECT pg_get_functiondef('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) definition")).rows[0].definition,/lower\(p_bank_account_ref\)/);
 });
@@ -4206,6 +4217,45 @@ pgTest('WBS Bank range batch admits sanitized cursor rows under the ten-thousand
   const tooMany=Array.from({length:10001},(_,index)=>({...rows[0],source_record_hash:hash(`wbs-bank-overflow-${index}`)})),overflow={...observation,record_count:10001,rows:tooMany,observation_hash:hash('wbs-bank-overflow-observation')};
   await assert.rejects(importer.createWbsControlledTestBankScope({...ids,companyCode:'WBPA',observation:overflow,bankAccountRef:'WBS_TEST_BANK',idempotencyKey:'controlled-test-bank-range-overflow'}),error=>error.code==='22023');
   assert.deepEqual((await adminPool.query('SELECT count(*)::int imports FROM wbs_controlled_test_bank_import WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0],before);
+});
+
+pgTest('WBS TEST Bank stages and set-publishes 1888 January rows with one reconciliation and exact replay',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),actor='controlled-bank-january-1888';
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actor,['WBS.TEST.IMPORT','BANK.RECONCILIATION.START'])});
+  const periods=await importer.ensureWbsTestH12026Periods(ids),periodId=periods.periods.find(row=>row.period_code==='2026-01').period_id;
+  const rows=Array.from({length:1888},(_,index)=>({source_record_hash:hash(`wbs-live-january-bank-${index}`),currency:'USD',accounting_date:`2026-01-${String(index%28+1).padStart(2,'0')}`,amount:'1.0000',direction:index%2?'CREDIT':'DEBIT',status:'POSTED'}));
+  const makeObservation=(items,identity)=>({schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_bank_transactions',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-19T00:00:00.000Z',provider_content_sha256:createHash('sha256').update(identity).digest('hex'),scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-01-31']},record_count:items.length,rows:items,signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash(identity)});
+  const counts=async()=>(await adminPool.query("SELECT (SELECT count(*)::int FROM import_batch WHERE tenant_id=$1) batches,(SELECT count(*)::int FROM raw_event WHERE tenant_id=$1) raw,(SELECT count(*)::int FROM source_document WHERE tenant_id=$1) documents,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM reconciliation WHERE tenant_id=$1) reconciliations,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports,(SELECT count(*)::int FROM wbs_test_bank_import_stage WHERE tenant_id=$1) stages,(SELECT count(*)::int FROM wbs_test_bank_import_stage_chunk WHERE tenant_id=$1) chunks,(SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged_rows,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0];
+  const zero=await counts(),invalidRows=[...rows.slice(0,-1),{...rows.at(-1),amount:'0.0000'}];
+  await assert.rejects(importer.createWbsControlledTestBankScope({...ids,periodId,companyCode:'WBPA',observation:makeObservation(invalidRows,'wbs-live-january-bank-invalid-last'),bankAccountRef:'WBS_TEST_BANK_2026_01',idempotencyKey:'wbs-live-january-bank-invalid-last'}),error=>error.code==='22023');
+  assert.deepEqual(await counts(),zero);
+  const args={...ids,periodId,companyCode:'WBPA',observation:makeObservation(rows,'wbs-live-january-bank-1888'),bankAccountRef:'WBS_TEST_BANK_2026_01',idempotencyKey:'wbs-live-january-bank-1888'};
+  const created=await importer.createWbsControlledTestBankScope(args),replay=await importer.createWbsControlledTestBankScope(args);
+  assert.equal(created.transaction_count,1888);assert.equal(created.bank_source_ids.length,1888);assert.equal(new Set(created.bank_source_ids).size,1888);assert.equal(created.idempotent,false);
+  assert.equal(replay.idempotent,true);assert.equal(replay.reconciliation_id,created.reconciliation_id);assert.deepEqual(replay.bank_source_ids,created.bank_source_ids);
+  assert.deepEqual(await counts(),{batches:1,raw:1888,documents:1888,bank:1888,reconciliations:1,imports:1,stages:1,chunks:19,staged_rows:1888,finals:1});
+  assert.equal((await runtimePool.query('SHOW statement_timeout')).rows[0].statement_timeout,'10s');
+});
+
+pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resumes without partial core visibility',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),actor='controlled-bank-checkpoint-resume',permissions=['WBS.TEST.IMPORT','BANK.RECONCILIATION.START'];
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actor,permissions)}),periods=await importer.ensureWbsTestH12026Periods(ids),periodId=periods.periods.find(row=>row.period_code==='2026-01').period_id;
+  const rows=Array.from({length:201},(_,index)=>({source_record_hash:hash(`wbs-bank-checkpoint-${index}`),currency:'USD',accounting_date:`2026-01-${String(index%28+1).padStart(2,'0')}`,amount:'1.0000',direction:'DEBIT',status:'POSTED'})),observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_bank_transactions',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-19T00:00:00.000Z',provider_content_sha256:createHash('sha256').update('checkpoint-provider').digest('hex'),scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-01-31']},record_count:rows.length,rows,signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash('checkpoint-root')},idempotencyKey='wbs-bank-checkpoint-root';
+  const stagedCall=async({changed=false}={})=>{const session=await sessionProvider(ids,actor,permissions)(),client=await runtimePool.connect();try{await client.query('BEGIN');await client.query('SET LOCAL ROLE refs_app');await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);const requestHash=(await client.query('SELECT refs_create_wbs_controlled_test_bank_scope_hash($1,$2,$3,$4,$5::jsonb,$6) request_hash',[ids.tenantId,ids.entityId,periodId,'WBPA',JSON.stringify(observation),'WBS_TEST_BANK_2026_01'])).rows[0].request_hash,begin=(await client.query('SELECT refs_begin_wbs_test_bank_staged_import($1,$2,$3,$4,$5::jsonb,$6,$7,$8) result',[ids.tenantId,ids.entityId,periodId,'WBPA',JSON.stringify(observation),'WBS_TEST_BANK_2026_01',idempotencyKey,requestHash])).rows[0].result,chunk=rows.slice(0,100);if(changed)chunk[0]={...chunk[0],amount:'2.0000'};const result=(await client.query('SELECT refs_append_wbs_test_bank_staged_chunk($1,$2,$3,$4,$5::jsonb,$6) result',[ids.tenantId,ids.entityId,begin.stage_id,0,JSON.stringify(chunk),`${idempotencyKey}:chunk:0`])).rows[0].result;await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}};
+  const appendRemainder=async stageId=>{const session=await sessionProvider(ids,actor,permissions)(),client=await runtimePool.connect();try{await client.query('BEGIN');await client.query('SET LOCAL ROLE refs_app');await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);for(let chunkIndex=1;chunkIndex<3;chunkIndex++)await client.query('SELECT refs_append_wbs_test_bank_staged_chunk($1,$2,$3,$4,$5::jsonb,$6)',[ids.tenantId,ids.entityId,stageId,chunkIndex,JSON.stringify(rows.slice(chunkIndex*100,(chunkIndex+1)*100)),`${idempotencyKey}:chunk:${chunkIndex}`]);await client.query('COMMIT');return stageId;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}};
+  const finalizeCall=async stageId=>{const session=await sessionProvider(ids,actor,permissions)(),client=await runtimePool.connect();try{await client.query('BEGIN');await client.query('SET LOCAL ROLE refs_app');await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);const result=(await client.query('SELECT refs_finalize_wbs_test_bank_staged_import($1,$2,$3) result',[ids.tenantId,ids.entityId,stageId])).rows[0].result;await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}};
+  const firstStage=await stagedCall();assert.equal(firstStage.idempotent,false);assert.equal((await stagedCall()).idempotent,true);await assert.rejects(stagedCall({changed:true}),error=>error.code==='23505');
+  const partial=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM reconciliation WHERE tenant_id=$1) reconciliations,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports",[ids.tenantId])).rows[0];assert.deepEqual(partial,{staged:100,bank:0,reconciliations:0,imports:0});
+  const stageId=await appendRemainder(firstStage.stage_id);
+  await adminPool.query("UPDATE accounting_period SET status='CLOSED' WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3",[ids.tenantId,ids.entityId,periodId]);
+  await assert.rejects(finalizeCall(stageId),error=>error.code==='55000');
+  assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM reconciliation WHERE tenant_id=$1) reconciliations,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports",[ids.tenantId])).rows[0],{staged:201,bank:0,reconciliations:0,imports:0});
+  await adminPool.query("UPDATE accounting_period SET status='OPEN' WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3",[ids.tenantId,ids.entityId,periodId]);
+  const completed=await importer.createWbsControlledTestBankScope({...ids,periodId,companyCode:'WBPA',observation,bankAccountRef:'WBS_TEST_BANK_2026_01',idempotencyKey});assert.equal(completed.transaction_count,201);assert.equal(completed.bank_source_ids.length,201);
+  assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM reconciliation WHERE tenant_id=$1) reconciliations,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports",[ids.tenantId])).rows[0],{staged:201,bank:201,reconciliations:1,imports:1});
+  const beforeDown=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0];
+  await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
+  assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0],beforeDown);
 });
 
 pgTest('WBS H1 TEST_ONLY period provisioning creates six exact OPEN months idempotently and rejects conflicts before partial inserts',async()=>{
