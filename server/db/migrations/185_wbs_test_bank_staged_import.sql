@@ -219,7 +219,7 @@ END $$;
 
 CREATE FUNCTION refs_finalize_wbs_test_bank_staged_import(p_tenant uuid,p_entity uuid,p_stage uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
-DECLARE actor text:=refs_current_actor(); parent wbs_test_bank_import_stage; final_row wbs_test_bank_import_stage_final; entity_row entity;
+DECLARE actor text:=refs_current_actor(); parent wbs_test_bank_import_stage; final_row wbs_test_bank_import_stage_final; entity_row entity; period_row accounting_period;
 DECLARE actual_count integer; actual_activity numeric(20,4); actual_rows_hash text; chunk_count integer; reconciliation_result jsonb; reconciliation_id uuid; import_id uuid:=gen_random_uuid(); response jsonb; bank_ids jsonb; event_payload jsonb;
 BEGIN
   PERFORM refs_assert_scope(p_tenant,p_entity,'WBS.TEST.IMPORT'); PERFORM refs_assert_scope(p_tenant,p_entity,'BANK.RECONCILIATION.START');
@@ -234,6 +234,11 @@ BEGIN
   END IF;
   SELECT * INTO entity_row FROM entity WHERE tenant_id=p_tenant AND entity_id=p_entity AND active FOR SHARE;
   IF NOT FOUND THEN RAISE EXCEPTION 'Controlled test Bank entity is unavailable' USING ERRCODE='42501'; END IF;
+  SELECT * INTO period_row FROM accounting_period
+    WHERE tenant_id=p_tenant AND entity_id=p_entity AND period_id=parent.period_id
+      AND status='OPEN' AND starts_on=parent.statement_start_date AND ends_on=parent.statement_end_date
+    FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Controlled test Bank period is no longer the exact OPEN month' USING ERRCODE='55000'; END IF;
   INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name,active) VALUES(p_tenant,p_entity,parent.bank_account_ref,'BANK','WBS Controlled Test Bank',true) ON CONFLICT DO NOTHING;
   PERFORM 1 FROM member_master WHERE tenant_id=p_tenant AND entity_id=p_entity AND member_ref=parent.bank_account_ref AND member_type='BANK' AND active FOR SHARE;
   IF NOT FOUND THEN RAISE EXCEPTION 'Controlled test Bank member conflicts with existing master data' USING ERRCODE='23514'; END IF;
