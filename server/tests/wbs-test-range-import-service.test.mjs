@@ -9,8 +9,8 @@ const scope={tenantId,entityId,companyCode:'WBPA',actors};
 const digest=value=>value.length===64?value:value.repeat(64),hash=value=>`sha256:${digest(value)}`;
 const observation=(tool,identity,date='2026-01-15')=>({schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool,environment:'PRODUCTION',entity_id:entityId,captured_at:'2026-08-19T12:00:00.000Z',provider_content_sha256:digest(identity),scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-01-31']},record_count:1,rows:[tool==='list_payables'?{source_record_hash:hash(identity),currency:'USD',accounting_date:date,amount:'10.0000',status:'OPEN'}:{source_record_hash:hash(identity),currency:'USD',accounting_date:date,amount:'20.0000',direction:'DEBIT',status:'OPEN'}],signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash(identity)});
 
-function harness({duplicate=false,loop=false,identityMismatch=false,identityMismatchTool=null,outOfOrder=false,reverseRows=false,repartition=null,payableCount=2,payableDates=null,bankCount=2,tokenMode=false}={}){
-  const calls=[];let draft=0,bank=0;const draftReceipts=new Map(),postReceipts=new Map(),bankReceipts=new Map();
+function harness({duplicate=false,loop=false,identityMismatch=false,identityMismatchTool=null,outOfOrder=false,reverseRows=false,repartition=null,payableCount=2,payableDates=null,bankCount=2,tokenMode=false,pipelineDelayMs=0,failWorkflowIndexes=[],serializeWorkflowIndexes=[]}={}){
+  const calls=[];let draft=0,bank=0,active=0,maxActive=0,completed=0;const draftReceipts=new Map(),postReceipts=new Map(),bankReceipts=new Map(),workflowFailures=new Set(failWorkflowIndexes),serializationFailures=new Set(serializeWorkflowIndexes),journalSourceIndexes=new Map();
   const page=(tool,facts)=>{const base=observation(tool,facts[0][0],facts[0][1]),rows=facts.map(([letter,date])=>observation(tool,letter,date).rows[0]);return {...base,record_count:rows.length,rows};};
   const payableFacts=repartition?[['a','2026-01-15'],['b','2026-01-20'],['c','2026-01-30']]:Array.from({length:payableCount},(_,index)=>[(index+1).toString(16).padStart(2,'0').repeat(32),payableDates?.[index]||`2026-01-${String(10+(index%20)).padStart(2,'0')}`]),bankFacts=repartition?[['d','2026-01-15'],['e','2026-01-20'],['f','2026-01-30']]:Array.from({length:bankCount},(_,index)=>([(10000+index).toString(16).padStart(4,'0').repeat(16),`2026-01-${String(10+(index%20)).padStart(2,'0')}`]));
   const layout=(tool,facts)=>repartition==='one-two'?[page(tool,[facts[0]]),page(tool,facts.slice(1))]:repartition==='two-one'?[page(tool,[facts[2],facts[0]]),page(tool,[facts[1]])]:facts.length>3?Array.from({length:Math.ceil(facts.length/10)},(_,index)=>page(tool,facts.slice(index*10,index*10+10))):reverseRows?[page(tool,[facts[1]]),page(tool,[facts[0]])]:[page(tool,[facts[0]]),page(tool,[duplicate?[facts[0][0],facts[1][1]]:facts[1]])];
@@ -21,13 +21,13 @@ function harness({duplicate=false,loop=false,identityMismatch=false,identityMism
   };
   const kernelForActor=actor=>({
     async ensureWbsTestH12026Periods(args){calls.push(['periods',actor,args]);return {status:'WBS_TEST_H1_PERIODS_READY',periods:Array.from({length:6},(_,index)=>{const month=index+1,code=`2026-${String(month).padStart(2,'0')}`;return {period_id:uuid(200+month),period_code:code,starts_on:`${code}-01`,ends_on:new Date(Date.UTC(2026,month,0)).toISOString().slice(0,10)};}),test_only:true};},
-    async createWbsTestPayableDraft(args){calls.push(['draft',actor,args]);if(draftReceipts.has(args.idempotencyKey))return {...draftReceipts.get(args.idempotencyKey),idempotent:true};const n=++draft*10,result={business_document_id:uuid(n+1),journal_entry_id:uuid(n+2),source_document_id:uuid(n+3),attachment_id:uuid(n+4),status:'DRAFT',revision:0,idempotent:false,test_only:true,provenance_mode:'UNSIGNED_TEST_ONLY'};draftReceipts.set(args.idempotencyKey,result);return result;},
-    async transitionJournal(args){calls.push(['transition',actor,args]);return {status:{SUBMIT:'PENDING_REVIEW',REVIEW:'PENDING_APPROVAL',APPROVE:'APPROVED'}[args.action]};},
+    async createWbsTestPayableDraft(args){calls.push(['draft',actor,args]);const sourceIndex=payableFacts.findIndex(([identity])=>hash(identity)===args.row.source_record_hash);if(draftReceipts.has(args.idempotencyKey)){const result={...draftReceipts.get(args.idempotencyKey),idempotent:true};journalSourceIndexes.set(result.journal_entry_id,sourceIndex);return result;}const n=++draft*10,result={business_document_id:uuid(n+1),journal_entry_id:uuid(n+2),source_document_id:uuid(n+3),attachment_id:uuid(n+4),status:'DRAFT',revision:0,idempotent:false,test_only:true,provenance_mode:'UNSIGNED_TEST_ONLY'};draftReceipts.set(args.idempotencyKey,result);journalSourceIndexes.set(result.journal_entry_id,sourceIndex);return result;},
+    async transitionJournal(args){calls.push(['transition',actor,args]);const sourceIndex=journalSourceIndexes.get(args.journalEntryId);if(args.action==='SUBMIT'){active++;maxActive=Math.max(maxActive,active);if(pipelineDelayMs)await new Promise(resolve=>setTimeout(resolve,pipelineDelayMs+(sourceIndex===0?pipelineDelayMs:0)));if(serializationFailures.delete(sourceIndex)){active--;const error=new Error(`workflow ${sourceIndex} serialization`);error.code='40001';throw error;}if(workflowFailures.has(sourceIndex)){active--;const error=new Error(`workflow ${sourceIndex} failed`);error.code=`TEST_ROW_${sourceIndex}`;throw error;}}return {status:{SUBMIT:'PENDING_REVIEW',REVIEW:'PENDING_APPROVAL',APPROVE:'APPROVED'}[args.action]};},
     async postJournal(args){calls.push(['post',actor,args]);if(postReceipts.has(args.idempotencyKey))return {...postReceipts.get(args.idempotencyKey),idempotent:true};const result={journal_entry_id:args.journalEntryId,posting_batch_id:uuid(80+postReceipts.size+1),idempotent:false,revision:4};postReceipts.set(args.idempotencyKey,result);return result;},
-    async finalizeWbsTestImportSource(args){calls.push(['finalize',actor,args]);return {status:'POSTED',test_only:true,idempotent:false};},
+    async finalizeWbsTestImportSource(args){calls.push(['finalize',actor,args]);if(pipelineDelayMs)await new Promise(resolve=>setTimeout(resolve,pipelineDelayMs));active--;completed++;return {status:'POSTED',test_only:true,idempotent:false};},
     async createWbsControlledTestBankScope(args){calls.push(['bank',actor,args]);if(bankReceipts.has(args.idempotencyKey))return {...bankReceipts.get(args.idempotencyKey),idempotent:true};const n=++bank,ids=args.observation.rows.map((_,index)=>uuid(120+n+index)),result={wbs_controlled_test_bank_import_id:uuid(100+n),reconciliation_id:uuid(110+n),bank_source_ids:ids,bank_account_ref:args.bankAccountRef,statement_ending_date:args.observation.rows.at(-1).accounting_date,transaction_count:ids.length,status:'DRAFT',provenance_mode:'CONTROLLED_TEST_UNSIGNED',test_only:true,idempotent:false};bankReceipts.set(args.idempotencyKey,result);return result;}
   });
-  return {calls,deltaCount:()=>draftReceipts.size+postReceipts.size+bankReceipts.size,service:createWbsTestImportService({pilotService,kernelForActor,authorizeBank:async args=>calls.push(['authorize',args]),scope})};
+  return {calls,deltaCount:()=>draftReceipts.size+postReceipts.size+bankReceipts.size,activity:()=>({active,maxActive,completed}),clearWorkflowFailures:()=>workflowFailures.clear(),service:createWbsTestImportService({pilotService,kernelForActor,authorizeBank:async args=>calls.push(['authorize',args]),scope})};
 }
 
 const input={tenantId,entityId,companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'2026-01-31',pageSize:10,maxPages:1000,idempotencyKey:'wbs-month-2026-01-v1'};
@@ -71,6 +71,24 @@ test('a large monthly Payables population completes in one command and same-key 
   assert.equal(first.status,'WBS_TEST_MONTH_IMPORT_COMPLETE');assert.equal(first.payables.record_count,30);assert.equal(first.payables.posted_count,30);
   assert.equal(second.payables.imported_count,0);assert.equal(second.payables.replayed_count,30);assert.equal(second.payables.posted_count,30);assert.equal(fixture.deltaCount(),afterFirst);
   assert.equal(fixture.calls.filter(([kind])=>kind==='bank').length,2);
+});
+
+test('runs Payable pipelines at fixed concurrency four, settles the active group, reports the lowest row error, and retries safely',async()=>{
+  const fixture=harness({payableCount:8,pipelineDelayMs:2,failWorkflowIndexes:[0,1]});
+  await assert.rejects(fixture.service.importRange(input),error=>error.code==='TEST_ROW_0');
+  assert.deepEqual(fixture.activity(),{active:0,maxActive:4,completed:2});
+  assert.equal(fixture.calls.filter(([kind,,args])=>kind==='transition'&&args.action==='SUBMIT').length,4,'the next deterministic group must not start after a failed settled group');
+  await new Promise(resolve=>setTimeout(resolve,20));assert.equal(fixture.calls.filter(([kind,,args])=>kind==='transition'&&args.action==='SUBMIT').length,4,'no Payable work may continue after the failed response');
+  fixture.clearWorkflowFailures();const retried=await fixture.service.importRange(input);
+  assert.equal(retried.payables.record_count,8);assert.equal(retried.payables.imported_count,0);assert.equal(retried.payables.replayed_count,8);assert.equal(retried.payables.posted_count,8);
+  assert.deepEqual(fixture.activity(),{active:0,maxActive:4,completed:10});
+});
+
+test('desynchronizes bounded SERIALIZABLE retries with the same per-stage child identities',async()=>{
+  const fixture=harness({payableCount:4,pipelineDelayMs:2,serializeWorkflowIndexes:[1,2]}),result=await fixture.service.importRange(input);
+  assert.equal(result.payables.posted_count,4);assert.deepEqual(fixture.activity(),{active:0,maxActive:4,completed:4});
+  const submits=fixture.calls.filter(([kind,,args])=>kind==='transition'&&args.action==='SUBMIT');assert.equal(submits.length,6);
+  assert.deepEqual([...new Map(submits.map(([, ,args])=>[args.idempotencyKey,(submits.filter(([, ,candidate])=>candidate.idempotencyKey===args.idempotencyKey).length)])).values()].sort(),[1,1,2,2]);
 });
 
 test('reads the exact H1 Payables scope then selects the target accounting month without losing cross-month facts',async()=>{
