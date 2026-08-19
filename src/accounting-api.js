@@ -872,6 +872,17 @@ export async function refreshAuthoritativeSourceDocuments({config,fetcher=global
   return {ok:true,rows,scope:{entityId:config.entityId}};
 }
 
+export async function refreshControlledTestAiSources({config,limit=100,fetcher=globalThis.fetch}={}){
+  if(!config||!UUID.test(config.periodId||'')||!Number.isSafeInteger(limit)||limit<1||limit>100)return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Controlled TEST_ONLY AI sources require one configured period and a limit from 1 to 100.'};
+  const query=new URLSearchParams({periodId:config.periodId,limit:String(limit)});
+  const result=await readAuthoritativeRows({config,path:`/source-documents/controlled-test-ai-eligible?${query}`,operation:'CONTROLLED_TEST_AI_SOURCES',fetcher});
+  if(!result.ok)return result;
+  if(!/\bno-store\b/i.test(result.cacheControl||''))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Controlled TEST_ONLY AI source evidence must be returned with no-store.'};
+  const rows=result.rows.map(sourceDocumentRow),ids=rows.map(row=>row?.source_document_id);
+  if(rows.some(row=>row===null)||rows.length>limit||new Set(ids).size!==ids.length||rows.some(row=>!['WBS','REFS_STAGE1'].includes(row.source_system)||row.source_module!=='payable'||row.document_type!=='WBS_TEST_PAYABLE'||row.status!=='POSTED'||row.posted_journal_entry_ids.length<1))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned invalid controlled TEST_ONLY AI source evidence.'};
+  return {ok:true,rows,scope:{entityId:config.entityId,periodId:config.periodId}};
+}
+
 export async function readAuthoritativeSourceDocumentDetail({config,sourceDocumentId,fetcher=globalThis.fetch}={}){
   if(!config||!UUID.test(sourceDocumentId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Source Document detail requires one authoritative entity and immutable source-document ID.'};
   const result=await readAuthoritativeRows({config,path:`/source-documents/${sourceDocumentId}`,operation:'SOURCE_DOCUMENT_DETAIL',fetcher});
