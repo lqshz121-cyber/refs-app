@@ -190,17 +190,13 @@ export function validateWbsReadEnvelope({toolName,envelope}={}){
 }
 
 // A live pilot observation is deliberately weaker than an admissible WBS
-// snapshot.  The current provider does not publish/echo a snapshot_token, so
-// REFS may show one bounded page as UNSIGNED_PILOT evidence but must never feed
-// it to persistence, AutoRec, Draft, or posting.  Keep this validator separate
-// from validateWbsReadEnvelope so the production admission contract cannot be
-// relaxed accidentally.
+// snapshot, but cursor pagination still uses the provider's published
+// scope.snapshot_token and stable source keys.  Reuse the strict envelope
+// validator, then apply the independent ten-row Pilot ceiling.
 export function validateWbsPilotObservationEnvelope({toolName,envelope}={}){
-  if(!WBS_READONLY_TOOLS.includes(toolName)||!plainObject(envelope)||!Array.isArray(envelope.rows)||!/^[0-9a-f]{64}$/.test(envelope.content_sha256)||typeof envelope.contract_version!=='string'||!envelope.contract_version.trim()||envelope.tool!==toolName||typeof envelope.environment!=='string'||envelope.environment.toLowerCase()!=='production'||typeof envelope.captured_at!=='string'||Number.isNaN(Date.parse(envelope.captured_at))||!plainObject(envelope.source)||!plainObject(envelope.scope)||!Number.isSafeInteger(envelope.record_count)||envelope.record_count!==envelope.rows.length||(envelope.cursor_next!==null&&typeof envelope.cursor_next!=='string')||(envelope.etl_notice!==null&&typeof envelope.etl_notice!=='string'))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS production pilot envelope, scope, count, hash, or cursor is invalid.');
-  if(envelope.rows.length>WBS_MCP_PILOT_LIMIT)throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS pilot returned more than ten rows.');
-  const expectedHash=createHash('sha256').update(canonicalRequestBody(envelope.rows),'utf8').digest('hex');
-  if(!timingSafeEqual(Buffer.from(envelope.content_sha256,'hex'),Buffer.from(expectedHash,'hex')))throw new WbsMcpError('WBS_MCP_CONTENT_HASH_MISMATCH','WBS content_sha256 does not match canonical sorted compact rows.');
-  return Object.freeze({tool_name:toolName,contract_version:envelope.contract_version,environment:envelope.environment,captured_at:envelope.captured_at,source:Object.freeze(structuredClone(envelope.source)),scope:Object.freeze(structuredClone(envelope.scope)),record_count:envelope.record_count,content_sha256:envelope.content_sha256,cursor_next:envelope.cursor_next,etl_notice:envelope.etl_notice,rows:Object.freeze(structuredClone(envelope.rows)),admission_status:'NOT_ADMITTED',signature_verified:false,requires_snapshot_token:true,can_persist:false,can_allocate:false,can_create_draft:false,can_post:false});
+  const validated=validateWbsReadEnvelope({toolName,envelope});
+  if(validated.rows.length>WBS_MCP_PILOT_LIMIT)throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS pilot returned more than ten rows.');
+  return Object.freeze({...validated,admission_status:'NOT_ADMITTED',signature_verified:false,requires_snapshot_token:true,can_persist:false,can_allocate:false,can_create_draft:false,can_post:false});
 }
 
 export function createReadOnlyWbsMcpClient({endpoint,getAuthHeaders,allowedReadTools=[],fetcher=globalThis.fetch,timeoutMs=15000,pilotObservationMode=true,reviewedCatalog=null}={}){
@@ -270,7 +266,8 @@ export function createReadOnlyWbsMcpClient({endpoint,getAuthHeaders,allowedReadT
       const tool=tools.find(candidate=>candidate.name===toolName);
       if(!tool||!tool.readOnly||tool.destructive||!tool.idempotent)throw new WbsMcpError('WBS_MCP_TOOL_FORBIDDEN','WBS tool is not declared read-only and idempotent by the MCP server.');
       const safe=safeArguments(args,toolName,{pilotObservationMode}),properties=plainObject(tool.inputSchema?.properties)?tool.inputSchema.properties:{};
-      if(Object.keys(safe).some(key=>!Object.hasOwn(properties,key)))throw new WbsMcpError('WBS_MCP_ARGUMENTS_INVALID','WBS tool arguments must match the published input schema.');
+      const snapshotContinuation=typeof safe.snapshot_token==='string'&&/^[A-Za-z0-9._~:-]{1,256}$/.test(safe.snapshot_token)&&typeof safe.cursor==='string'&&safe.cursor.length>0;
+      if(Object.keys(safe).some(key=>!Object.hasOwn(properties,key)&&!(key==='snapshot_token'&&snapshotContinuation)))throw new WbsMcpError('WBS_MCP_ARGUMENTS_INVALID','WBS tool arguments must match the published input schema and exact snapshot continuation contract.');
       const result=await rpc('tools/call',{name:toolName,arguments:safe});
       if(!plainObject(result)||!Array.isArray(result.content)||result.isError===true)throw new WbsMcpError('WBS_MCP_REMOTE_REJECTED','WBS read-only tool rejected the request.');
       const text=result.content.find(item=>plainObject(item)&&item.type==='text'&&typeof item.text==='string')?.text;

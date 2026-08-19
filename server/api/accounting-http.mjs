@@ -10,8 +10,9 @@ import {AiAnalysisExplanationError} from '../runtime/ai-analysis-explanation-ser
 import {AI_ACCOUNTING_SKILL_REGISTRY_VERSION,AI_ACCOUNTING_SKILLS} from '../runtime/ai-accounting-skill-registry.mjs';
 import {WbsCompanyCatalogControllerError,normalizeWbsCompanyCatalogCandidate,normalizeWbsCompanyClassification} from '../runtime/wbs-company-catalog-controller.mjs';
 import {assertInsurancePcMappingDto} from '../runtime/wbs-insurance-pc-mapping-controller.mjs';
-import {WbsTestImportError,assertWbsControlledTestBankResult,assertWbsTestImportResult} from '../runtime/wbs-test-import-service.mjs';
+import {WbsTestImportError,assertWbsControlledTestBankResult,assertWbsTestImportResult,assertWbsTestRangeImportResult} from '../runtime/wbs-test-import-service.mjs';
 import {ControlledTestAiWorkflowError,assertControlledTestAiWorkflowResult} from '../runtime/controlled-test-ai-workflow-service.mjs';
+import {ControlledTestBankWorkflowError,assertControlledTestBankRangeWorkflowResult,assertControlledTestBankWorkflowResult} from '../runtime/controlled-test-bank-workflow-service.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AI_ACCRUAL_HASH=/^sha256:[0-9a-f]{64}$/;
@@ -74,6 +75,7 @@ const requireAiAmortizationMemberTrace=value=>{if(!value||typeof value!=='object
 const isRevisionPrecondition=error=>error?.code==='40001'&&/(revision conflict|version conflict|period changed during transition|staging source changed during journal creation|lease is absent, stale, or owned|AI finding resolution requires an open exact action, finding hash, reason, and revision)/i.test(String(error.message||''));
 function statusFor(error){
   if(error instanceof ControlledTestAiWorkflowError)return error.code==='CONTROLLED_TEST_AI_SCOPE_DENIED'?403:/CONFIG_INVALID|UNAVAILABLE/.test(error.code)?503:/RESULT_INVALID|WORKFLOW_INVALID/.test(error.code)?500:422;
+  if(error instanceof ControlledTestBankWorkflowError)return error.code==='CONTROLLED_TEST_BANK_SCOPE_DENIED'?403:/CONFIG_INVALID|UNAVAILABLE/.test(error.code)?503:/RESULT_INVALID|SNAPSHOT_INVALID|ITEM_INVALID|ADJUSTMENT_INVALID/.test(error.code)?500:422;
   if(error instanceof WbsTestImportError)return error.code==='WBS_TEST_IMPORT_SCOPE_DENIED'?403:/CONFIG_INVALID/.test(error.code)?503:/RESULT_INVALID|WORKFLOW_INVALID|FINALIZE_INVALID|DRAFT_INVALID/.test(error.code)?500:422;
   if(error instanceof WbsProviderFinal1RetainedEvidenceError)return /SERVICE_IDENTITY_DENIED/.test(error.code)?403:/STORAGE_REQUIRED|PERSISTENCE_REQUIRED|TRUST_REQUIRED|BOUNDARY_REQUIRED/.test(error.code)?503:/RESULT_INVALID/.test(error.code)?500:422;
   if(error instanceof WbsCompanyCatalogControllerError)return /HASH_MISMATCH|SOURCE_CONTROL_INVALID/.test(error.code)?422:400;
@@ -174,6 +176,32 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         if(!service||typeof service.importBankTransactions!=='function')throw new WbsTestImportError('WBS_TEST_IMPORT_CONFIG_INVALID','Controlled test Bank service is unavailable.');
         result=await service.importBankTransactions({tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),companyCode:requireWbsCompanyCode(payload.companyCode),dateFrom:requireIsoDate(payload.dateFrom,'dateFrom'),dateTo:requireIsoDate(payload.dateTo,'dateTo'),limit:payload.limit,idempotencyKey:requireIdempotency(headers)});
         assertWbsControlledTestBankResult(result);
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='POST'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='test-import'&&parts[6]==='range'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['companyCode','dateFrom','dateTo','pageSize','maxPages']);
+        if(typeof wbsTestImportServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
+        if(payload.pageSize!==10)throw new AccountingApiError(400,'INVALID_LIMIT','pageSize must equal the frozen ten-row Provider page size');
+        if(!Number.isSafeInteger(payload.maxPages)||payload.maxPages<1||payload.maxPages>50)throw new AccountingApiError(400,'INVALID_LIMIT','maxPages must be an integer from 1 to 50');
+        const service=await wbsTestImportServiceFactory(principal);
+        if(!service||typeof service.importRange!=='function')throw new WbsTestImportError('WBS_TEST_IMPORT_CONFIG_INVALID','Paged test-import service is unavailable.');
+        result=await service.importRange({tenantId:principal.tenantId,entityId,companyCode:requireWbsCompanyCode(payload.companyCode),dateFrom:requireIsoDate(payload.dateFrom,'dateFrom'),dateTo:requireIsoDate(payload.dateTo,'dateTo'),pageSize:payload.pageSize,maxPages:payload.maxPages,idempotencyKey:requireIdempotency(headers)});
+        assertWbsTestRangeImportResult(result);
+        return {status:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='POST'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='test-import'&&parts[6]==='bank-workflow'&&parts[7]==='run'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['periodId','reconciliationId','scopes','reason']);
+        if(typeof wbsTestImportServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
+        const service=await wbsTestImportServiceFactory(principal);
+        const range=Array.isArray(payload.scopes);
+        if(range&&(payload.periodId!==undefined||payload.reconciliationId!==undefined)||!range&&(payload.periodId===undefined||payload.reconciliationId===undefined))throw new AccountingApiError(400,'INVALID_BANK_WORKFLOW_SCOPE','Provide either one period/reconciliation pair or one to six monthly scopes');
+        if(!service||typeof service[range?'runRange':'run']!=='function')throw new ControlledTestBankWorkflowError('CONTROLLED_TEST_BANK_CONFIG_INVALID','Controlled test Bank workflow service is unavailable.');
+        const common={tenantId:principal.tenantId,entityId,reason:requireReviewReason(payload.reason),idempotencyKey:requireIdempotency(headers)};
+        if(range){
+          if(payload.scopes.length<1||payload.scopes.length>6)throw new AccountingApiError(400,'INVALID_BANK_WORKFLOW_SCOPE','scopes must contain one to six monthly period/reconciliation pairs');
+          const scopes=payload.scopes.map((item,index)=>{allowOnly(item,['periodId','reconciliationId']);return {periodId:requireUuid(item.periodId,`scopes[${index}].periodId`),reconciliationId:requireUuid(item.reconciliationId,`scopes[${index}].reconciliationId`)};});
+          result=await service.runRange({...common,scopes});assertControlledTestBankRangeWorkflowResult(result);
+        }else{result=await service.run({...common,periodId:requireUuid(payload.periodId,'periodId'),reconciliationId:requireUuid(payload.reconciliationId,'reconciliationId')});assertControlledTestBankWorkflowResult(result);}
         return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='property-rent-pickup'){

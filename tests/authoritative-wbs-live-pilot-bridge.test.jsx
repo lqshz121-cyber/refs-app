@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {accountingApiConfig,importAuthoritativeWbsBankToTestReconciliation,importAuthoritativeWbsPayablesToTestAccounting,wbsTestBankImportIdempotencyKey,wbsTestImportIdempotencyKey} from '../src/accounting-api.js';
+import {accountingApiConfig,importAuthoritativeWbsBankToTestReconciliation,importAuthoritativeWbsPayablesToTestAccounting,importAuthoritativeWbsTestRange,runAuthoritativeWbsTestBankRangeWorkflow,wbsTestBankImportIdempotencyKey,wbsTestImportIdempotencyKey} from '../src/accounting-api.js';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS,wbsLivePilotErrorGuidance} from '../src/authoritative-wbs-live-pilot-observation.jsx';
 
 const periodId='22222222-2222-4222-8222-222222222222';
@@ -65,6 +65,7 @@ assert.match(source,/config\?\.wbsTestImportMode==='ENABLED'&&\(scopedPayables\|
 for(const label of ['Import to test AP and post','TEST ONLY','Imported','Replayed','Posted','Failed'])assert.match(source,new RegExp(label));
 for(const label of ['Import to test Bank reconciliation','DRAFT RECONCILIATION','Transactions','Reconciliation ID'])assert.match(source,new RegExp(label));
 assert.match(source,/importAuthoritativeWbsBankToTestReconciliation/,'the shared WBS surface must call the closed Bank test-import client for a Bank observation');
+for(const label of ['Run 2026 H1 Bank workflow','2026 H1 monthly Bank reconciliations','Match','Adjustment','Clear','Signoff','Reopen','Replay'])assert.match(source,new RegExp(label));
 
 const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_payables',environment:'PRODUCTION',entity_id:config.entityId,captured_at:'2026-08-18T12:00:00.000Z',provider_content_sha256:'a'.repeat(64),observation_hash:`sha256:${'b'.repeat(64)}`,record_count:1,signature_verified:false,scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']},rows:[{source_record_hash:`sha256:${'c'.repeat(64)}`,accounting_date:'2026-08-18',currency:'USD',amount:'10.0000',status:'OPEN'}],can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false};
 
@@ -118,3 +119,22 @@ async function testBankImportClientContract(){
 }
 
 testBankImportClientContract().then(()=>console.log('authoritative WBS live-pilot bridge: explicit TEST ONLY Bank reconciliation import contract passed')).catch(error=>{console.error(error);process.exitCode=1;});
+
+async function testRangeImportClientContract(){
+  const runtime=accountingApiConfig({__REFS_ACCOUNTING_API__:{...config,wbsTestImportMode:'ENABLED'}}),data={status:'WBS_TEST_RANGE_IMPORT_COMPLETE',date_from:'2026-01-01',date_to:'2026-06-30',page_size:10,payables:{page_count:2,record_count:20,imported_count:20,replayed_count:0,posted_count:20},bank:{provider_page_count:2,record_count:20,reconciliations:[{bank_account_ref:'WBS_TEST_BANK_2026_01',period_code:'2026-01',period_id:'00000002-0000-4000-8000-000000000001',reconciliation_id:'00000001-0000-4000-8000-000000000001',transaction_count:20}],bank_source_ids:Array.from({length:20},(_,index)=>`${String(index+10).padStart(8,'0')}-0000-4000-8000-000000000001`)},test_only:true};
+  let request;const result=await importAuthoritativeWbsTestRange({config:runtime,companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'2026-06-30',fetcher:async(url,options)=>(request={url,options},{ok:true,status:201,headers:{get:()=> 'application/json'},json:async()=>({ok:true,data})})});
+  assert.equal(result.ok,true,JSON.stringify(result));assert.match(request.url,/\/wbs\/test-import\/range$/);assert.match(request.options.headers['idempotency-key'],/^wbs-test-range-[0-9a-f]{64}$/);assert.deepEqual(JSON.parse(request.options.body),{companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'2026-06-30',pageSize:10,maxPages:50});
+  const unsafe=await importAuthoritativeWbsTestRange({config:runtime,companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'2026-06-30',fetcher:async()=>({ok:true,status:201,headers:{get:()=> 'application/json'},json:async()=>({ok:true,data:{...data,bank:{...data.bank,raw_provider_rows:[]}}})})});assert.equal(unsafe.code,'WBS_TEST_RANGE_IMPORT_PROTOCOL');
+}
+
+testRangeImportClientContract().then(()=>console.log('authoritative WBS live-pilot bridge: paged H1 TEST ONLY import contract passed')).catch(error=>{console.error(error);process.exitCode=1;});
+
+async function testH1BankWorkflowClientContract(){
+  const runtime=accountingApiConfig({__REFS_ACCOUNTING_API__:{...config,wbsTestImportMode:'ENABLED'}}),reconciliations=[{bank_account_ref:'WBS_TEST_BANK_2026_01',period_code:'2026-01',period_id:'00000002-0000-4000-8000-000000000001',reconciliation_id:'00000001-0000-4000-8000-000000000001',transaction_count:61}],resultRow={status:'CONTROLLED_TEST_BANK_WORKFLOW_REOPENED',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:false,reconciliation_id:'00000001-0000-4000-8000-000000000001',processed_count:61,matched_count:0,adjusted_count:61,cleared_count:61,journal_entry_ids:Array.from({length:61},(_,index)=>`${String(index+100).padStart(8,'0')}-0000-4000-8000-000000000001`),revision:67,snapshot_id:'00000003-0000-4000-8000-000000000001',snapshot_hash:`sha256:${'a'.repeat(64)}`},data={status:'CONTROLLED_TEST_BANK_RANGE_WORKFLOW_REOPENED',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:false,scope_count:1,processed_count:61,matched_count:0,adjusted_count:61,cleared_count:61,results:[resultRow]};
+  let request;const result=await runAuthoritativeWbsTestBankRangeWorkflow({config:runtime,reconciliations,fetcher:async(url,options)=>(request={url,options},{ok:true,status:201,headers:{get:()=> 'application/json'},json:async()=>({ok:true,data})})});
+  assert.equal(result.ok,true,JSON.stringify(result));assert.match(request.url,/\/wbs\/test-import\/bank-workflow\/run$/);assert.match(request.options.headers['idempotency-key'],/^wbs-test-bank-range-[0-9a-f]{64}$/);assert.deepEqual(JSON.parse(request.options.body),{scopes:[{periodId:reconciliations[0].period_id,reconciliationId:reconciliations[0].reconciliation_id}],reason:'Complete 2026 H1 controlled Bank workflow'});
+  const replay=await runAuthoritativeWbsTestBankRangeWorkflow({config:runtime,reconciliations,fetcher:async(_url,options)=>{assert.equal(options.headers['idempotency-key'],request.options.headers['idempotency-key']);return {ok:true,status:200,headers:{get:()=> 'application/json'},json:async()=>({ok:true,data:{...data,idempotent:true,results:[{...resultRow,idempotent:true}]}})};}});assert.equal(replay.ok,true,JSON.stringify(replay));assert.equal(replay.data.idempotent,true);
+  const changedScope=await runAuthoritativeWbsTestBankRangeWorkflow({config:runtime,reconciliations:[{...reconciliations[0],period_id:'00000009-0000-4000-8000-000000000001',reconciliation_id:'00000009-0000-4000-8000-000000000002'}],fetcher:async(_url,options)=>{assert.notEqual(options.headers['idempotency-key'],request.options.headers['idempotency-key']);return {ok:true,status:201,headers:{get:()=> 'application/json'},json:async()=>({ok:true,data})};}});assert.equal(changedScope.code,'CONTROLLED_TEST_BANK_RANGE_WORKFLOW_PROTOCOL');
+}
+
+testH1BankWorkflowClientContract().then(()=>console.log('authoritative WBS live-pilot bridge: H1 Bank workflow client closes the monthly UI path')).catch(error=>{console.error(error);process.exitCode=1;});

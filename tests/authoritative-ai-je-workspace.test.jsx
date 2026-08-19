@@ -10,5 +10,6 @@ for(const token of ['AI JE Workbench','HUMAN-CONTROLLED AI DRAFT','DRAFT ONLY','
 const source=fs.readFileSync('src/authoritative-ai-je-workspace.jsx','utf8');
 for(const token of ['refreshAuthoritativeAiAmortizationSchedules','aiAmortizationDraftIdempotencyKey','createAuthoritativeAiAmortizationDraft','Select immutable schedule line','eligible_source_attachment_ids','Eligible clean attachments','Maker reason','Continue in Journal entries','No browser or demonstration proposal is substituted'])assert.match(source,new RegExp(token,'i'));
 assert.doesNotMatch(source,/Math\.random|Date\.now|randomUUID|localStorage|repo\.js|seed\.js|module-ai-je-workbench|newJEFromRule/i);
+const testMarkup=renderToStaticMarkup(<AuthoritativeAiJeWorkspace config={{...config,deploymentEnvironment:'staging',controlledTestAiWorkflowMode:'ENABLED'}} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);for(const token of ['Run WBS TEST_ONLY AI flow','UNSIGNED TEST ONLY','browser receives no AI.TEST.WORKFLOW grant'])assert.match(testMarkup,new RegExp(token,'i'));
 assert.doesNotMatch(source,/[^\x00-\x7F]/,'authoritative AI JE-visible workspace copy must remain English-only');
 console.log('authoritative AI JE workspace: immutable proposal line to stable-idempotency Draft only');

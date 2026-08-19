@@ -33,7 +33,7 @@ test('imports one sanitized live Payable through six distinct actors and returns
 
 test('counts atomic Draft receipt replay while replaying the same role-bound workflow keys',async()=>{
   const {service,calls}=harness({mutateDraft:()=>({business_document_id:uuid(1),journal_entry_id:uuid(2),source_document_id:uuid(3),attachment_id:uuid(4),status:'DRAFT',revision:0,idempotent:true,test_only:true,provenance_mode:'UNSIGNED_TEST_ONLY'})});
-  const result=await service.importPayables(input);assert.deepEqual({imported:result.imported_count,replayed:result.replayed_count,posted:result.posted_count},{imported:0,replayed:1,posted:1});assert.ok(calls.every(([,action,args])=>action==='draft'||args.idempotencyKey.startsWith(`${input.idempotencyKey}:0:`)));
+  const result=await service.importPayables(input);assert.deepEqual({imported:result.imported_count,replayed:result.replayed_count,posted:result.posted_count},{imported:0,replayed:1,posted:1});assert.ok(calls.every(([,action,args])=>action==='draft'||args.idempotencyKey.startsWith(`${input.idempotencyKey}:${'a'.repeat(24)}:`)));
 });
 
 test('same-key replay accepts the original workflow receipts after the journal is already POSTED',async()=>{
@@ -68,16 +68,18 @@ test('fails closed on an unsafe Draft, workflow transition, or source finalizati
 test('reconciles six exact least-privilege actor bundles before the route can listen',async()=>{
   const calls=[];
   const result=await reconcileWbsTestImportActorGrants({scope,grantSync:{async reconcile(command){calls.push(command);return {permissions:[...command.permissions].reverse(),version:command.expectedVersion+1,idempotent:false};}}});
-  assert.equal(calls.length,7);assert.deepEqual(Object.keys(result),['importer','maker','submitter','reviewer','approver','poster']);
-  assert.deepEqual(calls.slice(0,2).map(({actorId:ignored,...call})=>call),[
+  assert.equal(calls.length,13);assert.deepEqual(Object.keys(result),['importer','maker','submitter','reviewer','approver','poster']);
+  assert.deepEqual(calls.slice(0,3).map(({actorId:ignored,...call})=>call),[
     {tenantId,entityId,permissions:['WBS.TEST.IMPORT'],expectedVersion:0,idempotencyKey:'wbs-test-import-importer-grant-v1'},
-    {tenantId,entityId,permissions:['WBS.TEST.IMPORT','BANK.RECONCILIATION.START'],expectedVersion:1,idempotencyKey:'wbs-test-import-importer-grant-v2'}
+    {tenantId,entityId,permissions:['WBS.TEST.IMPORT','BANK.RECONCILIATION.START'],expectedVersion:1,idempotencyKey:'wbs-test-import-importer-grant-v2'},
+    {tenantId,entityId,permissions:WBS_TEST_IMPORT_GRANT_BUNDLES.importer,expectedVersion:2,idempotencyKey:'wbs-test-import-importer-grant-v3'}
   ]);
   for(const call of calls){
     const role=Object.entries(actors).find(([,actor])=>actor===call.actorId)[0];
-    if(role!=='importer')assert.deepEqual(call.permissions,WBS_TEST_IMPORT_GRANT_BUNDLES[role]);
-    assert.equal(call.expectedVersion,role==='importer'&&call.idempotencyKey.endsWith('-v2')?1:0);assert.equal(call.tenantId,tenantId);assert.equal(call.entityId,entityId);assert.match(call.idempotencyKey,new RegExp(`^wbs-test-import-${role}-grant-v[12]$`));
+    const version=Number(call.idempotencyKey.at(-1));
+    if((role==='importer'&&version===3)||(role!=='importer'&&version===2))assert.deepEqual(call.permissions,WBS_TEST_IMPORT_GRANT_BUNDLES[role]);
+    assert.equal(call.expectedVersion,version-1);assert.equal(call.tenantId,tenantId);assert.equal(call.entityId,entityId);assert.match(call.idempotencyKey,new RegExp(`^wbs-test-import-${role}-grant-v[123]$`));
   }
-  assert.equal(result.importer.version,2);
+  assert.equal(result.importer.version,3);assert.ok(Object.values(result).every(value=>value.version>=2));
   await assert.rejects(reconcileWbsTestImportActorGrants({scope,grantSync:{async reconcile(){return {permissions:['ROOT.ALL']};}}}),error=>error.code==='WBS_TEST_IMPORT_GRANT_INVALID');
 });

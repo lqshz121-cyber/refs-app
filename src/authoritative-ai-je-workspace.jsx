@@ -2,9 +2,10 @@ import React,{useEffect,useMemo,useState} from 'react';
 import {aiAmortizationDraftIdempotencyKey,createAuthoritativeAiAmortizationDraft,refreshAuthoritativeAiAmortizationSchedules} from './accounting-api.js';
 import {AuthoritativeWorkspaceHeader,AuthoritativeWorkspaceView} from './authoritative-workbench-view.jsx';
 import {StateBlock} from './ui.jsx';
+import {AuthoritativeControlledTestAiWorkflow} from './authoritative-controlled-test-ai-workflow.jsx';
 
 const empty={phase:'LOADING',rows:[],error:null};
-export function AuthoritativeAiJeWorkspace({config,fetcher=globalThis.fetch}){
+export function AuthoritativeAiJeWorkspace({config,fetcher=globalThis.fetch,onAccountingRefresh}){
   const [schedules,setSchedules]=useState(empty),[selection,setSelection]=useState(''),[reason,setReason]=useState(''),[command,setCommand]=useState({phase:'IDLE',data:null,error:null});
   const load=async()=>{setSchedules(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeAiAmortizationSchedules({config,fetcher});setSchedules(result.ok?{phase:'READY',rows:result.rows,error:null}:{phase:'BLOCKED',rows:[],error:result});};
   useEffect(()=>{void load();},[config?.entityId]);
@@ -23,6 +24,7 @@ export function AuthoritativeAiJeWorkspace({config,fetcher=globalThis.fetch}){
   };
   return <AuthoritativeWorkspaceView area="AI JE Workbench">
     <AuthoritativeWorkspaceHeader eyebrow="AUTHORITATIVE - HUMAN-CONTROLLED AI DRAFT" title="AI JE Workbench" description="A separately authorized human maker may convert one immutable amortization proposal line into a standard MANUAL Draft. Submit, review, approve, and post remain separate Journal Entry actions." status="DRAFT ONLY"/>
+    <AuthoritativeControlledTestAiWorkflow config={config} fetcher={fetcher} onAccountingRefresh={onAccountingRefresh}/>
     <section className="report-workbench" aria-label="AI amortization Draft workbench">
       <div className="report-workbench-head"><div><b>Source-bound amortization proposals</b><div className="page-subtitle">The proposer cannot use this command. Every Draft remains unsubmitted and carries the exact schedule line, source document, proposal hash, period, and clean attachment evidence.</div></div><button type="button" className="btn" onClick={load} disabled={schedules.phase==='LOADING'}>{schedules.phase==='LOADING'?'Refreshing...':'Refresh proposals'}</button></div>
       <div className="report-shelf" aria-label="AI Draft authority boundary"><span className="report-shelf-chip report-shelf-chip-on">HUMAN MAKER</span><span className="report-shelf-chip">MANUAL DRAFT ONLY</span><span className="report-shelf-chip">NO SUBMIT</span><span className="report-shelf-chip">NO REVIEW</span><span className="report-shelf-chip">NO APPROVE</span><span className="report-shelf-chip">NO POST</span></div>

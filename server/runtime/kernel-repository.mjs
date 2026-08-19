@@ -109,6 +109,12 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async ensureWbsTestH12026Periods({tenantId,entityId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_ensure_wbs_test_h1_2026_periods($1,$2) AS result',[tenantId,entityId]
+    ),'WBS_TEST_H1_PERIODS_FAILED','WBS TEST_ONLY H1 periods were not prepared').result);
+  }
+
   async finalizeWbsTestImportSource({tenantId,entityId,sourceDocumentId,businessDocumentId,journalEntryId,idempotencyKey}){
     return this.inSession(async client=>{
       const payload=[tenantId,entityId,sourceDocumentId,businessDocumentId,journalEntryId];
@@ -1237,6 +1243,13 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_bank_match_candidates($1,$2,$3)',[tenantId,entityId,bankSourceId]
     )).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date)})));
+  }
+
+  async listVerifiedCleanAttachmentIds({tenantId,entityId,limit=1}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_reconciliation_adjustment_evidence($1,$2,$3)',
+      [tenantId,entityId,limit]
+    )).rows.map(row=>row.attachment_id));
   }
 
   async reviewWbsAutoRecBankMatch({tenantId,entityId,reviewCandidateId,candidateHash,bankMatchId,expectedMatchRevision,decision,reason,idempotencyKey}){
