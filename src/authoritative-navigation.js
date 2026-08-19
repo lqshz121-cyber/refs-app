@@ -86,7 +86,7 @@ export const AUTHORITATIVE_NAVIGATION = Object.freeze([
   group('Payables & Receivables', [
     item('payables', 'Bills & expenses', 'API_READ'), item('receivables', 'Invoices & receipts', 'API_READ'),
   ]),
-  group('Reports', [item('reports', 'Financial statements', 'API_READ')]),
+  group('Reports', [item('reports', 'Financial statements', 'API_READ'),item('accounting-analysis-report', 'Accounting Analysis Report', 'API_READ')]),
   group('Administration', [
     item('master-data', 'Master Data'), item('bank-accounts', 'Bank Accounts'),
     item('audit-log', 'Audit Log'), item('users-settings', 'Users & settings'),

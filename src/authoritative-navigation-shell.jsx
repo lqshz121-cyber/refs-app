@@ -36,7 +36,7 @@ const GROUP_ICONS = Object.freeze({
   Administration:'shield',
 });
 const ITEM_ICONS = Object.freeze({
-  overview:'gauge', approvals:'check', 'ai-audit':'shield', 'ai-je-workbench':'document',
+  overview:'gauge', approvals:'check', 'ai-audit':'shield', 'ai-je-workbench':'document', 'accounting-analysis-report':'bars',
   settings:'gear', rules:'check', mapping:'layers',
   'wbs-payable-review':'document', staging:'layers', 'source-documents':'document', 'integration-hub':'cycle', 'mapping-exceptions':'shield',
   'bank-batch-pipeline':'bank', 'wbs-autorec-evidence':'cycle', bank:'bank', reconciliation:'check', 'checks-payments':'wallet',
