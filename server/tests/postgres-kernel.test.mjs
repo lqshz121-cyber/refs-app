@@ -3228,6 +3228,7 @@ pgTest('bank and reconciliation reads enforce permission, tenant, entity, accoun
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bank-reader',['BANK.VIEW'])});
   const rows=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:25});
   assert.equal(rows.length,1);assert.equal(rows[0].bank_source_id,bankSourceId);assert.equal(rows[0].bank_match_id,bankMatchId);
+  assert.equal(rows[0].transaction_date,'2026-07-15');assert.equal(typeof rows[0].transaction_date,'string');
   assert.equal(rows[0].match_status,'ACTIVE');assert.equal(rows[0].journal_entry_id,ids.journalId);assert.equal(rows[0].amount,'100.0000');
   await assert.rejects(reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'BANK-1',limit:null}),error=>error.code==='22023');
   assert.deepEqual(await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'OTHER',limit:25}),[]);
@@ -3365,6 +3366,31 @@ pgTest('reconciliation adjustment Draft binds one unresolved bank source through
   assert.deepEqual((await adminPool.query('SELECT state,bank_match_id FROM reconciliation_item WHERE reconciliation_id=$1 AND bank_source_id=$2',[started.reconciliation_id,bankSourceId])).rows[0],{state:'CLEARED',bank_match_id:null});
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='RECONCILIATION_ADJUSTMENT_DRAFT_CREATED'",[created.journal_entry_id])).rows[0].n,1);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE object_id=$1 AND event_type='RECONCILIATION_ADJUSTMENT_ITEM_CLEARED'",[started.reconciliation_id])).rows[0].n,1);
+});
+
+pgTest('reconciliation adjustment Draft binds one item amount inside a multi-row statement difference',async()=>{
+  const ids=await seed({status:'APPROVED'});const trace=await attachAutoSource(ids,{linkJournal:false});
+  await adminPool.query("INSERT INTO member_master(tenant_id,entity_id,member_ref,member_type,display_name) VALUES($1,$2,'BANK-MULTI','BANK','Multi-row test bank')",[ids.tenantId,ids.entityId]);
+  const firstBankSourceId=randomUUID(),secondBankSourceId=randomUUID();
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$3,$4,$5,'BANK-MULTI','BANK-MULTI-1','2026-07-20','USD',50),
+          ($2,$3,$4,$5,'BANK-MULTI','BANK-MULTI-2','2026-07-21','USD',30)`,[firstBankSourceId,secondBankSourceId,ids.tenantId,ids.entityId,trace.documentId]);
+  const attachmentId=(await adminPool.query("SELECT attachment_id FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3 AND attachment_id IS NOT NULL",[ids.tenantId,ids.entityId,ids.journalId])).rows[0].attachment_id;
+  const starter=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'multi-adjustment-starter',['BANK.RECONCILIATION.START'])});
+  const started=await starter.startReconciliation({...ids,bankAccountRef:'BANK-MULTI',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'80.0000',reason:'Start statement with two unresolved bank rows',idempotencyKey:'multi-adjustment-start-001'});
+  assert.equal(Number(started.difference),80);
+  const maker=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'multi-adjustment-maker',['BANK.RECONCILIATION.ADJUSTMENT_DRAFT','GL.JE.CREATE'])});
+  const base={...ids,reconciliationId:started.reconciliation_id,bankSourceId:firstBankSourceId,expectedReconciliationVersion:0,periodId:ids.periodId,journalNumber:'JE-RECON-MULTI-001',journalDate:'2026-07-20',currency:'USD',description:'Record one supported row within a multi-row statement',attachmentIds:[attachmentId],reason:'Bind only the selected unresolved bank row',idempotencyKey:'multi-adjustment-draft-001'};
+  const lines=amount=>[
+    {line_no:1,account_code:'111000',debit_amount:`${amount}.0000`,credit_amount:'0.0000',member_ref:'BANK-MULTI',description:'Selected statement row',dimensions:{}},
+    {line_no:2,account_code:'291001',debit_amount:'0.0000',credit_amount:`${amount}.0000`,member_ref:'VENDOR-1',description:'Offsetting evidence',dimensions:{}}
+  ];
+  await assert.rejects(maker.createReconciliationAdjustmentDraft({...base,lines:lines(49),idempotencyKey:'multi-adjustment-wrong-amount'}),error=>error.code==='23514'&&/exactly one bank-account line/i.test(error.message));
+  const created=await maker.createReconciliationAdjustmentDraft({...base,lines:lines(50)});
+  assert.equal(created.journal_status,'DRAFT');assert.equal(created.reconciliation_revision,1);
+  const state=(await adminPool.query('SELECT r.difference::text,d.bank_delta::text FROM reconciliation r JOIN reconciliation_adjustment_draft d ON d.tenant_id=r.tenant_id AND d.entity_id=r.entity_id AND d.reconciliation_id=r.reconciliation_id WHERE r.reconciliation_id=$1 AND d.bank_source_id=$2',[started.reconciliation_id,firstBankSourceId])).rows[0];
+  assert.deepEqual(state,{difference:'80.0000',bank_delta:'50.0000'});
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM reconciliation_adjustment_draft WHERE reconciliation_id=$1 AND bank_source_id=$2',[started.reconciliation_id,secondBankSourceId])).rows[0].n,0);
 });
 
 pgTest('reconciliation rejects mixed currencies and non-posted hand-made match evidence',async()=>{
@@ -4065,6 +4091,7 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
   ]);assert.ok(sources.every(row=>row.source_ref.startsWith('object://refs-test-only/')));
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-bank-reader',['BANK.VIEW'])});
   const transactions=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'WBS_TEST_BANK',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:10});assert.equal(transactions.length,2);
+  assert.deepEqual(transactions.map(row=>row.transaction_date),['2026-07-12','2026-07-11']);assert.ok(transactions.every(row=>typeof row.transaction_date==='string'));
   const scopes=await reader.listReconciliationScopes({tenantId:ids.tenantId,entityId:ids.entityId,limit:10});assert.equal(scopes.length,1);assert.equal(scopes[0].reconciliation_id,created.reconciliation_id);assert.equal(scopes[0].status,'DRAFT');
   const summary=await reader.getReconciliationSummary({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'WBS_TEST_BANK',statementEndingDate:'2026-07-31'});
   assert.equal(summary.length,1);assert.equal(summary[0].statement_ending_date,'2026-07-31');assert.equal(typeof summary[0].statement_ending_date,'string');
