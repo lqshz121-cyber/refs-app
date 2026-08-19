@@ -9,7 +9,7 @@ const scope={tenantId,entityId,companyCode:'WBPA',actors};
 const hash=letter=>`sha256:${letter.repeat(64)}`;
 const observation=(tool,letter,date='2026-01-15')=>({schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool,environment:'PRODUCTION',entity_id:entityId,captured_at:'2026-08-19T12:00:00.000Z',provider_content_sha256:letter.repeat(64),scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},record_count:1,rows:[tool==='list_payables'?{source_record_hash:hash(letter),currency:'USD',accounting_date:date,amount:'10.0000',status:'OPEN'}:{source_record_hash:hash(letter),currency:'USD',accounting_date:date,amount:'20.0000',direction:'DEBIT',status:'OPEN'}],signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash(letter)});
 
-function harness({duplicate=false,loop=false}={}){
+function harness({duplicate=false,loop=false,identityMismatch=false,outOfOrder=false}={}){
   const calls=[];let draft=0,bank=0;
   const pages={
     list_payables:[observation('list_payables','a'),observation('list_payables',duplicate?'a':'b','2026-06-30')],
@@ -17,7 +17,7 @@ function harness({duplicate=false,loop=false}={}){
   };
   const pilotService={
     async readObservation(){throw new Error('legacy read not expected');},
-    async readObservationPage(args){calls.push(['read',args]);const index=args.cursor===null?0:1;return {observation:pages[args.tool][index],cursor_next:index===0?'page-2':loop?'page-2':null};}
+    async readObservationPage(args){calls.push(['read',args]);const index=args.cursor===null?0:1,token=`snapshot-${args.tool}`;return {observation:pages[args.tool][index],cursor_next:index===0?'page-2':loop?'page-2':null,pagination:{snapshot_token:token,captured_at:identityMismatch&&index===1?'2026-08-19T12:00:01.000Z':'2026-08-19T12:00:00.000Z',contract_version:'WBS-REFS-MCP-V1',environment:'production',source_hash:hash('f'),first_stable_key:index===0?'001':outOfOrder?'001':'002',last_stable_key:index===0?'001':outOfOrder?'001':'002'}};}
   };
   const kernelForActor=actor=>({
     async ensureWbsTestH12026Periods(args){calls.push(['periods',actor,args]);return {status:'WBS_TEST_H1_PERIODS_READY',periods:Array.from({length:6},(_,index)=>{const month=index+1,code=`2026-${String(month).padStart(2,'0')}`;return {period_id:uuid(200+month),period_code:code,starts_on:`${code}-01`,ends_on:new Date(Date.UTC(2026,month,0)).toISOString().slice(0,10)};}),test_only:true};},
@@ -34,16 +34,17 @@ const input={tenantId,entityId,companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'
 
 test('reads all Payable and Bank cursor pages before importing the H1 TEST_ONLY range',async()=>{
   const {service,calls}=harness();const result=await service.importRange(input);
-  assert.deepEqual(result,{status:'WBS_TEST_RANGE_IMPORT_COMPLETE',date_from:'2026-01-01',date_to:'2026-06-30',page_size:10,payables:{page_count:2,record_count:2,imported_count:2,replayed_count:0,posted_count:2},bank:{provider_page_count:2,record_count:2,reconciliations:[{bank_account_ref:'WBS_TEST_BANK_2026_01',period_code:'2026-01',reconciliation_id:uuid(111),transaction_count:1},{bank_account_ref:'WBS_TEST_BANK_2026_06',period_code:'2026-06',reconciliation_id:uuid(112),transaction_count:1}],bank_source_ids:[uuid(121),uuid(122)]},test_only:true});
+  assert.deepEqual(result,{status:'WBS_TEST_RANGE_IMPORT_COMPLETE',date_from:'2026-01-01',date_to:'2026-06-30',page_size:10,payables:{page_count:2,record_count:2,imported_count:2,replayed_count:0,posted_count:2},bank:{provider_page_count:2,record_count:2,reconciliations:[{bank_account_ref:'WBS_TEST_BANK_2026_01',period_code:'2026-01',period_id:uuid(201),reconciliation_id:uuid(111),transaction_count:1},{bank_account_ref:'WBS_TEST_BANK_2026_06',period_code:'2026-06',period_id:uuid(206),reconciliation_id:uuid(112),transaction_count:1}],bank_source_ids:[uuid(121),uuid(122)]},test_only:true});
   assert.equal(calls.filter(([kind])=>kind==='read').length,4);assert.equal(calls.findIndex(([kind])=>kind==='draft')>calls.map(([kind])=>kind).lastIndexOf('read'),true);
-  assert.deepEqual(calls.filter(([kind])=>kind==='read').map(([,args])=>[args.tool,args.cursor]),[['list_payables',null],['list_bank_transactions',null],['list_payables','page-2'],['list_bank_transactions','page-2']]);
+  assert.deepEqual(calls.filter(([kind])=>kind==='read').map(([,args])=>[args.tool,args.cursor,args.snapshot_token]),[['list_payables',null,null],['list_bank_transactions',null,null],['list_payables','page-2','snapshot-list_payables'],['list_bank_transactions','page-2','snapshot-list_bank_transactions']]);
   assert.ok(calls.filter(([kind])=>kind==='draft').every(([,actor,args])=>actor===actors.maker&&args.row.accounting_date>='2026-01-01'&&args.row.accounting_date<='2026-06-30'&&args.idempotencyKey.includes(args.row.source_record_hash.slice(7,31))));
   const bankCall=calls.filter(([kind])=>kind==='bank');assert.equal(bankCall.length,2);assert.equal(bankCall[0][1],actors.importer);assert.deepEqual(bankCall.map(([, ,args])=>[args.bankAccountRef,args.periodId,args.observation.rows[0].accounting_date]),[['WBS_TEST_BANK_2026_01',uuid(201),'2026-01-15'],['WBS_TEST_BANK_2026_06',uuid(206),'2026-06-30']]);
 });
 
 test('rejects duplicate source hashes, cursor loops, and truncation before accounting writes',async()=>{
-  for(const options of [{duplicate:true},{loop:true}]){
+  for(const options of [{duplicate:true},{loop:true},{identityMismatch:true},{outOfOrder:true}]){
     const {service,calls}=harness(options);await assert.rejects(service.importRange(input),error=>error.code==='WBS_TEST_IMPORT_ROW_INVALID');assert.equal(calls.some(([kind])=>['draft','bank'].includes(kind)),false);
   }
   const {service,calls}=harness();await assert.rejects(service.importRange({...input,maxPages:1}),error=>error.code==='WBS_TEST_IMPORT_PAGE_LIMIT_EXCEEDED');assert.equal(calls.some(([kind])=>['draft','bank'].includes(kind)),false);
+  await assert.rejects(service.importRange({...input,pageSize:5}),error=>error.code==='WBS_TEST_IMPORT_SELECTION_INVALID');assert.equal(calls.some(([kind])=>['draft','bank'].includes(kind)),false);
 });

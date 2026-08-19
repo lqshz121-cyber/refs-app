@@ -181,7 +181,7 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       if(method==='POST'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='test-import'&&parts[6]==='range'){
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['companyCode','dateFrom','dateTo','pageSize','maxPages']);
         if(typeof wbsTestImportServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
-        if(!Number.isSafeInteger(payload.pageSize)||payload.pageSize<1||payload.pageSize>10)throw new AccountingApiError(400,'INVALID_LIMIT','pageSize must be an integer from 1 to 10');
+        if(payload.pageSize!==10)throw new AccountingApiError(400,'INVALID_LIMIT','pageSize must equal the frozen ten-row Provider page size');
         if(!Number.isSafeInteger(payload.maxPages)||payload.maxPages<1||payload.maxPages>50)throw new AccountingApiError(400,'INVALID_LIMIT','maxPages must be an integer from 1 to 50');
         const service=await wbsTestImportServiceFactory(principal);
         if(!service||typeof service.importRange!=='function')throw new WbsTestImportError('WBS_TEST_IMPORT_CONFIG_INVALID','Paged test-import service is unavailable.');

@@ -9,7 +9,7 @@ import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
-import {reconcileWbsTestImportActorGrants} from '../runtime/wbs-test-import-service.mjs';
+import {createWbsTestImportService,reconcileWbsTestImportActorGrants} from '../runtime/wbs-test-import-service.mjs';
 import {createControlledTestBankWorkflowService} from '../runtime/controlled-test-bank-workflow-service.mjs';
 import {STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS,STAGE1_READ_PERMISSIONS,STAGE1_WBS_OPERATOR_PERMISSIONS,grantStage1ReadAccess,provisionStage1Scope,stage1GrantConfig,stage1ProvisionConfig,upgradeStage1ControlledTestWorkflowAccess,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from '../runtime/stage1-bootstrap.mjs';
 import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
@@ -4164,4 +4164,44 @@ pgTest('WBS H1 TEST_ONLY period provisioning creates six exact OPEN months idemp
   await assert.rejects(denied.ensureWbsTestH12026Periods(conflict),error=>error.code==='23514');
   const conflictRows=(await adminPool.query("SELECT period_code FROM accounting_period WHERE tenant_id=$1 AND entity_id=$2 AND period_code BETWEEN '2026-01' AND '2026-06' ORDER BY period_code",[conflict.tenantId,conflict.entityId])).rows;
   assert.deepEqual(conflictRows,[{period_code:'2026-03'}]);
+});
+
+pgTest('WBS H1 paged import preserves prior July rows with the same source hashes and posts nine new monthly AP journals',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  await adminPool.query('DELETE FROM journal_line WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,ids.journalId]);
+  await adminPool.query('DELETE FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2 AND journal_entry_id=$3',[ids.tenantId,ids.entityId,ids.journalId]);
+  const rows=[
+    ['2026-01-01','10.1000'],['2026-01-02','20.2000'],['2026-01-31','50.3100'],
+    ['2026-02-01','500.0000'],['2026-02-28','504.8500'],
+    ['2026-03-01','1000.0000'],['2026-03-31','509.1200'],
+    ['2026-06-01','132000.0000'],['2026-06-30','447.7500']
+  ].map(([accounting_date,amount],index)=>({source_record_hash:hash(`wbs-live-h1-payable-${index+1}`),currency:'USD',accounting_date,amount,status:'CLEAR'}));
+  const august={source_record_hash:hash('wbs-live-annual-august-hold'),currency:'USD',accounting_date:'2026-08-13',amount:'127.4300',status:'HOLD'};
+  const makeObservation=({scopeRows,dateRange,identity})=>({schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_payables',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-19T00:00:00.000Z',provider_content_sha256:createHash('sha256').update(canonicalRequestBody(scopeRows),'utf8').digest('hex'),scope:{company_codes:['WBPA'],date_range:dateRange},record_count:scopeRows.length,rows:scopeRows,signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash(identity)});
+  const annual=makeObservation({scopeRows:[...rows,august],dateRange:['2026-01-01','2026-12-31'],identity:'wbs-live-annual-july-legacy'}),h1=makeObservation({scopeRows:rows,dateRange:['2026-01-01','2026-06-30'],identity:'wbs-live-h1-exact-range'}),emptyBank={...makeObservation({scopeRows:[],dateRange:['2026-01-01','2026-06-30'],identity:'wbs-live-h1-bank-empty'}),tool:'list_bank_transactions'};
+  const actors={importer:'wbs-h1-importer',maker:'wbs-h1-maker',submitter:'wbs-h1-submitter',reviewer:'wbs-h1-reviewer',approver:'wbs-h1-approver',poster:'wbs-h1-poster'},permissions={importer:['WBS.TEST.IMPORT','BANK.RECONCILIATION.START'],maker:['WBS.TEST.IMPORT','AP.BILL.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']};
+  const kernelForActor=actor=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actor,permissions[Object.keys(actors).find(role=>actors[role]===actor)])});
+  const pilotService={
+    async readObservation(){return annual;},
+    async readObservationPage({tool,cursor,snapshot_token}){assert.equal(cursor,null);assert.equal(snapshot_token,null);const observation=tool==='list_payables'?h1:emptyBank;return {observation,cursor_next:null,pagination:{snapshot_token:`snapshot-${tool}-h1`,captured_at:'2026-08-19T00:00:00.000Z',contract_version:'WBS-REFS-MCP-V1',environment:'production',source_hash:hash(`wbs-source-${tool}`),first_stable_key:observation.rows.length?'001':null,last_stable_key:observation.rows.length?'009':null}};}
+  };
+  const service=createWbsTestImportService({pilotService,kernelForActor,authorizeBank:async()=>{},scope:{tenantId:ids.tenantId,entityId:ids.entityId,companyCode:'WBPA',actors}});
+  const legacy=await service.importPayables({...ids,companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'2026-12-31',limit:10,idempotencyKey:'wbs-h1-legacy-july-001'});
+  assert.deepEqual({imported:legacy.imported_count,posted:legacy.posted_count},{imported:10,posted:10});
+  const julyBefore=(await adminPool.query('SELECT count(*)::int documents FROM business_document WHERE tenant_id=$1 AND entity_id=$2 AND accounting_date BETWEEN $3 AND $4',[ids.tenantId,ids.entityId,'2026-07-01','2026-07-31'])).rows[0].documents;assert.equal(julyBefore,10);
+  const command={tenantId:ids.tenantId,entityId:ids.entityId,companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'2026-06-30',pageSize:10,maxPages:50,idempotencyKey:'wbs-h1-exact-range-001'};
+  const imported=await service.importRange(command);assert.deepEqual({imported:imported.payables.imported_count,replayed:imported.payables.replayed_count,posted:imported.payables.posted_count},{imported:9,replayed:0,posted:9});
+  const monthly=(await adminPool.query(`SELECT p.period_code,count(DISTINCT b.business_document_id)::int ap_count,coalesce(sum(b.gross_amount),0)::numeric(22,4)::text amount_total
+    FROM accounting_period p LEFT JOIN business_document b ON b.tenant_id=p.tenant_id AND b.entity_id=p.entity_id AND b.accounting_date BETWEEN p.starts_on AND p.ends_on AND b.document_kind='AP_BILL'
+    WHERE p.tenant_id=$1 AND p.entity_id=$2 AND p.period_code BETWEEN '2026-01' AND '2026-06' GROUP BY p.period_code ORDER BY p.period_code`,[ids.tenantId,ids.entityId])).rows;
+  assert.deepEqual(monthly,[{period_code:'2026-01',ap_count:3,amount_total:'80.6100'},{period_code:'2026-02',ap_count:2,amount_total:'1004.8500'},{period_code:'2026-03',ap_count:2,amount_total:'1509.1200'},{period_code:'2026-04',ap_count:0,amount_total:'0.0000'},{period_code:'2026-05',ap_count:0,amount_total:'0.0000'},{period_code:'2026-06',ap_count:2,amount_total:'132447.7500'}]);
+  const closed=(await adminPool.query(`SELECT
+    (SELECT count(*)::int FROM source_document WHERE tenant_id=$1 AND entity_id=$2 AND accounting_date BETWEEN '2026-01-01' AND '2026-06-30') h1_sources,
+    (SELECT count(*)::int FROM business_document WHERE tenant_id=$1 AND entity_id=$2 AND accounting_date BETWEEN '2026-01-01' AND '2026-06-30') h1_ap,
+    (SELECT count(*)::int FROM journal_entry j JOIN accounting_period p ON p.tenant_id=j.tenant_id AND p.entity_id=j.entity_id AND p.period_id=j.period_id WHERE j.tenant_id=$1 AND j.entity_id=$2 AND p.period_code BETWEEN '2026-01' AND '2026-06') h1_je,
+    (SELECT count(*)::int FROM ledger_line l JOIN accounting_period p ON p.tenant_id=l.tenant_id AND p.entity_id=l.entity_id AND p.period_id=l.period_id WHERE l.tenant_id=$1 AND l.entity_id=$2 AND p.period_code BETWEEN '2026-01' AND '2026-06') h1_gl,
+    (SELECT count(*)::int FROM business_document WHERE tenant_id=$1 AND entity_id=$2 AND accounting_date BETWEEN '2026-07-01' AND '2026-07-31') july_ap`,[ids.tenantId,ids.entityId])).rows[0];
+  assert.deepEqual(closed,{h1_sources:9,h1_ap:9,h1_je:9,h1_gl:18,july_ap:10});
+  const replay=await service.importRange(command);assert.deepEqual({imported:replay.payables.imported_count,replayed:replay.payables.replayed_count,posted:replay.payables.posted_count},{imported:0,replayed:9,posted:9});
+  assert.deepEqual((await adminPool.query(`SELECT count(*)::int h1_ap,(SELECT count(*)::int FROM business_document WHERE tenant_id=$1 AND entity_id=$2 AND accounting_date BETWEEN '2026-07-01' AND '2026-07-31') july_ap FROM business_document WHERE tenant_id=$1 AND entity_id=$2 AND accounting_date BETWEEN '2026-01-01' AND '2026-06-30'`,[ids.tenantId,ids.entityId])).rows[0],{h1_ap:9,july_ap:10});
 });

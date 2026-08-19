@@ -8,15 +8,15 @@ const actors={importer:'bank-importer',maker:'bank-maker',submitter:'bank-submit
 const scope={tenantId,entityId,companyCode:'WBPA',bankAccountRef:'WBS_TEST_BANK',cashAccountCode:'111000',offsetAccountCode:'610000',actors};
 const input={tenantId,entityId,periodId,reconciliationId,reason:'Complete the isolated WBS Bank test workflow',idempotencyKey:'controlled-bank-run-001'};
 
-function harness(){
+function harness({bankAccountRef='WBS_TEST_BANK',transactionDate='2026-07-10',statementEndingDate='2026-07-31'}={}){
   const calls=[];let status='DRAFT',version=0;
   const rows=[
-    {reconciliation_version:0,bank_source_id:uuid(11),bank_version:0,bank_account_ref:'WBS_TEST_BANK',transaction_date:'2026-07-10',currency:'USD',amount:'-25.0000',bank_match_id:null,match_status:null,clearance_state:'NOT_CLEARED',adjustment_journal_entry_id:null,adjustment_journal_version:null,adjustment_journal_status:null,adjustment_clearance_eligible:false},
-    {reconciliation_version:0,bank_source_id:uuid(12),bank_version:0,bank_account_ref:'WBS_TEST_BANK',transaction_date:'2026-07-11',currency:'USD',amount:'40.0000',bank_match_id:null,match_status:null,clearance_state:'NOT_CLEARED',adjustment_journal_entry_id:null,adjustment_journal_version:null,adjustment_journal_status:null,adjustment_clearance_eligible:false}
+    {reconciliation_version:0,bank_source_id:uuid(11),bank_version:0,bank_account_ref:bankAccountRef,transaction_date:transactionDate,currency:'USD',amount:'-25.0000',bank_match_id:null,match_status:null,clearance_state:'NOT_CLEARED',adjustment_journal_entry_id:null,adjustment_journal_version:null,adjustment_journal_status:null,adjustment_clearance_eligible:false},
+    {reconciliation_version:0,bank_source_id:uuid(12),bank_version:0,bank_account_ref:bankAccountRef,transaction_date:transactionDate,currency:'USD',amount:'40.0000',bank_match_id:null,match_status:null,clearance_state:'NOT_CLEARED',adjustment_journal_entry_id:null,adjustment_journal_version:null,adjustment_journal_status:null,adjustment_clearance_eligible:false}
   ];
   const refresh=()=>rows.forEach(row=>{row.reconciliation_version=version;});
   const methods={
-    async listReconciliationScopes(){return [{reconciliation_id:reconciliationId,bank_account_ref:'WBS_TEST_BANK',status,version}];},
+    async listReconciliationScopes(){return [{reconciliation_id:reconciliationId,bank_account_ref:bankAccountRef,statement_ending_date:statementEndingDate,status,version}];},
     async listReconciliationWorksheet(){return rows.map(row=>({...row}));},
     async listBankMatchCandidates({bankSourceId}){return bankSourceId===rows[0].bank_source_id?[{payment_occurrence_id:uuid(20),occurrence_version:1}]:[];},
     async createBankPaymentMatch(args){calls.push(['match',args]);rows[0].bank_match_id=matchId;rows[0].match_status='ACTIVE';return {bank_match_id:matchId,status:'ACTIVE',idempotent:false};},
@@ -29,7 +29,7 @@ function harness(){
     async transitionReconciliation(args){calls.push([args.action.toLowerCase(),args]);version++;status={REVIEW:'IN_REVIEW',SIGN_OFF:'RECONCILED',REOPEN:'REOPENED'}[args.action];refresh();return {status,revision:version,snapshot_id:args.action==='SIGN_OFF'?snapshotId:null,snapshot_hash:args.action==='SIGN_OFF'?`sha256:${'a'.repeat(64)}`:null,idempotent:false};},
     async getSignedReconciliationSnapshot(){return [{reconciliation_snapshot_id:snapshotId,snapshot_hash:`sha256:${'a'.repeat(64)}`,snapshot_body:{items:[]}}];}
   };
-  const service=createControlledTestBankWorkflowService({scope,authorize:async args=>calls.push(['authorize',args]),kernelForActor:actor=>new Proxy({}, {get:(_,method)=>typeof methods[method]==='function'?async args=>(calls.push(['actor',actor,method]),methods[method](args)):undefined})});
+  const service=createControlledTestBankWorkflowService({scope:{...scope,bankAccountRef},authorize:async args=>calls.push(['authorize',args]),kernelForActor:actor=>new Proxy({}, {get:(_,method)=>typeof methods[method]==='function'?async args=>(calls.push(['actor',actor,method]),methods[method](args)):undefined})});
   return {service,calls,rows,getStatus:()=>status};
 }
 
@@ -60,4 +60,22 @@ test('runs one to six explicit monthly period/reconciliation scopes and closes a
     {status:'CONTROLLED_TEST_BANK_RANGE_WORKFLOW_REOPENED',scope_count:1,processed_count:2,matched_count:1,adjusted_count:1,cleared_count:2,idempotent:false});
   assert.equal(result.results.length,1);assert.equal(result.results[0].reconciliation_id,reconciliationId);
   await assert.rejects(service.runRange({tenantId,entityId,scopes:Array.from({length:7},(_,index)=>({periodId,reconciliationId:uuid(index+30)})),reason:input.reason,idempotencyKey:'controlled-bank-range-002'}),error=>error.code==='CONTROLLED_TEST_BANK_SELECTION_INVALID');
+});
+
+test('feeds migration179 monthly reconciliation scopes directly into migration180 range workflow',async()=>{
+  const {service,calls}=harness({bankAccountRef:'WBS_TEST_BANK_2026_01',transactionDate:'2026-01-15',statementEndingDate:'2026-01-31'});
+  const import179={bank:{reconciliations:[{bank_account_ref:'WBS_TEST_BANK_2026_01',period_code:'2026-01',period_id:periodId,reconciliation_id:reconciliationId,transaction_count:2}]}};
+  const scopes=import179.bank.reconciliations.map(row=>({periodId:row.period_id,reconciliationId:row.reconciliation_id}));
+  const result=await service.runRange({tenantId,entityId,scopes,reason:input.reason,idempotencyKey:'controlled-bank-range-monthly-001'});
+  assert.equal(result.status,'CONTROLLED_TEST_BANK_RANGE_WORKFLOW_REOPENED');assert.equal(result.processed_count,2);
+  assert.equal(calls.find(call=>call[0]==='draft')[1].lines[0].member_ref,'WBS_TEST_BANK_2026_01');
+  const wrongMonth=harness({bankAccountRef:'WBS_TEST_BANK_2026_01',transactionDate:'2026-01-15',statementEndingDate:'2026-02-28'});
+  await assert.rejects(wrongMonth.service.runRange({tenantId,entityId,scopes,reason:input.reason,idempotencyKey:'controlled-bank-range-monthly-002'}),error=>error.code==='CONTROLLED_TEST_BANK_SCOPE_DENIED');
+});
+
+test('public result contract accepts more than sixty and caps the combined workflow at five hundred',async()=>{
+  const ids=Array.from({length:61},(_,index)=>uuid(index+100));
+  const result={status:'CONTROLLED_TEST_BANK_WORKFLOW_REOPENED',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:false,reconciliation_id:reconciliationId,processed_count:61,matched_count:0,adjusted_count:61,cleared_count:61,journal_entry_ids:ids,revision:70,snapshot_id:snapshotId,snapshot_hash:`sha256:${'a'.repeat(64)}`};
+  const {assertControlledTestBankWorkflowResult}=await import('../runtime/controlled-test-bank-workflow-service.mjs');
+  assert.equal(assertControlledTestBankWorkflowResult(result),result);
 });

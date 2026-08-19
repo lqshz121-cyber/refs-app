@@ -3,6 +3,7 @@ const MONEY4=/^-?(?:0|[1-9][0-9]{0,15})\.[0-9]{4}$/;
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const SHA256=/^sha256:[0-9a-f]{64}$/;
 const ACTOR_ROLES=Object.freeze(['importer','maker','submitter','reviewer','approver','poster']);
+const TEST_BANK=/^WBS_TEST_BANK(?:_2026_0[1-6])?$/;
 
 export class ControlledTestBankWorkflowError extends Error{
   constructor(code,message){super(message);this.name='ControlledTestBankWorkflowError';this.code=code;}
@@ -17,7 +18,7 @@ const money=value=>{
 const reason=value=>`UNSIGNED TEST ONLY — ${value}`;
 
 function assertConfiguration(scope){
-  if(!scope||!UUID.test(scope.tenantId||'')||!UUID.test(scope.entityId||'')||scope.bankAccountRef!=='WBS_TEST_BANK'||scope.cashAccountCode!=='111000'||scope.offsetAccountCode!=='610000'){
+  if(!scope||!UUID.test(scope.tenantId||'')||!UUID.test(scope.entityId||'')||!TEST_BANK.test(scope.bankAccountRef||'')||scope.cashAccountCode!=='111000'||scope.offsetAccountCode!=='610000'){
     fail('CONTROLLED_TEST_BANK_CONFIG_INVALID','Controlled-test Bank scope or fixed accounts are invalid.');
   }
   if(!exactObject(scope.actors,ACTOR_ROLES)||ACTOR_ROLES.some(role=>typeof scope.actors[role]!=='string'||scope.actors[role].trim().length<3||scope.actors[role].trim().length>200)
@@ -39,6 +40,7 @@ export function assertControlledTestBankWorkflowResult(value){
   if(!exactObject(value,keys)||value.status!=='CONTROLLED_TEST_BANK_WORKFLOW_REOPENED'||value.test_only!==true||value.provenance_mode!=='CONTROLLED_TEST_UNSIGNED'
     ||!UUID.test(value.reconciliation_id||'')||!UUID.test(value.snapshot_id||'')||!SHA256.test(value.snapshot_hash||'')||typeof value.idempotent!=='boolean'
     ||!['adjusted_count','cleared_count','matched_count','processed_count','revision'].every(key=>Number.isSafeInteger(value[key])&&value[key]>=0)
+    ||value.processed_count>500||value.matched_count>500||value.adjusted_count>500||value.cleared_count>500
     ||value.processed_count!==value.adjusted_count+value.matched_count||value.cleared_count!==value.processed_count
     ||!Array.isArray(value.journal_entry_ids)||value.journal_entry_ids.length!==value.adjusted_count||value.journal_entry_ids.some(id=>!UUID.test(id||''))||new Set(value.journal_entry_ids).size!==value.journal_entry_ids.length){
     fail('CONTROLLED_TEST_BANK_RESULT_INVALID','Controlled-test Bank workflow result is incomplete or unsafe.');
@@ -52,6 +54,7 @@ export function assertControlledTestBankRangeWorkflowResult(value){
     ||!Number.isSafeInteger(value.scope_count)||value.scope_count<1||value.scope_count>6||!Array.isArray(value.results)||value.results.length!==value.scope_count
     ||value.results.some(result=>{try{return !assertControlledTestBankWorkflowResult(result);}catch{return true;}})
     ||!['adjusted_count','cleared_count','matched_count','processed_count'].every(key=>Number.isSafeInteger(value[key])&&value[key]>=0)
+    ||value.processed_count>500||value.matched_count>500||value.adjusted_count>500||value.cleared_count>500
     ||value.processed_count!==value.results.reduce((sum,result)=>sum+result.processed_count,0)||value.matched_count!==value.results.reduce((sum,result)=>sum+result.matched_count,0)
     ||value.adjusted_count!==value.results.reduce((sum,result)=>sum+result.adjusted_count,0)||value.cleared_count!==value.results.reduce((sum,result)=>sum+result.cleared_count,0)){
     fail('CONTROLLED_TEST_BANK_RESULT_INVALID','Controlled-test Bank range workflow result is incomplete or unsafe.');
@@ -82,7 +85,9 @@ export function createControlledTestBankWorkflowService({kernelForActor,authoriz
       for(const role of ACTOR_ROLES)if(!kernels[role]||required[role].some(method=>typeof kernels[role][method]!=='function'))fail('CONTROLLED_TEST_BANK_CONFIG_INVALID',`Controlled-test Bank ${role} kernel is unavailable.`);
       const key=String(idempotencyKey),markedReason=reason(reviewReason);
       let scopes=await kernels.importer.listReconciliationScopes({tenantId,entityId,limit:200});
-      let reconciliation=scopes.find(row=>row.reconciliation_id===reconciliationId&&row.bank_account_ref===scope.bankAccountRef);
+      let reconciliation=scopes.find(row=>row.reconciliation_id===reconciliationId&&TEST_BANK.test(row.bank_account_ref||''));
+      const monthly=/^WBS_TEST_BANK_(2026_0[1-6])$/.exec(reconciliation?.bank_account_ref||'');
+      if(monthly&&(!date(reconciliation.statement_ending_date)||!reconciliation.statement_ending_date.startsWith(monthly[1].replace('_','-'))))reconciliation=null;
       if(!reconciliation)fail('CONTROLLED_TEST_BANK_SCOPE_DENIED','The selected reconciliation is not the fixed WBS TEST_ONLY Bank scope.');
 
       const snapshotResult=async({revision,idempotent,rows=[]})=>{
@@ -128,7 +133,7 @@ export function createControlledTestBankWorkflowService({kernelForActor,authoriz
             const created=await kernels.maker.createReconciliationAdjustmentDraft({tenantId,entityId,reconciliationId,bankSourceId:row.bank_source_id,expectedReconciliationVersion:currentVersion,
               periodId,journalNumber:`WBS-TEST-BANK-${row.bank_source_id}`,journalDate:row.transaction_date,currency:row.currency,description,
               lines:[
-                {line_no:1,account_code:scope.cashAccountCode,debit_amount:negative?zero:absolute,credit_amount:negative?absolute:zero,member_ref:scope.bankAccountRef,description,dimensions:{}},
+                {line_no:1,account_code:scope.cashAccountCode,debit_amount:negative?zero:absolute,credit_amount:negative?absolute:zero,member_ref:reconciliation.bank_account_ref,description,dimensions:{}},
                 {line_no:2,account_code:scope.offsetAccountCode,debit_amount:negative?absolute:zero,credit_amount:negative?zero:absolute,member_ref:null,description,dimensions:{}}
               ],attachmentIds:evidence,reason:markedReason,idempotencyKey:`${key}:${row.bank_source_id}:draft`});
             currentVersion=Number(created.reconciliation_revision);

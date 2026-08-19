@@ -6,6 +6,7 @@ export const WBS_LIVE_PILOT_TOOLS=Object.freeze(['list_payables','list_bank_tran
 const COMPANY_SCOPED_TOOLS=new Set(['list_payables','list_bank_transactions','list_autorec_banks','list_journal_entries']);
 const DATE_SCOPED_TOOLS=new Set(['list_payables','list_bank_transactions','list_autorec_details','list_journal_entries']);
 const STABLE_KEY=Object.freeze({list_payables:'ap_guid',list_bank_transactions:'cb_id',list_autorec_details:'pd_guid',list_autorec_banks:'pb_guid',list_journal_entries:'id'});
+const SNAPSHOT_TOKEN=/^[A-Za-z0-9._~:-]{1,256}$/;
 function providerScopeArgs(tool,{company_code,date_from,date_to}={}){
   const args={};
   if(tool==='list_payables'){
@@ -140,15 +141,18 @@ export function createWbsLivePilotReadService({client,authorize}={}){
       let observed;try{await prepare();const args={limit,...providerScopeArgs(tool,{company_code,date_from,date_to})};observed=await client.readView({toolName:tool,args});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider response was unavailable or unsafe.');}
       return buildWbsLivePilotObservation({observed,entityId,tool,requestedScope:{company_code:company_code||null,date_from:date_from||null,date_to:date_to||null}});
     },
-    async readObservationPage({tenantId,entityId,tool,limit,company_code,date_from,date_to,cursor=null}={}){
-      if(!tenantId||!entityId||!WBS_LIVE_PILOT_TOOLS.includes(tool)||!Number.isSafeInteger(limit)||limit<1||limit>10||(cursor!==null&&(typeof cursor!=='string'||cursor.length<1||cursor.length>2048||CONTROL.test(cursor))))fail('WBS_LIVE_PILOT_SELECTION_INVALID','A scoped approved WBS pilot page selection is required.');
+    async readObservationPage({tenantId,entityId,tool,limit,company_code,date_from,date_to,cursor=null,snapshot_token=null}={}){
+      if(!tenantId||!entityId||!WBS_LIVE_PILOT_TOOLS.includes(tool)||limit!==10||(cursor!==null&&(typeof cursor!=='string'||cursor.length<1||cursor.length>2048||CONTROL.test(cursor)))||(snapshot_token!==null&&!SNAPSHOT_TOKEN.test(snapshot_token))||(cursor===null)!==(snapshot_token===null))fail('WBS_LIVE_PILOT_SELECTION_INVALID','A ten-row scoped WBS pilot page and exact snapshot continuation are required.');
       await authorize({tenantId,entityId});
-      let observed;try{await prepare();const args={limit,...providerScopeArgs(tool,{company_code,date_from,date_to})};if(cursor!==null)args.cursor=cursor;observed=await client.readView({toolName:tool,args});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider page was unavailable or unsafe.');}
+      let observed;try{await prepare();const args={limit,...providerScopeArgs(tool,{company_code,date_from,date_to})};if(cursor!==null){args.cursor=cursor;args.snapshot_token=snapshot_token;}observed=await client.readView({toolName:tool,args});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider page was unavailable or unsafe.');}
       const cursorNext=observed.cursor_next;
       if(cursorNext!==null&&(typeof cursorNext!=='string'||cursorNext.length<1||cursorNext.length>2048||CONTROL.test(cursorNext)))fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider returned an unsafe pagination cursor.');
+      const providerSnapshotToken=observed.scope?.snapshot_token??null,stableKey=STABLE_KEY[tool],stableValues=observed.rows.map(row=>String(row[stableKey]));
+      if((cursorNext!==null&&!SNAPSHOT_TOKEN.test(providerSnapshotToken||''))||(snapshot_token!==null&&providerSnapshotToken!==snapshot_token)||stableValues.some(value=>!value||CONTROL.test(value)))fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider returned an unsafe snapshot continuation.');
       return Object.freeze({
         observation:buildWbsLivePilotObservation({observed,entityId,tool,requestedScope:{company_code:company_code||null,date_from:date_from||null,date_to:date_to||null}}),
-        cursor_next:cursorNext
+        cursor_next:cursorNext,
+        pagination:Object.freeze({snapshot_token:providerSnapshotToken,captured_at:observed.captured_at,contract_version:observed.contract_version,environment:observed.environment,source_hash:hash(canonicalRequestBody(observed.source)),first_stable_key:stableValues[0]??null,last_stable_key:stableValues.at(-1)??null})
       });
     }
   });

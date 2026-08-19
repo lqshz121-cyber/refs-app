@@ -4,7 +4,7 @@ import {canonicalRequestHash} from '../runtime/request-hash.mjs';
 import {assertWbsLivePilotResult,buildWbsLivePilotObservation,createWbsLivePilotReadService,parseWbsLivePilotSelection,WBS_LIVE_PILOT_TOOLS} from '../runtime/wbs-live-pilot-read-service.mjs';
 
 const tenantId='6fb25daf-0799-4805-bede-be54230da33c',entityId='ca8d23c7-0ea6-4860-8e3e-caf9a3e22ce3';
-const observed=({tool='list_payables',rows=[{ap_guid:'private-ap-id',posting_date:'2026-08-11',amount:'12.3',pay_status:'Clear'}],scope={company_codes:[],date_range:['2026-08-01','2026-08-11']}}={})=>({tool_name:tool,contract_version:'WBS-REFS-MCP-V1',environment:'production',captured_at:'2026-08-11T10:00:00.000Z',scope,record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next:null,rows});
+const observed=({tool='list_payables',rows=[{ap_guid:'private-ap-id',posting_date:'2026-08-11',amount:'12.3',pay_status:'Clear'}],scope={company_codes:[],date_range:['2026-08-01','2026-08-11']},captured_at='2026-08-11T10:00:00.000Z',cursor_next=null}={})=>({tool,contract_version:'WBS-REFS-MCP-V1',environment:'production',captured_at,source:{system:'WBS',view:tool},scope,record_count:rows.length,content_sha256:canonicalRequestHash(rows).slice(7),cursor_next,etl_notice:null,rows});
 
 test('pilot query requires one fixed tool and one bounded limit',()=>{
   assert.deepEqual(parseWbsLivePilotSelection(new URLSearchParams('tool=list_payables&limit=10')),{tool:'list_payables',limit:10,company_code:null,date_from:null,date_to:null});
@@ -35,13 +35,15 @@ test('live pilot passes server-requested company/date scope to the provider unch
   assert.deepEqual(calls,[{toolName:'list_payables',args:{limit:10,company_code:'WBPA',incurred_date_from:'2026-01-01',incurred_date_to:'2026-12-31',posting_date_from:'2026-01-01',posting_date_to:'2026-12-31'}}]);
 });
 
-test('paged live pilot preserves the sanitized observation while carrying only the opaque provider cursor beside it',async()=>{
-  const calls=[];const client={initialize:async()=>{},listTools:async()=>{},readView:async request=>(calls.push(request),{...observed({scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']}}),cursor_next:'opaque-page-3'})};
+test('paged live pilot freezes the Provider snapshot identity and sends the exact token on continuation',async()=>{
+  const calls=[];const client={initialize:async()=>{},listTools:async()=>{},readView:async request=>(calls.push(request),observed({scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30'],snapshot_token:'snapshot-h1-1'},cursor_next:'opaque-page-3'}))};
   const service=createWbsLivePilotReadService({client,authorize:async()=>{}});
-  const page=await service.readObservationPage({tenantId,entityId,tool:'list_payables',limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-06-30',cursor:'opaque-page-2'});
-  assert.deepEqual(Object.keys(page).sort(),['cursor_next','observation']);assert.equal(page.cursor_next,'opaque-page-3');assert.equal(Object.hasOwn(page.observation,'cursor_next'),false);assert.equal(page.observation.rows[0].accounting_date,'2026-08-11');
-  assert.deepEqual(calls[0].args,{limit:10,company_code:'WBPA',incurred_date_from:'2026-01-01',incurred_date_to:'2026-06-30',posting_date_from:'2026-01-01',posting_date_to:'2026-06-30',cursor:'opaque-page-2'});
+  const page=await service.readObservationPage({tenantId,entityId,tool:'list_payables',limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-06-30',cursor:'opaque-page-2',snapshot_token:'snapshot-h1-1'});
+  assert.deepEqual(Object.keys(page).sort(),['cursor_next','observation','pagination']);assert.equal(page.cursor_next,'opaque-page-3');assert.equal(Object.hasOwn(page.observation,'cursor_next'),false);assert.equal(page.observation.rows[0].accounting_date,'2026-08-11');
+  assert.deepEqual(page.pagination,{snapshot_token:'snapshot-h1-1',captured_at:'2026-08-11T10:00:00.000Z',contract_version:'WBS-REFS-MCP-V1',environment:'production',source_hash:canonicalRequestHash({system:'WBS',view:'list_payables'}),first_stable_key:'private-ap-id',last_stable_key:'private-ap-id'});
+  assert.deepEqual(calls[0].args,{limit:10,company_code:'WBPA',incurred_date_from:'2026-01-01',incurred_date_to:'2026-06-30',posting_date_from:'2026-01-01',posting_date_to:'2026-06-30',cursor:'opaque-page-2',snapshot_token:'snapshot-h1-1'});
   await assert.rejects(service.readObservationPage({tenantId,entityId,tool:'list_payables',limit:10,cursor:'bad\nvalue'}),error=>error.code==='WBS_LIVE_PILOT_SELECTION_INVALID');
+  await assert.rejects(service.readObservationPage({tenantId,entityId,tool:'list_payables',limit:10,cursor:'page-2',snapshot_token:'snapshot-other'}),error=>error.code==='WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE');
 });
 
 test('live pilot maps each provider view to its published company/date fields',async()=>{
