@@ -61,10 +61,9 @@ test('repository executes five actor-owned WBS TEST_ONLY Bank stage batches',asy
   const commands=calls.filter(call=>call.sql.includes('refs_wbs_test_bank_adjustment_'));
   const timeouts=calls.filter(call=>call.sql.includes("set_config('statement_timeout'"));
   assert.equal(commands.length,5);
-  assert.deepEqual(timeouts.map(call=>call.args),[['120s']]);
+  assert.deepEqual(timeouts.map(call=>call.args),Array.from({length:5},()=>['120s']));
   assert.deepEqual(commands.map(call=>call.sql.match(/refs_wbs_test_bank_adjustment_(\w+)_batch/)[1]),['draft','submit','review','approve','post_clear']);
-  assert.equal(calls[calls.indexOf(commands.at(-1))-1].sql,"SELECT set_config('statement_timeout',$1,true)");
-  for(const command of commands.slice(0,-1))assert.notEqual(calls[calls.indexOf(command)-1].sql,"SELECT set_config('statement_timeout',$1,true)");
+  for(const command of commands)assert.equal(calls[calls.indexOf(command)-1].sql,"SELECT set_config('statement_timeout',$1,true)");
   assert.deepEqual(commands[0].args,['tenant','entity','reconciliation','period',['source-2','source-1'],['attachment'],'UNSIGNED TEST ONLY — batch','bank-batch-root']);
   assert.deepEqual(commands[1].args,['tenant','entity','reconciliation',['source-2','source-1'],'bank-batch-root']);
   assert.deepEqual(commands[4].args,['tenant','entity','reconciliation','period',['source-2','source-1'],'UNSIGNED TEST ONLY — batch','bank-batch-root']);

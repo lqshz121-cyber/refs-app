@@ -1452,31 +1452,43 @@ export class PostgresAccountingKernel{
   }
 
   async draftWbsTestBankAdjustmentBatch(args){
-    return this.inSession(async client=>requireRow(await client.query(
-      'SELECT refs_wbs_test_bank_adjustment_draft_batch($1,$2,$3,$4,$5::uuid[],$6::uuid[],$7,$8) AS result',
-      [args.tenantId,args.entityId,args.reconciliationId,args.periodId,args.bankSourceIds,args.attachmentIds,args.reason,args.idempotencyRoot]
-    ),'WBS_TEST_BANK_DRAFT_BATCH_FAILED','Controlled-test Bank Draft batch did not return a result').result);
+    return this.inSession(async client=>{
+      await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT]);
+      return requireRow(await client.query(
+        'SELECT refs_wbs_test_bank_adjustment_draft_batch($1,$2,$3,$4,$5::uuid[],$6::uuid[],$7,$8) AS result',
+        [args.tenantId,args.entityId,args.reconciliationId,args.periodId,args.bankSourceIds,args.attachmentIds,args.reason,args.idempotencyRoot]
+      ),'WBS_TEST_BANK_DRAFT_BATCH_FAILED','Controlled-test Bank Draft batch did not return a result').result;
+    });
   }
 
   async submitWbsTestBankAdjustmentBatch(args){
-    return this.inSession(async client=>requireRow(await client.query(
-      'SELECT refs_wbs_test_bank_adjustment_submit_batch($1,$2,$3,$4::uuid[],$5) AS result',
-      [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceIds,args.idempotencyRoot]
-    ),'WBS_TEST_BANK_SUBMIT_BATCH_FAILED','Controlled-test Bank Submit batch did not return a result').result);
+    return this.inSession(async client=>{
+      await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT]);
+      return requireRow(await client.query(
+        'SELECT refs_wbs_test_bank_adjustment_submit_batch($1,$2,$3,$4::uuid[],$5) AS result',
+        [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceIds,args.idempotencyRoot]
+      ),'WBS_TEST_BANK_SUBMIT_BATCH_FAILED','Controlled-test Bank Submit batch did not return a result').result;
+    });
   }
 
   async reviewWbsTestBankAdjustmentBatch(args){
-    return this.inSession(async client=>requireRow(await client.query(
-      'SELECT refs_wbs_test_bank_adjustment_review_batch($1,$2,$3,$4::uuid[],$5) AS result',
-      [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceIds,args.idempotencyRoot]
-    ),'WBS_TEST_BANK_REVIEW_BATCH_FAILED','Controlled-test Bank Review batch did not return a result').result);
+    return this.inSession(async client=>{
+      await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT]);
+      return requireRow(await client.query(
+        'SELECT refs_wbs_test_bank_adjustment_review_batch($1,$2,$3,$4::uuid[],$5) AS result',
+        [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceIds,args.idempotencyRoot]
+      ),'WBS_TEST_BANK_REVIEW_BATCH_FAILED','Controlled-test Bank Review batch did not return a result').result;
+    });
   }
 
   async approveWbsTestBankAdjustmentBatch(args){
-    return this.inSession(async client=>requireRow(await client.query(
-      'SELECT refs_wbs_test_bank_adjustment_approve_batch($1,$2,$3,$4::uuid[],$5) AS result',
-      [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceIds,args.idempotencyRoot]
-    ),'WBS_TEST_BANK_APPROVE_BATCH_FAILED','Controlled-test Bank Approve batch did not return a result').result);
+    return this.inSession(async client=>{
+      await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT]);
+      return requireRow(await client.query(
+        'SELECT refs_wbs_test_bank_adjustment_approve_batch($1,$2,$3,$4::uuid[],$5) AS result',
+        [args.tenantId,args.entityId,args.reconciliationId,args.bankSourceIds,args.idempotencyRoot]
+      ),'WBS_TEST_BANK_APPROVE_BATCH_FAILED','Controlled-test Bank Approve batch did not return a result').result;
+    });
   }
 
   async postClearWbsTestBankAdjustmentBatch(args){
