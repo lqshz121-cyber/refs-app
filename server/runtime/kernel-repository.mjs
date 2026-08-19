@@ -562,6 +562,17 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async classifyAiConstructionLoanLine({tenantId,entityId,sourceDocumentLineId,expectedClassification,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query("SELECT refs_jsonb_hash(jsonb_build_object('schema_version','AI_CONSTRUCTION_LOAN_CLASSIFICATION_COMMAND_V1','tenant_id',$1::uuid,'entity_id',$2::uuid,'source_document_line_id',$3::uuid,'expected_classification',$4::text)) AS request_hash",[tenantId,entityId,sourceDocumentLineId,expectedClassification]),'AI_LOAN_CLASSIFICATION_HASH_FAILED','Construction loan classification hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_materialize_ai_construction_loan_classification($1,$2,$3,$4,$5,$6) AS result',[tenantId,entityId,sourceDocumentLineId,expectedClassification,idempotencyKey,requestHash]),'AI_LOAN_CLASSIFICATION_FAILED','Construction loan classification did not return evidence').result;
+    });
+  }
+
+  async listAiConstructionLoanClassifications({tenantId,entityId,limit=100}){
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_classifications($1,$2,$3)',[tenantId,entityId,limit])).rows);
+  }
+
   // These readers are deliberately evidence-only.  They are the only database
   // seam used by the AI accrual candidate analysis; none can write a finding,
   // source, Draft, review, approval, or journal.

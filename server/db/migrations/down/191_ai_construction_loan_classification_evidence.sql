@@ -1,0 +1,3 @@
+BEGIN;
+DO $$ BEGIN IF EXISTS(SELECT 1 FROM ai_construction_loan_classification_evidence) THEN RAISE EXCEPTION 'Cannot remove retained AI construction loan classifications' USING ERRCODE='55006';END IF;END $$;
+DROP FUNCTION refs_read_ai_construction_loan_classifications(uuid,uuid,integer);DROP FUNCTION refs_materialize_ai_construction_loan_classification(uuid,uuid,uuid,text,text,text);DROP FUNCTION refs_classify_ai_construction_loan_line(uuid,uuid,uuid);DROP TABLE ai_construction_loan_classification_evidence;DELETE FROM permission_catalog WHERE permission_code IN('AI.LOAN.CLASSIFY','AI.LOAN.VIEW') AND NOT EXISTS(SELECT 1 FROM runtime_actor_grant WHERE permission=permission_code);COMMIT;

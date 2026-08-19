@@ -4036,6 +4036,35 @@ pgTest('policy-backed construction invoice creates an immutable CWIP proposal wi
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='AI_INVOICE_CAPITALIZATION_PROPOSED'",[ids.tenantId,ids.entityId])).rows[0].n,1);assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='AI_INVOICE_CAPITALIZATION_PROPOSED'",[ids.tenantId,ids.entityId])).rows[0].n,1);
 });
 
+pgTest('construction loan source creates immutable transaction classification evidence',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const trace=await attachAutoSource(ids,{linkJournal:false,sourceModule:'loan',sourceRecordPrefix:'CONSTRUCTION-LOAN-DRAW'});
+  await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT' WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
+  const lineId=(await adminPool.query(`INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,description,loan_ref,bank_account_ref,project_ref,property_ref)
+    VALUES($1,$2,$3,'construction-loan-draw-1',1,250000,'INFLOW','Construction draw advance','LOAN-REF-001','BANK-1','PROJECT-1','PROPERTY-1') RETURNING source_document_line_id`,[ids.tenantId,ids.entityId,trace.documentId])).rows[0].source_document_line_id;
+  const counts=()=>adminPool.query(`SELECT
+    (SELECT count(*)::int FROM ai_construction_loan_classification_evidence WHERE tenant_id=$1) evidence,
+    (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='AI_CONSTRUCTION_LOAN_CLASSIFIED') audits,
+    (SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1 AND event_type='AI_CONSTRUCTION_LOAN_CLASSIFIED') outbox,
+    (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,
+    (SELECT count(*)::int FROM staging_item WHERE tenant_id=$1) staging,
+    (SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger`,[ids.tenantId]).then(result=>result.rows[0]);
+  const before=await counts(),classifier=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'loan-classifier',['AI.LOAN.CLASSIFY'])}),args={tenantId:ids.tenantId,entityId:ids.entityId,sourceDocumentLineId:lineId,expectedClassification:'LOAN_DRAW',idempotencyKey:'construction-loan-classification-001'};
+  const created=await classifier.classifyAiConstructionLoanLine(args),replay=await classifier.classifyAiConstructionLoanLine(args);
+  assert.deepEqual({classification:created.classification,status:created.status,draft:created.can_create_draft,review:created.can_review,approve:created.can_approve,post:created.can_post,idempotent:created.idempotent,replay:replay.idempotent},{classification:'LOAN_DRAW',status:'REVIEW_REQUIRED',draft:false,review:false,approve:false,post:false,idempotent:false,replay:true});
+  assert.deepEqual(created.entry_shape,[{side:'DEBIT',account_role:'CASH'},{side:'CREDIT',account_role:'CONSTRUCTION_LOAN_PAYABLE'}]);
+  await assert.rejects(classifier.classifyAiConstructionLoanLine({...args,expectedClassification:'INTEREST_REVIEW'}),error=>error.code==='23514');
+  const conflictingActor=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'other-loan-classifier',['AI.LOAN.CLASSIFY'])});
+  await assert.rejects(conflictingActor.classifyAiConstructionLoanLine(args),error=>error.code==='23505');
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'loan-reader',['AI.LOAN.VIEW'])}),rows=await reader.listAiConstructionLoanClassifications({tenantId:ids.tenantId,entityId:ids.entityId,limit:50});
+  assert.equal(rows.length,1);assert.equal(rows[0].classification,'LOAN_DRAW');assert.equal(rows[0].source_document_line_id,lineId);assert.equal(rows[0].source_payload_hash,hash('auto-doc'));
+  assert.deepEqual(await counts(),{evidence:before.evidence+1,audits:before.audits+1,outbox:before.outbox+1,journals:before.journals,staging:before.staging,ledger:before.ledger});
+  const badLineId=(await adminPool.query(`INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,description,loan_ref)
+    VALUES($1,$2,$3,'construction-loan-bad-direction',2,1000,'OUTFLOW','Construction draw advance','LOAN-REF-002') RETURNING source_document_line_id`,[ids.tenantId,ids.entityId,trace.documentId])).rows[0].source_document_line_id,beforeBad=await counts();
+  await assert.rejects(classifier.classifyAiConstructionLoanLine({tenantId:ids.tenantId,entityId:ids.entityId,sourceDocumentLineId:badLineId,expectedClassification:'LOAN_DRAW',idempotencyKey:'construction-loan-classification-bad-direction'}),error=>error.code==='23514');
+  assert.deepEqual(await counts(),beforeBad);
+});
+
 pgTest('AI finding assignment is source-hash-bound, idempotent, audited, revisioned, and has zero accounting effects',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null});
   const trace=await attachAutoSource(ids,{linkJournal:false});
