@@ -35,7 +35,7 @@ export function createAiInvoiceAccountingClassificationService({sourceReader,det
           source_document_id:detail.source_document_id,source_document_line_id:line.source_document_line_id,source_payload_hash:detail.payload_hash,source_line_hash:evidence.source_row_hash,
           entity_id:entityId,accounting_period_id:accountingPeriodId,vendor_name:line.party_ref,invoice_no:trace.invoice_no,invoice_date:trace.invoice_date,
           currency:String(detail.currency||''),amount:money4(line.amount??detail.gross_amount),service_period_start:trace.accrual?.service_period_start??null,
-          service_period_end:trace.accrual?.service_period_end??null,description:null,project_ref:line.project_ref??null,property_ref:line.property_ref??null,
+          service_period_end:trace.accrual?.service_period_end??null,description:trace.invoice_description??line.description??null,project_ref:line.project_ref??null,property_ref:line.property_ref??null,
           charge_code:trace.accrual?.charge_code??null,
           duplicate_status:duplicates.has(detail.source_document_id)?'POSSIBLE':'NONE',accounting_status:Array.isArray(detail.posted_journal_entry_ids)&&detail.posted_journal_entry_ids.length>0?'POSTED':'NOT_RECORDED',
           // A project reference does not prove construction status or

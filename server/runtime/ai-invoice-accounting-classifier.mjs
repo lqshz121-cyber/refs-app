@@ -16,6 +16,15 @@ const monthsSpanned=(start,end)=>{
   const a=new Date(`${start}T00:00:00Z`),b=new Date(`${end}T00:00:00Z`);
   return (b.getUTCFullYear()-a.getUTCFullYear())*12+b.getUTCMonth()-a.getUTCMonth()+1;
 };
+const PREPAID_INDICATORS=Object.freeze([
+  Object.freeze({category:'INSURANCE',pattern:/\b(?:insurance|premium|policy)\b/i}),
+  Object.freeze({category:'PROPERTY_TAX',pattern:/\b(?:property\s+tax|real\s+estate\s+tax)\b/i}),
+  Object.freeze({category:'SOFTWARE_SUBSCRIPTION',pattern:/\b(?:annual\s+software|software\s+subscription|saas\s+subscription)\b/i}),
+  Object.freeze({category:'LICENSE',pattern:/\b(?:annual\s+licen[cs]e|licen[cs]e\s+renewal)\b/i}),
+  Object.freeze({category:'LOAN_FEE',pattern:/\b(?:loan\s+fee|financing\s+fee|origination\s+fee)\b/i}),
+  Object.freeze({category:'WARRANTY_OR_MAINTENANCE',pattern:/\b(?:extended\s+warranty|annual\s+maintenance|maintenance\s+contract)\b/i})
+]);
+const prepaidIndicator=invoice=>{const haystack=[invoice.vendor_name,invoice.description,invoice.charge_code].filter(value=>typeof value==='string').join(' ');return PREPAID_INDICATORS.find(item=>item.pattern.test(haystack))?.category??null;};
 
 function baseResult(invoice,classification,reason,confidence,requiredHumanFields=[],ruleId='AI_INVOICE_CLASSIFICATION_FAIL_CLOSED_V1',policyEvidence=null){
   return Object.freeze({
@@ -59,6 +68,10 @@ export function classifyRetainedInvoice(invoice,{capitalizationPolicy=null}={}){
 
   if(invoice.service_period_start&&monthsSpanned(invoice.service_period_start,invoice.service_period_end)>1){
     return baseResult(invoice,'PREPAID_AMORTIZATION','The retained invoice covers more than one calendar month and requires prepaid allocation review.',0.98,['prepaid_account','expense_account','amortization_start','amortization_method'],'AI_MULTI_PERIOD_PREPAID_V1');
+  }
+  const coverageCategory=prepaidIndicator(invoice);
+  if(coverageCategory&&invoice.service_period_start===null&&invoice.service_period_end===null){
+    return baseResult(invoice,'BLOCKED',`${coverageCategory.replaceAll('_',' ')} indicators were retained, but no service or coverage period was proven. Expense or capitalization treatment is blocked pending source evidence.`,1,['coverage_source_document','service_period_start','service_period_end'],'AI_PREPAID_COVERAGE_REQUIRED_V1');
   }
 
   const policyDecision=applyAiCapitalizationPolicy({policy:capitalizationPolicy,amount:invoice.amount,currency:invoice.currency,chargeCode:invoice.charge_code,projectRef:invoice.project_ref});

@@ -61,6 +61,23 @@ test('blocks unmapped charge codes and routes completed-project capital cost to 
   assert.equal(completed.rule_id,'AI_POST_COMPLETION_CAPITALIZATION_V1');
 });
 
+test('never expenses likely prepaid invoices when coverage evidence is missing',()=>{
+  for(const description of ['Annual insurance premium','SaaS subscription renewal','Property tax statement','Loan origination fee','Annual maintenance contract']){
+    const result=classifyRetainedInvoice(invoice({description,charge_code:'OPERATING'}),{capitalizationPolicy:policy});
+    assert.equal(result.classification,'BLOCKED',description);
+    assert.equal(result.rule_id,'AI_PREPAID_COVERAGE_REQUIRED_V1');
+    assert.deepEqual(result.required_human_fields,['coverage_source_document','service_period_start','service_period_end']);
+    assert.equal(result.policy_evidence,null);
+  }
+});
+
+test('known one-month coverage may follow policy while multi-month coverage remains prepaid review',()=>{
+  const oneMonth=classifyRetainedInvoice(invoice({description:'Insurance premium',service_period_start:'2026-06-01',service_period_end:'2026-06-30'}),{capitalizationPolicy:policy});
+  assert.equal(oneMonth.classification,'EXPENSE');
+  const annual=classifyRetainedInvoice(invoice({description:'Insurance premium',service_period_start:'2026-01-01',service_period_end:'2026-12-31'}),{capitalizationPolicy:policy});
+  assert.equal(annual.classification,'PREPAID_AMORTIZATION');
+});
+
 test('rejects oversized scans before processing',()=>{
   assert.throws(()=>classifyRetainedInvoiceBatch(Array.from({length:501},()=>invoice())),error=>error.code==='AI_INVOICE_CLASSIFICATION_SCOPE_INVALID');
 });

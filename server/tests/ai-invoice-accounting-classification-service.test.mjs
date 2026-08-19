@@ -41,3 +41,8 @@ test('does not scan when persistence or a stable idempotency key is unavailable'
   await assert.rejects(service().analyzeAndMaterialize({tenantId,entityId,accountingPeriodId:periodId,idempotencyKey:'invoice-scan-001'}),error=>error.code==='AI_INVOICE_CLASSIFICATION_PERSISTENCE_UNAVAILABLE');
   await assert.rejects(service({materializeWriter:async()=>({})}).analyzeAndMaterialize({tenantId,entityId,accountingPeriodId:periodId,idempotencyKey:'short'}),error=>error.code==='AI_INVOICE_CLASSIFICATION_IDEMPOTENCY_INVALID');
 });
+
+test('retained invoice wording triggers coverage review instead of silent expense treatment',async()=>{
+  const result=await service({detailReader:async()=>[{source_document_id:documentId,payload_hash:hash('a'),currency:'USD',posted_journal_entry_ids:[],lines:[{source_document_line_id:lineId,amount:'1200.0000',party_ref:'Annual Insurance Company',project_ref:null,property_ref:null,description:'Annual insurance premium',provider_trace:{trace_version:'WBS_PROVIDER_SOURCE_TRACE_V1',domain:'PAYABLES',disposition:'RETAINED',invoice_no:'INV-2',invoice_date:'2026-01-02',invoice_description:'Annual insurance premium',accrual:{service_period_start:null,service_period_end:null,charge_code:'BUILD-HARD'}}}]}]}).analyze({tenantId,entityId,accountingPeriodId:periodId});
+  assert.equal(result.results[0].classification,'BLOCKED');assert.equal(result.results[0].rule_id,'AI_PREPAID_COVERAGE_REQUIRED_V1');
+});
