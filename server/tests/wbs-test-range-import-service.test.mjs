@@ -9,25 +9,25 @@ const scope={tenantId,entityId,companyCode:'WBPA',actors};
 const hash=letter=>`sha256:${letter.repeat(64)}`;
 const observation=(tool,letter,date='2026-01-15')=>({schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool,environment:'PRODUCTION',entity_id:entityId,captured_at:'2026-08-19T12:00:00.000Z',provider_content_sha256:letter.repeat(64),scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},record_count:1,rows:[tool==='list_payables'?{source_record_hash:hash(letter),currency:'USD',accounting_date:date,amount:'10.0000',status:'OPEN'}:{source_record_hash:hash(letter),currency:'USD',accounting_date:date,amount:'20.0000',direction:'DEBIT',status:'OPEN'}],signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash(letter)});
 
-function harness({duplicate=false,loop=false,identityMismatch=false,outOfOrder=false,tokenMode=false}={}){
-  const calls=[];let draft=0,bank=0;
-  const pages={
-    list_payables:[observation('list_payables','a'),observation('list_payables',duplicate?'a':'b','2026-06-30')],
-    list_bank_transactions:[observation('list_bank_transactions','c'),observation('list_bank_transactions','d','2026-06-30')]
-  };
+function harness({duplicate=false,loop=false,identityMismatch=false,identityMismatchTool=null,outOfOrder=false,reverseRows=false,repartition=null,tokenMode=false}={}){
+  const calls=[];let draft=0,bank=0;const draftReceipts=new Map(),postReceipts=new Map(),bankReceipts=new Map();
+  const page=(tool,facts)=>{const base=observation(tool,facts[0][0],facts[0][1]),rows=facts.map(([letter,date])=>observation(tool,letter,date).rows[0]);return {...base,record_count:rows.length,rows};};
+  const payableFacts=repartition?[['a','2026-01-15'],['b','2026-03-15'],['c','2026-06-30']]:[['a','2026-01-15'],['b','2026-06-30']],bankFacts=repartition?[['d','2026-01-15'],['e','2026-03-15'],['f','2026-06-30']]:[['c','2026-01-15'],['d','2026-06-30']];
+  const layout=(tool,facts)=>repartition==='one-two'?[page(tool,[facts[0]]),page(tool,facts.slice(1))]:repartition==='two-one'?[page(tool,[facts[2],facts[0]]),page(tool,[facts[1]])]:reverseRows?[page(tool,[facts[1]]),page(tool,[facts[0]])]:[page(tool,[facts[0]]),page(tool,[duplicate?[facts[0][0],facts[1][1]]:facts[1]])];
+  const pages={list_payables:layout('list_payables',payableFacts),list_bank_transactions:layout('list_bank_transactions',bankFacts)};
   const pilotService={
     async readObservation(){throw new Error('legacy read not expected');},
-    async readObservationPage(args){calls.push(['read',args]);const index=args.cursor===null?0:1,token=tokenMode?`snapshot-${args.tool}`:null;return {observation:pages[args.tool][index],cursor_next:index===0?'page-2':loop?'page-2':null,pagination:{snapshot_token:token,captured_at:index===1?'2026-08-19T12:00:01.000Z':'2026-08-19T12:00:00.000Z',contract_version:identityMismatch&&index===1?'WBS-REFS-MCP-V2':'WBS-REFS-MCP-V1',environment:'production',source_hash:hash('f'),first_stable_key:index===0?'001':outOfOrder?'001':'002',last_stable_key:index===0?'001':outOfOrder?'001':'002'}};}
+    async readObservationPage(args){calls.push(['read',args]);const index=args.cursor===null?0:Number(args.cursor.slice(5))-1,token=tokenMode?`snapshot-${args.tool}`:null,last=index===pages[args.tool].length-1,mismatch=(identityMismatch||identityMismatchTool===args.tool)&&last;return {observation:pages[args.tool][index],cursor_next:last?(loop?'page-2':null):`page-${index+2}`,pagination:{snapshot_token:token,captured_at:index===1?'2026-08-19T12:00:01.000Z':'2026-08-19T12:00:00.000Z',contract_version:mismatch?'WBS-REFS-MCP-V2':'WBS-REFS-MCP-V1',environment:'production',source_hash:hash('f'),first_stable_key:index===0?'001':outOfOrder?'001':'002',last_stable_key:index===0?'001':outOfOrder?'001':'002'}};}
   };
   const kernelForActor=actor=>({
     async ensureWbsTestH12026Periods(args){calls.push(['periods',actor,args]);return {status:'WBS_TEST_H1_PERIODS_READY',periods:Array.from({length:6},(_,index)=>{const month=index+1,code=`2026-${String(month).padStart(2,'0')}`;return {period_id:uuid(200+month),period_code:code,starts_on:`${code}-01`,ends_on:new Date(Date.UTC(2026,month,0)).toISOString().slice(0,10)};}),test_only:true};},
-    async createWbsTestPayableDraft(args){calls.push(['draft',actor,args]);const n=++draft*10;return {business_document_id:uuid(n+1),journal_entry_id:uuid(n+2),source_document_id:uuid(n+3),attachment_id:uuid(n+4),status:'DRAFT',revision:0,idempotent:false,test_only:true,provenance_mode:'UNSIGNED_TEST_ONLY'};},
+    async createWbsTestPayableDraft(args){calls.push(['draft',actor,args]);if(draftReceipts.has(args.idempotencyKey))return {...draftReceipts.get(args.idempotencyKey),idempotent:true};const n=++draft*10,result={business_document_id:uuid(n+1),journal_entry_id:uuid(n+2),source_document_id:uuid(n+3),attachment_id:uuid(n+4),status:'DRAFT',revision:0,idempotent:false,test_only:true,provenance_mode:'UNSIGNED_TEST_ONLY'};draftReceipts.set(args.idempotencyKey,result);return result;},
     async transitionJournal(args){calls.push(['transition',actor,args]);return {status:{SUBMIT:'PENDING_REVIEW',REVIEW:'PENDING_APPROVAL',APPROVE:'APPROVED'}[args.action]};},
-    async postJournal(args){calls.push(['post',actor,args]);return {journal_entry_id:args.journalEntryId,posting_batch_id:uuid(80+draft),idempotent:false,revision:4};},
+    async postJournal(args){calls.push(['post',actor,args]);if(postReceipts.has(args.idempotencyKey))return {...postReceipts.get(args.idempotencyKey),idempotent:true};const result={journal_entry_id:args.journalEntryId,posting_batch_id:uuid(80+postReceipts.size+1),idempotent:false,revision:4};postReceipts.set(args.idempotencyKey,result);return result;},
     async finalizeWbsTestImportSource(args){calls.push(['finalize',actor,args]);return {status:'POSTED',test_only:true,idempotent:false};},
-    async createWbsControlledTestBankScope(args){calls.push(['bank',actor,args]);const n=++bank,ids=args.observation.rows.map((_,index)=>uuid(120+n+index));return {wbs_controlled_test_bank_import_id:uuid(100+n),reconciliation_id:uuid(110+n),bank_source_ids:ids,bank_account_ref:args.bankAccountRef,statement_ending_date:args.observation.rows.at(-1).accounting_date,transaction_count:ids.length,status:'DRAFT',provenance_mode:'CONTROLLED_TEST_UNSIGNED',test_only:true,idempotent:false};}
+    async createWbsControlledTestBankScope(args){calls.push(['bank',actor,args]);if(bankReceipts.has(args.idempotencyKey))return {...bankReceipts.get(args.idempotencyKey),idempotent:true};const n=++bank,ids=args.observation.rows.map((_,index)=>uuid(120+n+index)),result={wbs_controlled_test_bank_import_id:uuid(100+n),reconciliation_id:uuid(110+n),bank_source_ids:ids,bank_account_ref:args.bankAccountRef,statement_ending_date:args.observation.rows.at(-1).accounting_date,transaction_count:ids.length,status:'DRAFT',provenance_mode:'CONTROLLED_TEST_UNSIGNED',test_only:true,idempotent:false};bankReceipts.set(args.idempotencyKey,result);return result;}
   });
-  return {calls,service:createWbsTestImportService({pilotService,kernelForActor,authorizeBank:async args=>calls.push(['authorize',args]),scope})};
+  return {calls,deltaCount:()=>draftReceipts.size+postReceipts.size+bankReceipts.size,service:createWbsTestImportService({pilotService,kernelForActor,authorizeBank:async args=>calls.push(['authorize',args]),scope})};
 }
 
 const input={tenantId,entityId,companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'2026-06-30',pageSize:10,maxPages:2,idempotencyKey:'wbs-h1-2026-v1'};
@@ -47,10 +47,30 @@ test('retains strict optional-token identity while still completing all reads be
   assert.equal(calls.findIndex(([kind])=>kind==='draft')>calls.map(([kind])=>kind).lastIndexOf('read'),true);
 });
 
-test('rejects duplicate hashes, cursor loops, identity mismatch, global key disorder, and truncation before writes',async()=>{
-  for(const options of [{duplicate:true},{loop:true},{identityMismatch:true},{outOfOrder:true}]){
+test('accepts cursor traversal that is not globally stable-key ordered and writes globally sorted identities',async()=>{
+  const {service,calls}=harness({outOfOrder:true,reverseRows:true});await service.importRange(input);
+  const drafts=calls.filter(([kind])=>kind==='draft');assert.equal(drafts.length,2);assert.deepEqual(drafts.map(([, ,args])=>args.row.source_record_hash),[hash('a'),hash('b')]);
+  assert.equal(calls.findIndex(([kind])=>kind==='draft')>calls.map(([kind])=>kind).lastIndexOf('read'),true);
+});
+
+test('same facts under different Provider page boundaries and row order retain exact aggregate hashes and child keys',async()=>{
+  const first=harness({repartition:'one-two'}),second=harness({repartition:'two-one'});await first.service.importRange(input);await second.service.importRange(input);
+  const signature=calls=>calls.filter(([kind])=>kind==='draft').map(([, ,args])=>[args.row.source_record_hash,args.observation.observation_hash,args.observation.provider_content_sha256,args.idempotencyKey]);
+  assert.deepEqual(signature(first.calls),signature(second.calls));
+  const bankSignature=calls=>calls.filter(([kind])=>kind==='bank').map(([, ,args])=>[args.observation.observation_hash,args.observation.provider_content_sha256,args.idempotencyKey]);
+  assert.deepEqual(bankSignature(first.calls),bankSignature(second.calls));
+});
+
+test('same-key replay has no new accounting child receipts after deterministic aggregation',async()=>{
+  const fixture=harness({repartition:'two-one'}),first=await fixture.service.importRange(input),before=fixture.deltaCount(),second=await fixture.service.importRange(input);
+  assert.equal(fixture.deltaCount(),before);assert.equal(first.payables.imported_count,3);assert.equal(second.payables.imported_count,0);assert.equal(second.payables.replayed_count,3);assert.equal(second.payables.posted_count,3);
+});
+
+test('rejects duplicate hashes, cursor loops, identity mismatch, and truncation before writes',async()=>{
+  for(const options of [{duplicate:true},{loop:true},{identityMismatch:true}]){
     const {service,calls}=harness(options);await assert.rejects(service.importRange(input),error=>error.code==='WBS_TEST_IMPORT_ROW_INVALID');assert.equal(calls.some(([kind])=>['draft','bank'].includes(kind)),false);
   }
+  for(const identityMismatchTool of ['list_payables','list_bank_transactions']){const {service,calls}=harness({identityMismatchTool});await assert.rejects(service.importRange(input),error=>error.code==='WBS_TEST_IMPORT_ROW_INVALID');assert.equal(calls.some(([kind])=>['draft','bank'].includes(kind)),false);}
   const {service,calls}=harness();await assert.rejects(service.importRange({...input,maxPages:1}),error=>error.code==='WBS_TEST_IMPORT_PAGE_LIMIT_EXCEEDED');assert.equal(calls.some(([kind])=>['draft','bank'].includes(kind)),false);
   await assert.rejects(service.importRange({...input,pageSize:5}),error=>error.code==='WBS_TEST_IMPORT_SELECTION_INVALID');assert.equal(calls.some(([kind])=>['draft','bank'].includes(kind)),false);
 });
