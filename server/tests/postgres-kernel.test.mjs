@@ -4163,6 +4163,29 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
   assert.deepEqual(restored,{item_reader_restored:true,evidence_retained:true,import_cap_restored:true,row_cap_restored:true,function_cap_restored:true,item_guard_retained:true});
 });
 
+pgTest('WBS TEST Bank post-clear batch rolls back 100 Approved journals under a low timeout then resumes locally',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'610000',accountName:'Controlled test Bank offset expense'}]}),reason='UNSIGNED TEST ONLY — exercise bounded post-clear timeout recovery';
+  const rows=Array.from({length:100},(_,index)=>({source_record_hash:hash(`wbs-bank-post-clear-100-${index}`),currency:'USD',accounting_date:`2026-07-${String(index%28+1).padStart(2,'0')}`,amount:'1.0000',direction:'DEBIT',status:'POSTED'}));
+  const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_bank_transactions',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-19T00:00:00.000Z',provider_content_sha256:createHash('sha256').update('post-clear-100').digest('hex'),scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']},record_count:rows.length,rows,signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:hash('post-clear-100-observation')};
+  const actors={maker:'bank-post-clear-maker',submitter:'bank-post-clear-submitter',reviewer:'bank-post-clear-reviewer',approver:'bank-post-clear-approver',poster:'bank-post-clear-poster'},permissions={maker:['BANK.RECONCILIATION.ADJUSTMENT_DRAFT','GL.JE.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST','BANK.RECONCILIATION.CLEAR']};
+  const kernel=actor=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actors[actor],permissions[actor])}),importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'bank-post-clear-importer',['WBS.TEST.IMPORT','BANK.RECONCILIATION.START'])});
+  const created=await importer.createWbsControlledTestBankScope({...ids,companyCode:'WBPA',observation,bankAccountRef:'WBS_TEST_BANK',idempotencyKey:'bank-post-clear-import'}),bankSourceIds=created.bank_source_ids,idempotencyRoot='bank-post-clear-workflow';
+  const evidence=await kernel('maker').listVerifiedCleanAttachmentIds({tenantId:ids.tenantId,entityId:ids.entityId,limit:1});
+  const batch={tenantId:ids.tenantId,entityId:ids.entityId,reconciliationId:created.reconciliation_id,bankSourceIds,idempotencyRoot};
+  await kernel('maker').draftWbsTestBankAdjustmentBatch({...batch,periodId:ids.periodId,attachmentIds:evidence,reason});
+  await kernel('submitter').submitWbsTestBankAdjustmentBatch(batch);await kernel('reviewer').reviewWbsTestBankAdjustmentBatch(batch);await kernel('approver').approveWbsTestBankAdjustmentBatch(batch);
+  const directLowTimeout=async()=>{const session=await sessionProvider(ids,actors.poster,permissions.poster)(),client=await runtimePool.connect();try{await client.query('BEGIN');await client.query('SET LOCAL ROLE refs_app');await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);await client.query("SELECT set_config('statement_timeout','5ms',true)");await client.query('SELECT refs_wbs_test_bank_adjustment_post_clear_batch($1,$2,$3,$4,$5::uuid[],$6,$7)',[ids.tenantId,ids.entityId,created.reconciliation_id,ids.periodId,bankSourceIds,reason,idempotencyRoot]);await client.query('COMMIT');}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}};
+  await assert.rejects(directLowTimeout(),error=>error.code==='57014');
+  const state=async()=>(await adminPool.query(`SELECT count(*) FILTER(WHERE j.status='APPROVED')::int approved,count(*) FILTER(WHERE j.status='POSTED')::int posted,count(*) FILTER(WHERE ri.state='CLEARED')::int cleared
+    FROM reconciliation_adjustment_draft d JOIN journal_entry j ON j.tenant_id=d.tenant_id AND j.entity_id=d.entity_id AND j.journal_entry_id=d.journal_entry_id
+    LEFT JOIN reconciliation_item ri ON ri.tenant_id=d.tenant_id AND ri.entity_id=d.entity_id AND ri.reconciliation_id=d.reconciliation_id AND ri.bank_source_id=d.bank_source_id
+    WHERE d.tenant_id=$1 AND d.entity_id=$2 AND d.reconciliation_id=$3`,[ids.tenantId,ids.entityId,created.reconciliation_id])).rows[0];
+  assert.deepEqual(await state(),{approved:100,posted:0,cleared:0});
+  const poster=kernel('poster'),completed=await poster.postClearWbsTestBankAdjustmentBatch({...batch,periodId:ids.periodId,reason}),replay=await poster.postClearWbsTestBankAdjustmentBatch({...batch,periodId:ids.periodId,reason});
+  assert.equal(completed.posted_count,100);assert.equal(completed.cleared_count,100);assert.equal(replay.posted_count,0);assert.equal(replay.cleared_count,0);
+  assert.deepEqual(await state(),{approved:0,posted:100,cleared:100});assert.equal((await runtimePool.query('SHOW statement_timeout')).rows[0].statement_timeout,'10s');
+});
+
 pgTest('WBS TEST Bank monthly identity admits legacy July hashes, isolates months, and rejects changed same-month payloads',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null}),actor='controlled-bank-monthly-identity';
   const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actor,['WBS.TEST.IMPORT','BANK.RECONCILIATION.START'])});

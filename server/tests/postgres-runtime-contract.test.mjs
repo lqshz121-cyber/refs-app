@@ -626,7 +626,11 @@ test('large TEST_ONLY Bank import checkpoints privately and publishes core rows 
   const finalizeRepository=repository.slice(repository.indexOf("if(stop<begin.chunk_count)"),repository.indexOf('async ensureWbsTestH12026Periods'));
   assert.match(finalizeRepository,/set_config\('statement_timeout',\$1,true\)[\s\S]+WBS_TEST_BANK_FINALIZE_STATEMENT_TIMEOUT/);
   assert.match(repository,/const WBS_TEST_BANK_FINALIZE_STATEMENT_TIMEOUT='120s'/);
-  assert.equal((repository.match(/set_config\('statement_timeout'/g)||[]).length,1);
+  assert.equal((finalizeRepository.match(/set_config\('statement_timeout'/g)||[]).length,1);
+  const batchRepository=repository.slice(repository.indexOf('async draftWbsTestBankAdjustmentBatch'),repository.indexOf('async createBankPaymentMatch'));
+  assert.match(repository,/const WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT='120s'/);
+  assert.equal((batchRepository.match(/set_config\('statement_timeout',\$1,true\)/g)||[]).length,1);
+  assert.equal((batchRepository.match(/WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT/g)||[]).length,1);
 });
 
 test('isolated issuer derives authorization from DB grants and supports revoke and cleanup',()=>{
