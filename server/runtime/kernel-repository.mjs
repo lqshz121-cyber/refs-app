@@ -487,6 +487,24 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async listAiConstructionLoanEntryProposals({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_construction_loan_entry_proposals($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async proposeAiConstructionLoanEntry({tenantId,entityId,classificationEvidenceId,classificationHash,accountingPeriodId,treatmentDecision,debitAccountCode,creditAccountCode,memberTrace,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,classificationEvidenceId,classificationHash,accountingPeriodId,treatmentDecision,debitAccountCode,creditAccountCode,JSON.stringify(memberTrace),reason];
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_ai_construction_loan_entry_proposal_hash($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10) AS request_hash',args
+      ),'AI_CONSTRUCTION_LOAN_ENTRY_PROPOSAL_HASH_FAILED','AI construction loan entry proposal hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_propose_ai_construction_loan_entry($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12) AS result',[...args,idempotencyKey,requestHash]
+      ),'AI_CONSTRUCTION_LOAN_ENTRY_PROPOSAL_FAILED','AI construction loan entry proposal did not return a result').result;
+    });
+  }
+
   async listAiAmortizationCoverageEvidence({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_amortization_coverage_evidence($1,$2,$3)',[tenantId,entityId,limit]
