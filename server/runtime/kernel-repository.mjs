@@ -609,6 +609,26 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async materializeAiInvoiceAccountingClassifications({tenantId,entityId,accountingPeriodId,batch,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_ai_invoice_classification_batch_hash($1,$2,$3,$4::jsonb) AS request_hash',
+        [tenantId,entityId,accountingPeriodId,JSON.stringify(batch)]
+      ),'AI_INVOICE_CLASSIFICATION_HASH_FAILED','AI invoice classification request hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_materialize_ai_invoice_classification_batch($1,$2,$3,$4::jsonb,$5,$6) AS result',
+        [tenantId,entityId,accountingPeriodId,JSON.stringify(batch),idempotencyKey,requestHash]
+      ),'AI_INVOICE_CLASSIFICATION_MATERIALIZE_FAILED','AI invoice classification receipt was not produced').result;
+    });
+  }
+
+  async listAiInvoiceAccountingClassificationEvidence({tenantId,entityId,accountingPeriodId,limit=100}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_invoice_classification_evidence($1,$2,$3,$4)',
+      [tenantId,entityId,accountingPeriodId,limit]
+    )).rows);
+  }
+
   async beginAiAccountingAnalysisExplanation({tenantId,entityId,summary,evidence,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

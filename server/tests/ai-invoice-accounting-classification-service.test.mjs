@@ -29,3 +29,14 @@ test('does not inspect immutable artifact bytes or invoke a model',async()=>{
 test('fails the entire read on an authoritative evidence-reader failure',async()=>{
   await assert.rejects(service({evidenceReader:async()=>{throw Object.assign(new Error('database unavailable'),{code:'SERIALIZATION_RETRY_EXHAUSTED'});}}).analyze({tenantId,entityId,accountingPeriodId:periodId}),error=>error.code==='SERIALIZATION_RETRY_EXHAUSTED');
 });
+
+test('atomically materializes the exact computed batch with actor-bound idempotency',async()=>{
+  const writes=[];const result=await service({materializeWriter:async input=>(writes.push(input),{schema_version:'AI_INVOICE_ACCOUNTING_CLASSIFICATION_RUN_RECEIPT_V1',inserted_count:1})}).analyzeAndMaterialize({tenantId,entityId,accountingPeriodId:periodId,idempotencyKey:'invoice-scan-001'});
+  assert.equal(result.inserted_count,1);assert.equal(writes.length,1);assert.equal(writes[0].batch.results[0].classification,'PREPAID_AMORTIZATION');assert.equal(writes[0].idempotencyKey,'invoice-scan-001');
+  assert.deepEqual(writes[0].batch.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+});
+
+test('does not scan when persistence or a stable idempotency key is unavailable',async()=>{
+  await assert.rejects(service().analyzeAndMaterialize({tenantId,entityId,accountingPeriodId:periodId,idempotencyKey:'invoice-scan-001'}),error=>error.code==='AI_INVOICE_CLASSIFICATION_PERSISTENCE_UNAVAILABLE');
+  await assert.rejects(service({materializeWriter:async()=>({})}).analyzeAndMaterialize({tenantId,entityId,accountingPeriodId:periodId,idempotencyKey:'short'}),error=>error.code==='AI_INVOICE_CLASSIFICATION_IDEMPOTENCY_INVALID');
+});

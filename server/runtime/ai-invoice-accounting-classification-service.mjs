@@ -14,10 +14,9 @@ const money4=value=>{
 const payableLines=detail=>(Array.isArray(detail?.lines)?detail.lines:[])
   .filter(line=>line?.provider_trace?.trace_version==='WBS_PROVIDER_SOURCE_TRACE_V1'&&line.provider_trace.domain==='PAYABLES'&&line.provider_trace.disposition==='RETAINED');
 
-export function createAiInvoiceAccountingClassificationService({sourceReader,detailReader,evidenceReader,duplicateFindingReader}={}){
+export function createAiInvoiceAccountingClassificationService({sourceReader,detailReader,evidenceReader,duplicateFindingReader,materializeWriter=null}={}){
   if(typeof sourceReader!=='function'||typeof detailReader!=='function'||typeof evidenceReader!=='function'||typeof duplicateFindingReader!=='function')throw new Error('AI invoice classification requires authoritative source, detail, signed evidence, and duplicate finding readers');
-  return Object.freeze({
-    async analyze({tenantId,entityId,accountingPeriodId,limit=100}){
+  const analyze=async({tenantId,entityId,accountingPeriodId,limit=100})=>{
       if(!UUID.test(tenantId||'')||!UUID.test(entityId||'')||!UUID.test(accountingPeriodId||'')||!Number.isInteger(limit)||limit<1||limit>500){
         const error=new Error('AI invoice classification requires tenant, entity, accounting period, and a limit from 1 to 500');error.code='AI_INVOICE_CLASSIFICATION_SCOPE_INVALID';throw error;
       }
@@ -47,6 +46,14 @@ export function createAiInvoiceAccountingClassificationService({sourceReader,det
       }
       const batch=classifyRetainedInvoiceBatch(inputs);
       return Object.freeze({...batch,scope:Object.freeze({tenant_id:tenantId,entity_id:entityId,accounting_period_id:accountingPeriodId}),scanned_document_count:candidates.length,eligible_invoice_line_count:inputs.length,action_flags:ACTIONS});
+  };
+  return Object.freeze({
+    analyze,
+    async analyzeAndMaterialize({tenantId,entityId,accountingPeriodId,limit=100,idempotencyKey}){
+      if(typeof materializeWriter!=='function')throw Object.assign(new Error('AI invoice classification evidence persistence is unavailable'),{code:'AI_INVOICE_CLASSIFICATION_PERSISTENCE_UNAVAILABLE'});
+      if(typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>200)throw Object.assign(new Error('AI invoice classification requires a stable idempotency key'),{code:'AI_INVOICE_CLASSIFICATION_IDEMPOTENCY_INVALID'});
+      const batch=await analyze({tenantId,entityId,accountingPeriodId,limit});
+      return materializeWriter({tenantId,entityId,accountingPeriodId,batch,idempotencyKey});
     }
   });
 }

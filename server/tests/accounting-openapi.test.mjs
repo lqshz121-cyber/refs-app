@@ -22,6 +22,7 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
   assert.ok(operationIds.includes('importWbsControlledTestBankTransactions'));
   assert.ok(operationIds.includes('runControlledTestAiWorkflow'));
   assert.ok(operationIds.includes('runWbsControlledTestBankMatch'));
+  assert.ok(operationIds.includes('materializeInvoiceAccountingClassifications'));
 });
 
 test('AI amortization schedule exposes immutable line identity and a closed Draft-only receipt',()=>{

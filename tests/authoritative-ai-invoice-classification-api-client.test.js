@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {refreshAuthoritativeAiInvoiceAccountingClassifications} from '../src/accounting-api.js';
+import {refreshAuthoritativeAiInvoiceAccountingClassifications,retainAuthoritativeAiInvoiceAccountingClassifications} from '../src/accounting-api.js';
 
 const entityId='22222222-2222-4222-8222-222222222222',periodId='33333333-3333-4333-8333-333333333333',hash=c=>`sha256:${c.repeat(64)}`;
 const config={baseUrl:'https://refs.example',entityId,periodId,getAccessToken:async()=> 'a'.repeat(48)};
@@ -17,4 +17,8 @@ const accepted=await run({ok:true,data});assert.equal(accepted.ok,true,JSON.stri
 for(const unsafe of [{...data,action_flags:{...actions,can_post:true}},{...data,raw_package:{credential:'forbidden'}},{...data,results:[{...row,classification:'AUTO_POST'}]}]){
   const rejected=await run({ok:true,data:unsafe});assert.equal(rejected.ok,false);assert.equal(rejected.code,'AI_INVOICE_CLASSIFICATION_PROTOCOL');
 }
+const evidenceId='66666666-6666-4666-8666-666666666666',receipt={schema_version:'AI_INVOICE_ACCOUNTING_CLASSIFICATION_RUN_RECEIPT_V1',accounting_period_id:periodId,row_count:1,inserted_count:1,replayed_count:0,classification_evidence_ids:[evidenceId],request_hash:hash('c'),...actions,idempotent:false};
+const retained=await retainAuthoritativeAiInvoiceAccountingClassifications({config,limit:50,idempotencyKey:'invoice-classification-test-1',fetcher:async(url,options)=>{assert.equal(url,`https://refs.example/api/v1/entities/${entityId}/ai/invoice-accounting-classification-runs`);assert.equal(options.method,'POST');assert.equal(options.cache,'no-store');assert.equal(options.headers['idempotency-key'],'invoice-classification-test-1');assert.deepEqual(JSON.parse(options.body),{accounting_period_id:periodId,limit:50});return {ok:true,status:201,json:async()=>({ok:true,data:receipt})};}});
+assert.equal(retained.ok,true,JSON.stringify(retained));assert.equal(retained.data.can_post,false);
+for(const unsafe of [{...receipt,can_create_draft:true},{...receipt,classification_evidence_ids:[]},{...receipt,request_hash:'weak-hash'},{...receipt,idempotent:true}]){const rejected=await retainAuthoritativeAiInvoiceAccountingClassifications({config,idempotencyKey:'invoice-classification-test-1',fetcher:async()=>({ok:true,status:201,json:async()=>({ok:true,data:unsafe})})});assert.equal(rejected.ok,false);assert.equal(rejected.code,'AI_INVOICE_CLASSIFICATION_RUN_PROTOCOL');}
 console.log('authoritative AI invoice classification client: strict source-bound no-action DTO passed');
