@@ -33,7 +33,7 @@ test('imports one sanitized live Payable through six distinct actors and returns
 
 test('counts atomic Draft receipt replay while replaying the same role-bound workflow keys',async()=>{
   const {service,calls}=harness({mutateDraft:()=>({business_document_id:uuid(1),journal_entry_id:uuid(2),source_document_id:uuid(3),attachment_id:uuid(4),status:'DRAFT',revision:0,idempotent:true,test_only:true,provenance_mode:'UNSIGNED_TEST_ONLY'})});
-  const result=await service.importPayables(input);assert.deepEqual({imported:result.imported_count,replayed:result.replayed_count,posted:result.posted_count},{imported:0,replayed:1,posted:1});assert.ok(calls.every(([,action,args])=>action==='draft'||args.idempotencyKey.startsWith(`${input.idempotencyKey}:0:`)));
+  const result=await service.importPayables(input);assert.deepEqual({imported:result.imported_count,replayed:result.replayed_count,posted:result.posted_count},{imported:0,replayed:1,posted:1});assert.ok(calls.every(([,action,args])=>action==='draft'||args.idempotencyKey.startsWith(`${input.idempotencyKey}:${'a'.repeat(24)}:`)));
 });
 
 test('same-key replay accepts the original workflow receipts after the journal is already POSTED',async()=>{

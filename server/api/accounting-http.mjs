@@ -10,7 +10,7 @@ import {AiAnalysisExplanationError} from '../runtime/ai-analysis-explanation-ser
 import {AI_ACCOUNTING_SKILL_REGISTRY_VERSION,AI_ACCOUNTING_SKILLS} from '../runtime/ai-accounting-skill-registry.mjs';
 import {WbsCompanyCatalogControllerError,normalizeWbsCompanyCatalogCandidate,normalizeWbsCompanyClassification} from '../runtime/wbs-company-catalog-controller.mjs';
 import {assertInsurancePcMappingDto} from '../runtime/wbs-insurance-pc-mapping-controller.mjs';
-import {WbsTestImportError,assertWbsControlledTestBankResult,assertWbsTestImportResult} from '../runtime/wbs-test-import-service.mjs';
+import {WbsTestImportError,assertWbsControlledTestBankResult,assertWbsTestImportResult,assertWbsTestRangeImportResult} from '../runtime/wbs-test-import-service.mjs';
 import {ControlledTestAiWorkflowError,assertControlledTestAiWorkflowResult} from '../runtime/controlled-test-ai-workflow-service.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -175,6 +175,17 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         result=await service.importBankTransactions({tenantId:principal.tenantId,entityId,periodId:requireUuid(payload.periodId,'periodId'),companyCode:requireWbsCompanyCode(payload.companyCode),dateFrom:requireIsoDate(payload.dateFrom,'dateFrom'),dateTo:requireIsoDate(payload.dateTo,'dateTo'),limit:payload.limit,idempotencyKey:requireIdempotency(headers)});
         assertWbsControlledTestBankResult(result);
         return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='POST'&&parts.length===7&&parts[4]==='wbs'&&parts[5]==='test-import'&&parts[6]==='range'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['companyCode','dateFrom','dateTo','pageSize','maxPages']);
+        if(typeof wbsTestImportServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
+        if(!Number.isSafeInteger(payload.pageSize)||payload.pageSize<1||payload.pageSize>10)throw new AccountingApiError(400,'INVALID_LIMIT','pageSize must be an integer from 1 to 10');
+        if(!Number.isSafeInteger(payload.maxPages)||payload.maxPages<1||payload.maxPages>50)throw new AccountingApiError(400,'INVALID_LIMIT','maxPages must be an integer from 1 to 50');
+        const service=await wbsTestImportServiceFactory(principal);
+        if(!service||typeof service.importRange!=='function')throw new WbsTestImportError('WBS_TEST_IMPORT_CONFIG_INVALID','Paged test-import service is unavailable.');
+        result=await service.importRange({tenantId:principal.tenantId,entityId,companyCode:requireWbsCompanyCode(payload.companyCode),dateFrom:requireIsoDate(payload.dateFrom,'dateFrom'),dateTo:requireIsoDate(payload.dateTo,'dateTo'),pageSize:payload.pageSize,maxPages:payload.maxPages,idempotencyKey:requireIdempotency(headers)});
+        assertWbsTestRangeImportResult(result);
+        return {status:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='property-rent-pickup'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Property Rent pickup reads do not accept command headers');

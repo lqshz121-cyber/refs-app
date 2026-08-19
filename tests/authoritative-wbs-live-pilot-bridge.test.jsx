@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {accountingApiConfig,importAuthoritativeWbsBankToTestReconciliation,importAuthoritativeWbsPayablesToTestAccounting,wbsTestBankImportIdempotencyKey,wbsTestImportIdempotencyKey} from '../src/accounting-api.js';
+import {accountingApiConfig,importAuthoritativeWbsBankToTestReconciliation,importAuthoritativeWbsPayablesToTestAccounting,importAuthoritativeWbsTestRange,wbsTestBankImportIdempotencyKey,wbsTestImportIdempotencyKey} from '../src/accounting-api.js';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS,wbsLivePilotErrorGuidance} from '../src/authoritative-wbs-live-pilot-observation.jsx';
 
 const periodId='22222222-2222-4222-8222-222222222222';
@@ -118,3 +118,12 @@ async function testBankImportClientContract(){
 }
 
 testBankImportClientContract().then(()=>console.log('authoritative WBS live-pilot bridge: explicit TEST ONLY Bank reconciliation import contract passed')).catch(error=>{console.error(error);process.exitCode=1;});
+
+async function testRangeImportClientContract(){
+  const runtime=accountingApiConfig({__REFS_ACCOUNTING_API__:{...config,wbsTestImportMode:'ENABLED'}}),data={status:'WBS_TEST_RANGE_IMPORT_COMPLETE',date_from:'2026-01-01',date_to:'2026-06-30',page_size:10,payables:{page_count:2,record_count:20,imported_count:20,replayed_count:0,posted_count:20},bank:{provider_page_count:2,record_count:20,reconciliations:[{bank_account_ref:'WBS_TEST_BANK_2026_01',period_code:'2026-01',reconciliation_id:'00000001-0000-4000-8000-000000000001',transaction_count:20}],bank_source_ids:Array.from({length:20},(_,index)=>`${String(index+10).padStart(8,'0')}-0000-4000-8000-000000000001`)},test_only:true};
+  let request;const result=await importAuthoritativeWbsTestRange({config:runtime,companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'2026-06-30',fetcher:async(url,options)=>(request={url,options},{ok:true,status:201,headers:{get:()=> 'application/json'},json:async()=>({ok:true,data})})});
+  assert.equal(result.ok,true,JSON.stringify(result));assert.match(request.url,/\/wbs\/test-import\/range$/);assert.match(request.options.headers['idempotency-key'],/^wbs-test-range-[0-9a-f]{64}$/);assert.deepEqual(JSON.parse(request.options.body),{companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'2026-06-30',pageSize:10,maxPages:50});
+  const unsafe=await importAuthoritativeWbsTestRange({config:runtime,companyCode:'WBPA',dateFrom:'2026-01-01',dateTo:'2026-06-30',fetcher:async()=>({ok:true,status:201,headers:{get:()=> 'application/json'},json:async()=>({ok:true,data:{...data,bank:{...data.bank,raw_provider_rows:[]}}})})});assert.equal(unsafe.code,'WBS_TEST_RANGE_IMPORT_PROTOCOL');
+}
+
+testRangeImportClientContract().then(()=>console.log('authoritative WBS live-pilot bridge: paged H1 TEST ONLY import contract passed')).catch(error=>{console.error(error);process.exitCode=1;});

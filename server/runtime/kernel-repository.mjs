@@ -109,6 +109,12 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async ensureWbsTestH12026Periods({tenantId,entityId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_ensure_wbs_test_h1_2026_periods($1,$2) AS result',[tenantId,entityId]
+    ),'WBS_TEST_H1_PERIODS_FAILED','WBS TEST_ONLY H1 periods were not prepared').result);
+  }
+
   async finalizeWbsTestImportSource({tenantId,entityId,sourceDocumentId,businessDocumentId,journalEntryId,idempotencyKey}){
     return this.inSession(async client=>{
       const payload=[tenantId,entityId,sourceDocumentId,businessDocumentId,journalEntryId];

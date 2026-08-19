@@ -35,6 +35,15 @@ test('live pilot passes server-requested company/date scope to the provider unch
   assert.deepEqual(calls,[{toolName:'list_payables',args:{limit:10,company_code:'WBPA',incurred_date_from:'2026-01-01',incurred_date_to:'2026-12-31',posting_date_from:'2026-01-01',posting_date_to:'2026-12-31'}}]);
 });
 
+test('paged live pilot preserves the sanitized observation while carrying only the opaque provider cursor beside it',async()=>{
+  const calls=[];const client={initialize:async()=>{},listTools:async()=>{},readView:async request=>(calls.push(request),{...observed({scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']}}),cursor_next:'opaque-page-3'})};
+  const service=createWbsLivePilotReadService({client,authorize:async()=>{}});
+  const page=await service.readObservationPage({tenantId,entityId,tool:'list_payables',limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-06-30',cursor:'opaque-page-2'});
+  assert.deepEqual(Object.keys(page).sort(),['cursor_next','observation']);assert.equal(page.cursor_next,'opaque-page-3');assert.equal(Object.hasOwn(page.observation,'cursor_next'),false);assert.equal(page.observation.rows[0].accounting_date,'2026-08-11');
+  assert.deepEqual(calls[0].args,{limit:10,company_code:'WBPA',incurred_date_from:'2026-01-01',incurred_date_to:'2026-06-30',posting_date_from:'2026-01-01',posting_date_to:'2026-06-30',cursor:'opaque-page-2'});
+  await assert.rejects(service.readObservationPage({tenantId,entityId,tool:'list_payables',limit:10,cursor:'bad\nvalue'}),error=>error.code==='WBS_LIVE_PILOT_SELECTION_INVALID');
+});
+
 test('live pilot maps each provider view to its published company/date fields',async()=>{
   const calls=[];
   const make=(tool,selection,providerScope)=>createWbsLivePilotReadService({client:{initialize:async()=>{},listTools:async()=>{},readView:async request=>{calls.push(request);return observed({tool,scope:providerScope,rows:[]});}},authorize:async()=>{}}).readObservation({tenantId:'tenant',entityId:'entity',tool,limit:1,...selection});

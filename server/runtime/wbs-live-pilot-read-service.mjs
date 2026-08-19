@@ -139,6 +139,17 @@ export function createWbsLivePilotReadService({client,authorize}={}){
       await authorize({tenantId,entityId});
       let observed;try{await prepare();const args={limit,...providerScopeArgs(tool,{company_code,date_from,date_to})};observed=await client.readView({toolName:tool,args});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider response was unavailable or unsafe.');}
       return buildWbsLivePilotObservation({observed,entityId,tool,requestedScope:{company_code:company_code||null,date_from:date_from||null,date_to:date_to||null}});
+    },
+    async readObservationPage({tenantId,entityId,tool,limit,company_code,date_from,date_to,cursor=null}={}){
+      if(!tenantId||!entityId||!WBS_LIVE_PILOT_TOOLS.includes(tool)||!Number.isSafeInteger(limit)||limit<1||limit>10||(cursor!==null&&(typeof cursor!=='string'||cursor.length<1||cursor.length>2048||CONTROL.test(cursor))))fail('WBS_LIVE_PILOT_SELECTION_INVALID','A scoped approved WBS pilot page selection is required.');
+      await authorize({tenantId,entityId});
+      let observed;try{await prepare();const args={limit,...providerScopeArgs(tool,{company_code,date_from,date_to})};if(cursor!==null)args.cursor=cursor;observed=await client.readView({toolName:tool,args});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider page was unavailable or unsafe.');}
+      const cursorNext=observed.cursor_next;
+      if(cursorNext!==null&&(typeof cursorNext!=='string'||cursorNext.length<1||cursorNext.length>2048||CONTROL.test(cursorNext)))fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider returned an unsafe pagination cursor.');
+      return Object.freeze({
+        observation:buildWbsLivePilotObservation({observed,entityId,tool,requestedScope:{company_code:company_code||null,date_from:date_from||null,date_to:date_to||null}}),
+        cursor_next:cursorNext
+      });
     }
   });
 }
