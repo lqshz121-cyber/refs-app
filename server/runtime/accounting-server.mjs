@@ -11,6 +11,7 @@ import {createWbsProviderSignedPayableAdmission} from './wbs-provider-signed-pay
 import {createWbsProviderFinal1RetainedEvidenceAdmission} from './wbs-provider-final1-retained-evidence-admission.mjs';
 import {createAiAnalysisExplanationService} from './ai-analysis-explanation-service.mjs';
 import {createAiAccrualCandidateAnalysisService} from './ai-accrual-candidate-analysis-service.mjs';
+import {createAiInvoiceAccountingClassificationService} from './ai-invoice-accounting-classification-service.mjs';
 import {createWbsTestImportService} from './wbs-test-import-service.mjs';
 import {createControlledTestAiWorkflowService} from './controlled-test-ai-workflow-service.mjs';
 import {createControlledTestBankWorkflowService} from './controlled-test-bank-workflow-service.mjs';
@@ -67,6 +68,10 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
     const period=await kernel.readAiAccrualAnalysisPeriod({tenantId,entityId,currentPeriodId});
     return analysis.analyze({tenantId,entityId,currentPeriodId,companyCode:period.company_code,currentPeriodKey:period.period_code,currentPeriodOrdinal:Number(period.period_ordinal)});
   }};};
+  const aiInvoiceAccountingClassificationServiceFactory=principal=>{const kernel=kernelFor(principal);return createAiInvoiceAccountingClassificationService({
+    sourceReader:scope=>kernel.listSourceDocuments(scope),detailReader:scope=>kernel.getSourceDocumentDetail(scope),
+    evidenceReader:scope=>kernel.getWbsProviderSignedSourceEvidence(scope),duplicateFindingReader:scope=>kernel.listAiDuplicatePayableFindings(scope)
+  });};
   const server=createAccountingHttpServer({
     maxBodyBytes,releaseSha,
     healthCheck:async()=>{try{const checks=[runtimePool.query('SELECT 1 AS ready'),issuerPool.query('SELECT 1 AS ready'),runtimePool.query(INSURANCE_PC_MAPPING_READINESS)];if(wbsTestImport)checks.push(runtimePool.query(WBS_TEST_IMPORT_READINESS));if(controlledTestAiWorkflow)checks.push(runtimePool.query(CONTROLLED_TEST_AI_READINESS));if(attachmentEnabled)checks.push(attachmentStorage.probe(),virusScanner.probe());if(wbsImmutableEvidenceStorage)checks.push(wbsImmutableEvidenceStorage.probeImmutable());const [runtime,issuer,...dependencies]=await Promise.all(checks);return runtime.rowCount===1&&issuer.rowCount===1&&dependencies.every(result=>result===true||result?.rows?.[0]?.ready===true||result===undefined);}catch{return false;}},
@@ -122,6 +127,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
     wbsProviderFinal1RetainedEvidenceServiceFactory:wbsImmutableEvidenceStorage?principal=>createWbsProviderFinal1RetainedEvidenceAdmission({kernel:kernelFor(principal),storage:wbsImmutableEvidenceStorage,scanner:virusScanner,providerTrust:wbsProviderSignedTrust,principal,serviceActorId:wbsProviderSignedServiceActorId}):undefined,
     aiAnalysisExplanationServiceFactory,
     aiAccrualCandidateAnalysisServiceFactory,
+    aiInvoiceAccountingClassificationServiceFactory,
     allowedOrigins,attachmentServiceFactory:attachmentEnabled?principal=>new AttachmentEvidenceService({storage:attachmentStorage,scanner:virusScanner,uploaderKernelFactory:kernelFor,
       scannerKernelFactory:()=>kernelFor({trusted:true,tenantId:principal.tenantId,actorId:scannerServiceActorId})})
       :undefined
@@ -129,5 +135,6 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   Object.defineProperty(server,'aiGateway',{value:aiGateway||null,writable:false,enumerable:false,configurable:false});
   Object.defineProperty(server,'createAiAnalysisExplanationService',{value:aiAnalysisExplanationServiceFactory||null,writable:false,enumerable:false,configurable:false});
   Object.defineProperty(server,'createAiAccrualCandidateAnalysisService',{value:aiAccrualCandidateAnalysisServiceFactory,writable:false,enumerable:false,configurable:false});
+  Object.defineProperty(server,'createAiInvoiceAccountingClassificationService',{value:aiInvoiceAccountingClassificationServiceFactory,writable:false,enumerable:false,configurable:false});
   return server;
 }

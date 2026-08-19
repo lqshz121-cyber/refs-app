@@ -313,6 +313,7 @@
     "/entities/{entityId}/ai/skills": {"get":{"operationId":"readAiAccountingSkills","summary":"Read the server-published AI accounting capability boundary","description":"Returns implemented and planned AI skills only; it cannot create a Draft, review, approve, or post.","parameters":[{"$ref":"#/components/parameters/EntityId"}],"responses":{"200":{"description":"AI accounting skill registry"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/ai/analysis-reports": {"get":{"operationId":"readAiAccountingAnalysisReports","summary":"Read retained no-action controller analysis reports","description":"Returns completed durable controller-memo receipts only; it cannot create a Draft, review, approve, or post.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":50}}],"responses":{"200":{"description":"Retained analysis reports"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/ai/accrual-candidates": {"get":{"operationId":"analyzeAiAccrualCandidates","summary":"Read deterministic recurring-obligation accrual candidates","description":"Requires AI.ANALYSIS.EXPLAIN and authoritative retained WBS payable evidence. It returns review-required candidates only; it cannot create a Draft, review, approve, post, or write WBS.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}}],"responses":{"200":{"$ref":"#/components/responses/AiAccrualAnalysisOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"}}}},
+    "/entities/{entityId}/ai/invoice-accounting-classifications": {"get":{"operationId":"analyzeInvoiceAccountingClassifications","summary":"Classify formally admitted invoice evidence","description":"Reads provider-signed retained payable evidence for one accounting period and returns source-bound expense, prepaid, accrual, capitalization-review, or blocked classifications. This read cannot create a Draft, review, approve, post, read raw artifacts, or invoke a model.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":500,"default":100}}],"responses":{"200":{"$ref":"#/components/responses/AiInvoiceAccountingClassificationOk"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"502":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/ai/analysis-explanation": {"post":{"operationId":"explainAiAccountingAnalysis","summary":"Create a retained controller explanation without accounting authority","description":"Requires an idempotency key and creates a redacted explanation receipt only; it cannot create a Draft, review, approve, or post.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"responses":{"200":{"description":"Retained analysis explanation"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/ai/amortization/coverage-evidence": {"get":{"operationId":"listAiAmortizationCoverageEvidence","summary":"List retained source-bound amortization coverage evidence","description":"Requires AI.AMORTIZATION.VIEW. This no-store read returns immutable evidence only and cannot create a Draft JE, review, approve, post, or write a source system.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}],"responses":{"200":{"description":"Retained amortization coverage evidence"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"}}},"post":{"operationId":"recordAiAmortizationCoverageEvidence","summary":"Retain source-bound whole-month coverage evidence for AI amortization analysis","description":"Requires AI.AMORTIZATION.PROPOSE and an Idempotency-Key. This command retains immutable coverage evidence only; it cannot create a Draft JE, review, approve, post, or write a source system.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AiAmortizationCoverageEvidenceRequest"}}}},"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
     "/entities/{entityId}/ai/amortization/proposals": {"post":{"operationId":"proposeAiAmortizationSchedule","summary":"Persist an evidence-backed AI prepaid amortization proposal","description":"Requires AI.AMORTIZATION.PROPOSE and an Idempotency-Key. This command creates immutable PROPOSED analysis evidence only; it cannot create a Draft JE, review, approve, post, or write a source system.","parameters":[{"$ref":"#/components/parameters/EntityId"},{"$ref":"#/components/parameters/IdempotencyKey"}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AiAmortizationProposalRequest"}}}},"responses":{"200":{"$ref":"#/components/responses/CommandReplay"},"201":{"$ref":"#/components/responses/CommandCreated"},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"422":{"$ref":"#/components/responses/Problem"},"503":{"$ref":"#/components/responses/Problem"},"default":{"$ref":"#/components/responses/Problem"}}}},
@@ -4604,6 +4605,43 @@
           "data": {"$ref": "#/components/schemas/AiAccrualAnalysisResult"}
         }
       },
+      "AiInvoiceNoAccountingActions": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["can_create_draft", "can_review", "can_approve", "can_post"],
+        "properties": {"can_create_draft":{"const":false},"can_review":{"const":false},"can_approve":{"const":false},"can_post":{"const":false}}
+      },
+      "AiInvoiceAccountingClassification": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema_version","source_document_id","source_document_line_id","source_payload_hash","source_line_hash","classification","reason","confidence","required_human_fields","action_flags"],
+        "properties": {
+          "schema_version":{"const":"AI_INVOICE_ACCOUNTING_CLASSIFICATION_V1"},
+          "source_document_id":{"$ref":"#/components/schemas/Uuid"},
+          "source_document_line_id":{"$ref":"#/components/schemas/Uuid"},
+          "source_payload_hash":{"$ref":"#/components/schemas/Sha256"},
+          "source_line_hash":{"$ref":"#/components/schemas/Sha256"},
+          "classification":{"type":"string","enum":["EXPENSE","PREPAID_AMORTIZATION","ACCRUAL_REVIEW","CAPITALIZATION_REVIEW","BLOCKED"]},
+          "reason":{"type":"string","minLength":1,"maxLength":2000},
+          "confidence":{"type":"number","minimum":0,"maximum":1},
+          "required_human_fields":{"type":"array","maxItems":20,"items":{"type":"string","minLength":1,"maxLength":64}},
+          "action_flags":{"$ref":"#/components/schemas/AiInvoiceNoAccountingActions"}
+        }
+      },
+      "AiInvoiceAccountingClassificationResult": {
+        "type":"object","additionalProperties":false,
+        "required":["schema_version","row_count","results","classification_counts","scope","scanned_document_count","eligible_invoice_line_count","action_flags"],
+        "properties":{
+          "schema_version":{"const":"AI_INVOICE_ACCOUNTING_CLASSIFICATION_BATCH_V1"},
+          "row_count":{"type":"integer","minimum":0,"maximum":500},
+          "results":{"type":"array","maxItems":500,"items":{"$ref":"#/components/schemas/AiInvoiceAccountingClassification"}},
+          "classification_counts":{"type":"object","additionalProperties":false,"required":["EXPENSE","PREPAID_AMORTIZATION","ACCRUAL_REVIEW","CAPITALIZATION_REVIEW","BLOCKED"],"properties":{"EXPENSE":{"type":"integer","minimum":0},"PREPAID_AMORTIZATION":{"type":"integer","minimum":0},"ACCRUAL_REVIEW":{"type":"integer","minimum":0},"CAPITALIZATION_REVIEW":{"type":"integer","minimum":0},"BLOCKED":{"type":"integer","minimum":0}}},
+          "scope":{"type":"object","additionalProperties":false,"required":["tenant_id","entity_id","accounting_period_id"],"properties":{"tenant_id":{"$ref":"#/components/schemas/Uuid"},"entity_id":{"$ref":"#/components/schemas/Uuid"},"accounting_period_id":{"$ref":"#/components/schemas/Uuid"}}},
+          "scanned_document_count":{"type":"integer","minimum":0},"eligible_invoice_line_count":{"type":"integer","minimum":0,"maximum":500},
+          "action_flags":{"$ref":"#/components/schemas/AiInvoiceNoAccountingActions"}
+        }
+      },
+      "AiInvoiceAccountingClassificationEnvelope": {"type":"object","additionalProperties":false,"required":["ok","data"],"properties":{"ok":{"const":true},"data":{"$ref":"#/components/schemas/AiInvoiceAccountingClassificationResult"}}},
       "ReconciliationWorksheetEnvelope": {
         "type": "object",
         "additionalProperties": false,
@@ -6332,6 +6370,11 @@
             }
           }
         }
+      },
+      "AiInvoiceAccountingClassificationOk": {
+        "description":"Source-bound, read-only invoice accounting classifications.",
+        "headers":{"Cache-Control":{"$ref":"#/components/headers/NoStore"}},
+        "content":{"application/json":{"schema":{"$ref":"#/components/schemas/AiInvoiceAccountingClassificationEnvelope"}}}
       },
       "ReconciliationWorksheetOk": {
         "description": "Authoritative current reconciliation worksheet.",
