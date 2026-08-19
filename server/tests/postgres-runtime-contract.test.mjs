@@ -93,6 +93,8 @@ const journalEntryReadTypeFixSql=await readFile(new URL('../db/migrations/064_jo
 const journalEntryReadTypeFixDown=await readFile(new URL('../db/migrations/down/064_journal_entry_read_type_fix.sql',import.meta.url),'utf8');
 const bankMatchCandidateReadSql=await readFile(new URL('../db/migrations/065_bank_match_candidate_read.sql',import.meta.url),'utf8');
 const reconciliationAdjustmentPostGuardSql=await readFile(new URL('../db/migrations/068_reconciliation_adjustment_post_guard.sql',import.meta.url),'utf8');
+const reconciliationItemAdjustmentSql=await readFile(new URL('../db/migrations/178_reconciliation_item_adjustment.sql',import.meta.url),'utf8');
+const reconciliationItemAdjustmentDown=await readFile(new URL('../db/migrations/down/178_reconciliation_item_adjustment.sql',import.meta.url),'utf8');
 const reconciliationAdjustmentPostGuardDown=await readFile(new URL('../db/migrations/down/068_reconciliation_adjustment_post_guard.sql',import.meta.url),'utf8');
 
 test('AI amortization schedule reader exposes immutable line identity without granting Draft authority',()=>{
@@ -158,6 +160,14 @@ test('reconciliation adjustment guard sees the current posted journal and rolls 
   assert.match(reconciliationAdjustmentPostGuardSql,/AFTER UPDATE OF status ON journal_entry/);
   assert.match(reconciliationAdjustmentPostGuardSql,/refs_guard_reconciliation_adjustment_lifecycle/);
   assert.match(reconciliationAdjustmentPostGuardDown,/BEFORE UPDATE OF status ON journal_entry/);
+});
+
+test('reconciliation item adjustment binds the selected bank row rather than the aggregate statement difference',()=>{
+  assert.match(reconciliationItemAdjustmentSql,/bank_delta<>bank\.amount/);
+  assert.match(reconciliationItemAdjustmentSql,/new_source_guard constant text:='OR bank\.transaction_date>rec\.statement_ending_date THEN'/);
+  assert.match(reconciliationItemAdjustmentDown,/old_source_guard constant text:='OR bank\.transaction_date>rec\.statement_ending_date OR bank\.amount<>rec\.difference THEN'/);
+  assert.match(reconciliationItemAdjustmentDown,/old_line_guard constant text:='bank_delta<>rec\.difference'/);
+  assert.match(reconciliationItemAdjustmentSql,/REVOKE ALL ON FUNCTION refs_create_reconciliation_adjustment_draft_105/);
 });
 
 test('empty scoped production observations are introduced only by a forward migration',()=>{

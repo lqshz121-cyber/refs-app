@@ -1230,13 +1230,13 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_bank_transactions($1,$2,$3,$4::date,$5::date,$6,$7)',
       [tenantId,entityId,bankAccountRef,fromDate,throughDate,limit,offset]
-    )).rows);
+    )).rows.map(row=>({...row,transaction_date:publicDate(row.transaction_date)})));
   }
 
   async listBankMatchCandidates({tenantId,entityId,bankSourceId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_bank_match_candidates($1,$2,$3)',[tenantId,entityId,bankSourceId]
-    )).rows);
+    )).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date)})));
   }
 
   async reviewWbsAutoRecBankMatch({tenantId,entityId,reviewCandidateId,candidateHash,bankMatchId,expectedMatchRevision,decision,reason,idempotencyKey}){
