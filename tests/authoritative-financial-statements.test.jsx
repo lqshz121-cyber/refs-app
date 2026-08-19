@@ -56,8 +56,8 @@ async function main(){
   assert.match(markup,/authoritative-workbench-shell/);assert.doesNotMatch(markup,/Reports workspace structure/);assert.doesNotMatch(markup,/Read API evidence/);
   assert.match(markup,/Property &amp; project reports/);assert.match(markup,/authoritative-secondary-disclosure authoritative-property-report-directory/);assert.match(markup,/Property P&amp;L/);assert.match(markup,/Project P&amp;L/);assert.match(markup,/Unit profitability/);assert.match(markup,/CWIP rollforward/);assert.match(markup,/Construction loan rollforward/);assert.match(markup,/Prepaid rollforward/);assert.match(markup,/Budget versus actual/);
   assert.match(markup,/Refresh statement evidence/);
-  assert.match(markup,/Statement snapshot \/ version/);assert.match(markup,/Load statement snapshot/);assert.match(markup,/latest approved immutable statement version/);
-  assert.match(markup,/Accounts receivable aging summary/);assert.match(markup,/id="authoritative-report-ar-aging"/);assert.match(markup,/Open aging report/);
+  assert.match(markup,/authoritative-secondary-disclosure authoritative-statement-snapshot/);assert.match(markup,/Statement snapshot/);assert.match(markup,/Load statement snapshot/);assert.match(markup,/Immutable statement evidence/);
+  assert.match(markup,/FAVORITES/);assert.match(markup,/Accounts receivable aging/);assert.match(markup,/id="authoritative-report-ar-aging"/);assert.doesNotMatch(markup,/authoritative-aging-launch/,'AR aging belongs in the compact Favorites list instead of a second large launch card');
   const projectCostMarkup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="PROJECT" workspaceEyebrow="AUTHORITATIVE / ACCOUNTING OPERATIONS" workspaceTitle="Project Cost & CWIP" workspaceDescription="Existing API readers only."/>);
   assert.match(projectCostMarkup,/Project Cost &amp; CWIP/);assert.match(projectCostMarkup,/AUTHORITATIVE[\s\S]*ACCOUNTING OPERATIONS/);assert.match(projectCostMarkup,/Project P&amp;L/);assert.match(projectCostMarkup,/CWIP rollforward/);assert.match(projectCostMarkup,/Dimension type/);assert.match(projectCostMarkup,/value="PROJECT" selected=""/);
   const lotMarkup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher} initialCatalog={{category:'OPERATING_ANALYSIS',query:'lot',preview:'TRIAL_BALANCE'}} initialDimensionType="LOT" workspaceTitle="Lot profitability" workspaceDescription="Exact retained LOT evidence only."/>);
@@ -174,6 +174,8 @@ async function main(){
   assert.match(workspace,/authoritative-report-shortcut/,'core statement shortcuts must retain an explicit visual and focusable control contract');
   assert.match(workspace,/onOpenArAging\('authoritative-report-ar-aging'/,'the A\/R aging report entry must be an explicit read-only Reports shortcut, not a favorite mutation');
   assert.match(workspace,/trial-balance-table/,'the Trial Balance table needs its dedicated narrow-table layout contract');
+  assert.match(workspace,/const statementPreviewRows=rows\.slice\(0,12\)/,'the catalog must cap its statement preview instead of creating an arbitrarily long page');
+  assert.match(workspace,/Showing \{statementPreviewRows\.length\} of \{rows\.length\} accounts\. Open the full report for every row\./,'a capped preview must direct users to the existing full-page report');
   assert.match(workspace,/report-section-row/,'statement rows must retain a readable section boundary instead of presenting a flat account list');
   assert.match(workspace,/scope="rowgroup"/,'each visible statement section must expose table grouping semantics');
   assert.match(workspace,/disabled=\{state\.phase==='LOADING'\} onClick=\{load\}>Refresh statement evidence/,'statement refresh must be an API-read control that retains the current workspace state');
@@ -191,6 +193,8 @@ async function main(){
   assert.match(workspace,/initialDimensionType='PROPERTY'/,'the direct authority entry must select only a declared API-backed dimension type');
   const css=fs.readFileSync('index.html','utf8');
   assert.match(css,/authoritative-report-shortcuts/,'Reports shortcuts must stack without clipping at narrow widths');
+  assert.match(css,/\.authoritative-core-report-shortcuts \.authoritative-report-shortcut\{min-height:44px/,'favorite reports must use one compact, consistent row height');
+  assert.match(css,/@media\(max-width:720px\).*\.authoritative-core-report-shortcuts \.authoritative-report-shortcut small\{display:none;\}/s,'narrow Reports favorites must remove secondary copy instead of producing tall wrapped rows');
   assert.match(css,/authoritative-property-table/,'property rollforward tables must use contained horizontal scrolling rather than expanding the page');
   assert.match(css,/@media\(max-width:720px\).*authoritative-report-shortcuts/s,'Reports shortcut controls need an explicit narrow-screen layout');
   console.log('authoritative financial statement contract tests passed');
