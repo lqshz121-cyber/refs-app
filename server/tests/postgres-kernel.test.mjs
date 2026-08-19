@@ -11,6 +11,7 @@ import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
 import {createWbsTestImportService,reconcileWbsTestImportActorGrants} from '../runtime/wbs-test-import-service.mjs';
 import {createControlledTestBankWorkflowService} from '../runtime/controlled-test-bank-workflow-service.mjs';
+import {createControlledTestBankMatchService} from '../runtime/controlled-test-bank-match-service.mjs';
 import {STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS,STAGE1_READ_PERMISSIONS,STAGE1_WBS_OPERATOR_PERMISSIONS,grantStage1ReadAccess,provisionStage1Scope,stage1GrantConfig,stage1ProvisionConfig,upgradeStage1ControlledTestWorkflowAccess,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from '../runtime/stage1-bootstrap.mjs';
 import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
@@ -3475,6 +3476,32 @@ pgTest('reconciliation rejects mixed currencies and non-posted hand-made match e
     VALUES($1,$2,$3,$4,$5,$6,$7,'EXACT_POSTED_PAYMENT',0,true,0,'ACTIVE','fixture-matcher')`,[bankMatchId,ids.tenantId,ids.entityId,bankSourceId,trace.documentId,ids.journalId,journalLineId]);
   const started=await starter.startReconciliation({...ids,bankAccountRef:'BANK-FAKE',statementEndingDate:'2026-07-31',statementOpeningBalance:'0.0000',statementEndingBalance:'100.0000',reason:'Start fake evidence negative statement',idempotencyKey:'reconciliation-fake-start-001'});
   await assert.rejects(clearer.setReconciliationClearance({...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Hand-made active match must not clear',idempotencyKey:'reconciliation-fake-clear-001'}),error=>error.code==='23514'&&/exact actively matched/i.test(error.message));
+});
+
+pgTest('190 isolated WBS TEST_ONLY Bank Match posts one exact payment, links GL, and replays with zero delta',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null,extraMembers:[{memberRef:'WBS_TEST_BANK',memberType:'BANK',displayName:'Legacy WBS test Bank'}]});
+  const batchIds=[randomUUID(),randomUUID()],rawIds=[randomUUID(),randomUUID()],sourceIds=[randomUUID(),randomUUID()],billId=randomUUID(),bankSourceId=randomUUID();
+  await adminPool.query(`INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash,status,row_count,started_at,completed_at)
+    VALUES($1,$3,$4,'WBS_TEST','payable',$5,'match-payable-fixture',$6,'SUCCEEDED',1,now(),now()),($2,$3,$4,'WBS_TEST','bankFeed',$5,'match-bank-fixture',$7,'SUCCEEDED',1,now(),now())`,[...batchIds,ids.tenantId,ids.entityId,ids.sourceEntityId,hash('match-payable-batch'),hash('match-bank-batch')]);
+  await adminPool.query(`INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id)
+    VALUES($1,$3,$4,$5,'WBS','payable',$6,'MATCH-PAYABLE','test:v1','UPSERT',now(),$7,$8,'MATCH-PAYABLE'),($2,$3,$4,$9,'WBS','bankFeed',$6,'MATCH-BANK','test:v1','UPSERT',now(),$10,$11,'MATCH-BANK')`,[...rawIds,ids.tenantId,ids.entityId,batchIds[0],ids.sourceEntityId,hash('match-payable-raw'),`object://test/${rawIds[0]}`,batchIds[1],hash('match-bank-raw'),`object://test/${rawIds[1]}`]);
+  await adminPool.query(`INSERT INTO source_document(source_document_id,tenant_id,entity_id,raw_event_id,source_system,source_module,source_entity_id,source_record_id,source_version,document_type,document_no,business_date,accounting_date,currency,gross_amount,status,source_ref,payload_hash)
+    VALUES($1,$3,$4,$5,'WBS','payable',$6,'MATCH-PAYABLE','test:v1','WBS_TEST_PAYABLE','WBS-TEST-MATCH-PAYABLE','2026-07-01','2026-07-01','USD',1000,'POSTED','WBS:MATCH-PAYABLE',$7),($2,$3,$4,$8,'WBS','bankFeed',$6,'MATCH-BANK','test:v1','WBS_TEST_BANK_TRANSACTION','WBS-TEST-MATCH-BANK','2026-07-01','2026-07-01','USD',40,'POSTED','WBS:MATCH-BANK',$9)`,[...sourceIds,ids.tenantId,ids.entityId,rawIds[0],ids.sourceEntityId,hash('match-payable-source'),rawIds[1],hash('match-bank-source')]);
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,$4,'AP_BILL','WBS-TEST-MATCH-PAYABLE','VENDOR-1','WBS test vendor','USD','2026-07-01','2026-07-31',1000,1000,'OPEN','fixture')`,[billId,ids.tenantId,ids.entityId,sourceIds[0]]);
+  await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
+    VALUES($1,$2,$3,$4,'WBS_TEST_BANK','WBS-TEST-MATCH-LEGACY','2026-07-01','USD',-40)`,[bankSourceId,ids.tenantId,ids.entityId,sourceIds[1]]);
+  const actors={importer:'wbs-match-importer',maker:'wbs-match-maker',submitter:'wbs-match-submitter',reviewer:'wbs-match-reviewer',approver:'wbs-match-approver',poster:'wbs-match-poster'};
+  const permissions={importer:['WBS.TEST.IMPORT','BANK.VIEW','AP.VIEW','BANK.MATCH.CREATE'],maker:['AP.PAYMENT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']};
+  const service=createControlledTestBankMatchService({scope:{tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'WBS_TEST_BANK',cashAccountCode:'111000',actors},authorize:async()=>{},kernelForActor:actorId=>{const role=Object.entries(actors).find(([,value])=>value===actorId)[0];return new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actorId,permissions[role])});}});
+  const input={tenantId:ids.tenantId,entityId:ids.entityId,reason:'Prove one isolated WBS TEST_ONLY posted-payment Bank Match',idempotencyKey:'wbs-test-bank-match-pg-001'};
+  const first=await service.run(input),replay=await service.run(input);
+  assert.equal(first.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.bank_match_id,first.bank_match_id);assert.equal(first.bank_source_id,bankSourceId);assert.equal(first.business_document_id,billId);
+  const evidence=(await adminPool.query(`SELECT bm.status,j.status journal_status,j.revision journal_revision,po.status payment_status,po.version payment_version,jl.member_ref,jl.credit_amount::text,ll.ledger_line_id,sl.link_type,bd.open_balance::text
+    FROM bank_match bm JOIN payment_occurrence po ON po.payment_occurrence_id=bm.payment_occurrence_id JOIN journal_entry j ON j.journal_entry_id=bm.journal_entry_id JOIN journal_line jl ON jl.journal_line_id=bm.journal_line_id JOIN ledger_line ll ON ll.ledger_line_id=bm.ledger_line_id JOIN source_link sl ON sl.bank_match_id=bm.bank_match_id AND sl.link_type='POSTED_PAYMENT_BANK_MATCH' JOIN business_document bd ON bd.business_document_id=po.business_document_id WHERE bm.bank_match_id=$1`,[first.bank_match_id])).rows;
+  assert.deepEqual(evidence,[{status:'ACTIVE',journal_status:'POSTED',journal_revision:4,payment_status:'POSTED',payment_version:1,member_ref:'WBS_TEST_BANK',credit_amount:'40.0000',ledger_line_id:first.ledger_line_id,link_type:'POSTED_PAYMENT_BANK_MATCH',open_balance:'960.0000'}]);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM reconciliation WHERE tenant_id=$1 AND entity_id=$2 AND bank_account_ref LIKE 'WBS_TEST_BANK_2026_%'",[ids.tenantId,ids.entityId])).rows[0].n,0);
+  assert.equal((await adminPool.query('SELECT count(*)::int n FROM bank_match WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,1);
 });
 
 pgTest('061 bank match creates exact posted AP evidence once and fails closed for reversal and ambiguous cash account evidence',async()=>{
