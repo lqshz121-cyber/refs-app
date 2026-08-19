@@ -10,6 +10,7 @@ import {createAccountingApi} from '../api/accounting-http.mjs';
 import {PostgresContextIssuer} from '../runtime/context-issuer.mjs';
 import {PostgresGrantSync} from '../runtime/grant-sync.mjs';
 import {reconcileWbsTestImportActorGrants} from '../runtime/wbs-test-import-service.mjs';
+import {createControlledTestBankWorkflowService} from '../runtime/controlled-test-bank-workflow-service.mjs';
 import {STAGE1_CONTROLLED_TEST_WORKFLOW_PERMISSIONS,STAGE1_READ_PERMISSIONS,STAGE1_WBS_OPERATOR_PERMISSIONS,grantStage1ReadAccess,provisionStage1Scope,stage1GrantConfig,stage1ProvisionConfig,upgradeStage1ControlledTestWorkflowAccess,upgradeStage1WbsOperatorAccess,upgradeStage1WbsReadAccess} from '../runtime/stage1-bootstrap.mjs';
 import {AttachmentEvidenceService,AttachmentCleanupService} from '../runtime/attachment-storage.mjs';
 import {MIGRATION_MANIFEST} from '../runtime/migration-manifest.mjs';
@@ -4065,10 +4066,10 @@ pgTest('consolidation reads only an approved immutable two-member scope with exp
 });
 
 pgTest('controlled test unsigned WBS Bank rows create isolated source evidence and one ordinary DRAFT reconciliation',async()=>{
-  const ids=await seed({status:'DRAFT',attachmentStatus:null});
+  const ids=await seed({status:'DRAFT',attachmentStatus:'VERIFIED_CLEAN',extraAccounts:[{accountCode:'610000',accountName:'Controlled test Bank offset expense'}]});
   const observation={schema_version:'WBS_LIVE_PILOT_OBSERVATION_V1',status:'NOT_ADMITTED',observation_mode:'UNSIGNED_PILOT',source_system:'WBS',tool:'list_bank_transactions',environment:'PRODUCTION',entity_id:ids.entityId,captured_at:'2026-08-18T00:00:00.000Z',provider_content_sha256:'b'.repeat(64),scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-12-31']},record_count:2,rows:[
-    {source_record_hash:`sha256:${'a'.repeat(64)}`,currency:'USD',accounting_date:'2026-07-11',amount:'25.0000',direction:'DEBIT',status:'POSTED'},
-    {source_record_hash:`sha256:${'c'.repeat(64)}`,currency:'USD',accounting_date:'2026-07-12',amount:'25.0000',direction:'CREDIT',status:'POSTED'}
+    {source_record_hash:`sha256:${'a'.repeat(64)}`,currency:'USD',accounting_date:'2026-07-11',amount:'50.0000',direction:'DEBIT',status:'POSTED'},
+    {source_record_hash:`sha256:${'c'.repeat(64)}`,currency:'USD',accounting_date:'2026-07-12',amount:'30.0000',direction:'DEBIT',status:'POSTED'}
   ],signature_verified:false,can_import:false,can_create_transaction:false,can_match:false,can_allocate:false,can_create_draft:false,can_approve:false,can_post:false,can_reverse:false,observation_hash:`sha256:${'d'.repeat(64)}`};
   const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-bank-importer',['WBS.TEST.IMPORT','BANK.RECONCILIATION.START'])});
   const before=(await adminPool.query('SELECT count(*)::int journals FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0];
@@ -4079,15 +4080,15 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     FROM wbs_controlled_test_bank_import i JOIN reconciliation r ON r.tenant_id=i.tenant_id AND r.entity_id=i.entity_id AND r.reconciliation_id=i.reconciliation_id
     JOIN wbs_controlled_test_bank_import_row ir ON ir.tenant_id=i.tenant_id AND ir.entity_id=i.entity_id AND ir.wbs_controlled_test_bank_import_id=i.wbs_controlled_test_bank_import_id
     WHERE i.tenant_id=$1 AND i.entity_id=$2 GROUP BY i.test_only,i.provenance_mode,i.row_count,r.status,r.difference`,[ids.tenantId,ids.entityId])).rows[0];
-  assert.deepEqual(retained,{test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',row_count:2,status:'DRAFT',difference:'0.0000',retained_rows:2});
+  assert.deepEqual(retained,{test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',row_count:2,status:'DRAFT',difference:'80.0000',retained_rows:2});
   const sources=(await adminPool.query(`SELECT d.document_type,d.status,d.source_ref,dl.external_dimension_refs,bs.bank_account_ref,bs.amount::text
     FROM wbs_controlled_test_bank_import_row ir JOIN source_document d ON d.tenant_id=ir.tenant_id AND d.entity_id=ir.entity_id AND d.source_document_id=ir.source_document_id
     JOIN source_document_line dl ON dl.tenant_id=ir.tenant_id AND dl.entity_id=ir.entity_id AND dl.source_document_line_id=ir.source_document_line_id
     JOIN bank_source bs ON bs.tenant_id=ir.tenant_id AND bs.entity_id=ir.entity_id AND bs.bank_source_id=ir.bank_source_id
     WHERE ir.tenant_id=$1 AND ir.entity_id=$2 ORDER BY ir.row_index`,[ids.tenantId,ids.entityId])).rows;
   assert.deepEqual(sources.map(row=>[row.document_type,row.status,row.bank_account_ref,row.amount,row.external_dimension_refs.test_only,row.external_dimension_refs.provenance_mode]),[
-    ['WBS_TEST_BANK_TRANSACTION','RECEIVED','WBS_TEST_BANK','25.0000',true,'CONTROLLED_TEST_UNSIGNED'],
-    ['WBS_TEST_BANK_TRANSACTION','RECEIVED','WBS_TEST_BANK','-25.0000',true,'CONTROLLED_TEST_UNSIGNED']
+    ['WBS_TEST_BANK_TRANSACTION','RECEIVED','WBS_TEST_BANK','50.0000',true,'CONTROLLED_TEST_UNSIGNED'],
+    ['WBS_TEST_BANK_TRANSACTION','RECEIVED','WBS_TEST_BANK','30.0000',true,'CONTROLLED_TEST_UNSIGNED']
   ]);assert.ok(sources.every(row=>row.source_ref.startsWith('object://refs-test-only/')));
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-bank-reader',['BANK.VIEW'])});
   const transactions=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'WBS_TEST_BANK',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:10});assert.equal(transactions.length,2);
@@ -4102,6 +4103,35 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-bank-denied',['WBS.TEST.IMPORT'])});
   await assert.rejects(denied.createWbsControlledTestBankScope({...args,idempotencyKey:'controlled-test-bank-pg-denied'}),error=>error.code==='42501');
   const counts=await adminPool.query('SELECT (SELECT count(*) FROM wbs_controlled_test_bank_import WHERE tenant_id=$1 AND entity_id=$2)::int imports,(SELECT count(*) FROM bank_source WHERE tenant_id=$1 AND entity_id=$2)::int sources',[ids.tenantId,ids.entityId]);assert.deepEqual(counts.rows[0],{imports:1,sources:2});
+
+  const actors={importer:'controlled-bank-runner-importer',maker:'controlled-bank-runner-maker',submitter:'controlled-bank-runner-submitter',reviewer:'controlled-bank-runner-reviewer',approver:'controlled-bank-runner-approver',poster:'controlled-bank-runner-poster'};
+  const permissions={
+    importer:['BANK.VIEW','BANK.MATCH.CREATE'],maker:['BANK.RECONCILIATION.ADJUSTMENT_DRAFT','GL.JE.CREATE'],submitter:['GL.JE.SUBMIT'],
+    reviewer:['GL.JE.REVIEW','BANK.RECONCILIATION.REVIEW'],approver:['GL.JE.APPROVE','BANK.RECONCILIATION.SIGN_OFF'],poster:['GL.JE.POST','BANK.RECONCILIATION.CLEAR','BANK.RECONCILIATION.REOPEN']
+  };
+  const service=createControlledTestBankWorkflowService({scope:{tenantId:ids.tenantId,entityId:ids.entityId,companyCode:'WBPA',bankAccountRef:'WBS_TEST_BANK',cashAccountCode:'111000',offsetAccountCode:'610000',actors},authorize:async()=>{},kernelForActor:actorId=>{
+    const role=Object.entries(actors).find(([,value])=>value===actorId)?.[0];return new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actorId,permissions[role])});
+  }});
+  const completed=await service.run({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,reconciliationId:created.reconciliation_id,reason:'Run isolated WBS Bank lifecycle through signed snapshot and reopen',idempotencyKey:'controlled-bank-runner-pg-001'});
+  assert.deepEqual({status:completed.status,test_only:completed.test_only,provenance_mode:completed.provenance_mode,processed:completed.processed_count,matched:completed.matched_count,adjusted:completed.adjusted_count,cleared:completed.cleared_count,revision:completed.revision},
+    {status:'CONTROLLED_TEST_BANK_WORKFLOW_REOPENED',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',processed:2,matched:0,adjusted:2,cleared:2,revision:7});
+  assert.equal(completed.journal_entry_ids.length,2);assert.ok(completed.snapshot_id);assert.match(completed.snapshot_hash,/^sha256:[0-9a-f]{64}$/);
+  const completedReplay=await service.run({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,reconciliationId:created.reconciliation_id,reason:'Run isolated WBS Bank lifecycle through signed snapshot and reopen',idempotencyKey:'controlled-bank-runner-pg-001'});
+  assert.equal(completedReplay.idempotent,true);assert.equal(completedReplay.revision,7);assert.deepEqual(completedReplay.journal_entry_ids.sort(),completed.journal_entry_ids.sort());
+  const proof=(await adminPool.query(`SELECT r.status,r.version,r.difference::text,count(DISTINCT ri.reconciliation_item_id) FILTER(WHERE ri.state='CLEARED')::int cleared,
+    count(DISTINCT rad.journal_entry_id)::int adjustments,count(DISTINCT ll.journal_entry_id)::int posted_ledgers,count(DISTINCT rs.reconciliation_snapshot_id)::int snapshots
+    FROM reconciliation r JOIN reconciliation_item ri ON ri.tenant_id=r.tenant_id AND ri.entity_id=r.entity_id AND ri.reconciliation_id=r.reconciliation_id
+    LEFT JOIN reconciliation_adjustment_draft rad ON rad.tenant_id=ri.tenant_id AND rad.entity_id=ri.entity_id AND rad.reconciliation_id=ri.reconciliation_id AND rad.bank_source_id=ri.bank_source_id
+    LEFT JOIN ledger_line ll ON ll.tenant_id=rad.tenant_id AND ll.entity_id=rad.entity_id AND ll.journal_entry_id=rad.journal_entry_id
+    LEFT JOIN reconciliation_snapshot rs ON rs.tenant_id=r.tenant_id AND rs.entity_id=r.entity_id AND rs.reconciliation_id=r.reconciliation_id
+    WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.reconciliation_id=$3 GROUP BY r.status,r.version,r.difference`,[ids.tenantId,ids.entityId,created.reconciliation_id])).rows[0];
+  assert.deepEqual(proof,{status:'REOPENED',version:'7',difference:'0.0000',cleared:2,adjustments:2,posted_ledgers:2,snapshots:1});
+  await migrateDown(adminPool);
+  const rolledBack=(await adminPool.query("SELECT to_regprocedure('refs_list_reconciliation_adjustment_evidence(uuid,uuid,integer)') IS NULL evidence_removed,pg_get_functiondef('refs_guard_reconciliation_adjustment_lifecycle()'::regprocedure) LIKE '%final_book_balance<>rec.statement_ending_balance%' old_guard_restored")).rows[0];
+  assert.deepEqual(rolledBack,{evidence_removed:true,old_guard_restored:true});
+  await migrateUp(adminPool);
+  const restored=(await adminPool.query("SELECT to_regprocedure('refs_list_reconciliation_adjustment_evidence(uuid,uuid,integer)') IS NOT NULL evidence_restored,pg_get_functiondef('refs_guard_reconciliation_adjustment_lifecycle()'::regprocedure) LIKE '%adjustment.bank_delta<>(SELECT source.amount%' item_guard_restored")).rows[0];
+  assert.deepEqual(restored,{evidence_restored:true,item_guard_restored:true});
 });
 
 pgTest('WBS Bank range batch admits eleven sanitized cursor rows into one TEST_ONLY reconciliation and rejects 501 before writes',async()=>{

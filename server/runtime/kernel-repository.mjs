@@ -1245,6 +1245,13 @@ export class PostgresAccountingKernel{
     )).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date)})));
   }
 
+  async listVerifiedCleanAttachmentIds({tenantId,entityId,limit=1}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_reconciliation_adjustment_evidence($1,$2,$3)',
+      [tenantId,entityId,limit]
+    )).rows.map(row=>row.attachment_id));
+  }
+
   async reviewWbsAutoRecBankMatch({tenantId,entityId,reviewCandidateId,candidateHash,bankMatchId,expectedMatchRevision,decision,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

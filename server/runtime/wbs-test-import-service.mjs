@@ -7,13 +7,18 @@ const MONEY4=/^-?(?:0|[1-9][0-9]{0,15})\.[0-9]{4}$/;
 const SHA256=/^sha256:[0-9a-f]{64}$/;
 const ACTOR_ROLES=Object.freeze(['importer','maker','submitter','reviewer','approver','poster']);
 const WBS_TEST_IMPORTER_V1_PERMISSIONS=Object.freeze(['WBS.TEST.IMPORT']);
-export const WBS_TEST_IMPORT_GRANT_BUNDLES=Object.freeze({
+const WBS_TEST_IMPORT_LEGACY_GRANT_BUNDLES=Object.freeze({
   importer:Object.freeze(['WBS.TEST.IMPORT','BANK.RECONCILIATION.START']),
   maker:Object.freeze(['WBS.TEST.IMPORT','AP.BILL.CREATE']),
+  submitter:Object.freeze(['GL.JE.SUBMIT']),reviewer:Object.freeze(['GL.JE.REVIEW']),approver:Object.freeze(['GL.JE.APPROVE']),poster:Object.freeze(['GL.JE.POST'])
+});
+export const WBS_TEST_IMPORT_GRANT_BUNDLES=Object.freeze({
+  importer:Object.freeze(['WBS.TEST.IMPORT','BANK.RECONCILIATION.START','BANK.VIEW','BANK.MATCH.CREATE']),
+  maker:Object.freeze(['WBS.TEST.IMPORT','AP.BILL.CREATE','BANK.RECONCILIATION.ADJUSTMENT_DRAFT','GL.JE.CREATE']),
   submitter:Object.freeze(['GL.JE.SUBMIT']),
-  reviewer:Object.freeze(['GL.JE.REVIEW']),
-  approver:Object.freeze(['GL.JE.APPROVE']),
-  poster:Object.freeze(['GL.JE.POST'])
+  reviewer:Object.freeze(['GL.JE.REVIEW','BANK.RECONCILIATION.REVIEW']),
+  approver:Object.freeze(['GL.JE.APPROVE','BANK.RECONCILIATION.SIGN_OFF']),
+  poster:Object.freeze(['GL.JE.POST','BANK.RECONCILIATION.CLEAR','BANK.RECONCILIATION.REOPEN'])
 });
 
 export class WbsTestImportError extends Error{
@@ -84,8 +89,12 @@ export async function reconcileWbsTestImportActorGrants({grantSync,scope}={}){
       const returned=[...(bootstrap?.permissions||[])].sort(),expected=[...WBS_TEST_IMPORTER_V1_PERMISSIONS].sort();
       if(returned.length!==expected.length||returned.some((value,index)=>value!==expected[index]))fail('WBS_TEST_IMPORT_GRANT_INVALID','Test-import importer v1 bootstrap grant is not exact.');
     }
-    const version=role==='importer'?2:1;
-    const result=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions,expectedVersion:version-1,idempotencyKey:`wbs-test-import-${role}-grant-v${version}`});
+    const legacyVersion=role==='importer'?2:1,legacyPermissions=[...WBS_TEST_IMPORT_LEGACY_GRANT_BUNDLES[role]];
+    const legacy=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions:legacyPermissions,expectedVersion:legacyVersion-1,idempotencyKey:`wbs-test-import-${role}-grant-v${legacyVersion}`});
+    const legacyReturned=[...(legacy?.permissions||[])].sort(),legacyExpected=[...legacyPermissions].sort();
+    if(legacyReturned.length!==legacyExpected.length||legacyReturned.some((value,index)=>value!==legacyExpected[index]))fail('WBS_TEST_IMPORT_GRANT_INVALID',`Test-import ${role} legacy grant does not match its frozen permission bundle.`);
+    const version=legacyVersion+1;
+    const result=await grantSync.reconcile({tenantId:scope.tenantId,entityId:scope.entityId,actorId,permissions,expectedVersion:legacyVersion,idempotencyKey:`wbs-test-import-${role}-grant-v${version}`});
     const returned=[...(result?.permissions||[])].sort(),expected=[...permissions].sort();
     if(returned.length!==expected.length||returned.some((value,index)=>value!==expected[index]))fail('WBS_TEST_IMPORT_GRANT_INVALID',`Test-import ${role} grant does not match its frozen permission bundle.`);
     results[role]=Object.freeze({version:result.version,idempotent:result.idempotent===true,permission_count:returned.length});
