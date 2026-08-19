@@ -74,6 +74,20 @@ function pgTest(name,fn){
 
 const hash=value=>`sha256:${createHash('sha256').update(String(value)).digest('hex')}`;
 
+const retainPrepaidInvoiceClassification=async({ids,sourceDocumentId,label})=>{
+  const line=(await adminPool.query('SELECT source_document_line_id FROM source_document_line WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3 ORDER BY line_no LIMIT 1',[ids.tenantId,ids.entityId,sourceDocumentId])).rows[0];
+  assert.ok(line?.source_document_line_id,'prepaid classification fixture requires a retained source line');
+  const classificationHash=hash(`prepaid-classification:${label}`);
+  await adminPool.query(`INSERT INTO ai_invoice_accounting_classification_evidence(
+    tenant_id,entity_id,accounting_period_id,source_document_id,source_document_line_id,source_payload_hash,source_line_hash,
+    classifier_version,classification,reason,confidence,required_human_fields,rule_id,classification_hash,status,created_by)
+    VALUES($1,$2,$3,$4,$5,$6,$7,'AI_INVOICE_ACCOUNTING_CLASSIFICATION_V2','PREPAID_AMORTIZATION',
+      'Exact retained invoice line and coverage evidence require prepaid amortization review.',1,'[]'::jsonb,
+      'AI_PREPAID_MULTI_MONTH_COVERAGE_V1',$8,'REVIEW_REQUIRED','ai-classification-fixture')`,
+    [ids.tenantId,ids.entityId,ids.periodId,sourceDocumentId,line.source_document_line_id,hash('auto-doc'),hash(`source-line:${label}`),classificationHash]);
+  return {classificationHash,sourceDocumentLineId:line.source_document_line_id};
+};
+
 async function rejectsInTransaction(client,query,validator){
   await client.query('SAVEPOINT expected_error');
   try{await assert.rejects(query(),validator);}
@@ -3898,6 +3912,7 @@ pgTest('AI amortization proposal creates a source-bound twelve-month schedule wi
   const trace=await attachAutoSource(ids,{linkJournal:false});
   await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT' WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
   await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,project_ref,property_ref) VALUES($1,$2,$3,'insurance-line-1',1,100,'DEBIT','PROJECT-1','PROPERTY-1')",[ids.tenantId,ids.entityId,trace.documentId]);
+  await retainPrepaidInvoiceClassification({ids,sourceDocumentId:trace.documentId,label:'proposal-only'});
   const proposer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-preparer',['AI.AMORTIZATION.PROPOSE'])});
   const args=[ids.tenantId,ids.entityId,trace.documentId,hash('auto-doc'),'2026-01-01','2026-12-31','141500','610100',JSON.stringify({project_ref:'PROJECT-1',property_ref:'PROPERTY-1',allocation_basis:'SOURCE_DIMENSIONED'}),'0.9500','Insurance policy coverage evidenced by source document'];
   await assert.rejects(proposer.inSession(async client=>{
@@ -3939,6 +3954,7 @@ pgTest('AI amortization creates a human Draft then standard Posted JE with immut
   const trace=await attachAutoSource(ids,{linkJournal:false});
   await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT' WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
   await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,project_ref,property_ref) VALUES($1,$2,$3,'ai-amort-line-1',1,100,'DEBIT','PROJECT-1','PROPERTY-1')",[ids.tenantId,ids.entityId,trace.documentId]);
+  await retainPrepaidInvoiceClassification({ids,sourceDocumentId:trace.documentId,label:'human-draft'});
   const proposer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-analysis-proposer',['AI.AMORTIZATION.PROPOSE'])});
   await proposer.recordAiAmortizationCoverageEvidence({tenantId:ids.tenantId,entityId:ids.entityId,sourceDocumentId:trace.documentId,sourcePayloadHash:hash('auto-doc'),coverageStart:'2026-01-01',coverageEnd:'2026-12-31',evidenceRef:'source_attachment:insurance-policy.pdf#coverage',evidenceHash:hash('insurance-coverage-evidence'),extractionMethod:'HUMAN_VERIFIED_SOURCE_FIELD',idempotencyKey:'ai-human-draft-coverage-0001'});
   const proposal=await proposer.proposeAiAmortizationSchedule({tenantId:ids.tenantId,entityId:ids.entityId,sourceDocumentId:trace.documentId,sourcePayloadHash:hash('auto-doc'),coverageStart:'2026-01-01',coverageEnd:'2026-12-31',prepaidAccountCode:'141500',expenseAccountCode:'610100',memberTrace:{project_ref:'PROJECT-1',property_ref:'PROPERTY-1',allocation_basis:'SOURCE_DIMENSIONED'},confidence:0.95,reason:'Retained insurance source supports a deterministic twelve-month amortization proposal.',idempotencyKey:'ai-human-draft-proposal-0001'});
@@ -3997,6 +4013,7 @@ pgTest('signed insurance source reaches independent monthly review, AUTO Draft, 
   const ids=await seed({status:'APPROVED',journalType:'AUTO',attachmentStatus:null,extraAccounts:[{accountCode:'141500',accountName:'Prepaid insurance'},{accountCode:'610100',accountName:'Insurance expense'}],journalLines:[{lineNo:1,accountCode:'141500',debit:100,credit:0},{lineNo:2,accountCode:'291001',debit:0,credit:100,memberRef:'VENDOR-1'}]}),trace=await attachAutoSource(ids,{sourceModule:'payable',sourceRecordPrefix:'SIGNED-INSURANCE'});
   await adminPool.query("UPDATE source_document SET document_type='WBS_PAYABLE',status='READY_FOR_DRAFT',gross_amount=100 WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
   await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction) VALUES($1,$2,$3,'insurance-premium',1,100,'DEBIT')",[ids.tenantId,ids.entityId,trace.documentId]);
+  await retainPrepaidInvoiceClassification({ids,sourceDocumentId:trace.documentId,label:'signed-insurance'});
   const snapshotImportId=randomUUID(),admissionId=randomUUID(),scheduleId=randomUUID(),scheduleLineId=randomUUID(),coverageId=randomUUID(),settingId=randomUUID(),mappingId=randomUUID(),proposalHash=hash('signed-insurance-proposal'),coverageHash=hash('signed-insurance-coverage'),sourceHash=hash('auto-doc'),snapshotHash=hash('signed-insurance-package');
   await adminPool.query("INSERT INTO wbs_snapshot_import(wbs_snapshot_import_id,tenant_id,entity_id,snapshot_id,captured_at,environment,dictionary_version,package_hash,import_batch_id,created_by) VALUES($1,$2,$3,$4,now(),'PRODUCTION','WBS-MCP-V1',$5,$6,'signed-insurance-importer')",[snapshotImportId,ids.tenantId,ids.entityId,randomUUID(),snapshotHash,trace.batchId]);
   await adminPool.query(`INSERT INTO wbs_provider_signed_payable_admission(wbs_provider_signed_payable_admission_id,tenant_id,entity_id,issuer,key_id,algorithm,nonce,company_code,signed_at,expires_at,request_raw_hash,response_raw_hash,package_raw_hash,package_hash,receipt_hash,snapshot_id,import_batch_id,wbs_snapshot_import_id,admitted_by)

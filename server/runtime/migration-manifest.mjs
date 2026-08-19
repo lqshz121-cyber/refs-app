@@ -200,4 +200,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"192_wbs_test_bank_match_stage1_source.sql",up:"74c6b5f6801400fe1a220d4552a7a1541b6d60656325fc6c55a89b51c3ccc172",down:"c5013c20b3ae23793a401bf552d9687ed373b65a48dd53e28a6cb35a733ce150"}),
   Object.freeze({name:"193_wbs_test_bank_match_config_workflow.sql",up:"2ab676f22986ff3c86aa0f05d1d94a1e71d635e42e3c9dad05878b3d6816c151",down:"d8ee3e76edb868300b21f963eec8eb3388f38dfacf64e077289614cf74adb3fb"}),
   Object.freeze({name:"186_ai_invoice_accounting_classification_evidence.sql",up:"04661c5416e5090c06cd34ac860831dc3ae42675f1a16085fdfc02ae93a2d62a",down:"8966ad0a9c02e2c786cc63f60400606697cae90ff8d0a30ab184a86e0d1e34a4"}),
+  Object.freeze({name:"187_ai_invoice_classification_amortization_lineage.sql",up:"61e854c5c6949805a4e73349ee4ad5e5ffb1204d57c812db3f2fb969547ed77f",down:"8848fd6fcfa8b1366a40be66b4decb912828b00379aebf4041ac65eab25d2803"}),
 ]);

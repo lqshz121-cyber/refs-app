@@ -76,7 +76,7 @@
     "verify:stage2-bank-live-chain": "node server/runtime/verify-stage2-authoritative-e2e.mjs",
     "verify:stage3-wbs-live-chain": "npm.cmd --prefix server run verify:wbs-live-acceptance",
     "verify:stage4-report-live-chain": "node server/runtime/verify-stage4-authoritative-e2e.mjs",
-    "test:authoritative-amortization": "esbuild ./tests/authoritative-amortization-workspace.test.jsx --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=tests/authoritative-amortization-workspace.test.cjs && node tests/authoritative-amortization-workspace.test.cjs && node tests/insurance-amortization-authoritative-client.test.js",
+    "test:authoritative-amortization": "esbuild ./tests/authoritative-amortization-workspace.test.jsx --bundle --platform=node --format=cjs --jsx=automatic --loader:.js=jsx --loader:.jsx=jsx --outfile=tests/authoritative-amortization-workspace.test.cjs && node tests/authoritative-amortization-workspace.test.cjs && node tests/insurance-amortization-authoritative-client.test.js && node --test server/tests/ai-invoice-classification-amortization-lineage-contract.test.mjs",
     "test:authoritative-property-rent": "node tests/authoritative-property-rent-workspace.test.js && node tests/property-rent-authoritative-client.test.js",
     "verify:stage1-payable-current-release-readback": "node server/runtime/verify-stage1-authoritative-e2e.mjs",
     "verify:stage3-bank-exception-live-chain": "node server/runtime/verify-stage3-bank-exception-authoritative-e2e.mjs",
