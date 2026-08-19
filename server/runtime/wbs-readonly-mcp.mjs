@@ -157,6 +157,15 @@ function safeArguments(args,toolName,{pilotObservationMode=false}={}){
 const stableKeyByTool=Object.freeze({list_payables:['ap_guid'],list_bank_transactions:['cb_id'],list_autorec_details:['pd_guid'],list_autorec_banks:['pb_guid'],list_journal_entries:['id']});
 const validStablePart=(name,value)=>name==='id'?Number.isSafeInteger(value):safeProviderKey(value);
 const stableTuple=(row,parts)=>parts.map(part=>String(row[part])).join('\u0000');
+const compareStableRows=(left,right,parts)=>{
+  for(const part of parts){
+    const leftValue=left[part],rightValue=right[part];
+    if(leftValue===rightValue)continue;
+    if(part==='id')return leftValue<rightValue?-1:1;
+    return String(leftValue)<String(rightValue)?-1:1;
+  }
+  return 0;
+};
 function validateWbsEnvelope({toolName,envelope,pilotSort=false}={}){
   if(!WBS_READONLY_TOOLS.includes(toolName)||!plainObject(envelope)||!Array.isArray(envelope.rows)||!/^[0-9a-f]{64}$/.test(envelope.content_sha256)||typeof envelope.contract_version!=='string'||!envelope.contract_version.trim()||envelope.tool!==toolName||typeof envelope.environment!=='string'||envelope.environment.toLowerCase()!=='production'||typeof envelope.captured_at!=='string'||Number.isNaN(Date.parse(envelope.captured_at))||!plainObject(envelope.source)||!plainObject(envelope.scope)||!Number.isSafeInteger(envelope.record_count)||envelope.record_count!==envelope.rows.length||(envelope.cursor_next!==null&&typeof envelope.cursor_next!=='string')||(envelope.etl_notice!==null&&typeof envelope.etl_notice!=='string'))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS production read envelope, scope, count, hash, or cursor is invalid.');
   if(WBS_CURSOR_READ_TOOLS.has(toolName)&&envelope.rows.length>WBS_MCP_PRODUCTION_PAGE_LIMIT)throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS production pagination returned more than 500 rows in one page.');
@@ -194,8 +203,8 @@ function validateWbsEnvelope({toolName,envelope,pilotSort=false}={}){
   if(stableKey){
     const tuples=rows.map(row=>stableTuple(row,stableKey));
     if(new Set(tuples).size!==tuples.length)throw new WbsMcpError('WBS_MCP_ROWS_NOT_SORTED','WBS rows must be unique by their stable source key.');
-    if(pilotSort)rows=rows.map(row=>structuredClone(row)).sort((left,right)=>stableTuple(left,stableKey)<stableTuple(right,stableKey)?-1:stableTuple(left,stableKey)>stableTuple(right,stableKey)?1:0);
-    else if(!tuples.every((value,index)=>index===0||tuples[index-1]<value))throw new WbsMcpError('WBS_MCP_ROWS_NOT_SORTED','WBS rows must be strictly ascending and unique by their stable source key.');
+    if(pilotSort)rows=rows.map(row=>structuredClone(row)).sort((left,right)=>compareStableRows(left,right,stableKey));
+    else if(!rows.every((row,index)=>index===0||compareStableRows(rows[index-1],row,stableKey)<0))throw new WbsMcpError('WBS_MCP_ROWS_NOT_SORTED','WBS rows must be strictly ascending and unique by their stable source key.');
   }
   return Object.freeze({tool_name:toolName,contract_version:envelope.contract_version,environment:envelope.environment,captured_at:envelope.captured_at,source:Object.freeze(structuredClone(envelope.source)),scope:Object.freeze(structuredClone(envelope.scope)),record_count:envelope.record_count,content_sha256:envelope.content_sha256,cursor_next:envelope.cursor_next,etl_notice:envelope.etl_notice,rows:Object.freeze(structuredClone(rows)),requires_snapshot_diff:true,has_revision_contract:false,has_cdc_contract:false,has_tombstone_contract:false});
 }

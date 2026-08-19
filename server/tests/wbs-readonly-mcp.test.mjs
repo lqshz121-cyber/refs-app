@@ -167,6 +167,9 @@ test('UNSIGNED Pilot authenticates raw Provider order then sorts unique stable k
   const duplicate=readEnvelope({rows:[{ap_guid:'AP-1',currency:'USD'},{ap_guid:'AP-1',currency:'USD'}]});
   assert.throws(()=>validateWbsPilotObservationEnvelope({toolName:'list_payables',envelope:duplicate}),error=>error.code==='WBS_MCP_ROWS_NOT_SORTED');
   assert.throws(()=>validateWbsPilotObservationEnvelope({toolName:'list_payables',envelope:{...unordered,content_sha256:'0'.repeat(64)}}),error=>error.code==='WBS_MCP_CONTENT_HASH_MISMATCH');
+  const numeric=readEnvelope({tool:'list_journal_entries',rows:[{id:10,currency:'USD'},{id:2,currency:'USD'}]});
+  assert.deepEqual(validateWbsPilotObservationEnvelope({toolName:'list_journal_entries',envelope:numeric}).rows.map(row=>row.id),[2,10]);
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_journal_entries',envelope:numeric}),error=>error.code==='WBS_MCP_ROWS_NOT_SORTED');
 });
 
 test('catalog preflight requires all four reviewed V2 pins and rejects an old eight-tool or semantic drift',()=>{
