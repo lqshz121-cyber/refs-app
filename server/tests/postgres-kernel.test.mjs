@@ -179,11 +179,13 @@ pgTest('controlled test AI source module and SERVICE_ACCOUNT audit actor are exp
   assert.match(definition,/actor,'SERVICE_ACCOUNT','AI\.TEST\.WORKFLOW'/);assert.doesNotMatch(definition,/actor,'SERVICE','AI\.TEST\.WORKFLOW'/);
   await adminPool.query("INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash) VALUES($1,$2,'CONTROLLED_TEST_AI_SOURCE_DERIVED','SOURCE_DOCUMENT',$3,'DERIVE_TEST_SOURCE','controlled-ai-source-maker','SERVICE_ACCOUNT','AI.TEST.WORKFLOW',$4,$4,$4,$5)",[ids.tenantId,ids.entityId,sourceId,'controlled-ai-audit-actor-test',hash('controlled-ai-audit-actor-test')]);
   assert.deepEqual((await adminPool.query("SELECT actor_type FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='CONTROLLED_TEST_AI_SOURCE_DERIVED'",[ids.tenantId,ids.entityId])).rows,[{actor_type:'SERVICE_ACCOUNT'}]);
+  await migrateDown(adminPool); // 190 is the isolated TEST_ONLY Bank Match fixture reader.
   await migrateDown(adminPool); // 189 is a read-only function replacement.
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
   assert.equal((await adminPool.query("SELECT pg_get_constraintdef(oid) definition FROM pg_constraint WHERE conname='source_document_source_module_check'")).rows[0].definition.includes('ai_test_prepaid'),true);
   assert.match((await adminPool.query("SELECT pg_get_functiondef('refs_derive_controlled_test_ai_source(uuid,uuid,uuid,text,text,text)'::regprocedure) definition")).rows[0].definition,/actor,'SERVICE_ACCOUNT','AI\.TEST\.WORKFLOW'/);
   await migrateUp(adminPool); // Restore the read-only 189 replacement removed above.
+  await migrateUp(adminPool); // Restore the isolated TEST_ONLY Bank Match fixture reader.
 });
 
 pgTest('Controller retains classifies and approves an exact WBS company catalog binding with SoD CAS audit and zero accounting mapping snapshots',async()=>{
@@ -1821,20 +1823,20 @@ pgTest('formal IAM grant sync reconciles and revokes desired state with version,
   await adminPool.query("UPDATE permission_catalog SET active=true,version=version+1 WHERE permission_code='AP.VIEW'");
 });
 
-pgTest('WBS test importer grant bootstraps v1 then upgrades through v3 and remains restart-idempotent',async()=>{
+pgTest('WBS test importer grant bootstraps v1 then upgrades through v4 and remains restart-idempotent',async()=>{
   const ids=await seed(),sync=new PostgresGrantSync(grantSyncPool,{principalProvider:async()=>({trusted:true,serviceId:'platform-iam-sync'})});
   const actors={importer:'wbs-bootstrap-importer',maker:'wbs-bootstrap-maker',submitter:'wbs-bootstrap-submitter',reviewer:'wbs-bootstrap-reviewer',approver:'wbs-bootstrap-approver',poster:'wbs-bootstrap-poster'};
   const scope={tenantId:ids.tenantId,entityId:ids.entityId,companyCode:'WBPA',actors};
   const legacy=await sync.reconcile({tenantId:ids.tenantId,entityId:ids.entityId,actorId:actors.importer,permissions:['WBS.TEST.IMPORT'],expectedVersion:0,idempotencyKey:'wbs-test-import-importer-grant-v1'});
   assert.equal(legacy.version,1);assert.equal(legacy.idempotent,false);
   const upgraded=await reconcileWbsTestImportActorGrants({scope,grantSync:sync});
-  assert.equal(upgraded.importer.version,3);assert.equal(upgraded.importer.idempotent,false);
+  assert.equal(upgraded.importer.version,4);assert.equal(upgraded.importer.idempotent,false);
   const restarted=await reconcileWbsTestImportActorGrants({scope,grantSync:sync});
-  assert.equal(restarted.importer.version,3);assert.equal(restarted.importer.idempotent,true);
-  assert.deepEqual((await adminPool.query(`SELECT version FROM runtime_actor_grant_set WHERE tenant_id=$1 AND actor_id=$2 AND entity_id=$3`,[ids.tenantId,actors.importer,ids.entityId])).rows[0],{version:'3'});
-  assert.deepEqual((await adminPool.query(`SELECT permission FROM runtime_actor_grant WHERE tenant_id=$1 AND actor_id=$2 AND entity_id=$3 AND revoked_at IS NULL ORDER BY permission`,[ids.tenantId,actors.importer,ids.entityId])).rows.map(row=>row.permission),['BANK.MATCH.CREATE','BANK.RECONCILIATION.START','BANK.VIEW','WBS.TEST.IMPORT']);
-  assert.deepEqual((await adminPool.query(`SELECT idempotency_key FROM runtime_grant_sync_receipt WHERE tenant_id=$1 AND actor_id=$2 AND entity_id=$3 ORDER BY idempotency_key`,[ids.tenantId,actors.importer,ids.entityId])).rows.map(row=>row.idempotency_key),['wbs-test-import-importer-grant-v1','wbs-test-import-importer-grant-v2','wbs-test-import-importer-grant-v3']);
-  assert.equal((await adminPool.query(`SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='ACTOR_GRANTS_RECONCILED'`,[ids.tenantId,ids.entityId])).rows[0].n,13);
+  assert.equal(restarted.importer.version,4);assert.equal(restarted.importer.idempotent,true);
+  assert.deepEqual((await adminPool.query(`SELECT version FROM runtime_actor_grant_set WHERE tenant_id=$1 AND actor_id=$2 AND entity_id=$3`,[ids.tenantId,actors.importer,ids.entityId])).rows[0],{version:'4'});
+  assert.deepEqual((await adminPool.query(`SELECT permission FROM runtime_actor_grant WHERE tenant_id=$1 AND actor_id=$2 AND entity_id=$3 AND revoked_at IS NULL ORDER BY permission`,[ids.tenantId,actors.importer,ids.entityId])).rows.map(row=>row.permission),['AP.VIEW','BANK.MATCH.CREATE','BANK.RECONCILIATION.START','BANK.VIEW','WBS.TEST.IMPORT']);
+  assert.deepEqual((await adminPool.query(`SELECT idempotency_key FROM runtime_grant_sync_receipt WHERE tenant_id=$1 AND actor_id=$2 AND entity_id=$3 ORDER BY idempotency_key`,[ids.tenantId,actors.importer,ids.entityId])).rows.map(row=>row.idempotency_key),['wbs-test-import-importer-grant-v1','wbs-test-import-importer-grant-v2','wbs-test-import-importer-grant-v3','wbs-test-import-importer-grant-v4']);
+  assert.equal((await adminPool.query(`SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='ACTOR_GRANTS_RECONCILED'`,[ids.tenantId,ids.entityId])).rows[0].n,19);
 });
 
 pgTest('Stage 1 provisioning creates only minimal read scope, replays exactly and grants the observed OIDC subject',async()=>{
@@ -3481,25 +3483,39 @@ pgTest('reconciliation rejects mixed currencies and non-posted hand-made match e
 pgTest('190 isolated WBS TEST_ONLY Bank Match posts one exact payment, links GL, and replays with zero delta',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null,extraMembers:[{memberRef:'WBS_TEST_BANK',memberType:'BANK',displayName:'Legacy WBS test Bank'}]});
   const batchIds=[randomUUID(),randomUUID()],rawIds=[randomUUID(),randomUUID()],sourceIds=[randomUUID(),randomUUID()],billId=randomUUID(),bankSourceId=randomUUID();
+  const settingId=randomUUID(),mappingId=randomUUID(),inputKeyHash=hash('wbs-test-bank-match-mapping');
+  const configHashes=(await adminPool.query("SELECT refs_jsonb_hash('{}'::jsonb) setting_hash,refs_jsonb_hash(jsonb_build_object('input_keys','{}'::jsonb,'output_rules','{}'::jsonb)) mapping_hash")).rows[0];
+  await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,1,'2026-01-01','APPROVED','{}',$4,'fixture-setting-maker','fixture-setting-approver',now())`,[settingId,ids.tenantId,ids.entityId,configHashes.setting_hash]);
+  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,$4,1,0,'2026-01-01','APPROVED','{}','{}',$5,'fixture-mapping-maker','fixture-mapping-approver',now())`,[mappingId,ids.tenantId,ids.entityId,inputKeyHash,configHashes.mapping_hash]);
   await adminPool.query(`INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash,status,row_count,started_at,completed_at)
     VALUES($1,$3,$4,'WBS_TEST','payable',$5,'match-payable-fixture',$6,'SUCCEEDED',1,now(),now()),($2,$3,$4,'WBS_TEST','bankFeed',$5,'match-bank-fixture',$7,'SUCCEEDED',1,now(),now())`,[...batchIds,ids.tenantId,ids.entityId,ids.sourceEntityId,hash('match-payable-batch'),hash('match-bank-batch')]);
   await adminPool.query(`INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id)
     VALUES($1,$3,$4,$5,'WBS','payable',$6,'MATCH-PAYABLE','test:v1','UPSERT',now(),$7,$8,'MATCH-PAYABLE'),($2,$3,$4,$9,'WBS','bankFeed',$6,'MATCH-BANK','test:v1','UPSERT',now(),$10,$11,'MATCH-BANK')`,[...rawIds,ids.tenantId,ids.entityId,batchIds[0],ids.sourceEntityId,hash('match-payable-raw'),`object://test/${rawIds[0]}`,batchIds[1],hash('match-bank-raw'),`object://test/${rawIds[1]}`]);
   await adminPool.query(`INSERT INTO source_document(source_document_id,tenant_id,entity_id,raw_event_id,source_system,source_module,source_entity_id,source_record_id,source_version,document_type,document_no,business_date,accounting_date,currency,gross_amount,status,source_ref,payload_hash)
-    VALUES($1,$3,$4,$5,'WBS','payable',$6,'MATCH-PAYABLE','test:v1','WBS_TEST_PAYABLE','WBS-TEST-MATCH-PAYABLE','2026-07-01','2026-07-01','USD',1000,'POSTED','WBS:MATCH-PAYABLE',$7),($2,$3,$4,$8,'WBS','bankFeed',$6,'MATCH-BANK','test:v1','WBS_TEST_BANK_TRANSACTION','WBS-TEST-MATCH-BANK','2026-07-01','2026-07-01','USD',40,'POSTED','WBS:MATCH-BANK',$9)`,[...sourceIds,ids.tenantId,ids.entityId,rawIds[0],ids.sourceEntityId,hash('match-payable-source'),rawIds[1],hash('match-bank-source')]);
+    VALUES($1,$3,$4,$5,'WBS','payable',$6,'MATCH-PAYABLE','test:v1','WBS_TEST_PAYABLE','WBS-TEST-MATCHPAYABLE','2026-07-01','2026-07-01','USD',1000,'POSTED','WBS:MATCH-PAYABLE',$7),($2,$3,$4,$8,'WBS','bankFeed',$6,'MATCH-BANK','test:v1','WBS_TEST_BANK_TRANSACTION','WBS-TEST-MATCH-BANK','2026-07-01','2026-07-01','USD',40,'POSTED','WBS:MATCH-BANK',$9)`,[...sourceIds,ids.tenantId,ids.entityId,rawIds[0],ids.sourceEntityId,hash('match-payable-source'),rawIds[1],hash('match-bank-source')]);
   await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,source_document_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
-    VALUES($1,$2,$3,$4,'AP_BILL','WBS-TEST-MATCH-PAYABLE','VENDOR-1','WBS test vendor','USD','2026-07-01','2026-07-31',1000,1000,'OPEN','fixture')`,[billId,ids.tenantId,ids.entityId,sourceIds[0]]);
+    VALUES($1,$2,$3,$4,'AP_BILL','WBS-TEST-MATCHPAYABLE','VENDOR-1','WBS test vendor','USD','2026-07-01','2026-07-31',1000,1000,'OPEN','fixture')`,[billId,ids.tenantId,ids.entityId,sourceIds[0]]);
   await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
     VALUES($1,$2,$3,$4,'WBS_TEST_BANK','WBS-TEST-MATCH-LEGACY','2026-07-01','USD',-40)`,[bankSourceId,ids.tenantId,ids.entityId,sourceIds[1]]);
   const actors={importer:'wbs-match-importer',maker:'wbs-match-maker',submitter:'wbs-match-submitter',reviewer:'wbs-match-reviewer',approver:'wbs-match-approver',poster:'wbs-match-poster'};
-  const permissions={importer:['WBS.TEST.IMPORT','BANK.VIEW','AP.VIEW','BANK.MATCH.CREATE'],maker:['AP.PAYMENT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']};
+  const permissions={importer:['WBS.TEST.IMPORT','BANK.VIEW','AP.VIEW','BANK.MATCH.CREATE'],maker:['WBS.TEST.IMPORT','AP.PAYMENT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']};
   const service=createControlledTestBankMatchService({scope:{tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'WBS_TEST_BANK',cashAccountCode:'111000',actors},authorize:async()=>{},kernelForActor:actorId=>{const role=Object.entries(actors).find(([,value])=>value===actorId)[0];return new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actorId,permissions[role])});}});
   const input={tenantId:ids.tenantId,entityId:ids.entityId,reason:'Prove one isolated WBS TEST_ONLY posted-payment Bank Match',idempotencyKey:'wbs-test-bank-match-pg-001'};
   const first=await service.run(input),replay=await service.run(input);
   assert.equal(first.idempotent,false);assert.equal(replay.idempotent,true);assert.equal(replay.bank_match_id,first.bank_match_id);assert.equal(first.bank_source_id,bankSourceId);assert.equal(first.business_document_id,billId);
   const evidence=(await adminPool.query(`SELECT bm.status,j.status journal_status,j.revision journal_revision,po.status payment_status,po.version payment_version,jl.member_ref,jl.credit_amount::text,ll.ledger_line_id,sl.link_type,bd.open_balance::text
     FROM bank_match bm JOIN payment_occurrence po ON po.payment_occurrence_id=bm.payment_occurrence_id JOIN journal_entry j ON j.journal_entry_id=bm.journal_entry_id JOIN journal_line jl ON jl.journal_line_id=bm.journal_line_id JOIN ledger_line ll ON ll.ledger_line_id=bm.ledger_line_id JOIN source_link sl ON sl.bank_match_id=bm.bank_match_id AND sl.link_type='POSTED_PAYMENT_BANK_MATCH' JOIN business_document bd ON bd.business_document_id=po.business_document_id WHERE bm.bank_match_id=$1`,[first.bank_match_id])).rows;
-  assert.deepEqual(evidence,[{status:'ACTIVE',journal_status:'POSTED',journal_revision:4,payment_status:'POSTED',payment_version:1,member_ref:'WBS_TEST_BANK',credit_amount:'40.0000',ledger_line_id:first.ledger_line_id,link_type:'POSTED_PAYMENT_BANK_MATCH',open_balance:'960.0000'}]);
+  assert.deepEqual(evidence,[{status:'ACTIVE',journal_status:'POSTED',journal_revision:'4',payment_status:'POSTED',payment_version:'1',member_ref:'WBS_TEST_BANK',credit_amount:'40.0000',ledger_line_id:first.ledger_line_id,link_type:'POSTED_PAYMENT_BANK_MATCH',open_balance:'960.0000'}]);
+  const sourceEvidence=(await adminPool.query(`SELECT
+      (SELECT count(*)::int FROM staging_item WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3) staging_count,
+      (SELECT count(*)::int FROM rule_evaluation WHERE tenant_id=$1 AND source_document_id=$3 AND rule_code='WBS_TEST_BANK_MATCH_PAYMENT') rule_count,
+      (SELECT count(*)::int FROM source_link WHERE tenant_id=$1 AND entity_id=$2 AND link_type='SOURCE_TO_JE' AND source_document_id=$3 AND journal_entry_id=$4) source_link_count,
+      (SELECT source_document_id FROM payment_occurrence WHERE tenant_id=$1 AND entity_id=$2 AND payment_occurrence_id=$5) payment_source_document_id,
+      (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='CONTROLLED_TEST_BANK_PAYMENT_SOURCE_BOUND' AND object_id=$5) bind_audit_count`,
+    [ids.tenantId,ids.entityId,sourceIds[0],first.journal_entry_id,first.payment_occurrence_id])).rows;
+  assert.deepEqual(sourceEvidence,[{staging_count:1,rule_count:1,source_link_count:1,payment_source_document_id:sourceIds[0],bind_audit_count:1}]);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM reconciliation WHERE tenant_id=$1 AND entity_id=$2 AND bank_account_ref LIKE 'WBS_TEST_BANK_2026_%'",[ids.tenantId,ids.entityId])).rows[0].n,0);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM bank_match WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,1);
 });
@@ -4225,6 +4241,7 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
+  await migrateDown(adminPool);
   const rolledBack=(await adminPool.query(`SELECT
     to_regprocedure('refs_get_reconciliation_worksheet_item(uuid,uuid,uuid,uuid)') IS NULL item_reader_removed,
     to_regprocedure('refs_list_reconciliation_adjustment_evidence(uuid,uuid,integer)') IS NOT NULL evidence_retained,
@@ -4233,6 +4250,7 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     pg_get_functiondef('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) LIKE '%NOT BETWEEN 1 AND 500%' function_cap_restored,
     pg_get_functiondef('refs_guard_reconciliation_adjustment_lifecycle()'::regprocedure) LIKE '%adjustment.bank_delta<>(SELECT source.amount%' item_guard_retained`)).rows[0];
   assert.deepEqual(rolledBack,{item_reader_removed:true,evidence_retained:true,import_cap_restored:true,row_cap_restored:true,function_cap_restored:true,item_guard_retained:true});
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
@@ -4313,7 +4331,9 @@ pgTest('WBS TEST Bank monthly identity admits legacy July hashes, isolates month
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
+  await migrateDown(adminPool);
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
@@ -4389,8 +4409,10 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
+  await migrateDown(adminPool);
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0],beforeDown);
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
