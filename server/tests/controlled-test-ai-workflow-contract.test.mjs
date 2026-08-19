@@ -22,6 +22,16 @@ test('migration 187 allowlists only the dedicated controlled-test AI source modu
   assert.doesNotMatch(down,/DELETE\s+FROM\s+source_document/i);
 });
 
+test('migration 188 corrects only the TEST_ONLY audit actor without widening the core actor allowlist',async()=>{
+  const up=await read('../db/migrations/188_controlled_test_ai_audit_actor.sql');
+  const down=await read('../db/migrations/down/188_controlled_test_ai_audit_actor.sql');
+  assert.match(up,/refs_derive_controlled_test_ai_source/);assert.match(up,/SERVICE_ACCOUNT/);
+  assert.match(up,/actor,''SERVICE'',''AI\.TEST\.WORKFLOW''/);assert.doesNotMatch(up,/audit_event_actor_type_check/);
+  assert.doesNotMatch(up,/ALTER\s+TABLE\s+audit_event/i);assert.doesNotMatch(up,/CREATE\s+POLICY/i);
+  assert.match(down,/source_module='ai_test_prepaid'/);assert.match(down,/ERRCODE='55006'/);
+  assert.doesNotMatch(down,/DELETE\s+FROM\s+(?:source_document|audit_event)/i);
+});
+
 test('OpenAPI exposes only the explicit staging runner and keeps identity out of its closed body',async()=>{
   const api=JSON.parse(await read('../api/openapi-accounting.json'));
   const route=api.paths['/entities/{entityId}/ai/controlled-test-workflow/run'].post;
