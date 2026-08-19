@@ -155,6 +155,12 @@ services:
         sync: false
       - key: REFS_WBS_TEST_IMPORT_MODE
         value: ENABLED
+      - key: REFS_DEPLOYMENT_ENV
+        value: staging
+      # Browser presentation switch only. It must be enabled together with the
+      # API switch after the fixed caller identity has been configured.
+      - key: REFS_CONTROLLED_TEST_AI_WORKFLOW_MODE
+        value: DISABLED
       - key: REFS_PUBLIC_ENTITY_ID
         sync: false
       - key: REFS_PUBLIC_PERIOD_ID

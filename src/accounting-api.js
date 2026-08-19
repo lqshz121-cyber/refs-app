@@ -15,7 +15,9 @@ export const accountingApiConfig=(environment=globalThis)=>{
   if(baseUrl.protocol!=='https:'||baseUrl.username||baseUrl.password)return null;
   const cashAccountCode=typeof source.cashAccountCode==='string'&&ACCOUNT_CODE.test(source.cashAccountCode)?source.cashAccountCode:null;
   const wbsTestImportMode=source.wbsTestImportMode==='ENABLED'?'ENABLED':'DISABLED';
-  return {baseUrl:baseUrl.toString().replace(/\/$/,''),entityId:source.entityId,periodId:source.periodId,cashAccountCode,wbsTestImportMode,getAccessToken:source.getAccessToken};
+  const deploymentEnvironment=source.deploymentEnvironment==='staging'?'staging':'unknown';
+  const controlledTestAiWorkflowMode=deploymentEnvironment==='staging'&&source.controlledTestAiWorkflowMode==='ENABLED'?'ENABLED':'DISABLED';
+  return {baseUrl:baseUrl.toString().replace(/\/$/,''),entityId:source.entityId,periodId:source.periodId,cashAccountCode,wbsTestImportMode,deploymentEnvironment,controlledTestAiWorkflowMode,getAccessToken:source.getAccessToken};
 };
 
 export const authoritativeBearerHeaders=async config=>{try{const token=await config?.getAccessToken?.();return typeof token==='string'&&/^[A-Za-z0-9._~-]{16,8192}$/.test(token)?{authorization:`Bearer ${token}`} : null;}catch{return null;}};
@@ -1182,6 +1184,30 @@ export async function createAuthoritativeAiAmortizationDraft({config,schedule,sc
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
   const body={periodId:config.periodId,scheduleLineId:scheduleLine.ai_amortization_schedule_line_id,expectedProposalHash:schedule.proposal_hash,attachmentIds:attachments,reason:approvedReason};
   try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/ai/amortization/schedules/${schedule.ai_amortization_schedule_id}/drafts`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response,'AI_AMORTIZATION_DRAFT');const envelope=await response.json(),data=aiAmortizationDraftResult(envelope?.data);if(envelope?.ok!==true||data===null||data.ai_amortization_schedule_id!==schedule.ai_amortization_schedule_id||data.ai_amortization_schedule_line_id!==scheduleLine.ai_amortization_schedule_line_id||data.source_document_id!==schedule.source_document_id)return {ok:false,code:'AI_AMORTIZATION_DRAFT_PROTOCOL',message:'The accounting API returned a malformed, mismatched, or action-enabled amortization Draft receipt.'};return {ok:true,data,idempotent:response.status===200};}catch{return unreachable('The browser could not create the amortization Draft; no HTTP response was produced.');}
+}
+
+const CONTROLLED_TEST_AI_POSTED_FIELDS=['ai_amortization_schedule_id','idempotent','journal_entry_id','parent_source_document_id','posting_batch_id','provenance_mode','source_document_id','status','test_only'];
+const CONTROLLED_TEST_AI_PARTIAL_FIELDS=['ai_amortization_schedule_id','completed_stage','idempotency_key','journal_entry_id','parent_source_document_id','posting_batch_id','provenance_mode','retryable','source_document_id','status','test_only'];
+const CONTROLLED_TEST_AI_STAGES=new Set(['SOURCE_DERIVED','COVERAGE_RECORDED','PROPOSAL_RECORDED','DRAFT_CREATED','SUBMITTED','REVIEWED','APPROVED']);
+const controlledTestAiWorkflowResult=value=>{
+  const posted=exactObjectKeys(value,CONTROLLED_TEST_AI_POSTED_FIELDS)&&value.status==='CONTROLLED_TEST_AI_WORKFLOW_POSTED'&&typeof value.idempotent==='boolean'&&[value.ai_amortization_schedule_id,value.journal_entry_id,value.parent_source_document_id,value.posting_batch_id,value.source_document_id].every(item=>UUID.test(item||''));
+  const partial=exactObjectKeys(value,CONTROLLED_TEST_AI_PARTIAL_FIELDS)&&value.status==='CONTROLLED_TEST_AI_WORKFLOW_PARTIAL'&&value.retryable===true&&CONTROLLED_TEST_AI_STAGES.has(value.completed_stage)&&typeof value.idempotency_key==='string'&&value.idempotency_key.length>=8&&value.idempotency_key.length<=120&&UUID.test(value.parent_source_document_id||'')&&[value.ai_amortization_schedule_id,value.journal_entry_id,value.source_document_id].every(item=>item===null||UUID.test(item||''))&&value.posting_batch_id===null;
+  return (posted||partial)&&value.test_only===true&&value.provenance_mode==='UNSIGNED_TEST_ONLY'?Object.freeze({...value}):null;
+};
+
+export async function controlledTestAiWorkflowIdempotencyKey({config,periodId,parentSourceDocumentId,coverageStart,coverageEnd,reason,cryptoApi=globalThis.crypto}={}){
+  const approvedReason=typeof reason==='string'?reason.trim():'';
+  if(config?.controlledTestAiWorkflowMode!=='ENABLED'||config?.deploymentEnvironment!=='staging'||!UUID.test(config.entityId||'')||!UUID.test(periodId||'')||!UUID.test(parentSourceDocumentId||'')||!wholeMonthCoverage(coverageStart,coverageEnd)||approvedReason.length<8||approvedReason.length>1800||typeof cryptoApi?.subtle?.digest!=='function')return null;
+  const canonical=JSON.stringify({coverage_end:coverageEnd,coverage_start:coverageStart,entity_id:config.entityId,parent_source_document_id:parentSourceDocumentId,period_id:periodId,reason:approvedReason});
+  try{return `controlled-ai:${hex(await cryptoApi.subtle.digest('SHA-256',new TextEncoder().encode(canonical)))}`;}catch{return null;}
+}
+
+export async function runControlledTestAiWorkflow({config,periodId,parentSourceDocumentId,coverageStart,coverageEnd,reason,idempotencyKey,fetcher=globalThis.fetch}={}){
+  const approvedReason=typeof reason==='string'?reason.trim():'';
+  if(config?.controlledTestAiWorkflowMode!=='ENABLED'||config?.deploymentEnvironment!=='staging'||typeof fetcher!=='function'||!UUID.test(periodId||'')||!UUID.test(parentSourceDocumentId||'')||!wholeMonthCoverage(coverageStart,coverageEnd)||approvedReason.length<8||approvedReason.length>1800||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>120)return {ok:false,code:'CONTROLLED_TEST_AI_COMMAND_INVALID',message:'The staging test runner requires one POSTED WBS TEST_ONLY source, its corresponding OPEN period, whole-month coverage, a reason, and stable command identity.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  const body={periodId,parentSourceDocumentId,coverageStart,coverageEnd,reason:approvedReason};
+  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/ai/controlled-test-workflow/run`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify(body)});if(!response.ok)return await failure(response,'CONTROLLED_TEST_AI_WORKFLOW');const contentType=String(response.headers?.get?.('content-type')||'').toLowerCase(),cacheControl=String(response.headers?.get?.('cache-control')||'');if(!contentType.includes('application/json')||!/\bno-store\b/i.test(cacheControl))return {ok:false,code:'CONTROLLED_TEST_AI_PROTOCOL',message:'The controlled test endpoint did not return a no-store JSON receipt.'};const envelope=await response.json(),data=controlledTestAiWorkflowResult(envelope?.data);if(envelope?.ok!==true||data===null||data.parent_source_document_id!==parentSourceDocumentId||(data.status==='CONTROLLED_TEST_AI_WORKFLOW_PARTIAL'&&data.idempotency_key!==idempotencyKey))return {ok:false,code:'CONTROLLED_TEST_AI_PROTOCOL',message:'The controlled test endpoint returned an invalid, mismatched, or non-test receipt.'};return {ok:true,data,idempotent:response.status===200};}catch{return unreachable('The browser could not run the controlled test AI workflow; no HTTP response was produced.');}
 }
 
 export async function attestAuthoritativeWbsPayableObservation({config,observation,expectedCompanyCode=null,dateFrom=null,dateTo=null,reason,idempotencyKey,fetcher=globalThis.fetch}={}){
