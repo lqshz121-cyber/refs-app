@@ -118,10 +118,18 @@ export function createControlledTestAiWorkflowService({kernelForActor,scope}={})
       try{proposal=await kernels.proposer.proposeAiAmortizationSchedule({tenantId,entityId,sourceDocumentId:source.source_document_id,sourcePayloadHash:source.source_payload_hash,
         coverageStart,coverageEnd,prepaidAccountCode:scope.prepaidAccountCode,expenseAccountCode:scope.expenseAccountCode,
         memberTrace:{project_ref:null,property_ref:null,allocation_basis:'ENTITY_ONLY'},confidence:1,reason:markedReason,idempotencyKey:`${key}:proposal`});}catch{return partialResult({completedStage,key,parentSourceDocumentId,source});}
-      if(!proposal||!UUID.test(proposal.ai_amortization_schedule_id||'')||!SHA256.test(proposal.proposal_hash||''))fail('CONTROLLED_TEST_AI_PROPOSAL_INVALID','Controlled-test AI proposal returned an unsafe result.');
-      completedStage='PROPOSAL_RECORDED';
+      if(!proposal||!UUID.test(proposal.ai_amortization_schedule_id||''))fail('CONTROLLED_TEST_AI_PROPOSAL_INVALID','Controlled-test AI proposal returned an unsafe result.');
       const schedules=await kernels.draftMaker.listAiAmortizationSchedules({tenantId,entityId,limit:100});
-      const schedule=schedules.find(row=>row.ai_amortization_schedule_id===proposal.ai_amortization_schedule_id&&row.source_document_id===source.source_document_id&&row.proposal_hash===proposal.proposal_hash);
+      const schedule=schedules.find(row=>row.ai_amortization_schedule_id===proposal.ai_amortization_schedule_id&&row.source_document_id===source.source_document_id);
+      if(!schedule||!SHA256.test(schedule.proposal_hash||'')
+        ||(proposal.proposal_hash!==undefined&&proposal.proposal_hash!==schedule.proposal_hash)){
+        fail('CONTROLLED_TEST_AI_PROPOSAL_INVALID','Controlled-test AI proposal does not match its authoritative schedule.');
+      }
+      // Migration 119 persists the canonical proposal hash but its immutable
+      // command receipt predates that field. Reconcile the receipt only from
+      // the permission-scoped authoritative schedule read before continuing.
+      proposal=Object.freeze({...proposal,proposal_hash:schedule.proposal_hash});
+      completedStage='PROPOSAL_RECORDED';
       const line=schedule?.schedule_lines?.find(row=>isoDate(row.amortization_month)===coverageStart);
       if(!schedule||!line||!UUID.test(line.ai_amortization_schedule_line_id||'')||!Array.isArray(schedule.eligible_source_attachment_ids)
         ||schedule.eligible_source_attachment_ids.length!==1||schedule.eligible_source_attachment_ids[0]!==source.attachment_id){
