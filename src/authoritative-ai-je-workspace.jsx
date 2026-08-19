@@ -3,6 +3,7 @@ import {aiAmortizationDraftIdempotencyKey,createAuthoritativeAiAmortizationDraft
 import {AuthoritativeWorkspaceHeader,AuthoritativeWorkspaceView} from './authoritative-workbench-view.jsx';
 import {StateBlock} from './ui.jsx';
 import {AuthoritativeControlledTestAiWorkflow} from './authoritative-controlled-test-ai-workflow.jsx';
+import {AuthoritativeCapitalizationPanel} from './authoritative-capitalization-panel.jsx';
 
 const empty={phase:'LOADING',rows:[],error:null};
 export function AuthoritativeAiJeWorkspace({config,fetcher=globalThis.fetch,onAccountingRefresh}){
@@ -34,6 +35,7 @@ export function AuthoritativeAiJeWorkspace({config,fetcher=globalThis.fetch,onAc
   return <AuthoritativeWorkspaceView area="AI JE Workbench">
     <AuthoritativeWorkspaceHeader eyebrow="AUTHORITATIVE - HUMAN-CONTROLLED AI DRAFT" title="AI JE Workbench" description="Create one source-bound Draft. Journal review and posting remain separate." status="DRAFT ONLY"/>
     <AuthoritativeControlledTestAiWorkflow config={config} fetcher={fetcher} onAccountingRefresh={onAccountingRefresh}/>
+    <AuthoritativeCapitalizationPanel config={config} fetcher={fetcher}/>
     <section className="report-workbench" aria-label="AI amortization Draft workbench">
       <div className="report-workbench-head"><div><b>Source-bound amortization proposals</b><div className="page-subtitle">Every Draft keeps its exact schedule, source, period and clean attachments.</div></div><button type="button" className="btn" onClick={load} disabled={schedules.phase==='LOADING'}>{schedules.phase==='LOADING'?'Refreshing...':'Refresh'}</button></div>
       <p className="muted sm" aria-label="AI Draft authority boundary">HUMAN MAKER | MANUAL DRAFT ONLY | NO SUBMIT | NO REVIEW | NO APPROVE | NO POST</p>
