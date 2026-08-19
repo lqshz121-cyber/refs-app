@@ -84,7 +84,8 @@
     "verify:stage3-g11-live-chain": "node server/runtime/verify-stage3-g11-authoritative-e2e.mjs",
     "verify:stage3-insurance-prepaid-live-chain": "node server/runtime/verify-stage3-insurance-prepaid-authoritative-e2e.mjs",
     "verify:stage3-property-rent-live-chain": "node server/runtime/verify-stage3-property-rent-authoritative-e2e.mjs",
-    "verify:stage3-reporting-live-chain": "node server/runtime/verify-stage3-reporting-authoritative-e2e.mjs"
+    "verify:stage3-reporting-live-chain": "node server/runtime/verify-stage3-reporting-authoritative-e2e.mjs",
+    "test:ai-vendor-invoice-anomaly": "node --test server/tests/ai-vendor-invoice-amount-anomaly.test.mjs server/tests/ai-vendor-invoice-anomaly-service.test.mjs"
   },
   "dependencies": {
     "react": "18.3.1",
