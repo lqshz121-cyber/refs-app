@@ -189,8 +189,18 @@ export function createControlledTestBankWorkflowService({kernelForActor,authoriz
     if(!Array.isArray(scopes)||scopes.length<1||scopes.length>6||scopes.some(value=>!exactObject(value,['periodId','reconciliationId'])||!UUID.test(value.periodId||'')||!UUID.test(value.reconciliationId||''))
       ||new Set(scopes.map(value=>value.reconciliationId)).size!==scopes.length||typeof reviewReason!=='string'||reviewReason!==reviewReason.trim()||reviewReason.length<8||reviewReason.length>1700
       ||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>110)fail('CONTROLLED_TEST_BANK_SELECTION_INVALID','Controlled-test Bank range requires one to six unique monthly period/reconciliation scopes, reason, and stable identity.');
-    const results=[];for(const [index,item] of scopes.entries())results.push(await run({tenantId,entityId,...item,reason:reviewReason,idempotencyKey:`${idempotencyKey}:${index}`,maxItems:100}));
-    if(results.some(result=>result.status==='CONTROLLED_TEST_BANK_WORKFLOW_PARTIAL'))fail('CONTROLLED_TEST_BANK_WORKFLOW_INCOMPLETE','Use the single-month resumable workflow for a large Bank range.');
+    const results=[];
+    for(const [index,item] of scopes.entries()){
+      let previousRemaining=Number.POSITIVE_INFINITY,completed=null;
+      for(let attempt=0;attempt<101;attempt++){
+        const result=await run({tenantId,entityId,...item,reason:reviewReason,idempotencyKey:`${idempotencyKey}:${index}`,maxItems:100});
+        if(result.status==='CONTROLLED_TEST_BANK_WORKFLOW_REOPENED'){completed=result;break;}
+        if(result.remaining_count>=previousRemaining)fail('CONTROLLED_TEST_BANK_WORKFLOW_INCOMPLETE','Controlled-test Bank range workflow did not make strict monthly progress.');
+        previousRemaining=result.remaining_count;
+      }
+      if(!completed)fail('CONTROLLED_TEST_BANK_WORKFLOW_INCOMPLETE','Controlled-test Bank range workflow exceeded the bounded monthly batch count.');
+      results.push(completed);
+    }
     const sum=key=>results.reduce((total,result)=>total+result[key],0);
     return Object.freeze(assertControlledTestBankRangeWorkflowResult({status:'CONTROLLED_TEST_BANK_RANGE_WORKFLOW_REOPENED',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:results.every(result=>result.idempotent),scope_count:results.length,processed_count:sum('processed_count'),matched_count:sum('matched_count'),adjusted_count:sum('adjusted_count'),cleared_count:sum('cleared_count'),results:Object.freeze(results)}));
   }});

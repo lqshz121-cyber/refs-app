@@ -182,7 +182,7 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['companyCode','dateFrom','dateTo','pageSize','maxPages']);
         if(typeof wbsTestImportServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
         if(payload.pageSize!==10)throw new AccountingApiError(400,'INVALID_LIMIT','pageSize must equal the frozen ten-row Provider page size');
-        if(!Number.isSafeInteger(payload.maxPages)||payload.maxPages<1||payload.maxPages>50)throw new AccountingApiError(400,'INVALID_LIMIT','maxPages must be an integer from 1 to 50');
+        if(!Number.isSafeInteger(payload.maxPages)||payload.maxPages<1||payload.maxPages>1000)throw new AccountingApiError(400,'INVALID_LIMIT','maxPages must be an integer from 1 to 1000');
         const service=await wbsTestImportServiceFactory(principal);
         if(!service||typeof service.importRange!=='function')throw new WbsTestImportError('WBS_TEST_IMPORT_CONFIG_INVALID','Paged test-import service is unavailable.');
         result=await service.importRange({tenantId:principal.tenantId,entityId,companyCode:requireWbsCompanyCode(payload.companyCode),dateFrom:requireIsoDate(payload.dateFrom,'dateFrom'),dateTo:requireIsoDate(payload.dateTo,'dateTo'),pageSize:payload.pageSize,maxPages:payload.maxPages,idempotencyKey:requireIdempotency(headers)});
