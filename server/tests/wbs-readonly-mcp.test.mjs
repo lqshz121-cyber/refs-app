@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {canonicalRequestHash} from '../runtime/request-hash.mjs';
-import {createReadOnlyWbsMcpClient,validateWbsMcpCatalogPreflight,validateWbsReadEnvelope,verifyWbsMcpCatalogV2Evidence,wbsMcpCatalogSemanticHash,WbsMcpError,WBS_MCP_CATALOG_V2_REVIEWED_PINS,WBS_MCP_PRODUCTION_PAGE_LIMIT,WBS_MCP_PILOT_LIMIT,WBS_MCP_PROTOCOL_VERSION,WBS_READONLY_ROW_FIELDS,WBS_READONLY_OPTIONAL_TRACE_FIELDS,WBS_READONLY_TOOLS} from '../runtime/wbs-readonly-mcp.mjs';
+import {createReadOnlyWbsMcpClient,validateWbsMcpCatalogPreflight,validateWbsPilotObservationEnvelope,validateWbsReadEnvelope,verifyWbsMcpCatalogV2Evidence,wbsMcpCatalogSemanticHash,WbsMcpError,WBS_MCP_CATALOG_V2_REVIEWED_PINS,WBS_MCP_PRODUCTION_PAGE_LIMIT,WBS_MCP_PILOT_LIMIT,WBS_MCP_PROTOCOL_VERSION,WBS_READONLY_ROW_FIELDS,WBS_READONLY_OPTIONAL_TRACE_FIELDS,WBS_READONLY_TOOLS} from '../runtime/wbs-readonly-mcp.mjs';
 
 const endpoint='https://refs-mcp.wbm3.com/mcp';
 const auth=async()=>({'CF-Access-Client-Id':'test-client-id','CF-Access-Client-Secret':'test-client-secret','X-REFS-Auth':'test-refs-auth'});
@@ -156,6 +156,20 @@ test('formal provider envelope validates stable string keys, integer journal ids
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_insurance',envelope:readEnvelope({tool:'list_insurance',rows:[{id:2,policy_id:'POL-A',company_code:null,currency:'USD'},{id:10,policy_id:'POL-A',company_code:null,currency:'USD'}]})}),error=>error.code==='WBS_MCP_ROWS_NOT_SORTED');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_insurance',envelope:readEnvelope({tool:'list_insurance',rows:[{id:2,policy_id:'POL-A',company_code:null,currency:'USD'},{id:2,policy_id:'POL-B',company_code:null,currency:'USD'}]})}),error=>error.code==='WBS_MCP_ROWS_NOT_SORTED');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_insurance',envelope:readEnvelope({tool:'list_insurance',rows:[{id:2,policy_id:'POL-A',company_code:'WBPA',currency:'USD'}]})}),error=>error.code==='WBS_MCP_ENVELOPE_SCOPE_MISMATCH');
+});
+
+test('UNSIGNED Pilot authenticates raw Provider order then sorts unique stable keys without relaxing formal reads',()=>{
+  const unordered=readEnvelope({rows:[{ap_guid:'AP-2',currency:'USD',amount:'2.00'},{ap_guid:'AP-1',currency:'USD',amount:'1.00'}]});
+  const pilot=validateWbsPilotObservationEnvelope({toolName:'list_payables',envelope:unordered});
+  assert.deepEqual(pilot.rows.map(row=>row.ap_guid),['AP-1','AP-2']);
+  assert.equal(pilot.content_sha256,unordered.content_sha256);
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:unordered}),error=>error.code==='WBS_MCP_ROWS_NOT_SORTED');
+  const duplicate=readEnvelope({rows:[{ap_guid:'AP-1',currency:'USD'},{ap_guid:'AP-1',currency:'USD'}]});
+  assert.throws(()=>validateWbsPilotObservationEnvelope({toolName:'list_payables',envelope:duplicate}),error=>error.code==='WBS_MCP_ROWS_NOT_SORTED');
+  assert.throws(()=>validateWbsPilotObservationEnvelope({toolName:'list_payables',envelope:{...unordered,content_sha256:'0'.repeat(64)}}),error=>error.code==='WBS_MCP_CONTENT_HASH_MISMATCH');
+  const numeric=readEnvelope({tool:'list_journal_entries',rows:[{id:10,currency:'USD'},{id:2,currency:'USD'}]});
+  assert.deepEqual(validateWbsPilotObservationEnvelope({toolName:'list_journal_entries',envelope:numeric}).rows.map(row=>row.id),[2,10]);
+  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_journal_entries',envelope:numeric}),error=>error.code==='WBS_MCP_ROWS_NOT_SORTED');
 });
 
 test('catalog preflight requires all four reviewed V2 pins and rejects an old eight-tool or semantic drift',()=>{

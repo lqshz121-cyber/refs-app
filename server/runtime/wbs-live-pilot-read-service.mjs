@@ -147,8 +147,8 @@ export function createWbsLivePilotReadService({client,authorize}={}){
       let observed;try{await prepare();const args={limit,...providerScopeArgs(tool,{company_code,date_from,date_to})};if(cursor!==null)args.cursor=cursor;observed=await client.readView({toolName:tool,args});}catch{fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider page was unavailable or unsafe.');}
       const cursorNext=observed.cursor_next;
       if(cursorNext!==null&&(typeof cursorNext!=='string'||cursorNext.length<1||cursorNext.length>2048||CONTROL.test(cursorNext)))fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider returned an unsafe pagination cursor.');
-      const providerSnapshotToken=observed.scope?.snapshot_token??null,stableKey=STABLE_KEY[tool],stableValues=observed.rows.map(row=>String(row[stableKey]));
-      if((snapshot_token!==null&&providerSnapshotToken!==snapshot_token)||(cursor!==null&&snapshot_token===null&&providerSnapshotToken!==null)||stableValues.some(value=>!value||CONTROL.test(value)))fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider returned an unsafe snapshot continuation.');
+      const providerSnapshotToken=observed.scope?.snapshot_token??null,stableKey=STABLE_KEY[tool],stableValues=observed.rows.map(row=>row[stableKey]);
+      if((snapshot_token!==null&&providerSnapshotToken!==snapshot_token)||(cursor!==null&&snapshot_token===null&&providerSnapshotToken!==null)||stableValues.some(value=>stableKey==='id'?!Number.isSafeInteger(value):typeof value!=='string'||!value||CONTROL.test(value)))fail('WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE','The WBS live pilot provider returned an unsafe snapshot continuation.');
       return Object.freeze({
         observation:buildWbsLivePilotObservation({observed,entityId,tool,requestedScope:{company_code:company_code||null,date_from:date_from||null,date_to:date_to||null}}),
         cursor_next:cursorNext,

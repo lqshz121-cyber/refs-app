@@ -54,6 +54,14 @@ test('paged live pilot pins an optional Provider token without sending it as an 
   await assert.rejects(service.readObservationPage({tenantId,entityId,tool:'list_payables',limit:10,cursor:'mismatch',snapshot_token:'snapshot-h1-1'}),error=>error.code==='WBS_LIVE_PILOT_PROVIDER_UNAVAILABLE');
 });
 
+test('paged journal contract retains numeric stable keys so cross-page 9 to 10 is ascending',async()=>{
+  const client={initialize:async()=>{},listTools:async()=>{},readView:async request=>{const continued=Object.hasOwn(request.args,'cursor');return observed({tool:'list_journal_entries',rows:[{id:continued?10:9,posting_date:'2026-06-30',debtor:'1.00',lender:'0.00',review:'0'}],scope:{company_codes:['WBPA'],date_range:['2026-01-01','2026-06-30']},cursor_next:continued?null:'journal-page-2'});}};
+  const service=createWbsLivePilotReadService({client,authorize:async()=>{}});
+  const first=await service.readObservationPage({tenantId,entityId,tool:'list_journal_entries',limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-06-30'});
+  const second=await service.readObservationPage({tenantId,entityId,tool:'list_journal_entries',limit:10,company_code:'WBPA',date_from:'2026-01-01',date_to:'2026-06-30',cursor:first.cursor_next});
+  assert.equal(first.pagination.last_stable_key,9);assert.equal(second.pagination.first_stable_key,10);assert.equal(first.pagination.last_stable_key<second.pagination.first_stable_key,true);
+});
+
 test('live pilot maps each provider view to its published company/date fields',async()=>{
   const calls=[];
   const make=(tool,selection,providerScope)=>createWbsLivePilotReadService({client:{initialize:async()=>{},listTools:async()=>{},readView:async request=>{calls.push(request);return observed({tool,scope:providerScope,rows:[]});}},authorize:async()=>{}}).readObservation({tenantId:'tenant',entityId:'entity',tool,limit:1,...selection});

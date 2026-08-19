@@ -157,7 +157,16 @@ function safeArguments(args,toolName,{pilotObservationMode=false}={}){
 const stableKeyByTool=Object.freeze({list_payables:['ap_guid'],list_bank_transactions:['cb_id'],list_autorec_details:['pd_guid'],list_autorec_banks:['pb_guid'],list_journal_entries:['id']});
 const validStablePart=(name,value)=>name==='id'?Number.isSafeInteger(value):safeProviderKey(value);
 const stableTuple=(row,parts)=>parts.map(part=>String(row[part])).join('\u0000');
-export function validateWbsReadEnvelope({toolName,envelope}={}){
+const compareStableRows=(left,right,parts)=>{
+  for(const part of parts){
+    const leftValue=left[part],rightValue=right[part];
+    if(leftValue===rightValue)continue;
+    if(part==='id')return leftValue<rightValue?-1:1;
+    return String(leftValue)<String(rightValue)?-1:1;
+  }
+  return 0;
+};
+function validateWbsEnvelope({toolName,envelope,pilotSort=false}={}){
   if(!WBS_READONLY_TOOLS.includes(toolName)||!plainObject(envelope)||!Array.isArray(envelope.rows)||!/^[0-9a-f]{64}$/.test(envelope.content_sha256)||typeof envelope.contract_version!=='string'||!envelope.contract_version.trim()||envelope.tool!==toolName||typeof envelope.environment!=='string'||envelope.environment.toLowerCase()!=='production'||typeof envelope.captured_at!=='string'||Number.isNaN(Date.parse(envelope.captured_at))||!plainObject(envelope.source)||!plainObject(envelope.scope)||!Number.isSafeInteger(envelope.record_count)||envelope.record_count!==envelope.rows.length||(envelope.cursor_next!==null&&typeof envelope.cursor_next!=='string')||(envelope.etl_notice!==null&&typeof envelope.etl_notice!=='string'))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS production read envelope, scope, count, hash, or cursor is invalid.');
   if(WBS_CURSOR_READ_TOOLS.has(toolName)&&envelope.rows.length>WBS_MCP_PRODUCTION_PAGE_LIMIT)throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS production pagination returned more than 500 rows in one page.');
   const scopeCompany=scopedText(envelope.scope.company);
@@ -180,26 +189,37 @@ export function validateWbsReadEnvelope({toolName,envelope}={}){
   if(scopeCurrency&&envelope.rows.some(row=>plainObject(row)&&row.currency!=null&&scopedText(row.currency).toUpperCase()!==scopeCurrency))throw new WbsMcpError('WBS_MCP_ENVELOPE_SCOPE_MISMATCH','WBS row currency does not match the requested currency scope.');
   const stableKey=stableKeyByTool[toolName];
   if(stableKey&&envelope.rows.some(row=>!plainObject(row)||stableKey.some(part=>!validStablePart(part,row[part]))))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID',`WBS ${toolName} rows require bounded, control-character-free stable ${stableKey.join('+')}.`);
-  // The content hash preserves array order.  Require the provider's stable
-  // source key to be strictly ascending so a repeated row cannot silently
-  // inflate a later control total or appear as two source facts.
-  if(stableKey&&!envelope.rows.every((row,index)=>index===0||stableTuple(envelope.rows[index-1],stableKey)<stableTuple(row,stableKey)))throw new WbsMcpError('WBS_MCP_ROWS_NOT_SORTED','WBS rows must be strictly ascending and unique by their stable source key.');
   if(toolName==='list_insurance'){
     const policyIds=new Set();
     if(!envelope.rows.every((row,index)=>plainObject(row)&&Number.isSafeInteger(row.id)&&row.id>0&&safeProviderKey(row.policy_id)&&!policyIds.has(row.policy_id)&&(policyIds.add(row.policy_id),index===0||envelope.rows[index-1].id<row.id)))throw new WbsMcpError('WBS_MCP_ROWS_NOT_SORTED','WBS Insurance rows require strictly ascending unique numeric id and separately unique nonempty policy_id.');
   }
   if(envelope.rows.some(row=>plainObject(row)&&row.currency!=null&&row.currency!=='USD'))throw new WbsMcpError('WBS_MCP_CURRENCY_UNSUPPORTED','WBS pilot accepts USD rows only.');
+  // Authenticate exactly the byte-equivalent canonical raw Provider array
+  // before applying any Pilot-only ordering compatibility.  The retained
+  // provider_content_sha256 therefore continues to describe what WBS sent.
   const expectedHash=createHash('sha256').update(canonicalRequestBody(envelope.rows),'utf8').digest('hex');
-  if(!timingSafeEqual(Buffer.from(envelope.content_sha256,'hex'),Buffer.from(expectedHash,'hex')))throw new WbsMcpError('WBS_MCP_CONTENT_HASH_MISMATCH','WBS content_sha256 does not match canonical sorted compact rows.');
-  return Object.freeze({tool_name:toolName,contract_version:envelope.contract_version,environment:envelope.environment,captured_at:envelope.captured_at,source:Object.freeze(structuredClone(envelope.source)),scope:Object.freeze(structuredClone(envelope.scope)),record_count:envelope.record_count,content_sha256:envelope.content_sha256,cursor_next:envelope.cursor_next,etl_notice:envelope.etl_notice,rows:Object.freeze(structuredClone(envelope.rows)),requires_snapshot_diff:true,has_revision_contract:false,has_cdc_contract:false,has_tombstone_contract:false});
+  if(!timingSafeEqual(Buffer.from(envelope.content_sha256,'hex'),Buffer.from(expectedHash,'hex')))throw new WbsMcpError('WBS_MCP_CONTENT_HASH_MISMATCH','WBS content_sha256 does not match the canonical raw Provider rows.');
+  let rows=envelope.rows;
+  if(stableKey){
+    const tuples=rows.map(row=>stableTuple(row,stableKey));
+    if(new Set(tuples).size!==tuples.length)throw new WbsMcpError('WBS_MCP_ROWS_NOT_SORTED','WBS rows must be unique by their stable source key.');
+    if(pilotSort)rows=rows.map(row=>structuredClone(row)).sort((left,right)=>compareStableRows(left,right,stableKey));
+    else if(!rows.every((row,index)=>index===0||compareStableRows(rows[index-1],row,stableKey)<0))throw new WbsMcpError('WBS_MCP_ROWS_NOT_SORTED','WBS rows must be strictly ascending and unique by their stable source key.');
+  }
+  return Object.freeze({tool_name:toolName,contract_version:envelope.contract_version,environment:envelope.environment,captured_at:envelope.captured_at,source:Object.freeze(structuredClone(envelope.source)),scope:Object.freeze(structuredClone(envelope.scope)),record_count:envelope.record_count,content_sha256:envelope.content_sha256,cursor_next:envelope.cursor_next,etl_notice:envelope.etl_notice,rows:Object.freeze(structuredClone(rows)),requires_snapshot_diff:true,has_revision_contract:false,has_cdc_contract:false,has_tombstone_contract:false});
+}
+
+export function validateWbsReadEnvelope({toolName,envelope}={}){
+  return validateWbsEnvelope({toolName,envelope,pilotSort:false});
 }
 
 // A live pilot observation is deliberately weaker than an admissible WBS
-// snapshot, but cursor pagination still uses the provider's published
-// scope.snapshot_token and stable source keys.  Reuse the strict envelope
-// validator, then apply the independent ten-row Pilot ceiling.
+// snapshot.  The live Provider currently authenticates its raw array but does
+// not always emit it in stable-key order.  Only this UNSIGNED Pilot boundary
+// may deterministically order already-hashed, unique rows.  Formal reads and
+// signed-package paths retain validateWbsReadEnvelope's strict ordering gate.
 export function validateWbsPilotObservationEnvelope({toolName,envelope}={}){
-  const validated=validateWbsReadEnvelope({toolName,envelope});
+  const validated=validateWbsEnvelope({toolName,envelope,pilotSort:true});
   if(validated.rows.length>WBS_MCP_PILOT_LIMIT)throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS pilot returned more than ten rows.');
   return Object.freeze({...validated,admission_status:'NOT_ADMITTED',signature_verified:false,requires_snapshot_token:true,can_persist:false,can_allocate:false,can_create_draft:false,can_post:false});
 }
