@@ -17,8 +17,8 @@ export function AuthoritativeApArView({
   const title = payable ? 'Expenses' : 'Accounts Receivable';
   const eyebrow = payable ? 'EXPENSES / ACCOUNTS PAYABLE' : 'REVENUE / ACCOUNTS RECEIVABLE';
   const subtitle = payable
-    ? 'Review authenticated API list facts, supplier bills, and retained evidence without initiating payments.'
-    : 'Review authenticated API list facts, customer invoices, and retained evidence without collecting payments.';
+    ? 'Bills, credits, and AP aging from the accounting API.'
+    : 'Invoices, receipts, and AR aging from the accounting API.';
   return <section className={`authoritative-ap-ar-presentation authoritative-ap-ar-${payable ? 'ap' : 'ar'} ${className}`.trim()} aria-label={`${title} authoritative workspace`}>
     <div className={`accounting-page-head ${headerClassName}`.trim()}>
       <div><div className="page-eyebrow">{eyebrow}</div><h2 className="page-h">{title}</h2><div className="page-subtitle">{subtitle}</div></div>

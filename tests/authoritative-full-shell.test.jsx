@@ -21,7 +21,8 @@ const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navig
 assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.match(navMarkup, /Bank transaction matching/); assert.match(navMarkup, /aria-label="Auto Reconciliation"/);
-assert.match(navMarkup, /Source Documents/, 'multiple selected workspace groups remain open at once');
+assert.doesNotMatch(navMarkup, /Source Documents/, 'an old workspace must not remain in the secondary panel after navigation');
+assert.match(navMarkup, /authoritative-navigation-active-group/, 'only the current workspace menu is rendered');
 assert.doesNotMatch(navMarkup, />API</); assert.doesNotMatch(navMarkup, />Unavailable</);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.doesNotMatch(navMarkup, /authoritative-new-disabled|\+ New/);

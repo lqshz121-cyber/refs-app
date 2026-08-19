@@ -125,8 +125,16 @@ assert.match(authoritativeShell,/aria-label="Accounting workspace groups"/,
   'the production workflow rail must expose an accessible landmark name');
 assert.match(authoritativeShell,/aria-label="Accounting workspace navigation"/,
   'the production shell must expose one named navigation landmark for its open groups');
-assert.match(authoritativeShell,/className="nav-panel-title nav-panel-toggle"/,
-  'the production panel must retain the demo shell’s group title hierarchy');
+assert.match(authoritativeShell,/className="nav-panel-title"/,
+  'the production panel must identify the active workspace');
+assert.match(authoritativeShell,/authoritative-navigation-active-group/,
+  'the production panel must render only the selected workspace menu');
+assert.doesNotMatch(authoritativeShell,/nav-panel-toggle/,
+  'the selected workspace must replace the previous menu instead of stacking expanded trees');
+assert.match(authoritative,/setExpandedNavigationGroups\(\[group\.label\]\)/,
+  'a primary workspace selection must replace the previous secondary menu');
+assert.match(authoritative,/setRoute\(group\.items\[0\]\.route\)/,
+  'a primary workspace selection must open its first available page');
 assert.doesNotMatch(authoritativeShell,/authoritative-new-disabled|\+ New/,
   'the authoritative shell must not render an inert New control when no authorised API action exists');
 assert.match(authoritativeShell,/from '\.\/ui\.jsx'/,

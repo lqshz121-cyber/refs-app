@@ -296,10 +296,13 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     setNavOpen(false);
   }), [environment]);
   const selectNavigationGroup = useCallback(group => {
-    setExpandedNavigationGroups(current => current.includes(group.label)
-      ? current.filter(label => label !== group.label)
-      : [...current, group.label]);
-  }, []);
+    // The rail is a workspace switcher, matching the compact QBO pattern.
+    // Selecting a workspace always opens its first available page and replaces
+    // the previous secondary menu instead of retaining several expanded trees.
+    setExpandedNavigationGroups([group.label]);
+    if (group.items?.[0]?.route) setRoute(group.items[0].route);
+    setNavOpen(false);
+  }, [setRoute]);
 
   const selectNavigationItem = useCallback(next => {
     const group = AUTHORITATIVE_NAVIGATION.find(entry => entry.items.some(item => item.route === next));
