@@ -443,6 +443,24 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listAiInvoiceAccrualProposals({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_invoice_accrual_proposals($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async proposeAiInvoiceAccrual({tenantId,entityId,classificationEvidenceId,classificationHash,accountingPeriodId,expenseAccountCode,liabilityAccountCode,memberTrace,reversalDecision,reversalDate,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,classificationEvidenceId,classificationHash,accountingPeriodId,expenseAccountCode,liabilityAccountCode,JSON.stringify(memberTrace),reversalDecision,reversalDate,reason];
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_propose_ai_invoice_accrual_hash($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11) AS request_hash',args
+      ),'AI_INVOICE_ACCRUAL_PROPOSAL_HASH_FAILED','AI invoice accrual proposal hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_propose_ai_invoice_accrual($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13) AS result',[...args,idempotencyKey,requestHash]
+      ),'AI_INVOICE_ACCRUAL_PROPOSAL_FAILED','AI invoice accrual proposal did not return a result').result;
+    });
+  }
+
   async listAiAmortizationCoverageEvidence({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_amortization_coverage_evidence($1,$2,$3)',[tenantId,entityId,limit]

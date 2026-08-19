@@ -3977,6 +3977,27 @@ pgTest('AI amortization creates a human Draft then standard Posted JE with immut
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'ai-lineage-reader',['GL.JE.VIEW','GL.REPORT.VIEW'])});const detail=await reader.getJournalEntryDetail({tenantId:ids.tenantId,entityId:ids.entityId,journalEntryId:drafted.journal_entry_id,periodId:ids.periodId});assert.equal(detail.lines.some(line=>line.source_document_ids.includes(trace.documentId)),true);const statements=await reader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});assert.equal(statements.some(row=>row.statement_type==='TRIAL_BALANCE'&&(row.account_code==='141500'||row.account_code==='610100')&&row.journal_entry_ids.includes(drafted.journal_entry_id)&&row.source_document_ids.includes(trace.documentId)),true);
 });
 
+pgTest('prior-service invoice classification creates an immutable accrual proposal with zero journal effect',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null,extraAccounts:[{accountCode:'610100',accountName:'Operating expense'}]});
+  const trace=await attachAutoSource(ids,{linkJournal:false});
+  await adminPool.query("UPDATE source_document SET status='READY_FOR_DRAFT' WHERE tenant_id=$1 AND entity_id=$2 AND source_document_id=$3",[ids.tenantId,ids.entityId,trace.documentId]);
+  const lineId=(await adminPool.query("INSERT INTO source_document_line(tenant_id,entity_id,source_document_id,source_line_id,line_no,amount,direction,project_ref,property_ref) VALUES($1,$2,$3,'prior-service-invoice',1,100,'DEBIT','PROJECT-1','PROPERTY-1') RETURNING source_document_line_id",[ids.tenantId,ids.entityId,trace.documentId])).rows[0].source_document_line_id;
+  const evidenceId=randomUUID(),classificationHash=hash('prior-service-accrual-classification');
+  await adminPool.query(`INSERT INTO ai_invoice_accounting_classification_evidence( ai_invoice_accounting_classification_evidence_id,tenant_id,entity_id,accounting_period_id,source_document_id,source_document_line_id,source_payload_hash,source_line_hash,classifier_version,classification,reason,confidence,required_human_fields,rule_id,classification_hash,status,created_by)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'AI_INVOICE_ACCOUNTING_CLASSIFICATION_V2','ACCRUAL_REVIEW','Service was received before the invoice date and requires Controller accrual review.',0.95,$9::jsonb,'AI_PRIOR_SERVICE_ACCRUAL_REVIEW_V1',$10,'REVIEW_REQUIRED','invoice-classifier')`,[evidenceId,ids.tenantId,ids.entityId,ids.periodId,trace.documentId,lineId,hash('auto-doc'),hash('prior-service-line'),JSON.stringify(['accrual_period','expense_account','liability_account','reversal_decision']),classificationHash]);
+  const before=(await adminPool.query('SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger',[ids.tenantId])).rows[0];
+  const proposer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'accrual-proposer',['AI.ACCRUAL.PROPOSE'])});
+  const args={tenantId:ids.tenantId,entityId:ids.entityId,classificationEvidenceId:evidenceId,classificationHash,accountingPeriodId:ids.periodId,expenseAccountCode:'610100',liabilityAccountCode:'291001',memberTrace:{project_ref:'PROJECT-1',property_ref:'PROPERTY-1',allocation_basis:'SOURCE_DIMENSIONED'},reversalDecision:'NO_AUTOMATIC_REVERSAL',reversalDate:null,reason:'Controller must validate the prior-service accrual basis and account mapping.',idempotencyKey:'invoice-accrual-proposal-001'};
+  const proposal=await proposer.proposeAiInvoiceAccrual(args),replay=await proposer.proposeAiInvoiceAccrual(args);
+  assert.deepEqual({status:proposal.status,source:proposal.source_document_id,line:proposal.source_document_line_id,amount:proposal.amount,draft:proposal.can_create_draft,review:proposal.can_review,approve:proposal.can_approve,post:proposal.can_post,replay:replay.idempotent},{status:'PROPOSED',source:trace.documentId,line:lineId,amount:100,draft:false,review:false,approve:false,post:false,replay:true});
+  await assert.rejects(proposer.proposeAiInvoiceAccrual({...args,reason:'A changed accounting conclusion must not reuse the original receipt.'}),error=>error.code==='23505');
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'accrual-reader',['AI.ACCRUAL.VIEW'])}),rows=await reader.listAiInvoiceAccrualProposals({tenantId:ids.tenantId,entityId:ids.entityId,limit:50});
+  assert.equal(rows.length,1);assert.equal(rows[0].classification_hash,classificationHash);
+  assert.deepEqual((await adminPool.query('SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger',[ids.tenantId])).rows[0],before);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='AI_INVOICE_ACCRUAL_PROPOSED'",[ids.tenantId,ids.entityId])).rows[0].n,1);
+  assert.equal((await adminPool.query("SELECT count(*)::int n FROM outbox_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='AI_INVOICE_ACCRUAL_PROPOSED'",[ids.tenantId,ids.entityId])).rows[0].n,1);
+});
+
 pgTest('AI finding assignment is source-hash-bound, idempotent, audited, revisioned, and has zero accounting effects',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null});
   const trace=await attachAutoSource(ids,{linkJournal:false});
