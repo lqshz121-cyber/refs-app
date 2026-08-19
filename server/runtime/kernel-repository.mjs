@@ -1335,6 +1335,16 @@ export class PostgresAccountingKernel{
     )).rows.map(row=>({...row,transaction_date:publicDate(row.transaction_date)})));
   }
 
+  async getReconciliationWorksheetItem({tenantId,entityId,reconciliationId,bankSourceId}){
+    return this.inSession(async client=>{
+      const rows=(await client.query(
+        'SELECT * FROM refs_get_reconciliation_worksheet_item($1,$2,$3,$4)',
+        [tenantId,entityId,reconciliationId,bankSourceId]
+      )).rows.map(row=>({...row,transaction_date:publicDate(row.transaction_date)}));
+      return rows.length===1?rows[0]:null;
+    });
+  }
+
   async getSignedReconciliationSnapshot({tenantId,entityId,reconciliationId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_signed_reconciliation_snapshot($1,$2,$3)',

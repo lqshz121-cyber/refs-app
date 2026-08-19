@@ -18,6 +18,7 @@ function harness({bankAccountRef='WBS_TEST_BANK',transactionDate='2026-07-10',st
   const methods={
     async listReconciliationScopes(){return [{reconciliation_id:reconciliationId,bank_account_ref:bankAccountRef,statement_ending_date:statementEndingDate,status,version}];},
     async listReconciliationWorksheet(){return rows.map(row=>({...row}));},
+    async getReconciliationWorksheetItem({bankSourceId}){const row=rows.find(value=>value.bank_source_id===bankSourceId);return row?{...row}:null;},
     async listBankMatchCandidates({bankSourceId}){return bankSourceId===rows[0].bank_source_id?[{payment_occurrence_id:uuid(20),occurrence_version:1}]:[];},
     async createBankPaymentMatch(args){calls.push(['match',args]);rows[0].bank_match_id=matchId;rows[0].match_status='ACTIVE';return {bank_match_id:matchId,status:'ACTIVE',idempotent:false};},
     async listVerifiedCleanAttachmentIds(){return [attachmentId];},
@@ -54,6 +55,16 @@ test('rejects cross-scope selection and missing verified-clean evidence before a
   await assert.rejects(service.run(input),error=>error.code==='CONTROLLED_TEST_BANK_EVIDENCE_REQUIRED');
 });
 
+test('processes a bounded chunk, returns PARTIAL, and advances with the same root key until final reopen',async()=>{
+  const {service,calls}=harness();
+  const partial=await service.run({...input,maxItems:1});
+  assert.deepEqual(partial,{status:'CONTROLLED_TEST_BANK_WORKFLOW_PARTIAL',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:false,reconciliation_id:reconciliationId,total_count:2,processed_count:1,matched_count:1,adjusted_count:0,cleared_count:1,remaining_count:1,revision:1});
+  const completed=await service.run({...input,maxItems:1});
+  assert.equal(completed.status,'CONTROLLED_TEST_BANK_WORKFLOW_REOPENED');assert.equal(completed.processed_count,2);assert.equal(completed.revision,6);
+  assert.equal(calls.filter(call=>call[0]==='match').length,1);assert.equal(calls.filter(call=>call[0]==='draft').length,1);
+  assert.ok(calls.filter(call=>call[0]==='actor'&&call[2]==='getReconciliationWorksheetItem').length>=3);
+});
+
 test('runs one to six explicit monthly period/reconciliation scopes and closes aggregate totals',async()=>{
   const {service}=harness();const result=await service.runRange({tenantId,entityId,scopes:[{periodId,reconciliationId}],reason:input.reason,idempotencyKey:'controlled-bank-range-001'});
   assert.deepEqual({status:result.status,scope_count:result.scope_count,processed_count:result.processed_count,matched_count:result.matched_count,adjusted_count:result.adjusted_count,cleared_count:result.cleared_count,idempotent:result.idempotent},
@@ -73,7 +84,7 @@ test('feeds migration179 monthly reconciliation scopes directly into migration18
   await assert.rejects(wrongMonth.service.runRange({tenantId,entityId,scopes,reason:input.reason,idempotencyKey:'controlled-bank-range-monthly-002'}),error=>error.code==='CONTROLLED_TEST_BANK_SCOPE_DENIED');
 });
 
-test('public result contract accepts more than sixty and caps the combined workflow at five hundred',async()=>{
+test('public result contract accepts large monthly evidence up to ten thousand',async()=>{
   const ids=Array.from({length:61},(_,index)=>uuid(index+100));
   const result={status:'CONTROLLED_TEST_BANK_WORKFLOW_REOPENED',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:false,reconciliation_id:reconciliationId,processed_count:61,matched_count:0,adjusted_count:61,cleared_count:61,journal_entry_ids:ids,revision:70,snapshot_id:snapshotId,snapshot_hash:`sha256:${'a'.repeat(64)}`};
   const {assertControlledTestBankWorkflowResult}=await import('../runtime/controlled-test-bank-workflow-service.mjs');

@@ -61,7 +61,8 @@ test('paged WBS test range import is closed, bounded, and aggregate-only',()=>{
   const result=contract.components.schemas.WbsTestRangeImportResult;assert.equal(result.additionalProperties,false);assert.equal(result.properties.test_only.const,true);
   assert.equal(contract.components.schemas.WbsTestRangePayablesResult.properties.record_count.maximum,500);assert.equal(contract.components.schemas.WbsTestRangeBankResult.properties.bank_source_ids.maxItems,500);assert.equal(contract.components.schemas.WbsTestRangeBankResult.properties.provider_page_count.maximum,50);assert.equal(contract.components.schemas.WbsTestRangeBankResult.properties.reconciliations.maxItems,6);
   assert.ok(contract.components.schemas.WbsTestRangeBankReconciliation.required.includes('period_id'));assert.equal(contract.components.schemas.WbsTestRangeBankReconciliation.properties.period_id.$ref,'#/components/schemas/Uuid');
-  assert.equal(contract.components.schemas.ControlledTestBankWorkflowResult.properties.processed_count.maximum,500);assert.equal(contract.components.schemas.ControlledTestBankWorkflowResult.properties.journal_entry_ids.maxItems,500);assert.equal(contract.components.schemas.ControlledTestBankRangeWorkflowResult.properties.processed_count.maximum,500);
+  assert.equal(contract.components.schemas.ControlledTestBankWorkflowResult.properties.processed_count.maximum,10000);assert.equal(contract.components.schemas.ControlledTestBankWorkflowResult.properties.journal_entry_ids.maxItems,10000);assert.equal(contract.components.schemas.ControlledTestBankRangeWorkflowResult.properties.processed_count.maximum,60000);
+  assert.equal(contract.components.schemas.ControlledTestBankWorkflowPartialResult.properties.remaining_count.minimum,1);assert.equal(contract.components.schemas.ControlledTestBankWorkflowPartialResult.properties.total_count.maximum,10000);
 });
 
 test('identity and server-computed request hash are absent from all public request schemas',()=>{

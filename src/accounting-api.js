@@ -1278,13 +1278,20 @@ export async function importAuthoritativeWbsTestRange({config,companyCode,dateFr
 
 const controlledTestBankWorkflowResult=value=>{
   const fields=['adjusted_count','cleared_count','idempotent','journal_entry_ids','matched_count','processed_count','provenance_mode','reconciliation_id','revision','snapshot_hash','snapshot_id','status','test_only'];
-  if(!exactObjectKeys(value,fields)||value.status!=='CONTROLLED_TEST_BANK_WORKFLOW_REOPENED'||value.test_only!==true||value.provenance_mode!=='CONTROLLED_TEST_UNSIGNED'||typeof value.idempotent!=='boolean'||!UUID.test(value.reconciliation_id||'')||!UUID.test(value.snapshot_id||'')||!SHA256.test(value.snapshot_hash||'')||!['processed_count','matched_count','adjusted_count','cleared_count','revision'].every(field=>Number.isSafeInteger(value[field])&&value[field]>=0)||value.processed_count>500||value.processed_count!==value.matched_count+value.adjusted_count||value.cleared_count!==value.processed_count||!Array.isArray(value.journal_entry_ids)||value.journal_entry_ids.length!==value.adjusted_count||value.journal_entry_ids.some(id=>!UUID.test(id))||new Set(value.journal_entry_ids).size!==value.journal_entry_ids.length)return null;
+  if(!exactObjectKeys(value,fields)||value.status!=='CONTROLLED_TEST_BANK_WORKFLOW_REOPENED'||value.test_only!==true||value.provenance_mode!=='CONTROLLED_TEST_UNSIGNED'||typeof value.idempotent!=='boolean'||!UUID.test(value.reconciliation_id||'')||!UUID.test(value.snapshot_id||'')||!SHA256.test(value.snapshot_hash||'')||!['processed_count','matched_count','adjusted_count','cleared_count','revision'].every(field=>Number.isSafeInteger(value[field])&&value[field]>=0)||value.processed_count>10000||value.processed_count!==value.matched_count+value.adjusted_count||value.cleared_count!==value.processed_count||!Array.isArray(value.journal_entry_ids)||value.journal_entry_ids.length!==value.adjusted_count||value.journal_entry_ids.some(id=>!UUID.test(id))||new Set(value.journal_entry_ids).size!==value.journal_entry_ids.length)return null;
   return Object.freeze({...value,journal_entry_ids:Object.freeze([...value.journal_entry_ids])});
+};
+const controlledTestBankWorkflowPartialResult=value=>{
+  const fields=['adjusted_count','cleared_count','idempotent','matched_count','processed_count','provenance_mode','reconciliation_id','remaining_count','revision','status','test_only','total_count'];
+  if(!exactObjectKeys(value,fields)||value.status!=='CONTROLLED_TEST_BANK_WORKFLOW_PARTIAL'||value.test_only!==true||value.provenance_mode!=='CONTROLLED_TEST_UNSIGNED'||value.idempotent!==false||!UUID.test(value.reconciliation_id||'')
+    ||!['total_count','processed_count','matched_count','adjusted_count','cleared_count','remaining_count','revision'].every(field=>Number.isSafeInteger(value[field])&&value[field]>=0)||value.total_count<1||value.total_count>10000||value.remaining_count<1
+    ||value.remaining_count!==value.total_count-value.cleared_count||value.processed_count!==value.matched_count+value.adjusted_count||value.processed_count!==value.cleared_count)return null;
+  return Object.freeze({...value});
 };
 const controlledTestBankRangeWorkflowResult=value=>{
   const fields=['adjusted_count','cleared_count','idempotent','matched_count','processed_count','provenance_mode','results','scope_count','status','test_only'];
   if(!exactObjectKeys(value,fields)||value.status!=='CONTROLLED_TEST_BANK_RANGE_WORKFLOW_REOPENED'||value.test_only!==true||value.provenance_mode!=='CONTROLLED_TEST_UNSIGNED'||typeof value.idempotent!=='boolean'||!Number.isSafeInteger(value.scope_count)||value.scope_count<1||value.scope_count>6||!Array.isArray(value.results)||value.results.length!==value.scope_count)return null;
-  const results=value.results.map(controlledTestBankWorkflowResult);if(results.some(result=>result===null)||!['processed_count','matched_count','adjusted_count','cleared_count'].every(field=>Number.isSafeInteger(value[field])&&value[field]>=0&&value[field]<=500&&value[field]===results.reduce((sum,result)=>sum+result[field],0)))return null;
+  const results=value.results.map(controlledTestBankWorkflowResult);if(results.some(result=>result===null)||!['processed_count','matched_count','adjusted_count','cleared_count'].every(field=>Number.isSafeInteger(value[field])&&value[field]>=0&&value[field]<=60000&&value[field]===results.reduce((sum,result)=>sum+result[field],0)))return null;
   return Object.freeze({...value,results:Object.freeze(results)});
 };
 
@@ -1292,9 +1299,29 @@ export async function runAuthoritativeWbsTestBankRangeWorkflow({config,reconcili
   const rows=Array.isArray(reconciliations)?reconciliations:[];
   if(config?.wbsTestImportMode!=='ENABLED'||typeof fetcher!=='function'||rows.length<1||rows.length>6||typeof reason!=='string'||reason!==reason.trim()||reason.length<8||reason.length>1700||typeof cryptoApi?.subtle?.digest!=='function'||rows.some(row=>!row||!/^2026-0[1-6]$/.test(row.period_code||'')||row.bank_account_ref!==`WBS_TEST_BANK_${row.period_code.replace('-','_')}`||!UUID.test(row.period_id||'')||!UUID.test(row.reconciliation_id||''))||new Set(rows.map(row=>row.period_id)).size!==rows.length||new Set(rows.map(row=>row.reconciliation_id)).size!==rows.length)return {ok:false,code:'CONTROLLED_TEST_BANK_SELECTION_INVALID',message:'The Bank workflow requires one to six exact monthly H1 reconciliation scopes from the completed import.'};
   const scopes=rows.map(row=>({periodId:row.period_id,reconciliationId:row.reconciliation_id}));
-  let idempotencyKey;try{idempotencyKey=`wbs-test-bank-range-${hex(await cryptoApi.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(['BANK_RANGE_WORKFLOW',scopes,reason]))))}`;}catch{return {ok:false,code:'CONTROLLED_TEST_BANK_SELECTION_INVALID',message:'The browser could not derive the stable Bank range-workflow identity.'};}
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
-  try{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/wbs/test-import/bank-workflow/run`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify({scopes,reason})});if(!response.ok)return await failure(response,'CONTROLLED_TEST_BANK_RANGE_WORKFLOW');const envelope=await response.json(),data=controlledTestBankRangeWorkflowResult(envelope?.data);if(envelope?.ok!==true||data===null||data.scope_count!==scopes.length||data.results.some((result,index)=>result.reconciliation_id!==scopes[index].reconciliationId))return {ok:false,code:'CONTROLLED_TEST_BANK_RANGE_WORKFLOW_PROTOCOL',message:'The Bank range-workflow endpoint returned an invalid or cross-scope result.'};return {ok:true,data};}catch{return unreachable('The browser could not run the H1 Bank workflow; no HTTP response was produced.');}
+  try{
+    const results=[];
+    for(const [index,scope] of scopes.entries()){
+      let idempotencyKey;try{idempotencyKey=`wbs-test-bank-month-${hex(await cryptoApi.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(['BANK_MONTH_WORKFLOW',scope,reason]))))}`;}catch{return {ok:false,code:'CONTROLLED_TEST_BANK_SELECTION_INVALID',message:'The browser could not derive the stable Bank monthly workflow identity.'};}
+      let previousRemaining=Number.POSITIVE_INFINITY,final=null;
+      for(let attempt=0;attempt<101;attempt++){
+        const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/wbs/test-import/bank-workflow/run`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify({...scope,reason,maxItems:100})});
+        if(!response.ok)return await failure(response,'CONTROLLED_TEST_BANK_WORKFLOW');
+        const envelope=await response.json(),completed=controlledTestBankWorkflowResult(envelope?.data);
+        if(envelope?.ok!==true)return {ok:false,code:'CONTROLLED_TEST_BANK_WORKFLOW_PROTOCOL',message:'The Bank monthly workflow returned an invalid envelope.'};
+        if(completed){if(completed.reconciliation_id!==scope.reconciliationId)return {ok:false,code:'CONTROLLED_TEST_BANK_WORKFLOW_PROTOCOL',message:'The Bank monthly workflow returned a cross-scope result.'};final=completed;break;}
+        const partial=controlledTestBankWorkflowPartialResult(envelope?.data);
+        if(!partial||partial.reconciliation_id!==scope.reconciliationId||partial.remaining_count>=previousRemaining)return {ok:false,code:'CONTROLLED_TEST_BANK_WORKFLOW_PROTOCOL',message:'The Bank monthly workflow did not return strictly advancing progress.'};
+        previousRemaining=partial.remaining_count;
+      }
+      if(!final)return {ok:false,code:'CONTROLLED_TEST_BANK_WORKFLOW_INCOMPLETE',message:`The Bank workflow did not complete monthly scope ${index+1} within its bounded retries.`};
+      results.push(final);
+    }
+    const sum=field=>results.reduce((total,result)=>total+result[field],0),data=controlledTestBankRangeWorkflowResult({status:'CONTROLLED_TEST_BANK_RANGE_WORKFLOW_REOPENED',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:results.every(result=>result.idempotent),scope_count:results.length,processed_count:sum('processed_count'),matched_count:sum('matched_count'),adjusted_count:sum('adjusted_count'),cleared_count:sum('cleared_count'),results});
+    if(data===null)return {ok:false,code:'CONTROLLED_TEST_BANK_RANGE_WORKFLOW_PROTOCOL',message:'The completed monthly Bank workflows did not form an exact H1 result.'};
+    return {ok:true,data};
+  }catch{return unreachable('The browser could not run the H1 Bank workflow; no HTTP response was produced.');}
 }
 const wbsReviewCandidate=(row,{entityId,companyKey,sourceRecordIds})=>row&&typeof row==='object'&&SHA256.test(row.review_candidate_id||'')&&row.stage==='STAGING_REVIEWED'&&['BANK_SIDE','BUSINESS_SIDE'].includes(row.side)&&wbsScopeText(row.source_type,128)&&row.entity_id===entityId&&row.company_key===companyKey&&sourceRecordIds.includes(row.source_record_id)&&/^[A-Z]{3}$/.test(row.currency||'')&&REPORT_MONEY4.test(row.amount||'')&&validDate(row.business_date)&&validDate(row.accounting_date)&&wbsScopeText(row.bank_account_ref,128)&&wbsScopeText(row.source_record_id)&&wbsScopeText(row.source_version)&&wbsScopeText(row.raw_event_id)&&wbsScopeText(row.source_document_id)&&wbsScopeText(row.staging_item_id)&&row.mapping&&wbsScopeText(row.mapping.mapping_id)&&wbsScopeText(row.mapping.version)&&SHA256.test(row.mapping.snapshot_hash||'')&&wbsEvidenceIsReadOnly(row);
 const wbsReviewEvidence=(value,scope)=>{
