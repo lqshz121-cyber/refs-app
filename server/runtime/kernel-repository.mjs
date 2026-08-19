@@ -19,6 +19,7 @@ function publicDate(value){
 }
 
 const WBS_TEST_BANK_FINALIZE_STATEMENT_TIMEOUT='120s';
+const WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT='120s';
 
 export class PostgresAccountingKernel{
   constructor(pool,{sessionProvider,runtimeLoginAllowlist=['refs_runtime'],wbsSnapshotVerifier=null,wbsAutoRecTransitionContractVerifier=null,wbsSignedBankAdmissionVerifier=null}={}){
@@ -1479,10 +1480,13 @@ export class PostgresAccountingKernel{
   }
 
   async postClearWbsTestBankAdjustmentBatch(args){
-    return this.inSession(async client=>requireRow(await client.query(
-      'SELECT refs_wbs_test_bank_adjustment_post_clear_batch($1,$2,$3,$4,$5::uuid[],$6,$7) AS result',
-      [args.tenantId,args.entityId,args.reconciliationId,args.periodId,args.bankSourceIds,args.reason,args.idempotencyRoot]
-    ),'WBS_TEST_BANK_POST_CLEAR_BATCH_FAILED','Controlled-test Bank Post/Clear batch did not return a result').result);
+    return this.inSession(async client=>{
+      await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT]);
+      return requireRow(await client.query(
+        'SELECT refs_wbs_test_bank_adjustment_post_clear_batch($1,$2,$3,$4,$5::uuid[],$6,$7) AS result',
+        [args.tenantId,args.entityId,args.reconciliationId,args.periodId,args.bankSourceIds,args.reason,args.idempotencyRoot]
+      ),'WBS_TEST_BANK_POST_CLEAR_BATCH_FAILED','Controlled-test Bank Post/Clear batch did not return a result').result;
+    });
   }
 
   async createBankPaymentMatch(args){
