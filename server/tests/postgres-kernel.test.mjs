@@ -4130,7 +4130,8 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.reconciliation_id=$3 GROUP BY r.status,r.version,r.difference`,[ids.tenantId,ids.entityId,created.reconciliation_id])).rows[0];
   assert.deepEqual(proof,{status:'REOPENED',version:'7',difference:'0.0000',cleared:2,adjustments:2,posted_ledgers:2,snapshots:1});
   // 181 owns the Bank cap and item reader assertions below.  Roll back the
-  // later independent Bank identity and Payable migrations first, then 181.
+  // later stage batch, Bank identity and Payable migrations first, then 181.
+  await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
@@ -4142,6 +4143,7 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     pg_get_functiondef('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) LIKE '%NOT BETWEEN 1 AND 500%' function_cap_restored,
     pg_get_functiondef('refs_guard_reconciliation_adjustment_lifecycle()'::regprocedure) LIKE '%adjustment.bank_delta<>(SELECT source.amount%' item_guard_retained`)).rows[0];
   assert.deepEqual(rolledBack,{item_reader_removed:true,evidence_retained:true,import_cap_restored:true,row_cap_restored:true,function_cap_restored:true,item_guard_retained:true});
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);

@@ -32,7 +32,7 @@ BEGIN
   WHERE tenant_id=p_tenant AND entity_id=p_entity AND reconciliation_id=p_reconciliation
   FOR SHARE;
   IF NOT FOUND OR rec.status NOT IN ('DRAFT','REOPENED')
-     OR rec.bank_account_ref!~'^WBS_TEST_BANK_2026_0[1-6]$'
+     OR rec.bank_account_ref!~'^WBS_TEST_BANK(?:_2026_0[1-6])?$'
      OR NOT EXISTS(
        SELECT 1 FROM wbs_controlled_test_bank_import imported
        WHERE imported.tenant_id=p_tenant AND imported.entity_id=p_entity
@@ -42,17 +42,18 @@ BEGIN
     RAISE EXCEPTION 'WBS TEST_ONLY Bank stage batch is restricted to an open retained monthly import' USING ERRCODE='42501';
   END IF;
 
-  IF (SELECT count(*) FROM reconciliation_item item
-      JOIN wbs_controlled_test_bank_import imported
-        ON imported.tenant_id=item.tenant_id AND imported.entity_id=item.entity_id
-       AND imported.reconciliation_id=item.reconciliation_id
+  IF (SELECT count(*) FROM wbs_controlled_test_bank_import imported
       JOIN wbs_controlled_test_bank_import_row imported_row
         ON imported_row.tenant_id=imported.tenant_id AND imported_row.entity_id=imported.entity_id
        AND imported_row.wbs_controlled_test_bank_import_id=imported.wbs_controlled_test_bank_import_id
-       AND imported_row.bank_source_id=item.bank_source_id
-      WHERE item.tenant_id=p_tenant AND item.entity_id=p_entity
-        AND item.reconciliation_id=p_reconciliation
-        AND item.bank_source_id=ANY(canonical_ids))<>cardinality(canonical_ids) THEN
+      JOIN bank_source source
+        ON source.tenant_id=imported_row.tenant_id AND source.entity_id=imported_row.entity_id
+       AND source.bank_source_id=imported_row.bank_source_id
+      WHERE imported.tenant_id=p_tenant AND imported.entity_id=p_entity
+        AND imported.reconciliation_id=p_reconciliation
+        AND imported_row.bank_source_id=ANY(canonical_ids)
+        AND source.bank_account_ref=rec.bank_account_ref AND source.currency=rec.currency
+        AND source.transaction_date<=rec.statement_ending_date)<>cardinality(canonical_ids) THEN
     RAISE EXCEPTION 'WBS TEST_ONLY Bank stage batch source is outside the retained reconciliation import' USING ERRCODE='42501';
   END IF;
   RETURN canonical_ids;
@@ -70,7 +71,6 @@ DECLARE
   results jsonb:='[]'::jsonb; applied integer:=0;
   description constant text:='UNSIGNED TEST ONLY — WBS Bank reconciliation adjustment';
 BEGIN
-  PERFORM refs_assert_scope(p_tenant,p_entity,'WBS.TEST.IMPORT');
   PERFORM refs_assert_scope(p_tenant,p_entity,'BANK.RECONCILIATION.ADJUSTMENT_DRAFT');
   PERFORM refs_assert_scope(p_tenant,p_entity,'GL.JE.CREATE');
   IF actor IS NULL THEN RAISE EXCEPTION 'Authenticated WBS TEST_ONLY Bank maker missing' USING ERRCODE='42501'; END IF;
@@ -173,7 +173,6 @@ CREATE FUNCTION refs_wbs_test_bank_adjustment_submit_batch(
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN
-  PERFORM refs_assert_scope(p_tenant,p_entity,'WBS.TEST.IMPORT');
   PERFORM refs_assert_scope(p_tenant,p_entity,'GL.JE.SUBMIT');
   IF refs_current_actor() IS NULL THEN RAISE EXCEPTION 'Authenticated WBS TEST_ONLY Bank submitter missing' USING ERRCODE='42501'; END IF;
   RETURN refs_private_wbs_test_bank_adjustment_transition_batch(p_tenant,p_entity,p_reconciliation,p_bank_source_ids,
@@ -186,7 +185,6 @@ CREATE FUNCTION refs_wbs_test_bank_adjustment_review_batch(
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN
-  PERFORM refs_assert_scope(p_tenant,p_entity,'WBS.TEST.IMPORT');
   PERFORM refs_assert_scope(p_tenant,p_entity,'GL.JE.REVIEW');
   IF refs_current_actor() IS NULL THEN RAISE EXCEPTION 'Authenticated WBS TEST_ONLY Bank reviewer missing' USING ERRCODE='42501'; END IF;
   RETURN refs_private_wbs_test_bank_adjustment_transition_batch(p_tenant,p_entity,p_reconciliation,p_bank_source_ids,
@@ -199,7 +197,6 @@ CREATE FUNCTION refs_wbs_test_bank_adjustment_approve_batch(
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
 BEGIN
-  PERFORM refs_assert_scope(p_tenant,p_entity,'WBS.TEST.IMPORT');
   PERFORM refs_assert_scope(p_tenant,p_entity,'GL.JE.APPROVE');
   IF refs_current_actor() IS NULL THEN RAISE EXCEPTION 'Authenticated WBS TEST_ONLY Bank approver missing' USING ERRCODE='42501'; END IF;
   RETURN refs_private_wbs_test_bank_adjustment_transition_batch(p_tenant,p_entity,p_reconciliation,p_bank_source_ids,
@@ -217,7 +214,6 @@ DECLARE
   draft reconciliation_adjustment_draft; journal journal_entry; child jsonb;
   results jsonb:='[]'::jsonb; posted integer:=0;cleared integer:=0;
 BEGIN
-  PERFORM refs_assert_scope(p_tenant,p_entity,'WBS.TEST.IMPORT');
   PERFORM refs_assert_scope(p_tenant,p_entity,'GL.JE.POST');
   PERFORM refs_assert_scope(p_tenant,p_entity,'BANK.RECONCILIATION.CLEAR');
   IF actor IS NULL THEN RAISE EXCEPTION 'Authenticated WBS TEST_ONLY Bank poster missing' USING ERRCODE='42501'; END IF;

@@ -20,7 +20,7 @@ test('migration 184 exposes actor-owned TEST_ONLY Bank stages without actor dele
   }
   assert.doesNotMatch(sql,/p_actor\b|SET LOCAL refs\.actor|set_config\([^)]*actor/i);
   assert.ok((sql.match(/refs_current_actor\(\)/g)||[]).length>=5);
-  assert.ok((sql.match(/refs_assert_scope\(p_tenant,p_entity,'WBS\.TEST\.IMPORT'\)/g)||[]).length>=5);
+  assert.doesNotMatch(sql,/refs_assert_scope\(p_tenant,p_entity,'WBS\.TEST\.IMPORT'\)/);
   assert.match(sql,/refs_assert_scope\(p_tenant,p_entity,'BANK\.RECONCILIATION\.ADJUSTMENT_DRAFT'\)/);
   assert.match(sql,/refs_assert_scope\(p_tenant,p_entity,'GL\.JE\.SUBMIT'\)/);
   assert.match(sql,/refs_assert_scope\(p_tenant,p_entity,'GL\.JE\.REVIEW'\)/);
@@ -34,9 +34,10 @@ test('migration 184 keeps batches bounded, canonical and inside retained monthly
   assert.match(sql,/item_count NOT BETWEEN 1 AND 100/);
   assert.match(sql,/array_position\(p_bank_source_ids,NULL\) IS NOT NULL/);
   assert.match(sql,/array_agg\(source_id ORDER BY source_id\),count\(DISTINCT source_id\)/);
-  assert.match(sql,/rec\.bank_account_ref!~'\^WBS_TEST_BANK_2026_0\[1-6\]\$'/);
+  assert.match(sql,/rec\.bank_account_ref!~'\^WBS_TEST_BANK\(\?:_2026_0\[1-6\]\)\?\$'/);
   assert.match(sql,/JOIN wbs_controlled_test_bank_import_row imported_row/);
-  assert.match(sql,/imported_row\.bank_source_id=item\.bank_source_id/);
+  assert.match(sql,/JOIN bank_source source/);
+  assert.match(sql,/source\.bank_account_ref=rec\.bank_account_ref AND source\.currency=rec\.currency/);
   assert.match(sql,/FOR SHARE/);
 });
 
@@ -61,4 +62,9 @@ test('migration 184 keeps helpers private and down removes only its functions',a
   assert.ok((down.match(/DROP FUNCTION refs_wbs_test_bank_adjustment_/g)||[]).length===5);
   assert.ok((down.match(/DROP FUNCTION refs_private_wbs_test_bank_adjustment_/g)||[]).length===2);
   assert.doesNotMatch(down,/DROP TABLE|DELETE FROM|UPDATE /i);
+});
+
+test('enabled WBS TEST_ONLY readiness pins all five Bank stage batch commands',async()=>{
+  const server=await readFile(new URL('../runtime/accounting-server.mjs',import.meta.url),'utf8');
+  for(const name of ['draft','submit','review','approve','post_clear'])assert.match(server,new RegExp(`to_regprocedure\\('refs_wbs_test_bank_adjustment_${name}_batch`));
 });

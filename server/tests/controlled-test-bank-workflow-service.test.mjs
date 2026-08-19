@@ -11,22 +11,20 @@ const input={tenantId,entityId,periodId,reconciliationId,reason:'Complete the is
 function harness({bankAccountRef='WBS_TEST_BANK',transactionDate='2026-07-10',statementEndingDate='2026-07-31'}={}){
   const calls=[];let status='DRAFT',version=0;
   const rows=[
-    {reconciliation_version:0,bank_source_id:uuid(11),bank_version:0,bank_account_ref:bankAccountRef,transaction_date:transactionDate,currency:'USD',amount:'-25.0000',bank_match_id:null,match_status:null,clearance_state:'NOT_CLEARED',adjustment_journal_entry_id:null,adjustment_journal_version:null,adjustment_journal_status:null,adjustment_clearance_eligible:false},
+    {reconciliation_version:0,bank_source_id:uuid(11),bank_version:0,bank_account_ref:bankAccountRef,transaction_date:transactionDate,currency:'USD',amount:'-25.0000',bank_match_id:matchId,match_status:'ACTIVE',clearance_state:'NOT_CLEARED',adjustment_journal_entry_id:null,adjustment_journal_version:null,adjustment_journal_status:null,adjustment_clearance_eligible:false},
     {reconciliation_version:0,bank_source_id:uuid(12),bank_version:0,bank_account_ref:bankAccountRef,transaction_date:transactionDate,currency:'USD',amount:'40.0000',bank_match_id:null,match_status:null,clearance_state:'NOT_CLEARED',adjustment_journal_entry_id:null,adjustment_journal_version:null,adjustment_journal_status:null,adjustment_clearance_eligible:false}
   ];
   const refresh=()=>rows.forEach(row=>{row.reconciliation_version=version;});
   const methods={
     async listReconciliationScopes(){return [{reconciliation_id:reconciliationId,bank_account_ref:bankAccountRef,statement_ending_date:statementEndingDate,status,version}];},
     async listReconciliationWorksheet(){return rows.map(row=>({...row}));},
-    async getReconciliationWorksheetItem({bankSourceId}){const row=rows.find(value=>value.bank_source_id===bankSourceId);return row?{...row}:null;},
-    async listBankMatchCandidates({bankSourceId}){return bankSourceId===rows[0].bank_source_id?[{payment_occurrence_id:uuid(20),occurrence_version:1}]:[];},
-    async createBankPaymentMatch(args){calls.push(['match',args]);rows[0].bank_match_id=matchId;rows[0].match_status='ACTIVE';return {bank_match_id:matchId,status:'ACTIVE',idempotent:false};},
     async listVerifiedCleanAttachmentIds(){return [attachmentId];},
-    async createReconciliationAdjustmentDraft(args){calls.push(['draft',args]);version++;rows[1].adjustment_journal_entry_id=journalId;rows[1].adjustment_journal_version=0;rows[1].adjustment_journal_status='DRAFT';refresh();return {reconciliation_revision:version,journal_entry_id:journalId,journal_status:'DRAFT'};},
-    async transitionJournal(args){calls.push([args.action.toLowerCase(),args]);const next={SUBMIT:['PENDING_REVIEW',1],REVIEW:['PENDING_APPROVAL',2],APPROVE:['APPROVED',3]}[args.action];rows[1].adjustment_journal_status=next[0];rows[1].adjustment_journal_version=next[1];return {status:next[0],revision:next[1]};},
-    async postJournal(args){calls.push(['post',args]);rows[1].adjustment_journal_status='POSTED';rows[1].adjustment_journal_version=4;rows[1].adjustment_clearance_eligible=true;return {journal_entry_id:journalId,posting_batch_id:uuid(21),revision:4,idempotent:false};},
+    async draftWbsTestBankAdjustmentBatch(args){calls.push(['draft-batch',args]);version++;rows[1].adjustment_journal_entry_id=journalId;rows[1].adjustment_journal_version=0;rows[1].adjustment_journal_status='DRAFT';refresh();return {stage:'DRAFT'};},
+    async submitWbsTestBankAdjustmentBatch(args){calls.push(['submit-batch',args]);rows[1].adjustment_journal_status='PENDING_REVIEW';rows[1].adjustment_journal_version=1;return {stage:'SUBMIT'};},
+    async reviewWbsTestBankAdjustmentBatch(args){calls.push(['review-batch',args]);rows[1].adjustment_journal_status='PENDING_APPROVAL';rows[1].adjustment_journal_version=2;return {stage:'REVIEW'};},
+    async approveWbsTestBankAdjustmentBatch(args){calls.push(['approve-batch',args]);rows[1].adjustment_journal_status='APPROVED';rows[1].adjustment_journal_version=3;return {stage:'APPROVE'};},
+    async postClearWbsTestBankAdjustmentBatch(args){calls.push(['post-clear-batch',args]);rows[1].adjustment_journal_status='POSTED';rows[1].adjustment_journal_version=4;rows[1].adjustment_clearance_eligible=true;rows[1].clearance_state='CLEARED';version++;refresh();return {stage:'POST_CLEAR'};},
     async setReconciliationClearance(args){calls.push(['clear-match',args]);version++;rows[0].clearance_state='CLEARED';refresh();return {revision:version,state:'CLEARED'};},
-    async setReconciliationAdjustmentClearance(args){calls.push(['clear-adjustment',args]);version++;rows[1].clearance_state='CLEARED';refresh();return {revision:version,state:'CLEARED'};},
     async transitionReconciliation(args){calls.push([args.action.toLowerCase(),args]);version++;status={REVIEW:'IN_REVIEW',SIGN_OFF:'RECONCILED',REOPEN:'REOPENED'}[args.action];refresh();return {status,revision:version,snapshot_id:args.action==='SIGN_OFF'?snapshotId:null,snapshot_hash:args.action==='SIGN_OFF'?`sha256:${'a'.repeat(64)}`:null,idempotent:false};},
     async getSignedReconciliationSnapshot(){return [{reconciliation_snapshot_id:snapshotId,snapshot_hash:`sha256:${'a'.repeat(64)}`,snapshot_body:{items:[]}}];}
   };
@@ -39,18 +37,17 @@ test('prefers exact Match, posts adjustment with distinct actors, clears, signs 
   assert.deepEqual(result,{status:'CONTROLLED_TEST_BANK_WORKFLOW_REOPENED',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:false,reconciliation_id:reconciliationId,processed_count:2,matched_count:1,adjusted_count:1,cleared_count:2,journal_entry_ids:[journalId],revision:6,snapshot_id:snapshotId,snapshot_hash:`sha256:${'a'.repeat(64)}`});
   assert.equal(getStatus(),'REOPENED');assert.ok(rows.every(row=>row.clearance_state==='CLEARED'));
   const actorFor=method=>calls.find(call=>call[0]==='actor'&&call[2]===method)?.[1];
-  assert.equal(actorFor('createBankPaymentMatch'),actors.importer);assert.equal(actorFor('createReconciliationAdjustmentDraft'),actors.maker);
+  assert.equal(actorFor('draftWbsTestBankAdjustmentBatch'),actors.maker);assert.equal(actorFor('submitWbsTestBankAdjustmentBatch'),actors.submitter);
   assert.ok(calls.some(call=>call[0]==='actor'&&call[1]===actors.reviewer&&call[2]==='transitionReconciliation'));
   assert.ok(calls.some(call=>call[0]==='actor'&&call[1]===actors.approver&&call[2]==='transitionReconciliation'));
   assert.ok(calls.some(call=>call[0]==='actor'&&call[1]===actors.poster&&call[2]==='transitionReconciliation'));
-  const draft=calls.find(call=>call[0]==='draft')[1];assert.equal(draft.description.startsWith('UNSIGNED TEST ONLY'),true);assert.deepEqual(draft.attachmentIds,[attachmentId]);
-  assert.deepEqual(draft.lines.map(line=>[line.account_code,line.debit_amount,line.credit_amount,line.member_ref]),[['111000','40.0000','0.0000','WBS_TEST_BANK'],['610000','0.0000','40.0000',null]]);
+  const draft=calls.find(call=>call[0]==='draft-batch')[1];assert.equal(draft.reason.startsWith('UNSIGNED TEST ONLY'),true);assert.deepEqual(draft.attachmentIds,[attachmentId]);assert.deepEqual(draft.bankSourceIds,[rows[1].bank_source_id]);
   const replay=await service.run(input);assert.equal(replay.idempotent,true);assert.equal(replay.revision,6);
 });
 
 test('rejects cross-scope selection and missing verified-clean evidence before adjustment mutation',async()=>{
   const first=harness();await assert.rejects(first.service.run({...input,entityId:uuid(99)}),error=>error.code==='CONTROLLED_TEST_BANK_SCOPE_DENIED');
-  const methods={listReconciliationScopes:async()=>[{reconciliation_id:reconciliationId,bank_account_ref:'WBS_TEST_BANK',status:'DRAFT',version:0}],listReconciliationWorksheet:async()=>[{reconciliation_version:0,bank_source_id:uuid(12),bank_version:0,bank_account_ref:'WBS_TEST_BANK',transaction_date:'2026-07-11',currency:'USD',amount:'40.0000',bank_match_id:null,match_status:null,clearance_state:'NOT_CLEARED',adjustment_journal_entry_id:null}],listBankMatchCandidates:async()=>[],listVerifiedCleanAttachmentIds:async()=>[]};
+  const methods={listReconciliationScopes:async()=>[{reconciliation_id:reconciliationId,bank_account_ref:'WBS_TEST_BANK',status:'DRAFT',version:0}],listReconciliationWorksheet:async()=>[{reconciliation_version:0,bank_source_id:uuid(12),bank_version:0,bank_account_ref:'WBS_TEST_BANK',transaction_date:'2026-07-11',currency:'USD',amount:'40.0000',bank_match_id:null,match_status:null,clearance_state:'NOT_CLEARED',adjustment_journal_entry_id:null}],listVerifiedCleanAttachmentIds:async()=>[]};
   const fallback=()=>async()=>({});const service=createControlledTestBankWorkflowService({scope,authorize:async()=>{},kernelForActor:()=>new Proxy({}, {get:(_,method)=>methods[method]||fallback(method)})});
   await assert.rejects(service.run(input),error=>error.code==='CONTROLLED_TEST_BANK_EVIDENCE_REQUIRED');
 });
@@ -61,8 +58,8 @@ test('processes a bounded chunk, returns PARTIAL, and advances with the same roo
   assert.deepEqual(partial,{status:'CONTROLLED_TEST_BANK_WORKFLOW_PARTIAL',test_only:true,provenance_mode:'CONTROLLED_TEST_UNSIGNED',idempotent:false,reconciliation_id:reconciliationId,total_count:2,processed_count:1,matched_count:1,adjusted_count:0,cleared_count:1,remaining_count:1,revision:1});
   const completed=await service.run({...input,maxItems:1});
   assert.equal(completed.status,'CONTROLLED_TEST_BANK_WORKFLOW_REOPENED');assert.equal(completed.processed_count,2);assert.equal(completed.revision,6);
-  assert.equal(calls.filter(call=>call[0]==='match').length,1);assert.equal(calls.filter(call=>call[0]==='draft').length,1);
-  assert.ok(calls.filter(call=>call[0]==='actor'&&call[2]==='getReconciliationWorksheetItem').length>=3);
+  assert.equal(calls.filter(call=>call[0]==='clear-match').length,1);assert.equal(calls.filter(call=>call[0]==='draft-batch').length,1);
+  for(const stage of ['draft-batch','submit-batch','review-batch','approve-batch','post-clear-batch'])assert.equal(calls.filter(call=>call[0]===stage).length,1);
 });
 
 test('runs one to six explicit monthly period/reconciliation scopes and closes aggregate totals',async()=>{
@@ -79,7 +76,7 @@ test('feeds migration179 monthly reconciliation scopes directly into migration18
   const scopes=import179.bank.reconciliations.map(row=>({periodId:row.period_id,reconciliationId:row.reconciliation_id}));
   const result=await service.runRange({tenantId,entityId,scopes,reason:input.reason,idempotencyKey:'controlled-bank-range-monthly-001'});
   assert.equal(result.status,'CONTROLLED_TEST_BANK_RANGE_WORKFLOW_REOPENED');assert.equal(result.processed_count,2);
-  assert.equal(calls.find(call=>call[0]==='draft')[1].lines[0].member_ref,'WBS_TEST_BANK_2026_01');
+  assert.deepEqual(calls.find(call=>call[0]==='draft-batch')[1].bankSourceIds,[uuid(12)]);
   const wrongMonth=harness({bankAccountRef:'WBS_TEST_BANK_2026_01',transactionDate:'2026-01-15',statementEndingDate:'2026-02-28'});
   await assert.rejects(wrongMonth.service.runRange({tenantId,entityId,scopes,reason:input.reason,idempotencyKey:'controlled-bank-range-monthly-002'}),error=>error.code==='CONTROLLED_TEST_BANK_SCOPE_DENIED');
 });
