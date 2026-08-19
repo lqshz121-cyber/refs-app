@@ -62,6 +62,25 @@ test('processes a bounded chunk, returns PARTIAL, and advances with the same roo
   for(const stage of ['draft-batch','submit-batch','review-batch','approve-batch','post-clear-batch'])assert.equal(calls.filter(call=>call[0]===stage).length,1);
 });
 
+test('keeps 100-item lifecycle stages intact but post-clears in stable ten-item transactions',async()=>{
+  let status='DRAFT',version=0;const calls=[],rows=Array.from({length:25},(_,index)=>({reconciliation_version:0,bank_source_id:uuid(100+index),bank_version:0,bank_account_ref:'WBS_TEST_BANK',transaction_date:'2026-07-10',currency:'USD',amount:'1.0000',bank_match_id:null,match_status:null,clearance_state:'NOT_CLEARED',adjustment_journal_entry_id:null,adjustment_journal_version:null,adjustment_journal_status:null,adjustment_clearance_eligible:false}));
+  const refresh=()=>rows.forEach(row=>{row.reconciliation_version=version;});
+  const methods={
+    async listReconciliationScopes(){return [{reconciliation_id:reconciliationId,bank_account_ref:'WBS_TEST_BANK',statement_ending_date:'2026-07-31',status,version}];},async listReconciliationWorksheet(){return rows.map(row=>({...row}));},async listVerifiedCleanAttachmentIds(){return [attachmentId];},
+    async draftWbsTestBankAdjustmentBatch(args){calls.push(['draft',args]);for(const id of args.bankSourceIds){const row=rows.find(item=>item.bank_source_id===id);row.adjustment_journal_entry_id=uuid(1000+rows.indexOf(row));row.adjustment_journal_status='DRAFT';row.adjustment_journal_version=0;}},
+    async submitWbsTestBankAdjustmentBatch(args){calls.push(['submit',args]);for(const id of args.bankSourceIds)rows.find(row=>row.bank_source_id===id).adjustment_journal_status='PENDING_REVIEW';},
+    async reviewWbsTestBankAdjustmentBatch(args){calls.push(['review',args]);for(const id of args.bankSourceIds)rows.find(row=>row.bank_source_id===id).adjustment_journal_status='PENDING_APPROVAL';},
+    async approveWbsTestBankAdjustmentBatch(args){calls.push(['approve',args]);for(const id of args.bankSourceIds)rows.find(row=>row.bank_source_id===id).adjustment_journal_status='APPROVED';},
+    async postClearWbsTestBankAdjustmentBatch(args){calls.push(['post-clear',args]);for(const id of args.bankSourceIds){const row=rows.find(item=>item.bank_source_id===id);row.adjustment_journal_status='POSTED';row.clearance_state='CLEARED';}version++;refresh();},
+    async setReconciliationClearance(){throw new Error('No matched row should use single-item clearance');},
+    async transitionReconciliation(args){version++;status={REVIEW:'IN_REVIEW',SIGN_OFF:'RECONCILED',REOPEN:'REOPENED'}[args.action];refresh();return {status,revision:version,snapshot_id:args.action==='SIGN_OFF'?snapshotId:null,snapshot_hash:args.action==='SIGN_OFF'?`sha256:${'a'.repeat(64)}`:null,idempotent:false};},
+    async getSignedReconciliationSnapshot(){return [{reconciliation_snapshot_id:snapshotId,snapshot_hash:`sha256:${'a'.repeat(64)}`,snapshot_body:{items:[]}}];}
+  };
+  const service=createControlledTestBankWorkflowService({scope,authorize:async()=>{},kernelForActor:()=>new Proxy({}, {get:(_,method)=>methods[method]})}),result=await service.run({...input,maxItems:100});
+  assert.equal(result.status,'CONTROLLED_TEST_BANK_WORKFLOW_REOPENED');for(const stage of ['draft','submit','review','approve']){const stageCalls=calls.filter(call=>call[0]===stage);assert.equal(stageCalls.length,1);assert.equal(stageCalls[0][1].bankSourceIds.length,25);}
+  const postCalls=calls.filter(call=>call[0]==='post-clear').map(call=>call[1]);assert.deepEqual(postCalls.map(call=>call.bankSourceIds.length),[10,10,5]);assert.equal(new Set(postCalls.map(call=>call.idempotencyRoot)).size,3);assert.ok(postCalls.every(call=>/^pc:[0-9a-f]{64}$/.test(call.idempotencyRoot)));
+});
+
 test('chains reconciliation revisions across multiple retained ACTIVE match clearances',async()=>{
   const {service,rows,calls}=harness();
   rows[1].bank_match_id=uuid(30);rows[1].match_status='ACTIVE';

@@ -1,9 +1,12 @@
+import {createHash} from 'node:crypto';
+
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MONEY4=/^-?(?:0|[1-9][0-9]{0,15})\.[0-9]{4}$/;
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const SHA256=/^sha256:[0-9a-f]{64}$/;
 const ACTOR_ROLES=Object.freeze(['importer','maker','submitter','reviewer','approver','poster']);
 const TEST_BANK=/^WBS_TEST_BANK(?:_2026_0[1-6])?$/;
+const POST_CLEAR_BATCH_SIZE=10;
 
 export class ControlledTestBankWorkflowError extends Error{
   constructor(code,message){super(message);this.name='ControlledTestBankWorkflowError';this.code=code;}
@@ -16,6 +19,7 @@ const money=value=>{
   return MONEY4.test(normalized)?normalized:null;
 };
 const reason=value=>`UNSIGNED TEST ONLY — ${value}`;
+const postClearRoot=(root,ids)=>`pc:${createHash('sha256').update(`${root}\0${[...ids].sort().join('\0')}`,'utf8').digest('hex')}`;
 
 function assertConfiguration(scope){
   if(!scope||!UUID.test(scope.tenantId||'')||!UUID.test(scope.entityId||'')||!TEST_BANK.test(scope.bankAccountRef||'')||scope.cashAccountCode!=='111000'||scope.offsetAccountCode!=='610000'){
@@ -150,7 +154,10 @@ export function createControlledTestBankWorkflowService({kernelForActor,authoriz
         await kernels.submitter.submitWbsTestBankAdjustmentBatch(batch);
         await kernels.reviewer.reviewWbsTestBankAdjustmentBatch(batch);
         await kernels.approver.approveWbsTestBankAdjustmentBatch(batch);
-        await kernels.poster.postClearWbsTestBankAdjustmentBatch({...batch,periodId,reason:markedReason});
+        for(let offset=0;offset<adjustmentIds.length;offset+=POST_CLEAR_BATCH_SIZE){
+          const bankSourceIds=adjustmentIds.slice(offset,offset+POST_CLEAR_BATCH_SIZE);
+          await kernels.poster.postClearWbsTestBankAdjustmentBatch({...batch,bankSourceIds,periodId,reason:markedReason,idempotencyRoot:postClearRoot(key,bankSourceIds)});
+        }
       }
       rows=await kernels.importer.listReconciliationWorksheet({tenantId,entityId,reconciliationId});
       if(!rows.length)fail('CONTROLLED_TEST_BANK_WORKFLOW_INCOMPLETE','Controlled-test Bank reconciliation has no retained items.');
