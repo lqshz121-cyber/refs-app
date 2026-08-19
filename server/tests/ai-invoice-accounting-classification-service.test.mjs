@@ -4,10 +4,11 @@ import {createAiInvoiceAccountingClassificationService} from '../runtime/ai-invo
 
 const id=n=>`${String(n).padStart(8,'0')}-0000-4000-8000-${String(n).padStart(12,'0')}`,hash=c=>`sha256:${c.repeat(64)}`;
 const tenantId=id(1),entityId=id(2),periodId=id(3),documentId=id(4),lineId=id(5);
+const policy={schema_version:'AI_CAPITALIZATION_POLICY_EVIDENCE_V1',setting_snapshot_id:id(10),setting_snapshot_hash:hash('c'),policy_version:1,rule_id:'AI_CAPITALIZATION_POLICY_V1',currency:'USD',capitalization_threshold:'5000.0000',eligible_cost_classes:['HARD_COST'],charge_code_classification:{'BUILD-HARD':'HARD_COST'},project_status_by_ref:{'PROJECT-1':'UNDER_CONSTRUCTION'},useful_life_months_by_cost_class:{HARD_COST:360},post_completion_treatment:'EXPENSE_OR_RECLASS_REVIEW'};
 const service=overrides=>createAiInvoiceAccountingClassificationService({
   sourceReader:async()=>[{source_document_id:documentId,source_system:'WBS'}],
   detailReader:async()=>[{source_document_id:documentId,payload_hash:hash('a'),currency:'USD',posted_journal_entry_ids:[],lines:[{source_document_line_id:lineId,amount:'1200.0000',party_ref:'Insurance vendor',project_ref:null,property_ref:'PROPERTY-1',provider_trace:{trace_version:'WBS_PROVIDER_SOURCE_TRACE_V1',domain:'PAYABLES',disposition:'RETAINED',invoice_no:'INV-1',invoice_date:'2026-01-02',accrual:{service_period_start:'2026-01-01',service_period_end:'2026-12-31'}}}]}],
-  evidenceReader:async()=>({accounting_period_id:periodId,signature_verified:true,admission_status:'ADMITTED',source_row_hash:hash('b')}),duplicateFindingReader:async()=>[],...overrides
+  evidenceReader:async()=>({accounting_period_id:periodId,signature_verified:true,admission_status:'ADMITTED',source_row_hash:hash('b')}),duplicateFindingReader:async()=>[],capitalizationPolicyReader:async()=>policy,...overrides
 });
 
 test('scans admitted retained payable evidence into a source-bound prepaid classification',async()=>{

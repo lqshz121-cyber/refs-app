@@ -71,6 +71,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   const aiInvoiceAccountingClassificationServiceFactory=principal=>{const kernel=kernelFor(principal);return createAiInvoiceAccountingClassificationService({
     sourceReader:scope=>kernel.listSourceDocuments(scope),detailReader:scope=>kernel.getSourceDocumentDetail(scope),
     evidenceReader:scope=>kernel.getWbsProviderSignedSourceEvidence(scope),duplicateFindingReader:scope=>kernel.listAiDuplicatePayableFindings(scope),
+    capitalizationPolicyReader:scope=>kernel.getAiCapitalizationPolicyEvidence(scope),
     materializeWriter:input=>kernel.materializeAiInvoiceAccountingClassifications(input)
   });};
   const server=createAccountingHttpServer({

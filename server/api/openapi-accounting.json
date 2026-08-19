@@ -4615,9 +4615,9 @@
       "AiInvoiceAccountingClassification": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["schema_version","source_document_id","source_document_line_id","source_payload_hash","source_line_hash","classification","reason","confidence","required_human_fields","action_flags"],
+        "required": ["schema_version","source_document_id","source_document_line_id","source_payload_hash","source_line_hash","classification","reason","confidence","required_human_fields","rule_id","policy_evidence","action_flags"],
         "properties": {
-          "schema_version":{"const":"AI_INVOICE_ACCOUNTING_CLASSIFICATION_V1"},
+          "schema_version":{"const":"AI_INVOICE_ACCOUNTING_CLASSIFICATION_V2"},
           "source_document_id":{"$ref":"#/components/schemas/Uuid"},
           "source_document_line_id":{"$ref":"#/components/schemas/Uuid"},
           "source_payload_hash":{"$ref":"#/components/schemas/Sha256"},
@@ -4626,8 +4626,15 @@
           "reason":{"type":"string","minLength":1,"maxLength":2000},
           "confidence":{"type":"number","minimum":0,"maximum":1},
           "required_human_fields":{"type":"array","maxItems":20,"items":{"type":"string","minLength":1,"maxLength":64}},
+          "rule_id":{"type":"string","minLength":1,"maxLength":128},
+          "policy_evidence":{"oneOf":[{"$ref":"#/components/schemas/AiCapitalizationPolicyEvidence"},{"type":"null"}]},
           "action_flags":{"$ref":"#/components/schemas/AiInvoiceNoAccountingActions"}
         }
+      },
+      "AiCapitalizationPolicyEvidence": {
+        "type":"object","additionalProperties":false,
+        "required":["schema_version","setting_snapshot_id","setting_snapshot_hash","policy_version","rule_id","currency","capitalization_threshold","eligible_cost_classes","charge_code_classification","project_status_by_ref","useful_life_months_by_cost_class","post_completion_treatment"],
+        "properties":{"schema_version":{"const":"AI_CAPITALIZATION_POLICY_EVIDENCE_V1"},"setting_snapshot_id":{"$ref":"#/components/schemas/Uuid"},"setting_snapshot_hash":{"$ref":"#/components/schemas/Sha256"},"policy_version":{"type":"integer","minimum":1},"rule_id":{"const":"AI_CAPITALIZATION_POLICY_V1"},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"capitalization_threshold":{"type":"string","pattern":"^(0|[1-9][0-9]*)\\.[0-9]{4}$"},"eligible_cost_classes":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string","enum":["OPERATING_EXPENSE","HARD_COST","SOFT_COST","EQUIPMENT","REPAIR","INTEREST"]}},"charge_code_classification":{"type":"object","additionalProperties":{"type":"string","enum":["OPERATING_EXPENSE","HARD_COST","SOFT_COST","EQUIPMENT","REPAIR","INTEREST"]}},"project_status_by_ref":{"type":"object","additionalProperties":{"type":"string","enum":["OPERATING","UNDER_CONSTRUCTION","IN_SERVICE","COMPLETED"]}},"useful_life_months_by_cost_class":{"type":"object","additionalProperties":{"type":"integer","minimum":1,"maximum":600}},"post_completion_treatment":{"const":"EXPENSE_OR_RECLASS_REVIEW"}}
       },
       "AiInvoiceAccountingClassificationResult": {
         "type":"object","additionalProperties":false,

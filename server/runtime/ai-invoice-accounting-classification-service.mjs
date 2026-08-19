@@ -14,13 +14,13 @@ const money4=value=>{
 const payableLines=detail=>(Array.isArray(detail?.lines)?detail.lines:[])
   .filter(line=>line?.provider_trace?.trace_version==='WBS_PROVIDER_SOURCE_TRACE_V1'&&line.provider_trace.domain==='PAYABLES'&&line.provider_trace.disposition==='RETAINED');
 
-export function createAiInvoiceAccountingClassificationService({sourceReader,detailReader,evidenceReader,duplicateFindingReader,materializeWriter=null}={}){
-  if(typeof sourceReader!=='function'||typeof detailReader!=='function'||typeof evidenceReader!=='function'||typeof duplicateFindingReader!=='function')throw new Error('AI invoice classification requires authoritative source, detail, signed evidence, and duplicate finding readers');
+export function createAiInvoiceAccountingClassificationService({sourceReader,detailReader,evidenceReader,duplicateFindingReader,capitalizationPolicyReader,materializeWriter=null}={}){
+  if(typeof sourceReader!=='function'||typeof detailReader!=='function'||typeof evidenceReader!=='function'||typeof duplicateFindingReader!=='function'||typeof capitalizationPolicyReader!=='function')throw new Error('AI invoice classification requires authoritative source, detail, signed evidence, duplicate finding, and approved capitalization policy readers');
   const analyze=async({tenantId,entityId,accountingPeriodId,limit=100})=>{
       if(!UUID.test(tenantId||'')||!UUID.test(entityId||'')||!UUID.test(accountingPeriodId||'')||!Number.isInteger(limit)||limit<1||limit>500){
         const error=new Error('AI invoice classification requires tenant, entity, accounting period, and a limit from 1 to 500');error.code='AI_INVOICE_CLASSIFICATION_SCOPE_INVALID';throw error;
       }
-      const [documents,duplicateFindings]=await Promise.all([sourceReader({tenantId,entityId}),duplicateFindingReader({tenantId,entityId,limit:500})]);
+      const [documents,duplicateFindings,capitalizationPolicy]=await Promise.all([sourceReader({tenantId,entityId}),duplicateFindingReader({tenantId,entityId,limit:500}),capitalizationPolicyReader({tenantId,entityId,accountingPeriodId})]);
       const duplicates=new Set((Array.isArray(duplicateFindings)?duplicateFindings:[]).flatMap(row=>[row.source_document_id,row.candidate_source_document_id]).filter(Boolean));
       const candidates=(Array.isArray(documents)?documents:[]).filter(row=>row.source_system==='WBS').slice(0,limit),inputs=[];
       for(const document of candidates){
@@ -36,6 +36,7 @@ export function createAiInvoiceAccountingClassificationService({sourceReader,det
           entity_id:entityId,accounting_period_id:accountingPeriodId,vendor_name:line.party_ref,invoice_no:trace.invoice_no,invoice_date:trace.invoice_date,
           currency:String(detail.currency||''),amount:money4(line.amount??detail.gross_amount),service_period_start:trace.accrual?.service_period_start??null,
           service_period_end:trace.accrual?.service_period_end??null,description:null,project_ref:line.project_ref??null,property_ref:line.property_ref??null,
+          charge_code:trace.accrual?.charge_code??null,
           duplicate_status:duplicates.has(detail.source_document_id)?'POSSIBLE':'NONE',accounting_status:Array.isArray(detail.posted_journal_entry_ids)&&detail.posted_journal_entry_ids.length>0?'POSTED':'NOT_RECORDED',
           // A project reference does not prove construction status or
           // capitalization eligibility. Those policy facts must arrive as
@@ -44,7 +45,7 @@ export function createAiInvoiceAccountingClassificationService({sourceReader,det
           project_status:'NONE',cost_class:'UNKNOWN',asset_useful_life_months:null,capitalization_threshold:null
         });}
       }
-      const batch=classifyRetainedInvoiceBatch(inputs);
+      const batch=classifyRetainedInvoiceBatch(inputs,{capitalizationPolicy});
       return Object.freeze({...batch,scope:Object.freeze({tenant_id:tenantId,entity_id:entityId,accounting_period_id:accountingPeriodId}),scanned_document_count:candidates.length,eligible_invoice_line_count:inputs.length,action_flags:ACTIONS});
   };
   return Object.freeze({

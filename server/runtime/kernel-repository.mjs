@@ -622,6 +622,12 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async getAiCapitalizationPolicyEvidence({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT refs_read_ai_capitalization_policy_evidence($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]
+    )).rows[0]?.result??null);
+  }
+
   async listAiInvoiceAccountingClassificationEvidence({tenantId,entityId,accountingPeriodId,limit=100}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_invoice_classification_evidence($1,$2,$3,$4)',
