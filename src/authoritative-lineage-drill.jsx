@@ -91,7 +91,7 @@ export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initi
     const result=await refreshAuthoritativeGeneralLedger({config,accountCode:row.account_code,query:null,limit:200,offset:0,fetcher});
     if(!requestGuard.current.isCurrent(token))return;
     if(!result.ok){fail(token,result.message);return;}
-    const matches=result.rows.filter(item=>item.ledger_line_id===ledgerLineId&&item.account_code===row.account_code&&item.currency===row.currency&&row.journal_entry_ids.includes(item.journal_entry_id)&&row.journal_line_ids.includes(item.journal_line_id)&&includesAll(row.source_document_ids,item.source_document_ids));
+    const matches=result.rows.filter(item=>item.ledger_line_id===ledgerLineId&&item.account_code===row.account_code&&(!row.currency||item.currency===row.currency)&&row.journal_entry_ids.includes(item.journal_entry_id)&&row.journal_line_ids.includes(item.journal_line_id)&&includesAll(row.source_document_ids,item.source_document_ids));
     if(matches.length!==1){fail(token,'The General Ledger read did not return exactly one immutable line contained by the selected report row.');return;}
     const item=matches[0];push({kind:'GL',row:item,context:{entityId:config.entityId,periodId:config.periodId,journalEntryId:item.journal_entry_id,journalLineId:item.journal_line_id,ledgerLineId:item.ledger_line_id}},token);
   };
