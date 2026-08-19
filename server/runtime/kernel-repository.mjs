@@ -1186,6 +1186,12 @@ export class PostgresAccountingKernel{
     )).rows.map(row=>({...row,...(row.business_date===undefined?{}:{business_date:publicDate(row.business_date)}),...(row.accounting_date===undefined?{}:{accounting_date:publicDate(row.accounting_date)}),...(row.source_line_count===undefined?{}:{source_line_count:Number(row.source_line_count)})})));
   }
 
+  async listControlledTestAiSources({tenantId,entityId,periodId,limit=100}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_list_controlled_test_ai_sources($1,$2,$3,$4)',[tenantId,entityId,periodId,limit]
+    )).rows.map(row=>({...row,...(row.business_date===undefined?{}:{business_date:publicDate(row.business_date)}),...(row.accounting_date===undefined?{}:{accounting_date:publicDate(row.accounting_date)}),...(row.source_line_count===undefined?{}:{source_line_count:Number(row.source_line_count)})})));
+  }
+
   async getSourceDocumentDetail({tenantId,entityId,sourceDocumentId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_source_document_detail($1,$2,$3)',[tenantId,entityId,sourceDocumentId]

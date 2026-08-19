@@ -638,6 +638,22 @@
         }
       }
     },
+    "/entities/{entityId}/source-documents/controlled-test-ai-eligible": {
+      "get": {
+        "operationId": "listControlledTestAiSources",
+        "summary": "List bounded POSTED WBS TEST_ONLY payable sources for the controlled staging AI workflow",
+        "description": "STAGING TEST ONLY. Requires the configured OIDC Bearer token and GL.JE.VIEW for the path entity. Returns at most 100 persisted WBS payable source records inside the exact configured OPEN period. The fixed filters require source_system to equal the exact active entity binding (WBS or REFS_STAGE1), source_module payable, document_type WBS_TEST_PAYABLE, status POSTED, and at least one exact source-linked POSTED journal entry. It never returns raw provider payloads, attachment bytes, storage references, or provider credentials.",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},
+          {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":100}}
+        ],
+        "responses": {
+          "200": {"$ref": "#/components/responses/ControlledTestAiSourceReadOk"},
+          "default": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/source-documents/{sourceDocumentId}": {
       "get": {
         "operationId": "getSourceDocumentDetail",
@@ -3449,6 +3465,15 @@
           "data": {"type": "array", "items": {"$ref": "#/components/schemas/SourceDocumentReadRow"}}
         }
       },
+      "ControlledTestAiSourceReadEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok", "data"],
+        "properties": {
+          "ok": {"const": true},
+          "data": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/SourceDocumentReadRow"}}
+        }
+      },
       "SourceDocumentDetailReadEnvelope": {
         "type": "object",
         "additionalProperties": false,
@@ -5967,6 +5992,20 @@
             "schema": {
               "$ref": "#/components/schemas/SourceDocumentReadEnvelope"
             }
+          }
+        }
+      },
+      "ControlledTestAiSourceReadOk": {
+        "description": "Bounded controlled TEST_ONLY AI source evidence",
+        "headers": {
+          "Cache-Control": {
+            "description": "Sensitive accounting evidence is never cached",
+            "schema": {"type": "string", "const": "no-store"}
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/ControlledTestAiSourceReadEnvelope"}
           }
         }
       },

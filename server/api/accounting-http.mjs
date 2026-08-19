@@ -57,6 +57,7 @@ const requireWbsCompanyCode=value=>{if(typeof value!=='string'||!/^[A-Z0-9][A-Z0
 const optionalReadLimit=value=>{if(value==null||value==='')return 100;if(!/^[1-9]\d{0,2}$/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 200');const limit=Number(value);if(limit>200)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 200');return limit;};
 const optionalAdmittedStatementLimit=value=>{if(value==null||value==='')return 50;if(!/^[1-9]\d?$/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 50');const limit=Number(value);if(limit>50)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 50');return limit;};
 const optionalAmortizationLimit=value=>{if(value==null||value==='')return 50;if(!/^[1-9]\d{0,2}$/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 100');const limit=Number(value);if(limit>100)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 100');return limit;};
+const controlledTestAiSourceLimit=value=>{if(value==null)return 100;if(!/^[1-9]\d{0,2}$/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 100');const limit=Number(value);if(limit>100)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','limit must be an integer between 1 and 100');return limit;};
 const requireExactQuery=(searchParams,allowed)=>{const permitted=new Set(allowed);for(const key of searchParams.keys())if(!permitted.has(key))throw new AccountingApiError(400,'UNEXPECTED_QUERY_PARAMETER',`Unexpected query parameter: ${key}`);for(const key of allowed)if(searchParams.getAll(key).length>1)throw new AccountingApiError(400,'DUPLICATE_QUERY_PARAMETER',`Query parameter must not be repeated: ${key}`);};
 const requireIdempotency=headers=>{const value=header(headers,'idempotency-key');if(typeof value!=='string'||value.length<8||value.length>200)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_REQUIRED','Idempotency-Key must be 8-200 characters');return value;};
 const requireRevision=headers=>{const raw=header(headers,'if-match');if(raw==null)throw new AccountingApiError(428,'IF_MATCH_REQUIRED','If-Match is required');const value=String(raw).trim();if(value.startsWith('W/'))throw new AccountingApiError(412,'WEAK_IF_MATCH_REJECTED','If-Match must use a strong revision validator');const match=/^"(\d+)"$/.exec(value);if(!match)throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must be a quoted non-negative strong revision');const revision=Number(match[1]);if(!Number.isSafeInteger(revision))throw new AccountingApiError(400,'INVALID_IF_MATCH','If-Match must contain a safe non-negative revision');return revision;};
@@ -346,6 +347,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         requireExactQuery(parsedUrl.searchParams,[]);
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
         result=await kernel.listSourceDocuments({tenantId:principal.tenantId,entityId});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&parts[4]==='source-documents'&&parts[5]==='controlled-test-ai-eligible'){
+        if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId','limit']);
+        const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
+        result=await kernel.listControlledTestAiSources({tenantId:principal.tenantId,entityId,periodId:requireUuid(parsedUrl.searchParams.get('periodId'),'periodId'),limit:controlledTestAiSourceLimit(parsedUrl.searchParams.get('limit'))});
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='source-documents'){

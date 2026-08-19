@@ -278,6 +278,18 @@ test('Source Document reads are OIDC-authenticated entity evidence only and matc
   assert.ok(line.required.includes('provider_trace'));assert.equal(line.properties.provider_trace.oneOf[0].type,'null');assert.equal(line.properties.provider_trace.oneOf[1].$ref,'#/components/schemas/WbsProviderSourceTrace');
 });
 
+test('controlled TEST_ONLY AI source read is exact-period, bounded, filtered and no-store',()=>{
+  const operation=contract.paths['/entities/{entityId}/source-documents/controlled-test-ai-eligible'].get;
+  assert.equal(operation.operationId,'listControlledTestAiSources');
+  assert.deepEqual(operation.parameters[0],{$ref:'#/components/parameters/EntityId'});
+  assert.deepEqual(operation.parameters[1],{name:'periodId',in:'query',required:true,schema:{$ref:'#/components/schemas/Uuid'}});
+  assert.deepEqual(operation.parameters[2].schema,{type:'integer',minimum:1,maximum:100,default:100});
+  for(const token of ['STAGING TEST ONLY','GL.JE.VIEW','exact active entity binding','WBS or REFS_STAGE1','source_module payable','document_type WBS_TEST_PAYABLE','status POSTED','source-linked POSTED journal entry','exact configured OPEN period'])assert.match(operation.description,new RegExp(token));
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/ControlledTestAiSourceReadOk');
+  assert.equal(contract.components.responses.ControlledTestAiSourceReadOk.headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(contract.components.schemas.ControlledTestAiSourceReadEnvelope.properties.data.maxItems,100);
+});
+
 test('bank transaction and reconciliation reads are scoped no-store evidence only',()=>{
   const transactions=contract.paths['/entities/{entityId}/bank/transactions'].get;
   assert.equal(transactions.operationId,'listBankTransactions');

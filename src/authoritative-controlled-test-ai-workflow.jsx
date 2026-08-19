@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useState} from 'react';
-import {controlledTestAiWorkflowIdempotencyKey,refreshAuthoritativeScope,refreshAuthoritativeSourceDocuments,runControlledTestAiWorkflow} from './accounting-api.js';
+import {controlledTestAiWorkflowIdempotencyKey,refreshAuthoritativeScope,refreshControlledTestAiSources,runControlledTestAiWorkflow} from './accounting-api.js';
 import {StateBlock} from './ui.jsx';
 
 const idle={phase:'LOADING',sources:[],scope:null,error:null};
@@ -10,10 +10,10 @@ export function AuthoritativeControlledTestAiWorkflow({config,fetcher=globalThis
   const [evidence,setEvidence]=useState(idle),[selection,setSelection]=useState(''),[reason,setReason]=useState('Run TEST_ONLY AI accounting workflow for this posted WBS payable.'),[command,setCommand]=useState({phase:'IDLE',data:null,error:null,retry:null});
   const load=async()=>{
     setEvidence(idle);
-    const [documents,scope]=await Promise.all([refreshAuthoritativeSourceDocuments({config,fetcher}),refreshAuthoritativeScope({config,fetcher})]);
+    const [documents,scope]=await Promise.all([refreshControlledTestAiSources({config,limit:100,fetcher}),refreshAuthoritativeScope({config,fetcher})]);
     if(!documents.ok||!scope.ok){const error=!documents.ok?documents:scope;setEvidence({phase:'BLOCKED',sources:[],scope:null,error});return;}
     if(scope.row.period_status!=='OPEN'){setEvidence({phase:'BLOCKED',sources:[],scope:scope.row,error:{code:'CONTROLLED_TEST_AI_PERIOD_NOT_OPEN',message:'The configured accounting period is not OPEN.'}});return;}
-    const sources=documents.rows.filter(row=>row.source_system==='WBS'&&row.source_module==='payable'&&row.document_type==='WBS_TEST_PAYABLE'&&row.status==='POSTED'&&row.accounting_date>=scope.row.period_start&&row.accounting_date<=scope.row.period_end&&row.posted_journal_entry_ids.length>0);
+    const sources=documents.rows.filter(row=>['WBS','REFS_STAGE1'].includes(row.source_system)&&row.source_module==='payable'&&row.document_type==='WBS_TEST_PAYABLE'&&row.status==='POSTED'&&row.accounting_date>=scope.row.period_start&&row.accounting_date<=scope.row.period_end&&row.posted_journal_entry_ids.length>0);
     setEvidence({phase:'READY',sources,scope:scope.row,error:null});
   };
   useEffect(()=>{if(enabled)void load();},[enabled,config?.entityId,config?.periodId]);
