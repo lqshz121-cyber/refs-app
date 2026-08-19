@@ -1336,6 +1336,27 @@ export async function runAuthoritativeWbsTestBankRangeWorkflow({config,reconcili
     return {ok:true,data};
   }catch{return unreachable('The browser could not run the H1 Bank workflow; no HTTP response was produced.');}
 }
+const controlledTestBankMatchResult=value=>{
+  const fields=['bank_account_ref','bank_match_id','bank_source_id','business_document_id','currency','idempotent','journal_entry_id','journal_line_id','ledger_line_id','payment_amount','payment_occurrence_id','period_id','provenance_mode','revision','status','test_only'];
+  if(!exactObjectKeys(value,fields)||value.status!=='CONTROLLED_TEST_BANK_MATCH_ACTIVE'||value.test_only!==true||value.provenance_mode!=='CONTROLLED_TEST_UNSIGNED'||typeof value.idempotent!=='boolean'
+    ||value.bank_account_ref!=='WBS_TEST_BANK'||value.currency!=='USD'||!REPORT_MONEY4.test(value.payment_amount||'')||value.payment_amount==='0.0000'||value.revision!==0
+    ||!['bank_match_id','bank_source_id','business_document_id','journal_entry_id','journal_line_id','ledger_line_id','payment_occurrence_id','period_id'].every(field=>UUID.test(value[field]||'')))return null;
+  return Object.freeze({...value});
+};
+
+export async function runAuthoritativeWbsTestBankMatch({config,reason='Create one isolated TEST_ONLY posted-payment Bank Match',fetcher=globalThis.fetch,cryptoApi=globalThis.crypto}={}){
+  if(config?.wbsTestImportMode!=='ENABLED'||typeof fetcher!=='function'||typeof reason!=='string'||reason!==reason.trim()||reason.length<8||reason.length>1700||typeof cryptoApi?.subtle?.digest!=='function')return {ok:false,code:'CONTROLLED_TEST_BANK_MATCH_SELECTION_INVALID',message:'The isolated Bank Match requires TEST_ONLY mode, one stable entity, and a review reason.'};
+  const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
+  try{
+    const canonical=JSON.stringify(['CONTROLLED_TEST_BANK_MATCH',config.entityId,reason]),idempotencyKey=`wbs-test-bank-match-${hex(await cryptoApi.subtle.digest('SHA-256',new TextEncoder().encode(canonical)))}`;
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/wbs/test-import/bank-match/run`,{method:'POST',credentials:'include',cache:'no-store',headers:{accept:'application/json','content-type':'application/json','idempotency-key':idempotencyKey,...authorization},body:JSON.stringify({reason})});
+    if(!response.ok)return await failure(response,'CONTROLLED_TEST_BANK_MATCH');
+    const envelope=await response.json(),data=controlledTestBankMatchResult(envelope?.data);
+    if(envelope?.ok!==true||data===null)return {ok:false,code:'CONTROLLED_TEST_BANK_MATCH_PROTOCOL',message:'The isolated Bank Match endpoint returned invalid or non-test evidence.'};
+    return {ok:true,data};
+  }catch{return unreachable('The browser could not run the isolated TEST_ONLY Bank Match; no HTTP response was produced.');}
+}
+
 const wbsReviewCandidate=(row,{entityId,companyKey,sourceRecordIds})=>row&&typeof row==='object'&&SHA256.test(row.review_candidate_id||'')&&row.stage==='STAGING_REVIEWED'&&['BANK_SIDE','BUSINESS_SIDE'].includes(row.side)&&wbsScopeText(row.source_type,128)&&row.entity_id===entityId&&row.company_key===companyKey&&sourceRecordIds.includes(row.source_record_id)&&/^[A-Z]{3}$/.test(row.currency||'')&&REPORT_MONEY4.test(row.amount||'')&&validDate(row.business_date)&&validDate(row.accounting_date)&&wbsScopeText(row.bank_account_ref,128)&&wbsScopeText(row.source_record_id)&&wbsScopeText(row.source_version)&&wbsScopeText(row.raw_event_id)&&wbsScopeText(row.source_document_id)&&wbsScopeText(row.staging_item_id)&&row.mapping&&wbsScopeText(row.mapping.mapping_id)&&wbsScopeText(row.mapping.version)&&SHA256.test(row.mapping.snapshot_hash||'')&&wbsEvidenceIsReadOnly(row);
 const wbsReviewEvidence=(value,scope)=>{
   if(!value||typeof value!=='object'||Array.isArray(value)||value.can_dispatch!==false||value.can_create_draft!==false||value.can_post!==false||!Array.isArray(value.candidates)||!Array.isArray(value.exceptions)||!wbsEvidenceIsReadOnly(value))return false;

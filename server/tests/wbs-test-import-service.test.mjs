@@ -77,18 +77,19 @@ test('fails closed on an unsafe Draft, workflow transition, or source finalizati
 test('reconciles six exact least-privilege actor bundles before the route can listen',async()=>{
   const calls=[];
   const result=await reconcileWbsTestImportActorGrants({scope,grantSync:{async reconcile(command){calls.push(command);return {permissions:[...command.permissions].reverse(),version:command.expectedVersion+1,idempotent:false};}}});
-  assert.equal(calls.length,13);assert.deepEqual(Object.keys(result),['importer','maker','submitter','reviewer','approver','poster']);
-  assert.deepEqual(calls.slice(0,3).map(({actorId:ignored,...call})=>call),[
+  assert.equal(calls.length,19);assert.deepEqual(Object.keys(result),['importer','maker','submitter','reviewer','approver','poster']);
+  assert.deepEqual(calls.slice(0,4).map(({actorId:ignored,...call})=>call),[
     {tenantId,entityId,permissions:['WBS.TEST.IMPORT'],expectedVersion:0,idempotencyKey:'wbs-test-import-importer-grant-v1'},
     {tenantId,entityId,permissions:['WBS.TEST.IMPORT','BANK.RECONCILIATION.START'],expectedVersion:1,idempotencyKey:'wbs-test-import-importer-grant-v2'},
-    {tenantId,entityId,permissions:WBS_TEST_IMPORT_GRANT_BUNDLES.importer,expectedVersion:2,idempotencyKey:'wbs-test-import-importer-grant-v3'}
+    {tenantId,entityId,permissions:['WBS.TEST.IMPORT','BANK.RECONCILIATION.START','BANK.VIEW','BANK.MATCH.CREATE'],expectedVersion:2,idempotencyKey:'wbs-test-import-importer-grant-v3'},
+    {tenantId,entityId,permissions:WBS_TEST_IMPORT_GRANT_BUNDLES.importer,expectedVersion:3,idempotencyKey:'wbs-test-import-importer-grant-v4'}
   ]);
   for(const call of calls){
     const role=Object.entries(actors).find(([,actor])=>actor===call.actorId)[0];
     const version=Number(call.idempotencyKey.at(-1));
-    if((role==='importer'&&version===3)||(role!=='importer'&&version===2))assert.deepEqual(call.permissions,WBS_TEST_IMPORT_GRANT_BUNDLES[role]);
-    assert.equal(call.expectedVersion,version-1);assert.equal(call.tenantId,tenantId);assert.equal(call.entityId,entityId);assert.match(call.idempotencyKey,new RegExp(`^wbs-test-import-${role}-grant-v[123]$`));
+    if((role==='importer'&&version===4)||(role!=='importer'&&version===3))assert.deepEqual(call.permissions,WBS_TEST_IMPORT_GRANT_BUNDLES[role]);
+    assert.equal(call.expectedVersion,version-1);assert.equal(call.tenantId,tenantId);assert.equal(call.entityId,entityId);assert.match(call.idempotencyKey,new RegExp(`^wbs-test-import-${role}-grant-v[1234]$`));
   }
-  assert.equal(result.importer.version,3);assert.ok(Object.values(result).every(value=>value.version>=2));
+  assert.equal(result.importer.version,4);assert.ok(Object.values(result).every(value=>value.version>=3));
   await assert.rejects(reconcileWbsTestImportActorGrants({scope,grantSync:{async reconcile(){return {permissions:['ROOT.ALL']};}}}),error=>error.code==='WBS_TEST_IMPORT_GRANT_INVALID');
 });

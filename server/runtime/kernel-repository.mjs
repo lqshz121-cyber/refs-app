@@ -1272,6 +1272,22 @@ export class PostgresAccountingKernel{
     )).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date)})));
   }
 
+  async resolveWbsTestBankMatchFixture({tenantId,entityId}){
+    return this.inSession(async client=>{
+      const rows=(await client.query('SELECT * FROM refs_resolve_wbs_test_bank_match_fixture($1,$2)',[tenantId,entityId])).rows;
+      if(rows.length!==1)throw new KernelError('WBS_TEST_BANK_MATCH_FIXTURE_UNAVAILABLE','One isolated WBS test Bank match fixture is required');
+      const row=rows[0];
+      return {...row,transaction_date:publicDate(row.transaction_date)};
+    });
+  }
+
+  async bindWbsTestBankMatchPaymentSource({tenantId,entityId,businessDocumentId,paymentOccurrenceId,journalEntryId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_bind_wbs_test_bank_match_payment_source($1,$2,$3,$4,$5) AS result',
+      [tenantId,entityId,businessDocumentId,paymentOccurrenceId,journalEntryId]
+    ),'WBS_TEST_BANK_MATCH_SOURCE_BIND_FAILED','Controlled test Bank Match payment source binding did not return a result').result);
+  }
+
   async listVerifiedCleanAttachmentIds({tenantId,entityId,limit=1}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_reconciliation_adjustment_evidence($1,$2,$3)',

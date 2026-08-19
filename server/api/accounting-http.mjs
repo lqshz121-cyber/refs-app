@@ -13,6 +13,7 @@ import {assertInsurancePcMappingDto} from '../runtime/wbs-insurance-pc-mapping-c
 import {WbsTestImportError,assertWbsControlledTestBankResult,assertWbsTestImportResult,assertWbsTestRangeImportResult} from '../runtime/wbs-test-import-service.mjs';
 import {ControlledTestAiWorkflowError,assertControlledTestAiWorkflowResult} from '../runtime/controlled-test-ai-workflow-service.mjs';
 import {ControlledTestBankWorkflowError,assertControlledTestBankRangeWorkflowResult,assertControlledTestBankWorkflowPartialResult,assertControlledTestBankWorkflowResult} from '../runtime/controlled-test-bank-workflow-service.mjs';
+import {ControlledTestBankMatchError,assertControlledTestBankMatchResult} from '../runtime/controlled-test-bank-match-service.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AI_ACCRUAL_HASH=/^sha256:[0-9a-f]{64}$/;
@@ -77,6 +78,7 @@ const isRevisionPrecondition=error=>error?.code==='40001'&&/(revision conflict|v
 function statusFor(error){
   if(error instanceof ControlledTestAiWorkflowError)return error.code==='CONTROLLED_TEST_AI_SCOPE_DENIED'?403:/CONFIG_INVALID|UNAVAILABLE/.test(error.code)?503:/RESULT_INVALID|WORKFLOW_INVALID/.test(error.code)?500:422;
   if(error instanceof ControlledTestBankWorkflowError)return error.code==='CONTROLLED_TEST_BANK_SCOPE_DENIED'?403:/CONFIG_INVALID|UNAVAILABLE/.test(error.code)?503:/RESULT_INVALID|SNAPSHOT_INVALID|ITEM_INVALID|ADJUSTMENT_INVALID/.test(error.code)?500:422;
+  if(error instanceof ControlledTestBankMatchError)return /CONFIG_INVALID|FIXTURE_UNAVAILABLE/.test(error.code)?503:/RESULT_INVALID|PAYMENT_INVALID|WORKFLOW_INVALID|CANDIDATE_INVALID/.test(error.code)?500:422;
   if(error instanceof WbsTestImportError)return error.code==='WBS_TEST_IMPORT_SCOPE_DENIED'?403:/CONFIG_INVALID/.test(error.code)?503:/RESULT_INVALID|WORKFLOW_INVALID|FINALIZE_INVALID|DRAFT_INVALID/.test(error.code)?500:422;
   if(error instanceof WbsProviderFinal1RetainedEvidenceError)return /SERVICE_IDENTITY_DENIED/.test(error.code)?403:/STORAGE_REQUIRED|PERSISTENCE_REQUIRED|TRUST_REQUIRED|BOUNDARY_REQUIRED/.test(error.code)?503:/RESULT_INVALID/.test(error.code)?500:422;
   if(error instanceof WbsCompanyCatalogControllerError)return /HASH_MISMATCH|SOURCE_CONTROL_INVALID/.test(error.code)?422:400;
@@ -210,6 +212,14 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
           if(result?.status==='CONTROLLED_TEST_BANK_WORKFLOW_PARTIAL')assertControlledTestBankWorkflowPartialResult(result);else assertControlledTestBankWorkflowResult(result);
         }
         return {status:result.status==='CONTROLLED_TEST_BANK_WORKFLOW_PARTIAL'||result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='POST'&&parts.length===8&&parts[4]==='wbs'&&parts[5]==='test-import'&&parts[6]==='bank-match'&&parts[7]==='run'){
+        requireExactQuery(parsedUrl.searchParams,[]);allowOnly(payload,['reason']);
+        if(typeof wbsTestImportServiceFactory!=='function')throw new AccountingApiError(404,'ROUTE_NOT_FOUND','Route not found');
+        const service=await wbsTestImportServiceFactory(principal);
+        if(!service||typeof service.runBankMatch!=='function')throw new ControlledTestBankMatchError('CONTROLLED_TEST_BANK_MATCH_CONFIG_INVALID','Controlled test Bank Match service is unavailable.');
+        result=assertControlledTestBankMatchResult(await service.runBankMatch({tenantId:principal.tenantId,entityId,reason:requireReviewReason(payload.reason),idempotencyKey:requireIdempotency(headers)}));
+        return {status:result.idempotent?200:201,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='wbs'&&parts[5]==='property-rent-pickup'){
         if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Property Rent pickup reads do not accept command headers');

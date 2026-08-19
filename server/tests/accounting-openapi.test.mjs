@@ -17,10 +17,11 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
   assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitProviderSignedWbsPayables','admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','approveFinancialStatementSnapshot','approveWbsCompanyCatalogRow','approveWbsInsurancePcMappingProposal','assignAiFindingAction','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','classifyWbsCompanyCatalogRow','createAiAmortizationDraft','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsCostCwipDraft','createReviewedWbsPayableApDraft','createWbsAutoRecAutocDraft','createWbsAutoRecPayableIncurDraft','createWbsInsurancePcMappingProposal','explainAiAccountingAnalysis','finalizeAttachment','finalizeWbsAutoRecG11Incur','importWbsTestPayables','ingestAdmittedWbsPayables','postJournal','prepareFinancialStatementSnapshot','proposeAiAmortizationSchedule','recordAiAmortizationCoverageEvidence','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','resolveAiFindingAction','retainProviderSignedWbsFinal1Bank','retainProviderSignedWbsFinal1CostControl','retainProviderSignedWbsFinal1Insurance','retainProviderSignedWbsFinal1Payables','retainProviderSignedWbsFinal1PropertyControl','retainWbsCompanyCatalogCandidate','reviewAdmittedWbsCostCwip','reviewAdmittedWbsPayable','reviewAiWbsPayableDraftProposal','reviewWbsAutoRecBankMatch','runControlledTestAiWorkflow','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
   }
   const operationIds=operations.map(operation=>operation.operationId);
-  assert.equal(operationIds.length,70);
+  assert.equal(operationIds.length,71);
   assert.equal(new Set(operationIds).size,operationIds.length);
   assert.ok(operationIds.includes('importWbsControlledTestBankTransactions'));
   assert.ok(operationIds.includes('runControlledTestAiWorkflow'));
+  assert.ok(operationIds.includes('runWbsControlledTestBankMatch'));
 });
 
 test('AI amortization schedule exposes immutable line identity and a closed Draft-only receipt',()=>{
@@ -52,6 +53,17 @@ test('controlled test Bank import is a separate closed staging-only reconciliati
   assert.equal(operation.operationId,'importWbsControlledTestBankTransactions');assert.match(operation.description,/Staging-only authenticated bridge/i);assert.match(operation.description,/WBS\.TEST\.IMPORT/);assert.match(operation.description,/Provider-signed admission route is unchanged/i);assert.match(operation.description,/never claims signature.*formal admission.*Match.*Review.*Sign-off.*Journal.*posting authority/i);
   const body=operation.requestBody.content['application/json'].schema;assert.equal(body.additionalProperties,false);assert.deepEqual(body.required,['periodId','companyCode','dateFrom','dateTo','limit']);
   const result=contract.components.schemas.WbsControlledTestBankResult;assert.equal(result.oneOf.length,2);const [complete,partial]=result.oneOf;assert.equal(complete.additionalProperties,false);assert.equal(complete.properties.test_only.const,true);assert.equal(complete.properties.provenance_mode.const,'CONTROLLED_TEST_UNSIGNED');assert.equal(complete.properties.bank_account_ref.pattern,'^WBS_TEST_BANK(?:_2026_0[1-6])?$');assert.equal(complete.properties.status.const,'DRAFT');assert.equal(partial.properties.status.const,'WBS_TEST_BANK_IMPORT_PARTIAL');
+});
+
+test('isolated controlled test Bank Match is a closed server-selected command',()=>{
+  const operation=contract.paths['/entities/{entityId}/wbs/test-import/bank-match/run'].post;
+  assert.equal(operation.operationId,'runWbsControlledTestBankMatch');
+  assert.deepEqual(operation.parameters.map(parameter=>parameter.$ref),['#/components/parameters/EntityId','#/components/parameters/IdempotencyKey']);
+  const body=operation.requestBody.content['application/json'].schema;
+  assert.equal(body.additionalProperties,false);assert.deepEqual(body.required,['reason']);assert.deepEqual(Object.keys(body.properties),['reason']);
+  const result=contract.components.schemas.ControlledTestBankMatchResult;
+  assert.equal(result.additionalProperties,false);assert.equal(result.properties.status.const,'CONTROLLED_TEST_BANK_MATCH_ACTIVE');assert.equal(result.properties.test_only.const,true);assert.equal(result.properties.bank_account_ref.const,'WBS_TEST_BANK');
+  assert.equal(operation.responses['200'].$ref,'#/components/responses/ControlledTestBankMatchOk');assert.equal(operation.responses['201'].$ref,'#/components/responses/ControlledTestBankMatchOk');
 });
 
 test('paged WBS test month import is closed, bounded, and aggregate-only',()=>{

@@ -14,7 +14,7 @@
     "test:wbs-company-catalog-controller": "node --test tests/wbs-company-catalog-controller-contract.test.mjs",
     "test:wbs-insurance-pc-mapping-controller-runtime": "node --test tests/wbs-insurance-pc-mapping-controller-runtime.test.mjs tests/wbs-insurance-pc-mapping-controller-http-red.test.mjs",
     "test:wbs-live-pilot": "node --test tests/wbs-live-pilot-read-service.test.mjs tests/wbs-live-pilot-http-contract.test.mjs && npm run test:wbs-test-import",
-    "test:wbs-test-import": "node --test tests/wbs-test-import-contract.test.mjs tests/wbs-test-import-repository.test.mjs tests/wbs-test-import-service.test.mjs tests/wbs-test-import-http-contract.test.mjs",
+    "test:wbs-test-import": "node --test tests/wbs-test-import-contract.test.mjs tests/wbs-test-import-repository.test.mjs tests/wbs-test-import-service.test.mjs tests/wbs-test-import-http-contract.test.mjs tests/controlled-test-bank-match-contract.test.mjs tests/controlled-test-bank-match-service.test.mjs tests/controlled-test-bank-match-http-contract.test.mjs",
     "test:wbs-operator-attested-payable": "node --test tests/wbs-operator-attested-payable.test.mjs tests/wbs-operator-attested-payable-contract.test.mjs tests/wbs-operator-attested-payable-http-contract.test.mjs tests/wbs-operator-exception-intake-contract.test.mjs tests/wbs-operator-signed-source-bridge-contract.test.mjs tests/wbs-operator-exception-detail-read-contract.test.mjs",
     "test:wbs-signed-bank-admission": "node --test tests/wbs-signed-bank-admission.test.mjs",
     "test:stage1-payable-live-acceptance": "node --test tests/stage1-payable-live-acceptance.test.mjs",
