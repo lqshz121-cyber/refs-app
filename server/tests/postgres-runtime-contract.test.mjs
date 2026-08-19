@@ -698,3 +698,15 @@ test('WBS TEST IMPORT retains signed Provider MONEY4 identity and books its abso
   assert.match(backward,/replace\(definition,new_zero,old_zero\)/);
   assert.match(backward,/replace\(definition,new_assignment,old_assignment\)/);
 });
+
+test('WBS TEST Bank persistence namespaces immutable Provider hashes by the monthly test account',async()=>{
+  const forward=await readFile(new URL('../db/migrations/183_wbs_test_bank_monthly_source_identity.sql',import.meta.url),'utf8');
+  const backward=await readFile(new URL('../db/migrations/down/183_wbs_test_bank_monthly_source_identity.sql',import.meta.url),'utf8');
+  assert.match(forward,/source_record_id:=''test-bank:''\|\|lower\(p_bank_account_ref\)\|\|'':''\|\|substr\(source_hash,8,24\)/);
+  assert.match(forward,/new_ref constant text:[\s\S]+lower\(p_bank_account_ref\)/);
+  assert.match(forward,/UNIQUE\(tenant_id,entity_id,bank_account_ref,source_record_hash\)/);
+  assert.match(forward,/FOREIGN KEY\(tenant_id,entity_id,wbs_controlled_test_bank_import_id,bank_account_ref\)/);
+  assert.match(backward,/count\(DISTINCT bank_account_ref\)>1/);
+  assert.match(backward,/ERRCODE='55006'/);
+  assert.doesNotMatch(forward,/UPDATE raw_event|UPDATE source_document/);
+});
