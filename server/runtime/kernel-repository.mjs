@@ -467,6 +467,14 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listAiInvoiceExpenseProposals({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_invoice_expense_proposals($1,$2,$3)',[tenantId,entityId,limit])).rows);
+  }
+
+  async proposeAiInvoiceExpense({tenantId,entityId,classificationEvidenceId,classificationHash,accountingPeriodId,expenseAccountCode,liabilityAccountCode,memberTrace,reason,idempotencyKey}){
+    return this.inSession(async client=>{const args=[tenantId,entityId,classificationEvidenceId,classificationHash,accountingPeriodId,expenseAccountCode,liabilityAccountCode,JSON.stringify(memberTrace),reason];const requestHash=requireRow(await client.query('SELECT refs_propose_ai_invoice_expense_hash($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) request_hash',args),'AI_INVOICE_EXPENSE_PROPOSAL_HASH_FAILED','AI invoice expense proposal hash was not produced').request_hash;return requireRow(await client.query('SELECT refs_propose_ai_invoice_expense($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11) result',[...args,idempotencyKey,requestHash]),'AI_INVOICE_EXPENSE_PROPOSAL_FAILED','AI invoice expense proposal did not return a result').result;});
+  }
+
   async proposeAiInvoiceCapitalization({tenantId,entityId,classificationEvidenceId,classificationHash,accountingPeriodId,capitalizationTreatment,assetAccountCode,liabilityAccountCode,assetClass,memberTrace,placedInServiceDate,usefulLifeMonths,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const args=[tenantId,entityId,classificationEvidenceId,classificationHash,accountingPeriodId,capitalizationTreatment,assetAccountCode,liabilityAccountCode,assetClass,JSON.stringify(memberTrace),placedInServiceDate,usefulLifeMonths,reason];
