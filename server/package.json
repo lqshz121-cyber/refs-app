@@ -41,7 +41,7 @@
     "test:litellm-gateway": "node --test tests/litellm-gateway.test.mjs",
     "test:ai-analysis-summary": "node --test tests/ai-accounting-analysis-summary-contract.test.mjs tests/ai-accounting-analysis-report-read-contract.test.mjs",
     "test:ai-skill-registry": "node --test tests/ai-accounting-skill-registry.test.mjs tests/ai-accounting-skill-registry-http-contract.test.mjs",
-    "test:ai-accrual-candidate": "node --test tests/ai-accrual-candidate-evaluator.test.mjs tests/ai-invoice-accrual-proposal-contract.test.mjs tests/ai-invoice-accrual-proposal-http-contract.test.mjs",
+    "test:ai-accrual-candidate": "node --test tests/ai-accrual-candidate-evaluator.test.mjs tests/ai-invoice-accrual-proposal-contract.test.mjs tests/ai-invoice-accrual-proposal-http-contract.test.mjs tests/ai-invoice-capitalization-proposal-contract.test.mjs",
     "test:ai-accrual-retained-source": "node --test tests/ai-accrual-retained-source-adapter.test.mjs",
     "test:ai-accrual-analysis": "node --test tests/ai-accrual-candidate-analysis-service.test.mjs",
     "test:ai-accrual-http": "node --test tests/ai-accrual-candidate-http-contract.test.mjs",

@@ -461,6 +461,24 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async listAiInvoiceCapitalizationProposals({tenantId,entityId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_invoice_capitalization_proposals($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async proposeAiInvoiceCapitalization({tenantId,entityId,classificationEvidenceId,classificationHash,accountingPeriodId,capitalizationTreatment,assetAccountCode,liabilityAccountCode,assetClass,memberTrace,placedInServiceDate,usefulLifeMonths,reason,idempotencyKey}){
+    return this.inSession(async client=>{
+      const args=[tenantId,entityId,classificationEvidenceId,classificationHash,accountingPeriodId,capitalizationTreatment,assetAccountCode,liabilityAccountCode,assetClass,JSON.stringify(memberTrace),placedInServiceDate,usefulLifeMonths,reason];
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_propose_ai_invoice_capitalization_hash($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13) AS request_hash',args
+      ),'AI_INVOICE_CAPITALIZATION_PROPOSAL_HASH_FAILED','AI invoice capitalization proposal hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_propose_ai_invoice_capitalization($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15) AS result',[...args,idempotencyKey,requestHash]
+      ),'AI_INVOICE_CAPITALIZATION_PROPOSAL_FAILED','AI invoice capitalization proposal did not return a result').result;
+    });
+  }
+
   async listAiAmortizationCoverageEvidence({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_amortization_coverage_evidence($1,$2,$3)',[tenantId,entityId,limit]
