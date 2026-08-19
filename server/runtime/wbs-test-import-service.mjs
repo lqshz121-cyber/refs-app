@@ -171,7 +171,11 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
         for(let pageIndex=0;pageIndex<maxPages;pageIndex++){
           const page=await pilotService.readObservationPage({tenantId,entityId,tool,limit:10,company_code:companyCode,date_from:dateFrom,date_to:dateTo,cursor,snapshot_token:snapshotToken});
           if(!exactObject(page,['cursor_next','observation','pagination'])||!exactObject(page.pagination,['captured_at','contract_version','environment','first_stable_key','last_stable_key','snapshot_token','source_hash']))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider page envelope is invalid.');
-          const identity={captured_at:page.pagination.captured_at,contract_version:page.pagination.contract_version,environment:page.pagination.environment,source_hash:page.pagination.source_hash,snapshot_token:page.pagination.snapshot_token};
+          // captured_at is per HTTP read in the Provider V2 keyset contract,
+          // not a snapshot identity.  Freeze only the published source and
+          // contract identity plus an optional provider token.  A token, when
+          // present, must remain exact across every page.
+          const identity={contract_version:page.pagination.contract_version,environment:page.pagination.environment,source_hash:page.pagination.source_hash,snapshot_token:page.pagination.snapshot_token};
           if(pageIndex===0){frozenIdentity=identity;snapshotToken=page.pagination.snapshot_token;}else if(!exactObject(identity,Object.keys(frozenIdentity))||Object.keys(frozenIdentity).some(key=>identity[key]!==frozenIdentity[key]))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider pagination snapshot identity changed during the range read.');
           if(page.pagination.first_stable_key!==null&&lastStableKey!==null&&!(lastStableKey<page.pagination.first_stable_key))fail('WBS_TEST_IMPORT_ROW_INVALID','Provider pagination stable keys are duplicated or out of order.');
           if(page.pagination.last_stable_key!==null)lastStableKey=page.pagination.last_stable_key;
