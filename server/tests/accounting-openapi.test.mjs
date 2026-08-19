@@ -17,12 +17,13 @@ test('accounting OpenAPI is 3.1, authenticated and operation ids match the runti
   assert.deepEqual(operations.map(operation=>operation.operationId).sort(),['admitProviderSignedWbsPayables','admitSignedWbsBankStatement','applyApVendorCredit','applyArCreditMemo','approveFinancialStatementSnapshot','approveWbsCompanyCatalogRow','approveWbsInsurancePcMappingProposal','assignAiFindingAction','attestObservedWbsPayables','bindExactWbsPayableAttachment','bindWbsPayableUploadedAttachment','classifyWbsCompanyCatalogRow','createAiAmortizationDraft','createApBill','createApBillVoid','createApPayment','createApPaymentReversal','createApVendorCredit','createArCreditMemo','createArInvoice','createArReceipt','createArReceiptReversal','createArRefund','createAutoJournal','createBankPaymentMatch','createJournalAdjustment','createManualJournal','createReconciliationAdjustmentDraft','createReviewedWbsCostCwipDraft','createReviewedWbsPayableApDraft','createWbsAutoRecAutocDraft','createWbsAutoRecPayableIncurDraft','createWbsInsurancePcMappingProposal','explainAiAccountingAnalysis','finalizeAttachment','finalizeWbsAutoRecG11Incur','importWbsTestPayables','ingestAdmittedWbsPayables','postJournal','prepareFinancialStatementSnapshot','proposeAiAmortizationSchedule','recordAiAmortizationCoverageEvidence','recordWbsSnapshot','reserveAttachment','reserveWbsPayableAttachment','resolveAiFindingAction','retainProviderSignedWbsFinal1Bank','retainProviderSignedWbsFinal1CostControl','retainProviderSignedWbsFinal1Insurance','retainProviderSignedWbsFinal1Payables','retainProviderSignedWbsFinal1PropertyControl','retainWbsCompanyCatalogCandidate','reviewAdmittedWbsCostCwip','reviewAdmittedWbsPayable','reviewAiWbsPayableDraftProposal','reviewWbsAutoRecBankMatch','runControlledTestAiWorkflow','setReconciliationAdjustmentClearance','setReconciliationClearance','startReconciliation','startReconciliationFromAdmittedWbsStatement','transitionJournal','transitionReconciliation','unmatchBankPayment','upgradeStage1WbsOperatorAccess','verifyWbsAutoRecTransitionContract']);
   }
   const operationIds=operations.map(operation=>operation.operationId);
-  assert.equal(operationIds.length,75);
+  assert.equal(operationIds.length,76);
   assert.equal(new Set(operationIds).size,operationIds.length);
   assert.ok(operationIds.includes('importWbsControlledTestBankTransactions'));
   assert.ok(operationIds.includes('runControlledTestAiWorkflow'));
   assert.ok(operationIds.includes('runWbsControlledTestBankMatch'));
   assert.ok(operationIds.includes('materializeInvoiceAccountingClassifications'));
+  assert.ok(operationIds.includes('proposeAiConstructionLoanEntry'));
 });
 
 test('AI amortization schedule exposes immutable line identity and a closed Draft-only receipt',()=>{
