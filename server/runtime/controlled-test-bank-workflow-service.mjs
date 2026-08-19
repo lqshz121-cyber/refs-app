@@ -90,9 +90,9 @@ export function createControlledTestBankWorkflowService({kernelForActor,authoriz
       await authorize({tenantId,entityId});
       const kernels=Object.fromEntries(ACTOR_ROLES.map(role=>[role,kernelForActor(actors[role])]));
       const required={
-        importer:['listReconciliationScopes','listReconciliationWorksheet','getReconciliationWorksheetItem','listBankMatchCandidates','createBankPaymentMatch','getSignedReconciliationSnapshot'],
-        maker:['createReconciliationAdjustmentDraft','listVerifiedCleanAttachmentIds'],submitter:['transitionJournal'],reviewer:['transitionJournal','transitionReconciliation'],
-        approver:['transitionJournal','transitionReconciliation'],poster:['postJournal','setReconciliationClearance','setReconciliationAdjustmentClearance','transitionReconciliation']
+        importer:['listReconciliationScopes','listReconciliationWorksheet','getSignedReconciliationSnapshot'],
+        maker:['draftWbsTestBankAdjustmentBatch','listVerifiedCleanAttachmentIds'],submitter:['submitWbsTestBankAdjustmentBatch'],reviewer:['reviewWbsTestBankAdjustmentBatch','transitionReconciliation'],
+        approver:['approveWbsTestBankAdjustmentBatch','transitionReconciliation'],poster:['postClearWbsTestBankAdjustmentBatch','setReconciliationClearance','transitionReconciliation']
       };
       for(const role of ACTOR_ROLES)if(!kernels[role]||required[role].some(method=>typeof kernels[role][method]!=='function'))fail('CONTROLLED_TEST_BANK_CONFIG_INVALID',`Controlled-test Bank ${role} kernel is unavailable.`);
       const key=String(idempotencyKey),markedReason=reason(reviewReason);
@@ -131,49 +131,26 @@ export function createControlledTestBankWorkflowService({kernelForActor,authoriz
         return snapshotResult({revision:Number(reopened.revision),idempotent:false,rows});
       }
 
-      const evidence=await kernels.maker.listVerifiedCleanAttachmentIds({tenantId,entityId,limit:1});
-      if(!Array.isArray(evidence)||evidence.length!==1||!UUID.test(evidence[0]||''))fail('CONTROLLED_TEST_BANK_EVIDENCE_REQUIRED','One entity-owned verified-clean attachment is required for controlled adjustment Drafts.');
       const bankSourceIds=rows.filter(row=>row.clearance_state!=='CLEARED').slice(0,maxItems).map(row=>row.bank_source_id);
-      for(const bankSourceId of bankSourceIds){
-        let row=await kernels.importer.getReconciliationWorksheetItem({tenantId,entityId,reconciliationId,bankSourceId});
-        if(!row)fail('CONTROLLED_TEST_BANK_ITEM_INVALID','Controlled-test Bank item disappeared from the exact reconciliation scope.');
-        if(row.clearance_state==='CLEARED')continue;
-        let currentVersion=Number(row.reconciliation_version);
-        if(row.match_status!=='ACTIVE'&&!row.adjustment_journal_entry_id){
-          const candidates=await kernels.importer.listBankMatchCandidates({tenantId,entityId,bankSourceId:row.bank_source_id});
-          if(candidates.length){
-            const candidate=candidates[0];
-            await kernels.importer.createBankPaymentMatch({tenantId,entityId,bankSourceId:row.bank_source_id,paymentOccurrenceId:candidate.payment_occurrence_id,
-              expectedBankVersion:Number(row.bank_version),expectedOccurrenceVersion:Number(candidate.occurrence_version),reason:markedReason,idempotencyKey:`${key}:${row.bank_source_id}:match`});
-          }else{
-            const amount=money(row.amount);if(!amount||amount==='0.0000'||!date(row.transaction_date))fail('CONTROLLED_TEST_BANK_ROW_INVALID','Controlled-test Bank row amount or date is invalid.');
-            const negative=amount.startsWith('-'),absolute=negative?amount.slice(1):amount,zero='0.0000';
-            const description='UNSIGNED TEST ONLY — WBS Bank reconciliation adjustment';
-            const created=await kernels.maker.createReconciliationAdjustmentDraft({tenantId,entityId,reconciliationId,bankSourceId:row.bank_source_id,expectedReconciliationVersion:currentVersion,
-              periodId,journalNumber:`WBS-TEST-BANK-${row.bank_source_id}`,journalDate:row.transaction_date,currency:row.currency,description,
-              lines:[
-                {line_no:1,account_code:scope.cashAccountCode,debit_amount:negative?zero:absolute,credit_amount:negative?absolute:zero,member_ref:reconciliation.bank_account_ref,description,dimensions:{}},
-                {line_no:2,account_code:scope.offsetAccountCode,debit_amount:negative?absolute:zero,credit_amount:negative?zero:absolute,member_ref:null,description,dimensions:{}}
-              ],attachmentIds:evidence,reason:markedReason,idempotencyKey:`${key}:${row.bank_source_id}:draft`});
-            currentVersion=Number(created.reconciliation_revision);
-          }
-          row=await kernels.importer.getReconciliationWorksheetItem({tenantId,entityId,reconciliationId,bankSourceId});
-        }
-        if(row.match_status==='ACTIVE'){
-          await kernels.poster.setReconciliationClearance({tenantId,entityId,reconciliationId,bankSourceId:row.bank_source_id,expectedReconciliationVersion:Number(row.reconciliation_version),
+      const selectedRows=bankSourceIds.map(bankSourceId=>rows.find(row=>row.bank_source_id===bankSourceId));
+      if(selectedRows.some(row=>!row))fail('CONTROLLED_TEST_BANK_ITEM_INVALID','Controlled-test Bank item disappeared from the exact reconciliation scope.');
+      const matchedRows=selectedRows.filter(row=>row.match_status==='ACTIVE');
+      const adjustmentIds=selectedRows.filter(row=>row.match_status!=='ACTIVE').map(row=>row.bank_source_id);
+      let matchReconciliationVersion=matchedRows.length?Number(matchedRows[0].reconciliation_version):null;
+      for(const row of matchedRows){
+          const cleared=await kernels.poster.setReconciliationClearance({tenantId,entityId,reconciliationId,bankSourceId:row.bank_source_id,expectedReconciliationVersion:matchReconciliationVersion,
             expectedBankVersion:Number(row.bank_version),clear:true,reason:markedReason,idempotencyKey:`${key}:${row.bank_source_id}:clear-match`});
-          continue;
-        }
-        const journalId=row.adjustment_journal_entry_id;if(!UUID.test(journalId||''))fail('CONTROLLED_TEST_BANK_ITEM_INVALID','Controlled-test Bank item has neither exact match nor adjustment Draft.');
-        let status=row.adjustment_journal_status,revision=Number(row.adjustment_journal_version);
-        if(status==='DRAFT'){const result=await kernels.submitter.transitionJournal({tenantId,entityId,journalEntryId:journalId,action:'SUBMIT',expectedRevision:revision,idempotencyKey:`${key}:${row.bank_source_id}:submit`});status=result.status;revision=Number(result.revision);}
-        if(status==='PENDING_REVIEW'){const result=await kernels.reviewer.transitionJournal({tenantId,entityId,journalEntryId:journalId,action:'REVIEW',expectedRevision:revision,idempotencyKey:`${key}:${row.bank_source_id}:review-je`});status=result.status;revision=Number(result.revision);}
-        if(status==='PENDING_APPROVAL'){const result=await kernels.approver.transitionJournal({tenantId,entityId,journalEntryId:journalId,action:'APPROVE',expectedRevision:revision,idempotencyKey:`${key}:${row.bank_source_id}:approve`});status=result.status;revision=Number(result.revision);}
-        if(status==='APPROVED'){await kernels.poster.postJournal({tenantId,entityId,periodId,journalEntryId:journalId,expectedRevision:revision,idempotencyKey:`${key}:${row.bank_source_id}:post`});}
-        row=await kernels.importer.getReconciliationWorksheetItem({tenantId,entityId,reconciliationId,bankSourceId});
-        if(row?.adjustment_journal_status!=='POSTED'||row.adjustment_clearance_eligible!==true)fail('CONTROLLED_TEST_BANK_ADJUSTMENT_INVALID','Controlled-test Bank adjustment did not produce exact Posted evidence.');
-        await kernels.poster.setReconciliationAdjustmentClearance({tenantId,entityId,reconciliationId,bankSourceId:row.bank_source_id,expectedReconciliationVersion:Number(row.reconciliation_version),
-          expectedBankVersion:Number(row.bank_version),clear:true,reason:markedReason,idempotencyKey:`${key}:${row.bank_source_id}:clear-adjustment`});
+          matchReconciliationVersion=Number(cleared.revision);
+      }
+      if(adjustmentIds.length){
+        const evidence=await kernels.maker.listVerifiedCleanAttachmentIds({tenantId,entityId,limit:1});
+        if(!Array.isArray(evidence)||evidence.length!==1||!UUID.test(evidence[0]||''))fail('CONTROLLED_TEST_BANK_EVIDENCE_REQUIRED','One entity-owned verified-clean attachment is required for controlled adjustment Drafts.');
+        const batch={tenantId,entityId,reconciliationId,bankSourceIds:adjustmentIds,idempotencyRoot:key};
+        await kernels.maker.draftWbsTestBankAdjustmentBatch({...batch,periodId,attachmentIds:evidence,reason:markedReason});
+        await kernels.submitter.submitWbsTestBankAdjustmentBatch(batch);
+        await kernels.reviewer.reviewWbsTestBankAdjustmentBatch(batch);
+        await kernels.approver.approveWbsTestBankAdjustmentBatch(batch);
+        await kernels.poster.postClearWbsTestBankAdjustmentBatch({...batch,periodId,reason:markedReason});
       }
       rows=await kernels.importer.listReconciliationWorksheet({tenantId,entityId,reconciliationId});
       if(!rows.length)fail('CONTROLLED_TEST_BANK_WORKFLOW_INCOMPLETE','Controlled-test Bank reconciliation has no retained items.');

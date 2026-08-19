@@ -4130,7 +4130,8 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.reconciliation_id=$3 GROUP BY r.status,r.version,r.difference`,[ids.tenantId,ids.entityId,created.reconciliation_id])).rows[0];
   assert.deepEqual(proof,{status:'REOPENED',version:'7',difference:'0.0000',cleared:2,adjustments:2,posted_ledgers:2,snapshots:1});
   // 181 owns the Bank cap and item reader assertions below.  Roll back the
-  // later independent Bank identity and Payable migrations first, then 181.
+  // later stage batch, Bank identity and Payable migrations first, then 181.
+  await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
@@ -4142,6 +4143,7 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     pg_get_functiondef('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) LIKE '%NOT BETWEEN 1 AND 500%' function_cap_restored,
     pg_get_functiondef('refs_guard_reconciliation_adjustment_lifecycle()'::regprocedure) LIKE '%adjustment.bank_delta<>(SELECT source.amount%' item_guard_retained`)).rows[0];
   assert.deepEqual(rolledBack,{item_reader_removed:true,evidence_retained:true,import_cap_restored:true,row_cap_restored:true,function_cap_restored:true,item_guard_retained:true});
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
@@ -4178,7 +4180,9 @@ pgTest('WBS TEST Bank monthly identity admits legacy July hashes, isolates month
   const changed={...january,provider_content_sha256:createHash('sha256').update('bank-monthly-jan-changed').digest('hex'),rows:[{...january.rows[0],amount:'11.0000'}],observation_hash:hash('bank-monthly-jan-changed')};
   await assert.rejects(importer.createWbsControlledTestBankScope({...ids,periodId:periodByCode.get('2026-01'),companyCode:'WBPA',observation:changed,bankAccountRef:'WBS_TEST_BANK_2026_01',idempotencyKey:'bank-monthly-identity-jan-changed'}),error=>error.code==='23505');
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM import_batch WHERE tenant_id=$1) batches,(SELECT count(*)::int FROM raw_event WHERE tenant_id=$1) raw,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank",[ids.tenantId])).rows[0],before);
+  await migrateDown(adminPool);
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
+  await migrateUp(adminPool);
   assert.match((await adminPool.query("SELECT pg_get_functiondef('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) definition")).rows[0].definition,/lower\(p_bank_account_ref\)/);
 });
 
