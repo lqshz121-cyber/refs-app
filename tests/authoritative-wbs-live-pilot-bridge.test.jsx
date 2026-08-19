@@ -58,7 +58,8 @@ for(const host of ['authoritative-overview.jsx','authoritative-workspace.jsx','a
   assert.match(fs.readFileSync(`src/${host}`,'utf8'),/AuthoritativeWbsLivePilotObservation/,`${host} must use the shared read-only WBS observation`);
 }
 const documents=fs.readFileSync('src/authoritative-workspace.jsx','utf8');
-assert.match(documents,/bill&&<AuthoritativeWbsLivePilotObservation/,'only AP may map the provider payables observation; AR must not fabricate a receivables view');
+assert.match(documents,/bill&&<details[\s\S]*AuthoritativeWbsLivePilotObservation/,'only AP may map the provider payables observation; AR must not fabricate a receivables view');
+assert.match(documents,/authoritative-secondary-disclosure/,'secondary WBS evidence must remain available without extending the default AP page');
 
 assert.doesNotMatch(payables,/Import to test AP and post|TEST ONLY/,'test import must not appear without explicit test-import configuration and a successful Payables observation');
 assert.match(source,/config\?\.wbsTestImportMode==='ENABLED'&&\(scopedPayables\|\|scopedBank\)&&state\.phase==='READY'&&observation\?\.record_count>0/,'test import visibility must require explicit configuration and a successful nonempty Payables or Bank observation');
