@@ -13,6 +13,15 @@ test('migration 176 creates an isolated append-only TEST_ONLY source without wea
   assert.doesNotMatch(sql,/AI\.AMORTIZATION\.(?:DRAFT|PROPOSE).*AI\.TEST\.WORKFLOW/s);
 });
 
+test('migration 187 allowlists only the dedicated controlled-test AI source module and fails closed on rollback',async()=>{
+  const up=await read('../db/migrations/187_controlled_test_ai_source_module.sql');
+  const down=await read('../db/migrations/down/187_controlled_test_ai_source_module.sql');
+  assert.match(up,/source_document_source_module_check/);assert.match(up,/'ai_test_prepaid'/);
+  assert.doesNotMatch(up,/UPDATE\s+source_document/i);assert.doesNotMatch(up,/WBS_TEST_AI_PREPAID.*payable/s);
+  assert.match(down,/source_module='ai_test_prepaid'/);assert.match(down,/ERRCODE='55006'/);
+  assert.doesNotMatch(down,/DELETE\s+FROM\s+source_document/i);
+});
+
 test('OpenAPI exposes only the explicit staging runner and keeps identity out of its closed body',async()=>{
   const api=JSON.parse(await read('../api/openapi-accounting.json'));
   const route=api.paths['/entities/{entityId}/ai/controlled-test-workflow/run'].post;
