@@ -115,15 +115,17 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
     const required={importer:['finalizeWbsTestImportSource'],maker:['createWbsTestPayableDraft'],submitter:['transitionJournal'],reviewer:['transitionJournal'],approver:['transitionJournal'],poster:['postJournal']};
     for(const role of ACTOR_ROLES)if(!value[role]||required[role].some(method=>typeof value[role][method]!=='function'))fail('WBS_TEST_IMPORT_CONFIG_INVALID',`Test-import ${role} kernel is unavailable.`);
   };
+  const PAYABLE_CONCURRENCY=4;
   const importPayableObservation=async({tenantId,entityId,periodId,periodIdForDate=null,observation,rowIndexes=null,idempotencyKey,kernelSet})=>{
-    let imported=0,replayed=0,posted=0;
-    for(const [rowIndex,row] of observation.rows.entries()){
-      if(rowIndexes!==null&&!rowIndexes.has(rowIndex))continue;
+    const jobs=observation.rows.map((row,rowIndex)=>({row,rowIndex})).filter(({rowIndex})=>rowIndexes===null||rowIndexes.has(rowIndex));
+    const prepareRow=async({row,rowIndex})=>{
       const key=`${idempotencyKey}:${row.source_record_hash.slice(7,31)}`;
       const rowPeriodId=periodIdForDate?periodIdForDate(row.accounting_date):periodId;
       if(!UUID.test(rowPeriodId||''))fail('WBS_TEST_IMPORT_SELECTION_INVALID','No exact OPEN test period exists for a Payable source date.');
       const draft=await kernelSet.maker.createWbsTestPayableDraft({tenantId,entityId,periodId:rowPeriodId,observation,row,rowIndex,idempotencyKey:`${key}:draft`});assertDraft(draft);
-      if(draft.idempotent===true)replayed++;else imported++;
+      return {draft,key,rowPeriodId,imported:draft.idempotent===true?0:1,replayed:draft.idempotent===true?1:0};
+    };
+    const completeRow=async({draft,key,rowPeriodId})=>{
       const submitted=await kernelSet.submitter.transitionJournal({tenantId,entityId,journalEntryId:draft.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:`${key}:submit`});
       if(submitted?.status!=='PENDING_REVIEW')fail('WBS_TEST_IMPORT_WORKFLOW_INVALID','Test-import Submit returned an unsafe state.');
       const reviewed=await kernelSet.reviewer.transitionJournal({tenantId,entityId,journalEntryId:draft.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:`${key}:review`});
@@ -133,9 +135,33 @@ export function createWbsTestImportService({pilotService,kernelForActor,authoriz
       const post=await kernelSet.poster.postJournal({tenantId,entityId,periodId:rowPeriodId,journalEntryId:draft.journal_entry_id,expectedRevision:3,idempotencyKey:`${key}:post`});assertPost(post,draft.journal_entry_id);
       const finalized=await kernelSet.importer.finalizeWbsTestImportSource({tenantId,entityId,sourceDocumentId:draft.source_document_id,businessDocumentId:draft.business_document_id,journalEntryId:draft.journal_entry_id,idempotencyKey:`${key}:finalize`});
       if(finalized?.status!=='POSTED'||finalized?.test_only!==true)fail('WBS_TEST_IMPORT_FINALIZE_INVALID','Test-import source finalization returned an unsafe result.');
-      posted++;
+      return 1;
+    };
+    const completeRowWithRetry=async(row,slot)=>{
+      for(let attempt=0;;attempt++){
+        try{return await completeRow(row);}
+        catch(error){
+          if(error?.code!=='40001'||attempt>=3)throw error;
+          // The same-period lifecycle shares SERIALIZABLE period reads.  Every
+          // stage has a stable child receipt, so a bounded desynchronised retry
+          // safely replays committed stages after the other workers advance.
+          await new Promise(resolve=>setTimeout(resolve,50*2**attempt+slot*10));
+        }
+      }
+    };
+    // v168 touches shared vendor/account/period facts under SERIALIZABLE while
+    // creating each Draft.  Keep that boundary ordered, then overlap only the
+    // journal lifecycle, whose rows and idempotency keys are source-specific.
+    const prepared=[];
+    for(const job of jobs)prepared.push(await prepareRow(job));
+    const totals={imported:prepared.reduce((sum,row)=>sum+row.imported,0),replayed:prepared.reduce((sum,row)=>sum+row.replayed,0),posted:0};
+    for(let offset=0;offset<prepared.length;offset+=PAYABLE_CONCURRENCY){
+      const settled=await Promise.allSettled(prepared.slice(offset,offset+PAYABLE_CONCURRENCY).map((row,slot)=>completeRowWithRetry(row,slot)));
+      const failedIndex=settled.findIndex(result=>result.status==='rejected');
+      if(failedIndex!==-1)throw settled[failedIndex].reason;
+      for(const result of settled)totals.posted+=result.value;
     }
-    return {imported,replayed,posted};
+    return totals;
   };
   return Object.freeze({
     async importPayables({tenantId,entityId,periodId,companyCode,dateFrom,dateTo,limit,idempotencyKey}={}){
