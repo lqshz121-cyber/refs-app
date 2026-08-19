@@ -136,9 +136,11 @@ export function createControlledTestBankWorkflowService({kernelForActor,authoriz
       if(selectedRows.some(row=>!row))fail('CONTROLLED_TEST_BANK_ITEM_INVALID','Controlled-test Bank item disappeared from the exact reconciliation scope.');
       const matchedRows=selectedRows.filter(row=>row.match_status==='ACTIVE');
       const adjustmentIds=selectedRows.filter(row=>row.match_status!=='ACTIVE').map(row=>row.bank_source_id);
+      let matchReconciliationVersion=matchedRows.length?Number(matchedRows[0].reconciliation_version):null;
       for(const row of matchedRows){
-          await kernels.poster.setReconciliationClearance({tenantId,entityId,reconciliationId,bankSourceId:row.bank_source_id,expectedReconciliationVersion:Number(row.reconciliation_version),
+          const cleared=await kernels.poster.setReconciliationClearance({tenantId,entityId,reconciliationId,bankSourceId:row.bank_source_id,expectedReconciliationVersion:matchReconciliationVersion,
             expectedBankVersion:Number(row.bank_version),clear:true,reason:markedReason,idempotencyKey:`${key}:${row.bank_source_id}:clear-match`});
+          matchReconciliationVersion=Number(cleared.revision);
       }
       if(adjustmentIds.length){
         const evidence=await kernels.maker.listVerifiedCleanAttachmentIds({tenantId,entityId,limit:1});

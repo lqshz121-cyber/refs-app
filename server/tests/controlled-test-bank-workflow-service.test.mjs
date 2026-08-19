@@ -24,7 +24,7 @@ function harness({bankAccountRef='WBS_TEST_BANK',transactionDate='2026-07-10',st
     async reviewWbsTestBankAdjustmentBatch(args){calls.push(['review-batch',args]);rows[1].adjustment_journal_status='PENDING_APPROVAL';rows[1].adjustment_journal_version=2;return {stage:'REVIEW'};},
     async approveWbsTestBankAdjustmentBatch(args){calls.push(['approve-batch',args]);rows[1].adjustment_journal_status='APPROVED';rows[1].adjustment_journal_version=3;return {stage:'APPROVE'};},
     async postClearWbsTestBankAdjustmentBatch(args){calls.push(['post-clear-batch',args]);rows[1].adjustment_journal_status='POSTED';rows[1].adjustment_journal_version=4;rows[1].adjustment_clearance_eligible=true;rows[1].clearance_state='CLEARED';version++;refresh();return {stage:'POST_CLEAR'};},
-    async setReconciliationClearance(args){calls.push(['clear-match',args]);version++;rows[0].clearance_state='CLEARED';refresh();return {revision:version,state:'CLEARED'};},
+    async setReconciliationClearance(args){calls.push(['clear-match',args]);version++;rows.find(row=>row.bank_source_id===args.bankSourceId).clearance_state='CLEARED';refresh();return {revision:version,state:'CLEARED'};},
     async transitionReconciliation(args){calls.push([args.action.toLowerCase(),args]);version++;status={REVIEW:'IN_REVIEW',SIGN_OFF:'RECONCILED',REOPEN:'REOPENED'}[args.action];refresh();return {status,revision:version,snapshot_id:args.action==='SIGN_OFF'?snapshotId:null,snapshot_hash:args.action==='SIGN_OFF'?`sha256:${'a'.repeat(64)}`:null,idempotent:false};},
     async getSignedReconciliationSnapshot(){return [{reconciliation_snapshot_id:snapshotId,snapshot_hash:`sha256:${'a'.repeat(64)}`,snapshot_body:{items:[]}}];}
   };
@@ -60,6 +60,14 @@ test('processes a bounded chunk, returns PARTIAL, and advances with the same roo
   assert.equal(completed.status,'CONTROLLED_TEST_BANK_WORKFLOW_REOPENED');assert.equal(completed.processed_count,2);assert.equal(completed.revision,6);
   assert.equal(calls.filter(call=>call[0]==='clear-match').length,1);assert.equal(calls.filter(call=>call[0]==='draft-batch').length,1);
   for(const stage of ['draft-batch','submit-batch','review-batch','approve-batch','post-clear-batch'])assert.equal(calls.filter(call=>call[0]===stage).length,1);
+});
+
+test('chains reconciliation revisions across multiple retained ACTIVE match clearances',async()=>{
+  const {service,rows,calls}=harness();
+  rows[1].bank_match_id=uuid(30);rows[1].match_status='ACTIVE';
+  const result=await service.run(input);assert.equal(result.matched_count,2);assert.equal(result.adjusted_count,0);
+  const clearCalls=calls.filter(call=>call[0]==='clear-match').map(call=>call[1].expectedReconciliationVersion);
+  assert.deepEqual(clearCalls,[0,1]);
 });
 
 test('runs one to six explicit monthly period/reconciliation scopes and closes aggregate totals',async()=>{
