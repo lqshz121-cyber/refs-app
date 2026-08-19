@@ -4129,6 +4129,9 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     LEFT JOIN reconciliation_snapshot rs ON rs.tenant_id=r.tenant_id AND rs.entity_id=r.entity_id AND rs.reconciliation_id=r.reconciliation_id
     WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.reconciliation_id=$3 GROUP BY r.status,r.version,r.difference`,[ids.tenantId,ids.entityId,created.reconciliation_id])).rows[0];
   assert.deepEqual(proof,{status:'REOPENED',version:'7',difference:'0.0000',cleared:2,adjustments:2,posted_ledgers:2,snapshots:1});
+  // 181 owns the Bank cap and item reader assertions below.  Roll back the
+  // later independent Payable migration first, then 181 itself.
+  await migrateDown(adminPool);
   await migrateDown(adminPool);
   const rolledBack=(await adminPool.query(`SELECT
     to_regprocedure('refs_get_reconciliation_worksheet_item(uuid,uuid,uuid,uuid)') IS NULL item_reader_removed,
