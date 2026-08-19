@@ -1291,7 +1291,7 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_reconciliation_summary($1,$2,$3,$4::date)',
       [tenantId,entityId,bankAccountRef,statementEndingDate]
-    )).rows);
+    )).rows.map(row=>({...row,statement_ending_date:publicDate(row.statement_ending_date)})));
   }
 
   async listReconciliationScopes({tenantId,entityId,limit=100}){
@@ -1319,7 +1319,7 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_reconciliation_worksheet($1,$2,$3)',
       [tenantId,entityId,reconciliationId]
-    )).rows);
+    )).rows.map(row=>({...row,transaction_date:publicDate(row.transaction_date)})));
   }
 
   async getSignedReconciliationSnapshot({tenantId,entityId,reconciliationId}){

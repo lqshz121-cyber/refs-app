@@ -4066,6 +4066,10 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-bank-reader',['BANK.VIEW'])});
   const transactions=await reader.listBankTransactions({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'WBS_TEST_BANK',fromDate:'2026-07-01',throughDate:'2026-07-31',limit:10});assert.equal(transactions.length,2);
   const scopes=await reader.listReconciliationScopes({tenantId:ids.tenantId,entityId:ids.entityId,limit:10});assert.equal(scopes.length,1);assert.equal(scopes[0].reconciliation_id,created.reconciliation_id);assert.equal(scopes[0].status,'DRAFT');
+  const summary=await reader.getReconciliationSummary({tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'WBS_TEST_BANK',statementEndingDate:'2026-07-31'});
+  assert.equal(summary.length,1);assert.equal(summary[0].statement_ending_date,'2026-07-31');assert.equal(typeof summary[0].statement_ending_date,'string');
+  const worksheet=await reader.listReconciliationWorksheet({tenantId:ids.tenantId,entityId:ids.entityId,reconciliationId:created.reconciliation_id});
+  assert.equal(worksheet.length,2);assert.deepEqual(worksheet.map(row=>row.transaction_date),['2026-07-11','2026-07-12']);assert.ok(worksheet.every(row=>typeof row.transaction_date==='string'));
   assert.deepEqual((await adminPool.query('SELECT count(*)::int journals FROM journal_entry WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0],before);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM wbs_bank_statement_receipt WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,0);
   const denied=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'controlled-bank-denied',['WBS.TEST.IMPORT'])});
