@@ -31,6 +31,15 @@ test('imports one sanitized live Payable through six distinct actors and returns
   assert.equal(calls.at(-1)[2].sourceDocumentId,uuid(3));assert.equal(calls.at(-1)[2].journalEntryId,uuid(2));
 });
 
+test('retains a signed non-zero Provider Payable amount for the TEST_ONLY database boundary',async()=>{
+  const signedRow={source_record_hash:`sha256:${'d'.repeat(64)}`,currency:'USD',accounting_date:'2026-08-11',amount:'-12.3000',status:'CLEAR'};
+  const {service,calls}=harness({rows:[signedRow]});
+  const result=await service.importPayables(input);
+  assert.equal(result.status,'WBS_TEST_PAYABLE_IMPORT_COMPLETE');
+  assert.equal(calls[0][2].row.amount,'-12.3000');
+  assert.equal(calls[0][2].row.source_record_hash,signedRow.source_record_hash);
+});
+
 test('counts atomic Draft receipt replay while replaying the same role-bound workflow keys',async()=>{
   const {service,calls}=harness({mutateDraft:()=>({business_document_id:uuid(1),journal_entry_id:uuid(2),source_document_id:uuid(3),attachment_id:uuid(4),status:'DRAFT',revision:0,idempotent:true,test_only:true,provenance_mode:'UNSIGNED_TEST_ONLY'})});
   const result=await service.importPayables(input);assert.deepEqual({imported:result.imported_count,replayed:result.replayed_count,posted:result.posted_count},{imported:0,replayed:1,posted:1});assert.ok(calls.every(([,action,args])=>action==='draft'||args.idempotencyKey.startsWith(`${input.idempotencyKey}:${'a'.repeat(24)}:`)));

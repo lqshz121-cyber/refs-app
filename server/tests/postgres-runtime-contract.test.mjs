@@ -683,3 +683,18 @@ test('WBS TEST IMPORT child source rows retain the authoritative Stage-1 entity 
   assert.match(backward,/replace\(definition,new_fragment,old_fragment\)/);
   assert.match(backward,/occurrences<>2/);
 });
+
+test('WBS TEST IMPORT retains signed Provider MONEY4 identity and books its absolute non-zero magnitude',async()=>{
+  const forward=await readFile(new URL('../db/migrations/182_wbs_test_payable_signed_amount.sql',import.meta.url),'utf8');
+  const backward=await readFile(new URL('../db/migrations/down/182_wbs_test_payable_signed_amount.sql',import.meta.url),'utf8');
+  assert.match(forward,/pg_get_functiondef\([\s\S]+refs_create_wbs_test_payable_draft_v168/);
+  assert.match(forward,/new_regex constant text:[\s\S]+\^-\?/);
+  assert.match(forward,/new_zero constant text:[\s\S]+::numeric=0/);
+  assert.match(forward,/new_assignment constant text:[\s\S]+amount:=abs\(\(p_row->>'amount'\)::numeric\(20,4\)\)/);
+  assert.match(forward,/occurrences<>1/);
+  assert.match(forward,/REVOKE ALL ON FUNCTION refs_create_wbs_test_payable_draft_v168[\s\S]+FROM PUBLIC,refs_app/);
+  assert.doesNotMatch(forward,/refs_create_wbs_test_payable_draft\(\s*p_tenant|GRANT EXECUTE/);
+  assert.match(backward,/replace\(definition,new_regex,old_regex\)/);
+  assert.match(backward,/replace\(definition,new_zero,old_zero\)/);
+  assert.match(backward,/replace\(definition,new_assignment,old_assignment\)/);
+});
