@@ -65,3 +65,24 @@ test('repository executes five actor-owned WBS TEST_ONLY Bank stage batches',asy
   assert.deepEqual(commands[1].args,['tenant','entity','reconciliation',['source-2','source-1'],'bank-batch-root']);
   assert.deepEqual(commands[4].args,['tenant','entity','reconciliation','period',['source-2','source-1'],'UNSIGNED TEST ONLY — batch','bank-batch-root']);
 });
+
+test('repository raises the timeout only inside the staged Bank finalize transaction',async()=>{
+  const calls=[];
+  const client={query:async(sql,args)=>{
+    calls.push({sql,args});
+    if(sql.includes('session_user'))return {rowCount:1,rows:[{session_user:'refs_runtime',current_user:'refs_runtime',is_superuser:false}]};
+    if(sql.includes('refs_bootstrap_context')||sql.includes('set_config'))return {rowCount:1,rows:[{}]};
+    if(sql.includes('_hash('))return {rowCount:1,rows:[{request_hash:`sha256:${'a'.repeat(64)}`}]};
+    if(sql.includes('refs_begin_wbs_test_bank_staged_import'))return {rowCount:1,rows:[{result:{status:'WBS_TEST_BANK_IMPORT_PARTIAL',stage_id:'stage',chunk_count:1,next_chunk_index:0,transaction_count:1}}]};
+    if(sql.includes('refs_append_wbs_test_bank_staged_chunk'))return {rowCount:1,rows:[{result:{status:'WBS_TEST_BANK_IMPORT_PARTIAL'}}]};
+    if(sql.includes('refs_finalize_wbs_test_bank_staged_import'))return {rowCount:1,rows:[{result:{status:'DRAFT',transaction_count:1}}]};
+    return {rowCount:1,rows:[{}]};
+  }};
+  const pool={connect:async()=>({...client,release(){}})},kernel=new PostgresAccountingKernel(pool,{sessionProvider:async()=>({trusted:true,contextToken:'x'.repeat(32)})});
+  const result=await kernel.createWbsControlledTestBankScope({tenantId:'tenant',entityId:'entity',periodId:'period',companyCode:'WBPA',observation:{rows:[{source_record_hash:`sha256:${'b'.repeat(64)}`}]},bankAccountRef:'WBS_TEST_BANK_2026_01',idempotencyKey:'bank-root'});
+  assert.deepEqual(result,{status:'DRAFT',transaction_count:1});
+  const timeoutCalls=calls.filter(call=>call.sql.includes("set_config('statement_timeout'"));
+  assert.deepEqual(timeoutCalls.map(call=>call.args),[['120s']]);
+  const timeoutIndex=calls.indexOf(timeoutCalls[0]),finalizeIndex=calls.findIndex(call=>call.sql.includes('refs_finalize_wbs_test_bank_staged_import'));
+  assert.ok(timeoutIndex>calls.map(call=>call.sql).lastIndexOf('SELECT refs_bootstrap_context($1)'));assert.equal(finalizeIndex,timeoutIndex+1);
+});

@@ -18,6 +18,8 @@ function publicDate(value){
   return `${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;
 }
 
+const WBS_TEST_BANK_FINALIZE_STATEMENT_TIMEOUT='120s';
+
 export class PostgresAccountingKernel{
   constructor(pool,{sessionProvider,runtimeLoginAllowlist=['refs_runtime'],wbsSnapshotVerifier=null,wbsAutoRecTransitionContractVerifier=null,wbsSignedBankAdmissionVerifier=null}={}){
     if(typeof sessionProvider!=='function')throw new KernelError('SESSION_PROVIDER_REQUIRED','A trusted session provider is required');
@@ -119,9 +121,12 @@ export class PostgresAccountingKernel{
       ),'WBS_TEST_BANK_APPEND_FAILED','Controlled test Bank staged chunk was not retained').result);
     }
     if(stop<begin.chunk_count)return {...begin,next_chunk_index:stop,idempotent:false};
-    return this.inSession(async client=>requireRow(await client.query(
-      'SELECT refs_finalize_wbs_test_bank_staged_import($1,$2,$3) AS result',[tenantId,entityId,begin.stage_id]
-    ),'WBS_TEST_BANK_FINALIZE_FAILED','Controlled test Bank staged import was not finalized').result);
+    return this.inSession(async client=>{
+      await client.query("SELECT set_config('statement_timeout',$1,true)",[WBS_TEST_BANK_FINALIZE_STATEMENT_TIMEOUT]);
+      return requireRow(await client.query(
+        'SELECT refs_finalize_wbs_test_bank_staged_import($1,$2,$3) AS result',[tenantId,entityId,begin.stage_id]
+      ),'WBS_TEST_BANK_FINALIZE_FAILED','Controlled test Bank staged import was not finalized').result;
+    });
   }
 
   async ensureWbsTestH12026Periods({tenantId,entityId}){
