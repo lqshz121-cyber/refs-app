@@ -17,3 +17,16 @@ This branch matrix records only directly observed QBO evidence and verified auth
 - QBO Print Checks, New transaction, QuickBooks Payments promotion, Export to Excel, Print, settings, external connections, contractor/1099 workflows, payment initiation, and mutation behavior are excluded and were not exercised.
 - Authoritative Render/OIDC/PostgreSQL runtime behavior was not tested in this local UI branch. Passing SSR/build tests does not establish production or QBO equivalence.
 - AR remains unchanged because its comparable QBO page was not audited in this round.
+
+## Accounting evidence reuse and candidate — Chart of Accounts (2026-08-19)
+
+| Surface | Evidence source | REFS change | Verification | Status |
+|---|---|---|---|---|
+| COA list hierarchy | Previously recorded read-only QBO audits from 2026-08-03 observed `Chart of accounts`, name-or-number filtering, limit, `Showing accounts 1 to 200`, Previous/Next, and the Name / Account type / QuickBooks balance / Bank balance / Action table. No account or row action was invoked. The current browser audit was blocked by browser URL policy and was not bypassed. | Removes the COA-only reading rail and duplicate four-card summary. Keeps API filters, retained currency evidence, wide table, `Open register`, Refresh GET, paging, empty/error states and full-page Register/Back. Pagination now reads `Showing accounts X to Y of Z`; Register uses the same range wording for entries. | `npm run test:authoritative-coa-register` exit 0; `npm run test:authoritative-full-shell` exit 0; `npm run test:authoritative-visual-parity` exit 0; `npm run build` exit 0; `npm test` exit 0 (visual verifier 64/64). | CANDIDATE — historical QBO evidence reused; not freshly re-observed. |
+| Scope readability | QBO list evidence did not expose REFS internal entity/period UUIDs as primary page copy. | COA keeps exact entity/period IDs in a title tooltip and displays concise `Configured entity · configured period` text. No API scope or audit value changes. | Focused and full regression contracts exit 0. | CANDIDATE — visual/data-minimization change only. |
+
+### Accounting gaps still unverified
+
+- Current QBO COA could not be re-opened because the browser URL policy blocked navigation; the block was not bypassed.
+- QBO account-type eligibility, actual View register/Run report destinations, populated balances, permissions, audit, selection/batch actions, settings, account CRUD, export/print, and current responsive behavior remain unverified.
+- REFS does not infer QBO account type from account name/code. Its existing authoritative Register action remains a read-only retained-ledger drill, not a QBO account-action equivalence claim.
