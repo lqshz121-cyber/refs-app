@@ -4,6 +4,7 @@ import { StateBlock } from './ui.jsx';
 import {AuthoritativeScopeEmpty} from './authoritative-read-state.jsx';
 import {AuthoritativeApArView} from './authoritative-ap-ar-view.jsx';
 import {AuthoritativeWbsLivePilotObservation,WBS_LIVE_PILOT_SURFACE_TOOLS} from './authoritative-wbs-live-pilot-observation.jsx';
+import {AuthoritativeSecondaryDisclosure} from './authoritative-secondary-disclosure.jsx';
 import {
   DEFAULT_AUTHORITATIVE_LIST_VIEW,
   authoritativeEvidenceKey,
@@ -141,7 +142,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     <section className="card" aria-label={`${workspaceLabel} adjustment list facts`}>
     {visibleAdjustments.length?<AuthoritativeAdjustmentSummary title={bill&&state.transactionType==='VENDOR_CREDITS'?'Vendor credits':bill?'AP adjustments':'AR adjustments'} adjustments={visibleAdjustments} onOpen={onOpenAdjustment}/>:<StateBlock tone="empty" title={adjustments.length?'No adjustments match these presentation filters':'No authoritative adjustments in this scope'}>{adjustments.length?'Change a presentation filter to see retained adjustment facts. A local no-match is not evidence of zero balance.':'This scoped empty result is not evidence of a zero balance.'}</StateBlock>}
     </section>
-    {bill&&<details className="authoritative-secondary-disclosure"><summary><span>External WBS evidence</span><span className="badge badge-muted">READ ONLY</span></summary><AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.payables} title="External WBS payables observation"/></details>}
+    {bill&&<AuthoritativeSecondaryDisclosure label="External WBS evidence"><AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.payables} title="External WBS payables observation"/></AuthoritativeSecondaryDisclosure>}
   </AuthoritativeApArView>;
 }
 export function AuthoritativeWorkflowTable({title,documents=[],kind,onWorkflow,workingJournalIds=new Set()}){const bill=kind==='AP';return <section aria-label={title}><h2>{title}</h2>{documents.map(row=>{const action=nextAuthoritativeWorkflowAction(row.journal_status);return <div key={row.journal_entry_id}>{row[bill?'bill_no':'inv_no']} {action?<button disabled={workingJournalIds.has(row.journal_entry_id)} onClick={()=>onWorkflow(row,action)}>{action}</button>:row.journal_status}</div>;})}</section>;}

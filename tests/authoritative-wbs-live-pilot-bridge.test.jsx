@@ -58,8 +58,14 @@ for(const host of ['authoritative-overview.jsx','authoritative-workspace.jsx','a
   assert.match(fs.readFileSync(`src/${host}`,'utf8'),/AuthoritativeWbsLivePilotObservation/,`${host} must use the shared read-only WBS observation`);
 }
 const documents=fs.readFileSync('src/authoritative-workspace.jsx','utf8');
-assert.match(documents,/bill&&<details[\s\S]*AuthoritativeWbsLivePilotObservation/,'only AP may map the provider payables observation; AR must not fabricate a receivables view');
-assert.match(documents,/authoritative-secondary-disclosure/,'secondary WBS evidence must remain available without extending the default AP page');
+assert.match(documents,/bill&&<AuthoritativeSecondaryDisclosure[\s\S]*AuthoritativeWbsLivePilotObservation/,'only AP may map the provider payables observation; AR must not fabricate a receivables view');
+assert.match(documents,/AuthoritativeSecondaryDisclosure/,'secondary WBS evidence must remain available without extending the default AP page');
+for(const host of ['authoritative-overview.jsx','authoritative-workspace.jsx','authoritative-bank-workspace.jsx','authoritative-journal-workspace.jsx']){
+  assert.match(fs.readFileSync(`src/${host}`,'utf8'),/AuthoritativeSecondaryDisclosure/,`${host} must collapse secondary WBS evidence through the shared presentation component`);
+}
+const disclosure=fs.readFileSync('src/authoritative-secondary-disclosure.jsx','utf8');
+assert.match(disclosure,/<details className="authoritative-secondary-disclosure"/);
+assert.doesNotMatch(disclosure,/fetch|localStorage|sessionStorage|accounting-api|wbs-live-pilot/,'the disclosure component must own presentation only');
 
 assert.doesNotMatch(payables,/Import to test AP and post|TEST ONLY/,'test import must not appear without explicit test-import configuration and a successful Payables observation');
 assert.match(source,/config\?\.wbsTestImportMode==='ENABLED'&&\(scopedPayables\|\|scopedBank\)&&state\.phase==='READY'&&observation\?\.record_count>0/,'test import visibility must require explicit configuration and a successful nonempty Payables or Bank observation');
