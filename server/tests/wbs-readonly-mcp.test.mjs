@@ -147,7 +147,7 @@ test('formal provider envelope validates stable string keys, integer journal ids
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:readEnvelope({rows:duplicateRows})}),error=>error.code==='WBS_MCP_ROWS_NOT_SORTED');
   const unorderedRows=[{ap_guid:'AP-2',currency:'USD'},{ap_guid:'AP-1',currency:'USD'}];
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:readEnvelope({rows:unorderedRows})}),error=>error.code==='WBS_MCP_ROWS_NOT_SORTED');
-  assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,cursor_next:'next-page'}}),error=>error.code==='WBS_MCP_PAGINATION_SNAPSHOT_TOKEN_REQUIRED');
+  assert.equal(validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,cursor_next:'next-page'}}).cursor_next,'next-page');
   const paged={...envelope,scope:{...envelope.scope,snapshot_token:'snapshot-2026.08:1'},cursor_next:'next-page'};
   assert.equal(validateWbsReadEnvelope({toolName:'list_payables',envelope:paged}).scope.snapshot_token,'snapshot-2026.08:1');
   assert.throws(()=>validateWbsReadEnvelope({toolName:'list_payables',envelope:{...envelope,scope:{...envelope.scope,snapshot_token:'bad token'}}}),error=>error.code==='WBS_MCP_ENVELOPE_INVALID');

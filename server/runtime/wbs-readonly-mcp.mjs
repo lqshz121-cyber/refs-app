@@ -164,7 +164,12 @@ export function validateWbsReadEnvelope({toolName,envelope}={}){
   const scopeCurrency=scopedText(envelope.scope.currency).toUpperCase();
   const snapshotToken=envelope.scope.snapshot_token;
   if(snapshotToken!==undefined&&(typeof snapshotToken!=='string'||!/^[A-Za-z0-9._~:-]{1,256}$/.test(snapshotToken)))throw new WbsMcpError('WBS_MCP_ENVELOPE_INVALID','WBS provider snapshot_token must be an opaque bounded token without control characters.');
-  if(envelope.cursor_next!==null&&!snapshotToken)throw new WbsMcpError('WBS_MCP_PAGINATION_SNAPSHOT_TOKEN_REQUIRED','Every cursor-paged WBS response must echo its immutable provider snapshot token.');
+  // The reviewed Provider V2 contract publishes a keyset cursor, but does not
+  // publish snapshot_token as either a required output or a continuation
+  // argument.  Accept that exact cursor-only contract here.  When a provider
+  // does return a token, validate its shape and let the paged reader pin it
+  // across subsequent responses without sending it back as an unpublished
+  // tool argument.
   if(scopeCurrency&&scopeCurrency!=='USD')throw new WbsMcpError('WBS_MCP_CURRENCY_UNSUPPORTED','WBS pilot accepts USD scope only.');
   // Catalog V2 intentionally provides no insurance company parameter.  An
   // insurance row therefore carries a raw null company_code and is resolved
