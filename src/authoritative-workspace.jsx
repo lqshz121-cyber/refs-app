@@ -94,6 +94,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   const page=paginateAuthoritativeRows(visibleDocuments,state);
   const filteredAdjustments=filterAuthoritativeRows(adjustments,{...state,accountCode:''},'accounting_date');
   const visibleAdjustments=bill&&state.transactionType==='BILLS'?[]:filteredAdjustments.filter(row=>state.transactionType!=='VENDOR_CREDITS'||row.adjustment_kind==='AP_VENDOR_CREDIT');
+  const sourceEmpty=bill&&documents.length===0&&adjustments.length===0;
   const statuses=[...new Set([...documents,...adjustments].map(row=>row?.status).filter(Boolean))].sort();
   const counterparties=[...new Set(documents.map(row=>row?.[counterpartyField]).filter(Boolean))].sort((left,right)=>left.localeCompare(right));
   const accountCodes=[...new Set(documents.map(row=>row?.account_code).filter(Boolean))].sort((left,right)=>left.localeCompare(right));
@@ -114,14 +115,14 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     if(next==='AGING'){onOpenAging?.();return;}
     if(bill)change({transactionType:next==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'});
   };
-  const metrics=bill?[
-    {label:'Bills',value:documents.length,sub:'API total'}, {label:'Visible',value:page.total,sub:'Filtered'}, {label:'Adjustments',value:adjustments.length,sub:'API total'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'Filtered'},
-  ]:[
+  // QBO Expenses keeps the list count beside its filters and does not repeat
+  // the same empty totals as KPI cards. AR remains unchanged until observed.
+  const metrics=bill?[]:[
     {label:'Invoices',value:documents.length,sub:'API total'}, {label:'Visible',value:page.total,sub:'Filtered'}, {label:'Adjustments',value:adjustments.length,sub:'API total'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'Filtered'},
   ];
-  return <AuthoritativeApArView kind={kind} className="authoritative-document-workspace stack" headerClassName="authoritative-document-page-head" metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={<p className="muted sm authoritative-api-scope">API read · filters do not change records.</p>}>
-    <section className="card" aria-label={`${workspaceLabel} API list filters`}>
-    <div className="authoritative-filter-head"><div><h2>Filters</h2></div><span className="badge badge-muted">READ ONLY</span></div>
+  return <AuthoritativeApArView kind={kind} className="authoritative-document-workspace stack" headerClassName={`authoritative-document-page-head${bill?' authoritative-expense-page-head':''}`} metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={bill?null:<p className="muted sm authoritative-api-scope">API read · filters do not change records.</p>}>
+    <section className={`card authoritative-filter-card${bill?' authoritative-expense-filter-card':''}`} aria-label={`${workspaceLabel} API list filters`}>
+    {!bill&&<div className="authoritative-filter-head"><div><h2>Filters</h2></div><span className="badge badge-muted">READ ONLY</span></div>}
     <div className="filter-bar authoritative-list-filters" role="search" aria-label={`${bill?'Payables':'Receivables'} presentation filters`}>
       <label>Search <input value={state.query} onChange={event=>change({query:event.target.value})} placeholder={bill?'Bill, vendor, account, or reference':'Invoice, customer, account, or reference'}/></label>
       <label>Status <select value={state.status} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
@@ -136,12 +137,12 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     <p className="muted sm authoritative-applied-scope" aria-live="polite">{appliedScope.length?appliedScope.join(' · '):'All retained API rows'}</p>
     </section>
     <section className="card" aria-label={`${workspaceLabel} document list facts`}>
-    {page.total?<AuthoritativeDocumentTable title={bill?'AP bills':'AR invoices'} documents={page.rows} kind={kind} onOpen={onOpenDocument}/>:documents.length?<StateBlock tone="empty" title={`No ${bill?'bills':'invoices'} match these presentation filters`}>Change a presentation filter to see retained list facts. A local no-match is not evidence of zero balance.</StateBlock>:<AuthoritativeScopeEmpty subject={bill?'AP bills':'AR invoices'}/>}
+    {page.total?<AuthoritativeDocumentTable title={bill?'AP bills':'AR invoices'} documents={page.rows} kind={kind} onOpen={onOpenDocument}/>:documents.length?<StateBlock tone="empty" title={`No ${bill?'bills':'invoices'} match these presentation filters`}>Change a presentation filter to see retained list facts. A local no-match is not evidence of zero balance.</StateBlock>:sourceEmpty?<StateBlock tone="empty" title="No expenses found">Try changing the filters. This scoped API result is not evidence of zero activity.</StateBlock>:<AuthoritativeScopeEmpty subject={bill?'AP bills':'AR invoices'}/>}
     {page.pageCount>1&&<nav className="pagination" aria-label={`${bill?'AP bills':'AR invoices'} pages`}><button type="button" disabled={page.page===1} onClick={()=>change({page:page.page-1})}>Previous</button><span>Page {page.page} of {page.pageCount}</span><button type="button" disabled={page.page===page.pageCount} onClick={()=>change({page:page.page+1})}>Next</button></nav>}
     </section>
-    <section className="card" aria-label={`${workspaceLabel} adjustment list facts`}>
+    {(!sourceEmpty||!bill)&&<section className="card" aria-label={`${workspaceLabel} adjustment list facts`}>
     {visibleAdjustments.length?<AuthoritativeAdjustmentSummary title={bill&&state.transactionType==='VENDOR_CREDITS'?'Vendor credits':bill?'AP adjustments':'AR adjustments'} adjustments={visibleAdjustments} onOpen={onOpenAdjustment}/>:<StateBlock tone="empty" title={adjustments.length?'No adjustments match these presentation filters':'No authoritative adjustments in this scope'}>{adjustments.length?'Change a presentation filter to see retained adjustment facts. A local no-match is not evidence of zero balance.':'This scoped empty result is not evidence of a zero balance.'}</StateBlock>}
-    </section>
+    </section>}
     {bill&&<AuthoritativeSecondaryDisclosure label="External WBS evidence"><AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.payables} title="External WBS payables observation"/></AuthoritativeSecondaryDisclosure>}
   </AuthoritativeApArView>;
 }

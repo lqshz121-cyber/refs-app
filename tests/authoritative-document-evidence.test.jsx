@@ -37,8 +37,7 @@ assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/EXPENSES \/ ACCOUNTS PAYABLE/);
 assert.match(workspaceMarkup,/Bills, credits, and AP aging from the accounting API/);
 assert.match(workspaceMarkup,/Bills/);
-assert.match(workspaceMarkup,/API total/);
-assert.match(workspaceMarkup,/Filtered/);
+assert.doesNotMatch(workspaceMarkup,/API total|Visible adjustments/,'Expenses must not repeat its list counts as KPI cards');
 assert.match(workspaceMarkup,/READ ONLY/);
 assert.match(workspaceMarkup,/authoritative-ap-ar-presentation/);
 assert.match(workspaceMarkup,/Vendor credits/);
@@ -59,10 +58,16 @@ assert.match(workspaceMarkup,/Status: PARTIALLY_PAID/);
 assert.match(workspaceMarkup,/2026-08-01/);
 assert.match(workspaceMarkup,/1 bills[\s\S]*0 adjustments/);
 assert.match(workspaceMarkup,/No adjustments match these presentation filters/);
-assert.match(workspaceMarkup,/class="kpi-row" aria-label="Expenses API summary"/,'AP/AR counts must use one shared compact summary hierarchy');
+assert.doesNotMatch(workspaceMarkup,/aria-label="Expenses API summary"/,'QBO-style Expenses keeps its result count beside the filters rather than repeating KPI cards');
 assert.doesNotMatch(workspaceMarkup,/authoritative-document-intro/,'AP/AR must not duplicate the evidence contract above the filters');
-assert.match(workspaceMarkup,/>Filters</,'filters need a concise visible heading');
+assert.doesNotMatch(workspaceMarkup,/>Filters</,'Expenses must not repeat a heading above its already labelled filter controls');
 assert.match(workspaceMarkup,/authoritative-secondary-disclosure/,'secondary WBS evidence must stay available without lengthening the default page');
+
+const emptyExpenseMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[]} adjustments={[]} view={{query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.match(emptyExpenseMarkup,/No expenses found/);
+assert.match(emptyExpenseMarkup,/Try changing the filters\. This scoped API result is not evidence of zero activity\./);
+assert.equal((emptyExpenseMarkup.match(/No expenses found/g)||[]).length,1,'an empty Expenses scope must render one clear empty title');
+assert.doesNotMatch(emptyExpenseMarkup,/No authoritative adjustments in this scope/);
 
 const creditsOnlyMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'',status:'ALL',transactionType:'VENDOR_CREDITS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(creditsOnlyMarkup,/Vendor credits/);
@@ -161,6 +166,9 @@ assert.match(styles,/\.authoritative-document-table \.tbl\{min-width:980px;table
 assert.match(styles,/\.authoritative-adjustment-table \.tbl\{min-width:760px;table-layout:fixed;\}/,'six-column adjustment evidence must retain readable columns in its own contained scroller');
 assert.match(styles,/\.authoritative-document-detail-table \.tbl\{min-width:720px;table-layout:fixed;\}/,'four-column detail facts must retain readable columns without overflowing the page');
 assert.match(styles,/\.authoritative-document-summary>span\{position:relative;min-height:116px/,'summary cards must retain a stable visual hierarchy');
+assert.match(styles,/\.authoritative-expense-page-head\{margin-bottom:8px;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;\}/,'Expenses must use the observed compact QBO heading rather than a large decorative hero card');
+assert.match(styles,/\.authoritative-expense-page-head \.page-h\{font-size:24px;line-height:1\.1;font-weight:500;\}/,'Expenses heading must retain the observed compact QBO scale');
+assert.match(styles,/\.authoritative-expense-filter-card\{padding:8px 0 12px;border:0;border-radius:0;background:transparent;box-shadow:none;\}/,'Expenses filters must remain a compact toolbar instead of a nested card');
 assert.match(styles,/\.authoritative-list-filters\{display:grid;grid-template-columns:minmax\(220px,2fr\)/,'wide AP\/AR filters must align as a readable grid');
 assert.match(styles,/@media\s*\(max-width:1400px\)\s*\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,'AP/AR filters must collapse before the permanent navigation leaves too little workspace width at desktop zoom and tablet sizes');
 assert.match(styles,/\.authoritative-list-filters input,\.authoritative-list-filters select\{min-width:0;width:100%;max-width:100%;\}/,'AP/AR controls must not exceed their responsive grid tracks');
