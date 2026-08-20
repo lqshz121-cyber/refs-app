@@ -38,6 +38,10 @@ for(const [kind,value,label] of [['JOURNAL',{journal,context:{entityId,periodId}
 }
 const fallbackMarkup=renderToStaticMarkup(<AuthoritativeLineageDrill config={config} initial={{kind:'JOURNAL',journal,context:{entityId,periodId}}} onExit={()=>{}}/>);
 assert.match(fallbackMarkup,/Entity Configured entity/);assert.match(fallbackMarkup,/Period Configured period/,'missing presentation metadata must remain an honest configured-scope fallback');
+const journalMarkup=renderToStaticMarkup(<AuthoritativeLineageDrill config={displayConfig} initial={{kind:'JOURNAL',journal,context:{entityId,periodId}}} onExit={()=>{}}/>);
+for(const text of ['Review posted journal lines.','READ ONLY','Journal identifiers','Journal ID','Revision','Currency'])assert.match(journalMarkup,new RegExp(text));
+assert.doesNotMatch(journalMarkup,/Exact GET evidence|GET only|state-empty/,'Journal policy must not use implementation copy or the empty-state icon treatment');
+assert.match(journalMarkup,new RegExp(journalId));
 const sourceCode=readFileSync('src/authoritative-lineage-drill.jsx','utf8');
 for(const call of ['readAuthoritativeJournalEntryDetail','readAuthoritativeSourceDocumentDetail','refreshAuthoritativeGeneralLedger','refreshAuthoritativeFinancialStatements'])assert.match(sourceCode,new RegExp(call));
 assert.match(sourceCode,/journal\.entity_id===config\.entityId&&journal\.period_id===config\.periodId/);
