@@ -14,7 +14,7 @@ export function projectAiAccountingDecisionControllerScan(batch,{tenantId,entity
       ?'Resolve the retained source or approved settings exception before any human Draft is prepared.'
       :'Review the settings-bound suggested Journal and expected report effects before any human Draft is prepared.',
     decision_status:packet.status,
-    source_document_id:packet.source.retained_source_id,
+    source_document_id:packet.source.source_document_id,
     source_type:packet.source.source_type,
     classification:packet.classification,
     settings_snapshot_id:packet.settings_snapshot_id,
