@@ -31,8 +31,10 @@ assert.equal(navDrawerIsInert(true,false),true,'closed at a narrow width: nothin
 assert.equal(navDrawerIsInert(true,true),false,'open: everything inside must be reachable');
 assert.equal(navDrawerIsInert(false,false),false,'at desktop widths the drawer is permanently visible and must never be inert');
 assert.equal(navDrawerIsInert(false,true),false,'at desktop widths the drawer is permanently visible and must never be inert');
-assert.deepEqual(navDrawerAttributes(true,false),{inert:'','aria-hidden':'true'});
-assert.deepEqual(navDrawerAttributes(true,true),{inert:undefined,'aria-hidden':undefined});
+assert.deepEqual(navDrawerAttributes(true,false),{inert:'','aria-hidden':'true',role:undefined,'aria-modal':undefined,'aria-label':undefined});
+assert.deepEqual(navDrawerAttributes(true,true),{inert:undefined,'aria-hidden':undefined,role:'dialog','aria-modal':'true','aria-label':'Navigation menu'});
+assert.deepEqual(navDrawerAttributes(false,true),{inert:undefined,'aria-hidden':undefined,role:undefined,'aria-modal':undefined,'aria-label':undefined},
+  'desktop navigation remains a normal sidebar rather than announcing a modal dialog');
 assert.equal(navDrawerAttributes(true,false).inert,'','React 18 drops a boolean true for an attribute it does not know');
 
 // The viewport class is read synchronously at mount. One frame of the wrong
