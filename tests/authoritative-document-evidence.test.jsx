@@ -59,7 +59,7 @@ assert.match(workspaceMarkup,/Category \(offset account\)/);
 assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/Status: PARTIALLY_PAID/);
 assert.match(workspaceMarkup,/2026-08-01/);
-assert.match(workspaceMarkup,/1 bills[\s\S]*0 adjustments/);
+assert.match(workspaceMarkup,/1 result/,'Expenses must summarize the currently rendered result set without exposing separate internal document and adjustment counts');
 assert.match(workspaceMarkup,/No adjustments match these presentation filters/);
 assert.doesNotMatch(workspaceMarkup,/aria-label="Expenses API summary"/,'QBO-style Expenses keeps its result count beside the filters rather than repeating KPI cards');
 assert.doesNotMatch(workspaceMarkup,/authoritative-document-intro/,'AP/AR must not duplicate the evidence contract above the filters');
@@ -75,12 +75,15 @@ assert.doesNotMatch(emptyExpenseMarkup,/No authoritative adjustments in this sco
 const creditsOnlyMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'',status:'ALL',transactionType:'VENDOR_CREDITS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(creditsOnlyMarkup,/Vendor credits/);
 assert.match(creditsOnlyMarkup,/AP_VENDOR_CREDIT/);
+assert.match(creditsOnlyMarkup,/1 result/,'Vendor credits must count the visible credit list rather than reporting zero bills');
+assert.doesNotMatch(creditsOnlyMarkup,/0 bills|adjustments/,'the visible result count must not expose unrelated internal object types');
 assert.doesNotMatch(creditsOnlyMarkup,/B-100/,'a Vendor credits presentation scope must not render Bill list rows');
 assert.doesNotMatch(creditsOnlyMarkup,/aria-label="Payables document list facts"|No bills match/,
   'the Vendor credits tab must not prepend an unrelated Bill list or Bill empty state');
 
 const billsOnlyMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'',status:'ALL',transactionType:'BILLS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(billsOnlyMarkup,/B-100/);
+assert.match(billsOnlyMarkup,/1 result/,'Bills must count the visible Bill list only');
 assert.doesNotMatch(billsOnlyMarkup,/aria-label="Payables adjustment list facts"|No authoritative adjustments in this scope/,
   'the Bills tab must not append an unrelated adjustment list or adjustment empty state');
 
@@ -92,7 +95,7 @@ assert.match(arWorkspaceMarkup,/Receivables/);
 assert.match(arWorkspaceMarkup,/Invoices/);
 assert.match(arWorkspaceMarkup,/Invoice, customer, account, or reference/);
 assert.doesNotMatch(arWorkspaceMarkup,/Category \(offset account\)/,'AR must not expose the AP-only category filter');
-assert.match(arWorkspaceMarkup,/1 invoices \| 0 adjustments/,'a stale AP-only account filter must not silently remove AR invoices');
+assert.match(arWorkspaceMarkup,/1 result/,'a stale AP-only account filter must not silently remove AR invoices');
 
 const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} config={displayConfig} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);

@@ -97,6 +97,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   const sourceEmpty=bill&&documents.length===0&&adjustments.length===0;
   const showDocumentList=!bill||state.transactionType!=='VENDOR_CREDITS';
   const showAdjustmentList=!bill||state.transactionType!=='BILLS';
+  const visibleResultCount=(showDocumentList?page.total:0)+(showAdjustmentList?visibleAdjustments.length:0);
   const statuses=[...new Set([...documents,...adjustments].map(row=>row?.status).filter(Boolean))].sort();
   const counterparties=[...new Set(documents.map(row=>row?.[counterpartyField]).filter(Boolean))].sort((left,right)=>left.localeCompare(right));
   const accountCodes=[...new Set(documents.map(row=>row?.account_code).filter(Boolean))].sort((left,right)=>left.localeCompare(right));
@@ -134,7 +135,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
       <label>{bill?'Vendor':'Customer'} <select value={state.counterparty} onChange={event=>change({counterparty:event.target.value})}><option value="ALL">All retained {bill?'vendors':'customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
       {bill&&(accountCodes.length>0?<label>Category (offset account) <select value={state.accountCode} onChange={event=>change({accountCode:event.target.value})}><option value="ALL">All retained offset accounts</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category unavailable — offset account is not returned by this API result.</span>)}
       <button type="button" className="btn btn-sm btn-ghost" disabled={!state.query&&!appliedScope.length} onClick={()=>change({query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset filters</button>
-      <span className="result-count" aria-live="polite">{page.total} {bill?'bills':'invoices'} | {visibleAdjustments.length} adjustments</span>
+      <span className="result-count" aria-live="polite">{visibleResultCount} {visibleResultCount===1?'result':'results'}</span>
     </div>
     <p className="muted sm authoritative-applied-scope" aria-live="polite">{appliedScope.length?appliedScope.join(' · '):'All retained API rows'}</p>
     </section>
