@@ -113,6 +113,12 @@ assert.doesNotMatch(billsOnlyMarkup,/aria-label="Payables adjustment list facts"
   'the Bills tab must not append an unrelated adjustment list or adjustment empty state');
 
 const invoice={...bill,business_document_id:'55555555-5555-4555-8555-555555555555',inv_no:'I-100',customer_name:'Evidence Customer',inv_date:'2026-08-01'};
+const invoiceList=renderToStaticMarkup(<AuthoritativeDocumentTable title="AR invoices" documents={[invoice]} kind="AR" onOpen={()=>{}}/>);
+assert.match(invoiceList,/1 invoice/);assert.match(invoiceList,/>Details<\/th>/);assert.match(invoiceList,/>View details<\/button>/);
+assert.doesNotMatch(invoiceList,/Authoritative API rows only|>Evidence<\/th>|Open evidence/,'AR invoices must share the concise AP detail-action vocabulary');
+const arAdjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AR adjustments" adjustments={[adjustment]} kind="AR" onOpen={()=>{}}/>);
+assert.match(arAdjustmentList,/1 adjustment/);assert.match(arAdjustmentList,/>Details<\/th>/);assert.match(arAdjustmentList,/>View details<\/button>/);
+assert.doesNotMatch(arAdjustmentList,/Authoritative adjustment rows only|>Evidence<\/th>|Open evidence/,'AR adjustments must share the concise AP detail-action vocabulary');
 const arWorkspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AR" documents={[invoice]} adjustments={[]} view={{query:'',status:'ALL',from:'',through:'',accountCode:'999999',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(arWorkspaceMarkup,/id="authoritative-ar-aging-launch"/,'Back from AR aging must restore focus to the tab that opened it');
 assert.match(arWorkspaceMarkup,/REVENUE \/ ACCOUNTS RECEIVABLE/);
