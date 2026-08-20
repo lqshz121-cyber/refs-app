@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {readFile} from 'node:fs/promises';
 import {createAccountingApi} from '../api/accounting-http.mjs';
 const tenantId='11111111-1111-4111-8111-111111111111',entityId='22222222-2222-4222-8222-222222222222',periodId='33333333-3333-4333-8333-333333333333';
 const actions={can_create_draft:false,can_review:false,can_approve:false,can_post:false};
@@ -9,3 +10,16 @@ const make=result=>createAccountingApi({authenticate:async()=>({trusted:true,ten
 const url=`/api/v1/entities/${entityId}/ai/full-controller-scan?periodId=${periodId}&limit=500`;
 test('full Controller scan is one strict no-store zero-action read',async()=>{const response=await make(data)({method:'GET',url,headers:{},body:null});assert.equal(response.status,200,JSON.stringify(response.body));assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.finding_count,1);assert.equal(response.body.data.sections[0].findings[0].current_month_total,'500.0000');});
 test('full Controller scan rejects commands, unsafe authority, forged totals, and unexplained findings',async()=>{assert.equal((await make(data)({method:'GET',url,headers:{'idempotency-key':'no'},body:null})).status,400);for(const unsafe of [{...data,action_flags:{...actions,can_post:true}},{...data,finding_count:0},{...data,sections:[{...data.sections[0],findings:[{...finding,rule_id:undefined}]}]},{...data,sections:[{...data.sections[0],findings:[{...finding,suggested_action:'short'}]}]}])assert.equal((await make(unsafe)({method:'GET',url,headers:{},body:null})).status,502);});
+test('OpenAPI publishes a closed full scan envelope and exact ACCOUNTING_DECISION branch',async()=>{
+  const contract=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
+  const response=contract.paths['/entities/{entityId}/ai/full-controller-scan'].get.responses['200'];
+  assert.equal(response.headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(response.content['application/json'].schema.$ref,'#/components/schemas/AiFullControllerScanEnvelope');
+  for(const name of ['AiFullControllerScanEnvelope','AiFullControllerScan','AiFullControllerAccountingDecisionSection','AiAccountingDecisionControllerFinding'])assert.equal(contract.components.schemas[name].additionalProperties,false,name);
+  const findingSchema=contract.components.schemas.AiAccountingDecisionControllerFinding;
+  assert.equal(findingSchema.properties.decision_packet.$ref,'#/components/schemas/AiAccountingDecisionPacketFull');
+  assert.equal(findingSchema.properties.action_flags.$ref,'#/components/schemas/AiInvoiceNoAccountingActions');
+  assert.equal(findingSchema.properties.raw_payload,undefined);
+  assert.equal(findingSchema.properties.authorization,undefined);
+  assert.equal(contract.components.schemas.AiFullControllerAccountingDecisionSection.properties.findings.items.$ref,'#/components/schemas/AiAccountingDecisionControllerFinding');
+});
