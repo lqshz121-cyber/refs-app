@@ -12,7 +12,7 @@ const render=tools=>renderToStaticMarkup(<AuthoritativeWbsLivePilotObservation c
 const dashboard=render(WBS_LIVE_PILOT_SURFACE_TOOLS.dashboard);
 for(const label of ['Payables','Bank transactions','AutoRec details','AutoRec banks','Journal entries'])assert.match(dashboard,new RegExp(`>${label}<`));
 for(const boundary of ['READ ONLY','Unsigned pilot','Not admitted','Not postable','No demo or browser-stored data'])assert.match(dashboard,new RegExp(boundary,'i'));
-assert.match(dashboard,/Live connection not checked/);
+for(const copy of ['Read-only WBS evidence for the signed-in company.','Select a scope and refresh.','No credentials, raw IDs, accounting records, or actions are exposed.'])assert.match(dashboard,new RegExp(copy.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),'the default WBS observation must use concise user-facing language');
 assert.match(dashboard,/>Refresh</);
 for(const liveFact of ['Live WBS connection status','Last API read','Rows','Test entity','Period'])assert.match(dashboard,new RegExp(liveFact));
 assert.doesNotMatch(dashboard,/<i>Status<\/i>|<i>Source<\/i>/,'status and source must not be repeated below the connection header');
@@ -22,6 +22,8 @@ assert.match(payables,/WBS read-only view:<\/b> Payables/);
 for(const boundary of ['OPERATOR ATTESTED','UNSIGNED','EXCEPTION REVIEW REQUIRED','NOT POSTED','outside Raw, Staging, AP Bills, Journals, GL, and Posted totals'])assert.match(payables,new RegExp(boundary,'i'));
 assert.match(payables,/Retain as exception evidence/);assert.match(payables,/Refresh retained evidence/);
 const source=fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx','utf8');
+for(const copy of ['The selected WBS scope is read only.','cannot move to Review, Draft, or Post.','Loading WBS evidence','Loading up to ten sanitized rows for this read-only view.'])assert.match(source,new RegExp(copy.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),'WBS scope and loading states must remain concise while preserving the no-action boundary');
+assert.doesNotMatch(source,/Production API evidence for the signed-in company|accounting API sends the entered Provider-native scope|requesting at most ten sanitized rows from this fixed GET-only view|Live connection not checked/,'the WBS first screen must not expose transport-oriented prose');
 const stylesheet=fs.readFileSync('index.html','utf8');
 assert.match(source,/className="table-wrap authoritative-wbs-live-pilot-table"/,'the bounded live observation must retain a stable responsive table region');
 assert.match(stylesheet,/\.authoritative-wbs-live-pilot-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'the live observation table must not stretch the whole page at narrow widths');
