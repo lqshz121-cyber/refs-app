@@ -119,6 +119,10 @@ assert.match(arWorkspaceMarkup,/REVENUE \/ ACCOUNTS RECEIVABLE/);
 assert.match(arWorkspaceMarkup,/Review invoices and AR aging\./);
 assert.doesNotMatch(arWorkspaceMarkup,/Invoices, receipts, and AR aging from the accounting API|from the accounting API/,
   'the Accounts Receivable header must describe only available views without exposing transport language');
+assert.match(arWorkspaceMarkup,/All records/);
+assert.match(arWorkspaceMarkup,/After filters/);
+assert.doesNotMatch(arWorkspaceMarkup,/API total|All retained API rows|>Filtered</,
+  'Accounts Receivable summary copy must use concise business language without exposing API or storage terminology');
 assert.match(arWorkspaceMarkup,/Receivables/);
 assert.match(arWorkspaceMarkup,/Invoices/);
 assert.match(arWorkspaceMarkup,/Invoice, customer, account, or reference/);

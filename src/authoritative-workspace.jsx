@@ -126,7 +126,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   // QBO Expenses keeps the list count beside its filters and does not repeat
   // the same empty totals as KPI cards. AR remains unchanged until observed.
   const metrics=bill?[]:[
-    {label:'Invoices',value:documents.length,sub:'API total'}, {label:'Visible',value:page.total,sub:'Filtered'}, {label:'Adjustments',value:adjustments.length,sub:'API total'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'Filtered'},
+    {label:'Invoices',value:documents.length,sub:'All records'}, {label:'Visible',value:page.total,sub:'After filters'}, {label:'Adjustments',value:adjustments.length,sub:'All records'}, {label:'Visible adjustments',value:visibleAdjustments.length,sub:'After filters'},
   ];
   return <AuthoritativeApArView kind={kind} className="authoritative-document-workspace stack" headerClassName={`authoritative-document-page-head${bill?' authoritative-expense-page-head':''}`} metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={bill?null:<p className="muted sm authoritative-api-scope">API read · filters do not change records.</p>}>
     <section className={`card authoritative-filter-card${bill?' authoritative-expense-filter-card':''}`} aria-label={`${workspaceLabel} API list filters`}>
@@ -147,7 +147,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
       <button type="button" className="btn btn-sm btn-ghost" disabled={!state.query&&!appliedScope.length} onClick={()=>change({query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset filters</button>
       <span className="result-count" aria-live="polite">{visibleResultCount} {visibleResultCount===1?'result':'results'}</span>
     </div>
-    <p className="muted sm authoritative-applied-scope" aria-live="polite">{appliedScope.length?appliedScope.join(' · '):bill?'All records':'All retained API rows'}</p>
+    <p className="muted sm authoritative-applied-scope" aria-live="polite">{appliedScope.length?appliedScope.join(' · '):'All records'}</p>
     </section>
     {showDocumentList&&<section className="card" aria-label={`${workspaceLabel} document list facts`}>
     {page.total?<AuthoritativeDocumentTable title={bill?'Bills':'AR invoices'} documents={page.rows} kind={kind} onOpen={onOpenDocument}/>:sourceEmpty?<StateBlock tone="empty" title="No expenses found">Try changing the filters. Empty results do not confirm a zero balance.</StateBlock>:bill&&state.transactionType==='ALL'&&visibleResultCount===0?<StateBlock tone="empty" title="No expenses match these filters">Try changing or resetting the filters. This scoped result is not evidence of zero activity.</StateBlock>:documents.length?<StateBlock tone="empty" title={`No ${bill?'bills':'invoices'} match these presentation filters`}>Change a presentation filter to see retained list facts. A local no-match is not evidence of zero balance.</StateBlock>:<AuthoritativeScopeEmpty subject={bill?'AP bills':'AR invoices'}/>}
