@@ -153,7 +153,11 @@ assert.match(appSource, /Property operating P&amp;L/, 'Property Ops Pickup must 
 assert.match(appSource, /initialDimensionType="PROJECT"/, 'the direct Project Cost & CWIP entry must default only its existing API-backed profitability reader to Project');
 assert.match(appSource, /Cost-code, vendor, and project transaction registers remain unavailable/, 'the direct workspace may not pretend that the legacy transaction register has an API contract');
 assert.match(appSource, /route === 'construction-loan'/, 'Construction Loan must mount its existing API rollforward rather than a demo route');
-assert.match(appSource, /route === 'amortization'[\s\S]*?AuthoritativeAmortizationWorkspace[\s\S]*?config=\{config\}/, 'Amortization Center must mount its server-backed coverage and schedule evidence workspace rather than a demo route');
+assert.match(appSource, /route === 'amortization'[\s\S]*?AuthoritativeAmortizationWorkspace[\s\S]*?config=\{displayConfig\}/, 'Amortization Center must mount its server-backed coverage and schedule evidence workspace with the shared readable scope');
+for(const route of ['project-cost-cwip','unit-cost-ledger','construction-loan','intercompany','consolidation']){
+  assert.match(appSource,new RegExp(`route === '${route}'[\\s\\S]*?AuthoritativeReportsWorkspace[\\s\\S]*?config=\\{displayConfig\\}`),`${route} must receive the same readable company and period scope as the authoritative shell`);
+}
+assert.match(appSource,/route === 'property-ops-pickup'[\s\S]*?AuthoritativePropertyRentWorkspace[\s\S]*?config=\{displayConfig\}/,'Property Ops Pickup must receive the shared readable company and period scope');
 assert.match(appSource, /Loan register, lender, commitment, and draw-management workflows remain unavailable/, 'the construction-loan reader must not overstate unavailable operational contracts');
 assert.doesNotMatch(fs.readFileSync('src/authoritative-amortization-workspace.jsx','utf8'), /localStorage|seed\.js|repo\.js|legacy-demo-app|module-amortization-accrual/i, 'the amortization reader must not recreate a browser-side accounting workflow');
 assert.match(amortizationSource, /Draft creation never submits, reviews, approves, or posts the Journal Entry/, 'the amortization control must stop at a server-created Draft and retain the standard Journal workflow boundary');
