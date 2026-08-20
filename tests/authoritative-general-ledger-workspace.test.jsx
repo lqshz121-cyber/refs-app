@@ -16,7 +16,10 @@ test('General Ledger client requires a no-store scoped GET and validates immutab
 });
 test('General Ledger workspace is a retained read-only, contained-table surface',()=>{
   const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerWorkspace config={displayConfig} fetcher={async()=>new Response(JSON.stringify({ok:true,data:[]}),{status:200})}/>);
-  for(const text of ['GENERAL LEDGER | POSTED EVIDENCE','Apply','Refresh evidence','POSTED ledger lines'])assert.match(markup,new RegExp(text));
+  for(const text of ['GENERAL LEDGER | POSTED EVIDENCE','Apply','Loading…','POSTED ledger lines'])assert.match(markup,new RegExp(text));
+  assert.match(markup,/<button type="button" class="btn btn-sm" disabled="">Apply<\/button>/,'GL must block duplicate filter reads during loading');
+  assert.match(markup,/<button type="button" class="btn btn-sm btn-ghost" disabled="">Loading…<\/button>/,'GL must expose one disabled in-progress refresh state');
+  assert.match(markup,/<span class="result-count" aria-live="polite">/,'GL result changes must be announced without another summary panel');
   assert.match(markup,/Entity Wan Pacific Real Estate Development LLC \| period 2026-08/);assert.doesNotMatch(markup,/>Entity 11111111-1111-4111-8111-111111111111/);
   assert.match(markup,/<details class="authoritative-return-context"><summary>Scope rules<\/summary>/);assert.doesNotMatch(markup,/General Ledger reading path/);
   const source=String(AuthoritativeGeneralLedgerWorkspace);for(const text of ['Open evidence','Showing server page','scroll horizontally','ad-hoc date overrides are not supplied'])assert.match(source,new RegExp(text));
@@ -26,6 +29,7 @@ test('General Ledger workspace is a retained read-only, contained-table surface'
   assert.match(source,/requiresPosted/,'an empty GL read must state the signed admission, review, and posting path to reportable evidence');
   assert.match(source,/button\?\.closest\?\.\(["']\.table-wrap["']\)\?\.scrollLeft/,'GL detail must freeze its originating contained table position');
   assert.match(source,/button\?\.closest\?\.\(["']\.table-wrap["']\)\?\.scrollTo\?\.\(\{\s*left:\s*tableX\.current,\s*behavior:\s*["']auto["']\s*\}\)/,'GL Back must restore the remounted table before returning focus to its exact row action');
+  assert.match(source,/disabled:\s*loading\s*\|\|\s*offset\s*===\s*0/);assert.match(source,/disabled:\s*loading\s*\|\|\s*!canNext/,'GL paging must not issue overlapping reads while loading');
   assert.match(source,/environment\?\.scrollTo\?\.\(\{\s*top:\s*scrollY\.current,\s*behavior:\s*["']auto["']\s*\}\)/,'GL Back must retain the page position without depending on the global browser singleton');
   assert.doesNotMatch(markup,/localStorage|seed\.js|>Export<|>Post journal<|>Create journal</i);
 });
