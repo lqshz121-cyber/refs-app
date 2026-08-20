@@ -166,6 +166,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   // previously had no opener at all, which made the navigation unreachable on a
   // tablet as well as untabbable - both are fixed by the same three pieces.
   const [navOpen, setNavOpen] = useState(false);
+  const [navPanelCollapsed, setNavPanelCollapsed] = useState(false);
   const [expandedNavigationGroups, setExpandedNavigationGroups] = useState(() => {
     const initial = AUTHORITATIVE_NAVIGATION.find(group => group.items.some(item => item.route === readRetainedRoute(environment)))?.label;
     return initial ? [initial] : [];
@@ -465,7 +466,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   return <div className="app authoritative-app">
     <AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route={route} expandedGroups={expandedNavigationGroups}
       onSelectGroup={selectNavigationGroup} onSelectItem={selectNavigationItem} navOpen={navOpen}
-      navDrawerRef={navDrawerRef} drawerAttributes={navDrawerAttributes(navOffCanvas, navOpen)} onClose={() => setNavOpen(false)}/>
+      navDrawerRef={navDrawerRef} drawerAttributes={navDrawerAttributes(navOffCanvas, navOpen)} onClose={() => setNavOpen(false)}
+      panelCollapsed={navPanelCollapsed} onTogglePanel={() => setNavPanelCollapsed(current => !current)}/>
     {false && <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar ${navOpen ? 'mobile-open' : ''}`}
       {...navDrawerAttributes(navOffCanvas, navOpen)}>
       <div className="brand"><span className="logo">REFS</span><span className="brand-sub">Authoritative</span></div>

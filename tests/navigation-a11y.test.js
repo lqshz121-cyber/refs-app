@@ -135,8 +135,12 @@ assert.match(authoritativeShell,/\{!opensDirectly && <nav aria-label="Accounting
   'a direct-entry workspace must not expose an empty or duplicate secondary navigation landmark');
 assert.match(styles,/\.authoritative-app \.sidebar\.authoritative-sidebar-direct\{width:var\(--qb-rail-w\); flex-basis:var\(--qb-rail-w\);\}/,
   'a direct-entry workspace must release the unused desktop panel width');
-assert.doesNotMatch(authoritativeShell,/nav-panel-toggle/,
+assert.doesNotMatch(authoritativeShell,/className="nav-panel-toggle"/,
   'the selected workspace must replace the previous menu instead of stacking expanded trees');
+assert.match(authoritativeShell,/className="desktop-nav-panel-toggle"[\s\S]*aria-label=\{`\$\{desktopPanelCollapsed \? 'Expand' : 'Collapse'\} navigation panel`\}[\s\S]*aria-expanded=\{!desktopPanelCollapsed\}/,
+  'the one desktop panel toggle must expose its action and current expanded state without creating another workspace tree');
+assert.match(authoritativeShell,/const canTogglePanel = !opensDirectly && typeof onTogglePanel === 'function'/,
+  'the reusable shell must fail closed instead of rendering an inoperative panel control without a handler');
 assert.match(authoritative,/setExpandedNavigationGroups\(\[group\.label\]\)/,
   'a primary workspace selection must replace the previous secondary menu');
 assert.match(authoritative,/setRoute\(group\.items\[0\]\.route\)/,

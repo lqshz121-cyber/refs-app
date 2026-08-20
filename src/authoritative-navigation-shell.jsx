@@ -47,12 +47,14 @@ const ITEM_ICONS = Object.freeze({
   'master-data':'layers', 'bank-accounts':'bank', 'audit-log':'shield', 'users-settings':'gear',
 });
 
-export function AuthoritativeNavigationShell({ navigation, route, expandedGroups, expandedGroup, onSelectGroup, onSelectItem, navOpen, navDrawerRef, drawerAttributes, onClose }) {
+export function AuthoritativeNavigationShell({ navigation, route, expandedGroups, expandedGroup, onSelectGroup, onSelectItem, navOpen, navDrawerRef, drawerAttributes, onClose, panelCollapsed = false, onTogglePanel }) {
   const activeGroup = navigation.find(group => group.items.some(item => item.route === route))
     || navigation.find(group => group.label === (Array.isArray(expandedGroups) ? expandedGroups[0] : expandedGroup))
     || navigation[0];
   const opensDirectly = activeGroup?.items.length === 1;
-  return <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar authoritative-sidebar ${opensDirectly ? 'authoritative-sidebar-direct' : ''} ${navOpen ? 'mobile-open' : ''}`} {...drawerAttributes}>
+  const desktopPanelCollapsed = !opensDirectly && panelCollapsed;
+  const canTogglePanel = !opensDirectly && typeof onTogglePanel === 'function';
+  return <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar authoritative-sidebar ${opensDirectly ? 'authoritative-sidebar-direct' : ''} ${desktopPanelCollapsed ? 'authoritative-sidebar-panel-collapsed' : ''} ${navOpen ? 'mobile-open' : ''}`} {...drawerAttributes}>
     <div className="nav-rail" aria-label="Accounting workspace groups">
       <div className="rail-logo" aria-hidden="true">R</div>
       {navigation.map((group, index) => {
@@ -73,7 +75,14 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroups
       })}
     </div>
     <div className="nav-panel">
-      <div className="brand"><span className="logo" aria-hidden="true">R</span> REFS<span className="brand-sub">Authoritative</span></div>
+      <div className="brand"><span className="logo" aria-hidden="true">R</span><span className="brand-name">REFS</span><span className="brand-sub">Authoritative</span>
+        {canTogglePanel && <button type="button" className="desktop-nav-panel-toggle"
+          aria-label={`${desktopPanelCollapsed ? 'Expand' : 'Collapse'} navigation panel`}
+          aria-expanded={!desktopPanelCollapsed} aria-controls="authoritative-navigation-active-group"
+          onClick={onTogglePanel}>
+          <Icon name={desktopPanelCollapsed ? 'chevron-right' : 'chevron-left'} size={18}/>
+        </button>}
+      </div>
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={onClose}>Close</button>}
       {!opensDirectly && <nav aria-label="Accounting workspace navigation">
         {activeGroup && <section className={`nav-panel-group nav-tone-${Math.max(0,navigation.indexOf(activeGroup)) % 6}`}>

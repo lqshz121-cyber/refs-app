@@ -34,6 +34,7 @@ assert.match(workspaceMarkup,/Payables presentation filters/);
 assert.match(workspaceMarkup,/authoritative-document-page-head/,'payables and receivables must use the shared authoritative workspace header');
 assert.match(workspaceMarkup,/aria-selected="true" class="tab tab-on">All transactions</,'the mixed AP state must have an explicit selected tab rather than masquerading as Bills');
 const workspaceSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-workspace.jsx'),'utf8');
+assert.doesNotMatch(workspaceSource,/'Not retained'/,'AP/AR visible missing-value placeholders must use plain product language instead of storage terminology');
 assert.doesNotMatch(workspaceSource,/\{bill&&<label>Transaction type <select/,'Expenses tabs already select All transactions, Bills, or Vendor credits; the filter toolbar must not repeat the same control');
 assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/Category <select/);

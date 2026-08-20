@@ -25,7 +25,10 @@ const REPORT_LIBRARY_SHORTCUTS=Object.freeze([
   ['TRIAL_BALANCE','Trial Balance','Review account balances.',['tb']],
   ['BALANCE_SHEET','Balance Sheet','Review assets, liabilities, and equity.',['statement of financial position']],
   ['INCOME_STATEMENT','Income Statement','Review income and expenses.',['profit and loss','profit & loss','p&l']],
-  ['CASH_FLOW','Cash activity','Review cash-account movement.',['statement of cash flows']],
+  ['CASH_FLOW','Cash activity','Review cash-account movement.',[]],
+]);
+const MAPPING_BACKED_REPORT_SHORTCUTS=Object.freeze([
+  ['STATEMENT_OF_CASH_FLOWS','Statement of Cash Flows','Review operating, investing, and financing cash activity.',['cash flow statement']],
 ]);
 // The demonstration application had a much larger property-operation menu,
 // but only these report readers have an authenticated accounting-API contract
@@ -43,7 +46,7 @@ const PROPERTY_REPORT_SHORTCUTS=Object.freeze([
   ['BUDGET_VS_ACTUAL','Budget versus actual','Compare approved budget to actual results.','OPERATING_ANALYSIS',null],
 ]);
 const REPORT_ICON_NAMES=Object.freeze({
-  TRIAL_BALANCE:'lines',BALANCE_SHEET:'book',INCOME_STATEMENT:'bars',CASH_FLOW:'exchange',
+  TRIAL_BALANCE:'lines',BALANCE_SHEET:'book',INCOME_STATEMENT:'bars',CASH_FLOW:'exchange',STATEMENT_OF_CASH_FLOWS:'exchange',
   STATEMENTS:'book',CASH_AND_CAPITAL:'bank',OPERATING_ANALYSIS:'bars',GROUP_AND_COMPARISON:'layers',
   PROPERTY_PROFITABILITY:'bars',PROJECT_PROFITABILITY:'bars',UNIT_PROFITABILITY:'bars',LOT_PROFITABILITY:'bars',
   CWIP_ROLLFORWARD:'cycle',CONSTRUCTION_LOAN_ROLLFORWARD:'cycle',PREPAID_ROLLFORWARD:'cycle',BUDGET_VS_ACTUAL:'bars',AR_AGING:'calendar',
@@ -58,6 +61,12 @@ export const findAuthoritativeReportShortcuts=query=>{
   const needle=normalizedFinderText(query);
   if(!needle)return [];
   return REPORT_LIBRARY_SHORTCUTS.filter(([,label,description,aliases=[]])=>
+    [label,description,...aliases].some(value=>normalizedFinderText(value).includes(needle)));
+};
+export const findAuthoritativeMappingBackedReportShortcuts=query=>{
+  const needle=normalizedFinderText(query);
+  if(!needle)return [];
+  return MAPPING_BACKED_REPORT_SHORTCUTS.filter(([,label,description,aliases=[]])=>
     [label,description,...aliases].some(value=>normalizedFinderText(value).includes(needle)));
 };
 export const findAuthoritativePropertyReportShortcuts=query=>{
@@ -254,6 +263,25 @@ export const AuthoritativeFullStatementReport=({report,rows,returnContext,onBack
   </section>;
 };
 
+export const AuthoritativeStatementOfCashFlowsReport=({state,returnContext,onBack,onRefresh,onOpenEvidence,page=0,onPageChange=()=>{}})=>{
+  const rows=Array.isArray(state?.rows)?state.rows:[];
+  const pageCount=Math.max(1,Math.ceil(rows.length/FULL_STATEMENT_PAGE_SIZE));
+  const currentPage=Math.min(Math.max(Number.isSafeInteger(page)?page:0,0),pageCount-1);
+  const start=currentPage*FULL_STATEMENT_PAGE_SIZE;
+  const visibleRows=rows.slice(start,start+FULL_STATEMENT_PAGE_SIZE);
+  return <section className="full-bleed qbo-transaction-report authoritative-evidence-page authoritative-full-statement" aria-label="Statement of Cash Flows full report">
+    <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Reports</button><span>Reports center</span></div>
+    <header className="accounting-page-head"><div><div className="page-eyebrow">FINANCIAL REPORT</div><h1 className="page-h">Statement of Cash Flows</h1><p className="page-subtitle">Review operating, investing, and financing cash activity.</p></div><div className="report-period-chip"><span>Report scope</span><b><ScopeLabel context={returnContext}/></b><small>READ ONLY</small></div></header>
+    <div className="authoritative-full-statement-actions"><button type="button" className="btn btn-sm btn-ghost" disabled={state?.phase==='LOADING'} onClick={onRefresh}>{state?.phase==='LOADING'?'Loading…':'Refresh'}</button><span className="badge badge-muted">READ ONLY</span></div>
+    {state?.phase==='LOADING'&&<StateBlock tone="loading">Loading mapped cash-flow activity…</StateBlock>}
+    <ReadError state={state||{phase:'IDLE'}} onRetry={onRefresh}/>
+    {state?.phase==='READY'&&!rows.length&&<StateBlock tone="empty" title="No mapped cash activity returned">This scoped empty result is not evidence of zero operating, investing, or financing cash flow.</StateBlock>}
+    {state?.phase==='READY'&&!!rows.length&&!state.complete&&<StateBlock tone="error" title="BLOCKED — classification unavailable">At least one posted cash movement has no single approved mapping. Cash-flow totals are not inferred.</StateBlock>}
+    {state?.phase==='READY'&&state.complete&&<div className="qbo-toolgrid" aria-label="Statement of Cash Flows totals"><span><i>Operating</i><b>{money(sumCashFlowRows(rows,['OPERATING']))}</b></span><span><i>Investing</i><b>{money(sumCashFlowRows(rows,['INVESTING']))}</b></span><span><i>Financing</i><b>{money(sumCashFlowRows(rows,['FINANCING']))}</b></span><span><i>Net change in cash</i><b>{money(sumCashFlowRows(rows))}</b></span></div>}
+    {state?.phase==='READY'&&!!rows.length&&<><div className="table-wrap reports-workbench-table authoritative-full-statement-table" role="region" tabIndex={0} aria-label="Statement of Cash Flows rows; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Classification</th><th>Cash / counterpart</th><th>Cash effect</th><th>Mapping</th><th>Details</th></tr></thead><tbody>{visibleRows.map(row=>{const focusId=`authoritative-full-cash-flow-${row.journal_entry_ids[0]}-${row.counterpart_account_code}`;return <tr key={`${row.journal_entry_ids[0]}:${row.cash_account_code}:${row.counterpart_account_code}`}><td><b>{row.classification}</b><div className="muted sm">{row.mapping_status}</div></td><td><b>{row.cash_account_code}</b><div className="muted sm">{row.counterpart_account_code}</div></td><td className="num">{money(row.cash_effect)}</td><td>{row.mapping_snapshot_id?<><code>{row.mapping_snapshot_id}</code><div className="muted sm">v{row.mapping_version}</div></>:'Not admitted'}</td><td><button id={focusId} type="button" className="btn btn-sm" onClick={()=>onOpenEvidence(row,focusId)}>View details</button></td></tr>;})}</tbody></table></div>{rows.length>FULL_STATEMENT_PAGE_SIZE&&<nav className="authoritative-coa-pagination authoritative-report-pagination" aria-label="Statement of Cash Flows pages"><span>Rows {start+1}-{Math.min(start+FULL_STATEMENT_PAGE_SIZE,rows.length)} of {rows.length}</span><button type="button" className="btn btn-sm btn-ghost" disabled={currentPage===0} onClick={()=>onPageChange(currentPage-1)}>Previous</button><button type="button" className="btn btn-sm btn-ghost" disabled={currentPage>=pageCount-1} onClick={()=>onPageChange(currentPage+1)}>Next</button></nav>}</>}
+  </section>;
+};
+
 export const AuthoritativeReportDetail=({row,returnContext,onBack})=>{
   const scopeMatches=reportRowMatchesReturnContext(row,returnContext);
   const lineageComplete=hasCompleteReportLineage(row);
@@ -285,6 +313,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   const initialDimension=DIMENSION_TYPES.some(([key])=>key===initialDimensionType)?initialDimensionType:'PROPERTY';
   const [report,setReport]=useState(initialCatalogState.preview);
   const [workbenchTab,setWorkbenchTab]=useState(initialCatalogState.category);
+  const [collapsedWorkbenchTab,setCollapsedWorkbenchTab]=useState(null);
   const [catalogSearch,setCatalogSearch]=useState(initialCatalogState.query);
   const [selected,setSelected]=useState(null);
   const fullStatementTableRef=useRef(null);
@@ -329,6 +358,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   const openPropertyReport=(shortcut)=>{
     const [, , ,nextTab,nextDimensionType]=shortcut;
     setWorkbenchTab(nextTab);
+    setCollapsedWorkbenchTab(null);
     setCatalogSearch('');
     if(nextDimensionType){
       setDimensionType(nextDimensionType);
@@ -340,14 +370,31 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
     const base=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
     if(base)setSelected({kind:'FULL_STATEMENT',page:0,rows:state.rows.filter(row=>row.statement_type===nextReport),returnContext:{...base,report:nextReport,workbenchTab,reportsCatalog:normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:nextReport})}});
   };
+  const openCashFlowReport=(focusId='authoritative-report-statement-of-cash-flows')=>{
+    const base=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
+    if(!base)return;
+    setSelected({kind:'STATEMENT_OF_CASH_FLOWS',page:0,returnContext:{...base,report:'STATEMENT_OF_CASH_FLOWS',workbenchTab,reportsCatalog:normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:report})}});
+    if(cashFlowState.phase==='IDLE')void loadCashFlow();
+  };
   const openEvidenceFromFullStatement=(row,focusId)=>{
     const parent=selected;
     if(!parent||parent.kind!=='FULL_STATEMENT')return;
     const base=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
     if(base)setSelected({kind:'STATEMENT',row,returnContext:{...parent.returnContext,...base,reportPage:parent.page||0,reportAccountCode:row.account_code||null,reportSection:row.statement_section||null,reportDimensionType:row.dimension_type||null,reportDimensionRef:row.dimension_ref||null,tableX:Number(fullStatementTableRef.current?.scrollLeft)||0,parentFullStatement:parent}});
   };
+  const openEvidenceFromCashFlowReport=(row,focusId)=>{
+    const parent=selected;
+    if(!parent||parent.kind!=='STATEMENT_OF_CASH_FLOWS')return;
+    const base=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
+    if(base)setSelected({kind:'CASH_FLOW_CLASSIFICATION',row,returnContext:{...parent.returnContext,...base,reportPage:parent.page||0,parentCashFlowReport:parent}});
+  };
   const closeEvidence=()=>{
     const context=selected?.returnContext;
+    if(context?.parentCashFlowReport?.kind==='STATEMENT_OF_CASH_FLOWS'){
+      setSelected(context.parentCashFlowReport);
+      restoreAuthoritativeReturnContext(environment,config,context);
+      return;
+    }
     if(context?.parentFullStatement?.kind==='FULL_STATEMENT'){
       setSelected(context.parentFullStatement);
       if(restoreAuthoritativeReturnContext(environment,config,context))restoreAuthoritativeReportTablePosition(environment,context,()=>fullStatementTableRef.current);
@@ -357,6 +404,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
     if(REPORT_WORKBENCH_TABS.some(([key])=>key===context?.workbenchTab))setWorkbenchTab(context.workbenchTab);
     const catalog=normalizeAuthoritativeReportsCatalog(context?.reportsCatalog);
     setWorkbenchTab(catalog.category);
+    setCollapsedWorkbenchTab(null);
     setCatalogSearch(catalog.query);
     setReport(catalog.preview);
     if(['PROPERTY','PROJECT','UNIT','LOT'].includes(context?.dimension?.type)&&typeof context.dimension.ref==='string'&&context.dimension.ref.trim()){
@@ -368,6 +416,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   };
   const openEvidenceLineage=row=>{const detail=selected;const context=detail?.returnContext;if(!detail||!context)return;setSelected({kind:'EVIDENCE_LINEAGE',row,returnTo:detail,returnContext:context,lineageConfig:authoritativeReportLineageConfig(config,row)});};
   if(selected?.kind==='EVIDENCE_LINEAGE')return <AuthoritativeLineageDrill config={selected.lineageConfig||config} fetcher={fetcher} initial={{kind:'EVIDENCE',row:selected.row,context:{entityId:config.entityId,periodId:selected.lineageConfig?.periodId||config.periodId,accountCode:selected.row.account_code||null}}} onExit={()=>setSelected(selected.returnTo)}/>;
+  if(selected?.kind==='STATEMENT_OF_CASH_FLOWS')return <AuthoritativeStatementOfCashFlowsReport state={cashFlowState} returnContext={selected.returnContext} page={selected.page||0} onPageChange={page=>setSelected(current=>current?.kind==='STATEMENT_OF_CASH_FLOWS'?{...current,page}:current)} onBack={closeEvidence} onRefresh={loadCashFlow} onOpenEvidence={openEvidenceFromCashFlowReport}/>;
   if(selected?.kind==='CASH_FLOW_CLASSIFICATION')return <CashFlowDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence} onOpenLineage={openEvidenceLineage}/>;
   if(selected?.kind==='INTERCOMPANY_RECONCILIATION')return <IntercompanyDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence} onOpenLineage={openEvidenceLineage}/>;
   if(selected?.kind==='BUDGET_VS_ACTUAL')return <BudgetActualDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence} onOpenLineage={openEvidenceLineage}/>;
@@ -377,19 +426,22 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   if(selected)return selected.kind==='FULL_STATEMENT'?<AuthoritativeFullStatementReport report={selected.returnContext.report} rows={selected.rows} returnContext={selected.returnContext} page={selected.page||0} onPageChange={page=>setSelected(current=>current?.kind==='FULL_STATEMENT'?{...current,page}:current)} onBack={closeEvidence} onRefresh={load} loading={state.phase==='LOADING'} onOpenEvidence={openEvidenceFromFullStatement} tableRef={fullStatementTableRef}/>:selected.kind==='STATEMENT'&&reportRowMatchesReturnContext(selected.row,selected.returnContext)&&hasCompleteReportLineage(selected.row)?<AuthoritativeLineageDrill config={authoritativeReportLineageConfig(config,selected.row)} fetcher={fetcher} initial={{kind:'REPORT',row:selected.row,context:{entityId:config.entityId,periodId:selected.row.period_id,report:selected.row.statement_type,accountCode:selected.row.account_code,section:selected.row.statement_section}}} onExit={closeEvidence}/>:selected.kind==='EVIDENCE_LINEAGE'?<AuthoritativeLineageDrill config={config} fetcher={fetcher} initial={{kind:'EVIDENCE',row:selected.row,context:{entityId:config.entityId,periodId:config.periodId,accountCode:selected.row.account_code}}} onExit={()=>setSelected(selected.returnTo)}/>:selected.kind==='CASH_FLOW_CLASSIFICATION'?<CashFlowDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='INTERCOMPANY_RECONCILIATION'?<IntercompanyDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='BUDGET_VS_ACTUAL'?<BudgetActualDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CONSOLIDATION'?<ConsolidationDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='PERIOD_COMPARISON'?<ComparisonDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>:selected.kind==='CWIP_ROLLFORWARD'?<CwipRollforwardDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence} onOpenLineage={openEvidenceLineage}/>:selected.kind==='DIMENSION_PROFITABILITY'?<DimensionProfitabilityDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence} onOpenLineage={openEvidenceLineage}/>:selected.kind==='ROLLFORWARD'?<RollforwardDetail title={selected.title} row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence} onOpenLineage={openEvidenceLineage}/>:<AuthoritativeReportDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence}/>;
   const matchingWorkbenchTabs=REPORT_WORKBENCH_TABS.filter(([,label,description])=>`${label} ${description}`.toLowerCase().includes(catalogSearch.trim().toLowerCase()));
   const matchingShortcuts=findAuthoritativeReportShortcuts(catalogSearch);
+  const matchingMappingBackedShortcuts=findAuthoritativeMappingBackedReportShortcuts(catalogSearch);
+  const visibleMatchingWorkbenchTabs=matchingMappingBackedShortcuts.length?[]:matchingWorkbenchTabs;
   const matchingPropertyShortcuts=findAuthoritativePropertyReportShortcuts(catalogSearch);
-  const totalCatalogMatches=matchingWorkbenchTabs.length+matchingShortcuts.length+matchingPropertyShortcuts.length;
+  const totalCatalogMatches=visibleMatchingWorkbenchTabs.length+matchingShortcuts.length+matchingMappingBackedShortcuts.length+matchingPropertyShortcuts.length;
   const searching=Boolean(catalogSearch.trim());
   const statementPreviewRows=rows.slice(0,12);
   return <AuthoritativeReportsView className="reports-library authoritative-reports-library" eyebrow={workspaceEyebrow} title={workspaceTitle} description={workspaceDescription} scope={<div className="report-period-chip"><span>Reporting scope</span><b title={`Entity ID: ${config.entityId}; Period ID: ${config.periodId}`}>Entity {entityLabel} · Period {periodLabel}</b><small>Posted only</small></div>}>
     <section className="authoritative-report-finder" aria-label="Reports catalog"><label><span>Search reports</span><input value={catalogSearch} maxLength="120" onChange={event=>setCatalogSearch(event.target.value)} placeholder="Balance sheet, profit and loss, cash…"/></label>{catalogSearch.trim()&&<span className="authoritative-report-match-summary">{totalCatalogMatches?`${totalCatalogMatches} ${totalCatalogMatches===1?'match':'matches'}`:'No reports found'}</span>}</section>
     {searching&&!!matchingShortcuts.length&&<section className="authoritative-report-shortcuts authoritative-report-finder-results" aria-label="Matching statements"><div><span className="page-eyebrow">MATCHING STATEMENTS</span></div><div className="authoritative-report-shortcut-grid">{matchingShortcuts.map(([key,label,description])=><button key={key} type="button" className={`authoritative-report-shortcut ${report===key&&workbenchTab==='STATEMENTS'?'is-current':''}`} disabled={state.phase==='LOADING'} onClick={()=>openFullStatement(`authoritative-search-result-${key}`,key)}><ReportIcon reportKey={key}/><span>{label}</span><small>{description}</small></button>)}</div></section>}
+    {searching&&!!matchingMappingBackedShortcuts.length&&<section className="authoritative-report-shortcuts authoritative-report-finder-results" aria-label="Matching classified reports"><div><span className="page-eyebrow">MATCHING REPORTS</span></div><div className="authoritative-report-shortcut-grid">{matchingMappingBackedShortcuts.map(([key,label,description])=>{const focusId=`authoritative-search-result-${key}`;return <button id={focusId} key={key} type="button" className="authoritative-report-shortcut" disabled={cashFlowState.phase==='LOADING'} onClick={()=>openCashFlowReport(focusId)}><ReportIcon reportKey={key}/><span>{label}</span><small>{description}</small></button>;})}</div></section>}
     {(!searching||!!matchingPropertyShortcuts.length)&&<details className="authoritative-secondary-disclosure authoritative-property-report-directory"><summary><span>Property &amp; project reports</span><span className="badge badge-muted">{searching?matchingPropertyShortcuts.length:PROPERTY_REPORT_SHORTCUTS.length}</span></summary><section className="authoritative-report-shortcuts" aria-label="Property, project, unit, and lot report directory"><div className="authoritative-report-shortcut-grid">{PROPERTY_REPORT_SHORTCUTS.filter(shortcut=>!searching||matchingPropertyShortcuts.includes(shortcut)).map(shortcut=>{const [key,label,description,nextTab,nextDimensionType]=shortcut;const active=workbenchTab===nextTab&&(!nextDimensionType||dimensionType===nextDimensionType);return <button key={key} type="button" className={`authoritative-report-shortcut ${active?'is-current':''}`} aria-pressed={active} onClick={()=>openPropertyReport(shortcut)}><ReportIcon reportKey={key}/><span>{label}</span><small>{description}</small></button>;})}</div></section></details>}
-    {(!searching||!!matchingWorkbenchTabs.length)&&<div className="rep-grid" role="tablist" aria-label="Report categories">{(searching?matchingWorkbenchTabs:REPORT_WORKBENCH_TABS).map(([key,label])=><button type="button" role="tab" aria-selected={workbenchTab===key} className={`rep-card ${workbenchTab===key?'rep-on':''}`} key={key} onClick={()=>{setWorkbenchTab(key);setCatalogSearch('');setSelected(null);}}><ReportIcon reportKey={key}/><span className="rep-name">{label}</span></button>)}</div>}
+    {(!searching||!!visibleMatchingWorkbenchTabs.length)&&<nav className="rep-grid" aria-label="Report groups">{(searching?visibleMatchingWorkbenchTabs:REPORT_WORKBENCH_TABS).map(([key,label])=>{const expanded=!searching&&workbenchTab===key&&collapsedWorkbenchTab!==key;return <h2 className="rep-group-heading" key={key}><button type="button" aria-expanded={expanded} aria-controls={`authoritative-report-group-${key}`} className={`rep-card ${expanded?'rep-on':''}`} onClick={()=>{if(!searching&&workbenchTab===key)setCollapsedWorkbenchTab(current=>current===key?null:key);else{setWorkbenchTab(key);setCollapsedWorkbenchTab(null);}setCatalogSearch('');setSelected(null);}}><ReportIcon reportKey={key}/><span className="rep-name">{label}</span><span className="rep-group-chevron" aria-hidden="true">⌄</span></button></h2>;})}</nav>}
     {!totalCatalogMatches&&searching&&<StateBlock tone="empty" title="No reports found">Try another search or clear it to view all reports. No report data was inferred.</StateBlock>}
-    {!searching&&<section className="report-workbench" aria-label={`${REPORT_WORKBENCH_TABS.find(([key])=>key===workbenchTab)?.[1]} report workspace`}>{workbenchTab==='STATEMENTS'&&<div className="report-workbench-head authoritative-report-workbench-actions" aria-label="Statement actions"><button type="button" className="btn btn-sm btn-ghost" disabled={state.phase==='LOADING'} onClick={load}>{state.phase==='LOADING'?'Loading…':'Refresh'}</button></div>}
+    {!searching&&collapsedWorkbenchTab!==workbenchTab&&<section id={`authoritative-report-group-${workbenchTab}`} className="report-workbench" aria-label={`${REPORT_WORKBENCH_TABS.find(([key])=>key===workbenchTab)?.[1]} report workspace`}>{workbenchTab==='STATEMENTS'&&<div className="report-workbench-head authoritative-report-workbench-actions" aria-label="Statement actions"><button type="button" className="btn btn-sm btn-ghost" disabled={state.phase==='LOADING'} onClick={load}>{state.phase==='LOADING'?'Loading…':'Refresh'}</button></div>}
     {workbenchTab==='STATEMENTS'&&<>
-    {!catalogSearch.trim()&&<section className="authoritative-report-shortcuts authoritative-core-report-shortcuts" aria-label="Core statement shortcuts"><div><span className="page-eyebrow">COMMON REPORTS</span></div><div className="authoritative-report-shortcut-grid">{REPORT_LIBRARY_SHORTCUTS.map(([key,label,description])=>{const focusId=`authoritative-favorite-${key}`;return <button id={focusId} key={key} type="button" className="authoritative-report-shortcut" disabled={state.phase==='LOADING'} onClick={()=>openFullStatement(focusId,key)}><ReportIcon reportKey={key}/><span>{label}</span><small>{description}</small></button>;})}<button id="authoritative-report-ar-aging" type="button" className="authoritative-report-shortcut" onClick={()=>onOpenArAging('authoritative-report-ar-aging',normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:report}))}><ReportIcon reportKey="AR_AGING"/><span>Accounts receivable aging</span><small>Review open receivables by age.</small></button></div></section>}
+    {!catalogSearch.trim()&&<section className="authoritative-report-shortcuts authoritative-core-report-shortcuts" aria-label="Core statement shortcuts"><div><span className="page-eyebrow">COMMON REPORTS</span></div><div className="authoritative-report-shortcut-grid">{REPORT_LIBRARY_SHORTCUTS.map(([key,label,description])=>{const focusId=`authoritative-favorite-${key}`;return <button id={focusId} key={key} type="button" className="authoritative-report-shortcut" disabled={state.phase==='LOADING'} onClick={()=>openFullStatement(focusId,key)}><ReportIcon reportKey={key}/><span>{label}</span><small>{description}</small></button>;})}<button id="authoritative-report-statement-of-cash-flows" type="button" className="authoritative-report-shortcut" disabled={cashFlowState.phase==='LOADING'} onClick={()=>openCashFlowReport('authoritative-report-statement-of-cash-flows')}><ReportIcon reportKey="STATEMENT_OF_CASH_FLOWS"/><span>Statement of Cash Flows</span><small>Review operating, investing, and financing cash activity.</small></button><button id="authoritative-report-ar-aging" type="button" className="authoritative-report-shortcut" onClick={()=>onOpenArAging('authoritative-report-ar-aging',normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:report}))}><ReportIcon reportKey="AR_AGING"/><span>Accounts receivable aging</span><small>Review open receivables by age.</small></button></div></section>}
     <details className="authoritative-secondary-disclosure authoritative-statement-snapshot"><summary><span>Statement snapshot</span><span className="badge badge-muted">READ ONLY</span></summary><section className="card" aria-label="Financial statement snapshot version evidence"><div className="card-head"><div><h2>Approved version</h2><p className="muted sm">Immutable statement evidence with retained GL, Journal, and source identifiers.</p></div></div><div className="qbo-filter-grid"><button type="button" className="btn" disabled={statementSnapshotState.phase==='LOADING'} onClick={loadStatementSnapshot}>{statementSnapshotState.phase==='LOADING'?'Loading…':'Load statement snapshot'}</button></div>
       {statementSnapshotState.phase==='LOADING'&&<StateBlock tone="loading">Loading immutable statement snapshot evidence...</StateBlock>}
       <ReadError state={statementSnapshotState} onRetry={loadStatementSnapshot}/>

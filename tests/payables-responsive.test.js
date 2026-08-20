@@ -32,6 +32,10 @@ assert.match(styles,/@media\(max-width:900px\)\{[\s\S]*?\.expense-toolbar>\*\{mi
   'legacy Payables toolbar labels and selects must also fit their tablet grid tracks');
 assert.match(styles,/@media\s*\(max-width:720px\)[\s\S]*?\.authoritative-list-filters\{grid-template-columns:minmax\(0,1fr\);\}/,
   'phone widths must collapse authoritative Payables filters to one safe column');
+assert.match(styles,/@media\(min-width:421px\) and \(max-width:720px\)\{\.authoritative-expense-filter-card \.authoritative-compact-list-filters\{grid-template-columns:minmax\(120px,1fr\) auto auto auto;/,
+  'observed 525px Expenses must keep its secondary controls in one compact row below Search');
+assert.match(styles,/\.authoritative-expense-filter-card \.authoritative-compact-list-filters>label:first-child\{grid-column:1\/-1;\}/,
+  'Expenses Search must retain a full-width first row while secondary controls stay compact');
 assert.match(styles,/\.authoritative-document-workspace,\.authoritative-document-workspace>\*,\.authoritative-document-table,\.authoritative-adjustment-table\{min-width:0;max-width:100%;\}/,
   'the authoritative workspace must remain shrinkable while tables own their horizontal scrolling');
 assert.match(styles,/\.authoritative-register-table,\.authoritative-coa-table,\.authoritative-journal-table,\.authoritative-journal-line-table,\.authoritative-general-ledger-table,\.authoritative-document-table,\.authoritative-adjustment-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,
