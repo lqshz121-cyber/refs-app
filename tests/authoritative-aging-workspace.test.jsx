@@ -5,7 +5,7 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {AuthoritativeAgingWorkspace} from '../src/authoritative-aging-workspace.jsx';
 
-const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',scopePresentation:{entityLabel:'Configured entity',periodLabel:'2026-01',periodEnd:'2026-01-31'}};
+const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',scopePresentation:{entityLabel:'Configured entity',periodLabel:'2026-01',periodStart:'2026-01-01',periodEnd:'2026-01-31'}};
 const markup=renderToStaticMarkup(<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})}/>);
 assert.match(markup,/Accounts receivable \/ aging report/);
 assert.match(markup,/Entity reporting scope/);
@@ -13,6 +13,7 @@ assert.match(markup,/Accounting period/);
 assert.match(markup,/2026-01/);
 assert.match(markup,/As-of date/);
 assert.match(markup,/value="2026-01-31"/,'Aging must default to the authoritative selected period end, never the browser date.');
+assert.match(markup,/placeholder="YYYY-MM-DD"/);assert.match(markup,/pattern="\[0-9\]\{4\}-\[0-9\]\{2\}-\[0-9\]\{2\}"/,'Aging must use one locale-independent English date contract.');
 assert.match(markup,/Refresh evidence/);
 assert.match(markup,/Loading authoritative AR aging/);
 assert.match(markup,/Read-only aging from the accounting API\./);
@@ -30,6 +31,10 @@ assert.equal((receivableRoute.match(/AuthoritativeAgingWorkspace config=\{displa
 assert.match(source,/Change the as-of date and load the report again/);
 assert.match(source,/not evidence of zero invoices, receipts, bills, payments, or ledger activity/);
 assert.match(source,/authoritative-aging-table/);
+assert.match(source,/refreshAuthoritativeAgingSnapshotSummary/,'Aging must use the immutable counterparty summary rather than infer membership from currency totals.');
+assert.match(source,/refreshAuthoritativeAgingSnapshotDetail/,'Aging detail must re-read the exact immutable server snapshot.');
+assert.match(source,/Vendor':'Customer'/);assert.match(source,/Back to aging summary/);assert.match(source,/Back to aging detail/);
+assert.match(source,/These totals do not infer which documents belong to a vendor or customer/);
 const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.match(styles,/\.authoritative-aging-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'Aging control and bucket tables must remain contained after the tablet table-height reset');
 assert.match(source,/tabIndex=\{0\}/);
@@ -41,6 +46,7 @@ assert.match(reportBackMarkup,/Back to Reports/,'the Reports shortcut must not i
 assert.match(source,/AuthoritativeReadFailure/,'Aging must use the shared authoritative failure presentation.');
 assert.match(source,/authoritativeReadFailurePhase\(failure\)/,'Aging must classify only trusted-read boundary failures as BLOCKED.');
 assert.doesNotMatch(source,/new Date\(\)\.toISOString\(\)/,'Aging must not derive its initial accounting scope from wall-clock time.');
+assert.doesNotMatch(source,/type="date"/,'Aging must not expose a browser-localized native date placeholder in the English product shell.');
 assert.doesNotMatch(source,/blockedReadCodes/,'Aging must not maintain a divergent local blocked-code list.');
 assert.match(source,/agingContextMatches/,'Aging must validate its immutable parent return scope.');
 assert.match(source,/BLOCKED — immutable aging scope mismatch/,'Aging scope mismatches must fail closed.');

@@ -1386,6 +1386,35 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getAgingSnapshotSummary({tenantId,entityId,documentKind,periodId,asOfDate}){
+    if(!['AP_BILL','AR_INVOICE'].includes(documentKind))throw new KernelError('AGING_DOCUMENT_KIND_INVALID','Unsupported aging document kind');
+    return this.inSession(async client=>{
+      const scope=requireRow(await client.query(
+        'SELECT * FROM refs_read_ap_ar_aging_snapshot_scope($1,$2,$3,$4,$5::date)',
+        [tenantId,entityId,documentKind,periodId,asOfDate]
+      ),'AGING_SNAPSHOT_SCOPE_MISSING','Aging snapshot scope was not returned');
+      const rows=(await client.query(
+        'SELECT * FROM refs_list_ap_ar_aging_summary($1,$2,$3,$4,$5::date)',
+        [tenantId,entityId,documentKind,periodId,asOfDate]
+      )).rows;
+      return {rows,scope:{...scope,period_start:publicDate(scope.period_start),period_end:publicDate(scope.period_end),as_of_date:publicDate(scope.as_of_date),snapshot_version:Number(scope.snapshot_version),detail_count:Number(scope.detail_count),counterparty_count:Number(scope.counterparty_count)}};
+    });
+  }
+
+  async getAgingSnapshotDetail({tenantId,entityId,documentKind,periodId,asOfDate,counterpartyRef,counterpartyName,currency,limit=100,offset=0}){
+    if(!['AP_BILL','AR_INVOICE'].includes(documentKind))throw new KernelError('AGING_DOCUMENT_KIND_INVALID','Unsupported aging document kind');
+    return this.inSession(async client=>{
+      const params=[tenantId,entityId,documentKind,periodId,asOfDate,counterpartyRef,counterpartyName,currency];
+      const scope=requireRow(await client.query(
+        'SELECT * FROM refs_read_ap_ar_aging_detail_scope($1,$2,$3,$4,$5::date,$6,$7,$8)',params
+      ),'AGING_DETAIL_SCOPE_MISSING','Aging detail scope was not returned');
+      const rows=(await client.query(
+        'SELECT * FROM refs_list_ap_ar_aging_detail($1,$2,$3,$4,$5::date,$6,$7,$8,$9,$10)',[...params,limit,offset]
+      )).rows.map(row=>({...row,document_revision:Number(row.document_revision),posted_journal_revision:Number(row.posted_journal_revision),accounting_date:publicDate(row.accounting_date),due_date:row.due_date==null?null:publicDate(row.due_date),aging_date:publicDate(row.aging_date),days_past_due:Number(row.days_past_due)}));
+      return {rows,scope:{...scope,as_of_date:publicDate(scope.as_of_date),snapshot_version:Number(scope.snapshot_version),total_count:Number(scope.total_count),limit,offset}};
+    });
+  }
+
   async listBusinessDocuments({tenantId,entityId,documentKind,periodId,limit=100,offset=0}){
     if(!['AP_BILL','AR_INVOICE'].includes(documentKind))throw new KernelError('BUSINESS_DOCUMENT_KIND_INVALID','Unsupported business document kind');
     return this.inSession(async client=>{

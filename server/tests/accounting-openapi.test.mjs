@@ -263,6 +263,14 @@ test('AP and AR aging are no-store authenticated GETs with a required as-of date
   assert.equal(contract.components.schemas.ArAgingRow.additionalProperties,false);
 });
 
+test('AP and AR counterparty aging snapshots are closed no-store summary and detail reads',()=>{
+  const summary=contract.paths['/entities/{entityId}/{subledger}/aging-summary'].get,detail=contract.paths['/entities/{entityId}/{subledger}/aging-detail'].get;
+  assert.equal(summary.operationId,'getApArAgingSnapshotSummary');assert.deepEqual(summary.parameters.slice(1).map(parameter=>[parameter.name,parameter.required]),[['subledger',true],['periodId',true],['asOf',true]]);assert.equal(summary.responses['200'].headers['Cache-Control'].schema.const,'no-store');
+  assert.equal(detail.operationId,'getApArAgingSnapshotDetail');assert.deepEqual(detail.parameters.slice(1).map(parameter=>[parameter.name,parameter.required]),[['subledger',true],['periodId',true],['asOf',true],['counterpartyRef',true],['counterpartyName',true],['currency',true],['limit',undefined],['offset',undefined]]);assert.equal(detail.responses['200'].headers['Cache-Control'].schema.const,'no-store');
+  for(const name of ['AgingSnapshotScope','AgingSnapshotSummaryRow','AgingSnapshotSummaryEnvelope','AgingSnapshotDetailScope','AgingSnapshotDetailRow','AgingSnapshotDetailEnvelope'])assert.equal(contract.components.schemas[name].additionalProperties,false,`${name} must remain closed`);
+  assert.deepEqual(contract.components.schemas.AgingSnapshotScope.properties.period_status.enum,['OPEN','SOFT_CLOSED','CLOSED']);assert.equal(contract.components.schemas.AgingSnapshotDetailRow.required.includes('posted_journal_entry_id'),true);
+});
+
 test('AP and AR control totals are no-store authenticated GETs',()=>{
   for(const [path,operationId] of [['/entities/{entityId}/ap/control-totals','getApControlTotal'],['/entities/{entityId}/ar/control-totals','getArControlTotal']]){
     const operation=contract.paths[path].get;

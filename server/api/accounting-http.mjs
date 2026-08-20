@@ -131,6 +131,8 @@ const safeAiAccrualCandidate=(value,{entityId,periodId})=>{
 const requireIsoDate=(value,name)=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER',`${name} must be an ISO calendar date`);const date=new Date(`${value}T00:00:00.000Z`);if(!Number.isFinite(date.getTime())||date.toISOString().slice(0,10)!==value)throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER',`${name} must be an ISO calendar date`);return value;};
 const optionalIsoDate=(value,name)=>value==null?null:requireIsoDate(value,name);
 const requireBankAccountRef=value=>{if(typeof value!=='string'||!value||value!==value.trim()||value.length>128||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','bankAccountRef must be a canonical trimmed value of 1-128 printable characters');return value;};
+const requireAgingPartyText=(value,name,max)=>{if(typeof value!=='string'||value!==value.trim()||!boundedText(value,max))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER',`${name} must be a canonical trimmed value of 1-${max} printable characters`);return value;};
+const requireCurrency=value=>{if(typeof value!=='string'||!/^[A-Z]{3}$/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','currency must be a three-letter uppercase currency code');return value;};
 const requireAccountCode=value=>{if(typeof value!=='string'||!/^[A-Za-z0-9._-]{1,64}$/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','accountCode must be a canonical account code of 1-64 letters, digits, dot, underscore, or hyphen');return value;};
 const optionalAccountCode=value=>value==null||value===''?null:requireAccountCode(value);
 const optionalLedgerQuery=value=>{if(value==null||value==='')return null;if(typeof value!=='string'||value!==value.trim()||value.length>160||/[\u0000-\u001f\u007f]/.test(value))throw new AccountingApiError(400,'INVALID_QUERY_PARAMETER','query must be a canonical trimmed value of 1-160 printable characters');return value;};
@@ -1333,6 +1335,22 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
           result=await (parts[4]==='ap'?kernel.getApControlTotal(args):kernel.getArControlTotal(args));
         }
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+      }
+      if(method==='GET'&&parts.length===6&&['ap','ar'].includes(parts[4])&&parts[5]==='aging-summary'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Aging snapshot reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId','asOf']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.getAgingSnapshotSummary!=='function')throw new AccountingApiError(503,'AGING_SNAPSHOT_READ_UNAVAILABLE','Aging snapshot summary is unavailable');
+        result=await kernel.getAgingSnapshotSummary({tenantId:principal.tenantId,entityId,documentKind:parts[4]==='ap'?'AP_BILL':'AR_INVOICE',periodId:requireUuid(parsedUrl.searchParams.get('periodId'),'periodId'),asOfDate:requireIsoDate(parsedUrl.searchParams.get('asOf'),'asOf')});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result.rows,scope:result.scope}};
+      }
+      if(method==='GET'&&parts.length===6&&['ap','ar'].includes(parts[4])&&parts[5]==='aging-detail'){
+        if(header(headers,'idempotency-key')!=null||header(headers,'if-match')!=null)throw new AccountingApiError(400,'READ_COMMAND_HEADERS_FORBIDDEN','Aging snapshot reads do not accept command headers');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId','asOf','counterpartyRef','counterpartyName','currency','limit','offset']);
+        const kernel=await kernelFactory(principal);if(!kernel||typeof kernel.getAgingSnapshotDetail!=='function')throw new AccountingApiError(503,'AGING_SNAPSHOT_READ_UNAVAILABLE','Aging snapshot detail is unavailable');
+        result=await kernel.getAgingSnapshotDetail({tenantId:principal.tenantId,entityId,documentKind:parts[4]==='ap'?'AP_BILL':'AR_INVOICE',periodId:requireUuid(parsedUrl.searchParams.get('periodId'),'periodId'),asOfDate:requireIsoDate(parsedUrl.searchParams.get('asOf'),'asOf'),counterpartyRef:requireAgingPartyText(parsedUrl.searchParams.get('counterpartyRef'),'counterpartyRef',128),counterpartyName:requireAgingPartyText(parsedUrl.searchParams.get('counterpartyName'),'counterpartyName',255),currency:requireCurrency(parsedUrl.searchParams.get('currency')),limit:optionalReadLimit(parsedUrl.searchParams.get('limit')),offset:optionalReadOffset(parsedUrl.searchParams.get('offset'))});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result.rows,scope:result.scope}};
       }
       if(method!=='POST')throw new AccountingApiError(405,'METHOD_NOT_ALLOWED','Only POST commands and supported GET reads are available');
       const idempotencyKey=requireIdempotency(headers);

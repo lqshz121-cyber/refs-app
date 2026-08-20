@@ -1450,6 +1450,43 @@
         }
       }
     },
+    "/entities/{entityId}/{subledger}/aging-summary": {
+      "get": {
+        "operationId": "getApArAgingSnapshotSummary",
+        "summary": "Read an exact AP or AR counterparty aging snapshot",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name":"subledger","in":"path","required":true,"schema":{"type":"string","enum":["ap","ar"]}},
+          {"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},
+          {"name":"asOf","in":"query","required":true,"schema":{"type":"string","format":"date"}}
+        ],
+        "responses": {
+          "200": {"description":"Counterparty aging snapshot","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AgingSnapshotSummaryEnvelope"}}}},
+          "default":{"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
+    "/entities/{entityId}/{subledger}/aging-detail": {
+      "get": {
+        "operationId": "getApArAgingSnapshotDetail",
+        "summary": "Read exact documents in one AP or AR counterparty aging row",
+        "parameters": [
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name":"subledger","in":"path","required":true,"schema":{"type":"string","enum":["ap","ar"]}},
+          {"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},
+          {"name":"asOf","in":"query","required":true,"schema":{"type":"string","format":"date"}},
+          {"name":"counterpartyRef","in":"query","required":true,"schema":{"type":"string","minLength":1,"maxLength":128}},
+          {"name":"counterpartyName","in":"query","required":true,"schema":{"type":"string","minLength":1,"maxLength":255}},
+          {"name":"currency","in":"query","required":true,"schema":{"type":"string","pattern":"^[A-Z]{3}$"}},
+          {"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":200,"default":100}},
+          {"name":"offset","in":"query","schema":{"type":"integer","minimum":0,"maximum":1000000,"default":0}}
+        ],
+        "responses": {
+          "200": {"description":"Counterparty aging document detail","headers":{"Cache-Control":{"schema":{"const":"no-store"}}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AgingSnapshotDetailEnvelope"}}}},
+          "default":{"$ref":"#/components/responses/Problem"}
+        }
+      }
+    },
     "/entities/{entityId}/ap/control-totals": {
       "get": {
         "operationId": "getApControlTotal",
@@ -2946,6 +2983,61 @@
             "$ref": "#/components/schemas/Money"
           }
         }
+      },
+      "AgingSnapshotScope": {
+        "type":"object","additionalProperties":false,
+        "required":["entity_id","period_id","period_start","period_end","period_status","document_kind","as_of_date","snapshot_id","snapshot_version","snapshot_hash","detail_count","counterparty_count"],
+        "properties":{
+          "entity_id":{"$ref":"#/components/schemas/Uuid"},"period_id":{"$ref":"#/components/schemas/Uuid"},
+          "period_start":{"type":"string","format":"date"},"period_end":{"type":"string","format":"date"},
+          "period_status":{"type":"string","enum":["OPEN","SOFT_CLOSED","CLOSED"]},
+          "document_kind":{"type":"string","enum":["AP_BILL","AR_INVOICE"]},"as_of_date":{"type":"string","format":"date"},
+          "snapshot_id":{"$ref":"#/components/schemas/Uuid"},"snapshot_version":{"type":"integer","const":1},
+          "snapshot_hash":{"$ref":"#/components/schemas/Sha256"},"detail_count":{"type":"integer","minimum":0},"counterparty_count":{"type":"integer","minimum":0}
+        }
+      },
+      "AgingSnapshotSummaryRow": {
+        "type":"object","additionalProperties":false,
+        "required":["counterparty_ref","counterparty_name","currency","current_amount","days_1_30","days_31_60","days_61_90","days_91_plus","total_open_balance","document_count"],
+        "properties":{
+          "counterparty_ref":{"type":"string","minLength":1,"maxLength":128},"counterparty_name":{"type":"string","minLength":1,"maxLength":255},
+          "currency":{"type":"string","pattern":"^[A-Z]{3}$"},"current_amount":{"$ref":"#/components/schemas/Money"},
+          "days_1_30":{"$ref":"#/components/schemas/Money"},"days_31_60":{"$ref":"#/components/schemas/Money"},
+          "days_61_90":{"$ref":"#/components/schemas/Money"},"days_91_plus":{"$ref":"#/components/schemas/Money"},
+          "total_open_balance":{"$ref":"#/components/schemas/Money"},"document_count":{"type":"integer","minimum":1}
+        }
+      },
+      "AgingSnapshotSummaryEnvelope": {
+        "type":"object","additionalProperties":false,"required":["ok","data","scope"],
+        "properties":{"ok":{"const":true},"data":{"type":"array","items":{"$ref":"#/components/schemas/AgingSnapshotSummaryRow"}},"scope":{"$ref":"#/components/schemas/AgingSnapshotScope"}}
+      },
+      "AgingSnapshotDetailScope": {
+        "type":"object","additionalProperties":false,
+        "required":["entity_id","period_id","document_kind","as_of_date","snapshot_id","snapshot_version","snapshot_hash","counterparty_ref","counterparty_name","currency","total_count","limit","offset"],
+        "properties":{
+          "entity_id":{"$ref":"#/components/schemas/Uuid"},"period_id":{"$ref":"#/components/schemas/Uuid"},"document_kind":{"type":"string","enum":["AP_BILL","AR_INVOICE"]},
+          "as_of_date":{"type":"string","format":"date"},"snapshot_id":{"$ref":"#/components/schemas/Uuid"},"snapshot_version":{"type":"integer","const":1},
+          "snapshot_hash":{"$ref":"#/components/schemas/Sha256"},"counterparty_ref":{"type":"string","minLength":1,"maxLength":128},
+          "counterparty_name":{"type":"string","minLength":1,"maxLength":255},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},
+          "total_count":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":200},"offset":{"type":"integer","minimum":0,"maximum":1000000}
+        }
+      },
+      "AgingSnapshotDetailRow": {
+        "type":"object","additionalProperties":false,
+        "required":["business_document_id","document_revision","document_number","counterparty_ref","counterparty_name","currency","accounting_date","due_date","aging_date","days_past_due","aging_bucket","gross_amount","open_balance","source_document_id","source_payload_hash","posted_journal_entry_id","posted_journal_revision"],
+        "properties":{
+          "business_document_id":{"$ref":"#/components/schemas/Uuid"},"document_revision":{"type":"integer","minimum":0},"document_number":{"type":"string","minLength":1,"maxLength":128},
+          "counterparty_ref":{"type":"string","minLength":1,"maxLength":128},"counterparty_name":{"type":"string","minLength":1,"maxLength":255},"currency":{"type":"string","pattern":"^[A-Z]{3}$"},
+          "accounting_date":{"type":"string","format":"date"},"due_date":{"oneOf":[{"type":"string","format":"date"},{"type":"null"}]},"aging_date":{"type":"string","format":"date"},
+          "days_past_due":{"type":"integer","minimum":0},"aging_bucket":{"type":"string","enum":["CURRENT","DAYS_1_30","DAYS_31_60","DAYS_61_90","DAYS_91_PLUS"]},
+          "gross_amount":{"$ref":"#/components/schemas/Money"},"open_balance":{"$ref":"#/components/schemas/Money"},
+          "source_document_id":{"oneOf":[{"$ref":"#/components/schemas/Uuid"},{"type":"null"}]},"source_payload_hash":{"oneOf":[{"$ref":"#/components/schemas/Sha256"},{"type":"null"}]},
+          "posted_journal_entry_id":{"$ref":"#/components/schemas/Uuid"},"posted_journal_revision":{"type":"integer","minimum":0}
+        }
+      },
+      "AgingSnapshotDetailEnvelope": {
+        "type":"object","additionalProperties":false,"required":["ok","data","scope"],
+        "properties":{"ok":{"const":true},"data":{"type":"array","maxItems":200,"items":{"$ref":"#/components/schemas/AgingSnapshotDetailRow"}},"scope":{"$ref":"#/components/schemas/AgingSnapshotDetailScope"}}
       },
       "BusinessDocumentReadRow": {
         "type": "object",

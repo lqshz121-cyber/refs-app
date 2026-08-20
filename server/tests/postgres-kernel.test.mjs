@@ -3155,6 +3155,11 @@ pgTest('AP payment and reversal keep aging and the 291001 control balance in loc
   await assert.rejects(reader.getArControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),error=>error.code==='42501');
   assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'60.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'60.0000'}]);
   assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'60.0000',control_balance:'60.0000',in_balance:true}]);
+  const julySnapshot=await reader.getAgingSnapshotSummary({tenantId:ids.tenantId,entityId:ids.entityId,documentKind:'AP_BILL',periodId:ids.periodId,asOfDate:'2026-07-31'});
+  assert.deepEqual(julySnapshot.rows,[{counterparty_ref:'VENDOR-1',counterparty_name:'Vendor',currency:'USD',current_amount:'0.0000',days_1_30:'60.0000',days_31_60:'0.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'60.0000',document_count:'1'}]);
+  assert.equal(julySnapshot.scope.detail_count,1);assert.equal(julySnapshot.scope.counterparty_count,1);assert.match(julySnapshot.scope.snapshot_hash,/^sha256:[0-9a-f]{64}$/);
+  const julyDetail=await reader.getAgingSnapshotDetail({tenantId:ids.tenantId,entityId:ids.entityId,documentKind:'AP_BILL',periodId:ids.periodId,asOfDate:'2026-07-31',counterpartyRef:'VENDOR-1',counterpartyName:'Vendor',currency:'USD',limit:25,offset:0});
+  assert.equal(julyDetail.rows.length,1);assert.equal(julyDetail.rows[0].business_document_id,billId);assert.equal(julyDetail.rows[0].open_balance,'60.0000');assert.equal(julyDetail.scope.snapshot_id,julySnapshot.scope.snapshot_id);assert.equal(julyDetail.scope.snapshot_hash,julySnapshot.scope.snapshot_hash);
   const closer=new PostgresAccountingKernel(runtimePool,{sessionProvider:()=>trustedSession(ids,'ap-aging-period-closer',['GL.PERIOD.CLOSE'])});
   await closer.closePeriod({...ids,expectedVersion:0,idempotencyKey:'ap-aging-period-close'});
   const augustPeriod=randomUUID();await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-08','2026-08-01','2026-08-31','OPEN')",[augustPeriod,ids.tenantId,ids.entityId]);
@@ -3166,6 +3171,9 @@ pgTest('AP payment and reversal keep aging and the 291001 control balance in loc
   await poster.postJournal({...ids,journalEntryId:reversal.journal_entry_id,periodId:augustPeriod,expectedRevision:3,idempotencyKey:'aging-payment-reversal-post'});
   assert.deepEqual(await reader.getApAging({tenantId:ids.tenantId,entityId:ids.entityId,asOfDate:'2026-08-31'}),[{currency:'USD',current_amount:'0.0000',days_1_30:'0.0000',days_31_60:'100.0000',days_61_90:'0.0000',days_91_plus:'0.0000',total_open_balance:'100.0000'}]);
   assert.deepEqual(await reader.getApControlTotal({tenantId:ids.tenantId,entityId:ids.entityId}),[{currency:'USD',open_balance:'100.0000',control_balance:'100.0000',in_balance:true}]);
+  const retainedJuly=await reader.getAgingSnapshotSummary({tenantId:ids.tenantId,entityId:ids.entityId,documentKind:'AP_BILL',periodId:ids.periodId,asOfDate:'2026-07-31'}),augustSnapshot=await reader.getAgingSnapshotSummary({tenantId:ids.tenantId,entityId:ids.entityId,documentKind:'AP_BILL',periodId:augustPeriod,asOfDate:'2026-08-31'});
+  assert.equal(retainedJuly.rows[0].total_open_balance,'60.0000','an August reversal must not rewrite the July historical snapshot');assert.equal(retainedJuly.scope.snapshot_hash,julySnapshot.scope.snapshot_hash);
+  assert.equal(augustSnapshot.rows[0].total_open_balance,'100.0000');assert.notEqual(augustSnapshot.scope.snapshot_hash,julySnapshot.scope.snapshot_hash);
 });
 
 pgTest('AP vendor credit posted first then partial and full apply updates bill atomically',async()=>{

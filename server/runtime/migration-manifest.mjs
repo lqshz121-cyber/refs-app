@@ -258,4 +258,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"250_wbs_test_bank_checkpoint_integrity.sql",up:"511e16c51dd66b551931f486c469848b1583fcf40af3a86190cfb9130fc836fe",down:"090fca4c184baae06dfe2e8aa47c803c0ab762dd24f87cd46a667dad0f0addcc"}),
   Object.freeze({name:"251_wbs_ai_approved_entity_period_settings_read.sql",up:"72a527ec674ed48a6a0afe43415c48d6f87d147344681a3e737c798a7dd1fe56",down:"fb6ead9a644ed366dd7fe2b1a35ede113ab7912b5f953812fd5ccb936f4d39e9"}),
   Object.freeze({name:"252_authoritative_document_journal_period_scope.sql",up:"e3da531b581eea4baa40218c3edb03357364f6937afe03303f3443e4090530d4",down:"4027fcd1c389081ee051d26abe3f4cac767b3de8225602c2772eb51228f5ae86"}),
+  Object.freeze({name:"253_ap_ar_aging_snapshot_read.sql",up:"78f7d82e3e7d8963815947af487594ffccb01e77f64c49df9299e00a8ac828e0",down:"c0c11badaab8e28421078992060c8b093bdc865c8a5858ec24512237e67c59b4"}),
 ]);
