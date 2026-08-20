@@ -139,6 +139,8 @@ async function main(){
   assert.match(workspace,/View details/,'statement rows must use the same concise detail action in preview and full-report views');
   assert.doesNotMatch(workspace,/accounts in retained evidence|Open full report/,'the first-screen report presentation must not expose internal evidence language');
   assert.doesNotMatch(workspace,/Exact retained (?:Property|Project|Unit|Lot) dimension on POSTED ledger lines|Approved (?:CWIP|loan|prepaid) mappings and POSTED ledger movement|Approved immutable budget snapshot versus POSTED actual/,'property-report shortcuts must not expose implementation language');
+  assert.match(workspace,/Retained entity, period, dimension, and classification\.[\s\S]*?<span className="badge badge-muted">READ ONLY<\/span>/,'dimension detail must use the shared concise read-only scope language');
+  assert.doesNotMatch(workspace,/The API returned this immutable entity, period, dimension, and classification boundary|>API GET</,'dimension detail must not expose transport implementation language');
   assert.match(workspace,/onClick=\{\(\)=>openFullStatement\(focusId,key\)\}/,'a core report shortcut must replace the catalog with the existing full-page report in one click');
   assert.match(workspace,/report=\{selected\.returnContext\.report\} rows=\{selected\.rows\}/,'a one-click report must render the rows frozen for that exact selected report, not the previous preview rows');
   assert.doesNotMatch(workspace,/aria-label="Financial statements"/,'the report preview must not repeat Favorites as a second statement tab row');
