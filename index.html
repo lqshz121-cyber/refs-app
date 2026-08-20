@@ -705,6 +705,12 @@ input,select,textarea{
 }
 .qbo-report-back>button:hover{background:var(--qb-canvas); border-color:var(--qb-accent);}
 .qbo-report-back>span{min-width:0; color:var(--qb-text-muted); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.authoritative-return-context{min-width:0;color:var(--qb-text-muted);font-size:13px;}
+.authoritative-return-context>summary{cursor:pointer;list-style:none;white-space:nowrap;}
+.authoritative-return-context>summary::-webkit-details-marker{display:none;}
+.authoritative-return-context>summary:after{content:' +';color:var(--qb-accent);font-weight:700;}
+.authoritative-return-context[open]>summary:after{content:' −';}
+.authoritative-return-context>span{display:block;margin-top:6px;line-height:1.45;white-space:normal;}
 
 
 /* ============================ 4. BUTTONS ================================= */

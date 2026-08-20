@@ -88,6 +88,8 @@ assert.match(arWorkspaceMarkup,/1 invoices \| 0 adjustments/,'a stale AP-only ac
 
 const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);
+assert.match(detail,/<details class="authoritative-return-context"><summary>List filters retained<\/summary>/,
+  'the exact list return scope must remain available without forcing a long filter string into the Back row');
 assert.match(detail,/Configured entity/);
 assert.match(detail,/title="Entity ID: 11111111-1111-4111-8111-111111111111"/,'the full entity identifier remains an audit tooltip, not visible page text');
 assert.match(detail,/Configured period/);
@@ -99,7 +101,7 @@ assert.match(detail,/vendor Evidence Vendor/);
 assert.match(detail,/category 610000/);
 assert.match(detail,/transaction type ALL/);
 assert.match(detail,/page 2/);
-assert.match(detail,/cannot create, edit, approve, pay, allocate, post, print, export, or synchronize/);
+assert.match(detail,/Read-only retained evidence\. Document actions are unavailable here\./);
 assert.match(detail,/class="authoritative-document-detail-summary"/,'full-page AP/AR evidence must elevate retained counterparty, amount, balance, and due-date facts');
 assert.match(detail,/Original amount/);
 assert.doesNotMatch(detail,/<input|<select|>Approve<|>Post<|>Pay</i);
@@ -167,6 +169,8 @@ assert.match(styles,/\.authoritative-document-workspace,.authoritative-document-
 assert.match(styles,/\.authoritative-document-table \.tbl\{min-width:980px;table-layout:fixed;\}/,'wide AP/AR evidence tables must reserve semantic columns inside their own scroll region');
 assert.match(styles,/\.authoritative-adjustment-table \.tbl\{min-width:760px;table-layout:fixed;\}/,'six-column adjustment evidence must retain readable columns in its own contained scroller');
 assert.match(styles,/\.authoritative-document-detail-table \.tbl\{min-width:720px;table-layout:fixed;\}/,'four-column detail facts must retain readable columns without overflowing the page');
+assert.match(styles,/\.authoritative-return-context>summary\{cursor:pointer;list-style:none;white-space:nowrap;\}/,
+  'the exact return scope must use a compact, keyboard-native disclosure');
 assert.match(styles,/\.authoritative-document-summary>span\{position:relative;min-height:116px/,'summary cards must retain a stable visual hierarchy');
 assert.match(styles,/\.authoritative-expense-page-head\{margin-bottom:8px;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;\}/,'Expenses must use the observed compact QBO heading rather than a large decorative hero card');
 assert.match(styles,/\.authoritative-expense-page-head \.page-h\{font-size:24px;line-height:1\.1;font-weight:500;\}/,'Expenses heading must retain the observed compact QBO scale');
