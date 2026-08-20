@@ -22,7 +22,8 @@ const namedBankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={
 assert.match(namedBankInitial,/Wan Pacific Real Estate Development LLC/);assert.doesNotMatch(namedBankInitial,/Entity 11111111-1111-4111-8111-111111111111/);
 
 const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
-assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/One authoritative statement cutoff/);
+assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/Review one retained statement/);
+assert.match(reconciliationInitial,/Selecting a retained statement fills the account and cutoff\. No lifecycle action runs\./);assert.doesNotMatch(reconciliationInitial,/The API rejects missing or cross-scope statement evidence/);
 assert.match(reconciliationInitial,/Available reconciliation scopes/);assert.match(reconciliationInitial,/Discovering reconciliation scopes/);assert.match(reconciliationInitial,/READ ONLY/);
 assert.match(reconciliationInitial,/Signed admitted statements/);assert.match(reconciliationInitial,/SIGNED \+ ADMITTED/);assert.match(reconciliationInitial,/separate from UNSIGNED PILOT/);assert.match(reconciliationInitial,/Load signed statements/);
 const admittedInitial=renderToStaticMarkup(<AuthoritativeAdmittedStatements config={config} bankAccountRef="BANK-1" fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
@@ -57,6 +58,7 @@ const emptyReconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSumma
 
 const reconciliationDetail=renderToStaticMarkup(<AuthoritativeReconciliationDetail row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(reconciliationDetail,/Back to reconciliation evidence/);assert.match(reconciliationDetail,/Statement ending 2026-07-31/);assert.match(reconciliationDetail,/\$1,000\.00/);assert.match(reconciliationDetail,/Configured entity/);
+assert.match(reconciliationDetail,/Commands require server-returned evidence and separate authorization/);assert.doesNotMatch(reconciliationDetail,/Scope: Configured entity|independent workflow approval and posting remain outside this screen/);
 assert.match(reconciliationDetail,/full-bleed qbo-transaction-report/);assert.match(reconciliationDetail,/Reconciled by/);
 assert.match(reconciliationDetail,/Load reconciliation worksheet/);assert.match(reconciliationDetail,/CONTROLLER REVIEW/);
 assert.match(reconciliationDetail,/AUTHORITATIVE STATEMENT WORKSHEET/);assert.match(reconciliationDetail,/Reconciliation lifecycle/);assert.match(reconciliationDetail,/Authoritative evidence scope/);

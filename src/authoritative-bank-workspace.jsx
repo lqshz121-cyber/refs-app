@@ -173,13 +173,12 @@ export const AuthoritativeBankDetail=({row,scope,onBack,config,fetcher,onMatchCh
 };
 
 export const AuthoritativeReconciliationSummary=({row=null,scope=null,readAt=null,onOpen=()=>{}})=><section className="report-workbench recon-summary authoritative-reconciliation-summary" aria-label="Authoritative reconciliation evidence">
-  <div className="card-head"><div><p className="eyebrow">STATEMENT → REVIEW → SIGN-OFF</p><h2>Reconciliation statement</h2><p className="muted sm">Statement-scoped evidence only. This page cannot match, clear, reopen, sign off, or post.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+  <div className="card-head"><div><p className="eyebrow">STATEMENT → REVIEW → SIGN-OFF</p><h2>Reconciliation statement</h2><p className="muted sm">Statement-scoped evidence only; no action runs from this summary.</p></div><span className="badge badge-muted">READ ONLY</span></div>
   {!row?<StateBlock tone="blocked" title="Reconciliation evidence blocked">BLOCKED — The accounting API returned no authorized reconciliation statement for this account and cutoff. Reconciliation controls are unavailable until retained statement evidence is returned. This scoped result is not evidence of zero statement activity, zero difference, review, or sign-off.</StateBlock>:<>
-  <ScopeStrip items={[{label:'Entity',value:scope?.entityLabel||'Configured entity'},{label:'Bank account',value:row.bank_account_ref},{label:'Statement cutoff',value:row.statement_ending_date},{label:'Statement version',value:`v${row.version}`}]}/>
+  <ScopeStrip items={[{label:'Entity',value:scope?.entityLabel||'Configured entity'},{label:'Bank account',value:row.bank_account_ref},{label:'Statement cutoff',value:row.statement_ending_date},{label:'Statement version',value:`v${row.version}`},{label:'Status',value:row.status}]}/>
     <BankReadMetadata count={1} readAt={readAt} subject="Reconciliation statements"/>
     <ReconciliationLifecycle status={row.status}/>
     <div className="recon-summary-grid"><span className="recon-summary-cell"><i>Statement ending</i><b>{money(row.statement_ending_balance)}</b></span><span className="recon-summary-cell"><i>Statement activity</i><b>{money(row.statement_activity_amount)}</b></span><span className="recon-summary-cell"><i>Difference</i><b>{money(row.difference)}</b></span><span className="recon-summary-cell"><i>Bank transactions</i><b>{row.bank_transaction_count}</b></span><span className="recon-summary-cell"><i>Active matches</i><b>{row.active_match_count}</b></span><span className="recon-summary-cell"><i>Unmatched</i><b>{row.unmatched_transaction_count}</b></span></div>
-    <p className="muted sm">Status {row.status} · statement revision {row.version}. These facts are returned by the authoritative API and do not imply a reconciliation action.</p>
     <button id={`authoritative-reconciliation-${row.reconciliation_id}`} type="button" className="btn btn-sm" onClick={()=>onOpen(row,`authoritative-reconciliation-${row.reconciliation_id}`)}>Open statement detail</button>
   </>}
 </section>;
@@ -229,8 +228,8 @@ export function AuthoritativeReconciliationDetail({row,scope,onBack,config,fetch
   const runTransition=async()=>{if(!transition||!reasonReady)return;setTransitionState({phase:'COMMANDING',error:null});const result=await transitionAuthoritativeReconciliation({config,reconciliationId:row.reconciliation_id,revision:row.version,action:transition.action,reason,fetcher});if(result.ok){onChanged();return;}setTransitionState({phase:'READY',error:result});};
   const commandInFlight=worksheet.phase==='COMMANDING'||transitionState.phase==='COMMANDING';
   return <section className="full-bleed qbo-transaction-report" aria-label="Reconciliation statement detail">
-  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to reconciliation evidence</button><p className="eyebrow">AUTHORITATIVE STATEMENT WORKSHEET</p><h1>Statement ending {row.statement_ending_date}</h1><p className="muted sm">The worksheet is authoritative evidence. A controller may clear or unclear only a server-returned bank line; review, sign-off, and reopen are separately audited commands. An adjustment may create only a Draft Journal Entry; independent workflow approval and posting remain outside this screen.</p></div><span className="badge badge-muted">CONTROLLER REVIEW</span></div>
-  <ScopeStrip items={[{label:'Entity',value:scope.entityId},{label:'Bank account',value:row.bank_account_ref},{label:'Cutoff',value:row.statement_ending_date},{label:'Statement version',value:`v${row.version}`}]}/>
+  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to reconciliation evidence</button><p className="eyebrow">AUTHORITATIVE STATEMENT WORKSHEET</p><h1>Statement ending {row.statement_ending_date}</h1><p className="muted sm">Review the exact worksheet. Commands require server-returned evidence and separate authorization.</p></div><span className="badge badge-muted">CONTROLLER REVIEW</span></div>
+  <ScopeStrip items={[{label:'Entity',value:scope.entityLabel||'Configured entity'},{label:'Bank account',value:row.bank_account_ref},{label:'Cutoff',value:row.statement_ending_date},{label:'Statement version',value:`v${row.version}`}]}/>
   <ReconciliationLifecycle status={row.status}/>
   <div className="qbo-toolgrid">
     <span><i>Bank account</i><b>{row.bank_account_ref}</b></span><span><i>Status</i><b>{row.status}</b></span><span><i>Ending balance</i><b>{money(row.statement_ending_balance)}</b></span>
@@ -261,7 +260,6 @@ export function AuthoritativeReconciliationDetail({row,scope,onBack,config,fetch
     <div className="table-wrap" role="region" tabIndex={0} aria-label="Posted adjustment clearance evidence; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Bank evidence</th><th>Posted Journal Entry</th><th>Clearance</th><th>Action</th></tr></thead><tbody>{worksheet.rows.filter(hasPostedAdjustmentEvidence).map(item=><tr key={`adjustment-clearance-${item.bank_source_id}`}><td><b>{item.external_bank_line_id}</b><div className="muted sm">{item.bank_source_id}</div></td><td>{item.adjustment_journal_entry_id}<div className="muted sm">POSTED · v{item.adjustment_journal_version}</div></td><td>{item.clearance_state}</td><td><button type="button" className="btn btn-sm" disabled={commandInFlight||!reasonReady||!canChangeItems} onClick={()=>setAdjustmentClearance(item,item.clearance_state!=='CLEARED')}>{item.clearance_state==='CLEARED'?'Unclear posted adjustment':'Clear posted adjustment'}</button></td></tr>)}</tbody></table></div>
     {!reasonReady&&<p className="muted sm">Enter the controller reason above before changing posted adjustment clearance.</p>}
   </section>}
-  <p className="muted sm">Scope: {scope.entityLabel||'Configured entity'}; account {scope.bankAccountRef}; statement cutoff {scope.statementEndingDate}.</p>
 </section>;
 }
 
@@ -320,8 +318,8 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     restoreAuthoritativeReturnContext(environment,config,context);
   };
   if(selected)return <AuthoritativeReconciliationDetail row={selected.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} onBack={closeEvidence} config={config} fetcher={fetcher} onChanged={()=>load(null,{preserveDetail:true})}/>;
-  return <AuthoritativeWorkspaceView area="Reconciliation evidence" className="stack authoritative-reconciliation-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING | RECONCILIATION" title="Reconciliation evidence" description="One authoritative statement cutoff for one entity and bank account. Lifecycle commands are controller-gated, revision-bound, idempotent, and audited by the accounting API."/>
-    <section className="report-workbench authoritative-reconciliation-scope-picker" aria-label="Available reconciliation scopes"><div className="report-workbench-head"><div><b>Available reconciliation scopes</b><div className="page-subtitle">Existing entity-scoped statements returned by the accounting API. Selecting one fills the exact account and cutoff; it does not execute a lifecycle command.</div></div><span className="badge badge-muted">READ ONLY</span></div>
+  return <AuthoritativeWorkspaceView area="Reconciliation evidence" className="stack authoritative-reconciliation-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING | RECONCILIATION" title="Reconciliation evidence" description="Review one retained statement for one entity and bank account."/>
+    <section className="report-workbench authoritative-reconciliation-scope-picker" aria-label="Available reconciliation scopes"><div className="report-workbench-head"><div><b>Available reconciliation scopes</b><div className="page-subtitle">Selecting a retained statement fills the account and cutoff. No lifecycle action runs.</div></div><span className="badge badge-muted">READ ONLY</span></div>
       {scopeDiscovery.phase==='LOADING'&&<StateBlock tone="loading">Discovering reconciliation scopes...</StateBlock>}
       {scopeDiscovery.phase==='ERROR'&&<BankReadFailure error={scopeDiscovery.error} onRetry={loadScopes} subject="reconciliation scopes"/>}
       {scopeDiscovery.phase==='READY'&&!scopeDiscovery.rows.length&&<StateBlock tone="empty" title="No existing reconciliation scopes">No Draft, review, reopened, or signed reconciliation exists for this entity yet. A signed admitted statement may still be selected below.</StateBlock>}
@@ -332,7 +330,6 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
       <label>Statement ending date<input required type="date" value={scope.statementEndingDate} onChange={event=>setScope(current=>({...current,statementEndingDate:event.target.value}))}/></label>
       <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Load statement</button>
     </form>
-    <p className="muted sm">{entityLabel(config)}. The API rejects missing or cross-scope statement evidence.</p>
     <AuthoritativeAdmittedStatements config={config} bankAccountRef={scope.bankAccountRef} fetcher={fetcher} onStarted={handleAdmittedStarted}/>
     {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and statement ending date to read reconciliation evidence.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative reconciliation evidence...</StateBlock>}
