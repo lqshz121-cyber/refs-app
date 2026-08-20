@@ -48,11 +48,15 @@ export function createControlledTestBankMatchService({kernelForActor,authorize,s
       ||typeof idempotencyKey!=='string'||idempotencyKey.length<8||idempotencyKey.length>160)fail('CONTROLLED_TEST_BANK_MATCH_SELECTION_INVALID','Controlled test Bank Match requires its fixed entity, a review reason, and a stable request identity.');
     await authorize({tenantId,entityId});
     const kernels=Object.fromEntries(ACTOR_ROLES.map(role=>[role,kernelForActor(actors[role])]));
-    const required={importer:['resolveWbsTestBankMatchFixture','listBankMatchCandidates','createBankPaymentMatch'],maker:['createApPayment','bindWbsTestBankMatchPaymentSource'],submitter:['transitionJournal'],reviewer:['transitionJournal'],approver:['transitionJournal'],poster:['postJournal']};
+    const required={importer:['resolveWbsTestBankMatchFixture','listBankMatchCandidates','createBankPaymentMatch'],maker:['proposeWbsTestBankMatchConfig','createApPayment','bindWbsTestBankMatchPaymentSource'],submitter:['transitionJournal'],reviewer:['approveWbsTestBankMatchConfig','transitionJournal'],approver:['transitionJournal'],poster:['postJournal']};
     for(const role of ACTOR_ROLES)if(!kernels[role]||required[role].some(method=>typeof kernels[role][method]!=='function'))fail('CONTROLLED_TEST_BANK_MATCH_CONFIG_INVALID',`Controlled test Bank Match ${role} kernel is unavailable.`);
     const fixture=assertFixture(await kernels.importer.resolveWbsTestBankMatchFixture({tenantId,entityId}));
     const commandKey=`wbs-test-bank-match:${fixture.bank_source_id}`;
     const markedReason=`TEST_ONLY ${reason}`;
+    const proposed=await kernels.maker.proposeWbsTestBankMatchConfig({tenantId,entityId});
+    if(!proposed||!exactId(proposed.setting_snapshot_id)||!exactId(proposed.mapping_snapshot_id)||!['DRAFT','APPROVED'].includes(proposed.status)||typeof proposed.idempotent!=='boolean')fail('CONTROLLED_TEST_BANK_MATCH_CONFIG_INVALID','Controlled test Bank Match configuration proposal is incomplete or unsafe.');
+    const config=await kernels.reviewer.approveWbsTestBankMatchConfig({tenantId,entityId,settingSnapshotId:proposed.setting_snapshot_id,mappingSnapshotId:proposed.mapping_snapshot_id});
+    if(!config||config.setting_snapshot_id!==proposed.setting_snapshot_id||config.mapping_snapshot_id!==proposed.mapping_snapshot_id||config.status!=='APPROVED'||typeof config.idempotent!=='boolean')fail('CONTROLLED_TEST_BANK_MATCH_CONFIG_INVALID','Controlled test Bank Match configuration approval is incomplete or unsafe.');
     const payment=await kernels.maker.createApPayment({tenantId,entityId,businessDocumentId:fixture.business_document_id,periodId:fixture.period_id,
       paymentNumber:paymentNumber(commandKey),paymentDate:fixture.transaction_date,cashAccountCode:scope.cashAccountCode,bankMemberRef:fixture.bank_account_ref,
       amount:fixture.payment_amount,reason:markedReason,idempotencyKey:`${commandKey}:payment`});

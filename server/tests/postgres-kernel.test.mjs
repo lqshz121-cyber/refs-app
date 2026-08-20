@@ -3484,17 +3484,11 @@ pgTest('reconciliation rejects mixed currencies and non-posted hand-made match e
   await assert.rejects(clearer.setReconciliationClearance({...ids,reconciliationId:started.reconciliation_id,bankSourceId,expectedReconciliationVersion:0,expectedBankVersion:0,clear:true,reason:'Hand-made active match must not clear',idempotencyKey:'reconciliation-fake-clear-001'}),error=>error.code==='23514'&&/exact actively matched/i.test(error.message));
 });
 
-pgTest('192 isolated WBS TEST_ONLY Bank Match accepts the period-scoped Stage1 Payable, ignores a larger cross-period Payable, posts one exact payment, links GL, and replays with zero delta',async()=>{
+pgTest('193 isolated WBS TEST_ONLY Bank Match independently approves exact config, accepts the period-scoped Stage1 Payable, posts one payment, links GL, and replays',async()=>{
   const ids=await seed({status:'DRAFT',attachmentStatus:null,extraMembers:[{memberRef:'WBS_TEST_BANK',memberType:'BANK',displayName:'Legacy WBS test Bank'}]});
   await adminPool.query("UPDATE entity SET source_system='REFS_STAGE1' WHERE tenant_id=$1 AND entity_id=$2",[ids.tenantId,ids.entityId]);
   const batchIds=[randomUUID(),randomUUID()],rawIds=[randomUUID(),randomUUID()],sourceIds=[randomUUID(),randomUUID()],billId=randomUUID(),bankSourceId=randomUUID();
   const decoyPeriodId=randomUUID(),decoyBatchId=randomUUID(),decoyRawId=randomUUID(),decoySourceId=randomUUID(),decoyBillId=randomUUID();
-  const settingId=randomUUID(),mappingId=randomUUID(),inputKeyHash=hash('wbs-test-bank-match-mapping');
-  const configHashes=(await adminPool.query("SELECT refs_jsonb_hash('{}'::jsonb) setting_hash,refs_jsonb_hash(jsonb_build_object('input_keys','{}'::jsonb,'output_rules','{}'::jsonb)) mapping_hash")).rows[0];
-  await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
-    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,1,'2026-01-01','APPROVED','{}',$4,'fixture-setting-maker','fixture-setting-approver',now())`,[settingId,ids.tenantId,ids.entityId,configHashes.setting_hash]);
-  await adminPool.query(`INSERT INTO mapping_snapshot(mapping_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,input_key_hash,version,priority,effective_from,status,input_keys,output_rules,snapshot_hash,created_by,approved_by,approved_at)
-    VALUES($1,$2,$3::uuid,'BANK','ENTITY',$3::text,$4,1,0,'2026-01-01','APPROVED','{}','{}',$5,'fixture-mapping-maker','fixture-mapping-approver',now())`,[mappingId,ids.tenantId,ids.entityId,inputKeyHash,configHashes.mapping_hash]);
   await adminPool.query(`INSERT INTO import_batch(import_batch_id,tenant_id,entity_id,connector_code,source_module,source_entity_id,idempotency_key,request_hash,status,row_count,started_at,completed_at)
     VALUES($1,$3,$4,'WBS_TEST','payable',$5,'match-payable-fixture',$6,'SUCCEEDED',1,now(),now()),($2,$3,$4,'WBS_TEST','bankFeed',$5,'match-bank-fixture',$7,'SUCCEEDED',1,now(),now())`,[...batchIds,ids.tenantId,ids.entityId,ids.sourceEntityId,hash('match-payable-batch'),hash('match-bank-batch')]);
   await adminPool.query(`INSERT INTO raw_event(raw_event_id,tenant_id,entity_id,import_batch_id,source_system,source_module,source_entity_id,source_record_id,source_version,event_type,occurred_at,payload_hash,payload_ref,correlation_id)
@@ -3515,7 +3509,13 @@ pgTest('192 isolated WBS TEST_ONLY Bank Match accepts the period-scoped Stage1 P
   await adminPool.query(`INSERT INTO bank_source(bank_source_id,tenant_id,entity_id,source_document_id,bank_account_ref,external_bank_line_id,transaction_date,currency,amount)
     VALUES($1,$2,$3,$4,'WBS_TEST_BANK','WBS-TEST-MATCH-LEGACY','2026-07-01','USD',-40)`,[bankSourceId,ids.tenantId,ids.entityId,sourceIds[1]]);
   const actors={importer:'wbs-match-importer',maker:'wbs-match-maker',submitter:'wbs-match-submitter',reviewer:'wbs-match-reviewer',approver:'wbs-match-approver',poster:'wbs-match-poster'};
-  const permissions={importer:['WBS.TEST.IMPORT','BANK.VIEW','AP.VIEW','BANK.MATCH.CREATE'],maker:['WBS.TEST.IMPORT','AP.PAYMENT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']};
+  const permissions={importer:['WBS.TEST.IMPORT','BANK.VIEW','AP.VIEW','BANK.MATCH.CREATE'],maker:['WBS.TEST.IMPORT','AP.PAYMENT.CREATE'],submitter:['GL.JE.SUBMIT'],reviewer:['GL.JE.REVIEW','BANK.RECONCILIATION.REVIEW'],approver:['GL.JE.APPROVE'],poster:['GL.JE.POST']};
+  const makerWithReview=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actors.maker,[...permissions.maker,...permissions.reviewer])});
+  const proposed=await makerWithReview.proposeWbsTestBankMatchConfig({tenantId:ids.tenantId,entityId:ids.entityId});
+  await assert.rejects(makerWithReview.approveWbsTestBankMatchConfig({tenantId:ids.tenantId,entityId:ids.entityId,settingSnapshotId:proposed.setting_snapshot_id,mappingSnapshotId:proposed.mapping_snapshot_id}),error=>error.code==='23514'&&/approval evidence/i.test(error.message));
+  const commandKey=`wbs-test-bank-match:${bankSourceId}`,partial=await makerWithReview.createApPayment({tenantId:ids.tenantId,entityId:ids.entityId,businessDocumentId:billId,periodId:ids.periodId,
+    paymentNumber:`WBS-MATCH-${createHash('sha256').update(commandKey,'utf8').digest('hex').slice(0,32)}`,paymentDate:'2026-07-01',cashAccountCode:'111000',bankMemberRef:'WBS_TEST_BANK',amount:'40.0000',reason:'TEST_ONLY Prove one isolated WBS TEST_ONLY posted-payment Bank Match',idempotencyKey:`${commandKey}:payment`});
+  assert.deepEqual((await adminPool.query('SELECT status,source_document_id FROM payment_occurrence WHERE payment_occurrence_id=$1',[partial.payment_occurrence_id])).rows,[{status:'DRAFT',source_document_id:null}]);
   const service=createControlledTestBankMatchService({scope:{tenantId:ids.tenantId,entityId:ids.entityId,bankAccountRef:'WBS_TEST_BANK',cashAccountCode:'111000',actors},authorize:async()=>{},kernelForActor:actorId=>{const role=Object.entries(actors).find(([,value])=>value===actorId)[0];return new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,actorId,permissions[role])});}});
   const input={tenantId:ids.tenantId,entityId:ids.entityId,reason:'Prove one isolated WBS TEST_ONLY posted-payment Bank Match',idempotencyKey:'wbs-test-bank-match-pg-001'};
   const first=await service.run(input),replay=await service.run(input);
@@ -3533,6 +3533,12 @@ pgTest('192 isolated WBS TEST_ONLY Bank Match accepts the period-scoped Stage1 P
   assert.deepEqual(sourceEvidence,[{staging_count:1,rule_count:1,source_link_count:1,payment_source_document_id:sourceIds[0],bind_audit_count:1}]);
   assert.equal((await adminPool.query("SELECT count(*)::int n FROM reconciliation WHERE tenant_id=$1 AND entity_id=$2 AND bank_account_ref LIKE 'WBS_TEST_BANK_2026_%'",[ids.tenantId,ids.entityId])).rows[0].n,0);
   assert.equal((await adminPool.query('SELECT count(*)::int n FROM bank_match WHERE tenant_id=$1 AND entity_id=$2',[ids.tenantId,ids.entityId])).rows[0].n,1);
+  const configEvidence=(await adminPool.query(`SELECT
+      (SELECT count(*)::int FROM setting_snapshot WHERE tenant_id=$1 AND entity_id=$2 AND family='BANK' AND status='APPROVED' AND created_by=$3 AND approved_by=$4) setting_count,
+      (SELECT count(*)::int FROM mapping_snapshot WHERE tenant_id=$1 AND entity_id=$2 AND family='BANK' AND status='APPROVED' AND created_by=$3 AND approved_by=$4) mapping_count,
+      (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='CONTROLLED_TEST_BANK_MATCH_CONFIG_PROPOSED') proposal_audits,
+      (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND entity_id=$2 AND event_type='CONTROLLED_TEST_BANK_MATCH_CONFIG_APPROVED') approval_audits`,[ids.tenantId,ids.entityId,actors.maker,actors.reviewer])).rows;
+  assert.deepEqual(configEvidence,[{setting_count:1,mapping_count:1,proposal_audits:2,approval_audits:2}]);
 });
 
 pgTest('061 bank match creates exact posted AP evidence once and fails closed for reversal and ambiguous cash account evidence',async()=>{
