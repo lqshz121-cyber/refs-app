@@ -21,6 +21,11 @@ assert.doesNotMatch(markup,/Immutable evidence scope|GET-only refresh/,'Aging mu
 assert.doesNotMatch(markup,/>Customize<|>Save<|>Print<|>Export<|>Email<|>More</i);
 
 const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-aging-workspace.jsx'),'utf8');
+const app=fs.readFileSync(path.join(process.cwd(),'src','authoritative-app.jsx'),'utf8');
+const payableRoute=app.slice(app.indexOf("route === 'payables'"),app.indexOf("route === 'receivables'"));
+const receivableRoute=app.slice(app.indexOf("route === 'receivables'"),app.indexOf("route === 'bank-batch-pipeline'"));
+assert.match(payableRoute,/AuthoritativeAgingWorkspace config=\{displayConfig\}/,'AP Aging must receive the shared readable entity and period presentation scope');
+assert.equal((receivableRoute.match(/AuthoritativeAgingWorkspace config=\{displayConfig\}/g)||[]).length,2,'Reports and Receivables AR Aging entries must both receive readable scope labels');
 assert.match(source,/Change the as-of date and load the report again/);
 assert.match(source,/not evidence of zero invoices, receipts, bills, payments, or ledger activity/);
 assert.match(source,/authoritative-aging-table/);
