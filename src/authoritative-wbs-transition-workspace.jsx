@@ -37,7 +37,7 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
   const readControl=async event=>{
     event.preventDefault();setControlState(current=>({...current,phase:'LOADING',error:null}));
     const result=await refreshAuthoritativeWbsControlReconciliation({config,...controlInput,fetcher});
-    setControlState(current=>result.ok&&result.data.status!=='BLOCKED'?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result.ok?{code:result.data.code,message:'Receipt-backed WBS and REFS control evidence is incomplete for this exact scope.'}:result});
+    setControlState(current=>result.ok&&result.data.status!=='BLOCKED'?{phase:'READY',data:result.data,error:null}:{phase:'BLOCKED',data:current.data,error:result.ok?{code:result.data.code,message:'WBS and REFS control evidence is incomplete for this scope.'}:result});
   };
   const readMatchReview=async event=>{
     event.preventDefault();const reviewId=matchReviewId.trim();setMatchState(current=>({...current,phase:'LOADING',error:null}));
@@ -106,11 +106,11 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
           <label htmlFor="wbs-control-end">Period end<input id="wbs-control-end" required type="date" value={controlInput.periodEnd} onChange={event=>setControlInput(current=>({...current,periodEnd:event.target.value}))}/></label>
           <label htmlFor="wbs-control-bank">Bank account reference<input id="wbs-control-bank" required maxLength="128" value={controlInput.bankAccountRef} onChange={event=>setControlInput(current=>({...current,bankAccountRef:event.target.value}))}/></label>
         </>}
-        <button type="submit" className="btn" disabled={controlState.phase==='LOADING'}>{controlState.phase==='LOADING'?'Reading control evidence...':'Load control reconciliation'}</button>
+        <button type="submit" className="btn" disabled={controlState.phase==='LOADING'}>{controlState.phase==='LOADING'?'Loading evidence…':'Load control reconciliation'}</button>
       </form>
-      {controlState.phase==='LOADING'&&<StateBlock tone="loading" title="Reading immutable control snapshots">Checking the exact WBS receipt, approved mapping, and REFS metric snapshot.</StateBlock>}
+      {controlState.phase==='LOADING'&&<StateBlock tone="loading" title="Loading control reconciliation">Checking the WBS receipt, approved mapping, and REFS snapshot.</StateBlock>}
       {controlState.phase==='BLOCKED'&&<StateBlock tone="blocked" title={controlState.error?.code||'WBS_CONTROL_RECONCILIATION_BLOCKED'}>{controlState.error?.message}{control&&' Previously retained control evidence remains below.'}</StateBlock>}
-      {controlState.phase==='IDLE'&&<StateBlock tone="empty" title="No control scope loaded">Choose an exact Cost GL or Property control scope. Missing receipts or mappings remain BLOCKED, never zero.</StateBlock>}
+      {controlState.phase==='IDLE'&&<StateBlock tone="empty" title="No control scope selected">Choose Cost GL or Property. Missing receipts or mappings remain blocked and are never treated as zero.</StateBlock>}
       {control&&control.status!=='BLOCKED'&&<>
         <div className="qbo-toolgrid"><span><i>Status</i><b>{control.reconciliation.status}</b></span><span><i>Metrics</i><b>{control.reconciliation.control_totals.metric_count}</b></span><span><i>Differences</i><b>{control.reconciliation.control_totals.difference_count}</b></span><span><i>Action authority</i><b>None</b></span></div>
         <div className="table-wrap authoritative-wbs-control-table" role="region" tabIndex={0} aria-label="WBS control reconciliation; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Metric</th><th>WBS source</th><th>REFS target</th><th>Difference</th><th>Result</th></tr></thead><tbody>{control.reconciliation.comparisons.map(row=><tr key={row.metric_key}><td>{row.metric_key}</td><td>{row.source_amount}</td><td>{row.target_amount}</td><td>{row.difference}</td><td>{row.matched?'MATCHED':'DIFFERENCE'}</td></tr>)}</tbody></table></div>

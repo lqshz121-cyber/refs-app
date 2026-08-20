@@ -38,6 +38,8 @@ assert.match(markup,/Load Match Review/);
 assert.match(markup,/Trace G11 \/ GL/);
 assert.match(markup,/WBS \/ REFS control reconciliation/);
 assert.match(markup,/Load control reconciliation/);
+for(const copy of ['Loading control reconciliation','Checking the WBS receipt, approved mapping, and REFS snapshot.','No control scope selected','Missing receipts or mappings remain blocked and are never treated as zero.'])assert.match(source,new RegExp(copy.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),'control reconciliation states must use concise accounting language and preserve fail-closed zero semantics');
+assert.doesNotMatch(source,/Reading immutable control snapshots|exact WBS receipt, approved mapping, and REFS metric snapshot|Choose an exact Cost GL or Property control scope|incomplete for this exact scope/,'control reconciliation states must not expose implementation-heavy wording');
 assert.match(markup,/No direct WBS read or provider request occurs from this browser page/);
 assert.match(markup,/No WBS ingress, REFS write, Draft, approval, posting, reversal, reserve, or release is available here/);
 assert.doesNotMatch(markup,/localStorage|seed\.js|Create Draft|Approve|Post journal/);
