@@ -12,6 +12,7 @@ import {createWbsProviderFinal1RetainedEvidenceAdmission} from './wbs-provider-f
 import {createAiAnalysisExplanationService} from './ai-analysis-explanation-service.mjs';
 import {createAiAccountingApprovedSettingsAdapter} from './ai-accounting-approved-settings-adapter.mjs';
 import {createAiAccountingApprovedDecisionService} from './ai-accounting-approved-decision-service.mjs';
+import {projectAiAccountingDecisionControllerScan} from './ai-accounting-decision-controller-scan.mjs';
 import {createAiAccrualCandidateAnalysisService} from './ai-accrual-candidate-analysis-service.mjs';
 import {createAiInvoiceAccountingClassificationService} from './ai-invoice-accounting-classification-service.mjs';
 import {createAiVendorInvoiceAnomalyService} from './ai-vendor-invoice-anomaly-service.mjs';
@@ -252,7 +253,12 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
       const findings=batch.results.map((row,index)=>{const consistency=batch.controller_evidence[index],base=presentation[row.classification];return Object.freeze({...row,entity_id:input.entityId,accounting_period_id:input.currentAccountingPeriodId,...base,...(consistency.status==='MISMATCH'?{risk_level:'HIGH',suggested_action:'Investigate and correct the Posted accounting treatment before period close.'}:{}),posted_treatment_consistency:consistency});});
       return Object.freeze({schema_version:'AI_INVOICE_ACCOUNTING_CLASSIFICATION_CONTROLLER_SCAN_BATCH_V1',current_accounting_period_id:input.currentAccountingPeriodId,scanned_document_count:batch.scanned_document_count,eligible_invoice_line_count:batch.eligible_invoice_line_count,classification_counts:batch.classification_counts,finding_count:findings.length,findings:Object.freeze(findings),action_flags:actions});
     }};
+    const accountingDecision={analyze:async input=>projectAiAccountingDecisionControllerScan(
+      await aiAccountingDecisionPacketServiceFactory(principal).analyze({tenantId:input.tenantId,entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId,limit:Math.min(input.limit,500)}),
+      {tenantId:input.tenantId,entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId}
+    )};
     return createAiFullControllerScanService({analyzers:{
+      ACCOUNTING_DECISION:accountingDecision,
       ACCRUAL_CANDIDATE:accrual,
       AP_AGING_RISK:apAging,
       BALANCE_SHEET_ACCOUNT_AGING:balanceSheetAging,
