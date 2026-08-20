@@ -117,7 +117,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     state.status!=='ALL'?`Status: ${state.status}`:null,
     state.from?`From: ${state.from}`:null,
     state.through?`${bill?'To':'Through'}: ${state.through}`:null,
-    state.counterparty!=='ALL'?`${bill?'Vendor':'Customer'}: ${state.counterparty}`:null,
+    state.counterparty!=='ALL'?`${bill?'Payee':'Customer'}: ${state.counterparty}`:null,
     bill&&state.accountCode!=='ALL'?`Category: ${state.accountCode}`:null,
     bill&&state.transactionType!=='ALL'?`Transaction type: ${state.transactionType==='BILLS'?'Bills':'Vendor credits'}`:null,
   ].filter(Boolean);
@@ -146,7 +146,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
       <details className="authoritative-list-more-filters" onToggle={event=>{if(event.currentTarget.open)setFilterDraft(secondaryFilterValues(state));}}><summary>{bill?'Filter':'More filters'}{moreFilterCount?` (${moreFilterCount})`:''}</summary><div className="authoritative-list-more-filter-grid">
         <label>From <input type="date" value={filterDraft.from} onChange={event=>setFilterDraft(current=>({...current,from:event.target.value}))}/></label>
         <label>{bill?'To':'Through'} <input type="date" value={filterDraft.through} onChange={event=>setFilterDraft(current=>({...current,through:event.target.value}))}/></label>
-        <label>{bill?'Vendor':'Customer'} <select value={filterDraft.counterparty} onChange={event=>setFilterDraft(current=>({...current,counterparty:event.target.value}))}><option value="ALL">{bill?'All vendors':'All customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+        <label>{bill?'Payee':'Customer'} <select value={filterDraft.counterparty} onChange={event=>setFilterDraft(current=>({...current,counterparty:event.target.value}))}><option value="ALL">{bill?'All payees':'All customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
         {bill&&(accountCodes.length>0?<label>Category <select value={filterDraft.accountCode} onChange={event=>setFilterDraft(current=>({...current,accountCode:event.target.value}))}><option value="ALL">All categories</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category unavailable for this result.</span>)}
         <div className="authoritative-list-more-filter-actions"><button type="button" className="btn btn-sm btn-ghost" onClick={()=>setFilterDraft({from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset</button><button type="button" className="btn btn-sm" onClick={()=>change(filterDraft)}>Apply</button></div>
       </div></details>

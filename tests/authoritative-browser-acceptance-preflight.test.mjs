@@ -21,7 +21,7 @@ assert.match(styles,/\.authoritative-list-filters input,\.authoritative-list-fil
 assert.match(styles,/@media \(max-width:1400px\)\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\);/);
 assert.match(styles,/@media \(max-width:720px\)\{[\s\S]*?\.authoritative-list-filters\{grid-template-columns:minmax\(0,1fr\);/);
 assert.match(styles,/input:focus-visible,select:focus-visible,textarea:focus-visible\{/);
-assert.match(workspace,/<label>\{bill\?'Vendor':'Customer'\} <select/);
+assert.match(workspace,/<label>\{bill\?'Payee':'Customer'\} <select/);
 assert.match(workspace,/className="authoritative-list-more-filters"/);
 assert.match(workspace,/onToggle=\{event=>\{if\(event\.currentTarget\.open\)setFilterDraft/);
 assert.match(workspace,/onClick=\{\(\)=>change\(filterDraft\)\}>Apply<\/button>/);

@@ -38,7 +38,8 @@ assert.doesNotMatch(workspaceSource,/'Not retained'/,'AP/AR visible missing-valu
 assert.doesNotMatch(workspaceSource,/\{bill&&<label>Transaction type <select/,'Expenses tabs already select All transactions, Bills, or Vendor credits; the filter toolbar must not repeat the same control');
 assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/Category <select/);
-assert.match(workspaceMarkup,/All vendors/);
+assert.match(workspaceMarkup,/Payee/);
+assert.match(workspaceMarkup,/All payees/);
 assert.match(workspaceMarkup,/All categories/);
 assert.doesNotMatch(workspaceMarkup,/Category \(offset account\)|All retained vendors|All retained offset accounts/,'Expenses filters should use concise accounting labels without exposing storage terminology');
 assert.match(workspaceMarkup,/Reset filters/);
@@ -71,7 +72,7 @@ assert.match(workspaceMarkup,/>From <input[^>]*type="date"/);
 assert.match(workspaceMarkup,/>To <input[^>]*type="date"/,'Expenses must use the observed QBO From / To date labels without changing its through-state key');
 assert.doesNotMatch(workspaceMarkup,/>Through <input[^>]*type="date"/,'Expenses must not expose the older Through label');
 assert.match(workspaceMarkup,/To: 2026-08-31/,'the applied Expenses scope must use the same visible To vocabulary');
-assert.match(workspaceMarkup,/Vendor/);
+assert.match(workspaceMarkup,/Payee: Evidence Vendor/);
 assert.match(workspaceMarkup,/Category: 610000/);
 assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/Status: PARTIALLY_PAID/);
@@ -289,7 +290,7 @@ assert.match(styles,/\.authoritative-list-filters\{display:grid;grid-template-co
 assert.match(styles,/@media\s*\(max-width:1400px\)\s*\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,'AP/AR filters must collapse before the permanent navigation leaves too little workspace width at desktop zoom and tablet sizes');
 assert.match(styles,/\.authoritative-list-filters input,\.authoritative-list-filters select\{min-width:0;width:100%;max-width:100%;\}/,'AP/AR controls must not exceed their responsive grid tracks');
 assert.match(workspaceSource,/className="authoritative-list-more-filters" onToggle=/,'AP/AR must keep secondary filters in a compact native disclosure');
-assert.match(workspaceSource,/<label>\{bill\?'Vendor':'Customer'\} <select value=\{filterDraft\.counterparty\}[\s\S]*?\{bill&&\(accountCodes\.length>0\?<label>Category <select value=\{filterDraft\.accountCode\}/,'the compact disclosure must stage shared counterparty behavior and AP-only Category');
+assert.match(workspaceSource,/<label>\{bill\?'Payee':'Customer'\} <select value=\{filterDraft\.counterparty\}[\s\S]*?\{bill&&\(accountCodes\.length>0\?<label>Category <select value=\{filterDraft\.accountCode\}/,'the compact disclosure must stage the observed AP Payee, shared counterparty behavior, and AP-only Category');
 assert.match(workspaceSource,/onClick=\{\(\)=>change\(filterDraft\)\}>Apply<\/button>/,'secondary filter edits must not change the visible result until Apply');
 assert.match(styles,/\.authoritative-list-more-filters\[open\]\{grid-column:1\/-1;\}/,'expanded AP/AR filters must stay contained within the filter region');
 assert.match(styles,/@media\s*\(max-width:720px\)\s*\{\.authoritative-document-intro(?:,\.authoritative-source-intro)?\{grid-template-columns:minmax\(0,1fr\)/,'narrow AP\/AR filters and evidence guidance must collapse before the page overflows');

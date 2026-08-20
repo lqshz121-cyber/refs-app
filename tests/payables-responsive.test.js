@@ -14,8 +14,8 @@ assert.match(workspace,/className="authoritative-list-more-filters"/,
   'secondary AP/AR filters must use one keyboard-native collapsed disclosure');
 assert.match(workspace,/<summary>\{bill\?'Filter':'More filters'\}\{moreFilterCount\?/,
   'the collapsed disclosure must use the observed concise Expenses label and surface the active secondary-filter count');
-assert.match(workspace,/<label>\{bill\?'Vendor':'Customer'\} <select/,
-  'the responsive contract must retain the authoritative Vendor and Customer selectors');
+assert.match(workspace,/<label>\{bill\?'Payee':'Customer'\} <select/,
+  'the responsive contract must retain the observed AP Payee and authoritative AR Customer selectors');
 assert.match(styles,/\.authoritative-compact-list-filters\{grid-template-columns:minmax\(220px,2fr\) minmax\(150px,1fr\) auto auto auto;\}/,
   'wide AP/AR lists must keep Search, Status, Filter, Reset and result count on one compact row');
 assert.match(styles,/\.authoritative-list-more-filter-grid\{display:grid;grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/,
