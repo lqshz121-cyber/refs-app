@@ -28,6 +28,8 @@ assert.match(navMarkup, /aria-label="Collapse navigation panel" aria-expanded="t
 assert.doesNotMatch(inertToggleMarkup, /navigation panel/, 'the reusable shell must not render an inoperative collapse control without a handler');
 assert.match(collapsedNavMarkup, /authoritative-sidebar-panel-collapsed/, 'the desktop panel may collapse without changing the active accounting route');
 assert.match(collapsedNavMarkup, /aria-label="Expand navigation panel" aria-expanded="false"/, 'the collapsed panel must retain a labelled restore control');
+assert.match(collapsedNavMarkup, /aria-expanded="false" aria-controls="authoritative-navigation-active-group" aria-label="Auto Reconciliation"/,
+  'a collapsed secondary menu must not be announced as expanded by its active rail group');
 assert.doesNotMatch(reportNavMarkup, /authoritative-sidebar-direct/, 'the multi-page Reports workspace must expose its secondary navigation');
 assert.match(reportNavMarkup, /Financial statements/, 'the Reports workspace must expose its financial-statements page');
 assert.match(reportNavMarkup, /Accounting Analysis Report/, 'the Reports workspace must expose its AI analysis page');

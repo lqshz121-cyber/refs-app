@@ -304,6 +304,9 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     // Selecting a workspace always opens its first available page and replaces
     // the previous secondary menu instead of retaining several expanded trees.
     setExpandedNavigationGroups([group.label]);
+    // Selecting a rail group explicitly exposes its secondary navigation, so
+    // the disclosure state remains truthful after a desktop collapse.
+    setNavPanelCollapsed(false);
     if (group.items?.[0]?.route) setRoute(group.items[0].route);
     setNavOpen(false);
   }, [setRoute]);

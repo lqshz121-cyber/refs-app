@@ -139,10 +139,14 @@ assert.doesNotMatch(authoritativeShell,/className="nav-panel-toggle"/,
   'the selected workspace must replace the previous menu instead of stacking expanded trees');
 assert.match(authoritativeShell,/className="desktop-nav-panel-toggle"[\s\S]*aria-label=\{`\$\{desktopPanelCollapsed \? 'Expand' : 'Collapse'\} navigation panel`\}[\s\S]*aria-expanded=\{!desktopPanelCollapsed\}/,
   'the one desktop panel toggle must expose its action and current expanded state without creating another workspace tree');
+assert.match(authoritativeShell,/aria-expanded=\{!direct \? active && !desktopPanelCollapsed : undefined\}/,
+  'the active rail group must report its secondary navigation as collapsed when hidden');
 assert.match(authoritativeShell,/const canTogglePanel = !opensDirectly && typeof onTogglePanel === 'function'/,
   'the reusable shell must fail closed instead of rendering an inoperative panel control without a handler');
 assert.match(authoritative,/setExpandedNavigationGroups\(\[group\.label\]\)/,
   'a primary workspace selection must replace the previous secondary menu');
+assert.match(authoritative,/setNavPanelCollapsed\(false\)/,
+  'selecting a primary workspace must expose its secondary navigation after a collapse');
 assert.match(authoritative,/setRoute\(group\.items\[0\]\.route\)/,
   'a primary workspace selection must open its first available page');
 assert.doesNotMatch(authoritativeShell,/authoritative-new-disabled|\+ New/,

@@ -64,7 +64,7 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroups
           <button type="button"
             className={`nav-group-h ${active ? 'rail-on' : ''}`}
             aria-current={direct && active ? 'page' : undefined}
-            aria-expanded={!direct ? active : undefined}
+            aria-expanded={!direct ? active && !desktopPanelCollapsed : undefined}
             aria-controls={!direct && active ? 'authoritative-navigation-active-group' : undefined}
             aria-label={group.label}
             onClick={() => onSelectGroup(group)}>
