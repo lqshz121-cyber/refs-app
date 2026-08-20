@@ -126,13 +126,18 @@ assert.match(mismatchedDetail,/BLOCKED[\s\S]*authoritative lineage unavailable/)
 const adjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={[adjustment]} onOpen={()=>{}}/>);
 assert.match(adjustmentList,/AP_VENDOR_CREDIT/);
 assert.match(adjustmentList,/Open evidence/);
-const adjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={adjustment} side="AP" entityId={entityId} config={displayConfig} onBack={()=>{}}/>);
+const adjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={adjustment} side="AP" entityId={entityId} config={displayConfig} returnContext={{view:{query:'Credit evidence',status:'POSTED',transactionType:'VENDOR_CREDIT',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
 assert.match(adjustmentDetail,/Back to AP adjustments/);
+assert.match(adjustmentDetail,/<details class="authoritative-return-context"><summary>List filters retained<\/summary>/,'adjustment Back context must use the same compact disclosure as Bill and Invoice evidence');
 assert.match(adjustmentDetail,/REFS US Staging/);
 assert.match(adjustmentDetail,/August 2026/);
 assert.doesNotMatch(adjustmentDetail,/Entity 11111111-1111-4111-8111-111111111111/,'adjustment evidence must keep the entity UUID out of visible text');
-assert.match(adjustmentDetail,/authoritative adjustment revision 2/);
-assert.match(adjustmentDetail,/cannot create, edit, apply, refund, approve, post, reverse, print, export, or synchronize/);
+assert.match(adjustmentDetail,/authoritative list revision 2/);
+assert.match(adjustmentDetail,/search Credit evidence/);
+assert.match(adjustmentDetail,/vendor Evidence Vendor/);
+assert.match(adjustmentDetail,/transaction type VENDOR_CREDIT/);
+assert.match(adjustmentDetail,/page 2/);
+assert.match(adjustmentDetail,/Read-only retained evidence\. Adjustment actions are unavailable here\./);
 assert.match(adjustmentList,/class="table-wrap authoritative-adjustment-table" role="region" tabindex="0" aria-label="AP adjustments; scroll horizontally to view every column"/,'the adjustment list must own a keyboard-focusable table scroller instead of inheriting document-table widths');
 assert.match(adjustmentDetail,/class="table-wrap authoritative-document-detail-table" role="region" tabindex="0" aria-label="AP adjustment evidence fields; scroll horizontally to view every column"/);
 
@@ -153,9 +158,11 @@ for(const route of [apRoute,arRoute]){
   assert.doesNotMatch(route,/AuthoritativeWorkflow(?:Adjustment)?Table|onWorkflow=\{workflow\}/,'AP/AR evidence routes must not expose journal transition controls');
   assert.match(route,/AuthoritativeDocumentDetail/);
   assert.match(route,/AuthoritativeAdjustmentDetail/);
+  assert.match(route,/AuthoritativeAdjustmentDetail[\s\S]*?returnContext=\{adjustmentDetail\.returnContext\}/,'adjustment details must receive the exact immutable list return token');
   assert.match(route,/config=\{displayConfig\}/,'AP/AR full-page evidence routes must inherit the shared readable company and period scope');
   assert.match(route,/AuthoritativeDocumentWorkspace/);
 }
+assert.doesNotMatch(app,/<b>Return context<\/b> Query/,'document and adjustment list context belongs in the full-page Back disclosure, not the global scope bar');
 const workspace=fs.readFileSync(path.join(process.cwd(),'src','authoritative-workspace.jsx'),'utf8');
 assert.doesNotMatch(workspace,/localStorage|SEED_/,'authoritative AP/AR evidence must not read browser business state');
 assert.doesNotMatch(workspace,/from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data/,'authoritative AP/AR presentation must not import demo business state');
