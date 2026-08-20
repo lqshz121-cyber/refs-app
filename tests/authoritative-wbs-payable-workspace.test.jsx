@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeWbsPayableWorkspace} from '../src/authoritative-wbs-payable-workspace.jsx';
+import {AuthoritativeWbsPayableWorkspace,restoreAuthoritativeWbsPayableReturnContext} from '../src/authoritative-wbs-payable-workspace.jsx';
 import {AuthoritativeWbsPayableReviewWorkspace} from '../src/authoritative-wbs-payable-review-workspace.jsx';
 
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'33333333-3333-4333-8333-333333333333',baseUrl:'https://accounting.example',getAccessToken:async()=> 'a'.repeat(48)};
@@ -13,6 +13,13 @@ for(const token of ['Admitted WBS Payables awaiting review','SIGNED \\+ ADMITTED
 const source=fs.readFileSync('src/authoritative-wbs-payable-workspace.jsx','utf8');
 for(const token of ['refreshAuthoritativeWbsPayableReviewEvidence','createAuthoritativeWbsPayableApDraft','Create AP Bill Draft','maker reason','Nothing was submitted, reviewed, approved, or posted'])assert.match(source,new RegExp(token,'i'));
 assert.doesNotMatch(source,/localStorage|seed\.js|Submit Bill|Approve Bill|Post Journal/);
+assert.match(source,/detailReturnRef\.current=\{entityId:config\.entityId,periodId:config\.periodId,scrollY:Number\(environment\?\.scrollY\)\|\|0,tableX:Number\(listTableRef\.current\?\.scrollLeft\)\|\|0,focusId\}/,'opening reviewed WBS Payable evidence must freeze exact list and contained-table position');
+assert.match(source,/ref=\{listTableRef\} className="table-wrap"/,'the reviewed Payables table scroller must be retained for Back restoration');
+const restoreCalls=[];const environment={scrollTo:options=>restoreCalls.push(['page',options]),setTimeout:callback=>{restoreCalls.push(['timer']);callback();},document:{getElementById:id=>({focus:()=>restoreCalls.push(['focus',id])})}};const table={scrollTo:options=>restoreCalls.push(['table',options])};
+assert.equal(restoreAuthoritativeWbsPayableReturnContext(environment,config,{entityId:config.entityId,periodId:config.periodId,scrollY:525,tableX:180,focusId:'wbs-row'},()=>table),true);
+assert.deepEqual(restoreCalls,[['timer'],['page',{top:525,behavior:'auto'}],['table',{left:180,behavior:'auto'}],['focus','wbs-row']]);
+assert.equal(restoreAuthoritativeWbsPayableReturnContext(environment,{...config,entityId:'22222222-2222-4222-8222-222222222222'},{entityId:config.entityId,periodId:config.periodId,scrollY:1,tableX:1,focusId:'stale'},()=>table),false);
+assert.equal(restoreCalls.length,4,'stale WBS Payable context must not restore page, table, or focus');
 const reviewSource=fs.readFileSync('src/authoritative-wbs-payable-review-workspace.jsx','utf8');
 for(const token of ['refreshAuthoritativeWbsPayableReviewCandidates','reviewAuthoritativeWbsPayable','refreshAuthoritativeWbsPayableAttachmentUploads','uploadVerifiedAttachment','bindAuthoritativeWbsPayableUploadedAttachment','Add support evidence','Independent binder required','No Bill or Journal Draft was created','Nothing was submitted, approved, or posted'])assert.match(reviewSource,new RegExp(token,'i'));
 for(const token of ['NO_PERMISSION — WBS Payable reviewer access required','WBS_PAYABLE_REVIEWER','WBS.PAYABLE.REVIEW','AP.VIEW','Unsigned Pilot observations remain excluded'])assert.match(reviewSource,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),'WBS review denial must name the exact read role and preserve the unsigned boundary');
