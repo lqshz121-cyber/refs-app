@@ -132,6 +132,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
   const [adjustmentDetail, setAdjustmentDetail] = useState(null);
   const [agingDetail, setAgingDetail] = useState(null);
   const [reportAgingDetail, setReportAgingDetail] = useState(null);
+  const [reportGeneralLedgerDetail, setReportGeneralLedgerDetail] = useState(null);
   const [reportCatalogReturn, setReportCatalogReturn] = useState(null);
   const [listViews, setListViews] = useState(() => ({
     AP:{...DEFAULT_AUTHORITATIVE_LIST_VIEW},
@@ -285,13 +286,30 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     restoreAuthoritativeReturnContext(environment,config,context);
   }, [reportAgingDetail, environment, config]);
 
+  const openReportGeneralLedger = useCallback((focusId, catalog) => {
+    const returnContext=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
+    if (!returnContext) return;
+    setReportGeneralLedgerDetail({returnContext,catalog});
+    setRouteState('general-ledger');
+    retainRoute(environment, 'general-ledger');
+  }, [config, environment]);
+
+  const closeReportGeneralLedger = useCallback(() => {
+    const context=reportGeneralLedgerDetail?.returnContext;
+    setReportCatalogReturn(reportGeneralLedgerDetail?.catalog || null);
+    setReportGeneralLedgerDetail(null);
+    setRouteState('reports');
+    retainRoute(environment, 'reports');
+    restoreAuthoritativeReturnContext(environment,config,context);
+  }, [reportGeneralLedgerDetail, environment, config]);
+
   const setRoute = useCallback(next => {
-    setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setReportAgingDetail(null); setReportCatalogReturn(null);
+    setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setReportAgingDetail(null); setReportGeneralLedgerDetail(null); setReportCatalogReturn(null);
     if (next === 'reports') setReportsNavigationVersion(current => current + 1);
     setRouteState(next); retainRoute(environment, next);
   }, [environment]);
   useEffect(() => watchRetainedRoute(environment, next => {
-    setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setReportAgingDetail(null); setReportCatalogReturn(null);
+    setDocumentDetail(null); setAdjustmentDetail(null); setAgingDetail(null); setReportAgingDetail(null); setReportGeneralLedgerDetail(null); setReportCatalogReturn(null);
     if (next === 'reports') setReportsNavigationVersion(current => current + 1);
     setRouteState(next);
     retainRoute(environment, next);
@@ -534,7 +552,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'accounting-analysis-report' && <AuthoritativeAccountingAnalysisReport key={`accounting-analysis-report-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onNavigate={setRoute}/>}
         {phase === 'READY' && route === 'accruals' && <AuthoritativeAccrualWorkspace key={`accruals-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && route === 'wbs-autorec-evidence' && <AuthoritativeWbsTransitionWorkspace key={`wbs-autorec-evidence-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} onAccountingRefresh={async()=>{const [documents,journals]=await Promise.all([refreshAuthoritativeDocuments({config,fetcher:boundFetcher}),refreshAuthoritativeJournalEntries({config,fetcher:boundFetcher})]);if(documents.ok&&journals.ok){setData({ap:documents.ap,ar:documents.ar,journals:journals.journals});setSharedAccountingLoaded(true);}}}/>}
-        {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace key={`reports-${workspaceRefreshVersion}-${reportsNavigationVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={reportCatalogReturn||DEFAULT_AUTHORITATIVE_REPORTS_CATALOG} onOpenArAging={openReportAgingEvidence}/>}
+        {phase === 'READY' && route === 'reports' && <AuthoritativeReportsWorkspace key={`reports-${workspaceRefreshVersion}-${reportsNavigationVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={reportCatalogReturn||DEFAULT_AUTHORITATIVE_REPORTS_CATALOG} onOpenArAging={openReportAgingEvidence} onOpenGeneralLedger={openReportGeneralLedger}/>}
         {phase === 'READY' && route === 'project-cost-cwip' && <AuthoritativeReportsWorkspace key={`project-cost-cwip-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="PROJECT" workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Project Cost & CWIP" workspaceDescription="Project profitability, CWIP rollforward, construction-loan, prepaid, and budget evidence are read from existing OIDC-authenticated accounting APIs. Cost-code, vendor, and project transaction registers remain unavailable until their own server read contracts exist."/>}
         {phase === 'READY' && route === 'unit-cost-ledger' && <AuthoritativeReportsWorkspace key={`unit-cost-ledger-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} initialCatalog={{category:'OPERATING_ANALYSIS',query:'',preview:'TRIAL_BALANCE'}} initialDimensionType="UNIT" workspaceEyebrow="AUTHORITATIVE - ACCOUNTING OPERATIONS" workspaceTitle="Unit / Lot profitability" workspaceDescription="Unit and lot profitability reads only exact Unit dimensions retained on same-entity, same-period POSTED ledger lines. Select a canonical Unit reference to load its report, then drill back through the retained evidence. Unit transfer, pricing, and browser-side allocation workflows remain unavailable."/>}
         {phase === 'READY' && route === 'property-ops-pickup' && <AuthoritativePropertyRentWorkspace key={`property-ops-pickup-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} propertyPnlTitle="Property operating P&amp;L" onBack={()=>setRoute('overview')}/>}
@@ -545,7 +563,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {phase === 'READY' && route === 'journals' && <AuthoritativeJournalWorkspace journals={data.journals} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'source-documents' && <AuthoritativeSourceDocumentsWorkspace key={`source-documents-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
         {phase === 'READY' && ['chart-of-accounts','account-inquiry'].includes(route) && <AuthoritativeChartOfAccountsWorkspace key={`coa-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
-        {phase === 'READY' && route === 'general-ledger' && <AuthoritativeGeneralLedgerWorkspace key={`general-ledger-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher}/>}
+        {phase === 'READY' && route === 'general-ledger' && <AuthoritativeGeneralLedgerWorkspace key={`general-ledger-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment} onBack={reportGeneralLedgerDetail?closeReportGeneralLedger:null}/>}
         {phase === 'READY' && !['overview','payables','receivables','bank-batch-pipeline','bank','reconciliation','wbs-payable-review','ai-audit','ai-je-workbench','accounting-analysis-report','wbs-autorec-evidence','reports','project-cost-cwip','unit-cost-ledger','property-ops-pickup','construction-loan','amortization','intercompany','consolidation','journals','source-documents','chart-of-accounts','account-inquiry','general-ledger','accruals'].includes(route) && <AuthoritativeUnavailableWorkspace item={navigationItemForRoute(route)} config={config}/>}
       </main>
     </div>

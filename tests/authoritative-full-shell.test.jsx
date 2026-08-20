@@ -153,6 +153,12 @@ assert.match(appSource, /initialCatalog=\{reportCatalogReturn\|\|DEFAULT_AUTHORI
   'A\/R aging Back must restore the exact Reports catalog without browser storage');
 assert.match(appSource, /backLabel="Back to Reports"/,
   'the A\/R aging full page must name its actual Reports parent on Back');
+assert.match(appSource, /openReportGeneralLedger/,
+  'the Reports catalog must route to the existing authoritative General Ledger reader');
+assert.match(appSource, /reportGeneralLedgerDetail\?closeReportGeneralLedger:null/,
+  'General Ledger must expose its catalog Back action only when Reports supplied an immutable parent context');
+assert.match(appSource, /onOpenGeneralLedger=\{openReportGeneralLedger\}/,
+  'the Reports workspace must receive the explicit General Ledger route bridge');
 assert.match(appSource, /AuthoritativeGeneralLedgerWorkspace/);
 assert.match(appSource, /AuthoritativeDocumentWorkspace[\s\S]*?kind="AP"[\s\S]*?config=\{displayConfig\}/,
   'the embedded WBS Payables observation must receive the same readable scope presentation as the authoritative shell');
