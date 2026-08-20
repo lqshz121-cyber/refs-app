@@ -31,5 +31,7 @@ assert.doesNotMatch(source, /legacy-demo-app|\.\/repo\.js|\.\/seed\.js|module-wb
   'the authoritative shell may not import demo, mock, or browser-state workspaces');
 const shellSource = readFileSync(new URL('../src/authoritative-navigation-shell.jsx', import.meta.url), 'utf8');
 assert.match(shellSource, /ITEM_ICONS\[item\.route\]/, 'secondary navigation must use a purpose-specific icon for each workspace');
+assert.match(shellSource, /GROUP_ICONS\[group\.label\]/, 'primary navigation icons must follow the stable workspace identity rather than its current list position');
+assert.doesNotMatch(shellSource, /GROUP_ICONS\[index\]/, 'reordering a workspace must never silently assign another workspace icon');
 assert.doesNotMatch(shellSource, /String\(index \+ 1\)\.padStart/, 'secondary navigation must not use numeric-only badges');
 console.log('authoritative navigation model: complete catalog retains only API-backed reads and fails closed elsewhere');

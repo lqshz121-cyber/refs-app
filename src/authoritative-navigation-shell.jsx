@@ -8,10 +8,19 @@ function railLabel(label) {
 // These are deliberately a presentation map using the complete REFS shell's
 // icon vocabulary. They do not decide route availability or carry
 // any accounting state: `navigation` remains the authoritative API catalog.
-const GROUP_ICONS = Object.freeze([
-  'gauge', 'gear', 'document', 'cycle', 'document', 'book',
-  'layers', 'calendar', 'wallet', 'bars', 'shield',
-]);
+const GROUP_ICONS = Object.freeze({
+  'Control Center':'gauge',
+  'Accounting Settings':'gear',
+  'Source & Staging':'document',
+  'Auto Reconciliation':'cycle',
+  'Journal Entry':'document',
+  'General Ledger':'book',
+  'Accounting Operations':'layers',
+  Close:'calendar',
+  'Payables & Receivables':'wallet',
+  Reports:'bars',
+  Administration:'shield',
+});
 const ITEM_ICONS = Object.freeze({
   overview:'gauge', approvals:'check', 'ai-audit':'shield', 'ai-je-workbench':'document',
   settings:'gear', rules:'check', mapping:'layers',
@@ -39,7 +48,7 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroups
             aria-current={active ? 'page' : undefined}
             aria-label={group.label}
             onClick={() => onSelectGroup(group)}>
-            <span className="rail-glyph" aria-hidden="true"><Icon name={GROUP_ICONS[index] || 'document'} /></span>
+            <span className="rail-glyph" aria-hidden="true"><Icon name={GROUP_ICONS[group.label] || 'document'} /></span>
             <span className="rail-label" aria-hidden="true">{railLabel(group.label)}</span>
           </button>
         </div>;
