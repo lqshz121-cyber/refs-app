@@ -266,6 +266,9 @@ async function main(){
   assert.match(css,/authoritative-report-shortcuts/,'Reports shortcuts must stack without clipping at narrow widths');
   assert.match(css,/\.authoritative-report-shortcut\{display:grid;grid-template-columns:20px minmax\(0,1fr\)/,'report shortcuts must align one shared icon slot with their text');
   assert.match(css,/@media\(max-width:768px\)[\s\S]*?\.authoritative-full-statement-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'full financial reports must remain table-contained across the tablet/high-zoom breakpoint');
+  assert.match(css,/@media\(max-width:768px\)[\s\S]*?\.authoritative-report-workbench-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'secondary report workbenches must remain table-contained across the tablet/high-zoom breakpoint');
+  assert.equal((workspace.match(/className="table-wrap authoritative-report-workbench-table"/g)||[]).length,6,'all six populated secondary workbench tables must use the shared contained region');
+  assert.doesNotMatch(workspace,/className="table-wrap" role="region" tabIndex=\{0\} aria-label="(?:Immutable financial statement snapshot|Statement of cash flows|Prior-period comparison|Intercompany reconciliation|Budget versus actual|Consolidation)/,'secondary workbench tables must not fall back to an uncontained generic table on mobile');
   assert.match(css,/\.authoritative-report-icon\{display:inline-flex;align-items:center;justify-content:center;align-self:start;grid-row:1\/span 2;color:var\(--qb-accent\)/,'report icons must share one token-driven presentation');
   assert.match(css,/\.authoritative-report-workbench-actions\{justify-content:flex-end;\}/,'the remaining Statements action row must align without a duplicate category title');
   assert.match(css,/\.authoritative-core-report-shortcuts \.authoritative-report-shortcut\{min-height:44px/,'favorite reports must use one compact, consistent row height');
