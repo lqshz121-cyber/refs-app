@@ -32,6 +32,8 @@ test('General Ledger workspace is a retained read-only, contained-table surface'
 test('General Ledger line evidence is a full-page immutable snapshot with exact Back context',()=>{
   const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerDetail row={row} returnContext={{accountCode:'610000',query:'JE-100',page:2}} onBack={()=>{}}/>);
   for(const text of ['Back to General Ledger','GENERAL LEDGER · LINE EVIDENCE','Immutable evidence identifiers','Journal entry ID','Journal line ID','Ledger line ID','Source document IDs','account 610000','search “JE-100”','page 2'])assert.match(markup,new RegExp(text));
+  assert.match(markup,/<details class="authoritative-return-context authoritative-gl-return-context"><summary>List filters retained<\/summary>/);
+  assert.doesNotMatch(markup,/Ledger line evidence reading path|Return context:/);
   assert.match(markup,new RegExp(ledgerLineId));
   assert.doesNotMatch(markup,/localStorage|seed\.js|>Export<|>Post journal<|>Create journal</i);
 });
@@ -40,7 +42,7 @@ test('General Ledger keeps the demonstrated workbench hierarchy without importin
   const detail=String(AuthoritativeGeneralLedgerDetail);
   const presentation=String(AuthoritativeGeneralLedgerView);const detailPresentation=String(AuthoritativeGeneralLedgerDetailView);
   assert.match(workspace,/AuthoritativeGeneralLedgerView/);assert.doesNotMatch(workspace,/General Ledger reading path/);
-  assert.match(detail,/AuthoritativeGeneralLedgerDetailView/);assert.match(detail,/Ledger line evidence reading path/);
+  assert.match(detail,/AuthoritativeGeneralLedgerDetailView/);assert.doesNotMatch(detail,/Ledger line evidence reading path/);
   assert.match(presentation,/authoritative-general-ledger-presentation/);assert.match(detailPresentation,/authoritative-general-ledger-detail-presentation/);
   assert.doesNotMatch(`${workspace}\n${detail}`,/localStorage|seed\.js|repo\.js|legacy-demo-app/);
   assert.doesNotMatch(`${presentation}\n${detailPresentation}`,/localStorage|seed\.js|repo\.js|data\.js|accounting-api|legacy-demo-app/);

@@ -19,26 +19,23 @@ const returnText=context=>[
   context.query&&`search “${context.query}”`,
   `page ${context.page}`,
 ].join(' | ');
-const ReadingRail=({items,label})=><div className="authoritative-workbench-rail authoritative-ledger-reading-rail" aria-label={label}>{items.map((item,index)=><span key={item}><b>{index+1}</b>{item}</span>)}</div>;
-
 function EvidenceIds({label,ids}){
   return <div className="authoritative-gl-id-card"><i>{label}</i>{ids.length?<div>{ids.map(id=><code key={id}>{id}</code>)}</div>:<b>No retained source-document ID</b>}</div>;
 }
 
 export function AuthoritativeGeneralLedgerDetail({row,returnContext,onBack}){
-  return <AuthoritativeGeneralLedgerDetailView eyebrow="GENERAL LEDGER · LINE EVIDENCE" title="Posted ledger line" subtitle="Read-only evidence returned by the scoped General Ledger API. No journal reconstruction, export, posting, adjustment, or provider action is available.">
+  return <AuthoritativeGeneralLedgerDetailView eyebrow="GENERAL LEDGER · LINE EVIDENCE" title="Posted ledger line" subtitle="Read-only POSTED ledger evidence from the scoped API.">
     <div className="qbo-report-back authoritative-gl-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to General Ledger</button><span>Exact API snapshot</span></div>
-    <ReadingRail label="Ledger line evidence reading path" items={['Immutable line','Posted amounts','Retained identifiers']}/>
     <div className="authoritative-register-scope authoritative-gl-detail-scope" aria-label="Posted ledger line scope">
       <span><i>Account</i><b><code>{row.account_code}</code> · {row.account_name}</b></span>
       <span><i>Posting date</i><b>{row.journal_date}</b></span>
       <span><i>Currency</i><b>{row.currency}</b></span>
       <span><i>Member</i><b>{text(row.member_ref)}</b></span>
     </div>
-    <p className="authoritative-register-return">Return context: {returnText(returnContext)}. The list filters, server page, and the current API snapshot remain intact on Back.</p>
+    <details className="authoritative-return-context authoritative-gl-return-context"><summary>List filters retained</summary><span>{returnText(returnContext)}. The current API snapshot remains unchanged on Back.</span></details>
     <section className="card authoritative-gl-amount-card" aria-label="Posted ledger amounts"><div><i>Debit</i><b>{money(row.debit_amount)}</b></div><div><i>Credit</i><b>{money(row.credit_amount)}</b></div><div><i>Journal</i><b><code>{row.journal_number}</code></b></div><div><i>Description</i><b>{text(row.description)}</b></div></section>
-    <section className="card authoritative-gl-identifiers" aria-label="Immutable ledger identifiers"><div className="card-head"><div><h2>Immutable evidence identifiers</h2><p className="muted sm">These identifiers are displayed exactly as returned. This surface does not invent a journal, source, or mapping drill when the corresponding API reader has not been requested.</p></div><span className="badge badge-muted">API READ</span></div><div className="authoritative-gl-id-grid"><EvidenceIds label="Journal entry ID" ids={[row.journal_entry_id]}/><EvidenceIds label="Journal line ID" ids={[row.journal_line_id]}/><EvidenceIds label="Ledger line ID" ids={[row.ledger_line_id]}/><EvidenceIds label="Source document IDs" ids={row.source_document_ids}/></div></section>
-    <StateBlock tone="empty" title="Further lineage is not loaded here">Open an available, separately authorised journal or source-document workspace only when its API contract and immutable evidence are present. This General Ledger detail remains a read-only list snapshot.</StateBlock>
+    <section className="card authoritative-gl-identifiers" aria-label="Immutable ledger identifiers"><div className="card-head"><div><h2>Immutable evidence identifiers</h2><p className="muted sm">IDs are shown exactly as returned; missing lineage is never inferred.</p></div><span className="badge badge-muted">API READ</span></div><div className="authoritative-gl-id-grid"><EvidenceIds label="Journal entry ID" ids={[row.journal_entry_id]}/><EvidenceIds label="Journal line ID" ids={[row.journal_line_id]}/><EvidenceIds label="Ledger line ID" ids={[row.ledger_line_id]}/><EvidenceIds label="Source document IDs" ids={row.source_document_ids}/></div></section>
+    <StateBlock tone="empty" title="Further lineage is not loaded here">Use an authorised Journal or Source Documents workspace only when the API returns its immutable link.</StateBlock>
   </AuthoritativeGeneralLedgerDetailView>;
 }
 
