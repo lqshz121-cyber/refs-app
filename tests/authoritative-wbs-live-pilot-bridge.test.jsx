@@ -25,6 +25,8 @@ const source=fs.readFileSync('src/authoritative-wbs-live-pilot-observation.jsx',
 const stylesheet=fs.readFileSync('index.html','utf8');
 assert.match(source,/className="table-wrap authoritative-wbs-live-pilot-table"/,'the bounded live observation must retain a stable responsive table region');
 assert.match(stylesheet,/\.authoritative-wbs-live-pilot-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'the live observation table must not stretch the whole page at narrow widths');
+assert.equal((source.match(/className="table-wrap authoritative-wbs-retained-evidence-table"/g)||[]).length,2,'both retained exception batch and row lists must use the shared responsive evidence region');
+assert.match(stylesheet,/\.authoritative-wbs-retained-evidence-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'retained exception evidence must not stretch the whole page at narrow widths');
 for(const retainedUi of ['Real retained WBS Payable exception rows','Company scope status','View retained rows','View details','AWAITING SIGNED REDELIVERY','GL / REPORT','Next owner'])assert.match(source,new RegExp(retainedUi));
 assert.match(source,/row\.document_number\|\|`Source \$\{row\.source_record_id\}`/,'retained immutable evidence must expose its server-provided source record when the Provider supplied no invoice number');
 assert.match(source,/row\.accounting_date\|\|'Not supplied by Provider'/,'a missing provider accounting date must be explicit rather than presented as a false zero or generic unavailable state');
