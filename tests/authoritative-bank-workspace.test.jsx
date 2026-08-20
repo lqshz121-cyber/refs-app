@@ -80,8 +80,8 @@ assert.match(source,/if\(selected\).*AuthoritativeBankDetail/s,'Bank detail must
 assert.match(source,/if\(selected\).*AuthoritativeReconciliationDetail/s,'Reconciliation detail must replace the summary and retain an explicit Back path');
 assert.match(source,/authoritative-bank-\$\{row\.bank_source_id\}/,'Bank detail must retain a stable opener for focus restoration');
 assert.match(source,/authoritative-reconciliation-\$\{row\.reconciliation_id\}/,'Reconciliation detail must retain a stable opener for focus restoration');
-assert.match(source,/className="table-wrap" role="region" tabIndex=\{0\} aria-label="Bank transactions; scroll horizontally to view every column"/,'Bank evidence table must be keyboard-focusable and named when it overflows at narrow widths');
-assert.match(source,/className="table-wrap" role="region" tabIndex=\{0\} aria-label="Reconciliation worksheet; scroll horizontally to view every column"/,'Reconciliation worksheet table must be keyboard-focusable and named when it overflows at narrow widths');
+assert.match(source,/className="table-wrap authoritative-bank-evidence-table" role="region" tabIndex=\{0\} aria-label="Bank transactions; scroll horizontally to view every column"/,'Bank evidence table must be keyboard-focusable and named when it overflows at narrow widths');
+assert.match(source,/className="table-wrap authoritative-bank-evidence-table" role="region" tabIndex=\{0\} aria-label="Reconciliation worksheet; scroll horizontally to view every column"/,'Reconciliation worksheet table must be keyboard-focusable and named when it overflows at narrow widths');
 assert.match(source,/restoreAuthoritativeReturnContext\(environment,config,context\)/,'Bank and reconciliation Back must restore scope, scroll position and focus');
 assert.match(source,/bankAccountRef:scope\.bankAccountRef/,'Bank Back must retain the exact account scope');
 assert.match(source,/getElementById\?\.\(focusId\)\?\.closest\?\.\('\.table-wrap'\)\?\.scrollLeft/,'Bank detail must freeze the originating contained table position');
