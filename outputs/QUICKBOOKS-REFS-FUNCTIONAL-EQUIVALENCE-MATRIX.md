@@ -34,3 +34,14 @@ This branch matrix records only directly observed QBO evidence and verified auth
 - Current QBO COA could not be re-opened because the browser URL policy blocked navigation; the block was not bypassed.
 - QBO account-type eligibility, actual View register/Run report destinations, populated balances, permissions, audit, selection/batch actions, settings, account CRUD, export/print, and current responsive behavior remain unverified.
 - REFS does not infer QBO account type from account name/code. Its existing authoritative Register action remains a read-only retained-ledger drill, not a QBO account-action equivalence claim.
+
+## REFS additive controls — Accrual and Amortization (2026-08-19)
+
+| Surface | Evidence source | REFS change | Verification | Status |
+|---|---|---|---|---|
+| Accrual / Amortization centers | User explicitly requires retaining REFS advantages while adopting a concise QBO-like shell. Current source audit confirms both centers remain in authoritative navigation and retain authenticated API readers, signed-source evidence, independent review, Draft-only boundaries, standard posting separation and posted rollforward. These are REFS-specific controls, not observed QBO equivalents. | Shortens first-screen descriptions and Refresh/Back labels. Moves repeated control badges and detailed prerequisites into a default-closed `Control requirements` disclosure. Review, Draft, posted rollforward, source hashes, SoD and server capability checks are unchanged. | `npm run test:authoritative-accrual` exit 0; `npm run test:authoritative-amortization` exit 0; `npm run test:authoritative-full-shell` exit 0; `npm run test:authoritative-visual-parity` exit 0; `npm run build` exit 0; `npm test` exit 0 (visual verifier 64/64). | ADDITIVE CANDIDATE — explicitly not QBO equivalence. |
+
+### Additive-control gaps still unverified
+
+- Authenticated Render/OIDC/PostgreSQL behavior, populated queues, permitted controller commands and responsive full-page detail were not exercised in this local UI round.
+- No QBO claim is made for AI accrual analysis, Insurance coverage extraction, amortization scheduling or WBS/AutoRec evidence; these remain REFS-specific, API-authoritative controls.
