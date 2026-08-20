@@ -315,11 +315,11 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
     restoreAuthoritativeReturnContext(environment,config,context);
   };
   if(selected)return <AuthoritativeReconciliationDetail row={selected.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} onBack={closeEvidence} config={config} fetcher={fetcher} onChanged={()=>load(null,{preserveDetail:true})}/>;
-  return <AuthoritativeWorkspaceView area="Reconciliation evidence" className="stack authoritative-reconciliation-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING | RECONCILIATION" title="Reconciliation evidence" description="Review one retained statement for one entity and bank account."/>
-    <section className="report-workbench authoritative-reconciliation-scope-picker" aria-label="Available reconciliation scopes"><div className="report-workbench-head"><div><b>Available reconciliation scopes</b><div className="page-subtitle">Selecting a retained statement fills the account and cutoff. No lifecycle action runs.</div></div><span className="badge badge-muted">READ ONLY</span></div>
-      {scopeDiscovery.phase==='LOADING'&&<StateBlock tone="loading">Discovering reconciliation scopes...</StateBlock>}
+  return <AuthoritativeWorkspaceView area="Reconcile" className="stack authoritative-reconciliation-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING" title="Reconcile" description="Match retained statements to the books."/>
+    <section className="report-workbench authoritative-reconciliation-scope-picker" aria-label="Reconciliation history"><div className="report-workbench-head"><div><b>Reconciliation history</b><div className="page-subtitle">Choose an existing statement to review.</div></div><span className="badge badge-muted">READ ONLY</span></div>
+      {scopeDiscovery.phase==='LOADING'&&<StateBlock tone="loading">Loading reconciliation history...</StateBlock>}
       {scopeDiscovery.phase==='ERROR'&&<BankReadFailure error={scopeDiscovery.error} onRetry={loadScopes} subject="reconciliation scopes"/>}
-      {scopeDiscovery.phase==='READY'&&!scopeDiscovery.rows.length&&<StateBlock tone="empty" title="No existing reconciliation scopes">No Draft, review, reopened, or signed reconciliation exists for this entity yet. A signed admitted statement may still be selected below.</StateBlock>}
+      {scopeDiscovery.phase==='READY'&&!scopeDiscovery.rows.length&&<StateBlock tone="empty" title="No reconciliations found">No Draft, review, reopened, or signed statement is available for this entity. You can still review an admitted statement below.</StateBlock>}
       {scopeDiscovery.phase==='READY'&&scopeDiscovery.rows.length>0&&<label>Existing statement<select aria-label="Existing reconciliation statement" value={scope.bankAccountRef&&scope.statementEndingDate?`${scope.bankAccountRef}|${scope.statementEndingDate}`:''} onChange={event=>{const row=scopeDiscovery.rows.find(item=>`${item.bank_account_ref}|${item.statement_ending_date}`===event.target.value);if(row)setScope({bankAccountRef:row.bank_account_ref,statementEndingDate:row.statement_ending_date});}}><option value="">Choose a retained reconciliation</option>{scopeDiscovery.rows.map(row=><option key={row.reconciliation_id} value={`${row.bank_account_ref}|${row.statement_ending_date}`}>{row.bank_account_ref} · {row.statement_ending_date} · {row.status}</option>)}</select></label>}
     </section>
     <form className="filterbar" onSubmit={load} aria-label="Reconciliation statement scope">
@@ -328,7 +328,7 @@ export function AuthoritativeReconciliationWorkspace({config,fetcher=globalThis.
       <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Load statement</button>
     </form>
     <AuthoritativeAdmittedStatements config={config} bankAccountRef={scope.bankAccountRef} fetcher={fetcher} onStarted={handleAdmittedStarted}/>
-    {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and statement ending date to read reconciliation evidence.</StateBlock>}
+    {state.phase==='IDLE'&&<StateBlock tone="empty" title="Choose a statement">Select a bank account and statement ending date.</StateBlock>}
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative reconciliation evidence...</StateBlock>}
     {state.phase==='ERROR'&&<BankReadFailure error={state.error} onRetry={load} subject="reconciliation statements"/>}
     {state.phase==='READY'&&<AuthoritativeReconciliationSummary row={state.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} readAt={state.readAt} onOpen={openEvidence}/>}

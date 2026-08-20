@@ -250,8 +250,8 @@ export const restoreAuthoritativeReportTablePosition=(environment,context,getTab
 const FULL_STATEMENT_PAGE_SIZE=25;
 const REPORT_MONTHS=Object.freeze(['January','February','March','April','May','June','July','August','September','October','November','December']);
 const readableReportDate=value=>{const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(value||'');if(!match)return '';const instant=new Date(`${value}T00:00:00.000Z`);if(!Number.isFinite(instant.getTime())||instant.toISOString().slice(0,10)!==value)return '';const month=Number(match[2]),day=Number(match[3]);return `${REPORT_MONTHS[month-1]} ${day}, ${match[1]}`;};
-const readableReportRange=(start,end)=>{const startLabel=readableReportDate(start),endLabel=readableReportDate(end);if(!startLabel||!endLabel||start>end)return '';return start.slice(0,4)===end.slice(0,4)?`${startLabel.replace(/, \d{4}$/,'')}–${endLabel}`:`${startLabel}–${endLabel}`;};
-export const authoritativeReportPeriodCaption=(report,rows=[])=>{if(!rows.length)return '';if(['TRIAL_BALANCE','BALANCE_SHEET'].includes(report)){const ends=[...new Set(rows.map(row=>row?.period_end))];return ends.length===1&&readableReportDate(ends[0])?`As of ${readableReportDate(ends[0])}`:'';}if(report==='INCOME_STATEMENT'){const starts=[...new Set(rows.map(row=>row?.period_start))],ends=[...new Set(rows.map(row=>row?.period_end))];return starts.length===1&&ends.length===1?readableReportRange(starts[0],ends[0]):'';}return '';};
+export const authoritativeReportRangeCaption=(start,end)=>{const startLabel=readableReportDate(start),endLabel=readableReportDate(end);if(!startLabel||!endLabel||start>end)return '';return start.slice(0,4)===end.slice(0,4)?`${startLabel.replace(/, \d{4}$/,'')}–${endLabel}`:`${startLabel}–${endLabel}`;};
+export const authoritativeReportPeriodCaption=(report,rows=[])=>{if(!rows.length)return '';if(['TRIAL_BALANCE','BALANCE_SHEET'].includes(report)){const ends=[...new Set(rows.map(row=>row?.period_end))];return ends.length===1&&readableReportDate(ends[0])?`As of ${readableReportDate(ends[0])}`:'';}if(report==='INCOME_STATEMENT'){const starts=[...new Set(rows.map(row=>row?.period_start))],ends=[...new Set(rows.map(row=>row?.period_end))];return starts.length===1&&ends.length===1?authoritativeReportRangeCaption(starts[0],ends[0]):'';}return '';};
 
 export const AuthoritativeFullStatementReport=({report,rows,returnContext,onBack,onRefresh,onOpenEvidence,loading=false,tableRef,page=0,onPageChange=()=>{}})=>{
   const title=statementLabel(report);
@@ -268,7 +268,7 @@ export const AuthoritativeFullStatementReport=({report,rows,returnContext,onBack
   </section>;
 };
 
-export const AuthoritativeStatementOfCashFlowsReport=({state,returnContext,onBack,onRefresh,onOpenEvidence,page=0,onPageChange=()=>{}})=>{
+export const AuthoritativeStatementOfCashFlowsReport=({state,returnContext,periodCaption='',onBack,onRefresh,onOpenEvidence,page=0,onPageChange=()=>{}})=>{
   const rows=Array.isArray(state?.rows)?state.rows:[];
   const pageCount=Math.max(1,Math.ceil(rows.length/FULL_STATEMENT_PAGE_SIZE));
   const currentPage=Math.min(Math.max(Number.isSafeInteger(page)?page:0,0),pageCount-1);
@@ -276,7 +276,7 @@ export const AuthoritativeStatementOfCashFlowsReport=({state,returnContext,onBac
   const visibleRows=rows.slice(start,start+FULL_STATEMENT_PAGE_SIZE);
   return <section className="full-bleed qbo-transaction-report authoritative-evidence-page authoritative-full-statement" aria-label="Statement of Cash Flows full report">
     <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Reports</button><span>Reports center</span></div>
-    <header className="accounting-page-head"><div><div className="page-eyebrow">FINANCIAL REPORT</div><h1 className="page-h">Statement of Cash Flows</h1><p className="page-subtitle">Review operating, investing, and financing cash activity.</p></div><div className="report-period-chip"><span>Report scope</span><b><ScopeLabel context={returnContext}/></b><small>READ ONLY</small></div></header>
+    <header className="accounting-page-head"><div><div className="page-eyebrow">FINANCIAL REPORT</div><h1 className="page-h">Statement of Cash Flows</h1>{periodCaption&&<p className="authoritative-report-period-caption">{periodCaption}</p>}<p className="page-subtitle">Review operating, investing, and financing cash activity.</p></div><div className="report-period-chip"><span>Report scope</span><b><ScopeLabel context={returnContext}/></b><small>READ ONLY</small></div></header>
     <div className="authoritative-full-statement-actions"><button type="button" className="btn btn-sm btn-ghost" disabled={state?.phase==='LOADING'} onClick={onRefresh}>{state?.phase==='LOADING'?'Loading…':'Refresh'}</button><span className="badge badge-muted">READ ONLY</span></div>
     {state?.phase==='LOADING'&&<StateBlock tone="loading">Loading mapped cash-flow activity…</StateBlock>}
     <ReadError state={state||{phase:'IDLE'}} onRetry={onRefresh}/>
@@ -421,7 +421,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   };
   const openEvidenceLineage=row=>{const detail=selected;const context=detail?.returnContext;if(!detail||!context)return;setSelected({kind:'EVIDENCE_LINEAGE',row,returnTo:detail,returnContext:context,lineageConfig:authoritativeReportLineageConfig(config,row)});};
   if(selected?.kind==='EVIDENCE_LINEAGE')return <AuthoritativeLineageDrill config={selected.lineageConfig||config} fetcher={fetcher} initial={{kind:'EVIDENCE',row:selected.row,context:{entityId:config.entityId,periodId:selected.lineageConfig?.periodId||config.periodId,accountCode:selected.row.account_code||null}}} onExit={()=>setSelected(selected.returnTo)}/>;
-  if(selected?.kind==='STATEMENT_OF_CASH_FLOWS')return <AuthoritativeStatementOfCashFlowsReport state={cashFlowState} returnContext={selected.returnContext} page={selected.page||0} onPageChange={page=>setSelected(current=>current?.kind==='STATEMENT_OF_CASH_FLOWS'?{...current,page}:current)} onBack={closeEvidence} onRefresh={loadCashFlow} onOpenEvidence={openEvidenceFromCashFlowReport}/>;
+  if(selected?.kind==='STATEMENT_OF_CASH_FLOWS')return <AuthoritativeStatementOfCashFlowsReport state={cashFlowState} returnContext={selected.returnContext} periodCaption={authoritativeReportRangeCaption(config?.scopePresentation?.periodStart,config?.scopePresentation?.periodEnd)} page={selected.page||0} onPageChange={page=>setSelected(current=>current?.kind==='STATEMENT_OF_CASH_FLOWS'?{...current,page}:current)} onBack={closeEvidence} onRefresh={loadCashFlow} onOpenEvidence={openEvidenceFromCashFlowReport}/>;
   if(selected?.kind==='CASH_FLOW_CLASSIFICATION')return <CashFlowDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence} onOpenLineage={openEvidenceLineage}/>;
   if(selected?.kind==='INTERCOMPANY_RECONCILIATION')return <IntercompanyDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence} onOpenLineage={openEvidenceLineage}/>;
   if(selected?.kind==='BUDGET_VS_ACTUAL')return <BudgetActualDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence} onOpenLineage={openEvidenceLineage}/>;

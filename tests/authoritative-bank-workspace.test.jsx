@@ -22,9 +22,10 @@ const namedBankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={
 assert.match(namedBankInitial,/Wan Pacific Real Estate Development LLC/);assert.doesNotMatch(namedBankInitial,/Entity 11111111-1111-4111-8111-111111111111/);
 
 const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
-assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/Review one retained statement/);
-assert.match(reconciliationInitial,/Selecting a retained statement fills the account and cutoff\. No lifecycle action runs\./);assert.doesNotMatch(reconciliationInitial,/The API rejects missing or cross-scope statement evidence/);
-assert.match(reconciliationInitial,/Available reconciliation scopes/);assert.match(reconciliationInitial,/Discovering reconciliation scopes/);assert.match(reconciliationInitial,/READ ONLY/);
+assert.match(reconciliationInitial,/Reconcile/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/Match retained statements to the books\./);
+assert.match(reconciliationInitial,/Choose an existing statement to review\./);assert.doesNotMatch(reconciliationInitial,/The API rejects missing or cross-scope statement evidence/);
+assert.match(reconciliationInitial,/Reconciliation history/);assert.match(reconciliationInitial,/Loading reconciliation history/);assert.match(reconciliationInitial,/READ ONLY/);
+assert.match(reconciliationInitial,/Choose a statement/);assert.match(reconciliationInitial,/Select a bank account and statement ending date\./);assert.doesNotMatch(reconciliationInitial,/Reconciliation evidence|Available reconciliation scopes|Discovering reconciliation scopes|No read requested yet/,'the first screen must use concise accounting language');
 assert.match(reconciliationInitial,/Signed admitted statements/);assert.match(reconciliationInitial,/SIGNED \+ ADMITTED/);assert.match(reconciliationInitial,/separate from UNSIGNED PILOT/);assert.match(reconciliationInitial,/Load signed statements/);
 const admittedInitial=renderToStaticMarkup(<AuthoritativeAdmittedStatements config={config} bankAccountRef="BANK-1" fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
 assert.match(admittedInitial,/Signed statement read not requested/);assert.match(admittedInitial,/Bank account BANK-1/);assert.match(admittedInitial,/SERVER REVALIDATED/);assert.doesNotMatch(admittedInitial,/Start Draft from signed statement/);
