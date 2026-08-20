@@ -11,10 +11,11 @@ const render=tools=>renderToStaticMarkup(<AuthoritativeWbsLivePilotObservation c
 
 const dashboard=render(WBS_LIVE_PILOT_SURFACE_TOOLS.dashboard);
 for(const label of ['Payables','Bank transactions','AutoRec details','AutoRec banks','Journal entries'])assert.match(dashboard,new RegExp(`>${label}<`));
-for(const boundary of ['READ ONLY','No demo or browser-stored data'])assert.match(dashboard,new RegExp(boundary,'i'));
+for(const boundary of ['READ ONLY','Unsigned pilot','Not admitted','Not postable','No demo or browser-stored data'])assert.match(dashboard,new RegExp(boundary,'i'));
 assert.match(dashboard,/Live connection not checked/);
-assert.match(dashboard,/Refresh live WBS data/);
-for(const liveFact of ['Live WBS connection status','Last successful API read','Record count','Test entity','Production WBS API'])assert.match(dashboard,new RegExp(liveFact));
+assert.match(dashboard,/>Refresh</);
+for(const liveFact of ['Live WBS connection status','Last API read','Rows','Test entity','Period'])assert.match(dashboard,new RegExp(liveFact));
+assert.doesNotMatch(dashboard,/<i>Status<\/i>|<i>Source<\/i>/,'status and source must not be repeated below the connection header');
 
 const payables=render(WBS_LIVE_PILOT_SURFACE_TOOLS.payables);
 assert.match(payables,/WBS read-only view:<\/b> Payables/);
