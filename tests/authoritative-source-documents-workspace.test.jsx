@@ -39,6 +39,8 @@ assert.match(source,/listScrollRef\.current\?\.scrollTo\?\.\(\{left:context\?\.t
 assert.match(source,/getElementById\(context\?\.focusId\)\?\.focus\?\.\(\{preventScroll:true\}\)/,'Source Document Back must restore keyboard focus to the exact list opener');
 assert.match(source,/className="table-wrap authoritative-source-document-list" role="region" tabIndex=\{0\} aria-label="Source Documents; scroll horizontally to view every column"/,'Source Document list must be a named keyboard-focusable narrow-table scroll region');
 assert.match(source,/className="table-wrap authoritative-source-document-lines" role="region" tabIndex=\{0\} aria-label="Source Document lines; scroll horizontally to view every column"/,'Source Document detail lines must be a named keyboard-focusable narrow-table scroll region');
+const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
+assert.match(styles,/\.authoritative-source-document-list,\.authoritative-source-document-lines\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'Source Document lists and detail lines must remain contained after the tablet table-height reset');
 assert.doesNotMatch(source,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data|\b(?:POST|PUT|PATCH|DELETE)\b/);
 assert.doesNotMatch(presentation,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data|accounting-api|legacy-demo-app/);
 const presentationMarkup=renderToStaticMarkup(<AuthoritativeSourceDocumentsView scope="API scope" metrics={<span>1</span>} actions={<button>Refresh</button>}><div>API slot</div></AuthoritativeSourceDocumentsView>);
