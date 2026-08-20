@@ -96,6 +96,7 @@ assert.match(workspace,/context\?\.journalRevision === journal\.revision/);
 assert.match(workspace,/BLOCKED - immutable Journal scope mismatch/);
 assert.match(workspace,/setQueue\('REVIEW_REQUIRED'\)/,'Needs review must include the retained review and approval statuses it counts');
 assert.match(workspace,/table-wrap authoritative-journal-table/,'Journal facts must use the shared, page-contained table scroller');
+assert.doesNotMatch(workspace,/<dt>Date<\/dt>|<dt>Status<\/dt>|<dt>Revision<\/dt>/,'Journal date, status and revision must not repeat below their scope/header presentation');
 assert.match(workspace,/readAuthoritativeJournalEntryDetail/,'opening evidence must perform an exact authoritative detail read');
 assert.match(workspace,/journalCurrency:journal\.currency/);assert.match(workspace,/context\?\.periodId === journal\.period_id/);
 assert.doesNotMatch(workspace,/localStorage|SEED_|legacy-demo|seed\.js|repo\.js/,'authoritative Journal evidence must not read browser accounting state');
