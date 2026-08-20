@@ -2183,6 +2183,11 @@ select{padding-right:28px; cursor:pointer;}
    removes the scrim from 901px upward. */
 @media(min-width:901px){
   .authoritative-app .sidebar{position:sticky; top:0; left:auto; transform:none; width:var(--nav-w); flex:0 0 var(--nav-w); box-shadow:none;}
+  /* A one-page workspace opens from the rail itself.  Suppress the redundant
+     secondary panel on desktop while the off-canvas drawer keeps its brand
+     and reachable Close control at touch widths. */
+  .authoritative-app .sidebar.authoritative-sidebar-direct{width:var(--qb-rail-w); flex-basis:var(--qb-rail-w);}
+  .authoritative-app .sidebar.authoritative-sidebar-direct .nav-panel{display:none;}
   .authoritative-app .mobile-nav-btn,.authoritative-app .mobile-nav-scrim{display:none;}
   .authoritative-app .main{margin-left:0;}
 }

@@ -37,7 +37,8 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroups
   const activeGroup = navigation.find(group => group.items.some(item => item.route === route))
     || navigation.find(group => group.label === (Array.isArray(expandedGroups) ? expandedGroups[0] : expandedGroup))
     || navigation[0];
-  return <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar authoritative-sidebar ${navOpen ? 'mobile-open' : ''}`} {...drawerAttributes}>
+  const opensDirectly = activeGroup?.items.length === 1;
+  return <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar authoritative-sidebar ${opensDirectly ? 'authoritative-sidebar-direct' : ''} ${navOpen ? 'mobile-open' : ''}`} {...drawerAttributes}>
     <div className="nav-rail" aria-label="Accounting workspace groups">
       <div className="rail-logo" aria-hidden="true">R</div>
       {navigation.map((group, index) => {
@@ -57,7 +58,7 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroups
     <div className="nav-panel">
       <div className="brand"><span className="logo" aria-hidden="true">R</span> REFS<span className="brand-sub">Authoritative</span></div>
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={onClose}>Close</button>}
-      <nav aria-label="Accounting workspace navigation">
+      {!opensDirectly && <nav aria-label="Accounting workspace navigation">
         {activeGroup && <section className={`nav-panel-group nav-tone-${Math.max(0,navigation.indexOf(activeGroup)) % 6}`}>
           <div className="nav-panel-title"><span>{activeGroup.label}</span></div>
           <div className="nav-group-items" id="authoritative-navigation-active-group">
@@ -69,7 +70,7 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroups
           </button>)}
           </div>
         </section>}
-      </nav>
+      </nav>}
     </div>
   </aside>;
 }

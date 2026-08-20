@@ -129,6 +129,12 @@ assert.match(authoritativeShell,/className="nav-panel-title"/,
   'the production panel must identify the active workspace');
 assert.match(authoritativeShell,/authoritative-navigation-active-group/,
   'the production panel must render only the selected workspace menu');
+assert.match(authoritativeShell,/const opensDirectly = activeGroup\?\.items\.length === 1/,
+  'a workspace with one page must open from its primary control without a duplicate secondary item');
+assert.match(authoritativeShell,/\{!opensDirectly && <nav aria-label="Accounting workspace navigation">/,
+  'a direct-entry workspace must not expose an empty or duplicate secondary navigation landmark');
+assert.match(styles,/\.authoritative-app \.sidebar\.authoritative-sidebar-direct\{width:var\(--qb-rail-w\); flex-basis:var\(--qb-rail-w\);\}/,
+  'a direct-entry workspace must release the unused desktop panel width');
 assert.doesNotMatch(authoritativeShell,/nav-panel-toggle/,
   'the selected workspace must replace the previous menu instead of stacking expanded trees');
 assert.match(authoritative,/setExpandedNavigationGroups\(\[group\.label\]\)/,
