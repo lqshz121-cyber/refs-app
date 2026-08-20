@@ -126,8 +126,16 @@ assert.doesNotMatch(arWorkspaceMarkup,/API total|All retained API rows|>Filtered
 assert.match(arWorkspaceMarkup,/Receivables/);
 assert.match(arWorkspaceMarkup,/Invoices/);
 assert.match(arWorkspaceMarkup,/Invoice, customer, account, or reference/);
+assert.match(arWorkspaceMarkup,/All customers/);
+assert.doesNotMatch(arWorkspaceMarkup,/All retained customers/,'the AR customer filter must not expose storage terminology');
 assert.doesNotMatch(arWorkspaceMarkup,/Category \(offset account\)/,'AR must not expose the AP-only category filter');
 assert.match(arWorkspaceMarkup,/1 result/,'a stale AP-only account filter must not silently remove AR invoices');
+const arNoMatchMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AR" documents={[invoice]} adjustments={[]} view={{query:'No such invoice',status:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.match(arNoMatchMarkup,/No invoices match these filters/);
+assert.match(arNoMatchMarkup,/Try changing or resetting the filters\. This result does not confirm a zero balance\./);
+assert.match(arNoMatchMarkup,/No adjustments found/);
+assert.doesNotMatch(arNoMatchMarkup,/match these presentation filters|see retained list facts|>No authoritative adjustments in this scope</,
+  'AR empty states must use concise user-facing language while retaining the zero-balance caveat');
 
 const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} config={displayConfig} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);
