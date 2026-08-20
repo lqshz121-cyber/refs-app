@@ -193,6 +193,11 @@ assert.match(appSource, /Refresh authoritative accounting evidence/, 'the top-ba
 assert.match(appSource, /Authenticated OIDC session/, 'the user chip must describe an authenticated session without fabricating a demo user');
 assert.match(appSource, /onClick=\{logout\}>Sign out/, 'the visual shell keeps the real OIDC sign-out command');
 const styles = fs.readFileSync('index.html', 'utf8');
+const uiSource = fs.readFileSync('src/ui.jsx', 'utf8');
+assert.match(uiSource,/const STATE_ICON = Object\.freeze\(\{loading:'cycle',error:'shield',empty:'document',blocked:'shield',permission:'shield',cleared:'check'\}\)/,'StateBlock must use the shared semantic line-icon vocabulary instead of one document glyph for every state');
+assert.match(uiSource,/<span className="state-block-icon" aria-hidden="true"><Icon name=\{STATE_ICON\[tone\]\|\|STATE_ICON\.empty\} size=\{24\}/,'StateBlock must render one decorative shared Icon slot');
+assert.match(styles,/\.state-block::before\{display:none;\}/,'authoritative state blocks must suppress the legacy data-URI pseudo icon');
+assert.match(styles,/\.state-block-icon\{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:48px;height:48px/,'all authoritative state icons must share one geometry');
 assert.match(styles, /\.authoritative-entity-chip\{/, 'the authoritative entity scope needs the complete-shell selector treatment');
 assert.match(styles, /\.authoritative-mode-chip\{/, 'the top bar must disclose authoritative mode rather than demonstration mode');
 assert.match(styles, /@media \(max-width:900px\) and \(min-width:769px\)/, 'the authoritative shell must release its rail only at tablet widths');
