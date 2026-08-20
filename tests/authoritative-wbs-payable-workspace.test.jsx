@@ -16,6 +16,8 @@ assert.doesNotMatch(source,/localStorage|seed\.js|Submit Bill|Approve Bill|Post 
 assert.match(source,/detailReturnRef\.current=\{entityId:config\.entityId,periodId:config\.periodId,scrollY:Number\(environment\?\.scrollY\)\|\|0,tableX:Number\(listTableRef\.current\?\.scrollLeft\)\|\|0,focusId\}/,'opening reviewed WBS Payable evidence must freeze exact list and contained-table position');
 assert.match(source,/ref=\{listTableRef\} className="table-wrap authoritative-wbs-payable-table"/,'the reviewed Payables table scroller must be retained for Back restoration and mobile containment');
 assert.match(source,/Review approved source evidence and prepare a Draft\./);assert.doesNotMatch(source,/exact 094 review evidence|Refresh evidence/,'the first screen must not expose migration or read-model terminology');
+for(const token of ['Loading reviewed Payables.','No reviewed Payables are ready for Draft preparation.'])assert.match(source,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),'reviewed Payables loading and empty states must use concise user-facing language');
+assert.doesNotMatch(source,/Reading retained PostgreSQL evidence only|immutable READY_FOR_DRAFT/,'reviewed Payables states must not expose storage or internal enum terminology');
 assert.match(source,/>View details<\/button>/,'the reviewed queue must use the shared detail-action label');
 assert.doesNotMatch(source,/>Open evidence<\/button>/,'the reviewed queue must not use a second action vocabulary');
 const css=fs.readFileSync('index.html','utf8');assert.match(css,/\.authoritative-wbs-payable-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'reviewed WBS Payables must remain contained at phone widths');
@@ -30,6 +32,8 @@ for(const token of ['refreshAuthoritativeWbsPayableReviewCandidates','reviewAuth
 assert.match(reviewSource,/<th>Action<\/th>/,'the admitted queue must label its final column as an action');
 assert.doesNotMatch(reviewSource,/<th>Evidence<\/th>/,'the admitted queue must not use a competing column label');
 assert.match(reviewSource,/Inspect review evidence/,'the review action must remain distinct from adding support evidence');
+for(const token of ['Checking source, scope, mapping, separation of duties, and attachments.','No signed Payables are ready for review. Unsigned pilot rows remain excluded.'])assert.match(reviewSource,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),'admitted Payables states must be concise while preserving review controls');
+assert.doesNotMatch(reviewSource,/exact production receipt, entity, currency, period, approved mapping, local master data, SoD|authenticated API returned a valid empty result/,'admitted Payables states must not expose implementation-heavy prose');
 for(const token of ['NO_PERMISSION — WBS Payable reviewer access required','WBS_PAYABLE_REVIEWER','WBS.PAYABLE.REVIEW','AP.VIEW','Unsigned Pilot observations remain excluded'])assert.match(reviewSource,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),'WBS review denial must name the exact read role and preserve the unsigned boundary');
 assert.doesNotMatch(reviewSource,/localStorage|seed\.js|createAuthoritativeWbsPayableApDraft|Submit Bill|Approve Bill|Post Journal/);
 console.log('authoritative WBS Payable workspace: admitted review and separate reviewed-evidence Draft boundaries');
