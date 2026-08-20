@@ -56,6 +56,9 @@ assert.match(styles,/\.authoritative-coa-table tbody td::before\{content:attr\(d
 assert.match(source,/authoritative-coa-query-filter/,'the COA search control needs a stable responsive slot');
 assert.match(source,/authoritative-coa-status-filter/,'the authoritative status filter must remain available on phones');
 assert.match(source,/authoritative-coa-currency-filter/,'the authoritative currency filter must remain available on phones');
+assert.match(source,/const COA_PAGE_SIZES=Object\.freeze\(\[25,50,100,200\]\)/,'the COA pager must include the observed 200-account page capacity');
+assert.match(source,/const \[query,setQuery\]=useState\(''\);const \[status,setStatus\]=useState\('ALL'\);const \[currency,setCurrency\]=useState\('ALL'\);const \[page,setPage\]=useState\(0\);const \[pageSize,setPageSize\]=useState\(200\)/,'Chart of Accounts must default to the observed 200-account page capacity');
+assert.match(source,/<PageSize label="Rows per page" value=\{pageSize\} sizes=\{COA_PAGE_SIZES\}/,'only the COA list should receive the 200-row option');
 assert.match(styles,/@media\(max-width:600px\)\{[\s\S]*?\.authoritative-coa-filter\{display:grid!important;grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/,'phone-width COA filters must use a compact toolbar instead of seven full-width rows');
 const restoreCalls=[];
 const restoreEnvironment={scrollTo:options=>restoreCalls.push(['page',options]),setTimeout:callback=>{restoreCalls.push(['timer']);callback();},document:{getElementById:id=>({focus:()=>restoreCalls.push(['focus',id])})}};
