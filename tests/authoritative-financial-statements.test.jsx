@@ -102,7 +102,10 @@ async function main(){
   const mismatchedRowIdentity=renderToStaticMarkup(<AuthoritativeReportDetail row={{...row,account_code:'999999'}} returnContext={reportReturnContext} onBack={()=>{}}/>);
   assert.match(mismatchedRowIdentity,/BLOCKED[\s\S]*immutable report scope mismatch/);assert.doesNotMatch(mismatchedRowIdentity,/POSTED EVIDENCE/,'a row from the same report and period must still match the frozen account identity');
   const fullReport=renderToStaticMarkup(<AuthoritativeFullStatementReport report="TRIAL_BALANCE" rows={[row]} returnContext={{entityId,periodId,report:'TRIAL_BALANCE'}} onBack={()=>{}} onRefresh={()=>{}} onOpenEvidence={()=>{}}/>);
-  assert.match(fullReport,/Trial Balance/);assert.match(fullReport,/Back to Reports/);assert.match(fullReport,/Refresh statement evidence/);assert.match(fullReport,/GET ONLY/);assert.match(fullReport,/report-section-row/);assert.match(fullReport,/scope="rowgroup"/);assert.match(fullReport,/authoritative-full-report-TRIAL_BALANCE-111000/);assert.match(fullReport,/authoritative-evidence-page/);
+  assert.match(fullReport,/Trial Balance/);assert.match(fullReport,/Back to Reports/);assert.match(fullReport,/Reports center/);assert.match(fullReport,/Refresh statement evidence/);assert.match(fullReport,/GET ONLY/);assert.match(fullReport,/report-section-row/);assert.match(fullReport,/scope="rowgroup"/);assert.match(fullReport,/authoritative-full-report-TRIAL_BALANCE-111000/);assert.match(fullReport,/authoritative-evidence-page/);
+  assert.equal((fullReport.match(/Configured entity/g)||[]).length,1,'the full statement must present its entity and period once in Evidence scope, not repeat them beside Back');
+  assert.match(fullReport,/Read-only statement evidence from the accounting API\./);
+  assert.doesNotMatch(fullReport,/This page has no saved layout, export, delivery, or browser data fallback/);
   const workspace=fs.readFileSync('src/authoritative-reports-workspace.jsx','utf8');
   const lineage=fs.readFileSync('src/authoritative-lineage-drill.jsx','utf8');
   const reportsView=fs.readFileSync('src/authoritative-reports-view.jsx','utf8');
