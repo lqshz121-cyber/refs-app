@@ -25,6 +25,8 @@ assert.match(source,/authoritative-source-scope/,'Source Documents must visibly 
 assert.match(source,/scopeLabels\.entity/);assert.match(source,/scopeLabels\.period/);assert.doesNotMatch(source,/<b>\{config\.(?:entityId|periodId)\}<\/b>/,'Source Documents must not promote raw scope UUIDs as visible labels');
 assert.match(source,/Journal-linked/,'Source Documents must distinguish retained journal references from unlinked list facts');
 assert.match(source,/authoritative-source-intro/,'Source Documents must disclose its evidence-only boundary before the list');
+assert.match(source,/<AuthoritativeSecondaryDisclosure label="Evidence boundaries">/,'secondary Source Document boundary copy must not lengthen the default register page');
+assert.match(source,/Persisted metadata, source identity, and line references/);assert.match(source,/Attachment bytes and raw provider payloads/);assert.match(source,/No import, mapping, posting, or external call/);
 assert.match(source,/authoritative-source-filters/,'Source Documents must provide presentation-only source evidence filters');
 assert.match(source,/sourceSystem==='ALL'\|\|row\.source_system===sourceSystem/,'Source filtering must be applied only to rows already returned by the authoritative API');
 assert.match(source,/detailReturnRef\.current=\{focusId:`authoritative-source-document-\$\{id\}`,pageY:globalThis\.scrollY\|\|0,tableX:listScrollRef\.current\?\.scrollLeft\|\|0,query,sourceSystem\}/,'Source Document details must retain exact list filter and scroll context before replacing the list');
