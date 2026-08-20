@@ -20,6 +20,13 @@ const account=/^[A-Za-z0-9._-]{1,64}$/;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const revision=value=>Number.isSafeInteger(Number(value))&&Number(value)>=0;
 const secondaryFilterValues=view=>({from:view.from,through:view.through,counterparty:view.counterparty,accountCode:view.accountCode});
+export const isAuthoritativeDateFilterValue=value=>{
+  const text=String(value??'').trim();
+  if(!text)return true;
+  if(!date.test(text))return false;
+  const instant=new Date(`${text}T00:00:00.000Z`);
+  return Number.isFinite(instant.getTime())&&instant.toISOString().slice(0,10)===text;
+};
 
 // List rows are facts, not lineage.  A later API contract may attach a
 // complete immutable evidence object, but a browser must never assemble one
@@ -121,6 +128,9 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     bill&&state.accountCode!=='ALL'?`Category: ${state.accountCode}`:null,
     bill&&state.transactionType!=='ALL'?`Transaction type: ${state.transactionType==='BILLS'?'Bills':'Vendor credits'}`:null,
   ].filter(Boolean);
+  const invalidFrom=!isAuthoritativeDateFilterValue(filterDraft.from);
+  const invalidThrough=!isAuthoritativeDateFilterValue(filterDraft.through);
+  const invalidDateFilter=invalidFrom||invalidThrough;
   const moreFilterCount=[state.from,state.through,state.counterparty!=='ALL',bill&&state.accountCode!=='ALL'].filter(Boolean).length;
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
   const tabs=bill?[
@@ -144,11 +154,11 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
       <label>Search <input value={state.query} onChange={event=>change({query:event.target.value})} placeholder={bill?'Bill, vendor, account, or reference':'Invoice, customer, account, or reference'}/></label>
       <label>Status <select value={state.status} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
       <details className="authoritative-list-more-filters" onToggle={event=>{if(event.currentTarget.open)setFilterDraft(secondaryFilterValues(state));}}><summary>{bill?'Filter':'More filters'}{moreFilterCount?` (${moreFilterCount})`:''}</summary><div className="authoritative-list-more-filter-grid">
-        <label>From <input type="date" value={filterDraft.from} onChange={event=>setFilterDraft(current=>({...current,from:event.target.value}))}/></label>
-        <label>{bill?'To':'Through'} <input type="date" value={filterDraft.through} onChange={event=>setFilterDraft(current=>({...current,through:event.target.value}))}/></label>
+        <label>From <input type="text" inputMode="numeric" autoComplete="off" maxLength={10} pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}" placeholder="YYYY-MM-DD" aria-invalid={invalidFrom||undefined} value={filterDraft.from} onChange={event=>setFilterDraft(current=>({...current,from:event.target.value}))}/></label>
+        <label>{bill?'To':'Through'} <input type="text" inputMode="numeric" autoComplete="off" maxLength={10} pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}" placeholder="YYYY-MM-DD" aria-invalid={invalidThrough||undefined} value={filterDraft.through} onChange={event=>setFilterDraft(current=>({...current,through:event.target.value}))}/></label>
         <label>{bill?'Payee':'Customer'} <select value={filterDraft.counterparty} onChange={event=>setFilterDraft(current=>({...current,counterparty:event.target.value}))}><option value="ALL">{bill?'All payees':'All customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
         {bill&&(accountCodes.length>0?<label>Category <select value={filterDraft.accountCode} onChange={event=>setFilterDraft(current=>({...current,accountCode:event.target.value}))}><option value="ALL">All categories</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category unavailable for this result.</span>)}
-        <div className="authoritative-list-more-filter-actions"><button type="button" className="btn btn-sm btn-ghost" onClick={()=>setFilterDraft({from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset</button><button type="button" className="btn btn-sm" onClick={()=>change(filterDraft)}>Apply</button></div>
+        <div className="authoritative-list-more-filter-actions">{invalidDateFilter&&<span className="muted sm" role="alert">Use YYYY-MM-DD.</span>}<button type="button" className="btn btn-sm btn-ghost" onClick={()=>setFilterDraft({from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset</button><button type="button" className="btn btn-sm" disabled={invalidDateFilter} onClick={()=>change(filterDraft)}>Apply</button></div>
       </div></details>
       <button type="button" className="btn btn-sm btn-ghost" disabled={!state.query&&!appliedScope.length} onClick={()=>change({query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset filters</button>
       <span className="result-count" aria-live="polite">{visibleResultCount} {visibleResultCount===1?'result':'results'}</span>

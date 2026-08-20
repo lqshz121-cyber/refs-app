@@ -16,6 +16,10 @@ assert.match(workspace,/<summary>\{bill\?'Filter':'More filters'\}\{moreFilterCo
   'the collapsed disclosure must use the observed concise Expenses label and surface the active secondary-filter count');
 assert.match(workspace,/<label>\{bill\?'Payee':'Customer'\} <select/,
   'the responsive contract must retain the observed AP Payee and authoritative AR Customer selectors');
+assert.match(workspace,/type="text" inputMode="numeric" autoComplete="off" maxLength=\{10\} pattern="\[0-9\]\{4\}-\[0-9\]\{2\}-\[0-9\]\{2\}" placeholder="YYYY-MM-DD"/,
+  'date filters must expose one stable English YYYY-MM-DD contract instead of a browser-localized native control');
+assert.doesNotMatch(workspace,/<input type="date"[^>]*filterDraft/,
+  'AP/AR filter dates must never regress to locale-dependent native placeholders');
 assert.match(styles,/\.authoritative-compact-list-filters\{grid-template-columns:minmax\(220px,2fr\) minmax\(150px,1fr\) auto auto auto;\}/,
   'wide AP/AR lists must keep Search, Status, Filter, Reset and result count on one compact row');
 assert.match(styles,/\.authoritative-list-more-filter-grid\{display:grid;grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/,

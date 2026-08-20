@@ -10,6 +10,7 @@ import {
   AuthoritativeDocumentTable,
   AuthoritativeDocumentWorkspace,
   authoritativeLineageFor,
+  isAuthoritativeDateFilterValue,
 } from '../src/authoritative-workspace.jsx';
 
 const entityId='11111111-1111-4111-8111-111111111111';
@@ -68,9 +69,14 @@ assert.doesNotMatch(workspaceMarkup,/Document and adjustment evidence/,'the comp
 assert.match(workspaceMarkup,/Search <input/);
 assert.match(workspaceMarkup,/<summary>Filter \(4\)<\/summary>/,'Expenses must use the observed concise QBO Filter label while showing its active-filter count');
 assert.doesNotMatch(workspaceMarkup,/<summary>More filters/,'Expenses must not retain the longer disclosure label');
-assert.match(workspaceMarkup,/>From <input[^>]*type="date"/);
-assert.match(workspaceMarkup,/>To <input[^>]*type="date"/,'Expenses must use the observed QBO From / To date labels without changing its through-state key');
-assert.doesNotMatch(workspaceMarkup,/>Through <input[^>]*type="date"/,'Expenses must not expose the older Through label');
+assert.match(workspaceMarkup,/>From <input[^>]*type="text"[^>]*inputMode="numeric"[^>]*placeholder="YYYY-MM-DD"/);
+assert.match(workspaceMarkup,/>To <input[^>]*type="text"[^>]*inputMode="numeric"[^>]*placeholder="YYYY-MM-DD"/,'Expenses must use the observed QBO From / To labels without exposing a browser-localized native date placeholder');
+assert.doesNotMatch(workspaceMarkup,/<label>(?:From|To|Through) <input[^>]*type="date"/,'authoritative AP/AR date filters must not localize their visible format through the browser');
+assert.equal(isAuthoritativeDateFilterValue(''),true);
+assert.equal(isAuthoritativeDateFilterValue('2024-02-29'),true);
+assert.equal(isAuthoritativeDateFilterValue('2026-02-29'),false);
+assert.equal(isAuthoritativeDateFilterValue('2026-02-30'),false);
+assert.equal(isAuthoritativeDateFilterValue('08/20/2026'),false);
 assert.match(workspaceMarkup,/To: 2026-08-31/,'the applied Expenses scope must use the same visible To vocabulary');
 assert.match(workspaceMarkup,/Payee: Evidence Vendor/);
 assert.match(workspaceMarkup,/Category: 610000/);
@@ -143,7 +149,7 @@ assert.match(arWorkspaceMarkup,/Invoices/);
 assert.match(arWorkspaceMarkup,/Invoice, customer, account, or reference/);
 assert.match(arWorkspaceMarkup,/All customers/);
 assert.match(arWorkspaceMarkup,/More filters/,'AR secondary date and customer filters must be collapsed by default');
-assert.match(arWorkspaceMarkup,/>Through <input[^>]*type="date"/,'Receivables keeps its existing label until separately observed');
+assert.match(arWorkspaceMarkup,/>Through <input[^>]*type="text"[^>]*placeholder="YYYY-MM-DD"/,'Receivables keeps its existing label while sharing the stable English date format');
 assert.doesNotMatch(arWorkspaceMarkup,/<details class="authoritative-list-more-filters" open=""/,'AR More filters must stay closed when no secondary filter is active');
 assert.doesNotMatch(arWorkspaceMarkup,/All retained customers/,'the AR customer filter must not expose storage terminology');
 assert.doesNotMatch(arWorkspaceMarkup,/Category \(offset account\)/,'AR must not expose the AP-only category filter');

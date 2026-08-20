@@ -24,7 +24,9 @@ assert.match(styles,/input:focus-visible,select:focus-visible,textarea:focus-vis
 assert.match(workspace,/<label>\{bill\?'Payee':'Customer'\} <select/);
 assert.match(workspace,/className="authoritative-list-more-filters"/);
 assert.match(workspace,/onToggle=\{event=>\{if\(event\.currentTarget\.open\)setFilterDraft/);
-assert.match(workspace,/onClick=\{\(\)=>change\(filterDraft\)\}>Apply<\/button>/);
+assert.match(workspace,/placeholder="YYYY-MM-DD"/);
+assert.doesNotMatch(workspace,/<input type="date"[^>]*filterDraft/);
+assert.match(workspace,/disabled=\{invalidDateFilter\} onClick=\{\(\)=>change\(filterDraft\)\}>Apply<\/button>/);
 assert.match(workspace,/>Reset filters<\/button>/,'staged secondary filters must not remove the existing all-filter reset');
 assert.match(sourceDocuments,/detailReturnRef\.current/);
 assert.doesNotMatch(`${workspace}\n${navigationShell}`,/localStorage|sessionStorage|seed\.js|repo\.js|legacy-demo-app/);
