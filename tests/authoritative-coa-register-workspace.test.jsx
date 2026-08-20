@@ -20,10 +20,12 @@ assert.match(source,/refreshAuthoritativeChartOfAccounts/);assert.match(source,/
 assert.equal(authoritativeRangeLabel({page:0,pageSize:25,total:200,itemLabel:'accounts'}),'Showing accounts 1 to 25 of 200');
 assert.equal(authoritativeRangeLabel({page:7,pageSize:25,total:200,itemLabel:'accounts'}),'Showing accounts 176 to 200 of 200');
 assert.equal(authoritativeRangeLabel({page:0,pageSize:25,total:0,itemLabel:'accounts'}),'No accounts');
-assert.equal(authoritativeCoaScopeText({entityId:config.entityId,periodId:config.periodId},{...config,scopePresentation:{entityLabel:'Wan Pacific Real Estate Development LLC',periodLabel:'2026-08'}}),'Entity Wan Pacific Real Estate Development LLC | period 2026-08');
-assert.equal(authoritativeCoaScopeText({entityId:config.entityId,periodId:config.periodId},config),'Entity Configured entity | period Configured period');
+assert.equal(authoritativeCoaScopeText({entityId:config.entityId,periodId:config.periodId},{...config,scopePresentation:{entityLabel:'Wan Pacific Real Estate Development LLC',periodLabel:'2026-08'}}),'Wan Pacific Real Estate Development LLC · 2026-08');
+assert.equal(authoritativeCoaScopeText({entityId:config.entityId,periodId:config.periodId},config),'Configured entity · Configured period');
 assert.doesNotMatch(authoritativeCoaScopeText({entityId:config.entityId,periodId:config.periodId},config),new RegExp(`${config.entityId}|${config.periodId}`),'Register scope must not expose raw UUIDs as visible labels');
 assert.match(source,/evidenceScope\(state\.scope\|\|\{entityId:config\.entityId,periodId:config\.periodId\},config\)/,'Chart of Accounts must use the same readable scope labels as its Register');
+assert.match(source,/API amounts use fixed four-decimal strings/,'the exact amount-format contract must remain available as audit metadata rather than long visible copy');
+assert.match(source,/· balances by currency/,'COA must expose one concise visible currency boundary');
 assert.doesNotMatch(source,/>Configured entity · configured period\./,'Chart of Accounts must not hard-code generic scope text when runtime labels are available');
 assert.doesNotMatch(source,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data|\b(?:POST|PUT|PATCH|DELETE)\b|[鈥路]/);
 const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');

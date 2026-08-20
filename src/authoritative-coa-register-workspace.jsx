@@ -10,9 +10,9 @@ export const authoritativeCoaScopeText=(scope,config)=>{
   const presentation=config?.scopePresentation||{};
   const entity=presentation.entityLabel||'Configured entity';
   const period=presentation.periodLabel||scope?.period_code||'Configured period';
-  return `Entity ${entity} | period ${period}`;
+  return `${entity} · ${period}`;
 };
-const evidenceScope=(scope,config)=><p className="authoritative-coa-scope" title={`Entity ID: ${scope?.entityId}; Period ID: ${scope?.periodId}`}>{authoritativeCoaScopeText(scope,config)}. Amounts remain separate by currency and use fixed four-decimal strings.</p>;
+const evidenceScope=(scope,config)=><p className="authoritative-coa-scope" title={`Entity ID: ${scope?.entityId}; Period ID: ${scope?.periodId}; API amounts use fixed four-decimal strings.`}>{authoritativeCoaScopeText(scope,config)} · balances by currency</p>;
 const ErrorBlock=({state,onRetry})=>state.phase==='ERROR'?<StateBlock tone="error" title={state.error?.code||'ACCOUNTING_API_READ_FAILED'} actions={<button type="button" className="btn btn-sm" onClick={onRetry}>Retry read</button>}>{state.error?.message}</StateBlock>:null;
 export const authoritativeRangeLabel=({page,pageSize,total,itemLabel='rows'})=>total?`Showing ${itemLabel} ${page*pageSize+1} to ${Math.min((page+1)*pageSize,total)} of ${total}`:`No ${itemLabel}`;
 const Pagination=({page,pageCount,pageSize,total,onChange,label,itemLabel='rows'})=><nav className="authoritative-coa-pagination" aria-label={label}><span>{authoritativeRangeLabel({page,pageSize,total,itemLabel})}</span><button type="button" className="btn btn-sm btn-ghost" disabled={page===0} onClick={()=>onChange(page-1)}>Previous</button><button type="button" className="btn btn-sm btn-ghost" disabled={!pageCount||page>=pageCount-1} onClick={()=>onChange(page+1)}>Next</button></nav>;
