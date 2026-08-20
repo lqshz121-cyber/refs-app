@@ -14,7 +14,9 @@ const source=fs.readFileSync('src/authoritative-wbs-payable-workspace.jsx','utf8
 for(const token of ['refreshAuthoritativeWbsPayableReviewEvidence','createAuthoritativeWbsPayableApDraft','Create AP Bill Draft','maker reason','Nothing was submitted, reviewed, approved, or posted'])assert.match(source,new RegExp(token,'i'));
 assert.doesNotMatch(source,/localStorage|seed\.js|Submit Bill|Approve Bill|Post Journal/);
 assert.match(source,/detailReturnRef\.current=\{entityId:config\.entityId,periodId:config\.periodId,scrollY:Number\(environment\?\.scrollY\)\|\|0,tableX:Number\(listTableRef\.current\?\.scrollLeft\)\|\|0,focusId\}/,'opening reviewed WBS Payable evidence must freeze exact list and contained-table position');
-assert.match(source,/ref=\{listTableRef\} className="table-wrap"/,'the reviewed Payables table scroller must be retained for Back restoration');
+assert.match(source,/ref=\{listTableRef\} className="table-wrap authoritative-wbs-payable-table"/,'the reviewed Payables table scroller must be retained for Back restoration and mobile containment');
+assert.match(source,/Review approved source evidence and prepare a Draft\./);assert.doesNotMatch(source,/exact 094 review evidence|Refresh evidence/,'the first screen must not expose migration or read-model terminology');
+const css=fs.readFileSync('index.html','utf8');assert.match(css,/\.authoritative-wbs-payable-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'reviewed WBS Payables must remain contained at phone widths');
 const restoreCalls=[];const environment={scrollTo:options=>restoreCalls.push(['page',options]),setTimeout:callback=>{restoreCalls.push(['timer']);callback();},document:{getElementById:id=>({focus:()=>restoreCalls.push(['focus',id])})}};const table={scrollTo:options=>restoreCalls.push(['table',options])};
 assert.equal(restoreAuthoritativeWbsPayableReturnContext(environment,config,{entityId:config.entityId,periodId:config.periodId,scrollY:525,tableX:180,focusId:'wbs-row'},()=>table),true);
 assert.deepEqual(restoreCalls,[['timer'],['page',{top:525,behavior:'auto'}],['table',{left:180,behavior:'auto'}],['focus','wbs-row']]);
