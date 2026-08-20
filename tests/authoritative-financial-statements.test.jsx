@@ -213,6 +213,9 @@ async function main(){
   assert.match(workspace,/findAuthoritativeReportShortcuts/,'the Reports finder must resolve only declared aliases for existing API statement readers');
   assert.match(workspace,/Matching statements/,'a recognized statement alias must be actionable from the finder without a favorite or report mutation');
   assert.match(workspace,/authoritative-report-shortcut/,'core statement shortcuts must retain an explicit visual and focusable control contract');
+  assert.match(workspace,/import \{Icon,StateBlock\} from '\.\/ui\.jsx'/,'Reports must reuse the shared self-authored line-icon component');
+  assert.match(workspace,/const REPORT_ICON_NAMES=Object\.freeze/,'report icons must use a stable semantic map rather than array position or letter tiles');
+  assert.match(workspace,/className="authoritative-report-icon" aria-hidden="true"><Icon name=\{REPORT_ICON_NAMES\[reportKey\]\|\|'document'\} size=\{20\}/,'report icons must use one 20px decorative line-icon slot');
   assert.match(workspace,/onOpenArAging\('authoritative-report-ar-aging'/,'the A\/R aging report entry must be an explicit read-only Reports shortcut, not a favorite mutation');
   assert.match(workspace,/trial-balance-table/,'the Trial Balance table needs its dedicated narrow-table layout contract');
   assert.match(workspace,/const statementPreviewRows=rows\.slice\(0,12\)/,'the catalog must cap its statement preview instead of creating an arbitrarily long page');
@@ -242,6 +245,8 @@ async function main(){
   assert.match(workspace,/initialDimensionType='PROPERTY'/,'the direct authority entry must select only a declared API-backed dimension type');
   const css=fs.readFileSync('index.html','utf8');
   assert.match(css,/authoritative-report-shortcuts/,'Reports shortcuts must stack without clipping at narrow widths');
+  assert.match(css,/\.authoritative-report-shortcut\{display:grid;grid-template-columns:20px minmax\(0,1fr\)/,'report shortcuts must align one shared icon slot with their text');
+  assert.match(css,/\.authoritative-report-icon\{display:inline-flex;align-items:center;justify-content:center;align-self:start;grid-row:1\/span 2;color:var\(--qb-accent\)/,'report icons must share one token-driven presentation');
   assert.match(css,/\.authoritative-report-workbench-actions\{justify-content:flex-end;\}/,'the remaining Statements action row must align without a duplicate category title');
   assert.match(css,/\.authoritative-core-report-shortcuts \.authoritative-report-shortcut\{min-height:44px/,'favorite reports must use one compact, consistent row height');
   assert.match(css,/@media\(max-width:720px\).*\.authoritative-core-report-shortcuts \.authoritative-report-shortcut small\{display:none;\}/s,'narrow Reports favorites must remove secondary copy instead of producing tall wrapped rows');
