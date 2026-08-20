@@ -37,7 +37,8 @@ test('General Ledger workspace is a retained read-only, contained-table surface'
 });
 test('General Ledger line evidence is a full-page immutable snapshot with exact Back context',()=>{
   const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerDetail row={row} returnContext={{accountCode:'610000',query:'JE-100',page:2}} onBack={()=>{}}/>);
-  for(const text of ['Back to General Ledger','GENERAL LEDGER · LINE EVIDENCE','Immutable evidence identifiers','Journal entry ID','Journal line ID','Ledger line ID','Source document IDs','account 610000','search “JE-100”','page 2'])assert.match(markup,new RegExp(text));
+  for(const text of ['Back to General Ledger','GENERAL LEDGER','Posted ledger line','Review this posted ledger line','Posted line details','Identifiers','Exact IDs for audit and drill-through','READ ONLY','Journal entry ID','Journal line ID','Ledger line ID','Source document IDs','account 610000','search “JE-100”','page 2'])assert.match(markup,new RegExp(text));
+  assert.doesNotMatch(markup,/LINE EVIDENCE|scoped API|Exact API snapshot|current API snapshot|Immutable evidence identifiers|API READ/,'the GL detail first screen must not expose transport or read-model terminology');
   assert.match(markup,/<details class="authoritative-return-context authoritative-gl-return-context"><summary>List filters retained<\/summary>/);
   assert.doesNotMatch(markup,/Ledger line evidence reading path|Return context:/);
   assert.match(markup,new RegExp(ledgerLineId));
