@@ -12,7 +12,6 @@ const ErrorBlock=({state,onRetry})=>state.phase==='ERROR'?<StateBlock tone="erro
 export const authoritativeRangeLabel=({page,pageSize,total,itemLabel='rows'})=>total?`Showing ${itemLabel} ${page*pageSize+1} to ${Math.min((page+1)*pageSize,total)} of ${total}`:`No ${itemLabel}`;
 const Pagination=({page,pageCount,pageSize,total,onChange,label,itemLabel='rows'})=><nav className="authoritative-coa-pagination" aria-label={label}><span>{authoritativeRangeLabel({page,pageSize,total,itemLabel})}</span><button type="button" className="btn btn-sm btn-ghost" disabled={page===0} onClick={()=>onChange(page-1)}>Previous</button><button type="button" className="btn btn-sm btn-ghost" disabled={!pageCount||page>=pageCount-1} onClick={()=>onChange(page+1)}>Next</button></nav>;
 const PageSize=({value,onChange,label})=><label className="authoritative-coa-page-size"><span>{label}</span><select value={value} onChange={event=>onChange(Number(event.target.value))}>{PAGE_SIZES.map(size=><option key={size} value={size}>{size}</option>)}</select></label>;
-const ReadingRail=({items,label})=><div className="authoritative-workbench-rail authoritative-ledger-reading-rail" aria-label={label}>{items.map((item,index)=><span key={item}><b>{index+1}</b>{item}</span>)}</div>;
 const pageRows=(rows,page,size)=>rows.slice(page*size,(page+1)*size);
 
 function Register({config,selection,onBack,fetcher}){
@@ -25,11 +24,10 @@ function Register({config,selection,onBack,fetcher}){
   const pageCount=Math.ceil(rows.length/pageSize);const currentPage=Math.min(page,Math.max(pageCount-1,0));const visibleRows=pageRows(rows,currentPage,pageSize);
   const currencies=useMemo(()=>[...new Set(state.rows.map(row=>row.currency))],[state.rows]);
   const restoreText=[returnContext.query&&`account filter “${returnContext.query}”`,returnContext.status!=='ALL'&&`${returnContext.status.toLowerCase()} accounts`,returnContext.currency!=='ALL'&&returnContext.currency,`page ${returnContext.page+1}`].filter(Boolean).join(' | ');
-  return <AuthoritativeAccountRegisterView eyebrow="ACCOUNTING REGISTER" title={`${accountCode} — ${accountName}`} subtitle="One account, one entity, one accounting period. No bank connection, export, reconciliation, or posting action is available here.">
+  return <AuthoritativeAccountRegisterView eyebrow="ACCOUNTING REGISTER" title={`${accountCode} — ${accountName}`} subtitle="POSTED activity for one account and period.">
     <div className="qbo-report-back authoritative-register-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Chart of Accounts</button><span>Read-only POSTED ledger evidence</span></div>
-    <ReadingRail label="Account register reading path" items={['Selected account','POSTED entries','Retained source IDs']}/>
     <div className="authoritative-register-scope" aria-label="Account register scope"><span><i>Account</i><b>{accountCode}</b></span><span><i>Evidence scope</i><b>{scopeText(state.scope||config)}</b></span><span><i>Currencies returned</i><b>{currencies.length?currencies.join(', '):'Loading or no retained entries'}</b></span><span><i>POSTED entries</i><b>{state.phase==='READY'?state.rows.length:'—'}</b></span></div>
-    <p className="authoritative-register-return">Return context: {restoreText||'all accounts'}.</p>
+    <details className="authoritative-return-context authoritative-register-return"><summary>Chart of Accounts filters retained</summary><span>{restoreText||'All accounts'}</span></details>
     <div className="authoritative-filter-bar authoritative-register-filter authoritative-ledger-toolbar"><label><span>Search register evidence</span><input value={query} onChange={event=>{setQuery(event.target.value);setPage(0);}} placeholder="Date, journal, member, or description"/></label><PageSize label="Rows per page" value={pageSize} onChange={size=>{setPageSize(size);setPage(0);}}/><span className="result-count"><b>{state.phase==='READY'?rows.length:'—'}</b> entries shown</span>{query&&<button type="button" className="btn btn-sm btn-ghost" onClick={()=>{setQuery('');setPage(0);}}>Clear filter</button>}<button type="button" className="btn btn-sm" onClick={load}>Refresh evidence</button></div>
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading POSTED register evidence…</StateBlock>}
     <ErrorBlock state={state} onRetry={load}/>
