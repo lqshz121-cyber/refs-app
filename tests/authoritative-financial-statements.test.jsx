@@ -107,6 +107,7 @@ async function main(){
   const lineage=fs.readFileSync('src/authoritative-lineage-drill.jsx','utf8');
   const reportsView=fs.readFileSync('src/authoritative-reports-view.jsx','utf8');
   assert.doesNotMatch(reportsView,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,'the Reports presentation extraction must receive authoritative facts as slots');
+  assert.doesNotMatch(reportsView,/report-shelf/,'the Reports header must not repeat the interactive category tabs as a second static shelf');
   assert.match(markup,/authoritative-reports-presentation/);
   assert.match(workspace,/full-bleed qbo-transaction-report/,'report detail must replace the full workspace rather than append a card');
   assert.match(workspace,/AuthoritativeFullStatementReport/,'each core statement needs an API-backed full-page report rather than only an account evidence view');
