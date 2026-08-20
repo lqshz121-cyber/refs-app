@@ -33,14 +33,14 @@ const REPORT_LIBRARY_SHORTCUTS=Object.freeze([
 // workbench discoverable without pretending that legacy project, unit, loan,
 // or property-operation records are available in the browser.
 const PROPERTY_REPORT_SHORTCUTS=Object.freeze([
-  ['PROPERTY_PROFITABILITY','Property P&L','Exact retained Property dimension on POSTED ledger lines.','OPERATING_ANALYSIS','PROPERTY'],
-  ['PROJECT_PROFITABILITY','Project P&L','Exact retained Project dimension on POSTED ledger lines.','OPERATING_ANALYSIS','PROJECT'],
-  ['UNIT_PROFITABILITY','Unit profitability','Exact retained Unit dimension on POSTED ledger lines.','OPERATING_ANALYSIS','UNIT'],
-  ['LOT_PROFITABILITY','Lot profitability','Exact retained Lot dimension on POSTED ledger lines.','OPERATING_ANALYSIS','LOT'],
-  ['CWIP_ROLLFORWARD','CWIP rollforward','Approved CWIP mappings and POSTED ledger movement.','CASH_AND_CAPITAL',null],
-  ['CONSTRUCTION_LOAN_ROLLFORWARD','Construction loan rollforward','Approved loan mappings and POSTED ledger movement.','CASH_AND_CAPITAL',null],
-  ['PREPAID_ROLLFORWARD','Prepaid rollforward','Approved prepaid mappings and POSTED ledger movement.','CASH_AND_CAPITAL',null],
-  ['BUDGET_VS_ACTUAL','Budget versus actual','Approved immutable budget snapshot versus POSTED actual.','OPERATING_ANALYSIS',null],
+  ['PROPERTY_PROFITABILITY','Property P&L','Review property income and expenses.','OPERATING_ANALYSIS','PROPERTY'],
+  ['PROJECT_PROFITABILITY','Project P&L','Review project income and expenses.','OPERATING_ANALYSIS','PROJECT'],
+  ['UNIT_PROFITABILITY','Unit profitability','Review unit income and expenses.','OPERATING_ANALYSIS','UNIT'],
+  ['LOT_PROFITABILITY','Lot profitability','Review lot income and expenses.','OPERATING_ANALYSIS','LOT'],
+  ['CWIP_ROLLFORWARD','CWIP rollforward','Review CWIP activity and balances.','CASH_AND_CAPITAL',null],
+  ['CONSTRUCTION_LOAN_ROLLFORWARD','Construction loan rollforward','Review loan activity and balances.','CASH_AND_CAPITAL',null],
+  ['PREPAID_ROLLFORWARD','Prepaid rollforward','Review prepaid activity and balances.','CASH_AND_CAPITAL',null],
+  ['BUDGET_VS_ACTUAL','Budget versus actual','Compare approved budget to actual results.','OPERATING_ANALYSIS',null],
 ]);
 const REPORT_ICON_NAMES=Object.freeze({
   TRIAL_BALANCE:'lines',BALANCE_SHEET:'book',INCOME_STATEMENT:'bars',CASH_FLOW:'exchange',
