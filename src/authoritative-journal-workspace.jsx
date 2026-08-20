@@ -79,9 +79,6 @@ export function AuthoritativeJournalTable({ journals = [], entityId=null, view =
   const change=patch=>onViewChange?.({...view,...patch,page:patch.page??1});
   const setQueue=status=>change({status});
   return <AuthoritativeJournalView>
-    <div className="authoritative-workbench-rail" aria-label="Journal workspace structure">
-      <span><b>1</b> Register</span><span><b>2</b> Scoped evidence</span><span><b>3</b> Exact Back</span>
-    </div>
     <section className="authoritative-journal-summary" aria-label="Journal entry queue summary">
       <button type="button" className={`journal-summary-card ${view.status==='ALL'?'journal-summary-card-on':''}`} aria-pressed={view.status==='ALL'} onClick={()=>setQueue('ALL')}><span>Entity register</span><b>{queueCounts.all}</b><small>All retained journals for this entity</small></button>
       <button type="button" className={`journal-summary-card ${view.status==='DRAFT'?'journal-summary-card-on':''}`} aria-pressed={view.status==='DRAFT'} onClick={()=>setQueue('DRAFT')}><span>Draft</span><b>{queueCounts.draft}</b><small>Not posted</small></button>
