@@ -163,10 +163,11 @@ async function main(){
   assert.match(workspace,/comparisonLineageRow\(row,'CURRENT'\)/,'period comparison must retain current-period evidence as a distinct lineage choice');
   assert.match(workspace,/comparisonLineageRow\(row,'PRIOR'\)/,'period comparison must retain prior-period evidence as a distinct lineage choice');
   assert.match(workspace,/lineageConfig:authoritativeReportLineageConfig\(config,row\)/,'lineage re-read must use the exact evidence period and its presentation scope instead of silently using the current selector');
+  assert.match(workspace,/config=\{authoritativeReportLineageConfig\(config,selected\.row\)\}/,'core statement lineage must retain the selected report period and readable presentation scope');
   assert.match(workspace,/Open snapshot lineage/,'each immutable snapshot row must provide an explicit lineage action');
   assert.match(lineage,/const accountCode=typeof evidence\.account_code/,'shared evidence lineage must explicitly distinguish exact-account and retained multi-account evidence');
-  assert.match(lineage,/\(!accountCode\|\|item\.account_code===accountCode\)/,'multi-account report evidence must not invent an account filter');
-  assert.match(lineage,/\(!evidence\.currency\|\|item\.currency===evidence\.currency\)/,'shared lineage must enforce currency only when the authoritative row supplied one');
+  assert.match(lineage,/accountCode&&item\.account_code!==accountCode/,'multi-account report evidence must not invent an account filter');
+  assert.match(lineage,/evidence\.currency&&item\.currency!==evidence\.currency/,'shared lineage must enforce currency only when the authoritative row supplied one');
   assert.match(workspace,/DimensionProfitabilityDetail/,'property, project, unit, and lot P&L rows must open a dedicated authoritative evidence page');
   assert.match(workspace,/DIMENSION_PROFITABILITY/,'dimension rows must select the dedicated API-backed workbench instead of a generic statement detail');
   assert.match(workspace,/\['LOT_PROFITABILITY','Lot profitability',[\s\S]*?'LOT'\]/,'the Reports directory must expose the server-backed LOT profitability contract');
