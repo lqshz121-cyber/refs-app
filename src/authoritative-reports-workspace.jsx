@@ -9,7 +9,7 @@ import {AuthoritativeLineageDrill} from './authoritative-lineage-drill.jsx';
 const REPORTS=[
   ['TRIAL_BALANCE','Trial Balance'],
   ['BALANCE_SHEET','Balance Sheet'],
-  ['INCOME_STATEMENT','Income Statement'],
+  ['INCOME_STATEMENT','Profit and Loss'],
   ['CASH_FLOW','Cash activity'],
 ];
 const REPORT_WORKBENCH_TABS=Object.freeze([
@@ -24,7 +24,7 @@ const REPORT_WORKBENCH_TABS=Object.freeze([
 const REPORT_LIBRARY_SHORTCUTS=Object.freeze([
   ['TRIAL_BALANCE','Trial Balance','Review account balances.',['tb']],
   ['BALANCE_SHEET','Balance Sheet','Review assets, liabilities, and equity.',['statement of financial position']],
-  ['INCOME_STATEMENT','Income Statement','Review income and expenses.',['profit and loss','profit & loss','p&l']],
+  ['INCOME_STATEMENT','Profit and Loss','Review income and expenses.',['income statement','profit & loss','p&l']],
   ['CASH_FLOW','Cash activity','Review cash-account movement.',[]],
 ]);
 const MAPPING_BACKED_REPORT_SHORTCUTS=Object.freeze([
@@ -99,7 +99,7 @@ export const FinancialStatementSummary=({report,rows})=>{
   }
   if(report==='INCOME_STATEMENT'){
     const revenue=sumRows(rows,['REVENUE']),expense=sumRows(rows,['EXPENSES']);
-    return <div className="qbo-toolgrid" aria-label="Income Statement equation"><span><i>Revenue</i><b>{money(revenue)}</b></span><span><i>Expenses</i><b>{money(expense)}</b></span><span><i>Net income</i><b>{money(subtract(revenue,expense))}</b></span></div>;
+    return <div className="qbo-toolgrid" aria-label="Profit and Loss equation"><span><i>Revenue</i><b>{money(revenue)}</b></span><span><i>Expenses</i><b>{money(expense)}</b></span><span><i>Net income</i><b>{money(subtract(revenue,expense))}</b></span></div>;
   }
   if(report==='CASH_FLOW')return <div className="qbo-toolgrid" aria-label="Cash activity summary"><span><i>Cash-account movement</i><b>{money(sumRows(rows))}</b></span><span><i>Classification boundary</i><b>Not classified as operating, investing, or financing</b></span></div>;
   return <div className="qbo-toolgrid" aria-label="Trial Balance control"><span><i>Net debit balance</i><b>{money(sumRows(rows))}</b></span></div>;
