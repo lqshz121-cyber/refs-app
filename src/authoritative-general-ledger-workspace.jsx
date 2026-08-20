@@ -42,15 +42,15 @@ export function AuthoritativeGeneralLedgerDetail({row,returnContext,onBack}){
   </AuthoritativeGeneralLedgerDetailView>;
 }
 
-export function AuthoritativeGeneralLedgerWorkspace({config,fetcher=globalThis.fetch}){
-  const [query,setQuery]=useState('');const [accountCode,setAccountCode]=useState('');const [offset,setOffset]=useState(0);const [detail,setDetail]=useState(null);const [state,setState]=useState({phase:'LOADING',rows:[],total:0,error:null});const opener=useRef(null);const scrollY=useRef(0);
+export function AuthoritativeGeneralLedgerWorkspace({config,fetcher=globalThis.fetch,environment=globalThis}){
+  const [query,setQuery]=useState('');const [accountCode,setAccountCode]=useState('');const [offset,setOffset]=useState(0);const [detail,setDetail]=useState(null);const [state,setState]=useState({phase:'LOADING',rows:[],total:0,error:null});const opener=useRef(null);const scrollY=useRef(0);const tableX=useRef(0);
   const load=async({nextOffset=offset,nextQuery=query,nextAccountCode=accountCode}={})=>{setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeGeneralLedger({config,query:nextQuery||null,accountCode:nextAccountCode||null,limit:PAGE_SIZE,offset:nextOffset,fetcher});setState(result.ok?{phase:'READY',rows:result.rows,total:result.total,scope:result.scope,error:null}:{phase:authoritativeReadFailurePhase(result),rows:[],total:0,scope:null,error:result});};
   useEffect(()=>{void load({nextOffset:0,nextQuery:'',nextAccountCode:''});},[config,fetcher]);
   const page=Math.floor(offset/PAGE_SIZE)+1;const pages=Math.max(1,Math.ceil(state.total/PAGE_SIZE));const canNext=offset+PAGE_SIZE<state.total;
   const apply=()=>{const nextQuery=query.trim();const nextAccountCode=accountCode.trim();setQuery(nextQuery);setAccountCode(nextAccountCode);setOffset(0);void load({nextOffset:0,nextQuery,nextAccountCode});};
   const reset=()=>{setQuery('');setAccountCode('');setOffset(0);void load({nextOffset:0,nextQuery:'',nextAccountCode:''});};
-  const openDetail=(row,index)=>{opener.current=`authoritative-gl-line-${row.ledger_line_id}-${index}`;scrollY.current=globalThis.window?.scrollY||0;setDetail({row,returnContext:{query,accountCode,page}});};
-  const closeDetail=()=>{setDetail(null);setTimeout(()=>{globalThis.document?.getElementById(opener.current)?.focus();globalThis.window?.scrollTo?.({top:scrollY.current,behavior:'auto'});},0);};
+  const openDetail=(row,index)=>{opener.current=`authoritative-gl-line-${row.ledger_line_id}-${index}`;const button=environment?.document?.getElementById?.(opener.current);scrollY.current=Number(environment?.scrollY)||0;tableX.current=Number(button?.closest?.('.table-wrap')?.scrollLeft)||0;setDetail({row,returnContext:{query,accountCode,page}});};
+  const closeDetail=()=>{setDetail(null);environment?.setTimeout?.(()=>{const button=environment?.document?.getElementById?.(opener.current);button?.closest?.('.table-wrap')?.scrollTo?.({left:tableX.current,behavior:'auto'});button?.focus?.();environment?.scrollTo?.({top:scrollY.current,behavior:'auto'});},0);};
   const rows=useMemo(()=>state.rows,[state.rows]);
   if(detail)return <AuthoritativeLineageDrill config={config} fetcher={fetcher} initial={{kind:'GL',row:detail.row,context:{entityId:config.entityId,periodId:config.periodId,journalEntryId:detail.row.journal_entry_id,journalLineId:detail.row.journal_line_id,ledgerLineId:detail.row.ledger_line_id}}} onExit={closeDetail}/>;
   return <AuthoritativeGeneralLedgerView eyebrow="GENERAL LEDGER · POSTED EVIDENCE" title="General Ledger" subtitle="Read-only POSTED ledger lines from the accounting API.">

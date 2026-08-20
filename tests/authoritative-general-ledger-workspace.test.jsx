@@ -24,6 +24,9 @@ test('General Ledger workspace is a retained read-only, contained-table surface'
   assert.match(source,/AuthoritativeReadFailure/,'a failed GL read must name the access, scope, protocol, or service diagnosis rather than look like zero posted evidence');
   assert.match(source,/authoritativeReadFailurePhase/,'a GL 401, 403, 404, configuration, or protocol failure must be classified before rendering');
   assert.match(source,/requiresPosted/,'an empty GL read must state the signed admission, review, and posting path to reportable evidence');
+  assert.match(source,/button\?\.closest\?\.\(["']\.table-wrap["']\)\?\.scrollLeft/,'GL detail must freeze its originating contained table position');
+  assert.match(source,/button\?\.closest\?\.\(["']\.table-wrap["']\)\?\.scrollTo\?\.\(\{\s*left:\s*tableX\.current,\s*behavior:\s*["']auto["']\s*\}\)/,'GL Back must restore the remounted table before returning focus to its exact row action');
+  assert.match(source,/environment\?\.scrollTo\?\.\(\{\s*top:\s*scrollY\.current,\s*behavior:\s*["']auto["']\s*\}\)/,'GL Back must retain the page position without depending on the global browser singleton');
   assert.doesNotMatch(markup,/localStorage|seed\.js|>Export<|>Post journal<|>Create journal</i);
 });
 test('General Ledger line evidence is a full-page immutable snapshot with exact Back context',()=>{
