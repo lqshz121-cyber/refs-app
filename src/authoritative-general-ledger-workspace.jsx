@@ -35,7 +35,7 @@ export function AuthoritativeGeneralLedgerDetail({row,returnContext,onBack}){
     <details className="authoritative-return-context authoritative-gl-return-context"><summary>List filters retained</summary><span>{returnText(returnContext)}. Back restores this list position.</span></details>
     <section className="card authoritative-gl-amount-card" aria-label="Posted ledger amounts"><div><i>Debit</i><b>{money(row.debit_amount)}</b></div><div><i>Credit</i><b>{money(row.credit_amount)}</b></div><div><i>Journal</i><b><code>{row.journal_number}</code></b></div><div><i>Description</i><b>{text(row.description)}</b></div></section>
     <section className="card authoritative-gl-identifiers" aria-label="Immutable ledger identifiers"><div className="card-head"><div><h2>Identifiers</h2><p className="muted sm">Exact IDs for audit and drill-through.</p></div><span className="badge badge-muted">READ ONLY</span></div><div className="authoritative-gl-id-grid"><EvidenceIds label="Journal entry ID" ids={[row.journal_entry_id]}/><EvidenceIds label="Journal line ID" ids={[row.journal_line_id]}/><EvidenceIds label="Ledger line ID" ids={[row.ledger_line_id]}/><EvidenceIds label="Source document IDs" ids={row.source_document_ids}/></div></section>
-    <StateBlock tone="empty" title="Further lineage is not loaded here">Use an authorised Journal or Source Documents workspace only when the API returns its immutable link.</StateBlock>
+    <p className="report-drill-hint authoritative-gl-lineage-note"><span className="badge badge-muted">READ ONLY</span> Journal and source drill-through are available only when an exact link is returned.</p>
   </AuthoritativeGeneralLedgerDetailView>;
 }
 

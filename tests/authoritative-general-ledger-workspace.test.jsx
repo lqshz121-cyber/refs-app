@@ -44,6 +44,8 @@ test('General Ledger line evidence is a full-page immutable snapshot with exact 
   assert.doesNotMatch(markup,/LINE EVIDENCE|scoped API|Exact API snapshot|current API snapshot|Immutable evidence identifiers|API READ/,'the GL detail first screen must not expose transport or read-model terminology');
   assert.match(markup,/<details class="authoritative-return-context authoritative-gl-return-context"><summary>List filters retained<\/summary>/);
   assert.doesNotMatch(markup,/Ledger line evidence reading path|Return context:/);
+  assert.match(markup,/authoritative-gl-lineage-note[\s\S]*READ ONLY[\s\S]*Journal and source drill-through are available only when an exact link is returned\./,'optional GL lineage must use a compact policy note');
+  assert.doesNotMatch(markup,/Further lineage is not loaded here|state-empty/,'missing optional lineage must not present the whole detail as an empty state');
   assert.match(markup,new RegExp(ledgerLineId));
   assert.doesNotMatch(markup,/localStorage|seed\.js|>Export<|>Post journal<|>Create journal</i);
 });
