@@ -41,8 +41,10 @@ const journal={entity_id:entityId,period_id:periodId,journal_entry_id:'22222222-
 const list=renderToStaticMarkup(<AuthoritativeJournalTable journals={[journal]} onOpen={()=>{}}/>);
 assert.match(list,/authoritative-workbench-shell/,'the authoritative journal list adopts the shared production workbench frame, not the legacy demo shell');
 assert.doesNotMatch(list,/Journal workspace structure|Scoped evidence|Exact Back/,'the Journal list must not repeat its list/detail/Back hierarchy in a decorative reading rail');
-assert.match(list,/GENERAL LEDGER/); assert.match(list,/JOURNAL REGISTER/); assert.match(list,/Read only/); assert.match(list,/Currency/); assert.match(list,/Open evidence/); assert.match(list,/JE-100/);
+assert.match(list,/GENERAL LEDGER/); assert.match(list,/JOURNAL REGISTER/); assert.match(list,/Read only/); assert.match(list,/Currency/); assert.match(list,/Details/); assert.match(list,/View details/); assert.match(list,/JE-100/);
 assert.match(list,/Entity register/); assert.match(list,/Draft/); assert.match(list,/Needs review/); assert.match(list,/Posted/);
+assert.match(list,/All entries/); assert.match(list,/Awaiting action/); assert.match(list,/Posted entries/); assert.match(list,/1 result/);
+assert.doesNotMatch(list,/All retained journals for this entity|Retained status only|API list status|matching journal entries|Open evidence/,'the Journal first screen must use concise business language without exposing read-model terminology');
 assert.match(list,/value="REVIEW_REQUIRED"/,'the journal review queue must be filterable as the same aggregate counted by its summary card');
 assert.match(list,/Memo \/ description/); assert.match(list,/Revision 3/); assert.match(list,/Clear filters/);
 assert.match(list,/Journal entry presentation filters/); assert.match(list,/id="authoritative-journal-22222222-2222-4222-8222-222222222222"/);
