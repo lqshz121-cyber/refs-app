@@ -66,7 +66,7 @@ assert.match(detail,/Back to Journal entries/); assert.match(detail,/Wan Pacific
 assert.match(detail,/search JE-100/); assert.match(detail,/status POSTED/); assert.match(detail,/from Aug 1, 2026/); assert.match(detail,/through Aug 31, 2026/); assert.match(detail,/page 2/);
 assert.match(detail,/Journal entry JE-100/); assert.match(detail,/Journal evidence scope/); assert.match(detail,/No write or inferred drill authority/);
 assert.match(detail,/Journal ID/); assert.match(detail,/22222222-2222-4222-8222-222222222222/);
-assert.match(detail,/EXACT API LINE FACTS/);assert.match(detail,/Not posted/);assert.match(detail,/property/);
+assert.match(detail,/JOURNAL ENTRY/);assert.match(detail,/Review journal lines and posting details\./);assert.match(detail,/JOURNAL LINES/);assert.match(detail,/Ordered debit and credit lines\. Ledger line IDs appear after posting\./);assert.match(detail,/2 lines/);assert.doesNotMatch(detail,/EXACT READ EVIDENCE|GET-only facts|EXACT API LINE FACTS|retained lines/);assert.match(detail,/Not posted/);assert.match(detail,/property/);
 assert.match(detail,/cannot create, edit, submit, review, approve, post, reverse/);
 assert.doesNotMatch(detail,/<input|<select|>Submit<|>Approve<|>Post</i);
 
@@ -75,7 +75,7 @@ const journalWithExactLines={...journal,status:'POSTED',posted_at:'2026-08-01T01
   {journal_line_id:'66666666-6666-4666-8666-666666666666',ledger_line_id:'77777777-7777-4777-8777-777777777777',line_no:2,account_code:'291001',debit_amount:'0.0000',credit_amount:'25.0000',member_ref:null,description:'Exact offset line',dimensions:{},source_document_ids:[]},
 ]};
 const exactDetail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journalWithExactLines} entityId={entityId} returnContext={{...returnContext,view:{}}} onBack={()=>{}}/>);
-assert.match(exactDetail,/EXACT API LINE FACTS/);assert.match(exactDetail,/Journal lines/);assert.match(exactDetail,/111000/);assert.match(exactDetail,/25\.0000/);assert.match(exactDetail,/33333333-3333-4333-8333-333333333333/);
+assert.match(exactDetail,/JOURNAL LINES/);assert.match(exactDetail,/Journal lines/);assert.match(exactDetail,/111000/);assert.match(exactDetail,/25\.0000/);assert.match(exactDetail,/33333333-3333-4333-8333-333333333333/);
 assert.match(exactDetail,/class="table-wrap authoritative-journal-line-table" tabindex="0" aria-label="Journal line evidence; scroll horizontally to view every column"/);
 assert.doesNotMatch(exactDetail,/immutable Journal scope mismatch/,'an exact API detail matching the frozen context must be shown');
 
@@ -115,7 +115,7 @@ assert.doesNotMatch(workspace,/localStorage|SEED_|legacy-demo|seed\.js|repo\.js/
 const mismatchedDetail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journal} entityId={entityId} returnContext={{...returnContext,journalId:'22222222-2222-4222-8222-222222222999'}} onBack={()=>{}}/>);
 assert.match(mismatchedDetail,/BLOCKED - immutable Journal scope mismatch/);
 assert.match(mismatchedDetail,/Back to Journal entries/);
-assert.doesNotMatch(mismatchedDetail,/EXACT API LINE FACTS/,'a stale Journal identity must block before line evidence');
+assert.doesNotMatch(mismatchedDetail,/JOURNAL LINES/,'a stale Journal identity must block before line evidence');
 const evidenceWorkspace=renderToStaticMarkup(<AuthoritativeJournalWorkspace journals={[journal]} config={{entityId,periodId:'33333333-3333-4333-8333-333333333333'}} environment={{scrollY:0,setTimeout:callback=>callback(),document:{getElementById:()=>null}}}/>);
 assert.match(evidenceWorkspace,/GENERAL LEDGER \| JOURNAL REGISTER/);
 assert.doesNotMatch(evidenceWorkspace,/\u8def|鈥|路/,'authority Journal workspace must render English-only separators');
