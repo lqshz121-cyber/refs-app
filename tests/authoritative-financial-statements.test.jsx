@@ -112,6 +112,9 @@ async function main(){
   assert.match(workspace,/full-bleed qbo-transaction-report/,'report detail must replace the full workspace rather than append a card');
   assert.match(workspace,/AuthoritativeFullStatementReport/,'each core statement needs an API-backed full-page report rather than only an account evidence view');
   assert.match(workspace,/Open full report/,'the catalog statement preview must expose a dedicated full-page report action');
+  assert.match(workspace,/onClick=\{\(\)=>openFullStatement\(focusId,key\)\}/,'a core report shortcut must replace the catalog with the existing full-page report in one click');
+  assert.match(workspace,/report=\{selected\.returnContext\.report\} rows=\{selected\.rows\}/,'a one-click report must render the rows frozen for that exact selected report, not the previous preview rows');
+  assert.doesNotMatch(workspace,/aria-label="Financial statements"/,'the report preview must not repeat Favorites as a second statement tab row');
   assert.match(workspace,/parentFullStatement/,'a row evidence Back from the full report must return to the full report before it returns to the Reports catalog');
   assert.match(workspace,/Back to Reports/,'the full report must provide an explicit catalog Back action');
   assert.match(workspace,/restoreAuthoritativeReturnContext/,'report detail Back must restore its evidence opener and scroll position');
