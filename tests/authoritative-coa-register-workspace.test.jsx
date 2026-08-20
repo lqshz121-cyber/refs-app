@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeChartOfAccountsWorkspace,authoritativeRangeLabel} from '../src/authoritative-coa-register-workspace.jsx';
+import {AuthoritativeChartOfAccountsWorkspace,authoritativeCoaScopeText,authoritativeRangeLabel} from '../src/authoritative-coa-register-workspace.jsx';
 import {AuthoritativeAccountRegisterView,AuthoritativeChartOfAccountsView} from '../src/authoritative-coa-view.jsx';
 
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',baseUrl:'https://api.example',getAccessToken:async()=> 'a'.repeat(48)};
@@ -15,6 +15,9 @@ assert.match(source,/refreshAuthoritativeChartOfAccounts/);assert.match(source,/
 assert.equal(authoritativeRangeLabel({page:0,pageSize:25,total:200,itemLabel:'accounts'}),'Showing accounts 1 to 25 of 200');
 assert.equal(authoritativeRangeLabel({page:7,pageSize:25,total:200,itemLabel:'accounts'}),'Showing accounts 176 to 200 of 200');
 assert.equal(authoritativeRangeLabel({page:0,pageSize:25,total:0,itemLabel:'accounts'}),'No accounts');
+assert.equal(authoritativeCoaScopeText({entityId:config.entityId,periodId:config.periodId},{...config,scopePresentation:{entityLabel:'Wan Pacific Real Estate Development LLC',periodLabel:'2026-08'}}),'Entity Wan Pacific Real Estate Development LLC | period 2026-08');
+assert.equal(authoritativeCoaScopeText({entityId:config.entityId,periodId:config.periodId},config),'Entity Configured entity | period Configured period');
+assert.doesNotMatch(authoritativeCoaScopeText({entityId:config.entityId,periodId:config.periodId},config),new RegExp(`${config.entityId}|${config.periodId}`),'Register scope must not expose raw UUIDs as visible labels');
 assert.doesNotMatch(source,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data|\b(?:POST|PUT|PATCH|DELETE)\b|[鈥路]/);
 const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.match(styles,/\.authoritative-register-scope/);assert.match(styles,/\.authoritative-coa-filter/);assert.match(styles,/\.authoritative-coa-presentation \.authoritative-coa-filter\{padding:10px 0;border:0;border-radius:0;background:transparent;box-shadow:none;\}/);assert.match(styles,/\.authoritative-coa-pagination/);assert.match(styles,/\.authoritative-status\.is-active/);assert.match(styles,/@media \(max-width:600px\)/);

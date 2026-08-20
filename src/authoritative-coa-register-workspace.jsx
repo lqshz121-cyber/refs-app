@@ -6,7 +6,12 @@ import {AuthoritativeAccountRegisterView,AuthoritativeChartOfAccountsView} from 
 const PAGE_SIZES=Object.freeze([25,50,100]);
 const fixedMoney=value=>typeof value==='string'&&/^-?[0-9]+\.[0-9]{4}$/.test(value)?value:'Not returned';
 const dash=value=>value===null||value===undefined||value===''?'—':value;
-const scopeText=scope=>`Entity ${scope?.entityId} | period ${scope?.periodId}`;
+export const authoritativeCoaScopeText=(scope,config)=>{
+  const presentation=config?.scopePresentation||{};
+  const entity=presentation.entityLabel||'Configured entity';
+  const period=presentation.periodLabel||scope?.period_code||'Configured period';
+  return `Entity ${entity} | period ${period}`;
+};
 const evidenceScope=scope=><p className="authoritative-coa-scope" title={`Entity ID: ${scope?.entityId}; Period ID: ${scope?.periodId}`}>Configured entity · configured period. Amounts remain separate by currency and use fixed four-decimal strings.</p>;
 const ErrorBlock=({state,onRetry})=>state.phase==='ERROR'?<StateBlock tone="error" title={state.error?.code||'ACCOUNTING_API_READ_FAILED'} actions={<button type="button" className="btn btn-sm" onClick={onRetry}>Retry read</button>}>{state.error?.message}</StateBlock>:null;
 export const authoritativeRangeLabel=({page,pageSize,total,itemLabel='rows'})=>total?`Showing ${itemLabel} ${page*pageSize+1} to ${Math.min((page+1)*pageSize,total)} of ${total}`:`No ${itemLabel}`;
@@ -26,7 +31,7 @@ function Register({config,selection,onBack,fetcher}){
   const restoreText=[returnContext.query&&`account filter “${returnContext.query}”`,returnContext.status!=='ALL'&&`${returnContext.status.toLowerCase()} accounts`,returnContext.currency!=='ALL'&&returnContext.currency,`page ${returnContext.page+1}`].filter(Boolean).join(' | ');
   return <AuthoritativeAccountRegisterView eyebrow="ACCOUNTING REGISTER" title={`${accountCode} — ${accountName}`} subtitle="POSTED activity for one account and period.">
     <div className="qbo-report-back authoritative-register-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to Chart of Accounts</button><span>Read-only POSTED ledger evidence</span></div>
-    <div className="authoritative-register-scope" aria-label="Account register scope"><span><i>Account</i><b>{accountCode}</b></span><span><i>Evidence scope</i><b>{scopeText(state.scope||config)}</b></span><span><i>Currencies returned</i><b>{currencies.length?currencies.join(', '):'Loading or no retained entries'}</b></span><span><i>POSTED entries</i><b>{state.phase==='READY'?state.rows.length:'—'}</b></span></div>
+    <div className="authoritative-register-scope" aria-label="Account register scope"><span><i>Account</i><b>{accountCode}</b></span><span><i>Evidence scope</i><b>{authoritativeCoaScopeText(state.scope||config,config)}</b></span><span><i>Currencies returned</i><b>{currencies.length?currencies.join(', '):'Loading or no retained entries'}</b></span><span><i>POSTED entries</i><b>{state.phase==='READY'?state.rows.length:'—'}</b></span></div>
     <details className="authoritative-return-context authoritative-register-return"><summary>Chart of Accounts filters retained</summary><span>{restoreText||'All accounts'}</span></details>
     <div className="authoritative-filter-bar authoritative-register-filter authoritative-ledger-toolbar"><label><span>Search register evidence</span><input value={query} onChange={event=>{setQuery(event.target.value);setPage(0);}} placeholder="Date, journal, member, or description"/></label><PageSize label="Rows per page" value={pageSize} onChange={size=>{setPageSize(size);setPage(0);}}/><span className="result-count"><b>{state.phase==='READY'?rows.length:'—'}</b> entries shown</span>{query&&<button type="button" className="btn btn-sm btn-ghost" onClick={()=>{setQuery('');setPage(0);}}>Clear filter</button>}<button type="button" className="btn btn-sm" onClick={load}>Refresh evidence</button></div>
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading POSTED register evidence…</StateBlock>}
