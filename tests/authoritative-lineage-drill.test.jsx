@@ -52,8 +52,13 @@ assert.match(sourceCode,/item\.period_id===config\.periodId&&item\.account_code=
 assert.match(sourceCode,/item\.account_code!==row\.account_code\|\|row\.currency&&item\.currency!==row\.currency/,'financial statements without a currency field must still re-read their exact account-scoped ledger line');
 assert.match(sourceCode,/The Source Document detail did not retain the exact source-to-Journal relationship/);
 assert.match(sourceCode,/BLOCKED - immutable lineage mismatch/);
-assert.match(sourceCode,/StateBlock tone="loading" title="Reading evidence"/,'an immutable read must expose a non-interactive announced loading state');
-assert.doesNotMatch(sourceCode,/<button[^>]+disabled[^>]*>Reading evidence/,'a pending immutable read must not masquerade as a disabled action');
+assert.match(sourceCode,/StateBlock tone="loading" title="Loading details"/,'an immutable read must expose a concise non-interactive announced loading state');
+assert.match(sourceCode,/Refreshing linked records\. Navigation resumes when this read completes\./);
+assert.doesNotMatch(sourceCode,/<button[^>]+disabled[^>]*>Loading details/,'a pending immutable read must not masquerade as a disabled action');
+assert.match(sourceCode,/Choose a statement row to continue\. REFS will not infer a report\./);
+assert.match(sourceCode,/Select one posted ledger line to continue through General Ledger, Journal, and Source\./);
+assert.match(sourceCode,/Open a linked General Ledger line to review its details\./);
+assert.doesNotMatch(sourceCode,/exact GET|API-returned statement row|API-returned POSTED ledger line|retained ledger line to re-read/,'the lineage drill must not expose transport or storage terminology in normal navigation copy');
 assert.match(sourceCode,/onClick=\{clearBlocked\}>Back to current evidence/,'a failed read must retain the current evidence frame');
 assert.match(sourceCode,/journalLineMatchesLedger\(journal,line,row\)/,'Journal→GL must use the closed symmetric binding');
 assert.match(sourceCode,/journalLineMatchesLedger\(journal,line,expected\.ledgerRow\)/,'GL→Journal must use the same closed symmetric binding');
