@@ -173,6 +173,10 @@ assert.match(workspace,/API read · filters do not change records/,'authoritativ
 assert.doesNotMatch(workspace,/presentation contract/,'the list page must not repeat an internal contract as a large visible block');
 assert.match(app,/authoritative-scope-bar/,'authoritative shell must display the configured entity and period scope');
 assert.match(app,/restoreAuthoritativeReturnContext/,'full-page Back must restore scroll and focus only within the exact configured scope');
+assert.match(app,/scrollY:Number\(environment\?\.scrollY\)\|\|0,\s*tableX,/,'AP and AR evidence openers must freeze the contained table position in the immutable return context');
+assert.match(app,/getTable:\(\)=>environment\?\.document\?\.querySelector\?\.\('\.authoritative-document-table'\)/,'Bill and invoice Back must restore the exact wide-table position');
+assert.match(app,/getTable:\(\)=>environment\?\.document\?\.querySelector\?\.\('\.authoritative-adjustment-table'\)/,'Vendor-credit and adjustment Back must restore the exact wide-table position');
+assert.match(workspace,/closest\('\.table-wrap'\)\?\.scrollLeft/,'AP and AR row actions must capture their own contained scroller rather than the page');
 const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.match(styles,/\.authoritative-document-workspace,.authoritative-document-workspace>\*,.authoritative-document-table,.authoritative-adjustment-table\{min-width:0;max-width:100%;\}/,'AP/AR workspace descendants must be shrinkable so their table regions, not the page, own narrow-width overflow');
 assert.match(styles,/\.authoritative-document-table \.tbl\{min-width:980px;table-layout:fixed;\}/,'wide AP/AR evidence tables must reserve semantic columns inside their own scroll region');

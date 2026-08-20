@@ -215,23 +215,25 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     setListViews(current => ({...current,[kind]:view}));
   }, []);
 
-  const openDocumentEvidence = useCallback((kind, row, focusId) => {
+  const openDocumentEvidence = useCallback((kind, row, focusId, tableX) => {
     const returnContext=createAuthoritativeReturnContext({
       config,
       view:listViews[kind],
       focusId,
       scrollY:Number(environment?.scrollY)||0,
+      tableX,
     });
     if (!returnContext) return;
     setDocumentDetail({kind,row,returnContext});
   }, [config, environment, listViews]);
 
-  const openAdjustmentEvidence = useCallback((side, row, focusId) => {
+  const openAdjustmentEvidence = useCallback((side, row, focusId, tableX) => {
     const returnContext=createAuthoritativeReturnContext({
       config,
       view:listViews[side],
       focusId,
       scrollY:Number(environment?.scrollY)||0,
+      tableX,
     });
     if (!returnContext) return;
     setAdjustmentDetail({side,row,returnContext});
@@ -241,14 +243,14 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     const context=documentDetail?.returnContext;
     if (context) updateListView(documentDetail.kind,context.view);
     setDocumentDetail(null);
-    restoreAuthoritativeReturnContext(environment,config,context);
+    restoreAuthoritativeReturnContext(environment,config,context,{getTable:()=>environment?.document?.querySelector?.('.authoritative-document-table')});
   }, [documentDetail, updateListView, environment, config]);
 
   const closeAdjustmentEvidence = useCallback(() => {
     const context=adjustmentDetail?.returnContext;
     if (context) updateListView(adjustmentDetail.side,context.view);
     setAdjustmentDetail(null);
-    restoreAuthoritativeReturnContext(environment,config,context);
+    restoreAuthoritativeReturnContext(environment,config,context,{getTable:()=>environment?.document?.querySelector?.('.authoritative-adjustment-table')});
   }, [adjustmentDetail, updateListView, environment, config]);
 
   const openAgingEvidence = useCallback((side, focusId, origin = 'RECEIVABLES') => {
@@ -515,8 +517,8 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
         {error && <RuntimeErrorPanel code={error.code} detail={error.message} onRetry={refresh} onSignIn={startLogin}/>}
         {phase === 'LOADING_ACCOUNTING' && <StateBlock tone="loading">Loading authoritative accounting records...</StateBlock>}
         {phase === 'READY' && route === 'overview' && <AuthoritativeOverview counts={counts} onNavigate={setRoute} scope={{entityId:config.entityId,periodId:config.periodId}} config={displayConfig} fetcher={boundFetcher}/>}
-        {phase === 'READY' && route === 'payables' && (agingDetail?.side==='AP'?<AuthoritativeAgingWorkspace config={displayConfig} side="ap" fetcher={boundFetcher} onBack={closeAgingEvidence} backLabel="Back to bills & expenses" returnContext={agingDetail.returnContext} expectedOrigin="PAYABLES"/>:documentDetail?.kind==='AP'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AP" entityId={config.entityId} config={displayConfig} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AP'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AP" entityId={config.entityId} config={displayConfig} returnContext={adjustmentDetail.returnContext} onBack={closeAdjustmentEvidence}/>:<AuthoritativeDocumentWorkspace kind="AP" documents={data.ap.bills} adjustments={data.ap.adjustments} view={listViews.AP} onViewChange={view=>updateListView('AP',view)} onOpenDocument={(row,focusId)=>openDocumentEvidence('AP',row,focusId)} onOpenAdjustment={(row,focusId)=>openAdjustmentEvidence('AP',row,focusId)} onOpenAging={()=>openAgingEvidence('AP','authoritative-ap-aging-launch','PAYABLES')} config={displayConfig} fetcher={boundFetcher}/>)}
-        {phase === 'READY' && route === 'receivables' && (reportAgingDetail?<AuthoritativeAgingWorkspace config={displayConfig} side="ar" fetcher={boundFetcher} onBack={closeReportAgingEvidence} backLabel="Back to Reports" returnContext={reportAgingDetail.returnContext} expectedOrigin="REPORTS"/>:agingDetail?.side==='AR'?<AuthoritativeAgingWorkspace config={displayConfig} side="ar" fetcher={boundFetcher} onBack={closeAgingEvidence} returnContext={agingDetail.returnContext} expectedOrigin="RECEIVABLES"/>:documentDetail?.kind==='AR'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AR" entityId={config.entityId} config={displayConfig} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AR'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AR" entityId={config.entityId} config={displayConfig} returnContext={adjustmentDetail.returnContext} onBack={closeAdjustmentEvidence}/>:<AuthoritativeDocumentWorkspace kind="AR" documents={data.ar.invoices} adjustments={data.ar.adjustments} view={listViews.AR} onViewChange={view=>updateListView('AR',view)} onOpenDocument={(row,focusId)=>openDocumentEvidence('AR',row,focusId)} onOpenAdjustment={(row,focusId)=>openAdjustmentEvidence('AR',row,focusId)} onOpenAging={()=>openAgingEvidence('AR','authoritative-ar-aging-launch','RECEIVABLES')}/>) }
+        {phase === 'READY' && route === 'payables' && (agingDetail?.side==='AP'?<AuthoritativeAgingWorkspace config={displayConfig} side="ap" fetcher={boundFetcher} onBack={closeAgingEvidence} backLabel="Back to bills & expenses" returnContext={agingDetail.returnContext} expectedOrigin="PAYABLES"/>:documentDetail?.kind==='AP'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AP" entityId={config.entityId} config={displayConfig} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AP'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AP" entityId={config.entityId} config={displayConfig} returnContext={adjustmentDetail.returnContext} onBack={closeAdjustmentEvidence}/>:<AuthoritativeDocumentWorkspace kind="AP" documents={data.ap.bills} adjustments={data.ap.adjustments} view={listViews.AP} onViewChange={view=>updateListView('AP',view)} onOpenDocument={(row,focusId,tableX)=>openDocumentEvidence('AP',row,focusId,tableX)} onOpenAdjustment={(row,focusId,tableX)=>openAdjustmentEvidence('AP',row,focusId,tableX)} onOpenAging={()=>openAgingEvidence('AP','authoritative-ap-aging-launch','PAYABLES')} config={displayConfig} fetcher={boundFetcher}/>)}
+        {phase === 'READY' && route === 'receivables' && (reportAgingDetail?<AuthoritativeAgingWorkspace config={displayConfig} side="ar" fetcher={boundFetcher} onBack={closeReportAgingEvidence} backLabel="Back to Reports" returnContext={reportAgingDetail.returnContext} expectedOrigin="REPORTS"/>:agingDetail?.side==='AR'?<AuthoritativeAgingWorkspace config={displayConfig} side="ar" fetcher={boundFetcher} onBack={closeAgingEvidence} returnContext={agingDetail.returnContext} expectedOrigin="RECEIVABLES"/>:documentDetail?.kind==='AR'?<AuthoritativeDocumentDetail document={documentDetail.row} kind="AR" entityId={config.entityId} config={displayConfig} returnContext={documentDetail.returnContext} onBack={closeDocumentEvidence}/>:adjustmentDetail?.side==='AR'?<AuthoritativeAdjustmentDetail adjustment={adjustmentDetail.row} side="AR" entityId={config.entityId} config={displayConfig} returnContext={adjustmentDetail.returnContext} onBack={closeAdjustmentEvidence}/>:<AuthoritativeDocumentWorkspace kind="AR" documents={data.ar.invoices} adjustments={data.ar.adjustments} view={listViews.AR} onViewChange={view=>updateListView('AR',view)} onOpenDocument={(row,focusId,tableX)=>openDocumentEvidence('AR',row,focusId,tableX)} onOpenAdjustment={(row,focusId,tableX)=>openAdjustmentEvidence('AR',row,focusId,tableX)} onOpenAging={()=>openAgingEvidence('AR','authoritative-ar-aging-launch','RECEIVABLES')}/>) }
         {phase === 'READY' && route === 'bank-batch-pipeline' && <AuthoritativeBankBatchPipelineWorkspace key={`bank-batch-pipeline-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'bank' && <AuthoritativeBankWorkspace key={`bank-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
         {phase === 'READY' && route === 'reconciliation' && <AuthoritativeReconciliationWorkspace key={`reconciliation-${workspaceRefreshVersion}`} config={displayConfig} fetcher={boundFetcher} environment={environment}/>}
