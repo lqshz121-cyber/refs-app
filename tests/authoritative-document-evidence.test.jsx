@@ -108,6 +108,11 @@ assert.match(detail,/Original amount/);
 assert.doesNotMatch(detail,/<input|<select|>Approve<|>Post<|>Pay</i);
 assert.match(detail,/class="table-wrap authoritative-document-detail-table" role="region" tabindex="0" aria-label="Bill evidence fields; scroll horizontally to view every column"/,'full-page evidence fields must remain keyboard-scrollable at narrow widths');
 assert.match(detail,/<th scope="row">Entity<\/th>/,'full-page evidence field labels must expose row-header semantics');
+const retainedFactsTable=detail.match(/<div class="table-wrap authoritative-document-detail-table"[^>]*><table class="tbl">([\s\S]*?)<\/table><\/div>/)?.[1]||'';
+assert.doesNotMatch(retainedFactsTable,/<th scope="row">(?:Vendor|Bill date|Due date|Status|Original amount|Open balance)<\/th>/,
+  'header and summary facts must not be repeated in the retained-facts table');
+assert.match(retainedFactsTable,/<th scope="row">Offset account<\/th>[\s\S]*<th scope="row">Posted journal<\/th>[\s\S]*<th scope="row">Period<\/th>[\s\S]*<th scope="row">Description<\/th>/,
+  'the retained-facts table must keep the unique accounting evidence fields');
 
 const postedJournalId='66666666-6666-4666-8666-666666666666';
 const completeBill={...bill,posted_journal_entry_id:postedJournalId,journal_entry_id:postedJournalId,journal_status:'POSTED',journal_revision:4,lineage:{entity_id:entityId,record_id:bill.business_document_id,record_revision:3,source_document_id:'77777777-7777-4777-8777-777777777777',source_document_revision:1,receipt_id:'88888888-8888-4888-8888-888888888888',receipt_revision:2,mapping_snapshot_id:'99999999-9999-4999-8999-999999999999',mapping_version:4,audit_event_ids:['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'],posted_journal_entry_id:postedJournalId,posted_journal_revision:4,ledger_line_ids:['cccccccc-cccc-4ccc-8ccc-cccccccccccc','dddddddd-dddd-4ddd-8ddd-dddddddddddd']}};
