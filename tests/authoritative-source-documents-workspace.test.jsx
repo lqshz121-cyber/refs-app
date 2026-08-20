@@ -3,10 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeSourceDocumentsWorkspace} from '../src/authoritative-source-documents-workspace.jsx';
+import {AuthoritativeSourceDocumentsWorkspace,authoritativeSourceScopeLabels} from '../src/authoritative-source-documents-workspace.jsx';
 import {AuthoritativeSourceDocumentsView} from '../src/authoritative-source-documents-view.jsx';
 
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',baseUrl:'https://api.example',getAccessToken:async()=> 'a'.repeat(48)};
+assert.deepEqual(authoritativeSourceScopeLabels({...config,scopePresentation:{entityLabel:'Wan Pacific Real Estate Development LLC',periodLabel:'2026-08'}}),{entity:'Wan Pacific Real Estate Development LLC',period:'2026-08'});
+assert.deepEqual(authoritativeSourceScopeLabels(config),{entity:'Configured entity',period:'Configured period'});
 const markup=renderToStaticMarkup(<AuthoritativeSourceDocumentsWorkspace config={config} fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})}/>);
 assert.match(markup,/Loading authoritative Source Document evidence/);
 const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-source-documents-workspace.jsx'),'utf8');
@@ -17,6 +19,7 @@ assert.match(presentation,/full-bleed.*authoritative-source-documents-presentati
 assert.match(presentation,/Source Documents Register/,'Source Documents must retain the demo register heading');
 assert.match(presentation,/kpi-row authoritative-source-summary/,'Source Documents must present API-returned scope counts in the demo KPI hierarchy');
 assert.match(source,/authoritative-source-scope/,'Source Documents must visibly retain the API entity and period scope above the evidence register');
+assert.match(source,/scopeLabels\.entity/);assert.match(source,/scopeLabels\.period/);assert.doesNotMatch(source,/<b>\{config\.(?:entityId|periodId)\}<\/b>/,'Source Documents must not promote raw scope UUIDs as visible labels');
 assert.match(source,/Journal-linked/,'Source Documents must distinguish retained journal references from unlinked list facts');
 assert.match(source,/authoritative-source-intro/,'Source Documents must disclose its evidence-only boundary before the list');
 assert.match(source,/authoritative-source-filters/,'Source Documents must provide presentation-only source evidence filters');
