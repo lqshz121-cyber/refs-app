@@ -232,6 +232,7 @@ async function main(){
   assert.match(css,/@media\(max-width:720px\).*\.authoritative-core-report-shortcuts \.authoritative-report-shortcut small\{display:none;\}/s,'narrow Reports favorites must remove secondary copy instead of producing tall wrapped rows');
   assert.match(css,/authoritative-property-table/,'property rollforward tables must use contained horizontal scrolling rather than expanding the page');
   assert.match(css,/@media\(max-width:720px\).*authoritative-report-shortcuts/s,'Reports shortcut controls need an explicit narrow-screen layout');
+  assert.match(css,/@media\(max-width:720px\)\{\.authoritative-reports-library \.table-wrap\{max-height:min\(64vh,560px\);overscroll-behavior:contain;\}\}/,'narrow Reports tables must remain locally scrollable instead of lengthening the full page');
   console.log('authoritative financial statement contract tests passed');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
