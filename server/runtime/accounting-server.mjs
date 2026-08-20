@@ -49,6 +49,7 @@ import {detectBankGlBalanceReconciliationReviews} from './ai-bank-gl-balance-rec
 import {detectApAgingRisks} from './ai-ap-aging-risk.mjs';
 import {detectBalanceSheetAccountAgingReviews} from './ai-balance-sheet-account-aging-review.mjs';
 import {detectIntercompanyCloseReviews} from './ai-intercompany-close-review.mjs';
+import {analyzeClosingSettlement} from './ai-closing-settlement-review.mjs';
 import {createWbsTestImportService} from './wbs-test-import-service.mjs';
 import {createControlledTestAiWorkflowService} from './controlled-test-ai-workflow-service.mjs';
 import {createControlledTestBankWorkflowService} from './controlled-test-bank-workflow-service.mjs';
@@ -185,6 +186,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
     const constructionLoanDrawCwip={analyze:async input=>{const reportScope={tenantId:input.tenantId,entityId:input.entityId,periodId:input.currentAccountingPeriodId},policyScope={tenantId:input.tenantId,entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId},[loanRows,cwipRows,policy]=await Promise.all([kernel.getConstructionLoanRollforward(reportScope),kernel.getCwipRollforward(reportScope),kernel.getAiConstructionLoanDrawCwipPolicy(policyScope)]);if(!policy)throw Object.assign(new Error('Approved construction-loan draw to CWIP policy is required.'),{code:'AI_LOAN_DRAW_CWIP_POLICY_REQUIRED'});return detectConstructionLoanDrawCwipReviews(loanRows,cwipRows,{entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId,policy});}};
     const constructionLoanProjectCost={analyze:async input=>{const scope={tenantId:input.tenantId,entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId},[rows,policy]=await Promise.all([kernel.getAiConstructionLoanProjectCostSource(scope),kernel.getAiConstructionLoanDrawCwipPolicy(scope)]);if(!policy)throw Object.assign(new Error('Approved construction-loan project-cost policy is required.'),{code:'AI_LOAN_PROJECT_COST_POLICY_REQUIRED'});return detectConstructionLoanProjectCostReviews(rows,{entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId,policy});}};
     const constructionLoanTransaction={analyze:async input=>createAiConstructionLoanControllerScanService({sourceReader:scope=>kernel.readAiConstructionLoanSource(scope)}).analyze({tenantId:input.tenantId,entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId,limit:Math.min(input.limit,500)})};
+    const closingSettlement={analyze:async input=>analyzeClosingSettlement(await kernel.readAiClosingSettlementSource({tenantId:input.tenantId,entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId,limit:Math.min(input.limit,500)}),{entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId,limit:Math.min(input.limit,500)})};
     const prepaidAmortization={analyze:async input=>projectPrepaidAmortizationControllerReviews(await kernel.listInsurancePrepaidAmortization({tenantId:input.tenantId,entityId:input.entityId,periodId:input.currentAccountingPeriodId,limit:Math.min(input.limit,100)}),{entityId:input.entityId,currentAccountingPeriodId:input.currentAccountingPeriodId})};
     const prepaidBalanceReconciliation={analyze:async input=>detectPrepaidBalanceReconciliationReviews(await kernel.getAiPrepaidBalanceReconciliationSource({tenantId:input.tenantId,entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId}),{entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId,limit:Math.min(input.limit,500)})};
     const fixedAssetDepreciation={analyze:async input=>detectFixedAssetDepreciationGaps(await kernel.getAiFixedAssetDepreciationGapSource({tenantId:input.tenantId,entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId}),{entityId:input.entityId,accountingPeriodId:input.currentAccountingPeriodId,limit:Math.min(input.limit,500)})};
@@ -233,6 +235,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
       CONSTRUCTION_LOAN_DRAW_CWIP:constructionLoanDrawCwip,
       CONSTRUCTION_LOAN_PROJECT_COST:constructionLoanProjectCost,
       CONSTRUCTION_LOAN_TRANSACTION:constructionLoanTransaction,
+      CLOSING_SETTLEMENT:closingSettlement,
       COST_DIMENSION:costDimension,
       CWIP_POST_COMPLETION:cwipPostCompletion,
       DUPLICATE_PAYABLE:duplicatePayable,
