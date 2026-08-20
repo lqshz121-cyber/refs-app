@@ -57,10 +57,13 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroups
       <div className="rail-logo" aria-hidden="true">R</div>
       {navigation.map((group, index) => {
         const active = group.label === activeGroup.label;
+        const direct = group.items.length === 1;
         return <div key={group.label} className={`nav-group nav-tone-${index % 6}`}>
           <button type="button"
             className={`nav-group-h ${active ? 'rail-on' : ''}`}
-            aria-current={active ? 'page' : undefined}
+            aria-current={direct && active ? 'page' : undefined}
+            aria-expanded={!direct ? active : undefined}
+            aria-controls={!direct && active ? 'authoritative-navigation-active-group' : undefined}
             aria-label={group.label}
             onClick={() => onSelectGroup(group)}>
             <span className="rail-glyph" aria-hidden="true"><Icon name={GROUP_ICONS[group.label] || 'document'} /></span>

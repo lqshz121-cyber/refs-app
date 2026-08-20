@@ -28,6 +28,14 @@ assert.doesNotMatch(journalNavMarkup, /Journal entries/, 'a one-page Journal wor
 assert.doesNotMatch(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'a suppressed secondary menu must not leave an empty navigation landmark');
 assert.match(mobileReportNavMarkup, /aria-label="Close navigation"/, 'a direct-entry workspace must retain a reachable Close control in the mobile drawer');
 assert.match(navMarkup, /Bank transaction matching/); assert.match(navMarkup, /aria-label="Auto Reconciliation"/);
+assert.match(navMarkup, /aria-expanded="true" aria-controls="authoritative-navigation-active-group" aria-label="Auto Reconciliation"/,
+  'a multi-page rail group must announce the one secondary panel it currently exposes');
+assert.doesNotMatch(navMarkup, /aria-current="page"[^>]*aria-label="Auto Reconciliation"/,
+  'a multi-page workspace group is expanded, not itself the current page');
+assert.match(reportNavMarkup, /aria-current="page" aria-label="Reports"/,
+  'a one-page workspace rail control is the direct current page');
+assert.doesNotMatch(reportNavMarkup, /aria-expanded="[^"]+"[^>]*aria-label="Reports"/,
+  'a one-page workspace must not announce a secondary menu that is intentionally suppressed');
 assert.doesNotMatch(navMarkup, /Source Documents/, 'an old workspace must not remain in the secondary panel after navigation');
 assert.match(navMarkup, /authoritative-navigation-active-group/, 'only the current workspace menu is rendered');
 assert.doesNotMatch(navMarkup, />API</); assert.doesNotMatch(navMarkup, />Unavailable</);
