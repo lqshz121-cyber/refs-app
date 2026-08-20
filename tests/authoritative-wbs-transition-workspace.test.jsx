@@ -31,6 +31,8 @@ assert.match(markup,/No WBS observation loaded/);
 assert.match(markup,/No credential, raw business identifier, accounting record, or action is exposed/);
 assert.match(markup,/AutoRec review evidence/);
 assert.match(markup,/Load AutoRec review evidence/);
+for(const token of ['Loading AutoRec review evidence','Loading receipt-backed rows for the selected company and sources.','Enter the WBS company key and source record IDs.','No Match Review loaded','Posted evidence remains unavailable until the review is complete.'])assert.match(source,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),'secondary AutoRec states must use concise accounting language');
+assert.doesNotMatch(source,/Reading persisted AutoRec evidence|exact review UUID retained by PostgreSQL|Exact persisted review UUID|authenticated API returned a valid empty result/,'secondary AutoRec states must not expose database, transport, or identifier implementation language');
 assert.match(markup,/Match Review → G11 evidence/);
 assert.match(markup,/Load Match Review/);
 assert.match(markup,/Trace G11 \/ GL/);
