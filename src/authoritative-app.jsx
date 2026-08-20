@@ -4,7 +4,7 @@ import { AuthoritativeSourceDocumentsWorkspace } from './authoritative-source-do
 import { BrowserOidcClient, RENEWAL_MIN_INTERVAL_MS, oidcRuntimeConfig, silentRenewalSchedule } from './oidc-client.js';
 import { AuthoritativeBankWorkspace, AuthoritativeReconciliationWorkspace } from './authoritative-bank-workspace.jsx';
 import { AuthoritativeBankBatchPipelineWorkspace } from './authoritative-bank-batch-pipeline-workspace.jsx';
-import { StateBlock } from './ui.jsx';
+import { Icon, StateBlock } from './ui.jsx';
 import { focusFirstControl, navDrawerAttributes, readOffCanvas, restoreFocus, watchOffCanvas } from './nav-drawer.js';
 import { RuntimeErrorPage, RuntimeErrorPanel } from './runtime-error-page.jsx';
 import { verifyAuthoritativeApiRelease } from './authoritative-release-gate.js';
@@ -511,7 +511,7 @@ export function AuthoritativeApp({ environment = globalThis, fetcher = globalThi
     {navOpen && <button type="button" className="mobile-nav-scrim" tabIndex={-1} aria-label="Close navigation" onClick={() => setNavOpen(false)}/>}
     <div className="main">
       {false && <header className="topbar authoritative-topbar">
-        <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>Menu</button>
+        <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}><Icon name="menu" size={24}/></button>
         <div className="authoritative-entity-chip" aria-label={`Authoritative entity ${config.entityId}`}>
           <span className="authoritative-top-label">Entity</span><strong>{config.entityId}</strong>
         </div>

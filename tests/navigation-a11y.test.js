@@ -4,7 +4,9 @@ import {focusFirstControl, navDrawerAttributes, navDrawerIsInert, readOffCanvas,
 
 const app=readFileSync('src/legacy-demo-app.jsx','utf8');
 const authoritative=readFileSync('src/authoritative-app.jsx','utf8');
+const authoritativeTopbar=readFileSync('src/authoritative-topbar.jsx','utf8');
 const authoritativeShell=readFileSync('src/authoritative-navigation-shell.jsx','utf8');
+const ui=readFileSync('src/ui.jsx','utf8');
 const unavailableWorkspace=readFileSync('src/authoritative-unavailable-workspace.jsx','utf8');
 const styles=readFileSync('index.html','utf8');
 assert.match(app,/<button className="mobile-nav-scrim" tabIndex=\{-1\} aria-label="Close navigation"/);
@@ -82,6 +84,11 @@ for (const [name,source,open] of [['src/legacy-demo-app.jsx',app,'mobileNav'],['
   assert.match(source,/aria-controls="(primary|authoritative)-navigation" aria-expanded=\{(mobileNav|navOpen)\}/,`${name}: the opener must announce what it controls and whether it is open`);
   assert.match(source,/className="mobile-nav-close"/,`${name}: an off-canvas drawer needs a visible way out`);
 }
+assert.match(authoritativeTopbar,/<Icon name="menu" size=\{24\}\/>/,'the active authoritative topbar must use the shared menu glyph');
+assert.match(authoritative,/<Icon name="menu" size=\{24\}\/>/,'the retained duplicate shell must not reintroduce clipped Menu text');
+assert.doesNotMatch(`${authoritativeTopbar}\n${authoritative}`,/>Menu<\/button>/,'authoritative navigation openers must not overflow their fixed square control');
+assert.match(ui,/menu:\s+\['M4\.5 6\.5h15', 'M4\.5 12h15', 'M4\.5 17\.5h15'\]/,'the menu glyph must stay in the self-authored currentColor icon family');
+assert.match(styles,/\.mobile-nav-btn svg\{display:block;width:24px;height:24px;\}/,'the 24px menu glyph must remain contained inside the fixed navigation control');
 
 // The authoritative surface must expose the same presentation-only theme
 // control as the legacy shell.  It is deliberately an explicit button rather

@@ -76,6 +76,8 @@ stopWatchingRoute();
 assert.equal(routeListeners.has('hashchange'),false,'the authoritative app must remove its hash listener on unmount');
 const topbarMarkup = renderToStaticMarkup(<AuthoritativeTopbar navOpen={false} entityLabel="WBHO WB Home LLC" periodLabel="2026-07" theme="light" navOpenerRef={{current:null}} onOpenNavigation={() => {}} onRefresh={() => {}} onToggleTheme={() => {}} onSignOut={() => {}}/>);
 assert.match(topbarMarkup, /WBHO WB Home LLC/);
+assert.match(topbarMarkup, /class="mobile-nav-btn" aria-label="Open navigation"[^>]*><svg[^>]*width="24"[^>]*viewBox="0 0 24 24"/,'the compact navigation opener must use the shared 24px line icon');
+assert.doesNotMatch(topbarMarkup, />Menu<\/button>/,'fixed-width mobile navigation must not render overflowing text');
 assert.doesNotMatch(topbarMarkup, /Search or jump|Help is unavailable|Notifications are unavailable|disabled=/,
   'the authoritative topbar must not render inert product controls');
 assert.match(topbarMarkup, /Period/);

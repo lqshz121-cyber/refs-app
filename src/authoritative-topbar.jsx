@@ -1,4 +1,5 @@
 import React from 'react';
+import {Icon} from './ui.jsx';
 
 // Presentation-only chrome for the authenticated application.  Every visible
 // control has a real action; unavailable product areas are represented by
@@ -8,7 +9,7 @@ export function AuthoritativeTopbar({
   theme,onToggleTheme,onRefresh,onSignOut,
 }){
   return <header className="topbar authoritative-topbar">
-    <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={onOpenNavigation}>Menu</button>
+    <button ref={navOpenerRef} type="button" className="mobile-nav-btn" aria-label="Open navigation" aria-controls="authoritative-navigation" aria-expanded={navOpen} onClick={onOpenNavigation}><Icon name="menu" size={24}/></button>
     <label className="sw authoritative-shell-scope"><span className="sr-only">Authoritative entity</span><span className="authoritative-shell-select" title={entityLabel}>{entityLabel}</span></label>
     <div className="top-right authoritative-top-actions">
       <span className="period-chip authoritative-period-chip"><span className="period-label">Period</span><b>{periodLabel}</b><span className="badge badge-ok">API read</span></span>
