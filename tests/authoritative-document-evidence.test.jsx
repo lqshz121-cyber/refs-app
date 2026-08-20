@@ -121,6 +121,9 @@ assert.equal(completeLineage?.posted_journal_entry_id,postedJournalId,'only a li
 assert.equal(completeLineage?.audit_event_ids.length,2);
 const completeDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={completeBill} kind="AP" entityId={entityId} onBack={()=>{}}/>);
 assert.match(completeDetail,/Immutable authoritative lineage/);
+assert.match(completeDetail,/<details class="authoritative-secondary-disclosure authoritative-lineage" aria-label="Bill immutable lineage"><summary><span>Immutable authoritative lineage<\/span><span class="badge badge-muted">POSTED EVIDENCE<\/span><\/summary>/,
+  'complete lineage must remain available in one default-closed shared disclosure');
+assert.doesNotMatch(completeDetail,/authoritative-lineage"[^>]* open/,'complete lineage must not lengthen the default evidence page');
 assert.match(completeDetail,/Mapping snapshot/);
 assert.doesNotMatch(completeDetail,/authoritative lineage unavailable/,'a complete same-revision API lineage response must not be unconditionally blocked');
 const mismatchedLineage={...completeBill,lineage:{...completeBill.lineage,record_revision:2}};
@@ -150,6 +153,7 @@ const completeAdjustment={...adjustment,status:'POSTED',journal_entry_id:postedJ
 assert.equal(authoritativeLineageFor(completeAdjustment,entityId)?.posted_journal_revision,5,'adjustment lineage must also bind to its own exact immutable revision');
 const completeAdjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={completeAdjustment} side="AP" entityId={entityId} onBack={()=>{}}/>);
 assert.match(completeAdjustmentDetail,/Immutable authoritative lineage/);
+assert.match(completeAdjustmentDetail,/aria-label="Adjustment immutable lineage"/,'adjustments must use the same compact lineage disclosure');
 assert.doesNotMatch(completeAdjustmentDetail,/authoritative lineage unavailable/);
 
 const empty=renderToStaticMarkup(<AuthoritativeDocumentTable title="AR invoices" documents={[]} kind="AR"/>);
