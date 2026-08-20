@@ -45,6 +45,8 @@ assert.match(workspaceMarkup,/AP Aging/);
 assert.doesNotMatch(workspaceMarkup,/AP Aging unavailable/,'AP aging has an authenticated API contract and must be reachable');
 assert.match(workspaceMarkup,/id="authoritative-ap-aging-launch"/,'Back from AP aging must restore focus to the tab that opened it');
 assert.match(workspaceMarkup,/Vendors unavailable/);
+assert.match(workspaceMarkup,/class="tab-unavailable" role="tab" aria-selected="false" aria-disabled="true" aria-label="Vendors unavailable"/,'unavailable AP/AR views must retain tab semantics and shared visual geometry without becoming interactive');
+assert.doesNotMatch(workspaceMarkup,/class="tab-unavailable" role="note"/,'a child of tablist must not use a non-tab role');
 assert.doesNotMatch(workspaceMarkup,/<button[^>]*disabled[^>]*>AP Aging<\/button>/);
 const apArPresentationSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-ap-ar-view.jsx'),'utf8');
 assert.doesNotMatch(apArPresentationSource,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,

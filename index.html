@@ -777,6 +777,12 @@ input:disabled,select:disabled,textarea:disabled,input[readonly],textarea[readon
   font:400 16px/1 var(--qb-sans); border-radius:5px; cursor:pointer; white-space:nowrap;
   transition:background-color var(--qb-dur-1) var(--qb-ease-out),color var(--qb-dur-1) var(--qb-ease-out);
 }
+.tab-unavailable{
+  display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
+  min-height:32px;padding:0 16px;border:0;border-radius:5px;
+  color:var(--qb-text-faint);font:400 16px/1 var(--qb-sans);white-space:nowrap;
+  cursor:not-allowed;
+}
 .tab:hover,.seg>button:hover,.je-queue-chips>button:hover,.bank-queue-tabs>button:hover,
 .qbo-report-tabs>button:hover{color:var(--qb-text-strong);}
 .tab.tab-on,.tab-on,.seg>button[aria-selected="true"],.seg>button.on,
@@ -788,7 +794,7 @@ input:disabled,select:disabled,textarea:disabled,input[readonly],textarea[readon
 /* On a segmented track a disabled item must stay flat: a raised white item
    reads as "selected", which would make an unavailable option look chosen. */
 .tab:disabled,.seg>button:disabled,.je-queue-chips>button:disabled,
-.bank-queue-tabs>button:disabled,.qbo-report-tabs>button:disabled,.qbo-segment>button:disabled{
+.bank-queue-tabs>button:disabled,.qbo-report-tabs>button:disabled,.qbo-segment>button:disabled,.tab-unavailable{
   background:transparent; color:var(--qb-text-faint); border:0; box-shadow:none; cursor:not-allowed;
 }
 /* Report preview bar is an action toolbar, not a queue switcher. */
