@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {refreshAuthoritativeConsolidation,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatementSnapshot,refreshAuthoritativeFinancialStatements} from '../src/accounting-api.js';
-import {AuthoritativeFullStatementReport,AuthoritativeReportDetail,AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,authoritativeReportLineageConfig,findAuthoritativePropertyReportShortcuts,findAuthoritativeReportShortcuts,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
+import {AuthoritativeFullStatementReport,AuthoritativeReportDetail,AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,authoritativeReportLineageConfig,findAuthoritativePropertyReportShortcuts,findAuthoritativeReportShortcuts,normalizeAuthoritativeReportsCatalog,restoreAuthoritativeReportTablePosition} from '../src/authoritative-reports-workspace.jsx';
 
 const entityId='00000000-0000-4000-8000-000000000101',periodId='00000000-0000-4000-8000-000000000102';
 const config={baseUrl:'https://accounting.example',entityId,periodId,getAccessToken:async()=>'oidc.token.value-123456789'};
@@ -125,6 +125,13 @@ async function main(){
   assert.match(workspace,/report=\{selected\.returnContext\.report\} rows=\{selected\.rows\}/,'a one-click report must render the rows frozen for that exact selected report, not the previous preview rows');
   assert.doesNotMatch(workspace,/aria-label="Financial statements"/,'the report preview must not repeat Favorites as a second statement tab row');
   assert.match(workspace,/parentFullStatement/,'a row evidence Back from the full report must return to the full report before it returns to the Reports catalog');
+  assert.match(workspace,/createAuthoritativeReturnContext\(\{config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number\(environment\?\.scrollY\)\|\|0\}\)/,'a nested full-report drill must freeze its own current page position instead of reusing the Reports catalog position');
+  assert.match(workspace,/tableX:Number\(fullStatementTableRef\.current\?\.scrollLeft\)\|\|0/,'a nested full-report drill must freeze the contained report table position');
+  assert.match(workspace,/restoreAuthoritativeReturnContext\(environment,config,context\)\)restoreAuthoritativeReportTablePosition/,'nested Back must restore exact full-report page, table and row focus context');
+  const reportTableCalls=[];const reportTable={scrollTo:options=>reportTableCalls.push(options)};const reportEnvironment={setTimeout:callback=>callback()};
+  assert.equal(restoreAuthoritativeReportTablePosition(reportEnvironment,{tableX:310},()=>reportTable),true);
+  assert.deepEqual(reportTableCalls,[{left:310,behavior:'auto'}]);
+  assert.equal(restoreAuthoritativeReportTablePosition(reportEnvironment,{tableX:-1},()=>reportTable),false,'invalid report table positions must fail closed');
   assert.match(workspace,/Back to Reports/,'the full report must provide an explicit catalog Back action');
   assert.match(workspace,/restoreAuthoritativeReturnContext/,'report detail Back must restore its evidence opener and scroll position');
   assert.match(workspace,/authoritative-report-\$\{row\.statement_type\}/,'report evidence controls need stable focus targets');
