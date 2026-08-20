@@ -22,7 +22,7 @@ const namedBankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={
 assert.match(namedBankInitial,/Wan Pacific Real Estate Development LLC/);assert.doesNotMatch(namedBankInitial,/Entity 11111111-1111-4111-8111-111111111111/);
 
 const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
-assert.match(reconciliationInitial,/Reconcile/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/Match retained statements to the books\./);
+assert.match(reconciliationInitial,/Reconcile/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/Match the books to bank records\./);assert.doesNotMatch(reconciliationInitial,/Match retained statements to the books\./);
 assert.match(reconciliationInitial,/Choose an existing statement to review\./);assert.doesNotMatch(reconciliationInitial,/The API rejects missing or cross-scope statement evidence/);
 assert.match(reconciliationInitial,/Reconciliation history/);assert.match(reconciliationInitial,/Loading reconciliation history/);assert.match(reconciliationInitial,/READ ONLY/);
 assert.match(reconciliationInitial,/Choose a statement/);assert.match(reconciliationInitial,/Select a bank account and statement ending date\./);assert.doesNotMatch(reconciliationInitial,/Reconciliation evidence|Available reconciliation scopes|Discovering reconciliation scopes|No read requested yet/,'the first screen must use concise accounting language');
