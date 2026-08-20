@@ -5,6 +5,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {AuthoritativeWbsTransitionWorkspace} from '../src/authoritative-wbs-transition-workspace.jsx';
 
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'33333333-3333-4333-8333-333333333333',baseUrl:'https://accounting.example',getAccessToken:async()=> 'a'.repeat(48)};
+const source=fs.readFileSync('src/authoritative-wbs-transition-workspace.jsx','utf8');
 const markup=renderToStaticMarkup(<AuthoritativeWbsTransitionWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not verify a contract');}}/>);
 assert.match(markup,/WBS Payables and exception review/);
 assert.match(markup,/LIVE DATA/);
@@ -15,7 +16,8 @@ assert.match(markup,/Exception/);
 assert.doesNotMatch(markup,/Enable WBS evidence read|WBS evidence read access/);
 assert.match(markup,/Production WBS provider observation/);
 assert.match(markup,/UNSIGNED PILOT/);
-assert.match(markup,/GET ONLY/);
+assert.equal((source.match(/<summary><span>[^<]+<\/span><span className="badge badge-muted">READ ONLY<\/span><\/summary>/g)||[]).length,3,'all three secondary WBS evidence readers must use the shared customer-facing read-only label');
+assert.doesNotMatch(markup,/GET ONLY/,'the WBS shell must not expose HTTP implementation terminology');
 assert.match(markup,/NOT ADMITTED/);
 assert.match(markup,/NOT POSTABLE/);
 assert.match(markup,/aria-label="Production WBS observation boundary"/);
@@ -43,7 +45,6 @@ assert.doesNotMatch(markup,/authoritative-wbs-evidence-disclosure"[^>]* open/,'s
 assert.doesNotMatch(markup,/WBS Payable accounting path/);
 assert.match(markup,/rows="2"/);
 assert.match(markup,/Advanced: verify a signed transition contract/);
-const source=fs.readFileSync('src/authoritative-wbs-transition-workspace.jsx','utf8');
 assert.match(source,/G11 posted journal and ledger evidence/);
 assert.match(source,/className="table-wrap authoritative-wbs-g11-table" role="region" tabIndex=\{0\} aria-label="G11 posted journal and ledger evidence/,'G11 posted evidence must use a stable keyboard-scrollable region');
 assert.match(source,/verifyAuthoritativeWbsTransitionContract/);

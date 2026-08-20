@@ -59,7 +59,7 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     <AuthoritativeWbsPayableReviewWorkspace config={config} fetcher={fetcher} onReviewed={()=>setPayableReviewRefresh(value=>value+1)}/>
     <AuthoritativeWbsPayableWorkspace config={config} fetcher={fetcher} refreshToken={payableReviewRefresh} onAccountingRefresh={onAccountingRefresh}/>
 
-    <details className="report-workbench authoritative-secondary-disclosure authoritative-wbs-evidence-disclosure" aria-label="Persisted WBS AutoRec review evidence"><summary><span>AutoRec review evidence</span><span className="badge badge-muted">GET ONLY</span></summary>
+    <details className="report-workbench authoritative-secondary-disclosure authoritative-wbs-evidence-disclosure" aria-label="Persisted WBS AutoRec review evidence"><summary><span>AutoRec review evidence</span><span className="badge badge-muted">READ ONLY</span></summary>
       <section aria-label="AutoRec review evidence query">
       <form className="filterbar" onSubmit={readReview}>
         <label htmlFor="wbs-review-company">WBS company key<input id="wbs-review-company" required maxLength="128" value={reviewInput.companyKey} onChange={event=>setReviewInput(current=>({...current,companyKey:event.target.value}))} placeholder="Exact retained company key"/></label>
@@ -76,7 +76,7 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
       </section>
     </details>
 
-    <details className="report-workbench authoritative-secondary-disclosure authoritative-wbs-evidence-disclosure" aria-label="AutoRec Match Review and G11 posted evidence"><summary><span>Match Review → G11 evidence</span><span className="badge badge-muted">GET ONLY</span></summary>
+    <details className="report-workbench authoritative-secondary-disclosure authoritative-wbs-evidence-disclosure" aria-label="AutoRec Match Review and G11 posted evidence"><summary><span>Match Review → G11 evidence</span><span className="badge badge-muted">READ ONLY</span></summary>
       <section aria-label="Match Review and G11 evidence query">
       <form className="filterbar" onSubmit={readMatchReview}>
         <label htmlFor="wbs-match-review-id">Match Review ID<input id="wbs-match-review-id" required pattern="[0-9a-fA-F-]{36}" maxLength="36" value={matchReviewId} onChange={event=>setMatchReviewId(event.target.value)} placeholder="Exact persisted review UUID"/></label>
@@ -94,7 +94,7 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
       </section>
     </details>
 
-    <details className="report-workbench authoritative-secondary-disclosure authoritative-wbs-evidence-disclosure" aria-label="WBS and REFS control reconciliation evidence"><summary><span>WBS / REFS control reconciliation</span><span className="badge badge-muted">GET ONLY</span></summary>
+    <details className="report-workbench authoritative-secondary-disclosure authoritative-wbs-evidence-disclosure" aria-label="WBS and REFS control reconciliation evidence"><summary><span>WBS / REFS control reconciliation</span><span className="badge badge-muted">READ ONLY</span></summary>
       <section aria-label="WBS and REFS control reconciliation query">
       <form className="filterbar" onSubmit={readControl}>
         <label htmlFor="wbs-control-type">Control source<select id="wbs-control-type" value={controlInput.sourceType} onChange={event=>setControlInput(current=>({...current,sourceType:event.target.value}))}><option value="COST_GENERAL_LEDGER">Cost General Ledger</option><option value="PROPERTY_COMPARISON">Property comparison</option></select></label>
