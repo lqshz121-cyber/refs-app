@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFile} from 'node:fs/promises';
 
-const up=await readFile(new URL('../db/migrations/220_ai_unmatched_bank_payment_period_read.sql',import.meta.url),'utf8');
-const down=await readFile(new URL('../db/migrations/down/220_ai_unmatched_bank_payment_period_read.sql',import.meta.url),'utf8');
+const up=await readFile(new URL('../db/migrations/228_ai_unmatched_bank_payment_period_read.sql',import.meta.url),'utf8');
+const down=await readFile(new URL('../db/migrations/down/228_ai_unmatched_bank_payment_period_read.sql',import.meta.url),'utf8');
 
 test('period-scoped unmatched bank read uses analysis-only authority and exact primary-period dates',()=>{
   assert.match(up,/refs_assert_scope\(p_tenant,p_entity,'AI\.ANALYSIS\.EXPLAIN'\)/);

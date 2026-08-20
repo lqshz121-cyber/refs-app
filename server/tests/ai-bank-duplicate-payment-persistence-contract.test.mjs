@@ -4,8 +4,8 @@ import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 const here=resolve(fileURLToPath(new URL('.',import.meta.url)));
-const up=await readFile(resolve(here,'../db/migrations/204_ai_bank_duplicate_payment_finding.sql'),'utf8');
-const down=await readFile(resolve(here,'../db/migrations/down/204_ai_bank_duplicate_payment_finding.sql'),'utf8');
+const up=await readFile(resolve(here,'../db/migrations/212_ai_bank_duplicate_payment_finding.sql'),'utf8');
+const down=await readFile(resolve(here,'../db/migrations/down/212_ai_bank_duplicate_payment_finding.sql'),'utf8');
 
 test('duplicate-payment evidence and every source are append-only, scoped and action-free',()=>{
   for(const table of ['ai_bank_duplicate_payment_finding','ai_bank_duplicate_payment_source']){assert.match(up,new RegExp(`CREATE TABLE ${table}`));assert.match(up,new RegExp(`CREATE TRIGGER ${table}_append_only BEFORE UPDATE OR DELETE`));}

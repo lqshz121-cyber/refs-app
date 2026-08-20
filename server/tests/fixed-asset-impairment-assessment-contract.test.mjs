@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
-const up=readFileSync(new URL('../db/migrations/234_fixed_asset_impairment_assessment.sql',import.meta.url),'utf8');
+const up=readFileSync(new URL('../db/migrations/242_fixed_asset_impairment_assessment.sql',import.meta.url),'utf8');
 const http=readFileSync(new URL('../api/accounting-http.mjs',import.meta.url),'utf8');
 const kernel=readFileSync(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const openapi=JSON.parse(readFileSync(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));

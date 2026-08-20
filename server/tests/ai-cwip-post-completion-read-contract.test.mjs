@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFile} from 'node:fs/promises';
 
-const up=await readFile(new URL('../db/migrations/222_ai_cwip_post_completion_read.sql',import.meta.url),'utf8');
-const down=await readFile(new URL('../db/migrations/down/222_ai_cwip_post_completion_read.sql',import.meta.url),'utf8');
+const up=await readFile(new URL('../db/migrations/230_ai_cwip_post_completion_read.sql',import.meta.url),'utf8');
+const down=await readFile(new URL('../db/migrations/down/230_ai_cwip_post_completion_read.sql',import.meta.url),'utf8');
 const kernel=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 
 test('CWIP source reader is explanation-only, primary-period bound, and write free',()=>{

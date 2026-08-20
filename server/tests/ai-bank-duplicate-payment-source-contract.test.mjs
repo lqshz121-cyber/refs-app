@@ -5,8 +5,8 @@ import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const here=resolve(fileURLToPath(new URL('.',import.meta.url)));
-const up=await readFile(resolve(here,'../db/migrations/203_ai_bank_duplicate_payment_source_read.sql'),'utf8');
-const down=await readFile(resolve(here,'../db/migrations/down/203_ai_bank_duplicate_payment_source_read.sql'),'utf8');
+const up=await readFile(resolve(here,'../db/migrations/211_ai_bank_duplicate_payment_source_read.sql'),'utf8');
+const down=await readFile(resolve(here,'../db/migrations/down/211_ai_bank_duplicate_payment_source_read.sql'),'utf8');
 
 test('duplicate-payment source reader is exact-period, signed, admitted, payment-only and bounded',()=>{
   assert.match(up,/refs_assert_scope\(p_tenant,p_entity,'AI\.ANALYSIS\.EXPLAIN'\)/);assert.match(up,/period\.period_id=p_period/);assert.match(up,/bank\.transaction_date BETWEEN selected_period\.starts_on AND selected_period\.ends_on/);assert.match(up,/bank\.amount<0/);assert.match(up,/receipt\.signature_verified=true AND receipt\.admission_status='ADMITTED'/);assert.match(up,/p_limit<1 OR p_limit>500/);

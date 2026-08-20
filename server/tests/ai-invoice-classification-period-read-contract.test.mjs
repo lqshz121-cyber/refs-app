@@ -3,8 +3,8 @@ import test from 'node:test';
 import {readFileSync} from 'node:fs';
 
 const read=path=>readFileSync(new URL(path,import.meta.url),'utf8');
-const up=read('../db/migrations/223_ai_invoice_classification_period_source_read.sql');
-const down=read('../db/migrations/down/223_ai_invoice_classification_period_source_read.sql');
+const up=read('../db/migrations/231_ai_invoice_classification_period_source_read.sql');
+const down=read('../db/migrations/down/231_ai_invoice_classification_period_source_read.sql');
 const repository=read('../runtime/kernel-repository.mjs');
 const server=read('../runtime/accounting-server.mjs');
 

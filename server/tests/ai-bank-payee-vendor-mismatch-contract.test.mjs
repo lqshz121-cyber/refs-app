@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
-const up=readFileSync(new URL('../db/migrations/213_ai_bank_payee_vendor_mismatch_review.sql',import.meta.url),'utf8');
-const down=readFileSync(new URL('../db/migrations/down/213_ai_bank_payee_vendor_mismatch_review.sql',import.meta.url),'utf8');
+const up=readFileSync(new URL('../db/migrations/221_ai_bank_payee_vendor_mismatch_review.sql',import.meta.url),'utf8');
+const down=readFileSync(new URL('../db/migrations/down/221_ai_bank_payee_vendor_mismatch_review.sql',import.meta.url),'utf8');
 test('policy is approved, hash-bound, period-effective, exact, and fail closed',()=>{for(const token of ['AI_BANK_PAYEE_VENDOR_POLICY','AI_BANK_PAYEE_VENDOR_POLICY_SNAPSHOT_V1','AI_BANK_PAYEE_VENDOR_APPROVED_ALIAS_V1','refs_jsonb_hash','approved_aliases_by_vendor','policy scope is ambiguous','malformed or hash-invalid'])assert.match(up,new RegExp(token,'i'));assert.match(up,/status='APPROVED'/);});
 test('reader requires active signed bank and admitted provider invoice evidence with both source traces',()=>{for(const token of ['bank_match','status=\'ACTIVE\'','wbs_bank_statement_receipt','signature_verified=true','admission_status=\'ADMITTED\'','wbs_provider_signed_payable_admission','wbs_payable_review_evidence','wbs_payable_draft_evidence','bank_source_trace','invoice_source_trace'])assert.match(up,new RegExp(token));assert.match(up,/exactly one retained line/);});
 test('contract is read-only, scoped, bounded, granted only to the app, and reversible',()=>{assert.match(up,/refs_assert_ai_analysis_scope/);assert.match(up,/p_limit<1 OR p_limit>500/);assert.doesNotMatch(up,/INSERT\s+INTO\s+journal_entry/i);assert.doesNotMatch(up,/UPDATE\s+journal_entry/i);assert.match(up,/REVOKE ALL/);assert.match(up,/GRANT EXECUTE/);assert.match(down,/DROP FUNCTION refs_read_ai_bank_payee_vendor_matches/);});

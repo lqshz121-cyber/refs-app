@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';import test from 'node:test';import {readFile} from 'node:fs/promises';
-const up=await readFile(new URL('../db/migrations/205_ai_bank_duplicate_payment_analysis_integration.sql',import.meta.url),'utf8');
-const down=await readFile(new URL('../db/migrations/down/205_ai_bank_duplicate_payment_analysis_integration.sql',import.meta.url),'utf8');
+const up=await readFile(new URL('../db/migrations/213_ai_bank_duplicate_payment_analysis_integration.sql',import.meta.url),'utf8');
+const down=await readFile(new URL('../db/migrations/down/213_ai_bank_duplicate_payment_analysis_integration.sql',import.meta.url),'utf8');
 const server=await readFile(new URL('../runtime/accounting-server.mjs',import.meta.url),'utf8');
 const repository=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const registry=await readFile(new URL('../runtime/ai-accounting-skill-registry.mjs',import.meta.url),'utf8');

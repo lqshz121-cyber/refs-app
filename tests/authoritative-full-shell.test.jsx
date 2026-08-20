@@ -22,20 +22,21 @@ const mobileReportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell
 const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroups={['General Ledger']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
-assert.match(reportNavMarkup, /authoritative-sidebar-direct/, 'a one-page Reports workspace must open directly from its primary rail control');
-assert.doesNotMatch(reportNavMarkup, /Financial statements/, 'a one-page Reports workspace must not repeat its only child in a secondary menu');
+assert.doesNotMatch(reportNavMarkup, /authoritative-sidebar-direct/, 'the multi-page Reports workspace must expose its secondary navigation');
+assert.match(reportNavMarkup, /Financial statements/, 'the Reports workspace must expose its financial-statements page');
+assert.match(reportNavMarkup, /Accounting Analysis Report/, 'the Reports workspace must expose its AI analysis page');
 assert.doesNotMatch(journalNavMarkup, /Journal entries/, 'a one-page Journal workspace must not repeat its only child in a secondary menu');
-assert.doesNotMatch(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'a suppressed secondary menu must not leave an empty navigation landmark');
-assert.match(mobileReportNavMarkup, /aria-label="Close navigation"/, 'a direct-entry workspace must retain a reachable Close control in the mobile drawer');
+assert.match(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'the Reports secondary menu must retain its navigation landmark');
+assert.match(mobileReportNavMarkup, /aria-label="Close navigation"/, 'the Reports workspace must retain a reachable Close control in the mobile drawer');
 assert.match(navMarkup, /Bank transaction matching/); assert.match(navMarkup, /aria-label="Auto Reconciliation"/);
 assert.match(navMarkup, /aria-expanded="true" aria-controls="authoritative-navigation-active-group" aria-label="Auto Reconciliation"/,
   'a multi-page rail group must announce the one secondary panel it currently exposes');
 assert.doesNotMatch(navMarkup, /aria-current="page"[^>]*aria-label="Auto Reconciliation"/,
   'a multi-page workspace group is expanded, not itself the current page');
-assert.match(reportNavMarkup, /aria-current="page" aria-label="Reports"/,
-  'a one-page workspace rail control is the direct current page');
-assert.doesNotMatch(reportNavMarkup, /aria-expanded="[^"]+"[^>]*aria-label="Reports"/,
-  'a one-page workspace must not announce a secondary menu that is intentionally suppressed');
+assert.match(reportNavMarkup, /aria-expanded="true" aria-controls="authoritative-navigation-active-group" aria-label="Reports"/,
+  'the multi-page Reports rail control must announce its expanded secondary menu');
+assert.doesNotMatch(reportNavMarkup, /aria-current="page"[^>]*aria-label="Reports"/,
+  'the Reports group is expanded while its selected child is the current page');
 assert.doesNotMatch(navMarkup, /Source Documents/, 'an old workspace must not remain in the secondary panel after navigation');
 assert.match(navMarkup, /authoritative-navigation-active-group/, 'only the current workspace menu is rendered');
 assert.doesNotMatch(navMarkup, />API</); assert.doesNotMatch(navMarkup, />Unavailable</);

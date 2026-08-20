@@ -3,7 +3,7 @@ import test from 'node:test';
 import {readFileSync} from 'node:fs';
 
 const read=path=>readFileSync(new URL(path,import.meta.url),'utf8');
-const up=read('../db/migrations/224_ai_construction_loan_period_source_read.sql'),down=read('../db/migrations/down/224_ai_construction_loan_period_source_read.sql'),repository=read('../runtime/kernel-repository.mjs'),server=read('../runtime/accounting-server.mjs');
+const up=read('../db/migrations/232_ai_construction_loan_period_source_read.sql'),down=read('../db/migrations/down/232_ai_construction_loan_period_source_read.sql'),repository=read('../runtime/kernel-repository.mjs'),server=read('../runtime/accounting-server.mjs');
 
 test('loan transaction population is exact-period, explanation-only, complete, and raw-byte free',()=>{
   assert.match(up,/refs_assert_scope\(p_tenant,p_entity,'AI\.ANALYSIS\.EXPLAIN'\)/);assert.match(up,/p\.ledger_code='PRIMARY'/);

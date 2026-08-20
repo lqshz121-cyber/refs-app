@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-const up=readFileSync(new URL('../db/migrations/206_ai_anomaly_action_queue_integration.sql',import.meta.url),'utf8');
-const down=readFileSync(new URL('../db/migrations/down/206_ai_anomaly_action_queue_integration.sql',import.meta.url),'utf8');
+const up=readFileSync(new URL('../db/migrations/214_ai_anomaly_action_queue_integration.sql',import.meta.url),'utf8');
+const down=readFileSync(new URL('../db/migrations/down/214_ai_anomaly_action_queue_integration.sql',import.meta.url),'utf8');
 const openapi=JSON.parse(readFileSync(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
 test('retained AP, bank, and manual-JE anomalies enter the human action queue by immutable hash',()=>{const kinds=openapi.paths['/entities/{entityId}/ai/findings/assignments'].post.requestBody.content['application/json'].schema.properties.findingKind.enum;for(const kind of ['VENDOR_INVOICE_AMOUNT_SPIKE','VENDOR_INVOICE_FREQUENCY_SPIKE','VENDOR_INVOICE_AMOUNT_DROP','VENDOR_INVOICE_NEAR_DUPLICATE','MANUAL_JOURNAL_RISK','BANK_DUPLICATE_PAYMENT']){assert.match(up,new RegExp(kind));assert.ok(kinds.includes(kind));}for(const id of ['ai_vendor_invoice_amount_anomaly_finding_id','ai_vendor_invoice_frequency_anomaly_finding_id','ai_vendor_invoice_amount_drop_finding_id','ai_vendor_invoice_near_duplicate_finding_id','ai_manual_journal_risk_finding_id','ai_bank_duplicate_payment_finding_id'])assert.match(up,new RegExp(`${id}=p_finding`));assert.match(up,/finding_hash INTO actual_hash/);assert.match(up,/false,false,false,false/);});
 test('integration is reversible only when no retained anomaly action would be lost',()=>{assert.match(down,/Cannot roll back AI anomaly action queue integration while retained actions exist/);assert.match(down,/DROP CONSTRAINT ai_finding_action_finding_kind_check/);for(const forbidden of [/INSERT\s+INTO\s+journal_entry/i,/INSERT\s+INTO\s+ledger_line/i,/UPDATE\s+bank_source/i])assert.doesNotMatch(up,forbidden);});

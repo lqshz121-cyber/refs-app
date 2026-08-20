@@ -6,14 +6,14 @@ import {PostgresAccountingKernel} from '../runtime/kernel-repository.mjs';
 const read=path=>readFile(new URL(path,import.meta.url),'utf8');
 
 test('migration persists exact retained invoice classifications atomically without accounting authority',async()=>{
-  const up=await read('../db/migrations/186_ai_invoice_accounting_classification_evidence.sql');
+  const up=await read('../db/migrations/194_ai_invoice_accounting_classification_evidence.sql');
   for(const token of ['CREATE TABLE ai_invoice_accounting_classification_evidence','refs_read_ai_capitalization_policy_evidence','AI_CAPITALIZATION_POLICY','policy_snapshot_hash','wbs_final1_retained_source_row','raw_row_hash=item->>\'source_line_hash\'','AI.ANALYSIS.EXPLAIN','idempotency_receipt','actor_id IS DISTINCT FROM actor','AI_INVOICE_ACCOUNTING_CLASSIFIED','INSERT INTO audit_event','INSERT INTO outbox_event',"'can_create_draft',false","'can_review',false","'can_approve',false","'can_post',false",'reject_mutation'])assert.ok(up.includes(token),`missing ${token}`);
   assert.doesNotMatch(up,/INSERT INTO (staging_item|journal_entry|journal_line|ledger_line)/i);
   assert.match(up,/d\.payload_hash=item->>'source_payload_hash'/);
 });
 
 test('rollback refuses to discard retained classification evidence',async()=>{
-  const down=await read('../db/migrations/down/186_ai_invoice_accounting_classification_evidence.sql');
+  const down=await read('../db/migrations/down/194_ai_invoice_accounting_classification_evidence.sql');
   assert.match(down,/IF EXISTS\(SELECT 1 FROM ai_invoice_accounting_classification_evidence\)/);
   assert.match(down,/ERRCODE='55006'/);
 });

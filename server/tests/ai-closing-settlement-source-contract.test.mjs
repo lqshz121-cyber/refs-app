@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const sql=fs.readFileSync(new URL('../db/migrations/241_ai_closing_settlement_source_read.sql',import.meta.url),'utf8');
-const down=fs.readFileSync(new URL('../db/migrations/down/241_ai_closing_settlement_source_read.sql',import.meta.url),'utf8');
+const sql=fs.readFileSync(new URL('../db/migrations/249_ai_closing_settlement_source_read.sql',import.meta.url),'utf8');
+const down=fs.readFileSync(new URL('../db/migrations/down/249_ai_closing_settlement_source_read.sql',import.meta.url),'utf8');
 
 test('closing settlement reader is explanation-only, period-scoped, bounded and excludes untrusted source states',()=>{
   assert.match(sql,/refs_assert_scope\(p_tenant,p_entity,'AI\.ANALYSIS\.EXPLAIN'\)/);

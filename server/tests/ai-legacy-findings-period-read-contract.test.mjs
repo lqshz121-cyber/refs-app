@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFile} from 'node:fs/promises';
 
-const up=await readFile(new URL('../db/migrations/221_ai_legacy_findings_period_read.sql',import.meta.url),'utf8');
-const down=await readFile(new URL('../db/migrations/down/221_ai_legacy_findings_period_read.sql',import.meta.url),'utf8');
+const up=await readFile(new URL('../db/migrations/229_ai_legacy_findings_period_read.sql',import.meta.url),'utf8');
+const down=await readFile(new URL('../db/migrations/down/229_ai_legacy_findings_period_read.sql',import.meta.url),'utf8');
 const kernel=await readFile(new URL('../runtime/kernel-repository.mjs',import.meta.url),'utf8');
 const names=['prepaid_coverage','duplicate_payable','cost_dimension','loan_reference'];
 

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-const up=readFileSync(new URL('../db/migrations/207_ai_full_anomaly_analysis_integration.sql',import.meta.url),'utf8');
-const down=readFileSync(new URL('../db/migrations/down/207_ai_full_anomaly_analysis_integration.sql',import.meta.url),'utf8');
+const up=readFileSync(new URL('../db/migrations/215_ai_full_anomaly_analysis_integration.sql',import.meta.url),'utf8');
+const down=readFileSync(new URL('../db/migrations/down/215_ai_full_anomaly_analysis_integration.sql',import.meta.url),'utf8');
 const server=readFileSync(new URL('../runtime/accounting-server.mjs',import.meta.url),'utf8');
 const explanation=readFileSync(new URL('../runtime/ai-analysis-explanation-service.mjs',import.meta.url),'utf8');
 const categories=['VENDOR_INVOICE_AMOUNT_SPIKE','VENDOR_INVOICE_FREQUENCY_SPIKE','VENDOR_INVOICE_AMOUNT_DROP','VENDOR_INVOICE_NEAR_DUPLICATE','MANUAL_JOURNAL_RISK'];
