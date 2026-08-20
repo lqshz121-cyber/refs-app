@@ -245,6 +245,9 @@ assert.match(styles,/\.pagination\{display:flex;justify-content:flex-end;align-i
 assert.match(styles,/\.authoritative-list-filters\{display:grid;grid-template-columns:minmax\(220px,2fr\)/,'wide AP\/AR filters must align as a readable grid');
 assert.match(styles,/@media\s*\(max-width:1400px\)\s*\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,'AP/AR filters must collapse before the permanent navigation leaves too little workspace width at desktop zoom and tablet sizes');
 assert.match(styles,/\.authoritative-list-filters input,\.authoritative-list-filters select\{min-width:0;width:100%;max-width:100%;\}/,'AP/AR controls must not exceed their responsive grid tracks');
+assert.match(workspaceSource,/className="authoritative-expense-more-filters"/,'Expenses must keep secondary date, vendor and category filters in a compact native disclosure');
+assert.match(workspaceSource,/<label>Vendor <select[\s\S]*?<label>Category <select/,'the compact disclosure must retain Vendor and Category behavior');
+assert.match(styles,/\.authoritative-expense-more-filters\[open\]\{grid-column:1\/-1;\}/,'expanded Expenses filters must stay contained within the filter region');
 assert.match(styles,/@media\s*\(max-width:720px\)\s*\{\.authoritative-document-intro(?:,\.authoritative-source-intro)?\{grid-template-columns:minmax\(0,1fr\)/,'narrow AP\/AR filters and evidence guidance must collapse before the page overflows');
 assert.doesNotMatch(styles,/repeat\(2,minmax\(0,1fr\);/,'a malformed narrow-layout grid declaration must never prevent later responsive rules from parsing');
 

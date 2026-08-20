@@ -113,6 +113,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     bill&&state.accountCode!=='ALL'?`Category: ${state.accountCode}`:null,
     bill&&state.transactionType!=='ALL'?`Transaction type: ${state.transactionType==='BILLS'?'Bills':'Vendor credits'}`:null,
   ].filter(Boolean);
+  const moreFilterCount=[state.from,state.through,state.counterparty!=='ALL',state.accountCode!=='ALL'].filter(Boolean).length;
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
   const tabs=bill?[
     {id:'ALL',label:'All transactions'}, {id:'BILLS',label:'Bills'}, {id:'VENDOR_CREDITS',label:'Vendor credits'}, {id:'AGING',label:'AP Aging',focusId:'authoritative-ap-aging-launch'}, {id:'VENDORS',label:'Vendors',unavailable:true},
@@ -130,13 +131,19 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   return <AuthoritativeApArView kind={kind} className="authoritative-document-workspace stack" headerClassName={`authoritative-document-page-head${bill?' authoritative-expense-page-head':''}`} metrics={metrics} tabs={tabs} activeTab={activeTab} onSelectTab={selectTab} toolbar={bill?null:<p className="muted sm authoritative-api-scope">API read · filters do not change records.</p>}>
     <section className={`card authoritative-filter-card${bill?' authoritative-expense-filter-card':''}`} aria-label={`${workspaceLabel} API list filters`}>
     {!bill&&<div className="authoritative-filter-head"><div><h2>Filters</h2></div><span className="badge badge-muted">READ ONLY</span></div>}
-    <div className="filter-bar authoritative-list-filters" role="search" aria-label={`${bill?'Payables':'Receivables'} presentation filters`}>
+    <div className={`filter-bar authoritative-list-filters${bill?' authoritative-expense-list-filters':''}`} role="search" aria-label={`${bill?'Payables':'Receivables'} presentation filters`}>
       <label>Search <input value={state.query} onChange={event=>change({query:event.target.value})} placeholder={bill?'Bill, vendor, account, or reference':'Invoice, customer, account, or reference'}/></label>
       <label>Status <select value={state.status} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
-      <label>From <input type="date" value={state.from} onChange={event=>change({from:event.target.value})}/></label>
-      <label>Through <input type="date" value={state.through} onChange={event=>change({through:event.target.value})}/></label>
-      <label>{bill?'Vendor':'Customer'} <select value={state.counterparty} onChange={event=>change({counterparty:event.target.value})}><option value="ALL">{bill?'All vendors':'All retained customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
-      {bill&&(accountCodes.length>0?<label>Category <select value={state.accountCode} onChange={event=>change({accountCode:event.target.value})}><option value="ALL">All categories</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category unavailable for this result.</span>)}
+      {bill?<details className="authoritative-expense-more-filters"><summary>More filters{moreFilterCount?` (${moreFilterCount})`:''}</summary><div className="authoritative-expense-more-filter-grid">
+        <label>From <input type="date" value={state.from} onChange={event=>change({from:event.target.value})}/></label>
+        <label>Through <input type="date" value={state.through} onChange={event=>change({through:event.target.value})}/></label>
+        <label>Vendor <select value={state.counterparty} onChange={event=>change({counterparty:event.target.value})}><option value="ALL">All vendors</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+        {accountCodes.length>0?<label>Category <select value={state.accountCode} onChange={event=>change({accountCode:event.target.value})}><option value="ALL">All categories</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category unavailable for this result.</span>}
+      </div></details>:<>
+        <label>From <input type="date" value={state.from} onChange={event=>change({from:event.target.value})}/></label>
+        <label>Through <input type="date" value={state.through} onChange={event=>change({through:event.target.value})}/></label>
+        <label>Customer <select value={state.counterparty} onChange={event=>change({counterparty:event.target.value})}><option value="ALL">All retained customers</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+      </>}
       <button type="button" className="btn btn-sm btn-ghost" disabled={!state.query&&!appliedScope.length} onClick={()=>change({query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset filters</button>
       <span className="result-count" aria-live="polite">{visibleResultCount} {visibleResultCount===1?'result':'results'}</span>
     </div>

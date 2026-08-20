@@ -21,7 +21,9 @@ assert.match(styles,/\.authoritative-list-filters input,\.authoritative-list-fil
 assert.match(styles,/@media \(max-width:1400px\)\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\);/);
 assert.match(styles,/@media \(max-width:720px\)\{[\s\S]*?\.authoritative-list-filters\{grid-template-columns:minmax\(0,1fr\);/);
 assert.match(styles,/input:focus-visible,select:focus-visible,textarea:focus-visible\{/);
-assert.match(workspace,/<label>\{bill\?'Vendor':'Customer'\} <select/);
+assert.match(workspace,/<label>Vendor <select/);
+assert.match(workspace,/<label>Customer <select/);
+assert.match(workspace,/className="authoritative-expense-more-filters"/);
 assert.match(sourceDocuments,/detailReturnRef\.current/);
 assert.doesNotMatch(`${workspace}\n${navigationShell}`,/localStorage|sessionStorage|seed\.js|repo\.js|legacy-demo-app/);
 // Provider trace is bundled as a read-only parser/UI contract. Authenticated

@@ -1892,6 +1892,19 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-document-summary>span{min-height:92px;padding:12px 14px;}
 .authoritative-document-summary b{font-size:24px;}
 .authoritative-list-filters{gap:10px;}
+.authoritative-expense-list-filters{grid-template-columns:minmax(220px,2fr) minmax(150px,1fr) auto auto auto;}
+.authoritative-expense-list-filters .result-count{grid-column:auto;align-self:center;white-space:nowrap;}
+.authoritative-expense-more-filters{align-self:end;min-width:0;}
+.authoritative-expense-more-filters>summary{display:flex;align-items:center;justify-content:center;min-height:36px;padding:7px 12px;border:var(--qb-hair) solid var(--qb-divider-strong);border-radius:var(--qb-r-control);background:var(--qb-surface);color:var(--qb-text);font-size:13px;font-weight:600;cursor:pointer;list-style:none;white-space:nowrap;}
+.authoritative-expense-more-filters>summary::-webkit-details-marker{display:none;}
+.authoritative-expense-more-filters>summary:after{content:'+';margin-left:8px;color:var(--qb-brand);font-size:17px;font-weight:400;line-height:1;}
+.authoritative-expense-more-filters[open]{grid-column:1/-1;}
+.authoritative-expense-more-filters[open]>summary{justify-content:flex-start;}
+.authoritative-expense-more-filters[open]>summary:after{content:'−';}
+.authoritative-expense-more-filter-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:10px;padding-top:10px;border-top:var(--qb-hair) solid var(--qb-divider);}
+.authoritative-expense-more-filter-grid label{align-items:stretch;flex-direction:column;gap:5px;color:var(--qb-text-muted);font-size:12px;font-weight:600;}
+@media(max-width:1400px){.authoritative-expense-list-filters,.authoritative-expense-more-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:720px){.authoritative-expense-list-filters,.authoritative-expense-more-filter-grid{grid-template-columns:minmax(0,1fr);}.authoritative-expense-more-filters>summary{justify-content:space-between;width:100%;}}
 .authoritative-core-report-shortcuts{padding:12px 0;}
 .authoritative-core-report-shortcuts>.authoritative-report-shortcut-grid{gap:0;border-top:var(--qb-hair) solid var(--qb-divider);}
 .authoritative-core-report-shortcuts .authoritative-report-shortcut{min-height:44px;padding:9px 12px;border:0;border-bottom:var(--qb-hair) solid var(--qb-divider);border-radius:0;box-shadow:none;text-align:left;}
