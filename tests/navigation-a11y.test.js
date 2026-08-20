@@ -176,8 +176,12 @@ assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|AP
   'navigation rows must not expose implementation statuses or letter abbreviations to finance readers');
 assert.match(unavailableWorkspace,/WORKSPACE SETUP|SETUP REQUIRED|SETUP NEEDED/,
   'an unconfigured workspace must explain setup in finance-reader language');
-assert.match(unavailableWorkspace,/What happens next|finance administrator|company connection is ready/,
-  'a setup page must explain the responsible person and the safe next step in finance-reader language');
+assert.match(unavailableWorkspace,/finance administrator must confirm the company connection and access/,
+  'a concise setup page must explain the responsible person and the safe next step');
+assert.match(unavailableWorkspace,/No sample data or accounting actions are available/,
+  'a concise setup page must retain the fail-closed data and action boundary');
+assert.doesNotMatch(unavailableWorkspace,/qbo-toolgrid|Configured company|Configured period|What happens next/,
+  'the topbar scope and one concise setup state must not be repeated as cards and long instructions');
 assert.doesNotMatch(unavailableWorkspace,/config\?\.entityId \|\| 'Not configured'|config\?\.periodId \|\| 'Not configured'/,
   'raw scope identifiers must not be rendered as the visible workspace value');
 assert.doesNotMatch(authoritativeShell,/legacy-demo-app|from ['"]\.\/data|from ['"]\.\/seed|from ['"]\.\/repo|localStorage/,
