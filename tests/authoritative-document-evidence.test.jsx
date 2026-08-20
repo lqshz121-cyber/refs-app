@@ -116,6 +116,9 @@ const invoice={...bill,business_document_id:'55555555-5555-4555-8555-55555555555
 const arWorkspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AR" documents={[invoice]} adjustments={[]} view={{query:'',status:'ALL',from:'',through:'',accountCode:'999999',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(arWorkspaceMarkup,/id="authoritative-ar-aging-launch"/,'Back from AR aging must restore focus to the tab that opened it');
 assert.match(arWorkspaceMarkup,/REVENUE \/ ACCOUNTS RECEIVABLE/);
+assert.match(arWorkspaceMarkup,/Review invoices and AR aging\./);
+assert.doesNotMatch(arWorkspaceMarkup,/Invoices, receipts, and AR aging from the accounting API|from the accounting API/,
+  'the Accounts Receivable header must describe only available views without exposing transport language');
 assert.match(arWorkspaceMarkup,/Receivables/);
 assert.match(arWorkspaceMarkup,/Invoices/);
 assert.match(arWorkspaceMarkup,/Invoice, customer, account, or reference/);
