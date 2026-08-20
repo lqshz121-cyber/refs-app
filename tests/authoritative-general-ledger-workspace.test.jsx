@@ -16,13 +16,15 @@ test('General Ledger client requires a no-store scoped GET and validates immutab
 });
 test('General Ledger workspace is a retained read-only, contained-table surface',()=>{
   const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerWorkspace config={displayConfig} fetcher={async()=>new Response(JSON.stringify({ok:true,data:[]}),{status:200})}/>);
-  for(const text of ['GENERAL LEDGER | POSTED EVIDENCE','Apply','Loading…','POSTED ledger lines'])assert.match(markup,new RegExp(text));
+  for(const text of ['GENERAL LEDGER | POSTED EVIDENCE','Apply','Loading…','POSTED lines'])assert.match(markup,new RegExp(text));
   assert.match(markup,/<button type="button" class="btn btn-sm" disabled="">Apply<\/button>/,'GL must block duplicate filter reads during loading');
   assert.match(markup,/<button type="button" class="btn btn-sm btn-ghost" disabled="">Loading…<\/button>/,'GL must expose one disabled in-progress refresh state');
   assert.match(markup,/<span class="result-count" aria-live="polite">/,'GL result changes must be announced without another summary panel');
+  assert.match(markup,/Review posted ledger activity\./);assert.doesNotMatch(markup,/Read-only POSTED ledger lines from the accounting API\./);
   assert.match(markup,/Entity Wan Pacific Real Estate Development LLC \| period 2026-08/);assert.doesNotMatch(markup,/>Entity 11111111-1111-4111-8111-111111111111/);
   assert.match(markup,/<details class="authoritative-return-context"><summary>Scope rules<\/summary>/);assert.doesNotMatch(markup,/General Ledger reading path/);
-  const source=String(AuthoritativeGeneralLedgerWorkspace);for(const text of ['Open evidence','Showing server page','scroll horizontally','ad-hoc date overrides are not supplied'])assert.match(source,new RegExp(text));
+  const source=String(AuthoritativeGeneralLedgerWorkspace);for(const text of ['Open evidence','Page','scroll horizontally','ad-hoc date overrides are not supplied'])assert.match(source,new RegExp(text));
+  assert.doesNotMatch(source,/Showing server page|Search posted evidence|Refresh evidence/,'the GL first screen must use concise accounting copy without server or evidence implementation labels');
   assert.match(source,/AuthoritativeScopeEmpty/,'an empty GL read must name the posted-evidence admission boundary rather than imply a zero ledger');
   assert.match(source,/AuthoritativeReadFailure/,'a failed GL read must name the access, scope, protocol, or service diagnosis rather than look like zero posted evidence');
   assert.match(source,/authoritativeReadFailurePhase/,'a GL 401, 403, 404, configuration, or protocol failure must be classified before rendering');
