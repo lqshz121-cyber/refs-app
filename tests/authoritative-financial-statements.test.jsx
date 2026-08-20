@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {refreshAuthoritativeConsolidation,refreshAuthoritativeFinancialStatementPeriodComparison,refreshAuthoritativeFinancialStatementSnapshot,refreshAuthoritativeFinancialStatements} from '../src/accounting-api.js';
-import {AuthoritativeFullStatementReport,AuthoritativeReportDetail,AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,findAuthoritativePropertyReportShortcuts,findAuthoritativeReportShortcuts,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
+import {AuthoritativeFullStatementReport,AuthoritativeReportDetail,AuthoritativeReportsWorkspace,DimensionProfitabilitySummary,FinancialStatementSummary,DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,authoritativeReportLineageConfig,findAuthoritativePropertyReportShortcuts,findAuthoritativeReportShortcuts,normalizeAuthoritativeReportsCatalog} from '../src/authoritative-reports-workspace.jsx';
 
 const entityId='00000000-0000-4000-8000-000000000101',periodId='00000000-0000-4000-8000-000000000102';
 const config={baseUrl:'https://accounting.example',entityId,periodId,getAccessToken:async()=>'oidc.token.value-123456789'};
@@ -18,6 +18,10 @@ async function main(){
   assert.equal(requests[0].init.method,'GET');assert.equal(requests[0].init.cache,'no-store');assert.equal(requests[0].init.headers.authorization,'Bearer oidc.token.value-123456789');assert.equal(requests[0].init.body,undefined);
   const malformed=await refreshAuthoritativeFinancialStatements({config,fetcher:async()=>new Response(JSON.stringify({ok:true,data:[{...row,source_document_ids:['not-a-uuid']}]}),{status:200})});
   assert.equal(malformed.ok,false);assert.equal(malformed.code,'ACCOUNTING_API_PROTOCOL');
+  const displayConfig={...config,scopePresentation:{entityLabel:'REFS US Staging',periodLabel:'July 2026'}};
+  assert.deepEqual(authoritativeReportLineageConfig(displayConfig,{period_id:periodId,period_code:'2026-07'}).scopePresentation,{entityLabel:'REFS US Staging',periodLabel:'2026-07'});
+  assert.deepEqual(authoritativeReportLineageConfig(displayConfig,{period_id:'00000000-0000-4000-8000-000000000103',period_code:'2026-06'}).scopePresentation,{entityLabel:'REFS US Staging',periodLabel:'2026-06'},'prior-period lineage must not reuse the current period label');
+  assert.equal(authoritativeReportLineageConfig(displayConfig,{period_id:'00000000-0000-4000-8000-000000000103'}).scopePresentation.periodLabel,'Selected report period','a non-current period without a readable code must use an honest neutral label');
   const snapshotRow={financial_statement_snapshot_id:'00000000-0000-4000-8000-000000000205',version:'2',currency:'USD',snapshot_hash:`sha256:${'a'.repeat(64)}`,ledger_evidence_hash:`sha256:${'b'.repeat(64)}`,prepared_by:'snapshot-maker',approved_by:'snapshot-approver',approved_at:'2026-07-31T23:59:00.000Z',captured_at:'2026-08-01T00:01:00.000Z',statement_type:'TRIAL_BALANCE',statement_section:'ALL_ACCOUNTS',classification_basis:'ACCOUNT_CODE_PREFIX_AND_BANK_MEMBER',account_code:'111000',account_name:'Operating Cash',opening_debit:'100.0000',opening_credit:'0.0000',period_debit:'25.0000',period_credit:'5.0000',ending_debit:'125.0000',ending_credit:'5.0000',display_balance:'120.0000',journal_entry_ids:row.journal_entry_ids,journal_line_ids:row.journal_line_ids,ledger_line_ids:row.ledger_line_ids,source_document_ids:row.source_document_ids,row_hash:`sha256:${'c'.repeat(64)}`};
   const snapshot=await refreshAuthoritativeFinancialStatementSnapshot({config,fetcher:async(url,init)=>{assert.match(url,/reports\/financial-statement-snapshot\?periodId=/);assert.equal(init.method,'GET');assert.equal(init.cache,'no-store');return new Response(JSON.stringify({ok:true,data:[snapshotRow]}),{status:200});}});
   assert.equal(snapshot.ok,true);assert.equal(snapshot.version,'2');assert.equal(snapshot.rows[0].display_balance,'120.0000');
@@ -158,7 +162,7 @@ async function main(){
   }
   assert.match(workspace,/comparisonLineageRow\(row,'CURRENT'\)/,'period comparison must retain current-period evidence as a distinct lineage choice');
   assert.match(workspace,/comparisonLineageRow\(row,'PRIOR'\)/,'period comparison must retain prior-period evidence as a distinct lineage choice');
-  assert.match(workspace,/lineageConfig:\{\.\.\.config,periodId\}/,'lineage re-read must use the exact evidence period instead of silently using the current selector');
+  assert.match(workspace,/lineageConfig:authoritativeReportLineageConfig\(config,row\)/,'lineage re-read must use the exact evidence period and its presentation scope instead of silently using the current selector');
   assert.match(workspace,/Open snapshot lineage/,'each immutable snapshot row must provide an explicit lineage action');
   assert.match(lineage,/const accountCode=typeof evidence\.account_code/,'shared evidence lineage must explicitly distinguish exact-account and retained multi-account evidence');
   assert.match(lineage,/\(!accountCode\|\|item\.account_code===accountCode\)/,'multi-account report evidence must not invent an account filter');
@@ -193,6 +197,7 @@ async function main(){
   assert.match(workspace,/const ScopeLabel=/,'all report details must reuse one readable scope presentation');
   assert.match(workspace,/context\?\.entityLabel\|\|'Configured entity'/,'report details must preserve the authoritative entity display name in Back context');
   assert.match(workspace,/context\?\.periodLabel\|\|'Configured period'/,'report details must preserve the authoritative period code in Back context');
+  assert.match(workspace,/period_code:row\[`\$\{prefix\}_period_code`\]/,'comparison lineage rows must carry the selected current or prior period code');
   assert.doesNotMatch(workspace,/Entity \{returnContext\?\.entityId\}|Period \{returnContext\?\.periodId\}/,'report Back and evidence headers must not expose raw entity or period UUIDs as visible text');
   assert.match(workspace,/title=\{`Entity ID: \$\{context\?\.entityId/,'full identifiers remain available as audit tooltips instead of visible page copy');
   assert.doesNotMatch(workspace,/Save As|Customize|<button[^>]*>Email|<button[^>]*>Print|<button[^>]*>Export/,'authoritative reports must not expose QBO save, customize, email, print, or export controls');
