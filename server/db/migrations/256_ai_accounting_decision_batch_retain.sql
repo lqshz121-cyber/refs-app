@@ -11,6 +11,14 @@ BEGIN
   IF row_count>500 THEN RAISE EXCEPTION 'Decision batch exceeds 500 packets' USING ERRCODE='22023'; END IF;
   IF NOT EXISTS(SELECT 1 FROM accounting_period WHERE tenant_id=p_tenant AND entity_id=p_entity AND period_id=p_period) THEN RAISE EXCEPTION 'Decision batch period is unavailable' USING ERRCODE='22023'; END IF;
   IF EXISTS(SELECT 1 FROM jsonb_array_elements(p_packets) x WHERE x->>'accounting_period_id'<>p_period::text) THEN RAISE EXCEPTION 'Decision batch period drifted' USING ERRCODE='23514'; END IF;
+  IF EXISTS(
+    SELECT 1 FROM jsonb_array_elements(p_packets) AS batch_packet(value)
+    GROUP BY refs_jsonb_hash(value) HAVING count(*)>1
+  ) THEN RAISE EXCEPTION 'Decision batch contains a duplicate canonical packet' USING ERRCODE='23514'; END IF;
+  IF EXISTS(
+    SELECT 1 FROM jsonb_array_elements(p_packets) AS batch_packet(value)
+    GROUP BY value#>>'{source,source_document_id}' HAVING count(*)>1
+  ) THEN RAISE EXCEPTION 'Decision batch contains more than one decision for a retained source' USING ERRCODE='23514'; END IF;
   expected_hash:=refs_jsonb_hash(jsonb_build_object('tenant_id',p_tenant,'entity_id',p_entity,'period_id',p_period,'packets',p_packets));
   IF p_request_hash<>expected_hash THEN RAISE EXCEPTION 'Decision batch retention hash is not canonical' USING ERRCODE='22023'; END IF;
 
