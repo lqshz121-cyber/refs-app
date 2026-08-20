@@ -81,6 +81,12 @@ assert.doesNotMatch(creditsOnlyMarkup,/0 bills|adjustments/,'the visible result 
 assert.doesNotMatch(creditsOnlyMarkup,/B-100/,'a Vendor credits presentation scope must not render Bill list rows');
 assert.doesNotMatch(creditsOnlyMarkup,/aria-label="Payables document list facts"|No bills match/,
   'the Vendor credits tab must not prepend an unrelated Bill list or Bill empty state');
+const vendorCredits=Array.from({length:26},(_,index)=>({...adjustment,business_adjustment_id:`44444444-4444-4444-8444-${String(index+1).padStart(12,'0')}`,reason:`Retained credit ${index+1}`}));
+const vendorCreditPageOne=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[]} adjustments={vendorCredits} view={{query:'',status:'ALL',transactionType:'VENDOR_CREDITS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.equal((vendorCreditPageOne.match(/AP_VENDOR_CREDIT/g)||[]).length,25,'Vendor credits must use the retained 25-row list page instead of creating an unbounded Expenses page');
+assert.match(vendorCreditPageOne,/aria-label="Vendor credit pages"/);assert.match(vendorCreditPageOne,/Page 1 of 2/);assert.match(vendorCreditPageOne,/>Next</);
+const vendorCreditPageTwo=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[]} adjustments={vendorCredits} view={{query:'',status:'ALL',transactionType:'VENDOR_CREDITS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:2,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.equal((vendorCreditPageTwo.match(/AP_VENDOR_CREDIT/g)||[]).length,1,'the final Vendor credit page must contain only its remaining retained row');assert.match(vendorCreditPageTwo,/Page 2 of 2/);
 const emptyCreditsMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[]} adjustments={[]} view={{query:'',status:'ALL',transactionType:'VENDOR_CREDITS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(emptyCreditsMarkup,/No vendor credits found/,'an empty Vendor credits tab must never render a blank workspace');
 assert.match(emptyCreditsMarkup,/not evidence of a zero AP balance/);
