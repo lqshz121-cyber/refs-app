@@ -260,5 +260,5 @@ export const MIGRATION_MANIFEST=Object.freeze([
   Object.freeze({name:"252_authoritative_document_journal_period_scope.sql",up:"e3da531b581eea4baa40218c3edb03357364f6937afe03303f3443e4090530d4",down:"4027fcd1c389081ee051d26abe3f4cac767b3de8225602c2772eb51228f5ae86"}),
   Object.freeze({name:"253_ap_ar_aging_snapshot_read.sql",up:"78f7d82e3e7d8963815947af487594ffccb01e77f64c49df9299e00a8ac828e0",down:"c0c11badaab8e28421078992060c8b093bdc865c8a5858ec24512237e67c59b4"}),
   Object.freeze({name:"254_ai_accounting_decision_human_draft.sql",up:"643e7d62073a59cf8435977fa203eac58746e3dcac359a93b5419ef307cbdd94",down:"e7a9f751a6c314f1dc4ebf187900ad1e32c128f68f328dfd3d209478aac89f03"}),
-  Object.freeze({name:"255_ai_accounting_posted_outcome_review.sql",up:"c37c2de86d93cfeec78aa830844807138a8e511e93dc9d942f23ed2005154e46",down:"b0ee5678e277d698a0c4474d9fcfb0bff35e2f15e980c6428b58b443dd2149a7"}),
+  Object.freeze({name:"255_ai_accounting_posted_outcome_review.sql",up:"2c479bfe922ea0b8751a226dbd9d771d8af451190fdf82ac502523e130bc59b8",down:"b0ee5678e277d698a0c4474d9fcfb0bff35e2f15e980c6428b58b443dd2149a7"}),
 ]);
