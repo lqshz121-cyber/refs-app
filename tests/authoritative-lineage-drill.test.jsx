@@ -7,6 +7,7 @@ import {AuthoritativeLineageDrill,createLineageRequestGuard,journalLineMatchesLe
 const entityId='11111111-1111-4111-8111-111111111111',periodId='22222222-2222-4222-8222-222222222222';
 const journalId='33333333-3333-4333-8333-333333333333',journalLineId='44444444-4444-4444-8444-444444444444',ledgerLineId='55555555-5555-4555-8555-555555555555',sourceId='66666666-6666-4666-8666-666666666666';
 const config={entityId,periodId};
+const displayConfig={...config,scopePresentation:{entityLabel:'REFS US Staging',periodLabel:'August 2026'}};
 const journal={entity_id:entityId,period_id:periodId,journal_entry_id:journalId,journal_number:'JE-100',journal_type:'MANUAL',status:'POSTED',journal_date:'2026-08-01',currency:'USD',revision:4,lines:[{line_no:1,journal_line_id:journalLineId,ledger_line_id:ledgerLineId,account_code:'610000',debit_amount:'25.0000',credit_amount:'0.0000',member_ref:null,description:'Expense',dimensions:{},source_document_ids:[sourceId]}]};
 const gl={period_id:periodId,account_code:'610000',account_name:'Expense',currency:'USD',journal_date:'2026-08-01',journal_entry_id:journalId,journal_number:'JE-100',journal_line_id:journalLineId,ledger_line_id:ledgerLineId,member_ref:null,description:'Expense',debit_amount:'25.0000',credit_amount:'0.0000',source_document_ids:[sourceId]};
 const source={source_document_id:sourceId,source_document_revision:2,document_no:'BILL-1',source_record_id:'SR-1',accounting_date:'2026-08-01',currency:'USD',payload_hash:`sha256:${'a'.repeat(64)}`,posted_journal_entry_ids:[journalId]};
@@ -24,9 +25,11 @@ assert.equal(requestGuard.isCurrent(earlierRead),false,'a late response cannot r
 assert.equal(requestGuard.isCurrent(latestRead),true);
 
 for(const [kind,value,label] of [['JOURNAL',{journal,context:{entityId,periodId}},'Journal entry JE-100'],['GL',{row:gl,context:{entityId,periodId}},'Posted ledger line'],['SOURCE',{detail:source,context:{entityId,periodId}},'Source Document evidence'],['REPORT',{row:report,context:{entityId,periodId}},'INCOME_STATEMENT account evidence']]){
-  const markup=renderToStaticMarkup(<AuthoritativeLineageDrill config={config} initial={{kind,...value}} onExit={()=>{}}/>);
-  assert.match(markup,new RegExp(label));assert.match(markup,/Entity Configured entity/);assert.match(markup,/Period Configured period/);assert.doesNotMatch(markup,/>Entity 11111111-1111-4111-8111-111111111111|>Period 22222222-2222-4222-8222-222222222222/);assert.doesNotMatch(markup,/Create|Edit|Post journal|Export/);
+  const markup=renderToStaticMarkup(<AuthoritativeLineageDrill config={displayConfig} initial={{kind,...value}} onExit={()=>{}}/>);
+  assert.match(markup,new RegExp(label));assert.match(markup,/Entity REFS US Staging/);assert.match(markup,/Period August 2026/);assert.doesNotMatch(markup,/>Entity 11111111-1111-4111-8111-111111111111|>Period 22222222-2222-4222-8222-222222222222/);assert.doesNotMatch(markup,/Create|Edit|Post journal|Export/);
 }
+const fallbackMarkup=renderToStaticMarkup(<AuthoritativeLineageDrill config={config} initial={{kind:'JOURNAL',journal,context:{entityId,periodId}}} onExit={()=>{}}/>);
+assert.match(fallbackMarkup,/Entity Configured entity/);assert.match(fallbackMarkup,/Period Configured period/,'missing presentation metadata must remain an honest configured-scope fallback');
 const sourceCode=readFileSync('src/authoritative-lineage-drill.jsx','utf8');
 for(const call of ['readAuthoritativeJournalEntryDetail','readAuthoritativeSourceDocumentDetail','refreshAuthoritativeGeneralLedger','refreshAuthoritativeFinancialStatements'])assert.match(sourceCode,new RegExp(call));
 assert.match(sourceCode,/journal\.entity_id===config\.entityId&&journal\.period_id===config\.periodId/);
