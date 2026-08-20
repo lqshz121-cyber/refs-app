@@ -164,6 +164,9 @@ const mismatchedLineage={...completeBill,lineage:{...completeBill.lineage,record
 assert.equal(authoritativeLineageFor(mismatchedLineage,entityId),null,'a stale or mismatched record revision must fail closed');
 const mismatchedDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={mismatchedLineage} kind="AP" entityId={entityId} onBack={()=>{}}/>);
 assert.match(mismatchedDetail,/BLOCKED[\s\S]*authoritative lineage unavailable/);
+assert.match(mismatchedDetail,/Source, receipt, mapping, audit, journal, and ledger links were not returned for this revision\./);
+assert.match(mismatchedDetail,/List facts remain read only\./);
+assert.doesNotMatch(mismatchedDetail,/The list reader has not returned|The retained list facts below/);
 
 const adjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={[adjustment]} kind="AP" onOpen={()=>{}}/>);
 assert.match(adjustmentList,/AP_VENDOR_CREDIT/);
