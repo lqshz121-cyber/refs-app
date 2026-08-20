@@ -142,7 +142,9 @@ async function main(){
   assert.equal(authoritativeReportPeriodCaption('BALANCE_SHEET',[{...row,statement_type:'BALANCE_SHEET'}]),'As of July 31, 2026','Balance Sheet uses the same authoritative as-of contract');
   assert.equal(authoritativeReportPeriodCaption('TRIAL_BALANCE',[row,{...row,period_end:'2026-08-31'}]),'','mixed period-end rows must not produce an inferred as-of heading');
   assert.equal(authoritativeReportPeriodCaption('TRIAL_BALANCE',[{...row,period_end:'2026-02-31'}]),'','an impossible calendar date must not produce an as-of heading');
-  assert.equal(authoritativeReportPeriodCaption('INCOME_STATEMENT',[row]),'','the observed as-of contract must not be applied to a different report type');
+  assert.equal(authoritativeReportPeriodCaption('INCOME_STATEMENT',[row]),'July 1–July 31, 2026','Profit and Loss uses the one authoritative period range returned by every row');
+  assert.equal(authoritativeReportPeriodCaption('INCOME_STATEMENT',[row,{...row,period_start:'2026-06-01'}]),'','mixed period-start rows must not produce an inferred range');
+  assert.equal(authoritativeReportPeriodCaption('INCOME_STATEMENT',[{...row,period_start:'2026-02-31'}]),'','an impossible calendar date must not produce a Profit and Loss range');
   const reportRows=Array.from({length:30},(_,index)=>({...row,account_code:String(111000+index),account_name:`Account ${index+1}`}));
   const firstReportPage=renderToStaticMarkup(<AuthoritativeFullStatementReport report="TRIAL_BALANCE" rows={reportRows} returnContext={{entityId,periodId,report:'TRIAL_BALANCE'}} page={0} onPageChange={()=>{}} onBack={()=>{}} onRefresh={()=>{}} onOpenEvidence={()=>{}}/>);
   assert.match(firstReportPage,/Rows 1-25 of 30/);assert.match(firstReportPage,/Account 25/);assert.doesNotMatch(firstReportPage,/Account 26/,'the first full-report page must not render rows from the next page');assert.match(firstReportPage,/aria-label="Trial Balance pages"/);assert.match(firstReportPage,/<button type="button" class="btn btn-sm btn-ghost" disabled="">Previous<\/button>/);assert.match(firstReportPage,/>Next<\/button>/);

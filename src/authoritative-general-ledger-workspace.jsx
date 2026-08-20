@@ -6,8 +6,11 @@ import {AuthoritativeGeneralLedgerDetailView,AuthoritativeGeneralLedgerView} fro
 import {AuthoritativeLineageDrill} from './authoritative-lineage-drill.jsx';
 
 const PAGE_SIZE=50;
+const GL_MONTHS=Object.freeze(['January','February','March','April','May','June','July','August','September','October','November','December']);
 const money=value=>typeof value==='string'&&/^-?\d+\.\d{4}$/.test(value)?value:'Not returned';
 const text=value=>value===null||value===undefined||value===''?'Not returned':value;
+const readableDate=value=>{const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(value||'');if(!match)return '';const instant=new Date(`${value}T00:00:00.000Z`);if(!Number.isFinite(instant.getTime())||instant.toISOString().slice(0,10)!==value)return '';return `${GL_MONTHS[Number(match[2])-1]} ${Number(match[3])}, ${match[1]}`;};
+export const authoritativeGeneralLedgerPeriodCaption=(rows=[])=>{if(!rows.length)return '';const starts=[...new Set(rows.map(row=>row?.period_start))],ends=[...new Set(rows.map(row=>row?.period_end))];if(starts.length!==1||ends.length!==1||starts[0]>ends[0])return '';const start=readableDate(starts[0]),end=readableDate(ends[0]);if(!start||!end)return '';return starts[0].slice(0,4)===ends[0].slice(0,4)?`${start.replace(/, \d{4}$/,'')}–${end}`:`${start}–${end}`;};
 const scopeText=(scope,config)=>{
   const presentation=config?.scopePresentation||{};
   const entity=presentation.entityLabel||'Configured entity';
@@ -51,7 +54,7 @@ export function AuthoritativeGeneralLedgerWorkspace({config,fetcher=globalThis.f
   const closeDetail=()=>{setDetail(null);environment?.setTimeout?.(()=>{const button=environment?.document?.getElementById?.(opener.current);button?.closest?.('.table-wrap')?.scrollTo?.({left:tableX.current,behavior:'auto'});button?.focus?.();environment?.scrollTo?.({top:scrollY.current,behavior:'auto'});},0);};
   const rows=useMemo(()=>state.rows,[state.rows]);
   if(detail)return <AuthoritativeLineageDrill config={config} fetcher={fetcher} initial={{kind:'GL',row:detail.row,context:{entityId:config.entityId,periodId:config.periodId,journalEntryId:detail.row.journal_entry_id,journalLineId:detail.row.journal_line_id,ledgerLineId:detail.row.ledger_line_id}}} onExit={closeDetail}/>;
-  return <AuthoritativeGeneralLedgerView eyebrow="ACCOUNTING" title="General Ledger" subtitle="Review posted ledger activity.">
+  return <AuthoritativeGeneralLedgerView eyebrow="ACCOUNTING" title="General Ledger" periodCaption={authoritativeGeneralLedgerPeriodCaption(rows)} subtitle="Review posted ledger activity.">
     <div className="authoritative-coa-scope" title={`Entity ID: ${config.entityId}; Period ID: ${config.periodId}`}><span>{scopeText(state.scope||config,config)}</span><details className="authoritative-return-context"><summary>Scope rules</summary><span>The configured period is the immutable date scope; ad-hoc date overrides are not supplied by this API. Amounts are fixed four-decimal strings and currencies are never combined.</span></details></div>
     <div className="authoritative-filter-bar" aria-label="General Ledger filters"><label><span>Account code</span><input value={accountCode} onChange={event=>setAccountCode(event.target.value)} placeholder="Optional exact account"/></label><label><span>Search</span><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Account, journal, or description"/></label><button type="button" className="btn btn-sm" disabled={loading} onClick={apply}>Apply</button>{(query||accountCode)&&<button type="button" className="btn btn-sm btn-ghost" disabled={loading} onClick={reset}>Reset</button>}<button type="button" className="btn btn-sm btn-ghost" disabled={loading} onClick={()=>void load()}>{loading?'Loading…':'Refresh'}</button><span className="result-count" aria-live="polite"><b>{state.phase==='READY'?state.total:'—'}</b> {state.phase==='READY'&&state.total===1?'result':'results'}</span></div>
     {state.phase==='LOADING'&&<StateBlock tone="loading">Loading posted ledger lines…</StateBlock>}

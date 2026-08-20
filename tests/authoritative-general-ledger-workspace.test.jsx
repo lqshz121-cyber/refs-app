@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {AuthoritativeGeneralLedgerDetail,AuthoritativeGeneralLedgerWorkspace} from '../src/authoritative-general-ledger-workspace.jsx';
+import {AuthoritativeGeneralLedgerDetail,AuthoritativeGeneralLedgerWorkspace,authoritativeGeneralLedgerPeriodCaption} from '../src/authoritative-general-ledger-workspace.jsx';
 import {refreshAuthoritativeGeneralLedger} from '../src/accounting-api.js';
 import {AuthoritativeGeneralLedgerDetailView,AuthoritativeGeneralLedgerView} from '../src/authoritative-general-ledger-view.jsx';
 
@@ -37,6 +37,11 @@ test('General Ledger workspace is a retained read-only, contained-table surface'
   assert.match(source,/environment\?\.scrollTo\?\.\(\{\s*top:\s*scrollY\.current,\s*behavior:\s*["']auto["']\s*\}\)/,'GL Back must retain the page position without depending on the global browser singleton');
   assert.match(styles,/\.authoritative-journal-line-table,\.authoritative-general-ledger-table/,'General Ledger and Journal line tables must share the contained mobile table rule');
   assert.doesNotMatch(markup,/localStorage|seed\.js|>Export<|>Post journal<|>Create journal</i);
+  assert.equal(authoritativeGeneralLedgerPeriodCaption([row]),'August 1–August 31, 2026');
+  assert.equal(authoritativeGeneralLedgerPeriodCaption([row,{...row,period_end:'2026-09-30'}]),'','mixed report periods must not produce an inferred General Ledger range');
+  assert.equal(authoritativeGeneralLedgerPeriodCaption([{...row,period_end:'2026-02-31'}]),'','an impossible calendar date must not produce a General Ledger range');
+  const readyMarkup=renderToStaticMarkup(<AuthoritativeGeneralLedgerView eyebrow="ACCOUNTING" title="General Ledger" subtitle="Review posted ledger activity." periodCaption={authoritativeGeneralLedgerPeriodCaption([row])}/>);
+  assert.match(readyMarkup,/August 1–August 31, 2026/);assert.match(readyMarkup,/authoritative-report-period-caption/);
 });
 test('General Ledger line evidence is a full-page immutable snapshot with exact Back context',()=>{
   const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerDetail row={row} returnContext={{accountCode:'610000',query:'JE-100',page:2}} onBack={()=>{}}/>);

@@ -250,7 +250,8 @@ export const restoreAuthoritativeReportTablePosition=(environment,context,getTab
 const FULL_STATEMENT_PAGE_SIZE=25;
 const REPORT_MONTHS=Object.freeze(['January','February','March','April','May','June','July','August','September','October','November','December']);
 const readableReportDate=value=>{const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(value||'');if(!match)return '';const instant=new Date(`${value}T00:00:00.000Z`);if(!Number.isFinite(instant.getTime())||instant.toISOString().slice(0,10)!==value)return '';const month=Number(match[2]),day=Number(match[3]);return `${REPORT_MONTHS[month-1]} ${day}, ${match[1]}`;};
-export const authoritativeReportPeriodCaption=(report,rows=[])=>{if(!['TRIAL_BALANCE','BALANCE_SHEET'].includes(report)||!rows.length)return '';const ends=[...new Set(rows.map(row=>row?.period_end))];return ends.length===1&&readableReportDate(ends[0])?`As of ${readableReportDate(ends[0])}`:'';};
+const readableReportRange=(start,end)=>{const startLabel=readableReportDate(start),endLabel=readableReportDate(end);if(!startLabel||!endLabel||start>end)return '';return start.slice(0,4)===end.slice(0,4)?`${startLabel.replace(/, \d{4}$/,'')}–${endLabel}`:`${startLabel}–${endLabel}`;};
+export const authoritativeReportPeriodCaption=(report,rows=[])=>{if(!rows.length)return '';if(['TRIAL_BALANCE','BALANCE_SHEET'].includes(report)){const ends=[...new Set(rows.map(row=>row?.period_end))];return ends.length===1&&readableReportDate(ends[0])?`As of ${readableReportDate(ends[0])}`:'';}if(report==='INCOME_STATEMENT'){const starts=[...new Set(rows.map(row=>row?.period_start))],ends=[...new Set(rows.map(row=>row?.period_end))];return starts.length===1&&ends.length===1?readableReportRange(starts[0],ends[0]):'';}return '';};
 
 export const AuthoritativeFullStatementReport=({report,rows,returnContext,onBack,onRefresh,onOpenEvidence,loading=false,tableRef,page=0,onPageChange=()=>{}})=>{
   const title=statementLabel(report);
