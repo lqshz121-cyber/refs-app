@@ -16,6 +16,8 @@ assert.doesNotMatch(source,/localStorage|seed\.js|Submit Bill|Approve Bill|Post 
 assert.match(source,/detailReturnRef\.current=\{entityId:config\.entityId,periodId:config\.periodId,scrollY:Number\(environment\?\.scrollY\)\|\|0,tableX:Number\(listTableRef\.current\?\.scrollLeft\)\|\|0,focusId\}/,'opening reviewed WBS Payable evidence must freeze exact list and contained-table position');
 assert.match(source,/ref=\{listTableRef\} className="table-wrap authoritative-wbs-payable-table"/,'the reviewed Payables table scroller must be retained for Back restoration and mobile containment');
 assert.match(source,/Review approved source evidence and prepare a Draft\./);assert.doesNotMatch(source,/exact 094 review evidence|Refresh evidence/,'the first screen must not expose migration or read-model terminology');
+assert.match(source,/>View details<\/button>/,'the reviewed queue must use the shared detail-action label');
+assert.doesNotMatch(source,/>Open evidence<\/button>/,'the reviewed queue must not use a second action vocabulary');
 const css=fs.readFileSync('index.html','utf8');assert.match(css,/\.authoritative-wbs-payable-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'reviewed WBS Payables must remain contained at phone widths');
 const restoreCalls=[];const environment={scrollTo:options=>restoreCalls.push(['page',options]),setTimeout:callback=>{restoreCalls.push(['timer']);callback();},document:{getElementById:id=>({focus:()=>restoreCalls.push(['focus',id])})}};const table={scrollTo:options=>restoreCalls.push(['table',options])};
 assert.equal(restoreAuthoritativeWbsPayableReturnContext(environment,config,{entityId:config.entityId,periodId:config.periodId,scrollY:525,tableX:180,focusId:'wbs-row'},()=>table),true);
@@ -25,6 +27,9 @@ assert.equal(restoreCalls.length,4,'stale WBS Payable context must not restore p
 const reviewSource=fs.readFileSync('src/authoritative-wbs-payable-review-workspace.jsx','utf8');
 assert.match(reviewSource,/className="table-wrap authoritative-wbs-payable-table" role="region" tabIndex=\{0\} aria-label="Admitted WBS Payables awaiting review/,'the admitted review queue must reuse the shared Payables narrow-screen table region');
 for(const token of ['refreshAuthoritativeWbsPayableReviewCandidates','reviewAuthoritativeWbsPayable','refreshAuthoritativeWbsPayableAttachmentUploads','uploadVerifiedAttachment','bindAuthoritativeWbsPayableUploadedAttachment','Add support evidence','Independent binder required','No Bill or Journal Draft was created','Nothing was submitted, approved, or posted'])assert.match(reviewSource,new RegExp(token,'i'));
+assert.match(reviewSource,/<th>Action<\/th>/,'the admitted queue must label its final column as an action');
+assert.doesNotMatch(reviewSource,/<th>Evidence<\/th>/,'the admitted queue must not use a competing column label');
+assert.match(reviewSource,/Inspect review evidence/,'the review action must remain distinct from adding support evidence');
 for(const token of ['NO_PERMISSION — WBS Payable reviewer access required','WBS_PAYABLE_REVIEWER','WBS.PAYABLE.REVIEW','AP.VIEW','Unsigned Pilot observations remain excluded'])assert.match(reviewSource,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),'WBS review denial must name the exact read role and preserve the unsigned boundary');
 assert.doesNotMatch(reviewSource,/localStorage|seed\.js|createAuthoritativeWbsPayableApDraft|Submit Bill|Approve Bill|Post Journal/);
 console.log('authoritative WBS Payable workspace: admitted review and separate reviewed-evidence Draft boundaries');
