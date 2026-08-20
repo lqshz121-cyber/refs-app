@@ -82,6 +82,13 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async retainAiAccountingDecisionBatch({tenantId,entityId,accountingPeriodId,packets,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query("SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'period_id',$3::uuid,'packets',$4::jsonb)) AS request_hash",[tenantId,entityId,accountingPeriodId,JSON.stringify(packets)]),'AI_DECISION_BATCH_HASH_FAILED','AI accounting decision batch retention hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_retain_ai_accounting_decision_batch($1,$2,$3,$4::jsonb,$5,$6) AS result',[tenantId,entityId,accountingPeriodId,JSON.stringify(packets),idempotencyKey,requestHash]),'AI_DECISION_BATCH_RETAIN_FAILED','AI accounting decision batch was not retained').result;
+    });
+  }
+
   async humanDecideAiAccounting({tenantId,entityId,decisionId,expectedDecisionHash,expectedRevision,outcome,reason,idempotencyKey}){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query("SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'decision_id',$3::uuid,'expected_hash',$4::text,'expected_revision',$5::bigint,'outcome',upper($6::text),'reason',btrim($7::text))) AS request_hash",[tenantId,entityId,decisionId,expectedDecisionHash,expectedRevision,outcome,reason]),'AI_HUMAN_DECISION_HASH_FAILED','Human AI accounting decision hash was not produced').request_hash;

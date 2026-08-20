@@ -51,6 +51,13 @@ test('existing GET decision route accepts the closed full batch and maps approve
   const unavailable=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'human-controller'}),kernelFactory:()=>({}),aiAccountingDecisionPacketServiceFactory:async()=>({analyze:async()=>{throw Object.assign(new Error('drift'),{code:'AI_ACCOUNTING_SETTINGS_BINDING_INVALID'});}})}),failure=await unavailable({method:'GET',url,headers:{}});assert.equal(failure.status,503);assert.equal(failure.headers['cache-control'],'no-store');assert.equal(failure.body.message,'Internal server error');
 });
 
+test('decision run delegates the complete validated population to one atomic batch command',async()=>{
+  const batch={schema_version:'AI_ACCOUNTING_DECISION_PACKET_FULL_BATCH_V1',scope:{tenant_id:tenantId,entity_id:entityId,accounting_period_id:periodId},row_count:1,decision_counts:{ready_for_human_review:1,exception:0},packets:[packet],action_flags:{can_create_draft:false,can_review:false,can_approve:false,can_post:false}},receipt={schema_version:'AI_ACCOUNTING_DECISION_RETAINED_V1',ai_accounting_decision_id:id(9),decision_hash:hash('f'),packet_status:'READY_FOR_HUMAN_REVIEW',source_document_id:documentId,can_create_draft:false,can_review:false,can_approve:false,can_post:false,idempotent:false},calls=[];
+  const api=createAccountingApi({authenticate:async()=>({trusted:true,tenantId,actorId:'ai-controller'}),kernelFactory:async()=>({retainAiAccountingDecisionBatch:async input=>(calls.push(input),{schema_version:'AI_ACCOUNTING_DECISION_RUN_RECEIPT_V1',accounting_period_id:periodId,row_count:1,receipts:[receipt],can_create_draft:false,can_review:false,can_approve:false,can_post:false,idempotent:false})}),aiAccountingDecisionPacketServiceFactory:async()=>({analyze:async()=>batch})});
+  const response=await api({method:'POST',url:`/api/v1/entities/${entityId}/ai/accounting-decision-runs`,headers:{'idempotency-key':'decision-batch-root-001'},body:{accounting_period_id:periodId,limit:100}});
+  assert.equal(response.status,201);assert.equal(response.headers['cache-control'],'no-store');assert.equal(calls.length,1);assert.deepEqual(calls[0],{tenantId,entityId,accountingPeriodId:periodId,packets:[packet],idempotencyKey:'decision-batch-root-001'});
+});
+
 test('OpenAPI exposes the production full packet batch without granting accounting authority',async()=>{
   const contract=JSON.parse(await readFile(new URL('../api/openapi-accounting.json',import.meta.url),'utf8'));
   const operation=contract.paths['/entities/{entityId}/ai/accounting-decisions'].get;
