@@ -25,6 +25,22 @@ const money=value=>{
   return `${negative?'-':''}$${whole}.${cents}`;
 };
 
+const absoluteMoney=value=>{
+  const units=fixed4Units(value);
+  if(units===null)return 'Unavailable';
+  const absolute=units<0n?-units:units;
+  const whole=(absolute/10000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const cents=((absolute%10000n)/100n).toString().padStart(2,'0');
+  return `$${whole}.${cents}`;
+};
+
+const bankAmountColumn=(value,side)=>{
+  const units=fixed4Units(value);
+  if(units===null)return 'Unavailable';
+  if(side==='SPENT')return units<0n?absoluteMoney(value):'—';
+  return units>0n?absoluteMoney(value):'—';
+};
+
 const direction=value=>{
   const units=fixed4Units(value);
   return units===null?'UNAVAILABLE':units<0n?'OUTFLOW':'INFLOW';
@@ -113,19 +129,18 @@ const BankQueueSummary=({rows=[]})=>{
 };
 
 export const AuthoritativeBankTable=({rows=[],readAt=null,onOpen=()=>{}})=><section className="bank-queue-card authoritative-bank-queue" aria-label="Authoritative bank transaction evidence">
-  <div className="card-head"><div><p className="eyebrow">SOURCE → MATCH → JOURNAL</p><h2>Bank transactions</h2><p className="muted sm">Read-only source and retained match evidence from the accounting API. Match review happens only after you open one scoped source item.</p></div><span className="badge badge-muted">READ ONLY</span></div>
-  <div className="authoritative-bank-queue-note"><b>{rows.length}</b> retained source item{rows.length===1?'':'s'} in this response. Queue status never implies reconciliation, clearance, or posting.</div>
+  <div className="card-head"><div><p className="eyebrow">BANK ACTIVITY</p><h2>Transactions</h2><p className="muted sm">Review retained bank activity and match evidence.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+  <div className="authoritative-bank-queue-note"><b>{rows.length}</b> transaction{rows.length===1?'':'s'}. Status does not reconcile or post them.</div>
   {!!rows.length&&<BankQueueSummary rows={rows}/>}
-  {!rows.length?<StateBlock tone="empty" title="SCOPE_EMPTY — no authoritative bank records returned">
-    <p>The authenticated API returned 0 bank transactions for the selected entity, account, and date scope.</p>
-    <p>This is not TRUE_EMPTY: this endpoint does not return a source-completeness control total, so it is not evidence of a zero cash balance.</p>
-    <p>Next step: verify the bank account and date range, then refresh the same authoritative scope.</p>
+  {!rows.length?<StateBlock tone="empty" title="No bank transactions in this scope">
+    <p>Check the bank account and date range, then refresh.</p>
+    <p>This result does not confirm a zero cash balance.</p>
     <BankReadMetadata count={0} readAt={readAt} subject="Bank transactions"/>
   </StateBlock>:<div className="table-wrap authoritative-bank-evidence-table" role="region" tabIndex={0} aria-label="Bank transactions; scroll horizontally to view every column"><table className="tbl">
-    <thead><tr><th>Date</th><th>Source evidence</th><th>Direction</th><th>Amount</th><th>Match evidence</th><th>Source version</th><th>Evidence</th></tr></thead>
+    <thead><tr><th>Date</th><th>Source evidence</th><th>Spent</th><th>Received</th><th>Match evidence</th><th>Source version</th><th>Evidence</th></tr></thead>
     <tbody>{rows.map(row=><tr key={row.bank_source_id}>
       <td>{row.transaction_date}</td><td><b>{row.external_bank_line_id}</b><div className="muted sm">{row.source_ref}</div></td>
-      <td><b>{direction(row.amount)}</b><div className="muted sm">{row.document_type}</div></td><td className="num">{money(row.amount)} <span className="muted sm">{row.currency}</span></td>
+      <td className="num">{bankAmountColumn(row.amount,'SPENT')} <span className="muted sm">{row.currency}</span></td><td className="num">{bankAmountColumn(row.amount,'RECEIVED')} <span className="muted sm">{row.currency}</span></td>
       <td><EvidenceBadge>{row.match_status||'UNMATCHED'}</EvidenceBadge>{row.journal_entry_id&&<div className="muted sm">Journal retained</div>}</td><td>v{row.version}</td>
       <td><button id={`authoritative-bank-${row.bank_source_id}`} type="button" className="btn btn-sm" onClick={()=>onOpen(row,`authoritative-bank-${row.bank_source_id}`)}>Open detail</button></td>
     </tr>)}</tbody>
@@ -278,16 +293,16 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     restoreAuthoritativeReturnContext(environment,config,context,{getTable:()=>environment?.document?.getElementById?.(context?.focusId)?.closest?.('.table-wrap')});
   };
   if(selected)return <AuthoritativeBankDetail row={selected.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} onBack={closeEvidence} config={config} fetcher={fetcher} onMatchChanged={()=>load(null,{preserveDetail:true,offset:state.offset})}/>;
-  return <AuthoritativeWorkspaceView area="Bank transaction evidence" className="stack authoritative-bank-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING | SOURCE EVIDENCE" title="Bank transaction evidence" description="Entity-scoped, OIDC-authenticated records only. Browser seeds and local storage are never used."/>
+  return <AuthoritativeWorkspaceView area="Bank transactions" className="stack authoritative-bank-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING" title="Bank transactions" description="Review bank activity for one account and date range."/>
     <form className="filterbar" onSubmit={load} aria-label="Bank transaction scope">
       <label>Bank account<input required maxLength={128} value={scope.bankAccountRef} onChange={event=>setScope(current=>({...current,bankAccountRef:event.target.value}))}/></label>
       <label>From<input type="date" value={scope.from} onChange={event=>setScope(current=>({...current,from:event.target.value}))}/></label>
       <label>Through<input type="date" value={scope.through} onChange={event=>setScope(current=>({...current,through:event.target.value}))}/></label>
-      <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Load evidence</button>
+      <button type="submit" className="btn btn-primary" disabled={state.phase==='LOADING'}>Refresh</button>
     </form>
-    <p className="muted sm">{entityLabel(config)}. Account and date scope are required at the API boundary.</p>
-    {state.phase==='IDLE'&&<StateBlock tone="empty" title="No read requested yet">Choose one bank account and an optional date range to read authoritative evidence.</StateBlock>}
-    {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative bank transaction evidence...</StateBlock>}
+    <p className="muted sm">{entityLabel(config)}</p>
+    {state.phase==='IDLE'&&<StateBlock tone="empty" title="Choose a bank account">Add an optional date range, then refresh.</StateBlock>}
+    {state.phase==='LOADING'&&<StateBlock tone="loading">Loading bank transactions…</StateBlock>}
     {state.phase==='ERROR'&&<BankReadFailure error={state.error} onRetry={load} subject="bank transactions"/>}
     {state.phase==='READY'&&<><AuthoritativeBankTable rows={state.rows} readAt={state.readAt} onOpen={openEvidence}/>{state.rows.length>0&&<BankReadMetadata count={state.rows.length} readAt={state.readAt} subject="Bank transactions"/>}<div className="button-row authoritative-bank-pagination" aria-label="Bank transaction pagination"><button type="button" className="btn btn-sm" disabled={state.phase==='LOADING'||state.offset===0} onClick={()=>load(null,{offset:Math.max(0,state.offset-100)})}>Previous page</button><span className="muted sm">Offset {state.offset}</span><button type="button" className="btn btn-sm" disabled={state.phase==='LOADING'||state.rows.length<100} onClick={()=>load(null,{offset:state.offset+100})}>Next page</button></div></>}
     <AuthoritativeSecondaryDisclosure label="External WBS evidence"><AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.bank} title="External WBS bank observations"/></AuthoritativeSecondaryDisclosure>
