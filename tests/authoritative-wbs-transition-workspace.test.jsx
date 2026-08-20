@@ -38,6 +38,8 @@ assert.match(markup,/No direct WBS read or provider request occurs from this bro
 assert.match(markup,/No WBS ingress, REFS write, Draft, approval, posting, reversal, reserve, or release is available here/);
 assert.doesNotMatch(markup,/localStorage|seed\.js|Create Draft|Approve|Post journal/);
 assert.match(markup,/class="report-workbench"/);
+assert.equal((markup.match(/authoritative-wbs-evidence-disclosure/g)||[]).length,3,'secondary AutoRec readers must remain available in three compact disclosures');
+assert.doesNotMatch(markup,/authoritative-wbs-evidence-disclosure"[^>]* open/,'secondary AutoRec readers must not lengthen the default Payables review page');
 assert.doesNotMatch(markup,/WBS Payable accounting path/);
 assert.match(markup,/rows="2"/);
 assert.match(markup,/Advanced: verify a signed transition contract/);
@@ -62,6 +64,7 @@ assert.match(source,/status!=='BLOCKED'\?\{phase:'READY',data:result\.data,error
 assert.match(source,/Advanced: verify a signed transition contract/);
 assert.match(source,/AuthoritativeWorkspaceView/);
 assert.match(source,/AuthoritativeWorkspaceHeader/);
+assert.equal((source.match(/<details className="report-workbench authoritative-secondary-disclosure authoritative-wbs-evidence-disclosure"/g)||[]).length,3,'AutoRec review, G11 and control reconciliation must share one compact disclosure pattern');
 assert.doesNotMatch(source,/legacy-demo-app|\.\/seed|\.\/repo|localStorage/);
 assert.doesNotMatch(source,/Number\(row\.(?:amount|source_amount|target_amount|difference)\)|toFixed\(4\)/);
 assert.doesNotMatch(source,/vendor_name|vendor_no|payee/);

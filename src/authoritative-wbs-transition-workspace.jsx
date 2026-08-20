@@ -59,8 +59,8 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     <AuthoritativeWbsPayableReviewWorkspace config={config} fetcher={fetcher} onReviewed={()=>setPayableReviewRefresh(value=>value+1)}/>
     <AuthoritativeWbsPayableWorkspace config={config} fetcher={fetcher} refreshToken={payableReviewRefresh} onAccountingRefresh={onAccountingRefresh}/>
 
-    <section className="report-workbench" aria-label="Persisted WBS AutoRec review evidence">
-      <div className="report-workbench-head"><div><b>AutoRec review evidence</b><div className="page-subtitle">Read retained candidates for exact company and source IDs.</div></div><span className="badge badge-muted">GET ONLY</span></div>
+    <details className="report-workbench authoritative-secondary-disclosure authoritative-wbs-evidence-disclosure" aria-label="Persisted WBS AutoRec review evidence"><summary><span>AutoRec review evidence</span><span className="badge badge-muted">GET ONLY</span></summary>
+      <section aria-label="AutoRec review evidence query">
       <form className="filterbar" onSubmit={readReview}>
         <label htmlFor="wbs-review-company">WBS company key<input id="wbs-review-company" required maxLength="128" value={reviewInput.companyKey} onChange={event=>setReviewInput(current=>({...current,companyKey:event.target.value}))} placeholder="Exact retained company key"/></label>
         <label htmlFor="wbs-review-sources">Immutable source record IDs<textarea id="wbs-review-sources" required rows="2" maxLength="25600" value={reviewInput.sourceRecordIds} onChange={event=>setReviewInput(current=>({...current,sourceRecordIds:event.target.value}))} placeholder="One to 50 IDs, separated by lines or commas"/></label>
@@ -73,10 +73,11 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
         <div className="qbo-toolgrid"><span><i>Status</i><b>{review.status}</b></span><span><i>Review candidates</i><b>{review.candidates.length}</b></span><span><i>Exceptions</i><b>{review.exceptions.length}</b></span><span><i>Action authority</i><b>None</b></span></div>
         {review.candidates.length===0?<StateBlock tone="empty" title="No retained review candidates">The authenticated API returned a valid empty result for this exact selection.</StateBlock>:<div className="table-wrap authoritative-wbs-review-table" role="region" tabIndex={0} aria-label="WBS AutoRec review candidates; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Candidate</th><th>Side</th><th>Source type</th><th>Source record</th><th>Version</th><th>Date</th><th>Currency</th><th>Amount</th><th>Bank scope</th><th>Mapping</th></tr></thead><tbody>{review.candidates.map(row=><tr key={row.review_candidate_id}><td>{row.review_candidate_id}</td><td>{row.side}</td><td>{row.source_type}</td><td>{row.source_record_id}</td><td>{row.source_version}</td><td>{row.accounting_date}</td><td>{row.currency}</td><td>{row.amount}</td><td>{row.bank_account_ref}</td><td>{row.mapping.mapping_id} / {row.mapping.version}</td></tr>)}</tbody></table></div>}
       </>}
-    </section>
+      </section>
+    </details>
 
-    <section className="report-workbench" aria-label="AutoRec Match Review and G11 posted evidence">
-      <div className="report-workbench-head"><div><b>Match Review → G11 evidence</b><div className="page-subtitle">Trace one retained decision to its posted journals and ledger lines.</div></div><span className="badge badge-muted">GET ONLY</span></div>
+    <details className="report-workbench authoritative-secondary-disclosure authoritative-wbs-evidence-disclosure" aria-label="AutoRec Match Review and G11 posted evidence"><summary><span>Match Review → G11 evidence</span><span className="badge badge-muted">GET ONLY</span></summary>
+      <section aria-label="Match Review and G11 evidence query">
       <form className="filterbar" onSubmit={readMatchReview}>
         <label htmlFor="wbs-match-review-id">Match Review ID<input id="wbs-match-review-id" required pattern="[0-9a-fA-F-]{36}" maxLength="36" value={matchReviewId} onChange={event=>setMatchReviewId(event.target.value)} placeholder="Exact persisted review UUID"/></label>
         <button type="submit" className="btn" disabled={matchState.phase==='LOADING'}>{matchState.phase==='LOADING'?'Reading review...':'Load Match Review'}</button>
@@ -90,10 +91,11 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
         <div className="qbo-toolgrid"><span><i>Status</i><b>INCURRED</b></span><span><i>Allocation</i><b>{g11.released_candidate.allocated_amount}</b></span><span><i>Events</i><b>{g11.accounting_events.length}</b></span><span><i>Ledger lines</i><b>{g11.lines.length}</b></span><span><i>Completion hash</i><b>{g11.completion.evidence_hash}</b></span></div>
         <div className="table-wrap" role="region" tabIndex={0} aria-label="G11 posted journal and ledger evidence; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Event</th><th>Role</th><th>Journal</th><th>Account</th><th>Member</th><th>Debit</th><th>Credit</th><th>Ledger line</th></tr></thead><tbody>{g11.lines.map(row=><tr key={row.ledger_line_id}><td>{row.event_type}</td><td>{row.line_role}</td><td>{row.journal_entry_id}</td><td>{row.account_code}</td><td>{row.member_ref||'—'}</td><td>{row.debit_amount}</td><td>{row.credit_amount}</td><td>{row.ledger_line_id}</td></tr>)}</tbody></table></div>
       </>}
-    </section>
+      </section>
+    </details>
 
-    <section className="report-workbench" aria-label="WBS and REFS control reconciliation evidence">
-      <div className="report-workbench-head"><div><b>WBS / REFS control reconciliation</b><div className="page-subtitle">Compare signed WBS metrics with one immutable REFS snapshot.</div></div><span className="badge badge-muted">GET ONLY</span></div>
+    <details className="report-workbench authoritative-secondary-disclosure authoritative-wbs-evidence-disclosure" aria-label="WBS and REFS control reconciliation evidence"><summary><span>WBS / REFS control reconciliation</span><span className="badge badge-muted">GET ONLY</span></summary>
+      <section aria-label="WBS and REFS control reconciliation query">
       <form className="filterbar" onSubmit={readControl}>
         <label htmlFor="wbs-control-type">Control source<select id="wbs-control-type" value={controlInput.sourceType} onChange={event=>setControlInput(current=>({...current,sourceType:event.target.value}))}><option value="COST_GENERAL_LEDGER">Cost General Ledger</option><option value="PROPERTY_COMPARISON">Property comparison</option></select></label>
         <label htmlFor="wbs-control-company">WBS company key<input id="wbs-control-company" required maxLength="128" value={controlInput.companyKey} onChange={event=>setControlInput(current=>({...current,companyKey:event.target.value}))}/></label>
@@ -113,7 +115,8 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
         <div className="qbo-toolgrid"><span><i>Status</i><b>{control.reconciliation.status}</b></span><span><i>Metrics</i><b>{control.reconciliation.control_totals.metric_count}</b></span><span><i>Differences</i><b>{control.reconciliation.control_totals.difference_count}</b></span><span><i>Action authority</i><b>None</b></span></div>
         <div className="table-wrap authoritative-wbs-control-table" role="region" tabIndex={0} aria-label="WBS control reconciliation; scroll horizontally to view every column"><table className="tbl"><thead><tr><th>Metric</th><th>WBS source</th><th>REFS target</th><th>Difference</th><th>Result</th></tr></thead><tbody>{control.reconciliation.comparisons.map(row=><tr key={row.metric_key}><td>{row.metric_key}</td><td>{row.source_amount}</td><td>{row.target_amount}</td><td>{row.difference}</td><td>{row.matched?'MATCHED':'DIFFERENCE'}</td></tr>)}</tbody></table></div>
       </>}
-    </section>
+      </section>
+    </details>
 
     <details className="report-workbench" aria-label="Advanced signed WBS transition contract verification"><summary><b>Advanced: verify a signed transition contract</b></summary>
     <section aria-label="Signed WBS transition contract verification">
