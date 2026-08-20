@@ -1,0 +1,7 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {createAiCwipPostCompletionReviewService} from '../runtime/ai-cwip-post-completion-review-service.mjs';
+const id=n=>`${String(n).padStart(8,'0')}-0000-4000-8000-${String(n).padStart(12,'0')}`;
+
+test('service is read-only and calls the posted CWIP reader exactly once',async()=>{let calls=0;const service=createAiCwipPostCompletionReviewService({postedCwipReader:async input=>{calls++;assert.equal(input.limit,50);return [];}});assert.deepEqual(Object.keys(service),['analyze']);const result=await service.analyze({tenantId:id(1),entityId:id(2),accountingPeriodId:id(3),limit:50});assert.equal(result.finding_count,0);assert.equal(calls,1);});
+test('service rejects invalid scope before reading evidence',async()=>{let calls=0;const service=createAiCwipPostCompletionReviewService({postedCwipReader:async()=>{calls++;return [];}});await assert.rejects(()=>service.analyze({tenantId:'bad',entityId:id(2),accountingPeriodId:id(3)}),error=>error.code==='AI_CWIP_POST_COMPLETION_SCOPE_INVALID');assert.equal(calls,0);});

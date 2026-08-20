@@ -1,0 +1,5 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import test from 'node:test';
+const up=fs.readFileSync(new URL('../db/migrations/195_ai_vendor_invoice_frequency_anomaly_policy.sql',import.meta.url),'utf8'),down=fs.readFileSync(new URL('../db/migrations/down/195_ai_vendor_invoice_frequency_anomaly_policy.sql',import.meta.url),'utf8');
+test('vendor frequency threshold policy is approved, exact, hash-bound, entity/period scoped and fail closed',()=>{for(const token of ['refs_assert_ai_analysis_scope','accounting_period','AI_VENDOR_INVOICE_FREQUENCY_ANOMALY_POLICY','scope_type=\'ENTITY\'','status=\'APPROVED\'','match_count<>1','FOR SHARE','refs_jsonb_hash','AI_VENDOR_INVOICE_FREQUENCY_ANOMALY_POLICY_SNAPSHOT_V1','AI_VENDOR_HISTORICAL_FREQUENCY_SPIKE_V1','minimum_history_periods','frequency_ratio_threshold_basis_points','minimum_excess_invoice_count','AI_VENDOR_INVOICE_FREQUENCY_ANOMALY_POLICY_V1'])assert.match(up,new RegExp(token));assert.match(down,/DROP FUNCTION refs_read_ai_vendor_invoice_frequency_anomaly_policy/);});

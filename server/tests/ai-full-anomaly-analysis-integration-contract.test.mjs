@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const up=readFileSync(new URL('../db/migrations/207_ai_full_anomaly_analysis_integration.sql',import.meta.url),'utf8');
+const down=readFileSync(new URL('../db/migrations/down/207_ai_full_anomaly_analysis_integration.sql',import.meta.url),'utf8');
+const server=readFileSync(new URL('../runtime/accounting-server.mjs',import.meta.url),'utf8');
+const explanation=readFileSync(new URL('../runtime/ai-analysis-explanation-service.mjs',import.meta.url),'utf8');
+const categories=['VENDOR_INVOICE_AMOUNT_SPIKE','VENDOR_INVOICE_FREQUENCY_SPIKE','VENDOR_INVOICE_AMOUNT_DROP','VENDOR_INVOICE_NEAR_DUPLICATE','MANUAL_JOURNAL_RISK'];
+test('all retained AP and manual-JE anomalies enter the redacted unified AI report',()=>{for(const category of categories){assert.match(up,new RegExp(category));assert.match(server,new RegExp(category));}assert.match(up,/jsonb_array_length\(p_summary\) > 12/);assert.match(explanation,/journal_entry_id/);assert.match(explanation,/finding_hash/);});
+test('unified anomaly readers expose only bounded lineage and zero accounting authority',()=>{for(const fn of ['vendor_invoice_amount_spike','vendor_invoice_frequency_spike','vendor_invoice_amount_drop','vendor_invoice_near_duplicate','manual_journal_risk'])assert.match(up,new RegExp(`refs_read_ai_${fn}_findings`));assert.match(up,/false,false,false,false/);for(const forbidden of [/INSERT\s+INTO\s+journal_entry/i,/UPDATE\s+journal_entry/i,/INSERT\s+INTO\s+ledger_line/i])assert.doesNotMatch(up,forbidden);});
+test('rollback restores the previous seven-category report and drops only the added readers',()=>{assert.match(down,/jsonb_array_length\(p_summary\) > 7/);for(const category of categories)assert.match(down,new RegExp(category));assert.match(down,/DROP FUNCTION refs_read_ai_manual_journal_risk_findings/);});
+test('frequency and manual-JE readers bind authoritative columns',()=>{assert.match(up,/ai_vendor_invoice_frequency_anomaly_source[\s\S]*?source_ordinal=0/);assert.match(up,/suggested_action',f\.journal_entry_id,f\.finding_hash/);});

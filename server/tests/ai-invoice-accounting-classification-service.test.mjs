@@ -46,3 +46,52 @@ test('retained invoice wording triggers coverage review instead of silent expens
   const result=await service({detailReader:async()=>[{source_document_id:documentId,payload_hash:hash('a'),currency:'USD',posted_journal_entry_ids:[],lines:[{source_document_line_id:lineId,amount:'1200.0000',party_ref:'Annual Insurance Company',project_ref:null,property_ref:null,description:'Annual insurance premium',provider_trace:{trace_version:'WBS_PROVIDER_SOURCE_TRACE_V1',domain:'PAYABLES',disposition:'RETAINED',invoice_no:'INV-2',invoice_date:'2026-01-02',invoice_description:'Annual insurance premium',accrual:{service_period_start:null,service_period_end:null,charge_code:'BUILD-HARD'}}}]}]}).analyze({tenantId,entityId,accountingPeriodId:periodId});
   assert.equal(result.results[0].classification,'BLOCKED');assert.equal(result.results[0].rule_id,'AI_PREPAID_COVERAGE_REQUIRED_V1');
 });
+
+test('historical documents cannot crowd current-period invoices out of a bounded scan',async()=>{
+  const oldDocuments=Array.from({length:3},(_,index)=>({source_document_id:id(20+index),source_system:'WBS'}));
+  const currentDocument={source_document_id:documentId,source_system:'WBS'};
+  const detailFor=sourceDocumentId=>[{source_document_id:sourceDocumentId,payload_hash:hash('a'),currency:'USD',posted_journal_entry_ids:[],lines:[{source_document_line_id:lineId,amount:'100.0000',party_ref:'Ordinary Vendor',project_ref:null,property_ref:null,provider_trace:{trace_version:'WBS_PROVIDER_SOURCE_TRACE_V1',domain:'PAYABLES',disposition:'RETAINED',invoice_no:'INV-1',invoice_date:'2026-01-02',invoice_description:'Current monthly service',accrual:{service_period_start:null,service_period_end:null,charge_code:null}}}]}];
+  const result=await service({
+    sourceReader:async()=>[...oldDocuments,currentDocument],
+    detailReader:async({sourceDocumentId})=>detailFor(sourceDocumentId),
+    evidenceReader:async({sourceDocumentId})=>({accounting_period_id:sourceDocumentId===documentId?periodId:id(9),signature_verified:true,admission_status:'ADMITTED',source_row_hash:hash('b')})
+  }).analyze({tenantId,entityId,accountingPeriodId:periodId,limit:1});
+  assert.equal(result.eligible_invoice_line_count,1);assert.equal(result.scanned_document_count,1);
+  assert.equal(result.results[0].classification,'EXPENSE');assert.equal(result.results[0].source_document_id,documentId);
+});
+
+test('passes exact period scope to source and duplicate evidence readers',async()=>{
+  const calls=[];
+  await service({sourceReader:async input=>(calls.push(['source',input]),[]),duplicateFindingReader:async input=>(calls.push(['duplicate',input]),[])}).analyze({tenantId,entityId,accountingPeriodId:periodId,limit:7});
+  assert.deepEqual(calls.sort(([a],[b])=>a.localeCompare(b)),[
+    ['duplicate',{tenantId,entityId,accountingPeriodId:periodId,limit:500}],
+    ['source',{tenantId,entityId,accountingPeriodId:periodId}],
+  ]);
+});
+
+test('dedicated period reader classifies every returned line without generic GL readers',async()=>{
+  let genericReads=0;
+  const result=await service({
+    classificationInputReader:async input=>[{source_document_id:documentId,source_document_line_id:lineId,source_payload_hash:hash('a'),source_line_hash:hash('b'),entity_id:entityId,accounting_period_id:periodId,vendor_name:'Ordinary Vendor',invoice_no:'INV-9',invoice_date:'2026-01-09',currency:'USD',amount:'100',service_period_start:null,service_period_end:null,description:'Monthly service',project_ref:null,property_ref:null,charge_code:null,accounting_status:'NOT_RECORDED'}],
+    sourceReader:async()=>{genericReads+=1;return [];},detailReader:async()=>{genericReads+=1;return [];},evidenceReader:async()=>{genericReads+=1;return null;}
+  }).analyze({tenantId,entityId,accountingPeriodId:periodId,limit:10});
+  assert.equal(genericReads,0);assert.equal(result.row_count,1);assert.equal(result.results[0].classification,'EXPENSE');
+  assert.equal(result.results[0].source_document_id,documentId);assert.deepEqual(result.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+});
+
+test('Controller evidence flags Posted expense treatment for a multi-period prepaid invoice',async()=>{
+  const result=await service({classificationInputReader:async()=>[{source_document_id:documentId,source_document_line_id:lineId,source_payload_hash:hash('a'),source_line_hash:hash('b'),entity_id:entityId,accounting_period_id:periodId,vendor_name:'Insurance Vendor',invoice_no:'INV-12',invoice_date:'2026-01-02',currency:'USD',amount:'1200.0000',service_period_start:'2026-01-01',service_period_end:'2026-12-31',description:'Annual insurance',project_ref:null,property_ref:null,charge_code:null,accounting_status:'POSTED',posted_debit_account_classes:['EXPENSE']}]}).analyze({tenantId,entityId,accountingPeriodId:periodId,includeControllerEvidence:true});
+  assert.equal(result.results[0].classification,'PREPAID_AMORTIZATION');
+  assert.deepEqual(result.controller_evidence[0],{status:'MISMATCH',expected_debit_account_class:'ASSET',observed_posted_debit_account_classes:['EXPENSE'],reason:'Expected only Posted ASSET debits, but retained Posted debits use EXPENSE.'});
+});
+
+test('Controller evidence accepts matching expense treatment and flags a Posted blocked invoice',async()=>{
+  const base={source_document_id:documentId,source_document_line_id:lineId,source_payload_hash:hash('a'),source_line_hash:hash('b'),entity_id:entityId,accounting_period_id:periodId,vendor_name:'Ordinary Vendor',invoice_no:'INV-10',invoice_date:'2026-01-02',currency:'USD',amount:'100.0000',service_period_start:null,service_period_end:null,description:'Monthly service',project_ref:null,property_ref:null,charge_code:null,accounting_status:'POSTED',posted_debit_account_classes:['EXPENSE']};
+  const consistent=await service({classificationInputReader:async()=>[base]}).analyze({tenantId,entityId,accountingPeriodId:periodId,includeControllerEvidence:true});
+  assert.equal(consistent.controller_evidence[0].status,'CONSISTENT');
+  const blocked=await service({classificationInputReader:async()=>[{...base,vendor_name:'Insurance Vendor',description:'Annual insurance policy'}]}).analyze({tenantId,entityId,accountingPeriodId:periodId,includeControllerEvidence:true});
+  assert.equal(blocked.results[0].classification,'BLOCKED');assert.equal(blocked.controller_evidence[0].status,'MISMATCH');
+  assert.match(blocked.controller_evidence[0].reason,/Posted even though/);
+  const mixed=await service({classificationInputReader:async()=>[{...base,posted_debit_account_classes:['EXPENSE','ASSET']}]}).analyze({tenantId,entityId,accountingPeriodId:periodId,includeControllerEvidence:true});
+  assert.equal(mixed.controller_evidence[0].status,'MISMATCH');assert.match(mixed.controller_evidence[0].reason,/Expected only Posted EXPENSE/);
+});

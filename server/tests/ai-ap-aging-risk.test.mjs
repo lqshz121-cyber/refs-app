@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {detectApAgingRisks} from '../runtime/ai-ap-aging-risk.mjs';
+const id=n=>`${String(n).padStart(8,'0')}-0000-4000-8000-000000000000`;
+const hash=n=>`sha256:${String(n).repeat(64).slice(0,64)}`;
+const policy={setting_snapshot_id:id(9),setting_snapshot_hash:hash(9),policy_version:1,stale_days:90,minimum_open_amount:'100.0000'};
+const row=(changed={})=>({tenant_id:id(1),entity_id:id(2),business_document_id:id(3),source_document_id:id(4),source_payload_hash:hash(4),posted_journal_entry_id:id(5),movement_kind:'AP_BILL',document_number:'INV-100',vendor_ref:'VENDOR-1',vendor_name:'Vendor One',currency:'USD',aging_date:'2026-04-01',open_amount:'500.0000',...changed});
+
+test('finds stale posted payable with source, Journal, policy, human review and zero action authority',()=>{const result=detectApAgingRisks([row()],{asOfDate:'2026-08-01',policy}),finding=result.findings[0];assert.equal(result.finding_count,1);assert.equal(finding.finding_type,'STALE_PAYABLE');assert.equal(finding.age_days,122);assert.equal(finding.source_document_id,id(4));assert.equal(finding.posted_journal_entry_id,id(5));assert.deepEqual(finding.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});});
+test('finds material unapplied vendor credit and does not label it a payable',()=>{const finding=detectApAgingRisks([row({movement_kind:'AP_VENDOR_CREDIT',open_amount:'-250.0000',document_number:'VC-1'})],{asOfDate:'2026-08-01',policy}).findings[0];assert.equal(finding.finding_type,'UNAPPLIED_VENDOR_CREDIT');assert.equal(finding.rule_id,'AI_AP_UNAPPLIED_VENDOR_CREDIT_V1');});
+test('ignores current or immaterial balances without converting absence into accounting action',()=>{const result=detectApAgingRisks([row({aging_date:'2026-07-15'}),row({open_amount:'99.0000'})],{asOfDate:'2026-08-01',policy});assert.equal(result.finding_count,0);assert.deepEqual(result.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});});
+test('fails closed for malformed, future, draft-like, unbound, or policy-free evidence',()=>{for(const changed of [{open_amount:'500'},{aging_date:'2026-09-01'},{movement_kind:'DRAFT'},{source_document_id:id(4),source_payload_hash:null},{extra:'unsafe'}])assert.throws(()=>detectApAgingRisks([row(changed)],{asOfDate:'2026-08-01',policy}),error=>error.code==='AI_AP_AGING_EVIDENCE_INVALID');assert.throws(()=>detectApAgingRisks([row()],{asOfDate:'2026-08-01'}),error=>error.code==='AI_AP_AGING_SCOPE_INVALID');});

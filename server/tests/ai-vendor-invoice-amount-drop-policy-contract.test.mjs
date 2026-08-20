@@ -1,0 +1,5 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {readFile} from 'node:fs/promises';
+const up=await readFile(new URL('../db/migrations/197_ai_vendor_invoice_amount_drop_policy.sql',import.meta.url),'utf8'),down=await readFile(new URL('../db/migrations/down/197_ai_vendor_invoice_amount_drop_policy.sql',import.meta.url),'utf8');
+test('vendor amount-drop policy is exact, approved, hash-bound, period scoped and fail closed',()=>{for(const token of ['refs_assert_ai_analysis_scope','accounting_period','AI_VENDOR_INVOICE_AMOUNT_DROP_POLICY','scope_type=\'ENTITY\'','status=\'APPROVED\'','match_count<>1','FOR SHARE','refs_jsonb_hash','AI_VENDOR_INVOICE_AMOUNT_DROP_POLICY_SNAPSHOT_V1','AI_VENDOR_HISTORICAL_AMOUNT_DROP_V1','minimum_history_periods','drop_ratio_threshold_basis_points','minimum_absolute_drop','AI_VENDOR_INVOICE_AMOUNT_DROP_POLICY_V1'])assert.match(up,new RegExp(token));assert.match(down,/DROP FUNCTION refs_read_ai_vendor_invoice_amount_drop_policy/);});

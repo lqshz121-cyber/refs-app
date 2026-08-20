@@ -1,0 +1,115 @@
+BEGIN;
+
+CREATE TABLE ai_vendor_invoice_amount_anomaly_finding (
+  ai_vendor_invoice_amount_anomaly_finding_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES tenant(tenant_id),
+  entity_id uuid NOT NULL,
+  accounting_period_id uuid NOT NULL,
+  source_document_id uuid NOT NULL,
+  source_document_line_id uuid NOT NULL,
+  source_payload_hash text NOT NULL CHECK(source_payload_hash~'^sha256:[0-9a-f]{64}$'),
+  source_line_hash text NOT NULL CHECK(source_line_hash~'^sha256:[0-9a-f]{64}$'),
+  policy_snapshot_id uuid NOT NULL,
+  policy_snapshot_hash text NOT NULL CHECK(policy_snapshot_hash~'^sha256:[0-9a-f]{64}$'),
+  finding_hash text NOT NULL CHECK(finding_hash~'^sha256:[0-9a-f]{64}$'),
+  finding jsonb NOT NULL,
+  status text NOT NULL DEFAULT 'OPEN' CHECK(status='OPEN'),
+  created_by text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE(tenant_id,entity_id,ai_vendor_invoice_amount_anomaly_finding_id),
+  UNIQUE(tenant_id,entity_id,finding_hash),
+  FOREIGN KEY(tenant_id,entity_id) REFERENCES entity(tenant_id,entity_id),
+  FOREIGN KEY(tenant_id,entity_id,accounting_period_id) REFERENCES accounting_period(tenant_id,entity_id,period_id),
+  FOREIGN KEY(tenant_id,entity_id,source_document_id) REFERENCES source_document(tenant_id,entity_id,source_document_id),
+  FOREIGN KEY(tenant_id,entity_id,source_document_line_id) REFERENCES source_document_line(tenant_id,entity_id,source_document_line_id),
+  FOREIGN KEY(tenant_id,policy_snapshot_id) REFERENCES setting_snapshot(tenant_id,setting_snapshot_id),
+  CHECK(finding->>'schema_version'='AI_VENDOR_INVOICE_AMOUNT_ANOMALY_FINDING_V1'),
+  CHECK(finding->'action_flags'='{"can_create_draft":false,"can_review":false,"can_approve":false,"can_post":false}'::jsonb)
+);
+ALTER TABLE ai_vendor_invoice_amount_anomaly_finding ENABLE ROW LEVEL SECURITY;
+CREATE POLICY ai_vendor_invoice_amount_anomaly_finding_scope ON ai_vendor_invoice_amount_anomaly_finding
+  USING(tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id))
+  WITH CHECK(tenant_id=refs_current_tenant() AND refs_entity_allowed(entity_id));
+CREATE TRIGGER ai_vendor_invoice_amount_anomaly_finding_append_only BEFORE UPDATE OR DELETE ON ai_vendor_invoice_amount_anomaly_finding
+  FOR EACH ROW EXECUTE FUNCTION reject_mutation();
+
+CREATE FUNCTION refs_ai_vendor_invoice_anomaly_batch_hash(p_tenant uuid,p_entity uuid,p_period uuid,p_batch jsonb) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,public,pg_temp AS $$
+  SELECT refs_jsonb_hash(jsonb_build_object('schema_version','AI_VENDOR_INVOICE_AMOUNT_ANOMALY_RUN_V1','tenant_id',p_tenant,'entity_id',p_entity,'accounting_period_id',p_period,'batch',p_batch))
+$$;
+
+CREATE FUNCTION refs_materialize_ai_vendor_invoice_anomaly_batch(p_tenant uuid,p_entity uuid,p_period uuid,p_batch jsonb,p_idempotency_key text,p_request_hash text) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE actor text:=refs_current_actor(); idem idempotency_receipt; item jsonb; retained wbs_final1_retained_source_row; source source_document;
+DECLARE approved_policy jsonb; finding_id uuid; finding_hash text; event_payload jsonb; response jsonb; inserted_count integer:=0; replay_count integer:=0; result_ids jsonb:='[]'::jsonb;
+DECLARE finding_keys text[]:=ARRAY['absolute_delta','accounting_period_id','action_flags','baseline_median_amount','confidence','cost_category_ref','currency','current_amount','due_basis','entity_id','finding_type','history_line_count','history_period_count','history_source_line_hashes','owner_role','policy_evidence','project_ref','property_ref','ratio_basis_points','reason','risk_level','rule_id','schema_version','source_document_id','source_document_line_id','source_line_hash','source_payload_hash','suggested_action','vendor_name','vendor_ref'];
+BEGIN
+  PERFORM refs_assert_ai_analysis_scope(p_tenant,p_entity);
+  IF actor IS NULL THEN RAISE EXCEPTION 'Authenticated vendor anomaly actor missing' USING ERRCODE='42501'; END IF;
+  IF p_request_hash IS DISTINCT FROM refs_ai_vendor_invoice_anomaly_batch_hash(p_tenant,p_entity,p_period,p_batch) THEN RAISE EXCEPTION 'Vendor anomaly request hash is not canonical' USING ERRCODE='22023'; END IF;
+  IF jsonb_typeof(p_batch)<>'object' OR (p_batch-'schema_version'-'current_accounting_period_id'-'scanned_line_count'-'finding_count'-'findings'-'action_flags')<>'{}'::jsonb
+     OR p_batch->>'schema_version'<>'AI_VENDOR_INVOICE_AMOUNT_ANOMALY_BATCH_V1' OR p_batch->>'current_accounting_period_id'<>p_period::text
+     OR jsonb_typeof(p_batch->'findings')<>'array' OR jsonb_array_length(p_batch->'findings')>500
+     OR (p_batch->>'finding_count')::integer<>jsonb_array_length(p_batch->'findings')
+     OR p_batch->'action_flags' IS DISTINCT FROM '{"can_create_draft":false,"can_review":false,"can_approve":false,"can_post":false}'::jsonb THEN
+    RAISE EXCEPTION 'Vendor anomaly batch is malformed or action-enabled' USING ERRCODE='22023';
+  END IF;
+  INSERT INTO idempotency_receipt(tenant_id,operation_scope,idempotency_key,request_hash,status,actor_id)
+    VALUES(p_tenant,'AI_VENDOR_INVOICE_ANOMALY:'||p_entity||':'||p_period,p_idempotency_key,p_request_hash,'IN_PROGRESS',actor)
+    ON CONFLICT(tenant_id,operation_scope,idempotency_key) DO NOTHING;
+  SELECT * INTO idem FROM idempotency_receipt WHERE tenant_id=p_tenant AND operation_scope='AI_VENDOR_INVOICE_ANOMALY:'||p_entity||':'||p_period AND idempotency_key=p_idempotency_key FOR UPDATE;
+  IF idem.request_hash IS DISTINCT FROM p_request_hash OR idem.actor_id IS DISTINCT FROM actor THEN RAISE EXCEPTION 'Vendor anomaly idempotency key conflicts with payload or actor' USING ERRCODE='23505'; END IF;
+  IF idem.status='SUCCEEDED' THEN RETURN idem.response_body||jsonb_build_object('idempotent',true); END IF;
+  approved_policy:=refs_read_ai_vendor_invoice_anomaly_policy(p_tenant,p_entity,p_period);
+  FOR item IN SELECT value FROM jsonb_array_elements(p_batch->'findings') LOOP
+    IF ARRAY(SELECT jsonb_object_keys(item) ORDER BY 1) IS DISTINCT FROM finding_keys
+       OR item->>'schema_version'<>'AI_VENDOR_INVOICE_AMOUNT_ANOMALY_FINDING_V1' OR item->>'finding_type'<>'VENDOR_INVOICE_AMOUNT_SPIKE'
+       OR item->>'rule_id'<>'AI_VENDOR_HISTORICAL_AMOUNT_SPIKE_V1' OR item->>'risk_level' NOT IN ('HIGH','MEDIUM')
+       OR item->>'entity_id'<>p_entity::text OR item->>'accounting_period_id'<>p_period::text
+       OR item->>'source_payload_hash' !~ '^sha256:[0-9a-f]{64}$' OR item->>'source_line_hash' !~ '^sha256:[0-9a-f]{64}$'
+       OR length(btrim(item->>'vendor_ref')) NOT BETWEEN 1 AND 200 OR length(btrim(item->>'vendor_name')) NOT BETWEEN 1 AND 200 OR item->>'currency' !~ '^[A-Z]{3}$'
+       OR item->>'current_amount' !~ '^(0|[1-9][0-9]*)\.[0-9]{4}$' OR item->>'baseline_median_amount' !~ '^(0|[1-9][0-9]*)\.[0-9]{4}$' OR item->>'absolute_delta' !~ '^(0|[1-9][0-9]*)\.[0-9]{4}$'
+       OR jsonb_typeof(item->'ratio_basis_points')<>'number' OR (item->>'ratio_basis_points')::integer<15000
+       OR jsonb_typeof(item->'history_period_count')<>'number' OR (item->>'history_period_count')::integer<3
+       OR jsonb_typeof(item->'history_line_count')<>'number' OR (item->>'history_line_count')::integer<(item->>'history_period_count')::integer
+       OR jsonb_typeof(item->'history_source_line_hashes')<>'array' OR jsonb_array_length(item->'history_source_line_hashes')<>(item->>'history_line_count')::integer
+       OR EXISTS(SELECT 1 FROM jsonb_array_elements_text(item->'history_source_line_hashes') h WHERE h !~ '^sha256:[0-9a-f]{64}$')
+       OR length(btrim(item->>'reason')) NOT BETWEEN 8 AND 2000 OR length(btrim(item->>'suggested_action')) NOT BETWEEN 8 AND 2000
+       OR item->>'owner_role'<>'CONTROLLER_REVIEW' OR item->>'due_basis'<>'BEFORE_PERIOD_CLOSE'
+       OR item->'policy_evidence' IS DISTINCT FROM approved_policy
+       OR item->'action_flags' IS DISTINCT FROM '{"can_create_draft":false,"can_review":false,"can_approve":false,"can_post":false}'::jsonb THEN
+      RAISE EXCEPTION 'Vendor anomaly finding is malformed, unscoped, policy-drifted, or action-enabled' USING ERRCODE='22023';
+    END IF;
+    SELECT * INTO retained FROM wbs_final1_retained_source_row r WHERE r.tenant_id=p_tenant AND r.entity_id=p_entity AND r.domain='PAYABLES'
+      AND r.source_document_id=(item->>'source_document_id')::uuid AND r.source_document_line_id=(item->>'source_document_line_id')::uuid
+      AND r.accounting_period_id=p_period AND r.raw_row_hash=item->>'source_line_hash' FOR SHARE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Vendor anomaly is not bound to exact retained payable evidence' USING ERRCODE='23514'; END IF;
+    SELECT * INTO source FROM source_document d WHERE d.tenant_id=p_tenant AND d.entity_id=p_entity AND d.source_document_id=retained.source_document_id AND d.payload_hash=item->>'source_payload_hash' FOR SHARE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Vendor anomaly source document lineage changed' USING ERRCODE='23514'; END IF;
+    finding_hash:=refs_jsonb_hash(jsonb_build_object('schema_version','AI_VENDOR_INVOICE_AMOUNT_ANOMALY_EVIDENCE_V1','tenant_id',p_tenant,'entity_id',p_entity,'accounting_period_id',p_period,'finding',item));
+    SELECT ai_vendor_invoice_amount_anomaly_finding_id INTO finding_id FROM ai_vendor_invoice_amount_anomaly_finding WHERE tenant_id=p_tenant AND entity_id=p_entity AND finding_hash=finding_hash;
+    IF FOUND THEN replay_count:=replay_count+1;
+    ELSE
+      finding_id:=gen_random_uuid();
+      INSERT INTO ai_vendor_invoice_amount_anomaly_finding(ai_vendor_invoice_amount_anomaly_finding_id,tenant_id,entity_id,accounting_period_id,source_document_id,source_document_line_id,source_payload_hash,source_line_hash,policy_snapshot_id,policy_snapshot_hash,finding_hash,finding,created_by)
+      VALUES(finding_id,p_tenant,p_entity,p_period,retained.source_document_id,retained.source_document_line_id,item->>'source_payload_hash',item->>'source_line_hash',(item#>>'{policy_evidence,setting_snapshot_id}')::uuid,item#>>'{policy_evidence,setting_snapshot_hash}',finding_hash,item,actor);
+      event_payload:=jsonb_build_object('schema_version','AI_VENDOR_INVOICE_AMOUNT_ANOMALY_EVIDENCE_V1','finding_id',finding_id,'source_document_id',retained.source_document_id,'source_document_line_id',retained.source_document_line_id,'source_payload_hash',item->>'source_payload_hash','source_line_hash',item->>'source_line_hash','policy_snapshot_id',item#>>'{policy_evidence,setting_snapshot_id}','policy_snapshot_hash',item#>>'{policy_evidence,setting_snapshot_hash}','finding_hash',finding_hash,'risk_level',item->>'risk_level','rule_id',item->>'rule_id','can_create_draft',false,'can_review',false,'can_approve',false,'can_post',false);
+      INSERT INTO audit_event(tenant_id,entity_id,event_type,object_type,object_id,action,actor_id,actor_type,permission_used,request_id,correlation_id,idempotency_key,after_hash,reason,metadata)
+      VALUES(p_tenant,p_entity,'AI_VENDOR_INVOICE_AMOUNT_ANOMALY_MATERIALIZED','AI_VENDOR_INVOICE_AMOUNT_ANOMALY_FINDING',finding_id,'MATERIALIZE',actor,'USER','AI.ANALYSIS.EXPLAIN',p_idempotency_key,p_idempotency_key,p_idempotency_key,finding_hash,'Deterministic source-bound vendor invoice amount anomaly; no accounting action',event_payload);
+      INSERT INTO outbox_event(tenant_id,entity_id,aggregate_type,aggregate_id,event_type,payload,payload_hash)
+      VALUES(p_tenant,p_entity,'AI_VENDOR_INVOICE_AMOUNT_ANOMALY_FINDING',finding_id,'AI_VENDOR_INVOICE_AMOUNT_ANOMALY_MATERIALIZED',event_payload,refs_jsonb_hash(event_payload));
+      inserted_count:=inserted_count+1;
+    END IF;
+    result_ids:=result_ids||jsonb_build_array(finding_id);
+  END LOOP;
+  response:=jsonb_build_object('schema_version','AI_VENDOR_INVOICE_AMOUNT_ANOMALY_RUN_RECEIPT_V1','accounting_period_id',p_period,'row_count',jsonb_array_length(p_batch->'findings'),'inserted_count',inserted_count,'replayed_count',replay_count,'finding_ids',result_ids,'request_hash',p_request_hash,'can_create_draft',false,'can_review',false,'can_approve',false,'can_post',false,'idempotent',false);
+  UPDATE idempotency_receipt SET status='SUCCEEDED',response_status=201,response_body=response,completed_at=clock_timestamp() WHERE idempotency_receipt_id=idem.idempotency_receipt_id;
+  RETURN response;
+END;
+$$;
+
+REVOKE ALL ON ai_vendor_invoice_amount_anomaly_finding FROM PUBLIC,refs_app;
+REVOKE ALL ON FUNCTION refs_ai_vendor_invoice_anomaly_batch_hash(uuid,uuid,uuid,jsonb),refs_materialize_ai_vendor_invoice_anomaly_batch(uuid,uuid,uuid,jsonb,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION refs_ai_vendor_invoice_anomaly_batch_hash(uuid,uuid,uuid,jsonb),refs_materialize_ai_vendor_invoice_anomaly_batch(uuid,uuid,uuid,jsonb,text,text) TO refs_app;
+
+COMMIT;

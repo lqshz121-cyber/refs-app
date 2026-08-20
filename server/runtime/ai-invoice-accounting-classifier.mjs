@@ -66,21 +66,27 @@ export function classifyRetainedInvoice(invoice,{capitalizationPolicy=null}={}){
   if((invoice.service_period_start===null)!==(invoice.service_period_end===null))return baseResult(invoice,'BLOCKED','A service period must include both start and end dates.',1,['service_period_start','service_period_end']);
   if(invoice.service_period_start&&invoice.service_period_end&&invoice.service_period_start>invoice.service_period_end)return baseResult(invoice,'BLOCKED','The retained service period is reversed.',1,['service_period_correction']);
 
+  // Capital-nature project costs are governed by the approved capitalization
+  // policy even when the vendor describes a multi-month work interval. A
+  // construction invoice spanning several months is not, by that fact alone,
+  // a prepaid asset. Evaluate the source-bound policy before the coverage rule
+  // so eligible CWIP/fixed-asset costs cannot be silently misclassified.
+  const policyDecision=applyAiCapitalizationPolicy({policy:capitalizationPolicy,amount:invoice.amount,currency:invoice.currency,chargeCode:invoice.charge_code,projectRef:invoice.project_ref});
+  if(policyDecision.status==='CAPITALIZATION_REVIEW')return baseResult(invoice,'CAPITALIZATION_REVIEW',policyDecision.reason,0.99,policyDecision.required_human_fields,'AI_CAPITALIZATION_POLICY_V1',policyDecision.policy_evidence);
+  if(policyDecision.status==='POST_COMPLETION_REVIEW')return baseResult(invoice,'CAPITALIZATION_REVIEW',policyDecision.reason,1,policyDecision.required_human_fields,'AI_POST_COMPLETION_CAPITALIZATION_V1',policyDecision.policy_evidence);
+
   if(invoice.service_period_start&&monthsSpanned(invoice.service_period_start,invoice.service_period_end)>1){
-    return baseResult(invoice,'PREPAID_AMORTIZATION','The retained invoice covers more than one calendar month and requires prepaid allocation review.',0.98,['prepaid_account','expense_account','amortization_start','amortization_method'],'AI_MULTI_PERIOD_PREPAID_V1');
+    return baseResult(invoice,'PREPAID_AMORTIZATION','The retained invoice covers more than one calendar month and requires prepaid allocation review.',0.98,['prepaid_account','expense_account','amortization_start','amortization_method'],'AI_MULTI_PERIOD_PREPAID_V1',policyDecision.policy_evidence);
   }
   const coverageCategory=prepaidIndicator(invoice);
   if(coverageCategory&&invoice.service_period_start===null&&invoice.service_period_end===null){
     return baseResult(invoice,'BLOCKED',`${coverageCategory.replaceAll('_',' ')} indicators were retained, but no service or coverage period was proven. Expense or capitalization treatment is blocked pending source evidence.`,1,['coverage_source_document','service_period_start','service_period_end'],'AI_PREPAID_COVERAGE_REQUIRED_V1');
   }
 
-  const policyDecision=applyAiCapitalizationPolicy({policy:capitalizationPolicy,amount:invoice.amount,currency:invoice.currency,chargeCode:invoice.charge_code,projectRef:invoice.project_ref});
   if(policyDecision.status==='POLICY_BLOCKED')return baseResult(invoice,'BLOCKED',policyDecision.reason,1,policyDecision.required_human_fields,'AI_CAPITALIZATION_POLICY_V1',policyDecision.policy_evidence);
   if(['EXPENSE_BY_POLICY','NOT_APPLICABLE'].includes(policyDecision.status)&&invoice.accounting_status==='NOT_RECORDED'&&invoice.service_period_end&&invoice.service_period_end<invoice.invoice_date){
     return baseResult(invoice,'ACCRUAL_REVIEW','The service period ended before the invoice date and no accounting record is retained.',0.95,['accrual_period','expense_account','liability_account','reversal_decision'],'AI_PRIOR_SERVICE_ACCRUAL_REVIEW_V1',policyDecision.policy_evidence);
   }
-  if(policyDecision.status==='CAPITALIZATION_REVIEW')return baseResult(invoice,'CAPITALIZATION_REVIEW',policyDecision.reason,0.99,policyDecision.required_human_fields,'AI_CAPITALIZATION_POLICY_V1',policyDecision.policy_evidence);
-  if(policyDecision.status==='POST_COMPLETION_REVIEW')return baseResult(invoice,'CAPITALIZATION_REVIEW',policyDecision.reason,1,policyDecision.required_human_fields,'AI_POST_COMPLETION_CAPITALIZATION_V1',policyDecision.policy_evidence);
   if(policyDecision.status==='EXPENSE_BY_POLICY')return baseResult(invoice,'EXPENSE',policyDecision.reason,0.99,policyDecision.required_human_fields,'AI_CAPITALIZATION_POLICY_V1',policyDecision.policy_evidence);
 
   return baseResult(invoice,'EXPENSE','No retained multi-period coverage, capitalization basis, duplicate, or prior-period cutoff condition was found.',0.9,['expense_account','cost_center_or_member'],'AI_ORDINARY_EXPENSE_V1',policyDecision.policy_evidence);

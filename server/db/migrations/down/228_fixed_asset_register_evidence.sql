@@ -1,0 +1,1 @@
+BEGIN;DROP FUNCTION refs_read_ai_fixed_asset_depreciation_source(uuid,uuid,uuid);DROP TABLE fixed_asset_register_evidence;COMMIT;

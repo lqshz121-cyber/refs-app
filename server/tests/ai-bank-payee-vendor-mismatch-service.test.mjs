@@ -1,0 +1,7 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {createAiBankPayeeVendorMismatchService} from '../runtime/ai-bank-payee-vendor-mismatch-service.mjs';
+const id=n=>`${String(n).padStart(8,'0')}-0000-4000-8000-${String(n).padStart(12,'0')}`;
+
+test('service exposes only a read-only analysis operation and calls each reader once',async()=>{let matched=0,policies=0;const service=createAiBankPayeeVendorMismatchService({matchedPaymentReader:async input=>{matched++;assert.equal(input.limit,50);return [];},policyReader:async()=>{policies++;return {schema_version:'AI_BANK_PAYEE_VENDOR_POLICY_V1',setting_snapshot_id:id(9),setting_snapshot_hash:`sha256:${'a'.repeat(64)}`,policy_version:1,approved_aliases_by_vendor:{'VENDOR-1':['Vendor One']}};}});assert.deepEqual(Object.keys(service),['analyze']);const result=await service.analyze({tenantId:id(1),entityId:id(2),accountingPeriodId:id(3),limit:50});assert.equal(result.finding_count,0);assert.equal(matched,1);assert.equal(policies,1);});
+test('service validates scope before either reader',async()=>{let calls=0;const service=createAiBankPayeeVendorMismatchService({matchedPaymentReader:async()=>{calls++;return [];},policyReader:async()=>{calls++;return null;}});await assert.rejects(()=>service.analyze({tenantId:'bad',entityId:id(2),accountingPeriodId:id(3)}),error=>error.code==='AI_BANK_PAYEE_VENDOR_SCOPE_INVALID');assert.equal(calls,0);});

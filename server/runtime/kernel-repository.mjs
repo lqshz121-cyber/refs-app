@@ -487,6 +487,18 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async reviewFixedAssetRegister({tenantId,entityId,capitalizationProposalId,assetTag,salvageValue,accumulatedDepreciationAccountCode,depreciationExpenseAccountCode,depreciationMethod,depreciationConvention,reason,idempotencyKey}){
+    return this.inSession(async client=>{const args=[tenantId,entityId,capitalizationProposalId,assetTag,salvageValue,accumulatedDepreciationAccountCode,depreciationExpenseAccountCode,depreciationMethod,depreciationConvention,reason];const requestHash=requireRow(await client.query('SELECT refs_review_fixed_asset_register_hash($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10) request_hash',args),'FIXED_ASSET_REGISTER_REVIEW_HASH_FAILED','Fixed asset register review hash was not produced').request_hash;return requireRow(await client.query('SELECT refs_review_fixed_asset_register($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10,$11,$12) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_REGISTER_REVIEW_FAILED','Fixed asset register review did not return a result').result;});
+  }
+
+  async reviewFixedAssetDisposal({tenantId,entityId,fixedAssetRegisterEvidenceId,accountingPeriodId,disposalSourceDocumentId,disposalDate,accumulatedDepreciation,proceeds,reason,idempotencyKey}){
+    return this.inSession(async client=>{const args=[tenantId,entityId,fixedAssetRegisterEvidenceId,accountingPeriodId,disposalSourceDocumentId,disposalDate,accumulatedDepreciation,proceeds,reason];const requestHash=requireRow(await client.query('SELECT refs_review_fixed_asset_disposal_hash($1,$2,$3,$4,$5,$6::date,$7::numeric,$8::numeric,$9) request_hash',args),'FIXED_ASSET_DISPOSAL_REVIEW_HASH_FAILED','Fixed asset disposal review hash was not produced').request_hash;return requireRow(await client.query('SELECT refs_review_fixed_asset_disposal($1,$2,$3,$4,$5,$6::date,$7::numeric,$8::numeric,$9,$10,$11) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_DISPOSAL_REVIEW_FAILED','Fixed asset disposal review did not return a result').result;});
+  }
+
+  async reviewFixedAssetImpairment({tenantId,entityId,fixedAssetRegisterEvidenceId,accountingPeriodId,valuationSourceDocumentId,assessmentDate,recoverableAmount,impairmentExpenseAccountCode,accumulatedImpairmentAccountCode,reason,idempotencyKey}){
+    return this.inSession(async client=>{const args=[tenantId,entityId,fixedAssetRegisterEvidenceId,accountingPeriodId,valuationSourceDocumentId,assessmentDate,recoverableAmount,impairmentExpenseAccountCode,accumulatedImpairmentAccountCode,reason];const requestHash=requireRow(await client.query('SELECT refs_review_fixed_asset_impairment_hash($1,$2,$3,$4,$5,$6::date,$7::numeric,$8,$9,$10) request_hash',args),'FIXED_ASSET_IMPAIRMENT_REVIEW_HASH_FAILED','Fixed asset impairment review hash was not produced').request_hash;return requireRow(await client.query('SELECT refs_review_fixed_asset_impairment($1,$2,$3,$4,$5,$6::date,$7::numeric,$8,$9,$10,$11,$12) result',[...args,idempotencyKey,requestHash]),'FIXED_ASSET_IMPAIRMENT_REVIEW_FAILED','Fixed asset impairment review did not return a result').result;});
+  }
+
   async listAiConstructionLoanEntryProposals({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_construction_loan_entry_proposals($1,$2,$3)',[tenantId,entityId,limit]
@@ -562,9 +574,27 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async listAiBankDuplicatePaymentFindings({tenantId,entityId,limit=20}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_bank_duplicate_payment_findings($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async listAiVendorInvoiceAmountSpikeFindings({tenantId,entityId,limit=20}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_vendor_invoice_amount_spike_findings($1,$2,$3)',[tenantId,entityId,limit])).rows);}
+  async listAiVendorInvoiceFrequencySpikeFindings({tenantId,entityId,limit=20}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_vendor_invoice_frequency_spike_findings($1,$2,$3)',[tenantId,entityId,limit])).rows);}
+  async listAiVendorInvoiceAmountDropFindings({tenantId,entityId,limit=20}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_vendor_invoice_amount_drop_findings($1,$2,$3)',[tenantId,entityId,limit])).rows);}
+  async listAiVendorInvoiceNearDuplicateFindings({tenantId,entityId,limit=20}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_vendor_invoice_near_duplicate_findings($1,$2,$3)',[tenantId,entityId,limit])).rows);}
+  async listAiManualJournalRiskFindings({tenantId,entityId,limit=20}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_manual_journal_risk_findings($1,$2,$3)',[tenantId,entityId,limit])).rows);}
+
   async listAiUnmatchedBankPaymentFindings({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_read_ai_unmatched_bank_payment_findings($1,$2,$3)',[tenantId,entityId,limit]
+    )).rows);
+  }
+
+  async listAiUnmatchedBankPaymentFindingsForPeriod({tenantId,entityId,periodId,limit=50}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_unmatched_bank_payment_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit]
     )).rows);
   }
 
@@ -573,6 +603,14 @@ export class PostgresAccountingKernel{
       'SELECT * FROM refs_read_ai_cost_dimension_findings($1,$2,$3)',[tenantId,entityId,limit]
     )).rows);
   }
+
+  async listAiPrepaidCoverageFindingsForPeriod({tenantId,entityId,periodId,limit=50}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_prepaid_coverage_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);}
+  async listAiDuplicatePayableFindingsForPeriod({tenantId,entityId,periodId,limit=50}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_duplicate_payable_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);}
+  async listAiCostDimensionFindingsForPeriod({tenantId,entityId,periodId,limit=50}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_cost_dimension_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);}
+  async listAiLoanReferenceFindingsForPeriod({tenantId,entityId,periodId,limit=50}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_loan_reference_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);}
+  async readAiCwipPostCompletionSource({tenantId,entityId,accountingPeriodId,limit=500}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_cwip_post_completion_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows);}
+  async readAiInvoiceClassificationSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_invoice_classification_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,invoice_date:publicDate(row.invoice_date),service_period_start:publicDate(row.service_period_start),service_period_end:publicDate(row.service_period_end)})));}
+  async readAiConstructionLoanSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows);}
 
   async listAiLoanReferenceFindings({tenantId,entityId,limit=50}){
     return this.inSession(async client=>(await client.query(
@@ -597,7 +635,7 @@ export class PostgresAccountingKernel{
   async readAiAccrualAnalysisPeriod({tenantId,entityId,currentPeriodId}){
     return this.inSession(async client=>{
       await client.query("SELECT refs_assert_scope($1,$2,'AI.ANALYSIS.EXPLAIN')",[tenantId,entityId]);
-      return requireRow(await client.query(`SELECT p.period_id,p.period_code,(extract(year FROM p.starts_on)::integer*12+extract(month FROM p.starts_on)::integer) AS period_ordinal,e.source_entity_id AS company_code
+      return requireRow(await client.query(`SELECT p.period_id,p.period_code,to_char(p.ends_on,'YYYY-MM-DD') AS period_end,(extract(year FROM p.starts_on)::integer*12+extract(month FROM p.starts_on)::integer) AS period_ordinal,e.source_entity_id AS company_code
         FROM accounting_period p JOIN entity e ON e.tenant_id=p.tenant_id AND e.entity_id=p.entity_id
         WHERE p.tenant_id=$1 AND p.entity_id=$2 AND p.period_id=$3 AND p.ledger_code='PRIMARY'`,[tenantId,entityId,currentPeriodId]),'AI_ACCRUAL_PERIOD_NOT_FOUND','Authoritative primary accounting period is unavailable');
     });
@@ -642,6 +680,24 @@ export class PostgresAccountingKernel{
         WHERE r.tenant_id=$1 AND r.entity_id=$2 AND r.domain='PAYABLES' AND r.accounting_period_id=$3
           AND COALESCE(NULLIF(l.external_dimension_refs->>'signed_recurring_obligation_id',''),CASE WHEN NULLIF(l.external_dimension_refs->>'signed_contract_id','') IS NOT NULL AND NULLIF(l.party_ref,'') IS NOT NULL AND NULLIF(l.external_dimension_refs->>'signed_charge_code','') IS NOT NULL THEN 'contract:'||(l.external_dimension_refs->>'signed_contract_id')||'|vendor:'||l.party_ref||'|charge:'||(l.external_dimension_refs->>'signed_charge_code') END)=$4`,[tenantId,entityId,currentPeriodId,recurringObligationId])).rows.map(row=>row.source_document_id);
     });
+  }
+
+  async listAiApInvoiceCutoffInputs({tenantId,entityId,accountingPeriodId,limit=2000}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_ap_invoice_cutoff_inputs($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit]
+    )).rows);
+  }
+
+  async listAiVendorPaymentTermsHistory({tenantId,entityId,accountingPeriodId,limit=2000}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_vendor_payment_terms_history($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit]
+    )).rows);
+  }
+
+  async getAiNewVendorMaterialInvoicePolicy({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_ai_new_vendor_material_invoice_policy($1,$2,$3) AS policy',[tenantId,entityId,accountingPeriodId]
+    ),'AI_NEW_VENDOR_MATERIAL_POLICY_READ_FAILED','AI new-vendor material invoice policy was not returned').policy);
   }
 
   async assignAiFindingAction({tenantId,entityId,findingKind,findingId,findingHash,owner,dueDate,expectedRevision,idempotencyKey}){
@@ -699,6 +755,143 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT refs_read_ai_capitalization_policy_evidence($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]
     )).rows[0]?.result??null);
+  }
+
+  async getAiVendorInvoiceAnomalyPolicy({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_ai_vendor_invoice_anomaly_policy($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]
+    ),'AI_VENDOR_ANOMALY_POLICY_READ_FAILED','AI vendor invoice anomaly policy read did not return a row').result);
+  }
+
+  async getAiVendorInvoiceFrequencyAnomalyPolicy({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_ai_vendor_invoice_frequency_anomaly_policy($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]
+    ),'AI_VENDOR_FREQUENCY_POLICY_READ_FAILED','AI vendor invoice frequency anomaly policy read did not return a row').result);
+  }
+
+  async materializeAiVendorInvoiceFrequencyAnomalies({tenantId,entityId,accountingPeriodId,batch,idempotencyKey}){
+    return this.inSession(async client=>{const requestHash=requireRow(await client.query(
+      'SELECT refs_ai_vendor_invoice_frequency_anomaly_batch_hash($1,$2,$3,$4::jsonb) AS value',[tenantId,entityId,accountingPeriodId,JSON.stringify(batch)]
+    ),'AI_VENDOR_FREQUENCY_HASH_FAILED','AI vendor frequency anomaly hash did not return a row').value;return requireRow(await client.query(
+      'SELECT refs_materialize_ai_vendor_invoice_frequency_anomaly_batch($1,$2,$3,$4::jsonb,$5,$6) AS result',[tenantId,entityId,accountingPeriodId,JSON.stringify(batch),idempotencyKey,requestHash]
+    ),'AI_VENDOR_FREQUENCY_MATERIALIZE_FAILED','AI vendor frequency anomaly materialization did not return a row').result;});
+  }
+
+  async getAiVendorInvoiceAmountDropPolicy({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_ai_vendor_invoice_amount_drop_policy($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]
+    ),'AI_VENDOR_AMOUNT_DROP_POLICY_READ_FAILED','AI vendor invoice amount-drop policy read did not return a row').result);
+  }
+
+  async materializeAiVendorInvoiceAmountDrops({tenantId,entityId,accountingPeriodId,batch,idempotencyKey}){
+    return this.inSession(async client=>{const requestHash=requireRow(await client.query(
+      'SELECT refs_ai_vendor_invoice_amount_drop_batch_hash($1,$2,$3,$4::jsonb) AS value',[tenantId,entityId,accountingPeriodId,JSON.stringify(batch)]
+    ),'AI_VENDOR_AMOUNT_DROP_HASH_FAILED','AI vendor amount-drop hash did not return a row').value;return requireRow(await client.query(
+      'SELECT refs_materialize_ai_vendor_invoice_amount_drop_batch($1,$2,$3,$4::jsonb,$5,$6) AS result',[tenantId,entityId,accountingPeriodId,JSON.stringify(batch),idempotencyKey,requestHash]
+    ),'AI_VENDOR_AMOUNT_DROP_MATERIALIZE_FAILED','AI vendor amount-drop materialization did not return a row').result;});
+  }
+
+  async getAiVendorInvoiceNearDuplicatePolicy({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_ai_vendor_invoice_near_duplicate_policy($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]
+    ),'AI_VENDOR_NEAR_DUPLICATE_POLICY_READ_FAILED','AI vendor invoice near-duplicate policy read did not return a row').result);
+  }
+
+  async materializeAiVendorInvoiceNearDuplicates({tenantId,entityId,accountingPeriodId,batch,idempotencyKey}){
+    return this.inSession(async client=>{const requestHash=requireRow(await client.query(
+      'SELECT refs_ai_vendor_invoice_near_duplicate_batch_hash($1,$2,$3,$4::jsonb) AS value',[tenantId,entityId,accountingPeriodId,JSON.stringify(batch)]
+    ),'AI_VENDOR_NEAR_DUPLICATE_HASH_FAILED','AI vendor near-duplicate hash did not return a row').value;return requireRow(await client.query(
+      'SELECT refs_materialize_ai_vendor_invoice_near_duplicate_batch($1,$2,$3,$4::jsonb,$5,$6) AS result',[tenantId,entityId,accountingPeriodId,JSON.stringify(batch),idempotencyKey,requestHash]
+    ),'AI_VENDOR_NEAR_DUPLICATE_MATERIALIZE_FAILED','AI vendor near-duplicate materialization did not return a row').result;});
+  }
+
+  async getAiManualJournalRiskPolicy({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_ai_manual_journal_risk_policy($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]
+    ),'AI_MANUAL_JOURNAL_RISK_POLICY_READ_FAILED','AI manual Journal risk policy read did not return a row').result);
+  }
+
+  async listAiManualJournalRiskInputs({tenantId,entityId,accountingPeriodId,limit=500}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_ai_manual_journal_risk_inputs($1,$2,$3,$4) AS result',[tenantId,entityId,accountingPeriodId,limit]
+    ),'AI_MANUAL_JOURNAL_RISK_INPUT_READ_FAILED','AI manual Journal risk input read did not return a row').result);
+  }
+
+  async materializeAiManualJournalRisks({tenantId,entityId,accountingPeriodId,batch,idempotencyKey}){
+    return this.inSession(async client=>{const requestHash=requireRow(await client.query(
+      'SELECT refs_ai_manual_journal_risk_batch_hash($1,$2,$3,$4::jsonb) AS value',[tenantId,entityId,accountingPeriodId,JSON.stringify(batch)]
+    ),'AI_MANUAL_JOURNAL_RISK_HASH_FAILED','AI manual Journal risk hash did not return a row').value;return requireRow(await client.query(
+      'SELECT refs_materialize_ai_manual_journal_risk_batch($1,$2,$3,$4::jsonb,$5,$6) AS result',[tenantId,entityId,accountingPeriodId,JSON.stringify(batch),idempotencyKey,requestHash]
+    ),'AI_MANUAL_JOURNAL_RISK_MATERIALIZE_FAILED','AI manual Journal risk materialization did not return a row').result;});
+  }
+
+  async listAiBankDuplicatePaymentSources({tenantId,entityId,accountingPeriodId,limit=500}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_bank_duplicate_payment_sources($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit]
+    )).rows.map(row=>({...row,transaction_date:publicDate(row.transaction_date),amount:String(row.amount)})));
+  }
+
+  async listAiBankUnusualPaymentSources({tenantId,entityId,accountingPeriodId,limit=500}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_bank_unusual_payment_sources($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit]
+    )).rows.map(row=>({...row,transaction_date:publicDate(row.transaction_date),amount:String(row.amount)})));
+  }
+
+  async getAiBankUnusualPaymentPolicy({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_ai_bank_unusual_payment_policy($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]
+    ),'AI_BANK_UNUSUAL_PAYMENT_POLICY_READ_FAILED','AI bank unusual payment policy read did not return a row').result);
+  }
+
+  async listAiBankPayeeVendorMatches({tenantId,entityId,accountingPeriodId,limit=500}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_bank_payee_vendor_matches($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit]
+    )).rows.map(row=>({...row,transaction_date:publicDate(row.transaction_date),amount:String(row.amount)})));
+  }
+
+  async getAiBankPayeeVendorPolicy({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_ai_bank_payee_vendor_policy($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]
+    ),'AI_BANK_PAYEE_VENDOR_POLICY_READ_FAILED','AI bank payee/vendor policy read did not return a row').result);
+  }
+
+  async listAiVendorAccountingTreatmentHistory({tenantId,entityId,accountingPeriodId,limit=1000}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_vendor_accounting_treatment_history($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit]
+    )).rows);
+  }
+
+  async listAiVendorAccountCodingHistory({tenantId,entityId,accountingPeriodId,limit=2000}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_vendor_account_coding_history($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit]
+    )).rows);
+  }
+
+  async listAiInvoiceSourceSupportInputs({tenantId,entityId,accountingPeriodId,limit=1000}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT * FROM refs_read_ai_invoice_source_support_inputs($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit]
+    )).rows);
+  }
+
+  async materializeAiBankDuplicatePayments({tenantId,entityId,accountingPeriodId,batch,idempotencyKey}){
+    return this.inSession(async client=>{const requestHash=requireRow(await client.query(
+      'SELECT refs_ai_bank_duplicate_payment_batch_hash($1,$2,$3,$4::jsonb) AS value',[tenantId,entityId,accountingPeriodId,JSON.stringify(batch)]
+    ),'AI_BANK_DUPLICATE_PAYMENT_HASH_FAILED','AI bank duplicate-payment hash did not return a row').value;return requireRow(await client.query(
+      'SELECT refs_materialize_ai_bank_duplicate_payment_batch($1,$2,$3,$4::jsonb,$5,$6) AS result',[tenantId,entityId,accountingPeriodId,JSON.stringify(batch),idempotencyKey,requestHash]
+    ),'AI_BANK_DUPLICATE_PAYMENT_MATERIALIZE_FAILED','AI bank duplicate-payment materialization did not return a row').result;});
+  }
+
+  async materializeAiVendorInvoiceAmountAnomalies({tenantId,entityId,accountingPeriodId,batch,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query(
+        'SELECT refs_ai_vendor_invoice_anomaly_batch_hash($1,$2,$3,$4::jsonb) AS request_hash',
+        [tenantId,entityId,accountingPeriodId,JSON.stringify(batch)]
+      ),'AI_VENDOR_ANOMALY_HASH_FAILED','Vendor anomaly request hash was not produced').request_hash;
+      return requireRow(await client.query(
+        'SELECT refs_materialize_ai_vendor_invoice_anomaly_batch($1,$2,$3,$4::jsonb,$5,$6) AS result',
+        [tenantId,entityId,accountingPeriodId,JSON.stringify(batch),idempotencyKey,requestHash]
+      ),'AI_VENDOR_ANOMALY_MATERIALIZE_FAILED','Vendor anomaly materialization receipt was not produced').result;
+    });
   }
 
   async listAiInvoiceAccountingClassificationEvidence({tenantId,entityId,accountingPeriodId,limit=100}){
@@ -813,6 +1006,18 @@ export class PostgresAccountingKernel{
 
   async listWbsPropertyRentPickup({tenantId,entityId,periodId,limit=50}){
     return this.inSession(async client=>(await client.query('SELECT * FROM refs_list_wbs_property_rent_pickup($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);
+  }
+
+  async listAiPropertyRentRevenueReviews({tenantId,entityId,periodId,limit=100}){
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_property_rent_revenue_review($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);
+  }
+
+  async getAiSecurityDepositLiabilityReview({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_security_deposit_liability_review($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.refs_read_ai_security_deposit_liability_review));
+  }
+
+  async getAiBankGlBalanceReconciliation({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_bank_gl_balance_reconciliation($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows.map(row=>row.refs_read_ai_bank_gl_balance_reconciliation));
   }
 
   async createWbsPropertyRentDraft({tenantId,entityId,reviewEvidenceId,expectedRevision,expectedEvidenceHash,reason,idempotencyKey}){
@@ -1707,6 +1912,60 @@ export class PostgresAccountingKernel{
     )).rows.map(row=>({...row,...(row.current_period_start===undefined?{}:{current_period_start:publicDate(row.current_period_start)}),...(row.current_period_end===undefined?{}:{current_period_end:publicDate(row.current_period_end)}),...(row.prior_period_start===undefined?{}:{prior_period_start:publicDate(row.prior_period_start)}),...(row.prior_period_end===undefined?{}:{prior_period_end:publicDate(row.prior_period_end)})})));
   }
 
+  async getAiFinancialStatementVarianceComparison({tenantId,entityId,currentPeriodId}){
+    return this.inSession(async client=>{
+      const prior=(await client.query(`SELECT prior.period_id
+        FROM accounting_period current_period
+        JOIN accounting_period prior ON prior.tenant_id=current_period.tenant_id AND prior.entity_id=current_period.entity_id AND prior.ledger_code=current_period.ledger_code AND prior.ends_on<current_period.starts_on
+        WHERE current_period.tenant_id=$1 AND current_period.entity_id=$2 AND current_period.period_id=$3
+        ORDER BY prior.ends_on DESC,prior.period_id LIMIT 1`,[tenantId,entityId,currentPeriodId])).rows[0];
+      if(!prior)throw Object.assign(new Error('A prior accounting period is required for automated account variance review.'),{code:'AI_FINANCIAL_VARIANCE_PRIOR_PERIOD_REQUIRED'});
+      return (await client.query('SELECT * FROM refs_get_financial_statement_period_comparison($1,$2,$3,$4)',[tenantId,entityId,currentPeriodId,prior.period_id])).rows.map(row=>({...row,...(row.current_period_start===undefined?{}:{current_period_start:publicDate(row.current_period_start)}),...(row.current_period_end===undefined?{}:{current_period_end:publicDate(row.current_period_end)}),...(row.prior_period_start===undefined?{}:{prior_period_start:publicDate(row.prior_period_start)}),...(row.prior_period_end===undefined?{}:{prior_period_end:publicDate(row.prior_period_end)})}));
+    });
+  }
+
+  async getAiFinancialVariancePolicy({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_ai_financial_variance_policy($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]),'AI_FINANCIAL_VARIANCE_POLICY_READ_FAILED','AI financial variance policy read did not return a row').result);
+  }
+
+  async getAiBudgetVsActualSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_budget_vs_actual_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+
+  async getAiBudgetVariancePolicy({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT refs_read_ai_budget_variance_policy($1,$2,$3) AS policy',[tenantId,entityId,accountingPeriodId])).rows[0]?.policy??null);}
+
+  async getAiPrepaidBalanceReconciliationSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_prepaid_balance_reconciliation_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+
+  async getAiFixedAssetDepreciationGapSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_depreciation_gap_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+
+  async getAiFixedAssetDepreciationSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_depreciation_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+
+  async getAiFixedAssetPostedReconciliation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_posted_reconciliation($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+
+  async getAiFixedAssetDisposalGapSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_disposal_gap_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+
+  async getAiReviewedFixedAssetDisposals({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_reviewed_fixed_asset_disposals($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+
+  async getAiFixedAssetPostDisposalDepreciation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_post_disposal_depreciation($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+
+  async getAiFixedAssetImpairmentAssessments({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_impairment_assessments($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+
+  async getAiFixedAssetImpairmentPostedReconciliation({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_fixed_asset_impairment_posted_reconciliation($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+
+  async getAiApAgingRiskSource({tenantId,entityId,asOfDate}){
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_ap_aging_risk_source($1,$2,$3::date)',[tenantId,entityId,asOfDate])).rows.map(row=>({...row,aging_date:publicDate(row.aging_date)})));
+  }
+
+  async getAiApAgingRiskPolicy({tenantId,entityId,asOfDate}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_ai_ap_aging_risk_policy($1,$2,$3::date) AS result',[tenantId,entityId,asOfDate]),'AI_AP_AGING_RISK_POLICY_READ_FAILED','AI AP aging risk policy read did not return a row').result);
+  }
+
+  async getAiBalanceSheetAccountAgingSource({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_balance_sheet_account_aging_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows.map(row=>({...row,period_end:publicDate(row.period_end),last_activity_date:publicDate(row.last_activity_date)})));
+  }
+
+  async getAiBalanceSheetAgingPolicy({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_ai_balance_sheet_aging_policy($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]),'AI_BALANCE_SHEET_AGING_POLICY_READ_FAILED','AI balance-sheet aging policy read did not return a row').result);
+  }
+
   async getDimensionProfitability({tenantId,entityId,periodId,dimensionType,dimensionRef}){
     if(dimensionType==='LOT')return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_lot_profitability($1,$2,$3,$4)',
@@ -1739,6 +1998,17 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
+  async getAiConstructionLoanDrawCwipPolicy({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>requireRow(await client.query('SELECT refs_read_ai_construction_loan_draw_cwip_policy($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]),'AI_LOAN_DRAW_CWIP_POLICY_READ_FAILED','AI loan draw to CWIP policy read did not return a row').result);}
+  async getAiConstructionLoanProjectCostSource({tenantId,entityId,accountingPeriodId}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_project_cost_source($1,$2,$3)',[tenantId,entityId,accountingPeriodId])).rows);}
+
+  async getAiConstructionLoanLenderBalances({tenantId,entityId,periodId}){
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_lender_balances($1,$2,$3)',[tenantId,entityId,periodId])).rows);
+  }
+
+  async getAiConstructionLoanBalancePolicy({tenantId,entityId,periodId}){
+    return this.inSession(async client=>(await client.query('SELECT refs_read_ai_construction_loan_balance_policy($1,$2,$3) AS policy',[tenantId,entityId,periodId])).rows[0]?.policy??null);
+  }
+
   async getPrepaidRollforward({tenantId,entityId,periodId}){
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_get_prepaid_rollforward($1,$2,$3)',
@@ -1751,6 +2021,24 @@ export class PostgresAccountingKernel{
       'SELECT * FROM refs_get_intercompany_reconciliation($1,$2,$3,$4,$5)',
       [tenantId,entityId,periodId,counterpartyEntityId,counterpartyPeriodId]
     )).rows);
+  }
+
+  async listAiIntercompanyCounterpartyPeriods({tenantId,entityId,periodId,limit=100}){
+    return this.inSession(async client=>(await client.query(`SELECT DISTINCT
+        CASE WHEN mapping.input_keys->>'counterparty_entity_id'~*'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN (mapping.input_keys->>'counterparty_entity_id')::uuid END AS counterparty_entity_id,
+        counterparty_period.period_id AS counterparty_period_id
+      FROM mapping_snapshot mapping
+      JOIN accounting_period current_period ON current_period.tenant_id=mapping.tenant_id AND current_period.entity_id=mapping.entity_id AND current_period.period_id=$3
+      JOIN accounting_period counterparty_period ON counterparty_period.tenant_id=mapping.tenant_id
+        AND counterparty_period.entity_id=CASE WHEN mapping.input_keys->>'counterparty_entity_id'~*'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN (mapping.input_keys->>'counterparty_entity_id')::uuid END
+        AND counterparty_period.starts_on=current_period.starts_on AND counterparty_period.ends_on=current_period.ends_on
+      WHERE mapping.tenant_id=$1 AND mapping.entity_id=$2 AND mapping.family='INTERCOMPANY_ACCOUNT_PAIR'
+        AND mapping.status IN ('APPROVED','RETIRED') AND mapping.input_keys ? 'counterparty_entity_id'
+        AND mapping.input_keys->>'counterparty_entity_id'~*'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        AND CASE WHEN mapping.input_keys->>'counterparty_entity_id'~*'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN (mapping.input_keys->>'counterparty_entity_id')::uuid END<>$2
+        AND refs_entity_allowed(CASE WHEN mapping.input_keys->>'counterparty_entity_id'~*'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN (mapping.input_keys->>'counterparty_entity_id')::uuid END)
+        AND mapping.effective_from::date<=current_period.ends_on AND (mapping.effective_to IS NULL OR mapping.effective_to::date>current_period.ends_on)
+      ORDER BY counterparty_entity_id,counterparty_period_id LIMIT $4`,[tenantId,entityId,periodId,limit])).rows);
   }
 
   async getBudgetVsActual({tenantId,entityId,periodId}){

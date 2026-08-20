@@ -1,0 +1,1 @@
+BEGIN;DROP FUNCTION refs_review_fixed_asset_register(uuid,uuid,uuid,text,numeric,text,text,text,text,text,text,text);DROP FUNCTION refs_review_fixed_asset_register_hash(uuid,uuid,uuid,text,numeric,text,text,text,text,text);COMMIT;

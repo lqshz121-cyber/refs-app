@@ -27,6 +27,18 @@ test('classifies supported construction and equipment invoices for capitalizatio
   ])assert.equal(classifyRetainedInvoice({...row,charge_code:row.cost_class==='EQUIPMENT'?'EQUIPMENT':'BUILD-HARD',project_ref:row.project_ref??'PROJECT-1'},{capitalizationPolicy:policy}).classification,'CAPITALIZATION_REVIEW');
 });
 
+test('capitalization policy outranks a multi-month construction work interval',()=>{
+  const result=classifyRetainedInvoice(invoice({
+    amount:'25000.0000',description:'Foundation work January through March',
+    service_period_start:'2026-01-01',service_period_end:'2026-03-31',
+    charge_code:'BUILD-HARD',project_ref:'PROJECT-1',project_status:'UNDER_CONSTRUCTION',cost_class:'HARD_COST'
+  }),{capitalizationPolicy:policy});
+  assert.equal(result.classification,'CAPITALIZATION_REVIEW');
+  assert.equal(result.rule_id,'AI_CAPITALIZATION_POLICY_V1');
+  assert.equal(result.policy_evidence.setting_snapshot_hash,hash('c'));
+  assert.deepEqual(result.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+});
+
 test('classifies prior-service unrecorded invoices for accrual review and ordinary invoices as expense',()=>{
   assert.equal(classifyRetainedInvoice(invoice({invoice_date:'2026-07-15',service_period_start:'2026-06-01',service_period_end:'2026-06-30'}),{capitalizationPolicy:policy}).classification,'ACCRUAL_REVIEW');
   assert.equal(classifyRetainedInvoice(invoice(),{capitalizationPolicy:policy}).classification,'EXPENSE');
