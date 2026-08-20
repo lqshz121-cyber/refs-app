@@ -37,7 +37,8 @@ assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/Category \(offset account\)/);
 assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/EXPENSES \/ ACCOUNTS PAYABLE/);
-assert.match(workspaceMarkup,/Bills, credits, and AP aging from the accounting API/);
+assert.match(workspaceMarkup,/Review bills, vendor credits, and AP aging\./);
+assert.doesNotMatch(workspaceMarkup,/Bills, credits, and AP aging from the accounting API/,'the Expenses header must not expose implementation-oriented API copy');
 assert.match(workspaceMarkup,/Bills/);
 assert.doesNotMatch(workspaceMarkup,/API total|Visible adjustments/,'Expenses must not repeat its list counts as KPI cards');
 assert.match(workspaceMarkup,/READ ONLY/);
@@ -70,6 +71,7 @@ assert.doesNotMatch(workspaceMarkup,/>Filters</,'Expenses must not repeat a head
 assert.match(workspaceMarkup,/authoritative-secondary-disclosure/,'secondary WBS evidence must stay available without lengthening the default page');
 
 const emptyExpenseMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[]} adjustments={[]} view={{query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.match(emptyExpenseMarkup,/All records/,'the default Expenses scope should use concise user-facing copy');
 assert.match(emptyExpenseMarkup,/No expenses found/);
 assert.match(emptyExpenseMarkup,/Try changing the filters\. This scoped API result is not evidence of zero activity\./);
 assert.equal((emptyExpenseMarkup.match(/No expenses found/g)||[]).length,1,'an empty Expenses scope must render one clear empty title');

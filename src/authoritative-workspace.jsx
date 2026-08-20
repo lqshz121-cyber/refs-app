@@ -139,7 +139,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
       <button type="button" className="btn btn-sm btn-ghost" disabled={!state.query&&!appliedScope.length} onClick={()=>change({query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset filters</button>
       <span className="result-count" aria-live="polite">{visibleResultCount} {visibleResultCount===1?'result':'results'}</span>
     </div>
-    <p className="muted sm authoritative-applied-scope" aria-live="polite">{appliedScope.length?appliedScope.join(' · '):'All retained API rows'}</p>
+    <p className="muted sm authoritative-applied-scope" aria-live="polite">{appliedScope.length?appliedScope.join(' · '):bill?'All records':'All retained API rows'}</p>
     </section>
     {showDocumentList&&<section className="card" aria-label={`${workspaceLabel} document list facts`}>
     {page.total?<AuthoritativeDocumentTable title={bill?'AP bills':'AR invoices'} documents={page.rows} kind={kind} onOpen={onOpenDocument}/>:documents.length?<StateBlock tone="empty" title={`No ${bill?'bills':'invoices'} match these presentation filters`}>Change a presentation filter to see retained list facts. A local no-match is not evidence of zero balance.</StateBlock>:sourceEmpty?<StateBlock tone="empty" title="No expenses found">Try changing the filters. This scoped API result is not evidence of zero activity.</StateBlock>:<AuthoritativeScopeEmpty subject={bill?'AP bills':'AR invoices'}/>}
