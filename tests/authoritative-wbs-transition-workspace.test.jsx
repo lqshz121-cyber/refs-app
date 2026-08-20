@@ -71,7 +71,7 @@ assert.doesNotMatch(source,/vendor_name|vendor_no|payee/);
 const css=fs.readFileSync('index.html','utf8');
 assert.match(source,/className="table-wrap authoritative-wbs-transition-table"/,'the verified transition table must activate its dedicated column geometry');
 assert.match(css,/\.authoritative-wbs-transition-table \.tbl\{min-width:1050px;table-layout:fixed;\}/);
-assert.match(css,/\.authoritative-wbs-transition-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'the verified transition table must remain contained at phone widths');
+assert.match(css,/\.authoritative-wbs-transition-table,\.authoritative-wbs-review-table,\.authoritative-wbs-control-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'transition, AutoRec review, and control reconciliation tables must remain contained at narrow widths');
 assert.match(css,/\.authoritative-wbs-review-table \.tbl\{min-width:1180px;table-layout:fixed;\}/);
 assert.match(css,/\.authoritative-wbs-control-table \.tbl\{min-width:760px;table-layout:fixed;\}/);
 assert.match(css,/\.authoritative-wbs-live-pilot-controls select,\.authoritative-wbs-live-pilot-controls \.btn\{min-height:44px;\}/);
