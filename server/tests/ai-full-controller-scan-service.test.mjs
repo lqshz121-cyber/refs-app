@@ -34,6 +34,8 @@ test('fails a section closed for action authority, wrong scope, or secret-shaped
     {...batch('X'),action_flags:{...actions,can_post:true}},
     batch('X',[{entity_id:'other',accounting_period_id:period,rule_id:'AI_SCOPE_V1',risk_level:'HIGH',reason:'This finding has the wrong entity scope.',suggested_action:'Reject the unscoped evidence before close.'}]),
     batch('X',[{entity_id:entity,accounting_period_id:period,rule_id:'AI_SECRET_V1',risk_level:'HIGH',reason:'This finding includes forbidden secret-shaped evidence.',suggested_action:'Reject secret-shaped evidence before close.',authorization:'Bearer secret'}]),
+    batch('X',[{entity_id:entity,accounting_period_id:period,rule_id:'AI_SECRET_VALUE_V1',risk_level:'HIGH',reason:'Authorization: Bearer abcdefghijklmnop',suggested_action:'Reject credential material embedded in an otherwise allowed text field.'}]),
+    batch('X',[{entity_id:entity,accounting_period_id:period,rule_id:'AI_VIRTUAL_KEY_V1',risk_level:'HIGH',reason:'A retained description contained sk-abcdefgh12345678',suggested_action:'Reject credential material embedded in retained evidence.'}]),
     batch('X',[{entity_id:entity,accounting_period_id:period,risk_level:'HIGH',reason:'This finding has no stable accounting rule.',suggested_action:'Reject unexplained evidence before close.'}]),
     batch('X',[{entity_id:entity,accounting_period_id:period,rule_id:'AI_UNEXPLAINED_V1',risk_level:'HIGH',reason:'short',suggested_action:'Reject unexplained evidence before close.'}])
   ]){

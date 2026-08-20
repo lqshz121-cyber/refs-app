@@ -1,6 +1,7 @@
+import {safeAiEvidenceTree} from './ai-secret-safety.mjs';
+
 const ACTION_KEYS=Object.freeze(['can_create_draft','can_review','can_approve','can_post']);
 const ACTIONS=Object.freeze(Object.fromEntries(ACTION_KEYS.map(key=>[key,false])));
-const SECRET_KEY=/(authorization|credential|password|secret|token|api[_-]?key|raw[_-]?(payload|request|response|package|prompt))/i;
 
 export class AiFullControllerScanError extends Error{
   constructor(code,message){super(message);this.name='AiFullControllerScanError';this.code=code;}
@@ -12,15 +13,8 @@ function explainedFinding(value){return value&&typeof value==='object'&&
   ['HIGH','MEDIUM','LOW'].includes(value.risk_level)&&
   typeof value.reason==='string'&&value.reason.trim().length>=8&&value.reason.length<=2000&&
   typeof value.suggested_action==='string'&&value.suggested_action.trim().length>=8&&value.suggested_action.length<=2000;}
-function safeTree(value,seen=new Set()){
-  if(value===null||['string','number','boolean'].includes(typeof value))return true;
-  if(typeof value!=='object'||seen.has(value))return false;
-  seen.add(value);
-  const safe=Array.isArray(value)?value.length<=2000&&value.every(item=>safeTree(item,seen)):Object.entries(value).every(([key,item])=>!SECRET_KEY.test(key)&&safeTree(item,seen));
-  seen.delete(value);return safe;
-}
 function closedBatch(value,{entityId,periodId}){
-  return value&&typeof value==='object'&&safeTree(value)&&value.current_accounting_period_id===periodId&&
+  return value&&typeof value==='object'&&safeAiEvidenceTree(value)&&value.current_accounting_period_id===periodId&&
     Number.isSafeInteger(value.finding_count)&&value.finding_count>=0&&Array.isArray(value.findings)&&
     value.finding_count===value.findings.length&&value.findings.length<=2000&&closedActions(value.action_flags)&&
     value.findings.every(finding=>explainedFinding(finding)&&(!('entity_id' in finding)||finding.entity_id===entityId)&&(!('accounting_period_id' in finding)||finding.accounting_period_id===periodId));

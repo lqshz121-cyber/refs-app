@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildAiAccountingDecisionPacket,createAiAccountingDecisionPacketService} from '../runtime/ai-accounting-decision-packet.mjs';
+import {assertAiAccountingDecisionPacketBatch,buildAiAccountingDecisionPacket,createAiAccountingDecisionPacketService} from '../runtime/ai-accounting-decision-packet.mjs';
 
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const hash=n=>`sha256:${n.toString(16).padStart(64,'0')}`;
@@ -45,4 +45,10 @@ test('service requires exact one-to-one source and classification populations',a
   assert.equal(result.row_count,2);assert.deepEqual(result.decision_counts,{ready_for_human_review:2,exception:0});assert.deepEqual(result.action_flags,actions);
   const mismatch=createAiAccountingDecisionPacketService({classificationService:{analyze:async()=>batch},settingsSnapshotReader:async()=>settings,sourceLineReader:async()=>[row1]});
   await assert.rejects(()=>mismatch.analyze({tenantId:tenant,entityId:entity,accountingPeriodId:period}),error=>error.code==='AI_ACCOUNTING_DECISION_POPULATION_MISMATCH');
+});
+
+test('legacy decision response validator rejects credential material embedded in allowed text fields',async()=>{
+  const row=source(),service=createAiAccountingDecisionPacketService({classificationService:{analyze:async()=>({results:[classification(row,'EXPENSE')]})},settingsSnapshotReader:async()=>settings,sourceLineReader:async()=>[row]}),safe=await service.analyze({tenantId:tenant,entityId:entity,accountingPeriodId:period});
+  assert.equal(assertAiAccountingDecisionPacketBatch(safe,{tenantId:tenant,entityId:entity,accountingPeriodId:period}),safe);
+  for(const reason of ['Authorization: Bearer abcdefghijklmnop','Retained memo contained pk-abcdefgh12345678'])assert.throws(()=>assertAiAccountingDecisionPacketBatch({...safe,packets:[{...safe.packets[0],reason}]},{tenantId:tenant,entityId:entity,accountingPeriodId:period}),error=>error.code==='AI_ACCOUNTING_DECISION_RESPONSE_INVALID');
 });
