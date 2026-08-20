@@ -66,6 +66,8 @@ async function main(){
   assert.match(markup,/FAVORITES/);assert.match(markup,/Accounts receivable aging/);assert.match(markup,/id="authoritative-report-ar-aging"/);assert.doesNotMatch(markup,/authoritative-aging-launch/,'AR aging belongs in the compact Favorites list instead of a second large launch card');
   const profitLossSearchMarkup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher} initialCatalog={{category:'STATEMENTS',query:'profit and loss',preview:'TRIAL_BALANCE'}}/>);
   assert.match(profitLossSearchMarkup,/1 match/);assert.match(profitLossSearchMarkup,/MATCHING STATEMENTS/);assert.match(profitLossSearchMarkup,/Income Statement/);
+  assert.doesNotMatch(profitLossSearchMarkup,/FAVORITES/,'an active report search must not append the unfiltered Favorites list below its matching results');
+  assert.doesNotMatch(profitLossSearchMarkup,/id="authoritative-favorite-/,'filtered results must not duplicate matching reports through the unfiltered shortcut controls');
   assert.doesNotMatch(profitLossSearchMarkup,/No API-backed report category matches/,'a matching statement alias must not render a contradictory no-category empty state');
   const noReportSearchMarkup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher} initialCatalog={{category:'STATEMENTS',query:'no-such-authoritative-report',preview:'TRIAL_BALANCE'}}/>);
   assert.match(noReportSearchMarkup,/No matching report/);assert.match(noReportSearchMarkup,/No API-backed report category matches/,'the finder empty state must appear only when every API-backed result family is empty');
