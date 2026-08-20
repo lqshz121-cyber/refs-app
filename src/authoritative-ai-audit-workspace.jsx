@@ -70,7 +70,7 @@ export function AuthoritativeAiAuditWorkspace({config,fetcher=globalThis.fetch,o
     const apInvoiceCutoffReviewResult=await refreshAuthoritativeAiApInvoiceCutoffReviews({config,limit:2000,fetcher});
     const vendorPaymentTermsDriftResult=await refreshAuthoritativeAiVendorPaymentTermsDrifts({config,limit:2000,fetcher});
     const newVendorMaterialInvoiceResult=await refreshAuthoritativeAiNewVendorMaterialInvoiceReviews({config,limit:2000,fetcher});
-    const vendorMonthlySpendResult=await refreshAuthoritativeAiVendorMonthlySpendAnomalies({config,limit:2000,fetcher});
+    const vendorMonthlySpendResult=await refreshAuthoritativeAiVendorMonthlySpendAnomalies({config,fetcher});
     const fullControllerScanResult=await refreshAuthoritativeAiFullControllerScan({config,limit:500,fetcher});
     const invoiceSourceSupportReviewResult=await refreshAuthoritativeAiInvoiceSourceSupportReviews({config,limit:1000,fetcher});
     setInvoiceClassifications(invoiceClassificationResult.ok?{phase:'READY',rows:invoiceClassificationResult.data.results,error:null}:{phase:'BLOCKED',rows:[],error:invoiceClassificationResult});
