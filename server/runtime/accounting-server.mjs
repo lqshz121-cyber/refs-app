@@ -67,11 +67,11 @@ export function createProductionAiAccountingSettingsAdapterFactory({kernelFor}={
   return principal=>{
     if(!principal||principal.trusted!==true||typeof principal.tenantId!=='string')throw new TypeError('Production AI accounting settings adapter requires a trusted principal');
     const kernel=kernelFor(principal);
-    if(typeof kernel?.readApprovedWbsAiEntityPeriodSettings!=='function')throw new TypeError('Production AI accounting settings adapter requires the kernel approved-settings reader');
+    if(typeof kernel?.readApprovedWbsAiEntityPeriodSettings!=='function'||typeof kernel?.readAiAccountMasterBindings!=='function')throw new TypeError('Production AI accounting settings adapter requires approved-settings and account-master readers');
     return createAiAccountingApprovedSettingsAdapter({settingsReader:async({tenantId,entityId,periodId,readOnly})=>{
       if(tenantId!==principal.tenantId||readOnly!==true)throw Object.assign(new Error('AI accounting settings scope must match the authenticated tenant and remain read-only.'),{code:'AI_ACCOUNTING_SETTINGS_SCOPE_INVALID'});
       return kernel.readApprovedWbsAiEntityPeriodSettings({tenantId,entityId,periodId,readOnly:true});
-    }});
+    },accountMasterReader:async({tenantId,entityId,accountCodes,readOnly})=>{if(tenantId!==principal.tenantId||readOnly!==true)throw Object.assign(new Error('AI account-master scope must match the authenticated tenant and remain read-only.'),{code:'AI_ACCOUNTING_SETTINGS_SCOPE_INVALID'});return kernel.readAiAccountMasterBindings({tenantId,entityId,accountCodes});}});
   };
 }
 
@@ -136,7 +136,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
   }};};
   const aiInvoiceAccountingClassificationServiceFactory=principal=>{const kernel=kernelFor(principal);return createAiInvoiceAccountingClassificationService({
     classificationInputReader:scope=>kernel.readAiInvoiceClassificationSource(scope),duplicateFindingReader:({tenantId,entityId,accountingPeriodId,limit})=>kernel.listAiDuplicatePayableFindingsForPeriod({tenantId,entityId,periodId:accountingPeriodId,limit}),
-    capitalizationPolicyReader:scope=>kernel.getAiCapitalizationPolicyEvidence(scope),
+    capitalizationPolicyReader:scope=>createProductionAiAccountingSettingsAdapterFactory({kernelFor})(principal).readCapitalizationPolicy(scope),
     materializeWriter:input=>kernel.materializeAiInvoiceAccountingClassifications(input)
   });};
   const aiAccountingSettingsAdapterFactory=createProductionAiAccountingSettingsAdapterFactory({kernelFor});

@@ -7,7 +7,7 @@ const SOURCE_TYPES=Object.freeze(['INVOICE','PAYMENT','BANK_TRANSACTION','LOAN_T
 const CLASSIFICATIONS=Object.freeze(['EXPENSE','CAPITALIZATION','PREPAID','ACCRUAL','PAYMENT','LOAN','REVENUE','DEPOSIT','INTERCOMPANY','REIMBURSEMENT','FIXED_ASSET','CONSTRUCTION_COST','PROPERTY_OPERATING_COST','TAX','CLOSING_COST','RECLASS','REVERSAL','BLOCKED']);
 const COMMON_SOURCE_KEYS=Object.freeze(['accounting_date','accounting_period_end','accounting_period_id','accounting_period_start','admission_status','amount','business_date','cash_direction','company_code','completeness_status','cost_code_ref','currency','duplicate_status','entity_id','exception_codes','member_ref','project_ref','property_ref','schema_version','source_detail','source_document_id','source_document_line_id','source_line_hash','source_payload_hash','source_type','tenant_id','vendor_ref']);
 const DETAIL_KEYS=Object.freeze({
-  INVOICE:['invoice_date','invoice_number','service_period_end','service_period_start'],
+  INVOICE:['execution_evidence','invoice_date','invoice_number','service_period_end','service_period_start'],
   PAYMENT:['bank_transaction_id','payee_ref','payment_date'],
   BANK_TRANSACTION:['bank_account_ref','bank_transaction_id','memo','transaction_date'],
   LOAN_TRANSACTION:['lender_ref','loan_ref','transaction_kind'],
@@ -46,6 +46,7 @@ const ALLOWED_CLASSIFICATIONS=Object.freeze({
 const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join('|')===[...keys].sort().join('|');
 const text=(value,max=256)=>typeof value==='string'&&value.trim().length>0&&value.trim().length<=max;
 const nullableText=value=>value===null||text(value);
+const validExecutionEvidence=value=>exact(value,['account_master','attachments'])&&Array.isArray(value.attachments)&&value.attachments.every((row,index,rows)=>exact(row,['attachment_id','content_hash','finalization_status','scan_status','storage_version'])&&UUID.test(row.attachment_id||'')&&SHA.test(row.content_hash||'')&&['PENDING','CLEAN','REJECTED','ERROR'].includes(row.scan_status)&&['PENDING','VERIFIED_CLEAN','REJECTED'].includes(row.finalization_status)&&text(row.storage_version,512)&&(index===0||rows[index-1].attachment_id<row.attachment_id))&&Array.isArray(value.account_master)&&value.account_master.length>0&&value.account_master.every((row,index,rows)=>exact(row,['account_code','active','required_member_type','requires_member'])&&text(row.account_code,64)&&typeof row.active==='boolean'&&typeof row.requires_member==='boolean'&&(row.requires_member?text(row.required_member_type,40):row.required_member_type===null)&&(index===0||rows[index-1].account_code<row.account_code));
 const validDate=value=>{if(!DATE.test(value||''))return false;const [year,month,day]=value.split('-').map(Number),date=new Date(Date.UTC(year,month-1,day));return date.getUTCFullYear()===year&&date.getUTCMonth()===month-1&&date.getUTCDate()===day;};
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code});};
 const freeze=value=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const nested of Object.values(value))freeze(nested);Object.freeze(value);}return value;};
@@ -56,7 +57,7 @@ function validDetail(source){
   const keys=DETAIL_KEYS[source.source_type];
   if(!keys||!exact(source.source_detail,keys))return false;
   const detail=source.source_detail;
-  if(source.source_type==='INVOICE')return text(detail.invoice_number)&&validDate(detail.invoice_date)&&(detail.service_period_start===null||validDate(detail.service_period_start))&&(detail.service_period_end===null||validDate(detail.service_period_end));
+  if(source.source_type==='INVOICE')return text(detail.invoice_number)&&validDate(detail.invoice_date)&&(detail.service_period_start===null||validDate(detail.service_period_start))&&(detail.service_period_end===null||validDate(detail.service_period_end))&&validExecutionEvidence(detail.execution_evidence);
   if(source.source_type==='PAYMENT')return UUID.test(detail.bank_transaction_id||'')&&text(detail.payee_ref)&&validDate(detail.payment_date);
   if(source.source_type==='BANK_TRANSACTION')return text(detail.bank_account_ref)&&UUID.test(detail.bank_transaction_id||'')&&nullableText(detail.memo)&&validDate(detail.transaction_date);
   if(source.source_type==='LOAN_TRANSACTION')return text(detail.lender_ref)&&text(detail.loan_ref)&&['DRAW','INTEREST','FEE','ESCROW','REPAYMENT'].includes(detail.transaction_kind);
@@ -73,8 +74,8 @@ function validDetail(source){
 }
 
 function completeVariant(source){
-  if(source.completeness_status!=='COMPLETE')return true;
-  if(source.source_type==='INVOICE')return text(source.vendor_ref);
+  if(source.completeness_status!=='COMPLETE')return source.source_type!=='INVOICE'||source.source_detail.execution_evidence.attachments.length===0||source.source_detail.execution_evidence.attachments.some(row=>row.scan_status!=='CLEAN'||row.finalization_status!=='VERIFIED_CLEAN'||row.storage_version.startsWith('pending:'));
+  if(source.source_type==='INVOICE')return text(source.vendor_ref)&&source.source_detail.execution_evidence.attachments.length>0&&source.source_detail.execution_evidence.attachments.every(row=>row.scan_status==='CLEAN'&&row.finalization_status==='VERIFIED_CLEAN'&&!row.storage_version.startsWith('pending:'))&&source.source_detail.execution_evidence.account_master.every(row=>row.active===true);
   if(source.source_type==='CONSTRUCTION_COST')return text(source.vendor_ref)&&text(source.project_ref)&&text(source.property_ref)&&text(source.cost_code_ref);
   if(source.source_type==='PROPERTY_MANAGEMENT')return text(source.property_ref);
   if(source.source_type==='CLOSING_SETTLEMENT')return text(source.property_ref);

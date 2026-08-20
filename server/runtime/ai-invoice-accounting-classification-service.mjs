@@ -35,7 +35,7 @@ export function createAiInvoiceAccountingClassificationService({classificationIn
       const duplicates=new Set((Array.isArray(duplicateFindings)?duplicateFindings:[]).flatMap(row=>[row.source_document_id,row.candidate_source_document_id]).filter(Boolean));
       if(typeof classificationInputReader==='function'){
         const rows=Array.isArray(periodInputs)?periodInputs:[];
-        const inputs=rows.map(row=>({...row,amount:money4(row.amount),duplicate_status:duplicates.has(row.source_document_id)?'POSSIBLE':'NONE',project_status:'NONE',cost_class:'UNKNOWN',asset_useful_life_months:null,capitalization_threshold:null}));
+        const inputs=rows.map(row=>({...row,member_ref:row.member_ref??null,amount:money4(row.amount),duplicate_status:duplicates.has(row.source_document_id)?'POSSIBLE':'NONE',project_status:'NONE',cost_class:'UNKNOWN',asset_useful_life_months:null,capitalization_threshold:null}));
         const batch=classifyRetainedInvoiceBatch(inputs,{capitalizationPolicy});
         const controllerEvidence=includeControllerEvidence?Object.freeze(batch.results.map((result,index)=>treatmentEvidence(result,inputs[index]))):undefined;
         return Object.freeze({...batch,scope:Object.freeze({tenant_id:tenantId,entity_id:entityId,accounting_period_id:accountingPeriodId}),scanned_document_count:new Set(inputs.map(row=>row.source_document_id)).size,eligible_invoice_line_count:inputs.length,...(controllerEvidence?{controller_evidence:controllerEvidence}:{}),action_flags:ACTIONS});
@@ -56,10 +56,10 @@ export function createAiInvoiceAccountingClassificationService({classificationIn
         scannedDocumentCount+=1;
         for(const line of lines.slice(0,Math.max(0,limit-inputs.length))){const trace=line.provider_trace;inputs.push({
           source_document_id:detail.source_document_id,source_document_line_id:line.source_document_line_id,source_payload_hash:detail.payload_hash,source_line_hash:evidence.source_row_hash,
-          entity_id:entityId,accounting_period_id:accountingPeriodId,vendor_name:line.party_ref,invoice_no:trace.invoice_no,invoice_date:trace.invoice_date,
+          entity_id:entityId,accounting_period_id:accountingPeriodId,accounting_date:document.accounting_date??trace.invoice_date,vendor_ref:line.party_ref,vendor_name:line.party_ref,invoice_no:trace.invoice_no,invoice_date:trace.invoice_date,
           currency:String(detail.currency||''),amount:money4(line.amount??detail.gross_amount),service_period_start:trace.accrual?.service_period_start??null,
-          service_period_end:trace.accrual?.service_period_end??null,description:trace.invoice_description??line.description??null,project_ref:line.project_ref??null,property_ref:line.property_ref??null,
-          charge_code:trace.accrual?.charge_code??null,
+          service_period_end:trace.accrual?.service_period_end??null,description:trace.invoice_description??line.description??null,project_ref:line.project_ref??null,property_ref:line.property_ref??null,member_ref:line.member_ref??null,
+          charge_code:trace.accrual?.charge_code??null,contract_id:trace.accrual?.contract_id??null,service_frequency:trace.accrual?.service_frequency??null,
           duplicate_status:duplicates.has(detail.source_document_id)?'POSSIBLE':'NONE',accounting_status:Array.isArray(detail.posted_journal_entry_ids)&&detail.posted_journal_entry_ids.length>0?'POSTED':'NOT_RECORDED',
           // A project reference does not prove construction status or
           // capitalization eligibility. Those policy facts must arrive as

@@ -653,7 +653,7 @@ export class PostgresAccountingKernel{
   async listAiCostDimensionFindingsForPeriod({tenantId,entityId,periodId,limit=50}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_cost_dimension_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);}
   async listAiLoanReferenceFindingsForPeriod({tenantId,entityId,periodId,limit=50}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_loan_reference_findings_for_period($1,$2,$3,$4)',[tenantId,entityId,periodId,limit])).rows);}
   async readAiCwipPostCompletionSource({tenantId,entityId,accountingPeriodId,limit=500}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_cwip_post_completion_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows);}
-  async readAiInvoiceClassificationSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_invoice_classification_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,invoice_date:publicDate(row.invoice_date),service_period_start:publicDate(row.service_period_start),service_period_end:publicDate(row.service_period_end)})));}
+  async readAiInvoiceClassificationSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_invoice_classification_source_v2($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date),invoice_date:publicDate(row.invoice_date),service_period_start:publicDate(row.service_period_start),service_period_end:publicDate(row.service_period_end)})));}
   async readAiConstructionLoanSource({tenantId,entityId,accountingPeriodId,limit=100}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_construction_loan_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows);}
   async readAiClosingSettlementSource({tenantId,entityId,accountingPeriodId,limit=500}){return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_closing_settlement_source($1,$2,$3,$4)',[tenantId,entityId,accountingPeriodId,limit])).rows.map(row=>({...row,closing_date:publicDate(row.closing_date)})));}
 
@@ -1596,6 +1596,11 @@ export class PostgresAccountingKernel{
       'SELECT refs_read_wbs_ai_approved_entity_period_settings($1,$2,$3) AS settings',[tenantId,entityId,periodId]
     )),'WBS_AI_APPROVED_SETTINGS_NOT_AVAILABLE','Approved entity-period settings are unavailable');
     return validateApprovedWbsAiEntityPeriodSettings(settings.settings,{tenantId,entityId,periodId});
+  }
+
+  async readAiAccountMasterBindings({tenantId,entityId,accountCodes}){
+    if(![tenantId,entityId].every(value=>UUID.test(value||''))||!Array.isArray(accountCodes))throw new KernelError('AI_ACCOUNT_MASTER_BINDING_REQUEST_INVALID','AI account-master binding read requires exact scope and account codes');
+    return this.inSession(async client=>(await client.query('SELECT * FROM refs_read_ai_account_master_bindings($1,$2,$3::text[])',[tenantId,entityId,accountCodes])).rows);
   }
 
   async getSourceDocumentDetail({tenantId,entityId,sourceDocumentId}){

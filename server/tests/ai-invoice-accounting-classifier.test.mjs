@@ -7,9 +7,9 @@ const hash=c=>`sha256:${c.repeat(64)}`;
 const policy={schema_version:'AI_CAPITALIZATION_POLICY_EVIDENCE_V1',setting_snapshot_id:id(10),setting_snapshot_hash:hash('c'),policy_version:1,rule_id:'AI_CAPITALIZATION_POLICY_V1',currency:'USD',capitalization_threshold:'5000.0000',eligible_cost_classes:['EQUIPMENT','HARD_COST','SOFT_COST'],charge_code_classification:{'BUILD-HARD':'HARD_COST','EQUIPMENT':'EQUIPMENT','OPERATING':'OPERATING_EXPENSE'},project_status_by_ref:{'PROJECT-1':'UNDER_CONSTRUCTION','PROJECT-DONE':'COMPLETED'},useful_life_months_by_cost_class:{EQUIPMENT:60,HARD_COST:360,SOFT_COST:360},post_completion_treatment:'EXPENSE_OR_RECLASS_REVIEW'};
 const invoice=(overrides={})=>({
   source_document_id:id(1),source_document_line_id:id(2),source_payload_hash:hash('a'),source_line_hash:hash('b'),
-  entity_id:id(3),accounting_period_id:id(4),vendor_name:'Example vendor',invoice_no:'INV-100',invoice_date:'2026-06-30',
+  entity_id:id(3),accounting_period_id:id(4),accounting_date:'2026-06-30',vendor_name:'Example vendor',invoice_no:'INV-100',invoice_date:'2026-06-30',
   currency:'USD',amount:'1200.0000',service_period_start:null,service_period_end:null,description:'Operating services',
-  project_ref:null,property_ref:null,charge_code:'OPERATING',duplicate_status:'NONE',accounting_status:'NOT_RECORDED',project_status:'OPERATING',
+  project_ref:null,property_ref:null,member_ref:null,charge_code:'OPERATING',duplicate_status:'NONE',accounting_status:'NOT_RECORDED',project_status:'OPERATING',
   cost_class:'OPERATING_EXPENSE',asset_useful_life_months:null,capitalization_threshold:'5000.0000',...overrides
 });
 
@@ -54,6 +54,15 @@ test('fails closed on duplicates, partial periods, invalid evidence, and never p
   assert.equal(batch.row_count,4);
   assert.deepEqual(batch.classification_counts,{EXPENSE:1,PREPAID_AMORTIZATION:0,ACCRUAL_REVIEW:0,CAPITALIZATION_REVIEW:0,BLOCKED:3});
   assert.deepEqual(batch.action_flags,{can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+});
+
+test('fails closed on impossible invoice, accounting, or service calendar dates',()=>{
+  for(const changed of [
+    {invoice_date:'2026-02-30'},
+    {accounting_date:'2026-02-30'},
+    {service_period_start:'2026-02-30',service_period_end:'2026-03-01'},
+    {service_period_start:'2026-02-01',service_period_end:'2026-02-30'}
+  ])assert.equal(classifyRetainedInvoice(invoice(changed),{capitalizationPolicy:policy}).classification,'BLOCKED');
 });
 
 test('fails closed without policy and binds approved policy evidence to a capital decision',()=>{

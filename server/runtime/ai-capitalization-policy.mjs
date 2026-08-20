@@ -1,6 +1,7 @@
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256=/^sha256:[0-9a-f]{64}$/;
 const MONEY4=/^(0|[1-9]\d*)\.\d{4}$/;
+const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const COST_CLASSES=Object.freeze(['OPERATING_EXPENSE','HARD_COST','SOFT_COST','EQUIPMENT','REPAIR','INTEREST']);
 const PROJECT_STATUSES=Object.freeze(['OPERATING','UNDER_CONSTRUCTION','IN_SERVICE','COMPLETED']);
 
@@ -9,6 +10,43 @@ const plain=value=>value&&typeof value==='object'&&!Array.isArray(value);
 const exact=(value,fields)=>plain(value)&&Object.keys(value).length===fields.length&&fields.every(field=>own(value,field));
 const safeToken=(value,max=128)=>typeof value==='string'&&value.length>=1&&value.length<=max&&!/[\u0000-\u001f\u007f]/.test(value);
 const sortedUnique=(values)=>Array.isArray(values)&&values.length>0&&values.every(value=>safeToken(value))&&new Set(values).size===values.length&&values.every((value,index)=>index===0||values[index-1]<value);
+const nullableToken=value=>value===null||safeToken(value);
+const validDate=value=>{if(typeof value!=='string'||!DATE.test(value))return false;const parsed=new Date(`${value}T00:00:00Z`);return !Number.isNaN(parsed.valueOf())&&parsed.toISOString().slice(0,10)===value;};
+const TYPED_POLICY_FIELDS=Object.freeze(['schema_version','settings_snapshot_id','settings_snapshot_hash','settings_version','currency','capitalization_threshold','default_treatment','dimension_rules']);
+const TYPED_RULE_FIELDS=Object.freeze(['rule_id','scope_level','project_ref','property_ref','cost_code_ref','member_ref','ownership_requirement','member_requirement','capitalization_treatment','cwip_account_role','status','effective_from','effective_to','completion_date','pis_date']);
+
+export function validateAiAccountingCapitalizationPolicyEvidence(value){
+  if(!exact(value,TYPED_POLICY_FIELDS)||value.schema_version!=='AI_ACCOUNTING_CAPITALIZATION_POLICY_EVIDENCE_V1'||!UUID.test(value.settings_snapshot_id||'')||!SHA256.test(value.settings_snapshot_hash||'')||!Number.isSafeInteger(value.settings_version)||value.settings_version<1||!/^[A-Z]{3}$/.test(value.currency||'')||!MONEY4.test(value.capitalization_threshold||'')||value.default_treatment!=='BLOCKED'||!Array.isArray(value.dimension_rules))return null;
+  for(const rule of value.dimension_rules){
+    if(!exact(rule,TYPED_RULE_FIELDS)||!safeToken(rule.rule_id)||!['ENTITY','PROJECT','PROPERTY','COST_CODE','MEMBER','COMBINATION'].includes(rule.scope_level)||![rule.project_ref,rule.property_ref,rule.cost_code_ref,rule.member_ref].every(nullableToken)||!['REQUIRED','OPTIONAL','FORBIDDEN'].includes(rule.ownership_requirement)||!['REQUIRED','OPTIONAL','FORBIDDEN'].includes(rule.member_requirement)||!['EXPENSE','CWIP','BLOCKED'].includes(rule.capitalization_treatment)||!['CWIP','FIXED_ASSET','BLOCKED'].includes(rule.cwip_account_role)||!['ACTIVE','COMPLETE','BLOCKED'].includes(rule.status)||!validDate(rule.effective_from)||(rule.effective_to!==null&&!validDate(rule.effective_to))||(rule.completion_date!==null&&!validDate(rule.completion_date))||(rule.pis_date!==null&&!validDate(rule.pis_date)))return null;
+    const present=[rule.project_ref,rule.property_ref,rule.cost_code_ref,rule.member_ref].filter(item=>item!==null).length;
+    if((rule.scope_level==='ENTITY'&&present!==0)||(rule.scope_level==='PROJECT'&&(rule.project_ref===null||present!==1))||(rule.scope_level==='PROPERTY'&&(rule.property_ref===null||present!==1))||(rule.scope_level==='COST_CODE'&&(rule.cost_code_ref===null||present!==1))||(rule.scope_level==='MEMBER'&&(rule.member_ref===null||present!==1))||(rule.scope_level==='COMBINATION'&&present<2))return null;
+  }
+  if(new Set(value.dimension_rules.map(rule=>rule.rule_id)).size!==value.dimension_rules.length)return null;
+  return Object.freeze({...value,dimension_rules:Object.freeze(value.dimension_rules.map(rule=>Object.freeze({...rule})))});
+}
+
+function applyTypedPolicy({policy,amount,currency,chargeCode,projectRef,propertyRef,memberRef,accountingDate}){
+  const evidence=validateAiAccountingCapitalizationPolicyEvidence(policy);
+  if(!evidence)return Object.freeze({status:'POLICY_BLOCKED',reason:'The exact approved accounting settings policy is missing or invalid.',required_human_fields:Object.freeze(['capitalization_policy']),policy_evidence:null});
+  if(currency!==evidence.currency||!MONEY4.test(amount||'')||!validDate(accountingDate))return Object.freeze({status:'POLICY_BLOCKED',reason:'Invoice currency, amount, or accounting date conflicts with the approved capitalization policy.',required_human_fields:Object.freeze(['capitalization_policy_review']),policy_evidence:evidence});
+  const refs={project_ref:projectRef,property_ref:propertyRef,cost_code_ref:chargeCode,member_ref:memberRef};
+  const effectiveRules=evidence.dimension_rules.filter(rule=>rule.status==='ACTIVE'&&rule.effective_from<=accountingDate&&(rule.effective_to===null||accountingDate<=rule.effective_to)),missingMemberCandidate=memberRef===null&&effectiveRules.some(rule=>rule.member_ref!==null&&['project_ref','property_ref','cost_code_ref'].every(key=>rule[key]===null||rule[key]===refs[key]));
+  if(missingMemberCandidate)return Object.freeze({status:'POLICY_BLOCKED',reason:'A matching approved rule requires member evidence that the retained source does not provide.',required_human_fields:Object.freeze(['member_ref']),policy_evidence:evidence});
+  const matches=effectiveRules.filter(rule=>Object.entries(refs).every(([key,value])=>rule[key]===null||rule[key]===value));
+  if(matches.length===0)return Object.freeze({status:'POLICY_BLOCKED',reason:'No exact approved capitalization rule matches the retained invoice dimensions.',required_human_fields:Object.freeze(['capitalization_rule']),policy_evidence:evidence});
+  const specificity=rule=>[rule.project_ref,rule.property_ref,rule.cost_code_ref,rule.member_ref].filter(item=>item!==null).length,maximum=Math.max(...matches.map(specificity)),selected=matches.filter(rule=>specificity(rule)===maximum);
+  if(selected.length!==1)return Object.freeze({status:'POLICY_BLOCKED',reason:'Approved capitalization rules are ambiguous for the retained invoice dimensions.',required_human_fields:Object.freeze(['capitalization_rule_resolution']),policy_evidence:evidence});
+  const rule=selected[0],ownershipPresent=projectRef!==null||propertyRef!==null;
+  if((rule.ownership_requirement==='REQUIRED'&&!ownershipPresent)||(rule.ownership_requirement==='FORBIDDEN'&&ownershipPresent)||(rule.member_requirement==='REQUIRED'&&memberRef===null)||(rule.member_requirement==='FORBIDDEN'&&memberRef!==null))return Object.freeze({status:'POLICY_BLOCKED',reason:'Retained invoice dimensions do not satisfy the approved capitalization rule.',required_human_fields:Object.freeze(['dimension_evidence']),policy_evidence:evidence});
+  const selectedEvidence=Object.freeze({schema_version:'AI_ACCOUNTING_CAPITALIZATION_DECISION_EVIDENCE_V1',setting_snapshot_id:evidence.settings_snapshot_id,setting_snapshot_hash:evidence.settings_snapshot_hash,settings_snapshot_id:evidence.settings_snapshot_id,settings_snapshot_hash:evidence.settings_snapshot_hash,selected_rule:Object.freeze({...rule})});
+  if(rule.capitalization_treatment==='BLOCKED'||rule.cwip_account_role==='BLOCKED'&&rule.capitalization_treatment==='CWIP')return Object.freeze({status:'POLICY_BLOCKED',reason:'The exact approved capitalization rule blocks automatic treatment.',required_human_fields:Object.freeze(['controller_conclusion']),policy_evidence:selectedEvidence,selected_rule:selectedEvidence.selected_rule});
+  if(rule.capitalization_treatment==='EXPENSE')return Object.freeze({status:'EXPENSE_BY_POLICY',reason:'The exact approved dimension rule classifies the retained invoice as expense.',required_human_fields:Object.freeze(['expense_account','cost_center_or_member']),policy_evidence:selectedEvidence,selected_rule:selectedEvidence.selected_rule,cost_class:'OPERATING_EXPENSE',project_status:'OPERATING',useful_life_months:null,threshold_met:false});
+  const completed=rule.completion_date!==null&&rule.completion_date<=accountingDate,inService=rule.pis_date!==null&&rule.pis_date<=accountingDate,thresholdMet=BigInt(amount.replace('.',''))>=BigInt(evidence.capitalization_threshold.replace('.',''));
+  if(completed||inService)return Object.freeze({status:'POST_COMPLETION_REVIEW',reason:'The approved capitalization rule shows the asset completed or in service by the accounting date.',required_human_fields:Object.freeze(['controller_approval','expense_or_reclass_account','placed_in_service_support']),policy_evidence:selectedEvidence,selected_rule:selectedEvidence.selected_rule,cost_class:'HARD_COST',project_status:completed?'COMPLETED':'IN_SERVICE',useful_life_months:null,threshold_met:thresholdMet});
+  if(thresholdMet)return Object.freeze({status:'CAPITALIZATION_REVIEW',reason:'The exact approved dimension rule classifies the retained invoice as CWIP at or above threshold.',required_human_fields:Object.freeze(['capital_account','placed_in_service_date','controller_approval']),policy_evidence:selectedEvidence,selected_rule:selectedEvidence.selected_rule,cost_class:'HARD_COST',project_status:'UNDER_CONSTRUCTION',useful_life_months:null,threshold_met:true});
+  return Object.freeze({status:'EXPENSE_BY_POLICY',reason:'The retained invoice is below the approved CWIP threshold.',required_human_fields:Object.freeze(['expense_account','cost_center_or_member']),policy_evidence:selectedEvidence,selected_rule:selectedEvidence.selected_rule,cost_class:'HARD_COST',project_status:'UNDER_CONSTRUCTION',useful_life_months:null,threshold_met:false});
+}
 
 export function validateAiCapitalizationPolicyEvidence(value){
   const fields=['schema_version','setting_snapshot_id','setting_snapshot_hash','policy_version','rule_id','currency','capitalization_threshold','eligible_cost_classes','charge_code_classification','project_status_by_ref','useful_life_months_by_cost_class','post_completion_treatment'];
@@ -19,7 +57,8 @@ export function validateAiCapitalizationPolicyEvidence(value){
   return Object.freeze({...value,eligible_cost_classes:Object.freeze([...value.eligible_cost_classes]),charge_code_classification:Object.freeze({...value.charge_code_classification}),project_status_by_ref:Object.freeze({...value.project_status_by_ref}),useful_life_months_by_cost_class:Object.freeze({...value.useful_life_months_by_cost_class})});
 }
 
-export function applyAiCapitalizationPolicy({policy,amount,currency,chargeCode=null,projectRef=null}={}){
+export function applyAiCapitalizationPolicy({policy,amount,currency,chargeCode=null,projectRef=null,propertyRef=null,memberRef=null,accountingDate=null}={}){
+  if(policy?.schema_version==='AI_ACCOUNTING_CAPITALIZATION_POLICY_EVIDENCE_V1')return applyTypedPolicy({policy,amount,currency,chargeCode,projectRef,propertyRef,memberRef,accountingDate});
   const evidence=validateAiCapitalizationPolicyEvidence(policy);
   if(!evidence)return Object.freeze({status:'POLICY_BLOCKED',reason:'A unique approved capitalization policy was not retained for this entity and accounting period.',required_human_fields:Object.freeze(['capitalization_policy']),policy_evidence:null});
   if(currency!==evidence.currency)return Object.freeze({status:'POLICY_BLOCKED',reason:'Invoice currency does not match the approved capitalization policy currency.',required_human_fields:Object.freeze(['currency_policy_review']),policy_evidence:evidence});

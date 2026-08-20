@@ -1,0 +1,16 @@
+BEGIN;
+REVOKE EXECUTE ON FUNCTION refs_create_ai_accounting_decision_draft(uuid,uuid,uuid,text,text,text,text,text) FROM refs_app;
+DROP FUNCTION refs_create_ai_accounting_decision_draft(uuid,uuid,uuid,text,text,text,text,text);
+ALTER FUNCTION refs_create_ai_accounting_decision_draft_v254(uuid,uuid,uuid,text,text,text,text,text) RENAME TO refs_create_ai_accounting_decision_draft;
+REVOKE ALL ON FUNCTION refs_create_ai_accounting_decision_draft(uuid,uuid,uuid,text,text,text,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION refs_create_ai_accounting_decision_draft(uuid,uuid,uuid,text,text,text,text,text) TO refs_app;
+REVOKE EXECUTE ON FUNCTION refs_create_wbs_payable_ap_draft(uuid,uuid,uuid,uuid,bigint,text,uuid,uuid[],text,text,text) FROM refs_app;
+DROP FUNCTION refs_create_wbs_payable_ap_draft(uuid,uuid,uuid,uuid,bigint,text,uuid,uuid[],text,text,text);
+ALTER FUNCTION refs_create_wbs_payable_ap_draft_v096(uuid,uuid,uuid,uuid,bigint,text,uuid,uuid[],text,text,text) RENAME TO refs_create_wbs_payable_ap_draft;
+REVOKE ALL ON FUNCTION refs_create_wbs_payable_ap_draft(uuid,uuid,uuid,uuid,bigint,text,uuid,uuid[],text,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION refs_create_wbs_payable_ap_draft(uuid,uuid,uuid,uuid,bigint,text,uuid,uuid[],text,text,text) TO refs_app;
+REVOKE EXECUTE ON FUNCTION refs_read_ai_account_master_bindings(uuid,uuid,text[]) FROM refs_app;
+DROP FUNCTION refs_read_ai_account_master_bindings(uuid,uuid,text[]);
+REVOKE EXECUTE ON FUNCTION refs_read_ai_invoice_classification_source_v2(uuid,uuid,uuid,integer) FROM refs_app;
+DROP FUNCTION refs_read_ai_invoice_classification_source_v2(uuid,uuid,uuid,integer);
+COMMIT;
