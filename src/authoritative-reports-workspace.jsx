@@ -183,7 +183,18 @@ const DimensionProfitabilityDetail=({row,returnContext,onBack,onOpenLineage})=>{
     <section className="card" aria-label="Dimension profitability retained trace"><div className="card-head"><div><h2>Retained trace</h2><p className="muted sm">These identifiers are supplied by the accounting API for an authorized server-backed evidence drill.</p></div></div><div className="detail-grid"><EvidenceIds label="Journal entries" ids={row.journal_entry_ids}/><EvidenceIds label="Journal lines" ids={row.journal_line_ids}/><EvidenceIds label="Ledger lines" ids={row.ledger_line_ids}/><EvidenceIds label="Source documents" ids={row.source_document_ids}/></div><EvidenceDrillAction row={row} onOpenLineage={onOpenLineage}/></section>
   </section>;
 };
-const comparisonLineageRow=(row,side)=>{const prefix=side==='PRIOR'?'prior':'current';return {...row,period_id:row[`${prefix}_period_id`],journal_entry_ids:row[`${prefix}_journal_entry_ids`],journal_line_ids:row[`${prefix}_journal_line_ids`],ledger_line_ids:row[`${prefix}_ledger_line_ids`],source_document_ids:row[`${prefix}_source_document_ids`]};};
+const comparisonLineageRow=(row,side)=>{const prefix=side==='PRIOR'?'prior':'current';return {...row,period_id:row[`${prefix}_period_id`],period_code:row[`${prefix}_period_code`],period_start:row[`${prefix}_period_start`],period_end:row[`${prefix}_period_end`],journal_entry_ids:row[`${prefix}_journal_entry_ids`],journal_line_ids:row[`${prefix}_journal_line_ids`],ledger_line_ids:row[`${prefix}_ledger_line_ids`],source_document_ids:row[`${prefix}_source_document_ids`]};};
+
+export const authoritativeReportLineageConfig=(config,row)=>{
+  const periodId=row?.period_id||config?.periodId;
+  const currentPresentation=config?.scopePresentation||{};
+  const rowPeriodLabel=typeof row?.period_code==='string'&&row.period_code.trim()
+    ? row.period_code.trim()
+    : periodId===config?.periodId&&typeof currentPresentation.periodLabel==='string'&&currentPresentation.periodLabel.trim()
+      ? currentPresentation.periodLabel.trim()
+      : 'Selected report period';
+  return {...config,periodId,scopePresentation:{...currentPresentation,periodLabel:rowPeriodLabel}};
+};
 
 const ComparisonDetail=({row,returnContext,onBack,onOpenLineage})=><section className="full-bleed qbo-transaction-report" aria-label="Prior-period comparison evidence">
   <div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>Back to prior-period comparison</button><ScopeLabel context={returnContext}/></div>
@@ -335,7 +346,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
     setSelected(null);
     restoreAuthoritativeReturnContext(environment,config,context);
   };
-  const openEvidenceLineage=row=>{const detail=selected;const context=detail?.returnContext;if(!detail||!context)return;const periodId=row?.period_id||config.periodId;setSelected({kind:'EVIDENCE_LINEAGE',row,returnTo:detail,returnContext:context,lineageConfig:{...config,periodId}});};
+  const openEvidenceLineage=row=>{const detail=selected;const context=detail?.returnContext;if(!detail||!context)return;setSelected({kind:'EVIDENCE_LINEAGE',row,returnTo:detail,returnContext:context,lineageConfig:authoritativeReportLineageConfig(config,row)});};
   if(selected?.kind==='EVIDENCE_LINEAGE')return <AuthoritativeLineageDrill config={selected.lineageConfig||config} fetcher={fetcher} initial={{kind:'EVIDENCE',row:selected.row,context:{entityId:config.entityId,periodId:selected.lineageConfig?.periodId||config.periodId,accountCode:selected.row.account_code||null}}} onExit={()=>setSelected(selected.returnTo)}/>;
   if(selected?.kind==='CASH_FLOW_CLASSIFICATION')return <CashFlowDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence} onOpenLineage={openEvidenceLineage}/>;
   if(selected?.kind==='INTERCOMPANY_RECONCILIATION')return <IntercompanyDetail row={selected.row} returnContext={selected.returnContext} onBack={closeEvidence} onOpenLineage={openEvidenceLineage}/>;
