@@ -91,6 +91,9 @@ async function main(){
   assert.match(capitalMarkup,/Review mapped additions, amortization, and balances\./);assert.match(capitalMarkup,/>Load prepaid activity</);
   const groupMarkup=renderToStaticMarkup(<AuthoritativeReportsWorkspace config={config} fetcher={fetcher} initialCatalog={{category:'GROUP_AND_COMPARISON',query:'',preview:'TRIAL_BALANCE'}} workspaceTitle="Consolidation" workspaceDescription="Existing API readers only."/>);
   assert.match(groupMarkup,/Consolidation/);assert.match(groupMarkup,/Prior-period comparison/);assert.match(groupMarkup,/Intercompany reconciliation/);assert.match(groupMarkup,/Consolidation and elimination evidence/);
+  assert.match(groupMarkup,/Compare posted account balances with an earlier period\./);assert.match(groupMarkup,/Earlier period ID/);assert.match(groupMarkup,/placeholder="Enter period ID"/);assert.match(groupMarkup,/>Compare periods</);
+  assert.match(groupMarkup,/<details class="authoritative-secondary-disclosure authoritative-comparison-rules"><summary><span>Comparison rules<\/span><\/summary>/);assert.doesNotMatch(groupMarkup,/authoritative-comparison-rules" open/,'comparison rules must not lengthen the default report page');
+  assert.match(groupMarkup,/Missing balances remain missing and are never converted to zero\./);
   assert.deepEqual(DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,{category:'STATEMENTS',query:'',preview:'TRIAL_BALANCE'},'a direct Reports entry must reset the catalog rather than recover a browser cache');
   assert.deepEqual(normalizeAuthoritativeReportsCatalog({category:'GROUP_AND_COMPARISON',query:'cash',preview:'BALANCE_SHEET'}),{category:'GROUP_AND_COMPARISON',query:'cash',preview:'BALANCE_SHEET'},'a full-page evidence drill must retain its catalog category, query, and preview for Back');
   assert.deepEqual(normalizeAuthoritativeReportsCatalog({category:'not-a-category',query:42,preview:'unknown'}),DEFAULT_AUTHORITATIVE_REPORTS_CATALOG,'malformed Back context must fail back to the explicit Reports default');
@@ -138,6 +141,7 @@ async function main(){
   assert.equal((fullReport.match(/Configured entity/g)||[]).length,1,'the full statement must present its entity and period once in Report scope, not repeat them beside Back');
   assert.doesNotMatch(fullReport,/This page has no saved layout, export, delivery, or browser data fallback/);
   const workspace=fs.readFileSync('src/authoritative-reports-workspace.jsx','utf8');
+  assert.match(workspace,/No comparable balances found/,'the ready empty state must retain a concise, non-zero-inference message');
   const lineage=fs.readFileSync('src/authoritative-lineage-drill.jsx','utf8');
   const reportsView=fs.readFileSync('src/authoritative-reports-view.jsx','utf8');
   assert.doesNotMatch(reportsView,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,'the Reports presentation extraction must receive authoritative facts as slots');
