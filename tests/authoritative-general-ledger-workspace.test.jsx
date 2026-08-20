@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {AuthoritativeGeneralLedgerDetail,AuthoritativeGeneralLedgerWorkspace} from '../src/authoritative-general-ledger-workspace.jsx';
 import {refreshAuthoritativeGeneralLedger} from '../src/accounting-api.js';
@@ -15,6 +16,7 @@ test('General Ledger client requires a no-store scoped GET and validates immutab
   const bad=await refreshAuthoritativeGeneralLedger({config,fetcher:async()=>new Response(JSON.stringify({ok:true,data:[{...row,total_count:0}]}),{status:200})});assert.equal(bad.code,'ACCOUNTING_API_PROTOCOL');
 });
 test('General Ledger workspace is a retained read-only, contained-table surface',()=>{
+  const styles=fs.readFileSync('index.html','utf8');
   const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerWorkspace config={displayConfig} fetcher={async()=>new Response(JSON.stringify({ok:true,data:[]}),{status:200})}/>);
   for(const text of ['GENERAL LEDGER | POSTED EVIDENCE','Apply','Loading…','results'])assert.match(markup,new RegExp(text));
   assert.match(markup,/<button type="button" class="btn btn-sm" disabled="">Apply<\/button>/,'GL must block duplicate filter reads during loading');
@@ -33,6 +35,7 @@ test('General Ledger workspace is a retained read-only, contained-table surface'
   assert.match(source,/button\?\.closest\?\.\(["']\.table-wrap["']\)\?\.scrollTo\?\.\(\{\s*left:\s*tableX\.current,\s*behavior:\s*["']auto["']\s*\}\)/,'GL Back must restore the remounted table before returning focus to its exact row action');
   assert.match(source,/disabled:\s*loading\s*\|\|\s*offset\s*===\s*0/);assert.match(source,/disabled:\s*loading\s*\|\|\s*!canNext/,'GL paging must not issue overlapping reads while loading');
   assert.match(source,/environment\?\.scrollTo\?\.\(\{\s*top:\s*scrollY\.current,\s*behavior:\s*["']auto["']\s*\}\)/,'GL Back must retain the page position without depending on the global browser singleton');
+  assert.match(styles,/\.authoritative-journal-line-table,\.authoritative-general-ledger-table/,'General Ledger and Journal line tables must share the contained mobile table rule');
   assert.doesNotMatch(markup,/localStorage|seed\.js|>Export<|>Post journal<|>Create journal</i);
 });
 test('General Ledger line evidence is a full-page immutable snapshot with exact Back context',()=>{
