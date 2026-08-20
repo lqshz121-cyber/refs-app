@@ -217,6 +217,9 @@ async function main(){
     'dimension profitability rows must use the same concise detail action as core financial reports');
   assert.doesNotMatch(workspace,/authoritative-profitability-table[\s\S]*?<th>Evidence<\/th>[\s\S]*?>Open evidence<\/button>/,
     'dimension profitability must not expose a second action vocabulary for the same full-page drill');
+  assert.doesNotMatch(workspace,/<th>Evidence<\/th>|<th>Evidence status<\/th>|>Open evidence<\/button>/,
+    'every Reports workbench table must use the shared Details / View details action vocabulary');
+  assert.match(workspace,/<th>Status<\/th>/,'period comparison keeps its evidence state in a concise Status column');
   assert.match(workspace,/dimension:\{type:dimensionType,ref:dimensionRef\}/,'Back must retain the exact API dimension type and reference');
   assert.match(workspace,/authoritative-period-comparison-\$\{row\.statement_type\}/,'comparison rows must also open full-page evidence');
   assert.match(workspace,/reportsCatalog:normalizeAuthoritativeReportsCatalog/,'Back must restore the exact report category, finder query, and preview');
