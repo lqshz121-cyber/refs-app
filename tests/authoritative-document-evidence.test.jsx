@@ -19,8 +19,10 @@ const bill={business_document_id:'22222222-2222-4222-8222-222222222222',bill_no:
 const adjustment={business_adjustment_id:'44444444-4444-4444-8444-444444444444',adjustment_kind:'AP_VENDOR_CREDIT',business_document_id:null,source_adjustment_id:null,amount:10,currency:'USD',accounting_date:'2026-08-02',period_id:periodId,reason:'Retained credit evidence',status:'DRAFT',version:2,journal_entry_id:null,journal_status:null,journal_revision:null,created_at:'2026-08-02T00:00:00.000Z'};
 
 const list=renderToStaticMarkup(<AuthoritativeDocumentTable title="AP bills" documents={[bill]} kind="AP" onOpen={()=>{}}/>);
-assert.match(list,/Authoritative API rows only/);
-assert.match(list,/Open evidence/);
+assert.match(list,/1 bill/);
+assert.match(list,/Details/);
+assert.match(list,/View details/);
+assert.doesNotMatch(list,/Authoritative API rows only|Open evidence/);
 assert.match(list,/Open balance/);
 assert.match(list,/Evidence Vendor/);
 assert.match(list,/id="authoritative-document-22222222-2222-4222-8222-222222222222"/);
@@ -163,9 +165,12 @@ assert.equal(authoritativeLineageFor(mismatchedLineage,entityId),null,'a stale o
 const mismatchedDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={mismatchedLineage} kind="AP" entityId={entityId} onBack={()=>{}}/>);
 assert.match(mismatchedDetail,/BLOCKED[\s\S]*authoritative lineage unavailable/);
 
-const adjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={[adjustment]} onOpen={()=>{}}/>);
+const adjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={[adjustment]} kind="AP" onOpen={()=>{}}/>);
 assert.match(adjustmentList,/AP_VENDOR_CREDIT/);
-assert.match(adjustmentList,/Open evidence/);
+assert.match(adjustmentList,/1 adjustment/);
+assert.match(adjustmentList,/Details/);
+assert.match(adjustmentList,/View details/);
+assert.doesNotMatch(adjustmentList,/Authoritative adjustment rows only|Open evidence/);
 const adjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={adjustment} side="AP" entityId={entityId} config={displayConfig} returnContext={{view:{query:'Credit evidence',status:'POSTED',transactionType:'VENDOR_CREDIT',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
 assert.match(adjustmentDetail,/Back to AP adjustments/);
 assert.match(adjustmentDetail,/<details class="authoritative-return-context"><summary>List filters retained<\/summary>/,'adjustment Back context must use the same compact disclosure as Bill and Invoice evidence');
