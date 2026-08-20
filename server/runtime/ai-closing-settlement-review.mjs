@@ -27,7 +27,6 @@ function validRow(row){
     text(row.line_code,128)&&text(row.description,1000)&&['DEBIT','CREDIT','INFORMATIONAL'].includes(row.side)&&MONEY.test(row.amount||'')&&row.amount!=='0.0000'&&
     /^[A-Z]{3}$/.test(row.currency||'')&&nullableText(row.property_ref,128)&&nullableText(row.project_ref,128)&&nullableText(row.counterparty_name,200);
 }
-
 const blocked=(row,reason,rule='AI_CLOSING_SETTLEMENT_SOURCE_INVALID_V1')=>Object.freeze({
   schema_version:'AI_CLOSING_SETTLEMENT_FINDING_V1',finding_type:'CLOSING_SETTLEMENT_REVIEW',risk_level:'HIGH',rule_id:rule,
   source_document_id:row?.source_document_id??null,source_document_line_id:row?.source_document_line_id??null,source_payload_hash:row?.source_payload_hash??null,source_line_hash:row?.source_line_hash??null,
@@ -53,4 +52,3 @@ export function analyzeClosingSettlement(rows,{entityId,accountingPeriodId,limit
   const findings=Object.freeze([...classified,...imbalance]);
   return Object.freeze({schema_version:'AI_CLOSING_SETTLEMENT_REVIEW_BATCH_V1',current_accounting_period_id:accountingPeriodId,scanned_line_count:rows.length,finding_count:findings.length,findings,action_flags:ACTIONS});
 }
-
