@@ -60,6 +60,7 @@ assert.equal(nextAuthoritativeJournalWorkflowAction(journal,permissions,'9999999
 const returnContext={entityId,periodId,journalId:journal.journal_entry_id,journalRevision:journal.revision,journalCurrency:'USD',view:{query:'JE-100',status:'POSTED',from:'2026-08-01',through:'2026-08-31',page:2}};
 const detail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journal} entityId={entityId} returnContext={returnContext} onBack={()=>{}}/>);
 assert.match(detail,/authoritative-evidence-page/,'journal detail must use the full-page authoritative evidence frame');
+assert.match(detail,/<details class="authoritative-return-context"><summary>List filters retained<\/summary>/,'Journal Back context must remain available without occupying the full Back row');
 assert.match(detail,/Back to Journal entries/); assert.match(detail,/Configured entity/); assert.match(detail,/Scope identifiers/); assert.match(detail,/11111111-1111-4111-8111-111111111111/); assert.match(detail,/33333333-3333-4333-8333-333333333333/);assert.match(detail,/authoritative list revision 3/);
 assert.match(detail,/search JE-100/); assert.match(detail,/status POSTED/); assert.match(detail,/from Aug 1, 2026/); assert.match(detail,/through Aug 31, 2026/); assert.match(detail,/page 2/);
 assert.match(detail,/Journal entry JE-100/); assert.match(detail,/Journal evidence scope/); assert.match(detail,/No write or inferred drill authority/);
@@ -88,6 +89,7 @@ const journalView=fs.readFileSync(path.join(process.cwd(),'src','authoritative-j
 assert.doesNotMatch(journalView,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,'the journal presentation extraction must receive authoritative facts as slots');
 assert.match(list,/authoritative-journal-presentation/);
 assert.match(workspace,/restoreAuthoritativeReturnContext/,'Back must restore scroll and focus to the originating evidence control');
+assert.equal((workspace.match(/<summary>List filters retained<\/summary>/g)||[]).length,2,'ready and loading Journal detail states must share the compact return-context disclosure');
 assert.match(workspace,/const journalMatchesReturnContext/);
 assert.match(workspace,/context\?\.journalId === journal\.journal_entry_id/);
 assert.match(workspace,/context\?\.journalRevision === journal\.revision/);
