@@ -1,5 +1,6 @@
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ACTIONS=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});
+const SCHEDULE_READ_LIMIT=100;
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code});};
 const freeze=value=>{if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const nested of Object.values(value))freeze(nested);Object.freeze(value);}return value;};
 const falseActions=value=>value&&Object.keys(ACTIONS).every(key=>value[key]===false);
@@ -9,7 +10,7 @@ export function createAiAccountingApprovedDecisionService({sourceReader,classifi
   if(typeof sourceReader!=='function'||typeof classificationService?.analyze!=='function'||typeof scheduleReader!=='function'||typeof settingsAdapter?.buildInvoice!=='function')throw new TypeError('Approved AI decision service requires authoritative source, classification, schedule, and settings adapters.');
   return freeze({async analyze({tenantId,entityId,accountingPeriodId,limit=100}={}){
     if(!UUID.test(tenantId||'')||!UUID.test(entityId||'')||!UUID.test(accountingPeriodId||'')||!Number.isSafeInteger(limit)||limit<1||limit>500)fail('AI_ACCOUNTING_DECISION_SCOPE_INVALID','AI accounting decisions require tenant, entity, period, and limit 1-500.');
-    const [sources,classifications,schedules]=await Promise.all([sourceReader({tenantId,entityId,accountingPeriodId,limit}),classificationService.analyze({tenantId,entityId,accountingPeriodId,limit}),scheduleReader({tenantId,entityId,limit:100})]);
+    const [sources,classifications,schedules]=await Promise.all([sourceReader({tenantId,entityId,accountingPeriodId,limit}),classificationService.analyze({tenantId,entityId,accountingPeriodId,limit}),scheduleReader({tenantId,entityId,limit:SCHEDULE_READ_LIMIT})]);
     if(!Array.isArray(sources)||!Array.isArray(classifications?.results)||classifications.results.length!==sources.length||!Array.isArray(schedules))fail('AI_ACCOUNTING_DECISION_POPULATION_MISMATCH','Retained source and classification populations must match exactly.');
     const byLine=new Map(sources.map(row=>[row.source_document_line_id,row]));if(byLine.size!==sources.length)fail('AI_ACCOUNTING_DECISION_POPULATION_MISMATCH','Retained source lines must be unique.');
     const packets=[];
@@ -17,6 +18,7 @@ export function createAiAccountingApprovedDecisionService({sourceReader,classifi
       const source=byLine.get(classification.source_document_line_id);if(!source||classification.source_document_id!==source.source_document_id||classification.source_payload_hash!==source.source_payload_hash||classification.source_line_hash!==source.source_line_hash)fail('AI_ACCOUNTING_DECISION_POPULATION_MISMATCH','Classification lineage must match one retained source exactly.');
       const scheduleMatches=schedules.filter(row=>row.source_document_id===source.source_document_id&&row.source_payload_hash===source.source_payload_hash&&row.status==='PROPOSED'&&falseActions(row));
       if(scheduleMatches.length>1)fail('AI_ACCOUNTING_APPROVED_SETTINGS_UNAVAILABLE','Amortization schedule evidence is ambiguous.');
+      if(classification.classification==='PREPAID_AMORTIZATION'&&scheduleMatches.length===0&&schedules.length===SCHEDULE_READ_LIMIT)fail('AI_ACCOUNTING_AMORTIZATION_SCHEDULE_POPULATION_INCOMPLETE','The bounded amortization schedule read is full, so absence for this retained source cannot be proven.');
       const schedule=scheduleMatches.length===1?{schedule_id:scheduleMatches[0].ai_amortization_schedule_id,schedule_hash:scheduleMatches[0].proposal_hash}:null;
       packets.push(await settingsAdapter.buildInvoice({tenantId,entityId,accountingPeriodId,retainedSource:source,classification,amortizationScheduleTrace:schedule}));
     }

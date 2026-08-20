@@ -26,6 +26,14 @@ test('only one exact retained amortization schedule can bind and changed lineage
   await assert.rejects(service({scheduleReader:async()=>[schedule,{...schedule,ai_amortization_schedule_id:id(9),proposal_hash:hash('d')}]}).analyze({tenantId,entityId,accountingPeriodId:periodId}),error=>error.code==='AI_ACCOUNTING_APPROVED_SETTINGS_UNAVAILABLE');
 });
 
+test('a saturated bounded schedule read cannot turn an unobserved prepaid schedule into false absence',async()=>{
+  const schedule={source_document_id:documentId,source_payload_hash:hash('a'),status:'PROPOSED',ai_amortization_schedule_id:id(8),proposal_hash:hash('c'),can_create_draft:false,can_review:false,can_approve:false,can_post:false},prepaid={...classification,classification:'PREPAID_AMORTIZATION'},unrelated=Array.from({length:100},(_,index)=>({...schedule,ai_amortization_schedule_id:id(100+index),source_document_id:id(300+index),source_payload_hash:hash(String(index%10)),proposal_hash:hash(String((index+1)%10))}));
+  await assert.rejects(service({classificationService:{analyze:async()=>({results:[prepaid]})},scheduleReader:async()=>unrelated}).analyze({tenantId,entityId,accountingPeriodId:periodId}),error=>error.code==='AI_ACCOUNTING_AMORTIZATION_SCHEDULE_POPULATION_INCOMPLETE');
+  const exact={...schedule,status:'PROPOSED',can_create_draft:false,can_review:false,can_approve:false,can_post:false},calls=[];
+  await service({classificationService:{analyze:async()=>({results:[prepaid]})},scheduleReader:async()=>[exact,...unrelated.slice(0,99)],settingsAdapter:{buildInvoice:async input=>(calls.push(input),packet)}}).analyze({tenantId,entityId,accountingPeriodId:periodId});
+  assert.equal(calls.length,1);assert.deepEqual(calls[0].amortizationScheduleTrace,{schedule_id:exact.ai_amortization_schedule_id,schedule_hash:exact.proposal_hash});
+});
+
 test('reader or settings failure produces no model, JE, audit, or outbox command surface',async()=>{
   let buildCalls=0;
   await assert.rejects(service({sourceReader:async()=>{throw Object.assign(new Error('database unavailable'),{code:'SERIALIZATION_RETRY_EXHAUSTED'});},settingsAdapter:{buildInvoice:async()=>{buildCalls+=1;}}}).analyze({tenantId,entityId,accountingPeriodId:periodId}),error=>error.code==='SERIALIZATION_RETRY_EXHAUSTED');
