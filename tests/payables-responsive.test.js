@@ -34,6 +34,8 @@ assert.match(styles,/@media\s*\(max-width:720px\)[\s\S]*?\.authoritative-list-fi
   'phone widths must collapse authoritative Payables filters to one safe column');
 assert.match(styles,/\.authoritative-document-workspace,\.authoritative-document-workspace>\*,\.authoritative-document-table,\.authoritative-adjustment-table\{min-width:0;max-width:100%;\}/,
   'the authoritative workspace must remain shrinkable while tables own their horizontal scrolling');
+assert.match(styles,/\.authoritative-register-table,\.authoritative-coa-table,\.authoritative-journal-table,\.authoritative-document-table,\.authoritative-adjustment-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,
+  'phone-width Bills and Vendor credits must stay in contained scroll regions instead of lengthening the full page');
 assert.match(styles,/\.report-workbench\{margin:0;padding:14px 0 0;min-width:0;max-width:100%;\}/,
   'nested retained-evidence workbenches must remain shrinkable while the compact Reports hierarchy avoids redundant outer spacing');
 
