@@ -170,6 +170,7 @@ assert.match(readFileSync('src/ui.jsx','utf8'),/blocked: 'empty empty-state stat
 assert.match(css,/\.state-blocked\{border-color:var\(--qb-warn-line\)/,'The BLOCKED state must have a visible warning treatment without becoming a disabled action');
 assert.match(css,/\.authoritative-admitted-statements\{border-left:4px solid var\(--qb-ok\)/,'Signed admitted evidence must have a distinct retained-evidence boundary');
 assert.match(css,/\.authoritative-admitted-statements-table \.tbl\{min-width:900px/,'Signed statement columns must remain inside a contained table on narrow screens');
+assert.match(css,/\.authoritative-admitted-statements-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'Signed admitted statements must not stretch the whole page at narrow widths');
 assert.match(css,/@media \(max-width:430px\)\{\.authoritative-admitted-statements\{padding:16px;/,'Signed statement controls must stack at phone widths');
 assert.match(css,/\.authoritative-admitted-actions \.btn,[^\n]*min-height:44px/,'Signed statement controls must keep WCAG-sized touch targets');
 const appSource=readFileSync('src/authoritative-app.jsx','utf8');
