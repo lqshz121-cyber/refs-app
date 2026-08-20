@@ -147,6 +147,10 @@ assert.match(authoritativeShell,/from '\.\/ui\.jsx'/,
   'the presentation shell must reuse the local, self-authored rail icon vocabulary');
 assert.match(authoritativeShell,/ITEM_ICONS/,
   'each visible catalog entry must use a self-authored icon rather than an abbreviation badge');
+assert.match(authoritativeShell,/const GROUP_SHORT_LABELS = Object\.freeze\(/,
+  'primary workspace labels must use a stable compact vocabulary rather than first-word truncation');
+for(const shortLabel of ['Settings','Operations','Admin']) assert.match(authoritativeShell,new RegExp(`'[^']+':'${shortLabel}'`),
+  `${shortLabel} must remain a distinct readable primary workspace label`);
 assert.match(authoritativeShell,/<Icon name=\{ITEM_ICONS\[item\.route\] \|\| 'document'\} size=\{18\}\/>/,
   'the readable navigation row must render its icon at a compact, consistent size');
 assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|API_READ|Unavailable/,

@@ -34,6 +34,11 @@ assert.doesNotMatch(navMarkup, />API</); assert.doesNotMatch(navMarkup, />Unavai
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.doesNotMatch(navMarkup, /authoritative-new-disabled|\+ New/);
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
+assert.match(navMarkup, />Settings<\/span>/, 'Accounting Settings needs a distinct compact rail label');
+assert.match(navMarkup, />Operations<\/span>/, 'Accounting Operations must not share the Settings rail label');
+assert.match(navMarkup, />Admin<\/span>/, 'Administration must fit the primary rail without truncation');
+assert.doesNotMatch(navMarkup, /<span class="rail-label" aria-hidden="true">Accounting<\/span>/,
+  'two accounting workspaces must not collapse to the same visible primary label');
 assert.match(routeWinsMarkup, /<span>Auto Reconciliation<\/span>/,
   'the current route must select its navigation group even when an old expanded group remains');
 

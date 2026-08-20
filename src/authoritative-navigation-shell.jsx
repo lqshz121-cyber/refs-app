@@ -1,8 +1,22 @@
 import React from 'react';
 import { Icon } from './ui.jsx';
 
+const GROUP_SHORT_LABELS = Object.freeze({
+  'Control Center':'Control',
+  'Accounting Settings':'Settings',
+  'Source & Staging':'Source',
+  'Auto Reconciliation':'Auto',
+  'Journal Entry':'Journal',
+  'General Ledger':'General',
+  'Accounting Operations':'Operations',
+  'Close':'Close',
+  'Payables & Receivables':'Payables',
+  'Reports':'Reports',
+  'Administration':'Admin',
+});
+
 function railLabel(label) {
-  return label.split(/\s+/)[0] || label;
+  return GROUP_SHORT_LABELS[label] || label;
 }
 
 // These are deliberately a presentation map using the complete REFS shell's
