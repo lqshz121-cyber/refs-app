@@ -43,6 +43,9 @@ for(const text of ['Review posted journal lines.','READ ONLY','Journal identifie
 assert.doesNotMatch(journalMarkup,/Exact GET evidence|GET only|state-empty/,'Journal policy must not use implementation copy or the empty-state icon treatment');
 assert.match(journalMarkup,new RegExp(journalId));
 const sourceCode=readFileSync('src/authoritative-lineage-drill.jsx','utf8');
+const stylesheet=readFileSync('index.html','utf8');
+assert.match(sourceCode,/className="table-wrap authoritative-journal-lineage-table" role="region" tabIndex=\{0\} aria-label="Journal lineage lines; scroll horizontally"/,'Journal lineage lines must use a stable keyboard-scrollable region');
+assert.match(stylesheet,/\.authoritative-journal-lineage-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'Journal lineage lines must not stretch the whole page at narrow widths');
 for(const call of ['readAuthoritativeJournalEntryDetail','readAuthoritativeSourceDocumentDetail','refreshAuthoritativeGeneralLedger','refreshAuthoritativeFinancialStatements'])assert.match(sourceCode,new RegExp(call));
 assert.match(sourceCode,/journal\.entity_id===config\.entityId&&journal\.period_id===config\.periodId/);
 assert.match(sourceCode,/item\.period_id===config\.periodId&&item\.account_code===row\.account_code&&item\.currency===row\.currency/);
