@@ -225,9 +225,12 @@ async function main(){
   assert.doesNotMatch(workspace,/from ['"]\.\/(?:legacy-demo-app|data|seed|repo)/,'authoritative reports must never import local demonstration state');
   assert.doesNotMatch(workspace,/localStorage/,'authoritative reports must never persist report business state in browser storage');
   assert.match(workspace,/workspaceTitle='Reports center'/,'the API-only reports workspace must allow a formal direct authority entry without importing a demo component');
+  assert.match(workspace,/authoritative-report-workbench-actions" aria-label="Statement actions"/,'Statements must keep one compact refresh action row');
+  assert.doesNotMatch(workspace,/<div className="report-workbench-head"><b>\{REPORT_WORKBENCH_TABS\.find/,'the selected report category tab must not be repeated as another visible workbench heading');
   assert.match(workspace,/initialDimensionType='PROPERTY'/,'the direct authority entry must select only a declared API-backed dimension type');
   const css=fs.readFileSync('index.html','utf8');
   assert.match(css,/authoritative-report-shortcuts/,'Reports shortcuts must stack without clipping at narrow widths');
+  assert.match(css,/\.authoritative-report-workbench-actions\{justify-content:flex-end;\}/,'the remaining Statements action row must align without a duplicate category title');
   assert.match(css,/\.authoritative-core-report-shortcuts \.authoritative-report-shortcut\{min-height:44px/,'favorite reports must use one compact, consistent row height');
   assert.match(css,/@media\(max-width:720px\).*\.authoritative-core-report-shortcuts \.authoritative-report-shortcut small\{display:none;\}/s,'narrow Reports favorites must remove secondary copy instead of producing tall wrapped rows');
   assert.match(css,/authoritative-property-table/,'property rollforward tables must use contained horizontal scrolling rather than expanding the page');
