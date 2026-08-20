@@ -113,7 +113,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   const appliedScope=[
     state.status!=='ALL'?`Status: ${state.status}`:null,
     state.from?`From: ${state.from}`:null,
-    state.through?`Through: ${state.through}`:null,
+    state.through?`${bill?'To':'Through'}: ${state.through}`:null,
     state.counterparty!=='ALL'?`${bill?'Vendor':'Customer'}: ${state.counterparty}`:null,
     bill&&state.accountCode!=='ALL'?`Category: ${state.accountCode}`:null,
     bill&&state.transactionType!=='ALL'?`Transaction type: ${state.transactionType==='BILLS'?'Bills':'Vendor credits'}`:null,
@@ -140,9 +140,9 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     <div className="filter-bar authoritative-list-filters authoritative-compact-list-filters" role="search" aria-label={`${bill?'Payables':'Receivables'} presentation filters`}>
       <label>Search <input value={state.query} onChange={event=>change({query:event.target.value})} placeholder={bill?'Bill, vendor, account, or reference':'Invoice, customer, account, or reference'}/></label>
       <label>Status <select value={state.status} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
-      <details className="authoritative-list-more-filters" open={moreFilterCount>0||undefined}><summary>More filters{moreFilterCount?` (${moreFilterCount})`:''}</summary><div className="authoritative-list-more-filter-grid">
+      <details className="authoritative-list-more-filters" open={moreFilterCount>0||undefined}><summary>{bill?'Filter':'More filters'}{moreFilterCount?` (${moreFilterCount})`:''}</summary><div className="authoritative-list-more-filter-grid">
         <label>From <input type="date" value={state.from} onChange={event=>change({from:event.target.value})}/></label>
-        <label>Through <input type="date" value={state.through} onChange={event=>change({through:event.target.value})}/></label>
+        <label>{bill?'To':'Through'} <input type="date" value={state.through} onChange={event=>change({through:event.target.value})}/></label>
         <label>{bill?'Vendor':'Customer'} <select value={state.counterparty} onChange={event=>change({counterparty:event.target.value})}><option value="ALL">{bill?'All vendors':'All customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
         {bill&&(accountCodes.length>0?<label>Category <select value={state.accountCode} onChange={event=>change({accountCode:event.target.value})}><option value="ALL">All categories</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category unavailable for this result.</span>)}
       </div></details>
