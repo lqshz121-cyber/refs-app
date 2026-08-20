@@ -4381,19 +4381,24 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
   // retaining a completed 185 stage.  Remove only its synthetic stage facts;
   // production down remains fail-closed while any checkpoint is retained.
   await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
+  // The test starts at 251.  Remove both WBS follow-ups before the existing
+  // 193..181 rollback sequence; otherwise 182/181 remain installed and this
+  // assertion is testing the wrong historical contract.
+  await migrateDown(adminPool); // 251
+  await migrateDown(adminPool); // 250
   await migrateDown(adminPool); // 193 is the isolated TEST_ONLY Bank Match configuration workflow.
   await migrateDown(adminPool); // 192 is the Stage1-compatible TEST_ONLY Match source boundary.
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
+  await migrateDown(adminPool); // 191
+  await migrateDown(adminPool); // 190
+  await migrateDown(adminPool); // 189
+  await migrateDown(adminPool); // 188
+  await migrateDown(adminPool); // 187
+  await migrateDown(adminPool); // 186
+  await migrateDown(adminPool); // 185
+  await migrateDown(adminPool); // 184
+  await migrateDown(adminPool); // 183
+  await migrateDown(adminPool); // 182
+  await migrateDown(adminPool); // 181 owns the restored cap/read contract.
   const rolledBack=(await adminPool.query(`SELECT
     to_regprocedure('refs_get_reconciliation_worksheet_item(uuid,uuid,uuid,uuid)') IS NULL item_reader_removed,
     to_regprocedure('refs_list_reconciliation_adjustment_evidence(uuid,uuid,integer)') IS NOT NULL evidence_retained,
@@ -4402,19 +4407,21 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     pg_get_functiondef('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) LIKE '%NOT BETWEEN 1 AND 500%' function_cap_restored,
     pg_get_functiondef('refs_guard_reconciliation_adjustment_lifecycle()'::regprocedure) LIKE '%adjustment.bank_delta<>(SELECT source.amount%' item_guard_retained`)).rows[0];
   assert.deepEqual(rolledBack,{item_reader_removed:true,evidence_retained:true,import_cap_restored:true,row_cap_restored:true,function_cap_restored:true,item_guard_retained:true});
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool); // Restore 192 after the older Bank rollback assertion.
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
+  await migrateUp(adminPool); // 181
+  await migrateUp(adminPool); // 182
+  await migrateUp(adminPool); // 183
+  await migrateUp(adminPool); // 184
+  await migrateUp(adminPool); // 185
+  await migrateUp(adminPool); // 186
+  await migrateUp(adminPool); // 187
+  await migrateUp(adminPool); // 188
+  await migrateUp(adminPool); // 189
+  await migrateUp(adminPool); // 190
+  await migrateUp(adminPool); // 191
+  await migrateUp(adminPool); // 192
+  await migrateUp(adminPool); // 193
+  await migrateUp(adminPool); // 250
+  await migrateUp(adminPool); // 251
   const restored=(await adminPool.query(`SELECT
     to_regprocedure('refs_get_reconciliation_worksheet_item(uuid,uuid,uuid,uuid)') IS NOT NULL item_reader_restored,
     to_regprocedure('refs_list_reconciliation_adjustment_evidence(uuid,uuid,integer)') IS NOT NULL evidence_retained,
@@ -4466,19 +4473,20 @@ pgTest('WBS TEST Bank monthly identity admits legacy July hashes, isolates month
   const january=makeObservation({month:'01',date:'2026-01-11',identity:'bank-monthly-jan-v1'}),february=makeObservation({month:'02',date:'2026-02-11',identity:'bank-monthly-feb-v1'});
   const januaryResult=await importer.createWbsControlledTestBankScope({...ids,periodId:periodByCode.get('2026-01'),companyCode:'WBPA',observation:january,bankAccountRef:'WBS_TEST_BANK_2026_01',idempotencyKey:'bank-monthly-identity-jan'});
   const februaryResult=await importer.createWbsControlledTestBankScope({...ids,periodId:periodByCode.get('2026-02'),companyCode:'WBPA',observation:february,bankAccountRef:'WBS_TEST_BANK_2026_02',idempotencyKey:'bank-monthly-identity-feb'});
-  assert.equal(januaryResult.transaction_count,1);assert.equal(februaryResult.transaction_count,1);
+  assert.equal(januaryResult.transaction_count,1);assert.equal(februaryResult.transaction_count,1);for(const result of [januaryResult,februaryResult])assert.deepEqual(Object.fromEntries(['can_import','can_match','can_create_draft','can_post'].map(key=>[key,result[key]])),{can_import:false,can_match:false,can_create_draft:false,can_post:false});
   const retained=(await adminPool.query(`SELECT ir.bank_account_ref,ir.source_record_hash,re.source_record_id,re.payload_hash,re.payload_ref,d.source_ref
     FROM wbs_controlled_test_bank_import_row ir JOIN raw_event re ON re.tenant_id=ir.tenant_id AND re.raw_event_id=ir.raw_event_id
     JOIN source_document d ON d.tenant_id=ir.tenant_id AND d.entity_id=ir.entity_id AND d.source_document_id=ir.source_document_id
     WHERE ir.tenant_id=$1 AND ir.entity_id=$2 ORDER BY ir.bank_account_ref`,[ids.tenantId,ids.entityId])).rows;
   assert.deepEqual(retained.map(row=>row.bank_account_ref),['WBS_TEST_BANK_2026_01','WBS_TEST_BANK_2026_02']);
   for(const row of retained){assert.equal(row.source_record_hash,sourceHash);assert.equal(row.payload_hash,sourceHash);assert.equal(row.source_record_id,`test-bank:${row.bank_account_ref.toLowerCase()}:${sourceHash.slice(7,31)}`);assert.ok(row.payload_ref.includes(`/bank/${row.bank_account_ref.toLowerCase()}/`));assert.equal(row.source_ref,row.payload_ref);}
-  const before=(await adminPool.query("SELECT (SELECT count(*)::int FROM import_batch WHERE tenant_id=$1) batches,(SELECT count(*)::int FROM raw_event WHERE tenant_id=$1) raw,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank",[ids.tenantId])).rows[0];
+  const before=(await adminPool.query("SELECT (SELECT count(*)::int FROM import_batch WHERE tenant_id=$1) batches,(SELECT count(*)::int FROM raw_event WHERE tenant_id=$1) raw,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage WHERE tenant_id=$1) stages",[ids.tenantId])).rows[0];
   const changed={...january,provider_content_sha256:createHash('sha256').update('bank-monthly-jan-changed').digest('hex'),rows:[{...january.rows[0],amount:'11.0000'}],observation_hash:hash('bank-monthly-jan-changed')};
   await assert.rejects(importer.createWbsControlledTestBankScope({...ids,periodId:periodByCode.get('2026-01'),companyCode:'WBPA',observation:changed,bankAccountRef:'WBS_TEST_BANK_2026_01',idempotencyKey:'bank-monthly-identity-jan-changed'}),error=>error.code==='23505');
-  assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM import_batch WHERE tenant_id=$1) batches,(SELECT count(*)::int FROM raw_event WHERE tenant_id=$1) raw,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank",[ids.tenantId])).rows[0],before);
-  // Clear this test's synthetic 185 staging facts so rollback can cross 188/187/186
-  // and 185 to reach 183, whose cross-month identity conflict is under test.
+  assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM import_batch WHERE tenant_id=$1) batches,(SELECT count(*)::int FROM raw_event WHERE tenant_id=$1) raw,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage WHERE tenant_id=$1) stages",[ids.tenantId])).rows[0],before);
+  // Clear this test's synthetic checkpoints.  250 has already been proven to
+  // reject their disposal before this explicit fixture cleanup; 185 must now
+  // roll back normally rather than be used as a second, false guard.
   await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
   await migrateDown(adminPool); // 193 is the isolated TEST_ONLY Bank Match configuration workflow.
   await migrateDown(adminPool); // 192 is above the monthly Bank identity migration.
@@ -4490,8 +4498,9 @@ pgTest('WBS TEST Bank monthly identity admits legacy July hashes, isolates month
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
-  await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
+  await migrateDown(adminPool); // 185
   await migrateUp(adminPool);
+  await migrateUp(adminPool); // Restore 185 through 251 after fixture rollback.
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool); // Restore 192 after the monthly identity rollback assertion.
@@ -4551,8 +4560,11 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
   const stagedCall=async({changed=false}={})=>{const session=await sessionProvider(ids,actor,permissions)(),client=await runtimePool.connect();try{await client.query('BEGIN');await client.query('SET LOCAL ROLE refs_app');await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);const requestHash=(await client.query('SELECT refs_create_wbs_controlled_test_bank_scope_hash($1,$2,$3,$4,$5::jsonb,$6) request_hash',[ids.tenantId,ids.entityId,periodId,'WBPA',JSON.stringify(observation),'WBS_TEST_BANK_2026_01'])).rows[0].request_hash,begin=(await client.query('SELECT refs_begin_wbs_test_bank_staged_import($1,$2,$3,$4,$5::jsonb,$6,$7,$8) result',[ids.tenantId,ids.entityId,periodId,'WBPA',JSON.stringify(observation),'WBS_TEST_BANK_2026_01',idempotencyKey,requestHash])).rows[0].result,chunk=rows.slice(0,100);if(changed)chunk[0]={...chunk[0],amount:'2.0000'};const result=(await client.query('SELECT refs_append_wbs_test_bank_staged_chunk($1,$2,$3,$4,$5::jsonb,$6) result',[ids.tenantId,ids.entityId,begin.stage_id,0,JSON.stringify(chunk),`${idempotencyKey}:chunk:0`])).rows[0].result;await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}};
   const appendRemainder=async stageId=>{const session=await sessionProvider(ids,actor,permissions)(),client=await runtimePool.connect();try{await client.query('BEGIN');await client.query('SET LOCAL ROLE refs_app');await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);for(let chunkIndex=1;chunkIndex<3;chunkIndex++)await client.query('SELECT refs_append_wbs_test_bank_staged_chunk($1,$2,$3,$4,$5::jsonb,$6)',[ids.tenantId,ids.entityId,stageId,chunkIndex,JSON.stringify(rows.slice(chunkIndex*100,(chunkIndex+1)*100)),`${idempotencyKey}:chunk:${chunkIndex}`]);await client.query('COMMIT');return stageId;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}};
   const finalizeCall=async(stageId,statementTimeout=null)=>{const session=await sessionProvider(ids,actor,permissions)(),client=await runtimePool.connect();try{await client.query('BEGIN');await client.query('SET LOCAL ROLE refs_app');await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);if(statementTimeout)await client.query("SELECT set_config('statement_timeout',$1,true)",[statementTimeout]);const result=(await client.query('SELECT refs_finalize_wbs_test_bank_staged_import($1,$2,$3) result',[ids.tenantId,ids.entityId,stageId])).rows[0].result;await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}};
-  const firstStage=await stagedCall();assert.equal(firstStage.idempotent,false);assert.equal((await stagedCall()).idempotent,true);await assert.rejects(stagedCall({changed:true}),error=>error.code==='23505');
+  const firstStage=await stagedCall();assert.equal(firstStage.idempotent,false);assert.deepEqual(Object.fromEntries(['can_import','can_match','can_create_draft','can_post'].map(key=>[key,firstStage[key]])),{can_import:false,can_match:false,can_create_draft:false,can_post:false});assert.equal((await stagedCall()).idempotent,true);await assert.rejects(stagedCall({changed:true}),error=>error.code==='23505');
   const partial=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM reconciliation WHERE tenant_id=$1) reconciliations,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports",[ids.tenantId])).rows[0];assert.deepEqual(partial,{staged:100,bank:0,reconciliations:0,imports:0});
+  const changedUnpersisted=[...rows.slice(100,200)];changedUnpersisted[0]={...changedUnpersisted[0],amount:'2.0000'};
+  await assert.rejects((async()=>{const session=await sessionProvider(ids,actor,permissions)(),client=await runtimePool.connect();try{await client.query('BEGIN');await client.query('SET LOCAL ROLE refs_app');await client.query('SELECT refs_bootstrap_context($1)',[session.contextToken]);await client.query('SELECT refs_append_wbs_test_bank_staged_chunk($1,$2,$3,$4,$5::jsonb,$6)',[ids.tenantId,ids.entityId,firstStage.stage_id,1,JSON.stringify(changedUnpersisted),`${idempotencyKey}:chunk:1`]);await client.query('COMMIT');}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}})(),error=>error.code==='23505');
+  assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM reconciliation WHERE tenant_id=$1) reconciliations,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports",[ids.tenantId])).rows[0],partial);
   const stageId=await appendRemainder(firstStage.stage_id);
   await adminPool.query("CREATE FUNCTION refs_test_delay_wbs_bank_finalize() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.05); RETURN NEW; END $$");
   await adminPool.query("CREATE TRIGGER refs_test_delay_wbs_bank_finalize BEFORE INSERT ON import_batch FOR EACH ROW WHEN (NEW.connector_code='WBS_TEST') EXECUTE FUNCTION refs_test_delay_wbs_bank_finalize()");
@@ -4566,6 +4578,11 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
   await adminPool.query('DROP TRIGGER refs_test_delay_wbs_bank_finalize ON import_batch');await adminPool.query('DROP FUNCTION refs_test_delay_wbs_bank_finalize()');
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM reconciliation WHERE tenant_id=$1) reconciliations,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports",[ids.tenantId])).rows[0],{staged:201,bank:201,reconciliations:1,imports:1});
   const beforeDown=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0];
+  await migrateDown(adminPool); // 251 is the independent read-only Settings boundary.
+  await assert.rejects(migrateDown(adminPool),error=>error.code==='55006'); // 250 refuses to discard the immutable checkpoint payload.
+  assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0],beforeDown);
+  await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
+  await migrateDown(adminPool); // 250 after explicit test-fixture disposal.
   await migrateDown(adminPool); // 193 is the isolated TEST_ONLY Bank Match configuration workflow.
   await migrateDown(adminPool); // 192 is above staged Bank import 185.
   await migrateDown(adminPool);
@@ -4574,8 +4591,12 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
   await migrateDown(adminPool);
   await migrateDown(adminPool);
   await migrateDown(adminPool);
-  await assert.rejects(migrateDown(adminPool),error=>error.code==='55006');
-  assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0],beforeDown);
+  // 185's retained-checkpoint guard correctly sees the explicit fixture
+  // disposal above, so its down migration must now succeed.  The 250 guard
+  // was already exercised before disposal; do not misattribute this layer.
+  await migrateDown(adminPool); // 185
+  assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank",[ids.tenantId])).rows[0],{bank:beforeDown.bank});
+  await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
@@ -4584,6 +4605,49 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
   await migrateUp(adminPool);
   await migrateUp(adminPool);
   await migrateUp(adminPool);
+  await migrateUp(adminPool);
+  await migrateUp(adminPool); // Restore 185 through 251 after the fixture-only rollback.
+});
+
+pgTest('AI reads exactly one approved entity-period settings snapshot and rejects missing or drifted child bindings without writes',async()=>{
+  const ids=await seed({status:'DRAFT',attachmentStatus:null}),actor='ai-settings-reader',permissions=['AI.ACCOUNTING.SETTINGS.VIEW'];
+  const period=(await adminPool.query('SELECT period_id,period_code,starts_on,ends_on FROM accounting_period WHERE tenant_id=$1 AND entity_id=$2 AND period_id=$3',[ids.tenantId,ids.entityId,ids.periodId])).rows[0];
+  const hashJson=async value=>(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) AS value',[JSON.stringify(value)])).rows[0].value;
+  const coaRoles=['ACCUMULATED_AMORTIZATION','ACCUMULATED_DEPRECIATION','ACCRUED_LIABILITY','AP','AR','CASH','CWIP','CUSTOMER_DEPOSIT_LIABILITY','DEFERRED_REVENUE','EQUITY','ESCROW','EXPENSE','FIXED_ASSET','INTERCOMPANY_CLEARING','INTERCOMPANY_DUE_FROM','INTERCOMPANY_DUE_TO','INTERCOMPANY_ELIMINATION','INTEREST','LOAN','PREPAID','RETAINED_EARNINGS','REVENUE','SECURITY_DEPOSIT_ASSET','TAX_PAYABLE'];
+  const coaClass=role=>['EXPENSE','INTEREST'].includes(role)?'EXPENSE':role==='REVENUE'?'REVENUE':['EQUITY','RETAINED_EARNINGS','INTERCOMPANY_ELIMINATION'].includes(role)?'EQUITY':['AP','ACCRUED_LIABILITY','LOAN','DEFERRED_REVENUE','TAX_PAYABLE','CUSTOMER_DEPOSIT_LIABILITY','INTERCOMPANY_DUE_TO'].includes(role)?'LIABILITY':'ASSET';
+  const coaAccounts=coaRoles.map((role,index)=>({role,account_code:String(110000+index).padStart(6,'0'),account_class:coaClass(role),account_type:'CURRENT',dimension_requirements:[],effective_from:'2026-01-01',effective_to:null,status:'ACTIVE',posting_allowed:true}));
+  const children={
+    coa:{family:'AI_ACCOUNTING_COA_V1',snapshot:{schema_version:'AI_ACCOUNTING_COA_V1',settings:{currency:'USD',accounts:coaAccounts}}},
+    vendor_treatment:{family:'AI_ACCOUNTING_VENDOR_TREATMENT_V1',snapshot:{schema_version:'AI_ACCOUNTING_VENDOR_TREATMENT_V1',settings:{default_treatment:'BLOCKED',vendor_rules:[{rule_id:'vendor-1',vendor_ref:'vendor-1',aliases:['Vendor One'],contract_keys:['contract_id'],service_keys:['service_code'],treatment:'EXPENSE',payment_terms_days:30,recurring:false,duplicate_normalization:true,source_requirements:['invoice_no'],effective_from:'2026-01-01',effective_to:null}]}}},
+    project_property_cost_code:{family:'AI_ACCOUNTING_PROJECT_PROPERTY_COST_CODE_V1',snapshot:{schema_version:'AI_ACCOUNTING_PROJECT_PROPERTY_COST_CODE_V1',settings:{default_capitalization_treatment:'BLOCKED',dimension_rules:[{rule_id:'qualifying-project-1',scope_level:'PROJECT',project_ref:'project-1',property_ref:null,cost_code_ref:null,member_ref:null,ownership_requirement:'OPTIONAL',member_requirement:'OPTIONAL',capitalization_treatment:'CWIP',cwip_account_role:'CWIP',status:'ACTIVE',effective_from:'2026-01-01',effective_to:null,completion_date:null,pis_date:null}]}}},
+    period_close_policy:{family:'AI_ACCOUNTING_PERIOD_CLOSE_POLICY_V1',snapshot:{schema_version:'AI_ACCOUNTING_PERIOD_CLOSE_POLICY_V1',settings:{period_id:ids.periodId,period_code:period.period_code,period_start:period.starts_on.toISOString().slice(0,10),period_end:period.ends_on.toISOString().slice(0,10),period_status:'OPEN',cutoff_date:'2026-07-31',accrual_cutoff_date:'2026-07-31',prepaid_boundary_date:'2026-07-31',allow_post:true,posting_lock:false,hard_lock:false,soft_lock:false,reversal_policy:'NONE',prior_period_adjustment_policy:'BLOCKED',override_policy:'CONTROLLER_ONLY',business_calendar:'US',non_business_dates:[]}}},
+    tax:{family:'AI_ACCOUNTING_TAX_V1',snapshot:{schema_version:'AI_ACCOUNTING_TAX_V1',settings:{jurisdiction:'US',treatment:'GROSS',allocation_method:'STRAIGHT_LINE_DAILY',allocation_precision:'0.0001',coverage_start:period.starts_on.toISOString().slice(0,10),coverage_end:period.ends_on.toISOString().slice(0,10),residual_rule:'EXPENSE',expense_account_role:'EXPENSE',prepaid_account_role:'PREPAID',accrual_account_role:'ACCRUED_LIABILITY',tax_codes:[{code:'US-GROSS',rate:'0.0000',basis:'GROSS',recoverability:'NON_RECOVERABLE',expense_treatment:'EXPENSE',evidence_requirements:['invoice_no'],effective_from:'2026-01-01',effective_to:null}],effective_from:'2026-01-01',effective_to:null}}},intercompany:{family:'AI_ACCOUNTING_INTERCOMPANY_V1',snapshot:{schema_version:'AI_ACCOUNTING_INTERCOMPANY_V1',settings:{enabled:true,clearing_account_role:'INTERCOMPANY_CLEARING',entities:[{company_code:'ICPARTNER',counterparty_entity_id:'11111111-1111-4111-8111-111111111111',counterparty_approval_id:'22222222-2222-4222-8222-222222222222',counterparty_approval_hash:'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',currency:'USD',dimension_requirements:[],due_to_account_role:'INTERCOMPANY_DUE_TO',due_from_account_role:'INTERCOMPANY_DUE_FROM',elimination_account_role:'INTERCOMPANY_ELIMINATION',effective_from:'2026-01-01',effective_to:null}]}}},
+    materiality:{family:'AI_ACCOUNTING_MATERIALITY_V1',snapshot:{schema_version:'AI_ACCOUNTING_MATERIALITY_V1',settings:{amount_drop_ratio:'0.5000',amount_drop_window_days:30,ap_aging_amount:'100.0000',ap_stale_days:30,balance_dormant_days:90,budget_variance_amount:'100.0000',currency:'USD',duplicate_amount:'100.0000',effective_from:'2026-01-01',effective_to:null,financial_statement_amount:'100.0000',loan_difference_amount:'100.0000',loan_excess_draw_amount:'100.0000',manual_je_amount:'100.0000',manual_round_amount:'1.0000',minimum_absolute_balance:'1.0000',minimum_open_amount:'1.0000',near_duplicate_amount:'100.0000',vendor_frequency_count:5,vendor_frequency_window_days:30}}},approval_thresholds:{family:'AI_ACCOUNTING_APPROVAL_THRESHOLDS_V1',snapshot:{schema_version:'AI_ACCOUNTING_APPROVAL_THRESHOLDS_V1',settings:{expense_amount_threshold:'100.0000',prepaid_amount_threshold:'100.0000',accrual_amount_threshold:'100.0000',cwip_amount_threshold:'100.0000',currency:'USD',approval_levels:['DRAFT','REVIEW','APPROVE','POST'].map(action=>({workflow:'AP',action,risk_band:'LOW',confidence_band:'HIGH',minimum_amount:'0.0000',maximum_amount:'999999.0000',preparer_role:'AP_PREPARER',reviewer_role:'AP_REVIEWER',approver_role:'CONTROLLER',poster_role:'GL_POSTER',override_policy:'CONTROLLER_ONLY',sod_constraints:['PREPARER_NE_REVIEWER','PREPARER_NE_APPROVER','PREPARER_NE_POSTER','REVIEWER_NE_APPROVER','REVIEWER_NE_POSTER','APPROVER_NE_POSTER'],effective_from:'2026-01-01',effective_to:null}))}}}
+  };
+  children.approval_thresholds.snapshot.settings.approval_levels=children.approval_thresholds.snapshot.settings.approval_levels.map(level=>({...level,submitter_role:level.preparer_role,submit_permission:'GL.JE.SUBMIT'}));
+  children.approval_thresholds.snapshot.settings.classification_thresholds=['EXPENSE','PREPAID','ACCRUAL','CAPITALIZATION','PAYMENT','LOAN','REVENUE','DEPOSIT','INTERCOMPANY','REIMBURSEMENT','FIXED_ASSET','TAX','CLOSING_COST','RECLASS','REVERSAL'].map(classification=>({classification,risk_band:'LOW',confidence_band:'HIGH',workflow:'STANDARD',minimum_amount:'0.0000',maximum_amount:'999999.0000',effective_from:'2026-01-01',effective_to:null}));
+  children.report_mapping={family:'AI_ACCOUNTING_REPORT_MAPPING_V1',snapshot:{schema_version:'AI_ACCOUNTING_REPORT_MAPPING_V1',settings:{currency:'USD',account_mappings:coaAccounts.map((account,index)=>({account_role:account.role,account_code:account.account_code,statement:account.account_class==='REVENUE'||account.account_class==='EXPENSE'?'IS':'BS',normal_balance:account.account_class==='LIABILITY'||account.account_class==='EQUITY'||account.account_class==='REVENUE'||['ACCUMULATED_DEPRECIATION','ACCUMULATED_AMORTIZATION'].includes(account.role)?'CREDIT':'DEBIT',contra:['ACCUMULATED_DEPRECIATION','ACCUMULATED_AMORTIZATION'].includes(account.role),cash_flow_class:index===3?'OPERATING':'NON_CASH',report_row_code:`ROW_${account.role}`,effective_from:'2026-01-01',effective_to:null}))}}};
+  children.loan_capitalization_policy={family:'AI_ACCOUNTING_LOAN_CAPITALIZATION_POLICY_V1',snapshot:{schema_version:'AI_ACCOUNTING_LOAN_CAPITALIZATION_POLICY_V1',settings:{currency:'USD',loan_purpose:'QUALIFYING_ASSET_ONLY',capitalization_start_policy:'WHEN_QUALIFYING_ACTIVITY_STARTS',suspension_policy:'PAUSE_DURING_EXTENDED_SUSPENSION',cessation_policy:'ON_READY_FOR_INTENDED_USE',eligible_interest_policy:'ACTUAL_INTEREST',eligible_fee_policy:'DIRECT_FEES_ONLY',expense_account_role:'EXPENSE',cwip_account_role:'CWIP',fixed_asset_account_role:'FIXED_ASSET',materiality_amount:'100.0000',qualifying_combinations:[{project_ref:'project-1',property_ref:null,asset_ref:null,effective_from:'2026-01-01',effective_to:null}],required_evidence:['loan_agreement','interest_statement'],effective_from:'2026-01-01',effective_to:null}}};
+  const refs={};let version=1;
+  for(const [key,entry] of Object.entries(children)){
+    const settingSnapshotId=randomUUID(),snapshotHash=await hashJson(entry.snapshot);refs[key]={setting_snapshot_id:settingSnapshotId,version:1,snapshot_hash:snapshotHash};
+    await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+      VALUES($1,$2,$3,$4,'ENTITY',$3::uuid::text,1,'2026-01-01','2027-01-01','APPROVED',$5::jsonb,$6,'settings-maker','settings-approver',now())`,[settingSnapshotId,ids.tenantId,ids.entityId,entry.family,JSON.stringify(entry.snapshot),snapshotHash]);
+  }
+  const parentSnapshot={schema_version:'AI_ACCOUNTING_ENTITY_PERIOD_SETTINGS_SNAPSHOT_V1',company_code:'WBPA',period_id:ids.periodId,period_code:period.period_code,period_start:period.starts_on.toISOString().slice(0,10),period_end:period.ends_on.toISOString().slice(0,10),currency:'USD',...refs};
+  const parentHash=await hashJson(parentSnapshot),parentId=randomUUID();
+  await adminPool.query(`INSERT INTO setting_snapshot(setting_snapshot_id,tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2,$3,'AI_ACCOUNTING_ENTITY_PERIOD_SETTINGS_V1','ENTITY',$3::uuid::text,$4,'2026-01-01','2027-01-01','APPROVED',$5::jsonb,$6,'settings-maker','settings-approver',now())`,[parentId,ids.tenantId,ids.entityId,version,JSON.stringify(parentSnapshot),parentHash]);
+  // Issue the DB-owned context before the zero-write baseline.  The reader
+  // itself must remain a pure no-store read, including on rejection.
+  const readerSession=await trustedSession(ids,actor,permissions),failureSession=await trustedSession(ids,`${actor}-failure`,permissions);
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>readerSession});
+  const failureReader=new PostgresAccountingKernel(runtimePool,{sessionProvider:async()=>failureSession});
+  const dto=await reader.readApprovedWbsAiEntityPeriodSettings({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,readOnly:true});
+  assert.equal(dto.settings_snapshot_id,parentId);assert.equal(dto.settings_hash,parentHash);assert.equal(dto.settings_version,1);assert.equal(dto.schema_version,'WBS_AI_APPROVED_ENTITY_PERIOD_SETTINGS_V1');assert.equal(dto.approval_status,'APPROVED');assert.equal(dto.coa.settings.accounts.length,coaRoles.length);assert.equal(dto.coa.settings.accounts.find(account=>account.role==='AP').account_code,'110003');assert.equal(dto.coa.settings.accounts.find(account=>account.role==='INTERCOMPANY_DUE_TO').status,'ACTIVE');assert.equal(dto.coa.settings.accounts.find(account=>account.role==='AR').status,'ACTIVE');assert.equal(dto.vendor_treatment.settings.default_treatment,'BLOCKED');assert.equal(dto.can_post,false);
+  const beforeFailure=(await adminPool.query("SELECT (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1) audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM source_document WHERE tenant_id=$1) source,(SELECT count(*)::int FROM staging_item WHERE tenant_id=$1) staging",[ids.tenantId])).rows[0];
+  await assert.rejects(failureReader.readApprovedWbsAiEntityPeriodSettings({tenantId:ids.tenantId,entityId:ids.entityId,periodId:randomUUID(),readOnly:true}),error=>error.code==='23514');
+  const afterFailure=(await adminPool.query("SELECT (SELECT count(*)::int FROM audit_event WHERE tenant_id=$1) audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox,(SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journals,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM source_document WHERE tenant_id=$1) source,(SELECT count(*)::int FROM staging_item WHERE tenant_id=$1) staging",[ids.tenantId])).rows[0];assert.deepEqual(afterFailure,beforeFailure);
 });
 
 pgTest('WBS H1 TEST_ONLY period provisioning creates six exact OPEN months idempotently and rejects conflicts before partial inserts',async()=>{

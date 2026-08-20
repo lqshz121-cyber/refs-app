@@ -3,6 +3,7 @@ import {canonicalRequestHash} from './request-hash.mjs';
 import {validateWbsSnapshotPackage} from './wbs-snapshot-package.mjs';
 import {validateWbsAutoRecTransitionContract} from './wbs-autorec-transition-contract.mjs';
 import {validateWbsSignedBankAdmission} from './wbs-signed-bank-admission.mjs';
+import {validateApprovedWbsAiEntityPeriodSettings} from './wbs-ai-approved-settings-dto.mjs';
 
 function assertTrustedSession(session){
   if(!session||session.trusted!==true||typeof session.contextToken!=='string'||session.contextToken.length<32)throw new KernelError('TRUSTED_SESSION_REQUIRED','Kernel session requires an opaque DB-issued context token from authenticated middleware');
@@ -20,6 +21,7 @@ function publicDate(value){
 
 const WBS_TEST_BANK_FINALIZE_STATEMENT_TIMEOUT='120s';
 const WBS_TEST_BANK_BATCH_STATEMENT_TIMEOUT='120s';
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class PostgresAccountingKernel{
   constructor(pool,{sessionProvider,runtimeLoginAllowlist=['refs_runtime'],wbsSnapshotVerifier=null,wbsAutoRecTransitionContractVerifier=null,wbsSignedBankAdmissionVerifier=null}={}){
@@ -1513,6 +1515,16 @@ export class PostgresAccountingKernel{
     return this.inSession(async client=>(await client.query(
       'SELECT * FROM refs_list_controlled_test_ai_sources($1,$2,$3,$4)',[tenantId,entityId,periodId,limit]
     )).rows.map(row=>({...row,...(row.business_date===undefined?{}:{business_date:publicDate(row.business_date)}),...(row.accounting_date===undefined?{}:{accounting_date:publicDate(row.accounting_date)}),...(row.source_line_count===undefined?{}:{source_line_count:Number(row.source_line_count)})})));
+  }
+
+  async readApprovedWbsAiEntityPeriodSettings({tenantId,entityId,periodId,readOnly=true}){
+    if(readOnly!==true||![tenantId,entityId,periodId].every(value=>UUID.test(value||''))){
+      throw new KernelError('WBS_AI_SETTINGS_REQUEST_INVALID','AI settings reads require exact tenant, entity, period, and explicit read-only mode');
+    }
+    const settings=requireRow(await this.inSession(async client=>client.query(
+      'SELECT refs_read_wbs_ai_approved_entity_period_settings($1,$2,$3) AS settings',[tenantId,entityId,periodId]
+    )),'WBS_AI_APPROVED_SETTINGS_NOT_AVAILABLE','Approved entity-period settings are unavailable');
+    return validateApprovedWbsAiEntityPeriodSettings(settings.settings,{tenantId,entityId,periodId});
   }
 
   async getSourceDocumentDetail({tenantId,entityId,sourceDocumentId}){
