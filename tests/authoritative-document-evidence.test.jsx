@@ -133,6 +133,8 @@ assert.match(arWorkspaceMarkup,/Receivables/);
 assert.match(arWorkspaceMarkup,/Invoices/);
 assert.match(arWorkspaceMarkup,/Invoice, customer, account, or reference/);
 assert.match(arWorkspaceMarkup,/All customers/);
+assert.match(arWorkspaceMarkup,/More filters/,'AR secondary date and customer filters must be collapsed by default');
+assert.doesNotMatch(arWorkspaceMarkup,/<details class="authoritative-list-more-filters" open=""/,'AR More filters must stay closed when no secondary filter is active');
 assert.doesNotMatch(arWorkspaceMarkup,/All retained customers/,'the AR customer filter must not expose storage terminology');
 assert.doesNotMatch(arWorkspaceMarkup,/Category \(offset account\)/,'AR must not expose the AP-only category filter');
 assert.match(arWorkspaceMarkup,/1 result/,'a stale AP-only account filter must not silently remove AR invoices');
@@ -142,6 +144,9 @@ assert.match(arNoMatchMarkup,/Try changing or resetting the filters\. This resul
 assert.match(arNoMatchMarkup,/No adjustments found/);
 assert.doesNotMatch(arNoMatchMarkup,/match these presentation filters|see retained list facts|>No authoritative adjustments in this scope</,
   'AR empty states must use concise user-facing language while retaining the zero-balance caveat');
+const arFilteredMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AR" documents={[invoice]} adjustments={[]} view={{query:'',status:'ALL',from:'2026-08-01',through:'',counterparty:'Evidence Customer',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.match(arFilteredMarkup,/<details class="authoritative-list-more-filters" open="">/,'active AR secondary filters must remain visible');
+assert.match(arFilteredMarkup,/More filters \(2\)/);
 
 const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} config={displayConfig} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);
@@ -270,9 +275,9 @@ assert.match(styles,/\.pagination\{display:flex;justify-content:flex-end;align-i
 assert.match(styles,/\.authoritative-list-filters\{display:grid;grid-template-columns:minmax\(220px,2fr\)/,'wide AP\/AR filters must align as a readable grid');
 assert.match(styles,/@media\s*\(max-width:1400px\)\s*\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,'AP/AR filters must collapse before the permanent navigation leaves too little workspace width at desktop zoom and tablet sizes');
 assert.match(styles,/\.authoritative-list-filters input,\.authoritative-list-filters select\{min-width:0;width:100%;max-width:100%;\}/,'AP/AR controls must not exceed their responsive grid tracks');
-assert.match(workspaceSource,/className="authoritative-expense-more-filters"/,'Expenses must keep secondary date, vendor and category filters in a compact native disclosure');
-assert.match(workspaceSource,/<label>Vendor <select[\s\S]*?<label>Category <select/,'the compact disclosure must retain Vendor and Category behavior');
-assert.match(styles,/\.authoritative-expense-more-filters\[open\]\{grid-column:1\/-1;\}/,'expanded Expenses filters must stay contained within the filter region');
+assert.match(workspaceSource,/className="authoritative-list-more-filters" open=\{moreFilterCount>0\|\|undefined\}/,'AP/AR must keep secondary filters in a compact native disclosure and reveal active filters');
+assert.match(workspaceSource,/<label>\{bill\?'Vendor':'Customer'\} <select[\s\S]*?\{bill&&\(accountCodes\.length>0\?<label>Category <select/,'the compact disclosure must retain shared counterparty behavior and AP-only Category');
+assert.match(styles,/\.authoritative-list-more-filters\[open\]\{grid-column:1\/-1;\}/,'expanded AP/AR filters must stay contained within the filter region');
 assert.match(styles,/@media\s*\(max-width:720px\)\s*\{\.authoritative-document-intro(?:,\.authoritative-source-intro)?\{grid-template-columns:minmax\(0,1fr\)/,'narrow AP\/AR filters and evidence guidance must collapse before the page overflows');
 assert.doesNotMatch(styles,/repeat\(2,minmax\(0,1fr\);/,'a malformed narrow-layout grid declaration must never prevent later responsive rules from parsing');
 

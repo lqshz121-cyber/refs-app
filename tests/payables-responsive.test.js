@@ -8,21 +8,21 @@ assert.match(styles,/\.authoritative-topbar \.authoritative-shell-select::after\
   'the authoritative scope chevron must stay valid UTF-8 so later responsive media rules remain parseable');
 assert.doesNotMatch(styles,/content:'鈱\?;/,
   'a deployment must never publish the mojibake sequence that swallows all later responsive CSS');
-assert.match(workspace,/authoritative-list-filters.*authoritative-expense-list-filters/,
-  'the responsive contract must cover the authoritative AP/AR filter surface');
-assert.match(workspace,/className="authoritative-expense-more-filters"/,
-  'secondary Payables filters must use a keyboard-native collapsed disclosure');
+assert.match(workspace,/authoritative-list-filters authoritative-compact-list-filters/,
+  'the responsive contract must cover the shared authoritative AP/AR filter surface');
+assert.match(workspace,/className="authoritative-list-more-filters"/,
+  'secondary AP/AR filters must use one keyboard-native collapsed disclosure');
 assert.match(workspace,/<summary>More filters\{moreFilterCount\?/,
   'the collapsed disclosure must surface the active secondary-filter count');
-assert.match(workspace,/<label>Vendor <select/,
-  'the responsive contract must retain the authoritative Vendor selector');
-assert.match(styles,/\.authoritative-expense-list-filters\{grid-template-columns:minmax\(220px,2fr\) minmax\(150px,1fr\) auto auto auto;\}/,
-  'wide Expenses must keep Search, Status, More filters, Reset and result count on one compact row');
-assert.match(styles,/\.authoritative-expense-more-filter-grid\{display:grid;grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/,
+assert.match(workspace,/<label>\{bill\?'Vendor':'Customer'\} <select/,
+  'the responsive contract must retain the authoritative Vendor and Customer selectors');
+assert.match(styles,/\.authoritative-compact-list-filters\{grid-template-columns:minmax\(220px,2fr\) minmax\(150px,1fr\) auto auto auto;\}/,
+  'wide AP/AR lists must keep Search, Status, More filters, Reset and result count on one compact row');
+assert.match(styles,/\.authoritative-list-more-filter-grid\{display:grid;grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/,
   'expanded secondary filters must use a contained grid instead of lengthening the default page');
-assert.match(styles,/@media\(max-width:1400px\)\{\.authoritative-expense-list-filters,\.authoritative-expense-more-filter-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\);\}\}/,
+assert.match(styles,/@media\(max-width:1400px\)\{\.authoritative-compact-list-filters,\.authoritative-list-more-filter-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\);\}\}/,
   'the primary and secondary Expenses grids must collapse before sidebar-reduced desktop widths');
-assert.match(styles,/@media\(max-width:720px\)\{\.authoritative-expense-list-filters,\.authoritative-expense-more-filter-grid\{grid-template-columns:minmax\(0,1fr\);\}/,
+assert.match(styles,/@media\(max-width:720px\)\{\.authoritative-compact-list-filters,\.authoritative-list-more-filter-grid\{grid-template-columns:minmax\(0,1fr\);\}/,
   'primary and secondary filters must collapse safely at phone widths');
 assert.match(styles,/@media\s*\(max-width:1400px\)\s*\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\);\}/,
   'authoritative Payables filters must collapse before sidebar-reduced desktop widths can overflow');
