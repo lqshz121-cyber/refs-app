@@ -18,6 +18,9 @@ const app=fs.readFileSync(path.join(process.cwd(),'src','authoritative-app.jsx')
 const coaRoute=app.slice(app.indexOf("['chart-of-accounts','account-inquiry']"),app.indexOf("route === 'general-ledger'"));
 assert.match(coaRoute,/config=\{displayConfig\}/,'Chart of Accounts and Account Inquiry must receive the shared readable scope presentation');
 assert.match(source,/refreshAuthoritativeChartOfAccounts/);assert.match(source,/refreshAuthoritativeAccountRegister/);assert.match(source,/Back to Chart of Accounts/);assert.match(source,/Posted account activity/);assert.match(source,/authoritative-coa-table/);assert.match(source,/authoritative-register-table/);assert.doesNotMatch(source,/authoritative-coa-summary/,'COA must not retain the redundant four-card summary');assert.match(source,/authoritative-register-scope/);assert.match(source,/Clear filters/);assert.match(source,/Open register/);assert.match(source,/Chart of Accounts filters retained/);assert.match(source,/Company \/ period/);assert.match(source,/Loading account activity/);
+assert.match(source,/>Source documents</);assert.match(source,/>Details</);assert.match(source,/'Not available'/);
+assert.doesNotMatch(source,/Retained source IDs|No retained source ID|No posted currency evidence|>Evidence</,
+  'COA and Register tables must use concise accounting labels while preserving source IDs and register drill-through');
 assert.doesNotMatch(source,/Search register evidence|Currencies returned|Loading or no retained entries|Refresh evidence|No posted register entries returned/,'Account Register must use the same concise first-screen language as COA and GL');
 assert.equal(authoritativeRangeLabel({page:0,pageSize:25,total:200,itemLabel:'accounts'}),'Showing accounts 1 to 25 of 200');
 assert.equal(authoritativeRangeLabel({page:7,pageSize:25,total:200,itemLabel:'accounts'}),'Showing accounts 176 to 200 of 200');
