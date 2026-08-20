@@ -96,6 +96,13 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async retainAiAccountingPostedOutcomeReview({tenantId,entityId,decisionId,expectedDecisionHash,expectedReviewRevision,idempotencyKey}){
+    return this.inSession(async client=>{
+      const requestHash=requireRow(await client.query("SELECT refs_jsonb_hash(jsonb_build_object('tenant_id',$1::uuid,'entity_id',$2::uuid,'decision_id',$3::uuid,'expected_decision_hash',$4::text,'expected_review_revision',$5::bigint)) AS request_hash",[tenantId,entityId,decisionId,expectedDecisionHash,expectedReviewRevision]),'AI_POSTED_OUTCOME_REVIEW_HASH_FAILED','AI Posted outcome review hash was not produced').request_hash;
+      return requireRow(await client.query('SELECT refs_retain_ai_accounting_posted_outcome_review($1,$2,$3,$4,$5,$6,$7) AS result',[tenantId,entityId,decisionId,expectedDecisionHash,expectedReviewRevision,idempotencyKey,requestHash]),'AI_POSTED_OUTCOME_REVIEW_FAILED','AI Posted outcome review was not retained').result;
+    });
+  }
+
   async createBusinessDocument(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(
