@@ -76,6 +76,13 @@ const creditsOnlyMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kin
 assert.match(creditsOnlyMarkup,/Vendor credits/);
 assert.match(creditsOnlyMarkup,/AP_VENDOR_CREDIT/);
 assert.doesNotMatch(creditsOnlyMarkup,/B-100/,'a Vendor credits presentation scope must not render Bill list rows');
+assert.doesNotMatch(creditsOnlyMarkup,/aria-label="Payables document list facts"|No bills match/,
+  'the Vendor credits tab must not prepend an unrelated Bill list or Bill empty state');
+
+const billsOnlyMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'',status:'ALL',transactionType:'BILLS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.match(billsOnlyMarkup,/B-100/);
+assert.doesNotMatch(billsOnlyMarkup,/aria-label="Payables adjustment list facts"|No authoritative adjustments in this scope/,
+  'the Bills tab must not append an unrelated adjustment list or adjustment empty state');
 
 const invoice={...bill,business_document_id:'55555555-5555-4555-8555-555555555555',inv_no:'I-100',customer_name:'Evidence Customer',inv_date:'2026-08-01'};
 const arWorkspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AR" documents={[invoice]} adjustments={[]} view={{query:'',status:'ALL',from:'',through:'',accountCode:'999999',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
