@@ -19,6 +19,8 @@ const rows={
   '/ar/adjustments':[{business_adjustment_id:'22222222-2222-4222-8222-222222222222',adjustment_kind:'AR_CREDIT_MEMO',business_document_id:null,source_adjustment_id:null,amount:'2.0000',currency:'USD',accounting_date:'2026-08-01',period_id:periodId,reason:'Approved customer credit',status:'POSTED',version:'2',journal_entry_id:entityId,journal_status:'POSTED',journal_revision:'3',created_at:'2026-08-01T00:00:00.000Z'}],
 };
 const config=configured;
+const periodScope=(data,offset=0)=>({entity_id:entityId,period_id:periodId,period_start:'2026-08-01',period_end:'2026-08-31',period_status:'OPEN',total_count:data.length,limit:200,offset});
+const periodEnvelope=data=>({ok:true,data,scope:periodScope(data)});
 (async()=>{
   const coaRow={period_id:periodId,period_code:'2026-08',period_start:'2026-08-01',period_end:'2026-08-31',account_code:'291001',account_name:'Accounts payable control',requires_member:false,required_member_type:null,active:true,currency:null,opening_balance:null,period_debit:null,period_credit:null,ending_balance:null,posted_ledger_line_count:'0'};
   const coaRead=await refreshAuthoritativeChartOfAccounts({config,fetcher:async(url,options)=>{assert.match(url,/\/general-ledger\/chart-of-accounts\?periodId=/);assert.equal(options.method,'GET');return {ok:true,json:async()=>({ok:true,data:[coaRow]})};}});
@@ -98,27 +100,28 @@ const config=configured;
   assert.equal((await refreshAuthoritativeConsolidation({config,groupRef:'  ',fetcher:async()=>{throw new Error('must not fetch')}})).code,'ACCOUNTING_API_SCOPE_INVALID');
   const receiverEnvironment={name:'authoritative-browser-environment'};
   const receiverCalls=[];
-  const receiverSensitiveFetcher=function(url,options){assert.equal(this,receiverEnvironment);receiverCalls.push(url);return {ok:true,json:async()=>({ok:true,data:url.endsWith('/journal-entries')?[]:rows[new URL(url).pathname.replace(`/api/v1/entities/${entityId}`,'')]||[]})};};
+  const receiverSensitiveFetcher=function(url,options){assert.equal(this,receiverEnvironment);receiverCalls.push(url);const path=new URL(url).pathname.replace(`/api/v1/entities/${entityId}`,'');const data=path==='/journal-entries'?[]:rows[path]||[];return {ok:true,json:async()=>periodEnvelope(data)};};
   const receiverBoundFetcher=bindAuthoritativeFetcher(receiverEnvironment,receiverSensitiveFetcher);
   assert.equal((await refreshAuthoritativeDocuments({config,fetcher:receiverBoundFetcher})).ok,true);
   assert.equal((await refreshAuthoritativeJournalEntries({config,fetcher:receiverBoundFetcher})).ok,true);
   assert.equal((await refreshAuthoritativeBankTransactions({config,bankAccountRef:'BANK-1',fetcher:receiverBoundFetcher})).ok,true);
   assert.equal(receiverCalls.length,6,'document, journal, and child-workspace reads must share the environment-bound fetcher');
 
-  const readCalls=[];const result=await refreshAuthoritativeDocuments({config,fetcher:async(url,options)=>{readCalls.push({url,options});return {ok:true,json:async()=>({ok:true,data:rows[new URL(url).pathname.replace(`/api/v1/entities/${entityId}`,'')]})};}});
+  const readCalls=[];const result=await refreshAuthoritativeDocuments({config,fetcher:async(url,options)=>{readCalls.push({url,options});const path=new URL(url).pathname.replace(`/api/v1/entities/${entityId}`,'');const data=rows[path];return {ok:true,json:async()=>periodEnvelope(data)};}});
   assert.equal(result.ok,true);assert.equal(result.ap.bills[0].business_document_id,entityId);assert.equal(result.ap.bills[0].open_balance,7.25);assert.equal(result.ar.invoices[0].business_document_id,'22222222-2222-4222-8222-222222222222');assert.equal(result.ar.invoices[0].inv_no,'I-1');assert.equal(result.ap.adjustments[0].adjustment_kind,'AP_VENDOR_CREDIT');assert.equal(result.ar.adjustments[0].status,'POSTED');assert.equal(result.ar.adjustments[0].version,2);assert.equal(result.ar.adjustments[0].journal_revision,3);
+  assert.deepEqual([result.ap.scope.totalCount,result.ap.adjustmentsScope.totalCount,result.ar.scope.totalCount,result.ar.adjustmentsScope.totalCount],[1,1,1,1],'all four AP/AR populations retain their own server period count');
   assert.equal(result.ap.bills[0].lineage,null,'a current list contract without immutable lineage must remain blocked by the presentation layer');
   const futureLineage={entity_id:entityId,record_id:entityId,record_revision:3};
-  const lineageRead=await refreshAuthoritativeDocuments({config,fetcher:async url=>{const path=new URL(url).pathname.replace(`/api/v1/entities/${entityId}`,'');const data=path==='/ap/bills'?[{...rows[path][0],lineage:futureLineage}]:rows[path];return {ok:true,json:async()=>({ok:true,data})};}});
+  const lineageRead=await refreshAuthoritativeDocuments({config,fetcher:async url=>{const path=new URL(url).pathname.replace(`/api/v1/entities/${entityId}`,'');const data=path==='/ap/bills'?[{...rows[path][0],lineage:futureLineage}]:rows[path];return {ok:true,json:async()=>periodEnvelope(data)};}});
   assert.equal(lineageRead.ap.bills[0].lineage,futureLineage,'the client may pass through only an explicit future API lineage object; it does not synthesize one from AP list facts');
-  assert.equal(readCalls.length,4);for(const read of readCalls){assert.equal(read.options.method,'GET');assert.equal(read.options.credentials,'include');assert.equal(read.options.cache,'no-store');assert.equal(read.options.headers.authorization,`Bearer ${accessToken}`);}
-  const journalRead=await refreshAuthoritativeJournalEntries({config,fetcher:async(url,options)=>{assert.match(url,/\/journal-entries$/);assert.equal(options.method,'GET');assert.equal(options.cache,'no-store');return {ok:true,json:async()=>({ok:true,data:[{journal_entry_id:entityId,journal_number:'JE-1',journal_type:'MANUAL',status:'DRAFT',journal_date:'2026-08-01',currency:'USD',revision:'2',created_at:'2026-08-01T00:00:00.000Z',posted_at:null,ledger_line_count:'0'}]})};}});
+  assert.equal(readCalls.length,4);for(const read of readCalls){assert.equal(read.options.method,'GET');assert.equal(read.options.credentials,'include');assert.equal(read.options.cache,'no-store');assert.equal(read.options.headers.authorization,`Bearer ${accessToken}`);const parsed=new URL(read.url);assert.equal(parsed.searchParams.get('periodId'),periodId);assert.equal(parsed.searchParams.get('limit'),'200');assert.equal(parsed.searchParams.get('offset'),'0');}
+  const journalRead=await refreshAuthoritativeJournalEntries({config,fetcher:async(url,options)=>{assert.match(url,/\/journal-entries\?periodId=/);assert.equal(options.method,'GET');assert.equal(options.cache,'no-store');const data=[{journal_entry_id:entityId,journal_number:'JE-1',journal_type:'MANUAL',status:'DRAFT',journal_date:'2026-08-01',currency:'USD',revision:'2',created_at:'2026-08-01T00:00:00.000Z',posted_at:null,ledger_line_count:'0',period_id:periodId}];return {ok:true,json:async()=>periodEnvelope(data)};}});
   assert.equal(journalRead.ok,true);assert.equal(journalRead.journals[0].revision,2);assert.equal(journalRead.journals[0].ledger_line_count,0);
   let capabilityCall;const capabilityRead=await readAuthoritativeJournalWorkflowCapabilities({config,fetcher:async(url,options)=>{capabilityCall={url,options};return {ok:true,json:async()=>({ok:true,data:{entity_id:entityId,can_submit:true,can_review:false,can_approve:false,can_post:false}})};}});
   assert.equal(capabilityRead.ok,true);assert.equal(capabilityRead.capabilities.can_submit,true);assert.match(capabilityCall.url,/\/journal-workflow\/capabilities$/);assert.equal(capabilityCall.options.method,'GET');assert.equal(capabilityCall.options.cache,'no-store');assert.equal('body' in capabilityCall.options,false);
   for(const invalid of [{entity_id:'22222222-2222-4222-8222-222222222222',can_submit:true,can_review:false,can_approve:false,can_post:false},{entity_id:entityId,can_submit:'yes',can_review:false,can_approve:false,can_post:false},{entity_id:entityId,can_submit:true,can_review:false,can_approve:false,can_post:false,permission:'GL.JE.POST'}])assert.equal((await readAuthoritativeJournalWorkflowCapabilities({config,fetcher:async()=>({ok:true,json:async()=>({ok:true,data:invalid})})})).code,'ACCOUNTING_API_PROTOCOL');
-  const validJournal={journal_entry_id:entityId,journal_number:'JE-1',journal_type:'MANUAL',status:'DRAFT',journal_date:'2026-08-01',currency:'USD',description:null,revision:'2',created_at:'2026-08-01T00:00:00.000Z',posted_at:null,ledger_line_count:'0'};
-  const readJournalRows=async data=>refreshAuthoritativeJournalEntries({config,fetcher:async()=>({ok:true,json:async()=>({ok:true,data})})});
+  const validJournal={journal_entry_id:entityId,journal_number:'JE-1',journal_type:'MANUAL',status:'DRAFT',journal_date:'2026-08-01',currency:'USD',description:null,revision:'2',created_at:'2026-08-01T00:00:00.000Z',posted_at:null,ledger_line_count:'0',period_id:periodId};
+  const readJournalRows=async data=>refreshAuthoritativeJournalEntries({config,fetcher:async()=>({ok:true,json:async()=>periodEnvelope(data)})});
   const exactLine={journal_entry_id:entityId,journal_line_id:'33333333-3333-4333-8333-333333333333',ledger_line_id:'44444444-4444-4444-8444-444444444444',line_no:1,account_code:'111000',debit_amount:'10.0000',credit_amount:'0.0000',member_ref:'BANK-1',description:'Exact API line',source_document_ids:['55555555-5555-4555-8555-555555555555']};
   const exactJournal={...validJournal,ledger_line_count:'1',line_evidence:[exactLine]};
   const exactJournalRead=await readJournalRows([exactJournal]);
@@ -230,8 +233,11 @@ const config=configured;
   assert.equal(arAgingNum.ok,true);assert.equal(arAgingNum.rows[0].total_open_balance,'5.0000');
   assert.equal((await refreshAuthoritativeAging({config,side:'ap',asOfDate:'2026-02-30',fetcher:async()=>{throw new Error('must not call');}})).code,'ACCOUNTING_API_SCOPE_INVALID');
   assert.equal((await refreshAuthoritativeAging({config,side:'xx',asOfDate:'2026-07-31',fetcher:async()=>{throw new Error('must not call');}})).code,'ACCOUNTING_API_SCOPE_INVALID');
-  let ctCall;const apControl=await refreshAuthoritativeControlTotals({config,side:'ap',fetcher:async(url,options)=>{ctCall={url,options};return {ok:true,json:async()=>({ok:true,data:[{currency:'USD',open_balance:'125.5000',control_balance:'125.5000',in_balance:true}]})};}});
-  assert.equal(apControl.ok,true);assert.equal(apControl.rows[0].in_balance,true);assert.equal(apControl.rows[0].open_balance,'125.5000');assert.match(ctCall.url,/\/ap\/control-totals$/);assert.equal(ctCall.options.method,'GET');assert.equal('body' in ctCall.options,false);
+  for(const side of ['ap','ar']){
+    let ctCall;const control=await refreshAuthoritativeControlTotals({config,side,fetcher:async(url,options)=>{ctCall={url,options};return {ok:true,json:async()=>({ok:true,data:[{period_id:periodId,currency:'USD',open_balance:'125.5000',control_balance:'125.5000',in_balance:true}]})};}});
+    assert.equal(control.ok,true);assert.equal(control.rows[0].in_balance,true);assert.equal(control.rows[0].open_balance,'125.5000');assert.match(ctCall.url,new RegExp(`/${side}/control-totals\\?periodId=${periodId}$`));assert.equal(ctCall.options.method,'GET');assert.equal(ctCall.options.cache,'no-store');assert.equal('body' in ctCall.options,false);
+  }
+  let invalidControlFetches=0;for(const badConfig of [{...config,periodId:null},{...config,periodId:'not-a-uuid'}]){const refused=await refreshAuthoritativeControlTotals({config:badConfig,side:'ar',fetcher:async()=>{invalidControlFetches+=1;throw new Error('must not call');}});assert.equal(refused.code,'ACCOUNTING_API_SCOPE_INVALID');}assert.equal(invalidControlFetches,0);
   assert.equal((await refreshAuthoritativeControlTotals({config,side:'zz',fetcher:async()=>{throw new Error('must not call');}})).code,'ACCOUNTING_API_SCOPE_INVALID');
 
   // -------------------------------------------------------------------------
@@ -263,7 +269,7 @@ const config=configured;
   // by whatever the failing server put in the body.
   assert.equal((await refreshAuthoritativeJournalEntries({config,fetcher:async()=>respond(503,{ok:false,code:'PERIOD_CLOSED'})})).code,'ACCOUNTING_API_SERVER_ERROR');
   assert.match((await refreshAuthoritativeJournalEntries({config,fetcher:async()=>respond(503,{ok:false,code:'PERIOD_CLOSED'})})).message,/Read: JOURNAL_ENTRIES\./);
-  const failedBill=await refreshAuthoritativeDocuments({config,fetcher:async url=>url.includes('/ap/bills')?respond(500,{ok:false,code:'INTERNAL_ERROR'}):respond(200,{ok:true,data:[]})});
+  const failedBill=await refreshAuthoritativeDocuments({config,fetcher:async url=>url.includes('/ap/bills')?respond(500,{ok:false,code:'INTERNAL_ERROR'}):respond(200,periodEnvelope([]))});
   assert.equal(failedBill.code,'ACCOUNTING_API_SERVER_ERROR');
   assert.match(failedBill.message,/Read: AP_BILLS\./);
 
@@ -290,21 +296,23 @@ const config=configured;
   // server error: partial data is discarded rather than displayed.
   assert.equal((await refreshAuthoritativeJournalEntries({config,fetcher:async()=>respond(200,{ok:true,data:{}})})).code,'ACCOUNTING_API_PROTOCOL');
   assert.equal((await refreshAuthoritativeDocuments({config,fetcher:async()=>respond(200,{ok:true,data:'not-an-array'})})).code,'ACCOUNTING_API_PROTOCOL');
-  const malformedDocument=await refreshAuthoritativeDocuments({config,fetcher:async url=>respond(200,{ok:true,data:url.includes('/ap/bills')?[{...rows['/ap/bills'][0],accounting_date:'2026-02-30'}]:url.includes('/ar/invoices')?rows['/ar/invoices']:url.includes('/ap/adjustments')?rows['/ap/adjustments']:rows['/ar/adjustments']})});
+  const malformedDocument=await refreshAuthoritativeDocuments({config,fetcher:async url=>respond(200,periodEnvelope(url.includes('/ap/bills')?[{...rows['/ap/bills'][0],accounting_date:'2026-02-30'}]:url.includes('/ar/invoices')?rows['/ar/invoices']:url.includes('/ap/adjustments')?rows['/ap/adjustments']:rows['/ar/adjustments']))});
   assert.equal(malformedDocument.code,'ACCOUNTING_API_PROTOCOL');
-  const malformedAdjustment=await refreshAuthoritativeDocuments({config,fetcher:async url=>respond(200,{ok:true,data:url.includes('/ap/bills')?rows['/ap/bills']:url.includes('/ar/invoices')?rows['/ar/invoices']:url.includes('/ap/adjustments')?[{...rows['/ap/adjustments'][0],adjustment_kind:'AR_CREDIT_MEMO'}]:rows['/ar/adjustments']})});
+  const malformedAdjustment=await refreshAuthoritativeDocuments({config,fetcher:async url=>respond(200,periodEnvelope(url.includes('/ap/bills')?rows['/ap/bills']:url.includes('/ar/invoices')?rows['/ar/invoices']:url.includes('/ap/adjustments')?[{...rows['/ap/adjustments'][0],adjustment_kind:'AR_CREDIT_MEMO'}]:rows['/ar/adjustments']))});
   assert.equal(malformedAdjustment.code,'ACCOUNTING_API_PROTOCOL');
-  const unboundedAmount=await refreshAuthoritativeDocuments({config,fetcher:async url=>respond(200,{ok:true,data:url.includes('/ap/bills')?[{...rows['/ap/bills'][0],gross_amount:`${'9'.repeat(400)}.0000`}]:url.includes('/ar/invoices')?rows['/ar/invoices']:url.includes('/ap/adjustments')?rows['/ap/adjustments']:rows['/ar/adjustments']})});
+  const crossPeriodAdjustment=await refreshAuthoritativeDocuments({config,fetcher:async url=>respond(200,periodEnvelope(url.includes('/ap/bills')?rows['/ap/bills']:url.includes('/ar/invoices')?rows['/ar/invoices']:url.includes('/ap/adjustments')?[{...rows['/ap/adjustments'][0],period_id:'44444444-4444-4444-8444-444444444444'}]:rows['/ar/adjustments']))});
+  assert.equal(crossPeriodAdjustment.code,'ACCOUNTING_API_PROTOCOL','a July adjustment cannot be displayed or drilled from a January parent scope');
+  const unboundedAmount=await refreshAuthoritativeDocuments({config,fetcher:async url=>respond(200,periodEnvelope(url.includes('/ap/bills')?[{...rows['/ap/bills'][0],gross_amount:`${'9'.repeat(400)}.0000`}]:url.includes('/ar/invoices')?rows['/ar/invoices']:url.includes('/ap/adjustments')?rows['/ap/adjustments']:rows['/ar/adjustments']))});
   assert.equal(unboundedAmount.code,'ACCOUNTING_API_PROTOCOL');
 
   // A read where one of the four business-document calls is refused reports that
   // refusal, not a generic failure.
-  const mixed=await refreshAuthoritativeDocuments({config,fetcher:async url=>url.includes('/ar/adjustments')?respond(403,{ok:false}):respond(200,{ok:true,data:[]})});
+  const mixed=await refreshAuthoritativeDocuments({config,fetcher:async url=>url.includes('/ar/adjustments')?respond(403,{ok:false}):respond(200,periodEnvelope([]))});
   assert.equal(mixed.code,'AUTHORIZATION_DENIED');
 
   // No configuration at all is a deployment problem, not an API failure.
-  assert.equal((await refreshAuthoritativeDocuments({config:null,fetcher:async()=>respond(200,{ok:true,data:[]})})).code,'CONFIGURATION_REQUIRED');
-  assert.equal((await refreshAuthoritativeJournalEntries({config:null,fetcher:async()=>respond(200,{ok:true,data:[]})})).code,'CONFIGURATION_REQUIRED');
+  assert.equal((await refreshAuthoritativeDocuments({config:null,fetcher:async()=>respond(200,{ok:true,data:[]})})).code,'ACCOUNTING_API_SCOPE_INVALID');
+  assert.equal((await refreshAuthoritativeJournalEntries({config:null,fetcher:async()=>respond(200,{ok:true,data:[]})})).code,'ACCOUNTING_API_SCOPE_INVALID');
 
   // An expired or absent access token is reported before any request is made.
   assert.equal((await refreshAuthoritativeJournalEntries({config:{...config,getAccessToken:async()=>{throw new Error('OIDC access token is unavailable or expired');}},fetcher:async()=>{throw new Error('must not call');}})).code,'AUTHENTICATION_REQUIRED');

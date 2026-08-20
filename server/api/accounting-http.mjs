@@ -411,17 +411,27 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       }
       if(method==='GET'&&parts.length===6&&((parts[4]==='ap'&&parts[5]==='bills')||(parts[4]==='ar'&&parts[5]==='invoices'))){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
-        if(Object.keys(payload).length)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId','limit','offset']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId');
+        const limit=optionalReadLimit(parsedUrl.searchParams.get('limit'));
+        const offset=optionalReadOffset(parsedUrl.searchParams.get('offset'));
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
-        result=await kernel.listBusinessDocuments({tenantId:principal.tenantId,entityId,documentKind:parts[4]==='ap'?'AP_BILL':'AR_INVOICE'});
-        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+        result=await kernel.listBusinessDocuments({tenantId:principal.tenantId,entityId,documentKind:parts[4]==='ap'?'AP_BILL':'AR_INVOICE',periodId,limit,offset});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result.rows,scope:result.scope}};
       }
       if(method==='GET'&&parts.length===5&&parts[4]==='journal-entries'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
-        if(Object.keys(payload).length)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId','limit','offset']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId');
+        const limit=optionalReadLimit(parsedUrl.searchParams.get('limit'));
+        const offset=optionalReadOffset(parsedUrl.searchParams.get('offset'));
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
-        result=await kernel.listJournalEntries({tenantId:principal.tenantId,entityId});
-        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+        result=await kernel.listJournalEntries({tenantId:principal.tenantId,entityId,periodId,limit,offset});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result.rows,scope:result.scope}};
       }
       if(method==='GET'&&parts.length===6&&parts[4]==='journal-workflow'&&parts[5]==='capabilities'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
@@ -1296,10 +1306,15 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
       }
       if(method==='GET'&&parts.length===6&&['ap','ar'].includes(parts[4])&&parts[5]==='adjustments'){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');
-        if(Object.keys(payload).length)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        if(header(headers,'if-match')!=null)throw new AccountingApiError(400,'IF_MATCH_NOT_ALLOWED','If-Match is not used by read operations');
+        if(body!==null)throw new AccountingApiError(400,'READ_BODY_FORBIDDEN','Read operations do not accept a request body');
+        requireExactQuery(parsedUrl.searchParams,['periodId','limit','offset']);
+        const periodId=requireUuid(parsedUrl.searchParams.get('periodId'),'periodId');
+        const limit=optionalReadLimit(parsedUrl.searchParams.get('limit'));
+        const offset=optionalReadOffset(parsedUrl.searchParams.get('offset'));
         const kernel=await kernelFactory(principal);if(!kernel)throw new Error('Kernel factory returned no kernel');
-        result=await kernel.listBusinessAdjustments({tenantId:principal.tenantId,entityId,module:parts[4].toUpperCase()});
-        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
+        result=await kernel.listBusinessAdjustments({tenantId:principal.tenantId,entityId,module:parts[4].toUpperCase(),periodId,limit,offset});
+        return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result.rows,scope:result.scope}};
       }
       if(method==='GET'&&parts.length===6&&['ap','ar'].includes(parts[4])&&['aging','control-totals'].includes(parts[5])){
         if(header(headers,'idempotency-key')!=null)throw new AccountingApiError(400,'IDEMPOTENCY_KEY_NOT_ALLOWED','Idempotency-Key is not used by read operations');

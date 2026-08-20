@@ -1,0 +1,17 @@
+BEGIN;
+REVOKE ALL ON FUNCTION refs_read_business_document_period_scope(uuid,uuid,text,uuid) FROM refs_app;
+REVOKE ALL ON FUNCTION refs_list_business_documents_period(uuid,uuid,text,uuid,integer,integer) FROM refs_app;
+REVOKE ALL ON FUNCTION refs_read_journal_period_scope(uuid,uuid,uuid) FROM refs_app;
+REVOKE ALL ON FUNCTION refs_list_journal_entries_period(uuid,uuid,uuid,integer,integer) FROM refs_app;
+REVOKE ALL ON FUNCTION refs_read_business_adjustment_period_scope(uuid,uuid,text,uuid) FROM refs_app;
+REVOKE ALL ON FUNCTION refs_list_business_adjustments_period(uuid,uuid,text,uuid,integer,integer) FROM refs_app;
+DROP FUNCTION IF EXISTS refs_read_business_document_period_scope(uuid,uuid,text,uuid);
+DROP FUNCTION IF EXISTS refs_list_business_documents_period(uuid,uuid,text,uuid,integer,integer);
+DROP FUNCTION IF EXISTS refs_read_journal_period_scope(uuid,uuid,uuid);
+DROP FUNCTION IF EXISTS refs_list_journal_entries_period(uuid,uuid,uuid,integer,integer);
+DROP FUNCTION IF EXISTS refs_read_business_adjustment_period_scope(uuid,uuid,text,uuid);
+DROP FUNCTION IF EXISTS refs_list_business_adjustments_period(uuid,uuid,text,uuid,integer,integer);
+DROP INDEX IF EXISTS business_document_period_read_idx;
+DROP INDEX IF EXISTS journal_entry_period_read_idx;
+DROP INDEX IF EXISTS business_adjustment_period_read_idx;
+COMMIT;

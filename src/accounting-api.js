@@ -78,15 +78,15 @@ const journalLineEvidence=(value,journalEntryId)=>{
   return lines.sort((a,b)=>a.line_no-b.line_no);
 };
 
-const journalRow=row=>{
-  if(!row||!UUID.test(row.journal_entry_id||'')||!TEXT_TOKEN.test(row.journal_number||'')||!JOURNAL_TYPES.has(row.journal_type)||!JOURNAL_STATUSES.has(row.status)||!validDate(row.journal_date)||!/^[A-Z]{3}$/.test(row.currency||'')||row.description!==null&&row.description!==undefined&&(typeof row.description!=='string'||row.description.length>2000)||!UNSIGNED_INTEGER.test(String(row.revision??''))||!validTimestamp(row.created_at)||row.posted_at!==null&&row.posted_at!==undefined&&!validTimestamp(row.posted_at)||!UNSIGNED_INTEGER.test(String(row.ledger_line_count??'')))return null;
+const journalRow=(row,periodId)=>{
+  if(!row||row.period_id!==periodId||!UUID.test(row.journal_entry_id||'')||!TEXT_TOKEN.test(row.journal_number||'')||!JOURNAL_TYPES.has(row.journal_type)||!JOURNAL_STATUSES.has(row.status)||!validDate(row.journal_date)||!/^[A-Z]{3}$/.test(row.currency||'')||row.description!==null&&row.description!==undefined&&(typeof row.description!=='string'||row.description.length>2000)||!UNSIGNED_INTEGER.test(String(row.revision??''))||!validTimestamp(row.created_at)||row.posted_at!==null&&row.posted_at!==undefined&&!validTimestamp(row.posted_at)||!UNSIGNED_INTEGER.test(String(row.ledger_line_count??'')))return null;
   const revision=Number(row.revision),ledgerLineCount=Number(row.ledger_line_count),lineEvidence=journalLineEvidence(row.line_evidence,row.journal_entry_id);
   if(!Number.isSafeInteger(revision)||revision<0||!Number.isSafeInteger(ledgerLineCount)||ledgerLineCount<0||(row.status==='POSTED')!==(row.posted_at!==null&&row.posted_at!==undefined)||lineEvidence===undefined||lineEvidence!==null&&lineEvidence.length!==ledgerLineCount)return null;
-  return {journal_entry_id:row.journal_entry_id,journal_number:row.journal_number,journal_type:row.journal_type,status:row.status,journal_date:row.journal_date,currency:row.currency,description:row.description??null,revision,created_at:row.created_at,posted_at:row.posted_at??null,ledger_line_count:ledgerLineCount,line_evidence:lineEvidence};
+  return {journal_entry_id:row.journal_entry_id,journal_number:row.journal_number,journal_type:row.journal_type,status:row.status,journal_date:row.journal_date,currency:row.currency,description:row.description??null,revision,created_at:row.created_at,posted_at:row.posted_at??null,ledger_line_count:ledgerLineCount,period_id:row.period_id,line_evidence:lineEvidence};
 };
 
-const documentRow=(row,kind)=>{
-  if(!row||!UUID.test(row.business_document_id||'')||!TEXT_TOKEN.test(row.document_number||'')||!TEXT_TOKEN.test(row.counterparty_ref||'')||!TEXT_TOKEN.test(row.counterparty_name||'')||!/^[A-Z]{3}$/.test(row.currency||'')||!validDate(row.accounting_date)||row.due_date!==null&&row.due_date!==undefined&&!validDate(row.due_date)||!MONEY4.test(String(row.gross_amount??''))||!MONEY4.test(String(row.open_balance??''))||!STATUS_TOKEN.test(row.status||'')||!nullableUuid(row.posted_journal_entry_id)||!UNSIGNED_INTEGER.test(String(row.version??''))||!nullableUuid(row.journal_entry_id)||row.journal_status!==null&&row.journal_status!==undefined&&!STATUS_TOKEN.test(row.journal_status)||!nullableRevision(row.journal_revision)||!nullableUuid(row.period_id)||row.offset_account_code!==null&&row.offset_account_code!==undefined&&!ACCOUNT_CODE.test(row.offset_account_code)||row.description!==null&&row.description!==undefined&&typeof row.description!=='string')return null;
+const documentRow=(row,kind,periodId)=>{
+  if(!row||row.period_id!==periodId||!UUID.test(row.business_document_id||'')||!TEXT_TOKEN.test(row.document_number||'')||!TEXT_TOKEN.test(row.counterparty_ref||'')||!TEXT_TOKEN.test(row.counterparty_name||'')||!/^[A-Z]{3}$/.test(row.currency||'')||!validDate(row.accounting_date)||row.due_date!==null&&row.due_date!==undefined&&!validDate(row.due_date)||!MONEY4.test(String(row.gross_amount??''))||!MONEY4.test(String(row.open_balance??''))||!STATUS_TOKEN.test(row.status||'')||!nullableUuid(row.posted_journal_entry_id)||!UNSIGNED_INTEGER.test(String(row.version??''))||!nullableUuid(row.journal_entry_id)||row.journal_status!==null&&row.journal_status!==undefined&&!STATUS_TOKEN.test(row.journal_status)||!nullableRevision(row.journal_revision)||row.offset_account_code!==null&&row.offset_account_code!==undefined&&!ACCOUNT_CODE.test(row.offset_account_code)||row.description!==null&&row.description!==undefined&&typeof row.description!=='string')return null;
   const version=Number(row.version),journalRevision=row.journal_revision===null||row.journal_revision===undefined?null:Number(row.journal_revision),grossAmount=Number(row.gross_amount),openBalance=Number(row.open_balance);
   if(!Number.isSafeInteger(version)||version<0||journalRevision!==null&&(!Number.isSafeInteger(journalRevision)||journalRevision<0)||!Number.isFinite(grossAmount)||!Number.isFinite(openBalance))return null;
   return {
@@ -96,8 +96,32 @@ const documentRow=(row,kind)=>{
   };
 };
 
-const adjustmentRow=(row,side)=>{
-  if(!row||!UUID.test(row.business_adjustment_id||'')||!STATUS_TOKEN.test(row.adjustment_kind||'')||!row.adjustment_kind.startsWith(`${side}_`)||!nullableUuid(row.business_document_id)||!nullableUuid(row.source_adjustment_id)||!MONEY4.test(String(row.amount??''))||!/^[A-Z]{3}$/.test(row.currency||'')||!validDate(row.accounting_date)||!UUID.test(row.period_id||'')||typeof row.reason!=='string'||!STATUS_TOKEN.test(row.status||'')||!UNSIGNED_INTEGER.test(String(row.version??''))||!nullableUuid(row.journal_entry_id)||row.journal_status!==null&&row.journal_status!==undefined&&!STATUS_TOKEN.test(row.journal_status)||!nullableRevision(row.journal_revision)||!validTimestamp(row.created_at))return null;
+const PERIOD_READ_SCOPE_FIELDS=new Set(['entity_id','period_id','period_start','period_end','period_status','total_count','limit','offset']);
+const periodReadScope=(scope,config,limit,offset)=>{
+  if(!scope||Object.keys(scope).length!==PERIOD_READ_SCOPE_FIELDS.size||Object.keys(scope).some(key=>!PERIOD_READ_SCOPE_FIELDS.has(key))||scope.entity_id!==config.entityId||scope.period_id!==config.periodId||!validDate(scope.period_start)||!validDate(scope.period_end)||scope.period_start>scope.period_end||!['OPEN','SOFT_CLOSED','CLOSED'].includes(scope.period_status)||!UNSIGNED_INTEGER.test(String(scope.total_count??''))||!UNSIGNED_INTEGER.test(String(scope.limit??''))||!UNSIGNED_INTEGER.test(String(scope.offset??'')))return null;
+  const totalCount=Number(scope.total_count),returnedLimit=Number(scope.limit),returnedOffset=Number(scope.offset);
+  if(![totalCount,returnedLimit,returnedOffset].every(Number.isSafeInteger)||totalCount<0||returnedLimit!==limit||returnedOffset!==offset)return null;
+  return {entityId:scope.entity_id,periodId:scope.period_id,periodStart:scope.period_start,periodEnd:scope.period_end,periodStatus:scope.period_status,totalCount,limit:returnedLimit,offset:returnedOffset};
+};
+
+const readPeriodPages=async({config,path,operation,authorization,fetcher})=>{
+  const limit=200,rows=[];let offset=0,firstScope=null;
+  while(true){
+    const query=new URLSearchParams({periodId:config.periodId,limit:String(limit),offset:String(offset)});
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    if(!response.ok)return await failure(response,operation);
+    const body=await response.json(),scope=body?.ok===true&&Array.isArray(body.data)?periodReadScope(body.scope,config,limit,offset):null;
+    if(!scope||firstScope&&(scope.totalCount!==firstScope.totalCount||scope.periodStart!==firstScope.periodStart||scope.periodEnd!==firstScope.periodEnd||scope.periodStatus!==firstScope.periodStatus))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:`Accounting API returned an invalid or changing ${operation} period scope.`};
+    firstScope??=scope;rows.push(...body.data);
+    if(rows.length>scope.totalCount||body.data.length>limit)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:`Accounting API returned an invalid ${operation} page count.`};
+    if(rows.length===scope.totalCount)return {ok:true,data:rows,scope:{...firstScope,limit,offset:0}};
+    if(body.data.length===0||rows.length>1000000)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:`Accounting API returned an incomplete ${operation} period page.`};
+    offset=rows.length;
+  }
+};
+
+const adjustmentRow=(row,side,expectedPeriodId)=>{
+  if(!row||!UUID.test(row.business_adjustment_id||'')||!STATUS_TOKEN.test(row.adjustment_kind||'')||!row.adjustment_kind.startsWith(`${side}_`)||!nullableUuid(row.business_document_id)||!nullableUuid(row.source_adjustment_id)||!MONEY4.test(String(row.amount??''))||!/^[A-Z]{3}$/.test(row.currency||'')||!validDate(row.accounting_date)||row.period_id!==expectedPeriodId||typeof row.reason!=='string'||!STATUS_TOKEN.test(row.status||'')||!UNSIGNED_INTEGER.test(String(row.version??''))||!nullableUuid(row.journal_entry_id)||row.journal_status!==null&&row.journal_status!==undefined&&!STATUS_TOKEN.test(row.journal_status)||!nullableRevision(row.journal_revision)||!validTimestamp(row.created_at))return null;
   const version=Number(row.version),journalRevision=row.journal_revision===null||row.journal_revision===undefined?null:Number(row.journal_revision),amount=Number(row.amount);
   if(!Number.isSafeInteger(version)||version<0||journalRevision!==null&&(!Number.isSafeInteger(journalRevision)||journalRevision<0)||!Number.isFinite(amount))return null;
   return {...row,amount,version,journal_revision:journalRevision,lineage:optionalLineage(row.lineage)};
@@ -153,10 +177,9 @@ const admittedStatementRow=(row,{account=null,receiptId=null}={})=>{
 };
 
 export async function refreshAuthoritativeDocuments({config,fetcher=globalThis.fetch}={}){
-  if(!config||typeof fetcher!=='function')return notConfigured();
+  if(!config||typeof fetcher!=='function'||!UUID.test(config.entityId||'')||!UUID.test(config.periodId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'AP/AR evidence requires an exact authoritative entity and accounting period.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
-  const read=async(path,operation)=>{const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}${path}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});if(!response.ok)return await failure(response,operation);const body=await response.json();return body?.ok===true&&Array.isArray(body.data)?{ok:true,data:body.data}:{ok:false,code:'ACCOUNTING_API_PROTOCOL',message:`Accounting API returned an invalid ${operation} read envelope.`};};
-  try{const [bills,invoices,apAdjustments,arAdjustments]=await Promise.all([read('/ap/bills','AP_BILLS'),read('/ar/invoices','AR_INVOICES'),read('/ap/adjustments','AP_ADJUSTMENTS'),read('/ar/adjustments','AR_ADJUSTMENTS')]);const refused=[bills,invoices,apAdjustments,arAdjustments].find(result=>!result.ok);if(refused)return refused;const apBills=bills.data.map(row=>documentRow(row,'AP_BILL')),arInvoices=invoices.data.map(row=>documentRow(row,'AR_INVOICE')),apRows=apAdjustments.data.map(row=>adjustmentRow(row,'AP')),arRows=arAdjustments.data.map(row=>adjustmentRow(row,'AR')),documentIds=[...apBills,...arInvoices].map(row=>row?.business_document_id),adjustmentIds=[...apRows,...arRows].map(row=>row?.business_adjustment_id);if([...apBills,...arInvoices,...apRows,...arRows].some(row=>row===null)||new Set(documentIds).size!==documentIds.length||new Set(adjustmentIds).size!==adjustmentIds.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate AP/AR evidence row.'};return {ok:true,ap:{bills:apBills,adjustments:apRows,dupBlocked:0},ar:{invoices:arInvoices,adjustments:arRows}};}catch{return unreachable('The browser could not complete the authoritative accounting read; no HTTP response was produced.');}
+  try{const [bills,invoices,apAdjustments,arAdjustments]=await Promise.all([readPeriodPages({config,path:'/ap/bills',operation:'AP_BILLS',authorization,fetcher}),readPeriodPages({config,path:'/ar/invoices',operation:'AR_INVOICES',authorization,fetcher}),readPeriodPages({config,path:'/ap/adjustments',operation:'AP_ADJUSTMENTS',authorization,fetcher}),readPeriodPages({config,path:'/ar/adjustments',operation:'AR_ADJUSTMENTS',authorization,fetcher})]);const refused=[bills,invoices,apAdjustments,arAdjustments].find(result=>!result.ok);if(refused)return refused;const apBills=bills.data.map(row=>documentRow(row,'AP_BILL',config.periodId)),arInvoices=invoices.data.map(row=>documentRow(row,'AR_INVOICE',config.periodId)),apRows=apAdjustments.data.map(row=>adjustmentRow(row,'AP',config.periodId)),arRows=arAdjustments.data.map(row=>adjustmentRow(row,'AR',config.periodId)),documentIds=[...apBills,...arInvoices].map(row=>row?.business_document_id),adjustmentIds=[...apRows,...arRows].map(row=>row?.business_adjustment_id);if([...apBills,...arInvoices,...apRows,...arRows].some(row=>row===null)||new Set(documentIds).size!==documentIds.length||new Set(adjustmentIds).size!==adjustmentIds.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid, cross-period, or duplicate AP/AR evidence row.'};return {ok:true,ap:{bills:apBills,adjustments:apRows,dupBlocked:0,scope:bills.scope,adjustmentsScope:apAdjustments.scope},ar:{invoices:arInvoices,adjustments:arRows,scope:invoices.scope,adjustmentsScope:arAdjustments.scope}};}catch{return unreachable('The browser could not complete the authoritative accounting read; no HTTP response was produced.');}
 }
 
 export async function activateAuthoritativeReadAccess({config,fetcher=globalThis.fetch,idempotencyKey}={}){
@@ -171,15 +194,13 @@ export async function activateAuthoritativeReadAccess({config,fetcher=globalThis
 }
 
 export async function refreshAuthoritativeJournalEntries({config,fetcher=globalThis.fetch}={}){
-  if(!config||typeof fetcher!=='function')return notConfigured();
+  if(!config||typeof fetcher!=='function'||!UUID.test(config.entityId||'')||!UUID.test(config.periodId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Journal Entry evidence requires an exact authoritative entity and accounting period.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
   try{
-    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/journal-entries`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
-    if(!response.ok)return await failure(response,'JOURNAL_ENTRIES');
-    const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid Journal Entry read envelope.'};
-    const journals=body.data.map(journalRow),ids=journals.map(row=>row?.journal_entry_id),numbers=journals.map(row=>row?.journal_number);
+    const result=await readPeriodPages({config,path:'/journal-entries',operation:'JOURNAL_ENTRIES',authorization,fetcher});if(!result.ok)return result;
+    const journals=result.data.map(row=>journalRow(row,config.periodId)),ids=journals.map(row=>row?.journal_entry_id),numbers=journals.map(row=>row?.journal_number);
     if(journals.some(row=>row===null)||new Set(ids).size!==ids.length||new Set(numbers).size!==numbers.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or duplicate Journal Entry row.'};
-    return {ok:true,journals};
+    return {ok:true,journals,scope:result.scope};
   }catch{return unreachable('The browser could not complete the authoritative Journal Entry read; no HTTP response was produced.');}
 }
 
@@ -713,20 +734,21 @@ export async function refreshAuthoritativeAging({config,side,asOfDate,fetcher=gl
   }catch{return unreachable('The browser could not complete the authoritative aging read; no HTTP response was produced.');}
 }
 export async function refreshAuthoritativeControlTotals({config,side,fetcher=globalThis.fetch}={}){
-  if(!config||typeof fetcher!=='function'||!['ap','ar'].includes(side))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Control totals require one authoritative entity and an ap or ar side.'};
+  if(!config||typeof fetcher!=='function'||!['ap','ar'].includes(side)||!UUID.test(config.entityId||'')||!UUID.test(config.periodId||''))return {ok:false,code:'ACCOUNTING_API_SCOPE_INVALID',message:'Control totals require one exact authoritative entity, accounting period, and an ap or ar side.'};
   const authorization=await authoritativeBearerHeaders(config);if(!authorization)return authenticationRequired();
   try{
-    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/${side}/control-totals`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
+    const query=new URLSearchParams({periodId:config.periodId});
+    const response=await fetcher(`${config.baseUrl}/api/v1/entities/${config.entityId}/${side}/control-totals?${query}`,{method:'GET',credentials:'include',cache:'no-store',headers:{accept:'application/json',...authorization}});
     if(!response.ok)return await failure(response);
     const body=await response.json();if(body?.ok!==true||!Array.isArray(body.data))return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid control-total envelope.'};
     const rows=[];
     for(const row of body.data){
       const open=money4(row?.open_balance),control=money4(row?.control_balance);
-      if(!row||!CURRENCY3.test(row.currency||'')||open===null||control===null||typeof row.in_balance!=='boolean')return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid control-total row.'};
+      if(!row||row.period_id!==config.periodId||!CURRENCY3.test(row.currency||'')||open===null||control===null||typeof row.in_balance!=='boolean')return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned an invalid or cross-period control-total row.'};
       rows.push({currency:row.currency,open_balance:open,control_balance:control,in_balance:row.in_balance});
     }
     if(new Set(rows.map(r=>r.currency)).size!==rows.length)return {ok:false,code:'ACCOUNTING_API_PROTOCOL',message:'Accounting API returned duplicate control-total currencies.'};
-    return {ok:true,side,rows,scope:{entityId:config.entityId}};
+    return {ok:true,side,rows,scope:{entityId:config.entityId,periodId:config.periodId}};
   }catch{return unreachable('The browser could not complete the authoritative control-total read; no HTTP response was produced.');}
 }
 

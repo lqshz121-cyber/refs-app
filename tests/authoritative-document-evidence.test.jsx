@@ -148,7 +148,8 @@ const arFilteredMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind
 assert.match(arFilteredMarkup,/<details class="authoritative-list-more-filters" open="">/,'active AR secondary filters must remain visible');
 assert.match(arFilteredMarkup,/More filters \(2\)/);
 
-const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} config={displayConfig} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
+const documentReturnContext={entityId,periodId,documentId:bill.business_document_id,documentRevision:bill.revision,documentKind:'AP',documentPeriodId:periodId,view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}};
+const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} config={displayConfig} returnContext={documentReturnContext} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);
 assert.match(detail,/<details class="authoritative-return-context"><summary>List filters retained<\/summary>/,
   'the exact list return scope must remain available without forcing a long filter string into the Back row');
@@ -180,7 +181,7 @@ const completeBill={...bill,posted_journal_entry_id:postedJournalId,journal_entr
 const completeLineage=authoritativeLineageFor(completeBill,entityId);
 assert.equal(completeLineage?.posted_journal_entry_id,postedJournalId,'only a lineage set bound to the same exact record and posted journal may be exposed');
 assert.equal(completeLineage?.audit_event_ids.length,2);
-const completeDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={completeBill} kind="AP" entityId={entityId} onBack={()=>{}}/>);
+const completeDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={completeBill} kind="AP" entityId={entityId} config={displayConfig} returnContext={documentReturnContext} onBack={()=>{}}/>);
 assert.match(completeDetail,/Immutable authoritative lineage/);
 assert.match(completeDetail,/<details class="authoritative-secondary-disclosure authoritative-lineage" aria-label="Bill immutable lineage"><summary><span>Immutable authoritative lineage<\/span><span class="badge badge-muted">POSTED EVIDENCE<\/span><\/summary>/,
   'complete lineage must remain available in one default-closed shared disclosure');
@@ -189,11 +190,14 @@ assert.match(completeDetail,/Mapping snapshot/);
 assert.doesNotMatch(completeDetail,/authoritative lineage unavailable/,'a complete same-revision API lineage response must not be unconditionally blocked');
 const mismatchedLineage={...completeBill,lineage:{...completeBill.lineage,record_revision:2}};
 assert.equal(authoritativeLineageFor(mismatchedLineage,entityId),null,'a stale or mismatched record revision must fail closed');
-const mismatchedDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={mismatchedLineage} kind="AP" entityId={entityId} onBack={()=>{}}/>);
+const mismatchedDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={mismatchedLineage} kind="AP" entityId={entityId} config={displayConfig} returnContext={documentReturnContext} onBack={()=>{}}/>);
 assert.match(mismatchedDetail,/BLOCKED[\s\S]*authoritative lineage unavailable/);
 assert.match(mismatchedDetail,/Source, receipt, mapping, audit, journal, and ledger links were not returned for this revision\./);
 assert.match(mismatchedDetail,/List facts remain read only\./);
 assert.doesNotMatch(mismatchedDetail,/The list reader has not returned|The retained list facts below/);
+const crossPeriodDetail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={{...bill,period_id:'55555555-5555-4555-8555-555555555555'}} kind="AP" entityId={entityId} config={displayConfig} returnContext={documentReturnContext} onBack={()=>{}}/>);
+assert.match(crossPeriodDetail,/BLOCKED — immutable document scope mismatch/,'a document from another period must never mount evidence under the selected period return context');
+assert.doesNotMatch(crossPeriodDetail,/Original amount|Offset account/,'cross-period list facts must block before detail evidence');
 
 const adjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={[adjustment]} kind="AP" onOpen={()=>{}}/>);
 assert.match(adjustmentList,/AP_VENDOR_CREDIT/);

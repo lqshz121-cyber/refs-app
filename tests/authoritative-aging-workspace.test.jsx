@@ -5,18 +5,19 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {AuthoritativeAgingWorkspace} from '../src/authoritative-aging-workspace.jsx';
 
-const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222'};
+const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',scopePresentation:{entityLabel:'Configured entity',periodLabel:'2026-01',periodEnd:'2026-01-31'}};
 const markup=renderToStaticMarkup(<AuthoritativeAgingWorkspace config={config} side="ar" fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})}/>);
 assert.match(markup,/Accounts receivable \/ aging report/);
 assert.match(markup,/Entity reporting scope/);
 assert.match(markup,/Accounting period/);
-assert.match(markup,/Configured period/);
+assert.match(markup,/2026-01/);
 assert.match(markup,/As-of date/);
+assert.match(markup,/value="2026-01-31"/,'Aging must default to the authoritative selected period end, never the browser date.');
 assert.match(markup,/Refresh evidence/);
 assert.match(markup,/Loading authoritative AR aging/);
 assert.match(markup,/Read-only aging from the accounting API\./);
 assert.equal((markup.match(/Configured entity/g)||[]).length,1,'Aging must present entity scope once in the controls');
-assert.equal((markup.match(/Configured period/g)||[]).length,1,'Aging must present period scope once in the controls');
+assert.equal((markup.match(/<b>2026-01<\/b>/g)||[]).length,1,'Aging must present the exact selected period label once in the controls');
 assert.doesNotMatch(markup,/Immutable evidence scope|GET-only refresh/,'Aging must not repeat its labelled controls in a second scope block');
 assert.doesNotMatch(markup,/>Customize<|>Save<|>Print<|>Export<|>Email<|>More</i);
 
@@ -39,6 +40,7 @@ const reportBackMarkup=renderToStaticMarkup(<AuthoritativeAgingWorkspace config=
 assert.match(reportBackMarkup,/Back to Reports/,'the Reports shortcut must not imply that it returns to the Receivables list');
 assert.match(source,/AuthoritativeReadFailure/,'Aging must use the shared authoritative failure presentation.');
 assert.match(source,/authoritativeReadFailurePhase\(failure\)/,'Aging must classify only trusted-read boundary failures as BLOCKED.');
+assert.doesNotMatch(source,/new Date\(\)\.toISOString\(\)/,'Aging must not derive its initial accounting scope from wall-clock time.');
 assert.doesNotMatch(source,/blockedReadCodes/,'Aging must not maintain a divergent local blocked-code list.');
 assert.match(source,/agingContextMatches/,'Aging must validate its immutable parent return scope.');
 assert.match(source,/BLOCKED — immutable aging scope mismatch/,'Aging scope mismatches must fail closed.');

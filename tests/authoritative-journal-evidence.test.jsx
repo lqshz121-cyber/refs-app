@@ -17,6 +17,7 @@ assert.equal(readableScope.entityNameReturned,false);
 assert.equal(readableScope.entityHint,'The authenticated API did not return an entity display name.');
 assert.equal(readableScope.periodLabel,'2026-08');
 assert.equal(readableScope.periodDetail,'Aug 1, 2026 - Aug 31, 2026');
+assert.equal(readableScope.periodEnd,'2026-08-31');
 assert.equal(readableScope.cashAccountLabel,'111000 - Operating cash');
 assert.equal(authoritativeScopePresentation(
   {entityId,periodId,cashAccountCode:'111000'},
@@ -140,11 +141,11 @@ assert.match(styles,/\.authoritative-journal-line-table \.tbl\{min-width:1420px;
 
 async function verifyJournalWorkflow(){
   let workflowCalls=[];
-  const workflowFetcher=async(url,options)=>{workflowCalls.push({url,options});if(url.endsWith('/journal-workflow/capabilities'))return {ok:true,json:async()=>({ok:true,data:permissions})};if(url.includes('/transitions/submit'))return {ok:true,status:201,json:async()=>({ok:true,data:{status:'PENDING_REVIEW',revision:4}})};return {ok:true,json:async()=>({ok:true,data:[{...journal,status:'PENDING_REVIEW',revision:'4'}]})};};
+  const workflowFetcher=async(url,options)=>{workflowCalls.push({url,options});if(url.endsWith('/journal-workflow/capabilities'))return {ok:true,json:async()=>({ok:true,data:permissions})};if(url.includes('/transitions/submit'))return {ok:true,status:201,json:async()=>({ok:true,data:{status:'PENDING_REVIEW',revision:4}})};const data=[{...journal,status:'PENDING_REVIEW',revision:'4'}];return {ok:true,json:async()=>({ok:true,data,scope:{entity_id:entityId,period_id:periodId,period_start:'2026-08-01',period_end:'2026-08-31',period_status:'OPEN',total_count:1,limit:200,offset:0}})};};
   const cancelled=await runAuthoritativeJournalWorkflow({journal,config:{baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>('x'.repeat(24))},fetcher:workflowFetcher,environment:{confirm:()=>false}});
   assert.equal(cancelled.cancelled,true);assert.equal(workflowCalls.length,1,'cancelling after a fresh capability read must not dispatch a workflow command');
   workflowCalls=[];const completed=await runAuthoritativeJournalWorkflow({journal,config:{baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>('x'.repeat(24))},fetcher:workflowFetcher,environment:{confirm:()=>true}});
-  assert.equal(completed.ok,true);assert.equal(completed.action,'SUBMIT');assert.equal(workflowCalls.length,3);assert.match(workflowCalls[1].url,/\/transitions\/submit$/);assert.equal(workflowCalls[1].options.headers['if-match'],'"3"');assert.equal(workflowCalls[1].options.headers['idempotency-key'],`UI-JE-${journal.journal_entry_id}-3-SUBMIT`);assert.match(workflowCalls[2].url,/\/journal-entries$/);
+  assert.equal(completed.ok,true);assert.equal(completed.action,'SUBMIT');assert.equal(workflowCalls.length,3);assert.match(workflowCalls[1].url,/\/transitions\/submit$/);assert.equal(workflowCalls[1].options.headers['if-match'],'"3"');assert.equal(workflowCalls[1].options.headers['idempotency-key'],`UI-JE-${journal.journal_entry_id}-3-SUBMIT`);assert.match(workflowCalls[2].url,/\/journal-entries\?periodId=/);
   const refreshFailed=await runAuthoritativeJournalWorkflow({journal,config:{baseUrl:'https://api.example',entityId,periodId,getAccessToken:async()=>('x'.repeat(24))},fetcher:async(url)=>{if(url.endsWith('/journal-workflow/capabilities'))return {ok:true,json:async()=>({ok:true,data:permissions})};if(url.includes('/transitions/submit'))return {ok:true,status:201,json:async()=>({ok:true,data:{status:'PENDING_REVIEW',revision:4}})};return {ok:false,status:503,json:async()=>({ok:false})};},environment:{confirm:()=>true}});
   assert.equal(refreshFailed.commandCommitted,true);assert.equal(refreshFailed.code,'JOURNAL_WORKFLOW_REFRESH_REQUIRED');
   console.log('authoritative-journal-evidence: API-only journal register, full-page evidence, Back/focus, lineage block, and workflow capability contracts verified');

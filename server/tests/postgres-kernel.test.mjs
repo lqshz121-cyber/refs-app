@@ -538,18 +538,18 @@ pgTest('WBS TEST IMPORT atomically creates and posts an unsigned Payable while r
   const sourceDetailHttpRows=JSON.parse(JSON.stringify(sourceDetailRows));
   const sourceDetailClientRead=await readAuthoritativeSourceDocumentDetail({config:{baseUrl:'https://accounting.test',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>`test-token-${'a'.repeat(32)}`},sourceDocumentId:draft.source_document_id,fetcher:async()=>({ok:true,status:200,headers:{get:()=> 'no-store'},json:async()=>({ok:true,data:sourceDetailHttpRows})})});
   assert.equal(sourceDetailClientRead.ok,true,JSON.stringify({sourceDetailClientRead,sourceDetailHttpRows}));
-  const listedBills=await reader.listBusinessDocuments({tenantId:ids.tenantId,entityId:ids.entityId,documentKind:'AP_BILL'});
+  const listedBillPage=await reader.listBusinessDocuments({tenantId:ids.tenantId,entityId:ids.entityId,documentKind:'AP_BILL',periodId:ids.periodId,limit:200,offset:0}),listedBills=listedBillPage.rows;
   assert.equal(listedBills.length,10);
   const clientRead=await refreshAuthoritativeDocuments({config:{baseUrl:'https://accounting.test',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>`test-token-${'a'.repeat(32)}`},fetcher:async url=>{
     const path=new URL(url).pathname;
     const data=path.endsWith('/ap/bills')?listedBills:[];
-    return {ok:true,status:200,json:async()=>({ok:true,data})};
+    return {ok:true,status:200,json:async()=>path.endsWith('/adjustments')?({ok:true,data:[],scope:{...listedBillPage.scope,total_count:0}}):({ok:true,data,scope:listedBillPage.scope})};
   }});
   assert.equal(clientRead.ok,true,JSON.stringify({clientRead,listedBills}));
-  const listedJournals=await reader.listJournalEntries({tenantId:ids.tenantId,entityId:ids.entityId});
+  const listedJournalPage=await reader.listJournalEntries({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,limit:200,offset:0}),listedJournals=listedJournalPage.rows;
   assert.equal(listedJournals.length,10);
   const journalHttpRows=JSON.parse(JSON.stringify(listedJournals));
-  const journalClientRead=await refreshAuthoritativeJournalEntries({config:{baseUrl:'https://accounting.test',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>`test-token-${'a'.repeat(32)}`},fetcher:async()=>({ok:true,status:200,json:async()=>({ok:true,data:journalHttpRows})})});
+  const journalClientRead=await refreshAuthoritativeJournalEntries({config:{baseUrl:'https://accounting.test',entityId:ids.entityId,periodId:ids.periodId,getAccessToken:async()=>`test-token-${'a'.repeat(32)}`},fetcher:async()=>({ok:true,status:200,json:async()=>({ok:true,data:journalHttpRows,scope:listedJournalPage.scope})})});
   assert.equal(journalClientRead.ok,true,JSON.stringify({journalClientRead,listedJournals}));
   assert.deepEqual((await adminPool.query("SELECT account_name,requires_member,required_member_type,active FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='120200'",[ids.tenantId,ids.entityId])).rows[0],untouchedAccount);
   assert.deepEqual((await adminPool.query("SELECT requires_member,required_member_type FROM account_master WHERE tenant_id=$1 AND entity_id=$2 AND account_code='291001'",[other.tenantId,other.entityId])).rows[0],{requires_member:false,required_member_type:null});
@@ -2358,21 +2358,27 @@ pgTest('production HTTP listener verifies an RS256 access token before DB contex
   }finally{await new Promise(resolve=>server.close(resolve));}
 });
 
-pgTest('authenticated HTTP lists entity-scoped Journal Entries through the exact text read contract',async()=>{
+pgTest('authenticated HTTP lists only exact-period Journal Entries and excludes same-entity future rows',async()=>{
   const ids=await seed({status:'DRAFT'}),other=await seed({status:'DRAFT',tenantId:ids.tenantId});
+  const januaryPeriodId=randomUUID(),januaryJournalId=randomUUID(),januaryPostedId=randomUUID();
+  await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-01','2026-01-01','2026-01-31','CLOSED')",[januaryPeriodId,ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,created_by,reviewed_by,approved_by,posted_by,posted_at)
+    VALUES($1,$2,$3,$4,'JE-JAN-DRAFT','MANUAL','DRAFT','2026-01-15','USD','jan-maker',NULL,NULL,NULL,NULL),
+      ($5,$2,$3,$4,'JE-JAN-POSTED','AUTO','POSTED','2026-01-20','USD','jan-maker','jan-reviewer','jan-approver','jan-poster','2026-02-01T00:00:00Z')`,[januaryJournalId,ids.tenantId,ids.entityId,januaryPeriodId,januaryPostedId]);
   const api=createAccountingApi({
     authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'http-journal-reader'}),
     kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'http-journal-reader',['GL.JE.VIEW'])})
   });
-  const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries`,headers:{},body:null});
-  assert.equal(response.status,200);
-  assert.equal(response.body.data.length,1);
-  const [journal]=response.body.data;
-  assert.deepEqual({journal_entry_id:journal.journal_entry_id,journal_number:journal.journal_number,journal_type:journal.journal_type,status:journal.status,currency:journal.currency,revision:journal.revision,posted_at:journal.posted_at,ledger_line_count:journal.ledger_line_count},{
-    journal_entry_id:ids.journalId,journal_number:`JE-${ids.journalId.slice(0,8)}`,journal_type:'MANUAL',status:'DRAFT',currency:'USD',revision:'0',posted_at:null,ledger_line_count:'0'
-  });
-  assert.equal(journal.journal_date,'2026-07-15');
-  assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/journal-entries`,headers:{},body:null})).status,403);
+  const response=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries?periodId=${januaryPeriodId}&limit=1&offset=0`,headers:{},body:null});
+  assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.equal(response.body.data.length,1);
+  assert.deepEqual(response.body.scope,{entity_id:ids.entityId,period_id:januaryPeriodId,period_start:'2026-01-01',period_end:'2026-01-31',period_status:'CLOSED',total_count:2,limit:1,offset:0});
+  assert.equal(response.body.data[0].journal_entry_id,januaryPostedId);assert.equal(response.body.data[0].period_id,januaryPeriodId);assert.equal(response.body.data[0].status,'POSTED');
+  const second=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries?periodId=${januaryPeriodId}&limit=1&offset=1`,headers:{},body:null});
+  assert.equal(second.status,200);assert.equal(second.body.data[0].journal_entry_id,januaryJournalId);assert.equal(second.body.data[0].status,'DRAFT');
+  assert.ok(![...response.body.data,...second.body.data].some(row=>row.journal_entry_id===ids.journalId),'the July journal must not appear in the January register or become drillable');
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries`,headers:{},body:null})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/journal-entries?periodId=${other.periodId}`,headers:{},body:null})).status,404);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/journal-entries?periodId=${other.periodId}`,headers:{},body:null})).status,403);
 });
 
 pgTest('Journal workflow capability read requires GL.JE.VIEW and returns only fixed entity permissions',async()=>{
@@ -2417,23 +2423,34 @@ pgTest('authenticated HTTP AR aging reads only the entity authorized by its DB c
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/ar/aging?asOf=2026-08-31`,headers:{},body:null})).status,403);
 });
 
-pgTest('authenticated HTTP refreshes AP Bills and AR Invoices only from its authorized entity',async()=>{
-  const ids=await seed({status:'APPROVED'}),other=await seed({status:'APPROVED',tenantId:ids.tenantId});
-  const billId=randomUUID(),invoiceId=randomUUID(),otherBillId=randomUUID();
-  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
-    VALUES($1,$2,$3,'AP_BILL','BILL-HTTP-READ','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',100,60,'PARTIALLY_PAID','fixture'),
-      ($4,$2,$3,'AR_INVOICE','INV-HTTP-READ','CUSTOMER-1','Customer','USD','2026-07-16','2026-08-16',80,80,'OPEN','fixture'),
-      ($5,$2,$6,'AP_BILL','BILL-OTHER-ENTITY','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',50,50,'OPEN','fixture')`,[billId,ids.tenantId,ids.entityId,invoiceId,otherBillId,other.entityId]);
+pgTest('authoritative AP AR documents and adjustments are exact-period paged reads with no cross-period drill facts',async()=>{
+  const ids=await seed({status:'DRAFT'}),other=await seed({status:'DRAFT',tenantId:ids.tenantId});
+  const januaryPeriodId=randomUUID(),januaryDraftJournalId=randomUUID(),januaryPostedJournalId=randomUUID(),billId=randomUUID(),invoiceId=randomUUID(),julyBillId=randomUUID(),januaryApAdjustmentId=randomUUID(),januaryArAdjustmentId=randomUUID(),julyAdjustmentId=randomUUID();
+  await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,'2026-01','2026-01-01','2026-01-31','CLOSED')",[januaryPeriodId,ids.tenantId,ids.entityId]);
+  await adminPool.query(`INSERT INTO journal_entry(journal_entry_id,tenant_id,entity_id,period_id,journal_number,journal_type,status,journal_date,currency,created_by,reviewed_by,approved_by,posted_by,posted_at)
+    VALUES($1,$2,$3,$4,'JE-JAN-AP-DRAFT','MANUAL','DRAFT','2026-01-10','USD','jan-maker',NULL,NULL,NULL,NULL),
+      ($5,$2,$3,$4,'JE-JAN-AR-POSTED','AUTO','POSTED','2026-01-20','USD','jan-maker','jan-reviewer','jan-approver','jan-poster','2026-02-01T00:00:00Z')`,[januaryDraftJournalId,ids.tenantId,ids.entityId,januaryPeriodId,januaryPostedJournalId]);
+  await adminPool.query(`INSERT INTO business_document(business_document_id,tenant_id,entity_id,draft_journal_entry_id,posted_journal_entry_id,document_kind,document_number,counterparty_ref,counterparty_name,currency,accounting_date,due_date,gross_amount,open_balance,status,created_by)
+    VALUES($1,$2,$3,$4,NULL,'AP_BILL','BILL-JAN-DRAFT','VENDOR-1','Vendor','USD','2026-01-10','2026-02-10',100,100,'DRAFT','fixture'),
+      ($5,$2,$3,NULL,$6,'AR_INVOICE','INV-JAN-POSTED','CUSTOMER-1','Customer','USD','2026-01-20','2026-02-20',80,80,'OPEN','fixture'),
+      ($7,$2,$3,$8,NULL,'AP_BILL','BILL-JULY-EXCLUDED','VENDOR-1','Vendor','USD','2026-07-15','2026-08-15',50,50,'DRAFT','fixture')`,[billId,ids.tenantId,ids.entityId,januaryDraftJournalId,invoiceId,januaryPostedJournalId,julyBillId,ids.journalId]);
+  await adminPool.query(`INSERT INTO business_adjustment(business_adjustment_id,tenant_id,entity_id,adjustment_kind,amount,currency,accounting_date,period_id,reason,status,draft_journal_entry_id,idempotency_key,request_hash,created_by)
+    VALUES($1,$2,$3,'AP_VENDOR_CREDIT',12,'USD','2026-01-10',$4,'January AP adjustment','DRAFT',$5,'jan-ap-adjustment',$6,'fixture'),
+      ($7,$2,$3,'AR_CREDIT_MEMO',8,'USD','2026-01-20',$4,'January AR adjustment','POSTED',NULL,'jan-ar-adjustment',$6,'fixture'),
+      ($8,$2,$3,'AP_VENDOR_CREDIT',9,'USD','2026-07-15',$9,'July adjustment excluded','DRAFT',$10,'july-ap-adjustment',$6,'fixture')`,[januaryApAdjustmentId,ids.tenantId,ids.entityId,januaryPeriodId,januaryDraftJournalId,hash('period-read-adjustments'),januaryArAdjustmentId,julyAdjustmentId,ids.periodId,ids.journalId]);
+  await adminPool.query('UPDATE business_adjustment SET posted_journal_entry_id=$1 WHERE business_adjustment_id=$2',[januaryPostedJournalId,januaryArAdjustmentId]);
   const api=createAccountingApi({
     authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'http-document-reader'}),
     kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'http-document-reader',['AP.VIEW','AR.VIEW'])})
   });
-  const billResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ap/bills`,headers:{},body:null});
-  assert.equal(billResponse.status,200);assert.deepEqual(billResponse.body.data.map(row=>({business_document_id:row.business_document_id,document_number:row.document_number,open_balance:row.open_balance,status:row.status})),[{business_document_id:billId,document_number:'BILL-HTTP-READ',open_balance:'60.0000',status:'PARTIALLY_PAID'}]);
-  const invoiceResponse=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ar/invoices`,headers:{},body:null});
-  assert.equal(invoiceResponse.status,200);assert.deepEqual(invoiceResponse.body.data.map(row=>({business_document_id:row.business_document_id,document_number:row.document_number,open_balance:row.open_balance,status:row.status})),[{business_document_id:invoiceId,document_number:'INV-HTTP-READ',open_balance:'80.0000',status:'OPEN'}]);
-  assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/ap/bills`,headers:{},body:null})).status,403);
-  assert.equal((await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ap/bills`,headers:{'Idempotency-Key':'read-not-allowed'},body:null})).status,400);
+  const reads=[];for(const path of ['ap/bills','ar/invoices','ap/adjustments','ar/adjustments'])reads.push(await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/${path}?periodId=${januaryPeriodId}&limit=1&offset=0`,headers:{},body:null}));
+  for(const response of reads){assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');assert.deepEqual(response.body.scope,{entity_id:ids.entityId,period_id:januaryPeriodId,period_start:'2026-01-01',period_end:'2026-01-31',period_status:'CLOSED',total_count:1,limit:1,offset:0});assert.equal(response.body.data.length,1);assert.equal(response.body.data[0].period_id,januaryPeriodId);}
+  assert.deepEqual(reads.map(response=>response.body.data[0].business_document_id||response.body.data[0].business_adjustment_id),[billId,invoiceId,januaryApAdjustmentId,januaryArAdjustmentId]);
+  assert.ok(reads.flatMap(response=>response.body.data).every(row=>row.business_document_id!==julyBillId&&row.business_adjustment_id!==julyAdjustmentId));
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ap/bills`,headers:{},body:null})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ap/adjustments?periodId=${other.periodId}`,headers:{},body:null})).status,404);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/ap/bills?periodId=${other.periodId}`,headers:{},body:null})).status,403);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ap/bills?periodId=${januaryPeriodId}`,headers:{'Idempotency-Key':'read-not-allowed'},body:null})).status,400);
 });
 
 pgTest('authenticated HTTP refreshes durable AP and AR adjustments with linked workflow state only from its authorized entity',async()=>{
@@ -2446,11 +2463,11 @@ pgTest('authenticated HTTP refreshes durable AP and AR adjustments with linked w
     authenticate:async()=>({trusted:true,tenantId:ids.tenantId,actorId:'adjustment-reader'}),
     kernelFactory:async()=>new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'adjustment-reader',['AP.VIEW','AR.VIEW'])})
   });
-  const ap=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ap/adjustments`,headers:{},body:null});
-  const ar=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ar/adjustments`,headers:{},body:null});
+  const ap=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ap/adjustments?periodId=${ids.periodId}`,headers:{},body:null});
+  const ar=await api({method:'GET',url:`/api/v1/entities/${ids.entityId}/ar/adjustments?periodId=${ids.periodId}`,headers:{},body:null});
   assert.equal(ap.status,200);assert.deepEqual(ap.body.data.map(row=>({business_adjustment_id:row.business_adjustment_id,adjustment_kind:row.adjustment_kind,amount:row.amount,status:row.status})),[{business_adjustment_id:apId,adjustment_kind:'AP_VENDOR_CREDIT',amount:'12.5000',status:'DRAFT'}]);
   assert.equal(ar.status,200);assert.deepEqual(ar.body.data.map(row=>({business_adjustment_id:row.business_adjustment_id,adjustment_kind:row.adjustment_kind,amount:row.amount,status:row.status})),[{business_adjustment_id:arId,adjustment_kind:'AR_CREDIT_MEMO',amount:'8.0000',status:'POSTED'}]);
-  assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/ap/adjustments`,headers:{},body:null})).status,403);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${other.entityId}/ap/adjustments?periodId=${other.periodId}`,headers:{},body:null})).status,403);
 });
 
 pgTest('authenticated HTTP creates AP Bills and AR Invoices only as evidence-backed Draft JEs, then posts both atomically',async()=>{
@@ -2486,9 +2503,9 @@ pgTest('authenticated HTTP creates AP Bills and AR Invoices only as evidence-bac
   };
   const bill=await create('ap/bills',{periodId:ids.periodId,documentNumber:'BILL-NATIVE-100',counterpartyRef:'VENDOR-1',counterpartyName:'Vendor',currency:'USD',accountingDate:'2026-07-18',dueDate:'2026-08-18',amount:100,offsetAccountCode:'610000',description:'Native AP bill',attachmentIds:[attachmentId]},'native-ap-bill-100');
   const invoice=await create('ar/invoices',{periodId:ids.periodId,documentNumber:'INV-NATIVE-100',counterpartyRef:'CUSTOMER-1',counterpartyName:'Customer',currency:'USD',accountingDate:'2026-07-18',dueDate:'2026-08-18',amount:100,offsetAccountCode:'400000',description:'Native AR invoice',attachmentIds:[attachmentId]},'native-ar-invoice-100');
-  const readBill=(await api({method:'GET',url:`${root}/ap/bills`,headers:{'x-test-actor':'document-reader'},body:null})).body.data[0];
+  const readBill=(await api({method:'GET',url:`${root}/ap/bills?periodId=${ids.periodId}`,headers:{'x-test-actor':'document-reader'},body:null})).body.data[0];
   assert.deepEqual({business_document_id:readBill.business_document_id,status:readBill.status,offset_account_code:readBill.offset_account_code,description:readBill.description,journal_entry_id:readBill.journal_entry_id,journal_status:readBill.journal_status,journal_revision:readBill.journal_revision,period_id:readBill.period_id},{business_document_id:bill.business_document_id,status:'OPEN',offset_account_code:'610000',description:'Native AP bill',journal_entry_id:bill.journal_entry_id,journal_status:'POSTED',journal_revision:'4',period_id:ids.periodId});
-  const readInvoice=(await api({method:'GET',url:`${root}/ar/invoices`,headers:{'x-test-actor':'document-reader'},body:null})).body.data[0];
+  const readInvoice=(await api({method:'GET',url:`${root}/ar/invoices?periodId=${ids.periodId}`,headers:{'x-test-actor':'document-reader'},body:null})).body.data[0];
   assert.deepEqual({business_document_id:readInvoice.business_document_id,status:readInvoice.status,offset_account_code:readInvoice.offset_account_code,description:readInvoice.description,journal_entry_id:readInvoice.journal_entry_id,journal_status:readInvoice.journal_status,journal_revision:readInvoice.journal_revision,period_id:readInvoice.period_id},{business_document_id:invoice.business_document_id,status:'OPEN',offset_account_code:'400000',description:'Native AR invoice',journal_entry_id:invoice.journal_entry_id,journal_status:'POSTED',journal_revision:'4',period_id:ids.periodId});
   const spoof=await send('document-maker',`${root}/ap/bills`,{periodId:ids.periodId,documentNumber:'BILL-NO-EVIDENCE',counterpartyRef:'VENDOR-1',counterpartyName:'Vendor',currency:'USD',accountingDate:'2026-07-18',amount:100,offsetAccountCode:'610000',attachmentIds:[]},'native-ap-bill-no-evidence');
   assert.equal(spoof.status,422);
@@ -3095,7 +3112,7 @@ pgTest('signed Property Rent charge reaches independent review AR Draft four-rol
   await submitter.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'SUBMIT',expectedRevision:0,idempotencyKey:'rent-submit-001'});await jeReviewer.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'REVIEW',expectedRevision:1,idempotencyKey:'rent-je-review-001'});await approver.transitionJournal({...ids,journalEntryId:drafted.journal_entry_id,action:'APPROVE',expectedRevision:2,idempotencyKey:'rent-approve-001'});await poster.postJournal({...ids,journalEntryId:drafted.journal_entry_id,periodId:ids.periodId,expectedRevision:3,idempotencyKey:'rent-post-001'});
   const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'rent-authority-reader',['AR.VIEW','GL.JE.VIEW','GL.REPORT.VIEW'])});
   const detail=await reader.getJournalEntryDetail({...ids,journalEntryId:drafted.journal_entry_id});assert(detail.lines.every(line=>line.source_document_ids.includes(admitted.source_document_id)));
-  const invoice=(await reader.listBusinessDocuments({tenantId:ids.tenantId,entityId:ids.entityId,documentKind:'AR_INVOICE'})).find(row=>row.business_document_id===drafted.business_document_id);assert.deepEqual({status:invoice.status,amount:invoice.gross_amount,journal:invoice.journal_entry_id},{status:'OPEN',amount:'100.0000',journal:drafted.journal_entry_id});
+  const invoice=(await reader.listBusinessDocuments({tenantId:ids.tenantId,entityId:ids.entityId,documentKind:'AR_INVOICE',periodId:ids.periodId,limit:100,offset:0})).rows.find(row=>row.business_document_id===drafted.business_document_id);assert.deepEqual({status:invoice.status,amount:invoice.gross_amount,journal:invoice.journal_entry_id},{status:'OPEN',amount:'100.0000',journal:drafted.journal_entry_id});
   const gl=await reader.listGeneralLedger({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,accountCode:'400100',query:null,limit:20,offset:0});const rentGl=gl.find(row=>row.journal_entry_id===drafted.journal_entry_id);assert.equal(rentGl.credit_amount,'100.0000');assert.deepEqual(rentGl.source_document_ids,[admitted.source_document_id]);
   const statements=await reader.getFinancialStatements({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId});const revenue=statements.find(row=>row.statement_type==='INCOME_STATEMENT'&&row.account_code==='400100');assert.equal(revenue.display_balance,'100.0000');assert.ok(revenue.journal_entry_ids.includes(drafted.journal_entry_id));assert.ok(revenue.source_document_ids.includes(admitted.source_document_id));
   for(const [dimensionType,dimensionRef] of [['PROPERTY','PROP-1'],['UNIT','UNIT-101']]){const rows=await reader.getDimensionProfitability({tenantId:ids.tenantId,entityId:ids.entityId,periodId:ids.periodId,dimensionType,dimensionRef});const row=rows.find(item=>item.account_code==='400100');assert.equal(row.display_balance,'100.0000');assert.ok(row.source_document_ids.includes(admitted.source_document_id));}

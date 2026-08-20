@@ -31,7 +31,10 @@ export function authoritativeScopePresentation(config,coaRows=[],scopeMetadata=n
     periodLabel:metadataPeriodMatches&&/^\d{4}-(0[1-9]|1[0-2])$/.test(scopeMetadata?.period_code||'')?scopeMetadata.period_code:(period?.period_code||'Configured period'),
     periodDetail:metadataPeriodMatches?`${formatAuthoritativeDate(scopeMetadata.period_start)} - ${formatAuthoritativeDate(scopeMetadata.period_end)}`:(period?`${formatAuthoritativeDate(period.period_start)} - ${formatAuthoritativeDate(period.period_end)}`:(UUID.test(config?.periodId||'')?config.periodId:'Identifier unavailable')),
     periodReturned:metadataPeriodMatches||periodReturned,
-    periodHint:periodReturned?'':'The authenticated API did not return a period code or date range.',
+    periodStart:metadataPeriodMatches&&ISO_DATE.test(scopeMetadata?.period_start||'')?scopeMetadata.period_start:(ISO_DATE.test(period?.period_start||'')?period.period_start:null),
+    periodEnd:metadataPeriodMatches&&ISO_DATE.test(scopeMetadata?.period_end||'')?scopeMetadata.period_end:(ISO_DATE.test(period?.period_end||'')?period.period_end:null),
+    periodStatus:metadataPeriodMatches&&typeof scopeMetadata?.period_status==='string'?scopeMetadata.period_status:null,
+    periodHint:metadataPeriodMatches||periodReturned?'':'The authenticated API did not return a period code or date range.',
     cashAccountLabel:cash?`${cash.account_code} - ${cash.account_name}`:(config?.cashAccountCode?`${config.cashAccountCode} - Name unavailable`:'Not configured'),
   };
 }

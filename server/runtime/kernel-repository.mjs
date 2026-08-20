@@ -1384,24 +1384,42 @@ export class PostgresAccountingKernel{
     )).rows);
   }
 
-  async listBusinessDocuments({tenantId,entityId,documentKind}){
+  async listBusinessDocuments({tenantId,entityId,documentKind,periodId,limit=100,offset=0}){
     if(!['AP_BILL','AR_INVOICE'].includes(documentKind))throw new KernelError('BUSINESS_DOCUMENT_KIND_INVALID','Unsupported business document kind');
-    return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_list_business_documents($1,$2,$3)',[tenantId,entityId,documentKind]
-    )).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date),due_date:row.due_date==null?null:publicDate(row.due_date)})));
+    return this.inSession(async client=>{
+      const scope=requireRow(await client.query(
+        'SELECT * FROM refs_read_business_document_period_scope($1,$2,$3,$4)',[tenantId,entityId,documentKind,periodId]
+      ),'BUSINESS_DOCUMENT_PERIOD_SCOPE_MISSING','Business document period scope was not returned');
+      const rows=(await client.query(
+        'SELECT * FROM refs_list_business_documents_period($1,$2,$3,$4,$5,$6)',[tenantId,entityId,documentKind,periodId,limit,offset]
+      )).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date),due_date:row.due_date==null?null:publicDate(row.due_date)}));
+      return {rows,scope:{...scope,period_start:publicDate(scope.period_start),period_end:publicDate(scope.period_end),total_count:Number(scope.total_count),limit,offset}};
+    });
   }
 
-  async listBusinessAdjustments({tenantId,entityId,module}){
+  async listBusinessAdjustments({tenantId,entityId,module,periodId,limit=100,offset=0}){
     if(!['AP','AR'].includes(module))throw new KernelError('BUSINESS_ADJUSTMENT_MODULE_INVALID','Unsupported business adjustment module');
-    return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_list_business_adjustments($1,$2,$3)',[tenantId,entityId,module]
-    )).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date)})));
+    return this.inSession(async client=>{
+      const scope=requireRow(await client.query(
+        'SELECT * FROM refs_read_business_adjustment_period_scope($1,$2,$3,$4)',[tenantId,entityId,module,periodId]
+      ),'BUSINESS_ADJUSTMENT_PERIOD_SCOPE_MISSING','Business adjustment period scope was not returned');
+      const rows=(await client.query(
+        'SELECT * FROM refs_list_business_adjustments_period($1,$2,$3,$4,$5,$6)',[tenantId,entityId,module,periodId,limit,offset]
+      )).rows.map(row=>({...row,accounting_date:publicDate(row.accounting_date)}));
+      return {rows,scope:{...scope,period_start:publicDate(scope.period_start),period_end:publicDate(scope.period_end),total_count:Number(scope.total_count),limit,offset}};
+    });
   }
 
-  async listJournalEntries({tenantId,entityId}){
-    return this.inSession(async client=>(await client.query(
-      'SELECT * FROM refs_list_journal_entries($1,$2)',[tenantId,entityId]
-    )).rows.map(row=>({...row,journal_date:publicDate(row.journal_date)})));
+  async listJournalEntries({tenantId,entityId,periodId,limit=100,offset=0}){
+    return this.inSession(async client=>{
+      const scope=requireRow(await client.query(
+        'SELECT * FROM refs_read_journal_period_scope($1,$2,$3)',[tenantId,entityId,periodId]
+      ),'JOURNAL_PERIOD_SCOPE_MISSING','Journal period scope was not returned');
+      const rows=(await client.query(
+        'SELECT * FROM refs_list_journal_entries_period($1,$2,$3,$4,$5)',[tenantId,entityId,periodId,limit,offset]
+      )).rows.map(row=>({...row,journal_date:publicDate(row.journal_date)}));
+      return {rows,scope:{...scope,period_start:publicDate(scope.period_start),period_end:publicDate(scope.period_end),total_count:Number(scope.total_count),limit,offset}};
+    });
   }
 
   async getJournalWorkflowCapabilities({tenantId,entityId}){

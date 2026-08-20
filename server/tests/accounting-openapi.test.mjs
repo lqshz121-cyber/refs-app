@@ -279,6 +279,7 @@ test('AP Bill and AR Invoice list reads are authenticated no-store operations',(
   for(const [path,operationId] of [['/entities/{entityId}/ap/bills','listApBills'],['/entities/{entityId}/ar/invoices','listArInvoices']]){
     const operation=contract.paths[path].get;
     assert.equal(operation.operationId,operationId);assert.equal(operation.responses['200'].$ref,'#/components/responses/BusinessDocumentReadOk');
+    assert.deepEqual(operation.parameters.slice(1).map(parameter=>[parameter.name,parameter.required]),[['periodId',true],['limit',false],['offset',false]]);
   }
   const row=contract.components.schemas.BusinessDocumentReadRow;
   assert.equal(row.additionalProperties,false);
@@ -288,9 +289,11 @@ test('AP Bill and AR Invoice list reads are authenticated no-store operations',(
 test('Journal Entry list read is authenticated, scoped and no-store',()=>{
   const operation=contract.paths['/entities/{entityId}/journal-entries'].get;
   assert.equal(operation.operationId,'listJournalEntries');assert.equal(operation.responses['200'].$ref,'#/components/responses/JournalEntryReadOk');
+  assert.deepEqual(operation.parameters.slice(1).map(parameter=>[parameter.name,parameter.required]),[['periodId',true],['limit',false],['offset',false]]);
   const row=contract.components.schemas.JournalEntryReadRow;
   assert.equal(row.additionalProperties,false);
-  assert.deepEqual(row.required,['journal_entry_id','journal_number','journal_type','status','journal_date','currency','revision','created_at','ledger_line_count']);
+  assert.deepEqual(row.required,['journal_entry_id','journal_number','journal_type','status','journal_date','currency','revision','created_at','ledger_line_count','period_id']);
+  assert.deepEqual(contract.components.schemas.JournalEntryReadEnvelope.required,['ok','data','scope']);
   assert.equal(contract.components.responses.JournalEntryReadOk.headers['Cache-Control'].schema.const,'no-store');
 });
 
@@ -427,9 +430,11 @@ test('AP and AR adjustment list reads expose only the authoritative scoped adjus
   for(const [path,operationId] of [['/entities/{entityId}/ap/adjustments','listApAdjustments'],['/entities/{entityId}/ar/adjustments','listArAdjustments']]){
     const operation=contract.paths[path].get;
     assert.equal(operation.operationId,operationId);assert.equal(operation.responses['200'].$ref,'#/components/responses/BusinessAdjustmentReadOk');
+    assert.deepEqual(operation.parameters.slice(1).map(parameter=>[parameter.name,parameter.required]),[['periodId',true],['limit',false],['offset',false]]);
   }
   const row=contract.components.schemas.BusinessAdjustmentReadRow;
   assert.equal(row.additionalProperties,false);assert.deepEqual(row.required,['business_adjustment_id','adjustment_kind','amount','currency','accounting_date','period_id','reason','status','version','created_at']);
+  assert.deepEqual(contract.components.schemas.BusinessAdjustmentReadEnvelope.required,['ok','data','scope']);
 });
 
 test('AP Bill and AR Invoice create commands are Draft-only and require a canonical business document body',()=>{

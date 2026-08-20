@@ -497,30 +497,36 @@ test('AP and AR control totals are authenticated entity-scoped reads',async()=>{
   }
 });
 
-test('AP Bills and AR Invoices refresh from authenticated entity-scoped business document reads',async()=>{
+test('AP Bills and AR Invoices require an exact period and bounded no-store page',async()=>{
   for(const [module,collection,kind] of [['ap','bills','AP_BILL'],['ar','invoices','AR_INVOICE']]){
-    calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}`,body:null,headers:{}});
+    calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}?periodId=${periodId}&limit=25&offset=50`,body:null,headers:{}});
     assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
-    assert.deepEqual(calls[0],['listBusinessDocuments',{tenantId,entityId,documentKind:kind}]);
-    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
+    assert.deepEqual(calls[0],['listBusinessDocuments',{tenantId,entityId,documentKind:kind,periodId,limit:25,offset:50}]);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}`,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}?periodId=${randomUUID()}&limit=201`,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/${collection}?periodId=${periodId}`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
   }
 });
 
-test('AP and AR adjustments refresh only through authenticated entity-scoped reads',async()=>{
+test('AP and AR adjustments require the exact authoritative period and bounded no-store page',async()=>{
   for(const [module,expected] of [['ap','AP'],['ar','AR']]){
-    calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments`,body:null,headers:{}});
+    calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments?periodId=${periodId}&limit=25&offset=50`,body:null,headers:{}});
     assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
-    assert.deepEqual(calls[0],['listBusinessAdjustments',{tenantId,entityId,module:expected}]);
-    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
+    assert.deepEqual(calls[0],['listBusinessAdjustments',{tenantId,entityId,module:expected,periodId,limit:25,offset:50}]);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments`,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments?periodId=not-a-uuid`,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments?periodId=${periodId}&limit=201`,body:null,headers:{}})).status,400);
+    assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/${module}/adjustments?periodId=${periodId}`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
   }
 });
 
-test('Journal Entries refresh only through an authenticated entity-scoped read',async()=>{
-  calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries`,body:null,headers:{}});
+test('Journal Entries require the same exact period used by detail evidence',async()=>{
+  calls.length=0;const response=await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries?periodId=${periodId}&limit=50&offset=100`,body:null,headers:{}});
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'no-store');
-  assert.deepEqual(calls[0],['listJournalEntries',{tenantId,entityId}]);
+  assert.deepEqual(calls[0],['listJournalEntries',{tenantId,entityId,periodId,limit:50,offset:100}]);
   assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries`,body:null,headers:{'Idempotency-Key':'read-not-allowed'}})).status,400);
-  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries`,body:{unexpected:true},headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries`,body:null,headers:{}})).status,400);
+  assert.equal((await api({method:'GET',url:`/api/v1/entities/${entityId}/journal-entries?periodId=${periodId}`,body:{unexpected:true},headers:{}})).status,400);
 });
 
 test('Journal workflow capabilities are a fixed current-actor read with no permission selector',async()=>{
@@ -704,8 +710,8 @@ test('HTTP CORS permits only configured browser origins and preflights without a
     const base=`http://127.0.0.1:${server.address().port}`;
     let response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills`,{method:'OPTIONS',headers:{origin,'access-control-request-method':'GET','access-control-request-headers':'authorization'}});
     assert.equal(response.status,204);assert.equal(response.headers.get('access-control-allow-origin'),origin);assert.equal(response.headers.get('access-control-allow-credentials'),'true');assert.match(response.headers.get('access-control-allow-headers'),/(^|,\s*)authorization(,|$)/);assert.match(response.headers.get('access-control-allow-headers'),/idempotency-key/);assert.match(response.headers.get('access-control-allow-headers'),/(^|,\s*)cache-control(,|$)/);
-    response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills`,{headers:{origin}});assert.equal(response.status,200);assert.equal(response.headers.get('access-control-allow-origin'),origin);assert.equal(response.headers.get('vary'),'Origin');
-    response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills`,{headers:{origin:'https://attacker.example'}});assert.equal(response.status,403);assert.equal(response.headers.get('access-control-allow-origin'),null);assert.equal((await response.json()).code,'CORS_ORIGIN_FORBIDDEN');
+    response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills?periodId=${periodId}`,{headers:{origin}});assert.equal(response.status,200);assert.equal(response.headers.get('access-control-allow-origin'),origin);assert.equal(response.headers.get('vary'),'Origin');
+    response=await fetch(`${base}/api/v1/entities/${entityId}/ap/bills?periodId=${periodId}`,{headers:{origin:'https://attacker.example'}});assert.equal(response.status,403);assert.equal(response.headers.get('access-control-allow-origin'),null);assert.equal((await response.json()).code,'CORS_ORIGIN_FORBIDDEN');
   }finally{await new Promise(resolve=>server.close(resolve));}
 });
 

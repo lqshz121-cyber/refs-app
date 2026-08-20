@@ -615,11 +615,13 @@
     "/entities/{entityId}/journal-entries": {
       "get": {
         "operationId": "listJournalEntries",
-        "summary": "List authoritative Journal Entries for the authenticated entity",
+        "summary": "List authoritative Journal Entries for one exact accounting period",
+        "description": "Requires OIDC GL.JE.VIEW. The server re-reads the period for the path entity and returns only journals whose persisted period and journal date belong to that exact scope.",
         "parameters": [
-          {
-            "$ref": "#/components/parameters/EntityId"
-          }
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},
+          {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":200,"default":100}},
+          {"name":"offset","in":"query","required":false,"schema":{"type":"integer","minimum":0,"maximum":1000000,"default":0}}
         ],
         "responses": {
           "200": {
@@ -1036,10 +1038,12 @@
       },
       "get": {
         "operationId": "listApBills",
+        "summary": "List authoritative AP Bills for one exact accounting period",
         "parameters": [
-          {
-            "$ref": "#/components/parameters/EntityId"
-          }
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},
+          {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":200,"default":100}},
+          {"name":"offset","in":"query","required":false,"schema":{"type":"integer","minimum":0,"maximum":1000000,"default":0}}
         ],
         "responses": {
           "200": {
@@ -1055,9 +1059,10 @@
       "get": {
         "operationId": "listApAdjustments",
         "parameters": [
-          {
-            "$ref": "#/components/parameters/EntityId"
-          }
+          {"$ref":"#/components/parameters/EntityId"},
+          {"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},
+          {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":200,"default":100}},
+          {"name":"offset","in":"query","required":false,"schema":{"type":"integer","minimum":0,"maximum":1000000,"default":0}}
         ],
         "responses": {
           "200": {
@@ -1196,10 +1201,12 @@
       },
       "get": {
         "operationId": "listArInvoices",
+        "summary": "List authoritative AR Invoices for one exact accounting period",
         "parameters": [
-          {
-            "$ref": "#/components/parameters/EntityId"
-          }
+          {"$ref": "#/components/parameters/EntityId"},
+          {"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},
+          {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":200,"default":100}},
+          {"name":"offset","in":"query","required":false,"schema":{"type":"integer","minimum":0,"maximum":1000000,"default":0}}
         ],
         "responses": {
           "200": {
@@ -1215,9 +1222,10 @@
       "get": {
         "operationId": "listArAdjustments",
         "parameters": [
-          {
-            "$ref": "#/components/parameters/EntityId"
-          }
+          {"$ref":"#/components/parameters/EntityId"},
+          {"name":"periodId","in":"query","required":true,"schema":{"$ref":"#/components/schemas/Uuid"}},
+          {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":200,"default":100}},
+          {"name":"offset","in":"query","required":false,"schema":{"type":"integer","minimum":0,"maximum":1000000,"default":0}}
         ],
         "responses": {
           "200": {
@@ -2831,7 +2839,8 @@
         "additionalProperties": false,
         "required": [
           "ok",
-          "data"
+          "data",
+          "scope"
         ],
         "properties": {
           "ok": {
@@ -3048,11 +3057,7 @@
             "minimum": 0
           },
           "period_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid"
+            "$ref": "#/components/schemas/Uuid"
           }
         }
       },
@@ -3061,7 +3066,8 @@
         "additionalProperties": false,
         "required": [
           "ok",
-          "data"
+          "data",
+          "scope"
         ],
         "properties": {
           "ok": {
@@ -3072,7 +3078,8 @@
             "items": {
               "$ref": "#/components/schemas/BusinessDocumentReadRow"
             }
-          }
+          },
+          "scope": {"$ref":"#/components/schemas/PeriodReadScope"}
         }
       },
       "BusinessAdjustmentReadRow": {
@@ -3166,7 +3173,8 @@
         "additionalProperties": false,
         "required": [
           "ok",
-          "data"
+          "data",
+          "scope"
         ],
         "properties": {
           "ok": {
@@ -3177,7 +3185,8 @@
             "items": {
               "$ref": "#/components/schemas/BusinessAdjustmentReadRow"
             }
-          }
+          },
+          "scope": {"$ref":"#/components/schemas/PeriodReadScope"}
         }
       },
       "JournalEntryReadRow": {
@@ -3192,7 +3201,8 @@
           "currency",
           "revision",
           "created_at",
-          "ledger_line_count"
+          "ledger_line_count",
+          "period_id"
         ],
         "properties": {
           "journal_entry_id": {
@@ -3239,7 +3249,8 @@
           "ledger_line_count": {
             "type": "integer",
             "minimum": 0
-          }
+          },
+          "period_id": {"$ref":"#/components/schemas/Uuid"}
         }
       },
       "JournalEntryReadEnvelope": {
@@ -3247,7 +3258,8 @@
         "additionalProperties": false,
         "required": [
           "ok",
-          "data"
+          "data",
+          "scope"
         ],
         "properties": {
           "ok": {
@@ -3258,7 +3270,19 @@
             "items": {
               "$ref": "#/components/schemas/JournalEntryReadRow"
             }
-          }
+          },
+          "scope": {"$ref":"#/components/schemas/PeriodReadScope"}
+        }
+      },
+      "PeriodReadScope": {
+        "type":"object","additionalProperties":false,
+        "required":["entity_id","period_id","period_start","period_end","period_status","total_count","limit","offset"],
+        "properties":{
+          "entity_id":{"$ref":"#/components/schemas/Uuid"},"period_id":{"$ref":"#/components/schemas/Uuid"},
+          "period_start":{"type":"string","format":"date"},"period_end":{"type":"string","format":"date"},
+          "period_status":{"type":"string","enum":["OPEN","SOFT_CLOSED","CLOSED"]},
+          "total_count":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":200},
+          "offset":{"type":"integer","minimum":0,"maximum":1000000}
         }
       },
       "JournalWorkflowCapabilities": {
