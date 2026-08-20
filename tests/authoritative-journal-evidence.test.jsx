@@ -86,6 +86,7 @@ assert.match(app,/AuthoritativeJournalWorkspace/);
 assert.doesNotMatch(app,/transitionAuthoritativeJournal|nextAuthoritativeWorkflowAction|Draft entry|route === 'drafts'/);
 const workspace=fs.readFileSync(path.join(process.cwd(),'src','authoritative-journal-workspace.jsx'),'utf8');
 const journalView=fs.readFileSync(path.join(process.cwd(),'src','authoritative-journal-view.jsx'),'utf8');
+const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.doesNotMatch(journalView,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,'the journal presentation extraction must receive authoritative facts as slots');
 assert.match(list,/authoritative-journal-presentation/);
 assert.match(workspace,/restoreAuthoritativeReturnContext/,'Back must restore scroll and focus to the originating evidence control');
@@ -100,6 +101,10 @@ assert.match(workspace,/BLOCKED - immutable Journal scope mismatch/);
 assert.match(workspace,/setQueue\('REVIEW_REQUIRED'\)/,'Needs review must include the retained review and approval statuses it counts');
 assert.match(workspace,/table-wrap authoritative-journal-table/,'Journal facts must use the shared, page-contained table scroller');
 assert.doesNotMatch(workspace,/<dt>Date<\/dt>|<dt>Status<\/dt>|<dt>Revision<\/dt>/,'Journal date, status and revision must not repeat below their scope/header presentation');
+assert.match(styles,/\.journal-evidence-scope\{display:grid;grid-template-columns:repeat\(5,minmax\(0,1fr\)\);/,
+  'the five Journal scope facts must remain on one desktop row instead of orphaning Journal date');
+assert.match(styles,/\.journal-evidence-scope\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\);\}/,
+  'Journal scope facts must keep the existing two-column tablet fallback');
 assert.match(workspace,/readAuthoritativeJournalEntryDetail/,'opening evidence must perform an exact authoritative detail read');
 assert.match(workspace,/journalCurrency:journal\.currency/);assert.match(workspace,/context\?\.periodId === journal\.period_id/);
 assert.match(workspace,/entityLabel:config\?\.scopePresentation\?\.entityLabel/,'loading and blocked Journal detail states must freeze the same readable company label as the ready drill');
@@ -112,7 +117,6 @@ const evidenceWorkspace=renderToStaticMarkup(<AuthoritativeJournalWorkspace jour
 assert.match(evidenceWorkspace,/GENERAL LEDGER \| JOURNAL REGISTER/);
 assert.doesNotMatch(evidenceWorkspace,/\u8def|鈥|路/,'authority Journal workspace must render English-only separators');
 assert.doesNotMatch(detail,/\u8def|鈥|路/,'authority Journal detail must render English-only separators');
-const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.match(styles,/\.authoritative-journal-table \.tbl\{min-width:1060px;table-layout:fixed;\}/,
   'the journal evidence columns must scroll inside the table container rather than squeezing or widening the page');
 assert.match(styles,/\.authoritative-journal-line-table \.tbl\{min-width:1420px;table-layout:fixed;\}/,
