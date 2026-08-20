@@ -10,10 +10,10 @@ const REPORTS=[
   ['TRIAL_BALANCE','Trial Balance'],
   ['BALANCE_SHEET','Balance Sheet'],
   ['INCOME_STATEMENT','Income Statement'],
-  ['CASH_FLOW','Cash movement evidence'],
+  ['CASH_FLOW','Cash activity'],
 ];
 const REPORT_WORKBENCH_TABS=Object.freeze([
-  ['STATEMENTS','Core statements','Trial balance, balance sheet, income statement, and direct cash evidence.'],
+  ['STATEMENTS','Core statements','Trial balance, balance sheet, income statement, and cash activity.'],
   ['CASH_AND_CAPITAL','Cash & capital','Statement of cash flows, CWIP, construction-loan, and prepaid rollforwards.'],
   ['OPERATING_ANALYSIS','Property & project analysis','Property, project, or unit profitability and budget-versus-actual.'],
   ['GROUP_AND_COMPARISON','Group & comparison','Prior-period, intercompany, and consolidation evidence.'],
@@ -25,7 +25,7 @@ const REPORT_LIBRARY_SHORTCUTS=Object.freeze([
   ['TRIAL_BALANCE','Trial Balance','Review account balances.',['tb']],
   ['BALANCE_SHEET','Balance Sheet','Review assets, liabilities, and equity.',['statement of financial position']],
   ['INCOME_STATEMENT','Income Statement','Review income and expenses.',['profit and loss','profit & loss','p&l']],
-  ['CASH_FLOW','Cash movement evidence','Review cash activity.',['statement of cash flows']],
+  ['CASH_FLOW','Cash activity','Review cash-account movement.',['statement of cash flows']],
 ]);
 // The demonstration application had a much larger property-operation menu,
 // but only these report readers have an authenticated accounting-API contract
@@ -92,7 +92,7 @@ export const FinancialStatementSummary=({report,rows})=>{
     const revenue=sumRows(rows,['REVENUE']),expense=sumRows(rows,['EXPENSES']);
     return <div className="qbo-toolgrid" aria-label="Income Statement equation"><span><i>Revenue</i><b>{money(revenue)}</b></span><span><i>Expenses</i><b>{money(expense)}</b></span><span><i>Net income</i><b>{money(subtract(revenue,expense))}</b></span></div>;
   }
-  if(report==='CASH_FLOW')return <div className="qbo-toolgrid" aria-label="Direct cash movement evidence"><span><i>Direct cash-account movement</i><b>{money(sumRows(rows))}</b></span><span><i>Classification boundary</i><b>Not classified as operating, investing, or financing</b></span></div>;
+  if(report==='CASH_FLOW')return <div className="qbo-toolgrid" aria-label="Cash activity summary"><span><i>Cash-account movement</i><b>{money(sumRows(rows))}</b></span><span><i>Classification boundary</i><b>Not classified as operating, investing, or financing</b></span></div>;
   return <div className="qbo-toolgrid" aria-label="Trial Balance control"><span><i>Net debit balance</i><b>{money(sumRows(rows))}</b></span></div>;
 };
 
