@@ -247,6 +247,7 @@ async function main(){
   const css=fs.readFileSync('index.html','utf8');
   assert.match(css,/authoritative-report-shortcuts/,'Reports shortcuts must stack without clipping at narrow widths');
   assert.match(css,/\.authoritative-report-shortcut\{display:grid;grid-template-columns:20px minmax\(0,1fr\)/,'report shortcuts must align one shared icon slot with their text');
+  assert.match(css,/@media\(max-width:768px\)[\s\S]*?\.authoritative-full-statement-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'full financial reports must remain table-contained across the tablet/high-zoom breakpoint');
   assert.match(css,/\.authoritative-report-icon\{display:inline-flex;align-items:center;justify-content:center;align-self:start;grid-row:1\/span 2;color:var\(--qb-accent\)/,'report icons must share one token-driven presentation');
   assert.match(css,/\.authoritative-report-workbench-actions\{justify-content:flex-end;\}/,'the remaining Statements action row must align without a duplicate category title');
   assert.match(css,/\.authoritative-core-report-shortcuts \.authoritative-report-shortcut\{min-height:44px/,'favorite reports must use one compact, consistent row height');
