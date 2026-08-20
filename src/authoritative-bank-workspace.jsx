@@ -147,13 +147,11 @@ export function AuthoritativeBankMatchReview({row,config,fetcher,onChanged=()=>{
 export const AuthoritativeBankDetail=({row,scope,onBack,config,fetcher,onMatchChanged})=>{
   const scopeMatches=bankRowMatchesScope(row,scope);
   return <section className="full-bleed qbo-transaction-report authoritative-bank-detail" aria-label="Bank transaction detail">
-  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to bank transactions</button><p className="eyebrow">AUTHORITATIVE SOURCE EVIDENCE</p><h1>{row.external_bank_line_id}</h1><p className="muted sm">Independent source evidence. Only a controller may create or correct a server-validated Match; clearing, categorizing, posting, and deletion are unavailable.</p></div><span className="badge badge-muted">READ ONLY</span></div>
-  <ScopeStrip items={[{label:'Entity',value:scope.entityLabel||'Configured entity'},{label:'Account',value:row.bank_account_ref},{label:'Source version',value:`v${row.version}`},{label:'Match state',value:row.match_status||'UNMATCHED'}]}/>
+  <div className="card-head"><div><button type="button" className="btn btn-sm" onClick={onBack}>Back to bank transactions</button><p className="eyebrow">AUTHORITATIVE SOURCE EVIDENCE</p><h1>{row.external_bank_line_id}</h1><p className="muted sm">Review retained source and Match evidence. Controller corrections require server validation.</p></div><span className="badge badge-muted">READ ONLY</span></div>
+  <ScopeStrip items={[{label:'Entity',value:scope.entityLabel||'Configured entity'},{label:'Account',value:row.bank_account_ref},{label:'Date range',value:`${scope.from||'Opening'} to ${scope.through||'Latest'}`},{label:'Source version',value:`v${row.version}`},{label:'Match state',value:row.match_status||'UNMATCHED'}]}/>
   <BankEvidenceLifecycle row={row}/>
   <div className="qbo-toolgrid">
-    <span><i>Bank account</i><b>{row.bank_account_ref}</b></span><span><i>Transaction date</i><b>{row.transaction_date}</b></span>
-    <span><i>Direction</i><b>{direction(row.amount)}</b></span><span><i>Amount</i><b>{money(row.amount)} {row.currency}</b></span><span><i>Type</i><b>{row.document_type}</b></span>
-    <span><i>Match evidence</i><b>{row.match_status||'Unmatched'}</b></span><span><i>Version</i><b>{row.version}</b></span>
+    <span><i>Transaction date</i><b>{row.transaction_date}</b></span><span><i>Direction</i><b>{direction(row.amount)}</b></span><span><i>Amount</i><b>{money(row.amount)} {row.currency}</b></span><span><i>Type</i><b>{row.document_type}</b></span>
   </div>
   <div className="qbo-toolgrid">
     <span><i>Bank source ID</i><b>{row.bank_source_id}</b></span><span><i>Source reference</i><b>{row.source_ref||'Unavailable'}</b></span>
@@ -168,7 +166,6 @@ export const AuthoritativeBankDetail=({row,scope,onBack,config,fetcher,onMatchCh
   </div>}
   {!scopeMatches&&<StateBlock tone="blocked" title="BLOCKED — immutable bank scope mismatch">The returned bank record does not match the account retained in the parent evidence scope. Match review is unavailable; return to the scoped bank transaction list.</StateBlock>}
   {scopeMatches&&config&&<AuthoritativeBankMatchReview row={row} config={config} fetcher={fetcher} onChanged={onMatchChanged}/>}
-  <p className="muted sm">Scope: {scope.entityLabel||'Configured entity'}; account {scope.bankAccountRef}; from {scope.from||'opening'} through {scope.through||'latest'}.</p>
 </section>;
 };
 

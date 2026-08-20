@@ -40,6 +40,8 @@ const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} sco
 assert.match(bankDetail,/Back to bank transactions/);assert.match(bankDetail,/Bank transaction detail/);assert.match(bankDetail,/-\$125\.25/);assert.match(bankDetail,/2026-07-01/);assert.match(bankDetail,/2026-07-31/);
 assert.match(bankDetail,/full-bleed qbo-transaction-report/);
 assert.match(bankDetail,/AUTHORITATIVE SOURCE EVIDENCE/);assert.match(bankDetail,/Bank evidence lifecycle/);assert.match(bankDetail,/Reconciliation separate/);assert.match(bankDetail,/Authoritative evidence scope/);
+assert.match(bankDetail,/Date range/);assert.match(bankDetail,/2026-07-01 to 2026-07-31/);assert.match(bankDetail,/Controller corrections require server validation/);
+assert.equal((bankDetail.match(/<i>Bank account<\/i>/g)||[]).length,0);assert.equal((bankDetail.match(/<i>Version<\/i>/g)||[]).length,0);assert.doesNotMatch(bankDetail,/Scope: Configured entity/);
 assert.match(bankDetail,/Match review/);assert.match(bankDetail,/Journal reference unavailable/);
 assert.match(bankDetail,/Direction/);assert.match(bankDetail,/OUTFLOW/);
 const mismatchedBankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-OTHER',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}} config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
