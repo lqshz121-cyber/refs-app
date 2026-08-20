@@ -31,6 +31,9 @@ const MAPPING_BACKED_REPORT_SHORTCUTS=Object.freeze([
   ['STATEMENT_OF_CASH_FLOWS','Statement of Cash Flows','Review operating, investing, and financing cash activity.',['cash flow statement']],
 ]);
 const GENERAL_LEDGER_REPORT_SHORTCUT=Object.freeze(['GENERAL_LEDGER','General Ledger','Review posted ledger activity.',['gl']]);
+const UNAVAILABLE_REPORT_SHORTCUTS=Object.freeze([
+  ['GENERAL_LEDGER_LIST','General Ledger List','Requires server-calculated account groups and balances.',['ledger list']],
+]);
 // The demonstration application had a much larger property-operation menu,
 // but only these report readers have an authenticated accounting-API contract
 // today.  Keeping this directory explicit makes the authoritative property
@@ -47,7 +50,7 @@ const PROPERTY_REPORT_SHORTCUTS=Object.freeze([
   ['BUDGET_VS_ACTUAL','Budget versus actual','Compare approved budget to actual results.','OPERATING_ANALYSIS',null],
 ]);
 const REPORT_ICON_NAMES=Object.freeze({
-  TRIAL_BALANCE:'lines',BALANCE_SHEET:'book',INCOME_STATEMENT:'bars',CASH_FLOW:'exchange',STATEMENT_OF_CASH_FLOWS:'exchange',GENERAL_LEDGER:'book',
+  TRIAL_BALANCE:'lines',BALANCE_SHEET:'book',INCOME_STATEMENT:'bars',CASH_FLOW:'exchange',STATEMENT_OF_CASH_FLOWS:'exchange',GENERAL_LEDGER:'book',GENERAL_LEDGER_LIST:'book',
   STATEMENTS:'book',CASH_AND_CAPITAL:'bank',OPERATING_ANALYSIS:'bars',GROUP_AND_COMPARISON:'layers',
   PROPERTY_PROFITABILITY:'bars',PROJECT_PROFITABILITY:'bars',UNIT_PROFITABILITY:'bars',LOT_PROFITABILITY:'bars',
   CWIP_ROLLFORWARD:'cycle',CONSTRUCTION_LOAN_ROLLFORWARD:'cycle',PREPAID_ROLLFORWARD:'cycle',BUDGET_VS_ACTUAL:'bars',AR_AGING:'calendar',
@@ -75,6 +78,12 @@ export const findAuthoritativeGeneralLedgerShortcut=query=>{
   if(!needle)return [];
   const [key,label,description,aliases]=GENERAL_LEDGER_REPORT_SHORTCUT;
   return [label,description,...aliases].some(value=>normalizedFinderText(value).includes(needle))?[[key,label,description]]:[];
+};
+export const findAuthoritativeUnavailableReportShortcuts=query=>{
+  const needle=normalizedFinderText(query);
+  if(!needle)return [];
+  return UNAVAILABLE_REPORT_SHORTCUTS.filter(([,label,description,aliases=[]])=>
+    [label,description,...aliases].some(value=>normalizedFinderText(value).includes(needle)));
 };
 export const findAuthoritativePropertyReportShortcuts=query=>{
   const needle=normalizedFinderText(query);
@@ -440,9 +449,10 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   const matchingShortcuts=findAuthoritativeReportShortcuts(catalogSearch);
   const matchingMappingBackedShortcuts=findAuthoritativeMappingBackedReportShortcuts(catalogSearch);
   const matchingGeneralLedgerShortcuts=findAuthoritativeGeneralLedgerShortcut(catalogSearch);
+  const matchingUnavailableShortcuts=findAuthoritativeUnavailableReportShortcuts(catalogSearch);
   const visibleMatchingWorkbenchTabs=matchingMappingBackedShortcuts.length?[]:matchingWorkbenchTabs;
   const matchingPropertyShortcuts=findAuthoritativePropertyReportShortcuts(catalogSearch);
-  const totalCatalogMatches=visibleMatchingWorkbenchTabs.length+matchingShortcuts.length+matchingMappingBackedShortcuts.length+matchingGeneralLedgerShortcuts.length+matchingPropertyShortcuts.length;
+  const totalCatalogMatches=visibleMatchingWorkbenchTabs.length+matchingShortcuts.length+matchingMappingBackedShortcuts.length+matchingGeneralLedgerShortcuts.length+matchingUnavailableShortcuts.length+matchingPropertyShortcuts.length;
   const searching=Boolean(catalogSearch.trim());
   const statementPreviewRows=rows.slice(0,12);
   return <AuthoritativeReportsView className="reports-library authoritative-reports-library" eyebrow={workspaceEyebrow} title={workspaceTitle} description={workspaceDescription} scope={<div className="report-period-chip"><span>Reporting scope</span><b title={`Entity ID: ${config.entityId}; Period ID: ${config.periodId}`}>Entity {entityLabel} · Period {periodLabel}</b><small>Posted only</small></div>}>
@@ -450,6 +460,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
     {searching&&!!matchingShortcuts.length&&<section className="authoritative-report-shortcuts authoritative-report-finder-results" aria-label="Matching statements"><div><span className="page-eyebrow">MATCHING STATEMENTS</span></div><div className="authoritative-report-shortcut-grid">{matchingShortcuts.map(([key,label,description])=><button key={key} type="button" className={`authoritative-report-shortcut ${report===key&&workbenchTab==='STATEMENTS'?'is-current':''}`} disabled={state.phase==='LOADING'} onClick={()=>openFullStatement(`authoritative-search-result-${key}`,key)}><ReportIcon reportKey={key}/><span>{label}</span><small>{description}</small></button>)}</div></section>}
     {searching&&!!matchingMappingBackedShortcuts.length&&<section className="authoritative-report-shortcuts authoritative-report-finder-results" aria-label="Matching classified reports"><div><span className="page-eyebrow">MATCHING REPORTS</span></div><div className="authoritative-report-shortcut-grid">{matchingMappingBackedShortcuts.map(([key,label,description])=>{const focusId=`authoritative-search-result-${key}`;return <button id={focusId} key={key} type="button" className="authoritative-report-shortcut" disabled={cashFlowState.phase==='LOADING'} onClick={()=>openCashFlowReport(focusId)}><ReportIcon reportKey={key}/><span>{label}</span><small>{description}</small></button>;})}</div></section>}
     {searching&&!!matchingGeneralLedgerShortcuts.length&&<section className="authoritative-report-shortcuts authoritative-report-finder-results" aria-label="Matching ledger reports"><div><span className="page-eyebrow">MATCHING REPORTS</span></div><div className="authoritative-report-shortcut-grid">{matchingGeneralLedgerShortcuts.map(([key,label,description])=>{const focusId=`authoritative-search-result-${key}`;return <button id={focusId} key={key} type="button" className="authoritative-report-shortcut" onClick={()=>onOpenGeneralLedger(focusId,normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:report}))}><ReportIcon reportKey={key}/><span>{label}</span><small>{description}</small></button>;})}</div></section>}
+    {searching&&!!matchingUnavailableShortcuts.length&&<section className="authoritative-report-shortcuts authoritative-report-finder-results" aria-label="Matching unavailable reports"><div><span className="page-eyebrow">MATCHING REPORTS</span></div><div className="authoritative-report-shortcut-grid">{matchingUnavailableShortcuts.map(([key,label,description])=><article key={key} className="authoritative-report-shortcut is-unavailable" aria-disabled="true"><ReportIcon reportKey={key}/><span>{label}</span><small>{description} <b>Not available</b></small></article>)}</div></section>}
     {(!searching||!!matchingPropertyShortcuts.length)&&<details className="authoritative-secondary-disclosure authoritative-property-report-directory"><summary><span>Property &amp; project reports</span><span className="badge badge-muted">{searching?matchingPropertyShortcuts.length:PROPERTY_REPORT_SHORTCUTS.length}</span></summary><section className="authoritative-report-shortcuts" aria-label="Property, project, unit, and lot report directory"><div className="authoritative-report-shortcut-grid">{PROPERTY_REPORT_SHORTCUTS.filter(shortcut=>!searching||matchingPropertyShortcuts.includes(shortcut)).map(shortcut=>{const [key,label,description,nextTab,nextDimensionType]=shortcut;const active=workbenchTab===nextTab&&(!nextDimensionType||dimensionType===nextDimensionType);return <button key={key} type="button" className={`authoritative-report-shortcut ${active?'is-current':''}`} aria-pressed={active} onClick={()=>openPropertyReport(shortcut)}><ReportIcon reportKey={key}/><span>{label}</span><small>{description}</small></button>;})}</div></section></details>}
     {(!searching||!!visibleMatchingWorkbenchTabs.length)&&<nav className="rep-grid" aria-label="Report groups">{(searching?visibleMatchingWorkbenchTabs:REPORT_WORKBENCH_TABS).map(([key,label])=>{const expanded=!searching&&workbenchTab===key&&collapsedWorkbenchTab!==key;return <h2 className="rep-group-heading" key={key}><button type="button" aria-expanded={expanded} aria-controls={`authoritative-report-group-${key}`} className={`rep-card ${expanded?'rep-on':''}`} onClick={()=>{if(!searching&&workbenchTab===key)setCollapsedWorkbenchTab(current=>current===key?null:key);else{setWorkbenchTab(key);setCollapsedWorkbenchTab(null);}setCatalogSearch('');setSelected(null);}}><ReportIcon reportKey={key}/><span className="rep-name">{label}</span><span className="rep-group-chevron" aria-hidden="true">⌄</span></button></h2>;})}</nav>}
     {!totalCatalogMatches&&searching&&<StateBlock tone="empty" title="No reports found">Try another search or clear it to view all reports. No report data was inferred.</StateBlock>}
