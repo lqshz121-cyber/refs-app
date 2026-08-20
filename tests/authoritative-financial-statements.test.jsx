@@ -210,6 +210,9 @@ async function main(){
   assert.match(workspace,/report-section-row/,'statement rows must retain a readable section boundary instead of presenting a flat account list');
   assert.match(workspace,/scope="rowgroup"/,'each visible statement section must expose table grouping semantics');
   assert.match(workspace,/disabled=\{state\.phase==='LOADING'\} onClick=\{load\}>\{state\.phase==='LOADING'\?'Loading…':'Refresh'\}<\/button>/,'statement refresh must remain an API-read control with an explicit in-progress state');
+  for(const [stateName,loadName] of [
+    ['statementSnapshotState','loadStatementSnapshot'],['cashFlowState','loadCashFlow'],['comparisonState','loadComparison'],['cwipState','loadCwip'],['constructionLoanState','loadConstructionLoan'],['prepaidState','loadPrepaid'],['amortizationScheduleState','loadAmortizationSchedules'],['intercompanyState','loadIntercompany'],['budgetState','loadBudget'],['consolidationState','loadConsolidation'],['dimensionState','loadDimension'],
+  ])assert.match(workspace,new RegExp(`disabled=\\{${stateName}\\.phase==='LOADING'[\\s\\S]{0,240}onClick=\\{${loadName}\\}>\\{${stateName}\\.phase==='LOADING'\\?'Loading…'`),`${loadName} must block duplicate GETs and show one in-progress label`);
   assert.match(workspace,/AuthoritativeReadFailure/,'Reports must use the shared explicit authoritative read failure state.');
   assert.match(workspace,/authoritativeReadFailurePhase\(result\)/,'Reports must classify only authentication, configuration, scope, and protocol failures as BLOCKED.');
   assert.match(workspace,/const ScopeLabel=/,'all report details must reuse one readable scope presentation');
