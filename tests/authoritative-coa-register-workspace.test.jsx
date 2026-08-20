@@ -8,10 +8,11 @@ import {AuthoritativeAccountRegisterView,AuthoritativeChartOfAccountsView} from 
 
 const config={entityId:'11111111-1111-4111-8111-111111111111',periodId:'22222222-2222-4222-8222-222222222222',baseUrl:'https://api.example',getAccessToken:async()=> 'a'.repeat(48)};
 const markup=renderToStaticMarkup(<AuthoritativeChartOfAccountsWorkspace config={config} fetcher={async()=>({ok:true,json:async()=>({ok:true,data:[]})})}/>);
-assert.match(markup,/Chart of Accounts/);assert.match(markup,/Account name or number/);assert.match(markup,/Master status/);assert.match(markup,/Posted currency/);assert.match(markup,/Rows per page/);assert.match(markup,/READ ONLY/);assert.match(markup,/Loading authoritative account master/);assert.doesNotMatch(markup,/Accounts returned|Exact API snapshot/,'COA must remain a compact list instead of repeating account counts as summary cards');
+assert.match(markup,/Chart of Accounts/);assert.match(markup,/Search/);assert.match(markup,/Account name or number/);assert.match(markup,/Status/);assert.match(markup,/Currency/);assert.match(markup,/Rows per page/);assert.match(markup,/READ ONLY/);assert.match(markup,/Loading accounts and posted balances/);assert.doesNotMatch(markup,/Master status|Posted currency|Loading authoritative account master|Accounts returned|Exact API snapshot/,'COA must use concise accounting copy without repeating implementation labels or summary cards');
 assert.match(markup,/<span class="result-count" aria-live="polite">/,'COA result changes must be announced without adding another summary card');
 assert.match(markup,/<button type="button" class="btn btn-sm" disabled="">Loading…<\/button>/,'COA must prevent duplicate refresh reads while its GET is pending');
 const source=fs.readFileSync(path.join(process.cwd(),'src','authoritative-coa-register-workspace.jsx'),'utf8');
+assert.match(source,/Review accounts and posted balances by currency\./);assert.match(source,/'Loading…':'Refresh'/);assert.doesNotMatch(source,/Entity-scoped account master facts|All retained currencies|No entity-scoped account-master row/);
 const presentation=fs.readFileSync(path.join(process.cwd(),'src','authoritative-coa-view.jsx'),'utf8');
 const app=fs.readFileSync(path.join(process.cwd(),'src','authoritative-app.jsx'),'utf8');
 const coaRoute=app.slice(app.indexOf("['chart-of-accounts','account-inquiry']"),app.indexOf("route === 'general-ledger'"));
