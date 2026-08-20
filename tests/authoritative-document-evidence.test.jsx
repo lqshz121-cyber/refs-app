@@ -81,6 +81,10 @@ assert.doesNotMatch(creditsOnlyMarkup,/0 bills|adjustments/,'the visible result 
 assert.doesNotMatch(creditsOnlyMarkup,/B-100/,'a Vendor credits presentation scope must not render Bill list rows');
 assert.doesNotMatch(creditsOnlyMarkup,/aria-label="Payables document list facts"|No bills match/,
   'the Vendor credits tab must not prepend an unrelated Bill list or Bill empty state');
+const emptyCreditsMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[]} adjustments={[]} view={{query:'',status:'ALL',transactionType:'VENDOR_CREDITS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.match(emptyCreditsMarkup,/No vendor credits found/,'an empty Vendor credits tab must never render a blank workspace');
+assert.match(emptyCreditsMarkup,/not evidence of a zero AP balance/);
+assert.doesNotMatch(emptyCreditsMarkup,/No expenses found|No authoritative adjustments in this scope/,'the credit-specific empty state must be singular and user-facing');
 
 const billsOnlyMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'',status:'ALL',transactionType:'BILLS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(billsOnlyMarkup,/B-100/);
