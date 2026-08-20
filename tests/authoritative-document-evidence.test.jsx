@@ -14,6 +14,7 @@ import {
 
 const entityId='11111111-1111-4111-8111-111111111111';
 const periodId='33333333-3333-4333-8333-333333333333';
+const displayConfig={entityId,periodId,scopePresentation:{entityLabel:'REFS US Staging',periodLabel:'August 2026'}};
 const bill={business_document_id:'22222222-2222-4222-8222-222222222222',bill_no:'B-100',vendor_name:'Evidence Vendor',bill_date:'2026-08-01',due_date:'2026-08-31',amount:125.25,open_balance:25.25,currency:'USD',status:'PARTIALLY_PAID',revision:3,period_id:periodId,account_code:'610000',je_number:null,description:'Retained bill evidence'};
 const adjustment={business_adjustment_id:'44444444-4444-4444-8444-444444444444',adjustment_kind:'AP_VENDOR_CREDIT',business_document_id:null,source_adjustment_id:null,amount:10,currency:'USD',accounting_date:'2026-08-02',period_id:periodId,reason:'Retained credit evidence',status:'DRAFT',version:2,journal_entry_id:null,journal_status:null,journal_revision:null,created_at:'2026-08-02T00:00:00.000Z'};
 
@@ -86,13 +87,13 @@ assert.match(arWorkspaceMarkup,/Invoice, customer, account, or reference/);
 assert.doesNotMatch(arWorkspaceMarkup,/Category \(offset account\)/,'AR must not expose the AP-only category filter');
 assert.match(arWorkspaceMarkup,/1 invoices \| 0 adjustments/,'a stale AP-only account filter must not silently remove AR invoices');
 
-const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
+const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} config={displayConfig} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);
 assert.match(detail,/<details class="authoritative-return-context"><summary>List filters retained<\/summary>/,
   'the exact list return scope must remain available without forcing a long filter string into the Back row');
-assert.match(detail,/Configured entity/);
+assert.match(detail,/REFS US Staging/);
 assert.match(detail,/title="Entity ID: 11111111-1111-4111-8111-111111111111"/,'the full entity identifier remains an audit tooltip, not visible page text');
-assert.match(detail,/Configured period/);
+assert.match(detail,/August 2026/);
 assert.match(detail,/title="Period ID: 33333333-3333-4333-8333-333333333333"/,'the full period identifier remains an audit tooltip, not visible page text');
 assert.doesNotMatch(detail,/Entity 11111111-1111-4111-8111-111111111111/,'the Back context must not expose a raw entity UUID');
 assert.match(detail,/authoritative list revision 3/);
@@ -125,10 +126,10 @@ assert.match(mismatchedDetail,/BLOCKED[\s\S]*authoritative lineage unavailable/)
 const adjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={[adjustment]} onOpen={()=>{}}/>);
 assert.match(adjustmentList,/AP_VENDOR_CREDIT/);
 assert.match(adjustmentList,/Open evidence/);
-const adjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={adjustment} side="AP" entityId={entityId} onBack={()=>{}}/>);
+const adjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={adjustment} side="AP" entityId={entityId} config={displayConfig} onBack={()=>{}}/>);
 assert.match(adjustmentDetail,/Back to AP adjustments/);
-assert.match(adjustmentDetail,/Configured entity/);
-assert.match(adjustmentDetail,/Configured period/);
+assert.match(adjustmentDetail,/REFS US Staging/);
+assert.match(adjustmentDetail,/August 2026/);
 assert.doesNotMatch(adjustmentDetail,/Entity 11111111-1111-4111-8111-111111111111/,'adjustment evidence must keep the entity UUID out of visible text');
 assert.match(adjustmentDetail,/authoritative adjustment revision 2/);
 assert.match(adjustmentDetail,/cannot create, edit, apply, refund, approve, post, reverse, print, export, or synchronize/);
@@ -152,6 +153,7 @@ for(const route of [apRoute,arRoute]){
   assert.doesNotMatch(route,/AuthoritativeWorkflow(?:Adjustment)?Table|onWorkflow=\{workflow\}/,'AP/AR evidence routes must not expose journal transition controls');
   assert.match(route,/AuthoritativeDocumentDetail/);
   assert.match(route,/AuthoritativeAdjustmentDetail/);
+  assert.match(route,/config=\{displayConfig\}/,'AP/AR full-page evidence routes must inherit the shared readable company and period scope');
   assert.match(route,/AuthoritativeDocumentWorkspace/);
 }
 const workspace=fs.readFileSync(path.join(process.cwd(),'src','authoritative-workspace.jsx'),'utf8');
