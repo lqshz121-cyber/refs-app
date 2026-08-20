@@ -45,6 +45,11 @@ assert.match(list,/GENERAL LEDGER/); assert.match(list,/JOURNAL REGISTER/); asse
 assert.match(list,/Entity register/); assert.match(list,/Draft/); assert.match(list,/Needs review/); assert.match(list,/Posted/);
 assert.match(list,/All entries/); assert.match(list,/Awaiting action/); assert.match(list,/Posted entries/); assert.match(list,/1 result/);
 assert.doesNotMatch(list,/All retained journals for this entity|Retained status only|API list status|matching journal entries|Open evidence/,'the Journal first screen must use concise business language without exposing read-model terminology');
+const noMatchList=renderToStaticMarkup(<AuthoritativeJournalTable journals={[journal]} view={{query:'No such journal',status:'ALL',from:'',through:'',page:1,pageSize:25}} onOpen={()=>{}}/>);
+assert.match(noMatchList,/No journal entries match these filters/);
+assert.match(noMatchList,/Try changing or resetting the filters\. This result does not confirm zero ledger activity\./);
+assert.doesNotMatch(noMatchList,/match these presentation filters|retained list facts|local no-match/,
+  'the Journal no-match state must be actionable without exposing presentation or storage terminology');
 assert.match(list,/value="REVIEW_REQUIRED"/,'the journal review queue must be filterable as the same aggregate counted by its summary card');
 assert.match(list,/Memo \/ description/); assert.match(list,/Revision 3/); assert.match(list,/Clear filters/);
 assert.match(list,/Journal entry presentation filters/); assert.match(list,/id="authoritative-journal-22222222-2222-4222-8222-222222222222"/);
