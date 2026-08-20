@@ -43,7 +43,7 @@ const ITEM_ICONS = Object.freeze({
   journals:'document', 'general-ledger':'book', consolidation:'layers', 'account-inquiry':'lines', 'subsidiary-ledger':'book', 'chart-of-accounts':'lines',
   'project-cost-cwip':'bars', 'unit-cost-ledger':'bars', 'unit-transfer':'exchange', 'construction-loan':'bank', 'loan-register':'book',
   'property-ops-pickup':'wallet', 'closing-accounting':'calendar', intercompany:'exchange', 'fixed-assets':'layers', amortization:'cycle', accruals:'document',
-  'month-end-close':'calendar', 'period-management':'calendar', payables:'wallet', receivables:'wallet', reports:'bars',
+  'month-end-close':'calendar', 'period-management':'calendar', payables:'wallet', receivables:'inbox', reports:'bars',
   'master-data':'layers', 'bank-accounts':'bank', 'audit-log':'shield', 'users-settings':'gear',
 });
 
