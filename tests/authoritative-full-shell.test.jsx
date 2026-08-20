@@ -175,6 +175,8 @@ assert.match(appSource, /AuthoritativeAiJeWorkspace/, 'AI JE Workbench must moun
 assert.match(appSource, /route === 'wbs-payable-review'/, 'the WBS Payable Review entry must have a stable authoritative route');
 assert.match(appSource, /AuthoritativeBankBatchPipelineWorkspace/, 'Bank Batch Pipeline must compose existing authoritative Bank and Reconciliation readers rather than fail closed as an unavailable route');
 assert.match(appSource, /route === 'bank-batch-pipeline'/, 'the API-backed Bank Batch Pipeline must mount at its stable navigation route');
+assert.match(appSource, /route === 'bank-batch-pipeline'[\s\S]*?AuthoritativeBankBatchPipelineWorkspace[\s\S]*?config=\{displayConfig\}/,
+  'the composed Bank and Reconciliation readers must receive the same readable company and period scope as their direct routes');
 assert.match(appSource, /authoritative-topbar/, 'the formal app must use the complete workbench-style top bar rather than the old title-only header');
 assert.match(appSource, /AuthoritativeTopbar/, 'the production app must use the dedicated authoritative topbar');
 assert.match(appSource, /Authoritative entity \$\{config\.entityId\}/, 'the top bar must expose the configured API entity as scope, not a local selector');
