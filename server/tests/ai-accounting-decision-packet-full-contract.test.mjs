@@ -23,7 +23,7 @@ const details={
 };
 const source=(source_type='INVOICE',overrides={})=>({schema_version:'AI_ACCOUNTING_SOURCE_V1',tenant_id:scope.tenantId,entity_id:scope.entityId,company_code:'WBPA',accounting_period_id:scope.accountingPeriodId,accounting_period_start:'2026-07-01',accounting_period_end:'2026-07-31',business_date:'2026-07-15',accounting_date:'2026-07-15',cash_direction:'NON_CASH',currency:'USD',amount:'100.0000',source_document_id:id(4),source_document_line_id:id(5),source_payload_hash:hash(1),source_line_hash:hash(2),source_type,project_ref:['CONSTRUCTION_COST'].includes(source_type)?'PROJECT-1':null,property_ref:['CONSTRUCTION_COST','PROPERTY_MANAGEMENT','CLOSING_SETTLEMENT'].includes(source_type)?'PROPERTY-1':null,vendor_ref:['INVOICE','CONSTRUCTION_COST'].includes(source_type)?'VENDOR-7':null,member_ref:null,cost_code_ref:source_type==='CONSTRUCTION_COST'?'COST-1':null,completeness_status:'COMPLETE',duplicate_status:'NONE',admission_status:'ADMITTED',exception_codes:[],source_detail:details[source_type],...overrides});
 const settings={id:id(29),hash:hash(29)};
-const traces=['ACCOUNT','CLASSIFICATION','MATERIALITY','APPROVAL','PERIOD_CLOSE','REPORT','REVERSAL','INTERCOMPANY','TAX','DIMENSION'].map((policy_type,index)=>({policy_type,snapshot_id:id(30+index),version:1,snapshot_hash:hash(3+index),rule_id:`${policy_type}_RULE_V1`,approval_status:'APPROVED',tenant_id:scope.tenantId,entity_id:scope.entityId,company_code:'WBPA',accounting_period_id:scope.accountingPeriodId,settings_snapshot_id:settings.id,settings_snapshot_hash:settings.hash}));
+const traces=['ACCOUNT','CLASSIFICATION','MATERIALITY','APPROVAL','PERIOD_CLOSE','REPORT','REVERSAL','INTERCOMPANY','TAX','DIMENSION','LOAN_CAPITALIZATION'].map((policy_type,index)=>({policy_type,snapshot_id:id(30+index),version:1,snapshot_hash:hash(3+index),rule_id:`${policy_type}_RULE_V1`,approval_status:'APPROVED',tenant_id:scope.tenantId,entity_id:scope.entityId,company_code:'WBPA',accounting_period_id:scope.accountingPeriodId,settings_snapshot_id:settings.id,settings_snapshot_hash:settings.hash}));
 const approvalTrace=traces.find(trace=>trace.policy_type==='APPROVAL');
 const workflowPolicy={approval_status:'APPROVED',tenant_id:scope.tenantId,entity_id:scope.entityId,company_code:'WBPA',period_id:scope.accountingPeriodId,settings_snapshot_id:settings.id,settings_snapshot_hash:settings.hash,policy_id:approvalTrace.snapshot_id,policy_hash:approvalTrace.snapshot_hash,stages:{DRAFT:{role:'AP_PREPARER',permission:'GL.JE.CREATE'},SUBMIT:{role:'AP_PREPARER',permission:'GL.JE.SUBMIT'},REVIEW:{role:'AP_REVIEWER',permission:'GL.JE.REVIEW'},APPROVE:{role:'CONTROLLER',permission:'GL.JE.APPROVE'},POST:{role:'GL_POSTER',permission:'GL.JE.POST'}}};
 const risk={risk_level:'MEDIUM',policy_rule_id:'RISK_POLICY_V1',materiality_threshold:'50.0000',approval_threshold:'500.0000',confidence_floor:.9,threshold_comparison:'AT_OR_ABOVE_MATERIALITY'};
@@ -88,6 +88,17 @@ test('workflow roles and formal GL permissions come from the exact approved work
 
 test('classification-specific decisions require their approved policy family',()=>{
   for(const [classification,required] of [['PREPAID','REVERSAL'],['ACCRUAL','REVERSAL'],['INTERCOMPANY','INTERCOMPANY'],['TAX','TAX'],['CAPITALIZATION','DIMENSION']])assert.throws(()=>buildAiAccountingDecisionPacketFullV1(input({classification,policyTraces:traces.filter(trace=>trace.policy_type!==required)})),error=>error.code==='AI_ACCOUNTING_DECISION_POLICY_INVALID');
+});
+
+test('source semantics require tax and loan policy even when the selected classification is different',()=>{
+  for(const classification of ['TAX','PREPAID','ACCRUAL']){
+    assert.throws(()=>buildAiAccountingDecisionPacketFullV1(input({source:source('TAX_STATEMENT'),classification,policyTraces:traces.filter(trace=>trace.policy_type!=='TAX')})),error=>error.code==='AI_ACCOUNTING_DECISION_POLICY_INVALID');
+  }
+  for(const classification of ['LOAN','EXPENSE','PREPAID','CAPITALIZATION']){
+    assert.throws(()=>buildAiAccountingDecisionPacketFullV1(input({source:source('LOAN_TRANSACTION'),classification,policyTraces:traces.filter(trace=>trace.policy_type!=='LOAN_CAPITALIZATION')})),error=>error.code==='AI_ACCOUNTING_DECISION_POLICY_INVALID');
+  }
+  const blocked=buildAiAccountingDecisionPacketFullV1(input({source:source('LOAN_TRANSACTION',{completeness_status:'INCOMPLETE'}),classification:'BLOCKED',policyTraces:traces.filter(trace=>trace.policy_type!=='LOAN_CAPITALIZATION'),proposedJournal:{status:'SUGGESTED_ONLY',balanced:false,reversal_policy:'NONE',lines:[]},expectedReportDeltas:[]}));
+  assert.equal(blocked.status,'EXCEPTION');
 });
 
 test('expected report deltas must bind to an exact suggested Journal account and dimension',()=>{

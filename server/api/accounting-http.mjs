@@ -21,6 +21,7 @@ import {ControlledTestAiWorkflowError,assertControlledTestAiWorkflowResult} from
 import {ControlledTestBankWorkflowError,assertControlledTestBankRangeWorkflowResult,assertControlledTestBankWorkflowPartialResult,assertControlledTestBankWorkflowResult} from '../runtime/controlled-test-bank-workflow-service.mjs';
 import {ControlledTestBankMatchError,assertControlledTestBankMatchResult} from '../runtime/controlled-test-bank-match-service.mjs';
 import {assertAiAccountingDecisionPacketBatch} from '../runtime/ai-accounting-decision-packet.mjs';
+import {assertAiAccountingDecisionPacketFullBatch} from '../runtime/ai-accounting-approved-decision-service.mjs';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AI_ACCRUAL_HASH=/^sha256:[0-9a-f]{64}$/;
@@ -188,6 +189,7 @@ function statusFor(error){
   if(error?.code==='WBS_SNAPSHOT_SIGNATURE_INVALID')return 422;
   if(error?.code==='WBS_BANK_ADMISSION_SIGNATURE_REQUIRED')return 503;
   if(error?.code==='WBS_BANK_ADMISSION_SIGNATURE_INVALID')return 422;
+  if(['WBS_AI_APPROVED_SETTINGS_INVALID','AI_ACCOUNTING_APPROVED_SETTINGS_UNAVAILABLE','AI_ACCOUNTING_SETTINGS_BINDING_INVALID','AI_ACCOUNTING_ACCRUAL_REVERSAL_BLOCKED'].includes(error?.code))return 503;
   if(error?.code==='40001')return isRevisionPrecondition(error)?412:503;
   if(error?.code==='23505')return 409;if(error?.code==='55000')return 423;
   if(['22023','23503','23514'].includes(error?.code))return 422;return 500;
@@ -1256,7 +1258,7 @@ export function createAccountingApi({authenticate,kernelFactory,attachmentServic
         if(!Number.isSafeInteger(limit)||limit<1||limit>500)throw new AccountingApiError(400,'INVALID_LIMIT','limit must be an integer from 1 to 500');
         if(typeof aiAccountingDecisionPacketServiceFactory!=='function')throw new AccountingApiError(503,'AI_ACCOUNTING_DECISION_UNAVAILABLE','AI accounting decisions are not configured');
         const service=await aiAccountingDecisionPacketServiceFactory(principal);if(!service||typeof service.analyze!=='function')throw new AccountingApiError(503,'AI_ACCOUNTING_DECISION_UNAVAILABLE','AI accounting decisions are not configured');
-        try{result=assertAiAccountingDecisionPacketBatch(await service.analyze({tenantId:principal.tenantId,entityId,accountingPeriodId,limit}),{tenantId:principal.tenantId,entityId,accountingPeriodId});}
+        try{const candidate=await service.analyze({tenantId:principal.tenantId,entityId,accountingPeriodId,limit});result=candidate?.schema_version==='AI_ACCOUNTING_DECISION_PACKET_FULL_BATCH_V1'?assertAiAccountingDecisionPacketFullBatch(candidate,{tenantId:principal.tenantId,entityId,accountingPeriodId}):assertAiAccountingDecisionPacketBatch(candidate,{tenantId:principal.tenantId,entityId,accountingPeriodId});}
         catch(error){if(error?.code==='AI_ACCOUNTING_DECISION_RESPONSE_INVALID')throw new AccountingApiError(502,error.code,error.message);throw error;}
         return {status:200,headers:{'content-type':'application/json','cache-control':'no-store'},body:{ok:true,data:result}};
       }

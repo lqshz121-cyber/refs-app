@@ -10,6 +10,8 @@ import {createWbsAdmittedPayableIngestion} from './wbs-admitted-payable-ingestio
 import {createWbsProviderSignedPayableAdmission} from './wbs-provider-signed-payable-admission.mjs';
 import {createWbsProviderFinal1RetainedEvidenceAdmission} from './wbs-provider-final1-retained-evidence-admission.mjs';
 import {createAiAnalysisExplanationService} from './ai-analysis-explanation-service.mjs';
+import {createAiAccountingApprovedSettingsAdapter} from './ai-accounting-approved-settings-adapter.mjs';
+import {createAiAccountingApprovedDecisionService} from './ai-accounting-approved-decision-service.mjs';
 import {createAiAccrualCandidateAnalysisService} from './ai-accrual-candidate-analysis-service.mjs';
 import {createAiInvoiceAccountingClassificationService} from './ai-invoice-accounting-classification-service.mjs';
 import {createAiVendorInvoiceAnomalyService} from './ai-vendor-invoice-anomaly-service.mjs';
@@ -58,6 +60,29 @@ import {createControlledTestBankMatchService} from './controlled-test-bank-match
 const INSURANCE_PC_MAPPING_READINESS="SELECT to_regprocedure('refs_record_wbs_insurance_pc_mapping_pre_admission(uuid,uuid,jsonb,jsonb)') IS NOT NULL AND to_regprocedure('refs_propose_wbs_insurance_pc_mapping_hash(uuid,uuid,uuid,text,text)') IS NOT NULL AND to_regprocedure('refs_create_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid,text,text,text,text)') IS NOT NULL AND to_regprocedure('refs_approve_wbs_insurance_pc_mapping_hash(uuid,uuid,uuid,bigint,text,text,uuid,text,date,date,text)') IS NOT NULL AND to_regprocedure('refs_approve_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid,bigint,text,text,uuid,text,date,date,text,text,text)') IS NOT NULL AND to_regprocedure('refs_read_wbs_insurance_pc_mapping_proposal(uuid,uuid,uuid)') IS NOT NULL AND to_regprocedure('refs_read_wbs_insurance_pc_mapping_trace(uuid,uuid,text,date)') IS NOT NULL AND to_regprocedure('refs_read_wbs_insurance_pc_mapping_admission_resume(uuid,uuid,uuid,text,uuid,text,text)') IS NOT NULL AND to_regprocedure('refs_ap_control_total(uuid,uuid,uuid)') IS NOT NULL AND to_regprocedure('refs_ar_control_total(uuid,uuid,uuid)') IS NOT NULL AND to_regprocedure('refs_record_wbs_final1_signed_control_total(uuid,uuid,uuid,jsonb,text)') IS NOT NULL AND to_regprocedure('refs_retain_wbs_final1_business_evidence(uuid,uuid,jsonb,jsonb,jsonb,text,text)') IS NOT NULL AND to_regprocedure('refs_retain_wbs_final1_source_evidence_with_signed_controls(uuid,uuid,jsonb,jsonb,jsonb,text,text)') IS NOT NULL AS ready";
 const WBS_TEST_IMPORT_READINESS="SELECT to_regprocedure('refs_create_wbs_test_payable_draft_hash(uuid,uuid,uuid,jsonb,jsonb,integer)') IS NOT NULL AND to_regprocedure('refs_create_wbs_test_payable_draft(uuid,uuid,uuid,jsonb,jsonb,integer,text,text)') IS NOT NULL AND to_regprocedure('refs_finalize_wbs_test_import_source_hash(uuid,uuid,uuid,uuid,uuid)') IS NOT NULL AND to_regprocedure('refs_finalize_wbs_test_import_source(uuid,uuid,uuid,uuid,uuid,text,text)') IS NOT NULL AND to_regprocedure('refs_create_wbs_controlled_test_bank_scope_hash(uuid,uuid,uuid,text,jsonb,text)') IS NOT NULL AND to_regprocedure('refs_begin_wbs_test_bank_staged_import(uuid,uuid,uuid,text,jsonb,text,text,text)') IS NOT NULL AND to_regprocedure('refs_append_wbs_test_bank_staged_chunk(uuid,uuid,uuid,integer,jsonb,text)') IS NOT NULL AND to_regprocedure('refs_finalize_wbs_test_bank_staged_import(uuid,uuid,uuid)') IS NOT NULL AND to_regprocedure('refs_list_reconciliation_adjustment_evidence(uuid,uuid,integer)') IS NOT NULL AND to_regprocedure('refs_wbs_test_bank_adjustment_draft_batch(uuid,uuid,uuid,uuid,uuid[],uuid[],text,text)') IS NOT NULL AND to_regprocedure('refs_wbs_test_bank_adjustment_submit_batch(uuid,uuid,uuid,uuid[],text)') IS NOT NULL AND to_regprocedure('refs_wbs_test_bank_adjustment_review_batch(uuid,uuid,uuid,uuid[],text)') IS NOT NULL AND to_regprocedure('refs_wbs_test_bank_adjustment_approve_batch(uuid,uuid,uuid,uuid[],text)') IS NOT NULL AND to_regprocedure('refs_wbs_test_bank_adjustment_post_clear_batch(uuid,uuid,uuid,uuid,uuid[],text,text)') IS NOT NULL AND to_regprocedure('refs_resolve_wbs_test_bank_match_fixture(uuid,uuid)') IS NOT NULL AS ready";
 const CONTROLLED_TEST_AI_READINESS="SELECT to_regprocedure('refs_derive_controlled_test_ai_source_hash(uuid,uuid,uuid,text)') IS NOT NULL AND to_regprocedure('refs_derive_controlled_test_ai_source(uuid,uuid,uuid,text,text,text)') IS NOT NULL AS ready";
+
+export function createProductionAiAccountingSettingsAdapterFactory({kernelFor}={}){
+  if(typeof kernelFor!=='function')throw new TypeError('Production AI accounting settings adapter factory requires the authenticated kernel factory');
+  return principal=>{
+    if(!principal||principal.trusted!==true||typeof principal.tenantId!=='string')throw new TypeError('Production AI accounting settings adapter requires a trusted principal');
+    const kernel=kernelFor(principal);
+    if(typeof kernel?.readApprovedWbsAiEntityPeriodSettings!=='function')throw new TypeError('Production AI accounting settings adapter requires the kernel approved-settings reader');
+    return createAiAccountingApprovedSettingsAdapter({settingsReader:async({tenantId,entityId,periodId,readOnly})=>{
+      if(tenantId!==principal.tenantId||readOnly!==true)throw Object.assign(new Error('AI accounting settings scope must match the authenticated tenant and remain read-only.'),{code:'AI_ACCOUNTING_SETTINGS_SCOPE_INVALID'});
+      return kernel.readApprovedWbsAiEntityPeriodSettings({tenantId,entityId,periodId,readOnly:true});
+    }});
+  };
+}
+
+export function createProductionAiAccountingDecisionPacketServiceFactory({kernelFor,serviceBuilder}={}){
+  if(typeof serviceBuilder!=='function')throw new TypeError('Production AI accounting decision service requires a server-side builder');
+  const settingsAdapterFor=createProductionAiAccountingSettingsAdapterFactory({kernelFor});
+  return principal=>{
+    const service=serviceBuilder(Object.freeze({principal,kernel:kernelFor(principal),settingsAdapter:settingsAdapterFor(principal)}));
+    if(!service||typeof service.analyze!=='function')throw new TypeError('AI accounting decision service builder must return an analyze service');
+    return service;
+  };
+}
 
 export function createProductionAccountingServer({runtimePool,issuerPool,grantSyncPool,stage1SelfGrant,stage1SelfWbsReadUpgrade,stage1SelfWbsOperatorUpgrade,stage1SelfControlledTestWorkflowUpgrade,authenticator,attachmentStorage,wbsImmutableEvidenceStorage,virusScanner,scannerServiceActorId,wbsSnapshotVerifier,wbsSignedBankAdmissionVerifier,wbsAutoRecTransitionContractVerifier,wbsLivePilotClient,wbsTestImport,controlledTestAiWorkflow,wbsProviderSignedTrust,wbsProviderSignedServiceActorId,aiGateway,runtimeLoginAllowlist=['refs_runtime'],maxBodyBytes,releaseSha,allowedOrigins=[]}={}){
   if(!runtimePool||!issuerPool||typeof authenticator?.authenticate!=='function')throw new Error('Production accounting server requires runtime pool, isolated issuer pool and authenticator');
@@ -112,6 +137,13 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
     classificationInputReader:scope=>kernel.readAiInvoiceClassificationSource(scope),duplicateFindingReader:({tenantId,entityId,accountingPeriodId,limit})=>kernel.listAiDuplicatePayableFindingsForPeriod({tenantId,entityId,periodId:accountingPeriodId,limit}),
     capitalizationPolicyReader:scope=>kernel.getAiCapitalizationPolicyEvidence(scope),
     materializeWriter:input=>kernel.materializeAiInvoiceAccountingClassifications(input)
+  });};
+  const aiAccountingSettingsAdapterFactory=createProductionAiAccountingSettingsAdapterFactory({kernelFor});
+  const aiAccountingDecisionPacketServiceFactory=principal=>{const kernel=kernelFor(principal);return createAiAccountingApprovedDecisionService({
+    sourceReader:scope=>kernel.readAiInvoiceClassificationSource(scope),
+    classificationService:aiInvoiceAccountingClassificationServiceFactory(principal),
+    scheduleReader:scope=>kernel.listAiAmortizationSchedules(scope),
+    settingsAdapter:aiAccountingSettingsAdapterFactory(principal)
   });};
   const aiVendorInvoiceAnomalyServiceFactory=principal=>{const kernel=kernelFor(principal);return createAiVendorInvoiceAnomalyService({
     sourceReader:scope=>kernel.listSourceDocuments(scope),detailReader:scope=>kernel.getSourceDocumentDetail(scope),evidenceReader:scope=>kernel.getWbsProviderSignedSourceEvidence(scope),
@@ -324,6 +356,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
     aiAnalysisExplanationServiceFactory,
     aiAccrualCandidateAnalysisServiceFactory,
     aiInvoiceAccountingClassificationServiceFactory,
+    aiAccountingDecisionPacketServiceFactory,
     aiVendorInvoiceAnomalyServiceFactory,
     aiVendorInvoiceFrequencyAnomalyServiceFactory,
     aiVendorInvoiceAmountDropAnomalyServiceFactory,
