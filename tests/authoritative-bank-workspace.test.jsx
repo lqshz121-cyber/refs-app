@@ -80,6 +80,9 @@ assert.match(source,/className="table-wrap" role="region" tabIndex=\{0\} aria-la
 assert.match(source,/className="table-wrap" role="region" tabIndex=\{0\} aria-label="Reconciliation worksheet; scroll horizontally to view every column"/,'Reconciliation worksheet table must be keyboard-focusable and named when it overflows at narrow widths');
 assert.match(source,/restoreAuthoritativeReturnContext\(environment,config,context\)/,'Bank and reconciliation Back must restore scope, scroll position and focus');
 assert.match(source,/bankAccountRef:scope\.bankAccountRef/,'Bank Back must retain the exact account scope');
+assert.match(source,/getElementById\?\.\(focusId\)\?\.closest\?\.\('\.table-wrap'\)\?\.scrollLeft/,'Bank detail must freeze the originating contained table position');
+assert.match(source,/view:\{\.\.\.DEFAULT_AUTHORITATIVE_LIST_VIEW,from:scope\.from,through:scope\.through,offset:state\.offset\},focusId,scrollY:Number\(environment\?\.scrollY\)\|\|0,tableX/,'Bank detail return context must retain table position with account, dates and page offset');
+assert.match(source,/getTable:\(\)=>environment\?\.document\?\.getElementById\?\.\(context\?\.focusId\)\?\.closest\?\.\('\.table-wrap'\)/,'Bank Back must locate the remounted table from the frozen opener ID');
 assert.match(source,/view:\{\.\.\.DEFAULT_AUTHORITATIVE_LIST_VIEW,from:scope\.from,through:scope\.through,offset:state\.offset\}/,'Bank detail return context must retain the exact authoritative page offset');
 assert.match(source,/Number\.isSafeInteger\(context\?\.view\?\.offset\).*offset:context\.view\.offset/s,'Bank Back must restore the exact validated page offset');
 assert.match(source,/offset:Math\.max\(0,state\.offset-100\)/,'Bank Previous page must retain the scoped authoritative pagination contract');

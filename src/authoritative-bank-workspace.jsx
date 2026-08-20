@@ -271,7 +271,8 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
   const [selected,setSelected]=useState(null);
   const load=async(event,{preserveDetail=false,offset=0}={})=>{event?.preventDefault?.();if(!preserveDetail)setSelected(null);setState(current=>({...current,phase:'LOADING',error:null}));const result=await refreshAuthoritativeBankTransactions({config,bankAccountRef:scope.bankAccountRef,from:scope.from||null,through:scope.through||null,limit:100,offset,fetcher});const readAt=new Date().toISOString();setState(result.ok?{phase:'READY',rows:result.rows,error:null,offset,readAt}:{phase:'ERROR',rows:[],error:result,offset,readAt});if(preserveDetail&&result.ok)setSelected(current=>{if(!current)return current;const refreshed=result.rows.find(row=>row.bank_source_id===current.row.bank_source_id);return refreshed?{...current,row:refreshed}:null;});return result;};
   const openEvidence=(row,focusId)=>{
-    const base=createAuthoritativeReturnContext({config,view:{...DEFAULT_AUTHORITATIVE_LIST_VIEW,from:scope.from,through:scope.through,offset:state.offset},focusId,scrollY:Number(environment?.scrollY)||0});
+    const tableX=Number(environment?.document?.getElementById?.(focusId)?.closest?.('.table-wrap')?.scrollLeft)||0;
+    const base=createAuthoritativeReturnContext({config,view:{...DEFAULT_AUTHORITATIVE_LIST_VIEW,from:scope.from,through:scope.through,offset:state.offset},focusId,scrollY:Number(environment?.scrollY)||0,tableX});
     if(base)setSelected({row,returnContext:{...base,bankAccountRef:scope.bankAccountRef}});
   };
   const closeEvidence=()=>{
@@ -279,7 +280,7 @@ export function AuthoritativeBankWorkspace({config,fetcher=globalThis.fetch,envi
     if(context?.bankAccountRef)setScope({bankAccountRef:context.bankAccountRef,from:context.view.from,through:context.view.through});
     if(Number.isSafeInteger(context?.view?.offset)&&context.view.offset>=0)setState(current=>({...current,offset:context.view.offset}));
     setSelected(null);
-    restoreAuthoritativeReturnContext(environment,config,context);
+    restoreAuthoritativeReturnContext(environment,config,context,{getTable:()=>environment?.document?.getElementById?.(context?.focusId)?.closest?.('.table-wrap')});
   };
   if(selected)return <AuthoritativeBankDetail row={selected.row} scope={{...scope,entityId:config.entityId,entityLabel:entityLabel(config)}} onBack={closeEvidence} config={config} fetcher={fetcher} onMatchChanged={()=>load(null,{preserveDetail:true,offset:state.offset})}/>;
   return <AuthoritativeWorkspaceView area="Bank transaction evidence" className="stack authoritative-bank-workspace"><AuthoritativeWorkspaceHeader eyebrow="BANKING | SOURCE EVIDENCE" title="Bank transaction evidence" description="Entity-scoped, OIDC-authenticated records only. Browser seeds and local storage are never used."/>
