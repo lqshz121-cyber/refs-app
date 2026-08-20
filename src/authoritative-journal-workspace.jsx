@@ -100,7 +100,7 @@ export function AuthoritativeJournalTable({ journals = [], entityId=null, view =
       <thead><tr><th>Journal</th><th>Date</th><th>Memo / description</th><th>Type</th><th>Currency</th><th>Status</th><th>Ledger lines</th><th>Evidence</th><th>Workflow</th></tr></thead>
       <tbody>{page.rows.map(row => {const next=nextAuthoritativeJournalWorkflowAction(row,capabilities,entityId),busy=workflowState?.journalEntryId===row.journal_entry_id&&workflowState.phase==='RUNNING';return <tr key={row.journal_entry_id}>
         <td><b>{row.journal_number}</b><small className="journal-row-revision">Revision {row.revision}</small></td><td>{formatAuthoritativeDate(row.journal_date)}</td><td className="journal-row-description">{row.description||'No description returned'}</td><td>{row.journal_type}</td><td>{row.currency}</td><td><span className="badge">{row.status}</span></td>
-        <td>{row.ledger_line_count}</td><td><button id={`authoritative-journal-${row.journal_entry_id}`} type="button" className="btn btn-sm" onClick={() => onOpen(row,`authoritative-journal-${row.journal_entry_id}`)}>Open evidence</button></td>
+        <td>{row.ledger_line_count}</td><td><button id={`authoritative-journal-${row.journal_entry_id}`} type="button" className="btn btn-sm" onClick={event => onOpen(row,`authoritative-journal-${row.journal_entry_id}`,Number(event.currentTarget.closest('.table-wrap')?.scrollLeft)||0)}>Open evidence</button></td>
         <td>{next?<button type="button" className="btn btn-sm" disabled={busy} aria-disabled={busy} onClick={()=>onWorkflowAction?.(row,next)}>{busy?`${next.label}...`:next.label}</button>:<span className="muted sm">Not available</span>}</td>
       </tr>;})}</tbody>
     </table></div>}
@@ -144,14 +144,14 @@ export function AuthoritativeJournalWorkspace({ journals, config, fetcher=global
     if(!result.ok){setWorkflowState({phase:'ERROR',journalEntryId:journal.journal_entry_id,message:result.message});return;}
     setRows(result.journals);setWorkflowState({phase:'DONE',journalEntryId:journal.journal_entry_id,action:result.action});
   };
-  const openEvidence=async(journal,focusId)=>{
-    const returnContext=createAuthoritativeReturnContext({config,view,focusId,scrollY:Number(environment?.scrollY)||0});
+  const openEvidence=async(journal,focusId,tableX)=>{
+    const returnContext=createAuthoritativeReturnContext({config,view,focusId,scrollY:Number(environment?.scrollY)||0,tableX});
     if(!returnContext)return;
     const frozenContext={...returnContext,entityLabel:config?.scopePresentation?.entityLabel||'Configured entity',periodLabel:config?.scopePresentation?.periodLabel||'Period unavailable',journalId:journal.journal_entry_id,journalRevision:journal.revision,journalCurrency:journal.currency};
     setDetail({phase:'LOADING',journal,returnContext:frozenContext});
     const result=await readAuthoritativeJournalEntryDetail({config,journalEntryId:journal.journal_entry_id,fetcher});
     setDetail(result.ok?{phase:'READY',journal,evidence:result.journal,returnContext:frozenContext}:{phase:'ERROR',journal,error:result,returnContext:frozenContext});
   };
-  if (detail) return <JournalDetailReadState detail={detail} entityId={config.entityId} config={config} fetcher={fetcher} onBack={() => { setView(detail.returnContext.view); setDetail(null); restoreAuthoritativeReturnContext(environment,config,detail.returnContext); }}/>;
+  if (detail) return <JournalDetailReadState detail={detail} entityId={config.entityId} config={config} fetcher={fetcher} onBack={() => { setView(detail.returnContext.view); setDetail(null); restoreAuthoritativeReturnContext(environment,config,detail.returnContext,{getTable:()=>environment?.document?.querySelector?.('.authoritative-journal-table')}); }}/>;
   return <div className="stack authoritative-journal-workspace">{capabilityState.phase==='LOADING'&&<StateBlock tone="loading" title="Checking Journal workflow access">Reading the current actor's fixed entity-scoped permissions. No action is available while this read is pending.</StateBlock>}{capabilityState.phase==='BLOCKED'&&<StateBlock tone="blocked" title="Journal workflow access unavailable">{capabilityState.error?.message||'The capability read failed closed. No Journal workflow action is available.'}</StateBlock>}<AuthoritativeJournalTable journals={rows} entityId={config.entityId} view={view} onViewChange={setView} onOpen={openEvidence} capabilities={capabilityState.phase==='READY'?capabilityState.data:null} onWorkflowAction={runWorkflow} workflowState={workflowState}/>{workflowState?.phase==='ERROR'&&<StateBlock tone="blocked" title="Journal workflow action unavailable">{workflowState.message}</StateBlock>}{workflowState?.phase==='DONE'&&<StateBlock tone="empty" title="Authoritative Journal register refreshed">{workflowState.action} completed and the entity-scoped Journal register was re-read.</StateBlock>}<AuthoritativeSecondaryDisclosure label="External WBS evidence"><AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.journal} title="External WBS journal observations"/></AuthoritativeSecondaryDisclosure></div>;
 }

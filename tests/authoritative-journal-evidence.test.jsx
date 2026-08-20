@@ -89,6 +89,9 @@ const journalView=fs.readFileSync(path.join(process.cwd(),'src','authoritative-j
 assert.doesNotMatch(journalView,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,'the journal presentation extraction must receive authoritative facts as slots');
 assert.match(list,/authoritative-journal-presentation/);
 assert.match(workspace,/restoreAuthoritativeReturnContext/,'Back must restore scroll and focus to the originating evidence control');
+assert.match(workspace,/closest\('\.table-wrap'\)\?\.scrollLeft/,'Journal evidence actions must freeze their contained table position');
+assert.match(workspace,/createAuthoritativeReturnContext\(\{config,view,focusId,scrollY:Number\(environment\?\.scrollY\)\|\|0,tableX\}\)/,'Journal detail must retain table position in the same immutable entity and period context');
+assert.match(workspace,/getTable:\(\)=>environment\?\.document\?\.querySelector\?\.\('\.authoritative-journal-table'\)/,'Journal Back must restore the remounted register scroller before returning focus');
 assert.equal((workspace.match(/<summary>List filters retained<\/summary>/g)||[]).length,2,'ready and loading Journal detail states must share the compact return-context disclosure');
 assert.match(workspace,/const journalMatchesReturnContext/);
 assert.match(workspace,/context\?\.journalId === journal\.journal_entry_id/);
