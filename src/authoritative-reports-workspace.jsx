@@ -309,7 +309,8 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
   useEffect(()=>{if(initialDimensionRef.trim())void loadDimension();},[config?.entityId,config?.periodId,initialDimensionRef]);
   const rows=useMemo(()=>state.rows.filter(row=>row.statement_type===report),[state.rows,report]);
   const openEvidence=(row,focusId,kind='STATEMENT',title=null,detailContext=null)=>{
-    const base=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0});
+    const tableX=Number(environment?.document?.getElementById?.(focusId)?.closest?.('.table-wrap')?.scrollLeft)||0;
+    const base=createAuthoritativeReturnContext({config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number(environment?.scrollY)||0,tableX});
     if(base)setSelected({kind,row,title,returnContext:{...base,report,reportAccountCode:row.account_code||null,reportSection:row.statement_section||null,reportDimensionType:row.dimension_type||null,reportDimensionRef:row.dimension_ref||null,workbenchTab,reportsCatalog:normalizeAuthoritativeReportsCatalog({category:workbenchTab,query:catalogSearch,preview:report}),...(detailContext&&typeof detailContext==='object'?detailContext:{})}});
   };
   const openPropertyReport=(shortcut)=>{
@@ -349,7 +350,7 @@ export function AuthoritativeReportsWorkspace({config,fetcher=globalThis.fetch,e
       setDimensionRef(context.dimension.ref);
     }
     setSelected(null);
-    restoreAuthoritativeReturnContext(environment,config,context);
+    restoreAuthoritativeReturnContext(environment,config,context,{getTable:()=>environment?.document?.getElementById?.(context?.focusId)?.closest?.('.table-wrap')});
   };
   const openEvidenceLineage=row=>{const detail=selected;const context=detail?.returnContext;if(!detail||!context)return;setSelected({kind:'EVIDENCE_LINEAGE',row,returnTo:detail,returnContext:context,lineageConfig:authoritativeReportLineageConfig(config,row)});};
   if(selected?.kind==='EVIDENCE_LINEAGE')return <AuthoritativeLineageDrill config={selected.lineageConfig||config} fetcher={fetcher} initial={{kind:'EVIDENCE',row:selected.row,context:{entityId:config.entityId,periodId:selected.lineageConfig?.periodId||config.periodId,accountCode:selected.row.account_code||null}}} onExit={()=>setSelected(selected.returnTo)}/>;

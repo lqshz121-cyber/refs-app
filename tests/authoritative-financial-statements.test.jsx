@@ -134,6 +134,9 @@ async function main(){
   assert.equal(restoreAuthoritativeReportTablePosition(reportEnvironment,{tableX:-1},()=>reportTable),false,'invalid report table positions must fail closed');
   assert.match(workspace,/Back to Reports/,'the full report must provide an explicit catalog Back action');
   assert.match(workspace,/restoreAuthoritativeReturnContext/,'report detail Back must restore its evidence opener and scroll position');
+  assert.match(workspace,/getElementById\?\.\(focusId\)\?\.closest\?\.\('\.table-wrap'\)\?\.scrollLeft/,'every API-backed report evidence opener must freeze its own contained table position');
+  assert.match(workspace,/createAuthoritativeReturnContext\(\{config,view:DEFAULT_AUTHORITATIVE_LIST_VIEW,focusId,scrollY:Number\(environment\?\.scrollY\)\|\|0,tableX\}\)/,'report evidence must retain its table position in the immutable entity and period return context');
+  assert.match(workspace,/getTable:\(\)=>environment\?\.document\?\.getElementById\?\.\(context\?\.focusId\)\?\.closest\?\.\('\.table-wrap'\)/,'Back must locate the remounted originating report table from the frozen opener ID');
   assert.match(workspace,/authoritative-report-\$\{row\.statement_type\}/,'report evidence controls need stable focus targets');
   assert.match(workspace,/refreshAuthoritativeFinancialStatementSnapshot/,'statement snapshots must use a separate authoritative API reader, not a live-ledger browser copy');
   assert.match(workspace,/authoritative-statement-snapshot/,'the statement version reader must be discoverable from the reports workspace');
