@@ -38,7 +38,7 @@ const GROUP_ICONS = Object.freeze({
 const ITEM_ICONS = Object.freeze({
   overview:'gauge', approvals:'check', 'ai-audit':'shield', 'ai-je-workbench':'document',
   settings:'gear', rules:'check', mapping:'layers',
-  'wbs-payable-review':'document', staging:'layers', 'source-documents':'document', 'integration-hub':'cycle', 'mapping-exceptions':'check',
+  'wbs-payable-review':'document', staging:'layers', 'source-documents':'document', 'integration-hub':'cycle', 'mapping-exceptions':'shield',
   'bank-batch-pipeline':'bank', 'wbs-autorec-evidence':'cycle', bank:'bank', reconciliation:'check', 'checks-payments':'wallet',
   journals:'document', 'general-ledger':'book', consolidation:'layers', 'account-inquiry':'lines', 'subsidiary-ledger':'book', 'chart-of-accounts':'lines',
   'project-cost-cwip':'bars', 'unit-cost-ledger':'bars', 'unit-transfer':'exchange', 'construction-loan':'bank', 'loan-register':'book',
