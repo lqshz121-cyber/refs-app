@@ -31,7 +31,8 @@ const workspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind=
 assert.match(workspaceMarkup,/Payables presentation filters/);
 assert.match(workspaceMarkup,/authoritative-document-page-head/,'payables and receivables must use the shared authoritative workspace header');
 assert.match(workspaceMarkup,/Transaction type/);
-assert.match(workspaceMarkup,/All retained transactions/);
+assert.match(workspaceMarkup,/All retained transactions/,'AP must retain its mixed authoritative result view');
+assert.match(workspaceMarkup,/aria-selected="true" class="tab-on">All transactions</,'the mixed AP state must have an explicit selected tab rather than masquerading as Bills');
 assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/Category \(offset account\)/);
 assert.match(workspaceMarkup,/Reset filters/);

@@ -111,12 +111,12 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   ].filter(Boolean);
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
   const tabs=bill?[
-    {id:'BILLS',label:'Bills'}, {id:'VENDOR_CREDITS',label:'Vendor credits'}, {id:'AGING',label:'AP Aging',focusId:'authoritative-ap-aging-launch'}, {id:'VENDORS',label:'Vendors',unavailable:true},
+    {id:'ALL',label:'All transactions'}, {id:'BILLS',label:'Bills'}, {id:'VENDOR_CREDITS',label:'Vendor credits'}, {id:'AGING',label:'AP Aging',focusId:'authoritative-ap-aging-launch'}, {id:'VENDORS',label:'Vendors',unavailable:true},
   ]:[{id:'INVOICES',label:'Invoices'}, {id:'RECEIPTS',label:'Receipts',unavailable:true}, {id:'AGING',label:'AR Aging',focusId:'authoritative-ar-aging-launch'}, {id:'COUNTERPARTIES',label:'Counterparties',unavailable:true}];
-  const activeTab=bill?(state.transactionType==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'):'INVOICES';
+  const activeTab=bill?state.transactionType:'INVOICES';
   const selectTab=next=>{
     if(next==='AGING'){onOpenAging?.();return;}
-    if(bill)change({transactionType:next==='VENDOR_CREDITS'?'VENDOR_CREDITS':'BILLS'});
+    if(bill)change({transactionType:next});
   };
   // QBO Expenses keeps the list count beside its filters and does not repeat
   // the same empty totals as KPI cards. AR remains unchanged until observed.
