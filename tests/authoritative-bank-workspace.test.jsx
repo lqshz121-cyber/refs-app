@@ -22,7 +22,8 @@ const namedBankInitial=renderToStaticMarkup(<AuthoritativeBankWorkspace config={
 assert.match(namedBankInitial,/Wan Pacific Real Estate Development LLC/);assert.doesNotMatch(namedBankInitial,/Entity 11111111-1111-4111-8111-111111111111/);
 
 const reconciliationInitial=renderToStaticMarkup(<AuthoritativeReconciliationWorkspace config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
-assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/One authoritative statement cutoff/);
+assert.match(reconciliationInitial,/Reconciliation evidence/);assert.match(reconciliationInitial,/Statement ending date/);assert.match(reconciliationInitial,/Review one retained statement/);
+assert.match(reconciliationInitial,/Selecting a retained statement fills the account and cutoff\. No lifecycle action runs\./);assert.doesNotMatch(reconciliationInitial,/The API rejects missing or cross-scope statement evidence/);
 assert.match(reconciliationInitial,/Available reconciliation scopes/);assert.match(reconciliationInitial,/Discovering reconciliation scopes/);assert.match(reconciliationInitial,/READ ONLY/);
 assert.match(reconciliationInitial,/Signed admitted statements/);assert.match(reconciliationInitial,/SIGNED \+ ADMITTED/);assert.match(reconciliationInitial,/separate from UNSIGNED PILOT/);assert.match(reconciliationInitial,/Load signed statements/);
 const admittedInitial=renderToStaticMarkup(<AuthoritativeAdmittedStatements config={config} bankAccountRef="BANK-1" fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
@@ -39,6 +40,8 @@ const bankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} sco
 assert.match(bankDetail,/Back to bank transactions/);assert.match(bankDetail,/Bank transaction detail/);assert.match(bankDetail,/-\$125\.25/);assert.match(bankDetail,/2026-07-01/);assert.match(bankDetail,/2026-07-31/);
 assert.match(bankDetail,/full-bleed qbo-transaction-report/);
 assert.match(bankDetail,/AUTHORITATIVE SOURCE EVIDENCE/);assert.match(bankDetail,/Bank evidence lifecycle/);assert.match(bankDetail,/Reconciliation separate/);assert.match(bankDetail,/Authoritative evidence scope/);
+assert.match(bankDetail,/Date range/);assert.match(bankDetail,/2026-07-01 to 2026-07-31/);assert.match(bankDetail,/Controller corrections require server validation/);
+assert.equal((bankDetail.match(/<i>Bank account<\/i>/g)||[]).length,0);assert.equal((bankDetail.match(/<i>Version<\/i>/g)||[]).length,0);assert.doesNotMatch(bankDetail,/Scope: Configured entity/);
 assert.match(bankDetail,/Match review/);assert.match(bankDetail,/Journal reference unavailable/);
 assert.match(bankDetail,/Direction/);assert.match(bankDetail,/OUTFLOW/);
 const mismatchedBankDetail=renderToStaticMarkup(<AuthoritativeBankDetail row={bankRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-OTHER',from:'2026-07-01',through:'2026-07-31'}} onBack={()=>{}} config={config} fetcher={async()=>{throw new Error('SSR must not fetch');}}/>);
@@ -57,6 +60,7 @@ const emptyReconciliation=renderToStaticMarkup(<AuthoritativeReconciliationSumma
 
 const reconciliationDetail=renderToStaticMarkup(<AuthoritativeReconciliationDetail row={reconciliationRow} scope={{entityId:config.entityId,bankAccountRef:'BANK-1',statementEndingDate:'2026-07-31'}} onBack={()=>{}}/>);
 assert.match(reconciliationDetail,/Back to reconciliation evidence/);assert.match(reconciliationDetail,/Statement ending 2026-07-31/);assert.match(reconciliationDetail,/\$1,000\.00/);assert.match(reconciliationDetail,/Configured entity/);
+assert.match(reconciliationDetail,/Commands require server-returned evidence and separate authorization/);assert.doesNotMatch(reconciliationDetail,/Scope: Configured entity|independent workflow approval and posting remain outside this screen/);
 assert.match(reconciliationDetail,/full-bleed qbo-transaction-report/);assert.match(reconciliationDetail,/Reconciled by/);
 assert.match(reconciliationDetail,/Load reconciliation worksheet/);assert.match(reconciliationDetail,/CONTROLLER REVIEW/);
 assert.match(reconciliationDetail,/AUTHORITATIVE STATEMENT WORKSHEET/);assert.match(reconciliationDetail,/Reconciliation lifecycle/);assert.match(reconciliationDetail,/Authoritative evidence scope/);
@@ -76,10 +80,13 @@ assert.match(source,/if\(selected\).*AuthoritativeBankDetail/s,'Bank detail must
 assert.match(source,/if\(selected\).*AuthoritativeReconciliationDetail/s,'Reconciliation detail must replace the summary and retain an explicit Back path');
 assert.match(source,/authoritative-bank-\$\{row\.bank_source_id\}/,'Bank detail must retain a stable opener for focus restoration');
 assert.match(source,/authoritative-reconciliation-\$\{row\.reconciliation_id\}/,'Reconciliation detail must retain a stable opener for focus restoration');
-assert.match(source,/className="table-wrap" role="region" tabIndex=\{0\} aria-label="Bank transactions; scroll horizontally to view every column"/,'Bank evidence table must be keyboard-focusable and named when it overflows at narrow widths');
-assert.match(source,/className="table-wrap" role="region" tabIndex=\{0\} aria-label="Reconciliation worksheet; scroll horizontally to view every column"/,'Reconciliation worksheet table must be keyboard-focusable and named when it overflows at narrow widths');
+assert.match(source,/className="table-wrap authoritative-bank-evidence-table" role="region" tabIndex=\{0\} aria-label="Bank transactions; scroll horizontally to view every column"/,'Bank evidence table must be keyboard-focusable and named when it overflows at narrow widths');
+assert.match(source,/className="table-wrap authoritative-bank-evidence-table" role="region" tabIndex=\{0\} aria-label="Reconciliation worksheet; scroll horizontally to view every column"/,'Reconciliation worksheet table must be keyboard-focusable and named when it overflows at narrow widths');
 assert.match(source,/restoreAuthoritativeReturnContext\(environment,config,context\)/,'Bank and reconciliation Back must restore scope, scroll position and focus');
 assert.match(source,/bankAccountRef:scope\.bankAccountRef/,'Bank Back must retain the exact account scope');
+assert.match(source,/getElementById\?\.\(focusId\)\?\.closest\?\.\('\.table-wrap'\)\?\.scrollLeft/,'Bank detail must freeze the originating contained table position');
+assert.match(source,/view:\{\.\.\.DEFAULT_AUTHORITATIVE_LIST_VIEW,from:scope\.from,through:scope\.through,offset:state\.offset\},focusId,scrollY:Number\(environment\?\.scrollY\)\|\|0,tableX/,'Bank detail return context must retain table position with account, dates and page offset');
+assert.match(source,/getTable:\(\)=>environment\?\.document\?\.getElementById\?\.\(context\?\.focusId\)\?\.closest\?\.\('\.table-wrap'\)/,'Bank Back must locate the remounted table from the frozen opener ID');
 assert.match(source,/view:\{\.\.\.DEFAULT_AUTHORITATIVE_LIST_VIEW,from:scope\.from,through:scope\.through,offset:state\.offset\}/,'Bank detail return context must retain the exact authoritative page offset');
 assert.match(source,/Number\.isSafeInteger\(context\?\.view\?\.offset\).*offset:context\.view\.offset/s,'Bank Back must restore the exact validated page offset');
 assert.match(source,/offset:Math\.max\(0,state\.offset-100\)/,'Bank Previous page must retain the scoped authoritative pagination contract');
@@ -163,6 +170,7 @@ assert.match(readFileSync('src/ui.jsx','utf8'),/blocked: 'empty empty-state stat
 assert.match(css,/\.state-blocked\{border-color:var\(--qb-warn-line\)/,'The BLOCKED state must have a visible warning treatment without becoming a disabled action');
 assert.match(css,/\.authoritative-admitted-statements\{border-left:4px solid var\(--qb-ok\)/,'Signed admitted evidence must have a distinct retained-evidence boundary');
 assert.match(css,/\.authoritative-admitted-statements-table \.tbl\{min-width:900px/,'Signed statement columns must remain inside a contained table on narrow screens');
+assert.match(css,/\.authoritative-admitted-statements-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'Signed admitted statements must not stretch the whole page at narrow widths');
 assert.match(css,/@media \(max-width:430px\)\{\.authoritative-admitted-statements\{padding:16px;/,'Signed statement controls must stack at phone widths');
 assert.match(css,/\.authoritative-admitted-actions \.btn,[^\n]*min-height:44px/,'Signed statement controls must keep WCAG-sized touch targets');
 const appSource=readFileSync('src/authoritative-app.jsx','utf8');

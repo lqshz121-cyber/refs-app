@@ -25,6 +25,8 @@ assert.match(source,/authoritative-source-scope/,'Source Documents must visibly 
 assert.match(source,/scopeLabels\.entity/);assert.match(source,/scopeLabels\.period/);assert.doesNotMatch(source,/<b>\{config\.(?:entityId|periodId)\}<\/b>/,'Source Documents must not promote raw scope UUIDs as visible labels');
 assert.match(source,/Journal-linked/,'Source Documents must distinguish retained journal references from unlinked list facts');
 assert.match(source,/authoritative-source-intro/,'Source Documents must disclose its evidence-only boundary before the list');
+assert.match(source,/<AuthoritativeSecondaryDisclosure label="Evidence boundaries">/,'secondary Source Document boundary copy must not lengthen the default register page');
+assert.match(source,/Persisted metadata, source identity, and line references/);assert.match(source,/Attachment bytes and raw provider payloads/);assert.match(source,/No import, mapping, posting, or external call/);
 assert.match(source,/authoritative-source-filters/,'Source Documents must provide presentation-only source evidence filters');
 assert.match(source,/sourceSystem==='ALL'\|\|row\.source_system===sourceSystem/,'Source filtering must be applied only to rows already returned by the authoritative API');
 assert.match(source,/detailReturnRef\.current=\{focusId:`authoritative-source-document-\$\{id\}`,pageY:globalThis\.scrollY\|\|0,tableX:listScrollRef\.current\?\.scrollLeft\|\|0,query,sourceSystem\}/,'Source Document details must retain exact list filter and scroll context before replacing the list');
@@ -37,6 +39,8 @@ assert.match(source,/listScrollRef\.current\?\.scrollTo\?\.\(\{left:context\?\.t
 assert.match(source,/getElementById\(context\?\.focusId\)\?\.focus\?\.\(\{preventScroll:true\}\)/,'Source Document Back must restore keyboard focus to the exact list opener');
 assert.match(source,/className="table-wrap authoritative-source-document-list" role="region" tabIndex=\{0\} aria-label="Source Documents; scroll horizontally to view every column"/,'Source Document list must be a named keyboard-focusable narrow-table scroll region');
 assert.match(source,/className="table-wrap authoritative-source-document-lines" role="region" tabIndex=\{0\} aria-label="Source Document lines; scroll horizontally to view every column"/,'Source Document detail lines must be a named keyboard-focusable narrow-table scroll region');
+const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
+assert.match(styles,/\.authoritative-source-document-list,\.authoritative-source-document-lines\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'Source Document lists and detail lines must remain contained after the tablet table-height reset');
 assert.doesNotMatch(source,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data|\b(?:POST|PUT|PATCH|DELETE)\b/);
 assert.doesNotMatch(presentation,/localStorage|from ['"]\.\/repo|from ['"]\.\/seed|from ['"]\.\/data|accounting-api|legacy-demo-app/);
 const presentationMarkup=renderToStaticMarkup(<AuthoritativeSourceDocumentsView scope="API scope" metrics={<span>1</span>} actions={<button>Refresh</button>}><div>API slot</div></AuthoritativeSourceDocumentsView>);

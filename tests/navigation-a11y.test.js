@@ -153,6 +153,8 @@ for(const shortLabel of ['Settings','Operations','Admin']) assert.match(authorit
   `${shortLabel} must remain a distinct readable primary workspace label`);
 assert.match(authoritativeShell,/<Icon name=\{ITEM_ICONS\[item\.route\] \|\| 'document'\} size=\{18\}\/>/,
   'the readable navigation row must render its icon at a compact, consistent size');
+assert.match(authoritativeShell,/payables:'wallet', receivables:'inbox'/,
+  'Payables and Receivables must use distinct glyphs from the same shared line-icon vocabulary');
 assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|API_READ|Unavailable/,
   'navigation rows must not expose implementation statuses or letter abbreviations to finance readers');
 assert.match(unavailableWorkspace,/WORKSPACE SETUP|SETUP REQUIRED|SETUP NEEDED/,

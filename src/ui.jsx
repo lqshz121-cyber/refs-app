@@ -132,11 +132,13 @@ export const STATE_CLASS = {
   permission: 'empty empty-state report-entity-required state-block state-permission',
   cleared: 'empty empty-state state-block state-empty state-cleared',
 };
+const STATE_ICON = Object.freeze({loading:'cycle',error:'shield',empty:'document',blocked:'shield',permission:'shield',cleared:'check'});
 export function StateBlock({tone='empty', title, children, actions, label, className=''}) {
   const cls = `${STATE_CLASS[tone] || STATE_CLASS.empty}${className ? ' ' + className : ''}`;
   return <div className={cls} role={tone==='error' ? 'alert' : 'status'}
     aria-label={label} aria-live={tone==='error' ? 'assertive' : 'polite'}
     aria-busy={tone==='loading' ? 'true' : undefined}>
+    <span className="state-block-icon" aria-hidden="true"><Icon name={STATE_ICON[tone]||STATE_ICON.empty} size={24}/></span>
     {title && <b>{title}</b>}
     {children}
     {actions ? <div className="row-acts state-block-acts">{actions}</div> : null}

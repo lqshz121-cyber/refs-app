@@ -38,12 +38,12 @@ const GROUP_ICONS = Object.freeze({
 const ITEM_ICONS = Object.freeze({
   overview:'gauge', approvals:'check', 'ai-audit':'shield', 'ai-je-workbench':'document',
   settings:'gear', rules:'check', mapping:'layers',
-  'wbs-payable-review':'document', staging:'layers', 'source-documents':'document', 'integration-hub':'cycle', 'mapping-exceptions':'check',
+  'wbs-payable-review':'document', staging:'layers', 'source-documents':'document', 'integration-hub':'cycle', 'mapping-exceptions':'shield',
   'bank-batch-pipeline':'bank', 'wbs-autorec-evidence':'cycle', bank:'bank', reconciliation:'check', 'checks-payments':'wallet',
   journals:'document', 'general-ledger':'book', consolidation:'layers', 'account-inquiry':'lines', 'subsidiary-ledger':'book', 'chart-of-accounts':'lines',
   'project-cost-cwip':'bars', 'unit-cost-ledger':'bars', 'unit-transfer':'exchange', 'construction-loan':'bank', 'loan-register':'book',
   'property-ops-pickup':'wallet', 'closing-accounting':'calendar', intercompany:'exchange', 'fixed-assets':'layers', amortization:'cycle', accruals:'document',
-  'month-end-close':'calendar', 'period-management':'calendar', payables:'wallet', receivables:'wallet', reports:'bars',
+  'month-end-close':'calendar', 'period-management':'calendar', payables:'wallet', receivables:'inbox', reports:'bars',
   'master-data':'layers', 'bank-accounts':'bank', 'audit-log':'shield', 'users-settings':'gear',
 });
 
@@ -57,10 +57,13 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroups
       <div className="rail-logo" aria-hidden="true">R</div>
       {navigation.map((group, index) => {
         const active = group.label === activeGroup.label;
+        const direct = group.items.length === 1;
         return <div key={group.label} className={`nav-group nav-tone-${index % 6}`}>
           <button type="button"
             className={`nav-group-h ${active ? 'rail-on' : ''}`}
-            aria-current={active ? 'page' : undefined}
+            aria-current={direct && active ? 'page' : undefined}
+            aria-expanded={!direct ? active : undefined}
+            aria-controls={!direct && active ? 'authoritative-navigation-active-group' : undefined}
             aria-label={group.label}
             onClick={() => onSelectGroup(group)}>
             <span className="rail-glyph" aria-hidden="true"><Icon name={GROUP_ICONS[group.label] || 'document'} /></span>

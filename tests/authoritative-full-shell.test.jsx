@@ -28,6 +28,14 @@ assert.doesNotMatch(journalNavMarkup, /Journal entries/, 'a one-page Journal wor
 assert.doesNotMatch(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'a suppressed secondary menu must not leave an empty navigation landmark');
 assert.match(mobileReportNavMarkup, /aria-label="Close navigation"/, 'a direct-entry workspace must retain a reachable Close control in the mobile drawer');
 assert.match(navMarkup, /Bank transaction matching/); assert.match(navMarkup, /aria-label="Auto Reconciliation"/);
+assert.match(navMarkup, /aria-expanded="true" aria-controls="authoritative-navigation-active-group" aria-label="Auto Reconciliation"/,
+  'a multi-page rail group must announce the one secondary panel it currently exposes');
+assert.doesNotMatch(navMarkup, /aria-current="page"[^>]*aria-label="Auto Reconciliation"/,
+  'a multi-page workspace group is expanded, not itself the current page');
+assert.match(reportNavMarkup, /aria-current="page" aria-label="Reports"/,
+  'a one-page workspace rail control is the direct current page');
+assert.doesNotMatch(reportNavMarkup, /aria-expanded="[^"]+"[^>]*aria-label="Reports"/,
+  'a one-page workspace must not announce a secondary menu that is intentionally suppressed');
 assert.doesNotMatch(navMarkup, /Source Documents/, 'an old workspace must not remain in the secondary panel after navigation');
 assert.match(navMarkup, /authoritative-navigation-active-group/, 'only the current workspace menu is rendered');
 assert.doesNotMatch(navMarkup, />API</); assert.doesNotMatch(navMarkup, />Unavailable</);
@@ -175,6 +183,8 @@ assert.match(appSource, /AuthoritativeAiJeWorkspace/, 'AI JE Workbench must moun
 assert.match(appSource, /route === 'wbs-payable-review'/, 'the WBS Payable Review entry must have a stable authoritative route');
 assert.match(appSource, /AuthoritativeBankBatchPipelineWorkspace/, 'Bank Batch Pipeline must compose existing authoritative Bank and Reconciliation readers rather than fail closed as an unavailable route');
 assert.match(appSource, /route === 'bank-batch-pipeline'/, 'the API-backed Bank Batch Pipeline must mount at its stable navigation route');
+assert.match(appSource, /route === 'bank-batch-pipeline'[\s\S]*?AuthoritativeBankBatchPipelineWorkspace[\s\S]*?config=\{displayConfig\}/,
+  'the composed Bank and Reconciliation readers must receive the same readable company and period scope as their direct routes');
 assert.match(appSource, /authoritative-topbar/, 'the formal app must use the complete workbench-style top bar rather than the old title-only header');
 assert.match(appSource, /AuthoritativeTopbar/, 'the production app must use the dedicated authoritative topbar');
 assert.match(appSource, /Authoritative entity \$\{config\.entityId\}/, 'the top bar must expose the configured API entity as scope, not a local selector');
@@ -183,6 +193,11 @@ assert.match(appSource, /Refresh authoritative accounting evidence/, 'the top-ba
 assert.match(appSource, /Authenticated OIDC session/, 'the user chip must describe an authenticated session without fabricating a demo user');
 assert.match(appSource, /onClick=\{logout\}>Sign out/, 'the visual shell keeps the real OIDC sign-out command');
 const styles = fs.readFileSync('index.html', 'utf8');
+const uiSource = fs.readFileSync('src/ui.jsx', 'utf8');
+assert.match(uiSource,/const STATE_ICON = Object\.freeze\(\{loading:'cycle',error:'shield',empty:'document',blocked:'shield',permission:'shield',cleared:'check'\}\)/,'StateBlock must use the shared semantic line-icon vocabulary instead of one document glyph for every state');
+assert.match(uiSource,/<span className="state-block-icon" aria-hidden="true"><Icon name=\{STATE_ICON\[tone\]\|\|STATE_ICON\.empty\} size=\{24\}/,'StateBlock must render one decorative shared Icon slot');
+assert.match(styles,/\.state-block::before\{display:none;\}/,'authoritative state blocks must suppress the legacy data-URI pseudo icon');
+assert.match(styles,/\.state-block-icon\{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:48px;height:48px/,'all authoritative state icons must share one geometry');
 assert.match(styles, /\.authoritative-entity-chip\{/, 'the authoritative entity scope needs the complete-shell selector treatment');
 assert.match(styles, /\.authoritative-mode-chip\{/, 'the top bar must disclose authoritative mode rather than demonstration mode');
 assert.match(styles, /@media \(max-width:900px\) and \(min-width:769px\)/, 'the authoritative shell must release its rail only at tablet widths');

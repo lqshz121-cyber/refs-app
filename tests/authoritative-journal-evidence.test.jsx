@@ -40,10 +40,16 @@ const journal={entity_id:entityId,period_id:periodId,journal_entry_id:'22222222-
 ]};
 const list=renderToStaticMarkup(<AuthoritativeJournalTable journals={[journal]} onOpen={()=>{}}/>);
 assert.match(list,/authoritative-workbench-shell/,'the authoritative journal list adopts the shared production workbench frame, not the legacy demo shell');
-assert.match(list,/Journal workspace structure/);
-assert.match(list,/Scoped evidence/);
-assert.match(list,/GENERAL LEDGER/); assert.match(list,/JOURNAL REGISTER/); assert.match(list,/Read only/); assert.match(list,/Currency/); assert.match(list,/Open evidence/); assert.match(list,/JE-100/);
+assert.doesNotMatch(list,/Journal workspace structure|Scoped evidence|Exact Back/,'the Journal list must not repeat its list/detail/Back hierarchy in a decorative reading rail');
+assert.match(list,/GENERAL LEDGER/); assert.match(list,/JOURNAL REGISTER/); assert.match(list,/Read only/); assert.match(list,/Currency/); assert.match(list,/Details/); assert.match(list,/View details/); assert.match(list,/JE-100/);
 assert.match(list,/Entity register/); assert.match(list,/Draft/); assert.match(list,/Needs review/); assert.match(list,/Posted/);
+assert.match(list,/All entries/); assert.match(list,/Awaiting action/); assert.match(list,/Posted entries/); assert.match(list,/1 result/);
+assert.doesNotMatch(list,/All retained journals for this entity|Retained status only|API list status|matching journal entries|Open evidence/,'the Journal first screen must use concise business language without exposing read-model terminology');
+const noMatchList=renderToStaticMarkup(<AuthoritativeJournalTable journals={[journal]} view={{query:'No such journal',status:'ALL',from:'',through:'',page:1,pageSize:25}} onOpen={()=>{}}/>);
+assert.match(noMatchList,/No journal entries match these filters/);
+assert.match(noMatchList,/Try changing or resetting the filters\. This result does not confirm zero ledger activity\./);
+assert.doesNotMatch(noMatchList,/match these presentation filters|retained list facts|local no-match/,
+  'the Journal no-match state must be actionable without exposing presentation or storage terminology');
 assert.match(list,/value="REVIEW_REQUIRED"/,'the journal review queue must be filterable as the same aggregate counted by its summary card');
 assert.match(list,/Memo \/ description/); assert.match(list,/Revision 3/); assert.match(list,/Clear filters/);
 assert.match(list,/Journal entry presentation filters/); assert.match(list,/id="authoritative-journal-22222222-2222-4222-8222-222222222222"/);
@@ -63,10 +69,12 @@ assert.match(detail,/authoritative-evidence-page/,'journal detail must use the f
 assert.match(detail,/<details class="authoritative-return-context"><summary>List filters retained<\/summary>/,'Journal Back context must remain available without occupying the full Back row');
 assert.match(detail,/Back to Journal entries/); assert.match(detail,/Wan Pacific Real Estate Development LLC/); assert.match(detail,/2026-08/); assert.match(detail,/Scope identifiers/); assert.match(detail,/11111111-1111-4111-8111-111111111111/); assert.match(detail,/33333333-3333-4333-8333-333333333333/);assert.match(detail,/authoritative list revision 3/);
 assert.match(detail,/search JE-100/); assert.match(detail,/status POSTED/); assert.match(detail,/from Aug 1, 2026/); assert.match(detail,/through Aug 31, 2026/); assert.match(detail,/page 2/);
-assert.match(detail,/Journal entry JE-100/); assert.match(detail,/Journal evidence scope/); assert.match(detail,/No write or inferred drill authority/);
+assert.match(detail,/Journal entry JE-100/); assert.match(detail,/Journal evidence scope/); assert.match(detail,/authoritative-journal-readonly-note/);
 assert.match(detail,/Journal ID/); assert.match(detail,/22222222-2222-4222-8222-222222222222/);
-assert.match(detail,/EXACT API LINE FACTS/);assert.match(detail,/Not posted/);assert.match(detail,/property/);
-assert.match(detail,/cannot create, edit, submit, review, approve, post, reverse/);
+assert.match(detail,/JOURNAL ENTRY/);assert.match(detail,/Review journal lines and posting details\./);assert.match(detail,/JOURNAL LINES/);assert.match(detail,/Ordered debit and credit lines\. Ledger line IDs appear after posting\./);assert.match(detail,/2 lines/);assert.doesNotMatch(detail,/EXACT READ EVIDENCE|GET-only facts|EXACT API LINE FACTS|retained lines/);assert.match(detail,/Not posted/);assert.match(detail,/property/);
+assert.match(detail,/READ ONLY/);
+assert.match(detail,/No editing, workflow, posting, reversing, export, or inferred source links\./);
+assert.doesNotMatch(detail,/No write or inferred drill authority|state-block[^>]*tone="blocked"/,'a normal read-only Journal policy must not render as a blocked empty-state card');
 assert.doesNotMatch(detail,/<input|<select|>Submit<|>Approve<|>Post</i);
 
 const journalWithExactLines={...journal,status:'POSTED',posted_at:'2026-08-01T01:00:00.000Z',lines:[
@@ -74,7 +82,7 @@ const journalWithExactLines={...journal,status:'POSTED',posted_at:'2026-08-01T01
   {journal_line_id:'66666666-6666-4666-8666-666666666666',ledger_line_id:'77777777-7777-4777-8777-777777777777',line_no:2,account_code:'291001',debit_amount:'0.0000',credit_amount:'25.0000',member_ref:null,description:'Exact offset line',dimensions:{},source_document_ids:[]},
 ]};
 const exactDetail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journalWithExactLines} entityId={entityId} returnContext={{...returnContext,view:{}}} onBack={()=>{}}/>);
-assert.match(exactDetail,/EXACT API LINE FACTS/);assert.match(exactDetail,/Journal lines/);assert.match(exactDetail,/111000/);assert.match(exactDetail,/25\.0000/);assert.match(exactDetail,/33333333-3333-4333-8333-333333333333/);
+assert.match(exactDetail,/JOURNAL LINES/);assert.match(exactDetail,/Journal lines/);assert.match(exactDetail,/111000/);assert.match(exactDetail,/25\.0000/);assert.match(exactDetail,/33333333-3333-4333-8333-333333333333/);
 assert.match(exactDetail,/class="table-wrap authoritative-journal-line-table" tabindex="0" aria-label="Journal line evidence; scroll horizontally to view every column"/);
 assert.doesNotMatch(exactDetail,/immutable Journal scope mismatch/,'an exact API detail matching the frozen context must be shown');
 
@@ -86,9 +94,13 @@ assert.match(app,/AuthoritativeJournalWorkspace/);
 assert.doesNotMatch(app,/transitionAuthoritativeJournal|nextAuthoritativeWorkflowAction|Draft entry|route === 'drafts'/);
 const workspace=fs.readFileSync(path.join(process.cwd(),'src','authoritative-journal-workspace.jsx'),'utf8');
 const journalView=fs.readFileSync(path.join(process.cwd(),'src','authoritative-journal-view.jsx'),'utf8');
+const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.doesNotMatch(journalView,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,'the journal presentation extraction must receive authoritative facts as slots');
 assert.match(list,/authoritative-journal-presentation/);
 assert.match(workspace,/restoreAuthoritativeReturnContext/,'Back must restore scroll and focus to the originating evidence control');
+assert.match(workspace,/closest\('\.table-wrap'\)\?\.scrollLeft/,'Journal evidence actions must freeze their contained table position');
+assert.match(workspace,/createAuthoritativeReturnContext\(\{config,view,focusId,scrollY:Number\(environment\?\.scrollY\)\|\|0,tableX\}\)/,'Journal detail must retain table position in the same immutable entity and period context');
+assert.match(workspace,/getTable:\(\)=>environment\?\.document\?\.querySelector\?\.\('\.authoritative-journal-table'\)/,'Journal Back must restore the remounted register scroller before returning focus');
 assert.equal((workspace.match(/<summary>List filters retained<\/summary>/g)||[]).length,2,'ready and loading Journal detail states must share the compact return-context disclosure');
 assert.match(workspace,/const journalMatchesReturnContext/);
 assert.match(workspace,/context\?\.journalId === journal\.journal_entry_id/);
@@ -96,7 +108,19 @@ assert.match(workspace,/context\?\.journalRevision === journal\.revision/);
 assert.match(workspace,/BLOCKED - immutable Journal scope mismatch/);
 assert.match(workspace,/setQueue\('REVIEW_REQUIRED'\)/,'Needs review must include the retained review and approval statuses it counts');
 assert.match(workspace,/table-wrap authoritative-journal-table/,'Journal facts must use the shared, page-contained table scroller');
+assert.match(workspace,/<nav className="pagination"[\s\S]*?className="btn btn-sm btn-ghost"[\s\S]*?Previous[\s\S]*?className="btn btn-sm btn-ghost"[\s\S]*?Next/,'Journal pagination must use the shared button system instead of browser-native controls');
+assert.match(styles,/\.pagination\{display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 20px;\}/,'Journal pagination must receive the shared contained layout');
 assert.doesNotMatch(workspace,/<dt>Date<\/dt>|<dt>Status<\/dt>|<dt>Revision<\/dt>/,'Journal date, status and revision must not repeat below their scope/header presentation');
+assert.match(styles,/\.journal-evidence-scope\{display:grid;grid-template-columns:repeat\(5,minmax\(0,1fr\)\);/,
+  'the five Journal scope facts must remain on one desktop row instead of orphaning Journal date');
+assert.match(styles,/\.journal-evidence-scope\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\);\}/,
+  'Journal scope facts must keep the existing two-column tablet fallback');
+assert.match(styles,/@media \(max-width:600px\)\{\.authoritative-journal-summary\{display:flex;gap:8px;overflow-x:auto;/,
+  'phone widths must keep Journal queue counts in one compact horizontally browsable status strip');
+assert.match(styles,/\.authoritative-journal-summary \.journal-summary-card\{flex:0 0 150px;min-height:84px;/,
+  'mobile Journal queue cards must remain readable without filling four vertical screens');
+assert.doesNotMatch(styles,/@media \(max-width:600px\)\{\.authoritative-journal-summary,\.journal-evidence-scope\{grid-template-columns:minmax\(0,1fr\);\}/,
+  'mobile Journal queues must never regress to four single-column cards');
 assert.match(workspace,/readAuthoritativeJournalEntryDetail/,'opening evidence must perform an exact authoritative detail read');
 assert.match(workspace,/journalCurrency:journal\.currency/);assert.match(workspace,/context\?\.periodId === journal\.period_id/);
 assert.match(workspace,/entityLabel:config\?\.scopePresentation\?\.entityLabel/,'loading and blocked Journal detail states must freeze the same readable company label as the ready drill');
@@ -104,12 +128,11 @@ assert.doesNotMatch(workspace,/localStorage|SEED_|legacy-demo|seed\.js|repo\.js/
 const mismatchedDetail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journal} entityId={entityId} returnContext={{...returnContext,journalId:'22222222-2222-4222-8222-222222222999'}} onBack={()=>{}}/>);
 assert.match(mismatchedDetail,/BLOCKED - immutable Journal scope mismatch/);
 assert.match(mismatchedDetail,/Back to Journal entries/);
-assert.doesNotMatch(mismatchedDetail,/EXACT API LINE FACTS/,'a stale Journal identity must block before line evidence');
+assert.doesNotMatch(mismatchedDetail,/JOURNAL LINES/,'a stale Journal identity must block before line evidence');
 const evidenceWorkspace=renderToStaticMarkup(<AuthoritativeJournalWorkspace journals={[journal]} config={{entityId,periodId:'33333333-3333-4333-8333-333333333333'}} environment={{scrollY:0,setTimeout:callback=>callback(),document:{getElementById:()=>null}}}/>);
 assert.match(evidenceWorkspace,/GENERAL LEDGER \| JOURNAL REGISTER/);
 assert.doesNotMatch(evidenceWorkspace,/\u8def|鈥|路/,'authority Journal workspace must render English-only separators');
 assert.doesNotMatch(detail,/\u8def|鈥|路/,'authority Journal detail must render English-only separators');
-const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
 assert.match(styles,/\.authoritative-journal-table \.tbl\{min-width:1060px;table-layout:fixed;\}/,
   'the journal evidence columns must scroll inside the table container rather than squeezing or widening the page');
 assert.match(styles,/\.authoritative-journal-line-table \.tbl\{min-width:1420px;table-layout:fixed;\}/,

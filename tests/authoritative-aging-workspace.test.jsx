@@ -29,6 +29,8 @@ assert.equal((receivableRoute.match(/AuthoritativeAgingWorkspace config=\{displa
 assert.match(source,/Change the as-of date and load the report again/);
 assert.match(source,/not evidence of zero invoices, receipts, bills, payments, or ledger activity/);
 assert.match(source,/authoritative-aging-table/);
+const styles=fs.readFileSync(path.join(process.cwd(),'index.html'),'utf8');
+assert.match(styles,/\.authoritative-aging-table\{max-height:60vh;overflow:auto;overscroll-behavior:contain;\}/,'Aging control and bucket tables must remain contained after the tablet table-height reset');
 assert.match(source,/tabIndex=\{0\}/);
 assert.match(source,/1–30 days/);
 assert.match(source,/31–60 days/);

@@ -31,7 +31,7 @@ assert.deepEqual(paginateAuthoritativeRows(rows,{page:9,pageSize:1}),{rows:[rows
 assert.equal(authoritativeEvidenceKey('document',rows[0]),rows[0].business_document_id);
 assert.equal(authoritativeEvidenceKey('document',{business_document_id:'display-id'}),null);
 
-const context=createAuthoritativeReturnContext({config,view:{query:'Alpha',page:2,pageSize:10},focusId:'open-333',scrollY:420});
+const context=createAuthoritativeReturnContext({config,view:{query:'Alpha',page:2,pageSize:10},focusId:'open-333',scrollY:420,tableX:175});
 assert.equal(context.entityId,config.entityId);
 assert.equal(context.periodId,config.periodId);
 assert.equal(context.entityLabel,'Wan Pacific Real Estate Development LLC');
@@ -39,6 +39,7 @@ assert.equal(context.periodLabel,'2026-08');
 assert.equal(context.view.query,'Alpha');
 assert.equal(context.view.counterparty,'ALL');
 assert.equal(context.scrollY,420);
+assert.equal(context.tableX,175);
 
 const calls=[];
 const environment={
@@ -46,8 +47,9 @@ const environment={
   scrollTo(value){calls.push(['scroll',value.top]);},
   document:{getElementById(id){return {focus(){calls.push(['focus',id]);}};}},
 };
-assert.equal(restoreAuthoritativeReturnContext(environment,config,context),true);
-assert.deepEqual(calls,[['timer',0],['scroll',420],['focus','open-333']]);
+const table={scrollTo(value){calls.push(['table',value.left]);}};
+assert.equal(restoreAuthoritativeReturnContext(environment,config,context,{getTable:()=>table}),true);
+assert.deepEqual(calls,[['timer',0],['scroll',420],['table',175],['focus','open-333']]);
 assert.equal(restoreAuthoritativeReturnContext(environment,{...config,entityId:'55555555-5555-4555-8555-555555555555'},context),false);
 
 console.log('authoritative-list-context: filters, pagination, immutable scope, scroll and focus restoration passed');

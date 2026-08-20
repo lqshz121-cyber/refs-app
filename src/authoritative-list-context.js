@@ -69,7 +69,7 @@ export const authoritativeEvidenceKey = (kind, row) => {
   return typeof raw === 'string' && /^[0-9a-f-]{36}$/i.test(raw) ? raw : null;
 };
 
-export const createAuthoritativeReturnContext = ({ config, view, focusId, scrollY = 0 }) => {
+export const createAuthoritativeReturnContext = ({ config, view, focusId, scrollY = 0, tableX = 0 }) => {
   if (!config?.entityId || !config?.periodId || typeof focusId !== 'string' || !focusId) return null;
   const entityLabel = typeof config?.scopePresentation?.entityLabel === 'string' && config.scopePresentation.entityLabel.trim()
     ? config.scopePresentation.entityLabel.trim()
@@ -85,13 +85,15 @@ export const createAuthoritativeReturnContext = ({ config, view, focusId, scroll
     view: Object.freeze(normalizeAuthoritativeListView(view)),
     focusId,
     scrollY: Number.isFinite(scrollY) && scrollY >= 0 ? scrollY : 0,
+    tableX: Number.isFinite(tableX) && tableX >= 0 ? tableX : 0,
   });
 };
 
-export const restoreAuthoritativeReturnContext = (environment, config, context) => {
+export const restoreAuthoritativeReturnContext = (environment, config, context, { getTable } = {}) => {
   if (!context || context.entityId !== config?.entityId || context.periodId !== config?.periodId) return false;
   const restore = () => {
     try { environment?.scrollTo?.({ top:context.scrollY, behavior:'auto' }); } catch { /* non-fatal presentation restore */ }
+    try { getTable?.()?.scrollTo?.({ left:Number(context.tableX)||0, behavior:'auto' }); } catch { /* non-fatal contained-table restore */ }
     try { environment?.document?.getElementById?.(context.focusId)?.focus?.(); } catch { /* non-fatal focus restore */ }
   };
   try { environment?.setTimeout?.(restore, 0); }

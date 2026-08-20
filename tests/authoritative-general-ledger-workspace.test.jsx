@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {AuthoritativeGeneralLedgerDetail,AuthoritativeGeneralLedgerWorkspace} from '../src/authoritative-general-ledger-workspace.jsx';
 import {refreshAuthoritativeGeneralLedger} from '../src/accounting-api.js';
@@ -15,20 +16,36 @@ test('General Ledger client requires a no-store scoped GET and validates immutab
   const bad=await refreshAuthoritativeGeneralLedger({config,fetcher:async()=>new Response(JSON.stringify({ok:true,data:[{...row,total_count:0}]}),{status:200})});assert.equal(bad.code,'ACCOUNTING_API_PROTOCOL');
 });
 test('General Ledger workspace is a retained read-only, contained-table surface',()=>{
+  const styles=fs.readFileSync('index.html','utf8');
   const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerWorkspace config={displayConfig} fetcher={async()=>new Response(JSON.stringify({ok:true,data:[]}),{status:200})}/>);
-  for(const text of ['GENERAL LEDGER | POSTED EVIDENCE','Apply','Refresh evidence','POSTED ledger lines'])assert.match(markup,new RegExp(text));
+  for(const text of ['Apply','Loading…','results'])assert.match(markup,new RegExp(text));
+  assert.match(markup,/<button type="button" class="btn btn-sm" disabled="">Apply<\/button>/,'GL must block duplicate filter reads during loading');
+  assert.match(markup,/<button type="button" class="btn btn-sm btn-ghost" disabled="">Loading…<\/button>/,'GL must expose one disabled in-progress refresh state');
+  assert.match(markup,/<span class="result-count" aria-live="polite">/,'GL result changes must be announced without another summary panel');
+  assert.match(markup,/Review posted ledger activity\./);assert.match(markup,/ACCOUNTING/);assert.doesNotMatch(markup,/GENERAL LEDGER · POSTED EVIDENCE|Read-only POSTED ledger lines from the accounting API\./,'the list header must not repeat its title or expose evidence implementation terminology');
   assert.match(markup,/Entity Wan Pacific Real Estate Development LLC \| period 2026-08/);assert.doesNotMatch(markup,/>Entity 11111111-1111-4111-8111-111111111111/);
   assert.match(markup,/<details class="authoritative-return-context"><summary>Scope rules<\/summary>/);assert.doesNotMatch(markup,/General Ledger reading path/);
-  const source=String(AuthoritativeGeneralLedgerWorkspace);for(const text of ['Open evidence','Showing server page','scroll horizontally','ad-hoc date overrides are not supplied'])assert.match(source,new RegExp(text));
+  const source=String(AuthoritativeGeneralLedgerWorkspace);for(const text of ['View details','Details','Page','scroll horizontally','ad-hoc date overrides are not supplied'])assert.match(source,new RegExp(text));
+  assert.doesNotMatch(source,/Showing server page|Search posted evidence|Refresh evidence|POSTED lines|Open evidence|retained evidence columns/,'the GL first screen must use concise accounting copy without server or evidence implementation labels');
   assert.match(source,/AuthoritativeScopeEmpty/,'an empty GL read must name the posted-evidence admission boundary rather than imply a zero ledger');
   assert.match(source,/AuthoritativeReadFailure/,'a failed GL read must name the access, scope, protocol, or service diagnosis rather than look like zero posted evidence');
   assert.match(source,/authoritativeReadFailurePhase/,'a GL 401, 403, 404, configuration, or protocol failure must be classified before rendering');
   assert.match(source,/requiresPosted/,'an empty GL read must state the signed admission, review, and posting path to reportable evidence');
+  assert.match(source,/button\?\.closest\?\.\(["']\.table-wrap["']\)\?\.scrollLeft/,'GL detail must freeze its originating contained table position');
+  assert.match(source,/button\?\.closest\?\.\(["']\.table-wrap["']\)\?\.scrollTo\?\.\(\{\s*left:\s*tableX\.current,\s*behavior:\s*["']auto["']\s*\}\)/,'GL Back must restore the remounted table before returning focus to its exact row action');
+  assert.match(source,/disabled:\s*loading\s*\|\|\s*offset\s*===\s*0/);assert.match(source,/disabled:\s*loading\s*\|\|\s*!canNext/,'GL paging must not issue overlapping reads while loading');
+  assert.match(source,/environment\?\.scrollTo\?\.\(\{\s*top:\s*scrollY\.current,\s*behavior:\s*["']auto["']\s*\}\)/,'GL Back must retain the page position without depending on the global browser singleton');
+  assert.match(styles,/\.authoritative-journal-line-table,\.authoritative-general-ledger-table/,'General Ledger and Journal line tables must share the contained mobile table rule');
   assert.doesNotMatch(markup,/localStorage|seed\.js|>Export<|>Post journal<|>Create journal</i);
 });
 test('General Ledger line evidence is a full-page immutable snapshot with exact Back context',()=>{
   const markup=renderToStaticMarkup(<AuthoritativeGeneralLedgerDetail row={row} returnContext={{accountCode:'610000',query:'JE-100',page:2}} onBack={()=>{}}/>);
-  for(const text of ['Back to General Ledger','GENERAL LEDGER · LINE EVIDENCE','Immutable evidence identifiers','Journal entry ID','Journal line ID','Ledger line ID','Source document IDs','account 610000','search “JE-100”','page 2'])assert.match(markup,new RegExp(text));
+  for(const text of ['Back to General Ledger','GENERAL LEDGER','Posted ledger line','Review this posted ledger line','Posted line details','Identifiers','Exact IDs for audit and drill-through','READ ONLY','Journal entry ID','Journal line ID','Ledger line ID','Source document IDs','account 610000','search “JE-100”','page 2'])assert.match(markup,new RegExp(text));
+  assert.doesNotMatch(markup,/LINE EVIDENCE|scoped API|Exact API snapshot|current API snapshot|Immutable evidence identifiers|API READ/,'the GL detail first screen must not expose transport or read-model terminology');
+  assert.match(markup,/<details class="authoritative-return-context authoritative-gl-return-context"><summary>List filters retained<\/summary>/);
+  assert.doesNotMatch(markup,/Ledger line evidence reading path|Return context:/);
+  assert.match(markup,/authoritative-gl-lineage-note[\s\S]*READ ONLY[\s\S]*Journal and source drill-through are available only when an exact link is returned\./,'optional GL lineage must use a compact policy note');
+  assert.doesNotMatch(markup,/Further lineage is not loaded here|state-empty/,'missing optional lineage must not present the whole detail as an empty state');
   assert.match(markup,new RegExp(ledgerLineId));
   assert.doesNotMatch(markup,/localStorage|seed\.js|>Export<|>Post journal<|>Create journal</i);
 });
@@ -37,7 +54,7 @@ test('General Ledger keeps the demonstrated workbench hierarchy without importin
   const detail=String(AuthoritativeGeneralLedgerDetail);
   const presentation=String(AuthoritativeGeneralLedgerView);const detailPresentation=String(AuthoritativeGeneralLedgerDetailView);
   assert.match(workspace,/AuthoritativeGeneralLedgerView/);assert.doesNotMatch(workspace,/General Ledger reading path/);
-  assert.match(detail,/AuthoritativeGeneralLedgerDetailView/);assert.match(detail,/Ledger line evidence reading path/);
+  assert.match(detail,/AuthoritativeGeneralLedgerDetailView/);assert.doesNotMatch(detail,/Ledger line evidence reading path/);
   assert.match(presentation,/authoritative-general-ledger-presentation/);assert.match(detailPresentation,/authoritative-general-ledger-detail-presentation/);
   assert.doesNotMatch(`${workspace}\n${detail}`,/localStorage|seed\.js|repo\.js|legacy-demo-app/);
   assert.doesNotMatch(`${presentation}\n${detailPresentation}`,/localStorage|seed\.js|repo\.js|data\.js|accounting-api|legacy-demo-app/);
