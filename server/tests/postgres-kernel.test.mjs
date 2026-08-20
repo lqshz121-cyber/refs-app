@@ -72,6 +72,15 @@ function pgTest(name,fn){
   });
 }
 
+async function migrateDownThrough(pool,targetMigration){
+  for(;;){
+    const row=(await pool.query('SELECT migration_name FROM refs_schema_migration ORDER BY migration_name DESC LIMIT 1')).rows[0];
+    assert.ok(row,`Expected ${targetMigration} to be installed`);
+    await migrateDown(pool);
+    if(row.migration_name===targetMigration)return;
+  }
+}
+
 const hash=value=>`sha256:${createHash('sha256').update(String(value)).digest('hex')}`;
 
 const retainPrepaidInvoiceClassification=async({ids,sourceDocumentId,label})=>{
@@ -4381,24 +4390,10 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
   // retaining a completed 185 stage.  Remove only its synthetic stage facts;
   // production down remains fail-closed while any checkpoint is retained.
   await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
-  // The test starts at 251.  Remove both WBS follow-ups before the existing
-  // 193..181 rollback sequence; otherwise 182/181 remain installed and this
-  // assertion is testing the wrong historical contract.
-  await migrateDown(adminPool); // 251
-  await migrateDown(adminPool); // 250
-  await migrateDown(adminPool); // 193 is the isolated TEST_ONLY Bank Match configuration workflow.
-  await migrateDown(adminPool); // 192 is the Stage1-compatible TEST_ONLY Match source boundary.
-  await migrateDown(adminPool); // 191
-  await migrateDown(adminPool); // 190
-  await migrateDown(adminPool); // 189
-  await migrateDown(adminPool); // 188
-  await migrateDown(adminPool); // 187
-  await migrateDown(adminPool); // 186
-  await migrateDown(adminPool); // 185
-  await migrateDown(adminPool); // 184
-  await migrateDown(adminPool); // 183
-  await migrateDown(adminPool); // 182
-  await migrateDown(adminPool); // 181 owns the restored cap/read contract.
+  // Roll back by immutable migration identity.  Other feature migrations may
+  // be inserted between 193 and the latest schema without changing this
+  // historical contract test.
+  await migrateDownThrough(adminPool,'181_wbs_test_large_bank_batch.sql');
   const rolledBack=(await adminPool.query(`SELECT
     to_regprocedure('refs_get_reconciliation_worksheet_item(uuid,uuid,uuid,uuid)') IS NULL item_reader_removed,
     to_regprocedure('refs_list_reconciliation_adjustment_evidence(uuid,uuid,integer)') IS NOT NULL evidence_retained,
@@ -4407,21 +4402,7 @@ pgTest('controlled test unsigned WBS Bank rows create isolated source evidence a
     pg_get_functiondef('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) LIKE '%NOT BETWEEN 1 AND 500%' function_cap_restored,
     pg_get_functiondef('refs_guard_reconciliation_adjustment_lifecycle()'::regprocedure) LIKE '%adjustment.bank_delta<>(SELECT source.amount%' item_guard_retained`)).rows[0];
   assert.deepEqual(rolledBack,{item_reader_removed:true,evidence_retained:true,import_cap_restored:true,row_cap_restored:true,function_cap_restored:true,item_guard_retained:true});
-  await migrateUp(adminPool); // 181
-  await migrateUp(adminPool); // 182
-  await migrateUp(adminPool); // 183
-  await migrateUp(adminPool); // 184
-  await migrateUp(adminPool); // 185
-  await migrateUp(adminPool); // 186
-  await migrateUp(adminPool); // 187
-  await migrateUp(adminPool); // 188
-  await migrateUp(adminPool); // 189
-  await migrateUp(adminPool); // 190
-  await migrateUp(adminPool); // 191
-  await migrateUp(adminPool); // 192
-  await migrateUp(adminPool); // 193
-  await migrateUp(adminPool); // 250
-  await migrateUp(adminPool); // 251
+  await migrateUp(adminPool);
   const restored=(await adminPool.query(`SELECT
     to_regprocedure('refs_get_reconciliation_worksheet_item(uuid,uuid,uuid,uuid)') IS NOT NULL item_reader_restored,
     to_regprocedure('refs_list_reconciliation_adjustment_evidence(uuid,uuid,integer)') IS NOT NULL evidence_retained,
@@ -4488,27 +4469,7 @@ pgTest('WBS TEST Bank monthly identity admits legacy July hashes, isolates month
   // reject their disposal before this explicit fixture cleanup; 185 must now
   // roll back normally rather than be used as a second, false guard.
   await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
-  await migrateDown(adminPool); // 193 is the isolated TEST_ONLY Bank Match configuration workflow.
-  await migrateDown(adminPool); // 192 is above the monthly Bank identity migration.
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool); // 185
-  await migrateUp(adminPool);
-  await migrateUp(adminPool); // Restore 185 through 251 after fixture rollback.
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool); // Restore 192 after the monthly identity rollback assertion.
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
+  await migrateDownThrough(adminPool,'185_wbs_test_bank_staged_import.sql');
   await migrateUp(adminPool);
   assert.match((await adminPool.query("SELECT pg_get_functiondef('refs_create_wbs_controlled_test_bank_scope(uuid,uuid,uuid,text,jsonb,text,text,text)'::regprocedure) definition")).rows[0].definition,/lower\(p_bank_account_ref\)/);
 });
@@ -4578,35 +4539,17 @@ pgTest('WBS TEST Bank retained checkpoint rejects changed chunk replay and resum
   await adminPool.query('DROP TRIGGER refs_test_delay_wbs_bank_finalize ON import_batch');await adminPool.query('DROP FUNCTION refs_test_delay_wbs_bank_finalize()');
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM reconciliation WHERE tenant_id=$1) reconciliations,(SELECT count(*)::int FROM wbs_controlled_test_bank_import WHERE tenant_id=$1) imports",[ids.tenantId])).rows[0],{staged:201,bank:201,reconciliations:1,imports:1});
   const beforeDown=(await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0];
-  await migrateDown(adminPool); // 251 is the independent read-only Settings boundary.
+  await migrateDownThrough(adminPool,'251_wbs_ai_approved_entity_period_settings_read.sql');
   await assert.rejects(migrateDown(adminPool),error=>error.code==='55006'); // 250 refuses to discard the immutable checkpoint payload.
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM wbs_test_bank_import_stage_row WHERE tenant_id=$1) staged,(SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank,(SELECT count(*)::int FROM wbs_test_bank_import_stage_final WHERE tenant_id=$1) finals",[ids.tenantId])).rows[0],beforeDown);
   await adminPool.query('TRUNCATE wbs_test_bank_import_stage_final,wbs_test_bank_import_stage_row,wbs_test_bank_import_stage_chunk,wbs_test_bank_import_stage');
   await migrateDown(adminPool); // 250 after explicit test-fixture disposal.
-  await migrateDown(adminPool); // 193 is the isolated TEST_ONLY Bank Match configuration workflow.
-  await migrateDown(adminPool); // 192 is above staged Bank import 185.
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
-  await migrateDown(adminPool);
   // 185's retained-checkpoint guard correctly sees the explicit fixture
-  // disposal above, so its down migration must now succeed.  The 250 guard
-  // was already exercised before disposal; do not misattribute this layer.
-  await migrateDown(adminPool); // 185
+  // disposal above, so its down migration must now succeed.  Locate it by
+  // immutable identity because unrelated migrations may exist above it.
+  await migrateDownThrough(adminPool,'185_wbs_test_bank_staged_import.sql');
   assert.deepEqual((await adminPool.query("SELECT (SELECT count(*)::int FROM bank_source WHERE tenant_id=$1) bank",[ids.tenantId])).rows[0],{bank:beforeDown.bank});
   await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool); // Restore 192 after the staged import down guard.
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool);
-  await migrateUp(adminPool); // Restore 185 through 251 after the fixture-only rollback.
 });
 
 pgTest('AI reads exactly one approved entity-period settings snapshot and rejects missing or drifted child bindings without writes',async()=>{
