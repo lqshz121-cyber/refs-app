@@ -32,7 +32,7 @@ export function AuthoritativeApArView({
     {tabs.length > 0 && <div className="tabs" role="tablist" aria-label={`${title} evidence views`}>
       {tabs.map(tab => tab.unavailable
         ? <span key={tab.id} className="tab-unavailable" role="tab" aria-selected="false" aria-disabled="true" aria-label={`${tab.label} unavailable`} title={`${tab.label} is not available from the authoritative API`}>{tab.label}</span>
-        : <button key={tab.id} id={tab.focusId} type="button" role="tab" aria-selected={tab.id === activeTab} className={tab.id === activeTab ? 'tab-on' : ''} onClick={() => onSelectTab?.(tab.id)}>{tab.label}</button>)}
+        : <button key={tab.id} id={tab.focusId} type="button" role="tab" aria-selected={tab.id === activeTab} className={`tab${tab.id === activeTab ? ' tab-on' : ''}`} onClick={() => onSelectTab?.(tab.id)}>{tab.label}</button>)}
     </div>}
     {toolbar}
     {children}

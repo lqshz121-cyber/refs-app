@@ -30,7 +30,7 @@ assert.match(list,/<th scope="col">Bill<\/th>/,'data-table headers must have col
 const workspaceMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'Evidence',status:'PARTIALLY_PAID',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(workspaceMarkup,/Payables presentation filters/);
 assert.match(workspaceMarkup,/authoritative-document-page-head/,'payables and receivables must use the shared authoritative workspace header');
-assert.match(workspaceMarkup,/aria-selected="true" class="tab-on">All transactions</,'the mixed AP state must have an explicit selected tab rather than masquerading as Bills');
+assert.match(workspaceMarkup,/aria-selected="true" class="tab tab-on">All transactions</,'the mixed AP state must have an explicit selected tab rather than masquerading as Bills');
 const workspaceSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-workspace.jsx'),'utf8');
 assert.doesNotMatch(workspaceSource,/\{bill&&<label>Transaction type <select/,'Expenses tabs already select All transactions, Bills, or Vendor credits; the filter toolbar must not repeat the same control');
 assert.match(workspaceMarkup,/Vendor credits/);
@@ -42,6 +42,8 @@ assert.match(workspaceMarkup,/Bills/);
 assert.doesNotMatch(workspaceMarkup,/API total|Visible adjustments/,'Expenses must not repeat its list counts as KPI cards');
 assert.match(workspaceMarkup,/READ ONLY/);
 assert.match(workspaceMarkup,/authoritative-ap-ar-presentation/);
+assert.match(workspaceMarkup,/class="tab tab-on"/,'the selected AP view must use the shared tab geometry');
+assert.match(workspaceMarkup,/class="tab"/,'available AP views must use the shared tab geometry instead of browser-native buttons');
 assert.match(workspaceMarkup,/Vendor credits/);
 assert.match(workspaceMarkup,/AP Aging/);
 assert.doesNotMatch(workspaceMarkup,/AP Aging unavailable/,'AP aging has an authenticated API contract and must be reachable');
