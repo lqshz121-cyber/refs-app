@@ -203,8 +203,7 @@ export function createProductionAccountingServer({runtimePool,issuerPool,grantSy
     policyReader:({tenantId,entityId,accountingPeriodId})=>kernel.getAiNewVendorMaterialInvoicePolicy({tenantId,entityId,accountingPeriodId})
   });};
   const aiVendorMonthlySpendAnomalyServiceFactory=principal=>{const kernel=kernelFor(principal);return createAiVendorMonthlySpendAnomalyService({
-    sourceReader:scope=>kernel.listSourceDocuments(scope),detailReader:scope=>kernel.getSourceDocumentDetail(scope),evidenceReader:scope=>kernel.getWbsProviderSignedSourceEvidence(scope),
-    policyReader:({tenantId,entityId,currentAccountingPeriodId})=>kernel.getAiVendorInvoiceAnomalyPolicy({tenantId,entityId,accountingPeriodId:currentAccountingPeriodId})
+    populationReader:({tenantId,entityId,currentAccountingPeriodId})=>kernel.readAiVendorMonthlySpendPopulation({tenantId,entityId,accountingPeriodId:currentAccountingPeriodId})
   });};
   const aiFullControllerScanServiceFactory=principal=>{
     const kernel=kernelFor(principal),actions=Object.freeze({can_create_draft:false,can_review:false,can_approve:false,can_post:false});

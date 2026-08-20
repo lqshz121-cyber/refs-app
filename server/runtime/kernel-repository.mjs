@@ -808,6 +808,12 @@ export class PostgresAccountingKernel{
     ),'AI_VENDOR_ANOMALY_POLICY_READ_FAILED','AI vendor invoice anomaly policy read did not return a row').result);
   }
 
+  async readAiVendorMonthlySpendPopulation({tenantId,entityId,accountingPeriodId}){
+    return this.inSession(async client=>requireRow(await client.query(
+      'SELECT refs_read_ai_vendor_monthly_spend_population($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]
+    ),'AI_VENDOR_MONTHLY_SPEND_POPULATION_READ_FAILED','AI vendor monthly-spend population read did not return a row').result);
+  }
+
   async getAiVendorInvoiceFrequencyAnomalyPolicy({tenantId,entityId,accountingPeriodId}){
     return this.inSession(async client=>requireRow(await client.query(
       'SELECT refs_read_ai_vendor_invoice_frequency_anomaly_policy($1,$2,$3) AS result',[tenantId,entityId,accountingPeriodId]

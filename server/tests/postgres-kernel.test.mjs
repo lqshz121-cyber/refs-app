@@ -60,6 +60,27 @@ before(async()=>{
   }
 });
 
+pgTest('AI vendor monthly spend reads one complete signed current-source population across the approved history window',async()=>{
+  const ids=await seed({status:'DRAFT'}),prior=[
+    {id:randomUUID(),code:'2026-04',start:'2026-04-01',end:'2026-04-30'},
+    {id:randomUUID(),code:'2026-05',start:'2026-05-01',end:'2026-05-31'},
+    {id:randomUUID(),code:'2026-06',start:'2026-06-01',end:'2026-06-30'}
+  ];
+  for(const period of prior)await adminPool.query("INSERT INTO accounting_period(period_id,tenant_id,entity_id,period_code,starts_on,ends_on,status) VALUES($1,$2,$3,$4,$5,$6,'OPEN')",[period.id,ids.tenantId,ids.entityId,period.code,period.start,period.end]);
+  const snapshot={schema_version:'AI_VENDOR_INVOICE_AMOUNT_ANOMALY_POLICY_SNAPSHOT_V1',rule_id:'AI_VENDOR_HISTORICAL_AMOUNT_SPIKE_V1',policy_version:1,minimum_history_periods:3,ratio_threshold_basis_points:30000,minimum_absolute_delta:'200.0000'},snapshotHash=(await adminPool.query('SELECT refs_jsonb_hash($1::jsonb) value',[JSON.stringify(snapshot)])).rows[0].value;
+  await adminPool.query(`INSERT INTO setting_snapshot(tenant_id,entity_id,family,scope_type,scope_key,version,effective_from,effective_to,status,snapshot,snapshot_hash,created_by,approved_by,approved_at)
+    VALUES($1,$2::uuid,'AI_VENDOR_INVOICE_ANOMALY_POLICY','ENTITY',$2::uuid::text,1,'2026-01-01','2027-01-01','APPROVED',$3::jsonb,$4,'vendor-policy-maker','vendor-policy-approver',now())`,[ids.tenantId,ids.entityId,JSON.stringify(snapshot),snapshotHash]);
+  const importer=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'vendor-population-importer',['WBS.SNAPSHOT.IMPORT'])});
+  await retainFinal1PayableFixture({pool:adminPool,kernel:importer,ids,amount:'125.0000'});
+  const reader=new PostgresAccountingKernel(runtimePool,{sessionProvider:sessionProvider(ids,'vendor-population-reader',['AI.ANALYSIS.EXPLAIN'])});
+  const counts=()=>adminPool.query("SELECT (SELECT count(*)::int FROM journal_entry WHERE tenant_id=$1) journal,(SELECT count(*)::int FROM ledger_line WHERE tenant_id=$1) ledger,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type<>'RUNTIME_CONTEXT_ISSUED') accounting_audit,(SELECT count(*)::int FROM audit_event WHERE tenant_id=$1 AND event_type='RUNTIME_CONTEXT_ISSUED') context_audit,(SELECT count(*)::int FROM outbox_event WHERE tenant_id=$1) outbox",[ids.tenantId]).then(value=>value.rows[0]);
+  const before=await counts(),result=await reader.readAiVendorMonthlySpendPopulation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId}),after=await counts();
+  assert.deepEqual({...after,context_audit:before.context_audit},before);assert.equal(after.context_audit,before.context_audit+1);assert.equal(result.population_complete,true);assert.equal(result.population_line_count,1);assert.equal(result.history_period_count,3);assert.equal(result.selected_period_ids.length,4);assert.equal(result.rows.length,1);assert.equal(result.rows[0].source_admission_status,'ADMITTED');assert.equal(result.rows[0].signature_verified,true);assert.equal(result.admission_proofs.length,1);assert.equal(result.approved_policy.setting_snapshot_hash,snapshotHash);assert.deepEqual(result.action_flags,{can_post:false,can_review:false,can_approve:false,can_create_draft:false});
+  const serialized=JSON.stringify(result);for(const forbidden of ['storage_ref','storage_version','authorization','credential','private_key'])assert.equal(serialized.includes(forbidden),false);
+  await adminPool.query('UPDATE raw_event SET is_current=false,superseded_at=now() WHERE tenant_id=$1 AND entity_id=$2 AND raw_event_id=(SELECT raw_event_id FROM wbs_final1_retained_source_row WHERE tenant_id=$1 AND entity_id=$2 LIMIT 1)',[ids.tenantId,ids.entityId]);
+  const withoutSuperseded=await reader.readAiVendorMonthlySpendPopulation({tenantId:ids.tenantId,entityId:ids.entityId,accountingPeriodId:ids.periodId});assert.equal(withoutSuperseded.population_line_count,0);assert.deepEqual(withoutSuperseded.rows,[]);
+});
+
 after(async()=>{
   if(adminPool)await adminPool.query('TRUNCATE tenant CASCADE').catch(()=>{});
   if(runtimePool)await runtimePool.end();
