@@ -103,6 +103,13 @@ export class PostgresAccountingKernel{
     });
   }
 
+  async listAiAccountingPostedOutcomeReviews({tenantId,entityId,decisionId,limit=100}){
+    return this.inSession(async client=>(await client.query(
+      'SELECT result FROM refs_read_ai_accounting_posted_outcome_reviews($1,$2,$3,$4) AS result',
+      [tenantId,entityId,decisionId,limit]
+    )).rows.map(row=>row.result));
+  }
+
   async createBusinessDocument(args){
     return this.inSession(async client=>{
       const requestHash=requireRow(await client.query(

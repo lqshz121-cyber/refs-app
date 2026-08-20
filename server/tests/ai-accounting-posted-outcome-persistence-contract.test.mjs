@@ -20,6 +20,8 @@ test('255 is append-only, CAS/idempotency/audit/outbox bound and all accounting 
   assert.match(up,/AI_ACCOUNTING_POSTED_OUTCOME_REVIEWED/);
   assert.match(up,/can_create_draft',false,'can_review',false,'can_approve',false,'can_post',false/);
   assert.match(up,/CREATE TRIGGER ai_accounting_posted_outcome_review_append_only/);
+  assert.match(up,/CREATE FUNCTION refs_read_ai_accounting_posted_outcome_reviews/);
+  assert.match(up,/ORDER BY r\.review_revision DESC/);
   assert.match(down,/Cannot remove retained AI accounting Posted outcome reviews/);
 });
 
@@ -27,6 +29,8 @@ test('255 keeps missing, ambiguous and mismatch evidence fail closed',()=>{
   for(const status of ['CONSISTENT','MISSING','AMBIGUOUS','MISMATCH'])assert.match(up,new RegExp(`'${status}'`));
   for(const code of ['HUMAN_ACCEPTANCE_MISSING','DRAFT_RECEIPT_MISSING','POSTED_JOURNAL_MISSING','WORKFLOW_EVIDENCE_AMBIGUOUS','LEDGER_MISMATCH','REPORT_SNAPSHOT_MISSING','REPORT_SNAPSHOT_MISMATCH'])assert.match(up,new RegExp(code));
   assert.match(up,/workflow_audit_count=4 AND workflow_outbox_count=4/);
-  assert.match(up,/proposed_matches:=journal_lines=proposed_lines/);
+  assert.match(up,/proposed_matches:=proposed_line_count=journal_line_count/);
+  for(const field of ['account_class','account_type','currency','dimension_requirements','source_document_id','source_document_line_id','source_line_hash'])assert.match(up,new RegExp(field));
+  for(const field of ['expected_report_deltas','actual_report_deltas','cash_flow_classification','direction','amount'])assert.match(up,new RegExp(field));
   assert.match(up,/snapshot\.snapshot_hash=refs_jsonb_hash\(snapshot_rows\)/);
 });
