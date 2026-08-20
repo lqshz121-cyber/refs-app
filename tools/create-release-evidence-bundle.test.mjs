@@ -35,8 +35,13 @@ assert.equal(manifest.local_simulation_artifacts.envFile, 'outputs/local-release
 assert.equal(manifest.scripts['verify:external-release-gate'], 'node tools/verify-external-release-gate.mjs all');
 
 const commandNames = new Set(manifest.required_commands.map(row => row.name));
-for (const name of ['root-test', 'release-simulation', 'wbs-e2e-harness', 'external-release-gate-local-sim', 'live-ui-23-page', 'provider-s3-scanner', 'provider-wbs-receipt', 'stage1-payable-live-chain', 'stage1-payable-current-release-readback', 'stage2-bank-live-chain', 'stage3-wbs-live-chain', 'stage3-bank-exception-live-chain', 'stage3-cost-cwip-live-chain', 'stage3-g11-live-chain', 'stage3-insurance-prepaid-live-chain', 'stage3-property-rent-live-chain', 'stage3-reporting-live-chain', 'stage4-report-live-chain']) {
+for (const name of ['root-test', 'release-simulation', 'wbs-e2e-harness', 'external-release-gate-local-sim', 'server-pg15-fresh', 'server-pg16-fresh', 'server-pg18-fresh', 'live-ui-23-page', 'provider-s3-scanner', 'provider-wbs-receipt', 'stage1-payable-live-chain', 'stage1-payable-current-release-readback', 'stage2-bank-live-chain', 'stage3-wbs-live-chain', 'stage3-bank-exception-live-chain', 'stage3-cost-cwip-live-chain', 'stage3-g11-live-chain', 'stage3-insurance-prepaid-live-chain', 'stage3-property-rent-live-chain', 'stage3-reporting-live-chain', 'stage4-report-live-chain']) {
   assert.equal(commandNames.has(name), true, `missing required command ${name}`);
+}
+for (const version of [15, 16, 18]) {
+  const command = manifest.required_commands.find(row => row.name === `server-pg${version}-fresh`);
+  assert.match(command.command, new RegExp(`POSTGRES_IMAGE=postgres:${version}-alpine`), `PG${version} gate must execute the exact requested major version`);
+  assert.match(command.scope, new RegExp(`PostgreSQL ${version} gate with cleanup evidence`), `PG${version} gate must require cleanup evidence`);
 }
 assert.match(manifest.release_acceptance.global_release_gate, /PARTIAL\/FAIL/);
 assert.match(manifest.release_acceptance.global_release_gate, /23-page authoritative live E2E/);
