@@ -129,6 +129,12 @@ assert.match(authoritativeShell,/className="nav-panel-title"/,
   'the production panel must identify the active workspace');
 assert.match(authoritativeShell,/authoritative-navigation-active-group/,
   'the production panel must render only the selected workspace menu');
+assert.match(authoritativeShell,/const opensDirectly = activeGroup\?\.items\.length === 1/,
+  'a workspace with one page must open from its primary control without a duplicate secondary item');
+assert.match(authoritativeShell,/\{!opensDirectly && <nav aria-label="Accounting workspace navigation">/,
+  'a direct-entry workspace must not expose an empty or duplicate secondary navigation landmark');
+assert.match(styles,/\.authoritative-app \.sidebar\.authoritative-sidebar-direct\{width:var\(--qb-rail-w\); flex-basis:var\(--qb-rail-w\);\}/,
+  'a direct-entry workspace must release the unused desktop panel width');
 assert.doesNotMatch(authoritativeShell,/nav-panel-toggle/,
   'the selected workspace must replace the previous menu instead of stacking expanded trees');
 assert.match(authoritative,/setExpandedNavigationGroups\(\[group\.label\]\)/,
@@ -141,6 +147,10 @@ assert.match(authoritativeShell,/from '\.\/ui\.jsx'/,
   'the presentation shell must reuse the local, self-authored rail icon vocabulary');
 assert.match(authoritativeShell,/ITEM_ICONS/,
   'each visible catalog entry must use a self-authored icon rather than an abbreviation badge');
+assert.match(authoritativeShell,/const GROUP_SHORT_LABELS = Object\.freeze\(/,
+  'primary workspace labels must use a stable compact vocabulary rather than first-word truncation');
+for(const shortLabel of ['Settings','Operations','Admin']) assert.match(authoritativeShell,new RegExp(`'[^']+':'${shortLabel}'`),
+  `${shortLabel} must remain a distinct readable primary workspace label`);
 assert.match(authoritativeShell,/<Icon name=\{ITEM_ICONS\[item\.route\] \|\| 'document'\} size=\{18\}\/>/,
   'the readable navigation row must render its icon at a compact, consistent size');
 assert.doesNotMatch(authoritativeShell,/compactLabel|authoritative-nav-status|API_READ|Unavailable/,

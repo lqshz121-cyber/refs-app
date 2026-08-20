@@ -52,9 +52,7 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
   const data=state.data;
   const review=reviewState.data,matchReview=matchState.data,g11=g11State.data,control=controlState.data;
   return <AuthoritativeWorkspaceView area="WBS exception review" className="stack authoritative-wbs-transition-workspace">
-    <AuthoritativeWorkspaceHeader eyebrow="AUTO RECONCILIATION / PRODUCTION WBS" title="WBS Payables and exception review" description="See the real Production WBS rows retained for this company, their readiness, and the owner of the next step." status="LIVE DATA"/>
-
-    <div className="report-shelf" aria-label="WBS Payable accounting path"><span className="report-shelf-chip report-shelf-chip-on">1 Exception</span><span className="report-shelf-chip">2 Signed redelivery</span><span className="report-shelf-chip">3 Signed review</span><span className="report-shelf-chip">4 Draft</span><span className="report-shelf-chip">5 Approval / Post</span><span className="report-shelf-chip">6 GL / Report</span></div>
+    <AuthoritativeWorkspaceHeader eyebrow="AUTO RECONCILIATION / PRODUCTION WBS" title="WBS Payables and exception review" description="Review retained WBS evidence and the next accounting step." status="LIVE DATA"/>
 
     <AuthoritativeWbsLivePilotObservation config={config} fetcher={fetcher} tools={WBS_LIVE_PILOT_SURFACE_TOOLS.wbs}/>
 
@@ -62,10 +60,10 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     <AuthoritativeWbsPayableWorkspace config={config} fetcher={fetcher} refreshToken={payableReviewRefresh} onAccountingRefresh={onAccountingRefresh}/>
 
     <section className="report-workbench" aria-label="Persisted WBS AutoRec review evidence">
-      <div className="report-workbench-head"><div><b>Persisted AutoRec review evidence</b><div className="page-subtitle">Read a bounded company/source selection already retained in PostgreSQL. This request never calls WBS and cannot match, allocate, dispatch a Draft, or post.</div></div><span className="badge badge-muted">GET ONLY</span></div>
+      <div className="report-workbench-head"><div><b>AutoRec review evidence</b><div className="page-subtitle">Read retained candidates for exact company and source IDs.</div></div><span className="badge badge-muted">GET ONLY</span></div>
       <form className="filterbar" onSubmit={readReview}>
         <label htmlFor="wbs-review-company">WBS company key<input id="wbs-review-company" required maxLength="128" value={reviewInput.companyKey} onChange={event=>setReviewInput(current=>({...current,companyKey:event.target.value}))} placeholder="Exact retained company key"/></label>
-        <label htmlFor="wbs-review-sources">Immutable source record IDs<textarea id="wbs-review-sources" required rows="4" maxLength="25600" value={reviewInput.sourceRecordIds} onChange={event=>setReviewInput(current=>({...current,sourceRecordIds:event.target.value}))} placeholder="One to 50 IDs, separated by lines or commas"/></label>
+        <label htmlFor="wbs-review-sources">Immutable source record IDs<textarea id="wbs-review-sources" required rows="2" maxLength="25600" value={reviewInput.sourceRecordIds} onChange={event=>setReviewInput(current=>({...current,sourceRecordIds:event.target.value}))} placeholder="One to 50 IDs, separated by lines or commas"/></label>
         <button type="submit" className="btn" disabled={reviewState.phase==='LOADING'}>{reviewState.phase==='LOADING'?'Reading retained evidence...':'Load AutoRec review evidence'}</button>
       </form>
       {reviewState.phase==='LOADING'&&<StateBlock tone="loading" title="Reading persisted AutoRec evidence">Loading only receipt-backed rows for the exact company and source IDs.</StateBlock>}
@@ -78,7 +76,7 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     </section>
 
     <section className="report-workbench" aria-label="AutoRec Match Review and G11 posted evidence">
-      <div className="report-workbench-head"><div><b>Match Review → G11 posted evidence</b><div className="page-subtitle">Read one immutable independent decision, then trace the same review through two posted AutoRec journals and four exact ledger lines. These controls never infer a review ID or use WBS browser data.</div></div><span className="badge badge-muted">AUTHORITATIVE GET</span></div>
+      <div className="report-workbench-head"><div><b>Match Review → G11 evidence</b><div className="page-subtitle">Trace one retained decision to its posted journals and ledger lines.</div></div><span className="badge badge-muted">GET ONLY</span></div>
       <form className="filterbar" onSubmit={readMatchReview}>
         <label htmlFor="wbs-match-review-id">Match Review ID<input id="wbs-match-review-id" required pattern="[0-9a-fA-F-]{36}" maxLength="36" value={matchReviewId} onChange={event=>setMatchReviewId(event.target.value)} placeholder="Exact persisted review UUID"/></label>
         <button type="submit" className="btn" disabled={matchState.phase==='LOADING'}>{matchState.phase==='LOADING'?'Reading review...':'Load Match Review'}</button>
@@ -95,7 +93,7 @@ export function AuthoritativeWbsTransitionWorkspace({config,fetcher=globalThis.f
     </section>
 
     <section className="report-workbench" aria-label="WBS and REFS control reconciliation evidence">
-      <div className="report-workbench-head"><div><b>WBS / REFS control reconciliation</b><div className="page-subtitle">Compare persisted signed WBS metrics with an immutable REFS metric snapshot through one approved mapping. Differences remain evidence only.</div></div><span className="badge badge-muted">GET ONLY</span></div>
+      <div className="report-workbench-head"><div><b>WBS / REFS control reconciliation</b><div className="page-subtitle">Compare signed WBS metrics with one immutable REFS snapshot.</div></div><span className="badge badge-muted">GET ONLY</span></div>
       <form className="filterbar" onSubmit={readControl}>
         <label htmlFor="wbs-control-type">Control source<select id="wbs-control-type" value={controlInput.sourceType} onChange={event=>setControlInput(current=>({...current,sourceType:event.target.value}))}><option value="COST_GENERAL_LEDGER">Cost General Ledger</option><option value="PROPERTY_COMPARISON">Property comparison</option></select></label>
         <label htmlFor="wbs-control-company">WBS company key<input id="wbs-control-company" required maxLength="128" value={controlInput.companyKey} onChange={event=>setControlInput(current=>({...current,companyKey:event.target.value}))}/></label>

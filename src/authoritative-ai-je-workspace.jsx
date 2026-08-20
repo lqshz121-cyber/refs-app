@@ -23,11 +23,11 @@ export function AuthoritativeAiJeWorkspace({config,fetcher=globalThis.fetch,onAc
     if(result.ok){setSelection('');setReason('');await load();}
   };
   return <AuthoritativeWorkspaceView area="AI JE Workbench">
-    <AuthoritativeWorkspaceHeader eyebrow="AUTHORITATIVE - HUMAN-CONTROLLED AI DRAFT" title="AI JE Workbench" description="A separately authorized human maker may convert one immutable amortization proposal line into a standard MANUAL Draft. Submit, review, approve, and post remain separate Journal Entry actions." status="DRAFT ONLY"/>
+    <AuthoritativeWorkspaceHeader eyebrow="AUTHORITATIVE - HUMAN-CONTROLLED AI DRAFT" title="AI JE Workbench" description="Create one source-bound Draft. Journal review and posting remain separate." status="DRAFT ONLY"/>
     <AuthoritativeControlledTestAiWorkflow config={config} fetcher={fetcher} onAccountingRefresh={onAccountingRefresh}/>
     <section className="report-workbench" aria-label="AI amortization Draft workbench">
-      <div className="report-workbench-head"><div><b>Source-bound amortization proposals</b><div className="page-subtitle">The proposer cannot use this command. Every Draft remains unsubmitted and carries the exact schedule line, source document, proposal hash, period, and clean attachment evidence.</div></div><button type="button" className="btn" onClick={load} disabled={schedules.phase==='LOADING'}>{schedules.phase==='LOADING'?'Refreshing...':'Refresh proposals'}</button></div>
-      <div className="report-shelf" aria-label="AI Draft authority boundary"><span className="report-shelf-chip report-shelf-chip-on">HUMAN MAKER</span><span className="report-shelf-chip">MANUAL DRAFT ONLY</span><span className="report-shelf-chip">NO SUBMIT</span><span className="report-shelf-chip">NO REVIEW</span><span className="report-shelf-chip">NO APPROVE</span><span className="report-shelf-chip">NO POST</span></div>
+      <div className="report-workbench-head"><div><b>Source-bound amortization proposals</b><div className="page-subtitle">Every Draft keeps its exact schedule, source, period and clean attachments.</div></div><button type="button" className="btn" onClick={load} disabled={schedules.phase==='LOADING'}>{schedules.phase==='LOADING'?'Refreshing...':'Refresh'}</button></div>
+      <p className="muted sm" aria-label="AI Draft authority boundary">HUMAN MAKER | MANUAL DRAFT ONLY | NO SUBMIT | NO REVIEW | NO APPROVE | NO POST</p>
       {schedules.phase==='BLOCKED'?<StateBlock tone="blocked" title={schedules.error?.code||'AI_AMORTIZATION_SCHEDULE_READ_BLOCKED'}>{schedules.error?.message} No browser or demonstration proposal is substituted.</StateBlock>:null}
       {schedules.phase==='READY'&&choices.length===0?<StateBlock tone="empty" title="No proposed amortization lines">Create and retain an evidence-backed proposal in AI Audit Center before preparing a Draft.</StateBlock>:null}
       {choices.length>0?<>

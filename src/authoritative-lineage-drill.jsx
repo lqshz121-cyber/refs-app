@@ -108,12 +108,13 @@ export function AuthoritativeLineageDrill({config,fetcher=globalThis.fetch,initi
   };
   if(read.phase==='LOADING')return <section className="full-bleed qbo-transaction-report authoritative-evidence-page"><StateBlock tone="loading" title="Reading evidence">Re-reading immutable lineage evidence. Navigation resumes when this exact GET completes.</StateBlock></section>;
   if(read.phase==='BLOCKED')return <section className="full-bleed qbo-transaction-report authoritative-evidence-page"><div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={clearBlocked}>Back to current evidence</button><span title={`Entity ID: ${config.entityId}; Period ID: ${config.periodId}`}>Entity {entityLabel} | Period {periodLabel}</span></div><StateBlock tone="blocked" title="BLOCKED - immutable lineage mismatch">{read.error.message}</StateBlock></section>;
-  if(frame.kind==='JOURNAL')return <JournalFrame frame={frame} back={back} readLedger={readLedger} readSource={readSource}/>;
-  if(frame.kind==='GL')return <LedgerFrame frame={frame} back={back} readJournal={readJournal} readSource={readSource} readReports={readReports}/>;
-  if(frame.kind==='SOURCE')return <SourceFrame frame={frame} back={back} readJournal={readJournal}/>;
-  if(frame.kind==='REPORT_CHOOSER')return <ReportChooser frame={frame} back={back} open={row=>{requestGuard.current.invalidate();push({kind:'REPORT',row,context:{entityId:config.entityId,periodId:config.periodId,report:row.statement_type,accountCode:row.account_code,section:row.statement_section,ledgerLineId:frame.ledger.ledger_line_id}});}}/>;
-  if(frame.kind==='EVIDENCE')return <EvidenceFrame frame={frame} back={back} readLedger={readLedgerFromEvidence}/>;
-  return <ReportFrame frame={frame} back={back} readLedger={readLedgerFromReport}/>;
+  const presentedFrame={...frame,context:{...frame.context,entityLabel,periodLabel}};
+  if(frame.kind==='JOURNAL')return <JournalFrame frame={presentedFrame} back={back} readLedger={readLedger} readSource={readSource}/>;
+  if(frame.kind==='GL')return <LedgerFrame frame={presentedFrame} back={back} readJournal={readJournal} readSource={readSource} readReports={readReports}/>;
+  if(frame.kind==='SOURCE')return <SourceFrame frame={presentedFrame} back={back} readJournal={readJournal}/>;
+  if(frame.kind==='REPORT_CHOOSER')return <ReportChooser frame={presentedFrame} back={back} open={row=>{requestGuard.current.invalidate();push({kind:'REPORT',row,context:{entityId:config.entityId,periodId:config.periodId,report:row.statement_type,accountCode:row.account_code,section:row.statement_section,ledgerLineId:frame.ledger.ledger_line_id}});}}/>;
+  if(frame.kind==='EVIDENCE')return <EvidenceFrame frame={presentedFrame} back={back} readLedger={readLedgerFromEvidence}/>;
+  return <ReportFrame frame={presentedFrame} back={back} readLedger={readLedgerFromReport}/>;
 }
 
 const Back=({onClick,label='Back to prior evidence',context})=><div className="qbo-report-back"><button type="button" className="btn btn-sm btn-ghost" onClick={onClick}>{label}</button><span title={`Entity ID: ${context.entityId}; Period ID: ${context.periodId}`}>Entity {context.entityLabel||'Configured entity'} | Period {context.periodLabel||'Configured period'}</span></div>;

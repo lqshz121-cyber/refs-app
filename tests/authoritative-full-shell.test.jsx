@@ -17,9 +17,16 @@ assert.deepEqual([...AUTHORITATIVE_API_ROUTES].sort(), ['account-inquiry', 'ai-a
 assert.equal(new Set(AUTHORITATIVE_ROUTES).size, AUTHORITATIVE_ROUTES.length, 'each catalog route must be stable and unique');
 const navMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="bank" expandedGroups={['Auto Reconciliation','Source & Staging']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const reportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const journalNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="journals" expandedGroups={['Journal Entry']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
+const mobileReportNavMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="reports" expandedGroups={['Reports']} navOpen={true} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 const routeWinsMarkup = renderToStaticMarkup(<AuthoritativeNavigationShell navigation={AUTHORITATIVE_NAVIGATION} route="wbs-autorec-evidence" expandedGroups={['General Ledger']} navOpen={false} drawerAttributes={{}} onSelectGroup={() => {}} onSelectItem={() => {}} onClose={() => {}}/>);
 assert.match(navMarkup, /Control Center/); assert.match(navMarkup, /Accounting Operations/); assert.match(reportNavMarkup, /Reports/);
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
+assert.match(reportNavMarkup, /authoritative-sidebar-direct/, 'a one-page Reports workspace must open directly from its primary rail control');
+assert.doesNotMatch(reportNavMarkup, /Financial statements/, 'a one-page Reports workspace must not repeat its only child in a secondary menu');
+assert.doesNotMatch(journalNavMarkup, /Journal entries/, 'a one-page Journal workspace must not repeat its only child in a secondary menu');
+assert.doesNotMatch(reportNavMarkup, /aria-label="Accounting workspace navigation"/, 'a suppressed secondary menu must not leave an empty navigation landmark');
+assert.match(mobileReportNavMarkup, /aria-label="Close navigation"/, 'a direct-entry workspace must retain a reachable Close control in the mobile drawer');
 assert.match(navMarkup, /Bank transaction matching/); assert.match(navMarkup, /aria-label="Auto Reconciliation"/);
 assert.doesNotMatch(navMarkup, /Source Documents/, 'an old workspace must not remain in the secondary panel after navigation');
 assert.match(navMarkup, /authoritative-navigation-active-group/, 'only the current workspace menu is rendered');
@@ -27,6 +34,11 @@ assert.doesNotMatch(navMarkup, />API</); assert.doesNotMatch(navMarkup, />Unavai
 assert.match(navMarkup, /nav-rail/); assert.match(navMarkup, /nav-panel/);
 assert.doesNotMatch(navMarkup, /authoritative-new-disabled|\+ New/);
 assert.match(navMarkup, /aria-label="Accounting workspace groups"/);
+assert.match(navMarkup, />Settings<\/span>/, 'Accounting Settings needs a distinct compact rail label');
+assert.match(navMarkup, />Operations<\/span>/, 'Accounting Operations must not share the Settings rail label');
+assert.match(navMarkup, />Admin<\/span>/, 'Administration must fit the primary rail without truncation');
+assert.doesNotMatch(navMarkup, /<span class="rail-label" aria-hidden="true">Accounting<\/span>/,
+  'two accounting workspaces must not collapse to the same visible primary label');
 assert.match(routeWinsMarkup, /<span>Auto Reconciliation<\/span>/,
   'the current route must select its navigation group even when an old expanded group remains');
 
@@ -141,7 +153,11 @@ assert.match(appSource, /Property operating P&amp;L/, 'Property Ops Pickup must 
 assert.match(appSource, /initialDimensionType="PROJECT"/, 'the direct Project Cost & CWIP entry must default only its existing API-backed profitability reader to Project');
 assert.match(appSource, /Cost-code, vendor, and project transaction registers remain unavailable/, 'the direct workspace may not pretend that the legacy transaction register has an API contract');
 assert.match(appSource, /route === 'construction-loan'/, 'Construction Loan must mount its existing API rollforward rather than a demo route');
-assert.match(appSource, /route === 'amortization'[\s\S]*?AuthoritativeAmortizationWorkspace[\s\S]*?config=\{config\}/, 'Amortization Center must mount its server-backed coverage and schedule evidence workspace rather than a demo route');
+assert.match(appSource, /route === 'amortization'[\s\S]*?AuthoritativeAmortizationWorkspace[\s\S]*?config=\{displayConfig\}/, 'Amortization Center must mount its server-backed coverage and schedule evidence workspace with the shared readable scope');
+for(const route of ['project-cost-cwip','unit-cost-ledger','construction-loan','intercompany','consolidation']){
+  assert.match(appSource,new RegExp(`route === '${route}'[\\s\\S]*?AuthoritativeReportsWorkspace[\\s\\S]*?config=\\{displayConfig\\}`),`${route} must receive the same readable company and period scope as the authoritative shell`);
+}
+assert.match(appSource,/route === 'property-ops-pickup'[\s\S]*?AuthoritativePropertyRentWorkspace[\s\S]*?config=\{displayConfig\}/,'Property Ops Pickup must receive the shared readable company and period scope');
 assert.match(appSource, /Loan register, lender, commitment, and draw-management workflows remain unavailable/, 'the construction-loan reader must not overstate unavailable operational contracts');
 assert.doesNotMatch(fs.readFileSync('src/authoritative-amortization-workspace.jsx','utf8'), /localStorage|seed\.js|repo\.js|legacy-demo-app|module-amortization-accrual/i, 'the amortization reader must not recreate a browser-side accounting workflow');
 assert.match(amortizationSource, /Draft creation never submits, reviews, approves, or posts the Journal Entry/, 'the amortization control must stop at a server-created Draft and retain the standard Journal workflow boundary');

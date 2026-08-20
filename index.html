@@ -526,8 +526,8 @@ input,select,textarea{
 }
 .nav-item:hover{background:var(--qb-canvas);}
 .nav-item:focus-visible{outline:2px solid var(--qb-accent); outline-offset:-2px;}
-/* Coloured letter badges distinguish related workspace pages while retaining
-   the rail's line icons for primary navigation. */
+/* Compact line icons distinguish related workspace pages while retaining the
+   same stroke vocabulary as primary navigation. */
 .nav-badge{display:grid;place-items:center;flex:0 0 auto;width:28px;height:28px;border:0;border-radius:50%;font:700 11px/1 var(--qb-sans);letter-spacing:.02em;background:transparent;color:var(--qb-text-muted);transition:color .12s ease,background-color .12s ease;}
 .nav-item:hover .nav-badge{background:var(--qb-surface);color:var(--qb-text-strong);}
 @media(prefers-reduced-motion:reduce){.nav-badge{transition:none;}}
@@ -540,7 +540,8 @@ input,select,textarea{
 .nav-item.nav-on{background:var(--qb-divider); color:var(--qb-text-strong); font-weight:500;
   box-shadow:inset 3px 0 0 0 var(--qb-accent);}
 .nav-item.nav-on .nav-chev{color:var(--qb-text-muted);}
-/* One hue per navigation group keeps the familiar letter markers readable. */
+/* One restrained hue per navigation group keeps the icon system lively while
+   preserving one shared shape, size and selected-state treatment. */
 .nav-tone-0 .nav-badge{color:#006B50;}.nav-tone-1 .nav-badge{color:#1A5B93;}.nav-tone-2 .nav-badge{color:#634895;}
 .nav-tone-3 .nav-badge{color:#8A5A00;}.nav-tone-4 .nav-badge{color:#1F6570;}.nav-tone-5 .nav-badge{color:#8F3D4B;}
 .nav-item.nav-on .nav-badge{background:var(--qb-surface);color:var(--qb-brand);}
@@ -704,6 +705,12 @@ input,select,textarea{
 }
 .qbo-report-back>button:hover{background:var(--qb-canvas); border-color:var(--qb-accent);}
 .qbo-report-back>span{min-width:0; color:var(--qb-text-muted); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.authoritative-return-context{min-width:0;color:var(--qb-text-muted);font-size:13px;}
+.authoritative-return-context>summary{cursor:pointer;list-style:none;white-space:nowrap;}
+.authoritative-return-context>summary::-webkit-details-marker{display:none;}
+.authoritative-return-context>summary:after{content:' +';color:var(--qb-accent);font-weight:700;}
+.authoritative-return-context[open]>summary:after{content:' −';}
+.authoritative-return-context>span{display:block;margin-top:6px;line-height:1.45;white-space:normal;}
 
 
 /* ============================ 4. BUTTONS ================================= */
@@ -776,6 +783,12 @@ input:disabled,select:disabled,textarea:disabled,input[readonly],textarea[readon
   font:400 16px/1 var(--qb-sans); border-radius:5px; cursor:pointer; white-space:nowrap;
   transition:background-color var(--qb-dur-1) var(--qb-ease-out),color var(--qb-dur-1) var(--qb-ease-out);
 }
+.tab-unavailable{
+  display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
+  min-height:32px;padding:0 16px;border:0;border-radius:5px;
+  color:var(--qb-text-faint);font:400 16px/1 var(--qb-sans);white-space:nowrap;
+  cursor:not-allowed;
+}
 .tab:hover,.seg>button:hover,.je-queue-chips>button:hover,.bank-queue-tabs>button:hover,
 .qbo-report-tabs>button:hover{color:var(--qb-text-strong);}
 .tab.tab-on,.tab-on,.seg>button[aria-selected="true"],.seg>button.on,
@@ -787,7 +800,7 @@ input:disabled,select:disabled,textarea:disabled,input[readonly],textarea[readon
 /* On a segmented track a disabled item must stay flat: a raised white item
    reads as "selected", which would make an unavailable option look chosen. */
 .tab:disabled,.seg>button:disabled,.je-queue-chips>button:disabled,
-.bank-queue-tabs>button:disabled,.qbo-report-tabs>button:disabled,.qbo-segment>button:disabled{
+.bank-queue-tabs>button:disabled,.qbo-report-tabs>button:disabled,.qbo-segment>button:disabled,.tab-unavailable{
   background:transparent; color:var(--qb-text-faint); border:0; box-shadow:none; cursor:not-allowed;
 }
 /* Report preview bar is an action toolbar, not a queue switcher. */
@@ -1031,6 +1044,10 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-document-summary small{color:var(--qb-text-muted);font-size:12px;line-height:1.35;}
 .authoritative-document-page-head{margin-bottom:18px;padding:18px 20px;border:var(--qb-hair) solid var(--qb-border-soft);border-left:4px solid var(--qb-brand);border-radius:var(--qb-r-card);background:linear-gradient(105deg,var(--qb-accent-tint),var(--qb-surface) 58%);box-shadow:var(--qb-shadow-card);}
 .authoritative-document-page-head .page-eyebrow{margin-bottom:4px;}.authoritative-document-page-head .page-h{margin:0;}.authoritative-document-page-head .page-subtitle{max-width:760px;margin:7px 0 0;}
+.authoritative-expense-page-head{margin-bottom:8px;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;}
+.authoritative-expense-page-head .page-eyebrow,.authoritative-expense-page-head .page-subtitle{display:none;}
+.authoritative-expense-page-head .page-h{font-size:24px;line-height:1.1;font-weight:500;}
+.authoritative-expense-filter-card{padding:8px 0 12px;border:0;border-radius:0;background:transparent;box-shadow:none;}
 .authoritative-document-intro{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.35fr);gap:20px;margin:0 0 18px;padding:16px 18px;border:var(--qb-hair) solid var(--qb-divider);border-radius:var(--qb-r-card);background:var(--qb-inset);}
 .authoritative-document-intro>div>b{display:block;color:var(--qb-text-strong);font-size:15px;line-height:1.35;}
 .authoritative-document-intro>div>p{margin:6px 0 0;color:var(--qb-text-muted);font-size:13px;line-height:1.5;}
@@ -1335,6 +1352,7 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-coa-summary b,.authoritative-register-scope b{overflow-wrap:anywhere;color:var(--qb-text-strong);font-size:14px;font-variant-numeric:tabular-nums;}
 .authoritative-coa-summary small{color:var(--qb-text-muted);font-size:11px;line-height:1.35;}
 .authoritative-coa-filter{align-items:end;margin-bottom:10px;}
+.authoritative-coa-presentation .authoritative-coa-filter{padding:10px 0;border:0;border-radius:0;background:transparent;box-shadow:none;}
 .authoritative-coa-filter label{display:flex;flex:1 1 260px;flex-direction:column;align-items:stretch;gap:5px;min-width:0;}
 .authoritative-coa-filter label:not(:first-child){flex-basis:150px;}
 .authoritative-coa-filter label span{color:var(--qb-text-muted);font-size:12px;font-weight:600;}
@@ -1842,9 +1860,10 @@ select{padding-right:28px; cursor:pointer;}
 .report-period-chip span{color:var(--qb-text-muted); font:600 11px/1.3 var(--qb-sans); letter-spacing:.07em; text-transform:uppercase;}
 .report-period-chip b{color:var(--qb-text-strong); font-size:14px;}
 .report-period-chip small{color:var(--qb-text-muted); font-size:12px;}
-.authoritative-report-finder{display:grid; gap:12px;}
-.authoritative-report-finder label{display:grid; gap:6px; max-width:520px; color:var(--qb-text-strong); font-weight:600;}
-.authoritative-report-finder input{width:100%;}
+.authoritative-report-finder{display:flex;align-items:flex-end;gap:12px;min-height:44px;padding:0;background:transparent;border:0;box-shadow:none;}
+.authoritative-report-finder label{display:grid;gap:4px;width:min(520px,100%);color:var(--qb-text-strong);font-size:12px;font-weight:600;}
+.authoritative-report-finder input{width:100%;min-height:36px;}
+.authoritative-report-match-summary{padding-bottom:9px;color:var(--qb-text-muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .authoritative-report-shortcuts{display:grid; grid-template-columns:minmax(180px,.72fr) minmax(0,2.28fr); gap:14px; align-items:start; margin:0 0 14px; padding:14px; border:var(--qb-hair) solid var(--qb-divider); border-radius:var(--qb-r-card); background:var(--qb-inset);}
 .authoritative-report-shortcuts p{margin:5px 0 0;}
 .authoritative-report-shortcut-grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px;}
@@ -1862,25 +1881,37 @@ select{padding-right:28px; cursor:pointer;}
 .authoritative-secondary-disclosure[open]>summary:after{content:'−';}
 .authoritative-secondary-disclosure>summary .badge{margin-left:auto;}
 .authoritative-secondary-disclosure>section,.authoritative-secondary-disclosure>.wbs-live-pilot-observation{margin:0;border:0;border-top:var(--qb-hair) solid var(--qb-divider);border-radius:0;box-shadow:none;}
+.authoritative-control-requirements{margin:0 0 14px;box-shadow:none;}
+.authoritative-control-requirements>section{padding:12px 16px;}
+.authoritative-control-requirements>section>p{margin:0 0 8px;}
+.authoritative-control-requirements .report-shelf{margin:0;}
 .authoritative-document-workspace.stack,.authoritative-reports-library.stack{gap:14px;}
 .authoritative-document-workspace>.card{padding:16px;}
 .authoritative-document-summary{margin:0 0 14px;gap:8px;}
 .authoritative-document-summary>span{min-height:92px;padding:12px 14px;}
 .authoritative-document-summary b{font-size:24px;}
 .authoritative-list-filters{gap:10px;}
-.rep-grid,.rep-grid-featured{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px;}
+.authoritative-core-report-shortcuts{padding:12px 0;}
+.authoritative-core-report-shortcuts>.authoritative-report-shortcut-grid{gap:0;border-top:var(--qb-hair) solid var(--qb-divider);}
+.authoritative-core-report-shortcuts .authoritative-report-shortcut{min-height:44px;padding:9px 12px;border:0;border-bottom:var(--qb-hair) solid var(--qb-divider);border-radius:0;box-shadow:none;text-align:left;}
+.authoritative-core-report-shortcuts .authoritative-report-shortcut:hover{background:var(--qb-inset);transform:none;}
+.authoritative-core-report-shortcuts .authoritative-report-shortcut.is-current{background:var(--qb-active-soft);box-shadow:inset 3px 0 0 var(--qb-brand);}
+.authoritative-core-report-shortcuts .authoritative-report-shortcut small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+@media(max-width:720px){.authoritative-core-report-shortcuts>.authoritative-report-shortcut-grid{grid-template-columns:minmax(0,1fr);}.authoritative-core-report-shortcuts .authoritative-report-shortcut{display:grid;grid-template-columns:minmax(0,1fr);}.authoritative-core-report-shortcuts .authoritative-report-shortcut small{display:none;}}
+.rep-grid,.rep-grid-featured{display:flex;gap:0;overflow-x:auto;border-bottom:var(--qb-hair) solid var(--qb-divider);scrollbar-width:thin;}
 .rep-card{display:flex; align-items:center; justify-content:space-between; gap:10px;
-  min-width:0; min-height:66px; padding:12px 14px; border-radius:var(--qb-r-card);
-  background:var(--qb-surface); border:var(--qb-hair) solid var(--qb-divider); cursor:pointer;}
+  flex:0 0 auto;min-width:0;min-height:42px;padding:8px 14px;border:0;border-bottom:3px solid transparent;border-radius:0;
+  background:transparent;cursor:pointer;}
 .rep-main{display:flex; flex-direction:column; gap:3px; min-width:0;}
 .rep-name,.rep-table-name{min-width:0; max-width:100%; color:var(--qb-text-strong); font:500 14px/1.4 var(--qb-sans);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .rep-desc{color:var(--qb-text-muted); font-size:12px; overflow-wrap:anywhere;}
 .rep-tag{display:flex; align-items:center; gap:5px; flex:0 0 auto; min-width:0;}
 .rep-tag .badge{max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-.rep-card:hover{background:var(--qb-canvas); border-color:var(--qb-border);}
-.rep-card.rep-on{background:var(--qb-accent-tint); border:2px solid var(--qb-accent);}
-.report-workbench{margin:14px 0; padding:16px; min-width:0; max-width:100%;}
+.rep-card:hover{background:var(--qb-canvas);}
+.rep-card.rep-on{background:transparent;border-bottom-color:var(--qb-brand);color:var(--qb-brand);}
+.rep-card.rep-on .rep-name{color:var(--qb-brand);font-weight:700;}
+.report-workbench{margin:0;padding:14px 0 0;min-width:0;max-width:100%;}
 .authoritative-cwip-table .tbl{min-width:900px; table-layout:fixed;}
 .authoritative-property-table .tbl{min-width:900px; table-layout:fixed;}
 .authoritative-cwip-table th:nth-child(n+2):nth-child(-n+5){width:12%;}
@@ -2158,6 +2189,11 @@ select{padding-right:28px; cursor:pointer;}
    removes the scrim from 901px upward. */
 @media(min-width:901px){
   .authoritative-app .sidebar{position:sticky; top:0; left:auto; transform:none; width:var(--nav-w); flex:0 0 var(--nav-w); box-shadow:none;}
+  /* A one-page workspace opens from the rail itself.  Suppress the redundant
+     secondary panel on desktop while the off-canvas drawer keeps its brand
+     and reachable Close control at touch widths. */
+  .authoritative-app .sidebar.authoritative-sidebar-direct{width:var(--qb-rail-w); flex-basis:var(--qb-rail-w);}
+  .authoritative-app .sidebar.authoritative-sidebar-direct .nav-panel{display:none;}
   .authoritative-app .mobile-nav-btn,.authoritative-app .mobile-nav-scrim{display:none;}
   .authoritative-app .main{margin-left:0;}
 }

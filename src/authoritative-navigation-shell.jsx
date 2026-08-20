@@ -1,17 +1,40 @@
 import React from 'react';
 import { Icon } from './ui.jsx';
 
+const GROUP_SHORT_LABELS = Object.freeze({
+  'Control Center':'Control',
+  'Accounting Settings':'Settings',
+  'Source & Staging':'Source',
+  'Auto Reconciliation':'Auto',
+  'Journal Entry':'Journal',
+  'General Ledger':'General',
+  'Accounting Operations':'Operations',
+  'Close':'Close',
+  'Payables & Receivables':'Payables',
+  'Reports':'Reports',
+  'Administration':'Admin',
+});
+
 function railLabel(label) {
-  return label.split(/\s+/)[0] || label;
+  return GROUP_SHORT_LABELS[label] || label;
 }
 
 // These are deliberately a presentation map using the complete REFS shell's
 // icon vocabulary. They do not decide route availability or carry
 // any accounting state: `navigation` remains the authoritative API catalog.
-const GROUP_ICONS = Object.freeze([
-  'gauge', 'gear', 'document', 'cycle', 'document', 'book',
-  'layers', 'calendar', 'wallet', 'bars', 'shield',
-]);
+const GROUP_ICONS = Object.freeze({
+  'Control Center':'gauge',
+  'Accounting Settings':'gear',
+  'Source & Staging':'document',
+  'Auto Reconciliation':'cycle',
+  'Journal Entry':'document',
+  'General Ledger':'book',
+  'Accounting Operations':'layers',
+  Close:'calendar',
+  'Payables & Receivables':'wallet',
+  Reports:'bars',
+  Administration:'shield',
+});
 const ITEM_ICONS = Object.freeze({
   overview:'gauge', approvals:'check', 'ai-audit':'shield', 'ai-je-workbench':'document',
   settings:'gear', rules:'check', mapping:'layers',
@@ -28,7 +51,8 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroups
   const activeGroup = navigation.find(group => group.items.some(item => item.route === route))
     || navigation.find(group => group.label === (Array.isArray(expandedGroups) ? expandedGroups[0] : expandedGroup))
     || navigation[0];
-  return <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar authoritative-sidebar ${navOpen ? 'mobile-open' : ''}`} {...drawerAttributes}>
+  const opensDirectly = activeGroup?.items.length === 1;
+  return <aside id="authoritative-navigation" ref={navDrawerRef} className={`sidebar authoritative-sidebar ${opensDirectly ? 'authoritative-sidebar-direct' : ''} ${navOpen ? 'mobile-open' : ''}`} {...drawerAttributes}>
     <div className="nav-rail" aria-label="Accounting workspace groups">
       <div className="rail-logo" aria-hidden="true">R</div>
       {navigation.map((group, index) => {
@@ -39,7 +63,7 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroups
             aria-current={active ? 'page' : undefined}
             aria-label={group.label}
             onClick={() => onSelectGroup(group)}>
-            <span className="rail-glyph" aria-hidden="true"><Icon name={GROUP_ICONS[index] || 'document'} /></span>
+            <span className="rail-glyph" aria-hidden="true"><Icon name={GROUP_ICONS[group.label] || 'document'} /></span>
             <span className="rail-label" aria-hidden="true">{railLabel(group.label)}</span>
           </button>
         </div>;
@@ -48,7 +72,7 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroups
     <div className="nav-panel">
       <div className="brand"><span className="logo" aria-hidden="true">R</span> REFS<span className="brand-sub">Authoritative</span></div>
       {navOpen && <button type="button" className="mobile-nav-close" aria-label="Close navigation" onClick={onClose}>Close</button>}
-      <nav aria-label="Accounting workspace navigation">
+      {!opensDirectly && <nav aria-label="Accounting workspace navigation">
         {activeGroup && <section className={`nav-panel-group nav-tone-${Math.max(0,navigation.indexOf(activeGroup)) % 6}`}>
           <div className="nav-panel-title"><span>{activeGroup.label}</span></div>
           <div className="nav-group-items" id="authoritative-navigation-active-group">
@@ -60,7 +84,7 @@ export function AuthoritativeNavigationShell({ navigation, route, expandedGroups
           </button>)}
           </div>
         </section>}
-      </nav>
+      </nav>}
     </div>
   </aside>;
 }

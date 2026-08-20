@@ -14,6 +14,7 @@ import {
 
 const entityId='11111111-1111-4111-8111-111111111111';
 const periodId='33333333-3333-4333-8333-333333333333';
+const displayConfig={entityId,periodId,scopePresentation:{entityLabel:'REFS US Staging',periodLabel:'August 2026'}};
 const bill={business_document_id:'22222222-2222-4222-8222-222222222222',bill_no:'B-100',vendor_name:'Evidence Vendor',bill_date:'2026-08-01',due_date:'2026-08-31',amount:125.25,open_balance:25.25,currency:'USD',status:'PARTIALLY_PAID',revision:3,period_id:periodId,account_code:'610000',je_number:null,description:'Retained bill evidence'};
 const adjustment={business_adjustment_id:'44444444-4444-4444-8444-444444444444',adjustment_kind:'AP_VENDOR_CREDIT',business_document_id:null,source_adjustment_id:null,amount:10,currency:'USD',accounting_date:'2026-08-02',period_id:periodId,reason:'Retained credit evidence',status:'DRAFT',version:2,journal_entry_id:null,journal_status:null,journal_revision:null,created_at:'2026-08-02T00:00:00.000Z'};
 
@@ -37,8 +38,7 @@ assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/EXPENSES \/ ACCOUNTS PAYABLE/);
 assert.match(workspaceMarkup,/Bills, credits, and AP aging from the accounting API/);
 assert.match(workspaceMarkup,/Bills/);
-assert.match(workspaceMarkup,/API total/);
-assert.match(workspaceMarkup,/Filtered/);
+assert.doesNotMatch(workspaceMarkup,/API total|Visible adjustments/,'Expenses must not repeat its list counts as KPI cards');
 assert.match(workspaceMarkup,/READ ONLY/);
 assert.match(workspaceMarkup,/authoritative-ap-ar-presentation/);
 assert.match(workspaceMarkup,/Vendor credits/);
@@ -46,6 +46,8 @@ assert.match(workspaceMarkup,/AP Aging/);
 assert.doesNotMatch(workspaceMarkup,/AP Aging unavailable/,'AP aging has an authenticated API contract and must be reachable');
 assert.match(workspaceMarkup,/id="authoritative-ap-aging-launch"/,'Back from AP aging must restore focus to the tab that opened it');
 assert.match(workspaceMarkup,/Vendors unavailable/);
+assert.match(workspaceMarkup,/class="tab-unavailable" role="tab" aria-selected="false" aria-disabled="true" aria-label="Vendors unavailable"/,'unavailable AP/AR views must retain tab semantics and shared visual geometry without becoming interactive');
+assert.doesNotMatch(workspaceMarkup,/class="tab-unavailable" role="note"/,'a child of tablist must not use a non-tab role');
 assert.doesNotMatch(workspaceMarkup,/<button[^>]*disabled[^>]*>AP Aging<\/button>/);
 const apArPresentationSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-ap-ar-view.jsx'),'utf8');
 assert.doesNotMatch(apArPresentationSource,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,
@@ -59,10 +61,16 @@ assert.match(workspaceMarkup,/Status: PARTIALLY_PAID/);
 assert.match(workspaceMarkup,/2026-08-01/);
 assert.match(workspaceMarkup,/1 bills[\s\S]*0 adjustments/);
 assert.match(workspaceMarkup,/No adjustments match these presentation filters/);
-assert.match(workspaceMarkup,/class="kpi-row" aria-label="Expenses API summary"/,'AP/AR counts must use one shared compact summary hierarchy');
+assert.doesNotMatch(workspaceMarkup,/aria-label="Expenses API summary"/,'QBO-style Expenses keeps its result count beside the filters rather than repeating KPI cards');
 assert.doesNotMatch(workspaceMarkup,/authoritative-document-intro/,'AP/AR must not duplicate the evidence contract above the filters');
-assert.match(workspaceMarkup,/>Filters</,'filters need a concise visible heading');
+assert.doesNotMatch(workspaceMarkup,/>Filters</,'Expenses must not repeat a heading above its already labelled filter controls');
 assert.match(workspaceMarkup,/authoritative-secondary-disclosure/,'secondary WBS evidence must stay available without lengthening the default page');
+
+const emptyExpenseMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[]} adjustments={[]} view={{query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
+assert.match(emptyExpenseMarkup,/No expenses found/);
+assert.match(emptyExpenseMarkup,/Try changing the filters\. This scoped API result is not evidence of zero activity\./);
+assert.equal((emptyExpenseMarkup.match(/No expenses found/g)||[]).length,1,'an empty Expenses scope must render one clear empty title');
+assert.doesNotMatch(emptyExpenseMarkup,/No authoritative adjustments in this scope/);
 
 const creditsOnlyMarkup=renderToStaticMarkup(<AuthoritativeDocumentWorkspace kind="AP" documents={[bill]} adjustments={[adjustment]} view={{query:'',status:'ALL',transactionType:'VENDOR_CREDITS',from:'',through:'',counterparty:'ALL',accountCode:'ALL',page:1,pageSize:25}} onViewChange={()=>{}} onOpenDocument={()=>{}} onOpenAdjustment={()=>{}}/>);
 assert.match(creditsOnlyMarkup,/Vendor credits/);
@@ -79,11 +87,13 @@ assert.match(arWorkspaceMarkup,/Invoice, customer, account, or reference/);
 assert.doesNotMatch(arWorkspaceMarkup,/Category \(offset account\)/,'AR must not expose the AP-only category filter');
 assert.match(arWorkspaceMarkup,/1 invoices \| 0 adjustments/,'a stale AP-only account filter must not silently remove AR invoices');
 
-const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
+const detail=renderToStaticMarkup(<AuthoritativeDocumentDetail document={bill} kind="AP" entityId={entityId} config={displayConfig} returnContext={{view:{query:'Evidence',status:'PARTIALLY_PAID',transactionType:'ALL',from:'2026-08-01',through:'2026-08-31',counterparty:'Evidence Vendor',accountCode:'610000',page:2}}} onBack={()=>{}}/>);
 assert.match(detail,/Back to AP bills/);
-assert.match(detail,/Configured entity/);
+assert.match(detail,/<details class="authoritative-return-context"><summary>List filters retained<\/summary>/,
+  'the exact list return scope must remain available without forcing a long filter string into the Back row');
+assert.match(detail,/REFS US Staging/);
 assert.match(detail,/title="Entity ID: 11111111-1111-4111-8111-111111111111"/,'the full entity identifier remains an audit tooltip, not visible page text');
-assert.match(detail,/Configured period/);
+assert.match(detail,/August 2026/);
 assert.match(detail,/title="Period ID: 33333333-3333-4333-8333-333333333333"/,'the full period identifier remains an audit tooltip, not visible page text');
 assert.doesNotMatch(detail,/Entity 11111111-1111-4111-8111-111111111111/,'the Back context must not expose a raw entity UUID');
 assert.match(detail,/authoritative list revision 3/);
@@ -92,7 +102,7 @@ assert.match(detail,/vendor Evidence Vendor/);
 assert.match(detail,/category 610000/);
 assert.match(detail,/transaction type ALL/);
 assert.match(detail,/page 2/);
-assert.match(detail,/cannot create, edit, approve, pay, allocate, post, print, export, or synchronize/);
+assert.match(detail,/Read-only retained evidence\. Document actions are unavailable here\./);
 assert.match(detail,/class="authoritative-document-detail-summary"/,'full-page AP/AR evidence must elevate retained counterparty, amount, balance, and due-date facts');
 assert.match(detail,/Original amount/);
 assert.doesNotMatch(detail,/<input|<select|>Approve<|>Post<|>Pay</i);
@@ -116,10 +126,10 @@ assert.match(mismatchedDetail,/BLOCKED[\s\S]*authoritative lineage unavailable/)
 const adjustmentList=renderToStaticMarkup(<AuthoritativeAdjustmentSummary title="AP adjustments" adjustments={[adjustment]} onOpen={()=>{}}/>);
 assert.match(adjustmentList,/AP_VENDOR_CREDIT/);
 assert.match(adjustmentList,/Open evidence/);
-const adjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={adjustment} side="AP" entityId={entityId} onBack={()=>{}}/>);
+const adjustmentDetail=renderToStaticMarkup(<AuthoritativeAdjustmentDetail adjustment={adjustment} side="AP" entityId={entityId} config={displayConfig} onBack={()=>{}}/>);
 assert.match(adjustmentDetail,/Back to AP adjustments/);
-assert.match(adjustmentDetail,/Configured entity/);
-assert.match(adjustmentDetail,/Configured period/);
+assert.match(adjustmentDetail,/REFS US Staging/);
+assert.match(adjustmentDetail,/August 2026/);
 assert.doesNotMatch(adjustmentDetail,/Entity 11111111-1111-4111-8111-111111111111/,'adjustment evidence must keep the entity UUID out of visible text');
 assert.match(adjustmentDetail,/authoritative adjustment revision 2/);
 assert.match(adjustmentDetail,/cannot create, edit, apply, refund, approve, post, reverse, print, export, or synchronize/);
@@ -143,6 +153,7 @@ for(const route of [apRoute,arRoute]){
   assert.doesNotMatch(route,/AuthoritativeWorkflow(?:Adjustment)?Table|onWorkflow=\{workflow\}/,'AP/AR evidence routes must not expose journal transition controls');
   assert.match(route,/AuthoritativeDocumentDetail/);
   assert.match(route,/AuthoritativeAdjustmentDetail/);
+  assert.match(route,/config=\{displayConfig\}/,'AP/AR full-page evidence routes must inherit the shared readable company and period scope');
   assert.match(route,/AuthoritativeDocumentWorkspace/);
 }
 const workspace=fs.readFileSync(path.join(process.cwd(),'src','authoritative-workspace.jsx'),'utf8');
@@ -160,7 +171,12 @@ assert.match(styles,/\.authoritative-document-workspace,.authoritative-document-
 assert.match(styles,/\.authoritative-document-table \.tbl\{min-width:980px;table-layout:fixed;\}/,'wide AP/AR evidence tables must reserve semantic columns inside their own scroll region');
 assert.match(styles,/\.authoritative-adjustment-table \.tbl\{min-width:760px;table-layout:fixed;\}/,'six-column adjustment evidence must retain readable columns in its own contained scroller');
 assert.match(styles,/\.authoritative-document-detail-table \.tbl\{min-width:720px;table-layout:fixed;\}/,'four-column detail facts must retain readable columns without overflowing the page');
+assert.match(styles,/\.authoritative-return-context>summary\{cursor:pointer;list-style:none;white-space:nowrap;\}/,
+  'the exact return scope must use a compact, keyboard-native disclosure');
 assert.match(styles,/\.authoritative-document-summary>span\{position:relative;min-height:116px/,'summary cards must retain a stable visual hierarchy');
+assert.match(styles,/\.authoritative-expense-page-head\{margin-bottom:8px;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;\}/,'Expenses must use the observed compact QBO heading rather than a large decorative hero card');
+assert.match(styles,/\.authoritative-expense-page-head \.page-h\{font-size:24px;line-height:1\.1;font-weight:500;\}/,'Expenses heading must retain the observed compact QBO scale');
+assert.match(styles,/\.authoritative-expense-filter-card\{padding:8px 0 12px;border:0;border-radius:0;background:transparent;box-shadow:none;\}/,'Expenses filters must remain a compact toolbar instead of a nested card');
 assert.match(styles,/\.authoritative-list-filters\{display:grid;grid-template-columns:minmax\(220px,2fr\)/,'wide AP\/AR filters must align as a readable grid');
 assert.match(styles,/@media\s*\(max-width:1400px\)\s*\{\.authoritative-list-filters\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,'AP/AR filters must collapse before the permanent navigation leaves too little workspace width at desktop zoom and tablet sizes');
 assert.match(styles,/\.authoritative-list-filters input,\.authoritative-list-filters select\{min-width:0;width:100%;max-width:100%;\}/,'AP/AR controls must not exceed their responsive grid tracks');

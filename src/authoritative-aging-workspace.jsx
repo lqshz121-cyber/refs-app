@@ -41,7 +41,7 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
       <div>
         <div className="authoritative-eyebrow">{businessLabel} / aging report</div>
         <h2>{label} aging &amp; control totals</h2>
-        <p className="page-subtitle">OIDC-authenticated, entity-scoped report facts from the accounting API. Browser seed data and local storage are not used.</p>
+        <p className="page-subtitle">Read-only aging from the accounting API.</p>
       </div>
       <div className="authoritative-aging-actions">
         {typeof onBack==='function'&&<button type="button" className="btn btn-sm" onClick={onBack}>{backLabel}</button>}
@@ -50,13 +50,10 @@ export function AuthoritativeAgingWorkspace({config,side,fetcher=globalThis.fetc
     </header>
     <form className="authoritative-aging-controls" aria-label={`${label} aging report scope`} onSubmit={submit}>
       <output className="authoritative-aging-scope" title={`Entity ID: ${config.entityId}`}><i>Entity reporting scope</i><b>{entityLabel}</b></output>
-      <output className="authoritative-aging-scope" title={`Period ID: ${config.periodId}`}><i>Configured period</i><b>{periodLabel}</b></output>
+      <output className="authoritative-aging-scope" title={`Period ID: ${config.periodId}`}><i>Accounting period</i><b>{periodLabel}</b></output>
       <label><span>As-of date</span><input type="date" aria-label={`${label} aging as-of date`} value={asOf} onChange={event=>setAsOf(event.target.value)}/></label>
       <button type="submit" className="btn btn-sm">Refresh evidence</button>
     </form>
-    <section className="authoritative-aging-context" aria-label="Immutable evidence scope">
-      <b>Evidence scope</b><span title={`Entity ID: ${config.entityId}; Period ID: ${config.periodId}`}>Entity {entityLabel} · period {periodLabel} · as of {asOf}</span><span>GET-only refresh; no accounting record can be changed from this report.</span>
-    </section>
     {!scopeMatches&&<StateBlock tone="blocked" title="BLOCKED — immutable aging scope mismatch">The full-page aging report no longer matches the entity, configured period, AP/AR side, or parent route retained by its return context. Return to the parent report; no aging result is asserted from this mismatched scope.</StateBlock>}
     {scopeMatches&&<>
       {state.phase==='LOADING'&&<StateBlock tone="loading">Loading authoritative {label} aging…</StateBlock>}

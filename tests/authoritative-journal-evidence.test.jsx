@@ -57,10 +57,11 @@ assert.equal(nextAuthoritativeJournalWorkflowAction(journal,permissions,entityId
 assert.equal(nextAuthoritativeJournalWorkflowAction({...journal,status:'PENDING_REVIEW'},permissions,entityId),null,'a status without the exact fixed server capability must have no action');
 assert.equal(nextAuthoritativeJournalWorkflowAction(journal,permissions,'99999999-9999-4999-8999-999999999999'),null,'a capability response from another entity must have no action');
 
-const returnContext={entityId,periodId,journalId:journal.journal_entry_id,journalRevision:journal.revision,journalCurrency:'USD',view:{query:'JE-100',status:'POSTED',from:'2026-08-01',through:'2026-08-31',page:2}};
+const returnContext={entityId,periodId,entityLabel:'Wan Pacific Real Estate Development LLC',periodLabel:'2026-08',journalId:journal.journal_entry_id,journalRevision:journal.revision,journalCurrency:'USD',view:{query:'JE-100',status:'POSTED',from:'2026-08-01',through:'2026-08-31',page:2}};
 const detail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journal} entityId={entityId} returnContext={returnContext} onBack={()=>{}}/>);
 assert.match(detail,/authoritative-evidence-page/,'journal detail must use the full-page authoritative evidence frame');
-assert.match(detail,/Back to Journal entries/); assert.match(detail,/Configured entity/); assert.match(detail,/Scope identifiers/); assert.match(detail,/11111111-1111-4111-8111-111111111111/); assert.match(detail,/33333333-3333-4333-8333-333333333333/);assert.match(detail,/authoritative list revision 3/);
+assert.match(detail,/<details class="authoritative-return-context"><summary>List filters retained<\/summary>/,'Journal Back context must remain available without occupying the full Back row');
+assert.match(detail,/Back to Journal entries/); assert.match(detail,/Wan Pacific Real Estate Development LLC/); assert.match(detail,/2026-08/); assert.match(detail,/Scope identifiers/); assert.match(detail,/11111111-1111-4111-8111-111111111111/); assert.match(detail,/33333333-3333-4333-8333-333333333333/);assert.match(detail,/authoritative list revision 3/);
 assert.match(detail,/search JE-100/); assert.match(detail,/status POSTED/); assert.match(detail,/from Aug 1, 2026/); assert.match(detail,/through Aug 31, 2026/); assert.match(detail,/page 2/);
 assert.match(detail,/Journal entry JE-100/); assert.match(detail,/Journal evidence scope/); assert.match(detail,/No write or inferred drill authority/);
 assert.match(detail,/Journal ID/); assert.match(detail,/22222222-2222-4222-8222-222222222222/);
@@ -88,14 +89,17 @@ const journalView=fs.readFileSync(path.join(process.cwd(),'src','authoritative-j
 assert.doesNotMatch(journalView,/seed\.js|repo\.js|localStorage|legacy-demo-app|data\.js|accounting-api/,'the journal presentation extraction must receive authoritative facts as slots');
 assert.match(list,/authoritative-journal-presentation/);
 assert.match(workspace,/restoreAuthoritativeReturnContext/,'Back must restore scroll and focus to the originating evidence control');
+assert.equal((workspace.match(/<summary>List filters retained<\/summary>/g)||[]).length,2,'ready and loading Journal detail states must share the compact return-context disclosure');
 assert.match(workspace,/const journalMatchesReturnContext/);
 assert.match(workspace,/context\?\.journalId === journal\.journal_entry_id/);
 assert.match(workspace,/context\?\.journalRevision === journal\.revision/);
 assert.match(workspace,/BLOCKED - immutable Journal scope mismatch/);
 assert.match(workspace,/setQueue\('REVIEW_REQUIRED'\)/,'Needs review must include the retained review and approval statuses it counts');
 assert.match(workspace,/table-wrap authoritative-journal-table/,'Journal facts must use the shared, page-contained table scroller');
+assert.doesNotMatch(workspace,/<dt>Date<\/dt>|<dt>Status<\/dt>|<dt>Revision<\/dt>/,'Journal date, status and revision must not repeat below their scope/header presentation');
 assert.match(workspace,/readAuthoritativeJournalEntryDetail/,'opening evidence must perform an exact authoritative detail read');
 assert.match(workspace,/journalCurrency:journal\.currency/);assert.match(workspace,/context\?\.periodId === journal\.period_id/);
+assert.match(workspace,/entityLabel:config\?\.scopePresentation\?\.entityLabel/,'loading and blocked Journal detail states must freeze the same readable company label as the ready drill');
 assert.doesNotMatch(workspace,/localStorage|SEED_|legacy-demo|seed\.js|repo\.js/,'authoritative Journal evidence must not read browser accounting state');
 const mismatchedDetail=renderToStaticMarkup(<AuthoritativeJournalDetail journal={journal} entityId={entityId} returnContext={{...returnContext,journalId:'22222222-2222-4222-8222-222222222999'}} onBack={()=>{}}/>);
 assert.match(mismatchedDetail,/BLOCKED - immutable Journal scope mismatch/);

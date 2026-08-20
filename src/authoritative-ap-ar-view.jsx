@@ -24,14 +24,14 @@ export function AuthoritativeApArView({
       <div><div className="page-eyebrow">{eyebrow}</div><h2 className="page-h">{title}</h2><div className="page-subtitle">{subtitle}</div></div>
       <span className="badge badge-muted">READ ONLY</span>
     </div>
-    <div className="kpi-row" aria-label={`${title} API summary`}>
+    {metrics.length > 0 && <div className="kpi-row" aria-label={`${title} API summary`}>
       {metrics.map(metric => <div className={`kpi ${metric.tone || ''}`.trim()} key={metric.label}>
         <div className="kpi-label">{metric.label}</div><div className="kpi-value">{metric.value}</div>{metric.sub && <div className="kpi-sub">{metric.sub}</div>}
       </div>)}
-    </div>
+    </div>}
     {tabs.length > 0 && <div className="tabs" role="tablist" aria-label={`${title} evidence views`}>
       {tabs.map(tab => tab.unavailable
-        ? <span key={tab.id} className="tab-unavailable" role="note">{tab.label} unavailable</span>
+        ? <span key={tab.id} className="tab-unavailable" role="tab" aria-selected="false" aria-disabled="true" aria-label={`${tab.label} unavailable`} title={`${tab.label} is not available from the authoritative API`}>{tab.label}</span>
         : <button key={tab.id} id={tab.focusId} type="button" role="tab" aria-selected={tab.id === activeTab} className={tab.id === activeTab ? 'tab-on' : ''} onClick={() => onSelectTab?.(tab.id)}>{tab.label}</button>)}
     </div>}
     {toolbar}
