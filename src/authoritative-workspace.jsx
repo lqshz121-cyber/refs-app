@@ -1,4 +1,4 @@
-import React from 'react';
+import React,{useEffect,useState} from 'react';
 import { nextAuthoritativeWorkflowAction } from './authoritative-workflow.js';
 import { StateBlock } from './ui.jsx';
 import {AuthoritativeScopeEmpty} from './authoritative-read-state.jsx';
@@ -19,6 +19,7 @@ const amount=/^(?:0|[1-9]\d{0,15})(?:\.\d{1,4})?$/;
 const account=/^[A-Za-z0-9._-]{1,64}$/;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const revision=value=>Number.isSafeInteger(Number(value))&&Number(value)>=0;
+const secondaryFilterValues=view=>({from:view.from,through:view.through,counterparty:view.counterparty,accountCode:view.accountCode});
 
 // List rows are facts, not lineage.  A later API contract may attach a
 // complete immutable evidence object, but a browser must never assemble one
@@ -87,6 +88,8 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
   const bill=kind==='AP';
   const workspaceLabel=bill?'Payables':'Receivables';
   const state=normalizeAuthoritativeListView(view);
+  const [filterDraft,setFilterDraft]=useState(()=>secondaryFilterValues(state));
+  useEffect(()=>setFilterDraft(secondaryFilterValues(state)),[state.from,state.through,state.counterparty,state.accountCode]);
   const dateField=bill?'bill_date':'inv_date';
   const counterpartyField=bill?'vendor_name':'customer_name';
   // Offset-account is an AP Bill category presentation filter. An account code
@@ -140,11 +143,12 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     <div className="filter-bar authoritative-list-filters authoritative-compact-list-filters" role="search" aria-label={`${bill?'Payables':'Receivables'} presentation filters`}>
       <label>Search <input value={state.query} onChange={event=>change({query:event.target.value})} placeholder={bill?'Bill, vendor, account, or reference':'Invoice, customer, account, or reference'}/></label>
       <label>Status <select value={state.status} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
-      <details className="authoritative-list-more-filters" open={moreFilterCount>0||undefined}><summary>{bill?'Filter':'More filters'}{moreFilterCount?` (${moreFilterCount})`:''}</summary><div className="authoritative-list-more-filter-grid">
-        <label>From <input type="date" value={state.from} onChange={event=>change({from:event.target.value})}/></label>
-        <label>{bill?'To':'Through'} <input type="date" value={state.through} onChange={event=>change({through:event.target.value})}/></label>
-        <label>{bill?'Vendor':'Customer'} <select value={state.counterparty} onChange={event=>change({counterparty:event.target.value})}><option value="ALL">{bill?'All vendors':'All customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
-        {bill&&(accountCodes.length>0?<label>Category <select value={state.accountCode} onChange={event=>change({accountCode:event.target.value})}><option value="ALL">All categories</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category unavailable for this result.</span>)}
+      <details className="authoritative-list-more-filters" onToggle={event=>{if(event.currentTarget.open)setFilterDraft(secondaryFilterValues(state));}}><summary>{bill?'Filter':'More filters'}{moreFilterCount?` (${moreFilterCount})`:''}</summary><div className="authoritative-list-more-filter-grid">
+        <label>From <input type="date" value={filterDraft.from} onChange={event=>setFilterDraft(current=>({...current,from:event.target.value}))}/></label>
+        <label>{bill?'To':'Through'} <input type="date" value={filterDraft.through} onChange={event=>setFilterDraft(current=>({...current,through:event.target.value}))}/></label>
+        <label>{bill?'Vendor':'Customer'} <select value={filterDraft.counterparty} onChange={event=>setFilterDraft(current=>({...current,counterparty:event.target.value}))}><option value="ALL">{bill?'All vendors':'All customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+        {bill&&(accountCodes.length>0?<label>Category <select value={filterDraft.accountCode} onChange={event=>setFilterDraft(current=>({...current,accountCode:event.target.value}))}><option value="ALL">All categories</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category unavailable for this result.</span>)}
+        <div className="authoritative-list-more-filter-actions"><button type="button" className="btn btn-sm btn-ghost" onClick={()=>setFilterDraft({from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset</button><button type="button" className="btn btn-sm" onClick={()=>change(filterDraft)}>Apply</button></div>
       </div></details>
       <button type="button" className="btn btn-sm btn-ghost" disabled={!state.query&&!appliedScope.length} onClick={()=>change({query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset filters</button>
       <span className="result-count" aria-live="polite">{visibleResultCount} {visibleResultCount===1?'result':'results'}</span>
