@@ -109,7 +109,7 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
     state.from?`From: ${state.from}`:null,
     state.through?`Through: ${state.through}`:null,
     state.counterparty!=='ALL'?`${bill?'Vendor':'Customer'}: ${state.counterparty}`:null,
-    bill&&state.accountCode!=='ALL'?`Category (offset account): ${state.accountCode}`:null,
+    bill&&state.accountCode!=='ALL'?`Category: ${state.accountCode}`:null,
     bill&&state.transactionType!=='ALL'?`Transaction type: ${state.transactionType==='BILLS'?'Bills':'Vendor credits'}`:null,
   ].filter(Boolean);
   const change=patch=>onViewChange?.({...state,...patch,page:patch.page??1});
@@ -134,8 +134,8 @@ export function AuthoritativeDocumentWorkspace({kind,documents=[],adjustments=[]
       <label>Status <select value={state.status} onChange={event=>change({status:event.target.value})}><option value="ALL">All statuses</option>{statuses.map(status=><option key={status} value={status}>{status}</option>)}</select></label>
       <label>From <input type="date" value={state.from} onChange={event=>change({from:event.target.value})}/></label>
       <label>Through <input type="date" value={state.through} onChange={event=>change({through:event.target.value})}/></label>
-      <label>{bill?'Vendor':'Customer'} <select value={state.counterparty} onChange={event=>change({counterparty:event.target.value})}><option value="ALL">All retained {bill?'vendors':'customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
-      {bill&&(accountCodes.length>0?<label>Category (offset account) <select value={state.accountCode} onChange={event=>change({accountCode:event.target.value})}><option value="ALL">All retained offset accounts</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category unavailable — offset account is not returned by this API result.</span>)}
+      <label>{bill?'Vendor':'Customer'} <select value={state.counterparty} onChange={event=>change({counterparty:event.target.value})}><option value="ALL">{bill?'All vendors':'All retained customers'}</option>{counterparties.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+      {bill&&(accountCodes.length>0?<label>Category <select value={state.accountCode} onChange={event=>change({accountCode:event.target.value})}><option value="ALL">All categories</option>{accountCodes.map(code=><option key={code} value={code}>{code}</option>)}</select></label>:<span className="muted sm">Category unavailable for this result.</span>)}
       <button type="button" className="btn btn-sm btn-ghost" disabled={!state.query&&!appliedScope.length} onClick={()=>change({query:'',status:'ALL',transactionType:'ALL',from:'',through:'',counterparty:'ALL',accountCode:'ALL'})}>Reset filters</button>
       <span className="result-count" aria-live="polite">{visibleResultCount} {visibleResultCount===1?'result':'results'}</span>
     </div>

@@ -34,7 +34,10 @@ assert.match(workspaceMarkup,/aria-selected="true" class="tab tab-on">All transa
 const workspaceSource=fs.readFileSync(path.join(process.cwd(),'src','authoritative-workspace.jsx'),'utf8');
 assert.doesNotMatch(workspaceSource,/\{bill&&<label>Transaction type <select/,'Expenses tabs already select All transactions, Bills, or Vendor credits; the filter toolbar must not repeat the same control');
 assert.match(workspaceMarkup,/Vendor credits/);
-assert.match(workspaceMarkup,/Category \(offset account\)/);
+assert.match(workspaceMarkup,/Category <select/);
+assert.match(workspaceMarkup,/All vendors/);
+assert.match(workspaceMarkup,/All categories/);
+assert.doesNotMatch(workspaceMarkup,/Category \(offset account\)|All retained vendors|All retained offset accounts/,'Expenses filters should use concise accounting labels without exposing storage terminology');
 assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/EXPENSES \/ ACCOUNTS PAYABLE/);
 assert.match(workspaceMarkup,/Review bills, vendor credits, and AP aging\./);
@@ -59,7 +62,7 @@ assert.doesNotMatch(apArPresentationSource,/seed\.js|repo\.js|localStorage|legac
 assert.doesNotMatch(workspaceMarkup,/Document and adjustment evidence/,'the compact workspace must not repeat a long internal contract block');
 assert.match(workspaceMarkup,/Search <input/);
   assert.match(workspaceMarkup,/Vendor/);
-assert.match(workspaceMarkup,/Category \(offset account\)/);
+assert.match(workspaceMarkup,/Category: 610000/);
 assert.match(workspaceMarkup,/Reset filters/);
 assert.match(workspaceMarkup,/Status: PARTIALLY_PAID/);
 assert.match(workspaceMarkup,/2026-08-01/);
