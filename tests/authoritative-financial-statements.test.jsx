@@ -213,6 +213,10 @@ async function main(){
   assert.match(workspace,/const DIMENSION_TYPES=Object\.freeze\(\[\['PROPERTY','Property P&L'\][^\n]*\['LOT','Lot profitability'\]\]\);/,'the dimension selector must retain LOT as a declared API scope');
   assert.match(workspace,/\['PROPERTY','PROJECT','UNIT','LOT'\]\.includes\(context\?\.dimension\?\.type\)/,'Back must restore an exact LOT dimension scope instead of falling back to Property');
   assert.match(workspace,/authoritative-profitability-table/,'dimension rows must use a contained table region rather than scrolling the page');
+  assert.match(workspace,/authoritative-profitability-table[\s\S]*?<th>Details<\/th>[\s\S]*?>View details<\/button>/,
+    'dimension profitability rows must use the same concise detail action as core financial reports');
+  assert.doesNotMatch(workspace,/authoritative-profitability-table[\s\S]*?<th>Evidence<\/th>[\s\S]*?>Open evidence<\/button>/,
+    'dimension profitability must not expose a second action vocabulary for the same full-page drill');
   assert.match(workspace,/dimension:\{type:dimensionType,ref:dimensionRef\}/,'Back must retain the exact API dimension type and reference');
   assert.match(workspace,/authoritative-period-comparison-\$\{row\.statement_type\}/,'comparison rows must also open full-page evidence');
   assert.match(workspace,/reportsCatalog:normalizeAuthoritativeReportsCatalog/,'Back must restore the exact report category, finder query, and preview');
