@@ -64,10 +64,12 @@ assert.match(detail,/authoritative-evidence-page/,'journal detail must use the f
 assert.match(detail,/<details class="authoritative-return-context"><summary>List filters retained<\/summary>/,'Journal Back context must remain available without occupying the full Back row');
 assert.match(detail,/Back to Journal entries/); assert.match(detail,/Wan Pacific Real Estate Development LLC/); assert.match(detail,/2026-08/); assert.match(detail,/Scope identifiers/); assert.match(detail,/11111111-1111-4111-8111-111111111111/); assert.match(detail,/33333333-3333-4333-8333-333333333333/);assert.match(detail,/authoritative list revision 3/);
 assert.match(detail,/search JE-100/); assert.match(detail,/status POSTED/); assert.match(detail,/from Aug 1, 2026/); assert.match(detail,/through Aug 31, 2026/); assert.match(detail,/page 2/);
-assert.match(detail,/Journal entry JE-100/); assert.match(detail,/Journal evidence scope/); assert.match(detail,/No write or inferred drill authority/);
+assert.match(detail,/Journal entry JE-100/); assert.match(detail,/Journal evidence scope/); assert.match(detail,/authoritative-journal-readonly-note/);
 assert.match(detail,/Journal ID/); assert.match(detail,/22222222-2222-4222-8222-222222222222/);
 assert.match(detail,/JOURNAL ENTRY/);assert.match(detail,/Review journal lines and posting details\./);assert.match(detail,/JOURNAL LINES/);assert.match(detail,/Ordered debit and credit lines\. Ledger line IDs appear after posting\./);assert.match(detail,/2 lines/);assert.doesNotMatch(detail,/EXACT READ EVIDENCE|GET-only facts|EXACT API LINE FACTS|retained lines/);assert.match(detail,/Not posted/);assert.match(detail,/property/);
-assert.match(detail,/cannot create, edit, submit, review, approve, post, reverse/);
+assert.match(detail,/READ ONLY/);
+assert.match(detail,/No editing, workflow, posting, reversing, export, or inferred source links\./);
+assert.doesNotMatch(detail,/No write or inferred drill authority|state-block[^>]*tone="blocked"/,'a normal read-only Journal policy must not render as a blocked empty-state card');
 assert.doesNotMatch(detail,/<input|<select|>Submit<|>Approve<|>Post</i);
 
 const journalWithExactLines={...journal,status:'POSTED',posted_at:'2026-08-01T01:00:00.000Z',lines:[
